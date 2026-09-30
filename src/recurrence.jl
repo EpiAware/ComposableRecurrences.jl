@@ -130,7 +130,8 @@ operator's output, passed back as `state` to resume.
 After a call that ended at absolute time ``t_1`` it carries
 
 ```math
-\big(\, (y_{t_1 - L + 1}, \dots, y_{t_1}),\ \ (s^{(1)}_{t_1}, \dots, s^{(R)}_{t_1}),\ \ t_1 + 1 \,\big),
+\big(\, (y_{t_1 - L + 1}, \dots, y_{t_1}),\ \
+(s^{(1)}_{t_1}, \dots, s^{(R)}_{t_1}),\ \ t_1 + 1 \,\big),
 ```
 
 where ``y_t`` is the output at time ``t`` (one entry per stratum),
