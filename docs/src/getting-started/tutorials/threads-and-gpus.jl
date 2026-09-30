@@ -62,7 +62,7 @@ Threads.nthreads()
 # The benchmark run times the model above at `S` = 5, 50 and 500 strata over 1 to 8 threads.
 # The numbers are read from the published results, not timed while these docs were built.
 
-results_file = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "executor.csv")
+results_file = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "executors.csv")
 if isfile(results_file)
     speedup = @chain CSV.read(results_file, DataFrame) begin
         @rsubset :device == "CPU"
