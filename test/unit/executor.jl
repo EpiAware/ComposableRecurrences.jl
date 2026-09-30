@@ -94,3 +94,13 @@ end
         @test all(==(1), hits)
     end
 end
+
+@testitem "EXECUTOR: serial by default, set per block" begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    @test CR.EXECUTOR[] === CR.Serial()
+    ex = CR.Threaded(; min_work = 0)
+    @test with(() -> CR.EXECUTOR[], CR.EXECUTOR => ex) === ex
+    @test CR.EXECUTOR[] === CR.Serial()
+end

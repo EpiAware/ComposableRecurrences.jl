@@ -120,3 +120,23 @@ function _spawn_chunks(run::R, n, m) where {R}
     foreach(wait, tasks)
     return nothing
 end
+
+"""
+The executor that operator calls use for their parallel loops, [`Serial`](@ref)
+by default.
+
+Set it for a block of code with `with`; operator types do not change.
+Calls traced by an automatic differentiation backend, rather than
+differentiated through the package's own adjoints, always run serially.
+
+# Examples
+```@example
+using ComposableRecurrences
+using Base.ScopedValues: with
+const CR = ComposableRecurrences
+with(CR.EXECUTOR => CR.Threaded()) do
+    CR.EXECUTOR[]
+end
+```
+"""
+const EXECUTOR = ScopedValue{Executor}(Serial())

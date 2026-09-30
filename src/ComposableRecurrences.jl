@@ -55,6 +55,7 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
+using Base.ScopedValues: ScopedValue
 
 # Register the standard EpiAware docstring conventions before any
 # docstrings are defined (see src/docstrings.jl).
@@ -64,7 +65,8 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
 public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
     Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
-    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface
+    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface,
+    Executor, Serial, Threaded, EXECUTOR
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
