@@ -616,9 +616,10 @@ end
 _restructure(::Tuple, x) = x
 _restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
 
-function _seeds(xs::NTuple{N, T}) where {N, T}
-    return ntuple(Val(N)) do i
-        ForwardDiff.Dual{_TransformTag}(xs[i], ntuple(j -> T(i == j), Val(N)))
+function _seeds(xs::Tuple{T, Vararg{T, M}}) where {T, M}
+    N = Val(M + 1)
+    return ntuple(N) do i
+        ForwardDiff.Dual{_TransformTag}(xs[i], ntuple(j -> T(i == j), N))
     end
 end
 
