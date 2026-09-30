@@ -10,8 +10,10 @@ The state is copied into the operator's buffer eltype before the first step.
 
 # Arguments
 - `m`: the modifier.
-- `history`: the full history passed to the call (a vector, or strata × time),
-  not only the last `L` values.
+- `history`: the full history passed to a [`Recurrence`](@ref) call (a
+  vector, or strata × time), not only the last `L` values. On a
+  [`Convolution`](@ref) it is empty (length 0, or `S × 0`): its history
+  holds inputs, not outputs.
 
 # Examples
 ```@example

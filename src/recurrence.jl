@@ -41,7 +41,7 @@ The output is length `T` for a single series (vector history) or `S × T`.
 coupling from `start` on.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
-ForwardDiff Duals pass through any slot.
+dual numbers pass through any slot.
 
 # Arguments
 - `kernel`: the kernel, or `nothing` with a [`Pairwise`](@ref) coupling.

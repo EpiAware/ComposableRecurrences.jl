@@ -80,7 +80,8 @@ Test objects are `Arguments(; coupling, p, window, t)`."
             return ispointwise(m) && v ≈ first.(pairs) && s ≈ last.(pairs)
         end,
     ),
-) "A modifier of a `Recurrence` step, applied by `apply!` in tuple order.
+) "A modifier of a `Recurrence` or `Convolution` step, applied by `apply!` in
+tuple order.
 
 Test objects are `Arguments(; modifier, history, v, t)`."
 
