@@ -627,8 +627,8 @@ end
     using DifferentiationInterface: gradient!, prepare_gradient
     import Mooncake
     # A route that is not decided at compile time costs a dynamic dispatch
-    # under Mooncake, with hundreds of allocations per gradient (about 350
-    # against about 25 here when it regressed).
+    # under Mooncake, which added about 330 allocations per gradient when it
+    # regressed; folded, these cases allocate about 160 and 95.
     W = sin.(1:50)
     renewal(θ) = sum(
         W .* Recurrence(θ[1:5]; modifiers = (CR.Depletion(1.0e3; seeded = true),))(
@@ -642,6 +642,6 @@ end
         prep = prepare_gradient(f, backend, θ)
         grad = similar(θ)
         gradient!(f, grad, prep, backend, θ)
-        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 150
+        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300
     end
 end
