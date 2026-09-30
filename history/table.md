@@ -1,76 +1,76 @@
-|                                                                                      | 45399acb831aa6...   |
-|:-------------------------------------------------------------------------------------|:-------------------:|
-| AD gradients/Convolution delay with history/Enzyme forward                           | 0.0636 ± 0.0071 ms  |
-| AD gradients/Convolution delay with history/Enzyme reverse                           | 30.1 ± 0.69 μs      |
-| AD gradients/Convolution delay with history/ForwardDiff                              | 10.2 ± 0.79 μs      |
-| AD gradients/Convolution delay with history/Mooncake forward                         | 0.209 ± 0.018 ms    |
-| AD gradients/Convolution delay with history/Mooncake reverse                         | 0.0392 ± 0.0012 ms  |
-| AD gradients/Convolution delay with history/ReverseDiff (compiled)                   | 6.1 ± 0.06 μs       |
-| AD gradients/Convolution delay with history/ReverseDiff (tape)                       | 0.0486 ± 0.0013 ms  |
-| AD gradients/Convolution time-varying kernel/Enzyme forward                          | 0.681 ± 0.035 ms    |
-| AD gradients/Convolution time-varying kernel/Enzyme reverse                          | 28 ± 3.6 μs         |
-| AD gradients/Convolution time-varying kernel/ForwardDiff                             | 0.0691 ± 0.0031 ms  |
-| AD gradients/Convolution time-varying kernel/Mooncake forward                        | 1.72 ± 0.12 ms      |
-| AD gradients/Convolution time-varying kernel/Mooncake reverse                        | 0.0378 ± 0.0013 ms  |
-| AD gradients/Convolution time-varying kernel/ReverseDiff (compiled)                  | 13.7 ± 0.24 μs      |
-| AD gradients/Convolution time-varying kernel/ReverseDiff (tape)                      | 0.112 ± 0.023 ms    |
-| AD gradients/NoAdjoint Recurrence renewal/Enzyme forward                             | 0.0755 ± 0.0079 ms  |
-| AD gradients/NoAdjoint Recurrence renewal/Enzyme reverse                             | 0.0355 ± 0.00066 ms |
-| AD gradients/NoAdjoint Recurrence renewal/ForwardDiff                                | 14.3 ± 1.4 μs       |
-| AD gradients/NoAdjoint Recurrence renewal/Mooncake forward                           | 0.232 ± 0.051 ms    |
-| AD gradients/NoAdjoint Recurrence renewal/Mooncake reverse                           | 0.0478 ± 0.0024 ms  |
-| AD gradients/NoAdjoint Recurrence renewal/ReverseDiff (compiled)                     | 7.62 ± 0.09 μs      |
-| AD gradients/NoAdjoint Recurrence renewal/ReverseDiff (tape)                         | 0.0614 ± 0.0015 ms  |
-| AD gradients/Recurrence pairwise kernel/Enzyme forward                               | 0.464 ± 0.046 ms    |
-| AD gradients/Recurrence pairwise kernel/Enzyme reverse                               | 0.0557 ± 0.0027 ms  |
-| AD gradients/Recurrence pairwise kernel/ForwardDiff                                  | 0.0499 ± 0.0093 ms  |
-| AD gradients/Recurrence pairwise kernel/Mooncake forward                             | 1.28 ± 0.13 ms      |
-| AD gradients/Recurrence pairwise kernel/Mooncake reverse                             | 0.0644 ± 0.0018 ms  |
-| AD gradients/Recurrence pairwise kernel/ReverseDiff (compiled)                       | 0.033 ± 0.00031 ms  |
-| AD gradients/Recurrence pairwise kernel/ReverseDiff (tape)                           | 0.37 ± 0.069 ms     |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme forward         | 0.373 ± 0.041 ms    |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme reverse         | 0.0488 ± 0.0019 ms  |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ForwardDiff            | 0.0668 ± 0.012 ms   |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake forward       | 1.18 ± 0.19 ms      |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake reverse       | 0.0709 ± 0.0046 ms  |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ReverseDiff (compiled) | 21.6 ± 0.95 μs      |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ReverseDiff (tape)     | 0.207 ± 0.04 ms     |
-| AD gradients/Recurrence renewal/Enzyme forward                                       | 0.0706 ± 0.0078 ms  |
-| AD gradients/Recurrence renewal/Enzyme reverse                                       | 0.0343 ± 0.00065 ms |
-| AD gradients/Recurrence renewal/ForwardDiff                                          | 14 ± 1.4 μs         |
-| AD gradients/Recurrence renewal/Mooncake forward                                     | 0.229 ± 0.039 ms    |
-| AD gradients/Recurrence renewal/Mooncake reverse                                     | 0.0469 ± 0.0025 ms  |
-| AD gradients/Recurrence renewal/ReverseDiff (compiled)                               | 7.84 ± 0.092 μs     |
-| AD gradients/Recurrence renewal/ReverseDiff (tape)                                   | 0.0614 ± 0.002 ms   |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme forward          | 0.139 ± 0.012 ms    |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme reverse          | 25.7 ± 1.2 μs       |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/ForwardDiff             | 0.0586 ± 0.0045 ms  |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake forward        | 0.403 ± 0.03 ms     |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake reverse        | 0.0377 ± 0.00093 ms |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/ReverseDiff (compiled)  | 29.1 ± 0.48 μs      |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/ReverseDiff (tape)      | 0.303 ± 0.071 ms    |
-| AD gradients/Recurrence sparse coupling/Enzyme forward                               | 0.299 ± 0.027 ms    |
-| AD gradients/Recurrence sparse coupling/ForwardDiff                                  | 30.3 ± 7.9 μs       |
-| AD gradients/Recurrence sparse coupling/Mooncake forward                             | 0.898 ± 0.083 ms    |
-| AD gradients/Recurrence sparse coupling/Mooncake reverse                             | 0.0656 ± 0.003 ms   |
-| AD gradients/Recurrence sparse coupling/ReverseDiff (compiled)                       | 23.6 ± 0.18 μs      |
-| AD gradients/Recurrence sparse coupling/ReverseDiff (tape)                           | 0.247 ± 0.054 ms    |
-| AD gradients/Recurrence strata, coupling and depletion/Enzyme reverse                | 0.0695 ± 0.0022 ms  |
-| AD gradients/Recurrence strata, coupling and depletion/ForwardDiff                   | 0.117 ± 0.05 ms     |
-| AD gradients/Recurrence strata, coupling and depletion/Mooncake forward              | 1.22 ± 0.097 ms     |
-| AD gradients/Recurrence strata, coupling and depletion/Mooncake reverse              | 0.0792 ± 0.0044 ms  |
-| AD gradients/Recurrence strata, coupling and depletion/ReverseDiff (compiled)        | 0.0375 ± 0.0032 ms  |
-| AD gradients/Recurrence strata, coupling and depletion/ReverseDiff (tape)            | 0.335 ± 0.074 ms    |
-| AD gradients/Recurrence time-varying kernel and coupling/Enzyme forward              | 1.31 ± 0.15 ms      |
-| AD gradients/Recurrence time-varying kernel and coupling/Enzyme reverse              | 0.0559 ± 0.0039 ms  |
-| AD gradients/Recurrence time-varying kernel and coupling/ForwardDiff                 | 0.128 ± 0.015 ms    |
-| AD gradients/Recurrence time-varying kernel and coupling/Mooncake forward            | 3.92 ± 0.36 ms      |
-| AD gradients/Recurrence time-varying kernel and coupling/Mooncake reverse            | 0.0727 ± 0.0034 ms  |
-| AD gradients/Recurrence time-varying kernel and coupling/ReverseDiff (compiled)      | 22.1 ± 0.36 μs      |
-| AD gradients/Recurrence time-varying kernel and coupling/ReverseDiff (tape)          | 0.251 ± 0.046 ms    |
-| time_to_load                                                                         | 0.238 ± 0.0035 s    |
+|                                                                                      | d305c78b9523d4...  |
+|:-------------------------------------------------------------------------------------|:------------------:|
+| AD gradients/Convolution delay with history/Enzyme forward                           | 0.0404 ± 0.0042 ms |
+| AD gradients/Convolution delay with history/Enzyme reverse                           | 18.7 ± 0.6 μs      |
+| AD gradients/Convolution delay with history/ForwardDiff                              | 6.45 ± 0.49 μs     |
+| AD gradients/Convolution delay with history/Mooncake forward                         | 0.12 ± 0.018 ms    |
+| AD gradients/Convolution delay with history/Mooncake reverse                         | 23.6 ± 2.2 μs      |
+| AD gradients/Convolution delay with history/ReverseDiff (compiled)                   | 3.21 ± 0.072 μs    |
+| AD gradients/Convolution delay with history/ReverseDiff (tape)                       | 25.5 ± 1.3 μs      |
+| AD gradients/Convolution time-varying kernel/Enzyme forward                          | 0.441 ± 0.033 ms   |
+| AD gradients/Convolution time-varying kernel/Enzyme reverse                          | 17.9 ± 2 μs        |
+| AD gradients/Convolution time-varying kernel/ForwardDiff                             | 0.0525 ± 0.0035 ms |
+| AD gradients/Convolution time-varying kernel/Mooncake forward                        | 0.976 ± 0.28 ms    |
+| AD gradients/Convolution time-varying kernel/Mooncake reverse                        | 21.9 ± 1.3 μs      |
+| AD gradients/Convolution time-varying kernel/ReverseDiff (compiled)                  | 6.06 ± 0.39 μs     |
+| AD gradients/Convolution time-varying kernel/ReverseDiff (tape)                      | 0.0701 ± 0.015 ms  |
+| AD gradients/NoAdjoint Recurrence renewal/Enzyme forward                             | 0.0497 ± 0.0058 ms |
+| AD gradients/NoAdjoint Recurrence renewal/Enzyme reverse                             | 22.5 ± 0.65 μs     |
+| AD gradients/NoAdjoint Recurrence renewal/ForwardDiff                                | 8.23 ± 0.57 μs     |
+| AD gradients/NoAdjoint Recurrence renewal/Mooncake forward                           | 0.129 ± 0.032 ms   |
+| AD gradients/NoAdjoint Recurrence renewal/Mooncake reverse                           | 28.5 ± 2.7 μs      |
+| AD gradients/NoAdjoint Recurrence renewal/ReverseDiff (compiled)                     | 4.24 ± 0.13 μs     |
+| AD gradients/NoAdjoint Recurrence renewal/ReverseDiff (tape)                         | 0.0351 ± 0.0028 ms |
+| AD gradients/Recurrence pairwise kernel/Enzyme forward                               | 0.306 ± 0.019 ms   |
+| AD gradients/Recurrence pairwise kernel/Enzyme reverse                               | 0.0352 ± 0.0015 ms |
+| AD gradients/Recurrence pairwise kernel/ForwardDiff                                  | 0.0352 ± 0.0047 ms |
+| AD gradients/Recurrence pairwise kernel/Mooncake forward                             | 0.716 ± 0.11 ms    |
+| AD gradients/Recurrence pairwise kernel/Mooncake reverse                             | 0.0372 ± 0.0028 ms |
+| AD gradients/Recurrence pairwise kernel/ReverseDiff (compiled)                       | 16.9 ± 0.11 μs     |
+| AD gradients/Recurrence pairwise kernel/ReverseDiff (tape)                           | 0.221 ± 0.052 ms   |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme forward         | 0.244 ± 0.023 ms   |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme reverse         | 30.8 ± 1.5 μs      |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ForwardDiff            | 0.035 ± 0.0046 ms  |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake forward       | 0.675 ± 0.072 ms   |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake reverse       | 0.0402 ± 0.0025 ms |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ReverseDiff (compiled) | 11.7 ± 0.3 μs      |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ReverseDiff (tape)     | 0.122 ± 0.028 ms   |
+| AD gradients/Recurrence renewal/Enzyme forward                                       | 0.0483 ± 0.005 ms  |
+| AD gradients/Recurrence renewal/Enzyme reverse                                       | 21.4 ± 0.7 μs      |
+| AD gradients/Recurrence renewal/ForwardDiff                                          | 7.84 ± 0.57 μs     |
+| AD gradients/Recurrence renewal/Mooncake forward                                     | 0.127 ± 0.025 ms   |
+| AD gradients/Recurrence renewal/Mooncake reverse                                     | 27.7 ± 2.3 μs      |
+| AD gradients/Recurrence renewal/ReverseDiff (compiled)                               | 4.33 ± 0.12 μs     |
+| AD gradients/Recurrence renewal/ReverseDiff (tape)                                   | 0.0335 ± 0.0019 ms |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme forward          | 0.0883 ± 0.0085 ms |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme reverse          | 16 ± 0.99 μs       |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/ForwardDiff             | 0.0352 ± 0.0033 ms |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake forward        | 0.236 ± 0.024 ms   |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake reverse        | 21 ± 1.1 μs        |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/ReverseDiff (compiled)  | 15.6 ± 0.13 μs     |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/ReverseDiff (tape)      | 0.179 ± 0.045 ms   |
+| AD gradients/Recurrence sparse coupling/Enzyme forward                               | 0.192 ± 0.018 ms   |
+| AD gradients/Recurrence sparse coupling/ForwardDiff                                  | 18.7 ± 5.3 μs      |
+| AD gradients/Recurrence sparse coupling/Mooncake forward                             | 0.513 ± 0.069 ms   |
+| AD gradients/Recurrence sparse coupling/Mooncake reverse                             | 0.0394 ± 0.0038 ms |
+| AD gradients/Recurrence sparse coupling/ReverseDiff (compiled)                       | 13.2 ± 0.11 μs     |
+| AD gradients/Recurrence sparse coupling/ReverseDiff (tape)                           | 0.143 ± 0.035 ms   |
+| AD gradients/Recurrence strata, coupling and depletion/Enzyme reverse                | 0.0432 ± 0.0019 ms |
+| AD gradients/Recurrence strata, coupling and depletion/ForwardDiff                   | 0.0659 ± 0.0028 ms |
+| AD gradients/Recurrence strata, coupling and depletion/Mooncake forward              | 0.683 ± 0.085 ms   |
+| AD gradients/Recurrence strata, coupling and depletion/Mooncake reverse              | 0.0471 ± 0.0044 ms |
+| AD gradients/Recurrence strata, coupling and depletion/ReverseDiff (compiled)        | 18.4 ± 0.14 μs     |
+| AD gradients/Recurrence strata, coupling and depletion/ReverseDiff (tape)            | 0.189 ± 0.044 ms   |
+| AD gradients/Recurrence time-varying kernel and coupling/Enzyme forward              | 0.839 ± 0.053 ms   |
+| AD gradients/Recurrence time-varying kernel and coupling/Enzyme reverse              | 0.0358 ± 0.0025 ms |
+| AD gradients/Recurrence time-varying kernel and coupling/ForwardDiff                 | 0.0885 ± 0.01 ms   |
+| AD gradients/Recurrence time-varying kernel and coupling/Mooncake forward            | 2.28 ± 0.35 ms     |
+| AD gradients/Recurrence time-varying kernel and coupling/Mooncake reverse            | 0.0409 ± 0.003 ms  |
+| AD gradients/Recurrence time-varying kernel and coupling/ReverseDiff (compiled)      | 11.4 ± 0.15 μs     |
+| AD gradients/Recurrence time-varying kernel and coupling/ReverseDiff (tape)          | 0.15 ± 0.031 ms    |
+| time_to_load                                                                         | 0.14 ± 0.0014 s    |
 
-|                                                                                      | 45399acb831aa6...         |
+|                                                                                      | d305c78b9523d4...         |
 |:-------------------------------------------------------------------------------------|:-------------------------:|
 | AD gradients/Convolution delay with history/Enzyme forward                           | 0.628 k allocs: 0.0349 MB |
 | AD gradients/Convolution delay with history/Enzyme reverse                           | 0.149 k allocs: 8 kB      |
