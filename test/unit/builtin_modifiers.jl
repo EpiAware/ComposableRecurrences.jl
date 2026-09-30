@@ -458,9 +458,10 @@ end
         @test (@inferred CR.apply(m, 2.0, 80.0, 1, 1)) isa Tuple{Float64, Float64}
         JET.@test_opt CR.apply(m, 2.0, 80.0, 1, 1)
     end
-    floor_depletion() = CR.Depletion(1.0; form = :floor)
+    # A literal form infers through the keyword constructor.
+    floor_depletion() = ComposableRecurrences.Depletion(1.0; form = :floor)
     @test (@inferred floor_depletion()) isa CR.Depletion
-    default_depletion() = CR.Depletion(1.0)
+    default_depletion() = ComposableRecurrences.Depletion(1.0)
     @test (@inferred default_depletion()) isa CR.Depletion
 end
 
@@ -480,7 +481,7 @@ end
     end
     h = [1.0, 2.0]
     function naive(R, N)
-        y, pool = copy(h), N
+        y, pool = promote_type(eltype(R), typeof(N)).(h), N
         for t in eachindex(R)
             v = R[t] * (0.5 * y[end] + 0.5 * y[end - 1])
             push!(y, min(v, pool))

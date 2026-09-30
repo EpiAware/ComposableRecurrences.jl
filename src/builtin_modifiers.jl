@@ -153,15 +153,17 @@ end
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `N` and shrinks by what is drawn.
 
-With pool `P`, value `v` and heterogeneity exponent `α`:
+`form` names how a value `v` is drawn from pool `P` with heterogeneity
+exponent `α`, through [`ComposableRecurrences.deplete`](@ref):
 
-  - `form = :hazard`: `x = v / N ⋅ (P / N)^(α − 1)`, the step's output is
+  - `:hazard`: `x = v / N ⋅ (P / N)^(α − 1)`, the step's output is
     `P (1 − exp(−x))` and the pool becomes `P exp(−x)`, so the pool never
     goes negative.
-  - `form = :floor`: the output is `max(max(P / N, 0)^α, 1e-6) v` and the
-    pool becomes `P` less the output. The pool can go negative, and then the
+  - `:floor`: the output is `max(max(P / N, 0)^α, 1e-6) v` and the pool
+    becomes `P` less the output. The pool can go negative, and then the
     floor applies.
 
+Add a form with [`ComposableRecurrences.option`](@ref).
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 With `seeded = true` the pool starts at `max(N − Σ history, 0)`, the whole
 history (not only the last `L` values) drawn from it.
@@ -172,7 +174,7 @@ The state is the pool.
   starting pool, so it does not vary over time.
 
 # Keyword Arguments
-- `form`: `:hazard` (default) or `:floor`.
+- `form`: `:hazard` (default), `:floor` or a user form.
 - `seeded`: whether the history is drawn from the pool; `false` by default.
 - `heterogeneity`: the exponent `α`; `1` by default.
 
@@ -184,26 +186,24 @@ depletion = CR.Depletion(100.0; seeded = true)
 Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = [1.0, 2.0])
 ```
 "
-struct Depletion{F, P, A} # F: the form, :hazard or :floor
+struct Depletion{F, P, A}
     "The population, one value or `PerStratum`."
     N::P
     "The heterogeneity exponent α."
     heterogeneity::A
     "Whether the history is drawn from the pool."
     seeded::Bool
-    function Depletion{F}(N::P, heterogeneity::A, seeded::Bool) where {F, P, A}
-        F in (:hazard, :floor) || throw(
-            ArgumentError("form must be :hazard or :floor, not :$F")
-        )
-        return new{F, P, A}(N, heterogeneity, seeded)
-    end
+    "The form, resolved from its Symbol by `option`."
+    form::F
 end
 
 Base.@constprop :aggressive function Depletion(
-        N; form = :hazard, seeded = false, heterogeneity = 1
+        N; form::Symbol = :hazard, seeded = false, heterogeneity = 1
     )
     N = _float_param(_check_population(N))
-    return Depletion{form}(N, _exponent(heterogeneity, N), seeded)
+    return Depletion(
+        N, _exponent(heterogeneity, N), seeded, option(Val(:form), Val(form))
+    )
 end
 
 _check_population(N) = _check_param(:N, N)
@@ -224,7 +224,92 @@ _float_param(x::PerStratum) = PerStratum(float(x.x))
 _exponent(α::Integer, N) = convert(float(param_eltype(N)), α)
 _exponent(α, N) = α
 
+@doc "
+Draw value `v` from pool `s` of population `N` with heterogeneity exponent
+`α`, for a [`Depletion`](@ref) `form`, returning the drawn value and the
+new pool.
+
+Implement it for a form added with
+[`ComposableRecurrences.option`](@ref).
+
+# Arguments
+- `form`: the form, as `option` returns it.
+- `v`: the value asked for.
+- `s`: the pool before the draw.
+- `N`: the population.
+- `α`: the heterogeneity exponent.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.deplete(CR.option(Val(:form), Val(:hazard)), 2.0, 80.0, 100.0, 1.0)
+```
+"
+function deplete end
+
+@doc "
+The pullback of [`ComposableRecurrences.deplete`](@ref) for `form`.
+
+Given the inputs and the cotangents `ȳ`, `s̄′` of the drawn value and the
+new pool, return the cotangents `(v̄, s̄, N̄, ᾱ)` of `v`, `s`, `N` and `α`.
+A form without it is differentiated by the AD backend.
+
+# Arguments
+- `form`: the form.
+- `v`, `s`, `N`, `α`: the inputs of `deplete`.
+- `ȳ`: the cotangent of the drawn value.
+- `s̄′`: the cotangent of the new pool.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.deplete_pullback(CR.option(Val(:form), Val(:floor)), 2.0, 80.0, 100.0, 1.0, 1.0, 0.0)
+```
+"
+function deplete_pullback end
+
+struct _Hazard end
+struct _Floor end
+option(::Val{:form}, ::Val{:hazard}) = _Hazard()
+option(::Val{:form}, ::Val{:floor}) = _Floor()
+
+function deplete(::_Hazard, v, s, N, α)
+    x = v / N * (s / N)^(α - 1)
+    return -s * expm1(-x), s * exp(-x)
+end
+
+function deplete_pullback(::_Hazard, v, s, N, α, ȳ, s̄′)
+    r = s / N
+    h = r^(α - 1)
+    x = v / N * h
+    e = exp(-x)
+    x̄ = s * e * (ȳ - s̄′)
+    s̄ = -ȳ * expm1(-x) + s̄′ * e
+    α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
+    ᾱ = r > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
+end
+
 const _DEPLETION_FLOOR = 1.0e-6
+
+function deplete(::_Floor, v, s, N, α)
+    r = s / N
+    f = max(max(r, zero(r))^α, oftype(r, _DEPLETION_FLOOR))
+    y = f * v
+    return y, s - y
+end
+
+function deplete_pullback(::_Floor, v, s, N, α, ȳ, s̄′)
+    r = s / N
+    p = max(r, zero(r))^α
+    fl = oftype(p, _DEPLETION_FLOOR)
+    ḡ = ȳ - s̄′
+    p > fl || return ḡ * fl, s̄′, zero(ḡ), zero(ḡ)
+    f̄ = ḡ * v
+    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N, -f̄ * α * p / N, f̄ * p * log(r)
+end
 
 ispointwise(::Depletion) = true
 
@@ -260,46 +345,17 @@ function init_state_pullback!(m̄, h̄, m::Depletion, history, s̄)
     return nothing
 end
 
-function apply(m::Depletion{:hazard}, v, s, t, k)
-    N = _param(m.N, k, t)
-    x = v / N * (s / N)^(m.heterogeneity - 1)
-    return -s * expm1(-x), s * exp(-x)
+function apply(m::Depletion, v, s, t, k)
+    return deplete(m.form, v, s, _param(m.N, k, t), m.heterogeneity)
 end
 
-function apply_pullback(m̄, m::Depletion{:hazard}, v, s, t, k, v̄′, s̄′)
-    N = _param(m.N, k, t)
-    α = m.heterogeneity
-    r = s / N
-    h = r^(α - 1)
-    x = v / N * h
-    e = exp(-x)
-    x̄ = s * e * (v̄′ - s̄′)
-    s̄ = -v̄′ * expm1(-x) + s̄′ * e
-    α == 1 || (s̄ += e * (v̄′ - s̄′) * (α - 1) * x)
-    _add_param!(_cotangent(m̄, :N), m.N, -x̄ * α * x / N, k, t)
-    r > 0 && _add_cotangent!(_cotangent(m̄, :heterogeneity), x̄ * x * log(r))
-    return x̄ * h / N, s̄
-end
-
-function apply(m::Depletion{:floor}, v, s, t, k)
-    r = s / _param(m.N, k, t)
-    f = max(max(r, zero(r))^m.heterogeneity, oftype(r, _DEPLETION_FLOOR))
-    v′ = f * v
-    return v′, s - v′
-end
-
-function apply_pullback(m̄, m::Depletion{:floor}, v, s, t, k, v̄′, s̄′)
-    N = _param(m.N, k, t)
-    α = m.heterogeneity
-    r = s / N
-    p = max(r, zero(r))^α
-    fl = oftype(p, _DEPLETION_FLOOR)
-    ḡ = v̄′ - s̄′
-    p > fl || return ḡ * fl, s̄′
-    f̄ = ḡ * v
-    _add_param!(_cotangent(m̄, :N), m.N, -f̄ * α * p / N, k, t)
-    _add_cotangent!(_cotangent(m̄, :heterogeneity), f̄ * p * log(r))
-    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N
+function apply_pullback(m̄, m::Depletion, v, s, t, k, v̄′, s̄′)
+    v̄, s̄, N̄, ᾱ = deplete_pullback(
+        m.form, v, s, _param(m.N, k, t), m.heterogeneity, v̄′, s̄′
+    )
+    _add_param!(_cotangent(m̄, :N), m.N, N̄, k, t)
+    _add_cotangent!(_cotangent(m̄, :heterogeneity), ᾱ)
+    return v̄, s̄
 end
 
 function apply_pullback!(m̄, m::Depletion, v, s, t, v̄, s̄)
