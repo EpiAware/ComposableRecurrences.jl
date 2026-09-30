@@ -4,7 +4,8 @@ of its own past values.
 
 At absolute time ``t``, each stratum's kernel convolution of its last ``L``
 values is mixed by the coupling, scaled by the gain (a multiplier on each
-step's value, such as a reproduction number) and shifted by the add input, then passed through the modifiers ``M_1, \dots, M_R`` in tuple order:
+step's value, such as a reproduction number) and shifted by the add input,
+then passed through the modifiers ``M_1, \dots, M_R`` in tuple order:
 
 ```math
 \begin{aligned}

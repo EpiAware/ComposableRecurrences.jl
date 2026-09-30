@@ -393,8 +393,9 @@ The intensity `ε` belongs to the origin and is a parameter: one value,
 [`PerStratum`](@ref), [`TimeVarying`](@ref) or `TimeVarying(PerStratum(ε))`
 with `ε` strata × time, read at the absolute time.
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
-stratum's pool by what it realises; a modifier sees `gain ⊙ x + add`, so the
-`add` values move too.
+stratum's pool by what it realises; a modifier sees
+``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
+input, so the `add` values move too.
 
 # Arguments
 - `K`: the `S × S` kernel, `K[p, q]` from origin `q` to destination `p`.
