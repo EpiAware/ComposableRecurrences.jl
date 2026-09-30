@@ -392,3 +392,30 @@ end
     )[1]
     @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
 end
+
+@testitem "Every AD scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ADFixtures
+    using ADTypes: AutoMooncake, AutoEnzyme
+    using DifferentiationInterface: gradient
+    import Enzyme, Mooncake
+    using ComposableRecurrences: ComposableRecurrences as CR
+    skip = ADFixtures.backend_skip_scenarios()
+    backends = (
+        ("Mooncake reverse", AutoMooncake(; config = nothing)),
+        (
+            "Enzyme reverse",
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        ),
+    )
+    for (name, backend) in backends, scen in ADFixtures.scenarios()
+        scen.name in get(skip, name, Set{String}()) && continue
+        @testset "$(scen.name) $name" begin
+            n0 = CR._PULLBACK_CALLS[]
+            gradient(scen.f, backend, scen.x)
+            @test (CR._PULLBACK_CALLS[] > n0) == !startswith(scen.name, "NoAdjoint")
+        end
+    end
+end

@@ -110,8 +110,11 @@ Given the step's inputs `v`, `s` and the cotangents of its outputs in `v̄`,
 `s̄`, overwrite `v̄`, `s̄` with the cotangents of the inputs and add parameter
 cotangents into the mirror `m̄` (see [`ComposableRecurrences.pullback!`](@ref)
 for mirrors), at time `t` for time-varying parameters.
-The default loops the scalar [`ComposableRecurrences.apply_pullback`](@ref)
-over strata for a pointwise modifier, and otherwise takes the local
+A pointwise modifier implements the scalar
+[`ComposableRecurrences.apply_pullback`](@ref) instead: when every modifier
+of a recurrence is pointwise the reverse pass calls that per stratum.
+The default loops the scalar form over strata for a pointwise modifier, and
+otherwise takes the local
 ForwardDiff Jacobian of `apply!` in the values, the state and the modifier's
 parameters.
 
