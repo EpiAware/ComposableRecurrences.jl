@@ -30,6 +30,7 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "Concepts" => "getting-started/concepts.md",
+        "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
