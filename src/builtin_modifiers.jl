@@ -105,12 +105,11 @@ that starts at `N` and shrinks by what is drawn.
 With pool `S`, value `v` and heterogeneity exponent `α`:
 
   - `form = :hazard`: `x = v / N ⋅ (S / N)^(α − 1)`, the step's output is
-    `S (1 − exp(−x))` and the pool becomes `S exp(−x)`. With `α = 1` this is
-    BVDOutbreakSize's `renewal_infections`.
+    `S (1 − exp(−x))` and the pool becomes `S exp(−x)`, so the pool never
+    goes negative.
   - `form = :floor`: the output is `max((S / N)^α, 1e-6) v` and the pool
-    becomes `S` less the output. With `α = 1` this is
-    ComposableTuringIDModels' `SusceptibleDepletion`; a negative pool gives
-    the floor.
+    becomes `S` less the output. The pool can go negative, and then the
+    floor applies.
 
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 With `seeded = true` the pool starts at `max(N − Σ history, 0)`, the whole
@@ -248,14 +247,18 @@ tuple: after a [`Depletion`](@ref), imports are neither scaled by nor drawn
 from the pool.
 
 `b` is one value, a length-`T` vector over time shared by every stratum,
-or `S × T`.
+or `S × T`, each optionally wrapped in [`TimeVarying`](@ref).
+A vector is indexed by time because imports vary over time and a single
+series has no strata axis; [`Redistribute`](@ref) acts between strata, so
+its vector is indexed by stratum instead.
 Time is the absolute index, so with `start` the first step reads `b` at
 `start`.
 Alone, `Imports(b)` gives the same values as passing `b` as `add`.
 The state is unused.
 
 # Arguments
-- `b`: the imports: a scalar, length `T` or `S × T`.
+- `b`: the imports: a scalar, length `T` or `S × T`, or a `TimeVarying`
+  of either array.
 
 # Examples
 ```@example
@@ -266,7 +269,7 @@ Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], add = zeros(3))
 ```
 "
 struct Imports{B}
-    "The imports: a scalar, length `T` or `S × T`."
+    "The imports: a scalar, length `T`, `S × T` or `TimeVarying`."
     b::B
 end
 
@@ -276,9 +279,11 @@ init_state_pullback!(m̄, h̄, ::Imports, history, s̄) = nothing
 _import_at(b::Real, k, t) = b
 _import_at(b::AbstractVector, k, t) = b[t]
 _import_at(b::AbstractMatrix, k, t) = b[k, t]
+_import_at(b::TimeVarying, k, t) = _import_at(b.x, k, t)
 _add_import!(b̄, ::Real, x, k, t) = _add_cotangent!(b̄, x)
 _add_import!(b̄, ::AbstractVector, x, k, t) = _add_cotangent!(b̄, x, t)
 _add_import!(b̄, ::AbstractMatrix, x, k, t) = _add_cotangent!(b̄, x, k, t)
+_add_import!(b̄, b::TimeVarying, x, k, t) = _add_import!(b̄, b.x, x, k, t)
 
 apply(m::Imports, v, s, t, k) = (v + _import_at(m.b, k, t), s)
 
@@ -299,11 +304,12 @@ share `ε_q K[p, q]` of origin `q`'s value is realised in `p` instead.
 
     v′_p = (1 − ε_p Σ_{r ≠ p} K[r, p]) v_p + Σ_{q ≠ p} ε_q K[p, q] v_q
 
-This is BVDOutbreakSize's patch importation.
 The diagonal of `K` is not read: a stratum does not import from itself.
 The intensity `ε` belongs to the origin: one value, one per stratum (a
-length-`S` vector, not indexed by time), or a [`TimeVarying`](@ref) `S × T`
-array read at the absolute time.
+length-`S` vector), or a [`TimeVarying`](@ref) `S × T` array read at the
+absolute time.
+The modifier only acts between strata, so a plain vector is indexed by
+stratum, unlike [`Imports`](@ref), whose vector is indexed by time.
 The state is the step's arrivals in each stratum, `Σ_{q ≠ p} ε_q K[p, q] v_q`.
 Place it before a [`Depletion`](@ref) to deplete each stratum's pool by what
 it realises; a modifier sees `gain ⊙ x + add`, so the `add` values move too.
