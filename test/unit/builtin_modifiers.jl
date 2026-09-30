@@ -424,6 +424,9 @@ end
     # A strata × time parameter must be wrapped.
     @test_throws ArgumentError CR.Transform(*, ones(2, 3))
     @test_throws ArgumentError CR.Transform(*, (; a = ones(2, 3)))
+    # Tuple entries are scalars, per stratum or time-varying, not nested.
+    @test_throws ArgumentError CR.Transform(*, (; a = (1.0, 2.0)))
+    @test_throws ArgumentError CR.Transform(*, (1.0, nothing))
     # A per-stratum parameter must match the strata.
     r = Recurrence([0.5]; modifiers = (CR.Transform(*, [1.0, 2.0]),))
     @test_throws DimensionMismatch r(ones(3, 4); history = ones(3, 1))
@@ -506,6 +509,10 @@ end
         pb(m̄, m)
         return @allocated pb(m̄, m)
     end
+    @test alloc(m̄, m) == 0
+    # Mixed shared and per-stratum entries.
+    m = CR.Transform(nb, (; r = [0.5f0, 0.7f0], p = 0.4f0))
+    m̄ = (; f = (;), θ = (; r = zeros(Float32, 2), p = Ref(0.0f0)), derivative = nothing)
     @test alloc(m̄, m) == 0
 end
 
