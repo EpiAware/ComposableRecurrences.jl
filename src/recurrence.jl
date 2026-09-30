@@ -164,7 +164,6 @@ end
 
 # The kernel shapes: a bare array is lags only, strata and time are added
 # by wrappers.
-_check_kernel_shape(k) = nothing
 _check_kernel_shape(k::AbstractVector) = nothing
 _check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
 _check_kernel_shape(k::Pairwise{<:AbstractArray{<:Any, 3}}) = nothing
@@ -179,11 +178,11 @@ function _check_kernel_shape(
     )
     return nothing
 end
-function _check_kernel_shape(::Nothing)
+function _check_kernel_shape(k)
     throw(
         ArgumentError(
-            "there is no nothing kernel: a strata × strata × lags kernel is " *
-                "Pairwise(A)"
+            "a kernel is a vector of lag weights, PerStratum, Pairwise or " *
+                "TimeVarying, not a $(typeof(k))"
         )
     )
 end

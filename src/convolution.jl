@@ -25,7 +25,7 @@ absolute times `start:stop`:
   - `x`: the inputs, length `T` or `S × T`, read at absolute time `t`. The
     inputs before `start` come from `x` itself.
   - `history`: the inputs before `t = 1`, oldest first (any length `m`, or
-    `S × m`); earlier inputs are zero. Not with a `:primary` kernel, which
+    `S × m`); earlier inputs are zero. Not with a `Primary()` kernel, which
     has no column for them.
   - `start`: the first time; `1` by default.
   - `stop`: the last time; the length of `x` by default.
@@ -54,13 +54,9 @@ struct Convolution{K}
     end
 end
 
-_ndelays(k::AbstractVector) = length(k)
-_ndelays(k::PerStratum) = size(k.x, 2)
-_ndelays(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
-
 (c::Convolution)(x; kwargs...) = first(forward(c, Run(), x; kwargs...))
 
-# A Convolution has no modifiers yet, so its cache holds no state.
+# A Convolution has no modifiers, so its cache holds no state.
 function forward(
         c::Convolution, ::Run, x; history = nothing, start = 1, stop = nothing
     )
@@ -99,7 +95,7 @@ _check_primary_history(::TimeVarying{Primary}, ::Nothing) = nothing
 function _check_primary_history(::TimeVarying{Primary}, history)
     throw(
         ArgumentError(
-            "a :primary kernel has no column for an input before t = 1: " *
+            "a Primary() kernel has no column for an input before t = 1: " *
                 "pass those inputs inside x"
         )
     )
@@ -159,7 +155,7 @@ end
 
 # Secondary indexing: output time `t` reads its own column.
 function _convolve!(Y, c::TimeVarying{Secondary}, X, m, start)
-    D = _ndelays(c)
+    D = _nlags(c)
     for k in axes(Y, 2), j in axes(Y, 1)
         t = start + j - 1
         acc = zero(eltype(Y))
@@ -174,7 +170,7 @@ end
 # Primary indexing: the input at time `σ` spreads forward through its own
 # column. There is no history, so buffer row `σ` is time `σ`.
 function _convolve!(Y, c::TimeVarying{Primary}, X, m, start)
-    D = _ndelays(c)
+    D = _nlags(c)
     stop = start + size(Y, 1) - 1
     for k in axes(Y, 2), σ in max(1, start - D + 1):stop
         x = X[σ, k]
