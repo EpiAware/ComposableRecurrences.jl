@@ -375,3 +375,29 @@ end
     @test Recurrence(g)(ones(3, T); history = H) ≈
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
+
+@testitem "seeded matches its expansion" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    g = [0.3, 0.5, 0.2]
+    d = CR.Depletion(80.0; seeded = true)
+    r = Recurrence(g; modifiers = (d,))
+    # A single series, and strata with a seed shorter than the kernel.
+    for (h, R) in (
+            ([2.0, 3.0, 4.0], [0.0, 0.0, 0.0, 2.5, 2.2, 1.8, 1.5, 1.2]),
+            ([1.0 2.0; 0.5 1.0], fill(1.8, 2, 7)),
+        )
+        m = size(h, ndims(h))
+        expansion(h, R) = cat(h, r(R; history = h, start = m + 1); dims = ndims(h))
+        @test CR.seeded(r, R; history = h) == expansion(h, R)
+        @test size(CR.seeded(r, R; history = h)) == size(R)
+        loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
+        θ = vcat(vec(h), vec(R))
+        @test ForwardDiff.gradient(loss((h, R) -> CR.seeded(r, R; history = h)), θ) ≈
+            ForwardDiff.gradient(loss(expansion), θ)
+    end
+    # Keywords pass through to the call.
+    ϵ = collect(0.1:0.1:0.8)
+    @test CR.seeded(Recurrence([0.5]), 1.0; history = [1.0], add = ϵ) ==
+        vcat(1.0, Recurrence([0.5])(1.0; history = [1.0], add = ϵ, start = 2))
+end
