@@ -10,7 +10,7 @@ The state is copied into the operator's buffer eltype before the first step.
 
 # Arguments
 - `m`: the modifier.
-- `history`: the full history passed to the call (length `m`, or `S × m`),
+- `history`: the full history passed to the call (a vector, or strata × time),
   not only the last `L` values.
 
 # Examples
@@ -111,8 +111,7 @@ Accumulate the reverse pass of [`apply!`](@ref) for modifier `m` at step `t`.
 Given the step's inputs `v`, `s` and the cotangents of its outputs in `v̄`,
 `s̄`, overwrite `v̄`, `s̄` with the cotangents of the inputs and add parameter
 cotangents into `m̄`.
-The package defines no methods; an operator is differentiated by the AD
-backend.
+A modifier without it is differentiated by the AD backend.
 
 # Arguments
 - `m̄`: the cotangent of the modifier's parameters.
@@ -126,7 +125,12 @@ backend.
 # Examples
 ```@example
 using ComposableRecurrences
-methods(ComposableRecurrences.apply_pullback!)
+CR = ComposableRecurrences
+m = CR.Clamp(0.0, 1.0)
+m̄ = (; lo = Ref(0.0), hi = Ref(0.0))
+v̄, s̄ = [1.0, 1.0], [0.0, 0.0]
+CR.apply_pullback!(m̄, m, [0.5, 2.0], [0.0, 0.0], 1, v̄, s̄)
+v̄, m̄.hi[]
 ```
 "
 function apply_pullback! end

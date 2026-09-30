@@ -238,6 +238,13 @@ end
         [200.0, 60.0, 100.0, 1.0], v, [150.0, -5.0, 90.0], 1
     )
     @test c.v && c.s && c.θ
+    # An exhausted pool (a seed larger than N) has a finite hazard pullback.
+    m = CR.Depletion(200.0; heterogeneity = 1.3)
+    v̄, s̄ = [0.5, 1.0, 0.2], [0.3, -0.2, 0.1]
+    CR.apply_pullback!(
+        ModifierChecks.mirror(m), m, v, [150.0, 0.0, 90.0], 1, v̄, s̄
+    )
+    @test all(isfinite, v̄) && all(isfinite, s̄)
 end
 
 @testitem "Depletion init pullback matches ForwardDiff" setup = [ModifierChecks] begin
