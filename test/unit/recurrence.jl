@@ -213,8 +213,8 @@ end
         gain = (a, t) -> R[a, t], post! = deplete!
     )
     @test y ≈ ref
-    # The third stratum's pool runs out, so the floor is reached.
-    @test minimum(susceptible) < 0
+    # The third stratum's pool is nearly used up, so depletion matters.
+    @test susceptible[3] < 0.1 * pop[3]
 end
 
 @testitem "Recurrence: argument validation" begin

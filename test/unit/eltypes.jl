@@ -44,7 +44,7 @@ end
             e[i] = δ
             (f(x + e) - f(x - e)) / (2δ)
         end
-        return isapprox(gr, fd; rtol = 1.0e-5, atol = 1.0e-7)
+        return isapprox(vec(gr), fd; rtol = 1.0e-5, atol = 1.0e-7)
     end
     rec(g, K, h, R, pop; kw...) = sum(
         W .* Recurrence(g; coupling = K, modifiers = (FlooredDepletion(pop),))(
