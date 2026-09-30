@@ -4,22 +4,21 @@
 Fast, composable and differentiable recurrences and causal convolutions.
 
 A recurrence steps a value forward from a window of its own past values, as in
-a renewal process, a random walk or an autoregression.
-A causal convolution weights past inputs by a kernel, as in a reporting delay.
-The package owns the history buffer these steps read from, so reverse-mode
-automatic differentiation does not copy the lag window at every step.
+an autoregression.
+A causal convolution weights past inputs by a kernel, as in a delay.
+Every operator is differentiable, and gradients work under ForwardDiff,
+Mooncake and Enzyme.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
-A bare array in a slot has the slot's own axes only (a kernel's lags, a
-coupling's `S × S`, a modifier parameter's one value);
-[`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
-strata and time axes.
+A plain array holds one set of coefficients: a kernel's lag weights, a
+coupling's `S × S` matrix or a modifier parameter's single value.
+[`PerStratum`](@ref) gives one set per stratum, [`Pairwise`](@ref) one per
+pair of strata and [`TimeVarying`](@ref) one per time.
 A stratum is one of `S` parallel series computed together, such as a place
 or an age group.
-Data (inputs, history, outputs) are strata × time, with time on the last
-axis; a single series is a vector.
-Every time-indexed array is read at absolute time `t`, and a call covers
-`start:stop`.
+Inputs, histories and outputs are strata × time arrays, or a vector for a
+single series.
+Time is absolute, counted from 1, and a call covers the times `start:stop`.
 
 | concept               | one way                                                  |
 |:--------------------- |:-------------------------------------------------------- |
