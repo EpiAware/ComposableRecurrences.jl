@@ -45,7 +45,7 @@ Recurrence([0.5, 0.5]; coupling = TimeVarying(Kt))(1.0; history = ones(2, 2), st
 When the mixing depends on the lag, use a `Pairwise` kernel instead of a coupling.
 See [Shapes and coefficients](@ref shapes).
 
-## Writing your own coupling
+## Adding a coupling
 
 A coupling is any struct with `forward(C, Pressure(), q, p, t)`, which writes the mixed convolutions into `q`.
 This one sends a fixed share of every stratum's convolution to the first stratum.
