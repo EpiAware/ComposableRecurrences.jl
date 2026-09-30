@@ -2,17 +2,23 @@
 A recurrence whose kernel starts at lag 1, stepped from a window of its own
 past values, for one series or several run side by side.
 
-At time `t`, each series' kernel-weighted sum of its last `L` values is
-mixed by the coupling, multiplied by the gain (such as a reproduction
-number) and shifted by the add input,
-then passed through the modifiers in tuple order:
+At time ``t``, each series' kernel-weighted sum of its last ``L`` values is
+mixed by the coupling ``C_t``, multiplied by the gain ``g_t`` (such as a
+reproduction number) and shifted by the additive input ``a_t``, then passed
+through the modifiers ``M_1, \\dots, M_R`` in tuple order:
 
-    x_t = coupling_t(Σ_i kernel_t[i] y_{t-i})
-    v_t = gain_t ⊙ x_t + add_t
-    (y_t, s_t) = modifiers(v_t, s_{t-1})
+```math
+\\begin{aligned}
+p_t &= \\sum_{l=1}^{L} k_l \\, y_{t-l} \\\\
+v_t &= g_t \\odot C_t \\, p_t + a_t \\\\
+y_t &= M_R \\circ \\dots \\circ M_1 (v_t)
+\\end{aligned}
+```
 
-`kernel[i]` weights `y_{t-i}`, as a generation interval or AR coefficients
-are written: a recurrence has no lag 0.
+Here ``y_t`` holds one value per series, ``\\odot`` multiplies element by
+element, and each modifier carries its own state from step to step.
+`kernel[l]` is ``k_l``, the weight on ``y_{t-l}``, as a generation interval
+or AR coefficients are written: a recurrence has no lag 0.
 The kernel is a length-`L` vector shared by every series, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
@@ -35,10 +41,11 @@ call covers the absolute times `start:stop`:
     The recursion reads the last `L`, and a history shorter than `L` is
     zero-padded. A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) from
-    [`ComposableRecurrences.with_state`](@ref), to resume from it; not with
+    [`ComposableRecurrences.with_state`](@ref), to continue the series from
+    the time it ended; not with
     `history` or `start`.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
-  - `start`: the first time; `1`, or `state.t` when resuming.
+  - `start`: the first time; `1`, or `state.t` when continuing from a state.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
 
@@ -100,11 +107,19 @@ function Recurrence(kernel; coupling = I, modifiers = ())
 end
 
 @doc "
-The state [`ComposableRecurrences.with_state`](@ref) returns with an
-operator's output, passed back as `state` to resume.
+What a later call needs to continue a series, as returned by
+[`ComposableRecurrences.with_state`](@ref).
 
-`history` holds the last `L` outputs, `states` each modifier's state and
-`t` the time of the next step.
+After a call that stopped at time ``t_1``, it holds:
+
+  - `history`: the last ``L`` outputs ``y_{t_1 - L + 1}, \\dots, y_{t_1}``,
+    which the next step's kernel reads;
+  - `states`: each modifier's state ``s^{(n)}_{t_1}``, such as the remaining
+    pool of a `Depletion`;
+  - `t`: the time of the next step, ``t_1 + 1``.
+
+Passing it as `r(gain; state)` continues from ``t_1 + 1`` exactly as if the
+first call had not stopped.
 
 # Examples
 ```@example
@@ -125,10 +140,15 @@ struct State{H, M, T}
 end
 
 @doc "
-Call operator `op` and return its output with the
-[`ComposableRecurrences.State`](@ref) to resume from, `(y, state)`.
+Run operator `op` like `op(args...; kwargs...)` and also return a
+[`ComposableRecurrences.State`](@ref), as the tuple `(y, state)`.
 
-Takes the same arguments as calling `op`; resume with `op(...; state)`.
+For a recurrence `r` that stopped at time ``t_1``, the state holds the last
+``L`` outputs ``y_{t_1 - L + 1}, \\dots, y_{t_1}``, each modifier's state
+``s^{(n)}_{t_1}`` (such as the remaining pool) and the next time
+``t_1 + 1``.
+Then `r(gain; state)` continues the series from ``t_1 + 1``, as in a forecast
+after a fit, and gives the same values as one uninterrupted call.
 
 # Arguments
 - `op`: the operator.
@@ -141,7 +161,7 @@ CR = ComposableRecurrences
 r = Recurrence([0.6, 0.4])
 R = fill(1.1, 8)
 y1, state = CR.with_state(r, R; history = ones(2), stop = 4)
-vcat(y1, r(R; state)) ≈ r(R; history = ones(2))
+maximum(abs, vcat(y1, r(R; state)) .- r(R; history = ones(2)))
 ```
 "
 function with_state(op, args...; kwargs...)

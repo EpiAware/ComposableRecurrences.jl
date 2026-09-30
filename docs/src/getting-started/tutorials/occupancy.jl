@@ -14,7 +14,7 @@
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) overview and the [Concepts](@ref concepts) page, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on the [Getting started](@ref getting-started) overview and the [API overview](@ref api-overview), and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
 # No fitting is involved.
 
 # ## Packages used
@@ -27,7 +27,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Occupancy two ways
 #
-# Each patient leaves with probability `d` each day, so the chance of still being in a bed `k` days after admission is `(1 - d)^k`.
+# Each patient leaves with probability `d` each day, so the chance of still being in a bed `k` days after admission is ``(1 - d)^k``.
 # As a convolution, occupancy is the admissions weighted by that survival, lag 0 first.
 # As a recurrence, it is yesterday's occupancy times `1 - d`, plus today's admissions through `add`.
 # The recurrence needs no multiplier (gain), and runs over the length of `add`.
@@ -122,9 +122,9 @@ draw(
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, because they leave more slowly.
 #
-# See the [Concepts](@ref concepts) page for the roles a modifier can implement, and for `pullback!`, which adds a hand-written adjoint.
+# See the [API overview](@ref api-overview) for the roles a modifier can implement, and for `pullback!`, which adds a hand-written adjoint.
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
 # - Want the full interface? See the [Public API](@ref public-api).

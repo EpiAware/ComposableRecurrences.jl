@@ -16,7 +16,7 @@ Both are written as the quantity is usually written, so a generation interval or
 
 Operators return only their outputs.
 A step's value before the gain multiplies it is a convolution of the outputs, so `Convolution(vcat(0, g))` recomputes it.
-See [Operators](@ref operators).
+See the [time-series processes](@ref overview-time-series) on the API overview.
 
 ## Which AD backends work?
 

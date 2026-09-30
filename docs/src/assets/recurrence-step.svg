@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 330" width="960" height="330" font-family="Helvetica, Arial, sans-serif" font-size="14">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect width="960" height="330" fill="#ffffff"/>
+  <text x="20" y="28" font-weight="bold" fill="#222">Recurrence: one step at time t</text>
+  <g stroke="#444" stroke-width="1.5" fill="#eef4fb">
+    <rect x="20" y="50" width="150" height="80" rx="8"/>
+    <rect x="200" y="50" width="160" height="80" rx="8"/>
+    <rect x="390" y="50" width="130" height="80" rx="8"/>
+    <rect x="550" y="50" width="130" height="80" rx="8"/>
+    <rect x="710" y="50" width="150" height="80" rx="8"/>
+    <rect x="890" y="70" width="50" height="40" rx="8"/>
+  </g>
+  <g fill="#222" text-anchor="middle">
+    <text x="95" y="75">past values</text>
+    <text x="95" y="95">y(t−L), …, y(t−1)</text>
+    <text x="95" y="115" font-size="12" fill="#555">from history or state</text>
+    <text x="280" y="75">kernel k</text>
+    <text x="280" y="95" font-size="12">most recent lag first</text>
+    <text x="280" y="113" font-size="12" fill="#555">vector, PerStratum,</text>
+    <text x="280" y="126" font-size="12" fill="#555">TimeVarying, Pairwise</text>
+    <text x="455" y="80">coupling C</text>
+    <text x="455" y="100" font-size="12">mixes the series</text>
+    <text x="615" y="80">× gain g</text>
+    <text x="615" y="100">+ add a</text>
+    <text x="785" y="75">modifiers</text>
+    <text x="785" y="95" font-size="12">M1, …, MR in order,</text>
+    <text x="785" y="112" font-size="12">each with its own state</text>
+    <text x="915" y="95">y(t)</text>
+  </g>
+  <g stroke="#444" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+    <line x1="170" y1="90" x2="198" y2="90"/>
+    <line x1="360" y1="90" x2="388" y2="90"/>
+    <line x1="520" y1="90" x2="548" y2="90"/>
+    <line x1="680" y1="90" x2="708" y2="90"/>
+    <line x1="860" y1="90" x2="888" y2="90"/>
+    <path d="M 915 110 L 915 160 L 95 160 L 95 132"/>
+  </g>
+  <text x="505" y="178" text-anchor="middle" font-size="12" fill="#555">y(t) joins the past values for the next step; with_state returns the last L values and the modifier states</text>
+  <text x="20" y="228" font-weight="bold" fill="#222">Convolution: one output at time t</text>
+  <g stroke="#444" stroke-width="1.5" fill="#f4f4f4">
+    <rect x="20" y="245" width="170" height="60" rx="8"/>
+    <rect x="220" y="245" width="160" height="60" rx="8"/>
+    <rect x="410" y="255" width="50" height="40" rx="8"/>
+  </g>
+  <g fill="#222" text-anchor="middle">
+    <text x="105" y="270">inputs</text>
+    <text x="105" y="290">x(t−L+1), …, x(t)</text>
+    <text x="300" y="270">kernel k</text>
+    <text x="300" y="290" font-size="12">lag 0 first</text>
+    <text x="435" y="280">y(t)</text>
+  </g>
+  <g stroke="#444" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+    <line x1="190" y1="275" x2="218" y2="275"/>
+    <line x1="380" y1="275" x2="408" y2="275"/>
+  </g>
+  <text x="480" y="280" font-size="12" fill="#555">no feedback: outputs never become inputs</text>
+</svg>

@@ -165,6 +165,9 @@ The operators compose, so a new coupling or modifier needs no new loop.
 
 ## Learning more
 
+- See every operator, coupling and modifier on the [API overview](@ref api-overview).
+- See how renewal processes, delays and occupancy map to the package in [Infectious disease models](@ref infectious-disease-models).
+- Want to write your own modifier or coupling? See the [Developer documentation](@ref developer).
 - Want the full interface? See the [Public API](@ref public-api).
 - Want the packages ComposableRecurrences works alongside? See Related packages on the [home page](../index.md).
 

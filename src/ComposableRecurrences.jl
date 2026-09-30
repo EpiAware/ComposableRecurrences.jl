@@ -27,7 +27,7 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 | time variation        | `TimeVarying(x, indexing = Secondary())`                 |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
-| seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
+| seed and continue     | `history =`, `with_state`, `state =`, `seeded`           |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a struct with `forward` for a role                       |
@@ -70,7 +70,7 @@ public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The piece interface: roles, `forward`, `pullback!` and the stage loop.
+# The extension interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")

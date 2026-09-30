@@ -13,11 +13,11 @@
 # 3. Add imported cases before or after depletion.
 # 4. Report infections through a delay.
 # 5. Differentiate the reports with respect to the reproduction number.
-# 6. Resume a run to forecast from where it stopped.
+# 6. Forecast by continuing the renewal process from its last fitted day.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) overview and the [Concepts](@ref concepts) page, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on the [Getting started](@ref getting-started) overview and the [API overview](@ref api-overview), and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
 # No fitting is involved.
 
 # ## Packages used
@@ -53,7 +53,7 @@ draw(
 # ## Susceptible depletion
 #
 # `Depletion(N)` draws each day's infections from a pool of `N` susceptibles.
-# The default `Hazard()` form draws `s (1 - exp(-v / N))` from pool `s`, so the pool never goes negative.
+# The default `Hazard()` form draws ``s (1 - e^{-v/N})`` from pool ``s``, so the pool never goes negative.
 # The `Floor()` form draws `max(s / N, 1e-6) v` instead.
 
 N = 2_000.0
@@ -75,7 +75,7 @@ draw(
 )
 
 # Both forms end the outbreak as the pool empties.
-# The hazard form draws slightly less at the peak and leaves more susceptibles, because `1 - exp(-x)` is below `x`.
+# The hazard form draws slightly less at the peak and leaves more susceptibles, because ``1 - e^{-x}`` is below ``x``.
 
 # ## Imported cases
 #
@@ -129,9 +129,10 @@ draw(
 # The seed days have zero sensitivity, because the renewal does not run on them.
 # Later days matter less, because the infections they add have less time to grow and be reported.
 
-# ## Forecasting from where a run stopped
+# ## Forecasting by continuing a run
 #
-# `with_state` returns the output and a `State`, a record of where the run stopped: its last infections and each modifier's own state, such as the remaining pool.
+# `with_state(renewal, R; history, stop = 50)` runs the renewal to day 50 and also returns a `State`.
+# The state holds the last five infections ``I_{46}, \dots, I_{50}``, the next day, 51, and the state of any modifiers, such as a remaining pool (none here).
 # Passing it back as `state` continues the run, so a forecast needs no rerun of the fitted period.
 
 split = 50
@@ -149,11 +150,11 @@ draw(
 )
 
 # The forecast continues from the state on day 50, with no rerun of the first 50 days.
-# The resumed run matches the single run exactly.
+# The two calls together match one call over all 80 days exactly.
 
 maximum(abs, vcat(fitted, forecast) .- infections)
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
 # - Want the full interface? See the [Public API](@ref public-api).

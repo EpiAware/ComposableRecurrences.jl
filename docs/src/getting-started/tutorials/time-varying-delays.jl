@@ -16,7 +16,7 @@
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) overview and the [Concepts](@ref concepts) page, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on the [Getting started](@ref getting-started) overview and the [API overview](@ref api-overview), and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
 # No fitting is involved.
 
 # ## Packages used
@@ -120,5 +120,5 @@ draw(
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
 # - Want the full interface? See the [Public API](@ref public-api).

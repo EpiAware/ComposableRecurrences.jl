@@ -14,7 +14,7 @@
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) overview and the [Concepts](@ref concepts) page, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on the [Getting started](@ref getting-started) overview and the [API overview](@ref api-overview), and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
 # No fitting is involved.
 
 # ## Packages used
@@ -69,8 +69,8 @@ maximum(abs, tvar_kernel .- tvar_gain)
 # ## An AR(1) process as the log reproduction number
 #
 # The exponential of a latent process is a positive reproduction number.
-# An AR(1) process with a coefficient below one reverts to zero, so `R_t` stays near 1.
-# Twenty draws of the innovations give twenty paths of `R_t` and the infections each produces.
+# An AR(1) process with a coefficient below one reverts to zero, so ``R_t`` stays near 1.
+# Twenty draws of the innovations give twenty paths of ``R_t`` and the infections each produces.
 
 renewal = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1])
 rng = Xoshiro(2)
@@ -90,10 +90,10 @@ draw(
     facet = (; linkyaxes = :none)
 )
 
-# `R_t` stays between about 0.6 and 1.8 in every draw.
-# Small differences in `R_t` compound, so infections range from dying out to one large outbreak.
+# ``R_t`` stays between about 0.6 and 1.8 in every draw.
+# Small differences in ``R_t`` compound, so infections range from dying out to one large outbreak.
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
 # - Want the full interface? See the [Public API](@ref public-api).
