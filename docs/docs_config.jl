@@ -17,6 +17,8 @@ const LIGHT_TUTORIALS = String[]
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
     "latent-processes.jl",
+    "spatial-strata.jl",
+    "time-varying-delays.jl",
     "occupancy.jl",
 ]
 
@@ -32,6 +34,10 @@ const TUTORIAL_STUBS = [
         "# [Renewal then delay](@id tutorial-renewal-delay)",
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
+    "spatial-strata.md" =>
+        "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
+    "time-varying-delays.md" =>
+        "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
     "occupancy.md" =>
         "# [Occupancy and capacity](@id tutorial-occupancy)",
 ]
@@ -207,6 +213,10 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
         "getting-started/tutorials/latent-processes.md",
+    "Spatial and multi-type models" =>
+        "getting-started/tutorials/spatial-strata.md",
+    "Time-varying delays and kernels" =>
+        "getting-started/tutorials/time-varying-delays.md",
     "Occupancy and capacity" =>
         "getting-started/tutorials/occupancy.md",
 ]
