@@ -190,13 +190,13 @@ end
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; Duals, BigFloat and other arrays
-# take the plain path. A foldable function of the types, so every
-# interpreter evaluates it at compile time; abstractly typed fields take the
-# plain path.
+# take the plain path, as do abstractly typed fields. `_ok` is one closed
+# function of the types (nothing extends it), evaluated once per signature
+# by a generated function: inference does not constant-fold the recursion,
+# and an unfolded gate costs a dynamic dispatch on every call under Mooncake.
 const _IEEEFloat = Union{Float16, Float32, Float64}
-_gate(xs...) = _all_ok(Tuple{map(typeof, xs)...})
-Base.@assume_effects :foldable _all_ok(::Type{T}) where {T <: Tuple} = _ok(T)
-Base.@assume_effects :foldable function _ok(::Type{T}) where {T}
+@generated _gate(xs...) = all(_ok, xs)
+function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true
     T <: Union{Integer, Nothing, Symbol} && return true
     T <: Real && return false

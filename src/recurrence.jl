@@ -199,12 +199,14 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
 end
 function _modifier_adjoint(m)
-    return uses_adjoint(m) || (ispointwise(m) && !_has_array_params(typeof(m)))
+    return uses_adjoint(m) || (ispointwise(m) && _scalar_params(m))
 end
 
 # Whether a type holds a float array (or a field of unknown type) that a
-# local per-value derivative would have to carry.
-Base.@assume_effects :foldable function _has_array_params(::Type{T}) where {T}
+# local per-value derivative would have to carry. A closed function of the
+# type, evaluated once per type by a generated function so the route folds.
+@generated _scalar_params(m) = !_has_array_params(m)
+function _has_array_params(::Type{T}) where {T}
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
     T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
     isconcretetype(T) || return true
