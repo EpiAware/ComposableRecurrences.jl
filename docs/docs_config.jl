@@ -126,8 +126,8 @@ const ORG_BRANDING = false
 # Regexes for URLs to skip during the (full-build) linkcheck, e.g. a page
 # published by a separate workflow that is not yet live.
 const LINKCHECK_IGNORE = Regex[
-    # Remove after the first docs deploy publishes these pages.
-    r"^https://epiaware\.org/ComposableRecurrences\.jl/(stable|dev)",
+    # Remove once the first release deploys the stable docs.
+    r"^https://composablerecurrences\.epiaware\.org/stable",
     # Remove once GitHub Discussions is enabled on the repository.
     r"^https://github\.com/EpiAware/ComposableRecurrences\.jl/discussions",
 ]
