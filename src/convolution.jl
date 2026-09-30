@@ -51,7 +51,7 @@ function (c::Convolution)(x; history = nothing)
     _load_input!(X, x, m)
     Y = zeros(Tp, T, S)
     _convolve!(Y, kernel, X, m)
-    return x isa AbstractVector ? Y[:, 1] : permutedims(Y)
+    return _public(Y, axes(Y, 1), x)
 end
 
 _check_input_history(::Nothing, x) = nothing
