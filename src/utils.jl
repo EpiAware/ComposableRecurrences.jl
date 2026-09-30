@@ -112,3 +112,10 @@ _state_vector(::Type{T}, s) where {T} = copyto!(_zeros(s, T, length(s)), s)
 # A zeroed array of eltype `T` and size `dims`, allocated like `like` so the
 # buffers follow the input's array type.
 _zeros(like, ::Type{T}, dims...) where {T} = fill!(similar(like, T, dims...), zero(T))
+# CPU arrays allocate with `zeros`, which AD backends treat as one call
+# rather than tracing the fill.
+const _CPUArray = Union{
+    Array, SubArray{<:Any, <:Any, <:Array}, Base.ReshapedArray{<:Any, <:Any, <:Array},
+    Base.ReshapedArray{<:Any, <:Any, <:SubArray{<:Any, <:Any, <:Array}},
+}
+_zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
