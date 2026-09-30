@@ -1,6 +1,7 @@
 # Latent processes from ComposableTuringIDModels: random walk, AR(p),
-# time-varying AR(1) and MA(q). Each is a recurrence (or, for MA, a
-# convolution) driven by innovations passed as `add`.
+# time-varying AR(1), MA(q) and MA(1) with a coefficient path, ARIMA and the
+# exponential growth rate. Each is a recurrence (or, for MA, a convolution)
+# driven by innovations passed as `add`.
 #
 # Kernels are lag first: `kernel[i]` weights the value `i` steps back.
 # `history` holds past values in time order, oldest first.
@@ -183,7 +184,9 @@ end
     S, T = size(R)
     w = range(0.5, 2.0; length = T)
     W = reshape(range(0.5, 2.0; length = S * T), S, T)
-    ∇ref = ForwardDiff.gradient(x -> sum(w .* C.exp_growth(x[1], x[2:end])), vcat(I₀, r))
+    ∇ref = ForwardDiff.gradient(
+        x -> sum(w .* C.exp_growth(x[1], x[2:end])), vcat(I₀, r)
+    )
     unpackS(x) = (x[1:S], reshape(x[(S + 1):end], S, T))
     ∇refS = ForwardDiff.gradient(
         x -> sum(W .* C.exp_growth(unpackS(x)...)), vcat(I₀s, vec(R))

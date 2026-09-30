@@ -1,6 +1,7 @@
 # Stratified renewal processes: CTIDM's mixing matrix, gravity coupling,
-# per-stratum and per-pair generation intervals, and BVD's patch model with
-# importation and hazard depletion.
+# per-stratum and per-pair generation intervals and per-stratum imports, and
+# BVD's patch model with importation and hazard depletion and its AR(1)
+# deviation knots.
 #
 # Arrays are strata × time; the history is strata × time, oldest first.
 
@@ -330,8 +331,10 @@ end
     centre(x) = x .- sum(x) / length(x)
     function level(z_level, σ_level)
         return reduce(
-            vcat,
-            [centre(σ_level .* correlate(F, z_level[us])) for (us, F) in zip(groups, factors)]
+            vcat, [
+                centre(σ_level .* correlate(F, z_level[us]))
+                    for (us, F) in zip(groups, factors)
+            ]
         )
     end
     function innovations(z_drift, σ_δ)
@@ -349,7 +352,8 @@ end
     function knots(z_level, z_drift, σ_level, σ_δ, φ)
         δ1 = level(z_level, σ_level)
         ar = Recurrence([φ])
-        return hcat(δ1, ar(1.0; history = reshape(δ1, :, 1), add = innovations(z_drift, σ_δ)))
+        c = innovations(z_drift, σ_δ)
+        return hcat(δ1, ar(1.0; history = reshape(δ1, :, 1), add = c))
     end
     @test knots(unpack(θ0)...) ≈ ref(unpack(θ0)...)
     @test ForwardDiff.gradient(θ -> sum(W .* knots(unpack(θ)...)), θ0) ≈ ∇ref

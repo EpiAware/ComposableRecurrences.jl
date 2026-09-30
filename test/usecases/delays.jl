@@ -1,6 +1,7 @@
 # Reporting delays: CTIDM's LatentDelay (fixed and time-varying pmf) and
-# BVD's `convolve_delay`. Each is a causal convolution whose kernel is
-# indexed from lag 0.
+# Aggregate, and BVD's `convolve_delay`, `convolve_pmf` and
+# `bin_increments`. Each is a causal convolution whose kernel is indexed from
+# lag 0, or a running total.
 
 @testitem "Use case: fixed reporting delay (LatentDelay)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff

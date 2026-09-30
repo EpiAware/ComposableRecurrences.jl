@@ -46,7 +46,10 @@
     )
     ε = [0.1, 0.2, 0.15, 0.05, 0.1]
     Wt = reshape(range(0.5, 2.0; length = nd * nz), nd, nz)
-    unpack(θ) = (reshape(θ[1:(nd * nz)], nd, nz), θ[(nd * nz + 1):(nd * nz + nz)], θ[(end - nz + 1):end])
+    unpack(θ) = (
+        reshape(θ[1:(nd * nz)], nd, nz), θ[(nd * nz + 1):(nd * nz + nz)],
+        θ[(end - nz + 1):end],
+    )
     θ0 = vcat(vec(δ), w0, ε)
     ref(δ, w0, ε; mixed) = B.zone_share_renewal(
         I_bar, g, δ, w0, patch_ranges, t0, force_pre;
