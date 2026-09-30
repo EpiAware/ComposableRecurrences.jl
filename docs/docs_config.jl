@@ -8,7 +8,13 @@
 # Tutorial source `.jl` files (Literate scripts) under `TUTORIALS_SUBDIR`.
 # Light tutorials emit `@example` blocks Documenter runs in-process; keep
 # cheap tutorials here.
-const LIGHT_TUTORIALS = String[]
+const LIGHT_TUTORIALS = [
+    "renewal-then-delay.jl",
+    "latent-reproduction-number.jl",
+    "spatial-strata.jl",
+    "time-varying-kernels.jl",
+    "occupancy.jl",
+]
 
 # Heavy tutorials (live MCMC fits, multi-backend AD, plotting) each run once
 # in a fresh subprocess so native/memory state cannot accumulate. The
@@ -23,7 +29,17 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # Fast-build stubs (`--skip-notebooks`): `"file.md" => "# Heading"` pairs.
 # Preserve the tutorial's `@id` in the heading (e.g. `"# [Title](@id
 # my-anchor)"`) so cross-references still resolve in a fast build.
-const TUTORIAL_STUBS = Pair{String, String}[]
+const TUTORIAL_STUBS = [
+    "renewal-then-delay.md" =>
+        "# [Renewal then delay](@id tutorial-renewal-delay)",
+    "latent-reproduction-number.md" =>
+        "# [Latent AR and TVAR processes driving R_t](@id tutorial-latent-rt)",
+    "spatial-strata.md" =>
+        "# [Spatial strata](@id tutorial-spatial-strata)",
+    "time-varying-kernels.md" =>
+        "# [Time-varying kernels](@id tutorial-time-varying-kernels)",
+    "occupancy.md" => "# [Occupancy](@id tutorial-occupancy)",
+]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a
@@ -185,7 +201,16 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # optional FAQ below) in the generated nav — one placement for the whole
 # ecosystem rather than a per-repo choice (#354). These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
-const PACKAGE_TUTORIALS = Pair{String, String}[]
+const PACKAGE_TUTORIALS = [
+    "Renewal then delay" =>
+        "getting-started/tutorials/renewal-then-delay.md",
+    "Latent AR and TVAR processes driving R_t" =>
+        "getting-started/tutorials/latent-reproduction-number.md",
+    "Spatial strata" => "getting-started/tutorials/spatial-strata.md",
+    "Time-varying kernels" =>
+        "getting-started/tutorials/time-varying-kernels.md",
+    "Occupancy" => "getting-started/tutorials/occupancy.md",
+]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
 # a developer reference distinct from the Development skeleton below), as

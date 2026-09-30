@@ -29,6 +29,11 @@ pages = [
     # docs_config.jl.
     "Getting started" => [
         "Overview" => "getting-started/index.md",
+        "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
+        "Latent AR and TVAR processes driving R_t" => "getting-started/tutorials/latent-reproduction-number.md",
+        "Spatial strata" => "getting-started/tutorials/spatial-strata.md",
+        "Time-varying kernels" => "getting-started/tutorials/time-varying-kernels.md",
+        "Occupancy" => "getting-started/tutorials/occupancy.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
