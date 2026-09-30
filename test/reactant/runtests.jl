@@ -130,9 +130,6 @@ function write_results(path, results, elapsed)
             cells = [cell(find(c.name, m, config, b)) for (m, b) in cols]
             println(io, "| ", c.description, " | ", join(cells, " | "), " |")
         end
-        for (_, desc) in PENDING
-            println(io, "| ", desc, " | pending: not on main | | | |")
-        end
     end
     println(io, "\n## Details\n")
     println(io, "Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), on the CPU.\n")
@@ -207,12 +204,6 @@ write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
                     end
                 end
             end
-        end
-    end
-    @testset "pending modifiers" begin
-        for (name, _) in PENDING
-            # Not on main yet: add the case to cases.jl when it lands.
-            @test_broken false
         end
     end
 end

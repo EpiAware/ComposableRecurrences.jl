@@ -5,9 +5,11 @@
 module ReactantCases
 
 using ComposableRecurrences
+using ComposableRecurrences: Add, Clamp, Depletion, Floor, Primary,
+    Redistribute, Step, with_state
 using LinearAlgebra: I
 
-export CASES, PENDING, case_by_name, loss
+export CASES, case_by_name, loss
 
 # Small sizes: the package's plain `for` loops are unrolled when traced.
 const T = 20  # steps
@@ -23,7 +25,6 @@ const HS = [1.0 + 0.5 * k + 0.1 * i for k in 1:S, i in 1:L]
 const K0 = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.1 0.2 0.7]
 const d0 = [0.1, 0.4, 0.3, 0.2]
 const x0 = collect(range(1.0, 3.0; length = T))
-const m0 = 3  # convolution history length
 const HX = [0.5, 1.0, 1.5]
 
 # Loss weights, one per output entry.
@@ -31,17 +32,17 @@ const W1 = collect(range(0.5, 2.0; length = T))
 const WS = reshape(collect(range(0.5, 2.0; length = S * T)), S, T)
 
 # A pointwise modifier: a floor on each stratum's value.
-struct Floor
+struct Lower
     lo::Float64
 end
-ComposableRecurrences.ispointwise(::Floor) = true
-ComposableRecurrences.apply(m::Floor, v, s, t, k) = (max(v, m.lo), s)
+ComposableRecurrences.ispointwise(::Lower) = true
+ComposableRecurrences.forward(m::Lower, ::Step, v, s, t, k) = (max(v, m.lo), s)
 
 # A modifier that couples strata: rescale the step to a fixed total.
 struct Rescale
     total::Float64
 end
-function ComposableRecurrences.apply!(m::Rescale, v, s, t)
+function ComposableRecurrences.forward(m::Rescale, ::Step, v, s, t)
     v .*= m.total / sum(v)
     return nothing
 end
@@ -91,7 +92,7 @@ end
 function rec_pairwise(θ)
     P = Pairwise(reshape(θ[1:(S * S * L)], S, S, L))
     R = reshape(θ[(S * S * L + 1):end], S, T)
-    return Recurrence(nothing; coupling = P)(R; history = HS)
+    return Recurrence(P)(R; history = HS)
 end
 
 function rec_tv_coupling(θ)
@@ -103,13 +104,13 @@ end
 function rec_resume(θ)
     r = Recurrence(θ[1:L])
     R = θ[(L + 1):end]
-    y1, state = r(R[1:T₁]; history = H1, return_state = true)
-    y2 = r(R[(T₁ + 1):end]; history = state)
+    y1, state = with_state(r, R; history = H1, stop = T₁)
+    y2 = r(R; state)
     return vcat(y1, y2)
 end
 
 function rec_pointwise_modifier(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Floor(1.0),))
+    r = Recurrence(θ[1:L]; modifiers = (Lower(1.0),))
     return r(θ[(L + 1):end]; history = H1)
 end
 
@@ -120,18 +121,46 @@ end
 
 conv_fixed(θ) = Convolution(θ[1:L])(θ[(L + 1):end]; history = HX)
 
-# `:primary` needs a kernel column for every history input, so the kernel
-# covers times 1 to `m0 + T` and the first output is at `m0 + 1`.
+# A `Primary()` kernel has no column for inputs before `t = 1`, so no
+# history.
 function conv_tv_primary(θ)
-    k = TimeVarying(reshape(θ[1:(L * (m0 + T))], L, m0 + T))
-    c = Convolution(k; indexed_by = :primary)
-    return c(θ[(L * (m0 + T) + 1):end]; history = HX, start = m0 + 1)
+    k = TimeVarying(reshape(θ[1:(L * T)], L, T), Primary())
+    return Convolution(k)(θ[(L * T + 1):end])
 end
 
 function conv_tv_secondary(θ)
     k = TimeVarying(reshape(θ[1:(L * T)], L, T))
-    c = Convolution(k; indexed_by = :secondary)
-    return c(θ[(L * T + 1):end]; history = HX)
+    return Convolution(k)(θ[(L * T + 1):end]; history = HX)
+end
+
+const N0 = 60.0  # population for the depletion cases
+
+function mod_depletion(θ)
+    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0),))
+    return r(θ[(L + 1):end]; history = H1)
+end
+
+function mod_depletion_floor(θ)
+    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0, Floor()),))
+    return r(θ[(L + 1):end]; history = H1)
+end
+
+function mod_add(θ)
+    b = TimeVarying(θ[(L + T + 1):end])
+    r = Recurrence(θ[1:L]; modifiers = (Add(b),))
+    return r(θ[(L + 1):(L + T)]; history = H1)
+end
+
+function mod_clamp(θ)
+    r = Recurrence(θ[1:L]; modifiers = (Clamp(1.2, 1.6),))
+    return r(θ[(L + 1):end]; history = H1)
+end
+
+function mod_redistribute(θ)
+    K = reshape(θ[1:(S * S)], S, S)
+    R = reshape(θ[(S * S + 1):end], S, T)
+    r = Recurrence(g0; modifiers = (Redistribute(K, 0.1),))
+    return r(R; history = HS)
 end
 
 tv_kernel(n) = vec(repeat(g0, 1, n) .* (1 .+ 0.01 .* (1:n)'))
@@ -167,7 +196,7 @@ const CASES = [
         vcat(vec(repeat(g0', S) .* (1:S) ./ S), vec(RS0)), WS
     ),
     Case(
-        "rec_pairwise", "Recurrence, Pairwise coupling",
+        "rec_pairwise", "Recurrence, Pairwise kernel",
         rec_pairwise,
         vcat(vec(reshape(K0, S, S, 1) .* reshape(g0, 1, 1, L)), vec(RS0)),
         WS
@@ -187,7 +216,7 @@ const CASES = [
         rec_pointwise_modifier, vcat(g0, R0), W1
     ),
     Case(
-        "rec_apply_modifier", "Recurrence, custom apply! modifier",
+        "rec_apply_modifier", "Recurrence, custom all-strata modifier",
         rec_apply_modifier, vec(RS0), WS
     ),
     Case(
@@ -195,22 +224,35 @@ const CASES = [
         vcat(d0, x0), W1
     ),
     Case(
-        "conv_tv_primary", "Convolution, TimeVarying kernel, :primary",
-        conv_tv_primary, vcat(tv_kernel(m0 + T), x0), W1
+        "conv_tv_primary", "Convolution, TimeVarying kernel, Primary()",
+        conv_tv_primary, vcat(tv_kernel(T), x0), W1
     ),
     Case(
-        "conv_tv_secondary", "Convolution, TimeVarying kernel, :secondary",
+        "conv_tv_secondary", "Convolution, TimeVarying kernel, Secondary()",
         conv_tv_secondary, vcat(tv_kernel(T), x0), W1
+    ),
+    Case(
+        "mod_depletion", "Recurrence with Depletion (Hazard)",
+        mod_depletion, vcat(g0, 1.5 .* R0), W1
+    ),
+    Case(
+        "mod_depletion_floor", "Recurrence with Depletion (Floor)",
+        mod_depletion_floor, vcat(g0, 1.5 .* R0), W1
+    ),
+    Case(
+        "mod_add", "Recurrence with Add (TimeVarying)", mod_add,
+        vcat(g0, R0, 0.1 .* cos.(1:T)), W1
+    ),
+    Case(
+        "mod_clamp", "Recurrence with Clamp", mod_clamp,
+        vcat(g0, R0), W1
+    ),
+    Case(
+        "mod_redistribute", "Recurrence with Redistribute",
+        mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
     ),
 ]
 
-# Modifiers not yet on main: listed so the matrix shows them as pending.
-const PENDING = [
-    ("mod_depletion", "Recurrence with Depletion"),
-    ("mod_imports", "Recurrence with Imports"),
-    ("mod_clamp", "Recurrence with Clamp"),
-    ("mod_redistribute", "Recurrence with Redistribute"),
-]
 
 function case_by_name(name)
     i = findfirst(c -> c.name == name, CASES)
