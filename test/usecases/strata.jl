@@ -34,7 +34,7 @@
     @test ForwardDiff.gradient(θ -> sum(w .* mixed(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: gravity coupling with depletion" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: gravity coupling with depletion" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -166,7 +166,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: BVD patch model" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 

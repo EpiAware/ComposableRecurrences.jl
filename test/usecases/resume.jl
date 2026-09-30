@@ -1,7 +1,7 @@
 # Resuming from a returned state, as a forecast does: running a horizon in
 # two pieces must match one run over the whole horizon.
 
-@testitem "Use case: resume a depleting renewal" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: resume a depleting renewal" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -62,7 +62,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: resume the BVD patch model" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: resume the BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
