@@ -34,6 +34,6 @@ plt = data(intervention) *
 set_theme!(theme_light())
 fig = draw(
     plt; figure = (; size = (1000, 520)), facet = (; linkyaxes = :rowwise),
-    axis = (; xticks = 0:25:75)
+    axis = (; xticks = 0:25:75, xlabel = "Day")
 )
 save(joinpath(root, "docs", "src", "assets", "readme-example.png"), fig; px_per_unit = 2)
