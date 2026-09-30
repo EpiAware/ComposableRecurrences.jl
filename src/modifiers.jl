@@ -103,8 +103,8 @@ stratum ``j`` in stratum ``i``, with ``S`` strata (parallel series).
 `λ * I` gives ``C_{t,ij} = \lambda \delta_{ij}``, a matrix `C` gives
 ``C_{t,ij}`` = `C[i, j]` at every ``t``, and a [`TimeVarying`](@ref)
 coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
-A new coupling is a struct with this method, and may compute any ``q_t``
-from ``p_t`` and ``t``.
+To add a coupling, define a type and add this method; it may compute any
+``q_t`` from ``p_t`` and ``t``.
 
 # Examples
 ```@example
@@ -118,7 +118,7 @@ q
 struct Pressure end
 
 @doc raw"
-Run `piece` in `role` on primal arguments `args`.
+Run `x` in `role` on primal arguments `args`.
 
 For the role's inputs ``u`` it computes its outputs
 
@@ -134,13 +134,13 @@ with ``f_{\mathrm{role}}`` the map each role's docstring gives:
 Array outputs are written into the leading array arguments and the method
 returns `nothing`; a scalar [`ComposableRecurrences.Step`](@ref) returns its
 new scalars and [`ComposableRecurrences.Run`](@ref) returns `(y, cache)`.
-Extend the package by writing a struct and this method for its role:
+To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling.
 
 # Arguments
-- `piece`: the operator, coupling, modifier or variant.
+- `x`: the operator, coupling, modifier or variant.
 - `role`: `Run()`, `Step()`, `Init()` or `Pressure()`.
 - `args`: the role's arguments.
 
@@ -160,7 +160,7 @@ function forward end
 
 @doc raw"
 Accumulate the reverse pass of [`ComposableRecurrences.forward`](@ref) for
-`piece` in `role`.
+`x` in `role`.
 
 For `forward` computing outputs ``o = f(u, \theta)`` from inputs ``u`` and
 the object's parameters ``\theta``, given the output cotangent ``\bar o``
@@ -181,8 +181,9 @@ incoming value, and a scalar `Step` returns its input cotangents instead.
 An object without this method is differentiated by the AD backend.
 
 # Arguments
-- `grads`: the cotangents, `(; piece, ...)`.
-- `piece`: the operator, coupling, modifier or variant.
+- `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of
+  `x`'s parameters.
+- `x`: the operator, coupling, modifier or variant.
 - `role`: the role.
 - `args`: the primal arguments `forward` was given.
 

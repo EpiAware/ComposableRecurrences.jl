@@ -14,6 +14,8 @@ A bare array in a slot has the slot's own axes only (a kernel's lags, a
 coupling's `S × S`, a modifier parameter's one value);
 [`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
 strata and time axes.
+A stratum is one of `S` parallel series computed together, such as a place
+or an age group.
 Data (inputs, history, outputs) are strata × time, with time on the last
 axis; a single series is a vector.
 Every time-indexed array is read at absolute time `t`, and a call covers
@@ -30,11 +32,11 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 | seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
-| extension             | a struct with `forward` for a role                       |
+| extension             | a type with a `forward` method for a role                |
 
-The package is extended by writing a struct: a modifier, coupling or
-depletion form implements [`ComposableRecurrences.forward`](@ref), and
-optionally [`ComposableRecurrences.pullback!`](@ref), for its role
+To extend the package, define a type and add a
+[`ComposableRecurrences.forward`](@ref) method, and optionally a
+[`ComposableRecurrences.pullback!`](@ref) method, for its role
 ([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
 or [`ComposableRecurrences.Pressure`](@ref)).
 
@@ -70,7 +72,7 @@ public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The piece interface: roles, `forward`, `pullback!` and the stage loop.
+# The role interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")

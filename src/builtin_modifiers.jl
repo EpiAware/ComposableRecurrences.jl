@@ -1,5 +1,5 @@
 # The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
-# mirrors the piece's fields as a NamedTuple: an array for a float array, a
+# mirrors the object's fields as a NamedTuple: an array for a float array, a
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
 # and `nothing` for a field without a cotangent.
 #
@@ -155,7 +155,7 @@ The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
-[`ComposableRecurrences.Floor`](@ref), or a new struct with that method.
+[`ComposableRecurrences.Floor`](@ref), or a new type with that method.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -203,7 +203,7 @@ function Depletion(N, form = Hazard(); heterogeneity = 1, pool0 = nothing)
     return Depletion(N, form, _exponent(heterogeneity, N), pool0)
 end
 
-# A form is a struct with a scalar Step.
+# A form is a type with a scalar Step.
 function _check_form(form::F) where {F}
     hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
         throw(
