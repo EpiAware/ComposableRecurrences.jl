@@ -30,6 +30,7 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "Concepts" => "getting-started/concepts.md",
+        "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",

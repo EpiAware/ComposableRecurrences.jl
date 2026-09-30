@@ -14,7 +14,9 @@ const LIGHT_TUTORIALS = String[]
 # in a fresh subprocess so native/memory state cannot accumulate. The
 # kit-managed AD-comparison page is registered in `HEAVY_BENCHMARKS` below
 # instead, so this list starts empty and is yours to fill.
-const HEAVY_TUTORIALS = String[]
+const HEAVY_TUTORIALS = [
+    "time-varying-delays.jl",
+]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
 # `docs/src`.
@@ -23,7 +25,10 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # Fast-build stubs (`--skip-notebooks`): `"file.md" => "# Heading"` pairs.
 # Preserve the tutorial's `@id` in the heading (e.g. `"# [Title](@id
 # my-anchor)"`) so cross-references still resolve in a fast build.
-const TUTORIAL_STUBS = Pair{String, String}[]
+const TUTORIAL_STUBS = [
+    "time-varying-delays.md" =>
+        "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
+]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a
@@ -192,6 +197,8 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
     "Concepts" => "getting-started/concepts.md",
+    "Time-varying delays and kernels" =>
+        "getting-started/tutorials/time-varying-delays.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
