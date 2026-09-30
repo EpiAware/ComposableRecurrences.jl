@@ -21,7 +21,7 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 - Strata couple through any `S × S` matrix (dense, sparse or `Diagonal`), a time-varying matrix, or a pairwise kernel with its own lags.
   A spatial or multi-group model uses the same operator as a single series.
 - Modifiers act on each step in the order given and carry their own state.
-  An effect such as susceptible depletion is one small type with an `apply!` method, not a new loop.
+  An effect such as susceptible depletion is one small type with a `forward` method, not a new loop.
 - A call can return its state, and the next call resumes from it, so a forecast continues a fitted series without rebuilding the operator.
 - No step copies its lag window, so gradients stay fast.
   They are tested against ForwardDiff, Mooncake and Enzyme.
