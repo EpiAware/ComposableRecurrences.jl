@@ -19,8 +19,9 @@ it.
 
 Kernel slots only: anywhere else it is an `ArgumentError`.
 In a [`Recurrence`](@ref) column `c` weights the output at time `c` at
-each lag, `x_t = Σ_i K[i, t - i] y_{t-i}`, so a seed must sit at times
-from 1 (`start > m` for a seed of length `m`).
+each lag, `p_t = Σ_l k_l(t - l) y_{t-l}` with `k_l(τ)` the weight on lag
+`l` in column `τ`, so a seed must sit at times from 1 (`start > m` for a
+seed of length `m`).
 
 # Examples
 ```@example
@@ -98,7 +99,7 @@ a type parameter so nothing branches on it:
   - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
     the input at time `c`, which spreads forward through it. In a
     [`Recurrence`](@ref) the input is the output at time `c`, so each
-    cohort keeps its own kernel, `x_t = Σ_i K[i, t - i] y_{t-i}`.
+    cohort keeps its own kernel, `p_t = Σ_l k_l(t - l) y_{t-l}`.
 
 The two agree for a fixed kernel.
 

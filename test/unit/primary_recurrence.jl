@@ -15,7 +15,12 @@
         pre = ntuple(_ -> Colon(), ndims(K) - 2)
         out = similar(K)
         for t in 1:T, i in 1:L
-            out[pre..., i, t] = t - i >= 1 ? K[pre..., i, t - i] : zero(eltype(K))
+            col = view(out, pre..., i, t)
+            if t - i >= 1
+                col .= view(K, pre..., i, t - i)
+            else
+                fill!(col, zero(eltype(K)))
+            end
         end
         return out
     end

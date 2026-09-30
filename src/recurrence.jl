@@ -17,7 +17,8 @@ The kernel is a length-`L` vector shared by every stratum, a
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
 A `TimeVarying` kernel with [`ComposableRecurrences.Primary`](@ref)
 indexing gives each output its own kernel by the time it was produced,
-`x_t = Σ_i K[i, t - i] y_{t-i}`, and needs its seed at times from 1.
+`p_t = Σ_l k_l(t - l) y_{t-l}` with `k_l(τ)` the weight on lag `l` in
+column `τ`, and needs its seed at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
@@ -282,8 +283,8 @@ function _kdot(g::_PairwiseKernel, H, t, τ, L, a)
 end
 
 # The kernel column lag `i` reads at time `τ`: the output's own column, or
-# with `Primary()` the column of the value's own time `τ - i`, so only lags
-# back to time 1 have one.
+# with `Primary()` the column of the value's own time `τ - i`, which exists
+# only back to time 1.
 _column(g, τ, i) = τ
 _column(::TimeVarying{Primary}, τ, i) = τ - i
 _lags(g, τ, L) = 1:L
