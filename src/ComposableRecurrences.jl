@@ -24,7 +24,7 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 | feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
 | causal convolution    | `Convolution(kernel)`, lag 0 first                       |
 | strata                | `PerStratum(x)`, `Pairwise(x)`                           |
-| time variation        | `TimeVarying(x, indexing = Secondary())`                 |
+| time variation        | `TimeVarying(x, Secondary())`                            |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
@@ -38,7 +38,7 @@ optionally [`ComposableRecurrences.pullback!`](@ref), for its role
 ([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
 or [`ComposableRecurrences.Pressure`](@ref)).
 
-# Example
+# Examples
 
 ```@example
 using ComposableRecurrences
