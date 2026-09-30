@@ -168,3 +168,11 @@ Test objects are `Arguments(; modifier, history, v, t)`."
         t = 1
     ),
 ]
+
+@implements ModifierInterface{(:pointwise,)} Transform [
+    Arguments(;
+        modifier = Transform((v, θ) -> θ.a * v + θ.b, (; a = [0.5, 2.0], b = 0.1)),
+        history = ones(2, 3), v = [2.0, 3.0], t = 1
+    ),
+    Arguments(; modifier = Transform(log1p), history = ones(3), v = [2.0], t = 1),
+]

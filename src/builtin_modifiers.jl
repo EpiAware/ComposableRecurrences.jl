@@ -449,3 +449,164 @@ end
 function apply_pullback!(m̄, m::Clamp, v, s, t, v̄, s̄)
     return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
 end
+
+# Transform ---------------------------------------------------------------
+
+@doc "
+Maps each stratum's value through a function `f`, with optional
+parameters `θ`:
+
+    y_k = f(v_k, θ_k)
+
+`f` is any callable, called as `f(v)` when `θ` is `nothing` (the default)
+and `f(v, θ_k)` otherwise.
+`θ_k` is `θ` read at stratum `k` and the absolute time: a scalar is shared,
+a vector is one value per stratum, and a [`TimeVarying`](@ref) array is a
+length-`T` vector over time or `S × T`.
+A tuple or NamedTuple of these is read entry by entry, so `f` receives a
+tuple or NamedTuple of scalars.
+Parameters belong in `θ`: values captured in `f` get no cotangent.
+
+The pullback is a local forward-mode derivative of `f` in the value and
+`θ_k`.
+Pass `derivative` to supply it instead: `derivative(v)` returns `∂f/∂v`
+when `θ` is `nothing`, and `derivative(v, θ_k)` otherwise returns
+`(∂f/∂v, ∂f/∂θ)`, with `∂f/∂θ` shaped as `θ_k`.
+The state is unused.
+
+# Arguments
+- `f`: the map, `f(v)` or `f(v, θ_k)`.
+- `θ`: the parameters, or `nothing`.
+
+# Keyword Arguments
+- `derivative`: the derivative of `f`, or `nothing` for the local one.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+# Iterate a probability generating function: q_t = G(q_{t-1}) from q_0 = 0.
+G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
+q = CR.Transform(G, (; r = 0.5, p = 0.4))
+Recurrence([1.0]; modifiers = (q,))(; history = [0.0], add = zeros(6))
+```
+"
+struct Transform{F, P, D}
+    "The map, `f(v)` or `f(v, θ_k)`."
+    f::F
+    "The parameters: `nothing`, a scalar, per stratum, `TimeVarying`, or a
+    tuple or NamedTuple of these."
+    θ::P
+    "The derivative of `f`, or `nothing` for the local one."
+    derivative::D
+    function Transform(f::F, θ::P, derivative::D) where {F, P, D}
+        _check_theta(θ)
+        return new{F, P, D}(f, θ, derivative)
+    end
+end
+
+function Transform(f, θ = nothing; derivative = nothing)
+    return Transform(f, θ, derivative)
+end
+
+const _ThetaLeaf = Union{Nothing, Real, AbstractVector{<:Real}, TimeVarying}
+_check_theta(::_ThetaLeaf) = nothing
+_check_theta(θ::Union{Tuple, NamedTuple}) = foreach(_check_theta, θ)
+_check_theta(::AbstractMatrix) = throw(
+    ArgumentError("wrap a strata × time parameter as TimeVarying(θ)")
+)
+function _check_theta(θ)
+    throw(ArgumentError("unsupported Transform parameter $(typeof(θ))"))
+end
+
+_theta_strata(θ, S) = nothing
+_theta_strata(θ::AbstractVector, S) = _check_stratum_param(:θ, θ, S)
+_theta_strata(θ::TimeVarying{<:AbstractMatrix}, S) = _check_strata(:θ, θ.x, S)
+function _theta_strata(θ::Union{Tuple, NamedTuple}, S)
+    return foreach(x -> _theta_strata(x, S), θ)
+end
+
+ispointwise(::Transform) = true
+init_state_pullback!(m̄, h̄, ::Transform, history, s̄) = nothing
+
+function init_state(m::Transform, history)
+    S = _nstrata(history)
+    _theta_strata(m.θ, S)
+    return fill!(similar(history, S), zero(eltype(history)))
+end
+
+# The parameters at stratum `k` and absolute time `t`.
+_theta_at(::Nothing, k, t) = nothing
+_theta_at(θ::Real, k, t) = θ
+_theta_at(θ::AbstractVector, k, t) = θ[k]
+_theta_at(θ::TimeVarying, k, t) = _import_at(θ.x, k, t)
+_theta_at(θ::Union{Tuple, NamedTuple}, k, t) = map(x -> _theta_at(x, k, t), θ)
+
+# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`.
+_add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
+_add_theta!(θ̄, θ::Real, ∂θ, ȳ, k, t) = _add_cotangent!(θ̄, ȳ * ∂θ)
+function _add_theta!(θ̄, θ::AbstractVector, ∂θ, ȳ, k, t)
+    return _add_cotangent!(θ̄, ȳ * ∂θ, k)
+end
+function _add_theta!(θ̄, θ::TimeVarying, ∂θ, ȳ, k, t)
+    return _add_import!(θ̄, θ, ȳ * ∂θ, k, t)
+end
+function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
+    θ̄ === nothing && return nothing
+    for i in 1:length(θ)
+        _add_theta!(θ̄[i], θ[i], ∂θ[i], ȳ, k, t)
+    end
+    return nothing
+end
+
+_call(f, v, ::Nothing) = f(v)
+_call(f, v, θ) = f(v, θ)
+
+apply(m::Transform, v, s, t, k) = (_call(m.f, v, _theta_at(m.θ, k, t)), s)
+
+function apply_pullback(m̄, m::Transform, v, s, t, k, v̄′, s̄′)
+    θ = _theta_at(m.θ, k, t)
+    ∂v, ∂θ = _derivative(m.derivative, m.f, v, θ)
+    _add_theta!(_cotangent(m̄, :θ), m.θ, ∂θ, v̄′, k, t)
+    return v̄′ * ∂v, s̄′
+end
+
+function apply_pullback!(m̄, m::Transform, v, s, t, v̄, s̄)
+    return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
+end
+
+# `(∂f/∂v, ∂f/∂θ)` from a supplied derivative.
+_derivative(df, f, v, ::Nothing) = (df(v), nothing)
+_derivative(df, f, v, θ) = df(v, θ)
+
+# The local forward-mode derivative: one dual per scalar of `(v, θ_k)`.
+struct _TransformTag end
+
+function _derivative(::Nothing, f, v, ::Nothing)
+    return first(_partials(f(first(_seeds((v,)))), Val(1))), nothing
+end
+function _derivative(::Nothing, f, v, θ::Real)
+    x, a = _seeds(promote(v, θ))
+    ∂ = _partials(f(x, a), Val(2))
+    return ∂[1], ∂[2]
+end
+function _derivative(::Nothing, f, v, θ::Union{Tuple, NamedTuple})
+    xs = _seeds(promote(v, values(θ)...))
+    ∂ = _partials(f(first(xs), _restructure(θ, Base.tail(xs))), Val(length(xs)))
+    return first(∂), _restructure(θ, Base.tail(∂))
+end
+
+_restructure(::Tuple, x) = x
+_restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
+
+function _seeds(xs::NTuple{N, T}) where {N, T}
+    return ntuple(Val(N)) do i
+        ForwardDiff.Dual{_TransformTag}(xs[i], ntuple(j -> T(i == j), Val(N)))
+    end
+end
+
+# The partials of `f`'s output; a constant output has none.
+function _partials(y::ForwardDiff.Dual{_TransformTag}, ::Val{N}) where {N}
+    return ntuple(i -> ForwardDiff.partials(y, i), Val(N))
+end
+_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))

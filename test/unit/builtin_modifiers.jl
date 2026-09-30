@@ -452,8 +452,10 @@ end
     )
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Transform(nb, (; r = 0.5, p = TimeVarying(reshape(θ, 3, 2)))),
-        [0.3, 0.4, 0.5, 0.6, 0.7, 0.8], v, s, 2
+        θ -> CR.Transform(
+            nb, (; r = θ[1], p = TimeVarying(reshape(θ[2:7], 3, 2)))
+        ),
+        [0.5, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], v, s, 2
     )
     @test c.v && c.s && c.θ
 end
@@ -496,9 +498,14 @@ end
     out = CR.apply_pullback(m̄, m, 0.3f0, 0.0f0, 1, 1, 1.0f0, 0.0f0)
     @test out isa Tuple{Float32, Float32}
     @test m̄.θ.r[] isa Float32 && m̄.θ.r[] != 0
-    pb(m̄, m) = CR.apply_pullback(m̄, m, 0.3f0, 0.0f0, 1, 1, 1.0f0, 0.0f0)
-    alloc(m̄, m) = @allocated pb(m̄, m)
-    alloc(m̄, m)
+    # `CR` is a non-constant global here, so call through the module.
+    function alloc(m̄, m)
+        pb(m̄, m) = ComposableRecurrences.apply_pullback(
+            m̄, m, 0.3f0, 0.0f0, 1, 1, 1.0f0, 0.0f0
+        )
+        pb(m̄, m)
+        return @allocated pb(m̄, m)
+    end
     @test alloc(m̄, m) == 0
 end
 
