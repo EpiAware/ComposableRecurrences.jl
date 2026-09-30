@@ -1,6 +1,7 @@
 # [Getting started](@id getting-started)
 
-ComposableRecurrences has two operators.
+Recurrences and causal convolutions are usually hand-written loops, rewritten for each model.
+ComposableRecurrences expresses them as two operators.
 `Recurrence` steps a series forward from a kernel-weighted window of its own past.
 `Convolution` weights past inputs by a kernel.
 Couplings link many series, and modifiers add behaviour such as finite pools or bounds to each step.
