@@ -16,7 +16,7 @@ Implement this method for a new coupling type.
 - `coupling`: the coupling.
 - `p`: the per-stratum kernel convolutions.
 - `window`: the past values, `L × S`, oldest first.
-- `t`: the step, counted from the first step of the call.
+- `t`: the time index of the step.
 
 # Examples
 ```@example

@@ -4,13 +4,13 @@ A coefficient that changes over time, with time on the last axis.
 As a kernel it is `L × T` (shared by every stratum) or `S × L × T` (one
 kernel per stratum).
 As a [`Recurrence`](@ref) coupling it is `S × S × T`.
-Slot `t` is read at the operator's `t`-th step, counted from the first step
-of each call.
+Slot `t` is read at time index `t`: the first output of a call is at its
+`start`, so a resumed call carries on through the same array.
 
 # Examples
 ```@example
 using ComposableRecurrences
-G = [0.2 0.3; 0.8 0.7]  # two lags, oldest first, over two steps
+G = [0.8 0.7; 0.2 0.3]  # lags 1 and 2 over two steps
 Recurrence(TimeVarying(G))(1.0; history = [1.0, 1.0])
 ```
 "
@@ -20,7 +20,7 @@ struct TimeVarying{A <: AbstractArray}
 end
 
 @doc "
-A kernel with one row per stratum, `S × L`.
+A kernel with one row per stratum, `S × L`, lag first.
 
 # Examples
 ```@example
@@ -38,8 +38,7 @@ end
 A kernel for every pair of strata, `S × S × L`, used as the coupling of a
 [`Recurrence`](@ref) whose kernel is `nothing`.
 
-`x[a, b, i]` weights stratum `b`'s value at lag `i` in stratum `a`: lags run
-forwards, newest first, unlike a vector kernel.
+`x[a, b, i]` weights stratum `b`'s value at lag `i` in stratum `a`.
 
 # Examples
 ```@example

@@ -43,7 +43,7 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
     eval(
         Expr(
             :public, :init_state, :apply, :apply!, :apply_pullback!,
-            :ispointwise, :pressure!, :pressure_pullback!, :pullback!,
+            :ispointwise, :param_eltype, :pressure!, :pressure_pullback!, :pullback!,
             :NoAdjoint, :OperatorInterface, :CouplingInterface,
             :ModifierInterface
         )

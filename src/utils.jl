@@ -14,25 +14,36 @@ _at(x::AbstractMatrix, k, t) = x[k, t]
 _steps(x::AbstractArray) = size(x, ndims(x))
 _steps(x) = nothing
 
-# The number of steps a kernel or coupling fixes: only time-varying ones do.
+# The steps a kernel or coupling covers: only time-varying ones do.
 _tv_steps(x::TimeVarying) = size(x.x, ndims(x.x))
 _tv_steps(x) = nothing
 
-# The number of steps the time-indexed slots agree on, from `name => steps`
-# pairs where `steps` is `nothing` for a slot that sets none.
-function _nsteps(slots::Pair...)
+# The number of steps of a call. The gain and add inputs set it and must
+# agree; without them the time-varying slots set it from `start` on. Every
+# time-varying slot must cover steps `start` to `start + T - 1`.
+function _nsteps(start, inputs::Tuple, varying::Tuple)
     T = nothing
-    for (name, n) in slots
+    for (name, n) in inputs
         n === nothing && continue
         if T === nothing
             T = n
         elseif n != T
             throw(
                 DimensionMismatch(
-                    "$name has $n steps but an earlier slot has $T"
+                    "$name has $n steps but an earlier input has $T"
                 )
             )
         end
+    end
+    for (name, n) in varying
+        n === nothing && continue
+        T === nothing && (T = n - start + 1)
+        n >= start + T - 1 || throw(
+            DimensionMismatch(
+                "$name covers $n steps, fewer than start + T - 1 = " *
+                    "$(start + T - 1)"
+            )
+        )
     end
     T === nothing && throw(
         ArgumentError(
@@ -52,23 +63,46 @@ function _check_strata(name, x::AbstractMatrix, S)
     return nothing
 end
 
-_eltype(x::Real) = typeof(x)
-_eltype(x::AbstractArray) = eltype(x)
-_eltype(x::UniformScaling) = eltype(x)
-_eltype(x::Union{TimeVarying, PerStratum, Pairwise}) = eltype(x.x)
-_eltype(::Nothing) = Bool
+@doc "
+The element type the parameters of `x` contribute to an operator's buffer.
 
-# A modifier's `Real` and `AbstractArray{<:Real}` fields set its parameter
-# eltype, so a Dual parameter promotes the buffer.
-_leaf_eltype(::Type{T}) where {T <: Real} = T
-_leaf_eltype(::Type{<:AbstractArray{T}}) where {T <: Real} = T
-_leaf_eltype(::Type) = Bool
-function _param_eltype(m)
-    return promote_type(Bool, map(_leaf_eltype, fieldtypes(typeof(m)))...)
+The buffer eltype is the float promotion of this over the kernel, coupling,
+modifiers, inputs and history, so a ForwardDiff Dual or a Float32 anywhere
+sets it.
+The default recurses by value through fields, tuples and named tuples, so
+abstractly typed fields count; a `Real` gives its type and an array of reals
+its eltype.
+Add a method for a type whose parameters this does not reach.
+
+# Arguments
+- `x`: any object, such as a modifier, coupling or kernel.
+
+# Examples
+```@example
+using ComposableRecurrences
+struct Scale
+    a
+    extra::NamedTuple
 end
+ComposableRecurrences.param_eltype(Scale(1.0f0, (; b = 2)))
+```
+"
+param_eltype(x) = _fields_eltype(x, Val(fieldcount(typeof(x))))
+param_eltype(x::Real) = typeof(x)
+param_eltype(x::AbstractArray{<:Real}) = eltype(x)
+function param_eltype(x::AbstractArray)
+    return mapreduce(param_eltype, promote_type, x; init = Bool)
+end
+param_eltype(x::Union{Tuple, NamedTuple}) = promote_type(Bool, map(param_eltype, values(x))...)
+param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 
-# The buffer eltype: every input and parameter, promoted and made float.
-_buffer_eltype(xs...) = float(promote_type(map(_eltype, xs)...))
+# Promote over the first `N` fields, unrolled so a concrete struct infers.
+_fields_eltype(x, ::Val{0}) = Bool
+function _fields_eltype(x, ::Val{N}) where {N}
+    return promote_type(
+        _fields_eltype(x, Val(N - 1)), param_eltype(getfield(x, N))
+    )
+end
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(zeros(T, length(s)), s)

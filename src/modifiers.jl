@@ -17,7 +17,7 @@ using ComposableRecurrences
 ComposableRecurrences.init_state(nothing, ones(2, 3))
 ```
 "
-init_state(m, history) = zeros(_eltype(history), _nstrata(history))
+init_state(m, history) = zeros(eltype(history), _nstrata(history))
 
 @doc "
 Whether modifier `m` acts on each stratum separately.
@@ -48,7 +48,7 @@ that acts on each stratum separately.
 - `m`: the modifier.
 - `v`: the stratum's value at this step.
 - `s`: the stratum's state before this step.
-- `t`: the step, counted from the first step of the call.
+- `t`: the time index of the step.
 - `k`: the stratum.
 
 # Examples
@@ -76,7 +76,7 @@ A modifier that couples strata implements this method.
 - `m`: the modifier.
 - `v`: the step's values, `gain ⊙ x + add` after earlier modifiers.
 - `s`: the modifier's state before this step.
-- `t`: the step, counted from the first step of the call.
+- `t`: the time index of the step.
 
 # Examples
 ```@example
@@ -128,7 +128,8 @@ methods(ComposableRecurrences.apply_pullback!)
 function apply_pullback! end
 
 # Run the modifiers in tuple order on the step's values, in place.
+_stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
 function _stages!(ms::Tuple, states::Tuple, v, t)
-    map((m, s) -> apply!(m, v, s, t), ms, states)
-    return nothing
+    apply!(first(ms), v, first(states), t)
+    return _stages!(Base.tail(ms), Base.tail(states), v, t)
 end
