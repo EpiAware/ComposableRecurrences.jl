@@ -17,6 +17,9 @@ const LIGHT_TUTORIALS = String[]
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
     "latent-processes.jl",
+    "spatial-strata.jl",
+    "time-varying-delays.jl",
+    "occupancy.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -31,6 +34,12 @@ const TUTORIAL_STUBS = [
         "# [Renewal then delay](@id tutorial-renewal-delay)",
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
+    "spatial-strata.md" =>
+        "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
+    "time-varying-delays.md" =>
+        "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
+    "occupancy.md" =>
+        "# [Occupancy and capacity](@id tutorial-occupancy)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -204,6 +213,12 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
         "getting-started/tutorials/latent-processes.md",
+    "Spatial and multi-type models" =>
+        "getting-started/tutorials/spatial-strata.md",
+    "Time-varying delays and kernels" =>
+        "getting-started/tutorials/time-varying-delays.md",
+    "Occupancy and capacity" =>
+        "getting-started/tutorials/occupancy.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
@@ -211,7 +226,14 @@ const PACKAGE_TUTORIALS = [
 # `"Title" => content` pairs where `content` is anything a nav entry may
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
-const PACKAGE_SECTIONS = Pair{String, Any}[]
+const PACKAGE_SECTIONS = Pair{String, Any}[
+    "Explanation" => [
+        "Operators" => "explanation/operators.md",
+        "Shapes and coefficients" => "explanation/shapes.md",
+        "Couplings" => "explanation/couplings.md",
+        "Modifiers" => "explanation/modifiers.md",
+    ],
+]
 
 # The one package-specific leaf in the managed "Development" group's fixed
 # skeleton (Overview, Contributing, this leaf, Release process, Developer

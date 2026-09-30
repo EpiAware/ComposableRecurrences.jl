@@ -33,6 +33,9 @@ pages = [
         "Concepts" => "getting-started/concepts.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
+        "Spatial and multi-type models" => "getting-started/tutorials/spatial-strata.md",
+        "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",
+        "Occupancy and capacity" => "getting-started/tutorials/occupancy.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
@@ -42,6 +45,12 @@ pages = [
         "Performance over time" => "benchmarks/over-time.md",
         "AD comparison" =>
             "benchmarks/ad-comparison.md",
+    ],
+    "Explanation" => [
+        "Operators" => "explanation/operators.md",
+        "Shapes and coefficients" => "explanation/shapes.md",
+        "Couplings" => "explanation/couplings.md",
+        "Modifiers" => "explanation/modifiers.md",
     ],
     "Development" => [
         "Overview" => "developer/index.md",
