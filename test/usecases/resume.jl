@@ -21,14 +21,16 @@
 
     window = C.renewal_window(ref_step(N), g, I₀, r)
     function renewal(N)
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            N, ComposableRecurrences.Floor()
+        )
         return Recurrence(g; modifiers = (depletion,))
     end
     # The state carries the last `L` values, the susceptible pool and the
     # next day, so both calls read the same full-length R_t.
     function split_run(N, Rt)
-        fitted, state = renewal(N)(
-            Rt; history = window, stop = T₁, return_state = true
+        fitted, state = ComposableRecurrences.with_state(
+            renewal(N), Rt; history = window, stop = T₁
         )
         forecast = renewal(N)(Rt; state)
         return vcat(fitted, forecast)
@@ -54,8 +56,8 @@ end
 
     function split_run(ρ, ϵ)
         ar = Recurrence(ρ)
-        fitted, state = ar(
-            1.0; history = init, add = ϵ, stop = T₁, return_state = true
+        fitted, state = ComposableRecurrences.with_state(
+            ar, 1.0; history = init, add = ϵ, stop = T₁
         )
         forecast = ar(1.0; state, add = ϵ)
         return vcat(init, fitted, forecast)
@@ -88,16 +90,15 @@ end
     # One operator over the whole horizon. The state carries the day
     # reached, so the forecast reads R_t and ε from the next day.
     depletion = ComposableRecurrences.Depletion(
-        PerStratum(N); form = :hazard, seeded = true
+        PerStratum(N); pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
     )
     importation = ComposableRecurrences.Redistribute(
         K, TimeVarying(PerStratum(ε))
     )
     patch = Recurrence(g; modifiers = (importation, depletion))
     function split_run(Rt)
-        fitted, state = patch(
-            Rt; history = seeds, start = L + 1, stop = T₁,
-            return_state = true
+        fitted, state = ComposableRecurrences.with_state(
+            patch, Rt; history = seeds, start = L + 1, stop = T₁
         )
         forecast = patch(Rt; state)
         return hcat(seeds, fitted, forecast)

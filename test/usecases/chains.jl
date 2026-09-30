@@ -29,7 +29,9 @@
     function chain(ρ, ϵ)
         ar = Recurrence(ρ)
         log_Rt = vcat(init, ar(1.0; history = init, add = ϵ))
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            N, ComposableRecurrences.Floor()
+        )
         renewal = Recurrence(g; modifiers = (depletion,))
         infections = renewal(exp.(log_Rt); history = window)
         return Convolution(pmf)(infections)[d:end]
@@ -54,8 +56,9 @@ end
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_chain(θ)), Rt)
 
     function chain(Rt)
+        # The seed is drawn from the pool, so it starts at N − Σ seed.
         depletion = ComposableRecurrences.Depletion(
-            N; form = :hazard, seeded = true
+            N; pool0 = max(N - sum(seed), 0)
         )
         renewal = Recurrence(g; modifiers = (depletion,))
         infections = ComposableRecurrences.seeded(renewal, Rt; history = seed)

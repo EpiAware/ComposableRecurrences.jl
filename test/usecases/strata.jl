@@ -62,7 +62,7 @@ end
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function coupled(θ)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N); form = :floor
+            PerStratum(N), ComposableRecurrences.Floor()
         )
         r = Recurrence(g; coupling = gravity(θ), modifiers = (depletion,))
         return r(Rt; history = window)
@@ -123,11 +123,11 @@ end
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3))), vec(K)
     )
 
-    # A strata × strata × lags coupling carries the intervals itself, lag 1
-    # at `[:, :, 1]`, so the kernel is `nothing`.
+    # A strata × strata × lags kernel carries the intervals and the mixing,
+    # lag 1 at `[:, :, 1]`, so the coupling stays `I`.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function per_pair(K)
-        r = Recurrence(nothing; coupling = Pairwise(pairwise(K)))
+        r = Recurrence(Pairwise(pairwise(K)))
         return r(Rt; history = window)
     end
     @test per_pair(K) ≈ ref
@@ -203,9 +203,8 @@ end
     # day `L + 1`, which reads R_t and ε at that day.
     function patch(K, ε, N)
         importation = ComposableRecurrences.Redistribute(K, ε)
-        depletion = ComposableRecurrences.Depletion(
-            PerStratum(N); form = :hazard, seeded = true
-        )
+        pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+        depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
         r = Recurrence(g; modifiers = (importation, depletion))
         return ComposableRecurrences.seeded(r, Rt; history = seeds)
     end

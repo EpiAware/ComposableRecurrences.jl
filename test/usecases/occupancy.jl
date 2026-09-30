@@ -47,7 +47,9 @@
         κ
         conf_hazard
     end
-    function ComposableRecurrences.apply!(m::OccupancyBalance, v, s, t)
+    function ComposableRecurrences.forward(
+            m::OccupancyBalance, ::ComposableRecurrences.Step, v, s, t
+        )
         z = zero(eltype(v))
         ε = eps(eltype(v))
         Obvd, Obg, Oconf, Osusp = v

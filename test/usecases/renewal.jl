@@ -54,7 +54,9 @@ end
     # CTIDM's floored depletion, `max(S / N, 1e-6)`, as a modifier on each
     # step's new infections.
     function renewal(N, Rt)
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            N, ComposableRecurrences.Floor()
+        )
         r = Recurrence(g; modifiers = (depletion,))
         return r(Rt; history = window)
     end
@@ -93,7 +95,9 @@ end
     # CTIDM's `(ImportedCases, SusceptibleDepletion)` order.
     alone(ι, N) = Recurrence(g)(Rt; history = window, add = ι)
     function before(ι, N)
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            N, ComposableRecurrences.Floor()
+        )
         r = Recurrence(g; modifiers = (depletion,))
         return r(Rt; history = window, add = ι)
     end
@@ -126,7 +130,9 @@ end
     # before the modifiers. The `Add` modifier adds `ι[t]` wherever it sits
     # in the tuple.
     function after(ι, N)
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            N, ComposableRecurrences.Floor()
+        )
         imports = ComposableRecurrences.Add(TimeVarying(ι))
         r = Recurrence(g; modifiers = (depletion, imports))
         return r(Rt; history = window)
@@ -145,20 +151,22 @@ end
     w = range(0.5, 2.0; length = n)
 
     # I_t = S_{t-1} (1 − exp(−R_t Σ_i g_i I_{t-i} / N)) after the seed days,
-    # with the pool starting at N − Σ seed. The whole seed is the history and
+    # with the pool starting at N − Σ seed (`pool0`). The whole seed is the
+    # history and
     # is returned first; the recurrence starts on the day after it, reading
     # R_t at the same day. A seed shorter than the generation interval is
     # zero-padded by the package: BVD truncates the early windows, which is
     # the same sum. A longer seed is passed whole, so the pool is drawn down
     # by all of it.
-    function renewal(g, N)
+    function renewal(g, seed, N)
         depletion = ComposableRecurrences.Depletion(
-            N; form = :hazard, seeded = true
+            N; pool0 = max(N - sum(seed), 0)
         )
         return Recurrence(g; modifiers = (depletion,))
     end
     function bvd_renewal(Rt, g, seed, N)
-        return ComposableRecurrences.seeded(renewal(g, N), Rt; history = seed)
+        r = renewal(g, seed, N)
+        return ComposableRecurrences.seeded(r, Rt; history = seed)
     end
 
     # Seed as long as the generation interval, shorter, then longer.
@@ -186,6 +194,6 @@ end
     g, seed = [0.1, 0.4, 0.3, 0.2], [2.0, 3.0, 4.0]
     L = length(seed)
     padded = vcat(zeros(length(g) - L), seed)
-    @test vcat(seed, renewal(g, N)(Rt; history = padded, start = L + 1)) ≈
+    @test vcat(seed, renewal(g, seed, N)(Rt; history = padded, start = L + 1)) ≈
         B.renewal_infections(Rt, g, seed, N)
 end
