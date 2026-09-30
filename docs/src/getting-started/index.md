@@ -15,7 +15,7 @@ An intervention on day 50 lowers the reproduction number, and a reporting delay 
 using ComposableRecurrences
 using ComposableRecurrences: Depletion
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
-using ForwardDiff
+using ForwardDiff, Markdown
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
@@ -80,46 +80,87 @@ Sensitivity fades after the intervention and is zero on the last day, whose infe
 
 ## Speed
 
-The same model written in plain Julia copies its lag window and grows its output at every step.
-The operators read one history buffer in place instead.
-This compares the two on the model above, measured when this page was built.
+The same model can be written by hand as a preallocated loop, or with `accumulate` and a `NamedTuple` state.
+All three give the same ForwardDiff gradient, up to rounding error.
 
 ```@example overview
-using Chairmarks
+using Chairmarks, Printf
 
-function plain_renewal(R, seed, gi, K, pop)
-    y = copy(seed)
-    pool = pop .+ zero(eltype(R))
-    for t in axes(R, 2)
-        window = y[:, (end - length(gi) + 1):end]
-        x = R[:, t] .* (K * (window * reverse(gi))) ./ pop
-        y = hcat(y, pool .* (1 .- exp.(-x)))
-        pool = pool .* exp.(-x)
+function loop_renewal(R, seed, gi, K, pop)
+    S, T = size(R)
+    L, m = length(gi), size(seed, 2)
+    V = promote_type(eltype(R), Float64)
+    y = zeros(V, S, m + T)
+    y[:, 1:m] .= seed
+    pool = V.(pop)
+    p = zeros(V, S)
+    for t in 1:T
+        for s in 1:S
+            p[s] = sum(gi[i] * y[s, m + t - i] for i in 1:L)
+        end
+        for a in 1:S
+            h = R[a, t] * sum(K[a, b] * p[b] for b in 1:S) / pop[a]
+            y[a, m + t] = pool[a] * (1 - exp(-h))
+            pool[a] *= exp(-h)
+        end
     end
-    return y[:, (size(seed, 2) + 1):end]
+    return y[:, (m + 1):end]
 end
-plain_renewal(R, seed, gi, K, pop) ≈ infections
+
+function accumulate_renewal(R, seed, gi, K, pop)
+    init = (window = seed, pool = pop .+ zero(eltype(R)), y = zeros(eltype(R), size(R, 1)))
+    steps = accumulate(eachcol(R); init) do state, Rt
+        h = Rt .* (K * (state.window * reverse(gi))) ./ pop
+        new = state.pool .* (1 .- exp.(-h))
+        (window = hcat(state.window[:, 2:end], new), pool = state.pool .* exp.(-h), y = new)
+    end
+    return reduce(hcat, getfield.(steps, :y))
+end
+
+methods = [
+    "ComposableRecurrences" => R -> sum(renewal(R; history = seed)),
+    "Hand-written loop" => R -> sum(loop_renewal(R, seed, gi, K, pop)),
+    "accumulate" => R -> sum(accumulate_renewal(R, seed, gi, K, pop)),
+]
+∇ = [ForwardDiff.gradient(f, R) for (_, f) in methods]
+maximum(maximum(abs, g .- ∇[1]) for g in ∇)
 ```
 
+This compares their forward and gradient times, measured when this page was built.
+
 ```@example overview
-f_ops(R) = sum(renewal(R; history = seed))
-f_plain(R) = sum(plain_renewal(R, seed, gi, K, pop))
-times = [
-    ("Forward", "Plain Julia", @b(f_plain($R)).time),
-    ("Forward", "ComposableRecurrences", @b(f_ops($R)).time),
-    ("Gradient", "Plain Julia", @b(ForwardDiff.gradient(f_plain, $R)).time),
-    ("Gradient", "ComposableRecurrences", @b(ForwardDiff.gradient(f_ops, $R)).time),
-]
-bench = DataFrame(task = first.(times), method = getindex.(times, 2), time = last.(times))
-@transform!(groupby(bench, :task), :relative = :time ./ last(:time))
+times = DataFrame(
+    task = repeat(["Forward", "Gradient"]; inner = length(methods)),
+    method = repeat(first.(methods), 2),
+    time = vcat(
+        [@b(f($R), seconds = 0.5).time for (_, f) in methods],
+        [@b(ForwardDiff.gradient($f, $R), seconds = 0.5).time for (_, f) in methods]
+    )
+)
+@transform!(groupby(times, :task), :relative = :time ./ first(:time))
 draw(
-    data(bench) * mapping(:method => "", :relative, color = :method, layout = :task) *
+    data(times) * mapping(:method => "", :relative, color = :method, layout = :task) *
         visual(BarPlot);
     axis = (ylabel = "Time relative to ComposableRecurrences", xticklabelsvisible = false)
 )
 ```
 
-The gradient gains more than the forward run, because every copy in the plain version is repeated for each derivative.
+```@example overview
+function compare(task, method, name)
+    r = only(@subset(times, :task .== task, :method .== method).relative)
+    return r >= 1 ? @sprintf("%s takes %.1f times as long", name, r) :
+        @sprintf("%s is %.1f times as fast", name, 1 / r)
+end
+Markdown.parse(
+    "For the forward run, $(compare("Forward", "Hand-written loop", "the hand-written loop")) " *
+        "and $(compare("Forward", "accumulate", "`accumulate`")).\n" *
+        "For the gradient, $(compare("Gradient", "Hand-written loop", "the hand-written loop")) " *
+        "and $(compare("Gradient", "accumulate", "`accumulate`"))."
+)
+```
+
+A loop written for one model has to be rewritten when the model changes.
+The operators compose, so a new coupling or modifier needs no new loop.
 
 ## Learning more
 
