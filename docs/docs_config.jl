@@ -151,7 +151,10 @@ const LINKCHECK_IGNORE = Regex[
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,
 # e.g. rewriting an absolute docs URL to an in-site `@ref`.
-const INDEX_REWRITES = Pair{String, String}[]
+const INDEX_REWRITES = Pair{String, String}[
+    # The README's figure, relative to the site root.
+    "](docs/src/assets/" => "](assets/",
+]
 
 # Whether README ```julia blocks become runnable `@example readme` blocks on
 # the home page. Keep `true` for real, runnable examples; set `false` when
