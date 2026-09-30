@@ -7,7 +7,7 @@
 
 const RELEASE_NOTES_HEADER = """
 ```@meta
-EditURL = "https://github.com/EpiAware/ComposableRecurrences/releases"
+EditURL = "https://github.com/EpiAware/ComposableRecurrences.jl/releases"
 ```
 
 # Release notes

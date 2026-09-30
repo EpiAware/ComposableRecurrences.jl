@@ -60,7 +60,7 @@ _cfg(sym, default) = isdefined(@__MODULE__, sym) ?
 
 build_docs(
     ComposableRecurrences;
-    repo = "EpiAware/ComposableRecurrences",
+    repo = "EpiAware/ComposableRecurrences.jl",
     authors = "Sam Abbott, EpiAware contributors",
     deploy_url = nothing,
     pages = _cfg(:pages, ["Home" => "index.md"]),

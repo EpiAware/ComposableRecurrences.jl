@@ -5,5 +5,5 @@ type: software
 authors:
   - name: "Sam Abbott"
   - name: "EpiAware contributors"
-repository-code: "https://github.com/EpiAware/ComposableRecurrences"
-url: "https://github.com/EpiAware/ComposableRecurrences"
+repository-code: "https://github.com/EpiAware/ComposableRecurrences.jl"
+url: "https://github.com/EpiAware/ComposableRecurrences.jl"

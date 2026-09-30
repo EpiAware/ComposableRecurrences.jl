@@ -41,7 +41,7 @@ decision between backends can be made from numbers rather than the general
 pattern alone.
 
 Which backends are supported is the per-backend badge row in the
-[README](https://github.com/EpiAware/ComposableRecurrences#readme), which reports each backend's
+[README](https://github.com/EpiAware/ComposableRecurrences.jl#readme), which reports each backend's
 CI status and its coverage flag from the gradient suite.
 
 ## Packages used
