@@ -256,9 +256,10 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-Enzyme forward mode with runtime activity returns a wrong gradient when a
-depletion modifier reads its population array, on a Recurrence or a
-Convolution; reverse mode is correct.
+Enzyme forward mode with runtime activity returns a wrong gradient for
+these depletion scenarios; reverse mode is correct. The Convolution one is
+correct from a direct closure without the `_unpack` views and wrong here;
+the cause is not isolated.
 """
 function backend_broken_scenarios()
     return Dict(
