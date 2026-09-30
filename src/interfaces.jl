@@ -144,3 +144,14 @@ Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
         piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
+
+@implements PieceInterface Allocate [
+    Arguments(;
+        piece = Allocate([1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))),
+        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Allocate([1:2, 3:3], 1.0), role = Init(),
+        args = (zeros(3), ones(3, 2))
+    ),
+]

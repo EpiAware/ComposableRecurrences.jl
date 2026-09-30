@@ -13,6 +13,7 @@
     # `nothing` for anything without a cotangent.
     mirror(x::AbstractFloat) = Ref(zero(x))
     mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
+    mirror(::AbstractArray) = nothing
     mirror(::Union{Integer, Symbol, Nothing}) = nothing
     function mirror(x)
         names = fieldnames(typeof(x))
