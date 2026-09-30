@@ -31,6 +31,7 @@ pages = [
         "Overview" => "getting-started/index.md",
         "Concepts" => "getting-started/concepts.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
+        "Occupancy and capacity" => "getting-started/tutorials/occupancy.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
