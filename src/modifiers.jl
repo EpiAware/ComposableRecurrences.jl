@@ -9,7 +9,8 @@ The state is copied into the operator's buffer eltype before the first step.
 
 # Arguments
 - `m`: the modifier.
-- `history`: the history the recurrence starts from (length `L`, or `S × L`).
+- `history`: the full history passed to the call (length `m`, or `S × m`),
+  not only the last `L` values.
 
 # Examples
 ```@example
