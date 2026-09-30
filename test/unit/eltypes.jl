@@ -103,10 +103,12 @@ end
     R = fill(1.1f0, 2, 5)
     K = Float32[0.0 0.3; 0.2 0.0]
     for m in (
-            CR.Depletion(100.0f0), CR.Depletion(Float32[100, 50]; form = :floor),
+            CR.Depletion(100.0f0),
+            CR.Depletion(PerStratum(Float32[100, 50]); form = :floor),
             CR.Depletion(100.0f0; seeded = true, heterogeneity = 1.5f0),
-            CR.Imports(0.5f0), CR.Imports(fill(0.5f0, 2, 5)),
-            CR.Redistribute(K, 0.1f0), CR.Redistribute(K, TimeVarying(fill(0.1f0, 2, 5))),
+            CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
+            CR.Redistribute(K, 0.1f0),
+            CR.Redistribute(K, TimeVarying(PerStratum(fill(0.1f0, 2, 5)))),
             CR.Clamp(0.0f0, 5.0f0),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32

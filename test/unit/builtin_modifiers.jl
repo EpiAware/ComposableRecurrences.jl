@@ -1,4 +1,4 @@
-# The built-in modifiers: Depletion, Imports, Redistribute and Clamp.
+# The built-in modifiers: Depletion, Add, Redistribute and Clamp.
 # Forward values against naive loops, ForwardDiff gradients through a
 # recurrence, and each hand-written pullback against a local ForwardDiff
 # Jacobian of `apply!` in the step's values, state and the modifier's own
@@ -110,46 +110,57 @@ end
     CR = ComposableRecurrences
     h = [1.0 2.0; 3.0 1.0]
     N = [100.0, 50.0]
-    m = CR.Depletion(N; seeded = true)
+    m = CR.Depletion(PerStratum(N); seeded = true)
     @test CR.init_state(m, h) ≈ [97.0, 46.0]
     @test CR.init_state(CR.Depletion(80.0), h) == [80.0, 80.0]
-    @test_throws DimensionMismatch CR.init_state(CR.Depletion([1.0, 2.0, 3.0]), h)
+    @test_throws DimensionMismatch CR.init_state(
+        CR.Depletion(PerStratum([1.0, 2.0, 3.0])), h
+    )
     @test_throws ArgumentError CR.Depletion(1.0; form = :other)
+    # A plain array is not a parameter; N is the starting pool, so it does
+    # not vary over time.
+    @test_throws ArgumentError CR.Depletion(N)
+    @test_throws ArgumentError CR.Depletion(TimeVarying(N))
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
     @test size(y) == (2, 6)
     @test all(y .>= 0)
 end
 
-@testitem "Imports: scalar, per-time and per-stratum-time" begin
+@testitem "Add: scalar, per stratum and time-varying" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     g = [0.5, 0.5]
     h = [1.0 1.0; 2.0 2.0]
     base(add) = Recurrence(g)(1.1; history = h, add)
     b = [0.1 0.2 0.3 0.4; 0.5 0.6 0.7 0.8]
-    r(b) = Recurrence(g; modifiers = (CR.Imports(b),))
-    # Alone, imports are the same as `add`.
-    @test r(0.5)(1.1; history = h, add = zeros(2, 4)) ≈ base(fill(0.5, 2, 4))
-    @test r(b[1, :])(1.1; history = h, add = zeros(2, 4)) ≈
+    r(b) = Recurrence(g; modifiers = (CR.Add(b),))
+    # Alone, Add is the same as `add`.
+    @test r(0.5)(1.1; history = h, stop = 4) ≈ base(fill(0.5, 2, 4))
+    @test r(PerStratum(b[:, 1]))(1.1; history = h, stop = 4) ≈
+        base(repeat(b[:, 1], 1, 4))
+    @test r(TimeVarying(b[1, :]))(1.1; history = h, stop = 4) ≈
         base(repeat(b[1:1, :], 2))
-    @test r(b)(1.1; history = h, add = zeros(2, 4)) ≈ base(b)
-    # TimeVarying says the same thing explicitly.
-    @test r(TimeVarying(b))(1.1; history = h, add = zeros(2, 4)) ≈ base(b)
-    @test r(TimeVarying(b[1, :]))(1.1; history = h, add = zeros(2, 4)) ≈
-        base(repeat(b[1:1, :], 2))
-    # Read at the absolute time index.
-    y = r(b)(1.1; history = h, add = zeros(2, 2), start = 3)
-    @test y ≈ Recurrence(g)(1.1; history = h, add = b[:, 3:4])
+    @test r(TimeVarying(PerStratum(b)))(1.1; history = h, stop = 4) ≈ base(b)
+    # Read at the absolute time.
+    y = r(TimeVarying(PerStratum(b)))(1.1; history = h, start = 3, stop = 4)
+    @test y ≈ Recurrence(g)(1.1; history = h, add = b, start = 3)
+    # A plain array is not a parameter, and the values must cover stop.
+    @test_throws ArgumentError CR.Add(b[1, :])
+    @test_throws ArgumentError CR.Add(b)
+    @test_throws DimensionMismatch r(TimeVarying(b[1, :]))(1.1; history = h, stop = 5)
+    @test_throws DimensionMismatch r(PerStratum([1.0, 2.0, 3.0]))(
+        1.1; history = h, stop = 4
+    )
 end
 
-@testitem "Imports after depletion are not depleted" begin
+@testitem "Add after depletion is not depleted" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     g = [1.0]
     b = [0.5, 1.0, 2.0]
     d = CR.Depletion(10.0; form = :floor)
-    y = Recurrence(g; modifiers = (d, CR.Imports(b)))(1.0; history = [2.0], add = zeros(3))
+    y = Recurrence(g; modifiers = (d, CR.Add(TimeVarying(b))))(1.0; history = [2.0], stop = 3)
     function naive()
         S, prev, out = 10.0, 2.0, Float64[]
         for t in 1:3
@@ -178,8 +189,13 @@ end
         ]
     end
     for (ε, εv) in (
-            (0.1, fill(0.1, 3)), ([0.1, 0.2, 0.05], [0.1, 0.2, 0.05]),
-            (TimeVarying([0.1 0.3; 0.2 0.1; 0.05 0.2]), [0.3, 0.1, 0.2]),
+            (0.1, fill(0.1, 3)),
+            (PerStratum([0.1, 0.2, 0.05]), [0.1, 0.2, 0.05]),
+            (TimeVarying([0.1, 0.4]), fill(0.4, 3)),
+            (
+                TimeVarying(PerStratum([0.1 0.3; 0.2 0.1; 0.05 0.2])),
+                [0.3, 0.1, 0.2],
+            ),
         )
         x, s = copy(v), zeros(3)
         CR.apply!(CR.Redistribute(K, ε), x, s, 2)
@@ -189,6 +205,8 @@ end
         @test s ≈ [sum(εv[q] * Ktrue[p, q] * v[q] for q in 1:3 if q != p) for p in 1:3]
     end
     @test_throws DimensionMismatch CR.Redistribute(ones(2, 3), 0.1)
+    @test_throws ArgumentError CR.Redistribute(K, [0.1, 0.2, 0.05])
+    @test_throws ArgumentError CR.Redistribute(K, ones(3, 2))
 end
 
 @testitem "Clamp: bounds, scalar and per stratum" begin
@@ -198,17 +216,22 @@ end
     CR.apply!(CR.Clamp(0.0, 1.0), v, s, 1)
     @test v == [0.0, 0.5, 1.0]
     v = [-1.0, 0.5, 3.0]
-    CR.apply!(CR.Clamp([-2.0, 0.6, 0.0], [0.0, 1.0, 2.0]), v, s, 1)
+    CR.apply!(CR.Clamp(PerStratum([-2.0, 0.6, 0.0]), PerStratum([0.0, 1.0, 2.0])), v, s, 1)
     @test v == [-1.0, 0.6, 2.0]
-    y = Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], add = zeros(4))
+    y = Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
     @test y == [2.0, 4.0, 5.0, 5.0]
+    # A time-varying bound is read at the absolute time.
+    hi = TimeVarying([10.0, 3.0, 10.0, 6.0])
+    y = Recurrence([2.0]; modifiers = (CR.Clamp(0.0, hi),))(1.0; history = [1.0], stop = 4)
+    @test y == [2.0, 3.0, 6.0, 6.0]
+    @test_throws ArgumentError CR.Clamp([0.0, 1.0], 2.0)
 end
 
 @testitem "Built-in modifiers implement the modifier interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     @test Interfaces.implements(CR.ModifierInterface, CR.Depletion)
-    @test Interfaces.implements(CR.ModifierInterface, CR.Imports)
+    @test Interfaces.implements(CR.ModifierInterface, CR.Add)
     @test Interfaces.implements(CR.ModifierInterface, CR.Redistribute)
     @test Interfaces.implements(CR.ModifierInterface, CR.Clamp)
 end
@@ -226,14 +249,14 @@ end
         @test c.v && c.s && c.θ
         @test all(!iszero, c.θ̄)
         c = ModifierChecks.check_pullback(
-            θ -> CR.Depletion(θ[1:3]; form, heterogeneity = θ[4]),
+            θ -> CR.Depletion(PerStratum(θ[1:3]); form, heterogeneity = θ[4]),
             [200.0, 60.0, 100.0, α], v, s, 3
         )
         @test c.v && c.s && c.θ
     end
     # The floor binds on the second stratum (negative pool).
     c = ModifierChecks.check_pullback(
-        θ -> CR.Depletion(θ[1:3]; form = :floor, heterogeneity = θ[4]),
+        θ -> CR.Depletion(PerStratum(θ[1:3]); form = :floor, heterogeneity = θ[4]),
         [200.0, 60.0, 100.0, 1.0], v, [150.0, -5.0, 90.0], 1
     )
     @test c.v && c.s && c.θ
@@ -254,12 +277,12 @@ end
     for seeded in (false, true), N0 in ([100.0, 40.0, 60.0], [80.0])
         n = length(N0)
         pool(θ) = CR.init_state(
-            CR.Depletion(n == 1 ? θ[1] : θ[1:n]; seeded),
+            CR.Depletion(n == 1 ? θ[1] : PerStratum(θ[1:n]); seeded),
             reshape(θ[(n + 1):end], 3, 3)
         )
         θ = vcat(N0, vec(h))
         expected = transpose(ForwardDiff.jacobian(pool, θ)) * s̄
-        m = CR.Depletion(n == 1 ? N0[1] : N0; seeded)
+        m = CR.Depletion(n == 1 ? N0[1] : PerStratum(N0); seeded)
         m̄ = ModifierChecks.mirror(m)
         h̄ = zero(h)
         CR.init_state_pullback!(m̄, h̄, m, h, s̄)
@@ -270,26 +293,22 @@ end
     end
 end
 
-@testitem "Imports pullback matches the local Jacobian" setup = [ModifierChecks] begin
+@testitem "Add pullback matches the local Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [1.0, 2.0], [0.3, 0.4]
-    c = ModifierChecks.check_pullback(θ -> CR.Imports(θ[1]), [0.7], v, s, 2)
+    c = ModifierChecks.check_pullback(θ -> CR.Add(θ[1]), [0.7], v, s, 2)
     @test c.v && c.s && c.θ
     @test c.θ̄[1] != 0
-    c = ModifierChecks.check_pullback(θ -> CR.Imports(θ), [0.1, 0.2, 0.3], v, s, 2)
+    c = ModifierChecks.check_pullback(θ -> CR.Add(PerStratum(θ)), [0.1, 0.2], v, s, 2)
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Imports(reshape(θ, 2, 3)), collect(0.1:0.1:0.6), v, s, 3
+        θ -> CR.Add(TimeVarying(PerStratum(reshape(θ, 2, 3)))),
+        collect(0.1:0.1:0.6), v, s, 3
     )
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Imports(TimeVarying(reshape(θ, 2, 3))), collect(0.1:0.1:0.6),
-        v, s, 3
-    )
-    @test c.v && c.s && c.θ
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Imports(TimeVarying(θ)), [0.1, 0.2, 0.3], v, s, 2
+        θ -> CR.Add(TimeVarying(θ)), [0.1, 0.2, 0.3], v, s, 2
     )
     @test c.v && c.s && c.θ
 end
@@ -308,12 +327,19 @@ end
     # The diagonal of K is not read.
     @test all(iszero, c.θ̄[[1, 5, 9]])
     c = ModifierChecks.check_pullback(
-        θ -> CR.Redistribute(Kof(θ), θ[10:12]), vcat(K, [0.1, 0.2, 0.05]),
-        v, s, 1
+        θ -> CR.Redistribute(Kof(θ), PerStratum(θ[10:12])),
+        vcat(K, [0.1, 0.2, 0.05]), v, s, 1
     )
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Redistribute(Kof(θ), TimeVarying(reshape(θ[10:15], 3, 2))),
+        θ -> CR.Redistribute(Kof(θ), TimeVarying(θ[10:11])),
+        vcat(K, [0.1, 0.2]), v, s, 2
+    )
+    @test c.v && c.s && c.θ
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Redistribute(
+            Kof(θ), TimeVarying(PerStratum(reshape(θ[10:15], 3, 2)))
+        ),
         vcat(K, [0.1, 0.2, 0.05, 0.3, 0.1, 0.2]), v, s, 2
     )
     @test c.v && c.s && c.θ
@@ -327,7 +353,12 @@ end
     @test c.v && c.s && c.θ
     @test all(!iszero, c.θ̄)
     c = ModifierChecks.check_pullback(
-        θ -> CR.Clamp(θ[1:3], θ[4:6]), [-2.0, 0.6, 0.0, 0.0, 1.0, 2.0], v, s, 1
+        θ -> CR.Clamp(PerStratum(θ[1:3]), PerStratum(θ[4:6])),
+        [-2.0, 0.6, 0.0, 0.0, 1.0, 2.0], v, s, 1
+    )
+    @test c.v && c.s && c.θ
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Clamp(TimeVarying(θ[1:2]), θ[3]), [0.0, 0.7, 2.0], v, s, 2
     )
     @test c.v && c.s && c.θ
 end
@@ -343,8 +374,8 @@ end
     function loss(θ)
         mods = (
             CR.Redistribute(K, θ[1]),
-            CR.Depletion(θ[2:4]; seeded = true, heterogeneity = θ[5]),
-            CR.Imports(θ[6]),
+            CR.Depletion(PerStratum(θ[2:4]); seeded = true, heterogeneity = θ[5]),
+            CR.Add(θ[6]),
             CR.Clamp(0.0, θ[7]),
         )
         return sum(w .* Recurrence(g; modifiers = mods)(R; history = h))
@@ -358,4 +389,39 @@ end
     end
     @test ∇ ≈ fd rtol = 1.0e-5
     @test all(!iszero, ∇[1:6])
+end
+
+@testitem "Wrapper nesting is normalised" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    S, L, T = 2, 3, 6
+    G = rand(S, L, T)
+    B = rand(S, T)
+    h = rand(S, L)
+    R = 1 .+ rand(S, T)
+    # Either order builds one object, TimeVarying outermost.
+    for I in (:secondary, :primary)
+        a = TimeVarying(PerStratum(G); indexed_by = I)
+        b = PerStratum(TimeVarying(G; indexed_by = I))
+        @test typeof(a) === typeof(b) && a.x.x === b.x.x
+    end
+    ra = Recurrence(TimeVarying(PerStratum(G)))
+    rb = Recurrence(PerStratum(TimeVarying(G)))
+    @test typeof(ra) === typeof(rb) && ra.kernel.x.x === rb.kernel.x.x
+    @test ra(R; history = h) == rb(R; history = h)
+    ca = Convolution(TimeVarying(PerStratum(G); indexed_by = :primary))
+    cb = Convolution(PerStratum(TimeVarying(G; indexed_by = :primary)))
+    @test typeof(ca) === typeof(cb)
+    @test ca(R) == cb(R)
+    # And for modifier parameters.
+    for build in (
+            b -> CR.Add(b), b -> CR.Redistribute([0.0 0.2; 0.3 0.0], b),
+            b -> CR.Clamp(0.0, b),
+        )
+        ma, mb = build(TimeVarying(PerStratum(B))), build(PerStratum(TimeVarying(B)))
+        @test typeof(ma) === typeof(mb)
+        g = [0.3, 0.2, 0.1]
+        @test Recurrence(g; modifiers = (ma,))(R; history = h) ==
+            Recurrence(g; modifiers = (mb,))(R; history = h)
+    end
 end
