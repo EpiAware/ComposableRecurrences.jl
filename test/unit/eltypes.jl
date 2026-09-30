@@ -19,7 +19,12 @@
     @test eltype(Convolution(g)(R)) == Float32
     @test eltype(Convolution(g)(R[1, :]; history = h[1, :])) == Float32
 
-    # Mixed precision promotes.
+    # Mixed precision promotes, including a modifier state built from a
+    # Float32 parameter with a Float64 history.
+    y = Recurrence(g; modifiers = (FlooredDepletion(fill(100.0f0, S)),))(
+        R; history = Float64.(h)
+    )
+    @test eltype(y) == Float64
     @test eltype(Recurrence(g)(fill(1.1, S, T); history = h)) == Float64
     @test eltype(Recurrence(g; coupling = 0.5 * I)(R; history = h)) == Float64
     @test eltype(Convolution(Float64.(g))(R)) == Float64
@@ -56,6 +61,14 @@ end
     @test check(h -> rec(g0, K0, h, R0, pop0), h0)
     @test check(R -> rec(g0, K0, h0, R, pop0), R0)
     @test check(pop -> rec(g0, K0, h0, R0, pop), pop0)
+    # A scalar modifier field receives its derivative.
+    @test check(
+        N -> sum(
+            W .* Recurrence(g0; modifiers = (LooseScale(N[1], (; b = 0.0)),))(
+                R0; history = h0
+            )
+        ), [0.9]
+    )
     @test check(ϵ -> rec(g0, K0, h0, R0, pop0; add = ϵ), 0.1 .* R0)
     @test check(λ -> sum(W .* Recurrence(g0; coupling = λ[1] * I)(R0; history = h0)), [0.9])
     @test check(d -> sum(W .* Recurrence(g0; coupling = Diagonal(d))(R0; history = h0)), [0.9, 1.0, 1.1])

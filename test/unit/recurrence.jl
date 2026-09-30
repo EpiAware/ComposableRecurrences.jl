@@ -223,7 +223,6 @@ end
     @test_throws ArgumentError Recurrence(g; coupling = Pairwise(ones(2, 2, 3)))
     @test_throws ArgumentError Recurrence(nothing)
     @test_throws ArgumentError Recurrence(g)(1.0; history = ones(3))
-    @test_throws DimensionMismatch Recurrence(g)(ones(5); history = ones(2))
     @test_throws DimensionMismatch Recurrence(g)(ones(5); history = ones(3), add = ones(4))
     @test_throws DimensionMismatch Recurrence(g; coupling = ones(3, 3))(
         ones(2, 5); history = ones(2, 3)
@@ -247,7 +246,7 @@ end
     @test y1 ≈ full[:, 1:4]
     @test state.history ≈ full[:, 1:4]
     @test length(state.states) == 2
-    @test state.t == 4
+    @test state.t == 5
     y2 = r(R[:, 5:end]; history = state, add = ϵ[:, 5:end])
     @test y2 ≈ full[:, 5:end]
 
@@ -285,7 +284,7 @@ end
 
     # A resumed call continues at the state's next index.
     y1, state = r(R[1:5]; history = h, return_state = true)
-    @test state.t == 5
+    @test state.t == 6
     @test r(R[6:end]; history = state) ≈ full[6:end]
 
     # An explicit start reads time-varying slots from that index.
@@ -324,4 +323,20 @@ end
     ϵ = randn(rng, 10)
     @test Recurrence(g)(; history = h, add = ϵ) ≈
         Recurrence(g)(1.0; history = h, add = ϵ)
+end
+
+@testitem "Recurrence: history shorter than the kernel is zero-padded" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    rng = Xoshiro(15)
+    L, T = 5, 8
+    g = rand(rng, L)
+    R = 1 .+ rand(rng, T)
+    h = rand(rng, 2)
+    r = Recurrence(g)
+    @test r(R; history = h) ≈ r(R; history = [zeros(L - 2); h])
+    y = r(R; history = Float64[], add = 1.0)
+    @test y ≈ r(R; history = zeros(L), add = 1.0)
+    H = rand(rng, 3, 2)
+    @test Recurrence(g)(ones(3, T); history = H) ≈
+        Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end

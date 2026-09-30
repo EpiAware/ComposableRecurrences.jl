@@ -44,6 +44,22 @@ function ComposableRecurrences.apply(m::FlooredDepletion, v, s, t, k)
     return v′, s - v′
 end
 
+"""
+Floored depletion from one scalar pool size `N` shared by every stratum, so
+the scalar field is differentiated.
+"""
+struct ScalarDepletion{T}
+    N::T
+end
+function ComposableRecurrences.init_state(m::ScalarDepletion, history)
+    return fill(m.N, size(history, 1))
+end
+ComposableRecurrences.ispointwise(::ScalarDepletion) = true
+function ComposableRecurrences.apply(m::ScalarDepletion, v, s, t, k)
+    v′ = max(s / m.N, 1.0e-6) * v
+    return v′, s - v′
+end
+
 # Consecutive blocks of `θ` with the given shapes.
 function _unpack(θ, shapes...)
     o = 0
@@ -80,6 +96,15 @@ function _renewal_strata(θ)
     g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
     r = Recurrence(g; coupling = K, modifiers = (FlooredDepletion(POP),))
     y = r(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A scalar modifier field, a Float32 kernel and Float64 history.
+const G0F = Float32.(G0)
+function _scalar_field_mixed(θ)
+    N, logR = θ[1], _unpack(view(θ, 2:length(θ)), (S, T))[1]
+    r = Recurrence(G0F; coupling = K0, modifiers = (ScalarDepletion(N),))
+    y = r(exp.(logR); history = fill(5.0, S, L))
     return sum(WS .* log.(y))
 end
 
@@ -129,6 +154,10 @@ const _SCENARIOS = [
     (
         "Recurrence strata, coupling and depletion", _renewal_strata,
         () -> _flat(G0, K0, fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
+        () -> _flat([80.0], 0.3 .+ LOGR),
     ),
     (
         "Recurrence sparse coupling", _sparse,
