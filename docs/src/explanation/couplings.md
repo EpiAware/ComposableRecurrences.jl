@@ -1,33 +1,44 @@
 # [Couplings](@id couplings)
 
-!!! note "Planned"
-    This page describes the planned coupling interface for spatial mixing.
-    Its examples do not run yet.
-
-A coupling mixes the lagged outputs of several strata before the gain is applied.
+A coupling mixes the strata's kernel convolutions before the gain is applied.
 The default `I` keeps strata independent.
 
 ## Fixed mixing
 
-A section on an `S × S` matrix coupling, dense or sparse.
+Any `S × S` matrix is a coupling, and `C[a, b]` weights stratum `b`'s convolution into stratum `a`.
 
-## Mixing by lag
+```@example couplings
+using ComposableRecurrences
 
-A section on `Pairwise(S × S × L)`, where the mixing depends on the lag.
+K = [0.9 0.1; 0.2 0.8]
+r = Recurrence([0.2, 0.5, 0.3]; coupling = K)
+r(1.1; history = [10.0 10.0 10.0; 0.0 0.0 0.0], stop = 6)
+```
+
+A sparse matrix or a `Diagonal` runs its own fast path.
+
+```@example couplings
+using SparseArrays
+
+Ks = sparse([1, 2, 2, 3], [1, 1, 2, 3], [0.9, 0.1, 1.0, 1.0])
+Recurrence([0.2, 0.5, 0.3]; coupling = Ks)(1.1; history = ones(3, 3), stop = 4)
+```
 
 ## Mixing over time
 
-A section on `TimeVarying(S × S × T)`.
+`TimeVarying` takes an `S × S × T` array and uses its `t`-th slice at time `t`.
 
-## The coupling interface
-
-A section on `pressure` and `pressure_pullback!`, the two functions a coupling defines.
-
-```@raw html
-<!-- becomes @example once couplings land -->
+```@example couplings
+Kt = cat([[1.0 0.1t; 0.1t 1.0] for t in 1:4]...; dims = 3)
+Recurrence([0.5, 0.5]; coupling = TimeVarying(Kt))(1.0; history = ones(2, 2), stop = 4)
 ```
-```julia
-K = [0.9 0.1; 0.2 0.8]
-r = Recurrence(PerStratum(kernels); coupling = K)
-y = r(gain; history)
-```
+
+## Mixing by lag
+
+When the mixing depends on the lag, use a `Pairwise` kernel instead of a coupling.
+See [Shapes and coefficients](@ref shapes).
+
+## Writing your own coupling
+
+A coupling is any struct with `forward` on the `Pressure()` role.
+See [Extending](@ref extending).

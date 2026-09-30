@@ -1,4 +1,8 @@
 [deps]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Interfaces = "85a1e053-f937-4924-92a5-1367d23b7b87"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 ADFixtures = "09061bce-e10c-4c3e-b2cd-e198b26477f6"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Chairmarks = "0ca39b1e-fe0b-4e98-acfc-b1656634c4de"
@@ -22,6 +26,10 @@ EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.
 ADFixtures = {path = "../test/ADFixtures"}
 
 [compat]
+ForwardDiff = "0.10, 1"
+Interfaces = "0.3"
+Random = "1"
+SparseArrays = "1"
 CairoMakie = "0.15"
 Chairmarks = "1"
 DataFramesMeta = "0.15"

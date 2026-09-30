@@ -1,22 +1,19 @@
 # [Shapes and coefficients](@id shapes)
 
-!!! note "Planned"
-    This page describes the planned argument shapes and coefficient wrappers.
-
 ## Axes
 
 `T` is time, `S` is strata and `L` is lags.
 Time is always the last axis.
 A single series drops the `S` axis.
-Public arrays are strata × time.
+Data (inputs, history and outputs) are strata × time and are never wrapped.
 
 ## Kernel orientation
 
 Every kernel is lag-first.
-Index 1 of a recurrence kernel is the weight on `y_{t-1}`.
-Index 1 of a convolution kernel is lag 0.
-`PerStratum`, `TimeVarying` and `Pairwise` kernels follow the same order.
-A generation interval or a set of AR coefficients goes in as written, with no reversal.
+Index 1 of a recurrence kernel weights `y_{t-1}`.
+Index 1 of a convolution kernel weights lag 0.
+`PerStratum`, `Pairwise` and `TimeVarying` kernels follow the same order.
+A generation interval or a set of AR coefficients goes in as written.
 
 ## History length
 
@@ -25,21 +22,60 @@ A history shorter than `L` is zero-padded, meaning no earlier values.
 
 ## Shape table
 
+A bare array has the slot's own axes only.
+`PerStratum` adds a leading strata axis, `Pairwise` adds leading `S × S` axes and `TimeVarying` adds a trailing time axis.
+
 | Slot | Fixed | Per stratum | Time-varying |
 |---|---|---|---|
-| kernel (lag-first) | Vector L | PerStratum(S × L) | TimeVarying(L × T or S × L × T) |
-| coupling | I, Matrix S × S | Pairwise(S × S × L) | TimeVarying(S × S × T) |
-| gain | scalar | – | T or S × T |
-| add | scalar / nothing | – | T or S × T |
-| history | L or S × L | | |
-| output | T or S × T | | |
+| kernel (lag-first) | vector `L` | `PerStratum(S × L)`, `Pairwise(S × S × L)` | `TimeVarying(L × T)`, `TimeVarying(PerStratum(S × L × T))` |
+| coupling | `I`, `λI`, `S × S` matrix (dense, `Diagonal`, sparse) | – | `TimeVarying(S × S × T)` |
+| modifier parameter | scalar | `PerStratum(S)` | `TimeVarying(T)`, `TimeVarying(PerStratum(S × T))` |
+| gain, add | scalar | – | `T` or `S × T` |
+| history | `m` or `S × m` | | |
+| output | `T` or `S × T` | | |
 
 ## Coefficient wrappers
 
-`TimeVarying(x)`, `PerStratum(x)` and `Pairwise(x)` mark how a kernel or coupling array is indexed.
-A section on when each wrapper is needed and how it reads its array.
+`PerStratum` gives each stratum its own kernel or parameter.
+
+```@example shapes
+using ComposableRecurrences
+
+G = [0.2 0.5 0.3; 0.5 0.3 0.2]
+r = Recurrence(PerStratum(G))
+r(fill(1.1, 2, 6); history = fill(10.0, 2, 3))
+```
+
+`TimeVarying` gives a kernel or parameter one column per time.
+
+```@example shapes
+g = [0.2, 0.5, 0.3]
+Gt = hcat([g .* (1 + 0.05t) for t in 1:6]...)
+Recurrence(TimeVarying(Gt))(1.0; history = fill(10.0, 3), stop = 6)
+```
+
+A time-varying convolution kernel is indexed by output time by default (`Secondary()`).
+With `Primary()` column `s` is the kernel of the input at time `s`, which it spreads forward.
+
+```@example shapes
+using ComposableRecurrences: Primary
+
+P = repeat([0.5, 0.3, 0.2], 1, 6)
+Convolution(TimeVarying(P, Primary()))(ones(6))
+```
+
+`Pairwise` gives each pair of strata its own kernel.
+It already mixes strata, so its coupling stays `I`.
+
+```@example shapes
+A = zeros(2, 2, 2)
+A[1, 1, :] = [0.4, 0.2]
+A[2, 2, :] = [0.4, 0.2]
+A[1, 2, :] = [0.1, 0.1]
+Recurrence(Pairwise(A))(1.0; history = [1.0 1.0; 0.0 0.0], stop = 4)
+```
 
 ## Array types
 
 Every slot accepts any `AbstractArray` with any `Real` element type.
-A section on sparse, structured and GPU arrays.
+`Float32` inputs give `Float32` outputs, and a dual-number input promotes the buffer to match.

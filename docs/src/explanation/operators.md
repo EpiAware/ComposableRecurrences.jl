@@ -1,66 +1,92 @@
 # [Operators](@id operators)
 
-!!! note "Planned"
-    This page describes the planned `Recurrence` and `Convolution` operators.
-    Its examples do not run yet.
-
 An operator holds a kernel and the options that shape its steps.
-It is built once and then called on its inputs like a function.
+You build it once and call it on its inputs like a function.
 
 ## Recurrence
 
-`Recurrence(kernel; coupling = I, modifiers = ())` steps a value forward from its last `L` outputs.
+`Recurrence(kernel; coupling = I, modifiers = ())` steps a value forward from its own past outputs.
 At each time step `t` it computes
 
 ```math
 \begin{aligned}
-x_t &= P(\text{coupling}, \text{kernel}_t, y_{t-1}, \ldots, y_{t-L}) \\
+x_t &= \text{coupling}_t\Big(\sum_i \text{kernel}_t[i]\, y_{t-i}\Big) \\
 v_t &= \text{gain}_t \odot x_t + \text{add}_t \\
 (y_t, s_t) &= \text{modifiers}(v_t, s_{t-1})
 \end{aligned}
 ```
 
-`P` combines the lagged outputs through the kernel and the coupling.
-`gain` scales the pressure and `add` adds an input at each step.
-The modifiers run in order and thread their own state `s_t`.
+`kernel[1]` weights `y_{t-1}`, so a recurrence has no lag 0.
+`gain` scales the mixed convolution and `add` adds an input before the modifiers.
+The modifiers run in tuple order and each threads its own state `s_t`.
+
+```@example operators
+using ComposableRecurrences
+
+r = Recurrence([0.2, 0.5, 0.3])
+y = r(fill(1.1, 10); history = fill(10.0, 3))
+```
 
 ## Convolution
 
-`Convolution(kernel)` weights past inputs by a kernel.
+`Convolution(kernel)` weights the current and past inputs by a kernel.
 
 ```math
-y_t = \sum_i \text{kernel}_{t,i} \odot x_{t-i}
+y_t = \sum_d \text{kernel}_t[d + 1]\, x_{t-d}
+```
+
+`kernel[1]` weights lag 0.
+
+```@example operators
+c = Convolution([0.1, 0.4, 0.3, 0.2])
+c(y)
 ```
 
 ## Calling an operator
 
-```@raw html
-<!-- becomes @example once Recurrence and Convolution land -->
-```
-```julia
-r = Recurrence(kernel)
-y = r(gain; history, add = nothing, return_state = false)
+A recurrence is called as `r(gain = 1; history, state, add, start, stop)`.
+A convolution is called as `c(x; history, start, stop)`.
+Every time-indexed input is read at absolute time `t`, and a call covers `start:stop`.
+`history` gives the values before `start`, and a history shorter than the kernel is zero-padded.
 
-c = Convolution(kernel)
-z = c(x; history = nothing)
-```
+A call without a gain takes its length from `add`, or from `stop`.
 
-`history` supplies the values before the first step.
-`return_state = true` also returns the state `(; history, states, t)`, where `t` is the index of the next step.
+```@example operators
+walk = Recurrence([1.0])
+walk(; history = [0.0], add = [0.5, -0.2, 0.1, 0.3])
+```
 
 ## Starting and resuming
 
-A section on `start`, the time index of the first output, and on resuming a call from a returned state.
+`with_state` takes the same arguments as a call and also returns a `State`.
+Pass the state back as `state` to resume from where the call stopped.
 
-## Calls without a gain
+```@example operators
+using ComposableRecurrences: with_state
 
-A section on `r(; history, add)`, where the gain defaults to one and `T` comes from `add`.
+R = fill(1.1, 10)
+y1, state = with_state(r, R; history = fill(10.0, 3), stop = 5)
+y2 = r(R; state)
+vcat(y1, y2) ≈ r(R; history = fill(10.0, 3))
+```
 
-## Prepending and trimming
+## Seeded runs
 
-You prepend histories and trim outputs yourself.
-A section on the conventions for random walks, AR and MA processes and delays.
+`seeded(r, gain; history)` treats the history as the first outputs and returns them with the rest of the run.
+`gain` covers the whole run, seed included.
+
+```@example operators
+using ComposableRecurrences: seeded
+
+seeded(r, fill(1.1, 10); history = fill(10.0, 3))
+```
 
 ## Composing operators
 
-A section on chaining operators, for example a renewal followed by a delay.
+An operator's output is an ordinary array, so operators chain by calling one on the output of another.
+Prepending a zero to a recurrence kernel gives a convolution that recomputes the recurrence's convolution from its outputs.
+
+```@example operators
+foi = Convolution(vcat(0.0, [0.2, 0.5, 0.3]))
+foi(y)
+```

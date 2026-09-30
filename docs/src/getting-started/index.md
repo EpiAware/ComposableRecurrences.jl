@@ -1,9 +1,5 @@
 # [Getting started](@id getting-started)
 
-!!! note "Planned"
-    ComposableRecurrences is under development.
-    The example on this page shows the planned interface and does not run yet.
-
 ```julia
 using ComposableRecurrences
 ```
@@ -13,7 +9,7 @@ using ComposableRecurrences
 With ComposableRecurrences you step a value forward from a window of its own past, as in a renewal process, an autoregression or a random walk.
 You can also weight past inputs by a kernel, as in a reporting delay.
 `Recurrence` and `Convolution` build these two steps from a kernel, and you call the result like a function.
-Couplings mix several strata, and modifiers add depletion, imports and bounds.
+Couplings mix several strata, and modifiers add depletion, extra inputs and bounds.
 You can chain operators, for example feeding a renewal process into a reporting delay.
 You can differentiate every operator with ForwardDiff, Mooncake and Enzyme.
 
@@ -22,10 +18,7 @@ You can differentiate every operator with ForwardDiff, Mooncake and Enzyme.
 A renewal process followed by a reporting delay.
 The generation interval is the recurrence kernel and the reproduction number is its gain.
 
-```@raw html
-<!-- becomes @example once Recurrence and Convolution land -->
-```
-```julia
+```@example getting-started
 using ComposableRecurrences
 
 gi = [0.2, 0.5, 0.3]
@@ -35,6 +28,7 @@ infections = renewal(R; history = fill(10.0, 3))
 
 delay = Convolution([0.1, 0.4, 0.3, 0.2])
 reports = delay(infections)
+reports[(end - 4):end]
 ```
 
 ## Learning more
