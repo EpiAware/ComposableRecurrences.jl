@@ -23,8 +23,10 @@ init_state(m, history) = _zeros(history, eltype(history), _nstrata(history))
 @doc "
 Whether modifier `m` acts on each stratum separately.
 
-A pointwise modifier implements the scalar [`apply`](@ref), and the default
-[`apply!`](@ref) loops it over strata.
+This sets which entry point a modifier implements: a per-stratum map sets
+`ispointwise(m) = true` and implements the scalar [`apply`](@ref), which the
+default [`apply!`](@ref) loops over strata; a modifier that couples strata
+implements `apply!` instead.
 The default is `false`.
 
 # Arguments
@@ -60,7 +62,7 @@ struct Offset
 end
 ComposableRecurrences.ispointwise(::Offset) = true
 ComposableRecurrences.apply(m::Offset, v, s, t, k) = (v + m.b, s)
-Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), add = zeros(4))
+Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
 ```
 "
 function apply(m, v, s, t, k)

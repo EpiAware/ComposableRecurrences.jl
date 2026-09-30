@@ -102,6 +102,9 @@ end
 The state a [`Recurrence`](@ref) call returns with `return_state = true`,
 passed back as `state` to resume.
 
+`history` holds the last `L` outputs, `states` each modifier's state and
+`t` the time of the next step.
+
 # Examples
 ```@example
 using ComposableRecurrences
@@ -230,7 +233,7 @@ _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
 function _empty_history(gain, add)
     return _empty_history(gain isa AbstractMatrix ? gain : add)
 end
-_empty_history(x::AbstractMatrix) = zeros(Bool, size(x, 1), 0)
+_empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
 # The history, modifier states and first time of a call: seeded from

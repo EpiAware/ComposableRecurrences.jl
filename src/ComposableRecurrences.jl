@@ -10,10 +10,26 @@ The package owns the history buffer these steps read from, so reverse-mode
 automatic differentiation does not copy the lag window at every step.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
-[`TimeVarying`](@ref), [`PerStratum`](@ref) and [`Pairwise`](@ref) set the
-shape of a kernel or coupling.
-Public arrays are strata × time, with time on the last axis; a single series
-is a vector.
+A bare array in a slot has the slot's own axes only (a kernel's lags, a
+coupling's `S × S`, a modifier parameter's one value);
+[`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
+strata and time axes.
+Data (inputs, history, outputs) are strata × time, with time on the last
+axis; a single series is a vector.
+Every time-indexed array is read at absolute time `t`, and a call covers
+`start:stop`.
+
+| concept               | one way                                                  |
+|:--------------------- |:-------------------------------------------------------- |
+| feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
+| causal convolution    | `Convolution(kernel)`, lag 0 first                       |
+| strata                | `PerStratum(x)`, `Pairwise(x)`                           |
+| time variation        | `TimeVarying(x; indexed_by = :secondary)`                |
+| multiplicative input  | `r(gain; ...)`                                           |
+| additive input        | `add =`, before the modifiers                            |
+| seed and resume       | `history =`, `state =`, `seeded(r, x; history)`          |
+| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
+| options               | Symbols, extended with `option`                          |
 
 # Example
 
