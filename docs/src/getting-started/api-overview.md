@@ -123,6 +123,7 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | no | hand-written | `ε` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | no | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
+| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | no | hand-written | `total`, one per group |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)` or `TimeVarying(PerStratum(x))`.
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`.
