@@ -155,5 +155,5 @@ maximum(abs, vcat(fitted, forecast) .- infections)
 
 # ## Learning more
 #
-# - See every piece used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [Concepts](@ref concepts) page.
 # - Want the full interface? See the [Public API](@ref public-api).

@@ -1,10 +1,9 @@
-# [Writing a piece](@id writing-a-piece)
+# [Adding a modifier or coupling](@id extending)
 
-A piece is a modifier, a coupling or a depletion form.
-You add one by writing a struct and giving it `forward` for its role.
+A new modifier, coupling or depletion form is a struct with `forward` for its role.
 Variants such as a depletion form are struct values too, so there is no registry and no symbol to add.
 
-| Piece | Role | `forward` |
+| Kind | Role | `forward` |
 |---|---|---|
 | operator call | `Run()` | `forward(op, Run(), args...; kwargs...)` returns `(y, cache)` |
 | modifier, vector step | `Step()` | `forward(m, Step(), v, s, t)` updates `v` and `s` in place |
@@ -68,8 +67,8 @@ r(1.0; history = [1.0 1.0; 1.0 1.0], stop = 4)
 ## Checking an extension
 
 `PieceInterface` declares the roles with Interfaces.jl.
-Test a new piece against it with one `Arguments(; piece, role, args)` object per role it supports.
-The test runs the piece's `forward` and checks it keeps to the role's conventions.
+Test a new modifier, coupling or depletion form against it with one `Arguments(; piece, role, args)` object per role it supports.
+The test runs its `forward` and checks it keeps to the role's conventions.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments

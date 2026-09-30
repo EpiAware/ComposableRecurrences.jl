@@ -15,7 +15,7 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 ## Why ComposableRecurrences?
 
 - One pair of operators, `Recurrence` and `Convolution`, covers renewal processes, reporting delays and latent processes such as random walks.
-- Models are built from small pieces, such as depletion or mixing between groups, and your own pieces plug in alongside them.
+- Models are built from small parts, such as depletion or mixing between groups, and your own modifiers and couplings plug in alongside them.
 - Gradients are fast under ForwardDiff, Mooncake and Enzyme, so models fit with gradient-based samplers such as NUTS.
 - It is designed as the shared base that other EpiAware modelling packages build on.
 
