@@ -1,15 +1,15 @@
-|                                                             | d1c7258c1b24d1...  |
-|:------------------------------------------------------------|:------------------:|
-| AD gradients/placeholder sum_squares/Enzyme forward         | 0.0894 ± 0.0081 μs |
-| AD gradients/placeholder sum_squares/Enzyme reverse         | 22.8 ± 17 ns       |
-| AD gradients/placeholder sum_squares/ForwardDiff            | 0.0323 ± 0.017 μs  |
-| AD gradients/placeholder sum_squares/Mooncake forward       | 0.182 ± 0.016 μs   |
-| AD gradients/placeholder sum_squares/Mooncake reverse       | 0.0431 ± 0.023 μs  |
-| AD gradients/placeholder sum_squares/ReverseDiff (compiled) | 0.0793 ± 0.021 μs  |
-| AD gradients/placeholder sum_squares/ReverseDiff (tape)     | 0.51 ± 0.11 μs     |
-| time_to_load                                                | 21.8 ± 1.1 ms      |
+|                                                             | 577c3b9eecf6fe... |
+|:------------------------------------------------------------|:-----------------:|
+| AD gradients/placeholder sum_squares/Enzyme forward         | 0.111 ± 0.0067 μs |
+| AD gradients/placeholder sum_squares/Enzyme reverse         | 19.1 ± 26 ns      |
+| AD gradients/placeholder sum_squares/ForwardDiff            | 20.8 ± 16 ns      |
+| AD gradients/placeholder sum_squares/Mooncake forward       | 0.24 ± 0.0082 μs  |
+| AD gradients/placeholder sum_squares/Mooncake reverse       | 0.042 ± 0.027 μs  |
+| AD gradients/placeholder sum_squares/ReverseDiff (compiled) | 0.109 ± 0.027 μs  |
+| AD gradients/placeholder sum_squares/ReverseDiff (tape)     | 0.572 ± 0.015 μs  |
+| time_to_load                                                | 26 ± 0.37 ms      |
 
-|                                                             | d1c7258c1b24d1...       |
+|                                                             | 577c3b9eecf6fe...       |
 |:------------------------------------------------------------|:-----------------------:|
 | AD gradients/placeholder sum_squares/Enzyme forward         | 3  allocs: 0.0781 kB    |
 | AD gradients/placeholder sum_squares/Enzyme reverse         | 2  allocs: 0.0781 kB    |
