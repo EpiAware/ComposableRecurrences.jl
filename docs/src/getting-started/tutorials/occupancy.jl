@@ -122,9 +122,9 @@ draw(
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, because they leave more slowly.
 #
-# See the [Concepts](@ref concepts) page for the roles a piece can implement, and for `pullback!`, which adds a hand-written adjoint.
+# See the [Concepts](@ref concepts) page for the roles a modifier can implement, and for `pullback!`, which adds a hand-written adjoint.
 
 # ## Learning more
 #
-# - See every piece used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [Concepts](@ref concepts) page.
 # - Want the full interface? See the [Public API](@ref public-api).
