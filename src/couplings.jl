@@ -25,6 +25,8 @@ q = zeros(2)
 ComposableRecurrences.pressure!(q, [0.9 0.1; 0.2 0.8], [1.0, 2.0], ones(3, 2), 1)
 ```
 "
+function pressure! end
+
 function pressure!(q, J::UniformScaling, p, window, t)
     λ = J.λ
     for a in eachindex(q, p)

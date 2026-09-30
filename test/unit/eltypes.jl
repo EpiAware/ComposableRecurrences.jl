@@ -31,7 +31,9 @@
 end
 
 @testitem "Eltypes: ForwardDiff gradients through every slot" setup = [TestModifiers] begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra, SparseArrays
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra, Random,
+        SparseArrays
+    rng = Xoshiro(41)
     S, L, T = 3, 3, 8
     g0 = [0.2, 0.3, 0.5]
     K0 = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
@@ -79,8 +81,8 @@ end
             )
         ), [0.9, 1.0, 1.1, 0.2]
     )
-    @test check(P -> sum(W .* Recurrence(nothing; coupling = Pairwise(P))(R0; history = h0)), rand(S, S, L))
-    @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(L, T))
+    @test check(P -> sum(W .* Recurrence(nothing; coupling = Pairwise(P))(R0; history = h0)), rand(rng, S, S, L))
+    @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(rng, L, T))
     @test check(
         θ -> sum(
             W .* Recurrence(g0; modifiers = (LooseScale(θ[1], (; b = θ[2])),))(
@@ -91,4 +93,27 @@ end
     @test check(c -> sum(W .* Convolution(c)(R0; history = h0)), g0)
     @test check(x -> sum(W .* Convolution(g0)(x; history = h0)), R0)
     @test check(h -> sum(W .* Convolution(g0)(R0; history = h)), h0)
+end
+
+@testitem "Eltypes: built-in modifiers keep Float32" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    g = Float32[0.2, 0.3, 0.5]
+    h = ones(Float32, 2, 3)
+    R = fill(1.1f0, 2, 5)
+    K = Float32[0.0 0.3; 0.2 0.0]
+    for m in (
+            CR.Depletion(100.0f0), CR.Depletion(Float32[100, 50]; form = :floor),
+            CR.Depletion(100.0f0; seeded = true, heterogeneity = 1.5f0),
+            CR.Imports(0.5f0), CR.Imports(fill(0.5f0, 2, 5)),
+            CR.Redistribute(K, 0.1f0), CR.Redistribute(K, TimeVarying(fill(0.1f0, 2, 5))),
+            CR.Clamp(0.0f0, 5.0f0),
+        )
+        @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
+    end
+    # A plain matrix intensity must be wrapped as time-varying.
+    @test_throws ArgumentError CR.Redistribute(K, fill(0.1f0, 2, 5))
+    # The constructor infers with a literal form.
+    floor_depletion() = ComposableRecurrences.Depletion(1.0; form = :floor)
+    @test (@inferred floor_depletion()) isa CR.Depletion
 end

@@ -9,7 +9,8 @@ The state is copied into the operator's buffer eltype before the first step.
 
 # Arguments
 - `m`: the modifier.
-- `history`: the history the recurrence starts from (length `L`, or `S × L`).
+- `history`: the full history passed to the call (a vector, or strata × time),
+  not only the last `L` values.
 
 # Examples
 ```@example
@@ -113,10 +114,11 @@ for mirrors), at time `t` for time-varying parameters.
 A pointwise modifier implements the scalar
 [`ComposableRecurrences.apply_pullback`](@ref) instead: when every modifier
 of a recurrence is pointwise the reverse pass calls that per stratum.
-The default loops the scalar form over strata for a pointwise modifier, and
-otherwise takes the local
-ForwardDiff Jacobian of `apply!` in the values, the state and the modifier's
-parameters.
+Declare [`ComposableRecurrences.uses_adjoint`](@ref) true for a modifier
+that implements either.
+A modifier without one is differentiated by the AD backend: a pointwise
+modifier whose float parameters are scalars locally per value, any other
+by plain AD of the whole operator.
 
 # Arguments
 - `m̄`: the cotangent of the modifier's parameters.
@@ -130,7 +132,12 @@ parameters.
 # Examples
 ```@example
 using ComposableRecurrences
-methods(ComposableRecurrences.apply_pullback!)
+CR = ComposableRecurrences
+m = CR.Clamp(0.0, 1.0)
+m̄ = (; lo = Ref(0.0), hi = Ref(0.0))
+v̄, s̄ = [1.0, 1.0], [0.0, 0.0]
+CR.apply_pullback!(m̄, m, [0.5, 2.0], [0.0, 0.0], 1, v̄, s̄)
+v̄, m̄.hi[]
 ```
 "
 function apply_pullback! end

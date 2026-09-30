@@ -121,39 +121,8 @@ _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
 struct _LocalTag end
 
-@doc "
-The reverse pass of the scalar [`ComposableRecurrences.apply`](@ref) of a
-pointwise modifier `m` for stratum `k` at step `t`: given the cotangents `v̄`,
-`s̄` of its outputs, return the cotangents of its inputs `(v, s)` and add
-parameter cotangents into the mirror `m̄`.
-
-The default [`ComposableRecurrences.apply_pullback!`](@ref) of a pointwise
-modifier loops this over strata.
-The default is a local ForwardDiff derivative in the value, the state and the
-modifier's parameters.
-
-# Arguments
-- `m̄`: the mirror of the modifier.
-- `m`: the modifier.
-- `v`: the stratum's value before the modifier.
-- `s`: the stratum's state before the step.
-- `t`: the time index of the step.
-- `k`: the stratum.
-- `v̄`: the cotangent of the value after the modifier.
-- `s̄`: the cotangent of the state after the step.
-
-# Examples
-```@example
-using ComposableRecurrences
-struct Offset
-    b::Float64
-end
-ComposableRecurrences.ispointwise(::Offset) = true
-ComposableRecurrences.apply(m::Offset, v, s, t, k) = (v + m.b, s)
-m̄ = (; b = Ref(0.0))
-ComposableRecurrences.apply_pullback(m̄, Offset(1.0), 2.0, 0.0, 1, 1, 1.0, 0.0), m̄.b[]
-```
-"
+# Default scalar pullback of a pointwise modifier: a local ForwardDiff
+# derivative in the value, the state and the modifier's parameters.
 function apply_pullback(m̄, m, v, s, t, k, v̄, s̄)
     P = _nactive(m̄, m)
     if P == 0
@@ -197,30 +166,8 @@ function apply_pullback!(m̄, m, v, s, t, v̄, s̄)
     return nothing
 end
 
-@doc "
-The reverse pass of [`ComposableRecurrences.init_state`](@ref) for modifier
-`m`: given the cotangent `s̄` of the initial state, add the cotangents of the
-modifier's parameters into the mirror `m̄` and of the history into `h̄`
-(which may be `nothing`).
-
-The default is a local ForwardDiff Jacobian of `init_state`, skipped for a
-modifier using the default zero state.
-
-# Arguments
-- `m̄`: the mirror of the modifier.
-- `h̄`: the cotangent of the history, the shape of `history`, or `nothing`.
-- `m`: the modifier.
-- `history`: the history the recurrence started from.
-- `s̄`: the cotangent of the initial state.
-
-# Examples
-```@example
-using ComposableRecurrences
-h̄ = zeros(2, 3)
-ComposableRecurrences.init_state_pullback!(nothing, h̄, nothing, ones(2, 3), ones(2))
-h̄
-```
-"
+# Default initial-state pullback: a local ForwardDiff Jacobian of
+# `init_state`, skipped for the default zero state.
 function init_state_pullback!(m̄, h̄, m, history, s̄)
     _default_init(m, history) && return nothing
     P = _nactive(m̄, m)

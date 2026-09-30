@@ -8,15 +8,14 @@ A vector kernel is shared by every stratum, a [`PerStratum`](@ref) kernel is
 `S × D`, and a [`TimeVarying`](@ref) kernel is `D × T` or `S × D × T`, all
 lag 0 first.
 
-`indexed_by` sets which time a time-varying kernel's column belongs to, as
-in ConvolvedDistributions' `convolve_series`:
+`indexed_by` sets which time a time-varying kernel's column belongs to:
 
   - `:primary` (the default): column `s` is the delay pmf of the input at
     time `s`, which spreads forward through it,
     `y_t = Σ_s x_s kernel_s[t - s + 1]`, so input mass is conserved up to
     the window's end.
   - `:secondary`: column `t` weights the inputs reaching output `t`,
-    `y_t = Σ_d kernel_t[d + 1] x_{t-d}` (CTIDM's `TimeVaryingLDStep`).
+    `y_t = Σ_d kernel_t[d + 1] x_{t-d}`.
 
 The two agree for a fixed kernel.
 

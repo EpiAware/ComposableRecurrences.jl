@@ -1,7 +1,7 @@
 # Chained operators: a latent AR process mapped to R_t driving a renewal
 # whose infections are then delayed, and BVD's renewal into its delay.
 
-@testitem "Use case: AR → exp → renewal → delay" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: AR → exp → renewal → delay" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -39,7 +39,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: BVD renewal → delay" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD renewal → delay" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 

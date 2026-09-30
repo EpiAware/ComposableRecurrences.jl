@@ -218,6 +218,8 @@ x̄
 add_cotangent!(::Nothing, v, idx...) = nothing
 add_cotangent!(x̄::Base.RefValue, v, idx...) = (x̄[] += v; nothing)
 add_cotangent!(x̄::AbstractArray, v, idx...) = (x̄[idx...] += v; nothing)
+# A wrapper's mirror, such as a `TimeVarying` field's `(; x)`.
+add_cotangent!(x̄::NamedTuple{(:x,)}, v, idx...) = add_cotangent!(x̄.x, v, idx...)
 
 @doc "
 Test the analytic adjoint of `op` on the positional arguments `args` of
