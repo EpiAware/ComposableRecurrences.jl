@@ -39,16 +39,9 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-@static if VERSION >= v"1.11.0-DEV.469"
-    eval(
-        Expr(
-            :public, :init_state, :apply, :apply!, :apply_pullback!,
-            :ispointwise, :param_eltype, :pressure!, :pressure_pullback!, :pullback!,
-            :NoAdjoint, :OperatorInterface, :CouplingInterface,
-            :ModifierInterface
-        )
-    )
-end
+public init_state, apply, apply!, apply_pullback!, ispointwise, param_eltype,
+    pressure!, pressure_pullback!, pullback!, NoAdjoint, OperatorInterface,
+    CouplingInterface, ModifierInterface
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
