@@ -211,7 +211,7 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # ecosystem rather than a per-repo choice (#354). These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
-    "Concepts" => "getting-started/concepts.md",
+    "API overview" => "getting-started/api-overview.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
@@ -230,11 +230,9 @@ const PACKAGE_TUTORIALS = [
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
 const PACKAGE_SECTIONS = Pair{String, Any}[
-    "Explanation" => [
-        "Operators" => "explanation/operators.md",
-        "Shapes and coefficients" => "explanation/shapes.md",
-        "Couplings" => "explanation/couplings.md",
-        "Modifiers" => "explanation/modifiers.md",
+    "Domain guides" => [
+        "Infectious disease models" =>
+            "domain-guides/infectious-disease-models.md",
     ],
 ]
 
