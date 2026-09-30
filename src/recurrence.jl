@@ -108,17 +108,23 @@ function _check_kernel_strata(k::Union{PerStratum, TimeVarying}, S)
     return nothing
 end
 
-# Fixed kernels are reversed once per call so each step is one `dot` of
-# the kernel with a contiguous, oldest-first window.
+# Fixed kernels are reversed once per call so each step is one dot product
+# of the kernel with a contiguous, oldest-first window.
 _oldest_first(g::AbstractVector) = reverse(g)
 _oldest_first(g::PerStratum) = PerStratum(reverse(g.x; dims = 2))
 _oldest_first(g) = g
 
 # Stratum `k`'s kernel convolution of its window `H[t:(t + L - 1), k]`,
-# for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
-_kdot(g::AbstractVector, H, t, τ, L, k) = dot(g, view(H, t:(t + L - 1), k))
-function _kdot(g::PerStratum, H, t, τ, L, k)
-    return dot(view(g.x, k, :), view(H, t:(t + L - 1), k))
+# for a kernel prepared by `_oldest_first`; `τ` is the absolute time. A
+# native loop: at these lengths a BLAS call costs more than the arithmetic.
+_kdot(g::AbstractVector, H, t, τ, L, k) = _window_dot(g, H, t, L, k)
+_kdot(g::PerStratum, H, t, τ, L, k) = _window_dot(view(g.x, k, :), H, t, L, k)
+function _window_dot(g, H, t, L, k)
+    acc = zero(promote_type(eltype(g), eltype(H)))
+    @inbounds @simd for i in 1:L
+        acc += g[i] * H[t + i - 1, k]
+    end
+    return acc
 end
 function _kdot(g::TimeVarying, H, t, τ, L, k)
     acc = zero(eltype(H))

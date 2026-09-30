@@ -134,9 +134,15 @@ _route_val(op, args...) = Val(has_adjoint(op, args...) && _gate(op, args...))
 _route(::Val{true}, op, args...) = _ad(op, args...)
 _route(::Val{false}, op, args...) = _plain(op, args...)
 
-# Whether `op` has a `pullback!(op, cache, ȳ, op̄, args̄...)` method.
+# Whether `op` has a `pullback!(op, cache, ȳ, op̄, args̄...)` method. A
+# function of types only, declared foldable so every interpreter (Mooncake's
+# too) evaluates it at compile time; a `pullback!` method added after a call
+# has been compiled is not seen by that compiled call.
 function has_adjoint(op, args::Vararg{Any, N}) where {N}
-    return hasmethod(pullback!, Tuple{typeof(op), Vararg{Any, N + 3}})
+    return _has_pullback(typeof(op), Val(N))
+end
+Base.@assume_effects :foldable function _has_pullback(::Type{O}, ::Val{N}) where {O, N}
+    return hasmethod(pullback!, Tuple{O, Vararg{Any, N + 3}})
 end
 
 # The primal call. The extensions make `_ad` a rule primitive for Mooncake and

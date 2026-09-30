@@ -36,14 +36,23 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     q̄ = zeros(Tp, S)
     for t in T:-1:1
         τ = τ0 + t - 1
-        for k in 1:S
-            v̄[k] = H̄[L + t, k]
-        end
-        _stages_back!(modifiers, m̄s, rec, s̄s, v̄, τ, t)
-        for k in 1:S
-            _add_slot!(ādd, v̄[k], k, t)
-            _add_slot!(ḡain, v̄[k] * X[k, t], k, t)
-            q̄[k] = _at(gain, k, t) * v̄[k]
+        if _all_pointwise(modifiers)
+            for k in 1:S
+                v̄k = _thread_back(modifiers, m̄s, rec, s̄s, H̄[L + t, k], τ, t, k)
+                _add_slot!(ādd, v̄k, k, t)
+                _add_slot!(ḡain, v̄k * X[k, t], k, t)
+                q̄[k] = _at(gain, k, t) * v̄k
+            end
+        else
+            for k in 1:S
+                v̄[k] = H̄[L + t, k]
+            end
+            _stages_back!(modifiers, m̄s, rec, s̄s, v̄, τ, t)
+            for k in 1:S
+                _add_slot!(ādd, v̄[k], k, t)
+                _add_slot!(ḡain, v̄[k] * X[k, t], k, t)
+                q̄[k] = _at(gain, k, t) * v̄[k]
+            end
         end
         _coupling_back!(p̄, C̄, coupling, q̄, P, H, H̄, t, τ, L)
         _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t, τ, L)
@@ -86,6 +95,21 @@ _add_slot!(::Nothing, v, k, t) = nothing
 _add_slot!(x̄::Base.RefValue, v, k, t) = (x̄[] += v; nothing)
 _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
 _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
+
+# One stratum's value cotangent back through pointwise modifiers, last
+# first, with the scalar `apply_pullback`; returns the cotangent of the
+# step's core value.
+_thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k) = v̄
+function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
+    v̄ = _thread_back(
+        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k
+    )
+    R, s̄ = first(rec), first(s̄s)
+    v̄, s̄[k] = apply_pullback(
+        first(m̄s), first(ms), R.V[k, t], R.S[k, t], τ, k, v̄, s̄[k]
+    )
+    return v̄
+end
 
 # Walk the step's value cotangent back through the modifiers, last first.
 _stages_back!(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t) = nothing
@@ -137,20 +161,32 @@ function _kernel_buffer(ḡ, kernel::PerStratum, Tp, S, L)
 end
 
 # Correlate `p̄` with the kernel into the window's cotangent, and the window
-# with `p̄` into the kernel's.
+# with `p̄` into the kernel's, in one native loop per stratum.
 function _kernel_back!(kbuf, ḡ, g::AbstractVector, p̄, H, H̄, t, τ, L)
-    rows = t:(t + L - 1)
     for k in eachindex(p̄)
-        kbuf === nothing || _axpy!(p̄[k], view(H, rows, k), kbuf)
-        _axpy!(p̄[k], g, view(H̄, rows, k))
+        _window_back!(kbuf, g, p̄[k], H, H̄, t, L, k)
     end
     return nothing
 end
 function _kernel_back!(kbuf, ḡ, g::PerStratum, p̄, H, H̄, t, τ, L)
-    rows = t:(t + L - 1)
     for k in eachindex(p̄)
-        kbuf === nothing || _axpy!(p̄[k], view(H, rows, k), view(kbuf, k, :))
-        _axpy!(p̄[k], view(g.x, k, :), view(H̄, rows, k))
+        kb = kbuf === nothing ? nothing : view(kbuf, k, :)
+        _window_back!(kb, view(g.x, k, :), p̄[k], H, H̄, t, L, k)
+    end
+    return nothing
+end
+# `kbuf`, `g`, `H` and `H̄` are distinct arrays, so the updates are
+# independent (`ivdep`).
+function _window_back!(kbuf, g, a, H, H̄, t, L, k)
+    @inbounds @simd ivdep for i in 1:L
+        kbuf[i] += a * H[t + i - 1, k]
+        H̄[t + i - 1, k] += a * g[i]
+    end
+    return nothing
+end
+function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
+    @inbounds @simd ivdep for i in 1:L
+        H̄[t + i - 1, k] += a * g[i]
     end
     return nothing
 end
