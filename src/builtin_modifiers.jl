@@ -483,20 +483,14 @@ Parameters belong in `θ`: values captured in `f` get no cotangent.
 
 The pullback is a local forward-mode derivative of `f` in the value and
 `θ_k`.
-Pass `derivative` to supply it instead: `derivative(v)` returns `∂f/∂v`
-when `θ` is `nothing`, and `derivative(v, θ_k)` otherwise returns
-`(∂f/∂v, ∂f/∂θ)`, with `∂f/∂θ` shaped as `θ_k`.
 The state is unused.
 
 Scope: [`Recurrence`](@ref) and [`Convolution`](@ref); pointwise; local
-forward-mode adjoint, analytic when `derivative` is given.
+forward-mode adjoint.
 
 # Arguments
 - `f`: the map, `f(v)` or `f(v, θ_k)`.
 - `θ`: the parameters, or `nothing`.
-
-# Keyword Arguments
-- `derivative`: the derivative of `f`, or `nothing` for the local one.
 
 # Examples
 ```@example
@@ -508,22 +502,16 @@ q = CR.Transform(G, (; r = 0.5, p = 0.4))
 Recurrence([1.0]; modifiers = (q,))(; history = [0.0], add = zeros(6))
 ```
 "
-struct Transform{F, P, D}
+struct Transform{F, P}
     "The map, `f(v)` or `f(v, θ_k)`."
     f::F
     "The parameters: `nothing`, a scalar, per stratum, `TimeVarying`, or a
     tuple or NamedTuple of these."
     θ::P
-    "The derivative of `f`, or `nothing` for the local one."
-    derivative::D
-    function Transform(f::F, θ::P, derivative::D) where {F, P, D}
+    function Transform(f::F, θ::P = nothing) where {F, P}
         _check_theta(θ)
-        return new{F, P, D}(f, θ, derivative)
+        return new{F, P}(f, θ)
     end
-end
-
-function Transform(f, θ = nothing; derivative = nothing)
-    return Transform(f, θ, derivative)
 end
 
 _check_theta(::Nothing) = nothing
@@ -591,7 +579,7 @@ apply(m::Transform, v, s, t, k) = (_call(m.f, v, _theta_at(m.θ, k, t)), s)
 
 function apply_pullback(m̄, m::Transform, v, s, t, k, v̄′, s̄′)
     θ = _theta_at(m.θ, k, t)
-    ∂v, ∂θ = _derivative(m.derivative, m.f, v, θ)
+    ∂v, ∂θ = _derivative(m.f, v, θ)
     _add_theta!(_cotangent(m̄, :θ), m.θ, ∂θ, v̄′, k, t)
     return v̄′ * ∂v, s̄′
 end
@@ -600,22 +588,19 @@ function apply_pullback!(m̄, m::Transform, v, s, t, v̄, s̄)
     return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
 end
 
-# `(∂f/∂v, ∂f/∂θ)` from a supplied derivative.
-_derivative(df, f, v, ::Nothing) = (df(v), nothing)
-_derivative(df, f, v, θ) = df(v, θ)
-
-# The local forward-mode derivative: one dual per scalar of `(v, θ_k)`.
+# `(∂f/∂v, ∂f/∂θ)` by a local forward-mode derivative: one dual per scalar
+# of `(v, θ_k)`.
 struct _TransformTag end
 
-function _derivative(::Nothing, f, v, ::Nothing)
+function _derivative(f, v, ::Nothing)
     return first(_partials(f(first(_seeds((v,)))), Val(1))), nothing
 end
-function _derivative(::Nothing, f, v, θ::Real)
+function _derivative(f, v, θ::Real)
     x, a = _seeds(promote(v, θ))
     ∂ = _partials(f(x, a), Val(2))
     return ∂[1], ∂[2]
 end
-function _derivative(::Nothing, f, v, θ::Union{Tuple, NamedTuple})
+function _derivative(f, v, θ::Union{Tuple, NamedTuple})
     xs = _seeds(promote(v, values(θ)...))
     ∂ = _partials(f(first(xs), _restructure(θ, Base.tail(xs))), Val(length(xs)))
     return first(∂), _restructure(θ, Base.tail(∂))

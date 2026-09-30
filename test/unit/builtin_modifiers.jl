@@ -470,33 +470,6 @@ end
     @test c.v && c.s && c.θ
 end
 
-@testitem "Transform: a supplied derivative replaces the local one" setup = [ModifierChecks] begin
-    using ComposableRecurrences
-    CR = ComposableRecurrences
-    v, s = [0.3, 0.6, 0.9], [0.1, 0.2, 0.3]
-    calls = Ref(0)
-    f(v, θ) = θ.a * exp(θ.b * v)
-    function df(v, θ)
-        calls[] += 1
-        e = exp(θ.b * v)
-        return θ.a * θ.b * e, (; a = e, b = θ.a * v * e)
-    end
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Transform(f, (; a = θ[1], b = θ[2]); derivative = df),
-        [1.5, 0.7], v, s, 1
-    )
-    @test c.v && c.s && c.θ
-    @test calls[] == length(v)
-    # Without a parameter the derivative takes the value alone.
-    calls[] = 0
-    dexp(v) = (calls[] += 1; exp(v))
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Transform(exp; derivative = dexp), Float64[], v, s, 1
-    )
-    @test c.v && c.s && c.θ
-    @test calls[] == length(v)
-end
-
 @testitem "Transform: Float32 and no allocation in the pullback" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -504,7 +477,7 @@ end
     m = CR.Transform(nb, (; r = 0.5f0, p = 0.4f0))
     y = Recurrence([1.0f0]; modifiers = (m,))(; history = [0.0f0], add = zeros(Float32, 5))
     @test eltype(y) == Float32
-    m̄ = (; f = (;), θ = (; r = Ref(0.0f0), p = Ref(0.0f0)), derivative = nothing)
+    m̄ = (; f = (;), θ = (; r = Ref(0.0f0), p = Ref(0.0f0)))
     out = CR.apply_pullback(m̄, m, 0.3f0, 0.0f0, 1, 1, 1.0f0, 0.0f0)
     @test out isa Tuple{Float32, Float32}
     @test m̄.θ.r[] isa Float32 && m̄.θ.r[] != 0
@@ -519,7 +492,7 @@ end
     @test alloc(m̄, m) == 0
     # Mixed shared and per-stratum entries.
     m = CR.Transform(nb, (; r = [0.5f0, 0.7f0], p = 0.4f0))
-    m̄ = (; f = (;), θ = (; r = zeros(Float32, 2), p = Ref(0.0f0)), derivative = nothing)
+    m̄ = (; f = (;), θ = (; r = zeros(Float32, 2), p = Ref(0.0f0)))
     @test alloc(m̄, m) == 0
 end
 
