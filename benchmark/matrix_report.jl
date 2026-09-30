@@ -87,8 +87,22 @@ function _targets(run)
         r["target"] for r in run.rows
             if haskey(run.meta, r["tier"] * " " * r["target"])
     )
+    # Targets beyond the serial CPU ones (a traced or threaded run, say) are
+    # named "... primal" or "... gradient" and follow the built-in ones.
     grads = [t for t in GRADIENT_ORDER if t in ts]
-    return ("primal" in ts ? ["primal"] : String[]), grads
+    append!(grads, sort([t for t in ts if endswith(t, "gradient")]))
+    primal = "primal" in ts ? ["primal"] : String[]
+    append!(primal, sort([t for t in ts if t != "primal" && endswith(t, "primal")]))
+    return primal, grads
+end
+
+_isprimal(t) = endswith(t, "primal")
+
+# The row of a target as users call the operator: the `rule` arm, or
+# `traced` for a target that compiles the call.
+function _user_row(ix, tier, c, sz, t)
+    r = get(ix, (tier, c, sz, t, "rule"), nothing)
+    return r === nothing ? get(ix, (tier, c, sz, t, "traced"), nothing) : r
 end
 
 function _rules(run, target)
@@ -145,11 +159,11 @@ function timings_section(io, run, tier)
     println(io, "| Case | Size | Params | ", join(cols, " | "), " |")
     println(io, "|:--|:--|--:|", repeat("--:|", length(cols)))
     for (c, sz, np) in cases_in(run, tier)
-        rs = [get(ix, (tier, c, sz, t, "rule"), nothing) for t in cols]
+        rs = [_user_row(ix, tier, c, sz, t) for t in cols]
         best = minimum(
             (
                 _num(r, "median_ns") for (t, r) in zip(cols, rs)
-                    if r !== nothing && t != "primal" && _ok(r)
+                    if r !== nothing && !_isprimal(t) && _ok(r)
             ); init = Inf
         )
         cells = map(zip(cols, rs)) do (t, r)
@@ -157,7 +171,7 @@ function timings_section(io, run, tier)
             _ok(r) || return _short(r["status"])
             med = _num(r, "median_ns")
             s = fmt_time(med) * " · " * r["allocs"]
-            t == "primal" && return s
+            _isprimal(t) && return s
             return s * " · " * fmt_ratio(med / best)
         end
         println(io, "| ", c, " | ", sz, " | ", np, " | ", join(cells, " | "), " |")
