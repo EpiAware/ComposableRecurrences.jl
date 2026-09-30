@@ -50,7 +50,14 @@ end
     ),
 ) "A piece (operator, coupling, modifier or variant) with `forward` for a role.
 
-Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
+
+# Examples
+```@example
+using ComposableRecurrences, Interfaces
+CR = ComposableRecurrences
+Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
+```"
 
 @implements PieceInterface Recurrence [
     Arguments(;
