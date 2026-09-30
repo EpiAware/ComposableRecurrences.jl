@@ -6,7 +6,7 @@
 # CTIDM's `ConstantRenewalStep` stores the interval reversed, so `reverse`
 # appears only in the reference calls.
 
-@testitem "Use case: renewal" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -33,7 +33,7 @@
     @test ForwardDiff.gradient(θ -> sum(w .* renewal(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: renewal with susceptible depletion" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal with susceptible depletion" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -65,7 +65,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: renewal with imported cases" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal with imported cases" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -103,7 +103,7 @@ end
     @test ForwardDiff.gradient(loss(before), θ0) ≈ ∇ref_before
 end
 
-@testitem "Use case: imports added after depletion" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: imports added after depletion" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -135,7 +135,7 @@ end
     @test ForwardDiff.gradient(θ -> sum(w .* after(θ[1:10], θ[11])), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: BVD renewal_infections" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD renewal_infections" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 

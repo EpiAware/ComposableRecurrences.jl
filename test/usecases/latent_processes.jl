@@ -5,7 +5,7 @@
 # Kernels are lag first: `kernel[i]` weights the value `i` steps back.
 # `history` holds past values in time order, oldest first.
 
-@testitem "Use case: random walk" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: random walk" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -24,7 +24,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: AR(p)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: AR(p)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -47,7 +47,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: time-varying AR(1)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying AR(1)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -75,7 +75,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: MA(q)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: MA(q)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
