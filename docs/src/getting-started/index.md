@@ -73,7 +73,9 @@ draw(
 )
 ```
 
-Sensitivity is zero on the last day because that day's infections are not yet reported.
+Total reports are most sensitive to town A's reproduction number around its peak.
+The reproduction numbers of B and C matter most just before the intervention, when their own outbreaks are largest.
+Sensitivity fades after the intervention and is zero on the last day, whose infections are not yet reported.
 
 ## Speed
 
