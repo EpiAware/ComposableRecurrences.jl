@@ -18,12 +18,20 @@ of the input (cohort) at absolute time `c`, which spreads forward through
 it.
 
 Kernel slots only: anywhere else it is an `ArgumentError`.
+In a [`Recurrence`](@ref) column `c` weights the output at time `c` at
+each lag, `x_t = Σ_i K[i, t - i] y_{t-i}`, so a seed must sit at times
+from 1 (`start > m` for a seed of length `m`).
 
 # Examples
 ```@example
 using ComposableRecurrences
+CR = ComposableRecurrences
 P = [0.6 0.2 0.4; 0.4 0.8 0.6]         # one delay pmf per input time
-Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(ones(3))
+Convolution(TimeVarying(P, CR.Primary()))(ones(3))
+
+# Cohorts from time 3 on transmit less.
+K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
+CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), fill(1.5, 6); history = [1.0, 1.0])
 ```
 "
 struct Primary end
@@ -88,8 +96,9 @@ a type parameter so nothing branches on it:
     weights the inputs reaching output `t`. This is the only meaning
     outside a kernel.
   - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
-    the input at time `c`, which spreads forward through it.
-    [`Convolution`](@ref) kernels only.
+    the input at time `c`, which spreads forward through it. In a
+    [`Recurrence`](@ref) the input is the output at time `c`, so each
+    cohort keeps its own kernel, `x_t = Σ_i K[i, t - i] y_{t-i}`.
 
 The two agree for a fixed kernel.
 

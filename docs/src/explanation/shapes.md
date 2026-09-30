@@ -64,6 +64,19 @@ P = repeat([0.5, 0.3, 0.2], 1, 6)
 Convolution(TimeVarying(P, Primary()))(ones(6))
 ```
 
+In a `Recurrence` a `Primary()` kernel gives each output its own kernel by the time it was produced, `x_t = Σ_i K[i, t - i] y_{t-i}`.
+This is a cohort effect: an infector's onward transmission depends on when it was infected, as with an isolation policy that starts on a set day.
+A `Secondary()` kernel is a period effect instead, the same for every infector on a day.
+The kernel reads the column of each seed value's own time, so the seed must sit at times from 1: pass `start = m + 1` for a seed of length `m`, or use `seeded`.
+
+```@example shapes
+using ComposableRecurrences: seeded
+
+g = [0.2, 0.5, 0.3]
+K = hcat([g .* (c >= 5 ? 0.5 : 1.0) for c in 1:12]...)  # cohorts from time 5 transmit half
+seeded(Recurrence(TimeVarying(K, Primary())), fill(2.0, 12); history = [1.0, 1.0, 1.0])
+```
+
 `Pairwise` gives each pair of strata its own kernel.
 It already mixes strata, so its coupling stays `I`.
 

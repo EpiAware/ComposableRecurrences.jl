@@ -15,6 +15,9 @@ are written: a recurrence has no lag 0.
 The kernel is a length-`L` vector shared by every stratum, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
+A `TimeVarying` kernel with [`ComposableRecurrences.Primary`](@ref)
+indexing gives each output its own kernel by the time it was produced,
+`x_t = Σ_i K[i, t - i] y_{t-i}`, and needs its seed at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
@@ -81,12 +84,6 @@ struct Recurrence{K, C, M <: Tuple}
             K, C, M <: Tuple,
         }
         _check_kernel_shape(kernel)
-        kernel isa TimeVarying{Primary} && throw(
-            ArgumentError(
-                "a Primary() time-varying kernel is not yet supported by " *
-                    "Recurrence"
-            )
-        )
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
         return new{K, C, M}(kernel, coupling, modifiers)
@@ -148,6 +145,22 @@ function with_state(op, args...; kwargs...)
         ArgumentError("$(nameof(typeof(op))) has no state to return")
     )
     return y, cache.state
+end
+
+# A Primary() kernel reads the column of each value's own time, so a seed
+# must sit at times from 1: `start > m` for a seed of length `m`.
+_check_primary_seed(kernel, history, start) = nothing
+function _check_primary_seed(::TimeVarying{Primary}, history, start)
+    history === nothing && return nothing
+    m = size(history, ndims(history))
+    s = start === nothing ? 1 : start
+    s > m || throw(
+        ArgumentError(
+            "a Primary() kernel reads the column of each value's own time, " *
+                "so a seed of length $m needs start > $m (see seeded)"
+        )
+    )
+    return nothing
 end
 
 # A Pairwise kernel already mixes strata, so its coupling is `I`.
@@ -255,18 +268,26 @@ function _kdot(g::PerStratum, H, t, τ, L, a)
 end
 function _kdot(g::TimeVarying, H, t, τ, L, a)
     acc = zero(eltype(H))
-    for i in 1:L
-        acc += _weight(g, a, a, i, τ) * H[t + L - i, a]
+    for i in _lags(g, τ, L)
+        acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
 end
 function _kdot(g::_PairwiseKernel, H, t, τ, L, a)
     acc = zero(eltype(H))
-    for i in 1:L, b in axes(H, 2)
-        acc += _weight(g, a, b, i, τ) * H[t + L - i, b]
+    for i in _lags(g, τ, L), b in axes(H, 2)
+        acc += _weight(g, a, b, i, _column(g, τ, i)) * H[t + L - i, b]
     end
     return acc
 end
+
+# The kernel column lag `i` reads at time `τ`: the output's own column, or
+# with `Primary()` the column of the value's own time `τ - i`, so only lags
+# back to time 1 have one.
+_column(g, τ, i) = τ
+_column(::TimeVarying{Primary}, τ, i) = τ - i
+_lags(g, τ, L) = 1:L
+_lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
 
 function _kernel_pressure!(p, g, H, t, τ, L)
     for k in eachindex(p)
@@ -332,6 +353,7 @@ function forward(
     )
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
+    _check_primary_seed(r.kernel, history, start)
     h, s0, τ0 = _resume(history, state, start, gain, add)
     Y, H, states = _recur(r, gain, add, h, s0, τ0, stop)
     T = size(Y, ndims(Y))

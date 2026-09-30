@@ -47,7 +47,7 @@ Data (inputs, history and outputs) are strata × time and are never wrapped.
 | `Pairwise(A)` | one kernel per pair of strata, which mixes strata itself so the coupling stays `I` | `S × S × L` |
 | `TimeVarying(x)` | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis |
 | `Secondary()` | column `t` is read at output time `t`; the default | an indexing variant |
-| `Primary()` | column `c` is the kernel of the input at time `c`; convolution kernels only | an indexing variant |
+| `Primary()` | column `c` is the kernel of the input (or, in a recurrence, the output) at time `c`; kernel slots only | an indexing variant |
 
 ## Couplings
 
@@ -114,6 +114,7 @@ A bare array is an error that names the wrapper to use.
 | Delay that changes over time | `Convolution(TimeVarying(P))` or `TimeVarying(P, Primary())` |
 | Spatial or group mixing | `coupling = K` or `TimeVarying(K)` |
 | Per-group generation interval | `PerStratum(G)`, or `Pairwise(A)` per pair |
+| Transmission set by the infector's infection time (scheduled isolation) | `Recurrence(TimeVarying(K, Primary()))` with `seeded` |
 | Importation between patches | `Redistribute(K, ε)` |
 | Bed occupancy | `Convolution(survival)` or `Recurrence([1 - d])` with admissions as `add` |
 | Bed cap | `Clamp(0, beds)` |
