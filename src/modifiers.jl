@@ -1,5 +1,6 @@
 # The modifier interface. A modifier is any object; these functions give it
-# its behaviour, and modifiers run in tuple order after the core of each step.
+# its behaviour, and modifiers run in tuple order after the core of each step
+# of a Recurrence, or on each output step of a Convolution.
 
 @doc "
 The initial state of modifier `m`: a vector with one entry per stratum.
@@ -135,4 +136,49 @@ _stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
 function _stages!(ms::Tuple, states::Tuple, v, t)
     apply!(first(ms), v, first(states), t)
     return _stages!(Base.tail(ms), Base.tail(states), v, t)
+end
+
+_all_pointwise(::Tuple{}) = true
+_all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
+
+# Thread one stratum's value through pointwise modifiers in tuple order.
+_thread(::Tuple{}, ::Tuple{}, v, τ, k) = v
+function _thread(ms::Tuple, states::Tuple, v, τ, k)
+    s = first(states)
+    v′, s[k] = apply(first(ms), v, s[k], τ, k)
+    return _thread(Base.tail(ms), Base.tail(states), v′, τ, k)
+end
+
+# Pass step `τ`'s values `v` through the modifiers into `y`: stratum by
+# stratum when every modifier is pointwise, else stage by stage on `v`.
+function _modify!(y, modifiers, states, v, τ)
+    if _all_pointwise(modifiers)
+        for k in eachindex(y, v)
+            y[k] = _thread(modifiers, states, v[k], τ, k)
+        end
+    else
+        _stages!(modifiers, states, v, τ)
+        for k in eachindex(y, v)
+            y[k] = v[k]
+        end
+    end
+    return y
+end
+
+# Each modifier's state at eltype `Tp`: its initial state from `history`, or
+# the states `s0` returned by an earlier call.
+function _init_states(::Type{Tp}, modifiers, history, s0) where {Tp}
+    s0 === nothing &&
+        return map(m -> _state_vector(Tp, init_state(m, history)), modifiers)
+    return map(s -> _state_vector(Tp, s), s0)
+end
+
+function _check_states(s0, modifiers)
+    s0 === nothing || length(s0) == length(modifiers) || throw(
+        ArgumentError(
+            "$(length(s0)) modifier states given for " *
+                "$(length(modifiers)) modifiers"
+        )
+    )
+    return nothing
 end

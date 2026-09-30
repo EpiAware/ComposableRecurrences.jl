@@ -19,13 +19,28 @@ lag 0 first.
 
 The two agree for a fixed kernel.
 
-Called as `c(x; history = nothing, start = 1)`, where `x` is length `T` or
-`S × T` and `history` holds earlier inputs, oldest first (any length `m`, or
-`S × m`).
-Inputs before the history are zero.
-`start` is the time index of the first output; the history inputs sit at
-the times before it, so with `:primary` indexing `start` must exceed the
-history length.
+Modifiers act on each output step in tuple order, as in a
+[`Recurrence`](@ref), with their own state:
+
+    (y_t, s_t) = modifiers(Σ_d kernel_t[d + 1] x_{t-d}, s_{t-1})
+
+Nothing feeds back: later outputs convolve the inputs, not the modified
+outputs.
+Each modifier's initial state sees no earlier outputs, an empty history.
+
+Called as `c(x; history = nothing, start, return_state = false)`:
+
+  - `x`: the inputs, length `T` or `S × T`.
+  - `history`: earlier inputs, oldest first (any length `m`, or `S × m`),
+    with inputs before it zero; or the state returned by an earlier call
+    with `return_state = true`, to resume from it.
+  - `start`: the time index of the first output, at which time-varying
+    slots and modifiers are read; `1`, or the next index when resuming.
+    The history inputs sit at the times before it, so with `:primary`
+    indexing `start` must exceed the history length.
+  - `return_state`: also return `(; history, states, t)`: the last `D − 1`
+    inputs, each modifier's state and the time index of the next step.
+
 The output has the shape of `x`.
 
 # Arguments
@@ -33,6 +48,7 @@ The output has the shape of `x`.
 
 # Keyword Arguments
 - `indexed_by`: `:primary` (default) or `:secondary`.
+- `modifiers`: a tuple of modifiers applied to each output step.
 
 # Examples
 ```@example
@@ -41,37 +57,46 @@ delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
 Convolution(delay)(ones(8); history = ones(3))
 ```
 "
-struct Convolution{K}
+struct Convolution{K, M <: Tuple}
     "The kernel, lag 0 first."
     kernel::K
     "Which time a time-varying kernel's column belongs to."
     indexed_by::Symbol
-    function Convolution(kernel::K, indexed_by::Symbol) where {K}
+    "The modifiers, applied in order to each output step."
+    modifiers::M
+    function Convolution(kernel::K, indexed_by::Symbol, modifiers::M) where {
+            K, M <: Tuple,
+        }
         indexed_by in (:primary, :secondary) || throw(
             ArgumentError(
                 "unknown indexed_by $(repr(indexed_by)); choose one of " *
                     ":primary, :secondary"
             )
         )
-        return new{K}(kernel, indexed_by)
+        return new{K, M}(kernel, indexed_by, modifiers)
     end
 end
 
-function Convolution(kernel; indexed_by::Symbol = :primary)
-    return Convolution(kernel, indexed_by)
+function Convolution(kernel; indexed_by::Symbol = :primary, modifiers = ())
+    return Convolution(kernel, indexed_by, Tuple(modifiers))
 end
 
 _ndelays(k::AbstractVector) = length(k)
 _ndelays(k::PerStratum) = size(k.x, 2)
 _ndelays(k::TimeVarying) = size(k.x, ndims(k.x) - 1)
 
-function (c::Convolution)(x; history = nothing, start = 1)
-    kernel = c.kernel
+Base.@constprop :aggressive function (c::Convolution)(
+        x; history = nothing, start = nothing, return_state = false
+    )
+    (; kernel, modifiers) = c
+    h, s0, t0 = _split_history(history)
+    start = start === nothing ? t0 : start
     S = _nstrata(x)
     T = size(x, ndims(x))
-    m = history === nothing ? 0 : size(history, ndims(history))
-    _check_input_history(history, x)
+    m = h === nothing ? 0 : size(h, ndims(h))
+    _check_input_history(h, x)
     _check_kernel_strata(kernel, S)
+    _check_states(s0, modifiers)
     _nsteps(start, (:x => T,), (:kernel => _tv_steps(kernel),))
     kernel isa TimeVarying && c.indexed_by === :primary && start <= m &&
         throw(
@@ -81,13 +106,40 @@ function (c::Convolution)(x; history = nothing, start = 1)
                 "length ($m)"
         )
     )
-    Tp = float(param_eltype((kernel, x, history)))
+    Tp = float(param_eltype((c, x, h, s0)))
     X = zeros(Tp, m + T, S)
-    history === nothing || _load_history!(X, history, m)
+    h === nothing || _load_history!(X, h, m)
     _load_input!(X, x, m)
     Y = zeros(Tp, T, S)
     _convolve!(Y, kernel, X, m, start, c.indexed_by)
-    return _public(Y, axes(Y, 1), x)
+    states = _init_states(Tp, modifiers, _no_outputs(x, Tp), s0)
+    _modify_outputs!(Y, modifiers, states, start)
+    y = _public(Y, axes(Y, 1), x)
+    return_state || return y
+    n = min(_ndelays(kernel) - 1, m + T)
+    state = (;
+        history = _public(X, (m + T - n + 1):(m + T), x), states,
+        t = start + T,
+    )
+    return y, state
+end
+
+# An empty history of outputs, the initial history each modifier sees.
+_no_outputs(x::AbstractVector, ::Type{Tp}) where {Tp} = similar(x, Tp, 0)
+function _no_outputs(x::AbstractMatrix, ::Type{Tp}) where {Tp}
+    return similar(x, Tp, size(x, 1), 0)
+end
+
+# Pass each output step through the modifiers, in time order. The outputs
+# are not convolved again, so nothing feeds back into the inputs.
+_modify_outputs!(Y, ::Tuple{}, states, start) = Y
+function _modify_outputs!(Y, modifiers, states, start)
+    v = similar(Y, size(Y, 2))
+    for t in axes(Y, 1)
+        copyto!(v, view(Y, t, :))
+        _modify!(view(Y, t, :), modifiers, states, v, start + t - 1)
+    end
+    return Y
 end
 
 _check_input_history(::Nothing, x) = nothing

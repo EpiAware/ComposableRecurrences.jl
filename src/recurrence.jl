@@ -161,7 +161,7 @@ _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
 
 # A history given as the state of an earlier call carries modifier states
 # and the time index of the next step.
-_split_history(h::AbstractArray) = (h, nothing, 1)
+_split_history(h::Union{Nothing, AbstractArray}) = (h, nothing, 1)
 function _split_history(s::NamedTuple{(:history, :states, :t)})
     return (s.history, s.states, s.t)
 end
@@ -191,12 +191,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0)
     _check_coupling(coupling, S)
     _check_strata(:gain, gain, S)
     _check_strata(:add, add, S)
-    s0 === nothing || length(s0) == length(modifiers) || throw(
-        ArgumentError(
-            "$(length(s0)) modifier states given for " *
-                "$(length(modifiers)) modifiers"
-        )
-    )
+    _check_states(s0, modifiers)
     T = _nsteps(
         τ0, (:gain => _steps(gain), :add => _steps(add)),
         (:kernel => _tv_steps(kernel), :coupling => _tv_steps(coupling))
@@ -225,20 +220,7 @@ function _pressure_at(C::_PointwiseCoupling, kernel, q, H, t, τ, L, k)
 end
 _pressure_at(C, kernel, q, H, t, τ, L, k) = q[k]
 
-_all_pointwise(::Tuple{}) = true
-_all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
-
-# Thread one stratum's value through pointwise modifiers in tuple order.
-_thread(::Tuple{}, ::Tuple{}, v, τ, k) = v
-function _thread(ms::Tuple, states::Tuple, v, τ, k)
-    s = first(states)
-    v′, s[k] = apply(first(ms), v, s[k], τ, k)
-    return _thread(Base.tail(ms), Base.tail(states), v′, τ, k)
-end
-
 # The buffer loop: returns the output, the buffer and the final states.
-# With pointwise modifiers each stratum's value goes straight to the
-# buffer; otherwise the step's values are collected for `apply!`.
 function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
@@ -246,32 +228,16 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     p = zeros(Tp, S)
     q = zeros(Tp, S)
     v = zeros(Tp, S)
-    states = if s0 === nothing
-        map(m -> _state_vector(Tp, init_state(m, h)), modifiers)
-    else
-        map(s -> _state_vector(Tp, s), s0)
-    end
+    states = _init_states(Tp, modifiers, h, s0)
     for t in 1:T
         τ = τ0 + t - 1
         _prepare!(p, q, coupling, kernel, H, t, τ, L)
-        if _all_pointwise(modifiers)
-            for k in eachindex(v)
-                x = _at(gain, k, t) *
-                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                    _at(add, k, t)
-                H[L + t, k] = _thread(modifiers, states, x, τ, k)
-            end
-        else
-            for k in eachindex(v)
-                v[k] = _at(gain, k, t) *
-                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                    _at(add, k, t)
-            end
-            _stages!(modifiers, states, v, τ)
-            for k in eachindex(v)
-                H[L + t, k] = v[k]
-            end
+        for k in eachindex(v)
+            v[k] = _at(gain, k, t) *
+                _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
+                _at(add, k, t)
         end
+        _modify!(view(H, L + t, :), modifiers, states, v, τ)
     end
     return _public(H, (L + 1):(L + T), h), H, states
 end

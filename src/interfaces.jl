@@ -96,13 +96,20 @@ Test objects are `Arguments(; modifier, history, v, t)`."
     ),
 ]
 
-@implements OperatorInterface Convolution [
+@implements OperatorInterface{(:resume,)} Convolution [
     Arguments(;
         op = Convolution([0.1, 0.6, 0.3]), input = [1.0, 2.0, 3.0, 4.0],
         kwargs = (;)
     ),
     Arguments(;
         op = Convolution([0.1, 0.6, 0.3]), input = [1.0 2.0 3.0; 4.0 5.0 6.0],
+        kwargs = (; history = [1.0 1.0; 2.0 2.0])
+    ),
+    Arguments(;
+        op = Convolution(
+            [0.1, 0.6, 0.3]; modifiers = (Depletion(20.0), Clamp(0.0, 3.0))
+        ),
+        input = [1.0 2.0 3.0 4.0; 4.0 5.0 6.0 7.0],
         kwargs = (; history = [1.0 1.0; 2.0 2.0])
     ),
 ]
