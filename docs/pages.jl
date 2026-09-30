@@ -55,7 +55,10 @@ pages = [
     "Development" => [
         "Overview" => "developer/index.md",
         "Contributing" => "developer/contributing.md",
-        "Adding a modifier" => "developer/extending.md",
+        "Extending" => [
+            "Adding a modifier" => "developer/extending.md",
+            "Testing and benchmarking" => "developer/testing.md",
+        ],
         "Release process" => "developer/release-process.md",
         "Developer FAQ" => "developer/faq.md",
     ],
