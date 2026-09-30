@@ -70,7 +70,7 @@ A modifier acts on `v_t = gain_t ⊙ x_t + add_t` after each recurrence step, in
 | `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
-| `Transform(f, θ)` | maps each value through `f(v, θ_k)` | yes | no | yes | local forward-mode, or `derivative` | `θ` |
+| `Transform(f, θ)` | maps each value through `f(v, θ)` | yes | no | yes | local forward-mode, or `derivative` | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)` or `TimeVarying(PerStratum(x))`.
 A bare array is an error that names the wrapper to use.
