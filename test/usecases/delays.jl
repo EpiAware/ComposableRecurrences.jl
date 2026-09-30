@@ -47,8 +47,10 @@ end
     end
     ∇ref = ForwardDiff.gradient(ref_loss, θ0)
 
-    # The kernel is `L × T`: column `t` is the delay pmf for time `t`.
-    tv_delay(P, Y) = Convolution(TimeVarying(P))(Y)[d:end]
+    # The kernel is `L × T`: column `t` weights the inputs reaching time `t`.
+    tv_delay(P, Y) = Convolution(TimeVarying(P); indexed_by = :secondary)(
+        Y
+    )[d:end]
     @test tv_delay(P, Y) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* tv_delay(unpack(θ)...)), θ0) ≈ ∇ref
 end

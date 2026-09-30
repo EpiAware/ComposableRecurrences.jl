@@ -20,11 +20,7 @@ const QA_CONFIG = (
     formatter_env = joinpath(@__DIR__, "..", "formatter"),
 
     # Per-check Aqua relaxations, e.g. (; ambiguities = false). Empty = all on.
-    aqua = (;
-        # LinearAlgebra is declared ahead of the source that uses it.
-        # Drop this once the package loads it.
-        stale_deps = (; ignore = [:LinearAlgebra]),
-    ),
+    aqua = (;),
 
     # ExplicitImports `ignore`: symbols the main module legitimately imports
     # non-publicly. Tuple of Symbols, e.g. (:_internal_helper,). Package
