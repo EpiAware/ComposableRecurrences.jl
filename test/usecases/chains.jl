@@ -45,7 +45,6 @@ end
 
     g = [0.3, 0.5, 0.2]
     seed = [2.0, 3.0, 4.0]
-    L = length(seed)
     N = 500.0
     delay = [0.1, 0.4, 0.3, 0.2]
     Rt = [0.0, 0.0, 0.0, 2.5, 2.4, 2.2, 2.0, 1.8, 1.5, 1.2, 1.0, 0.9]
@@ -59,7 +58,7 @@ end
             N; form = :hazard, seeded = true
         )
         renewal = Recurrence(g; modifiers = (depletion,))
-        infections = vcat(seed, renewal(Rt[(L + 1):end]; history = seed))
+        infections = ComposableRecurrences.seeded(renewal, Rt; history = seed)
         return Convolution(delay)(infections)
     end
     @test chain(Rt) ≈ ref
