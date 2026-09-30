@@ -1,6 +1,6 @@
 # ComposableRecurrences.jl benchmark history
 
-Revisions: fbbf250129d49586b90fe1f53bcbe9f7396012cf
+Revisions: fe34677e3fa4b9637a0f794f2725d5ba42f34fa2
 
 See `table.md` for the ratio summary and the PNG
 files in this folder for per-benchmark timelines.
