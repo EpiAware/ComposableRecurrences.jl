@@ -66,7 +66,7 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
     Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
     Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface,
-    Executor, Serial, Threaded, EXECUTOR
+    Executor, Serial, Threaded, Device, EXECUTOR
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")

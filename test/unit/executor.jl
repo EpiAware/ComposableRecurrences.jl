@@ -1,6 +1,7 @@
 # The executor loop `each!`: every index runs once with its own arguments,
-# the serial loop allocates nothing, and one per-index body runs unchanged
-# as a kernel on an array type without scalar indexing.
+# the serial loop allocates nothing, threads and devices match the serial
+# loop, and one per-index body runs unchanged as a kernel on an array type
+# without scalar indexing.
 
 @testsnippet ExecutorBodies begin
     # Stratum `k`'s kernel convolution of its window `H[t:(t + L - 1), k]`.
@@ -47,26 +48,37 @@ end
     @test allocs(p, g, H, S, L) == 0
 end
 
-@testitem "each!: a body runs as a kernel on JLArrays" setup = [ExecutorBodies] begin
+@testitem "each!: Device runs a body as a kernel on JLArrays" setup = [ExecutorBodies] begin
     using ComposableRecurrences, JLArrays, KernelAbstractions
     const CR = ComposableRecurrences
-    const KA = KernelAbstractions
-
-    @kernel function each_kernel!(body, args)
-        k = @index(Global, Linear)
-        body(k, args...)
-    end
-
-    S, L, T = 5, 3, 8
-    g = rand(L)
-    H = rand(L + T, S)
-    p = zeros(S)
-    CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 2, L)
-
     JLArrays.allowscalar(false)
-    pd, gd, Hd = JLArray(zeros(S)), JLArray(g), JLArray(H)
-    each_kernel!(KA.get_backend(pd))(window_dot!, (pd, gd, Hd, 2, L); ndrange = S)
-    @test Array(pd) == p
+    S, L, T = 5, 3, 8
+    for Tp in (Float64, Float32)
+        g = rand(Tp, L)
+        H = rand(Tp, L + T, S)
+        p = zeros(Tp, S)
+        CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 2, L)
+        pd, gd, Hd = JLArray(zeros(Tp, S)), JLArray(g), JLArray(H)
+        ex = CR.Device(KernelAbstractions.get_backend(pd))
+        CR.each!(window_dot!, ex, S, S * L, pd, gd, Hd, 2, L)
+        @test Array(pd) == p
+        # A strata-first buffer seen through a time-first permuted view.
+        Hp = PermutedDimsArray(JLArray(permutedims(H)), (2, 1))
+        fill!(pd, 0)
+        CR.each!(window_dot!, ex, S, S * L, pd, gd, Hp, 2, L)
+        @test Array(pd) == p
+    end
+    @test CR.each!(window_dot!, CR.Device(nothing), 0, 0) === nothing
+end
+
+@testitem "Device: arrays on a device select it" begin
+    using ComposableRecurrences, JLArrays, KernelAbstractions
+    const CR = ComposableRecurrences
+    x = JLArray(rand(3))
+    @test CR._resolve(CR.Serial(), x) == CR.Device(KernelAbstractions.get_backend(x))
+    @test CR._resolve(CR.Serial(), rand(3)) === CR.Serial()
+    ex = CR.Threaded()
+    @test CR._resolve(ex, x) === ex
 end
 
 @testitem "each!: threaded matches serial" setup = [ExecutorBodies] begin

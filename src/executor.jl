@@ -153,3 +153,38 @@ end
 ```
 """
 const EXECUTOR = ScopedValue{Executor}(Serial())
+
+"""
+$(TYPEDEF)
+
+Runs every index of a loop as one thread of a kernel on a device, such as a
+GPU.
+
+`backend` is a `KernelAbstractions` backend, such as `CUDABackend()`, and
+the arrays the loop reads and writes must live on it.
+Kernel launches on one device run in order, so a loop reads the writes of
+the loop before it; reading the result on the host waits for them.
+Needs `KernelAbstractions` to be loaded.
+Operator calls on arrays that live on a GPU use it without being asked.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Examples
+```@example
+using ComposableRecurrences, JLArrays, KernelAbstractions
+const CR = ComposableRecurrences
+y = JLArray(zeros(4))
+ex = CR.Device(KernelAbstractions.get_backend(y))
+CR.each!((k, y) -> (y[k] = k^2; nothing), ex, 4, 4, y)
+Array(y)
+```
+"""
+struct Device{B} <: Executor
+    "The backend the loop's kernel runs on."
+    backend::B
+end
+
+# The executor a call on arrays like `x` uses under executor `ex`; a
+# device array selects its device.
+_resolve(ex::Executor, x) = ex
