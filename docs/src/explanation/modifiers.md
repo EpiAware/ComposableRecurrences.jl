@@ -88,7 +88,7 @@ Recurrence([0.6, 0.4]; modifiers = (split,))(fill(1.2, 3, 4); history = ones(3, 
 Recurrence([2.0]; modifiers = (Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
 ```
 
-## Writing your own modifier
+## Adding a modifier
 
 A modifier is a struct with `forward` on the `Step()` role, and on `Init()` when it has an initial state.
 The [Occupancy and capacity](@ref tutorial-occupancy) tutorial writes one, and the Extending table on the [Concepts](@ref concepts) page lists the roles.
