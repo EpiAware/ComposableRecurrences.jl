@@ -2,7 +2,8 @@
 # depletion and imported cases, and BVD's `renewal_infections` with hazard
 # depletion from a seed.
 #
-# The generation interval is the kernel, lag 1 first, and R_t is the gain.
+# The generation interval, reversed so the oldest lag comes first as in
+# CTIDM's `rev_gen_int`, is the kernel and R_t is the gain.
 
 @testitem "Use case: renewal" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
@@ -25,7 +26,7 @@
     # I_t = R_t Σ_i g_i I_{t-i}, from CTIDM's exponentially seeded window.
     function renewal(g, I₀, Rt)
         window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
-        return Recurrence(g)(Rt; history = window)
+        return Recurrence(reverse(g))(Rt; history = window)
     end
     @test renewal(g, I₀, Rt) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* renewal(unpack(θ)...)), θ0) ≈ ∇ref
@@ -53,7 +54,8 @@ end
     # step's new infections.
     function renewal(N, Rt)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        return Recurrence(g; modifiers = (depletion,))(Rt; history = window)
+        r = Recurrence(reverse(g); modifiers = (depletion,))
+        return r(Rt; history = window)
     end
     @test renewal(N, Rt) ≈ ref
     # The floor binds once the pool is exhausted.
@@ -88,10 +90,10 @@ end
     # Imports join the new infections before any modifier, so they are
     # `add`. With depletion after them they are depleted with the rest,
     # CTIDM's `(ImportedCases, SusceptibleDepletion)` order.
-    alone(ι, N) = Recurrence(g)(Rt; history = window, add = ι)
+    alone(ι, N) = Recurrence(reverse(g))(Rt; history = window, add = ι)
     function before(ι, N)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(g; modifiers = (depletion,))
+        r = Recurrence(reverse(g); modifiers = (depletion,))
         return r(Rt; history = window, add = ι)
     end
     @test alone(ι, N) ≈ ref_alone(ι, N)
@@ -120,12 +122,10 @@ end
 
     # CTIDM's `(SusceptibleDepletion, ImportedCases)` order adds imports to
     # the depleted infections, which `add` cannot express. A user modifier
-    # through the public interface does: it adds `rate[t]` and keeps no state.
+    # through the public interface does: it adds `rate[t]` and keeps no state,
+    # so it takes the default `init_state`.
     struct AddImports{R}
         rate::R
-    end
-    function ComposableRecurrences.init_state(::AddImports, history)
-        return zeros(eltype(history), 1)
     end
     function ComposableRecurrences.apply!(m::AddImports, v, s, t)
         v .+= m.rate[t]
@@ -134,7 +134,7 @@ end
 
     function after(ι, N)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(g; modifiers = (depletion, AddImports(ι)))
+        r = Recurrence(reverse(g); modifiers = (depletion, AddImports(ι)))
         return r(Rt; history = window)
     end
     @test after(ι, N) ≈ ref_after(ι, N)
@@ -161,7 +161,7 @@ end
         # A seed shorter than the generation interval is zero-padded: BVD
         # truncates the early windows, which is the same sum.
         history = vcat(zeros(eltype(seed), length(g) - L), seed)
-        r = Recurrence(g; modifiers = (depletion,))
+        r = Recurrence(reverse(g); modifiers = (depletion,))
         return vcat(seed, r(Rt[(L + 1):end]; history))
     end
 

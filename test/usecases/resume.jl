@@ -22,7 +22,7 @@
     window = C.renewal_window(ref_step(N), g, I₀, r)
     function renewal(N)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        return Recurrence(g; modifiers = (depletion,))
+        return Recurrence(reverse(g); modifiers = (depletion,))
     end
     # The state carries the last `L` values and the susceptible pool.
     function split_run(N, Rt)
@@ -52,7 +52,7 @@ end
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* C.ar(θ[1:2], init, θ[3:end])), θ0)
 
     function split_run(ρ, ϵ)
-        ar = Recurrence(ρ)
+        ar = Recurrence(reverse(ρ))
         fitted, state = ar(1.0; history = init, add = ϵ[1:T₁], return_state = true)
         forecast = ar(1.0; history = state, add = ϵ[(T₁ + 1):end])
         return vcat(init, fitted, forecast)
@@ -89,7 +89,7 @@ end
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
-        return Recurrence(g; modifiers = (importation, depletion))
+        return Recurrence(reverse(g); modifiers = (importation, depletion))
     end
     function split_run(Rt)
         first_steps, rest = (L + 1):T₁, (T₁ + 1):n

@@ -27,9 +27,10 @@
 
     window = C.renewal_window(step, g, I₀, r)
     function chain(ρ, ϵ)
-        log_Rt = vcat(init, Recurrence(ρ)(1.0; history = init, add = ϵ))
+        ar = Recurrence(reverse(ρ))
+        log_Rt = vcat(init, ar(1.0; history = init, add = ϵ))
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        renewal = Recurrence(g; modifiers = (depletion,))
+        renewal = Recurrence(reverse(g); modifiers = (depletion,))
         infections = renewal(exp.(log_Rt); history = window)
         return Convolution(pmf)(infections)[d:end]
     end
@@ -57,7 +58,7 @@ end
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
-        renewal = Recurrence(g; modifiers = (depletion,))
+        renewal = Recurrence(reverse(g); modifiers = (depletion,))
         infections = vcat(seed, renewal(Rt[(L + 1):end]; history = seed))
         return Convolution(delay)(infections)
     end

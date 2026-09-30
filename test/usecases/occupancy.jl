@@ -34,17 +34,16 @@
     # The stocks are the strata: (O_bvd, O_bg, O_conf, O_susp). The
     # modifier receives the previous day's stocks in `v` and overwrites them
     # with today's.
-    struct OccupancyBalance
-        A_bvd::Any
-        A_bg::Any
-        deaths::Any
-        recover::Any
-        ruleout::Any
-        κ::Any
-        conf_hazard::Any
-    end
-    function ComposableRecurrences.init_state(::OccupancyBalance, history)
-        return zeros(eltype(history), 4)
+    # Each field has its own type parameter so a Dual in any of them
+    # promotes the recurrence's buffer.
+    struct OccupancyBalance{A, B, D, R, O, K, H}
+        A_bvd::A
+        A_bg::B
+        deaths::D
+        recover::R
+        ruleout::O
+        κ::K
+        conf_hazard::H
     end
     function ComposableRecurrences.apply!(m::OccupancyBalance, v, s, t)
         z = zero(eltype(v))

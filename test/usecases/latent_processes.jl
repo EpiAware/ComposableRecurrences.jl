@@ -2,8 +2,8 @@
 # time-varying AR(1) and MA(q). Each is a recurrence (or, for MA, a
 # convolution) driven by innovations passed as `add`.
 #
-# Kernels are indexed by lag: `kernel[i]` weights the value `i` steps back.
-# `history` holds the last `L` values, oldest first.
+# Recurrence kernels and `history` are aligned with the window, oldest
+# first, so lag-indexed AR coefficients are reversed.
 
 @testitem "Use case: random walk" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
@@ -37,8 +37,12 @@ end
     unpack(θ) = (θ[1:2], θ[3:4], θ[5:end])
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* C.ar(unpack(θ)...)), θ0)
 
-    # z_t = Σ_i ρ_i z_{t-i} + ϵ_t: the AR coefficients are the kernel.
-    ar(ρ, init, ϵ) = vcat(init, Recurrence(ρ)(1.0; history = init, add = ϵ))
+    # z_t = Σ_i ρ_i z_{t-i} + ϵ_t: the AR coefficients, oldest lag first,
+    # are the kernel.
+    function ar(ρ, init, ϵ)
+        r = Recurrence(reverse(ρ))
+        return vcat(init, r(1.0; history = init, add = ϵ))
+    end
     @test ar(ρ, init, ϵ) ≈ ref
     ∇ = ForwardDiff.gradient(θ -> sum(w .* ar(unpack(θ)...)), θ0)
     @test ∇ ≈ ∇ref

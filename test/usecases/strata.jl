@@ -27,7 +27,9 @@
     # I_{g,t} = R_{g,t} Σ_h K_{gh} Σ_i g_i I_{h,t-i}: K couples the strata
     # after the generation-interval convolution.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g), K), g, I₀, r)
-    mixed(K, Rt) = Recurrence(g; coupling = K)(Rt; history = window)
+    function mixed(K, Rt)
+        return Recurrence(reverse(g); coupling = K)(Rt; history = window)
+    end
     @test mixed(K, Rt) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* mixed(unpack(θ)...)), θ0) ≈ ∇ref
 end
@@ -60,7 +62,9 @@ end
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function coupled(θ)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(g; coupling = gravity(θ), modifiers = (depletion,))
+        r = Recurrence(
+            reverse(g); coupling = gravity(θ), modifiers = (depletion,)
+        )
         return r(Rt; history = window)
     end
     @test coupled(θ0) ≈ ref
@@ -83,9 +87,13 @@ end
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3))), vec(G)
     )
 
-    # `PerStratum` takes a strata × lags kernel, one row per stratum.
+    # `PerStratum` takes a strata × lags kernel, one row per stratum, oldest
+    # lag first.
     window = C.renewal_window(step(G), G, I₀, r)
-    per_stratum(G) = Recurrence(PerStratum(G); coupling = K)(Rt; history = window)
+    function per_stratum(G)
+        r = Recurrence(PerStratum(reverse(G; dims = 2)); coupling = K)
+        return r(Rt; history = window)
+    end
     @test per_stratum(G) ≈ ref
     @test ForwardDiff.gradient(
         θ -> sum(w .* per_stratum(reshape(θ, 3, 3))), vec(G)
@@ -117,7 +125,8 @@ end
     )
 
     # A strata × strata × lags coupling carries the intervals itself, lag 1
-    # at `[:, :, 1]`, so there is no separate kernel.
+    # at `[:, :, 1]` (newest first, unlike a vector kernel), so the kernel
+    # is `nothing`.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function per_pair(K)
         r = Recurrence(nothing; coupling = Pairwise(pairwise(K)))
@@ -152,7 +161,10 @@ end
     )
 
     # `TimeVarying` coupling is strata × strata × time.
-    tv(Ks) = Recurrence(g; coupling = TimeVarying(Ks))(Rt; history = window)
+    function tv(Ks)
+        r = Recurrence(reverse(g); coupling = TimeVarying(Ks))
+        return r(Rt; history = window)
+    end
     @test tv(Ks) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* tv(reshape(θ, 3, 3, T))), vec(Ks)) ≈
         ∇ref
@@ -196,7 +208,7 @@ end
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
-        r = Recurrence(g; modifiers = (importation, depletion))
+        r = Recurrence(reverse(g); modifiers = (importation, depletion))
         return hcat(seeds, r(Rt[:, steps]; history = seeds))
     end
     @test patch(K, ε, N) ≈ ref
