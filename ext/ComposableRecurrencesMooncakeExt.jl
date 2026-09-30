@@ -17,8 +17,10 @@ const _Inert = Union{Nothing, Integer, Symbol, AbstractArray{<:Integer}}
 # The mirror of primal `x` from its fdata `dx`.
 _mc(x::_IEEEFloat, dx) = Ref(zero(x))
 _mc(x::_IEEEFloat, ::NoFData) = Ref(zero(x))
+_mc(x::_IEEEFloat, ::Mooncake.FData) = Ref(zero(x))
 _mc(::_Inert, dx) = nothing
 _mc(::_Inert, ::NoFData) = nothing
+_mc(::_Inert, ::Mooncake.FData) = nothing
 _mc(x::Array{<:_IEEEFloat}, dx::Array) = dx
 _mc(x::SubArray, dx::Mooncake.FData) = _view(_mc(parent(x), dx.data.parent), x)
 function _mc(x::Base.ReshapedArray, dx::Mooncake.FData)
