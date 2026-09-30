@@ -1,0 +1,16 @@
+name = "ComposableRecurrences"
+uuid = "4e7e49c6-d082-4112-9a58-49588f39a74b"
+version = "0.1.0"
+authors = ["Sam Abbott", "EpiAware contributors"]
+
+[workspace]
+projects = ["test", "docs"]
+
+[deps]
+DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+
+[compat]
+DocStringExtensions = "0.9.5"
+LinearAlgebra = "1"
+julia = "1.10, 1.11, 1.12"
