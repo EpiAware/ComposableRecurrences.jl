@@ -21,16 +21,45 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 
 ## Getting started
 
-Once released, see the [documentation](https://composablerecurrences.epiaware.org/stable/) for a full walkthrough.
+Three towns share an outbreak.
+A renewal process is mixed by a gravity coupling, with susceptible depletion in each town, an intervention on day 50 and a reporting delay.
 
 ```julia
 using ComposableRecurrences
+using ComposableRecurrences: Depletion
+using ForwardDiff
+
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.98 * [a == b for a in 1:3, b in 1:3] + 0.02 * gravity ./ sum(gravity; dims = 2)
+
+renewal = Recurrence(
+    [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]; coupling = K,
+    modifiers = (Depletion(PerStratum(pop)),)
+)
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+
+R = [t < 50 ? 1.5 : 0.8 for _ in 1:3, t in 1:100]
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+reports = 0.4 .* delay(renewal(R; history = seed))
+round.(vec(sum(reports; dims = 2)))
 ```
+
+The gradient of all reports with respect to every town's reproduction number on every day is one line.
+
+```julia
+∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed))), R)
+size(∂R)
+```
+
+See the [documentation](https://composablerecurrences.epiaware.org/stable/) for a full walkthrough.
 
 ## Related packages
 
 - [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) builds infectious disease models from renewal, delay and latent process components.
 - [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org) builds convolutions of distributions, such as the total of two independent delays.
+- [CensoredDistributions.jl](https://censoreddistributions.epiaware.org) discretises delay distributions into the probability mass functions these operators take as kernels.
 
 ## Where to learn more
 
