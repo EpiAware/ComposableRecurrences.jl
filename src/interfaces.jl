@@ -1,4 +1,4 @@
-# Interfaces.jl declaration of the piece interface. Test objects are
+# Interfaces.jl declaration of the role interface. Test objects are
 # `Arguments(; piece, role, args)`, with `kwargs` for a `Run`.
 
 _kwargs(a) = haskey(a, :kwargs) ? a.kwargs : (;)
@@ -28,7 +28,7 @@ function _forward_ok(C, ::Pressure, args, kwargs)
     return out === nothing && p == args[2] && all(isfinite, q)
 end
 
-# The vector Step of a pointwise piece matches its scalar Step per stratum.
+# The vector Step of a pointwise modifier matches its scalar Step per stratum.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
     first(args) isa AbstractVector || return true
@@ -41,14 +41,19 @@ end
 
 @interface PieceInterface Any (
     mandatory = (
-        forward = "forward runs the piece in its role" =>
+        forward = "forward runs in its role" =>
             a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
     ),
     optional = (
         pointwise = "a vector Step matches the scalar Step on each stratum" =>
             a -> _pointwise_ok(a.piece, a.role, a.args),
     ),
-) "A piece (operator, coupling, modifier or variant) with `forward` for a role.
+) "An operator, coupling, modifier or variant with `forward` for a role.
+
+The mandatory component checks that `forward` runs and keeps to its role's
+conventions (outputs written into the leading arrays, inputs unchanged).
+The optional `pointwise` component checks that a modifier's vector step
+equals its scalar step on every stratum, ``M(v, s, t)_i = M_i(v_i, s_i, t)``.
 
 Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
 

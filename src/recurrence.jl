@@ -1,17 +1,42 @@
-@doc "
+@doc raw"
 A recurrence over strata whose kernel starts at lag 1, stepped from a window
 of its own past values.
 
-At time `t`, each stratum's kernel convolution of its last `L` values is
-mixed by the coupling, scaled by the gain and shifted by the add input,
-then passed through the modifiers in tuple order:
+At absolute time ``t``, each stratum's kernel convolution of its last ``L``
+values is mixed by the coupling, scaled by the gain (a multiplier on each
+step's value, such as a reproduction number) and shifted by the add input, then passed through the modifiers ``M_1, \dots, M_R`` in tuple order:
 
-    x_t = coupling_t(Σ_i kernel_t[i] y_{t-i})
-    v_t = gain_t ⊙ x_t + add_t
-    (y_t, s_t) = modifiers(v_t, s_{t-1})
+```math
+\begin{aligned}
+p_{t,i} &= \sum_{l=1}^{L} k_{i,l}(t)\, y_{t-l,i}, \\
+v^{(0)}_t &= g_t \odot C_t\, p_t + a_t, \\
+\big(v^{(n)}_t,\ s^{(n)}_t\big) &= M_n\big(v^{(n-1)}_t,\ s^{(n)}_{t-1},\ t\big),
+\quad n = 1, \dots, R, \\
+y_t &= v^{(R)}_t,
+\end{aligned}
+```
 
-`kernel[i]` weights `y_{t-i}`, as a generation interval or AR coefficients
-are written: a recurrence has no lag 0.
+for ``t = t_0, \dots, t_1`` (`start`, `stop`), where
+
+  - ``y_{t,i}`` is the output of stratum ``i`` at time ``t``, one of ``S``
+    strata (parallel series such as places or age groups); for
+    ``t < t_0`` it is the history;
+  - ``k_{i,l}(t)`` is the kernel's weight on lag ``l``, `kernel[l]`, the
+    same for every ``i`` and ``t`` unless the kernel is
+    [`PerStratum`](@ref) or [`TimeVarying`](@ref);
+  - ``p_t`` holds each stratum's kernel convolution and ``C_t`` is the
+    ``S \times S`` coupling, ``C_{t,ij}`` weighting stratum ``j`` in
+    stratum ``i``;
+  - ``g_t`` is the gain and ``a_t`` the add input, and ``\odot`` is the
+    element-wise product;
+  - ``v^{(0)}_t`` is the value entering the modifiers, ``v^{(n)}_t`` the
+    value after the ``n``-th and ``s^{(n)}_t`` that modifier's state after
+    step ``t``; with no modifiers ``y_t = v^{(0)}_t``.
+
+A [`Pairwise`](@ref) kernel replaces ``C_t p_t`` with
+``\sum_{j} \sum_{l} k_{ij,l}(t)\, y_{t-l,j}``.
+`kernel[l]` weights ``y_{t-l}``, as a generation interval or AR
+coefficients are written: a recurrence has no lag 0.
 The kernel is a length-`L` vector shared by every stratum, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
@@ -97,12 +122,22 @@ function Recurrence(kernel; coupling = I, modifiers = ())
     return Recurrence(kernel, coupling, Tuple(modifiers))
 end
 
-@doc "
+@doc raw"
 The state [`ComposableRecurrences.with_state`](@ref) returns with an
 operator's output, passed back as `state` to resume.
 
-`history` holds the last `L` outputs, `states` each modifier's state and
-`t` the time of the next step.
+After a call that ended at absolute time ``t_1`` it carries
+
+```math
+\big(\, (y_{t_1 - L + 1}, \dots, y_{t_1}),\ \ (s^{(1)}_{t_1}, \dots, s^{(R)}_{t_1}),\ \ t_1 + 1 \,\big),
+```
+
+where ``y_t`` is the output at time ``t`` (one entry per stratum),
+``L`` the number of kernel weights and ``s^{(n)}_{t_1}`` the state of the
+``n``-th of ``R`` modifiers after the last step.
+`history` holds the last ``L`` outputs, `states` each modifier's state and
+`t` the time of the next step, ``t_1 + 1``.
+A call with `state` continues exactly as one call over both ranges would.
 
 # Examples
 ```@example
@@ -122,9 +157,19 @@ struct State{H, M, T}
     t::T
 end
 
-@doc "
+@doc raw"
 Call operator `op` and return its output with the
 [`ComposableRecurrences.State`](@ref) to resume from, `(y, state)`.
+
+For a call over absolute times ``t_0, \dots, t_1`` it returns
+
+```math
+\big((y_{t_0}, \dots, y_{t_1}),\ \ \sigma_{t_1}\big),
+```
+
+where ``y_t`` is the output at time ``t`` and ``\sigma_{t_1}`` the state
+after the last step (the last ``L`` outputs, each modifier's state and
+``t_1 + 1``).
 
 Takes the same arguments as calling `op`; resume with `op(...; state)`.
 
@@ -447,13 +492,22 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     return _public(H, (L + 1):(L + T), h), H, states
 end
 
-@doc "
+@doc raw"
 Run `r` from a seed and return the seed followed by the run.
 
+With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
+returns
+
+```math
+(h_1, \dots, h_m,\ y_{m+1}, \dots, y_{t_1}),
+```
+
+where ``y_t`` for ``t > m`` is the output of `r` started at ``t_0 = m + 1``
+from history ``h``, and ``t_1`` is the last time.
 Equivalent to
-`cat(history, r(gain; history, start = m + 1, kwargs...); dims = ndims(history))`
-with `m` the seed's length: the time-indexed inputs are full length, their
-first `m` times covering the seed.
+`cat(history, r(gain; history, start = m + 1, kwargs...); dims = ndims(history))`:
+the time-indexed inputs are full length, their first ``m`` times covering
+the seed.
 A seed shorter than the kernel is zero-padded.
 
 # Arguments
