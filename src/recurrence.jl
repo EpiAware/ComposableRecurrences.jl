@@ -290,6 +290,25 @@ function _load_history!(H, h::AbstractMatrix, L)
     return H
 end
 
+# CPU buffers load by loop: a broadcast copy may alias its source, and Enzyme
+# cannot give that branch one activity when the history is constant.
+function _load_history!(H::Array, h::AbstractVector, L)
+    m = length(h)
+    n = min(m, L)
+    for i in 1:n
+        H[L - n + i, 1] = h[m - n + i]
+    end
+    return H
+end
+function _load_history!(H::Array, h::AbstractMatrix, L)
+    m = size(h, 2)
+    n = min(m, L)
+    for i in 1:n, k in axes(H, 2)
+        H[L - n + i, k] = h[k, m - n + i]
+    end
+    return H
+end
+
 # The buffer rows `rows`, back in the public layout of history `h`.
 _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
