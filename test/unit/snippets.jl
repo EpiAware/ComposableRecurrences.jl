@@ -44,8 +44,8 @@ end
 @testsnippet TestModifiers begin
     using ComposableRecurrences: ComposableRecurrences
 
-    # CTIDM's floored susceptible depletion (`SusceptibleDepletion`), as a
-    # pointwise modifier whose state starts at the population size.
+    # Floored susceptible depletion as a pointwise modifier whose state
+    # starts at the population size.
     struct FlooredDepletion{P}
         pop::P
     end
