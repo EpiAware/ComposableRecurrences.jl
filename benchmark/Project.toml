@@ -1,0 +1,15 @@
+[deps]
+ADFixtures = "09061bce-e10c-4c3e-b2cd-e198b26477f6"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
+ComposableRecurrences = "4e7e49c6-d082-4112-9a58-49588f39a74b"
+
+[sources]
+ADFixtures = {path = "../test/ADFixtures"}
+ComposableRecurrences = {path = ".."}
+
+[compat]
+EpiAwarePackageTools = "0.3, 0.4"
+BenchmarkTools = "1"
+DifferentiationInterface = "0.6, 0.7"

@@ -1,0 +1,11 @@
+[deps]
+EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+ComposableRecurrences = "4e7e49c6-d082-4112-9a58-49588f39a74b"
+
+[sources]
+ComposableRecurrences = {path = "../.."}
+
+[compat]
+EpiAwarePackageTools = "0.3, 0.4"
+JET = "0.11, 0.12"
