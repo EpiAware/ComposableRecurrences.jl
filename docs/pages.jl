@@ -30,6 +30,7 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "Concepts" => "getting-started/concepts.md",
+        "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
     ],
     "API reference" => [
