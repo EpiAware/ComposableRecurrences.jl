@@ -11,7 +11,7 @@ Every operator is differentiable, so a model built from them can be fitted with 
 
 Three towns share an outbreak.
 Infections follow a renewal process, a gravity coupling mixes the towns, and each town's susceptible pool is depleted.
-An intervention on day 50 lowers the reproduction number, and a reporting delay turns infections into reports.
+An intervention from day 50 lowers the reproduction number over a week, and a reporting delay turns infections into reports.
 
 ```@example overview
 using ComposableRecurrences
@@ -31,8 +31,8 @@ gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 
-T = 100
-R = [t < 50 ? 1.8 : 0.8 for _ in towns, t in 1:T]
+T = 75
+R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 infections = renewal(R; history = seed)
 reports = 0.4 .* delay(infections)
@@ -76,7 +76,7 @@ draw(
 )
 ```
 
-Total reports are most sensitive to town A's reproduction number on the first days and around its peak.
+Total reports are most sensitive to town A's reproduction number around its peak.
 The reproduction numbers of B and C matter most just before the intervention, when their own outbreaks are largest.
 Sensitivity fades after the intervention and is zero on the last day, whose infections are not yet reported.
 

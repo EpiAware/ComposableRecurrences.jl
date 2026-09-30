@@ -1,5 +1,5 @@
 # Renders docs/src/assets/readme-example.png from the README's Getting
-# started example. Run with `task readme-figure`.
+# started example. Run with `task -t docs/Taskfile.yml readme-figure`.
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 root = dirname(@__DIR__)
@@ -8,38 +8,32 @@ example = only(match(r"```julia\n(.*?)```"s, readme).captures)
 include_string(Main, example)
 
 towns = ["A", "B", "C"]
-tidy(x, name) = @chain DataFrame(permutedims(x), towns) begin
-    @transform(:day = 1:size(x, 2))
-    stack(towns; variable_name = :town, value_name = name)
+panels = ["Daily count", "Susceptible share"]
+tidy(x, series, panel) = @chain DataFrame(permutedims(x), towns) begin
+    @transform(:day = 1:size(x, 2), :series = series, :panel = panel)
+    stack(towns; variable_name = :town, value_name = :value)
+end
+susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
+
+df = vcat(
+    tidy(infections, "Infections", panels[1]),
+    tidy(reports, "Reports", panels[1]),
+    tidy(susceptible, "Susceptible", panels[2])
+)
+intervention = @chain crossjoin(DataFrame(town = towns), DataFrame(panel = panels)) begin
+    @transform(:start = 50, :stop = 56)
 end
 
-counts = @chain vcat(
-    @transform(tidy(infections, :count), :series = "Infections"),
-    @transform(tidy(reports, :count), :series = "Reports")
-) begin
-    @rsubset(:day <= 80)
-end
-sensitivity = @rsubset(tidy(∂R, :gradient), :day <= 80)
+plt = data(intervention) *
+    mapping(:start, :stop, row = :panel, col = :town) *
+    visual(VSpan, color = (:grey, 0.2)) +
+    data(df) *
+    mapping(:day => "Day", :value => "", color = :series => "", row = :panel, col = :town) *
+    visual(Lines, linewidth = 2.5)
 
 set_theme!(theme_light())
-fig = Figure(size = (1000, 560))
-curves = draw!(
-    fig[1, 1],
-    data(counts) *
-        mapping(:day => "Day", :count => "Count", color = :series => "", col = :town) *
-        visual(Lines, linewidth = 2.5)
+fig = draw(
+    plt; figure = (; size = (1000, 520)), facet = (; linkyaxes = :rowwise),
+    axis = (; xticks = 0:25:75)
 )
-foreach(ae -> vlines!(ae.axis, 50; color = :grey50, linestyle = :dash), curves)
-legend!(fig[1, 2], curves)
-heat = draw!(
-    fig[2, 1],
-    data(sensitivity) *
-        mapping(:day => "Day", :town => "Town", :gradient => "∂ total reports / ∂R") *
-        visual(Heatmap, colormap = :viridis);
-    axis = (xticks = 0:20:80,)
-)
-foreach(ae -> vlines!(ae.axis, 50; color = :white, linestyle = :dash), heat)
-colorbar!(fig[2, 2], heat)
-rowsize!(fig.layout, 2, Relative(0.35))
-
 save(joinpath(root, "docs", "src", "assets", "readme-example.png"), fig; px_per_unit = 2)
