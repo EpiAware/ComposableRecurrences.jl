@@ -30,6 +30,7 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "Concepts" => "getting-started/concepts.md",
+        "Spatial and multi-type models" => "getting-started/tutorials/spatial-strata.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
