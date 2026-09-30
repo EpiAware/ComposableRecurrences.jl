@@ -27,7 +27,7 @@ const BARS = [
 ]
 
 struct Run
-    meta::Dict{String, Dict{String, String}}  # target => metadata
+    meta::Dict{String, Dict{String, String}}  # "tier target" => metadata
     rows::Vector{Dict{String, String}}
 end
 
@@ -49,7 +49,7 @@ function read_run(dir)
                 rows[end]["tier"] = get(m, "tier", "")
             end
         end
-        haskey(m, "target") && (meta[m["target"]] = m)
+        haskey(m, "target") && (meta[m["tier"] * " " * m["target"]] = m)
     end
     return Run(meta, rows)
 end
@@ -80,12 +80,20 @@ function index(run)
 end
 
 function _targets(run)
-    ts = unique(r["target"] for r in run.rows if haskey(run.meta, r["target"]))
+    ts = unique(
+        r["target"] for r in run.rows
+            if haskey(run.meta, r["tier"] * " " * r["target"])
+    )
     grads = [t for t in GRADIENT_ORDER if t in ts]
     return ("primal" in ts ? ["primal"] : String[]), grads
 end
 
-_rules(run, target) = get(get(run.meta, target, Dict()), "rules", "false") == "true"
+function _rules(run, target)
+    return any(
+        get(m, "target", "") == target && get(m, "rules", "") == "true"
+            for m in values(run.meta)
+    )
+end
 
 function cases_in(run, tier)
     seen = Tuple{String, String, String}[]
@@ -100,7 +108,7 @@ end
 
 function metadata_section(io, run)
     println(io, "## Runs\n")
-    println(io, "| Target | Label | Revision | Julia | Threads | Rules | Load start → end | Versions |")
+    println(io, "| Tier and target | Label | Revision | Julia | Threads | Rules | Load start → end | Versions |")
     println(io, "|:--|:--|:--|:--|--:|:--|:--|:--|")
     for (t, m) in sort(collect(run.meta); by = first)
         vs = join(
