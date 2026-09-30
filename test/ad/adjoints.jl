@@ -64,7 +64,7 @@
                 "strata, mixed eltypes",
                 Recurrence(f32(g); coupling = K), rec(R, nothing, f32(h)),
             ),
-            ("sparse coupling", Recurrence(g; coupling = Ks), rec(R, R, h)),
+            ("sparse coupling", Recurrence(g; coupling = Ks), rec(R, copy(R), h)),
             (
                 "Diagonal coupling, per-stratum kernel",
                 Recurrence(PerStratum(rand(rng, S, L)); coupling = Diagonal(rand(rng, S))),
@@ -282,7 +282,10 @@ end
     using ComposableRecurrences: NoAdjoint
     backends = (
         AutoMooncake(; config = nothing),
-        AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse)),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
     )
     rng = Xoshiro(3)
     g, h, W = rand(rng, 3) ./ 2, 1 .+ rand(rng, 3), randn(rng, 8)
@@ -291,10 +294,10 @@ end
     delay(θ) = sum(W .* Convolution(θ[1:3])(θ[4:end]))
     delay_na(θ) = sum(W .* NoAdjoint(Convolution(θ[1:3]))(θ[4:end]))
     for (f, θ, fires) in (
-            (renewal, [50.0; 1 .+ rand(rng, 8)], true),
-            (renewal_na, [50.0; 1 .+ rand(rng, 8)], false),
-            (delay, rand(rng, 11), true), (delay_na, rand(rng, 11), false),
-        ),
+                (renewal, [50.0; 1 .+ rand(rng, 8)], true),
+                (renewal_na, [50.0; 1 .+ rand(rng, 8)], false),
+                (delay, rand(rng, 11), true), (delay_na, rand(rng, 11), false),
+            ),
             backend in backends
         ref = gradient(f, AutoForwardDiff(), θ)
         n0 = CR._PULLBACK_CALLS[]
@@ -309,7 +312,10 @@ end
     import Mooncake, Enzyme, ForwardDiff
     backends = (
         AutoMooncake(; config = nothing),
-        AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse)),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
     )
     for (name, own, f, θ) in user_cases(), backend in backends
         @testset "$name $(nameof(typeof(backend)))" begin
@@ -371,4 +377,18 @@ end
     )
     @test Enzyme.gradient(mode, Enzyme.Const(g), r)[1].coupling.nzval ≈
         ForwardDiff.gradient(fnz, copy(K.nzval))
+end
+
+@testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using LinearAlgebra
+    import Enzyme
+    h, R = ones(3, 2), ones(3, 5)
+    f(r) = sum(r(R; history = h))
+    fλ(λ) = f(Recurrence([0.3, 0.2]; coupling = λ * I))
+    ḡ = Enzyme.gradient(
+        Enzyme.set_runtime_activity(Enzyme.Reverse), Enzyme.Const(f),
+        Recurrence([0.3, 0.2]; coupling = 0.7I)
+    )[1]
+    @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
 end
