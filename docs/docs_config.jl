@@ -16,6 +16,7 @@ const LIGHT_TUTORIALS = String[]
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
+    "latent-processes.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -28,6 +29,8 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
         "# [Renewal then delay](@id tutorial-renewal-delay)",
+    "latent-processes.md" =>
+        "# [Latent processes driving R_t](@id tutorial-latent-rt)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -199,6 +202,8 @@ const PACKAGE_TUTORIALS = [
     "Concepts" => "getting-started/concepts.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
+    "Latent processes driving R_t" =>
+        "getting-started/tutorials/latent-processes.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
