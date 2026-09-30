@@ -171,5 +171,5 @@ round.((sum(traced_outbreak(0.0)), sum(traced_outbreak(0.5)), sum(traced_outbrea
 
 # ## Learning more
 #
-# - See every piece used here on the [Concepts](@ref concepts) page.
+# - See every type used here on the [Concepts](@ref concepts) page.
 # - Want the full interface? See the [Public API](@ref public-api).

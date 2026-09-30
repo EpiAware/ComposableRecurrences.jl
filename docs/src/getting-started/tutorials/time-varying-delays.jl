@@ -120,5 +120,5 @@ draw(
 
 # ## Learning more
 #
-# - See every piece used here on the [Concepts](@ref concepts) page.
+# - See every type used here on the [Concepts](@ref concepts) page.
 # - Want the full interface? See the [Public API](@ref public-api).
