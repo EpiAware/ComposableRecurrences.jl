@@ -1,7 +1,6 @@
 # [Getting started](@id getting-started)
 
-Recurrences and causal convolutions are usually hand-written loops, rewritten for each model.
-ComposableRecurrences expresses them as two operators.
+ComposableRecurrences has two operators.
 `Recurrence` steps a series forward from a kernel-weighted window of its own past.
 `Convolution` weights past inputs by a kernel.
 Many series can be linked so that each one feeds the others, and extra behaviour such as finite pools or bounds can be added to each step.
@@ -55,9 +54,7 @@ draw(
 )
 ```
 
-The outbreak starts in town A, which turns before the intervention as its susceptible pool runs down.
-It reaches B and C through the coupling about three weeks later, and the intervention turns them while they are still growing.
-Reports are 40% of infections, delayed and smoothed by the reporting delay.
+Town A turns before the intervention because its susceptible pool runs down.
 
 ## Gradients
 
@@ -76,9 +73,7 @@ draw(
 )
 ```
 
-Total reports are most sensitive to town A's reproduction number around its peak.
-The reproduction numbers of B and C matter most just before the intervention, when their own outbreaks are largest.
-Sensitivity fades after the intervention and is zero on the last day, whose infections are not yet reported.
+Sensitivity is zero on the last day because that day's infections are not yet reported.
 
 ## Speed
 
