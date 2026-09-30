@@ -10,6 +10,7 @@ Their parameters are a scalar, `PerStratum`, `TimeVarying` or `TimeVarying(PerSt
 | `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
+| `Allocate(groups, total)` | rescales each group of strata to an exogenous total | yes, with strata | no | no | hand-written | `total`, over groups |
 
 A pointwise modifier acts on each stratum separately, and the rest act on the whole step.
 
@@ -22,7 +23,7 @@ A `Redistribute` moves whatever it sees, so with a nonzero `add` it moves the ad
 
 ```@example modifiers
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Floor, Add, Redistribute, Clamp
+using ComposableRecurrences: Depletion, Floor, Add, Redistribute, Clamp, Allocate
 ```
 
 ## Depletion
@@ -64,6 +65,19 @@ The diagonal of `K` is ignored.
 K = [0.0 0.3; 0.2 0.0]
 r = Recurrence([0.5, 0.5]; modifiers = (Redistribute(K, 0.1),))
 r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+```
+
+## Allocate
+
+`Allocate(groups, total)` rescales each group of strata to an exogenous total.
+The strata of a group keep their shares of its value, `y_k = T_p(t) v_k / Σ_{j ∈ G_p} v_j`, so they compete only for their shares.
+The groups partition the strata, and `total` is a parameter over groups: one value, `PerStratum` (one per group), `TimeVarying` or `TimeVarying(PerStratum(T))`.
+A group sum below the machine epsilon is floored there.
+Here the first two strata split a total of 10 each day and the third takes 3.
+
+```@example modifiers
+split = Allocate([1:2, 3:3], PerStratum([10.0, 3.0]))
+Recurrence([0.6, 0.4]; modifiers = (split,))(fill(1.2, 3, 4); history = ones(3, 2))
 ```
 
 ## Clamp

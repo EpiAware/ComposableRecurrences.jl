@@ -70,6 +70,7 @@ A modifier acts on `v_t = gain_t ⊙ x_t + add_t` after each recurrence step, in
 | `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
+| `Allocate(groups, total)` | rescales each group of strata to an exogenous total, keeping their shares | yes, with strata | no | no | hand-written | `total`, over groups |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)` or `TimeVarying(PerStratum(x))`.
 A bare array is an error that names the wrapper to use.
@@ -115,6 +116,7 @@ A bare array is an error that names the wrapper to use.
 | Spatial or group mixing | `coupling = K` or `TimeVarying(K)` |
 | Per-group generation interval | `PerStratum(G)`, or `Pairwise(A)` per pair |
 | Importation between patches | `Redistribute(K, ε)` |
+| Strata sharing a group total fixed elsewhere | `Allocate(groups, TimeVarying(PerStratum(totals)))` |
 | Bed occupancy | `Convolution(survival)` or `Recurrence([1 - d])` with admissions as `add` |
 | Bed cap | `Clamp(0, beds)` |
 | Forecast from a fit | `with_state`, then `state =` |
