@@ -1,0 +1,374 @@
+# The native Mooncake and Enzyme rules: each backend's own rule tester via
+# `test_adjoint`, proof that the rule fires, user-defined types with no AD
+# code of their own, and the guard on plain Enzyme AD of a sparse coupling.
+
+@testsnippet AdjointCases begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using LinearAlgebra, Random, SparseArrays
+
+    # Pointwise hazard depletion with a scalar pool, a hand-written scalar
+    # pullback and a pooled initial state.
+    struct Hazard{T}
+        N::T
+    end
+    CR.init_state(m::Hazard, history) = fill(m.N, CR._nstrata(history))
+    CR.ispointwise(::Hazard) = true
+    function CR.apply(m::Hazard, v, s, t, k)
+        x = v / m.N
+        return -s * expm1(-x), s * exp(-x)
+    end
+    function CR.apply_pullback(m̄, m::Hazard, v, s, t, k, v̄, s̄)
+        x = v / m.N
+        e = exp(-x)
+        x̄ = s * e * (v̄ - s̄)
+        CR.add_cotangent!(CR.cotangent(m̄, :N), -x̄ * x / m.N)
+        return x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+    end
+    function CR.init_state_pullback!(m̄, h̄, m::Hazard, history, s̄)
+        CR.add_cotangent!(CR.cotangent(m̄, :N), sum(s̄))
+        return nothing
+    end
+
+    # Floored depletion from a per-stratum pool, no pullback of its own.
+    struct PoolDepletion{P}
+        pop::P
+    end
+    CR.init_state(m::PoolDepletion, history) = collect(m.pop)
+    CR.ispointwise(::PoolDepletion) = true
+    function CR.apply(m::PoolDepletion, v, s, t, k)
+        v′ = max(s / m.pop[k], 1.0e-6) * v
+        return v′, s - v′
+    end
+
+    rec(gain, add, h; start = 1, states = nothing) = (gain, add, h, states, start)
+
+    # `(name, op, args)` for `test_adjoint`: `args` are the positional
+    # arguments of `forward`.
+    function adjoint_cases()
+        rng = Xoshiro(11)
+        S, L, T = 3, 3, 6
+        g = rand(rng, L) ./ 2
+        K = rand(rng, S, S) ./ 2
+        h = 1 .+ rand(rng, S, L)
+        R = 0.5 .+ rand(rng, S, T)
+        f32(x) = Float32.(x)
+        Ks = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
+        return [
+            ("renewal", Recurrence(g), rec(R[1, :], nothing, h[1, :])),
+            (
+                "renewal, Float32",
+                Recurrence(f32(g)), rec(f32(R[1, :]), nothing, f32(h[1, :])),
+            ),
+            (
+                "strata, mixed eltypes",
+                Recurrence(f32(g); coupling = K), rec(R, nothing, f32(h)),
+            ),
+            ("sparse coupling", Recurrence(g; coupling = Ks), rec(R, R, h)),
+            (
+                "Diagonal coupling, per-stratum kernel",
+                Recurrence(PerStratum(rand(rng, S, L)); coupling = Diagonal(rand(rng, S))),
+                rec(R, nothing, h),
+            ),
+            ("scalar gain and λ I", Recurrence(g; coupling = 0.7I), rec(0.9, R, h)),
+            (
+                "pairwise",
+                Recurrence(nothing; coupling = Pairwise(rand(rng, S, S, L) ./ 3)),
+                rec(R, nothing, h),
+            ),
+            (
+                "time-varying kernel and coupling",
+                Recurrence(
+                    TimeVarying(rand(rng, L, T + 2));
+                    coupling = TimeVarying(rand(rng, S, S, T + 2) ./ 2)
+                ),
+                rec(R, nothing, h; start = 3),
+            ),
+            (
+                "modifiers",
+                Recurrence(
+                    g; coupling = K,
+                    modifiers = (PoolDepletion([30.0, 40.0, 50.0]), Hazard(60.0))
+                ),
+                rec(R, nothing, h),
+            ),
+            (
+                "with state",
+                CR._WithState(Recurrence(g; coupling = K, modifiers = (Hazard(60.0),))),
+                rec(R, nothing, h),
+            ),
+            ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1)),
+            (
+                "time-varying delay",
+                Convolution(TimeVarying(rand(rng, S, 4, T + 4))), (R, h, 4),
+            ),
+        ]
+    end
+end
+
+@testsnippet UserTypes begin
+    # A stand-in for a user package: an operator, a modifier and a coupling
+    # with pullbacks written against the public API, and twins without, and
+    # no Mooncake or Enzyme code.
+    module UserPkg
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using LinearAlgebra: mul!
+
+    const CALLS = Ref(0)
+
+    # y_t = ρ y_{t-1} + x_t from y_0.
+    struct Decay{T} <: CR.AbstractOperator
+        ρ::T
+    end
+    function CR.forward(op::Decay, y0, x)
+        y = similar(x, promote_type(typeof(op.ρ), typeof(y0), eltype(x)))
+        prev = y0
+        for t in eachindex(x)
+            prev = op.ρ * prev + x[t]
+            y[t] = prev
+        end
+        return y, (; y0, y)
+    end
+    function CR.pullback!(op::Decay, c, ȳ, op̄, y0̄, x̄)
+        CALLS[] += 1
+        λ = zero(eltype(ȳ))
+        ρ̄ = zero(λ)
+        for t in reverse(eachindex(ȳ))
+            λ = ȳ[t] + op.ρ * λ
+            CR.add_cotangent!(x̄, λ, t)
+            ρ̄ += λ * (t == 1 ? c.y0 : c.y[t - 1])
+        end
+        CR.add_cotangent!(CR.cotangent(op̄, :ρ), ρ̄)
+        CR.add_cotangent!(y0̄, op.ρ * λ)
+        return nothing
+    end
+
+    struct DecayNoPB{T} <: CR.AbstractOperator
+        ρ::T
+    end
+    CR.forward(op::DecayNoPB, y0, x) = CR.forward(Decay(op.ρ), y0, x)
+
+    # v′ = v / (1 + v / K), vector-level.
+    struct Saturate{V}
+        K::V
+    end
+    function CR.apply!(m::Saturate, v, s, t)
+        v ./= 1 .+ v ./ m.K
+        return nothing
+    end
+    function CR.apply_pullback!(m̄, m::Saturate, v, s, t, v̄, s̄)
+        CALLS[] += 1
+        K̄ = CR.cotangent(m̄, :K)
+        for k in eachindex(v)
+            d = 1 + v[k] / m.K[k]
+            CR.add_cotangent!(K̄, v̄[k] * v[k]^2 / (m.K[k]^2 * d^2), k)
+            v̄[k] /= d^2
+        end
+        return nothing
+    end
+    struct SaturateNoPB{V}
+        K::V
+    end
+    CR.apply!(m::SaturateNoPB, v, s, t) = CR.apply!(Saturate(m.K), v, s, t)
+
+    # q = β ⊙ (K p).
+    struct Mix{M, V} <: CR.Coupling
+        K::M
+        β::V
+    end
+    function CR.pressure!(q, C::Mix, p, window, t)
+        mul!(q, C.K, p)
+        q .*= C.β
+        return q
+    end
+    function CR.pressure_pullback!(p̄, window̄, C̄, C::Mix, q̄, p, window, t)
+        CALLS[] += 1
+        z = q̄ .* C.β
+        K̄, β̄ = CR.cotangent(C̄, :K), CR.cotangent(C̄, :β)
+        β̄ === nothing || (β̄ .+= q̄ .* (C.K * p))
+        K̄ === nothing || (K̄ .+= z .* transpose(p))
+        p̄ .+= transpose(C.K) * z
+        return nothing
+    end
+    struct MixNoPB{M, V} <: CR.Coupling
+        K::M
+        β::V
+    end
+    function CR.pressure!(q, C::MixNoPB, p, window, t)
+        return CR.pressure!(q, Mix(C.K, C.β), p, window, t)
+    end
+    end
+
+    using .UserPkg
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using Random
+
+    # `(name, has own pullback, θ -> loss, θ)`: θ builds the user types'
+    # fields, so the gradient checks their cotangents.
+    function user_cases()
+        rng = Xoshiro(5)
+        S, L, T = 3, 3, 6
+        K0 = [0.5 0.1 0.1; 0.2 0.4 0.1; 0.0 0.3 0.5]
+        g = rand(rng, L) ./ 2
+        h = 1 .+ rand(rng, S, L)
+        R = 1 .+ rand(rng, S, T)
+        W = randn(rng, S, T)
+        x = rand(rng, T)
+        rec(r) = sum(W .* r(R; history = h))
+        return [
+            ("operator", true, θ -> sum(UserPkg.Decay(θ[1])(θ[2], θ[3:end])), [0.7; 1.0; x]),
+            (
+                "operator, no pullback", false,
+                θ -> sum(UserPkg.DecayNoPB(θ[1])(θ[2], θ[3:end])), [0.7; 1.0; x],
+            ),
+            (
+                "modifier", true,
+                θ -> rec(Recurrence(g; coupling = K0, modifiers = (UserPkg.Saturate(θ),))),
+                5 .+ rand(rng, S),
+            ),
+            (
+                "modifier, no pullback", false,
+                θ -> rec(Recurrence(g; coupling = K0, modifiers = (UserPkg.SaturateNoPB(θ),))),
+                5 .+ rand(rng, S),
+            ),
+            (
+                "coupling", true,
+                θ -> rec(
+                    Recurrence(
+                        g; coupling = UserPkg.Mix(reshape(θ[1:9], 3, 3), θ[10:12])
+                    )
+                ),
+                [vec(K0); 1 .+ rand(rng, S)],
+            ),
+            (
+                "coupling, no pullback", false,
+                θ -> rec(
+                    Recurrence(
+                        g; coupling = UserPkg.MixNoPB(reshape(θ[1:9], 3, 3), θ[10:12])
+                    )
+                ),
+                [vec(K0); 1 .+ rand(rng, S)],
+            ),
+        ]
+    end
+end
+
+@testitem "Mooncake: test_adjoint on each operator" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake
+    import Mooncake
+    for (name, op, args) in adjoint_cases()
+        @testset "$name" begin
+            CR.test_adjoint(AutoMooncake(; config = nothing), op, args...)
+        end
+    end
+end
+
+@testitem "Enzyme: test_adjoint on each operator" tags = [:ad, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoEnzyme
+    import Enzyme, EnzymeTestUtils
+    for (name, op, args) in adjoint_cases()
+        @testset "$name" begin
+            rtol = occursin("Float32", name) || occursin("mixed", name) ? 1.0e-3 : 1.0e-7
+            CR.test_adjoint(AutoEnzyme(), op, args...; rtol, atol = rtol)
+        end
+    end
+end
+
+@testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Mooncake, Enzyme, ForwardDiff
+    using ComposableRecurrences: NoAdjoint
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse)),
+    )
+    rng = Xoshiro(3)
+    g, h, W = rand(rng, 3) ./ 2, 1 .+ rand(rng, 3), randn(rng, 8)
+    renewal(θ) = sum(W .* Recurrence(g; modifiers = (Hazard(θ[1]),))(θ[2:end]; history = h))
+    renewal_na(θ) = sum(W .* NoAdjoint(Recurrence(g; modifiers = (Hazard(θ[1]),)))(θ[2:end]; history = h))
+    delay(θ) = sum(W .* Convolution(θ[1:3])(θ[4:end]))
+    delay_na(θ) = sum(W .* NoAdjoint(Convolution(θ[1:3]))(θ[4:end]))
+    for (f, θ, fires) in (
+            (renewal, [50.0; 1 .+ rand(rng, 8)], true),
+            (renewal_na, [50.0; 1 .+ rand(rng, 8)], false),
+            (delay, rand(rng, 11), true), (delay_na, rand(rng, 11), false),
+        ),
+            backend in backends
+        ref = gradient(f, AutoForwardDiff(), θ)
+        n0 = CR._PULLBACK_CALLS[]
+        @test gradient(f, backend, θ) ≈ ref
+        @test (CR._PULLBACK_CALLS[] > n0) == fires
+    end
+end
+
+@testitem "User-defined operator, modifier and coupling" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Mooncake, Enzyme, ForwardDiff
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse)),
+    )
+    for (name, own, f, θ) in user_cases(), backend in backends
+        @testset "$name $(nameof(typeof(backend)))" begin
+            ref = gradient(f, AutoForwardDiff(), θ)
+            n0, u0 = CR._PULLBACK_CALLS[], UserPkg.CALLS[]
+            @test gradient(f, backend, θ) ≈ ref
+            @test (UserPkg.CALLS[] > u0) == own
+        end
+    end
+    @test Base.return_types(
+        CR._route_val, (UserPkg.Decay{Float64}, Float64, Vector{Float64})
+    ) == [Val{true}]
+    @test Base.return_types(
+        CR._route_val, (UserPkg.DecayNoPB{Float64}, Float64, Vector{Float64})
+    ) == [Val{false}]
+end
+
+@testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
+    using ADTypes: AutoMooncake, AutoEnzyme
+    import Mooncake, Enzyme, EnzymeTestUtils
+    using LinearAlgebra
+    S, L, T = 3, 3, 5
+    K0 = [0.5 0.1 0.1; 0.2 0.4 0.1; 0.0 0.3 0.5]
+    args = (1 .+ rand(S, T), nothing, 1 .+ rand(S, L), nothing, 1)
+    cases = (
+        (UserPkg.Decay(0.7), (1.0, rand(T))),
+        (Recurrence(rand(L); coupling = K0, modifiers = (UserPkg.Saturate(5 .+ rand(S)),)), args),
+        (Recurrence(rand(L); coupling = K0, modifiers = (UserPkg.SaturateNoPB(5 .+ rand(S)),)), args),
+        (Recurrence(rand(L); coupling = UserPkg.Mix(K0, 1 .+ rand(S))), args),
+        (Recurrence(rand(L); coupling = UserPkg.MixNoPB(K0, 1 .+ rand(S))), args),
+    )
+    for (op, xs) in cases,
+            backend in (AutoMooncake(; config = nothing), AutoEnzyme())
+        @testset "$(typeof(op).name.name) $(nameof(typeof(backend)))" begin
+            CR.test_adjoint(backend, op, xs...)
+        end
+    end
+end
+
+@testitem "Enzyme: NoAdjoint on an active sparse coupling throws" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: NoAdjoint
+    using SparseArrays
+    import Enzyme
+    K = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
+    r = Recurrence([0.3, 0.2]; coupling = K)
+    h, R = ones(3, 2), ones(3, 5)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    f(r) = sum(NoAdjoint(r)(R; history = h))
+    @test_throws ArgumentError Enzyme.gradient(mode, Enzyme.Const(f), r)
+    # The rule path is correct.
+    import ForwardDiff
+    g(r) = sum(r(R; history = h))
+    fnz(nz) = g(
+        Recurrence(
+            [0.3, 0.2];
+            coupling = SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz)
+        )
+    )
+    @test Enzyme.gradient(mode, Enzyme.Const(g), r)[1].coupling.nzval ≈
+        ForwardDiff.gradient(fnz, copy(K.nzval))
+end
