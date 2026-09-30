@@ -92,3 +92,25 @@ end
     @test check(x -> sum(W .* Convolution(g0)(x; history = h0)), R0)
     @test check(h -> sum(W .* Convolution(g0)(R0; history = h)), h0)
 end
+
+@testitem "Eltypes: built-in modifiers keep Float32" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    g = Float32[0.2, 0.3, 0.5]
+    h = ones(Float32, 2, 3)
+    R = fill(1.1f0, 2, 5)
+    K = Float32[0.0 0.3; 0.2 0.0]
+    for m in (
+            CR.Depletion(100.0f0), CR.Depletion(Float32[100, 50]; form = :floor),
+            CR.Depletion(100.0f0; seeded = true, heterogeneity = 1.5f0),
+            CR.Imports(0.5f0), CR.Imports(fill(0.5f0, 2, 5)),
+            CR.Redistribute(K, 0.1f0), CR.Redistribute(K, TimeVarying(fill(0.1f0, 2, 5))),
+            CR.Clamp(0.0f0, 5.0f0),
+        )
+        @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
+    end
+    # A plain matrix intensity must be wrapped as time-varying.
+    @test_throws ArgumentError CR.Redistribute(K, fill(0.1f0, 2, 5))
+    # The constructor infers with a literal form.
+    @test (@inferred (() -> CR.Depletion(1.0; form = :floor))()) isa CR.Depletion
+end
