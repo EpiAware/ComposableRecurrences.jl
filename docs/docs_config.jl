@@ -18,6 +18,7 @@ const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
     "latent-processes.jl",
     "spatial-strata.jl",
+    "time-varying-delays.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -34,6 +35,8 @@ const TUTORIAL_STUBS = [
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
     "spatial-strata.md" =>
         "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
+    "time-varying-delays.md" =>
+        "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -209,6 +212,8 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/latent-processes.md",
     "Spatial and multi-type models" =>
         "getting-started/tutorials/spatial-strata.md",
+    "Time-varying delays and kernels" =>
+        "getting-started/tutorials/time-varying-delays.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",

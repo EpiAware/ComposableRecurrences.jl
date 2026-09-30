@@ -33,6 +33,7 @@ pages = [
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
         "Spatial and multi-type models" => "getting-started/tutorials/spatial-strata.md",
+        "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
