@@ -134,6 +134,10 @@ end
     @test r(b[1, :])(1.1; history = h, add = zeros(2, 4)) ≈
         base(repeat(b[1:1, :], 2))
     @test r(b)(1.1; history = h, add = zeros(2, 4)) ≈ base(b)
+    # TimeVarying says the same thing explicitly.
+    @test r(TimeVarying(b))(1.1; history = h, add = zeros(2, 4)) ≈ base(b)
+    @test r(TimeVarying(b[1, :]))(1.1; history = h, add = zeros(2, 4)) ≈
+        base(repeat(b[1:1, :], 2))
     # Read at the absolute time index.
     y = r(b)(1.1; history = h, add = zeros(2, 2), start = 3)
     @test y ≈ Recurrence(g)(1.1; history = h, add = b[:, 3:4])
@@ -270,6 +274,15 @@ end
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
         θ -> CR.Imports(reshape(θ, 2, 3)), collect(0.1:0.1:0.6), v, s, 3
+    )
+    @test c.v && c.s && c.θ
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Imports(TimeVarying(reshape(θ, 2, 3))), collect(0.1:0.1:0.6),
+        v, s, 3
+    )
+    @test c.v && c.s && c.θ
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Imports(TimeVarying(θ)), [0.1, 0.2, 0.3], v, s, 2
     )
     @test c.v && c.s && c.θ
 end

@@ -167,7 +167,7 @@ end
 end
 
 @testitem "Use case: BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
-    using ComposableRecurrences, ForwardDiff
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
     B = UseCaseReferences.BVDReference
 
     g = [0.3, 0.5, 0.2]
@@ -223,9 +223,19 @@ end
     @test patch(K, εq, N) ≈
         B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
-    # BVD also returns the importation series (arrivals in each patch). How
-    # the operator exposes a modifier's intermediate is open, so this check
-    # is pending.
-    @test_skip patch_importation(K, TimeVarying(ε), N) ≈
+    # BVD also returns the importation series, the arrivals in each patch.
+    # It is recomputed from the infections: each patch's force is its lag
+    # 1..L convolution with g (a lag-0 weight of zero shifts the kernel by a
+    # day), what it generates is R_t times that, and the arrivals are the
+    # off-diagonal K applied to each origin's ε-weighted generation. The
+    # seed days have no arrivals.
+    function patch_importation(K, ε, N)
+        I = patch(K, TimeVarying(ε), N)
+        gen = Rt .* Convolution(vcat(0.0, g))(I)
+        arrivals = (K - Diagonal(diag(K))) * (ε .* gen)
+        arrivals[:, 1:L] .= 0
+        return arrivals
+    end
+    @test patch_importation(K, ε, N) ≈
         B.patch_infections(Rt, g, seeds, K, ε, N).importation
 end
