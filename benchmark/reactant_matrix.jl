@@ -11,8 +11,9 @@
 # Options:
 #   --tier=NAME           size tier (default realistic)
 #   --targets=a,b         of "Reactant CPU primal", "Reactant CPU gradient",
-#                         "Reactant GPU primal", "Reactant GPU gradient"
-#                         (default all four)
+#                         "Reactant GPU primal", "Reactant GPU gradient",
+#                         "Reactant CPU unrolled primal",
+#                         "Reactant CPU unrolled gradient" (default all)
 #   --cases=a,b           cases (default: every case in the tier)
 #   --out=DIR             result directory (default matrix-results)
 #   --label=NAME          label written into the results (default HEAD)
@@ -40,6 +41,7 @@ using .MatrixCases
 const TARGETS = [
     "Reactant CPU primal", "Reactant CPU gradient",
     "Reactant GPU primal", "Reactant GPU gradient",
+    "Reactant CPU unrolled primal", "Reactant CPU unrolled gradient",
 ]
 const COLUMNS = [
     "case", "size", "S", "T", "L", "target", "arm", "status", "min_ns",
@@ -108,6 +110,17 @@ function plain_gradient(f, θ)
     return Enzyme.gradient(mode, Enzyme.Const(f), θ)[1]
 end
 
+# The unrolled targets remove the extension's traced step loop, so the
+# recurrence's plain loop is unrolled into one step per time point.
+function unroll_step_loop()
+    CR = MatrixCases.ComposableRecurrences
+    for m in methods(CR._run)
+        m.module === CR && continue
+        Base.delete_method(m)
+    end
+    return nothing
+end
+
 relerr(a, b) = maximum(abs.(a .- b)) / max(1.0, maximum(abs.(b)))
 
 _sync(x) = x
@@ -143,6 +156,7 @@ function run_cell(opts)
         row["status"] = "skipped: no GPU"
         return row
     end
+    occursin("unrolled", target) && unroll_step_loop()
     LOSS[] = f
     θr = Reactant.to_rarray(θ)
     fn = grad ? gradient : loss
