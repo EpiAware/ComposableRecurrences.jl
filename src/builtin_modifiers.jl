@@ -102,13 +102,13 @@ end
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `N` and shrinks by what is drawn.
 
-With pool `S`, value `v` and heterogeneity exponent `α`:
+With pool `P`, value `v` and heterogeneity exponent `α`:
 
-  - `form = :hazard`: `x = v / N ⋅ (S / N)^(α − 1)`, the step's output is
-    `S (1 − exp(−x))` and the pool becomes `S exp(−x)`, so the pool never
+  - `form = :hazard`: `x = v / N ⋅ (P / N)^(α − 1)`, the step's output is
+    `P (1 − exp(−x))` and the pool becomes `P exp(−x)`, so the pool never
     goes negative.
-  - `form = :floor`: the output is `max((S / N)^α, 1e-6) v` and the pool
-    becomes `S` less the output. The pool can go negative, and then the
+  - `form = :floor`: the output is `max(max(P / N, 0)^α, 1e-6) v` and the
+    pool becomes `P` less the output. The pool can go negative, and then the
     floor applies.
 
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
@@ -208,7 +208,7 @@ function apply_pullback(m̄, m::Depletion{:hazard}, v, s, t, k, v̄′, s̄′)
     e = exp(-x)
     x̄ = s * e * (v̄′ - s̄′)
     s̄ = -v̄′ * expm1(-x) + s̄′ * e
-    α == 1 || (s̄ += x̄ * (α - 1) * x / s)
+    α == 1 || (s̄ += e * (v̄′ - s̄′) * (α - 1) * x)
     _add_stratum!(_cotangent(m̄, :N), m.N, -x̄ * α * x / N, k)
     r > 0 && _add_cotangent!(_cotangent(m̄, :heterogeneity), x̄ * x * log(r))
     return x̄ * h / N, s̄
