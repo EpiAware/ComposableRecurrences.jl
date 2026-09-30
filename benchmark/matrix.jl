@@ -146,7 +146,7 @@ function skip_reason(c, target, arm, θ, rules)
         arm == "NoAdjoint" && return "rules do not apply to dual numbers"
         length(θ) > FD_MAX && return "over $FD_MAX parameters"
     end
-    if target == "Enzyme reverse" && c.sparse && (arm == "NoAdjoint" || !rules)
+    if target == "Enzyme reverse" && c.sparse && (arm != "rule" || !rules)
         return "known wrong: plain Enzyme on a repeated sparse mul!"
     end
     if target in ("Enzyme forward", "Mooncake forward") && length(θ) > FD_MAX
@@ -209,7 +209,7 @@ function run_cells(io, opts, target, backend, rules)
         isempty(names) || c.name in names || continue
         for z in MatrixCases.sizes(c, tier)
             grads = Dict{String, Vector{Float64}}()
-            for arm in ("rule", "NoAdjoint")
+            for arm in MatrixCases.arms(c)
                 row = Dict{String, Any}(
                     "case" => c.name, "size" => string(z), "S" => z.S,
                     "T" => z.T, "L" => z.L, "target" => target, "arm" => arm,
