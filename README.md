@@ -17,14 +17,17 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 
 ## Why ComposableRecurrences?
 
-- Renewal processes, random walks, autoregressions and reporting delays are all recurrences or causal convolutions, so one small set of steps can cover them.
-- Reverse-mode AD is slow when each step copies its lag window into new state, and a step that owns its history buffer avoids that copy.
-- Plug-in adjoints for Mooncake and Enzyme are planned for the hot kernels, and every step will also work with plain ForwardDiff.
-- The package has no epidemiological assumptions, so modelling packages build their own steps on top of it.
+- Renewal processes, random walks, autoregressions and reporting delays are all recurrences or causal convolutions.
+  One small set of steps can cover them.
+- Reverse-mode AD is slow when each step copies its lag window into new state.
+  A step that owns its history buffer avoids that copy.
+- Plug-in adjoints for Mooncake and Enzyme are planned for the hot kernels.
+  Every step will also work with plain ForwardDiff.
+- The package has no epidemiological assumptions.
+  Modelling packages build their own steps on top of it.
 
 ## Getting started
 
-The package has no public API yet.
 Once released, see the [documentation](https://epiaware.org/ComposableRecurrences.jl/stable/) for a full walkthrough.
 
 ```julia
