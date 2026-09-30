@@ -13,6 +13,7 @@
 # 2. Report infections through it, indexed by report day and by infection day.
 # 3. Check which indexing conserves the total.
 # 4. Run a renewal process with a generation interval that shortens.
+# 5. Model an isolation policy that starts on a set day, by the day each case was infected.
 #
 # ### What might I need to know before starting
 #
@@ -22,7 +23,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Primary
+using ComposableRecurrences: Primary, seeded
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -117,6 +118,46 @@ shortened = Recurrence(TimeVarying(G))(1.2; history = fill(10.0, 6), stop = T)
 end
 
 # With the shorter interval the same reproduction number grows faster, because each generation takes less time.
+
+# ## An isolation policy that starts on a set day
+#
+# A recurrence kernel can also be read by the day each case was infected.
+# Then every case keeps one generation interval for its whole infectious period, set by when it was infected.
+# That is a cohort effect, where a `Secondary()` kernel is a period effect, the same for every case on a given day.
+#
+# A case infected on day ``c`` is isolated with probability ``p`` after a delay ``D`` from infection, and isolation blocks a share ``b`` of its later transmission.
+# The policy starts on day ``t_0``, and an isolation that would fall before it does not happen.
+# The expected generation interval of cohort ``c`` at lag ``l`` is then
+#
+# ```math
+# w_l(c) = w_l \big(1 - p\, b\, P(D \le l,\ c + D \ge t_0)\big).
+# ```
+#
+# With `Primary()` column ``c`` of the kernel is cohort ``c``'s interval.
+# The seed must sit at times from 1, which `seeded` does.
+# For comparison, the `Secondary()` kernel starts the same thinning on day ``t_0`` for every case, whenever it was infected.
+
+p_iso, b_iso, t0 = 0.7, 0.9, 30
+delay_iso = [0.2, 0.3, 0.3, 0.2]          # P(D = 0, 1, 2, 3)
+P_iso(l, from) = sum(delay_iso[d + 1] for d in max(from, 0):min(l, 3); init = 0.0)
+cohort = [long_gi[l] * (1 - p_iso * b_iso * P_iso(l, t0 - c)) for l in 1:6, c in 1:T]
+period = [long_gi[l] * (1 - (t >= t0 ? p_iso * b_iso * P_iso(l, 0) : 0.0)) for l in 1:6, t in 1:T]
+R_iso = fill(1.8, T)
+seed_iso = fill(10.0, 6)
+@chain DataFrame(
+    "day" => 1:T,
+    "No isolation" => seeded(Recurrence(long_gi), R_iso; history = seed_iso),
+    "By infection day" => seeded(Recurrence(TimeVarying(cohort, Primary())), R_iso; history = seed_iso),
+    "By calendar day" => seeded(Recurrence(TimeVarying(period)), R_iso; history = seed_iso),
+) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Both isolation curves bend down after day 30.
+# Read by calendar day, every case already infectious on day 30 is thinned at once, as if it were isolated on the spot.
+# Read by infection day, cases infected before the start keep most of their transmission, because an isolation dated before day 30 does not happen, so the bend comes a few days later.
 
 # ## Learning more
 #

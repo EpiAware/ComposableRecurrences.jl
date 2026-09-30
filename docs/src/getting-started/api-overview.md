@@ -135,7 +135,7 @@ Depletion forms and time indexing are types, and you pass an instance.
 |---|---|---|
 | [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N, Floor())` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
-| [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``; convolution kernels only | `TimeVarying(P, Primary())` |
+| [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
