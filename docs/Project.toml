@@ -1,4 +1,5 @@
 [deps]
+Interfaces = "85a1e053-f937-4924-92a5-1367d23b7b87"
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
 ADFixtures = "09061bce-e10c-4c3e-b2cd-e198b26477f6"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
@@ -24,6 +25,7 @@ EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.
 ADFixtures = {path = "../test/ADFixtures"}
 
 [compat]
+Interfaces = "0.3"
 AlgebraOfGraphics = "0.13"
 CairoMakie = "0.15"
 Chairmarks = "1"
