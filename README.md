@@ -30,6 +30,7 @@ using ComposableRecurrences
 ## Related packages
 
 - [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) builds infectious disease models from renewal, delay and latent process components.
+- [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org) builds convolutions of distributions, such as the total of two independent delays.
 
 ## Where to learn more
 
