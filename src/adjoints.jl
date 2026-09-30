@@ -46,6 +46,10 @@ An [`ComposableRecurrences.AbstractOperator`](@ref) implements this method.
 The package's operators take the positional arguments their keyword calls
 build.
 
+# Arguments
+- `op`: the operator.
+- `args`: its positional arguments.
+
 # Examples
 ```@example
 using ComposableRecurrences
@@ -180,6 +184,10 @@ For use in [`ComposableRecurrences.pullback!`](@ref),
 [`ComposableRecurrences.apply_pullback!`](@ref) and
 [`ComposableRecurrences.pressure_pullback!`](@ref) methods.
 
+# Arguments
+- `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.
+- `name`: the field.
+
 # Examples
 ```@example
 using ComposableRecurrences
@@ -193,6 +201,11 @@ cotangent(x̄, name::Symbol) = getfield(x̄, name)
 @doc "
 Add `v` to the mirror `x̄` at index `idx`: `x̄[idx...] += v` for an array,
 `x̄[] += v` for a `Ref` (the index is ignored), and nothing for `nothing`.
+
+# Arguments
+- `x̄`: the mirror: an array, a `Ref` or `nothing`.
+- `v`: the cotangent to add.
+- `idx`: the index into an array mirror.
 
 # Examples
 ```@example

@@ -109,10 +109,12 @@ end
 function _addparams!(x̄, x, g, o)
     isstructtype(typeof(x)) || return o
     for n in fieldnames(typeof(x))
-        o = _addparams!(cotangent(x̄, n), getfield(x, n), g, o)
+        o = _addparams!(_field_mirror(x̄, n), getfield(x, n), g, o)
     end
     return o
 end
+_field_mirror(x̄, n::Symbol) = cotangent(x̄, n)
+_field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
