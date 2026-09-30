@@ -202,7 +202,6 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # ecosystem rather than a per-repo choice (#354). These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
-    "Concepts" => "getting-started/concepts.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent AR and TVAR processes driving R_t" =>

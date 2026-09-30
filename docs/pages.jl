@@ -29,7 +29,6 @@ pages = [
     # docs_config.jl.
     "Getting started" => [
         "Overview" => "getting-started/index.md",
-        "Concepts" => "getting-started/concepts.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Latent AR and TVAR processes driving R_t" => "getting-started/tutorials/latent-reproduction-number.md",
         "Spatial strata" => "getting-started/tutorials/spatial-strata.md",

@@ -39,7 +39,6 @@ reports = delay(infections)
 
 ## Learning more
 
-- Find the right operation by intent on the [Concepts](@ref concepts) page.
 - Read how the operators are defined in [Operators](@ref operators).
 - Check which array shapes each argument takes in [Shapes and coefficients](@ref shapes).
 - Work through this example in full in [Renewal then delay](@ref tutorial-renewal-delay).
