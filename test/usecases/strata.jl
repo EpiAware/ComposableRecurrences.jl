@@ -4,7 +4,7 @@
 #
 # Arrays are strata × time; the history is strata × time, oldest first.
 
-@testitem "Use case: strata with a mixing matrix" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: strata with a mixing matrix" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -69,7 +69,7 @@ end
     @test ForwardDiff.gradient(θ -> sum(w .* coupled(θ)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: per-stratum generation intervals" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: per-stratum generation intervals" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -97,7 +97,7 @@ end
     ) ≈ ∇ref
 end
 
-@testitem "Use case: per-pair generation intervals" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: per-pair generation intervals" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -133,7 +133,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: time-varying mixing" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying mixing" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 

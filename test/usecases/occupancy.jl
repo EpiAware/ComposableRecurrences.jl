@@ -4,7 +4,7 @@
 # is a user modifier on a lag-1 identity recurrence: the core carries the
 # previous stocks forward and the modifier applies the day's flows.
 
-@testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase, :usecase_pending, :param_eltype] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase, :param_eltype] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 

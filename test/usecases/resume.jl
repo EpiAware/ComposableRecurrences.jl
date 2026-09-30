@@ -38,7 +38,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: resume an AR(p) forecast" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: resume an AR(p) forecast" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 

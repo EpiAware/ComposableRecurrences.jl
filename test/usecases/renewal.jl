@@ -6,7 +6,7 @@
 # CTIDM's `ConstantRenewalStep` stores the interval reversed, so `reverse`
 # appears only in the reference calls.
 
-@testitem "Use case: renewal" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
