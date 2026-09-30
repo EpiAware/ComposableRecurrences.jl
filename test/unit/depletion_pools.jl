@@ -88,14 +88,22 @@ end
     R = [2.5, 2.4, 2.2, 2.0, 1.8, 1.5, 1.2, 1.0, 1.1, 1.3]
     r = [0.0, 0.0, 5.0, 10.0, 10.0, 20.0, 20.0, 20.0, 30.0, 30.0]
     W = collect(range(0.5, 1.5; length = 10))
-    run(R, N, σ, r) = Recurrence(g; modifiers = (CR.Depletion(N; removals = TimeVarying(r), protected = CR.Protected(σ)),))(R; history = h)
+    function run(R, N, σ, r)
+        d = CR.Depletion(
+            N; removals = TimeVarying(r), protected = CR.Protected(σ)
+        )
+        return Recurrence(g; modifiers = (d,))(R; history = h)
+    end
     @test run(R, 100.0, 0.3, r) ≈ PoolChecks.naive(g, R, h, 100.0, 0.3, r)
     f(θ) = sum(W .* run(θ[1:10], θ[11], θ[12], θ[13:22]))
     fref(θ) = sum(W .* PoolChecks.naive(g, θ[1:10], h, θ[11], θ[12], θ[13:22]))
     θ = vcat(R, 100.0, 0.3, r)
     @test ForwardDiff.gradient(f, θ) ≈ ForwardDiff.gradient(fref, θ)
     # Removals alone leave the pool: all-or-nothing with no protected pool.
-    only(R, r) = Recurrence(g; modifiers = (CR.Depletion(100.0; removals = TimeVarying(r)),))(R; history = h)
+    function only(R, r)
+        d = CR.Depletion(100.0; removals = TimeVarying(r))
+        return Recurrence(g; modifiers = (d,))(R; history = h)
+    end
     @test only(R, r) ≈ PoolChecks.naive(g, R, h, 100.0, 0.0, r)
     @test ForwardDiff.gradient(r -> sum(W .* only(R, r)), r) ≈
         ForwardDiff.gradient(r -> sum(W .* PoolChecks.naive(g, R, h, 100.0, 0.0, r)), r)
@@ -125,7 +133,10 @@ end
     g, h, N = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0], 500.0
     R = fill(2.4, 40)
     doses = vcat(zeros(5), fill(8.0, 35))
-    d = CR.Depletion(N; pool0 = N - sum(h), removals = TimeVarying(doses), protected = CR.Protected(0.4))
+    d = CR.Depletion(
+        N; pool0 = N - sum(h), removals = TimeVarying(doses),
+        protected = CR.Protected(0.4)
+    )
     r = Recurrence(g; modifiers = (d,))
     for stop in (1, 7, 20, 40)
         y, st = CR.with_state(r, R; history = h, stop)
@@ -199,7 +210,8 @@ end
         pool0 = (; x = zeros(2)), removals = Ref(0.0),
         protected = (; σ = Ref(0.0), pool0 = (; x = zeros(2))),
     )
-    CR.pullback!((; piece = m̄, s = [1.0, 2.0, 3.0, 4.0], history = zeros(2, 2)), d, CR.Init(), s, ones(2, 2))
+    grads = (; piece = m̄, s = [1.0, 2.0, 3.0, 4.0], history = zeros(2, 2))
+    CR.pullback!(grads, d, CR.Init(), s, ones(2, 2))
     @test m̄.pool0.x == [1.0, 2.0]
     @test m̄.protected.pool0.x == [3.0, 4.0]
 end
