@@ -16,7 +16,7 @@ Both are written as the quantity is usually written, so a generation interval or
 
 Operators return only their outputs.
 A step's pre-gain value is a convolution of the outputs, so `Convolution(vcat(0, g))` recomputes it.
-The Operators explanation page shows the recipe.
+See [Operators](@ref operators).
 
 ## Which AD backends work?
 
