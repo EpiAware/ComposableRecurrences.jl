@@ -1,7 +1,7 @@
 # Resuming from a returned state, as a forecast does: running a horizon in
 # two pieces must match one run over the whole horizon.
 
-@testitem "Use case: resume a depleting renewal" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: resume a depleting renewal" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -22,7 +22,7 @@
     window = C.renewal_window(ref_step(N), g, I₀, r)
     function renewal(N)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        return Recurrence(reverse(g); modifiers = (depletion,))
+        return Recurrence(g; modifiers = (depletion,))
     end
     # The state carries the last `L` values and the susceptible pool.
     function split_run(N, Rt)
@@ -38,7 +38,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: resume an AR(p) forecast" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: resume an AR(p) forecast" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -52,7 +52,7 @@ end
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* C.ar(θ[1:2], init, θ[3:end])), θ0)
 
     function split_run(ρ, ϵ)
-        ar = Recurrence(reverse(ρ))
+        ar = Recurrence(ρ)
         fitted, state = ar(1.0; history = init, add = ϵ[1:T₁], return_state = true)
         forecast = ar(1.0; history = state, add = ϵ[(T₁ + 1):end])
         return vcat(init, fitted, forecast)
@@ -62,7 +62,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: resume the BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: resume the BVD patch model" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -82,21 +82,20 @@ end
     end
     ∇ref = ForwardDiff.gradient(ref_loss, vec(Rt))
 
-    # Time-varying modifier parameters are read at the step index, so each
-    # piece gets the operator built on its own slice of ε.
-    function patch(steps)
-        importation = ComposableRecurrences.Redistribute(K, ε[:, steps])
-        depletion = ComposableRecurrences.Depletion(
-            N; form = :hazard, seeded = true
-        )
-        return Recurrence(reverse(g); modifiers = (importation, depletion))
-    end
+    # One operator over the whole horizon. The state carries the day
+    # reached, so the forecast reads ε from the next day without a slice.
+    depletion = ComposableRecurrences.Depletion(
+        N; form = :hazard, seeded = true
+    )
+    importation = ComposableRecurrences.Redistribute(K, TimeVarying(ε))
+    patch = Recurrence(g; modifiers = (importation, depletion))
     function split_run(Rt)
-        first_steps, rest = (L + 1):T₁, (T₁ + 1):n
-        fitted, state = patch(first_steps)(
-            Rt[:, first_steps]; history = seeds, return_state = true
+        first_days, rest = (L + 1):T₁, (T₁ + 1):n
+        fitted, state = patch(
+            Rt[:, first_days]; history = seeds, start = L + 1,
+            return_state = true
         )
-        forecast = patch(rest)(Rt[:, rest]; history = state)
+        forecast = patch(Rt[:, rest]; history = state)
         return hcat(seeds, fitted, forecast)
     end
     @test split_run(Rt) ≈ ref

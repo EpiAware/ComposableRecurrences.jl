@@ -2,9 +2,9 @@
 # per-stratum and per-pair generation intervals, and BVD's patch model with
 # importation and hazard depletion.
 #
-# Arrays are strata × time; the history is strata × lags, oldest first.
+# Arrays are strata × time; the history is strata × time, oldest first.
 
-@testitem "Use case: strata with a mixing matrix" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: strata with a mixing matrix" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -28,13 +28,13 @@
     # after the generation-interval convolution.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g), K), g, I₀, r)
     function mixed(K, Rt)
-        return Recurrence(reverse(g); coupling = K)(Rt; history = window)
+        return Recurrence(g; coupling = K)(Rt; history = window)
     end
     @test mixed(K, Rt) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* mixed(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: gravity coupling with depletion" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: gravity coupling with depletion" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -62,16 +62,14 @@ end
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function coupled(θ)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(
-            reverse(g); coupling = gravity(θ), modifiers = (depletion,)
-        )
+        r = Recurrence(g; coupling = gravity(θ), modifiers = (depletion,))
         return r(Rt; history = window)
     end
     @test coupled(θ0) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* coupled(θ)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: per-stratum generation intervals" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: per-stratum generation intervals" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -87,11 +85,10 @@ end
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3))), vec(G)
     )
 
-    # `PerStratum` takes a strata × lags kernel, one row per stratum, oldest
-    # lag first.
+    # `PerStratum` takes a strata × lags kernel, one row per stratum.
     window = C.renewal_window(step(G), G, I₀, r)
     function per_stratum(G)
-        r = Recurrence(PerStratum(reverse(G; dims = 2)); coupling = K)
+        r = Recurrence(PerStratum(G); coupling = K)
         return r(Rt; history = window)
     end
     @test per_stratum(G) ≈ ref
@@ -100,7 +97,7 @@ end
     ) ≈ ∇ref
 end
 
-@testitem "Use case: per-pair generation intervals" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: per-pair generation intervals" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -125,8 +122,7 @@ end
     )
 
     # A strata × strata × lags coupling carries the intervals itself, lag 1
-    # at `[:, :, 1]` (newest first, unlike a vector kernel), so the kernel
-    # is `nothing`.
+    # at `[:, :, 1]`, so the kernel is `nothing`.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function per_pair(K)
         r = Recurrence(nothing; coupling = Pairwise(pairwise(K)))
@@ -137,7 +133,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: time-varying mixing" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying mixing" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -162,7 +158,7 @@ end
 
     # `TimeVarying` coupling is strata × strata × time.
     function tv(Ks)
-        r = Recurrence(reverse(g); coupling = TimeVarying(Ks))
+        r = Recurrence(g; coupling = TimeVarying(Ks))
         return r(Rt; history = window)
     end
     @test tv(Ks) ≈ ref
@@ -170,7 +166,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD patch model" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -201,16 +197,31 @@ end
     # Each patch generates R_{p,t} Σ_i g_i I_{p,t-i}; a share ε_{q,t} K_{pq}
     # of what origin q generates is realised in p instead (Redistribute),
     # then each patch depletes its own pool from N_p − Σ seed (hazard form).
-    # The seeds are the history and are returned first.
+    # The seeds are the history and are returned first. The first output is
+    # day `L + 1`, so `start` reads ε from that day.
     function patch(K, ε, N)
-        steps = (L + 1):n
-        importation = ComposableRecurrences.Redistribute(K, ε[:, steps])
+        importation = ComposableRecurrences.Redistribute(K, ε)
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
-        r = Recurrence(reverse(g); modifiers = (importation, depletion))
-        return hcat(seeds, r(Rt[:, steps]; history = seeds))
+        r = Recurrence(g; modifiers = (importation, depletion))
+        Y = r(Rt[:, (L + 1):end]; history = seeds, start = L + 1)
+        return hcat(seeds, Y)
     end
-    @test patch(K, ε, N) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* patch(unpack(θ)...)), θ0) ≈ ∇ref
+    @test patch(K, TimeVarying(ε), N) ≈ ref
+    function loss(θ)
+        K, ε, N = unpack(θ)
+        return sum(w .* patch(K, TimeVarying(ε), N))
+    end
+    @test ForwardDiff.gradient(loss, θ0) ≈ ∇ref
+
+    # One importation intensity shared by every origin and day.
+    @test patch(K, 0.05, N) ≈
+        B.patch_infections(Rt, g, seeds, K, 0.05, N).infections
+
+    # BVD also returns the importation series (arrivals in each patch). How
+    # the operator exposes a modifier's intermediate is open, so this check
+    # is pending.
+    @test_skip patch_importation(K, TimeVarying(ε), N) ≈
+        B.patch_infections(Rt, g, seeds, K, ε, N).importation
 end

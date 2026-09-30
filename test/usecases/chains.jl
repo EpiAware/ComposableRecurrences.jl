@@ -1,7 +1,7 @@
 # Chained operators: a latent AR process mapped to R_t driving a renewal
 # whose infections are then delayed, and BVD's renewal into its delay.
 
-@testitem "Use case: AR → exp → renewal → delay" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: AR → exp → renewal → delay" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -27,10 +27,10 @@
 
     window = C.renewal_window(step, g, I₀, r)
     function chain(ρ, ϵ)
-        ar = Recurrence(reverse(ρ))
+        ar = Recurrence(ρ)
         log_Rt = vcat(init, ar(1.0; history = init, add = ϵ))
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        renewal = Recurrence(reverse(g); modifiers = (depletion,))
+        renewal = Recurrence(g; modifiers = (depletion,))
         infections = renewal(exp.(log_Rt); history = window)
         return Convolution(pmf)(infections)[d:end]
     end
@@ -39,7 +39,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: BVD renewal → delay" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD renewal → delay" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -58,7 +58,7 @@ end
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
-        renewal = Recurrence(reverse(g); modifiers = (depletion,))
+        renewal = Recurrence(g; modifiers = (depletion,))
         infections = vcat(seed, renewal(Rt[(L + 1):end]; history = seed))
         return Convolution(delay)(infections)
     end

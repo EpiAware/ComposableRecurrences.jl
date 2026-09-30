@@ -4,7 +4,7 @@
 # is a user modifier on a lag-1 identity recurrence: the core carries the
 # previous stocks forward and the modifier applies the day's flows.
 
-@testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase, :usecase_pending, :param_eltype] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -34,16 +34,18 @@
     # The stocks are the strata: (O_bvd, O_bg, O_conf, O_susp). The
     # modifier receives the previous day's stocks in `v` and overwrites them
     # with today's.
-    # Each field has its own type parameter so a Dual in any of them
-    # promotes the recurrence's buffer.
-    struct OccupancyBalance{A, B, D, R, O, K, H}
-        A_bvd::A
-        A_bg::B
-        deaths::D
-        recover::R
-        ruleout::O
-        κ::K
-        conf_hazard::H
+    #
+    # The fields are untyped on purpose: this is the regression test for
+    # `param_eltype`, which must find a Dual stored in an untyped field and
+    # promote the recurrence's buffer to it.
+    struct OccupancyBalance
+        A_bvd
+        A_bg
+        deaths
+        recover
+        ruleout
+        κ
+        conf_hazard
     end
     function ComposableRecurrences.apply!(m::OccupancyBalance, v, s, t)
         z = zero(eltype(v))
@@ -67,8 +69,9 @@
             A_bvd, A_bg, deaths, recover, ruleout, κ, conf_hazard
         )
         r = Recurrence([1.0]; modifiers = (balance,))
-        # The gain sets the number of days; the stocks start empty.
-        Y = r(ones(4, T); history = zeros(4, 1))
+        # No gain: the flows live in the modifier. A zero `add` sets the
+        # number of days; the stocks start empty.
+        Y = r(; history = zeros(4, 1), add = zeros(4, T))
         O_bvd, O_bg, O_conf, O_susp = eachrow(Y)
         return (;
             demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp,

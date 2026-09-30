@@ -2,10 +2,10 @@
 # time-varying AR(1) and MA(q). Each is a recurrence (or, for MA, a
 # convolution) driven by innovations passed as `add`.
 #
-# Recurrence kernels and `history` are aligned with the window, oldest
-# first, so lag-indexed AR coefficients are reversed.
+# Kernels are lag first: `kernel[i]` weights the value `i` steps back.
+# `history` holds past values in time order, oldest first.
 
-@testitem "Use case: random walk" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: random walk" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -24,7 +24,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: AR(p)" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: AR(p)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -37,10 +37,9 @@ end
     unpack(θ) = (θ[1:2], θ[3:4], θ[5:end])
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* C.ar(unpack(θ)...)), θ0)
 
-    # z_t = Σ_i ρ_i z_{t-i} + ϵ_t: the AR coefficients, oldest lag first,
-    # are the kernel.
+    # z_t = Σ_i ρ_i z_{t-i} + ϵ_t: the AR coefficients are the kernel.
     function ar(ρ, init, ϵ)
-        r = Recurrence(reverse(ρ))
+        r = Recurrence(ρ)
         return vcat(init, r(1.0; history = init, add = ϵ))
     end
     @test ar(ρ, init, ϵ) ≈ ref
@@ -48,7 +47,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: time-varying AR(1)" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying AR(1)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -76,7 +75,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: MA(q)" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: MA(q)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 

@@ -2,10 +2,9 @@
 # depletion and imported cases, and BVD's `renewal_infections` with hazard
 # depletion from a seed.
 #
-# The generation interval, reversed so the oldest lag comes first as in
-# CTIDM's `rev_gen_int`, is the kernel and R_t is the gain.
+# The generation interval, lag 1 first, is the kernel and R_t is the gain.
 
-@testitem "Use case: renewal" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -26,13 +25,13 @@
     # I_t = R_t Σ_i g_i I_{t-i}, from CTIDM's exponentially seeded window.
     function renewal(g, I₀, Rt)
         window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
-        return Recurrence(reverse(g))(Rt; history = window)
+        return Recurrence(g)(Rt; history = window)
     end
     @test renewal(g, I₀, Rt) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* renewal(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: renewal with susceptible depletion" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal with susceptible depletion" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -54,7 +53,7 @@ end
     # step's new infections.
     function renewal(N, Rt)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(reverse(g); modifiers = (depletion,))
+        r = Recurrence(g; modifiers = (depletion,))
         return r(Rt; history = window)
     end
     @test renewal(N, Rt) ≈ ref
@@ -64,7 +63,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: renewal with imported cases" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal with imported cases" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -90,10 +89,10 @@ end
     # Imports join the new infections before any modifier, so they are
     # `add`. With depletion after them they are depleted with the rest,
     # CTIDM's `(ImportedCases, SusceptibleDepletion)` order.
-    alone(ι, N) = Recurrence(reverse(g))(Rt; history = window, add = ι)
+    alone(ι, N) = Recurrence(g)(Rt; history = window, add = ι)
     function before(ι, N)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(reverse(g); modifiers = (depletion,))
+        r = Recurrence(g; modifiers = (depletion,))
         return r(Rt; history = window, add = ι)
     end
     @test alone(ι, N) ≈ ref_alone(ι, N)
@@ -102,7 +101,7 @@ end
     @test ForwardDiff.gradient(loss(before), θ0) ≈ ∇ref_before
 end
 
-@testitem "Use case: imports added after depletion (user modifier)" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: imports added after depletion" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -121,27 +120,20 @@ end
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_after(θ[1:10], θ[11])), θ0)
 
     # CTIDM's `(SusceptibleDepletion, ImportedCases)` order adds imports to
-    # the depleted infections, which `add` cannot express. A user modifier
-    # through the public interface does: it adds `rate[t]` and keeps no state,
-    # so it takes the default `init_state`.
-    struct AddImports{R}
-        rate::R
-    end
-    function ComposableRecurrences.apply!(m::AddImports, v, s, t)
-        v .+= m.rate[t]
-        return nothing
-    end
-
+    # the depleted infections, which `add` cannot express because it enters
+    # before the modifiers. The `Imports` modifier adds `ι[t]` wherever it
+    # sits in the tuple.
     function after(ι, N)
         depletion = ComposableRecurrences.Depletion(N; form = :floor)
-        r = Recurrence(reverse(g); modifiers = (depletion, AddImports(ι)))
+        imports = ComposableRecurrences.Imports(ι)
+        r = Recurrence(g; modifiers = (depletion, imports))
         return r(Rt; history = window)
     end
     @test after(ι, N) ≈ ref_after(ι, N)
     @test ForwardDiff.gradient(θ -> sum(w .* after(θ[1:10], θ[11])), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: BVD renewal_infections" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD renewal_infections" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -151,24 +143,27 @@ end
     w = range(0.5, 2.0; length = n)
 
     # I_t = S_{t-1} (1 − exp(−R_t Σ_i g_i I_{t-i} / N)) after the seed days,
-    # with the pool starting at N − Σ seed. The seed is the history and is
-    # returned first; the recurrence starts on the day after it.
+    # with the pool starting at N − Σ seed. The whole seed is the history and
+    # is returned first; the recurrence starts on the day after it.
     function bvd_renewal(Rt, g, seed, N)
         L = length(seed)
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
         # A seed shorter than the generation interval is zero-padded: BVD
-        # truncates the early windows, which is the same sum.
-        history = vcat(zeros(eltype(seed), length(g) - L), seed)
-        r = Recurrence(reverse(g); modifiers = (depletion,))
+        # truncates the early windows, which is the same sum. A longer seed
+        # is passed whole, so the pool is drawn down by all of it.
+        pad = max(length(g) - L, 0)
+        history = vcat(zeros(eltype(seed), pad), seed)
+        r = Recurrence(g; modifiers = (depletion,))
         return vcat(seed, r(Rt[(L + 1):end]; history))
     end
 
-    # Seed as long as the generation interval, then shorter.
+    # Seed as long as the generation interval, shorter, then longer.
     cases = (
         ([0.3, 0.5, 0.2], [2.0, 3.0, 4.0]),
         ([0.1, 0.4, 0.3, 0.2], [2.0, 3.0, 4.0]),
+        ([0.6, 0.4], [1.0, 2.0, 3.0, 4.0, 5.0]),
     )
     for (g, seed) in cases
         G, L = length(g), length(seed)
