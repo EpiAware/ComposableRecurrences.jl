@@ -1,14 +1,9 @@
-# Which (case, mode, config, backend) entries work under Reactant today.
-# Unlisted entries are expected to fail: every `baseline` case other than
-# the control fails at trace time in `param_eltype` (MethodError), before
-# any loop runs; see RESULTS.md. With the candidate changes in `shims.jl`
-# every case works, forward and reverse, on CPU and GPU.
-const EXPECTED = let d = Dict{Tuple{String, String, String, String}, Bool}()
-    for mode in ("forward", "reverse"), backend in ("cpu", "gpu")
-        d[("control", mode, "baseline", backend)] = true
-        for c in ReactantCases.CASES
-            d[(c.name, mode, "shims", backend)] = true
-        end
-    end
-    d
-end
+# Which (case, mode, backend) entries work under Reactant: all of them, with
+# the package's Reactant extension. A failing entry that is expected goes in
+# `BROKEN` with its error class.
+const BROKEN = Set{Tuple{String, String, String}}()
+const EXPECTED = Dict(
+    (c.name, mode, backend) => !((c.name, mode, backend) in BROKEN)
+        for c in ReactantCases.CASES, mode in ("forward", "reverse"),
+        backend in ("cpu", "gpu")
+)

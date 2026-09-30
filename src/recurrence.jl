@@ -364,7 +364,9 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop)
     _check_times(:modifiers, modifiers, stop)
     T = stop - τ0 + 1
     Tp = float(param_eltype((r, gain, add, h, s0)))
-    return _run(Tp, r, gain, add, h, s0, τ0, L, S, T)
+    return _elementwise(Tp) do
+        _run(Tp, r, gain, add, h, s0, τ0, L, S, T)
+    end
 end
 
 # `I` and `Diagonal` scale each stratum's own convolution, so their steps

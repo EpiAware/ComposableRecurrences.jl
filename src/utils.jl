@@ -151,6 +151,11 @@ function _fields_eltype(x, ::Val{N}) where {N}
     )
 end
 
+# Run a buffer loop `f` whose buffers have eltype `T`. The loops index
+# element by element; an extension whose arrays refuse that by default
+# allows it here.
+_elementwise(f, ::Type{T}) where {T} = f()
+
 # A zeroed array like `x` of eltype `T` and size `dims`.
 _zeros(x, ::Type{T}, dims...) where {T} = fill!(similar(x, T, dims), zero(T))
 

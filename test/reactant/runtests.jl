@@ -1,17 +1,17 @@
 # Reactant support matrix: what compiles and differentiates under Reactant
 # today. Not part of `Pkg.test`; run with `task test-reactant` (Julia 1.12).
 #
-# Each case, mode, configuration and backend runs in its own subprocess with
-# a timeout, so one hang does not stall the rest. Results go to RESULTS.md
-# beside this file. `@test` covers the entries `expected.jl` marks as working
+# Each case, mode and backend runs in its own subprocess with a timeout, so
+# one hang does not stall the rest. Results go to RESULTS.md beside this
+# file. `@test` covers the entries `expected.jl` marks as working
 # and `@test_broken` the rest, so a newly working entry shows as an
 # unexpected pass. GPU entries are skipped when Reactant finds no GPU.
 #
 # Environment variables:
 #   REACTANT_TIMEOUT   seconds per subprocess (default 300)
 #   REACTANT_CASES     comma-separated case names (default all)
-#   REACTANT_CONFIGS   comma-separated configs (default "baseline,shims")
 #   REACTANT_BACKENDS  comma-separated backends (default "cpu,gpu")
+#   REACTANT_LOCK      a lock file each subprocess holds while it runs
 #   REACTANT_REUSE     "1" rebuilds RESULTS.md and the tests from results.tsv
 using Test, Dates, Printf
 import Pkg
@@ -25,7 +25,6 @@ const TIMEOUT = parse(Float64, get(ENV, "REACTANT_TIMEOUT", "300"))
 const NAMES = let s = get(ENV, "REACTANT_CASES", "")
     isempty(s) ? [c.name for c in CASES] : split(s, ',')
 end
-const CONFIGS = envlist("REACTANT_CONFIGS", "baseline,shims")
 const BACKENDS = envlist("REACTANT_BACKENDS", "cpu,gpu")
 const MODES = ("forward", "reverse")
 const FIELDS = (
@@ -43,13 +42,22 @@ function log_tail(log)
     return replace(join(last(lines, 3), " "), r"[\t|]+" => " ")
 end
 
-function run_probe(name, mode, config, backend, dir)
-    stem = joinpath(dir, "$name-$mode-$config-$backend")
+function run_probe(name, mode, backend, dir)
+    stem = joinpath(dir, "$name-$mode-$backend")
     out, log = "$stem.tsv", "$stem.log"
     cmd = `$(Base.julia_cmd()) --project=$(@__DIR__) --startup-file=no
-        $(joinpath(@__DIR__, "probe.jl")) $name $mode $config $backend $out`
-    t0 = time()
+        $(joinpath(@__DIR__, "probe.jl")) $name $mode $backend $out`
+    # Under a lock, the timeout starts once the subprocess holds it.
+    started = "$stem.started"
+    lock = get(ENV, "REACTANT_LOCK", "")
+    if !isempty(lock)
+        cmd = `flock $lock sh -c 'touch "$0" && exec "$@"' $started $cmd`
+    end
     p = run(pipeline(cmd; stdout = log, stderr = log); wait = false)
+    isempty(lock) || while !isfile(started) && process_running(p)
+        sleep(1)
+    end
+    t0 = time()
     timedout = timedwait(() -> process_exited(p), TIMEOUT; pollint = 1.0) ===
         :timed_out
     if timedout
@@ -76,11 +84,11 @@ function run_probe(name, mode, config, backend, dir)
         )
     end
     @printf(
-        "%-24s %-8s %-9s %-4s %-8s %5.0f s  %s %s\n",
-        name, mode, config, backend, r.status, wall, r.error, r.frame
+        "%-24s %-8s %-4s %-8s %5.0f s  %s %s\n",
+        name, mode, backend, r.status, wall, r.error, r.frame
     )
     flush(stdout)
-    return merge(r, (; name, mode, config, backend, wall))
+    return merge(r, (; name, mode, backend, wall))
 end
 
 function versions()
@@ -100,11 +108,8 @@ function cell(r)
 end
 
 function write_results(path, results, elapsed)
-    function find(n, m, c, b)
-        i = findfirst(
-            r -> (r.name, r.mode, r.config, r.backend) == (n, m, c, b),
-            results
-        )
+    function find(n, m, b)
+        i = findfirst(r -> (r.name, r.mode, r.backend) == (n, m, b), results)
         return i === nothing ? nothing : results[i]
     end
     vs = versions()
@@ -115,40 +120,34 @@ function write_results(path, results, elapsed)
     println(io, "Run on $(Dates.today()), Julia $(VERSION), Reactant $(vs.Reactant), Enzyme $(vs.Enzyme).")
     println(io, "Sizes: T = $(ReactantCases.T) steps, L = $(ReactantCases.L) lags, S = $(ReactantCases.S) strata.")
     println(io, "Total run time $(round(elapsed / 60; digits = 1)) min, one subprocess per cell, timeout $(Int(TIMEOUT)) s.\n")
-    println(io, "- `baseline`: the package as it is on this commit.")
-    println(io, "- `shims`: with the candidate changes in `shims.jl` and the call wrapped in `Reactant.@allowscalar`.")
+    println(io, "- Loading Reactant loads the package's Reactant extension; the cases call the operators as plain Julia does.")
     println(io, "- `forward`: `Reactant.@compile` of the operator call against plain Julia.")
     println(io, "- `reverse`: `Enzyme.gradient` inside `@compile` of a weighted sum of the output, against ForwardDiff.")
     println(io, "- `works` cells give compile time (s) / median run time (µs); `wrong` means relative error ≥ 1e-8.")
     println(io, "- The control row's compile time is Reactant's fixed first-compile cost, included in every cell.")
-    for config in CONFIGS
-        println(io, "\n## $config\n")
-        println(io, "| Case | Forward CPU | Reverse CPU | Forward GPU | Reverse GPU |")
-        println(io, "|---|---|---|---|---|")
-        for c in CASES
-            c.name in NAMES || continue
-            cells = [cell(find(c.name, m, config, b)) for (m, b) in cols]
-            println(io, "| ", c.description, " | ", join(cells, " | "), " |")
-        end
+    println(io, "\n| Case | Forward CPU | Reverse CPU | Forward GPU | Reverse GPU |")
+    println(io, "|---|---|---|---|---|")
+    for c in CASES
+        c.name in NAMES || continue
+        cells = [cell(find(c.name, m, b)) for (m, b) in cols]
+        println(io, "| ", c.description, " | ", join(cells, " | "), " |")
     end
     println(io, "\n## Details\n")
     println(io, "Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), on the CPU.\n")
-    println(io, "| Case | Mode | Config | Backend | Status | Rel. error | Compile (s) | Run (µs) | Plain Julia (µs) | Where | Message |")
-    println(io, "|---|---|---|---|---|---|---|---|---|---|---|")
+    println(io, "| Case | Mode | Backend | Status | Rel. error | Compile (s) | Run (µs) | Plain Julia (µs) | Where | Message |")
+    println(io, "|---|---|---|---|---|---|---|---|---|---|")
     for r in results
         row = (
-            r.name, r.mode, r.config, r.backend, r.status, r.relerr,
+            r.name, r.mode, r.backend, r.status, r.relerr,
             r.compile_s, r.run_us, r.plain_us, r.frame, first(r.message, 160),
         )
         println(io, "| ", join(row, " | "), " |")
     end
-    println(io)
-    print(io, read(joinpath(@__DIR__, "candidates.md"), String))
     write(path, String(take!(io)))
     return path
 end
 
-const KEYS = (FIELDS..., :name, :mode, :config, :backend, :wall)
+const KEYS = (FIELDS..., :name, :mode, :backend, :wall)
 
 # Raw results, one row per cell, so the tests and RESULTS.md can be
 # rebuilt without rerunning (`REACTANT_REUSE=1`).
@@ -178,8 +177,8 @@ if get(ENV, "REACTANT_REUSE", "") == "1"
 else
     results = NamedTuple[]
     elapsed = @elapsed mktempdir() do dir
-        for config in CONFIGS, backend in BACKENDS, name in NAMES, mode in MODES
-            push!(results, run_probe(name, mode, config, backend, dir))
+        for backend in BACKENDS, name in NAMES, mode in MODES
+            push!(results, run_probe(name, mode, backend, dir))
         end
     end
     write_raw(RAW, results, elapsed)
@@ -188,12 +187,12 @@ write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
 @printf("Total %.1f min\n", elapsed / 60)
 
 @testset "Reactant support" begin
-    for config in CONFIGS, backend in BACKENDS
-        @testset "$config $backend" begin
+    for backend in BACKENDS
+        @testset "$backend" begin
             for r in results
-                (r.config, r.backend) == (config, backend) || continue
+                r.backend == backend || continue
                 @testset "$(r.name) $(r.mode)" begin
-                    key = (r.name, r.mode, config, backend)
+                    key = (r.name, r.mode, backend)
                     if r.status == "skipped"
                         @test_skip r.status == "works"
                     elseif get(EXPECTED, key, false)

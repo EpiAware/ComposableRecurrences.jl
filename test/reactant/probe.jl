@@ -1,13 +1,11 @@
 # Run one case in one mode under Reactant and write one result line.
 #
 #   julia --project=test/reactant probe.jl <case> <forward|reverse> \
-#       <baseline|shims> <cpu|gpu> <outfile>
+#       <cpu|gpu> <outfile>
 #
 # `forward` compiles the operator call with `Reactant.@compile` and compares
 # it with plain Julia. `reverse` compiles `Enzyme.gradient` of a weighted sum
 # of the output and compares it with ForwardDiff.
-# `baseline` measures the package as it is. `shims` first loads the
-# candidate changes in `shims.jl`, to show what they would unlock.
 # `gpu` writes `skipped` when Reactant finds no GPU.
 using ComposableRecurrences, Reactant, Enzyme, ForwardDiff
 using Printf: @sprintf
@@ -17,9 +15,8 @@ using .ReactantCases
 
 const CASE = case_by_name(ARGS[1])
 const MODE = ARGS[2]
-const CONFIG = ARGS[3]
-const BACKEND = ARGS[4]
-const OUT = ARGS[5]
+const BACKEND = ARGS[3]
+const OUT = ARGS[4]
 const FWD = CASE.fwd
 const Wt = CASE.weights
 const θ0 = CASE.θ
@@ -57,12 +54,7 @@ if !has_backend
     exit()
 end
 
-if CONFIG == "shims"
-    include(joinpath(@__DIR__, "shims.jl"))
-    traced_fwd(θ) = Reactant.@allowscalar FWD(θ)
-else
-    traced_fwd(θ) = FWD(θ)
-end
+traced_fwd(θ) = FWD(θ)
 traced_loss(θ) = sum(Wt .* traced_fwd(θ))
 traced_grad(θ) = Enzyme.gradient(Enzyme.Reverse, traced_loss, θ)[1]
 plain_loss(θ) = sum(Wt .* FWD(θ))

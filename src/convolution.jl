@@ -74,11 +74,12 @@ function forward(
     )
     _check_kernel_times(kernel, stop)
     Tp = float(param_eltype((kernel, x, history)))
-    X = _zeros(x, Tp, m + stop, S)
-    history === nothing || _load_history!(X, history, m)
-    _load_input!(X, x, m, stop)
-    Y = _zeros(x, Tp, stop - start + 1, S)
-    _convolve!(Y, kernel, X, m, start)
+    Y = _elementwise(Tp) do
+        X = _zeros(x, Tp, m + stop, S)
+        history === nothing || _load_history!(X, history, m)
+        _load_input!(X, x, m, stop)
+        _convolve!(_zeros(x, Tp, stop - start + 1, S), kernel, X, m, start)
+    end
     return _public(Y, axes(Y, 1), x), (;)
 end
 

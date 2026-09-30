@@ -135,6 +135,13 @@ end
 
 const N0 = 60.0  # population for the depletion cases
 
+function rec_resume_depletion(θ)
+    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0),))
+    R = θ[(L + 1):end]
+    y1, state = with_state(r, R; history = H1, stop = T₁)
+    return vcat(y1, r(R; state))
+end
+
 function mod_depletion(θ)
     r = Recurrence(θ[1:L]; modifiers = (Depletion(N0),))
     return r(θ[(L + 1):end]; history = H1)
@@ -234,6 +241,10 @@ const CASES = [
     Case(
         "mod_depletion", "Recurrence with Depletion (Hazard)",
         mod_depletion, vcat(g0, 1.5 .* R0), W1
+    ),
+    Case(
+        "rec_resume_depletion", "Recurrence with Depletion, resumed",
+        rec_resume_depletion, vcat(g0, 1.5 .* R0), W1
     ),
     Case(
         "mod_depletion_floor", "Recurrence with Depletion (Floor)",
