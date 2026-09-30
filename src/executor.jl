@@ -35,10 +35,17 @@ y
 """
 struct Serial <: Executor end
 
-"""
+@doc raw"""
     each!(body, ex::Executor, n, work, args...)
 
-Call `body(k, args...)` for every `k` in `1:n` with executor `ex`.
+Call `body(k, args...)` for every `k` in `1:n` with executor `ex`:
+
+```math
+\operatorname{body}(k, \ldots) \quad \text{for } k = 1, \ldots, n,
+```
+
+where each index `k` is one stratum (one of `S` series computed together,
+such as a place or age group), one series or one output time.
 
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
@@ -72,6 +79,12 @@ end
 $(TYPEDEF)
 
 Runs the indices of a loop in contiguous chunks, one task per thread.
+With `m` threads, chunk `c` covers
+
+```math
+k = \\lfloor (c - 1) n / m \\rfloor + 1, \\ldots, \\lfloor c n / m \\rfloor,
+\\qquad c = 1, \\ldots, m.
+```
 
 A loop whose `work` is below `min_work`, or a session with one thread,
 runs in order on the calling task, as [`Serial`](@ref) does.
