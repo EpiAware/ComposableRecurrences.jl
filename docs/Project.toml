@@ -15,6 +15,10 @@ ComposableRecurrences = "4e7e49c6-d082-4112-9a58-49588f39a74b"
 
 [sources]
 ComposableRecurrences = {path = ".."}
+# The managed make.jl is rendered from the kit's main branch and passes
+# keywords newer than its latest release, so the docs build tracks main.
+# Drop this pin once a kit release carries them, and before registering.
+EpiAwarePackageTools = {url = "https://github.com/EpiAware/EpiAwarePackageTools.jl", rev = "main"}
 ADFixtures = {path = "../test/ADFixtures"}
 
 [compat]

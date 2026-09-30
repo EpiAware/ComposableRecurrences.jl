@@ -18,27 +18,3 @@ struct NoAdjoint{O}
 end
 
 (n::NoAdjoint)(args...; kwargs...) = n.op(args...; kwargs...)
-
-@doc "
-Accumulate the reverse pass of operator `op` from the cotangent `ȳ` of its
-output, given the cache its forward pass recorded.
-
-Cotangents of the operator's fields (kernel, coupling, modifier parameters)
-and of its inputs are added into `op̄` and `inputs̄`.
-The package defines no methods; an operator is differentiated by the AD
-backend.
-
-# Arguments
-- `op̄`: the cotangent of the operator's fields.
-- `inputs̄`: the cotangents of the call's inputs.
-- `op`: the operator.
-- `cache`: what the forward pass recorded.
-- `ȳ`: the cotangent of the output.
-
-# Examples
-```@example
-using ComposableRecurrences
-methods(ComposableRecurrences.pullback!)
-```
-"
-function pullback! end

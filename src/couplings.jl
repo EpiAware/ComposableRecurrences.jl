@@ -1,39 +1,15 @@
-# The coupling interface: `pressure!` mixes the per-stratum kernel
-# convolutions `p` into the pressure `q` on each stratum.
+# The built-in couplings: `forward(C, Pressure(), q, p, t)` mixes the
+# per-stratum kernel convolutions `p` into the pressure `q` on each stratum.
 
-@doc "
-Write the coupled pressure of step `t` into `q` and return it.
-
-`p[b]` is stratum `b`'s kernel convolution at this step and `window` is the
-`L × S` block of past values the step reads, oldest first.
-Most couplings read `p` only: `I` scales it, a matrix `C` gives `q = C p`, and
-a [`TimeVarying`](@ref) coupling uses its `t`-th slice.
-A [`Pairwise`](@ref) coupling reads `window` directly.
-Implement this method for a new coupling type.
-
-# Arguments
-- `q`: the output, one entry per stratum.
-- `coupling`: the coupling.
-- `p`: the per-stratum kernel convolutions.
-- `window`: the past values, `L × S`, oldest first.
-- `t`: the time index of the step.
-
-# Examples
-```@example
-using ComposableRecurrences
-q = zeros(2)
-ComposableRecurrences.pressure!(q, [0.9 0.1; 0.2 0.8], [1.0, 2.0], ones(3, 2), 1)
-```
-"
-function pressure!(q, J::UniformScaling, p, window, t)
+function forward(J::UniformScaling, ::Pressure, q, p, t)
     λ = J.λ
     for a in eachindex(q, p)
         q[a] = λ * p[a]
     end
-    return q
+    return nothing
 end
 
-function pressure!(q, C::AbstractMatrix, p, window, t)
+function forward(C::AbstractMatrix, ::Pressure, q, p, t)
     for a in axes(C, 1)
         acc = zero(eltype(q))
         for b in axes(C, 2)
@@ -41,18 +17,18 @@ function pressure!(q, C::AbstractMatrix, p, window, t)
         end
         q[a] = acc
     end
-    return q
+    return nothing
 end
 
-function pressure!(q, C::Diagonal, p, window, t)
+function forward(C::Diagonal, ::Pressure, q, p, t)
     d = C.diag
     for a in eachindex(q, p)
         q[a] = d[a] * p[a]
     end
-    return q
+    return nothing
 end
 
-function pressure!(q, C::SparseMatrixCSC, p, window, t)
+function forward(C::SparseMatrixCSC, ::Pressure, q, p, t)
     fill!(q, zero(eltype(q)))
     rows = rowvals(C)
     vals = nonzeros(C)
@@ -62,10 +38,12 @@ function pressure!(q, C::SparseMatrixCSC, p, window, t)
             q[rows[idx]] += vals[idx] * pb
         end
     end
-    return q
+    return nothing
 end
 
-function pressure!(q, C::TimeVarying{<:AbstractArray{<:Any, 3}}, p, window, t)
+function forward(
+        C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure, q, p, t
+    )
     X = C.x
     for a in axes(X, 1)
         acc = zero(eltype(q))
@@ -74,48 +52,8 @@ function pressure!(q, C::TimeVarying{<:AbstractArray{<:Any, 3}}, p, window, t)
         end
         q[a] = acc
     end
-    return q
+    return nothing
 end
-
-function pressure!(q, C::Pairwise, p, window, t)
-    X = C.x
-    L = size(X, 3)
-    for a in axes(X, 1)
-        acc = zero(eltype(q))
-        for i in 1:L, b in axes(X, 2)
-            acc += X[a, b, i] * window[L + 1 - i, b]
-        end
-        q[a] = acc
-    end
-    return q
-end
-
-@doc "
-Accumulate the reverse pass of [`pressure!`](@ref) for `coupling` at step `t`.
-
-Given the cotangent `q̄` of the pressure, add the cotangents of `p` into `p̄`,
-of the window into `window̄`, and of the coupling's parameters into
-`couplinḡ`.
-The package defines no methods; an operator is differentiated by the AD
-backend.
-
-# Arguments
-- `p̄`: the cotangent of the kernel convolutions.
-- `window̄`: the cotangent of the window.
-- `couplinḡ`: the cotangent of the coupling's parameters.
-- `coupling`: the coupling.
-- `q̄`: the cotangent of the pressure.
-- `p`: the kernel convolutions.
-- `window`: the past values, `L × S`, oldest first.
-- `t`: the step.
-
-# Examples
-```@example
-using ComposableRecurrences
-methods(ComposableRecurrences.pressure_pullback!)
-```
-"
-function pressure_pullback! end
 
 # Coupling shape checks against `S` strata.
 _check_coupling(C, S) = nothing
@@ -125,11 +63,35 @@ function _check_coupling(C::AbstractMatrix, S)
     )
     return nothing
 end
-function _check_coupling(C::Union{TimeVarying, Pairwise}, S)
+function _check_coupling(C::TimeVarying, S)
     size(C.x)[1:2] == (S, S) || throw(
         DimensionMismatch(
             "coupling is $(size(C.x)), expected ($S, $S, ...)"
         )
     )
     return nothing
+end
+
+# The coupling slot: a time-varying coupling is `S × S × T`, read at time
+# `t`. Lags belong to the kernel, so a Pairwise is not a coupling.
+_check_coupling_shape(C) = nothing
+function _check_coupling_shape(
+        ::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}
+    )
+    return nothing
+end
+function _check_coupling_shape(::TimeVarying)
+    throw(
+        ArgumentError(
+            "a TimeVarying coupling is a strata × strata × time array with " *
+                "Secondary() indexing"
+        )
+    )
+end
+function _check_coupling_shape(::Pairwise)
+    throw(
+        ArgumentError(
+            "Pairwise is a kernel: use Recurrence(Pairwise(A)) with coupling I"
+        )
+    )
 end
