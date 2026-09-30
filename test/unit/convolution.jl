@@ -251,3 +251,34 @@ end
     @test ∇ ≈ fd rtol = 1.0e-6
     @test all(!iszero, ∇)
 end
+
+@testitem "Convolution: a vector-level modifier with a pointwise one" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(34)
+    S, D, T = 3, 3, 8
+    c = rand(rng, D)
+    X = rand(rng, S, T)
+    base = naive_convolution((t, k, d) -> c[d + 1], X, D)
+    K = [0.0 0.3 0.1; 0.2 0.0 0.4; 0.5 0.1 0.0]
+    ε = [0.1, 0.2, 0.05]
+    N = [5.0, 8.0, 6.0]
+    # Redistribute moves shares between strata, then each stratum's pool is
+    # drawn down by what it realises.
+    ref = similar(base)
+    pool = copy(N)
+    for t in 1:T
+        v = base[:, t]
+        moved = [
+            (1 - ε[p] * sum(K[r, p] for r in 1:S if r != p)) * v[p] +
+                sum(ε[q] * K[p, q] * v[q] for q in 1:S if q != p) for p in 1:S
+        ]
+        x = moved ./ N
+        ref[:, t] .= pool .* (1 .- exp.(-x))
+        pool .*= exp.(-x)
+    end
+    mods = (CR.Redistribute(K, ε), CR.Depletion(N))
+    Y = Convolution(c; modifiers = mods)(X)
+    @test Y ≈ ref
+    @test sum(Y) < sum(base)
+end
