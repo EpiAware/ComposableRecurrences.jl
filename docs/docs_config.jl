@@ -15,6 +15,7 @@ const LIGHT_TUTORIALS = String[]
 # kit-managed AD-comparison page is registered in `HEAVY_BENCHMARKS` below
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
+    "renewal-then-delay.jl",
     "time-varying-delays.jl",
 ]
 
@@ -26,6 +27,8 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # Preserve the tutorial's `@id` in the heading (e.g. `"# [Title](@id
 # my-anchor)"`) so cross-references still resolve in a fast build.
 const TUTORIAL_STUBS = [
+    "renewal-then-delay.md" =>
+        "# [Renewal then delay](@id tutorial-renewal-delay)",
     "time-varying-delays.md" =>
         "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
 ]
@@ -197,6 +200,8 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
     "Concepts" => "getting-started/concepts.md",
+    "Renewal then delay" =>
+        "getting-started/tutorials/renewal-then-delay.md",
     "Time-varying delays and kernels" =>
         "getting-started/tutorials/time-varying-delays.md",
 ]
