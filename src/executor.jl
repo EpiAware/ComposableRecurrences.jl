@@ -67,3 +67,56 @@ y
     end
     return nothing
 end
+
+"""
+$(TYPEDEF)
+
+Runs the indices of a loop in contiguous chunks, one task per thread.
+
+A loop whose `work` is below `min_work`, or a session with one thread,
+runs in order on the calling task, as [`Serial`](@ref) does.
+Results are identical to [`Serial`](@ref) because each index writes only
+its own slots.
+
+# Fields
+$(TYPEDFIELDS)
+
+# Examples
+```@example
+using ComposableRecurrences
+const CR = ComposableRecurrences
+y = zeros(4)
+CR.each!((k, y) -> (y[k] = k^2; nothing), CR.Threaded(; min_work = 0), 4, 4, y)
+y
+```
+"""
+struct Threaded <: Executor
+    "The smallest loop `work` that is split across threads."
+    min_work::Int
+end
+Threaded(; min_work = 10_000) = Threaded(min_work)
+
+@inline function each!(
+        body::F, ex::Threaded, n, work, args::Vararg{Any, N}
+    ) where {F, N}
+    m = min(Threads.nthreads(), n)
+    (m <= 1 || work < ex.min_work) &&
+        return each!(body, Serial(), n, work, args...)
+    run = function (ks)
+        for k in ks
+            @inline body(k, args...)
+        end
+        return nothing
+    end
+    _spawn_chunks(run, n, m)
+    return nothing
+end
+
+# Run `run(ks)` on `m` contiguous chunks of `1:n`, one task each, and wait.
+function _spawn_chunks(run::R, n, m) where {R}
+    tasks = map(1:m) do c
+        Threads.@spawn run(((c - 1) * n ÷ m + 1):(c * n ÷ m))
+    end
+    foreach(wait, tasks)
+    return nothing
+end

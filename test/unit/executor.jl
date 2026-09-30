@@ -68,3 +68,29 @@ end
     each_kernel!(KA.get_backend(pd))(window_dot!, (pd, gd, Hd, 2, L); ndrange = S)
     @test Array(pd) == p
 end
+
+@testitem "each!: threaded matches serial" setup = [ExecutorBodies] begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    S, L, T = 37, 4, 6
+    g = rand(L)
+    H = rand(L + T, S)
+    p, pt = zeros(S), zeros(S)
+    CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 2, L)
+    for ex in (CR.Threaded(), CR.Threaded(; min_work = 0))
+        fill!(pt, 0)
+        CR.each!(window_dot!, ex, S, S * L, pt, g, H, 2, L)
+        @test pt == p
+    end
+end
+
+@testitem "each!: chunks cover every index once" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    for n in (1, 5, 16, 101), m in (1, 2, 3, 8)
+        m > n && continue
+        hits = zeros(Int, n)
+        CR._spawn_chunks(ks -> (hits[ks] .+= 1; nothing), n, m)
+        @test all(==(1), hits)
+    end
+end
