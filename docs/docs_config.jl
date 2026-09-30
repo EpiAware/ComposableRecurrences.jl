@@ -17,6 +17,7 @@ const LIGHT_TUTORIALS = String[]
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
     "latent-processes.jl",
+    "spatial-strata.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -31,6 +32,8 @@ const TUTORIAL_STUBS = [
         "# [Renewal then delay](@id tutorial-renewal-delay)",
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
+    "spatial-strata.md" =>
+        "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -204,6 +207,8 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
         "getting-started/tutorials/latent-processes.md",
+    "Spatial and multi-type models" =>
+        "getting-started/tutorials/spatial-strata.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
