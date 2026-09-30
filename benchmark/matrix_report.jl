@@ -218,7 +218,7 @@ function bars_section(io, run)
         push!(
             lines, @sprintf(
                 "| %s | %s | %s | %.1f | %.1f | %s |", c, sz, t, µs, bar,
-                µs <= bar ? "meets" : "misses"
+                !_rules(run, t) ? "no rules" : µs <= bar ? "meets" : "misses"
             )
         )
     end
