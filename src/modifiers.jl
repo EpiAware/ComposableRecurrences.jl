@@ -1,4 +1,4 @@
-# The piece interface. Every piece (operator, coupling, modifier or variant)
+# The extension interface. Every operator, coupling, modifier or variant
 # implements `forward`, and optionally `pullback!`, for a role.
 
 @doc "

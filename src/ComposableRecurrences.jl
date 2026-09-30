@@ -56,7 +56,7 @@ using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
-# Register the standard EpiAware docstring conventions before any
+# Register the standard docstring conventions before any
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
@@ -70,7 +70,7 @@ public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The piece interface: roles, `forward`, `pullback!` and the stage loop.
+# The roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")

@@ -1,5 +1,5 @@
 # The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
-# mirrors the piece's fields as a NamedTuple: an array for a float array, a
+# mirrors the type's fields as a NamedTuple: an array for a float array, a
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
 # and `nothing` for a field without a cotangent.
 #
