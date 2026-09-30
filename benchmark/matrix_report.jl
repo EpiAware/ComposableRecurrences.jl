@@ -5,6 +5,9 @@
 # opportunities and, given a previous run, its regressions.
 #
 #   julia benchmark/matrix_report.jl DIR [PREVIOUS_DIR] [--out=FILE]
+#       [--docs=benchmark/results/docs.csv]
+#
+# `--docs` also writes the docs table from the `docs` tier of DIR.
 #
 # A change counts as a regression or an improvement only when the minimum
 # and the median both move by at least `THRESHOLD`, so noise on a shared
@@ -84,8 +87,22 @@ function _targets(run)
         r["target"] for r in run.rows
             if haskey(run.meta, r["tier"] * " " * r["target"])
     )
+    # Targets beyond the serial CPU ones (a traced or threaded run, say) are
+    # named "... primal" or "... gradient" and follow the built-in ones.
     grads = [t for t in GRADIENT_ORDER if t in ts]
-    return ("primal" in ts ? ["primal"] : String[]), grads
+    append!(grads, sort([t for t in ts if endswith(t, "gradient")]))
+    primal = "primal" in ts ? ["primal"] : String[]
+    append!(primal, sort([t for t in ts if t != "primal" && endswith(t, "primal")]))
+    return primal, grads
+end
+
+_isprimal(t) = endswith(t, "primal")
+
+# The row of a target as users call the operator: the `rule` arm, or
+# `traced` for a target that compiles the call.
+function _user_row(ix, tier, c, sz, t)
+    r = get(ix, (tier, c, sz, t, "rule"), nothing)
+    return r === nothing ? get(ix, (tier, c, sz, t, "traced"), nothing) : r
 end
 
 function _rules(run, target)
@@ -142,11 +159,11 @@ function timings_section(io, run, tier)
     println(io, "| Case | Size | Params | ", join(cols, " | "), " |")
     println(io, "|:--|:--|--:|", repeat("--:|", length(cols)))
     for (c, sz, np) in cases_in(run, tier)
-        rs = [get(ix, (tier, c, sz, t, "rule"), nothing) for t in cols]
+        rs = [_user_row(ix, tier, c, sz, t) for t in cols]
         best = minimum(
             (
                 _num(r, "median_ns") for (t, r) in zip(cols, rs)
-                    if r !== nothing && t != "primal" && _ok(r)
+                    if r !== nothing && !_isprimal(t) && _ok(r)
             ); init = Inf
         )
         cells = map(zip(cols, rs)) do (t, r)
@@ -154,7 +171,7 @@ function timings_section(io, run, tier)
             _ok(r) || return _short(r["status"])
             med = _num(r, "median_ns")
             s = fmt_time(med) * " · " * r["allocs"]
-            t == "primal" && return s
+            _isprimal(t) && return s
             return s * " · " * fmt_ratio(med / best)
         end
         println(io, "| ", c, " | ", sz, " | ", np, " | ", join(cells, " | "), " |")
@@ -206,6 +223,45 @@ function gain_section(io, run, tier)
         println(io, "| ", c, " | ", sz, " | ", join(cells, " | "), " |")
     end
     return println(io)
+end
+
+# Cases with baseline arms: every arm per target, as median and ratio to
+# the package as users call it.
+function baselines_section(io, run, tier)
+    ix = index(run)
+    extra = unique(
+        (r["case"], r["arm"]) for r in run.rows
+            if r["tier"] == tier && !(get(r, "arm", "") in ("", "rule", "NoAdjoint"))
+    )
+    isempty(extra) && return
+    println(io, "## Against code without the package, tier `", tier, "`\n")
+    println(
+        io, "Median time and ratio to the package's own call (`rule`). ",
+        "Every arm computes the same loss.\n"
+    )
+    for c in unique(first.(extra))
+        armnames = vcat(["rule", "NoAdjoint"], [a for (k, a) in extra if k == c])
+        println(io, "| Case | Size | Target | ", join(armnames, " | "), " |")
+        println(io, "|:--|:--|:--|", repeat("--:|", length(armnames)))
+        for (cc, sz, _) in cases_in(run, tier)
+            cc == c || continue
+            for t in vcat(["primal"], GRADIENT_ORDER)
+                ref = get(ix, (tier, c, sz, t, "rule"), nothing)
+                (ref === nothing || !_ok(ref)) && continue
+                cells = map(armnames) do a
+                    r = get(ix, (tier, c, sz, t, a), nothing)
+                    r === nothing && return ""
+                    _ok(r) || return _short(r["status"])
+                    med = _num(r, "median_ns")
+                    return fmt_time(med) * " · " *
+                        fmt_ratio(med / _num(ref, "median_ns"))
+                end
+                println(io, "| ", c, " | ", sz, " | ", t, " | ", join(cells, " | "), " |")
+            end
+        end
+        println(io)
+    end
+    return nothing
 end
 
 function bars_section(io, run)
@@ -407,6 +463,7 @@ function report(dir, prevdir = nothing)
     for tier in tiers
         timings_section(io, run, tier)
         gain_section(io, run, tier)
+        baselines_section(io, run, tier)
     end
     bars_section(io, run)
     opportunities_section(io, run)
@@ -416,10 +473,94 @@ function report(dir, prevdir = nothing)
     return String(take!(io))
 end
 
+# The docs table: the getting-started model against code written without the
+# package, and the user modifier with and without its `pullback!`. Each row
+# is one method on one target; `ratio` is its median over the reference
+# method's (the package, or the modifier with `forward` only).
+const DOCS_BLOCKS = [
+    (
+        "naive vs package", "overview", "ComposableRecurrences",
+        [
+            ("overview", "rule") => "ComposableRecurrences",
+            ("overview", "loop") => "hand loop",
+            ("overview", "copy loop") => "hand loop (window copies)",
+            ("overview", "accumulate") => "accumulate",
+        ],
+    ),
+    (
+        "custom modifier", "custom_modifier", "forward only",
+        [
+            ("custom_modifier", "rule") => "forward only",
+            ("custom_modifier_pullback", "rule") => "with pullback!",
+        ],
+    ),
+]
+const DOCS_COLUMNS = [
+    "block", "size", "method", "target", "status", "median_us", "min_us",
+    "allocs",
+    "ratio", "relerr", "check", "revision", "rules",
+]
+
+function docs_csv(run)
+    io = IOBuffer()
+    println(io, join(DOCS_COLUMNS, ','))
+    ix = index(run)
+    for (block, refcase, refname, methods) in DOCS_BLOCKS
+        sizes = unique(
+            r["size"] for r in run.rows if get(r, "case", "") == refcase &&
+                _ok(r)
+        )
+        for sz in sizes, target in vcat(["primal"], GRADIENT_ORDER)
+            ref = nothing
+            for ((c, arm), name) in methods
+                name == refname && (ref = get(ix, ("docs", c, sz, target, arm), nothing))
+            end
+            (ref === nothing || !_ok(ref)) && continue
+            for ((c, arm), name) in methods
+                r = get(ix, ("docs", c, sz, target, arm), nothing)
+                r === nothing && continue
+                startswith(r["status"], "skipped") && continue
+                m = run.meta["docs " * target]
+                # Without the backend's rules a pullback! is never called, so
+                # the modifier block would time the same code twice.
+                block == "custom modifier" && !_isprimal(target) &&
+                    target != "ForwardDiff" && get(m, "rules", "") != "true" &&
+                    continue
+                block == "custom modifier" &&
+                    (_isprimal(target) || target == "ForwardDiff") && continue
+                ok = _ok(r)
+                status = ok ? "ok" : first(split(r["status"], ':'))
+                num(k) = ok ? @sprintf("%.2f", _num(r, k) / 1.0e3) : ""
+                println(
+                    io, join(
+                        [
+                            block, sz, name, target, status, num("median_ns"),
+                            num("min_ns"), ok ? r["allocs"] : "",
+                            ok ? @sprintf(
+                                    "%.3f", _num(r, "median_ns") / _num(ref, "median_ns")
+                                ) : "",
+                            r["relerr"], r["check"], first(get(m, "rev", ""), 8),
+                            get(m, "rules", ""),
+                        ], ','
+                    )
+                )
+            end
+        end
+    end
+    return String(take!(io))
+end
+
 if abspath(PROGRAM_FILE) == @__FILE__
     pos = filter(a -> !startswith(a, "--"), ARGS)
     i = findfirst(a -> startswith(a, "--out="), ARGS)
     out = i === nothing ? joinpath(first(pos), "REPORT.md") : ARGS[i][7:end]
     write(out, report(first(pos), get(pos, 2, nothing)))
     println("wrote ", out)
+    j = findfirst(a -> startswith(a, "--docs="), ARGS)
+    if j !== nothing
+        docs = ARGS[j][8:end]
+        mkpath(dirname(docs))
+        write(docs, docs_csv(read_run(first(pos))))
+        println("wrote ", docs)
+    end
 end

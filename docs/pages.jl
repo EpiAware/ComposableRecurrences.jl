@@ -30,7 +30,7 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "FAQ" => "getting-started/faq.md",
-        "Concepts" => "getting-started/concepts.md",
+        "API overview" => "getting-started/api-overview.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
         "Spatial and multi-type models" => "getting-started/tutorials/spatial-strata.md",
@@ -46,11 +46,8 @@ pages = [
         "AD comparison" =>
             "benchmarks/ad-comparison.md",
     ],
-    "Explanation" => [
-        "Operators" => "explanation/operators.md",
-        "Shapes and coefficients" => "explanation/shapes.md",
-        "Couplings" => "explanation/couplings.md",
-        "Modifiers" => "explanation/modifiers.md",
+    "Domain guides" => [
+        "Infectious disease models" => "domain-guides/infectious-disease-models.md",
     ],
     "Development" => [
         "Overview" => "developer/index.md",
