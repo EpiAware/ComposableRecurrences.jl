@@ -61,6 +61,11 @@ end
     @test Convolution(TimeVarying(C3))(X) ≈
         naive_convolution((t, k, d) -> C3[k, d + 1, t], X, D)
 
+    # An explicit start reads the kernel from that index.
+    full = Convolution(TimeVarying(Ct))(X)
+    @test Convolution(TimeVarying(Ct))(X[:, 4:end]; history = X[:, 1:3], start = 4) ≈
+        full[:, 4:end]
+
     x = X[1, :]
     @test Convolution(TimeVarying(Ct))(x) ≈
         vec(naive_convolution((t, k, d) -> Ct[d + 1, t], X[1:1, :], D))

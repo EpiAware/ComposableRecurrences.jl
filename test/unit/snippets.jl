@@ -66,6 +66,24 @@ end
         return nothing
     end
 
+    # Parameters in an untyped field and a NamedTuple field: `a v + b`.
+    struct LooseScale
+        a
+        params::NamedTuple
+    end
+    ComposableRecurrences.ispointwise(::LooseScale) = true
+    function ComposableRecurrences.apply(m::LooseScale, v, s, t, k)
+        return m.a * v + m.params.b, s
+    end
+
+    # Adds each stratum's history total, set once by `init_state`.
+    struct HistoryTotal end
+    function ComposableRecurrences.init_state(::HistoryTotal, history)
+        return vec(sum(history; dims = ndims(history)))
+    end
+    ComposableRecurrences.ispointwise(::HistoryTotal) = true
+    ComposableRecurrences.apply(::HistoryTotal, v, s, t, k) = (v + s, s)
+
     # Pointwise and time-varying: add `b[t]`.
     struct Shift{B}
         b::B

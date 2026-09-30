@@ -15,7 +15,8 @@
     ref = CTIDM.accumulate_scan(
         CTIDM.ARStep(damp), (; val = 0.0, window = w0), ϵ
     )
-    @test [w0; Recurrence(damp)(1.0; history = w0, add = ϵ)] ≈ ref
+    # CTIDM's AR coefficients are oldest first.
+    @test [w0; Recurrence(reverse(damp))(1.0; history = w0, add = ϵ)] ≈ ref
 end
 
 @testitem "CTIDM: delay as a convolution" begin
@@ -29,7 +30,7 @@ end
     ref = CTIDM.accumulate_scan(
         CTIDM.LDStep(rev_pmf), (; val = 0.0, current = w0), ϵ
     )
-    # `rev_pmf` is oldest first over lags 1:L; a lag-0-first kernel with no
+    # `rev_pmf` is oldest first over lags 1:L; the lag-first kernel with no
     # weight on lag 0 is its reverse.
     y = Convolution([0.0; reverse(rev_pmf)])(ϵ; history = w0)
     @test y ≈ ref
@@ -40,13 +41,13 @@ end
     include(joinpath(@__DIR__, "ctidm_steps.jl"))
     rng = Xoshiro(33)
     L, T = 7, 30
-    g = reverse(exp.(-0.3 .* (1:L)) ./ sum(exp.(-0.3 .* (1:L))))
+    g = reverse(exp.(-0.3 .* (1:L)) ./ sum(exp.(-0.3 .* (1:L))))  # CTIDM: oldest first
     w0 = fill(10.0, L)
     R = exp.(0.1 .* randn(rng, T))
     ref = CTIDM.accumulate_scan(
         CTIDM.ConstantRenewalStep(g), (; val = last(w0), window = w0), R
     )
-    @test Recurrence(g)(R; history = w0) ≈ ref
+    @test Recurrence(reverse(g))(R; history = w0) ≈ ref
 end
 
 @testitem "CTIDM: renewal with mixing and depletion" setup = [TestModifiers] begin
@@ -54,7 +55,7 @@ end
     include(joinpath(@__DIR__, "ctidm_steps.jl"))
     rng = Xoshiro(34)
     S, L, T = 4, 6, 40
-    g = reverse(exp.(-0.3 .* (1:L)) ./ sum(exp.(-0.3 .* (1:L))))
+    g = reverse(exp.(-0.3 .* (1:L)) ./ sum(exp.(-0.3 .* (1:L))))  # CTIDM: oldest first
     K = 0.8I(S) .+ 0.2 / S .* ones(S, S)
     pop = [1.0e3, 5.0e3, 2.0e3, 800.0]
     w0 = 5 .* rand(rng, S, L)
@@ -64,7 +65,7 @@ end
     )
     init = (; val = w0[:, end], window = w0, substates = (copy(pop),))
     ref = CTIDM.accumulate_scan(step, init, CTIDM._steps(R))
-    r = Recurrence(g; coupling = K, modifiers = (FlooredDepletion(pop),))
+    r = Recurrence(reverse(g); coupling = K, modifiers = (FlooredDepletion(pop),))
     @test r(R; history = w0) ≈ ref
 
     # Without depletion: the constant step with mixing.
@@ -72,5 +73,5 @@ end
         CTIDM.ConstantRenewalStep(g, K), (; val = w0[:, end], window = w0),
         CTIDM._steps(R)
     )
-    @test Recurrence(g; coupling = K)(R; history = w0) ≈ ref
+    @test Recurrence(reverse(g); coupling = K)(R; history = w0) ≈ ref
 end

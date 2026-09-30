@@ -1,5 +1,5 @@
 # Recurrence values against the naive reference loop, one test item per slot
-# shape. Kernel vectors are oldest first: `g[L + 1 - i]` weights lag `i`.
+# shape. Kernels are lag first: `g[i]` weights lag `i`.
 
 @testitem "Recurrence: fixed kernel, single series" setup = [Reference] begin
     using ComposableRecurrences, Random
@@ -8,7 +8,7 @@
     g = rand(rng, L)
     h = rand(rng, L)
     R = 0.5 .+ rand(rng, T)
-    w = (t, a, b, i) -> g[L + 1 - i]
+    w = (t, a, b, i) -> g[i]
     y = Recurrence(g)(R; history = h)
     @test y isa Vector{Float64}
     @test length(y) == T
@@ -39,7 +39,7 @@ end
     ϵ = rand(rng, S, T)
     y = Recurrence(g; coupling = K)(R; history = h, add = ϵ)
     ref = naive_recurrence(
-        (t, a, b, i) -> K[a, b] * g[L + 1 - i], h, T;
+        (t, a, b, i) -> K[a, b] * g[i], h, T;
         gain = (a, t) -> R[a, t], add = (a, t) -> ϵ[a, t]
     )
     @test size(y) == (S, T)
@@ -49,7 +49,7 @@ end
     r = rand(rng, T)
     y = Recurrence(g; coupling = K)(r; history = h)
     ref = naive_recurrence(
-        (t, a, b, i) -> K[a, b] * g[L + 1 - i], h, T; gain = (a, t) -> r[t]
+        (t, a, b, i) -> K[a, b] * g[i], h, T; gain = (a, t) -> r[t]
     )
     @test y ≈ ref
 end
@@ -62,7 +62,7 @@ end
     h = rand(rng, S, L)
     R = rand(rng, S, T)
     ref(λ) = naive_recurrence(
-        (t, a, b, i) -> (a == b) * λ * g[L + 1 - i], h, T;
+        (t, a, b, i) -> (a == b) * λ * g[i], h, T;
         gain = (a, t) -> R[a, t]
     )
     @test Recurrence(g)(R; history = h) ≈ ref(1)
@@ -80,7 +80,7 @@ end
     R = rand(rng, S, T)
     y = Recurrence(PerStratum(G); coupling = Diagonal(d))(R; history = h)
     ref = naive_recurrence(
-        (t, a, b, i) -> (a == b) * d[a] * G[b, L + 1 - i], h, T;
+        (t, a, b, i) -> (a == b) * d[a] * G[b, i], h, T;
         gain = (a, t) -> R[a, t]
     )
     @test y ≈ ref
@@ -98,7 +98,7 @@ end
     G = rand(rng, L, T)
     y = Recurrence(TimeVarying(G); coupling = K)(R; history = h)
     ref = naive_recurrence(
-        (t, a, b, i) -> K[a, b] * G[L + 1 - i, t], h, T;
+        (t, a, b, i) -> K[a, b] * G[i, t], h, T;
         gain = (a, t) -> R[a, t]
     )
     @test y ≈ ref
@@ -107,7 +107,7 @@ end
     G3 = rand(rng, S, L, T)
     y = Recurrence(TimeVarying(G3); coupling = K)(R; history = h)
     ref = naive_recurrence(
-        (t, a, b, i) -> K[a, b] * G3[b, L + 1 - i, t], h, T;
+        (t, a, b, i) -> K[a, b] * G3[b, i, t], h, T;
         gain = (a, t) -> R[a, t]
     )
     @test y ≈ ref
@@ -115,7 +115,7 @@ end
     # A time-varying kernel alone fixes the number of steps.
     y = Recurrence(TimeVarying(G))(1.0; history = h[1, :])
     ref = naive_recurrence(
-        (t, a, b, i) -> G[L + 1 - i, t], h[1:1, :], T
+        (t, a, b, i) -> G[i, t], h[1:1, :], T
     )
     @test y ≈ vec(ref)
 end
@@ -130,7 +130,7 @@ end
     R = rand(rng, S, T)
     y = Recurrence(g; coupling = K)(R; history = h)
     ref = naive_recurrence(
-        (t, a, b, i) -> K[a, b] * g[L + 1 - i], h, T; gain = (a, t) -> R[a, t]
+        (t, a, b, i) -> K[a, b] * g[i], h, T; gain = (a, t) -> R[a, t]
     )
     @test y ≈ ref
 end
@@ -145,7 +145,7 @@ end
     R = rand(rng, S, T)
     y = Recurrence(g; coupling = TimeVarying(C))(R; history = h)
     ref = naive_recurrence(
-        (t, a, b, i) -> C[a, b, t] * g[L + 1 - i], h, T;
+        (t, a, b, i) -> C[a, b, t] * g[i], h, T;
         gain = (a, t) -> R[a, t]
     )
     @test y ≈ ref
@@ -173,7 +173,7 @@ end
     h = rand(rng, S, L)
     R = rand(rng, S, T)
     b = rand(rng, T)
-    w = (t, a, c, i) -> (a == c) * g[L + 1 - i]
+    w = (t, a, c, i) -> (a == c) * g[i]
     scale_then_shift = Recurrence(g; modifiers = (Scale(2.0), Shift(b)))
     shift_then_scale = Recurrence(g; modifiers = (Shift(b), Scale(2.0)))
     ref1 = naive_recurrence(
@@ -209,7 +209,7 @@ end
         return v
     end
     ref = naive_recurrence(
-        (t, a, b, i) -> K[a, b] * g[L + 1 - i], h, T;
+        (t, a, b, i) -> K[a, b] * g[i], h, T;
         gain = (a, t) -> R[a, t], post! = deplete!
     )
     @test y ≈ ref
@@ -247,6 +247,7 @@ end
     @test y1 ≈ full[:, 1:4]
     @test state.history ≈ full[:, 1:4]
     @test length(state.states) == 2
+    @test state.t == 4
     y2 = r(R[:, 5:end]; history = state, add = ϵ[:, 5:end])
     @test y2 ≈ full[:, 5:end]
 
@@ -264,4 +265,63 @@ end
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
     @test r1(R[1, 7:end]; history = st) ≈ full1[7:end]
+end
+
+@testitem "Recurrence: absolute time and start" setup = [Reference, TestModifiers] begin
+    using ComposableRecurrences, Random
+    rng = Xoshiro(12)
+    L, T = 4, 12
+    G = rand(rng, L, T)
+    b = rand(rng, T)
+    h = rand(rng, L)
+    R = 1 .+ rand(rng, T)
+    r = Recurrence(TimeVarying(G); modifiers = (Shift(b),))
+    full = r(R; history = h)
+    ref = naive_recurrence(
+        (t, a, c, i) -> G[i, t], reshape(h, 1, L), T;
+        gain = (a, t) -> R[t], post! = (v, t) -> (v .+= b[t])
+    )
+    @test full ≈ vec(ref)
+
+    # A resumed call continues at the state's next index.
+    y1, state = r(R[1:5]; history = h, return_state = true)
+    @test state.t == 5
+    @test r(R[6:end]; history = state) ≈ full[6:end]
+
+    # An explicit start reads time-varying slots from that index.
+    @test r(R[6:end]; history = [h; full][6:9], start = 6) ≈ full[6:end]
+
+    # A time-varying kernel alone sets the steps left from start.
+    y = Recurrence(TimeVarying(G))(; history = h, start = 9)
+    @test length(y) == T - 8
+end
+
+@testitem "Recurrence: history longer than the kernel" setup = [Reference, TestModifiers] begin
+    using ComposableRecurrences, Random
+    rng = Xoshiro(13)
+    S, L, T = 2, 3, 7
+    g = rand(rng, L)
+    h = rand(rng, S, L + 4)
+    R = rand(rng, S, T)
+    r = Recurrence(g)
+    @test r(R; history = h) ≈ r(R; history = h[:, 5:end])
+
+    # init_state sees the whole history.
+    y = Recurrence(g; modifiers = (HistoryTotal(),))(R; history = h)
+    total = vec(sum(h; dims = 2))
+    ref = naive_recurrence(
+        (t, a, c, i) -> (a == c) * g[i], h[:, 5:end], T;
+        gain = (a, t) -> R[a, t], post! = (v, t) -> (v .+= total)
+    )
+    @test y ≈ ref
+end
+
+@testitem "Recurrence: gain defaults to one" begin
+    using ComposableRecurrences, Random
+    rng = Xoshiro(14)
+    g = rand(rng, 3)
+    h = rand(rng, 3)
+    ϵ = randn(rng, 10)
+    @test Recurrence(g)(; history = h, add = ϵ) ≈
+        Recurrence(g)(1.0; history = h, add = ϵ)
 end

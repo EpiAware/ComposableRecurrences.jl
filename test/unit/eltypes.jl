@@ -68,6 +68,13 @@ end
     )
     @test check(P -> sum(W .* Recurrence(nothing; coupling = Pairwise(P))(R0; history = h0)), rand(S, S, L))
     @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(L, T))
+    @test check(
+        θ -> sum(
+            W .* Recurrence(g0; modifiers = (LooseScale(θ[1], (; b = θ[2])),))(
+                R0; history = h0
+            )
+        ), [0.9, 0.1]
+    )
     @test check(c -> sum(W .* Convolution(c)(R0; history = h0)), g0)
     @test check(x -> sum(W .* Convolution(g0)(x; history = h0)), R0)
     @test check(h -> sum(W .* Convolution(g0)(R0; history = h)), h0)

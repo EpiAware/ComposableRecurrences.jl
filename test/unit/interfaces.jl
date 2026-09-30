@@ -36,6 +36,19 @@ end
     @test Interfaces.test(CR.ModifierInterface, Scale, objs; show = false)
 end
 
+@testitem "param_eltype recurses through fields" setup = [TestModifiers] begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    D = ForwardDiff.Dual{Nothing, Float64, 1}
+    d = ForwardDiff.Dual{Nothing}(1.0, 1.0)
+    @test CR.param_eltype(LooseScale(1.0f0, (; b = 2))) == Float32
+    @test CR.param_eltype(LooseScale(1.0, (; b = d))) == D
+    @test CR.param_eltype((1.0f0, [d])) == D
+    @test CR.param_eltype(Recurrence([1.0f0]; coupling = 2.0I)) == Float64
+    @test CR.param_eltype(nothing) == Bool
+    @test CR.param_eltype(HistoryTotal()) == Bool
+end
+
 @testitem "NoAdjoint forwards to the operator" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
