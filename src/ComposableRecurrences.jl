@@ -43,7 +43,7 @@ public init_state, apply, apply!, apply_pullback!, apply_pullback,
     init_state_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
     pullback!, NoAdjoint, OperatorInterface, CouplingInterface,
     ModifierInterface, Depletion, Add, Redistribute, Clamp, State, option,
-    deplete, deplete_pullback
+    deplete, deplete_pullback, seeded
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")

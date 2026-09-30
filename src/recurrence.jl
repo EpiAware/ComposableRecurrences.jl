@@ -364,3 +364,34 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     end
     return _public(H, (L + 1):(L + T), h), H, states
 end
+
+@doc "
+Run `r` from a seed and return the seed followed by the run.
+
+Equivalent to
+`cat(history, r(gain; history, start = m + 1, kwargs...); dims = ndims(history))`
+with `m` the seed's length: the time-indexed inputs are full length, their
+first `m` times covering the seed.
+A seed shorter than the kernel is zero-padded.
+
+# Arguments
+- `r`: the [`Recurrence`](@ref).
+- `gain`: the gain, as in a call of `r`.
+
+# Keyword Arguments
+- `history`: the seed, length `m` or `S × m`.
+- `kwargs`: passed to the call of `r`, such as `add` or `stop`.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(80.0; seeded = true),))
+CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = [2.0, 3.0, 4.0])
+```
+"
+function seeded(r::Recurrence, gain = true; history, kwargs...)
+    m = size(history, ndims(history))
+    y = r(gain; history, start = m + 1, kwargs...)
+    return cat(history, y; dims = ndims(history))
+end
