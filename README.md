@@ -12,10 +12,6 @@
 
 Fast, composable and differentiable recurrences and causal convolutions in Julia.
 
-> [!NOTE]
-> ComposableRecurrences is under development and not yet registered.
-> Its API may change.
-
 ## Why ComposableRecurrences?
 
 - Renewal processes, random walks, autoregressions and reporting delays are usually separate hand-written loops.
