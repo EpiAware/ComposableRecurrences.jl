@@ -25,14 +25,14 @@ towns = ["A", "B", "C"]
 pop = [60_000.0, 25_000.0, 10_000.0]
 dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
 gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
-K = 0.98 * [a == b for a in 1:3, b in 1:3] + 0.02 * gravity ./ sum(gravity; dims = 2)
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
 
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 
 T = 100
-R = [t < 50 ? 1.5 : 0.8 for _ in towns, t in 1:T]
+R = [t < 50 ? 1.8 : 0.8 for _ in towns, t in 1:T]
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 infections = renewal(R; history = seed)
 reports = 0.4 .* delay(infections)
@@ -55,8 +55,8 @@ draw(
 )
 ```
 
-The outbreak starts in town A and reaches B and C through the coupling, so their waves are smaller.
-All three towns turn at the intervention.
+The outbreak starts in town A, which turns before the intervention as its susceptible pool runs down.
+It reaches B and C through the coupling about three weeks later, and the intervention turns them while they are still growing.
 Reports are 40% of infections, delayed and smoothed by the reporting delay.
 
 ## Gradients
@@ -76,7 +76,7 @@ draw(
 )
 ```
 
-Total reports are most sensitive to town A's reproduction number early on, when each extra infection seeds the most later ones.
+Total reports are most sensitive to town A's reproduction number on the first days and around its peak.
 The reproduction numbers of B and C matter most just before the intervention, when their own outbreaks are largest.
 Sensitivity fades after the intervention and is zero on the last day, whose infections are not yet reported.
 

@@ -143,6 +143,12 @@ tasks:
       - JULIA_NUM_THREADS=auto julia --project=docs docs/make.jl --skip-notebooks
       - echo "✅ Fast documentation build completed"
 
+  readme-figure:
+    desc: Regenerate the README figure from the README example
+    cmds:
+      - julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=docs docs/readme_figure.jl
+
   # === DEVELOPMENT SETUP ===
   setup:
     desc: Set up the development environment from scratch

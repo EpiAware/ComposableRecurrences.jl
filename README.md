@@ -21,19 +21,36 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 
 ## Getting started
 
-A renewal process followed by a reporting delay.
+Three towns share an outbreak.
+Infections follow a renewal process, a gravity coupling mixes the towns, and each town's susceptible pool is depleted.
+An intervention on day 50 lowers the reproduction number, and a reporting delay turns infections into reports.
+One more line gives the gradient of total reports with respect to every town's reproduction number on every day.
 
 ```julia
-using ComposableRecurrences
+using ComposableRecurrences, ForwardDiff
+using ComposableRecurrences: Depletion
 
-renewal = Recurrence([0.2, 0.5, 0.3])
-delay = Convolution([0.1, 0.4, 0.3, 0.2])
-infections = renewal(fill(1.2, 30); history = fill(10.0, 3))
-reports = delay(infections)
-round.(reports[(end - 4):end])
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
+
+gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+
+R = [t < 50 ? 1.8 : 0.8 for _ in 1:3, t in 1:100]
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+infections = renewal(R; history = seed)
+reports = 0.4 .* delay(infections)
+∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed))), R);
 ```
 
-See the [documentation](https://composablerecurrences.epiaware.org/stable/) for a three-town model with depletion, its gradients and a full walkthrough.
+![Infections and reports in each town, and the gradient of total reports with respect to each day's reproduction number](docs/src/assets/readme-example.png)
+
+The outbreak starts in town A, which turns before the intervention as its susceptible pool runs down.
+It reaches B and C through the coupling about three weeks later, and the intervention turns them while they are still growing.
+See the [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/) for the full walkthrough.
 
 ## Related packages
 
