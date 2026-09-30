@@ -16,6 +16,7 @@ const LIGHT_TUTORIALS = String[]
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
+    "latent-processes.jl",
     "occupancy.jl",
 ]
 
@@ -29,6 +30,8 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
         "# [Renewal then delay](@id tutorial-renewal-delay)",
+    "latent-processes.md" =>
+        "# [Latent processes driving R_t](@id tutorial-latent-rt)",
     "occupancy.md" =>
         "# [Occupancy and capacity](@id tutorial-occupancy)",
 ]
@@ -202,6 +205,8 @@ const PACKAGE_TUTORIALS = [
     "Concepts" => "getting-started/concepts.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
+    "Latent processes driving R_t" =>
+        "getting-started/tutorials/latent-processes.md",
     "Occupancy and capacity" =>
         "getting-started/tutorials/occupancy.md",
 ]
