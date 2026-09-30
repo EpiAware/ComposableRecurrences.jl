@@ -1,65 +1,11 @@
-# The built-in modifiers and their pullbacks. A pullback's `m̄` mirrors the
-# modifier's fields as a NamedTuple: an array for a float array, a `Ref` for
-# a float scalar, a NamedTuple for a wrapper such as `TimeVarying`, and
-# `nothing` for a field without a cotangent.
-
-@doc "
-The pullback of the scalar [`apply`](@ref) for a pointwise modifier `m`.
-
-Given stratum `k`'s value `v` and state `s` before the step and the
-cotangents `v̄′`, `s̄′` of its outputs, return the cotangents `(v̄, s̄)` of
-`v` and `s`, adding parameter cotangents into `m̄`.
-A pointwise modifier's [`apply_pullback!`](@ref) loops it over strata.
-
-# Arguments
-- `m̄`: the cotangent of the modifier's parameters.
-- `m`: the modifier.
-- `v`: the stratum's value before the modifier.
-- `s`: the stratum's state before the step.
-- `t`: the time index of the step.
-- `k`: the stratum.
-- `v̄′`: the cotangent of the value after the modifier.
-- `s̄′`: the cotangent of the state after the step.
-
-# Examples
-```@example
-using ComposableRecurrences
-CR = ComposableRecurrences
-m = CR.Imports(0.5)
-m̄ = (; b = Ref(0.0))
-CR.apply_pullback(m̄, m, 1.0, 0.0, 1, 1, 2.0, 0.0), m̄.b[]
-```
-"
-function apply_pullback end
-
-@doc "
-Accumulate the reverse pass of [`init_state`](@ref) for modifier `m`.
-
-Given the cotangent `s̄` of the initial state, add the cotangents of the
-modifier's parameters into `m̄` and of the history into `h̄` (skipped when
-`h̄` is `nothing`).
-Implement it for a modifier whose initial state depends on its parameters
-or the history.
-
-# Arguments
-- `m̄`: the cotangent of the modifier's parameters.
-- `h̄`: the cotangent of the history, or `nothing`.
-- `m`: the modifier.
-- `history`: the history the recurrence starts from.
-- `s̄`: the cotangent of the initial state.
-
-# Examples
-```@example
-using ComposableRecurrences
-CR = ComposableRecurrences
-m = CR.Depletion([10.0, 20.0]; seeded = true)
-m̄ = (; N = zeros(2), heterogeneity = Ref(0.0), seeded = nothing)
-h̄ = zeros(2, 2)
-CR.init_state_pullback!(m̄, h̄, m, ones(2, 2), [1.0, 2.0])
-m̄.N, h̄
-```
-"
-function init_state_pullback! end
+# The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
+# mirrors the piece's fields as a NamedTuple: an array for a float array, a
+# `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
+# and `nothing` for a field without a cotangent.
+#
+# A parameter is one value, `PerStratum` (one per stratum),
+# `TimeVarying` (one per time) or `TimeVarying(PerStratum(x))` (strata ×
+# time); every built-in modifier reads its parameters through `_param`.
 
 # The mirror slot for field `name`, or `nothing` without a mirror.
 _cotangent(::Nothing, name) = nothing
@@ -74,226 +20,306 @@ function _add_cotangent!(a::AbstractArray, x, idx...)
 end
 _add_cotangent!(w::NamedTuple{(:x,)}, x, idx...) = _add_cotangent!(w.x, x, idx...)
 
-# A parameter that is one value, or one per stratum, at stratum `k`.
-_stratum(x::Real, k) = x
-_stratum(x::AbstractVector, k) = x[k]
-_add_stratum!(x̄, ::Real, x, k) = _add_cotangent!(x̄, x)
-_add_stratum!(x̄, ::AbstractVector, x, k) = _add_cotangent!(x̄, x, k)
+# A parameter at stratum `k` and absolute time `t`, and its cotangent.
+_param(x::Real, k, t) = x
+_param(x::PerStratum, k, t) = x.x[k]
+_param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
+_param(x::TimeVarying{<:Any, <:PerStratum}, k, t) = x.x.x[k, t]
+_add_param!(x̄, ::Real, v, k, t) = _add_cotangent!(x̄, v)
+_add_param!(x̄, ::PerStratum, v, k, t) = _add_cotangent!(x̄, v, k)
+function _add_param!(x̄, ::TimeVarying{<:Any, <:AbstractVector}, v, k, t)
+    return _add_cotangent!(x̄, v, t)
+end
+function _add_param!(x̄, ::TimeVarying{<:Any, <:PerStratum}, v, k, t)
+    return _add_cotangent!(x̄, v, k, t)
+end
 
-_check_stratum_param(name, x::Real, S) = nothing
-function _check_stratum_param(name, x::AbstractVector, S)
-    length(x) == S || throw(
-        DimensionMismatch("$name has $(length(x)) strata, expected $S")
+# Check a parameter's shape at construction.
+_check_param(name, x::Real) = x
+_check_param(name, x::PerStratum{<:AbstractVector}) = x
+_check_param(name, x::TimeVarying{Secondary, <:AbstractVector}) = x
+function _check_param(
+        name, x::TimeVarying{Secondary, <:PerStratum{<:AbstractMatrix}}
+    )
+    return x
+end
+function _check_param(name, x::TimeVarying{Primary})
+    throw(
+        ArgumentError("$name: Primary() indexing is only meaningful for a kernel")
+    )
+end
+function _check_param(name, x)
+    throw(
+        ArgumentError(
+            "$name is one value, PerStratum($name) with one per stratum, " *
+                "TimeVarying($name) with one per time, or " *
+                "TimeVarying(PerStratum($name)) strata × time; not a " *
+                "$(typeof(x))"
+        )
+    )
+end
+
+# Check a parameter against `S` strata.
+_check_param_strata(name, x, S) = nothing
+_check_param_strata(name, x::TimeVarying, S) = _check_param_strata(name, x.x, S)
+function _check_param_strata(name, x::PerStratum, S)
+    size(x.x, 1) == S || throw(
+        DimensionMismatch("$name has $(size(x.x, 1)) strata, expected $S")
     )
     return nothing
 end
 
-# A pointwise modifier's vector pullback: the scalar one over strata.
-function _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
-    for k in eachindex(v, s, v̄, s̄)
-        v̄[k], s̄[k] = apply_pullback(m̄, m, v[k], s[k], t, k, v̄[k], s̄[k])
+# A zero initial state, once the parameters are checked against the state's
+# strata.
+function _zero_state!(s, params::Pair...)
+    for (name, x) in params
+        _check_param_strata(name, x, length(s))
     end
+    fill!(s, zero(eltype(s)))
     return nothing
 end
 
 # Depletion ---------------------------------------------------------------
 
 @doc "
-Susceptible depletion: each stratum's new values are drawn from a pool
-that starts at `N` and shrinks by what is drawn.
+The hazard depletion form: `x = v / N ⋅ (s / N)^(α − 1)`, the drawn value is
+`s (1 − exp(−x))` and the pool becomes `s exp(−x)`, so the pool never goes
+negative.
 
-With pool `P`, value `v` and heterogeneity exponent `α`:
-
-  - `form = :hazard`: `x = v / N ⋅ (P / N)^(α − 1)`, the step's output is
-    `P (1 − exp(−x))` and the pool becomes `P exp(−x)`, so the pool never
-    goes negative.
-  - `form = :floor`: the output is `max(max(P / N, 0)^α, 1e-6) v` and the
-    pool becomes `P` less the output. The pool can go negative, and then the
-    floor applies.
-
-`α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
-With `seeded = true` the pool starts at `max(N − Σ history, 0)`, the whole
-history (not only the last `L` values) drawn from it.
-The state is the pool.
-
-# Arguments
-- `N`: the population, one value or one per stratum.
-
-# Keyword Arguments
-- `form`: `:hazard` (default) or `:floor`.
-- `seeded`: whether the history is drawn from the pool; `false` by default.
-- `heterogeneity`: the exponent `α`; `1` by default.
+The default form of [`ComposableRecurrences.Depletion`](@ref).
 
 # Examples
 ```@example
 using ComposableRecurrences
 CR = ComposableRecurrences
-depletion = CR.Depletion(100.0; seeded = true)
-Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = [1.0, 2.0])
+CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 ```
 "
-struct Depletion{F, P, A} # F: the form, :hazard or :floor
-    "The population, one value or one per stratum."
+struct Hazard end
+
+@doc "
+The floored depletion form: the drawn value is
+`max(max(s / N, 0)^α, 1e-6) v` and the pool becomes `s` less it.
+The pool can go negative, and then the floor applies.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.forward(CR.Floor(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+```
+"
+struct Floor end
+
+@doc "
+Susceptible depletion: each stratum's new values are drawn from a pool
+that starts at `pool0` and shrinks by what is drawn.
+
+The form is a variant struct that draws value `v` from pool `s` with
+population `N` and heterogeneity exponent `α` through
+`forward(form, Step(), v, s, N, α)`:
+[`ComposableRecurrences.Hazard`](@ref) (the default),
+[`ComposableRecurrences.Floor`](@ref), or a new struct with that method.
+`α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
+The state is the pool; the hazard fraction divides by `N` whatever the
+pool starts at.
+
+# Arguments
+- `N`: the population, one value or [`PerStratum`](@ref). It is constant
+  over time, so a `TimeVarying` `N` is an `ArgumentError`; a capacity that
+  varies over time belongs to a separate capacity modifier.
+- `form`: the depletion form; `Hazard()` by default.
+
+# Keyword Arguments
+- `heterogeneity`: the exponent `α`; `1` by default.
+- `pool0`: the starting pool, one value or `PerStratum`; `N` by default.
+  A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+seed = [1.0, 2.0]
+depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
+Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+```
+"
+struct Depletion{F, P, A, P0}
+    "The population, one value or `PerStratum`."
     N::P
+    "The depletion form."
+    form::F
     "The heterogeneity exponent α."
     heterogeneity::A
-    "Whether the history is drawn from the pool."
-    seeded::Bool
-    function Depletion{F}(N::P, heterogeneity::A, seeded::Bool) where {F, P, A}
-        F in (:hazard, :floor) || throw(
-            ArgumentError("form must be :hazard or :floor, not :$F")
-        )
-        return new{F, P, A}(N, heterogeneity, seeded)
+    "The starting pool, or `nothing` for `N`."
+    pool0::P0
+    function Depletion(N::P, form::F, heterogeneity::A, pool0::P0) where {
+            P, F, A, P0,
+        }
+        _check_form(form)
+        return new{F, P, A, P0}(N, form, heterogeneity, pool0)
     end
 end
 
-Base.@constprop :aggressive function Depletion(
-        N; form = :hazard, seeded = false, heterogeneity = 1
-    )
-    N = float(N)
-    return Depletion{form}(N, _exponent(heterogeneity, N), seeded)
+function Depletion(N, form = Hazard(); heterogeneity = 1, pool0 = nothing)
+    N = _float_param(_check_constant(:N, N))
+    pool0 = pool0 === nothing ? nothing :
+        _float_param(_check_constant(:pool0, pool0))
+    return Depletion(N, form, _exponent(heterogeneity, N), pool0)
 end
+
+# A form is a struct with a scalar Step.
+function _check_form(form::F) where {F}
+    hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
+        throw(
+        ArgumentError(
+            "$F is not a depletion form: a form implements " *
+                "forward(form, Step(), v, s, N, α) -> (y, s′)"
+        )
+    )
+    return nothing
+end
+
+# The population and starting pool are per stratum, not over time.
+_check_constant(name, x) = _check_param(name, x)
+function _check_constant(name, ::TimeVarying)
+    throw(
+        ArgumentError(
+            "$name is one value or PerStratum($name); it does not vary over " *
+                "time"
+        )
+    )
+end
+
+_float_param(x::Real) = float(x)
+_float_param(x::PerStratum) = PerStratum(float(x.x))
 
 # An integer exponent takes the population's float type, so it has a
 # cotangent and a Float32 population stays Float32.
 _exponent(α::Integer, N) = convert(float(param_eltype(N)), α)
 _exponent(α, N) = α
 
-const _DEPLETION_FLOOR = 1.0e-6
-
-ispointwise(::Depletion) = true
-
-_history_row(h::AbstractVector, k) = h
-_history_row(h::AbstractMatrix, k) = view(h, k, :)
-
-# The pool left once stratum `k`'s history is drawn from `N`, floored at zero.
-function _pool_left(N, h, k)
-    left = N - sum(_history_row(h, k))
-    return left > zero(left) ? left : zero(left)
-end
-
-function init_state(m::Depletion, history)
-    S = _nstrata(history)
-    _check_stratum_param(:N, m.N, S)
-    Tp = float(promote_type(eltype(history), param_eltype(m.N)))
-    return Tp[
-        m.seeded ? _pool_left(_stratum(m.N, k), history, k) :
-            _stratum(m.N, k) for k in 1:S
-    ]
-end
-
-function init_state_pullback!(m̄, h̄, m::Depletion, history, s̄)
-    N̄ = _cotangent(m̄, :N)
-    for k in eachindex(s̄)
-        N = _stratum(m.N, k)
-        m.seeded && N - sum(_history_row(history, k)) <= 0 && continue
-        _add_stratum!(N̄, m.N, s̄[k], k)
-        m.seeded && h̄ !== nothing && (_history_row(h̄, k) .-= s̄[k])
-    end
-    return nothing
-end
-
-function apply(m::Depletion{:hazard}, v, s, t, k)
-    N = _stratum(m.N, k)
-    x = v / N * (s / N)^(m.heterogeneity - 1)
+function forward(::Hazard, ::Step, v, s, N, α)
+    x = v / N * (s / N)^(α - 1)
     return -s * expm1(-x), s * exp(-x)
 end
 
-function apply_pullback(m̄, m::Depletion{:hazard}, v, s, t, k, v̄′, s̄′)
-    N = _stratum(m.N, k)
-    α = m.heterogeneity
+function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
+    ȳ, s̄′ = grads.v, grads.s
     r = s / N
     h = r^(α - 1)
     x = v / N * h
     e = exp(-x)
-    x̄ = s * e * (v̄′ - s̄′)
-    s̄ = -v̄′ * expm1(-x) + s̄′ * e
-    α == 1 || (s̄ += e * (v̄′ - s̄′) * (α - 1) * x)
-    _add_stratum!(_cotangent(m̄, :N), m.N, -x̄ * α * x / N, k)
-    r > 0 && _add_cotangent!(_cotangent(m̄, :heterogeneity), x̄ * x * log(r))
-    return x̄ * h / N, s̄
+    x̄ = s * e * (ȳ - s̄′)
+    s̄ = -ȳ * expm1(-x) + s̄′ * e
+    α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
+    ᾱ = r > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
-function apply(m::Depletion{:floor}, v, s, t, k)
-    r = s / _stratum(m.N, k)
-    f = max(max(r, zero(r))^m.heterogeneity, oftype(r, _DEPLETION_FLOOR))
-    v′ = f * v
-    return v′, s - v′
+const _DEPLETION_FLOOR = 1.0e-6
+
+function forward(::Floor, ::Step, v, s, N, α)
+    r = s / N
+    f = max(max(r, zero(r))^α, oftype(r, _DEPLETION_FLOOR))
+    y = f * v
+    return y, s - y
 end
 
-function apply_pullback(m̄, m::Depletion{:floor}, v, s, t, k, v̄′, s̄′)
-    N = _stratum(m.N, k)
-    α = m.heterogeneity
+function pullback!(grads, ::Floor, ::Step, v, s, N, α)
+    ȳ, s̄′ = grads.v, grads.s
     r = s / N
     p = max(r, zero(r))^α
     fl = oftype(p, _DEPLETION_FLOOR)
-    ḡ = v̄′ - s̄′
-    p > fl || return ḡ * fl, s̄′
+    ḡ = ȳ - s̄′
+    p > fl || return ḡ * fl, s̄′, zero(ḡ), zero(ḡ)
     f̄ = ḡ * v
-    _add_stratum!(_cotangent(m̄, :N), m.N, -f̄ * α * p / N, k)
-    _add_cotangent!(_cotangent(m̄, :heterogeneity), f̄ * p * log(r))
-    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N
+    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N, -f̄ * α * p / N, f̄ * p * log(r)
 end
 
-function apply_pullback!(m̄, m::Depletion, v, s, t, v̄, s̄)
-    return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
+ispointwise(::Depletion) = true
+
+# The starting pool of stratum `k` and its cotangent slot.
+_pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = _param(m.N, k, 1)
+_pool0(m::Depletion, k) = _param(m.pool0, k, 1)
+function _add_pool0!(m̄, m::Depletion{<:Any, <:Any, <:Any, Nothing}, x, k)
+    return _add_param!(_cotangent(m̄, :N), m.N, x, k, 1)
+end
+function _add_pool0!(m̄, m::Depletion, x, k)
+    return _add_param!(_cotangent(m̄, :pool0), m.pool0, x, k, 1)
 end
 
-# Imports -----------------------------------------------------------------
+function forward(m::Depletion, ::Init, s, history)
+    _check_param_strata(:N, m.N, length(s))
+    _check_param_strata(:pool0, m.pool0, length(s))
+    for k in eachindex(s)
+        s[k] = _pool0(m, k)
+    end
+    return nothing
+end
+
+function pullback!(grads, m::Depletion, ::Init, s, history)
+    for k in eachindex(grads.s)
+        _add_pool0!(grads.piece, m, grads.s[k], k)
+    end
+    return nothing
+end
+
+function forward(m::Depletion, ::Step, v, s, t, k)
+    return forward(m.form, Step(), v, s, _param(m.N, k, t), m.heterogeneity)
+end
+
+function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
+    m̄ = grads.piece
+    v̄, s̄, N̄, ᾱ = pullback!(
+        (; piece = _cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
+        Step(), v, s, _param(m.N, k, t), m.heterogeneity
+    )
+    _add_param!(_cotangent(m̄, :N), m.N, N̄, k, t)
+    _add_cotangent!(_cotangent(m̄, :heterogeneity), ᾱ)
+    return v̄, s̄
+end
+
+# Add ---------------------------------------------------------------------
 
 @doc "
-Imported values added to each stratum wherever the modifier sits in the
-tuple: after a [`Depletion`](@ref), imports are neither scaled by nor drawn
-from the pool.
+Adds `b` to each stratum's value wherever the modifier sits in the tuple:
+after a [`ComposableRecurrences.Depletion`](@ref), the added values are
+neither scaled by nor drawn from the pool.
 
-`b` is one value, a length-`T` vector over time shared by every stratum,
-or `S × T`, each optionally wrapped in [`TimeVarying`](@ref).
-A vector is indexed by time because imports vary over time and a single
-series has no strata axis; [`Redistribute`](@ref) acts between strata, so
-its vector is indexed by stratum instead.
-Time is the absolute index, so with `start` the first step reads `b` at
-`start`.
-Alone, `Imports(b)` gives the same values as passing `b` as `add`.
+`b` is a parameter: one value, [`PerStratum`](@ref), [`TimeVarying`](@ref)
+(one per time, shared by every stratum) or `TimeVarying(PerStratum(B))`
+with `B` strata × time, read at the absolute time.
+Alone, `Add(TimeVarying(PerStratum(B)))` gives the same values as passing
+`B` as `add`.
 The state is unused.
 
 # Arguments
-- `b`: the imports: a scalar, length `T` or `S × T`, or a `TimeVarying`
-  of either array.
+- `b`: the values to add.
 
 # Examples
 ```@example
 using ComposableRecurrences
 CR = ComposableRecurrences
-mods = (CR.Depletion(50.0; form = :floor), CR.Imports([1.0, 0.0, 2.0]))
-Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], add = zeros(3))
+mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
+Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 ```
 "
-struct Imports{B}
-    "The imports: a scalar, length `T`, `S × T` or `TimeVarying`."
+struct Add{B}
+    "The values to add: one value, `PerStratum` or `TimeVarying`."
     b::B
+    Add(b::B) where {B} = new{B}(_check_param(:b, b))
 end
 
-ispointwise(::Imports) = true
-init_state_pullback!(m̄, h̄, ::Imports, history, s̄) = nothing
+ispointwise(::Add) = true
+forward(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
+pullback!(grads, ::Add, ::Init, s, history) = nothing
 
-_import_at(b::Real, k, t) = b
-_import_at(b::AbstractVector, k, t) = b[t]
-_import_at(b::AbstractMatrix, k, t) = b[k, t]
-_import_at(b::TimeVarying, k, t) = _import_at(b.x, k, t)
-_add_import!(b̄, ::Real, x, k, t) = _add_cotangent!(b̄, x)
-_add_import!(b̄, ::AbstractVector, x, k, t) = _add_cotangent!(b̄, x, t)
-_add_import!(b̄, ::AbstractMatrix, x, k, t) = _add_cotangent!(b̄, x, k, t)
-_add_import!(b̄, b::TimeVarying, x, k, t) = _add_import!(b̄, b.x, x, k, t)
+forward(m::Add, ::Step, v, s, t, k) = (v + _param(m.b, k, t), s)
 
-apply(m::Imports, v, s, t, k) = (v + _import_at(m.b, k, t), s)
-
-function apply_pullback(m̄, m::Imports, v, s, t, k, v̄′, s̄′)
-    _add_import!(_cotangent(m̄, :b), m.b, v̄′, k, t)
-    return v̄′, s̄′
-end
-
-function apply_pullback!(m̄, m::Imports, v, s, t, v̄, s̄)
-    return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
+function pullback!(grads, m::Add, ::Step, v, s, t, k)
+    _add_param!(_cotangent(grads.piece, :b), m.b, grads.v, k, t)
+    return grads.v, grads.s
 end
 
 # Redistribute ------------------------------------------------------------
@@ -305,14 +331,13 @@ share `ε_q K[p, q]` of origin `q`'s value is realised in `p` instead.
     v′_p = (1 − ε_p Σ_{r ≠ p} K[r, p]) v_p + Σ_{q ≠ p} ε_q K[p, q] v_q
 
 The diagonal of `K` is not read: a stratum does not import from itself.
-The intensity `ε` belongs to the origin: one value, one per stratum (a
-length-`S` vector), or a [`TimeVarying`](@ref) `S × T` array read at the
-absolute time.
-The modifier only acts between strata, so a plain vector is indexed by
-stratum, unlike [`Imports`](@ref), whose vector is indexed by time.
+The intensity `ε` belongs to the origin and is a parameter: one value,
+[`PerStratum`](@ref), [`TimeVarying`](@ref) or `TimeVarying(PerStratum(ε))`
+with `ε` strata × time, read at the absolute time.
 The state is the step's arrivals in each stratum, `Σ_{q ≠ p} ε_q K[p, q] v_q`.
-Place it before a [`Depletion`](@ref) to deplete each stratum's pool by what
-it realises; a modifier sees `gain ⊙ x + add`, so the `add` values move too.
+Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
+stratum's pool by what it realises; a modifier sees `gain ⊙ x + add`, so the
+`add` values move too.
 
 # Arguments
 - `K`: the `S × S` kernel, `K[p, q]` from origin `q` to destination `p`.
@@ -330,27 +355,18 @@ r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
 struct Redistribute{K <: AbstractMatrix, E}
     "The kernel, `K[p, q]` from origin `q` to destination `p`."
     K::K
-    "The origin intensity: a scalar, per stratum or `TimeVarying` `S × T`."
+    "The origin intensity: one value, `PerStratum` or `TimeVarying`."
     ε::E
     function Redistribute(K::M, ε::E) where {M <: AbstractMatrix, E}
         size(K, 1) == size(K, 2) || throw(
             DimensionMismatch("K is $(size(K)), expected a square matrix")
         )
-        ε isa AbstractMatrix && throw(
-            ArgumentError("wrap a strata × time intensity as TimeVarying(ε)")
-        )
-        return new{M, E}(K, ε)
+        return new{M, E}(K, _check_param(:ε, ε))
     end
 end
 
-init_state_pullback!(m̄, h̄, ::Redistribute, history, s̄) = nothing
-
-_origin_at(ε::Real, q, t) = ε
-_origin_at(ε::AbstractVector, q, t) = ε[q]
-_origin_at(ε::TimeVarying{<:AbstractMatrix}, q, t) = ε.x[q, t]
-_add_origin!(ε̄, ::Real, x, q, t) = _add_cotangent!(ε̄, x)
-_add_origin!(ε̄, ::AbstractVector, x, q, t) = _add_cotangent!(ε̄, x, q)
-_add_origin!(ε̄, ::TimeVarying, x, q, t) = _add_cotangent!(ε̄, x, q, t)
+forward(m::Redistribute, ::Init, s, history) = _zero_state!(s, :ε => m.ε)
+pullback!(grads, ::Redistribute, ::Init, s, history) = nothing
 
 # Origin `q`'s total share sent away, Σ_{r ≠ q} K[r, q].
 function _outflow(K, q)
@@ -361,32 +377,33 @@ function _outflow(K, q)
     return out
 end
 
-function apply!(m::Redistribute, v, s, t)
+function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
     _check_coupling(K, length(v))
     for p in eachindex(v, s)
         acc = zero(eltype(s))
         for q in eachindex(v)
-            q == p || (acc += _origin_at(ε, q, t) * K[p, q] * v[q])
+            q == p || (acc += _param(ε, q, t) * K[p, q] * v[q])
         end
         s[p] = acc
     end
     for p in eachindex(v, s)
-        v[p] = (1 - _origin_at(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
+        v[p] = (1 - _param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     end
     return nothing
 end
 
 # The arrivals `s′` feed both outputs, so their cotangent is `s̄′ + v̄′`;
 # the incoming state is not read.
-function apply_pullback!(m̄, m::Redistribute, v, s, t, v̄, s̄)
+function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
-    K̄, ε̄ = _cotangent(m̄, :K), _cotangent(m̄, :ε)
+    v̄, s̄ = grads.v, grads.s
+    K̄, ε̄ = _cotangent(grads.piece, :K), _cotangent(grads.piece, :ε)
     for p in eachindex(v̄, s̄)
         s̄[p] += v̄[p]
     end
     for q in eachindex(v, v̄)
-        εq = _origin_at(ε, q, t)
+        εq = _param(ε, q, t)
         out = _outflow(K, q)
         acc = zero(eltype(v̄))
         for p in eachindex(v)
@@ -394,7 +411,7 @@ function apply_pullback!(m̄, m::Redistribute, v, s, t, v̄, s̄)
             acc += s̄[p] * K[p, q]
             _add_cotangent!(K̄, εq * v[q] * (s̄[p] - v̄[q]), p, q)
         end
-        _add_origin!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
+        _add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
         v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
     end
     fill!(s̄, zero(eltype(s̄)))
@@ -406,7 +423,8 @@ end
 @doc "
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
-`lo` and `hi` are each one value or one per stratum.
+`lo` and `hi` are parameters: each one value, [`PerStratum`](@ref),
+[`TimeVarying`](@ref) or `TimeVarying(PerStratum(x))`.
 The state is unused.
 
 # Arguments
@@ -417,35 +435,36 @@ The state is unused.
 ```@example
 using ComposableRecurrences
 CR = ComposableRecurrences
-Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], add = zeros(4))
+Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
 ```
 "
 struct Clamp{L, H}
-    "The lower bound, one value or one per stratum."
+    "The lower bound, one value, `PerStratum` or `TimeVarying`."
     lo::L
-    "The upper bound, one value or one per stratum."
+    "The upper bound, one value, `PerStratum` or `TimeVarying`."
     hi::H
+    function Clamp(lo::L, hi::H) where {L, H}
+        return new{L, H}(_check_param(:lo, lo), _check_param(:hi, hi))
+    end
 end
 
 ispointwise(::Clamp) = true
-init_state_pullback!(m̄, h̄, ::Clamp, history, s̄) = nothing
+forward(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
+pullback!(grads, ::Clamp, ::Init, s, history) = nothing
 
-function apply(m::Clamp, v, s, t, k)
-    return clamp(v, _stratum(m.lo, k), _stratum(m.hi, k)), s
+function forward(m::Clamp, ::Step, v, s, t, k)
+    return clamp(v, _param(m.lo, k, t), _param(m.hi, k, t)), s
 end
 
 # Matches `clamp`'s branches: above `hi`, then below `lo`, else `v`.
-function apply_pullback(m̄, m::Clamp, v, s, t, k, v̄′, s̄′)
-    if v > _stratum(m.hi, k)
-        _add_stratum!(_cotangent(m̄, :hi), m.hi, v̄′, k)
+function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
+    v̄′, s̄′ = grads.v, grads.s
+    if v > _param(m.hi, k, t)
+        _add_param!(_cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
         return zero(v̄′), s̄′
-    elseif v < _stratum(m.lo, k)
-        _add_stratum!(_cotangent(m̄, :lo), m.lo, v̄′, k)
+    elseif v < _param(m.lo, k, t)
+        _add_param!(_cotangent(grads.piece, :lo), m.lo, v̄′, k, t)
         return zero(v̄′), s̄′
     end
     return v̄′, s̄′
-end
-
-function apply_pullback!(m̄, m::Clamp, v, s, t, v̄, s̄)
-    return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
 end

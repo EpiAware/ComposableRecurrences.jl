@@ -81,7 +81,7 @@ end
             )
         ), [0.9, 1.0, 1.1, 0.2]
     )
-    @test check(P -> sum(W .* Recurrence(nothing; coupling = Pairwise(P))(R0; history = h0)), rand(rng, S, S, L))
+    @test check(P -> sum(W .* Recurrence(Pairwise(P))(R0; history = h0)), rand(rng, S, S, L))
     @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(rng, L, T))
     @test check(
         θ -> sum(
@@ -103,17 +103,21 @@ end
     R = fill(1.1f0, 2, 5)
     K = Float32[0.0 0.3; 0.2 0.0]
     for m in (
-            CR.Depletion(100.0f0), CR.Depletion(Float32[100, 50]; form = :floor),
-            CR.Depletion(100.0f0; seeded = true, heterogeneity = 1.5f0),
-            CR.Imports(0.5f0), CR.Imports(fill(0.5f0, 2, 5)),
-            CR.Redistribute(K, 0.1f0), CR.Redistribute(K, TimeVarying(fill(0.1f0, 2, 5))),
+            CR.Depletion(100.0f0),
+            CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
+            CR.Depletion(100.0f0; pool0 = 97.0f0, heterogeneity = 1.5f0),
+            CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
+            CR.Redistribute(K, 0.1f0),
+            CR.Redistribute(K, TimeVarying(PerStratum(fill(0.1f0, 2, 5)))),
             CR.Clamp(0.0f0, 5.0f0),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
     # A plain matrix intensity must be wrapped as time-varying.
     @test_throws ArgumentError CR.Redistribute(K, fill(0.1f0, 2, 5))
-    # The constructor infers with a literal form.
-    floor_depletion() = ComposableRecurrences.Depletion(1.0; form = :floor)
+    # The constructor infers with a form struct.
+    floor_depletion() = ComposableRecurrences.Depletion(
+        1.0, ComposableRecurrences.Floor()
+    )
     @test (@inferred floor_depletion()) isa CR.Depletion
 end

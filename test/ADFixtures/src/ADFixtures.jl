@@ -37,9 +37,16 @@ scaled by `max(s / pop, 1e-6)` and removed from the pool `s`, which starts at
 struct FlooredDepletion{P}
     pop::P
 end
-ComposableRecurrences.init_state(m::FlooredDepletion, history) = collect(m.pop)
+function ComposableRecurrences.forward(
+        m::FlooredDepletion, ::ComposableRecurrences.Init, s, history
+    )
+    s .= m.pop
+    return nothing
+end
 ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-function ComposableRecurrences.apply(m::FlooredDepletion, v, s, t, k)
+function ComposableRecurrences.forward(
+        m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
+    )
     v′ = max(s / m.pop[k], 1.0e-6) * v
     return v′, s - v′
 end
@@ -51,11 +58,16 @@ the scalar field is differentiated.
 struct ScalarDepletion{T}
     N::T
 end
-function ComposableRecurrences.init_state(m::ScalarDepletion, history)
-    return fill(m.N, size(history, 1))
+function ComposableRecurrences.forward(
+        m::ScalarDepletion, ::ComposableRecurrences.Init, s, history
+    )
+    fill!(s, m.N)
+    return nothing
 end
 ComposableRecurrences.ispointwise(::ScalarDepletion) = true
-function ComposableRecurrences.apply(m::ScalarDepletion, v, s, t, k)
+function ComposableRecurrences.forward(
+        m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
+    )
     v′ = max(s / m.N, 1.0e-6) * v
     return v′, s - v′
 end
@@ -123,7 +135,7 @@ end
 
 function _pairwise(θ)
     P, logh, R = _unpack(θ, (S, S, L), (S, L), (S, T))
-    r = Recurrence(nothing; coupling = Pairwise(P))
+    r = Recurrence(Pairwise(P))
     return sum(WS .* r(R; history = exp.(logh)))
 end
 
@@ -140,7 +152,8 @@ end
 
 function _delay_varying(θ)
     G, X = _unpack(θ, (S, L, T), (S, T))
-    return sum(WS .* Convolution(TimeVarying(G))(X))
+    kernel = TimeVarying(PerStratum(G), ComposableRecurrences.Primary())
+    return sum(WS .* Convolution(kernel)(X))
 end
 
 _flat(xs...) = reduce(vcat, map(vec, xs))

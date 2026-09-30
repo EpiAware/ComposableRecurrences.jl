@@ -61,7 +61,9 @@ end
     # coupling slot; depletion takes one population per stratum.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function coupled(θ)
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            PerStratum(N), ComposableRecurrences.Floor()
+        )
         r = Recurrence(g; coupling = gravity(θ), modifiers = (depletion,))
         return r(Rt; history = window)
     end
@@ -121,11 +123,11 @@ end
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3))), vec(K)
     )
 
-    # A strata × strata × lags coupling carries the intervals itself, lag 1
-    # at `[:, :, 1]`, so the kernel is `nothing`.
+    # A strata × strata × lags kernel carries the intervals and the mixing,
+    # lag 1 at `[:, :, 1]`, so the coupling stays `I`.
     window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
     function per_pair(K)
-        r = Recurrence(nothing; coupling = Pairwise(pairwise(K)))
+        r = Recurrence(Pairwise(pairwise(K)))
         return r(Rt; history = window)
     end
     @test per_pair(K) ≈ ref
@@ -197,21 +199,19 @@ end
     # Each patch generates R_{p,t} Σ_i g_i I_{p,t-i}; a share ε_{q,t} K_{pq}
     # of what origin q generates is realised in p instead (Redistribute),
     # then each patch depletes its own pool from N_p − Σ seed (hazard form).
-    # The seeds are the history and are returned first. The first output is
-    # day `L + 1`, so `start` reads ε from that day.
+    # The seeds are the history and are returned first; the first output is
+    # day `L + 1`, which reads R_t and ε at that day.
     function patch(K, ε, N)
         importation = ComposableRecurrences.Redistribute(K, ε)
-        depletion = ComposableRecurrences.Depletion(
-            N; form = :hazard, seeded = true
-        )
+        pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+        depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
         r = Recurrence(g; modifiers = (importation, depletion))
-        Y = r(Rt[:, (L + 1):end]; history = seeds, start = L + 1)
-        return hcat(seeds, Y)
+        return ComposableRecurrences.seeded(r, Rt; history = seeds)
     end
-    @test patch(K, TimeVarying(ε), N) ≈ ref
+    @test patch(K, TimeVarying(PerStratum(ε)), N) ≈ ref
     function loss(θ)
         K, ε, N = unpack(θ)
-        return sum(w .* patch(K, TimeVarying(ε), N))
+        return sum(w .* patch(K, TimeVarying(PerStratum(ε)), N))
     end
     @test ForwardDiff.gradient(loss, θ0) ≈ ∇ref
 
@@ -220,7 +220,7 @@ end
         B.patch_infections(Rt, g, seeds, K, 0.05, N).infections
     # One intensity per origin, the same every day.
     εq = [0.05, 0.1, 0.02]
-    @test patch(K, εq, N) ≈
+    @test patch(K, PerStratum(εq), N) ≈
         B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
     # BVD also returns the importation series, the arrivals in each patch.
@@ -230,7 +230,7 @@ end
     # off-diagonal K applied to each origin's ε-weighted generation. The
     # seed days have no arrivals.
     function patch_importation(K, ε, N)
-        I = patch(K, TimeVarying(ε), N)
+        I = patch(K, TimeVarying(PerStratum(ε)), N)
         gen = Rt .* Convolution(vcat(0.0, g))(I)
         arrivals = (K - Diagonal(diag(K))) * (ε .* gen)
         arrivals[:, 1:L] .= 0

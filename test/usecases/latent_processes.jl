@@ -89,11 +89,12 @@ end
 
     # z_t = ϵ_t + Σ_i θ_i ϵ_{t-i}: a convolution with kernel `[1; θ]` from
     # lag 0. CTIDM passes the first `q` innovations through unchanged, which
-    # is the convolution of the rest given those `q` as history.
+    # is the convolution from day `q + 1`, reading the earlier innovations
+    # from the input itself.
     ma(θ, ϵ) = vcat(ϵ[1:q], Convolution(vcat(1, θ))(ϵ)[(q + 1):end])
     function ma_history(θ, ϵ)
         c = Convolution(vcat(1, θ))
-        return vcat(ϵ[1:q], c(ϵ[(q + 1):end]; history = ϵ[1:q]))
+        return vcat(ϵ[1:q], c(ϵ; start = q + 1))
     end
     @test ma(θ, ϵ) ≈ ref
     @test ma_history(θ, ϵ) ≈ ref
