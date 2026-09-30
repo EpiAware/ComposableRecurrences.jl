@@ -232,12 +232,22 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     for t in 1:T
         τ = τ0 + t - 1
         _prepare!(p, q, coupling, kernel, H, t, τ, L)
-        for k in eachindex(v)
-            v[k] = _at(gain, k, t) *
-                _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                _at(add, k, t)
+        if _all_pointwise(modifiers)
+            # Each stratum's value goes straight to the buffer.
+            for k in eachindex(v)
+                x = _at(gain, k, t) *
+                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
+                    _at(add, k, t)
+                H[L + t, k] = _thread(modifiers, states, x, τ, k)
+            end
+        else
+            for k in eachindex(v)
+                v[k] = _at(gain, k, t) *
+                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
+                    _at(add, k, t)
+            end
+            _modify!(view(H, L + t, :), modifiers, states, v, τ)
         end
-        _modify!(view(H, L + t, :), modifiers, states, v, τ)
     end
     return _public(H, (L + 1):(L + T), h), H, states
 end

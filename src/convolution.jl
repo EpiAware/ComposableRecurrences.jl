@@ -112,7 +112,8 @@ Base.@constprop :aggressive function (c::Convolution)(
     _load_input!(X, x, m)
     Y = zeros(Tp, T, S)
     _convolve!(Y, kernel, X, m, start, c.indexed_by)
-    states = _init_states(Tp, modifiers, _no_outputs(x, Tp), s0)
+    states = modifiers === () ? () :
+        _init_states(Tp, modifiers, _no_outputs(x, Tp), s0)
     _modify_outputs!(Y, modifiers, states, start)
     y = _public(Y, axes(Y, 1), x)
     return_state || return y
