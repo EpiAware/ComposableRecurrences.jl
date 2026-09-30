@@ -1,0 +1,49 @@
+block,size,method,target,status,median_us,min_us,allocs,ratio,relerr,check,revision,rules
+naive vs package,T100_L6_S3,ComposableRecurrences,primal,ok,24.72,19.98,52,1.000,,,19005eff,false
+naive vs package,T100_L6_S3,hand loop,primal,ok,14.86,12.51,17,0.601,,,19005eff,false
+naive vs package,T100_L6_S3,hand loop (window copies),primal,ok,91.98,82.37,3426,3.721,,,19005eff,false
+naive vs package,T100_L6_S3,accumulate,primal,ok,104.00,93.42,3631,4.207,,,19005eff,false
+naive vs package,T100_L6_S3,ComposableRecurrences,ForwardDiff,ok,2431.92,2165.43,1300,1.000,0.0,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,hand loop,ForwardDiff,ok,1706.37,1564.74,425,0.702,0.0,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,hand loop (window copies),ForwardDiff,ok,9977.35,6022.27,88175,4.103,0.0,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,accumulate,ForwardDiff,ok,10748.84,6044.57,93300,4.420,0.0,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,ComposableRecurrences,Mooncake reverse,ok,337.04,315.50,3019,1.000,6.271692838822494e-16,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,hand loop,Mooncake reverse,ok,399.92,381.51,5437,1.187,3.583824479327189e-16,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,hand loop (window copies),Mooncake reverse,ok,1005.33,848.81,11457,2.983,3.58382447932719e-16,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,accumulate,Mooncake reverse,ok,1758.11,1185.05,13823,5.216,3.58382447932719e-16,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,ComposableRecurrences,Enzyme reverse,ok,342.91,308.34,864,1.000,4.479780599158924e-16,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,hand loop,Enzyme reverse,ok,79.23,71.56,54,0.231,3.583824479327189e-16,ForwardDiff,19005eff,false
+naive vs package,T100_L6_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,19005eff,false
+naive vs package,T100_L6_S3,accumulate,Enzyme reverse,error,,,,,,,19005eff,false
+naive vs package,T200_L20_S3,ComposableRecurrences,primal,ok,50.98,44.23,52,1.000,,,19005eff,false
+naive vs package,T200_L20_S3,hand loop,primal,ok,38.59,36.97,17,0.757,,,19005eff,false
+naive vs package,T200_L20_S3,hand loop (window copies),primal,ok,229.55,219.09,6830,4.503,,,19005eff,false
+naive vs package,T200_L20_S3,accumulate,primal,ok,263.10,234.94,7232,5.161,,,19005eff,false
+naive vs package,T200_L20_S3,ComposableRecurrences,ForwardDiff,ok,17324.75,14659.80,2707,1.000,0.0,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,hand loop,ForwardDiff,ok,12462.95,10874.72,850,0.719,0.0,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,hand loop (window copies),ForwardDiff,ok,97802.89,85439.51,381600,5.645,0.0,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,accumulate,ForwardDiff,ok,97666.39,81443.67,401607,5.637,0.0,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,ComposableRecurrences,Mooncake reverse,ok,715.62,610.90,5839,1.000,5.476979402551537e-16,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,hand loop,Mooncake reverse,ok,1267.90,1185.22,10837,1.772,6.201873735242319e-16,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,hand loop (window copies),Mooncake reverse,ok,3645.48,2739.06,23207,5.094,5.154804143578034e-16,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,accumulate,Mooncake reverse,ok,5322.57,3920.40,26825,7.438,5.154804143578034e-16,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,ComposableRecurrences,Enzyme reverse,ok,788.95,585.40,1530,1.000,6.443505179472397e-16,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,hand loop,Enzyme reverse,ok,175.85,168.69,54,0.223,8.054381474340674e-16,ForwardDiff,19005eff,false
+naive vs package,T200_L20_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,19005eff,false
+naive vs package,T200_L20_S3,accumulate,Enzyme reverse,error,,,,,,,19005eff,false
+custom modifier,T100_L6_S1,forward only,primal,ok,6.80,6.07,47,1.000,,,19005eff,false
+custom modifier,T100_L6_S1,with pullback!,primal,ok,6.72,6.04,47,0.988,,,19005eff,false
+custom modifier,T100_L6_S1,forward only,ForwardDiff,ok,337.51,306.74,510,1.000,0.0,ForwardDiff,19005eff,false
+custom modifier,T100_L6_S1,with pullback!,ForwardDiff,ok,329.61,308.37,510,0.977,0.0,ForwardDiff,19005eff,false
+custom modifier,T100_L6_S1,forward only,Mooncake reverse,ok,187.66,180.16,1737,1.000,5.168775996488531e-16,ForwardDiff,19005eff,false
+custom modifier,T100_L6_S1,with pullback!,Mooncake reverse,ok,195.17,187.85,1737,1.040,5.168775996488531e-16,ForwardDiff,19005eff,false
+custom modifier,T100_L6_S1,forward only,Enzyme reverse,ok,91.92,87.68,256,1.000,1.1814345134830928e-15,ForwardDiff,19005eff,false
+custom modifier,T100_L6_S1,with pullback!,Enzyme reverse,ok,91.72,88.74,256,0.998,1.1814345134830928e-15,ForwardDiff,19005eff,false
+custom modifier,T200_L20_S1,forward only,primal,ok,11.83,10.41,47,1.000,,,19005eff,false
+custom modifier,T200_L20_S1,with pullback!,primal,ok,11.15,10.32,47,0.942,,,19005eff,false
+custom modifier,T200_L20_S1,forward only,ForwardDiff,ok,2820.80,2674.06,1134,1.000,0.0,ForwardDiff,19005eff,false
+custom modifier,T200_L20_S1,with pullback!,ForwardDiff,ok,2853.63,2675.84,1134,1.012,0.0,ForwardDiff,19005eff,false
+custom modifier,T200_L20_S1,forward only,Mooncake reverse,ok,243.49,230.35,2537,1.000,8.574175681007661e-16,ForwardDiff,19005eff,false
+custom modifier,T200_L20_S1,with pullback!,Mooncake reverse,ok,247.86,237.39,2537,1.018,8.574175681007661e-16,ForwardDiff,19005eff,false
+custom modifier,T200_L20_S1,forward only,Enzyme reverse,ok,131.27,126.42,256,1.000,1.4698586881727418e-15,ForwardDiff,19005eff,false
+custom modifier,T200_L20_S1,with pullback!,Enzyme reverse,ok,128.73,125.10,256,0.981,1.4698586881727418e-15,ForwardDiff,19005eff,false
