@@ -1,8 +1,9 @@
 # [Getting started](@id getting-started)
 
-ComposableRecurrences steps a series forward from its own past, as in a renewal process, an autoregression or a random walk.
-It also weights past inputs by a kernel, as in a reporting delay.
-`Recurrence` and `Convolution` build these two steps, and couplings and modifiers extend them to groups, depletion and bounds.
+ComposableRecurrences has two operators.
+`Recurrence` steps a series forward from a kernel-weighted window of its own past.
+`Convolution` weights past inputs by a kernel.
+Couplings link many series, and modifiers add behaviour such as finite pools or bounds to each step.
 Every operator is differentiable, so a model built from them can be fitted with gradient-based methods.
 
 ## A first example
