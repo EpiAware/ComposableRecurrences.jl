@@ -450,3 +450,4 @@ end
 
 # The built-in modifiers carry their adjoints.
 uses_adjoint(::Union{Depletion, Imports, Redistribute, Clamp}) = true
+_constructorof(::Type{<:Depletion{F}}) where {F} = Depletion{F}

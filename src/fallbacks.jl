@@ -86,8 +86,13 @@ end
 function _rebuild(x, θ, o)
     _nparams(x) == 0 && return x, o
     fs, o = _rebuild(ntuple(i -> getfield(x, i), fieldcount(typeof(x))), θ, o)
-    return Base.typename(typeof(x)).wrapper(fs...), o
+    return _constructorof(typeof(x))(fs...), o
 end
+
+# The constructor that rebuilds a struct of type `T` from its fields, with
+# new field types. A struct whose only constructor is parametric adds a
+# method.
+_constructorof(::Type{T}) where {T} = Base.typename(T).wrapper
 
 # Add the gradient `g` (after offset `o`) into the mirror `x̄` of `x`;
 # returns the new offset.
