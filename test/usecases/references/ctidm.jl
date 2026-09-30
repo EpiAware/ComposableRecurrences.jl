@@ -5,8 +5,9 @@
 # f7d6cc9f. Each block names its file and line range. Docstrings are left
 # out and Runic re-indents one block; the code is otherwise unchanged, so the
 # reference runs the package's own arithmetic without loading Turing.
-# The drivers at the end are not copied: each wraps the `accumulate_scan` call of the cited model body so it can be
-# called without `DynamicPPL`.
+# The drivers at the end are not copied: each wraps the `accumulate_scan` call
+# or expression of the cited model body so it can be called without
+# `DynamicPPL`.
 module CTIDMReference
 
 using LinearAlgebra
@@ -364,6 +365,19 @@ function _assert_pmf(g)
     return nothing
 end
 
+# src/latent_models/modifiers/DiffLatentModel.jl L69-L75
+function _combine_diff(init, diff, d)
+    combined = vcat(collect(init), collect(diff))
+    for _ in 1:d
+        combined = cumsum(combined)
+    end
+    return combined
+end
+
+# src/infection_models/ExpGrowthRate.jl L77-L78
+_cumsum(Z_t::AbstractVector) = cumsum(Z_t)
+_cumsum(Z_t::AbstractMatrix) = cumsum(Z_t; dims = 2)
+
 # --- drivers (not copied) ----------------------------------------------------
 #
 # Each driver is the `accumulate_scan` call of the cited model body, with the
@@ -435,6 +449,26 @@ function time_varying_mixing_renewal(rev_gen_int, Ks, window, Rt)
         state.val
     end
     return _series(out)
+end
+
+# src/latent_models/models/MA.jl L70 (order 1, a coefficient path)
+ma1(θ, ϵ_t) = vcat(ϵ_t[1], ϵ_t[2:end] .+ θ .* ϵ_t[1:(end - 1)])
+
+# src/latent_models/combinations/arma.jl and arima.jl: an AR whose
+# innovations are an MA, differenced `d` times (DiffLatentModel.jl L61-L66).
+function arima(damp, ar_init, θ, ϵ_t, diff_init)
+    return _combine_diff(diff_init, ar(damp, ar_init, ma(θ, ϵ_t)), length(diff_init))
+end
+
+# src/infection_models/ExpGrowthRate.jl L85, with the identity transformation
+# so the log incidence is returned.
+exp_growth(I₀, Z_t) = I₀ .+ _cumsum(Z_t)
+
+# src/observation_models/modifiers/Aggregate.jl L113-L137, the window sums
+# alone for a `y_t` as long as `Y_t` (no offset).
+function aggregate(aggregation, Y_t)
+    idx = findall(aggregation .!= 0)
+    return map(i -> sum(Y_t[max(1, i - aggregation[i] + 1):i]), idx)
 end
 
 end

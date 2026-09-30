@@ -1,0 +1,29 @@
+# Benchmark matrix tasks, package-owned (the root Taskfile.yml is managed by
+# the scaffold). Run from the repository root:
+#
+#   task -t benchmark/Taskfile.yml matrix -- --tier=realistic
+#   task -t benchmark/Taskfile.yml matrix-report -- DIR [PREVIOUS_DIR]
+version: '3'
+
+tasks:
+  matrix:
+    desc: "Run the benchmark matrix (usage: task -t benchmark/Taskfile.yml matrix -- --tier=ci --targets=primal)"
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=benchmark benchmark/matrix.jl {{.CLI_ARGS}}
+
+  matrix-rules:
+    desc: Rule gain of every case on the reverse backends (DESIGN item 14)
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - >-
+        julia --project=benchmark benchmark/matrix.jl --tier=realistic
+        --targets="Mooncake reverse,Enzyme reverse" {{.CLI_ARGS}}
+
+  matrix-report:
+    desc: "Write REPORT.md for a matrix result directory (usage: task -t benchmark/Taskfile.yml matrix-report -- DIR [PREVIOUS_DIR])"
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --startup-file=no benchmark/matrix_report.jl {{.CLI_ARGS}}

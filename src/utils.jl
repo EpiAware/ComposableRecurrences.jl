@@ -70,7 +70,7 @@ end
 
 # Check every time-varying coefficient in a coupling or modifier covers
 # times up to `stop`, recursing through fields. Outside a kernel only
-# `:secondary` indexing has a meaning.
+# `Secondary()` indexing has a meaning.
 function _check_times(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end

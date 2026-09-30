@@ -113,7 +113,7 @@ export default defineConfig({
     // docs/docs_config.jl (#242), otherwise just the credit. The logo
     // resolves through the site `base` so a versioned deploy still finds it.
     footer: {
-      message: `Made with <a href="https://luxdl.github.io/DocumenterVitepress.jl/dev/" target="_blank"><strong>DocumenterVitepress.jl</strong></a><br>`,
+      message: `<a href="https://epiaware.org" target="_blank"><img src="${baseTemp.base}epiaware-logo.svg" alt="EpiAware" width="48" height="48" style="display:inline-block"></a><br>Part of the <a href="https://epiaware.org" target="_blank"><strong>EpiAware</strong></a> ecosystem &middot; <a href="https://github.com/EpiAware" target="_blank">GitHub</a><br>Made with <a href="https://luxdl.github.io/DocumenterVitepress.jl/dev/" target="_blank"><strong>DocumenterVitepress.jl</strong></a><br>`,
       copyright: `© Copyright ${new Date().getUTCFullYear()}.`
     }
   }

@@ -8,7 +8,7 @@ Standards and how-to live in the docs, not here.
 - [Package standards](https://epiawarepackagetools.epiaware.org/stable/standards)
 - [Test infrastructure](https://epiawarepackagetools.epiaware.org/stable/getting-started/test-infrastructure)
 - [Infrastructure and template sync](https://epiawarepackagetools.epiaware.org/stable/getting-started/infrastructure)
-- [ComposableRecurrences documentation](https://epiaware.org/ComposableRecurrences.jl)
+- [ComposableRecurrences documentation](https://composablerecurrences.epiaware.org)
 - [EpiAware](https://epiaware.org)
 - [ColPrac](https://github.com/SciML/ColPrac)
 <!-- epiaware-standards:end -->

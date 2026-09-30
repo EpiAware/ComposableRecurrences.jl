@@ -125,9 +125,8 @@ The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
 
 # Arguments
-- `N`: the population, one value or [`PerStratum`](@ref). It is constant
-  over time, so a `TimeVarying` `N` is an `ArgumentError`; a capacity that
-  varies over time belongs to a separate capacity modifier.
+- `N`: the population, one value or [`PerStratum`](@ref), constant over
+  time: a `TimeVarying` `N` is an `ArgumentError`.
 - `form`: the depletion form; `Hazard()` by default.
 
 # Keyword Arguments
