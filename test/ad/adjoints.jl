@@ -29,6 +29,7 @@
         CR.add_cotangent!(CR.cotangent(m̄, :N), sum(s̄))
         return nothing
     end
+    CR.uses_adjoint(::Hazard) = true
 
     # Floored depletion from a per-stratum pool, no pullback of its own.
     struct PoolDepletion{P}
@@ -142,6 +143,7 @@ end
         CR.add_cotangent!(y0̄, op.ρ * λ)
         return nothing
     end
+    CR.uses_adjoint(::Decay) = true
 
     struct DecayNoPB{T} <: CR.AbstractOperator
         ρ::T
@@ -166,6 +168,7 @@ end
         end
         return nothing
     end
+    CR.uses_adjoint(::Saturate) = true
     struct SaturateNoPB{V}
         K::V
     end
@@ -190,6 +193,7 @@ end
         p̄ .+= transpose(C.K) * z
         return nothing
     end
+    CR.uses_adjoint(::Mix) = true
     struct MixNoPB{M, V} <: CR.Coupling
         K::M
         β::V
@@ -323,6 +327,7 @@ end
             n0, u0 = CR._PULLBACK_CALLS[], UserPkg.CALLS[]
             @test gradient(f, backend, θ) ≈ ref
             @test (UserPkg.CALLS[] > u0) == own
+            @test (CR._PULLBACK_CALLS[] > n0) == own
         end
     end
     @test Base.return_types(
@@ -418,4 +423,196 @@ end
             @test (CR._PULLBACK_CALLS[] > n0) == !startswith(scen.name, "NoAdjoint")
         end
     end
+end
+
+@testsnippet UseCaseShapes begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using LinearAlgebra, Random, SparseArrays
+
+    # `(name, op, args)` in the shapes of the use cases: random walk, AR(2),
+    # time-varying AR, seeded renewal, the patch model and a strata renewal
+    # with imports. `args` are the positional arguments of `forward`.
+    function use_case_shapes()
+        rng = Xoshiro(21)
+        S, L, T = 3, 4, 8
+        g = rand(rng, L) ./ 2
+        K = [0.0 0.2 0.1; 0.1 0.0 0.3; 0.2 0.1 0.0]
+        h = 1 .+ rand(rng, S, L)
+        R = 0.5 .+ rand(rng, S, T)
+        ϵ = randn(rng, T)
+        rec(gain, add, h) = (gain, add, h, nothing, 1)
+        return [
+            ("random walk", Recurrence([1.0]), rec(true, ϵ, [0.3])),
+            ("AR(2)", Recurrence([0.5, -0.2]), rec(true, ϵ, [0.1, 0.2])),
+            (
+                "time-varying AR",
+                Recurrence(TimeVarying(0.3 .* rand(rng, 2, T))), rec(true, ϵ, [0.1, 0.2]),
+            ),
+            (
+                "seeded renewal",
+                Recurrence(g; modifiers = (CR.Depletion(60.0; seeded = true),)),
+                rec(R[1, :], nothing, h[1, :]),
+            ),
+            (
+                "patch model",
+                Recurrence(
+                    g; modifiers = (
+                        CR.Redistribute(K, 0.4), CR.Depletion(fill(80.0, S); seeded = true),
+                    )
+                ),
+                rec(R, nothing, h),
+            ),
+            (
+                "strata renewal with imports",
+                Recurrence(
+                    g; coupling = 0.3 .* rand(rng, S, S),
+                    modifiers = (CR.Depletion(fill(80.0, S)), CR.Imports(0.2 .* rand(rng, S, T)))
+                ),
+                rec(R, nothing, h),
+            ),
+            (
+                "patch model, sparse kernel",
+                Recurrence(
+                    g; modifiers = (CR.Redistribute(sparse(K), [0.4, 0.3, 0.2]),)
+                ),
+                rec(R, nothing, h),
+            ),
+        ]
+    end
+end
+
+@testitem "Use-case shapes: test_adjoint on Mooncake" tags = [:ad, :mooncake, :mooncake_reverse] setup = [UseCaseShapes] begin
+    using ADTypes: AutoMooncake
+    import Mooncake
+    for (name, op, args) in use_case_shapes()
+        @testset "$name" begin
+            CR.test_adjoint(AutoMooncake(; config = nothing), op, args...)
+        end
+    end
+end
+
+@testitem "Use-case shapes: test_adjoint on Enzyme" tags = [:ad, :enzyme, :enzyme_reverse] setup = [UseCaseShapes] begin
+    using ADTypes: AutoEnzyme
+    import Enzyme, EnzymeTestUtils
+    for (name, op, args) in use_case_shapes()
+        @testset "$name" begin
+            CR.test_adjoint(AutoEnzyme(), op, args...)
+        end
+    end
+end
+
+@testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using SparseArrays
+    import Enzyme, ForwardDiff, Mooncake
+    K = sparse([0.0 0.2 0.0; 0.1 0.0 0.3; 0.2 0.0 0.0])
+    h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
+    W = cos.(reshape(1:18, 3, 6))
+    function f(θ)
+        Kθ = SparseMatrixCSC(3, 3, K.colptr, K.rowval, θ[1:4])
+        r = Recurrence(
+            [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
+            modifiers = (CR.Redistribute(Kθ, θ[5]), CR.Depletion(fill(40.0, 3)))
+        )
+        return sum(W .* r(R; history = h))
+    end
+    θ = [K.nzval; 0.4]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    for backend in (
+            AutoMooncake(; config = nothing),
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        n0 = CR._PULLBACK_CALLS[]
+        @test gradient(f, backend, θ) ≈ ref
+        @test CR._PULLBACK_CALLS[] > n0
+    end
+end
+
+@testitem "Rule gradients survive inputs mutated after the call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    g, W = [0.3, 0.2], sin.(1:6)
+    # The gain and history are overwritten after the operator has run.
+    function f(θ)
+        R, h = θ[1:6] .* 1, θ[7:8] .* 1
+        y = Recurrence(g)(R; history = h)
+        R .= 2 .* R
+        h .= 0
+        return sum(W .* y)
+    end
+    θ = [1.1, 0.9, 1.2, 1.0, 0.8, 1.3, 1.0, 2.0]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    for backend in (
+            AutoMooncake(; config = nothing),
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        @test gradient(f, backend, θ) ≈ ref
+    end
+end
+
+@testitem "A pool held in a view gets its gradient" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # No pullback and a float-array field: routed to plain AD, which must
+    # still give the pool its gradient.
+    struct PoolDep{P}
+        pop::P
+    end
+    CR.init_state(m::PoolDep, history) = collect(m.pop)
+    CR.ispointwise(::PoolDep) = true
+    function CR.apply(m::PoolDep, v, s, t, k)
+        v′ = max(s / m.pop[k], 1.0e-6) * v
+        return v′, s - v′
+    end
+    W = cos.(reshape(1:18, 3, 6))
+    function f(θ)
+        pop = view(exp.(θ) .* 50, 1:3)
+        r = Recurrence([0.3, 0.2]; modifiers = (PoolDep(pop),))
+        s = r(ones(3, 6); history = ones(3, 2))
+        r2 = Recurrence([0.3, 0.2]; modifiers = (CR.Depletion(pop),))
+        return sum(W .* s) + sum(W .* r2(ones(3, 6); history = ones(3, 2)))
+    end
+    θ = [0.1, 0.2, 0.3]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    @test all(!iszero, ref)
+    for backend in (
+            AutoMooncake(; config = nothing),
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        @test gradient(f, backend, θ) ≈ ref
+    end
+end
+
+@testitem "Mooncake tangent layout the rule reads (canary)" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    import Mooncake
+    using SparseArrays, LinearAlgebra
+    # The Mooncake rule reads struct fdata through `.data`, a view's parent
+    # tangent through `.data.parent` and scalar fields as rdata. A Mooncake
+    # release that changes these breaks the rule; this fails first.
+    fd(x) = Mooncake.fdata(Mooncake.zero_tangent(x))
+    @test fd(view(ones(4), 1:2)).data.parent isa Vector{Float64}
+    @test fd(reshape(view(ones(4), 1:4), 2, 2)).data.parent isa Vector{Float64}
+    @test fd(sparse([1.0 0.0; 0.0 1.0])).data.nzval isa Vector{Float64}
+    @test fd(Diagonal(ones(2))).data.diag isa Vector{Float64}
+    @test fd((; a = ones(2), b = 1.0)) isa NamedTuple
+    @test Mooncake.rdata_type(Mooncake.tangent_type(typeof(0.5I))) !== Mooncake.NoRData
+    @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end

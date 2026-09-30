@@ -65,6 +65,7 @@ end
 
 @testsnippet AdjointModifiers begin
     using ComposableRecurrences: ComposableRecurrences as CR
+    using ForwardDiff
 
     # Floored depletion from a per-stratum pool that is also the initial
     # state, so the pool's cotangent comes from both `apply` and
@@ -126,6 +127,15 @@ end
     end
     CR.ispointwise(::HistoryTotal) = true
     CR.apply(::HistoryTotal, v, s, t, k) = (v + 0.1 * s, s)
+
+    # Pointwise, calling ForwardDiff itself: `v′ = d/dx (a x²) at v`.
+    struct Slope{A}
+        a::A
+    end
+    CR.ispointwise(::Slope) = true
+    function CR.apply(m::Slope, v, s, t, k)
+        return ForwardDiff.derivative(x -> m.a * x^2, v), s
+    end
 
     # A coupling with no pullback: `q = β ⊙ (K p)`.
     struct Mix{M, V}
@@ -212,6 +222,13 @@ end
         r = Recurrence(g; coupling = K, modifiers = mods)
         @test pullback_matches(r, recargs(R, nothing, h)...)
     end
+    # A pool held in a view gets its cotangent.
+    pool = view([0.0, 30.0, 40.0, 50.0], 2:4)
+    r = Recurrence(g; coupling = K, modifiers = (PoolDepletion(pool),))
+    @test pullback_matches(r, recargs(R, nothing, h)...)
+    # A modifier that runs ForwardDiff itself nests under the local fallback.
+    r = Recurrence(g; coupling = K, modifiers = (Slope(0.3),))
+    @test pullback_matches(r, recargs(R, nothing, h)...)
     # A coupling with no pullback falls back to its local Jacobian.
     r = Recurrence(g; coupling = Mix(K, rand(rng, S)))
     @test pullback_matches(r, recargs(R, nothing, h)...)
@@ -263,21 +280,74 @@ end
     end
 end
 
-@testitem "Adjoint: routing and cotangent helpers" setup = [AdjointCheck] begin
+@testitem "Adjoint: routing by uses_adjoint" setup = [AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences, ForwardDiff
-    r = Recurrence([0.2, 0.3])
-    args = recargs(ones(4), nothing, ones(2))
-    @test CR.has_adjoint(r, args...)
-    @test CR._gate(r, args...)
+    g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
+    args = recargs(ones(2, 4), nothing, ones(2, 2))
+    val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
+    # Built-in pieces and pointwise modifiers with scalar parameters take
+    # the rule; the route is decided from the types.
+    for op in (
+            Recurrence(g), Recurrence(g; coupling = K),
+            Recurrence(g; modifiers = (CR.Depletion(50.0),)),
+            Recurrence(g; modifiers = (Slope(0.3),)),
+        )
+        @test CR.uses_adjoint(op)
+        @test val(op) == [Val{true}]
+    end
+    # A vector-level modifier or a coupling without a pullback, or a
+    # pointwise modifier without one and with array parameters, sends the
+    # whole operator to plain AD.
+    for op in (
+            Recurrence(g; modifiers = (Scale(0.9),)),
+            Recurrence(g; coupling = Mix(K, [1.0, 1.0])),
+            Recurrence(g; modifiers = (PoolDepletion([30.0, 40.0]),)),
+        )
+        @test !CR.uses_adjoint(op)
+        @test val(op) == [Val{false}]
+    end
+    # Declaring it opts a piece in.
+    struct Scaled{A}
+        a::A
+    end
+    CR.apply!(m::Scaled, v, s, t) = (v .*= m.a; nothing)
+    CR.apply_pullback!(m̄, m::Scaled, v, s, t, v̄, s̄) = (v̄ .*= m.a; nothing)
+    @test !CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)))
+    CR.uses_adjoint(::Scaled) = true
+    @test CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)))
+
+    # Duals and BigFloat take the plain path.
+    r = Recurrence(g)
+    @test CR._gate(r, ones(4), nothing, ones(2), nothing, 1)
     @test !CR._gate(r, ForwardDiff.Dual(1.0, 1.0), nothing, ones(2), nothing, 1)
     @test !CR._gate(r, big.(ones(4)), nothing, ones(2), nothing, 1)
-    @test Base.return_types(CR._route_val, typeof.((r, args...))) == [Val{true}]
+end
 
-    struct NoPullback <: CR.AbstractOperator end
-    CR.forward(::NoPullback, x) = (2 .* x, nothing)
-    @test !CR.has_adjoint(NoPullback(), ones(2))
-    @test NoPullback()(ones(2)) == [2.0, 2.0]
+@testitem "Adjoint: user operators declare their adjoint" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    struct Twice <: CR.AbstractOperator end
+    CR.forward(::Twice, x) = (2 .* x, nothing)
+    @test !CR.uses_adjoint(Twice())
+    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{false}]
+    # A typed pullback! signature routes once declared.
+    function CR.pullback!(::Twice, c, ȳ::AbstractVector, op̄, x̄)
+        x̄ .+= 2 .* ȳ
+        return nothing
+    end
+    CR.uses_adjoint(::Twice) = true
+    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{true}]
+    @test Twice()(ones(2)) == [2.0, 2.0]
+end
 
+@testitem "Adjoint: a plain-AD fallback is logged once" setup = [AdjointModifiers] begin
+    using ComposableRecurrences
+    r = Recurrence([0.2, 0.3]; modifiers = (Scale(0.9),))
+    @test_logs (:info, r"plain AD") r(ones(4); history = ones(2))
+    @test_logs r(ones(4); history = ones(2))
+end
+
+@testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
+    using ComposableRecurrences
     @test CR.cotangent(nothing, :a) === nothing
     @test CR.cotangent((; a = [1.0]), :a) == [1.0]
     x̄ = Ref(1.0)
@@ -286,6 +356,8 @@ end
     x̄ = zeros(2, 2)
     CR.add_cotangent!(x̄, 2.0, 1, 2)
     @test x̄[1, 2] == 2.0
+    CR.add_cotangent!((; x = x̄), 1.0, 1, 2)
+    @test x̄[1, 2] == 3.0
     @test CR.add_cotangent!(nothing, 1.0, 1) === nothing
 end
 
