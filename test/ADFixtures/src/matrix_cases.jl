@@ -5,8 +5,10 @@
 # Each case builds a scalar loss `f(θ)` of a flat parameter vector holding
 # every differentiable slot, in two arms: `rule` calls the operator as a user
 # would, `NoAdjoint` wraps it so the AD backend differentiates the forward
-# loop itself. Inputs are deterministic (no RNG), so every revision and
-# process times the same numbers.
+# loop itself. Headline cases add baseline arms written without the package
+# (`matrix_naive.jl`): the same loss as a hand loop or an `accumulate`.
+# Inputs are deterministic (no RNG), so every revision and process times the
+# same numbers.
 module MatrixCases
 
 using ComposableRecurrences
@@ -14,7 +16,7 @@ using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 
-export Size, Case, CASES, TIERS, case, sizes, build, pending_cases
+export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases
 
 "A problem size: `T` steps, `L` lags (or delays) and `S` strata."
 struct Size
@@ -208,6 +210,45 @@ end
 delay_secondary(wrap, z::Size) = _delay_varying(wrap, z, CR.Secondary())
 delay_primary(wrap, z::Size) = _delay_varying(wrap, z, CR.Primary())
 
+# The getting-started model: three towns under a gravity coupling, per-town
+# hazard depletion, then a reporting delay. The loss weights the reports and
+# `θ` is the reproduction number of every town on every day. At `L = 6` the
+# kernels are the page's own.
+const TOWN_POP = [60_000.0, 25_000.0, 10_000.0]
+const TOWN_DIST = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+
+"The towns' populations and gravity coupling."
+function towns()
+    pop = TOWN_POP
+    gravity = [a == b ? 0.0 : pop[b] / TOWN_DIST[a, b]^2 for a in 1:3, b in 1:3]
+    K = 0.98 * [a == b for a in 1:3, b in 1:3] +
+        0.02 * gravity ./ sum(gravity; dims = 2)
+    return pop, K
+end
+overview_gi(L) = L == 6 ? [0.05, 0.2, 0.3, 0.25, 0.12, 0.08] : _gi(L)
+function overview_delay(L)
+    return L == 6 ? [0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05] : vcat(0.0, _gi(L))
+end
+overview_seed(S, L) = [k == 1 ? 10.0 : 0.0 for k in 1:S, _ in 1:L]
+overview_R(S, T) = [t < T ÷ 2 ? 1.5 : 0.8 for _ in 1:S, t in 1:T]
+
+function overview(wrap, z::Size)
+    (; T, L, S) = z
+    pop, K = towns()
+    seed = overview_seed(S, L)
+    W = _weights(S, T)
+    renewal = Recurrence(
+        overview_gi(L); coupling = K,
+        modifiers = (CR.Depletion(PerStratum(pop)),)
+    )
+    delay = Convolution(overview_delay(L))
+    f = function (θ)
+        R = reshape(θ, S, T)
+        return sum(W .* wrap(delay)(wrap(renewal)(R; history = seed)))
+    end
+    return f, vec(overview_R(S, T))
+end
+
 # An AR(2) latent process driven by additive innovations; `L` is unused.
 function ar(wrap, z::Size)
     (; T) = z
@@ -219,8 +260,51 @@ function ar(wrap, z::Size)
     return f, _flat([0.6, 0.2], [0.1, -0.1], [0.1 * _noise(t, 5) for t in 1:T])
 end
 
+# Delay convolutions shaped as a delay-distribution package calls them: a
+# lag-0-first pmf over a single series with no history, the loss weighting
+# every output (or, `masked`, only the last 14).
+function _conv_inputs(T, L)
+    pmf = [0.5 + 0.5 * _noise(i, 7) for i in 1:L] ./ L
+    x = [50.0 + 40.0 * _noise(t, 8) for t in 1:T]
+    return pmf, x, collect(range(0.5, 2.0; length = T))
+end
+
+function conv_fixed(wrap, z::Size)
+    (; T, L) = z
+    pmf, x, w = _conv_inputs(T, L)
+    f = θ -> sum(w .* wrap(Convolution(θ[1:L]))(θ[(L + 1):end]))
+    return f, vcat(pmf, x)
+end
+
+function conv_masked(wrap, z::Size)
+    (; T, L) = z
+    pmf, x, w = _conv_inputs(T, L)
+    f = θ -> sum(
+        w[(T - 13):T] .*
+            wrap(Convolution(θ[1:L]))(θ[(L + 1):end]; start = T - 13)
+    )
+    return f, vcat(pmf, x)
+end
+
+function _conv_matrix(wrap, z::Size, indexing)
+    (; T, L) = z
+    pmf, x, w = _conv_inputs(T, L)
+    P = [pmf[i] * (1 + 0.1 * _noise(i, t)) for i in 1:L, t in 1:T]
+    f = function (θ)
+        K = TimeVarying(reshape(θ[1:(L * T)], L, T), indexing)
+        return sum(w .* wrap(Convolution(K))(θ[(L * T + 1):end]))
+    end
+    return f, vcat(vec(P), x)
+end
+conv_primary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Primary())
+conv_secondary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Secondary())
+
 "The cases, in report order."
 const CASES = [
+    Case(
+        "overview", "three towns, gravity, hazard depletion, delay", overview,
+        [3], false,
+    ),
     Case("renewal", "single renewal", renewal, [1], false),
     Case(
         "renewal_depletion", "seeded renewal, hazard depletion",
@@ -256,6 +340,18 @@ const CASES = [
         [5, 50], false,
     ),
     Case("ar", "AR(2) with additive innovations", ar, [1], false),
+    Case("conv_fixed", "fixed pmf, no history", conv_fixed, [1], false),
+    Case(
+        "conv_masked", "fixed pmf, last 14 outputs", conv_masked, [1], false,
+    ),
+    Case(
+        "conv_primary", "pmf per input time (L × T)", conv_primary, [1],
+        false,
+    ),
+    Case(
+        "conv_secondary", "pmf per output time (L × T)", conv_secondary, [1],
+        false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
@@ -265,24 +361,43 @@ pending_cases() = [("transform", "pointwise Transform modifier (M4)")]
 case(name) = CASES[findfirst(c -> c.name == name, CASES)]
 
 """
-The size tiers. `smoke` checks every case at a tiny size; `ci` is the AirspeedVelocity subset; `realistic` spans
-T 200-400, L 20-60 and S 1/5/50; `large` is S = 500, T = 2000.
+The size tiers. `smoke` checks every case at a tiny size; `docs` is the
+getting-started model at the page's size and at T 200, L 20; `convolved`
+holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
+`realistic` spans T 200-400, L 20-60 and S 1/5/50; `large` is S = 500,
+T = 2000.
 """
 const TIERS = Dict(
     "smoke" => (
         cases = [c.name for c in CASES],
         sizes = [(T = 20, L = 4)],
-        strata = [1, 5, 50],
+        strata = [1, 3, 5, 50],
     ),
     "ci" => (
-        cases = ["renewal", "strata_mixing", "bvd_patch", "delay_fixed"],
+        cases = [
+            "overview", "renewal", "strata_mixing", "bvd_patch", "delay_fixed",
+        ],
         sizes = [(T = 200, L = 20)],
-        strata = [1, 5],
+        strata = [1, 3, 5],
+    ),
+    "docs" => (
+        cases = ["overview"],
+        sizes = [(T = 100, L = 6), (T = 200, L = 20)],
+        strata = [1, 3],
+    ),
+    "convolved" => (
+        cases = ["conv_fixed", "conv_masked", "conv_primary", "conv_secondary"],
+        sizes = [(T = 400, L = 60), (T = 100, L = 10)],
+        strata = [1],
+        bycase = Dict(
+            "conv_primary" => [(T = 400, L = 60)],
+            "conv_secondary" => [(T = 100, L = 10)],
+        ),
     ),
     "realistic" => (
-        cases = [c.name for c in CASES],
+        cases = filter(n -> !startswith(n, "conv_"), [c.name for c in CASES]),
         sizes = [(T = 200, L = 20), (T = 400, L = 60)],
-        strata = [1, 5, 50],
+        strata = [1, 3, 5, 50],
     ),
     "large" => (
         cases = ["strata_independent", "zones_sparse", "delay_fixed"],
@@ -296,13 +411,67 @@ function sizes(c::Case, tier)
     spec = TIERS[tier]
     c.name in spec.cases || return Size[]
     strata = intersect(c.strata, spec.strata)
-    return [Size(sz.T, sz.L, S) for sz in spec.sizes for S in strata]
+    szs = haskey(spec, :bycase) ? get(spec.bycase, c.name, spec.sizes) : spec.sizes
+    return [Size(sz.T, sz.L, S) for sz in szs for S in strata]
 end
 
-"`(f, θ)` for case `c` at size `z` in arm `arm` (`\"rule\"` or `\"NoAdjoint\"`)."
+# Baseline arms without the package, by case name: `arm => builder(z)`.
+const BASELINES = Dict{String, Vector{Pair{String, Function}}}()
+
+"The arms of case `c`: `rule`, `NoAdjoint` and its baselines."
+arms(c::Case) = vcat(["rule", "NoAdjoint"], first.(get(BASELINES, c.name, [])))
+
+"""
+`(f, θ)` for case `c` at size `z` in arm `arm`: `\"rule\"`, `\"NoAdjoint\"`
+or one of its baselines.
+"""
 function build(c::Case, z::Size, arm::AbstractString)
-    wrap = arm == "NoAdjoint" ? NoAdjoint : identity
-    return c.loss(wrap, z)
+    arm == "rule" && return c.loss(identity, z)
+    arm == "NoAdjoint" && return c.loss(NoAdjoint, z)
+    return Dict(get(BASELINES, c.name, []))[arm](z)
+end
+
+include("matrix_naive.jl")
+
+# The user-written modifier of the "Writing your own modifier" page, from
+# the repository's benchmark folder, in a single renewal: once with
+# `forward` only and once with its `pullback!`. Skipped where the file is
+# absent (a copied fixture package).
+const DOCS_MODIFIER = joinpath(
+    @__DIR__, "..", "..", "..", "benchmark", "docs_modifier.jl"
+)
+if isfile(DOCS_MODIFIER)
+    include(DOCS_MODIFIER)
+    function _custom_modifier(M)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                g, logh, logR, logκ = _unpack(θ, (L,), (L,), (T,), (1,))
+                r = Recurrence(g; modifiers = (M(exp(only(logκ))),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), L),
+                [0.3 + 0.05 * _noise(t, 6) for t in 1:T], [log(50.0)]
+            )
+            return f, θ
+        end
+    end
+    push!(
+        CASES,
+        Case(
+            "custom_modifier", "renewal with a user modifier, forward only",
+            _custom_modifier(Saturation), [1], false,
+        ),
+        Case(
+            "custom_modifier_pullback",
+            "renewal with a user modifier and its pullback!",
+            _custom_modifier(SaturationPullback), [1], false,
+        ),
+    )
+    append!(TIERS["docs"].cases, ["custom_modifier", "custom_modifier_pullback"])
 end
 
 end # module MatrixCases
