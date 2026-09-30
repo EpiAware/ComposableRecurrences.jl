@@ -152,12 +152,13 @@ seed_iso = fill(10.0, 6)
 ) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections (log scale)", yscale = log10))
 end
 
-# Both isolation curves bend down after day 30.
-# Read by calendar day, every case already infectious on day 30 is thinned at once, as if it were isolated on the spot.
-# Read by infection day, cases infected before the start keep most of their transmission, because an isolation dated before day 30 does not happen, so the bend comes a few days later.
+# Without isolation the outbreak keeps growing, and both isolation curves turn down around day 30.
+# Read by calendar day, every case already infectious on day 30 is thinned at once, as if it were isolated on the spot, so infections drop that day.
+# Read by infection day, cases infected shortly before the start keep most of their transmission, because an isolation dated before day 30 does not happen.
+# Infections then peak a day later and stay about twice as high while those cases finish transmitting.
 
 # ## Learning more
 #
