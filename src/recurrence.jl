@@ -114,27 +114,23 @@ _oldest_first(g::AbstractVector) = reverse(g)
 _oldest_first(g::PerStratum) = PerStratum(reverse(g.x; dims = 2))
 _oldest_first(g) = g
 
-# Each stratum's kernel convolution of its window `H[t:(t + L - 1), k]`,
+# Stratum `k`'s kernel convolution of its window `H[t:(t + L - 1), k]`,
 # for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
-function _kernel_pressure!(p, g::AbstractVector, H, t, τ, L)
-    for k in eachindex(p)
-        p[k] = dot(g, view(H, t:(t + L - 1), k))
-    end
-    return p
+_kdot(g::AbstractVector, H, t, τ, L, k) = dot(g, view(H, t:(t + L - 1), k))
+function _kdot(g::PerStratum, H, t, τ, L, k)
+    return dot(view(g.x, k, :), view(H, t:(t + L - 1), k))
 end
-function _kernel_pressure!(p, g::PerStratum, H, t, τ, L)
-    for k in eachindex(p)
-        p[k] = dot(view(g.x, k, :), view(H, t:(t + L - 1), k))
+function _kdot(g::TimeVarying, H, t, τ, L, k)
+    acc = zero(eltype(H))
+    for i in 1:L
+        acc += _tv_weight(g.x, k, i, τ) * H[t + L - i, k]
     end
-    return p
+    return acc
 end
-function _kernel_pressure!(p, g::TimeVarying, H, t, τ, L)
+
+function _kernel_pressure!(p, g, H, t, τ, L)
     for k in eachindex(p)
-        acc = zero(eltype(p))
-        for i in 1:L
-            acc += _tv_weight(g.x, k, i, τ) * H[t + L - i, k]
-        end
-        p[k] = acc
+        p[k] = _kdot(g, H, t, τ, L, k)
     end
     return p
 end
@@ -170,7 +166,7 @@ function _split_history(s::NamedTuple{(:history, :states, :t)})
     return (s.history, s.states, s.t)
 end
 
-function (r::Recurrence)(
+Base.@constprop :aggressive function (r::Recurrence)(
         gain = true; history, add = nothing, start = nothing,
         return_state = false
     )
@@ -209,7 +205,40 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0)
     return _run(Tp, r, gain, add, h, s0, τ0, L, S, T)
 end
 
+# `I` and `Diagonal` scale each stratum's own convolution, so their steps
+# skip the pressure vectors.
+const _PointwiseCoupling = Union{UniformScaling, Diagonal}
+_coef(J::UniformScaling, k) = J.λ
+_coef(C::Diagonal, k) = C.diag[k]
+
+# Fill the pressure vectors for step `t`; pointwise couplings need none.
+_prepare!(p, q, C::_PointwiseCoupling, kernel, H, t, τ, L) = nothing
+function _prepare!(p, q, C, kernel, H, t, τ, L)
+    _kernel_pressure!(p, kernel, H, t, τ, L)
+    pressure!(q, C, p, view(H, t:(t + L - 1), :), τ)
+    return nothing
+end
+
+# Stratum `k`'s coupled pressure at step `t`.
+function _pressure_at(C::_PointwiseCoupling, kernel, q, H, t, τ, L, k)
+    return _coef(C, k) * _kdot(kernel, H, t, τ, L, k)
+end
+_pressure_at(C, kernel, q, H, t, τ, L, k) = q[k]
+
+_all_pointwise(::Tuple{}) = true
+_all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
+
+# Thread one stratum's value through pointwise modifiers in tuple order.
+_thread(::Tuple{}, ::Tuple{}, v, τ, k) = v
+function _thread(ms::Tuple, states::Tuple, v, τ, k)
+    s = first(states)
+    v′, s[k] = apply(first(ms), v, s[k], τ, k)
+    return _thread(Base.tail(ms), Base.tail(states), v′, τ, k)
+end
+
 # The buffer loop: returns the output, the buffer and the final states.
+# With pointwise modifiers each stratum's value goes straight to the
+# buffer; otherwise the step's values are collected for `apply!`.
 function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
@@ -224,14 +253,24 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     end
     for t in 1:T
         τ = τ0 + t - 1
-        _kernel_pressure!(p, kernel, H, t, τ, L)
-        pressure!(q, coupling, p, view(H, t:(t + L - 1), :), τ)
-        for k in eachindex(v)
-            v[k] = _at(gain, k, t) * q[k] + _at(add, k, t)
-        end
-        _stages!(modifiers, states, v, τ)
-        for k in eachindex(v)
-            H[L + t, k] = v[k]
+        _prepare!(p, q, coupling, kernel, H, t, τ, L)
+        if _all_pointwise(modifiers)
+            for k in eachindex(v)
+                x = _at(gain, k, t) *
+                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
+                    _at(add, k, t)
+                H[L + t, k] = _thread(modifiers, states, x, τ, k)
+            end
+        else
+            for k in eachindex(v)
+                v[k] = _at(gain, k, t) *
+                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
+                    _at(add, k, t)
+            end
+            _stages!(modifiers, states, v, τ)
+            for k in eachindex(v)
+                H[L + t, k] = v[k]
+            end
         end
     end
     return _public(H, (L + 1):(L + T), h), H, states

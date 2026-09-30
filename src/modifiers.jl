@@ -62,7 +62,9 @@ ComposableRecurrences.apply(m::Offset, v, s, t, k) = (v + m.b, s)
 Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), add = zeros(4))
 ```
 "
-function apply end
+function apply(m, v, s, t, k)
+    throw(ArgumentError("$(typeof(m)) implements no pointwise apply"))
+end
 
 @doc "
 Apply modifier `m` in place at step `t`: overwrite the step's values `v` and
