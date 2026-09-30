@@ -425,3 +425,86 @@ end
             Recurrence(g; modifiers = (mb,))(R; history = h)
     end
 end
+
+@testitem "Options: an unknown name errors and names the hook" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    err = try
+        CR.Depletion(1.0; form = :foo)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin(":foo", err.msg) && occursin(":hazard", err.msg) &&
+        occursin(":floor", err.msg)
+    @test occursin("ComposableRecurrences.option(::Val{:form}, ::Val{:foo})", err.msg)
+    @test occursin("deplete", err.msg)
+    @test_throws ArgumentError CR.option(Val(:colour), Val(:red))
+end
+
+@testitem "Options: resolved once, at construction" begin
+    using ComposableRecurrences, JET
+    CR = ComposableRecurrences
+    for form in (:hazard, :floor)
+        m = CR.Depletion(100.0; form)
+        F = typeof(CR.option(Val(:form), Val(form)))
+        @test m isa CR.Depletion{F}
+        @test m.form === F()
+        # The built-in maths is the form's deplete method.
+        @test CR.apply(m, 2.0, 80.0, 1, 1) ==
+            CR.deplete(m.form, 2.0, 80.0, 100.0, 1.0)
+        # A step compiles to one path: no dispatch on the form at run time.
+        @test (@inferred CR.apply(m, 2.0, 80.0, 1, 1)) isa Tuple{Float64, Float64}
+        JET.@test_opt CR.apply(m, 2.0, 80.0, 1, 1)
+    end
+    floor_depletion() = CR.Depletion(1.0; form = :floor)
+    @test (@inferred floor_depletion()) isa CR.Depletion
+    default_depletion() = CR.Depletion(1.0)
+    @test (@inferred default_depletion()) isa CR.Depletion
+end
+
+@testitem "Options: a user depletion form, with and without a pullback" setup = [ModifierChecks] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # Take what is asked, up to the pool.
+    struct Linear end
+    CR.option(::Val{:form}, ::Val{:linear}) = Linear()
+    CR.deplete(::Linear, v, s, N, α) = (y = min(v, s); (y, s - y))
+    struct LinearWithPullback end
+    CR.option(::Val{:form}, ::Val{:linear_pullback}) = LinearWithPullback()
+    CR.deplete(::LinearWithPullback, v, s, N, α) = (y = min(v, s); (y, s - y))
+    function CR.deplete_pullback(::LinearWithPullback, v, s, N, α, ȳ, s̄′)
+        z = zero(ȳ)
+        return v < s ? (ȳ - s̄′, s̄′, z, z) : (z, ȳ, z, z)
+    end
+    h = [1.0, 2.0]
+    function naive(R, N)
+        y, pool = copy(h), N
+        for t in eachindex(R)
+            v = R[t] * (0.5 * y[end] + 0.5 * y[end - 1])
+            push!(y, min(v, pool))
+            pool -= y[end]
+        end
+        return y[3:end]
+    end
+    R = fill(2.0, 8)
+    ∇ref = ForwardDiff.gradient(θ -> sum(naive(θ[2:end], θ[1])), vcat(100.0, R))
+    for form in (:linear, :linear_pullback)
+        d = CR.Depletion(100.0; form)
+        y = Recurrence([0.5, 0.5]; modifiers = (d,))(R; history = h)
+        @test y ≈ naive(R, 100.0)
+        # The pool runs out, so both branches of the form are used.
+        @test y[end] < R[end] * (0.5 * y[end - 1] + 0.5 * y[end - 2])
+        run(θ) = Recurrence([0.5, 0.5]; modifiers = (CR.Depletion(θ[1]; form),))(
+            θ[2:end]; history = h
+        )
+        @test ForwardDiff.gradient(θ -> sum(run(θ)), vcat(100.0, R)) ≈ ∇ref
+    end
+    # The pullback matches the local Jacobian on both branches.
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Depletion(θ[1]; form = :linear_pullback, heterogeneity = θ[2]),
+        [100.0, 1.0], [2.0, 5.0], [4.0, 3.0], 1
+    )
+    @test c.v && c.s && c.θ
+end
