@@ -62,9 +62,9 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
-    Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
-    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface
+public Depletion, Protected, Redistribute, Add, Clamp, Hazard, Floor,
+    Primary, Secondary, seeded, with_state, State, forward, pullback!, Step,
+    Init, Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -74,6 +74,8 @@ include("utils.jl")
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
+# Depletion with removals and a protected pool.
+include("depletion_pools.jl")
 # The built-in couplings, `forward` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.

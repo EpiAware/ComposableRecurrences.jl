@@ -6,7 +6,7 @@ Their parameters are a scalar, `PerStratum`, `TimeVarying` or `TimeVarying(PerSt
 
 | Modifier | What it does | Recurrence | Convolution | Pointwise | Adjoint | Parameters |
 |---|---|---|---|---|---|---|
-| `Depletion(N, form)` | draws each step's values from a finite pool | yes | no | yes | hand-written | `N`, `heterogeneity`, `pool0` |
+| `Depletion(N, form)` | draws each step's values from a finite pool | yes | no | yes; no with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `removals`, `protected` |
 | `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
@@ -22,7 +22,7 @@ A `Redistribute` moves whatever it sees, so with a nonzero `add` it moves the ad
 
 ```@example modifiers
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Floor, Add, Redistribute, Clamp
+using ComposableRecurrences: Depletion, Protected, Floor, Add, Redistribute, Clamp
 ```
 
 ## Depletion
@@ -42,6 +42,24 @@ A seed drawn from the pool starts it lower.
 seed = fill(10.0, 3)
 d = Depletion(1000.0, Floor(); pool0 = 1000.0 - sum(seed))
 Recurrence([0.2, 0.5, 0.3]; modifiers = (d,))(2.5; history = seed, stop = 20)
+```
+
+### Removals and a protected pool
+
+`removals` takes values out of the pool after each step's draw, capped by what remains.
+It is a parameter, so vaccine doses by day are `TimeVarying(doses)`.
+`protected = Protected(σ)` keeps the removed values in a second pool that is drawn from at relative susceptibility `σ`.
+The draw takes from the effective pool `S + σ V` and splits between the pools in proportion.
+With vaccine efficacy `e`, all-or-nothing protection is `σ = 0` with removals `e ⋅ doses`, and leaky protection is `σ = 1 - e` with removals `doses`.
+A delay from dose to protection is a `Convolution` of the doses before the call.
+
+```@example modifiers
+doses = vcat(zeros(5), fill(20.0, 15))
+e = 0.7
+aon = Depletion(1000.0; removals = TimeVarying(e .* doses), protected = Protected(0.0))
+leaky = Depletion(1000.0; removals = TimeVarying(doses), protected = Protected(1 - e))
+run(d) = sum(Recurrence([0.2, 0.5, 0.3]; modifiers = (d,))(2.5; history = fill(10.0, 3), stop = 20))
+run(aon), run(leaky), run(Depletion(1000.0))
 ```
 
 ## Add

@@ -133,6 +133,12 @@ pool starts at.
 - `heterogeneity`: the exponent `α`; `1` by default.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` by default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
+- `removals`: values taken out of the pool after each step's draw, capped
+  by what remains; a parameter (one value, `PerStratum`, `TimeVarying` or
+  `TimeVarying(PerStratum(r))`), or `nothing` for none.
+- `protected`: a [`ComposableRecurrences.Protected`](@ref) pool that the
+  removals move into and that is drawn from at a relative susceptibility,
+  or `nothing` for none.
 
 # Examples
 ```@example
@@ -143,7 +149,7 @@ depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
 Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
 ```
 "
-struct Depletion{F, P, A, P0}
+struct Depletion{F, P, A, P0, R, V}
     "The population, one value or `PerStratum`."
     N::P
     "The depletion form."
@@ -152,19 +158,35 @@ struct Depletion{F, P, A, P0}
     heterogeneity::A
     "The starting pool, or `nothing` for `N`."
     pool0::P0
-    function Depletion(N::P, form::F, heterogeneity::A, pool0::P0) where {
-            P, F, A, P0,
-        }
+    "The removals, or `nothing`."
+    removals::R
+    "The protected pool, or `nothing`."
+    protected::V
+    function Depletion(
+            N::P, form::F, heterogeneity::A, pool0::P0, removals::R,
+            protected::V
+        ) where {P, F, A, P0, R, V}
         _check_form(form)
-        return new{F, P, A, P0}(N, form, heterogeneity, pool0)
+        return new{F, P, A, P0, R, V}(
+            N, form, heterogeneity, pool0, removals, protected
+        )
     end
 end
 
-function Depletion(N, form = Hazard(); heterogeneity = 1, pool0 = nothing)
+function Depletion(
+        N, form = Hazard(); heterogeneity = 1, pool0 = nothing,
+        removals = nothing, protected = nothing
+    )
     N = _float_param(_check_constant(:N, N))
     pool0 = pool0 === nothing ? nothing :
         _float_param(_check_constant(:pool0, pool0))
-    return Depletion(N, form, _exponent(heterogeneity, N), pool0)
+    removals = removals === nothing ? nothing : _check_param(:removals, removals)
+    protected === nothing || protected isa Protected || throw(
+        ArgumentError("protected is a Protected pool or nothing")
+    )
+    return Depletion(
+        N, form, _exponent(heterogeneity, N), pool0, removals, protected
+    )
 end
 
 # A form is a struct with a scalar Step.

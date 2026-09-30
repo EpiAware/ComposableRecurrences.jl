@@ -66,7 +66,7 @@ A modifier acts on `v_t = gain_t ⊙ x_t + add_t` after each recurrence step, in
 
 | Name | What it does | Recurrence | Convolution | Pointwise | Adjoint | Parameters |
 |---|---|---|---|---|---|---|
-| `Depletion(N, form)` | draws each step's values from a finite pool | yes | no | yes | hand-written | `N`, `heterogeneity`, `pool0` |
+| `Depletion(N, form)` | draws each step's values from a finite pool, with removals and a protected pool | yes | no | yes; no with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `removals`, `protected` |
 | `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
@@ -81,6 +81,7 @@ A bare array is an error that names the wrapper to use.
 | `Hazard()`, `Floor()` | depletion forms | `Depletion(N)`, `Depletion(N, Floor())` |
 | `Primary()`, `Secondary()` | `TimeVarying` indexing | `TimeVarying(P, Primary())` |
 | your struct | a new depletion form, with `forward` on `Step()` | `Depletion(N, MyForm())` |
+| `Protected(σ; pool0)` | a pool that depletion removals move into, drawn from at relative susceptibility `σ` | `Depletion(N; removals, protected = Protected(σ))` |
 
 ## Extending
 
@@ -105,6 +106,8 @@ A bare array is an error that names the wrapper to use.
 |---|---|
 | Renewal process | `Recurrence(gi)` with `R_t` as the gain |
 | Susceptible depletion | `Depletion(N)` or `Depletion(N, Floor())` |
+| All-or-nothing vaccination | `Depletion(N; removals = TimeVarying(e .* doses), protected = Protected(0))` |
+| Leaky vaccination | `Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e))` |
 | Imported cases | `add = ι` before the modifiers, or `Add(TimeVarying(ι))` at a place in their order |
 | Random walk | `Recurrence([1.0])(; history = [z0], add = ϵ)` |
 | AR(p) | `Recurrence(ρ)` with the innovations as `add` |

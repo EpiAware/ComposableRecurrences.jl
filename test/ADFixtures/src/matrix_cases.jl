@@ -162,6 +162,25 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# Strata with leaky vaccination: doses move susceptibles into a protected
+# pool drawn from at relative susceptibility σ.
+function strata_vaccination(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    f = function (θ)
+        g, logh, logR, doses, σ = _unpack(θ, (L,), (S, L), (S, T), (S, T), (1,))
+        d = CR.Depletion(
+            pop; removals = TimeVarying(PerStratum(doses)),
+            protected = CR.Protected(only(σ))
+        )
+        r = Recurrence(g; modifiers = (d,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    doses = [100.0 * (1 + _noise(t, k + 9)) for k in 1:S, t in 1:T]
+    return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
+end
+
 # A fixed reporting delay with history.
 function delay_fixed(wrap, z::Size)
     (; T, L) = z
@@ -222,6 +241,10 @@ const CASES = [
     Case(
         "bvd_patch", "importation redistribution, seeded hazard depletion",
         bvd_patch, [5, 50], false,
+    ),
+    Case(
+        "strata_vaccination", "leaky vaccination into a protected pool",
+        strata_vaccination, [5, 50], false,
     ),
     Case("delay_fixed", "fixed delay with history", delay_fixed, [1], false),
     Case(

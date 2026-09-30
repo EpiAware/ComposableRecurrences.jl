@@ -156,6 +156,9 @@ ComposableRecurrences.ispointwise(nothing)
 "
 ispointwise(m) = false
 
+# The length of a modifier's state for `S` strata.
+_nstate(m, S) = S
+
 # Defaults: a zero initial state, and a vector step that loops the scalar
 # one for a pointwise modifier.
 function forward(m, ::Init, s, history)
