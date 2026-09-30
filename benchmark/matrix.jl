@@ -14,6 +14,8 @@
 #   --label=NAME                label written into the results (default HEAD)
 #   --timeout=SECONDS           per target process (default 3600)
 #   --seconds=SECONDS           BenchmarkTools budget per cell (default 2)
+#   --executor=serial|threaded  run the rule arm under this executor
+#   --threads=N,M               worker thread counts (default 1)
 #
 # Each target runs in its own Julia process, so one backend's hang or crash
 # does not stop the rest and no process loads two AD stacks. A worker writes
@@ -81,6 +83,7 @@ const FD_MAX = 4000
 const COLUMNS = [
     "case", "size", "S", "T", "L", "target", "arm", "status", "min_ns",
     "median_ns", "allocs", "memory", "prep_s", "relerr", "check", "nparams",
+    "load",
 ]
 
 function parse_args(args)
@@ -88,6 +91,7 @@ function parse_args(args)
         "tier" => "realistic", "targets" => join(DEFAULT_TARGETS, ","),
         "cases" => "", "out" => "matrix-results", "label" => "",
         "timeout" => "3600", "seconds" => "2", "worker" => "",
+        "executor" => "serial", "threads" => "1",
     )
     for a in args
         m = match(r"^--([a-z]+)(?:=(.*))?$", a)
@@ -98,6 +102,7 @@ function parse_args(args)
 end
 
 _list(s) = isempty(s) ? String[] : String.(split(s, ','))
+_file(label) = replace(label, r"[ @]+" => '_')
 
 function git_rev()
     return try
@@ -114,6 +119,19 @@ catch
 end
 
 # ---- worker ---------------------------------------------------------------
+
+# The name a worker's rows carry: the target, with the executor and thread
+# count appended when it is not the serial default.
+function target_label(target, opts)
+    opts["executor"] == "serial" && Threads.nthreads() == 1 && return target
+    return "$target @ $(titlecase(opts["executor"])) t$(Threads.nthreads())"
+end
+
+# The executor for `--executor`, from the package on this revision.
+function executor(CR, name)
+    name == "threaded" && isdefined(CR, :Threaded) && return CR.Threaded()
+    return error("executor $name is not defined on this revision")
+end
 
 function metadata(opts, target)
     return [
@@ -162,9 +180,11 @@ relerr(a, b) = maximum(abs.(a .- b)) / max(1.0, maximum(abs.(b)))
 
 function run_worker(opts)
     target = opts["worker"]
+    label = target_label(target, opts)
     outdir = mkpath(opts["out"])
-    file = joinpath(outdir, "$(opts["tier"])-$(replace(target, ' ' => '_')).tsv")
-    meta = metadata(opts, target)
+    file = joinpath(outdir, "$(opts["tier"])-$(_file(label)).tsv")
+    meta = metadata(opts, label)
+    push!(meta, "executor" => opts["executor"])
     grad = target != "primal"
     backend = nothing
     if grad
@@ -183,6 +203,7 @@ function run_worker(opts)
             ]
         )
     )
+    ex = opts["executor"] == "serial" ? nothing : executor(CR, opts["executor"])
     # Rows are written as they finish, so a crash keeps the cells before it.
     open(file, "w") do io
         for (k, v) in meta
@@ -191,8 +212,15 @@ function run_worker(opts)
         println(io, join(COLUMNS, '\t'))
         flush(io)
         # The backend's methods are newer than this function: run the cells
-        # in the latest world.
-        Base.invokelatest(run_cells, io, opts, target, backend, rules)
+        # in the latest world, under the executor when one is asked for.
+        cells = () -> Base.invokelatest(
+            run_cells, io, opts, target, label, backend, rules
+        )
+        if ex === nothing
+            cells()
+        else
+            Base.ScopedValues.with(cells, CR.EXECUTOR => ex)
+        end
         println(io, "# load_end=", loadavg())
         println(io, "# finished=", now())
     end
@@ -200,7 +228,7 @@ function run_worker(opts)
     return nothing
 end
 
-function run_cells(io, opts, target, backend, rules)
+function run_cells(io, opts, target, label, backend, rules)
     grad = backend !== nothing
     tier = opts["tier"]
     seconds = parse(Float64, opts["seconds"])
@@ -212,11 +240,14 @@ function run_cells(io, opts, target, backend, rules)
             for arm in MatrixCases.arms(c)
                 row = Dict{String, Any}(
                     "case" => c.name, "size" => string(z), "S" => z.S,
-                    "T" => z.T, "L" => z.L, "target" => target, "arm" => arm,
+                    "T" => z.T, "L" => z.L, "target" => label, "arm" => arm,
+                    "load" => loadavg(),
                 )
                 f, θ = MatrixCases.build(c, z, arm)
                 row["nparams"] = length(θ)
-                reason = skip_reason(c, target, arm, θ, rules)
+                reason = opts["executor"] != "serial" && arm != "rule" ?
+                    "the executor applies to the rule arm only" :
+                    skip_reason(c, target, arm, θ, rules)
                 if reason !== nothing
                     row["status"] = "skipped: $reason"
                     println(io, join(_row(row), '\t'))
@@ -315,7 +346,7 @@ function run_all(opts)
     outdir = mkpath(opts["out"])
     timeout = parse(Float64, opts["timeout"])
     project = Base.active_project()
-    for target in _list(opts["targets"])
+    for target in _list(opts["targets"]), n in _list(opts["threads"])
         target == "primal" || haskey(GRADIENTS, target) ||
             error(
             "unknown target $target; choose from primal, ",
@@ -325,11 +356,13 @@ function run_all(opts)
             "--worker=$target", "--tier=$(opts["tier"])",
             "--cases=$(opts["cases"])", "--out=$outdir",
             "--label=$(opts["label"])", "--seconds=$(opts["seconds"])",
+            "--executor=$(opts["executor"])",
         ]
         cmd = `$(Base.julia_cmd()) --project=$project --startup-file=no
-            --threads=1 $(@__FILE__) $args`
-        log = joinpath(outdir, "$(opts["tier"])-$(replace(target, ' ' => '_')).log")
-        println("== $target (log: $log)")
+            --threads=$n $(@__FILE__) $args`
+        name = "$(_file(target))-$(opts["executor"])-t$n"
+        log = joinpath(outdir, "$(opts["tier"])-$name.log")
+        println("== $target, $(opts["executor"]), $n threads (log: $log)")
         t0 = time()
         p = run(pipeline(cmd; stdout = log, stderr = log); wait = false)
         timed_out = timedwait(() -> process_exited(p), timeout; pollint = 2.0) ===
