@@ -42,9 +42,9 @@ The kernel is a length-`L` vector shared by every stratum, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
 A `TimeVarying` kernel with [`ComposableRecurrences.Primary`](@ref)
-indexing gives each output its own kernel by the time it was produced,
-`p_t = Σ_l k_l(t - l) y_{t-l}` with `k_l(τ)` the weight on lag `l` in
-column `τ`, and needs its seed at times from 1.
+indexing reads the column of each output's own time, ``k_{i,l}(t - l)`` in
+place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
+produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
