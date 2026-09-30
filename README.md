@@ -28,8 +28,8 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
   An effect such as susceptible depletion is one small type with an `apply!` method, not a new loop.
 - A call can return its state, and the next call resumes from it, so a forecast continues a fitted series without rebuilding the operator.
 - No step copies its lag window, so gradients stay fast.
-  They are tested against ForwardDiff, ReverseDiff, Enzyme and Mooncake in CI.
-- Interface tests check that a user-written operator, modifier or coupling meets the contract, and the documentation reports gradient timings per backend.
+  They are tested against ForwardDiff, Mooncake and Enzyme.
+- Interface tests check that a user-written operator, modifier or coupling meets the contract.
 
 ## Getting started
 
