@@ -145,16 +145,14 @@ end
     # I_t = S_{t-1} (1 − exp(−R_t Σ_i g_i I_{t-i} / N)) after the seed days,
     # with the pool starting at N − Σ seed. The whole seed is the history and
     # is returned first; the recurrence starts on the day after it.
-    function bvd_renewal(Rt, g, seed, N)
+    # A seed shorter than the generation interval is zero-padded by the
+    # package: BVD truncates the early windows, which is the same sum. A
+    # longer seed is passed whole, so the pool is drawn down by all of it.
+    function bvd_renewal(Rt, g, seed, N; history = seed)
         L = length(seed)
         depletion = ComposableRecurrences.Depletion(
             N; form = :hazard, seeded = true
         )
-        # A seed shorter than the generation interval is zero-padded: BVD
-        # truncates the early windows, which is the same sum. A longer seed
-        # is passed whole, so the pool is drawn down by all of it.
-        pad = max(length(g) - L, 0)
-        history = vcat(zeros(eltype(seed), pad), seed)
         r = Recurrence(g; modifiers = (depletion,))
         return vcat(seed, r(Rt[(L + 1):end]; history))
     end
@@ -179,4 +177,10 @@ end
         ∇ = ForwardDiff.gradient(θ -> sum(w .* bvd_renewal(unpack(θ)...)), θ0)
         @test ∇ ≈ ∇ref
     end
+
+    # Padding a short seed explicitly gives the same run.
+    g, seed = [0.1, 0.4, 0.3, 0.2], [2.0, 3.0, 4.0]
+    padded = vcat(zeros(length(g) - length(seed)), seed)
+    @test bvd_renewal(Rt, g, seed, N; history = padded) ≈
+        B.renewal_infections(Rt, g, seed, N)
 end
