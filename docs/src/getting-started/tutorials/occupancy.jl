@@ -30,7 +30,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # Each patient leaves with probability `d` each day, so the chance of still being in a bed `k` days after admission is `(1 - d)^k`.
 # As a convolution, occupancy is the admissions weighted by that survival, lag 0 first.
 # As a recurrence, it is yesterday's occupancy times `1 - d`, plus today's admissions through `add`.
-# The recurrence needs no gain, and runs over the length of `add`.
+# The recurrence needs no multiplier (gain), and runs over the length of `add`.
 
 T = 90
 admissions = [30 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -83,11 +83,11 @@ round(sum(by_recurrence .- capped))
 #
 # A ward holds suspected patients awaiting a test and confirmed patients.
 # Each day a share of suspected patients is confirmed and moves to the confirmed stock, and others are ruled out and leave.
-# That move couples the two stocks, which is not `gain ⊙ x + add`, so it is a modifier.
+# That move couples the two stocks, so it is not a multiplier plus an input, and it is written as a modifier.
 # The recurrence carries yesterday's stocks forward with the unit kernel, and the modifier applies the day's flows.
 #
-# A modifier is a struct with `forward` on the `Step()` role.
-# This one couples the strata, so it implements the vector step, updating `v` in place.
+# A modifier is a struct with a `forward` method for each step, marked by `Step()`.
+# This one couples the two stocks, so its step updates the values of both, `v`, in place.
 
 const CR = ComposableRecurrences
 

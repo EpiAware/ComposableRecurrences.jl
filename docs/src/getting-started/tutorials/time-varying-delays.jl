@@ -51,8 +51,8 @@ draw(
 
 # ## Reporting by report day or infection day
 #
-# With the default `Secondary()` indexing, column `t` weights the infections reported on day `t`.
-# With `Primary()`, column `s` is the delay of the infections on day `s`, which spread forward through it.
+# With the default `Secondary()`, column `t` belongs to the report day: it weights the infections reported on day `t`.
+# With `Primary()`, column `s` belongs to the infection day: it is the delay of the infections on day `s`, which spread forward through it.
 # A constant delay at the starting mean is a reference.
 
 infections = [100 * exp(-((t - 35) / 12)^2) for t in 1:T]

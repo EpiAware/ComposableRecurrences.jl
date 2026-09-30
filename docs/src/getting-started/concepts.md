@@ -6,12 +6,26 @@ Find what you need by intent here, then see it at work in the tutorials.
 Names that are public but not exported are written unqualified below.
 Load them with `using ComposableRecurrences: Depletion, Floor, with_state`, and so on.
 
+## Words used on these pages
+
+- **Series**: one sequence of values over time, such as the infections in one region or age group.
+- **Stratum** (plural strata): one of several series run side by side, which `PerStratum` gives its own value.
+- **Kernel**: the weights applied to past values, listed from the most recent lag.
+- **Gain**: the multiplier applied to each step, such as the reproduction number in a renewal process.
+- **History**: the values before the first step.
+- **State**: where a call stopped, so a later call can carry on from there.
+- **Pointwise**: acting on each series separately.
+- **Role**: which job a `forward` method does, such as one step of a modifier or a coupling's mixing.
+- **Secondary and Primary**: whether a time-varying kernel's column belongs to the day of the output (`Secondary()`) or the day of the input (`Primary()`).
+
+## Layers
+
 The package has these layers.
 
 - **Operators** step a series forward or weight past inputs.
 - **Calls and state** run an operator over a window of time and resume it.
-- **Shapes** mark how a kernel, coupling or parameter is indexed by strata and time.
-- **Couplings** mix strata within a step.
+- **Shapes** mark how a kernel, coupling or parameter is indexed by series and time.
+- **Couplings** mix the series within each step.
 - **Modifiers** act on each step's values in order.
 - **Variants** choose between forms of a modifier or wrapper.
 - **Extending** adds your own modifier, coupling or depletion form.
@@ -38,20 +52,20 @@ The package has these layers.
 ## Shapes
 
 A bare array has the slot's own axes only.
-Data (inputs, history and outputs) are strata × time and are never wrapped.
+Data (inputs, history and outputs) are series × time and are never wrapped.
 
 | Name | What it does | Returns |
 |---|---|---|
-| vector | one kernel shared by every stratum | `L` lags |
-| `PerStratum(x)` | one kernel or parameter per stratum | adds a leading `S` axis |
-| `Pairwise(A)` | one kernel per pair of strata, which mixes strata itself so the coupling stays `I` | `S × S × L` |
+| vector | one kernel shared by every series | `L` lags |
+| `PerStratum(x)` | one kernel or parameter per series | adds a leading `S` axis |
+| `Pairwise(A)` | one kernel per pair of series, which mixes the series itself so the coupling stays `I` | `S × S × L` |
 | `TimeVarying(x)` | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis |
-| `Secondary()` | column `t` is read at output time `t`; the default | an indexing variant |
-| `Primary()` | column `c` is the kernel of the input at time `c`; convolution kernels only | an indexing variant |
+| `Secondary()` | column `t` belongs to output day `t`; the default | an indexing variant |
+| `Primary()` | column `c` belongs to input day `c`; convolution kernels only | an indexing variant |
 
 ## Couplings
 
-A coupling mixes the strata after the kernel, `x_t = C_t (kernel ⋆ y)_t`.
+A coupling mixes the series after the kernel is applied, `x_t = C_t (kernel ⋆ y)_t`.
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -67,7 +81,7 @@ A modifier acts on `v_t = gain_t ⊙ x_t + add_t` after each recurrence step, in
 | Name | What it does | Recurrence | Convolution | Pointwise | Adjoint | Parameters |
 |---|---|---|---|---|---|---|
 | `Depletion(N, form)` | draws each step's values from a finite pool | yes | no | yes | hand-written | `N`, `heterogeneity`, `pool0` |
-| `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
+| `Redistribute(K, ε)` | moves a share `ε` of each series' value to others through `K` | yes, with several series | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
 
@@ -89,7 +103,7 @@ A bare array is an error that names the wrapper to use.
 | `forward(piece, role, args...)` | the maths of a modifier, coupling or depletion form for a role | writes in place, or returns scalars |
 | `pullback!(grads, piece, role, args...)` | its hand-written adjoint, optional | accumulates cotangents |
 | `Run()`, `Step()`, `Init()`, `Pressure()` | roles: an operator call, a modifier step, a modifier's initial state, a coupling's mixing | singletons |
-| `ispointwise(m)` | opts a modifier into the scalar `Step()` form | `Bool` |
+| `ispointwise(m)` | marks a modifier that acts on each series separately | `Bool` |
 | `param_eltype(x)` | the element type a modifier's or coupling's parameters promote the buffer to | a type |
 | `PieceInterface` | the Interfaces.jl conformance test for a new modifier, coupling or depletion form | a test result |
 

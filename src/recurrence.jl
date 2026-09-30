@@ -1,9 +1,10 @@
 @doc "
-A recurrence over strata whose kernel starts at lag 1, stepped from a window
-of its own past values.
+A recurrence whose kernel starts at lag 1, stepped from a window of its own
+past values, for one series or several run side by side.
 
-At time `t`, each stratum's kernel convolution of its last `L` values is
-mixed by the coupling, scaled by the gain and shifted by the add input,
+At time `t`, each series' kernel-weighted sum of its last `L` values is
+mixed by the coupling, multiplied by the gain (such as a reproduction
+number) and shifted by the add input,
 then passed through the modifiers in tuple order:
 
     x_t = coupling_t(Σ_i kernel_t[i] y_{t-i})
@@ -12,11 +13,11 @@ then passed through the modifiers in tuple order:
 
 `kernel[i]` weights `y_{t-i}`, as a generation interval or AR coefficients
 are written: a recurrence has no lag 0.
-The kernel is a length-`L` vector shared by every stratum, a
+The kernel is a length-`L` vector shared by every series, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
-weights every pair of strata and already mixes them, so its coupling is `I`.
+weights every pair of series and already mixes them, so its coupling is `I`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
@@ -26,7 +27,8 @@ and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 Called as `r(gain = 1; history, state, add = nothing, start, stop)`, the
 call covers the absolute times `start:stop`:
 
-  - `gain`: a scalar, a length-`T` vector shared by every stratum, or
+  - `gain`: the multiplier on each step; a scalar, a length-`T` vector
+    shared by every series, or
     `S × T`, read at absolute time `t`; one when left out.
   - `history`: the outputs at times `start - m` to `start - 1`, oldest
     first, length `m` for a single series or `S × m`; zeros when left out.
@@ -43,7 +45,7 @@ call covers the absolute times `start:stop`:
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
 The output is length `stop - start + 1` for a single series or `S` rows of
-it; the history sets which, and the number of strata.
+it; the history sets which, and the number of series.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
@@ -52,7 +54,7 @@ dual numbers pass through any slot.
 - `kernel`: the kernel, lag 1 first.
 
 # Keyword Arguments
-- `coupling`: how the strata's kernel convolutions mix; `I` by default.
+- `coupling`: how the series mix within each step; `I` by default.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
 
 # Examples

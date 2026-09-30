@@ -1,17 +1,17 @@
 # [Modifiers](@id modifiers)
 
 A modifier acts on `v_t = gain_t ⊙ x_t + add_t` after each recurrence step.
-Modifiers run in tuple order and each keeps its own state.
+Modifiers run in tuple order and each keeps its own state, such as the remaining pool for `Depletion`.
 Their parameters are a scalar, `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(...))`.
 
-| Modifier | What it does | Recurrence | Convolution | Pointwise | Adjoint | Parameters |
+| Modifier | What it does | Recurrence | Convolution | Per series | Adjoint | Parameters |
 |---|---|---|---|---|---|---|
 | `Depletion(N, form)` | draws each step's values from a finite pool | yes | no | yes | hand-written | `N`, `heterogeneity`, `pool0` |
-| `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
+| `Redistribute(K, ε)` | moves a share `ε` of each series' value to others through `K` | yes, with several series | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
 
-A pointwise modifier acts on each stratum separately, and the rest act on the whole step.
+A modifier marked per series acts on each series separately, and the rest act on all series together.
 
 ## Placement
 
@@ -57,7 +57,7 @@ Recurrence([0.2, 0.5, 0.3]; modifiers = mods)(1.5; history = zeros(3), stop = 6)
 
 ## Redistribute
 
-`Redistribute(K, ε)` moves a share `ε_q K[p, q]` of origin `q`'s value to stratum `p`, conserving the total.
+`Redistribute(K, ε)` moves a share `ε_q K[p, q]` of series `q`'s value to series `p`, conserving the total.
 The diagonal of `K` is ignored.
 
 ```@example modifiers
@@ -76,5 +76,5 @@ Recurrence([2.0]; modifiers = (Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4
 
 ## Adding a modifier
 
-A modifier is a struct with `forward` on the `Step()` role, and on `Init()` when it has an initial state.
+A modifier is a struct with a `forward` method for each step (`Step()`), and for its starting state (`Init()`) when it has one.
 The [Occupancy and capacity](@ref tutorial-occupancy) tutorial writes one, and the Extending table on the [Concepts](@ref concepts) page lists the roles.

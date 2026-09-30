@@ -32,7 +32,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ## A renewal process
 #
 # The generation interval is the kernel, lag 1 first.
-# The reproduction number is the gain, one value per day.
+# The reproduction number multiplies each step, one value per day, and is called the gain.
 # The history holds the infections on the days before the first step, and a shorter history is padded with zeros.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
@@ -131,7 +131,7 @@ draw(
 
 # ## Forecasting from where a run stopped
 #
-# `with_state` returns the output and a `State` holding the recent history and each modifier's state.
+# `with_state` returns the output and a `State`, a record of where the run stopped: its last infections and each modifier's own state, such as the remaining pool.
 # Passing it back as `state` continues the run, so a forecast needs no rerun of the fitted period.
 
 split = 50

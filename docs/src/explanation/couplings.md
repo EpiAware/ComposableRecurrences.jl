@@ -1,13 +1,13 @@
 # [Couplings](@id couplings)
 
-A coupling mixes the strata's kernel convolutions before the gain is applied.
-The default `I` keeps strata independent.
+A coupling mixes the series within each step, after the kernel is applied and before the gain multiplies the result.
+The default `I` keeps the series independent.
 
 ## Fixed mixing
 
-Any `S × S` matrix is a coupling, and `C[a, b]` weights stratum `b`'s convolution into stratum `a`.
-So a row is the stratum being infected and a column the stratum infecting it.
-With `C = [1 0; 1 0]` both strata are driven by stratum 1 alone.
+Any `S × S` matrix is a coupling, and `C[a, b]` weights series `b`'s kernel-weighted past into series `a`.
+So a row is the series being infected and a column the series infecting it.
+With `C = [1 0; 1 0]` both series are driven by series 1 alone.
 
 ```@example couplings
 using ComposableRecurrences
@@ -47,8 +47,9 @@ See [Shapes and coefficients](@ref shapes).
 
 ## Adding a coupling
 
-A coupling is any struct with `forward(C, Pressure(), q, p, t)`, which writes the mixed convolutions into `q`.
-This one sends a fixed share of every stratum's convolution to the first stratum.
+A coupling is any struct with `forward(C, Pressure(), q, p, t)`, which writes the mixed values into `q` from each series' kernel-weighted past `p`.
+`Pressure()` names this mixing job.
+This one sends a fixed share of every series to the first.
 
 ```@example couplings
 struct ToFirst

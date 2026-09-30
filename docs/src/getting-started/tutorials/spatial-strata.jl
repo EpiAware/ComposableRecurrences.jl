@@ -2,16 +2,17 @@
 #
 # ## Introduction
 #
-# Strata can be places, such as towns or health zones, or types, such as age groups or traced and untraced cases.
-# A coupling mixes strata within each step, a `Pairwise` kernel gives each pair its own generation interval, and `Redistribute` moves infections between places.
-# This tutorial builds a three-patch model several ways, recovers its importation series, and then treats strata as types.
+# A model can run several series side by side, one for each place, such as a town, or each type, such as an age group or traced and untraced cases.
+# Each of these series is a stratum.
+# A coupling mixes the series within each step, a `Pairwise` kernel gives each pair its own generation interval, and `Redistribute` moves infections between places.
+# This tutorial builds a three-patch model several ways, recovers its importation series, and then treats the series as types.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Build a gravity coupling from populations and distances.
 # 2. Compare a fixed coupling, per-pair generation intervals and mixing that changes over time.
 # 3. Move infections between patches with `Redistribute` and recompute the importation series.
-# 4. Use strata as types for a multi-type process, isolation and contact tracing in expectation.
+# 4. Use the series as types for a multi-type process, isolation and contact tracing in expectation.
 #
 # ### What might I need to know before starting
 #
@@ -117,7 +118,7 @@ draw(
 # B receives the most, from its large neighbour A, and A receives the least.
 # Arrivals halve on day 40 with the intensities.
 #
-# The modifier's state holds the last step's arrivals, which match the recomputed series.
+# The modifier's state, which it carries from step to step, holds the last step's arrivals, which match the recomputed series.
 
 maximum(abs, state.states[1] .- arrivals[:, end])
 

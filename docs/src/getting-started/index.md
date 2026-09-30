@@ -39,6 +39,7 @@ round.(vec(sum(reports; dims = 2)))
 
 The operators are built once and called like functions.
 The coupling mixes the towns after the generation interval is applied, and the depletion runs after each step.
+Each town is one series, and `PerStratum` gives each its own population.
 Chaining the renewal and the delay is function composition.
 
 ```@example overview

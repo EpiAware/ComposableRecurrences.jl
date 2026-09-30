@@ -9,7 +9,7 @@
 # ### What are we going to do in this exercise
 #
 # 1. Build a random walk, an AR(2) and an MA(2) process from the same innovations.
-# 2. Show that a time-varying AR coefficient can be a kernel or a gain.
+# 2. Show that a time-varying AR coefficient can be a kernel or a multiplier.
 # 3. Drive a renewal process with the exponential of an AR(1) process.
 #
 # ### What might I need to know before starting
@@ -28,7 +28,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ## Three processes from one set of innovations
 #
 # Each process is driven by the innovations through `add`.
-# A call with no gain runs over the length of `add`.
+# A call with no multiplier (gain) runs over the length of `add`.
 # A random walk is a recurrence with the unit kernel `[1.0]`.
 # An AR(p) process is a recurrence whose kernel is its coefficients, lag 1 first.
 # An MA(q) process is a convolution with kernel `[1; θ]`, lag 0 first.
@@ -59,7 +59,7 @@ draw(
 # ## A time-varying AR coefficient
 #
 # An AR(1) coefficient that changes over time can be a `TimeVarying` kernel, one column per day.
-# With a single lag it can also be the gain on the unit kernel, and the two give the same output.
+# With a single lag it can also be the multiplier (gain) on the unit kernel, and the two give the same output.
 
 ρ = range(0.95, 0.5; length = T)
 tvar_kernel = Recurrence(TimeVarying(reshape(collect(ρ), 1, :)))(; history = [0.0], add = ϵ)

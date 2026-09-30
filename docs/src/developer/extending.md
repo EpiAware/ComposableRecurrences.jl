@@ -1,6 +1,7 @@
 # [Adding a modifier](@id extending)
 
-A new modifier, or a new depletion form for `Depletion`, is a struct with `forward` for its role.
+A new modifier, or a new depletion form for `Depletion`, is a struct with a `forward` method for its role.
+A role names the job the method does: `Step()` for one step, `Init()` for the starting state, `Pressure()` for a coupling's mixing and `Run()` for a whole call.
 Variants such as a depletion form are struct values too, so there is no registry and no symbol to add.
 
 | Kind | Role | `forward` |
@@ -18,7 +19,7 @@ const CR = ComposableRecurrences
 
 ## A custom modifier
 
-A pointwise modifier sets `ispointwise` and implements the scalar step.
+A modifier that acts on each series separately sets `ispointwise` and implements the step for one value.
 This one scales each value by a factor.
 
 ```@example extending

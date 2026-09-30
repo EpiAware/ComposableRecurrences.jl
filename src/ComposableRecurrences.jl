@@ -13,8 +13,8 @@ automatic differentiation does not copy the lag window at every step.
 A bare array in a slot has the slot's own axes only (a kernel's lags, a
 coupling's `S × S`, a modifier parameter's one value);
 [`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
-strata and time axes.
-Data (inputs, history, outputs) are strata × time, with time on the last
+axes for several series run side by side (strata) and for time.
+Data (inputs, history, outputs) are series × time, with time on the last
 axis; a single series is a vector.
 Every time-indexed array is read at absolute time `t`, and a call covers
 `start:stop`.
@@ -23,7 +23,7 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 |:--------------------- |:-------------------------------------------------------- |
 | feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
 | causal convolution    | `Convolution(kernel)`, lag 0 first                       |
-| strata                | `PerStratum(x)`, `Pairwise(x)`                           |
+| several series        | `PerStratum(x)`, `Pairwise(x)`                           |
 | time variation        | `TimeVarying(x, indexing = Secondary())`                 |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |

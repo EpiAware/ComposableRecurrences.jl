@@ -17,8 +17,8 @@ v_t &= \text{gain}_t \odot x_t + \text{add}_t \\
 ```
 
 `kernel[1]` weights `y_{t-1}`, because a value cannot depend on itself in the same step, so a recurrence has no lag 0.
-`gain` scales the mixed convolution and `add` adds an input before the modifiers.
-The modifiers run in tuple order and each threads its own state `s_t`.
+`gain` is the multiplier on each step, such as the reproduction number, and `add` adds an input before the modifiers.
+The modifiers run in tuple order and each carries its own state `s_t` from step to step.
 
 ```@example operators
 using ComposableRecurrences
@@ -72,8 +72,8 @@ walk(; history = [0.0], add = [0.5, -0.2, 0.1, 0.3])
 
 ## Starting and resuming
 
-`with_state` takes the same arguments as a call and also returns a `State`.
-Pass the state back as `state` to resume from where the call stopped.
+`with_state` takes the same arguments as a call and also returns a `State`, a record of where the call stopped.
+Pass it back as `state` to carry on from there.
 
 ```@example operators
 using ComposableRecurrences: with_state
@@ -111,7 +111,7 @@ An operator's output is an ordinary array, so operators chain by calling one on 
 ## Recomputing intermediate quantities
 
 Operators do not record intermediate quantities.
-Each step's pre-gain value is a convolution of the outputs, so it can be recomputed afterwards.
+Each step's value before the gain multiplies it is a convolution of the outputs, so it can be recomputed afterwards.
 Prepending a zero to a recurrence kernel gives that convolution, lag 1 first.
 
 ```@example operators

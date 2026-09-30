@@ -2,14 +2,15 @@
 
 ## Axes
 
-`T` is time, `S` is strata and `L` is lags.
+`T` is time, `S` is the number of series and `L` is the number of lags.
+A stratum is one of several parallel series, such as a region or an age group.
 Time is always the last axis.
 A single series drops the `S` axis.
-Data (inputs, history and outputs) are strata × time and are never wrapped.
+Data (inputs, history and outputs) are series × time and are never wrapped.
 
 ## Kernel orientation
 
-Every kernel is lag-first.
+Every kernel lists the weight for the most recent lag first.
 Index 1 of a recurrence kernel weights `y_{t-1}`.
 Index 1 of a convolution kernel weights lag 0.
 `PerStratum`, `Pairwise` and `TimeVarying` kernels follow the same order.
@@ -23,11 +24,11 @@ A history shorter than `L` is zero-padded, meaning no earlier values.
 ## Shape table
 
 A bare array has the slot's own axes only.
-`PerStratum` adds a leading strata axis, `Pairwise` adds leading `S × S` axes and `TimeVarying` adds a trailing time axis.
+`PerStratum` adds a leading series axis, `Pairwise` adds leading `S × S` axes and `TimeVarying` adds a trailing time axis.
 
-| Slot | Fixed | Per stratum | Time-varying |
+| Slot | Fixed | Per series | Time-varying |
 |---|---|---|---|
-| kernel (lag-first) | vector `L` | `PerStratum(S × L)`, `Pairwise(S × S × L)` | `TimeVarying(L × T)`, `TimeVarying(PerStratum(S × L × T))` |
+| kernel (most recent lag first) | vector `L` | `PerStratum(S × L)`, `Pairwise(S × S × L)` | `TimeVarying(L × T)`, `TimeVarying(PerStratum(S × L × T))` |
 | coupling | `I`, `λI`, `S × S` matrix (dense, `Diagonal`, sparse) | – | `TimeVarying(S × S × T)` |
 | modifier parameter | scalar | `PerStratum(S)` | `TimeVarying(T)`, `TimeVarying(PerStratum(S × T))` |
 | gain, add | scalar | – | `T` or `S × T` |
@@ -36,7 +37,7 @@ A bare array has the slot's own axes only.
 
 ## Coefficient wrappers
 
-`PerStratum` gives each stratum its own kernel or parameter.
+`PerStratum` gives each series its own kernel or parameter.
 
 ```@example shapes
 using ComposableRecurrences
@@ -54,8 +55,8 @@ Gt = hcat([g .* (1 + 0.05t) for t in 1:6]...)
 Recurrence(TimeVarying(Gt))(1.0; history = fill(10.0, 3), stop = 6)
 ```
 
-A time-varying convolution kernel is indexed by output time by default (`Secondary()`).
-With `Primary()` column `s` is the kernel of the input at time `s`, which it spreads forward.
+By default, column `t` of a time-varying convolution kernel weights the inputs reaching output day `t` (`Secondary()`).
+With `Primary()`, column `s` is the delay of the input on day `s`, which it spreads forward.
 
 ```@example shapes
 using ComposableRecurrences: Primary
@@ -64,8 +65,8 @@ P = repeat([0.5, 0.3, 0.2], 1, 6)
 Convolution(TimeVarying(P, Primary()))(ones(6))
 ```
 
-`Pairwise` gives each pair of strata its own kernel.
-It already mixes strata, so its coupling stays `I`.
+`Pairwise` gives each pair of series its own kernel.
+It already mixes the series, so its coupling stays `I`.
 
 ```@example shapes
 A = zeros(2, 2, 2)
