@@ -146,18 +146,21 @@ end
     b = [0.5, 1.0, 2.0]
     d = CR.Depletion(10.0; form = :floor)
     y = Recurrence(g; modifiers = (d, CR.Imports(b)))(1.0; history = [2.0], add = zeros(3))
-    S, prev, out = 10.0, 2.0, Float64[]
-    for t in 1:3
-        v = S / 10 * prev
-        S -= v
-        prev = v + b[t]
-        push!(out, prev)
+    function naive()
+        S, prev, out = 10.0, 2.0, Float64[]
+        for t in 1:3
+            v = S / 10 * prev
+            S -= v
+            prev = v + b[t]
+            push!(out, prev)
+        end
+        return out
     end
-    @test y ≈ out
+    @test y ≈ naive()
 end
 
 @testitem "Redistribute: conserving, against a naive loop" begin
-    using ComposableRecurrences
+    using ComposableRecurrences, LinearAlgebra
     CR = ComposableRecurrences
     K = [9.0 0.2 0.1; 0.3 9.0 0.2; 0.1 0.4 9.0]
     Ktrue = K - Diagonal(diag(K))
@@ -249,7 +252,7 @@ end
         m̄ = ModifierChecks.mirror(m)
         h̄ = zero(h)
         CR.init_pullback!(m̄, m, h, h̄, s̄)
-        @test ModifierChecks.flat(m̄) ≈ expected[1:n]
+        @test ModifierChecks.flat(m̄.N) ≈ expected[1:n]
         @test vec(h̄) ≈ expected[(n + 1):end]
         # No history cotangent is asked for.
         CR.init_pullback!(ModifierChecks.mirror(m), m, h, nothing, s̄)

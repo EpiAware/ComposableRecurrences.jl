@@ -39,9 +39,10 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public init_state, apply, apply!, apply_pullback!, ispointwise, param_eltype,
-    pressure!, pressure_pullback!, pullback!, NoAdjoint, OperatorInterface,
-    CouplingInterface, ModifierInterface
+public init_state, apply, apply!, apply_pullback!, apply_pullback,
+    init_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
+    pullback!, NoAdjoint, OperatorInterface, CouplingInterface,
+    ModifierInterface, Depletion, Imports, Redistribute, Clamp
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -49,6 +50,8 @@ include("wrappers.jl")
 include("utils.jl")
 # The modifier interface and the stage loop that threads modifiers.
 include("modifiers.jl")
+# The built-in modifiers: Depletion, Imports, Redistribute and Clamp.
+include("builtin_modifiers.jl")
 # The coupling interface: `pressure!` for each coupling type.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.

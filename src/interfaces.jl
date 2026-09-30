@@ -136,3 +136,35 @@ Test objects are `Arguments(; modifier, history, v, t)`."
         p = [1.0, 2.0], window = [1.0 2.0; 3.0 4.0; 5.0 6.0], t = 1
     ),
 ]
+
+@implements ModifierInterface{(:pointwise,)} Depletion [
+    Arguments(;
+        modifier = Depletion([100.0, 50.0]; seeded = true),
+        history = [1.0 2.0; 3.0 1.0], v = [2.0, 3.0], t = 1
+    ),
+    Arguments(;
+        modifier = Depletion(80.0; form = :floor, heterogeneity = 1.5),
+        history = ones(2, 3), v = [2.0, 3.0], t = 1
+    ),
+]
+
+@implements ModifierInterface{(:pointwise,)} Imports [
+    Arguments(;
+        modifier = Imports([0.5 1.0; 0.2 0.1]), history = ones(2, 3),
+        v = [2.0, 3.0], t = 2
+    ),
+]
+
+@implements ModifierInterface Redistribute [
+    Arguments(;
+        modifier = Redistribute([0.0 0.3; 0.2 0.0], [0.1, 0.2]),
+        history = ones(2, 3), v = [2.0, 3.0], t = 1
+    ),
+]
+
+@implements ModifierInterface{(:pointwise,)} Clamp [
+    Arguments(;
+        modifier = Clamp(0.0, 2.5), history = ones(2, 3), v = [2.0, 3.0],
+        t = 1
+    ),
+]
