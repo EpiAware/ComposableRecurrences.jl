@@ -1,15 +1,22 @@
-@doc "
+@doc raw"
 Rescales each group of strata to an exogenous total: the strata of a group
 keep their shares of the group's value and the group takes its total.
+A stratum is one of ``S`` parallel series computed together, such as a
+place or an age group.
 
-With `v` the values after the earlier modifiers, group `p` of strata `G_p`
-and its total `T_p(t)` at absolute time `t`,
+At absolute time ``t``, with ``v_i`` stratum ``i``'s value after the
+earlier modifiers, ``G_p`` the strata of group ``p`` and ``T_{t,p}`` its
+total,
 
-    s_p = max(Σ_{k ∈ G_p} v_k, ε)
-    y_k = T_p(t) v_k / s_p        for k ∈ G_p
+```math
+\begin{aligned}
+\sigma_p &= \max\Big(\sum_{j \in G_p} v_j,\ \epsilon\Big) \
+v'_i &= T_{t,p}\, \frac{v_i}{\sigma_p}, \quad i \in G_p
+\end{aligned}
+```
 
-with `ε` the machine epsilon of the buffer eltype, so the group sums of `y`
-equal the totals wherever `s_p > ε`.
+with ``\epsilon`` the machine epsilon of the buffer eltype, so the group
+sums of ``v'`` equal the totals wherever ``\sigma_p > \epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
 `total` is a parameter over groups, not strata: one value,
@@ -20,6 +27,15 @@ It reads every stratum of a group, so it is not pointwise, and it has no
 state.
 It composes with the other modifiers in tuple order:
 `(Allocate(groups, total), Add(b))` adds `b` after the split.
+Its reverse pass, with ``\bar v'`` the output cotangent and
+``a_p = \sum_{j \in G_p} \bar v'_j v_j / \sigma_p``, is
+
+```math
+\bar T_{t,p} \mathrel{+}= a_p, \qquad
+\bar v_i = \frac{T_{t,p}}{\sigma_p} (\bar v'_i - a_p), \quad i \in G_p,
+```
+
+and on the floor (``\sigma_p = \epsilon``) the ``a_p`` term drops.
 
 # Arguments
 - `groups`: a vector of index ranges or vectors, one per group,
