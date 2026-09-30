@@ -16,6 +16,10 @@ const LIGHT_TUTORIALS = String[]
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
+    "latent-processes.jl",
+    "spatial-strata.jl",
+    "time-varying-delays.jl",
+    "occupancy.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -28,6 +32,14 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
         "# [Renewal then delay](@id tutorial-renewal-delay)",
+    "latent-processes.md" =>
+        "# [Latent processes driving R_t](@id tutorial-latent-rt)",
+    "spatial-strata.md" =>
+        "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
+    "time-varying-delays.md" =>
+        "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
+    "occupancy.md" =>
+        "# [Occupancy and capacity](@id tutorial-occupancy)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -199,6 +211,14 @@ const PACKAGE_TUTORIALS = [
     "Concepts" => "getting-started/concepts.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
+    "Latent processes driving R_t" =>
+        "getting-started/tutorials/latent-processes.md",
+    "Spatial and multi-type models" =>
+        "getting-started/tutorials/spatial-strata.md",
+    "Time-varying delays and kernels" =>
+        "getting-started/tutorials/time-varying-delays.md",
+    "Occupancy and capacity" =>
+        "getting-started/tutorials/occupancy.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
