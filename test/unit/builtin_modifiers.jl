@@ -148,6 +148,7 @@ end
     # A plain array is not a parameter, and the values must cover stop.
     @test_throws ArgumentError CR.Add(b[1, :])
     @test_throws ArgumentError CR.Add(b)
+    @test_throws ArgumentError CR.Add(TimeVarying(b[1, :]; indexed_by = :primary))
     @test_throws DimensionMismatch r(TimeVarying(b[1, :]))(1.1; history = h, stop = 5)
     @test_throws DimensionMismatch r(PerStratum([1.0, 2.0, 3.0]))(
         1.1; history = h, stop = 4
