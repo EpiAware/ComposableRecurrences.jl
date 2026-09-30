@@ -1,0 +1,177 @@
+@doc "
+Maps each stratum's value through a function `f`, with optional
+parameters `θ`:
+
+    y_k = f(v_k, θ_k)
+
+`f` is any callable, called as `f(v)` when `θ` is `nothing` (the default)
+and `f(v, θ_k)` otherwise.
+`θ_k` is `θ` read at stratum `k` and the absolute time, as every modifier
+parameter is: one value, `PerStratum(θ)`, `TimeVarying(θ)` or
+`TimeVarying(PerStratum(θ))`.
+A tuple or NamedTuple of these is read entry by entry, so `f` receives a
+tuple or NamedTuple of scalars.
+
+The pullback is a local forward-mode derivative of `f` in the value and
+`θ_k`.
+Pass `derivative` to supply it instead: `derivative(v)` returns `∂f/∂v`
+when `θ` is `nothing`, and `derivative(v, θ_k)` otherwise returns
+`(∂f/∂v, ∂f/∂θ)`, with `∂f/∂θ` shaped as `θ_k`.
+Values captured in `f` (a closure or a callable struct with float fields)
+are not parameters of the local derivative: without `derivative`, such a
+map is differentiated by the AD backend instead, so they keep their
+gradients.
+The state is unused.
+
+Scope: [`Recurrence`](@ref); pointwise; local forward-mode adjoint, or
+`derivative`.
+
+# Arguments
+- `f`: the map, `f(v)` or `f(v, θ_k)`.
+- `θ`: the parameters, or `nothing`.
+
+# Keyword Arguments
+- `derivative`: the derivative of `f`, or `nothing` for the local one.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+# Iterate a probability generating function, q_t = G(q_{t-1}) from q_0 = 0:
+# q_t is the probability that a negative binomial branching process has
+# died out by generation t.
+G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
+q = CR.Transform(G, (; r = 0.5, p = 0.4))
+Recurrence([1.0]; modifiers = (q,))(; history = [0.0], stop = 6)
+```
+
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+# One saturation level per stratum.
+sat = CR.Transform((v, c) -> c * v / (c + v), PerStratum([5.0, 20.0]))
+Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2))
+```
+"
+struct Transform{F, P, D}
+    "The map, `f(v)` or `f(v, θ_k)`."
+    f::F
+    "The parameters, or `nothing`."
+    θ::P
+    "The derivative of `f`, or `nothing` for the local one."
+    derivative::D
+    function Transform(f::F, θ::P, derivative::D) where {F, P, D}
+        _check_theta(θ)
+        return new{F, P, D}(f, θ, derivative)
+    end
+end
+
+function Transform(f, θ = nothing; derivative = nothing)
+    return Transform(f, θ, derivative)
+end
+
+_check_theta(::Nothing) = nothing
+function _check_theta(θ::Union{Tuple, NamedTuple})
+    foreach(x -> _check_param(:θ, x), θ)
+    return nothing
+end
+_check_theta(θ) = (_check_param(:θ, θ); nothing)
+
+# Whether the local derivative covers every parameter: a supplied
+# derivative, or a map with no float fields of its own.
+_local_derivative(m::Transform) = m.derivative !== nothing || _fieldfree(m.f)
+_fieldfree(f) = param_eltype(f) <: Union{Bool, Integer}
+
+ispointwise(::Transform) = true
+
+_theta_pairs(::Nothing) = ()
+_theta_pairs(θ::Union{Tuple, NamedTuple}) = map(x -> :θ => x, Tuple(θ))
+_theta_pairs(θ) = (:θ => θ,)
+
+forward(m::Transform, ::Init, s, history) = _zero_state!(s, _theta_pairs(m.θ)...)
+pullback!(grads, ::Transform, ::Init, s, history) = nothing
+
+# The parameters at stratum `k` and absolute time `t`.
+_theta_at(::Nothing, k, t) = nothing
+_theta_at(θ::Union{Tuple, NamedTuple}, k, t) = map(x -> _param(x, k, t), θ)
+_theta_at(θ, k, t) = _param(θ, k, t)
+
+_call(f, v, ::Nothing) = f(v)
+_call(f, v, θ) = f(v, θ)
+
+function forward(m::Transform, ::Step, v, s, t, k)
+    return _call(m.f, v, _theta_at(m.θ, k, t)), s
+end
+
+function pullback!(grads, m::Transform, ::Step, v, s, t, k)
+    _local_derivative(m) || throw(
+        ArgumentError(
+            "a Transform whose map has float fields is differentiated by " *
+                "the AD backend; pass them in θ or supply derivative"
+        )
+    )
+    ∂v, ∂θ = _derivative(m.derivative, m.f, v, _theta_at(m.θ, k, t))
+    _add_theta!(_cotangent(grads.piece, :θ), m.θ, ∂θ, grads.v, k, t)
+    return grads.v * ∂v, grads.s
+end
+
+# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`.
+_add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
+function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
+    θ̄ === nothing && return nothing
+    map(values(θ̄), values(θ), values(∂θ)) do b, x, d
+        _add_param!(b, x, ȳ * d, k, t)
+    end
+    return nothing
+end
+_add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = _add_param!(θ̄, θ, ȳ * ∂θ, k, t)
+
+# `(∂f/∂v, ∂f/∂θ)` from a supplied derivative.
+_derivative(df, f, v, ::Nothing) = (df(v), nothing)
+_derivative(df, f, v, θ) = df(v, θ)
+
+# The local forward-mode derivative: one dual per scalar of `(v, θ_k)`.
+struct _TransformTag end
+
+function _derivative(::Nothing, f, v, ::Nothing)
+    return first(_partials(f(first(_seeds((v,)))), Val(1))), nothing
+end
+function _derivative(::Nothing, f, v, θ::Real)
+    x, a = _seeds(promote(v, θ))
+    ∂ = _partials(f(x, a), Val(2))
+    return ∂[1], ∂[2]
+end
+function _derivative(::Nothing, f, v, θ::Union{Tuple, NamedTuple})
+    xs = _seeds(promote(v, values(θ)...))
+    y = f(first(xs), _restructure(θ, Base.tail(xs)))
+    ∂ = _partials(y, Val(length(xs)))
+    return first(∂), _restructure(θ, Base.tail(∂))
+end
+
+_restructure(::Tuple, x) = x
+_restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
+
+function _seeds(xs::Tuple{T, Vararg{T, M}}) where {T, M}
+    N = Val(M + 1)
+    return ntuple(N) do i
+        ForwardDiff.Dual{_TransformTag}(xs[i], ntuple(j -> T(i == j), N))
+    end
+end
+
+# The partials of `f`'s output; a constant output has none.
+function _partials(y::ForwardDiff.Dual{_TransformTag}, ::Val{N}) where {N}
+    return ntuple(i -> ForwardDiff.partials(y, i), Val(N))
+end
+_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
+
+@implements PieceInterface{(:pointwise,)} Transform [
+    Arguments(;
+        piece = Transform(
+            (v, θ) -> θ.a * v + θ.b, (; a = PerStratum([0.5, 2.0]), b = 0.1)
+        ),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+    Arguments(;
+        piece = Transform(log1p), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+]

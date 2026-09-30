@@ -28,7 +28,7 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
-| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
+| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a struct with `forward` for a role                       |
 
@@ -52,6 +52,7 @@ module ComposableRecurrences
 # the main module file, rather than scattered across included files.
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
+using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
@@ -62,7 +63,7 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
+public Depletion, Redistribute, Add, Clamp, Transform, Hazard, Floor, Primary,
     Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
     Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface
 
@@ -84,5 +85,7 @@ include("convolution.jl")
 include("adjoints.jl")
 # Interfaces.jl declarations for operators, couplings and modifiers.
 include("interfaces.jl")
+# The Transform modifier, a pointwise map with parameters.
+include("transform.jl")
 
 end # module ComposableRecurrences

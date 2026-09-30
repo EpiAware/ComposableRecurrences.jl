@@ -171,15 +171,15 @@ end
     # A field-free map takes the local derivative; a closure or callable
     # struct with a float field is left to the AD backend, so its captured
     # values keep their gradient.
-    struct Scale
-        a::Float64
+    struct Scale{T}
+        a::T
     end
     (f::Scale)(v) = f.a * v
     @test CR._local_derivative(CR.Transform(log1p))
     @test CR._local_derivative(CR.Transform((v, θ) -> θ * v, 2.0))
     @test !CR._local_derivative(CR.Transform(Scale(2.0)))
-    b = 0.3
-    @test !CR._local_derivative(CR.Transform(v -> b * v))
+    scaled(b) = v -> b * v
+    @test !CR._local_derivative(CR.Transform(scaled(0.3)))
     @test CR._local_derivative(CR.Transform(Scale(2.0); derivative = v -> 2.0))
     w = range(0.5, 2.0; length = 6)
     loss(a) = sum(
