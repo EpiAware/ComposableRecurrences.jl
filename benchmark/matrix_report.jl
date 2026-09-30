@@ -162,9 +162,21 @@ function gain_section(io, run, tier)
     println(io, "## Rule gain, tier `", tier, "`\n")
     norules = filter(t -> !_rules(run, t), grads)
     if !isempty(norules)
+        gains = Float64[]
+        for r in run.rows
+            r["tier"] == tier && r["arm"] == "rule" && _ok(r) &&
+                r["target"] in norules || continue
+            n = get(ix, (tier, r["case"], r["size"], r["target"], "NoAdjoint"), nothing)
+            n !== nothing && _ok(n) &&
+                push!(gains, _num(n, "median_ns") / _num(r, "median_ns"))
+        end
         println(
             io, "No rules on this revision for ", join(norules, ", "),
-            ": both arms run plain AD, so their gain is noise around 1.\n"
+            ": both arms run the same plain AD, so their ratio is the noise ",
+            "floor of this run",
+            isempty(gains) ? "" :
+                @sprintf(" (%.2f× to %.2f×)", minimum(gains), maximum(gains)),
+            ".\n"
         )
     end
     println(
@@ -218,7 +230,7 @@ function opportunities_section(io, run)
         tier, c, sz, t, arm = _key(r)
         t == "primal" && continue
         p = get(ix, (tier, c, sz, "primal", "rule"), nothing)
-        if p !== nothing && _ok(p) && arm == "rule"
+        if p !== nothing && _ok(p) && arm == "rule" && _rules(run, t)
             ratio = _num(r, "median_ns") / _num(p, "median_ns")
             ratio > 20 && t != "ForwardDiff" && push!(
                 notes, @sprintf(
@@ -239,12 +251,14 @@ function opportunities_section(io, run)
             end
         end
     end
-    # Allocations growing with T mean a per-step allocation.
+    # Allocations growing with T mean a per-step allocation. Plain AD
+    # records a tape per step, so only the primal and rule paths are checked.
     for r in run.rows, s in run.rows
         (_ok(r) && _ok(s)) || continue
+        r["target"] == "primal" ||
+            (r["arm"] == "rule" && _rules(run, r["target"])) || continue
         same = all(r[k] == s[k] for k in ("tier", "case", "S", "target", "arm"))
-        same && parse(Int, s["T"]) > parse(Int, r["T"]) && r["L"] == s["L"] ||
-            continue
+        same && parse(Int, s["T"]) > parse(Int, r["T"]) || continue
         a, b = parse(Int, r["allocs"]), parse(Int, s["allocs"])
         b > 1.5 * a && b - a > 10 && push!(
             notes, @sprintf(
@@ -253,16 +267,16 @@ function opportunities_section(io, run)
             )
         )
     end
-    # Backends far apart on the same cell.
+    # Backends far apart on the same cell, as users call the operator.
     for r in run.rows
-        _ok(r) && r["target"] == "Mooncake reverse" || continue
+        _ok(r) && r["target"] == "Mooncake reverse" && r["arm"] == "rule" ||
+            continue
         e = get(ix, (r["tier"], r["case"], r["size"], "Enzyme reverse", r["arm"]), nothing)
         (e === nothing || !_ok(e)) && continue
         x = _num(e, "median_ns") / _num(r, "median_ns")
         (x > 2 || x < 0.5) && push!(
             notes, @sprintf(
-                "%s %s %s: Enzyme / Mooncake = %.2f×", r["case"], r["size"],
-                r["arm"], x
+                "%s %s: Enzyme / Mooncake = %.2f×", r["case"], r["size"], x
             )
         )
     end
