@@ -3,25 +3,35 @@
 # the removals move into it, and the draw takes from both pools in
 # proportion to their susceptible mass `S + σ V`.
 
-@doc "
+@doc raw"
 A protected pool for [`ComposableRecurrences.Depletion`](@ref): the
 depletion's removals move into it, and it is drawn from at relative
-susceptibility `σ`.
+susceptibility ``\sigma``.
 
-Each step the depletion form draws `y` from the effective pool `P = S + σ V`
-(unprotected `S`, protected `V`), and the two pools lose it in proportion,
-then the removals `m = min(r_t, max(S′, 0))` move from `S` to `V`:
+At absolute time ``t``, for each stratum (one of the parallel series
+computed together, such as a place or an age group) with unprotected pool
+``u``, protected pool ``w``, step value ``v``, population ``N``,
+heterogeneity ``\alpha`` and removals ``r_t``, the depletion form ``F``
+draws from the effective pool ``P = u + \sigma w`` and the pools lose the
+draw in proportion, then the removals move from ``u`` to ``w``:
 
-    y, P′ = form(v, P, N, α)
-    S′ = S − y S / P,   V′ = V − y σ V / P
-    S″ = S′ − m,        V″ = V′ + m
+```math
+\begin{aligned}
+(v', \cdot) &= F(v, P, N, \alpha) \\
+u^{*} &= u - v' \frac{u}{P}, \qquad w^{*} = w - v' \frac{\sigma w}{P} \\
+m &= \min\big(r_t, \max(u^{*}, 0)\big) \\
+u' &= u^{*} - m, \qquad w' = w^{*} + m
+\end{aligned}
+```
 
-When `P ≤ 0` the draw comes from `S` alone.
-`σ = 0` with removals `e ⋅ doses` gives all-or-nothing protection with
-efficacy `e`, and `σ = 1 − e` with removals `doses` gives leaky protection.
+When ``P \le 0`` the draw comes from ``u`` alone, ``u^{*} = u - v'``.
+With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
+doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
+equal to the doses gives leaky protection.
 A delay from dose to protection is a [`Convolution`](@ref) of the doses
 before the call.
-The derivative through the cap takes the active branch.
+The derivative through ``\min`` and ``\max`` takes the active branch.
+The depletion's state holds ``u`` for every stratum, then ``w``.
 
 # Arguments
 - `σ`: the relative susceptibility, one value or [`PerStratum`](@ref),
