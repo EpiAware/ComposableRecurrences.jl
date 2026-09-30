@@ -70,6 +70,8 @@ public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
+# Executors: how loops over independent strata, series or times run.
+include("executor.jl")
 # The piece interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
