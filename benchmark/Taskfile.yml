@@ -27,3 +27,12 @@ tasks:
     dir: '{{.TASKFILE_DIR}}/..'
     cmds:
       - julia --startup-file=no benchmark/matrix_report.jl {{.CLI_ARGS}}
+
+  matrix-reactant:
+    desc: "Reactant targets of the matrix, Julia 1.12 (usage: task -t benchmark/Taskfile.yml matrix-reactant -- --tier=ci --out=DIR)"
+    dir: '{{.TASKFILE_DIR}}/..'
+    env:
+      JULIAUP_CHANNEL: '1.12'
+    cmds:
+      - julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=test/reactant --startup-file=no benchmark/reactant_matrix.jl {{.CLI_ARGS}}

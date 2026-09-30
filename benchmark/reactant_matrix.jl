@@ -6,7 +6,7 @@
 # 1.12 and its own environment, so this runs apart from `matrix.jl` and
 # writes the same result files for `matrix_report.jl`.
 #
-#   julia +1.12 --project=test/reactant benchmark/reactant.jl [options]
+#   julia +1.12 --project=test/reactant benchmark/reactant_matrix.jl [options]
 #
 # Options:
 #   --tier=NAME           size tier (default realistic)
@@ -19,11 +19,12 @@
 #   --timeout=SECONDS     per cell (default 900)
 #   --seconds=SECONDS     timing budget per cell (default 2)
 #   --lock=FILE           a lock file each cell holds while it runs
+#   --csv=FILE            also write a summary with the plain CPU times
 #
 # Each cell runs in its own process, so a compile that hangs costs one
-# cell. `prep_s` is the compile time; the times are of the compiled
-# function. There are no rules under Reactant: the `rule` arm is the
-# operator as users call it, and the `NoAdjoint` arm is not run.
+# cell. `prep_s` is the compile and first call; the times are of the
+# compiled function. Rules are not used under Reactant, so each case runs
+# once, as users call it, in the `traced` arm.
 
 using Dates: now
 using Enzyme: Enzyme
@@ -51,7 +52,7 @@ function parse_args(args)
     opts = Dict(
         "tier" => "realistic", "targets" => join(TARGETS, ","), "cases" => "",
         "out" => "matrix-results", "label" => "", "timeout" => "900",
-        "seconds" => "2", "lock" => "", "cell" => "",
+        "seconds" => "2", "lock" => "", "cell" => "", "csv" => "",
     )
     for a in args
         m = match(r"^--([a-z]+)(?:=(.*))?$", a)
@@ -65,7 +66,13 @@ _list(s) = isempty(s) ? String[] : String.(split(s, ','))
 _file(opts, target) = joinpath(
     opts["out"], "$(opts["tier"])-$(replace(target, ' ' => '_')).tsv"
 )
-_row(row) = [string(get(row, k, "")) for k in COLUMNS]
+# A cell also times the plain CPU call: the primal, or Enzyme's gradient.
+const CELL_COLUMNS = [COLUMNS; "plain_median_ns"]
+const CSV_COLUMNS = [
+    "case", "size", "target", "status", "prep_s", "median_us",
+    "plain_median_us", "relerr", "revision",
+]
+_row(row, cols = COLUMNS) = [string(get(row, k, "")) for k in cols]
 
 function git_rev()
     return try
@@ -96,16 +103,23 @@ end
 const LOSS = Ref{Any}()
 loss(θ) = LOSS[](θ)
 gradient(θ) = Enzyme.gradient(Enzyme.Reverse, loss, θ)[1]
+function plain_gradient(f, θ)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    return Enzyme.gradient(mode, Enzyme.Const(f), θ)[1]
+end
 
 relerr(a, b) = maximum(abs.(a .- b)) / max(1.0, maximum(abs.(b)))
 
+_sync(x) = x
+_sync(x::Union{Reactant.RArray, Reactant.RNumber}) = Reactant.synchronize(x)
+
 function time_cell(f, θr, seconds)
-    Reactant.synchronize(f(θr))
+    _sync(f(θr))
     ts = Float64[]
     t_end = time() + seconds
     while length(ts) < 1000 && (length(ts) < 5 || time() < t_end)
         t0 = time_ns()
-        Reactant.synchronize(f(θr))
+        _sync(f(θr))
         push!(ts, time_ns() - t0)
     end
     return minimum(ts), median(ts)
@@ -118,7 +132,7 @@ function run_cell(opts)
     z = only(filter(z -> string(z) == szs, MatrixCases.sizes(c, opts["tier"])))
     row = Dict{String, Any}(
         "case" => c.name, "size" => string(z), "S" => z.S, "T" => z.T,
-        "L" => z.L, "target" => target, "arm" => "rule",
+        "L" => z.L, "target" => target, "arm" => "traced",
     )
     f, θ = MatrixCases.build(c, z, "rule")
     row["nparams"] = length(θ)
@@ -134,8 +148,8 @@ function run_cell(opts)
     fn = grad ? gradient : loss
     t0 = time()
     compiled = Reactant.@compile fn(θr)
-    row["prep_s"] = round(time() - t0; digits = 2)
     out = Array(compiled(θr))
+    row["prep_s"] = round(time() - t0; digits = 2)
     if grad
         if length(θ) <= FD_MAX
             row["relerr"] = relerr(out, ForwardDiff.gradient(f, θ))
@@ -147,9 +161,14 @@ function run_cell(opts)
         row["relerr"] = relerr(out, f(θ))
         row["check"] = "plain"
     end
-    row["min_ns"], row["median_ns"] = time_cell(
-        compiled, θr, parse(Float64, opts["seconds"])
-    )
+    seconds = parse(Float64, opts["seconds"])
+    row["min_ns"], row["median_ns"] = time_cell(compiled, θr, seconds)
+    plain = grad ? () -> plain_gradient(f, θ) : () -> f(θ)
+    row["plain_median_ns"] = try
+        last(time_cell(_ -> plain(), nothing, seconds))
+    catch
+        ""
+    end
     row["status"] = "ok"
     return row
 end
@@ -175,8 +194,27 @@ function write_header(opts, target)
     return file
 end
 
+_us(x) = (v = tryparse(Float64, string(x)); v === nothing ? "" : round(v / 1.0e3; digits = 2))
+
+function write_csv_row(file, row)
+    csv = merge(
+        row, Dict(
+            "median_us" => _us(get(row, "median_ns", "")),
+            "plain_median_us" => _us(get(row, "plain_median_ns", "")),
+            "revision" => git_rev()[1:min(end, 8)],
+            "status" => replace(string(get(row, "status", "")), ',' => ';'),
+        )
+    )
+    open(io -> println(io, join(_row(csv, CSV_COLUMNS), ',')), file, "a")
+    return nothing
+end
+
 function run_all(opts)
     mkpath(opts["out"])
+    if !isempty(opts["csv"])
+        mkpath(dirname(opts["csv"]))
+        open(io -> println(io, join(CSV_COLUMNS, ',')), opts["csv"], "w")
+    end
     timeout = parse(Float64, opts["timeout"])
     names = _list(opts["cases"])
     for target in _list(opts["targets"])
@@ -187,6 +225,7 @@ function run_all(opts)
             isempty(names) || c.name in names || continue
             row = run_one(opts, target, "$(c.name)/$z", timeout)
             open(io -> println(io, join(_row(row), '\t')), file, "a")
+            isempty(opts["csv"]) || write_csv_row(opts["csv"], row)
             @printf(
                 "%-20s %-14s %-22s %-8s %s\n", c.name, string(z), target,
                 get(row, "prep_s", ""), _cell(row)
@@ -238,12 +277,12 @@ function run_one(opts, target, cell, timeout)
     )
     base = Dict{String, Any}(
         "case" => name, "size" => sz, "S" => z.S, "T" => z.T, "L" => z.L,
-        "target" => target, "arm" => "rule",
+        "target" => target, "arm" => "traced",
     )
     if timed_out
         base["status"] = "timeout: no result after $(Int(timeout)) s"
     elseif isfile(out)
-        for (k, v) in zip(COLUMNS, split(readchomp(out), '\t'))
+        for (k, v) in zip(CELL_COLUMNS, split(readchomp(out), '\t'))
             isempty(v) || (base[k] = v)
         end
     else
@@ -264,11 +303,13 @@ if abspath(PROGRAM_FILE) == @__FILE__
         catch e
             Dict{String, Any}(
                 "case" => first(split(opts["cell"], '/')),
-                "target" => opts["target"], "arm" => "rule",
+                "target" => opts["target"], "arm" => "traced",
                 "status" => "error: " *
                     first(replace(sprint(showerror, e), r"\s+" => " "), 150),
             )
         end
-        open(io -> println(io, join(_row(row), '\t')), opts["rowfile"], "w")
+        open(opts["rowfile"], "w") do io
+            println(io, join(_row(row, CELL_COLUMNS), '\t'))
+        end
     end
 end

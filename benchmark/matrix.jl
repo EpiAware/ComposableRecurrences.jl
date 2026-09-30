@@ -68,10 +68,6 @@ const PENDING_TARGETS = [
     ("KA CPU primal", "KernelAbstractions extension (#17)"),
     ("CUDA primal", "GPU array path (#14)"),
     ("CUDA gradient", "GPU array path and rules (#14)"),
-    ("Reactant CPU primal", "test/reactant env and traced bodies"),
-    ("Reactant CPU gradient", "test/reactant env and traced bodies"),
-    ("Reactant GPU primal", "test/reactant env and traced bodies"),
-    ("Reactant GPU gradient", "test/reactant env and traced bodies"),
 ]
 
 # ForwardDiff costs one primal per chunk of parameters: above this many it
