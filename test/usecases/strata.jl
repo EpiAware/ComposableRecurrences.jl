@@ -239,3 +239,132 @@ end
     @test patch_importation(K, ε, N) ≈
         B.patch_infections(Rt, g, seeds, K, ε, N).importation
 end
+
+@testitem "Use case: stratified renewal with imports, depletion and mixing" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    C = UseCaseReferences.CTIDMReference
+
+    g = [0.2, 0.5, 0.3]
+    I₀, r = [2.0, 1.0, 0.5], 0.0
+    K = [0.8 0.15 0.05; 0.1 0.7 0.2; 0.05 0.25 0.7]
+    N = [200.0, 120.0, 90.0]
+    Rt = fill(2.2, 3, 8)
+    # One exogenous importation stream per stratum, `strata × time`.
+    ι = [
+        0.5 0.5 1.0 2.0 1.5 0.5 0.2 0.1
+        0.0 0.2 0.4 0.4 0.2 0.1 0.0 0.0
+        1.0 0.8 0.6 0.4 0.2 0.1 0.1 0.0
+    ]
+    S, T = size(Rt)
+    w = reshape(range(0.5, 2.0; length = S * T), S, T)
+    core(K) = C.ConstantRenewalStep(reverse(g), K)
+    ref_after(K, N, ι) = C.renewal(
+        C.RenewalStep(core(K), (C.SusceptibleDepletion(N), C.ImportedRate(ι))),
+        g, I₀, r, Rt
+    )
+    ref_before(K, N, ι) = C.renewal(
+        C.RenewalStep(core(K), (C.ImportedRate(ι), C.SusceptibleDepletion(N))),
+        g, I₀, r, Rt
+    )
+    unpack(θ) = (reshape(θ[1:9], 3, 3), θ[10:12], reshape(θ[13:end], S, T))
+    θ0 = vcat(vec(K), N, vec(ι))
+    loss(f) = θ -> sum(w .* f(unpack(θ)...))
+    ∇ref_after = ForwardDiff.gradient(loss(ref_after), θ0)
+    ∇ref_before = ForwardDiff.gradient(loss(ref_before), θ0)
+
+    # The mixing is the coupling, the pool is per stratum, and the imports
+    # are per stratum and day: `Add` after the depletion, or `add` before it.
+    window = C.renewal_window(core(K), g, I₀, r)
+    function after(K, N, ι)
+        depletion = ComposableRecurrences.Depletion(
+            PerStratum(N), ComposableRecurrences.Floor()
+        )
+        imports = ComposableRecurrences.Add(TimeVarying(PerStratum(ι)))
+        renewal = Recurrence(g; coupling = K, modifiers = (depletion, imports))
+        return renewal(Rt; history = window)
+    end
+    function before(K, N, ι)
+        depletion = ComposableRecurrences.Depletion(
+            PerStratum(N), ComposableRecurrences.Floor()
+        )
+        renewal = Recurrence(g; coupling = K, modifiers = (depletion,))
+        return renewal(Rt; history = window, add = ι)
+    end
+    @test after(K, N, ι) ≈ ref_after(K, N, ι)
+    @test before(K, N, ι) ≈ ref_before(K, N, ι)
+    @test ForwardDiff.gradient(loss(after), θ0) ≈ ∇ref_after
+    @test ForwardDiff.gradient(loss(before), θ0) ≈ ∇ref_before
+end
+
+@testitem "Use case: BVD deviation knots (stratified AR(1))" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    B = UseCaseReferences.BVDReference
+
+    # Two groups of units; unit 3 holds a level only and does not walk.
+    groups = [1:3, 4:5]
+    walking = [true, true, false, true, true]
+    walk_index = [1, 2, 0, 3, 4]
+    n_walking, n_knots = 4, 6
+    factors = [[1.0 0.0 0.0; 0.4 0.9 0.0; 0.2 0.3 0.9], nothing]
+    drift_factors = [[1.0 0.0; 0.5 0.8], nothing]
+    z_level = [0.3, -0.5, 0.8, 1.1, -0.2]
+    z_drift = [0.1 * sin(i) for i in 1:(n_walking * (n_knots - 1))]
+    σ_level, φ = 0.4, 0.7
+    σ_δ = [0.2, 0.3, 0.25, 0.1, 0.15]
+    nz, nd = length(z_level), length(z_drift)
+    unpack(θ) = (
+        θ[1:nz], θ[(nz + 1):(nz + nd)], θ[nz + nd + 1],
+        θ[(nz + nd + 2):(2nz + nd + 1)], θ[end],
+    )
+    θ0 = vcat(z_level, z_drift, σ_level, σ_δ, φ)
+    ref(z_level, z_drift, σ_level, σ_δ, φ) = B.deviation_knots(
+        z_level, z_drift, σ_level, σ_δ, φ, groups, factors, drift_factors,
+        walking, walk_index, n_walking, n_knots
+    )
+    W = reshape(range(0.5, 2.0; length = nz * n_knots), nz, n_knots)
+    ∇ref = ForwardDiff.gradient(θ -> sum(W .* ref(unpack(θ)...)), θ0)
+
+    # The level and each knot's innovation are group-centred linear maps of
+    # the draws; they do not read δ, so they are built before the call.
+    correlate(F, z) = F === nothing ? z : F * z
+    centre(x) = x .- sum(x) / length(x)
+    function level(z_level, σ_level)
+        return reduce(
+            vcat,
+            [centre(σ_level .* correlate(F, z_level[us])) for (us, F) in zip(groups, factors)]
+        )
+    end
+    function innovations(z_drift, σ_δ)
+        Tp = promote_type(eltype(z_drift), eltype(σ_δ))
+        c = zeros(Tp, nz, n_knots - 1)
+        for k in 2:n_knots, (us, F) in zip(groups, drift_factors)
+            ws = filter(u -> walking[u], us)
+            z = z_drift[(k - 2) * n_walking .+ walk_index[ws]]
+            c[ws, k - 1] = centre(σ_δ[ws] .* correlate(F, z))
+        end
+        return c
+    end
+    # δ(k) = φ δ(k - 1) + c_k per unit: one AR(1) kernel shared by the
+    # strata, the level as history and the innovations as `add`.
+    function knots(z_level, z_drift, σ_level, σ_δ, φ)
+        δ1 = level(z_level, σ_level)
+        ar = Recurrence([φ])
+        return hcat(δ1, ar(1.0; history = reshape(δ1, :, 1), add = innovations(z_drift, σ_δ)))
+    end
+    @test knots(unpack(θ0)...) ≈ ref(unpack(θ0)...)
+    @test ForwardDiff.gradient(θ -> sum(W .* knots(unpack(θ)...)), θ0) ≈ ∇ref
+
+    # `patch_rt_model` carries the same AR(1) past the cut-off on fresh
+    # innovations. Resuming from the fitted knots' state is the one run.
+    function forecast(z_level, z_drift, σ_level, σ_δ, φ)
+        δ1 = level(z_level, σ_level)
+        c = innovations(z_drift, σ_δ)
+        ar = Recurrence([φ])
+        fitted, state = ComposableRecurrences.with_state(
+            ar, 1.0; history = reshape(δ1, :, 1), add = c, stop = 3
+        )
+        return hcat(δ1, fitted, ar(1.0; state, add = c))
+    end
+    @test forecast(unpack(θ0)...) ≈ ref(unpack(θ0)...)
+    @test ForwardDiff.gradient(θ -> sum(W .* forecast(unpack(θ)...)), θ0) ≈ ∇ref
+end
