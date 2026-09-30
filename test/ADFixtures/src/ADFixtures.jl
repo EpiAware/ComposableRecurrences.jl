@@ -143,6 +143,27 @@ function _delay_varying(θ)
     return sum(WS .* Convolution(TimeVarying(G))(X))
 end
 
+# A negative binomial PGF iterated per stratum, mixed by the coupling, with
+# a shared dispersion and per-stratum probabilities.
+_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+function _transform(θ)
+    r, p = θ[1], θ[2:(S + 1)]
+    m = ComposableRecurrences.Transform(_pgf, (; r, p))
+    q = Recurrence([1.0]; coupling = K0, modifiers = (m,))(
+        ; history = zeros(S, 1), add = zeros(S, T)
+    )
+    return sum(WS .* q)
+end
+
+function _delay_modified(θ)
+    g, N, X = _unpack(θ, (L + 1,), (S,), (S, T))
+    mods = (
+        ComposableRecurrences.Depletion(collect(N)),
+        ComposableRecurrences.Transform(*, 2.0),
+    )
+    return sum(WS .* Convolution(g; modifiers = mods)(X))
+end
+
 _flat(xs...) = reduce(vcat, map(vec, xs))
 
 const _SCENARIOS = [
@@ -182,6 +203,14 @@ const _SCENARIOS = [
     (
         "Convolution time-varying kernel", _delay_varying,
         () -> _flat(fill(0.25, S, L, T), 1 .+ LOGR),
+    ),
+    (
+        "Recurrence Transform with per-stratum parameters", _transform,
+        () -> [0.5, 0.2, 0.3, 0.4],
+    ),
+    (
+        "Convolution with depletion and a transform", _delay_modified,
+        () -> _flat([0.0; G0], [20.0, 30.0, 25.0], 1 .+ LOGR),
     ),
 ]
 
@@ -228,12 +257,17 @@ broken_scenario_names() = String[]
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
 Enzyme forward mode with runtime activity returns a wrong gradient when a
-modifier reads a constant array, here the population; reverse mode is
-correct.
+depletion modifier reads its population array, on a Recurrence or a
+Convolution; reverse mode is correct.
 """
 function backend_broken_scenarios()
     return Dict(
-        "Enzyme forward" => Set(["Recurrence strata, coupling and depletion"]),
+        "Enzyme forward" => Set(
+            [
+                "Recurrence strata, coupling and depletion",
+                "Convolution with depletion and a transform",
+            ]
+        ),
     )
 end
 
