@@ -4,7 +4,7 @@ Recurrences and causal convolutions are usually hand-written loops, rewritten fo
 ComposableRecurrences expresses them as two operators.
 `Recurrence` steps a series forward from a kernel-weighted window of its own past.
 `Convolution` weights past inputs by a kernel.
-Couplings link many series, and modifiers add behaviour such as finite pools or bounds to each step.
+Many series can be linked so that each one feeds the others, and extra behaviour such as finite pools or bounds can be added to each step.
 Every operator is differentiable, so a model built from them can be fitted with gradient-based methods.
 
 ## A first example
