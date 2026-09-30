@@ -10,6 +10,10 @@ Given stratum `k`'s value `v` and state `s` before the step and the
 cotangents `v̄′`, `s̄′` of its outputs, return the cotangents `(v̄, s̄)` of
 `v` and `s`, adding parameter cotangents into `m̄`.
 A pointwise modifier's [`apply_pullback!`](@ref) loops it over strata.
+Declare [`ComposableRecurrences.uses_adjoint`](@ref) true for a modifier
+that implements it.
+The default is a local ForwardDiff derivative in the value, the state and
+the modifier's parameters.
 
 # Arguments
 - `m̄`: the cotangent of the modifier's parameters.
@@ -40,6 +44,8 @@ modifier's parameters into `m̄` and of the history into `h̄` (skipped when
 `h̄` is `nothing`).
 Implement it for a modifier whose initial state depends on its parameters
 or the history.
+The default is a local ForwardDiff Jacobian of `init_state`, skipped for the
+default zero state.
 
 # Arguments
 - `m̄`: the cotangent of the modifier's parameters.
@@ -180,9 +186,12 @@ function init_state_pullback!(m̄, h̄, m::Depletion, history, s̄)
     return nothing
 end
 
+# `r^a`, skipping the power call at the default exponent `a = 0` or `1`.
+_pow(r, a) = iszero(a) ? one(r) : isone(a) ? r : r^a
+
 function apply(m::Depletion{:hazard}, v, s, t, k)
     N = _stratum(m.N, k)
-    x = v / N * (s / N)^(m.heterogeneity - 1)
+    x = v / N * _pow(s / N, m.heterogeneity - 1)
     return -s * expm1(-x), s * exp(-x)
 end
 
@@ -190,20 +199,21 @@ function apply_pullback(m̄, m::Depletion{:hazard}, v, s, t, k, v̄′, s̄′)
     N = _stratum(m.N, k)
     α = m.heterogeneity
     r = s / N
-    h = r^(α - 1)
+    h = _pow(r, α - 1)
     x = v / N * h
     e = exp(-x)
     x̄ = s * e * (v̄′ - s̄′)
     s̄ = -v̄′ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (v̄′ - s̄′) * (α - 1) * x)
     _add_stratum!(cotangent(m̄, :N), m.N, -x̄ * α * x / N, k)
-    r > 0 && add_cotangent!(cotangent(m̄, :heterogeneity), x̄ * x * log(r))
+    ᾱ = cotangent(m̄, :heterogeneity)
+    ᾱ === nothing || r > 0 && add_cotangent!(ᾱ, x̄ * x * log(r))
     return x̄ * h / N, s̄
 end
 
 function apply(m::Depletion{:floor}, v, s, t, k)
     r = s / _stratum(m.N, k)
-    f = max(max(r, zero(r))^m.heterogeneity, oftype(r, _DEPLETION_FLOOR))
+    f = max(_pow(max(r, zero(r)), m.heterogeneity), oftype(r, _DEPLETION_FLOOR))
     v′ = f * v
     return v′, s - v′
 end
@@ -212,14 +222,15 @@ function apply_pullback(m̄, m::Depletion{:floor}, v, s, t, k, v̄′, s̄′)
     N = _stratum(m.N, k)
     α = m.heterogeneity
     r = s / N
-    p = max(r, zero(r))^α
+    p = _pow(max(r, zero(r)), α)
     fl = oftype(p, _DEPLETION_FLOOR)
     ḡ = v̄′ - s̄′
     p > fl || return ḡ * fl, s̄′
     f̄ = ḡ * v
     _add_stratum!(cotangent(m̄, :N), m.N, -f̄ * α * p / N, k)
-    add_cotangent!(cotangent(m̄, :heterogeneity), f̄ * p * log(r))
-    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N
+    ᾱ = cotangent(m̄, :heterogeneity)
+    ᾱ === nothing || add_cotangent!(ᾱ, f̄ * p * log(r))
+    return ḡ * p, s̄′ + f̄ * α * _pow(r, α - 1) / N
 end
 
 function apply_pullback!(m̄, m::Depletion, v, s, t, v̄, s̄)
