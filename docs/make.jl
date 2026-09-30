@@ -62,7 +62,7 @@ build_docs(
     ComposableRecurrences;
     repo = "EpiAware/ComposableRecurrences.jl",
     authors = "Sam Abbott, EpiAware contributors",
-    deploy_url = nothing,
+    deploy_url = "https://composablerecurrences.epiaware.org",
     pages = _cfg(:pages, ["Home" => "index.md"]),
     skip_notebooks = "--skip-notebooks" in ARGS ||
         get(ENV, "SKIP_NOTEBOOKS", "false") == "true",
