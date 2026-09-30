@@ -163,8 +163,10 @@ end
     h = rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     ϵ = randn(rng, S, T)
-    for C in (I, 0.7I, K, sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.9]),
-            Diagonal(rand(rng, S)))
+    for C in (
+            I, 0.7I, K, sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.9]),
+            Diagonal(rand(rng, S)),
+        )
         @test pullback_matches(Recurrence(g; coupling = C), recargs(R, ϵ, h)...)
     end
     @test pullback_matches(

@@ -65,7 +65,7 @@ y2 = r(R[:, 6:end]; history = state)
 y ≈ hcat(y1, y2)
 ```
 "
-struct Recurrence{K, C, M <: Tuple}
+struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
     "The kernel, lag first, or `nothing` with a pairwise coupling."
     kernel::K
     "How the strata's kernel convolutions mix."
@@ -166,24 +166,47 @@ function _split_history(s::NamedTuple{(:history, :states, :t)})
     return (s.history, s.states, s.t)
 end
 
-Base.@constprop :aggressive function (r::Recurrence)(
-        gain = true; history, add = nothing, start = nothing,
-        return_state = false
+
+Base.@constprop :aggressive function _invoke(
+        r::Recurrence, route, gain = true; history, add = nothing,
+        start = nothing, return_state = false
     )
     h, s0, t0 = _split_history(history)
     τ0 = start === nothing ? t0 : start
-    Y, H, states = _recur(r, gain, add, h, s0, τ0)
-    return_state || return Y
+    return_state && return adjoint_call(_reroute(route, _WithState(r)), gain, add, h, s0, τ0)
+    return adjoint_call(route, gain, add, h, s0, τ0)
+end
+
+# A recurrence that also returns its state `(; history, states, t)`.
+struct _WithState{R <: Recurrence} <: AbstractOperator
+    r::R
+end
+
+# `forward(r, gain, add, h, s0, τ0)`: `h` is the history array and `s0` the
+# modifier states to resume from, or `nothing`.
+function forward(r::Recurrence, gain, add, h, s0, τ0)
+    Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, Val(true))
+    return Y, cache
+end
+_primal(r::Recurrence, args...) = first(_recur(r, args..., Val(false)))
+
+function forward(w::_WithState, gain, add, h, s0, τ0)
+    Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, Val(true))
+    return (Y, _state(Y, H, states, h, τ0)), cache
+end
+function _primal(w::_WithState, gain, add, h, s0, τ0)
+    Y, H, states = _recur(w.r, gain, add, h, s0, τ0, Val(false))
+    return Y, _state(Y, H, states, h, τ0)
+end
+
+function _state(Y, H, states, h, τ0)
     T = size(Y, ndims(Y))
     L = size(H, 1) - T
-    state = (;
-        history = _public(H, (T + 1):(T + L), h), states, t = τ0 + T,
-    )
-    return Y, state
+    return (; history = _public(H, (T + 1):(T + L), h), states, t = τ0 + T)
 end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
-function _recur(r::Recurrence, gain, add, h, s0, τ0)
+function _recur(r::Recurrence, gain, add, h, s0, τ0, record::Val)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel, coupling)
     S = _nstrata(h)
@@ -202,7 +225,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0)
         (:kernel => _tv_steps(kernel), :coupling => _tv_steps(coupling))
     )
     Tp = float(param_eltype((r, gain, add, h, s0)))
-    return _run(Tp, r, gain, add, h, s0, τ0, L, S, T)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, S, T, record)
 end
 
 # `I` and `Diagonal` scale each stratum's own convolution, so their steps
@@ -219,27 +242,51 @@ function _prepare!(p, q, C, kernel, H, t, τ, L)
     return nothing
 end
 
-# Stratum `k`'s coupled pressure at step `t`.
-function _pressure_at(C::_PointwiseCoupling, kernel, q, H, t, τ, L, k)
-    return _coef(C, k) * _kdot(kernel, H, t, τ, L, k)
+# Stratum `k`'s kernel convolution and coupled pressure at step `t`.
+function _pressure_at(C::_PointwiseCoupling, kernel, p, q, H, t, τ, L, k)
+    pk = _kdot(kernel, H, t, τ, L, k)
+    return pk, _coef(C, k) * pk
 end
-_pressure_at(C, kernel, q, H, t, τ, L, k) = q[k]
+_pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
 
-# Thread one stratum's value through pointwise modifiers in tuple order.
-_thread(::Tuple{}, ::Tuple{}, v, τ, k) = v
-function _thread(ms::Tuple, states::Tuple, v, τ, k)
+# Thread one stratum's value through pointwise modifiers in tuple order,
+# recording each modifier's input value and state when `rec` holds records.
+_thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
+function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
     s = first(states)
+    rec === nothing || _record!(first(rec), v, s[k], t, k)
     v′, s[k] = apply(first(ms), v, s[k], τ, k)
-    return _thread(Base.tail(ms), Base.tail(states), v′, τ, k)
+    return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
+end
+_tail(::Nothing) = nothing
+_tail(rec::Tuple) = Base.tail(rec)
+function _record!(rec, v, s, t, k)
+    rec.V[k, t] = v
+    rec.S[k, t] = s
+    return nothing
 end
 
-# The buffer loop: returns the output, the buffer and the final states.
-# With pointwise modifiers each stratum's value goes straight to the
-# buffer; otherwise the step's values are collected for `apply!`.
-function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
+# Run vector-level modifiers in tuple order, recording their inputs.
+_stages_rec!(::Tuple{}, ::Tuple{}, ::Tuple{}, v, τ, t) = nothing
+function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
+    copyto!(view(first(rec).V, :, t), v)
+    copyto!(view(first(rec).S, :, t), first(states))
+    apply!(first(ms), v, first(states), τ)
+    return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
+end
+
+# The buffer loop: returns the output, the buffer, the final states and,
+# when recording, the cache the reverse pass reads. The records are the
+# kernel convolutions `P` and pressures `X` of every step (S × T), and each
+# modifier's input values and states. With pointwise modifiers each
+# stratum's value goes straight to the buffer; otherwise the step's values
+# are collected for `apply!`.
+function _run(
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T, ::Val{record}
+    ) where {Tp, record}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
     H = _load_history!(zeros(Tp, L + T, S), h, L)
@@ -251,27 +298,44 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     else
         map(s -> _state_vector(Tp, s), s0)
     end
+    P = record ? zeros(Tp, S, T) : nothing
+    X = record ? zeros(Tp, S, T) : nothing
+    rec = record ? map(_ -> (; V = zeros(Tp, S, T), S = zeros(Tp, S, T)), modifiers) :
+        nothing
     for t in 1:T
         τ = τ0 + t - 1
         _prepare!(p, q, coupling, kernel, H, t, τ, L)
         if _all_pointwise(modifiers)
             for k in eachindex(v)
-                x = _at(gain, k, t) *
-                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                    _at(add, k, t)
-                H[L + t, k] = _thread(modifiers, states, x, τ, k)
+                pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
+                if record
+                    P[k, t] = pk
+                    X[k, t] = xk
+                end
+                x = _at(gain, k, t) * xk + _at(add, k, t)
+                H[L + t, k] = _thread(modifiers, states, rec, x, τ, t, k)
             end
         else
             for k in eachindex(v)
-                v[k] = _at(gain, k, t) *
-                    _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                    _at(add, k, t)
+                pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
+                if record
+                    P[k, t] = pk
+                    X[k, t] = xk
+                end
+                v[k] = _at(gain, k, t) * xk + _at(add, k, t)
             end
-            _stages!(modifiers, states, v, τ)
+            if record
+                _stages_rec!(modifiers, states, rec, v, τ, t)
+            else
+                _stages!(modifiers, states, v, τ)
+            end
             for k in eachindex(v)
                 H[L + t, k] = v[k]
             end
         end
     end
-    return _public(H, (L + 1):(L + T), h), H, states
+    Y = _public(H, (L + 1):(L + T), h)
+    cache = record ?
+        (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec) : nothing
+    return Y, H, states, cache
 end

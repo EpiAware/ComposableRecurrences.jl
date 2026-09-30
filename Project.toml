@@ -8,12 +8,14 @@ projects = ["test", "docs"]
 
 [deps]
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Interfaces = "85a1e053-f937-4924-92a5-1367d23b7b87"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [compat]
 DocStringExtensions = "0.9.5"
+ForwardDiff = "0.10, 1"
 Interfaces = "0.3"
 LinearAlgebra = "1"
 SparseArrays = "1"

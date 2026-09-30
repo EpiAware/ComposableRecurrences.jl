@@ -29,6 +29,7 @@ module ComposableRecurrences
 # the main module file, rather than scattered across included files.
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
+using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
@@ -39,10 +40,14 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public init_state, apply, apply!, apply_pullback!, ispointwise, param_eltype,
-    pressure!, pressure_pullback!, pullback!, NoAdjoint, OperatorInterface,
-    CouplingInterface, ModifierInterface
+public init_state, init_state_pullback!, apply, apply!, apply_pullback,
+    apply_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
+    AbstractOperator, Coupling, forward, pullback!, NoAdjoint, cotangent,
+    add_cotangent!, test_adjoint, OperatorInterface, CouplingInterface,
+    ModifierInterface
 
+# Operator supertype, the adjoint seams and the routing to the native rules.
+include("adjoints.jl")
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
@@ -53,10 +58,12 @@ include("modifiers.jl")
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")
-# The causal convolution operator.
+# The analytic reverse pass of the recurrence.
+include("recurrence_adjoint.jl")
+# The causal convolution operator and its reverse pass.
 include("convolution.jl")
-# Adjoint seams: `NoAdjoint` and the `pullback!` contract.
-include("adjoints.jl")
+# Local ForwardDiff pullbacks for modifiers and couplings without one.
+include("fallbacks.jl")
 # Interfaces.jl declarations for operators, couplings and modifiers.
 include("interfaces.jl")
 

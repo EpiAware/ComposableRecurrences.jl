@@ -108,9 +108,12 @@ Accumulate the reverse pass of [`apply!`](@ref) for modifier `m` at step `t`.
 
 Given the step's inputs `v`, `s` and the cotangents of its outputs in `v̄`,
 `s̄`, overwrite `v̄`, `s̄` with the cotangents of the inputs and add parameter
-cotangents into `m̄`.
-The package defines no methods; an operator is differentiated by the AD
-backend.
+cotangents into the mirror `m̄` (see [`ComposableRecurrences.pullback!`](@ref)
+for mirrors), at time `t` for time-varying parameters.
+The default loops the scalar [`ComposableRecurrences.apply_pullback`](@ref)
+over strata for a pointwise modifier, and otherwise takes the local
+ForwardDiff Jacobian of `apply!` in the values, the state and the modifier's
+parameters.
 
 # Arguments
 - `m̄`: the cotangent of the modifier's parameters.

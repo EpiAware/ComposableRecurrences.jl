@@ -94,15 +94,16 @@ end
 Accumulate the reverse pass of [`pressure!`](@ref) for `coupling` at step `t`.
 
 Given the cotangent `q̄` of the pressure, add the cotangents of `p` into `p̄`,
-of the window into `window̄`, and of the coupling's parameters into
-`couplinḡ`.
-The package defines no methods; an operator is differentiated by the AD
-backend.
+of the window into `window̄`, and of the coupling's parameters into the mirror
+`couplinḡ` (see [`ComposableRecurrences.pullback!`](@ref) for mirrors).
+A time-varying coupling adds its cotangent at time `t`.
+The default is a local ForwardDiff Jacobian of `pressure!` in `p`, the window
+and the coupling's parameters.
 
 # Arguments
 - `p̄`: the cotangent of the kernel convolutions.
-- `window̄`: the cotangent of the window.
-- `couplinḡ`: the cotangent of the coupling's parameters.
+- `window̄`: the cotangent of the window, or `nothing`.
+- `couplinḡ`: the mirror of the coupling, or `nothing`.
 - `coupling`: the coupling.
 - `q̄`: the cotangent of the pressure.
 - `p`: the kernel convolutions.
@@ -131,5 +132,83 @@ function _check_coupling(C::Union{TimeVarying, Pairwise}, S)
             "coupling is $(size(C.x)), expected ($S, $S, ...)"
         )
     )
+    return nothing
+end
+
+function pressure_pullback!(p̄, window̄, J̄, J::UniformScaling, q̄, p, window, t)
+    λ̄ = cotangent(J̄, :λ)
+    for a in eachindex(q̄, p)
+        p̄[a] += J.λ * q̄[a]
+        add_cotangent!(λ̄, q̄[a] * p[a])
+    end
+    return nothing
+end
+
+function pressure_pullback!(p̄, window̄, C̄, C::AbstractMatrix, q̄, p, window, t)
+    for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        for a in axes(C, 1)
+            acc += C[a, b] * q̄[a]
+            add_cotangent!(C̄, q̄[a] * p[b], a, b)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+
+function pressure_pullback!(p̄, window̄, C̄, C::Diagonal, q̄, p, window, t)
+    d̄ = cotangent(C̄, :diag)
+    for a in eachindex(q̄, p)
+        p̄[a] += C.diag[a] * q̄[a]
+        add_cotangent!(d̄, q̄[a] * p[a], a)
+    end
+    return nothing
+end
+
+# The cotangent keeps the sparsity pattern: only the nonzeros get one.
+function pressure_pullback!(p̄, window̄, C̄, C::SparseMatrixCSC, q̄, p, window, t)
+    rows = rowvals(C)
+    vals = nonzeros(C)
+    nz̄ = cotangent(C̄, :nzval)
+    for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        for idx in nzrange(C, b)
+            acc += vals[idx] * q̄[rows[idx]]
+            add_cotangent!(nz̄, q̄[rows[idx]] * p[b], idx)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+
+function pressure_pullback!(
+        p̄, window̄, C̄, C::TimeVarying{<:AbstractArray{<:Any, 3}}, q̄, p, window, t
+    )
+    X = C.x
+    X̄ = cotangent(C̄, :x)
+    for b in axes(X, 2)
+        acc = zero(eltype(p̄))
+        for a in axes(X, 1)
+            acc += X[a, b, t] * q̄[a]
+            add_cotangent!(X̄, q̄[a] * p[b], a, b, t)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+
+function pressure_pullback!(p̄, window̄, C̄, C::Pairwise, q̄, p, window, t)
+    X = C.x
+    X̄ = cotangent(C̄, :x)
+    L = size(X, 3)
+    for i in 1:L, b in axes(X, 2)
+        w = window[L + 1 - i, b]
+        acc = zero(eltype(q̄))
+        for a in axes(X, 1)
+            acc += X[a, b, i] * q̄[a]
+            add_cotangent!(X̄, q̄[a] * w, a, b, i)
+        end
+        window̄ === nothing || (window̄[L + 1 - i, b] += acc)
+    end
     return nothing
 end

@@ -42,7 +42,7 @@ delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
 Convolution(delay)(ones(8); history = ones(3))
 ```
 "
-struct Convolution{K}
+struct Convolution{K} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
     "Which time a time-varying kernel's column belongs to."
@@ -66,7 +66,23 @@ _ndelays(k::AbstractVector) = length(k)
 _ndelays(k::PerStratum) = size(k.x, 2)
 _ndelays(k::TimeVarying) = size(k.x, ndims(k.x) - 1)
 
-function (c::Convolution)(x; history = nothing, start = 1)
+function _invoke(c::Convolution, route, x; history = nothing, start = 1)
+    return adjoint_call(route, x, history, start)
+end
+
+# `forward(c, x, history, start)`.
+function forward(c::Convolution, x, history, start)
+    Y, X, m = _conv(c, x, history, start)
+    return _public(Y, axes(Y, 1), x), (; c, x, history, start, X, m)
+end
+function _primal(c::Convolution, x, history, start)
+    Y = first(_conv(c, x, history, start))
+    return _public(Y, axes(Y, 1), x)
+end
+
+# Checks the call, then convolves into a time-first buffer; returns the
+# output buffer, the input buffer (history then `x`) and the history length.
+function _conv(c::Convolution, x, history, start)
     kernel = c.kernel
     S = _nstrata(x)
     T = size(x, ndims(x))
@@ -88,7 +104,7 @@ function (c::Convolution)(x; history = nothing, start = 1)
     _load_input!(X, x, m)
     Y = zeros(Tp, T, S)
     _convolve!(Y, kernel, X, m, start, c.indexed_by)
-    return _public(Y, axes(Y, 1), x)
+    return Y, X, m
 end
 
 _check_input_history(::Nothing, x) = nothing
@@ -171,4 +187,88 @@ function _scatter!(Y, c::TimeVarying, X, m, start)
         end
     end
     return Y
+end
+
+# The reverse pass: correlate the output cotangent with the kernel into the
+# input buffer's cotangent, and with the inputs into the kernel's.
+function pullback!(c::Convolution, cache, ȳ, c̄, x̄, h̄, start̄)
+    _PULLBACK_CALLS[] += 1
+    (; x, history, start, X, m) = cache
+    T = size(X, 1) - m
+    Ȳ = _load_input!(zeros(eltype(X), T, size(X, 2)), ȳ, 0)
+    X̄ = zero(X)
+    _convolve_back!(X̄, cotangent(c̄, :kernel), c.kernel, X, Ȳ, m, start, c.indexed_by)
+    _add_rows!(x̄, X̄, m, x)
+    _add_rows!(h̄, X̄, 0, history)
+    return nothing
+end
+
+# Add buffer rows `o + 1` onwards into the public-layout cotangent `x̄`.
+_add_rows!(::Nothing, X̄, o, x) = nothing
+function _add_rows!(x̄::AbstractVector, X̄, o, x)
+    x̄ .+= view(X̄, (o + 1):(o + length(x̄)), 1)
+    return nothing
+end
+function _add_rows!(x̄::AbstractMatrix, X̄, o, x)
+    x̄ .+= transpose(view(X̄, (o + 1):(o + size(x̄, 2)), :))
+    return nothing
+end
+
+function _convolve_series_back!(X̄k, c̄, c, Xk, ȳ, m)
+    T = length(ȳ)
+    for d in 0:(length(c) - 1)
+        t0 = max(1, d + 1 - m)
+        t0 > T && break
+        rows = (m + t0 - d):(m + T - d)
+        ȳd = view(ȳ, t0:T)
+        add_cotangent!(c̄, dot(ȳd, view(Xk, rows)), d + 1)
+        _axpy!(c[d + 1], ȳd, view(X̄k, rows))
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::AbstractVector, X, Ȳ, m, start, indexed_by)
+    for k in axes(Ȳ, 2)
+        _convolve_series_back!(
+            view(X̄, :, k), c̄, c, view(X, :, k), view(Ȳ, :, k), m
+        )
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::PerStratum, X, Ȳ, m, start, indexed_by)
+    C̄ = cotangent(c̄, :x)
+    for k in axes(Ȳ, 2)
+        _convolve_series_back!(
+            view(X̄, :, k), C̄ === nothing ? nothing : view(C̄, k, :),
+            view(c.x, k, :), view(X, :, k), view(Ȳ, :, k), m
+        )
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::TimeVarying, X, Ȳ, m, start, indexed_by)
+    C̄ = cotangent(c̄, :x)
+    D = _ndelays(c)
+    if indexed_by === :primary
+        T = size(Ȳ, 1)
+        for k in axes(Ȳ, 2), j in axes(X, 1)
+            σ = start - m + j - 1
+            for d in max(0, m + 1 - j):(D - 1)
+                t = j - m + d
+                t > T && break
+                _add_tv!(C̄, Ȳ[t, k] * X[j, k], k, d + 1, σ)
+                X̄[j, k] += _tv_weight(c.x, k, d + 1, σ) * Ȳ[t, k]
+            end
+        end
+    else
+        for k in axes(Ȳ, 2), t in axes(Ȳ, 1)
+            τ = start + t - 1
+            for d in 0:min(D - 1, m + t - 1)
+                _add_tv!(C̄, Ȳ[t, k] * X[m + t - d, k], k, d + 1, τ)
+                X̄[m + t - d, k] += _tv_weight(c.x, k, d + 1, τ) * Ȳ[t, k]
+            end
+        end
+    end
+    return nothing
 end
