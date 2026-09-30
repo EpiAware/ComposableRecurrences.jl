@@ -10,6 +10,7 @@ Their parameters are a scalar, `PerStratum`, `TimeVarying` or `TimeVarying(PerSt
 | `Redistribute(K, ε)` | moves a share `ε` of each stratum's value to others through `K` | yes, with strata | no | no | hand-written | `ε` |
 | `Add(b)` | adds `b` at this point in the modifier order | yes | no | yes | hand-written | `b` |
 | `Clamp(lo, hi)` | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
+| `Transform(f, θ)` | maps each value through `f(v, θ_k)` | yes | no | yes | local forward-mode, or `derivative` | `θ` |
 
 A pointwise modifier acts on each stratum separately, and the rest act on the whole step.
 
@@ -22,7 +23,7 @@ A `Redistribute` moves whatever it sees, so with a nonzero `add` it moves the ad
 
 ```@example modifiers
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Floor, Add, Redistribute, Clamp
+using ComposableRecurrences: Depletion, Floor, Add, Redistribute, Clamp, Transform
 ```
 
 ## Depletion
@@ -73,6 +74,20 @@ r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
 ```@example modifiers
 Recurrence([2.0]; modifiers = (Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
 ```
+
+## Transform
+
+`Transform(f, θ)` maps each value through `f(v, θ_k)`, or `f(v)` without `θ`.
+`θ` follows the parameter protocol, entry by entry for a NamedTuple.
+Iterating a probability generating function `G` from zero gives the probability that a branching process has died out by each generation.
+
+```@example modifiers
+G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
+Recurrence([1.0]; modifiers = (Transform(G, (; r = 0.5, p = 0.2)),))(; history = [0.0], stop = 8)
+```
+
+Its pullback is a local forward-mode derivative of `f`, or `derivative` when given.
+Values captured inside `f` are differentiated by the AD backend instead, so pass parameters in `θ` to keep the local derivative.
 
 ## Writing your own modifier
 
