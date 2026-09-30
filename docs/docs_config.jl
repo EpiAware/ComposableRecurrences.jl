@@ -190,7 +190,9 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # optional FAQ below) in the generated nav — one placement for the whole
 # ecosystem rather than a per-repo choice (#354). These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
-const PACKAGE_TUTORIALS = Pair{String, String}[]
+const PACKAGE_TUTORIALS = [
+    "Concepts" => "getting-started/concepts.md",
+]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
 # a developer reference distinct from the Development skeleton below), as
