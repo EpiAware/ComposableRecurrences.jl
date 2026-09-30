@@ -526,13 +526,21 @@ function Transform(f, θ = nothing; derivative = nothing)
     return Transform(f, θ, derivative)
 end
 
-const _ThetaLeaf = Union{Nothing, Real, AbstractVector{<:Real}, TimeVarying}
-_check_theta(::_ThetaLeaf) = nothing
-_check_theta(θ::Union{Tuple, NamedTuple}) = foreach(_check_theta, θ)
-_check_theta(::AbstractMatrix) = throw(
+_check_theta(::Nothing) = nothing
+_check_theta(θ::Union{Tuple, NamedTuple}) = foreach(_check_leaf, θ)
+_check_theta(θ) = _check_leaf(θ)
+
+# A parameter entry: a scalar, per stratum, or time-varying over time or
+# strata × time.
+const _ThetaLeaf = Union{
+    Real, AbstractVector{<:Real},
+    TimeVarying{<:Union{AbstractVector{<:Real}, AbstractMatrix{<:Real}}},
+}
+_check_leaf(::_ThetaLeaf) = nothing
+_check_leaf(::AbstractMatrix) = throw(
     ArgumentError("wrap a strata × time parameter as TimeVarying(θ)")
 )
-function _check_theta(θ)
+function _check_leaf(θ)
     throw(ArgumentError("unsupported Transform parameter $(typeof(θ))"))
 end
 
@@ -570,8 +578,8 @@ function _add_theta!(θ̄, θ::TimeVarying, ∂θ, ȳ, k, t)
 end
 function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
     θ̄ === nothing && return nothing
-    for i in 1:length(θ)
-        _add_theta!(θ̄[i], θ[i], ∂θ[i], ȳ, k, t)
+    map(values(θ̄), values(θ), values(∂θ)) do b, x, d
+        _add_theta!(b, x, d, ȳ, k, t)
     end
     return nothing
 end
