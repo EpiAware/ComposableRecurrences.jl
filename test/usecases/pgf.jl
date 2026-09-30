@@ -10,7 +10,7 @@
     # q_n = G(q_{n-1}) from q_0 = 0, so q[n + 1] = P(length ≤ n).
     function iterate_pgf(G, θ, n)
         r = Recurrence([1.0]; modifiers = (CR.Transform(G, θ),))
-        return r(; history = [0.0], add = zeros(n))
+        return r(; history = [0.0], stop = n)
     end
     prob(q, len) = len == 0 ? q[1] : q[len + 1] - q[len]
     loglik(q, data) = sum(len -> log(prob(q, len)), data)
@@ -33,7 +33,7 @@ end
     E = UseCaseReferences.EpiBranchReference
     nb(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
     fixed_point(m, n) = last(
-        Recurrence([1.0]; modifiers = (m,))(; history = [0.0], add = zeros(n))
+        Recurrence([1.0]; modifiers = (m,))(; history = [0.0], stop = n)
     )
 
     # Containment: q = c + (1 - c) G(q), raised to the number of introductions.
@@ -56,7 +56,7 @@ end
     # probability.
     g = [0.2, 0.5, 0.3]
     q = Recurrence(g; modifiers = (CR.Transform(nb, (; r, p)),))(
-        ; history = zeros(3), add = zeros(1000)
+        ; history = zeros(3), stop = 1000
     )
     @test all(diff(q) .>= 0)
     @test last(q) ≈ E.EXT_VALUE atol = 1.0e-8
@@ -69,8 +69,8 @@ end
     # q_j = G_j(Σ_i a_ij q_i): the coupling sums over the allocation column,
     # and each type has its own offspring law.
     nb(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
-    m = CR.Transform(nb, (; r = E.MT_NB_R, p = E.MT_NB_P))
+    m = CR.Transform(nb, (; r = PerStratum(E.MT_NB_R), p = PerStratum(E.MT_NB_P)))
     r = Recurrence([1.0]; coupling = permutedims(E.MT_ALLOC), modifiers = (m,))
-    q = r(; history = zeros(2, 1), add = zeros(2, 500))
+    q = r(; history = zeros(2, 1), stop = 500)
     @test q[:, end] ≈ E.MT_VALUE atol = 1.0e-8
 end
