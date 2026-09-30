@@ -1,5 +1,5 @@
 # The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
-# mirrors the type's fields as a NamedTuple: an array for a float array, a
+# mirrors the piece's fields as a NamedTuple: an array for a float array, a
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
 # and `nothing` for a field without a cotangent.
 #
@@ -82,16 +82,9 @@ end
 # Depletion ---------------------------------------------------------------
 
 @doc "
-The hazard depletion form, which draws value ``v`` from pool ``s`` with
-population ``N`` and heterogeneity ``\\alpha``:
-
-```math
-\\lambda = \\frac{v}{N} \\Big(\\frac{s}{N}\\Big)^{\\alpha - 1}, \\quad
-v' = s \\big(1 - e^{-\\lambda}\\big), \\quad
-s' = s \\, e^{-\\lambda} .
-```
-
-``v'`` is the drawn value and ``s'`` the new pool, which never goes negative.
+The hazard depletion form: `x = v / N ⋅ (s / N)^(α − 1)`, the drawn value is
+`s (1 − exp(−x))` and the pool becomes `s exp(−x)`, so the pool never goes
+negative.
 
 The default form of [`ComposableRecurrences.Depletion`](@ref).
 
@@ -105,14 +98,8 @@ CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 struct Hazard end
 
 @doc "
-The floored depletion form, which draws value ``v`` from pool ``s`` with
-population ``N`` and heterogeneity ``\\alpha``:
-
-```math
-v' = \\max\\big(\\max(s / N, 0)^{\\alpha}, 10^{-6}\\big) \\, v, \\quad
-s' = s - v' .
-```
-
+The floored depletion form: the drawn value is
+`max(max(s / N, 0)^α, 1e-6) v` and the pool becomes `s` less it.
 The pool can go negative, and then the floor applies.
 
 # Examples
@@ -337,24 +324,18 @@ end
 # Redistribute ------------------------------------------------------------
 
 @doc "
-Moves a share of each series' values to others, conserving the total: a
-share ``\\varepsilon_j K_{ij}`` of series ``j``'s value is realised in
-series ``i`` instead.
+Moves a share of each stratum's values to others, conserving the total: a
+share `ε_q K[p, q]` of origin `q`'s value is realised in `p` instead.
 
-```math
-v'_i = \\Big(1 - \\varepsilon_i \\sum_{j \\ne i} K_{ji}\\Big) v_i
-    + \\sum_{j \\ne i} \\varepsilon_j K_{ij} v_j
-```
+    v′_p = (1 − ε_p Σ_{r ≠ p} K[r, p]) v_p + Σ_{q ≠ p} ε_q K[p, q] v_q
 
 The diagonal of `K` is not read: a stratum does not import from itself.
 The intensity `ε` belongs to the origin and is a parameter: one value,
 [`PerStratum`](@ref), [`TimeVarying`](@ref) or `TimeVarying(PerStratum(ε))`
 with `ε` strata × time, read at the absolute time.
-The state is the step's arrivals in each series,
-``\\sum_{j \\ne i} \\varepsilon_j K_{ij} v_j``.
+The state is the step's arrivals in each stratum, `Σ_{q ≠ p} ε_q K[p, q] v_q`.
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
-series' pool by what it realises; a modifier sees
-``v_t = g_t \\odot C_t p_t + a_t``, so the
+stratum's pool by what it realises; a modifier sees `gain ⊙ x + add`, so the
 `add` values move too.
 
 # Arguments

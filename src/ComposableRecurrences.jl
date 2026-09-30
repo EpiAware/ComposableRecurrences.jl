@@ -13,8 +13,8 @@ automatic differentiation does not copy the lag window at every step.
 A bare array in a slot has the slot's own axes only (a kernel's lags, a
 coupling's `S × S`, a modifier parameter's one value);
 [`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
-axes for several series run side by side (strata) and for time.
-Data (inputs, history, outputs) are series × time, with time on the last
+strata and time axes.
+Data (inputs, history, outputs) are strata × time, with time on the last
 axis; a single series is a vector.
 Every time-indexed array is read at absolute time `t`, and a call covers
 `start:stop`.
@@ -23,11 +23,11 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 |:--------------------- |:-------------------------------------------------------- |
 | feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
 | causal convolution    | `Convolution(kernel)`, lag 0 first                       |
-| several series        | `PerStratum(x)`, `Pairwise(x)`                           |
+| strata                | `PerStratum(x)`, `Pairwise(x)`                           |
 | time variation        | `TimeVarying(x, indexing = Secondary())`                 |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
-| seed and continue     | `history =`, `with_state`, `state =`, `seeded`           |
+| seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a struct with `forward` for a role                       |
@@ -70,7 +70,7 @@ public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The extension interface: roles, `forward`, `pullback!` and the stage loop.
+# The piece interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
