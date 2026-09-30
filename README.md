@@ -13,18 +13,23 @@
 Fast, composable and differentiable recurrences and causal convolutions in Julia.
 
 > [!NOTE]
-> ComposableRecurrences is under development and has no public API yet.
+> ComposableRecurrences is under development and not yet registered.
+> Its API may change.
 
 ## Why ComposableRecurrences?
 
-- Renewal processes, random walks, autoregressions and reporting delays are all recurrences or causal convolutions.
-  One small set of steps can cover them.
-- Reverse-mode AD is slow when each step copies its lag window into new state.
-  A step that owns its history buffer avoids that copy.
-- Plug-in adjoints for Mooncake and Enzyme are planned for the hot kernels.
-  Every step will also work with plain ForwardDiff.
-- The package has no epidemiological assumptions.
-  Modelling packages build their own steps on top of it.
+- Renewal processes, random walks, autoregressions and reporting delays are usually separate hand-written loops.
+  Here each is a `Recurrence` or a `Convolution`, so one pair of operators covers them all.
+- Kernels are lag first, as a generation interval or a set of AR coefficients is written, and can differ by stratum or change over time.
+  A time-varying delay can be indexed by the day of the primary event or by the day it is observed.
+- Strata couple through any `S × S` matrix (dense, sparse or `Diagonal`), a time-varying matrix, or a pairwise kernel with its own lags.
+  A spatial or multi-group model uses the same operator as a single series.
+- Modifiers act on each step in the order given and carry their own state.
+  An effect such as susceptible depletion is one small type with an `apply!` method, not a new loop.
+- A call can return its state, and the next call resumes from it, so a forecast continues a fitted series without rebuilding the operator.
+- No step copies its lag window, so gradients stay fast.
+  They are tested against ForwardDiff, ReverseDiff, Enzyme and Mooncake in CI.
+- Interface tests check that a user-written operator, modifier or coupling meets the contract, and the documentation reports gradient timings per backend.
 
 ## Getting started
 
@@ -36,8 +41,7 @@ using ComposableRecurrences
 
 ## Related packages
 
-- [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) builds infectious disease models whose renewal, delay and latent process steps this package is designed to run.
-- [EpiAwareADTools.jl](https://epiawareadtools.epiaware.org) holds the org's shared AD workarounds, which this package can use where a backend needs one.
+- [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) builds infectious disease models from renewal, delay and latent process steps of the kind this package runs.
 
 ## Where to learn more
 
