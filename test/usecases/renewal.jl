@@ -3,6 +3,8 @@
 # depletion from a seed.
 #
 # The generation interval, lag 1 first, is the kernel and R_t is the gain.
+# CTIDM's `ConstantRenewalStep` stores the interval reversed, so `reverse`
+# appears only in the reference calls.
 
 @testitem "Use case: renewal" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff

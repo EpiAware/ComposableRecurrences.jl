@@ -218,6 +218,10 @@ end
     # One importation intensity shared by every origin and day.
     @test patch(K, 0.05, N) ≈
         B.patch_infections(Rt, g, seeds, K, 0.05, N).infections
+    # One intensity per origin, the same every day.
+    εq = [0.05, 0.1, 0.02]
+    @test patch(K, εq, N) ≈
+        B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
     # BVD also returns the importation series (arrivals in each patch). How
     # the operator exposes a modifier's intermediate is open, so this check

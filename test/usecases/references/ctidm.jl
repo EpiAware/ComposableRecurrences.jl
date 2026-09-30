@@ -4,8 +4,8 @@
 # Source: https://github.com/EpiAware/ComposableTuringIDModels.jl at commit
 # f7d6cc9f. Each block names its file and line range. Docstrings are left
 # out and Runic re-indents one block; the code is otherwise unchanged, so the
-# reference runs the package's own arithmetic without loading Turing. The drivers at the end are not copied:
-# each wraps the `accumulate_scan` call of the cited model body so it can be
+# reference runs the package's own arithmetic without loading Turing.
+# The drivers at the end are not copied: each wraps the `accumulate_scan` call of the cited model body so it can be
 # called without `DynamicPPL`.
 module CTIDMReference
 
