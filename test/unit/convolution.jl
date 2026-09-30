@@ -64,7 +64,7 @@ end
     c = Convolution(TimeVarying(Ct))
     @test c(X; history = H) ≈
         naive_convolution((t, k, d) -> Ct[d + 1, t], X, D; hist = H)
-    @test Convolution(TimeVarying(Ct; indexed_by = :secondary))(X) ≈ c(X)
+    @test Convolution(TimeVarying(Ct, ComposableRecurrences.Secondary()))(X) ≈ c(X)
     C3 = rand(rng, S, D, T)
     @test Convolution(TimeVarying(PerStratum(C3)))(X) ≈
         naive_convolution((t, k, d) -> C3[k, d + 1, t], X, D)
@@ -84,11 +84,11 @@ end
     # Column `s` is the delay pmf of the input at time `s`: output `t`
     # reads the input at `t - d` through that input's column.
     Ct = rand(rng, D, T)
-    c = Convolution(TimeVarying(Ct; indexed_by = :primary))
+    c = Convolution(TimeVarying(Ct, ComposableRecurrences.Primary()))
     ref = naive_convolution((t, k, d) -> t - d >= 1 ? Ct[d + 1, t - d] : 0.0, X, D)
     @test c(X) ≈ ref
     C3 = rand(rng, S, D, T)
-    @test Convolution(TimeVarying(PerStratum(C3); indexed_by = :primary))(X) ≈
+    @test Convolution(TimeVarying(PerStratum(C3), ComposableRecurrences.Primary()))(X) ≈
         naive_convolution(
         (t, k, d) -> t - d >= 1 ? C3[k, d + 1, t - d] : 0.0, X, D
     )
@@ -103,12 +103,12 @@ end
     P = rand(rng, D, T)
     P ./= sum(P; dims = 1)
     x = [rand(rng, T - D); zeros(D)]
-    @test sum(Convolution(TimeVarying(P; indexed_by = :primary))(x)) ≈ sum(x)
+    @test sum(Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(x)) ≈ sum(x)
 
     # A constant kernel is the same under either indexing.
     g = rand(rng, D)
     G = repeat(g, 1, T)
-    @test Convolution(TimeVarying(G; indexed_by = :primary))(X) ≈
+    @test Convolution(TimeVarying(G, ComposableRecurrences.Primary()))(X) ≈
         Convolution(g)(X)
     @test Convolution(TimeVarying(G))(X) ≈ Convolution(g)(X)
 end
@@ -128,16 +128,16 @@ end
 @testitem "Convolution: argument validation" begin
     using ComposableRecurrences
     err = try
-        TimeVarying(ones(2, 2); indexed_by = :tertiary)
+        TimeVarying(ones(2, 2), :primary)
         nothing
     catch e
         e
     end
     @test err isa ArgumentError
-    @test occursin(":tertiary", err.msg) && occursin(":primary", err.msg) &&
-        occursin(":secondary", err.msg)
+    @test occursin("Secondary()", err.msg) && occursin("Primary()", err.msg)
     # Indexing lives on TimeVarying only.
     @test_throws MethodError Convolution([1.0]; indexed_by = :secondary)
+    @test_throws ArgumentError Convolution(Pairwise(ones(2, 2, 3)))
     @test_throws ArgumentError Convolution(ones(2, 3))
     @test_throws ArgumentError Convolution(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Convolution(nothing)

@@ -24,12 +24,19 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 | feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
 | causal convolution    | `Convolution(kernel)`, lag 0 first                       |
 | strata                | `PerStratum(x)`, `Pairwise(x)`                           |
-| time variation        | `TimeVarying(x; indexed_by = :secondary)`                |
+| time variation        | `TimeVarying(x, indexing = Secondary())`                 |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
-| seed and resume       | `history =`, `state =`, `seeded(r, x; history)`          |
+| seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
-| options               | Symbols, extended with `option`                          |
+| variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
+| extension             | a struct with `forward` for a role                       |
+
+The package is extended by writing a struct: a modifier, coupling or
+depletion form implements [`ComposableRecurrences.forward`](@ref), and
+optionally [`ComposableRecurrences.pullback!`](@ref), for its role
+([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
+or [`ComposableRecurrences.Pressure`](@ref)).
 
 # Example
 
@@ -55,23 +62,19 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public init_state, apply, apply!, apply_pullback!, apply_pullback,
-    init_state_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
-    pullback!, NoAdjoint, OperatorInterface, CouplingInterface,
-    ModifierInterface, Depletion, Add, Redistribute, Clamp, State, option,
-    deplete, deplete_pullback, seeded
+public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
+    Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
+    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The modifier interface and the stage loop that threads modifiers.
+# The piece interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
-# The option hook: Symbols resolved to types at construction.
-include("options.jl")
-# The built-in modifiers: Depletion, Add, Redistribute and Clamp.
+# The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
-# The coupling interface: `pressure!` for each coupling type.
+# The built-in couplings, `forward` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")

@@ -7,11 +7,13 @@ current and past inputs,
 A vector kernel is shared by every stratum, a [`PerStratum`](@ref) kernel is
 `S × D`, and a [`TimeVarying`](@ref) kernel is `D × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × D × T`, all lag 0 first.
-A `TimeVarying` kernel's `indexed_by` sets which time its column belongs to:
-with `:secondary` column `t` weights the inputs reaching output `t`; with
-`:primary` column `s` is the delay pmf of the input at time `s`, which
-spreads forward through it, `y_t = Σ_s x_s kernel_s[t - s + 1]`, so input
-mass is conserved up to the window's end.
+A `TimeVarying` kernel's indexing sets which time its column belongs to:
+with [`ComposableRecurrences.Secondary`](@ref) (the default) column `t`
+weights the inputs reaching output `t`; with
+[`ComposableRecurrences.Primary`](@ref) column `s` is the delay pmf of the
+input at time `s`, which spreads forward through it,
+`y_t = Σ_s x_s kernel_s[t - s + 1]`, so input mass is conserved up to the
+window's end.
 
 To weight lags from 1, as a renewal's force of infection does, prepend a
 zero: `Convolution(vcat(0, g))` recomputes `Σ_i g_i y_{t-i}` from the
@@ -44,7 +46,9 @@ struct Convolution{K}
     "The kernel, lag 0 first."
     kernel::K
     function Convolution(kernel::K) where {K}
-        kernel === nothing && throw(ArgumentError("a Convolution needs a kernel"))
+        kernel isa _PairwiseKernel && throw(
+            ArgumentError("a Pairwise kernel is for a Recurrence")
+        )
         _check_kernel_shape(kernel)
         return new{K}(kernel)
     end
@@ -54,7 +58,12 @@ _ndelays(k::AbstractVector) = length(k)
 _ndelays(k::PerStratum) = size(k.x, 2)
 _ndelays(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 
-function (c::Convolution)(x; history = nothing, start = 1, stop = nothing)
+(c::Convolution)(x; kwargs...) = first(forward(c, Run(), x; kwargs...))
+
+# A Convolution has no modifiers yet, so its cache holds no state.
+function forward(
+        c::Convolution, ::Run, x; history = nothing, start = 1, stop = nothing
+    )
     kernel = c.kernel
     _check_unwrapped(:x, x)
     S = _nstrata(x)
@@ -74,7 +83,7 @@ function (c::Convolution)(x; history = nothing, start = 1, stop = nothing)
     _load_input!(X, x, m, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
     _convolve!(Y, kernel, X, m, start)
-    return _public(Y, axes(Y, 1), x)
+    return _public(Y, axes(Y, 1), x), (;)
 end
 
 _check_input_history(::Nothing, x) = nothing
@@ -86,8 +95,8 @@ function _check_input_history(h, x)
 end
 
 _check_primary_history(kernel, history) = nothing
-_check_primary_history(::TimeVarying{_Primary}, ::Nothing) = nothing
-function _check_primary_history(::TimeVarying{_Primary}, history)
+_check_primary_history(::TimeVarying{Primary}, ::Nothing) = nothing
+function _check_primary_history(::TimeVarying{Primary}, history)
     throw(
         ArgumentError(
             "a :primary kernel has no column for an input before t = 1: " *
@@ -149,13 +158,13 @@ function _convolve!(Y, c::PerStratum, X, m, start)
 end
 
 # Secondary indexing: output time `t` reads its own column.
-function _convolve!(Y, c::TimeVarying{_Secondary}, X, m, start)
+function _convolve!(Y, c::TimeVarying{Secondary}, X, m, start)
     D = _ndelays(c)
     for k in axes(Y, 2), j in axes(Y, 1)
         t = start + j - 1
         acc = zero(eltype(Y))
         for d in 0:min(D - 1, m + t - 1)
-            acc += _tv_weight(c.x, k, d + 1, t) * X[m + t - d, k]
+            acc += _weight(c, k, k, d + 1, t) * X[m + t - d, k]
         end
         Y[j, k] = acc
     end
@@ -164,7 +173,7 @@ end
 
 # Primary indexing: the input at time `σ` spreads forward through its own
 # column. There is no history, so buffer row `σ` is time `σ`.
-function _convolve!(Y, c::TimeVarying{_Primary}, X, m, start)
+function _convolve!(Y, c::TimeVarying{Primary}, X, m, start)
     D = _ndelays(c)
     stop = start + size(Y, 1) - 1
     for k in axes(Y, 2), σ in max(1, start - D + 1):stop
@@ -172,7 +181,7 @@ function _convolve!(Y, c::TimeVarying{_Primary}, X, m, start)
         for d in max(0, start - σ):(D - 1)
             t = σ + d
             t > stop && break
-            Y[t - start + 1, k] += _tv_weight(c.x, k, d + 1, σ) * x
+            Y[t - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
         end
     end
     return Y

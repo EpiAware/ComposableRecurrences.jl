@@ -1,19 +1,32 @@
-# The indexing of a time-varying kernel, held as TimeVarying's first type
-# parameter so no loop branches on it.
-struct _Secondary end
-struct _Primary end
+@doc "
+The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
+read at output time `t`.
 
-_indexing(name::Symbol) = _indexing(Val(name))
-_indexing(::Val{:secondary}) = _Secondary()
-_indexing(::Val{:primary}) = _Primary()
-function _indexing(::Val{name}) where {name}
-    throw(
-        ArgumentError(
-            "unknown indexed_by :$name for TimeVarying (choose :secondary " *
-                "or :primary)"
-        )
-    )
-end
+This is the only meaning outside a kernel slot.
+
+# Examples
+```@example
+using ComposableRecurrences
+TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
+```
+"
+struct Secondary end
+
+@doc "
+The indexing of a [`TimeVarying`](@ref) kernel whose column `c` is the kernel
+of the input (cohort) at absolute time `c`, which spreads forward through
+it.
+
+Kernel slots only: anywhere else it is an `ArgumentError`.
+
+# Examples
+```@example
+using ComposableRecurrences
+P = [0.6 0.2 0.4; 0.4 0.8 0.6]         # one delay pmf per input time
+Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(ones(3))
+```
+"
+struct Primary end
 
 @doc "
 A coefficient given per stratum: adds a leading strata axis to its slot.
@@ -36,19 +49,24 @@ struct PerStratum{A <: AbstractArray}
 end
 
 @doc "
-A kernel for every pair of strata, `S × S × L`, used as the coupling of a
-[`Recurrence`](@ref) whose kernel is `nothing`.
+A [`Recurrence`](@ref) kernel for every pair of strata: adds leading
+`S × S` axes, so it is `S × S × L`.
 
 `x[a, b, i]` weights stratum `b`'s value at lag `i` in stratum `a`.
+It is equivalent to Routes over all pairs, with a faster path: one route
+per pair `(a, b)`, with kernel `x[a, b, :]` and a coupling that is the unit
+matrix at `(a, b)`.
+The kernel already mixes strata, so the coupling must be `I`.
+`TimeVarying(Pairwise(A))` has `A` `S × S × L × T`.
 
 # Examples
 ```@example
 using ComposableRecurrences
 P = fill(0.25, 2, 2, 2)
-Recurrence(nothing; coupling = Pairwise(P))(ones(2, 4); history = ones(2, 2))
+Recurrence(Pairwise(P))(ones(2, 4); history = ones(2, 2))
 ```
 "
-struct Pairwise{A <: AbstractArray{<:Any, 3}}
+struct Pairwise{A <: AbstractArray}
     "The pairwise kernels, lag on the last axis."
     x::A
 end
@@ -63,21 +81,22 @@ A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
 
-`indexed_by` sets which time a kernel's column belongs to:
+The indexing sets which time a kernel's column belongs to, and is held as
+a type parameter so nothing branches on it:
 
-  - `:secondary` (the default): column `t` weights the inputs reaching
-    output `t`. This is the only meaning outside a kernel.
-  - `:primary`: column `c` is the kernel of the input at time `c`, which
-    spreads forward through it. [`Convolution`](@ref) kernels only.
+  - [`ComposableRecurrences.Secondary`](@ref) (the default): column `t`
+    weights the inputs reaching output `t`. This is the only meaning
+    outside a kernel.
+  - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
+    the input at time `c`, which spreads forward through it.
+    [`Convolution`](@ref) kernels only.
 
 The two agree for a fixed kernel.
 
 # Arguments
 - `x`: the coefficients, time on the last axis, or a [`PerStratum`](@ref)
   of them.
-
-# Keyword Arguments
-- `indexed_by`: `:secondary` (default) or `:primary`.
+- `indexing`: `Secondary()` (default) or `Primary()`.
 
 # Examples
 ```@example
@@ -103,14 +122,22 @@ struct TimeVarying{I, A}
     end
 end
 
-Base.@constprop :aggressive function TimeVarying(
-        x; indexed_by::Symbol = :secondary
+TimeVarying(x) = TimeVarying{Secondary}(x)
+TimeVarying(x, ::I) where {I <: Union{Primary, Secondary}} = TimeVarying{I}(x)
+function TimeVarying(x, indexing)
+    throw(
+        ArgumentError(
+            "TimeVarying indexing is Secondary() or Primary(), not " *
+                "$(typeof(indexing))"
+        )
     )
-    return TimeVarying{typeof(_indexing(indexed_by))}(x)
 end
 
 # Nesting is normalised to TimeVarying outermost.
 PerStratum(x::TimeVarying{I}) where {I} = TimeVarying{I}(PerStratum(x.x))
+Pairwise(x::TimeVarying{I}) where {I} = TimeVarying{I}(Pairwise(x.x))
+
+const _PairwiseKernel = Union{Pairwise, TimeVarying{<:Any, <:Pairwise}}
 
 # The array under any wrappers.
 _array(x::AbstractArray) = x

@@ -1,7 +1,7 @@
 # The built-in modifiers: Depletion, Add, Redistribute and Clamp.
 # Forward values against naive loops, ForwardDiff gradients through a
 # recurrence, and each hand-written pullback against a local ForwardDiff
-# Jacobian of `apply!` in the step's values, state and the modifier's own
+# Jacobian of the Step in the step's values, state and the modifier's own
 # parameters.
 
 @testmodule ModifierChecks begin
@@ -25,7 +25,8 @@
     flat(x::AbstractArray) = vec(copy(x))
     flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
 
-    # Compare `apply_pullback!` with the transposed Jacobian of `apply!` in
+    # Compare the Step's `pullback!` with the transposed Jacobian of its
+    # `forward` in
     # `[v; s; θ]`, for a modifier `build(θ)` whose mirror flattens in the
     # order of `θ`. Returns the parameter cotangent for further checks.
     function check_pullback(build, θ, v, s, t; v̄ = nothing, s̄ = nothing)
@@ -34,14 +35,14 @@
         s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = S)) : s̄
         J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
             vv, ss = x[1:S], x[(S + 1):(2S)]
-            CR.apply!(build(x[(2S + 1):end]), vv, ss, t)
+            CR.forward(build(x[(2S + 1):end]), CR.Step(), vv, ss, t)
             return vcat(vv, ss)
         end
         expected = transpose(J) * vcat(v̄′, s̄′)
         m = build(θ)
         m̄ = mirror(m)
         gv, gs = copy(v̄′), copy(s̄′)
-        CR.apply_pullback!(m̄, m, copy(v), copy(s), t, gv, gs)
+        CR.pullback!((; piece = m̄, v = gv, s = gs), m, CR.Step(), copy(v), copy(s), t)
         return (;
             v = gv ≈ expected[1:S],
             s = gs ≈ expected[(S + 1):(2S)],
@@ -70,14 +71,15 @@ end
         return y[4:end]
     end
     for α in (1.0, 0.7, 1.6), seeded in (false, true)
-        m = CR.Depletion(N; form = :hazard, seeded, heterogeneity = α)
+        pool0 = seeded ? max(N - sum(h), 0.0) : N
+        m = CR.Depletion(N, CR.Hazard(); pool0, heterogeneity = α)
         @test Recurrence(g; modifiers = (m,))(R; history = h) ≈ naive(α; seeded)
     end
-    # The default form is the hazard form without a seed.
+    # The default form is the hazard form, starting from N.
     @test Recurrence(g; modifiers = (CR.Depletion(N),))(R; history = h) ≈
         naive(1.0; seeded = false)
-    # The seed can exhaust the pool, which is then floored at zero.
-    m = CR.Depletion(5.0; seeded = true)
+    # An empty starting pool draws nothing.
+    m = CR.Depletion(5.0; pool0 = max(5.0 - sum(h), 0.0))
     @test all(iszero, Recurrence(g; modifiers = (m,))(R; history = h))
 end
 
@@ -100,7 +102,7 @@ end
     end
     # A small pool drives S negative, so the floor binds.
     for N in (500.0, 60.0), α in (1.0, 1.4)
-        m = CR.Depletion(N; form = :floor, heterogeneity = α)
+        m = CR.Depletion(N, CR.Floor(); heterogeneity = α)
         @test Recurrence(g; modifiers = (m,))(R; history = h) ≈ naive(N, α)
     end
 end
@@ -110,17 +112,20 @@ end
     CR = ComposableRecurrences
     h = [1.0 2.0; 3.0 1.0]
     N = [100.0, 50.0]
-    m = CR.Depletion(PerStratum(N); seeded = true)
-    @test CR.init_state(m, h) ≈ [97.0, 46.0]
-    @test CR.init_state(CR.Depletion(80.0), h) == [80.0, 80.0]
-    @test_throws DimensionMismatch CR.init_state(
-        CR.Depletion(PerStratum([1.0, 2.0, 3.0])), h
+    init(m, h) = (s = zeros(size(h, 1)); CR.forward(m, CR.Init(), s, h); s)
+    m = CR.Depletion(PerStratum(N); pool0 = PerStratum(N .- vec(sum(h; dims = 2))))
+    @test init(m, h) ≈ [97.0, 46.0]
+    @test init(CR.Depletion(80.0), h) == [80.0, 80.0]
+    @test init(CR.Depletion(PerStratum(N)), h) == N
+    @test_throws DimensionMismatch init(CR.Depletion(PerStratum([1.0, 2.0, 3.0])), h)
+    @test_throws DimensionMismatch init(
+        CR.Depletion(80.0; pool0 = PerStratum([1.0, 2.0, 3.0])), h
     )
-    @test_throws ArgumentError CR.Depletion(1.0; form = :other)
-    # A plain array is not a parameter; N is the starting pool, so it does
+    # A plain array is not a parameter; the population and starting pool do
     # not vary over time.
     @test_throws ArgumentError CR.Depletion(N)
     @test_throws ArgumentError CR.Depletion(TimeVarying(N))
+    @test_throws ArgumentError CR.Depletion(1.0; pool0 = TimeVarying(N))
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
     @test size(y) == (2, 6)
@@ -148,7 +153,7 @@ end
     # A plain array is not a parameter, and the values must cover stop.
     @test_throws ArgumentError CR.Add(b[1, :])
     @test_throws ArgumentError CR.Add(b)
-    @test_throws ArgumentError CR.Add(TimeVarying(b[1, :]; indexed_by = :primary))
+    @test_throws ArgumentError CR.Add(TimeVarying(b[1, :], CR.Primary()))
     @test_throws DimensionMismatch r(TimeVarying(b[1, :]))(1.1; history = h, stop = 5)
     @test_throws DimensionMismatch r(PerStratum([1.0, 2.0, 3.0]))(
         1.1; history = h, stop = 4
@@ -160,7 +165,7 @@ end
     CR = ComposableRecurrences
     g = [1.0]
     b = [0.5, 1.0, 2.0]
-    d = CR.Depletion(10.0; form = :floor)
+    d = CR.Depletion(10.0, CR.Floor())
     y = Recurrence(g; modifiers = (d, CR.Add(TimeVarying(b))))(1.0; history = [2.0], stop = 3)
     function naive()
         S, prev, out = 10.0, 2.0, Float64[]
@@ -199,7 +204,7 @@ end
             ),
         )
         x, s = copy(v), zeros(3)
-        CR.apply!(CR.Redistribute(K, ε), x, s, 2)
+        CR.forward(CR.Redistribute(K, ε), CR.Step(), x, s, 2)
         @test x ≈ naive(εv)
         # What moves is conserved; the state is the arrivals in each stratum.
         @test sum(x) ≈ sum(v)
@@ -214,10 +219,13 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [-1.0, 0.5, 3.0], zeros(3)
-    CR.apply!(CR.Clamp(0.0, 1.0), v, s, 1)
+    CR.forward(CR.Clamp(0.0, 1.0), CR.Step(), v, s, 1)
     @test v == [0.0, 0.5, 1.0]
     v = [-1.0, 0.5, 3.0]
-    CR.apply!(CR.Clamp(PerStratum([-2.0, 0.6, 0.0]), PerStratum([0.0, 1.0, 2.0])), v, s, 1)
+    CR.forward(
+        CR.Clamp(PerStratum([-2.0, 0.6, 0.0]), PerStratum([0.0, 1.0, 2.0])),
+        CR.Step(), v, s, 1
+    )
     @test v == [-1.0, 0.6, 2.0]
     y = Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
     @test y == [2.0, 4.0, 5.0, 5.0]
@@ -228,44 +236,44 @@ end
     @test_throws ArgumentError CR.Clamp([0.0, 1.0], 2.0)
 end
 
-@testitem "Built-in modifiers implement the modifier interface" begin
+@testitem "Built-in modifiers implement the piece interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
-    @test Interfaces.implements(CR.ModifierInterface, CR.Depletion)
-    @test Interfaces.implements(CR.ModifierInterface, CR.Add)
-    @test Interfaces.implements(CR.ModifierInterface, CR.Redistribute)
-    @test Interfaces.implements(CR.ModifierInterface, CR.Clamp)
+    for T in (CR.Depletion, CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp)
+        @test Interfaces.implements(CR.PieceInterface, T)
+    end
 end
 
 @testitem "Depletion pullback matches the local Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [3.0, 0.5, 8.0], [150.0, 40.0, 90.0]
-    for form in (:hazard, :floor), α in (1.0, 0.8, 1.3)
+    for form in (CR.Hazard(), CR.Floor()), α in (1.0, 0.8, 1.3)
         # Scalar N and per-stratum N, each with the exponent as a parameter.
         c = ModifierChecks.check_pullback(
-            θ -> CR.Depletion(θ[1]; form, heterogeneity = θ[2]),
+            θ -> CR.Depletion(θ[1], form; heterogeneity = θ[2]),
             [200.0, α], v, s, 3
         )
         @test c.v && c.s && c.θ
         @test all(!iszero, c.θ̄)
         c = ModifierChecks.check_pullback(
-            θ -> CR.Depletion(PerStratum(θ[1:3]); form, heterogeneity = θ[4]),
+            θ -> CR.Depletion(PerStratum(θ[1:3]), form; heterogeneity = θ[4]),
             [200.0, 60.0, 100.0, α], v, s, 3
         )
         @test c.v && c.s && c.θ
     end
     # The floor binds on the second stratum (negative pool).
     c = ModifierChecks.check_pullback(
-        θ -> CR.Depletion(PerStratum(θ[1:3]); form = :floor, heterogeneity = θ[4]),
+        θ -> CR.Depletion(PerStratum(θ[1:3]), CR.Floor(); heterogeneity = θ[4]),
         [200.0, 60.0, 100.0, 1.0], v, [150.0, -5.0, 90.0], 1
     )
     @test c.v && c.s && c.θ
     # An exhausted pool (a seed larger than N) has a finite hazard pullback.
     m = CR.Depletion(200.0; heterogeneity = 1.3)
     v̄, s̄ = [0.5, 1.0, 0.2], [0.3, -0.2, 0.1]
-    CR.apply_pullback!(
-        ModifierChecks.mirror(m), m, v, [150.0, 0.0, 90.0], 1, v̄, s̄
+    CR.pullback!(
+        (; piece = ModifierChecks.mirror(m), v = v̄, s = s̄), m, CR.Step(), v,
+        [150.0, 0.0, 90.0], 1
     )
     @test all(isfinite, v̄) && all(isfinite, s̄)
 end
@@ -275,22 +283,23 @@ end
     CR = ComposableRecurrences
     h = [1.0 2.0 3.0; 4.0 5.0 6.0; 50.0 60.0 70.0]
     s̄ = [0.7, -1.2, 0.4]
-    for seeded in (false, true), N0 in ([100.0, 40.0, 60.0], [80.0])
+    for N0 in ([100.0, 40.0, 60.0], [80.0]), with_pool0 in (false, true)
         n = length(N0)
-        pool(θ) = CR.init_state(
-            CR.Depletion(n == 1 ? θ[1] : PerStratum(θ[1:n]); seeded),
-            reshape(θ[(n + 1):end], 3, 3)
-        )
-        θ = vcat(N0, vec(h))
+        wrap(x) = n == 1 ? x[1] : PerStratum(x)
+        build(θ) = with_pool0 ?
+            CR.Depletion(wrap(θ[1:n]); pool0 = wrap(θ[(n + 1):(2n)])) :
+            CR.Depletion(wrap(θ[1:n]))
+        function pool(θ)
+            s = zeros(eltype(θ), 3)
+            CR.forward(build(θ), CR.Init(), s, h)
+            return s
+        end
+        θ = with_pool0 ? vcat(N0, 0.9 .* N0) : N0
         expected = transpose(ForwardDiff.jacobian(pool, θ)) * s̄
-        m = CR.Depletion(n == 1 ? N0[1] : PerStratum(N0); seeded)
+        m = build(θ)
         m̄ = ModifierChecks.mirror(m)
-        h̄ = zero(h)
-        CR.init_state_pullback!(m̄, h̄, m, h, s̄)
-        @test ModifierChecks.flat(m̄.N) ≈ expected[1:n]
-        @test vec(h̄) ≈ expected[(n + 1):end]
-        # No history cotangent is asked for.
-        CR.init_state_pullback!(ModifierChecks.mirror(m), nothing, m, h, s̄)
+        CR.pullback!((; piece = m̄, s = s̄, history = nothing), m, CR.Init(), zeros(3), h)
+        @test vcat(ModifierChecks.flat(m̄.N), ModifierChecks.flat(m̄.pool0)) ≈ expected
     end
 end
 
@@ -375,7 +384,11 @@ end
     function loss(θ)
         mods = (
             CR.Redistribute(K, θ[1]),
-            CR.Depletion(PerStratum(θ[2:4]); seeded = true, heterogeneity = θ[5]),
+            CR.Depletion(
+                PerStratum(θ[2:4]);
+                pool0 = PerStratum(max.(θ[2:4] .- vec(sum(h; dims = 2)), 0)),
+                heterogeneity = θ[5]
+            ),
             CR.Add(θ[6]),
             CR.Clamp(0.0, θ[7]),
         )
@@ -401,17 +414,22 @@ end
     h = rand(S, L)
     R = 1 .+ rand(S, T)
     # Either order builds one object, TimeVarying outermost.
-    for I in (:secondary, :primary)
-        a = TimeVarying(PerStratum(G); indexed_by = I)
-        b = PerStratum(TimeVarying(G; indexed_by = I))
+    for I in (CR.Secondary(), CR.Primary())
+        a = TimeVarying(PerStratum(G), I)
+        b = PerStratum(TimeVarying(G, I))
         @test typeof(a) === typeof(b) && a.x.x === b.x.x
     end
+    P4 = rand(S, S, L, T)
+    pa = Recurrence(TimeVarying(Pairwise(P4)))
+    pb = Recurrence(Pairwise(TimeVarying(P4)))
+    @test typeof(pa) === typeof(pb) && pa.kernel.x.x === pb.kernel.x.x
+    @test pa(R; history = h) == pb(R; history = h)
     ra = Recurrence(TimeVarying(PerStratum(G)))
     rb = Recurrence(PerStratum(TimeVarying(G)))
     @test typeof(ra) === typeof(rb) && ra.kernel.x.x === rb.kernel.x.x
     @test ra(R; history = h) == rb(R; history = h)
-    ca = Convolution(TimeVarying(PerStratum(G); indexed_by = :primary))
-    cb = Convolution(PerStratum(TimeVarying(G; indexed_by = :primary)))
+    ca = Convolution(TimeVarying(PerStratum(G), CR.Primary()))
+    cb = Convolution(PerStratum(TimeVarying(G, CR.Primary())))
     @test typeof(ca) === typeof(cb)
     @test ca(R) == cb(R)
     # And for modifier parameters.
@@ -427,58 +445,56 @@ end
     end
 end
 
-@testitem "Options: an unknown name errors and names the hook" begin
+@testitem "Variants: the form slot takes a form struct" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
+    struct NotAForm end
     err = try
-        CR.Depletion(1.0; form = :foo)
+        CR.Depletion(1.0, NotAForm())
         nothing
     catch e
         e
     end
     @test err isa ArgumentError
-    @test occursin(":foo", err.msg) && occursin(":hazard", err.msg) &&
-        occursin(":floor", err.msg)
-    @test occursin("ComposableRecurrences.option(::Val{:form}, ::Val{:foo})", err.msg)
-    @test occursin("deplete", err.msg)
-    @test_throws ArgumentError CR.option(Val(:colour), Val(:red))
+    @test occursin("NotAForm", err.msg) &&
+        occursin("forward(form, Step(), v, s, N, α)", err.msg)
+    @test_throws ArgumentError CR.Depletion(1.0, :floor)
 end
 
-@testitem "Options: resolved once, at construction" begin
+@testitem "Variants: one path per step" begin
     using ComposableRecurrences, JET
     CR = ComposableRecurrences
-    for form in (:hazard, :floor)
-        m = CR.Depletion(100.0; form)
-        F = typeof(CR.option(Val(:form), Val(form)))
-        @test m isa CR.Depletion{F}
-        @test m.form === F()
-        # The built-in maths is the form's deplete method.
-        @test CR.apply(m, 2.0, 80.0, 1, 1) ==
-            CR.deplete(m.form, 2.0, 80.0, 100.0, 1.0)
+    for form in (CR.Hazard(), CR.Floor())
+        m = CR.Depletion(100.0, form)
+        @test m isa CR.Depletion{typeof(form)}
+        # The built-in maths is the form's Step.
+        @test CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1) ==
+            CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 1.0)
         # A step compiles to one path: no dispatch on the form at run time.
-        @test (@inferred CR.apply(m, 2.0, 80.0, 1, 1)) isa Tuple{Float64, Float64}
-        JET.@test_opt CR.apply(m, 2.0, 80.0, 1, 1)
+        @test (@inferred CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)) isa
+            Tuple{Float64, Float64}
+        JET.@test_opt CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)
     end
-    # A literal form infers through the keyword constructor.
-    floor_depletion() = ComposableRecurrences.Depletion(1.0; form = :floor)
-    @test (@inferred floor_depletion()) isa CR.Depletion
     default_depletion() = ComposableRecurrences.Depletion(1.0)
-    @test (@inferred default_depletion()) isa CR.Depletion
+    @test (@inferred default_depletion()) isa CR.Depletion{CR.Hazard}
 end
 
-@testitem "Options: a user depletion form, with and without a pullback" setup = [ModifierChecks] begin
+@testitem "Variants: a user depletion form, with and without a pullback" setup = [ModifierChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # Take what is asked, up to the pool.
     struct Linear end
-    CR.option(::Val{:form}, ::Val{:linear}) = Linear()
-    CR.deplete(::Linear, v, s, N, α) = (y = min(v, s); (y, s - y))
+    CR.forward(::Linear, ::CR.Step, v, s, N, α) = (y = min(v, s); (y, s - y))
     struct LinearWithPullback end
-    CR.option(::Val{:form}, ::Val{:linear_pullback}) = LinearWithPullback()
-    CR.deplete(::LinearWithPullback, v, s, N, α) = (y = min(v, s); (y, s - y))
-    function CR.deplete_pullback(::LinearWithPullback, v, s, N, α, ȳ, s̄′)
-        z = zero(ȳ)
-        return v < s ? (ȳ - s̄′, s̄′, z, z) : (z, ȳ, z, z)
+    function CR.forward(::LinearWithPullback, ::CR.Step, v, s, N, α)
+        y = min(v, s)
+        return y, s - y
+    end
+    function CR.pullback!(ḡ, ::LinearWithPullback, ::CR.Step, v, s, N, α)
+        take = v < s
+        v̄ = take ? ḡ.v - ḡ.s : zero(v)
+        s̄ = take ? ḡ.s : ḡ.v
+        return v̄, s̄, zero(N), zero(α)
     end
     h = [1.0, 2.0]
     function naive(R, N)
@@ -492,20 +508,20 @@ end
     end
     R = fill(2.0, 8)
     ∇ref = ForwardDiff.gradient(θ -> sum(naive(θ[2:end], θ[1])), vcat(100.0, R))
-    for form in (:linear, :linear_pullback)
-        d = CR.Depletion(100.0; form)
+    for form in (Linear(), LinearWithPullback())
+        d = CR.Depletion(100.0, form)
         y = Recurrence([0.5, 0.5]; modifiers = (d,))(R; history = h)
         @test y ≈ naive(R, 100.0)
         # The pool runs out, so both branches of the form are used.
         @test y[end] < R[end] * (0.5 * y[end - 1] + 0.5 * y[end - 2])
-        run(θ) = Recurrence([0.5, 0.5]; modifiers = (CR.Depletion(θ[1]; form),))(
+        run(θ) = Recurrence([0.5, 0.5]; modifiers = (CR.Depletion(θ[1], form),))(
             θ[2:end]; history = h
         )
         @test ForwardDiff.gradient(θ -> sum(run(θ)), vcat(100.0, R)) ≈ ∇ref
     end
     # The pullback matches the local Jacobian on both branches.
     c = ModifierChecks.check_pullback(
-        θ -> CR.Depletion(θ[1]; form = :linear_pullback, heterogeneity = θ[2]),
+        θ -> CR.Depletion(θ[1], LinearWithPullback(); heterogeneity = θ[2]),
         [100.0, 1.0], [2.0, 5.0], [4.0, 3.0], 1
     )
     @test c.v && c.s && c.θ

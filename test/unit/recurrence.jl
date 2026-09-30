@@ -153,17 +153,33 @@ end
 end
 
 @testitem "Recurrence: pairwise kernel" setup = [Reference] begin
-    using ComposableRecurrences, Random
+    using ComposableRecurrences, LinearAlgebra, Random
     rng = Xoshiro(8)
     S, L, T = 3, 4, 8
     P = rand(rng, S, S, L)
     h = rand(rng, S, L)
     R = rand(rng, S, T)
-    y = Recurrence(nothing; coupling = Pairwise(P))(R; history = h)
+    y = Recurrence(Pairwise(P))(R; history = h)
     ref = naive_recurrence(
         (t, a, b, i) -> P[a, b, i], h, T; gain = (a, t) -> R[a, t]
     )
     @test y ≈ ref
+    @test Recurrence(Pairwise(P); coupling = I)(R; history = h) ≈ ref
+    # Time-varying, with either nesting order.
+    P4 = rand(rng, S, S, L, T)
+    ref = naive_recurrence(
+        (t, a, b, i) -> P4[a, b, i, t], h, T; gain = (a, t) -> R[a, t]
+    )
+    @test Recurrence(TimeVarying(Pairwise(P4)))(R; history = h) ≈ ref
+    @test Recurrence(Pairwise(TimeVarying(P4)))(R; history = h) ≈ ref
+    # With a modifier, as any kernel.
+    y = Recurrence(Pairwise(P); modifiers = (ComposableRecurrences.Add(0.5),))(
+        R; history = h
+    )
+    @test y ≈ naive_recurrence(
+        (t, a, b, i) -> P[a, b, i], h, T; gain = (a, t) -> R[a, t],
+        add = (a, t) -> 0.5
+    )
 end
 
 @testitem "Recurrence: modifiers thread in tuple order" setup = [Reference, TestModifiers] begin
@@ -219,9 +235,12 @@ end
 end
 
 @testitem "Recurrence: argument validation" begin
-    using ComposableRecurrences
+    using ComposableRecurrences, LinearAlgebra
     g = [0.2, 0.3, 0.5]
+    # Pairwise is a kernel, and it already mixes strata.
     @test_throws ArgumentError Recurrence(g; coupling = Pairwise(ones(2, 2, 3)))
+    @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = ones(2, 2))
+    @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = 0.5I)
     @test_throws ArgumentError Recurrence(nothing)
     # No time-indexed input: stop is required.
     @test_throws ArgumentError Recurrence(g)(1.0; history = ones(3))
@@ -238,15 +257,17 @@ end
     @test_throws ArgumentError Recurrence(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Recurrence(PerStratum(ones(2, 3, 4)))
     # Primary indexing is not yet supported, and not a coupling's meaning.
-    @test_throws ArgumentError Recurrence(TimeVarying(ones(3, 4); indexed_by = :primary))
+    @test_throws ArgumentError Recurrence(TimeVarying(ones(3, 4), ComposableRecurrences.Primary()))
     @test_throws ArgumentError Recurrence(
-        g; coupling = TimeVarying(ones(2, 2, 4); indexed_by = :primary)
+        g; coupling = TimeVarying(ones(2, 2, 4), ComposableRecurrences.Primary())
     )
     @test_throws ArgumentError Recurrence(g; coupling = TimeVarying(ones(2, 4)))
     # Call inputs are data, never wrapped.
     @test_throws ArgumentError Recurrence(g)(TimeVarying(ones(5)); history = ones(3))
     # A seed or a state, and a resumed call starts where it left off.
-    y, state = Recurrence(g)(ones(5); history = ones(3), stop = 2, return_state = true)
+    y, state = ComposableRecurrences.with_state(
+        Recurrence(g), ones(5); history = ones(3), stop = 2
+    )
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), state)
     @test_throws ArgumentError Recurrence(g)(ones(5); state, start = 3)
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), start = 0)
@@ -258,6 +279,7 @@ end
 
 @testitem "Recurrence: resume from the returned state" setup = [TestModifiers] begin
     using ComposableRecurrences, Random
+    CR = ComposableRecurrences
     rng = Xoshiro(11)
     S, L, T = 3, 4, 10
     r = Recurrence(
@@ -268,7 +290,7 @@ end
     R = 1 .+ rand(rng, S, T)
     ϵ = rand(rng, S, T)
     full = r(R; history = h, add = ϵ)
-    y1, state = r(R; history = h, add = ϵ, stop = 4, return_state = true)
+    y1, state = CR.with_state(r, R; history = h, add = ϵ, stop = 4)
     @test state isa ComposableRecurrences.State
     @test y1 ≈ full[:, 1:4]
     @test state.history ≈ full[:, 1:4]
@@ -279,14 +301,14 @@ end
     @test y2 ≈ full[:, 5:end]
 
     # Resuming twice matches as well, and a single series keeps its shape.
-    y2a, state2 = r(R; state, add = ϵ, stop = 7, return_state = true)
+    y2a, state2 = CR.with_state(r, R; state, add = ϵ, stop = 7)
     y2b = r(R; state = state2, add = ϵ)
     @test hcat(y2a, y2b) ≈ full[:, 5:end]
 
     r1 = Recurrence([0.1, 0.2, 0.3, 0.4])
     h1 = rand(rng, 4)
     full1 = r1(R[1, :]; history = h1)
-    y, st = r1(R[1, :]; history = h1, stop = 6, return_state = true)
+    y, st = CR.with_state(r1, R[1, :]; history = h1, stop = 6)
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
     @test r1(R[1, :]; state = st) ≈ full1[7:end]
@@ -309,7 +331,7 @@ end
     @test full ≈ vec(ref)
 
     # A resumed call continues at the state's next time.
-    y1, state = r(R; history = h, stop = 5, return_state = true)
+    y1, state = ComposableRecurrences.with_state(r, R; history = h, stop = 5)
     @test state.t == 6
     @test r(R; state) ≈ full[6:end]
 
@@ -340,7 +362,7 @@ end
     r = Recurrence(g)
     @test r(R; history = h) ≈ r(R; history = h[:, 5:end])
 
-    # init_state sees the whole history.
+    # Init sees the whole history.
     y = Recurrence(g; modifiers = (HistoryTotal(),))(R; history = h)
     total = vec(sum(h; dims = 2))
     ref = naive_recurrence(
@@ -380,7 +402,7 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
-    d = CR.Depletion(80.0; seeded = true)
+    d = CR.Depletion(80.0; pool0 = 71.0)
     r = Recurrence(g; modifiers = (d,))
     # A single series, and strata with a seed shorter than the kernel.
     for (h, R) in (

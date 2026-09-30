@@ -71,13 +71,13 @@ end
 # Check every time-varying coefficient in a coupling or modifier covers
 # times up to `stop`, recursing through fields. Outside a kernel only
 # `:secondary` indexing has a meaning.
-function _check_times(name, x::TimeVarying{_Secondary}, stop)
+function _check_times(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
 function _check_times(name, ::TimeVarying, stop)
     throw(
         ArgumentError(
-            "$name: indexed_by = :primary is only meaningful for a kernel"
+            "$name: Primary() indexing is only meaningful for a kernel"
         )
     )
 end
