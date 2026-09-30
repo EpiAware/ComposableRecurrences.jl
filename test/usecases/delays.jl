@@ -1,6 +1,7 @@
 # Reporting delays: CTIDM's LatentDelay (fixed and time-varying pmf) and
-# BVD's `convolve_delay`. Each is a causal convolution whose kernel is
-# indexed from lag 0.
+# Aggregate, and BVD's `convolve_delay`, `convolve_pmf` and
+# `bin_increments`. Each is a causal convolution whose kernel is indexed from
+# lag 0, or a running total.
 
 @testitem "Use case: fixed reporting delay (LatentDelay)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
@@ -48,9 +49,7 @@ end
     ∇ref = ForwardDiff.gradient(ref_loss, θ0)
 
     # The kernel is `L × T`: column `t` weights the inputs reaching time `t`.
-    tv_delay(P, Y) = Convolution(TimeVarying(P); indexed_by = :secondary)(
-        Y
-    )[d:end]
+    tv_delay(P, Y) = Convolution(TimeVarying(P))(Y)[d:end]
     @test tv_delay(P, Y) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* tv_delay(unpack(θ)...)), θ0) ≈ ∇ref
 end
@@ -77,4 +76,64 @@ end
         θ -> sum(w .* Convolution(θ[1:4])(θ[5:end])), vcat(delay, x)
     )
     @test ∇ ≈ ∇ref
+end
+
+@testitem "Use case: BVD convolve_pmf" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    B = UseCaseReferences.BVDReference
+
+    # Onset to report, then report to confirmation: the pmf of the sum of the
+    # two delays, length na + nb - 1.
+    a = [0.1, 0.4, 0.3, 0.2]
+    b = [0.5, 0.3, 0.2]
+    na, nb = length(a), length(b)
+    ref = B.convolve_pmf(a, b)
+    w = range(0.5, 2.0; length = length(ref))
+    ∇ref = ForwardDiff.gradient(
+        θ -> sum(w .* B.convolve_pmf(θ[1:na], θ[(na + 1):end])), vcat(a, b)
+    )
+
+    # A full convolution is a causal one over `b` padded to the output length.
+    compose(a, b) = Convolution(a)(vcat(b, zeros(eltype(b), na - 1)))
+    @test compose(a, b) ≈ ref
+    @test sum(compose(a, b)) ≈ 1
+    @test ForwardDiff.gradient(
+        θ -> sum(w .* compose(θ[1:na], θ[(na + 1):end])), vcat(a, b)
+    ) ≈ ∇ref
+end
+
+@testitem "Use case: window aggregation" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    C = UseCaseReferences.CTIDMReference
+    B = UseCaseReferences.BVDReference
+
+    Y = [5.0, 8.0, 12.0, 15.0, 14.0, 11.0, 9.0, 7.0, 6.0, 4.0, 3.0, 2.0]
+    n = length(Y)
+    # CTIDM's `Aggregate`: the window lengths per time, `0` where nothing is
+    # reported; a window may be clipped at the start.
+    aggregation = [0, 3, 0, 0, 3, 0, 0, 0, 4, 0, 1, 2]
+    idx = findall(!=(0), aggregation)
+    ref = C.aggregate(aggregation, Y)
+    wa = range(0.5, 2.0; length = length(ref))
+    ∇ref = ForwardDiff.gradient(y -> sum(wa .* C.aggregate(aggregation, y)), Y)
+
+    # A box kernel from lag 0 whose width is the window reported at `t`.
+    box = [d < aggregation[t] ? 1.0 : 0.0 for d in 0:(maximum(aggregation) - 1), t in 1:n]
+    aggregate(Y) = Convolution(TimeVarying(box))(Y)[idx]
+    @test aggregate(Y) ≈ ref
+    @test ForwardDiff.gradient(y -> sum(wa .* aggregate(y)), Y) ≈ ∇ref
+
+    # BVD's `bin_increments`: sums over the windows between report days, an
+    # empty window giving zero. The difference of a running total at the
+    # window ends.
+    days = [3, 7, 7, 10, 12]
+    refb = B.bin_increments(Y, days)
+    wb = range(0.5, 2.0; length = length(days))
+    ∇refb = ForwardDiff.gradient(y -> sum(wb .* B.bin_increments(y, days)), Y)
+    function bins(Y)
+        total = vcat(zero(eltype(Y)), Recurrence([1.0])(1.0; history = [0.0], add = Y))
+        return total[days .+ 1] .- total[vcat(0, days[1:(end - 1)]) .+ 1]
+    end
+    @test bins(Y) ≈ refb
+    @test ForwardDiff.gradient(y -> sum(wb .* bins(y)), Y) ≈ ∇refb
 end

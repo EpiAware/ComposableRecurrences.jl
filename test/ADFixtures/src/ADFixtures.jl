@@ -37,9 +37,16 @@ scaled by `max(s / pop, 1e-6)` and removed from the pool `s`, which starts at
 struct FlooredDepletion{P}
     pop::P
 end
-ComposableRecurrences.init_state(m::FlooredDepletion, history) = collect(m.pop)
+function ComposableRecurrences.forward(
+        m::FlooredDepletion, ::ComposableRecurrences.Init, s, history
+    )
+    s .= m.pop
+    return nothing
+end
 ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-function ComposableRecurrences.apply(m::FlooredDepletion, v, s, t, k)
+function ComposableRecurrences.forward(
+        m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
+    )
     v′ = max(s / m.pop[k], 1.0e-6) * v
     return v′, s - v′
 end
@@ -51,11 +58,16 @@ the scalar field is differentiated.
 struct ScalarDepletion{T}
     N::T
 end
-function ComposableRecurrences.init_state(m::ScalarDepletion, history)
-    return fill(m.N, size(history, 1))
+function ComposableRecurrences.forward(
+        m::ScalarDepletion, ::ComposableRecurrences.Init, s, history
+    )
+    fill!(s, m.N)
+    return nothing
 end
 ComposableRecurrences.ispointwise(::ScalarDepletion) = true
-function ComposableRecurrences.apply(m::ScalarDepletion, v, s, t, k)
+function ComposableRecurrences.forward(
+        m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
+    )
     v′ = max(s / m.N, 1.0e-6) * v
     return v′, s - v′
 end
@@ -90,7 +102,10 @@ end
 
 function _renewal_strata(w, θ)
     g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
-    r = Recurrence(g; coupling = K, modifiers = (ComposableRecurrences.Depletion(POP; form = :floor),))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(POP), ComposableRecurrences.Floor()
+    )
+    r = Recurrence(g; coupling = K, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -119,7 +134,7 @@ end
 
 function _pairwise(w, θ)
     P, logh, R = _unpack(θ, (S, S, L), (S, L), (S, T))
-    r = Recurrence(nothing; coupling = Pairwise(P))
+    r = Recurrence(Pairwise(P))
     return sum(WS .* w(r)(R; history = exp.(logh)))
 end
 
@@ -130,11 +145,12 @@ function _time_varying(w, θ)
 end
 
 # The returned state feeds the loss, so its cotangent reaches the history
-# and the modifier's pool.
+# and the depletion pool.
 function _with_state(w, θ)
     g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
-    r = Recurrence(g; coupling = K0, modifiers = (ComposableRecurrences.Depletion(POP; form = :floor),))
-    y, st = w(r)(exp.(logR); history = exp.(logh), return_state = true)
+    dep = ComposableRecurrences.Depletion(PerStratum(POP))
+    r = Recurrence(g; coupling = K0, modifiers = (dep,))
+    y, st = ComposableRecurrences.with_state(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y)) + sum(st.history) + 0.01 * sum(only(st.states))
 end
 
@@ -145,13 +161,13 @@ end
 
 function _delay_varying(w, θ)
     G, X = _unpack(θ, (S, L, T), (S, T))
-    return sum(WS .* w(Convolution(TimeVarying(G)))(X))
+    kernel = TimeVarying(PerStratum(G), ComposableRecurrences.Primary())
+    return sum(WS .* w(Convolution(kernel))(X))
 end
 
 function _delay_varying_secondary(w, θ)
-    G, X, H = _unpack(θ, (L, T + 3), (S, T), (S, 2))
-    c = Convolution(TimeVarying(G); indexed_by = :secondary)
-    return sum(WS .* w(c)(X; history = H, start = 4))
+    G, X, H = _unpack(θ, (L, T), (S, T), (S, 2))
+    return sum(WS[:, 4:end] .* w(Convolution(TimeVarying(G)))(X; history = H, start = 4))
 end
 
 _flat(xs...) = reduce(vcat, map(vec, xs))
@@ -197,7 +213,7 @@ const _SCENARIOS = [
     ),
     (
         "Convolution time-varying kernel indexed by output", _delay_varying_secondary,
-        () -> _flat(fill(0.25, L, T + 3), 1 .+ LOGR, ones(S, 2)),
+        () -> _flat(fill(0.25, L, T), 1 .+ LOGR, ones(S, 2)),
     ),
 ]
 
@@ -247,9 +263,15 @@ end
 broken_scenario_names() = String[]
 
 """
-Per-backend broken scenario names (`Dict{String, Set{String}}`); none.
+Per-backend broken scenario names (`Dict{String, Set{String}}`).
+
+ReverseDiff is unsupported (the package relies on mutation); remove these
+jobs once the kit backend subset (#438) is released.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    names = Set(first.(_TWINS))
+    return Dict("ReverseDiff (tape)" => names, "ReverseDiff (compiled)" => names)
+end
 
 """
 Per-backend scenario names too unstable to run at all.

@@ -45,13 +45,14 @@ struct LocalFD{M}
     m::M
 end
 CR.ispointwise(::LocalFD) = true
-CR.uses_adjoint(::LocalFD) = true
-CR.init_state(w::LocalFD, h) = CR.init_state(w.m, h)
-CR.apply(w::LocalFD, v, s, t, k) = CR.apply(w.m, v, s, t, k)
+CR.uses_adjoint(::LocalFD, ::CR.Step) = true
+CR.forward(w::LocalFD, ::CR.Init, s, h) = CR.forward(w.m, CR.Init(), s, h)
+CR.pullback!(grads, w::LocalFD, ::CR.Init, s, h) = CR.pullback!(grads, w.m, CR.Init(), s, h)
+CR.forward(w::LocalFD, ::CR.Step, v, s, t, k) = CR.forward(w.m, CR.Step(), v, s, t, k)
 
 hide(m, ::Val{true}) = LocalFD(m)
 hide(m, ::Val{false}) = m
-strata(S, x) = S == 1 ? x : fill(x, S)
+strata(S, x) = S == 1 ? x : PerStratum(fill(x, S))
 weights(S) = (Random.seed!(S); S == 1 ? randn(T) : randn(S, T))
 history(S, x) = S == 1 ? fill(x, L) : fill(x, S, L)
 mixing(S) = S == 1 ? I : Matrix(0.8I(S) .+ 0.2 / S .* ones(S, S))
@@ -83,7 +84,7 @@ function (f::Loss{:depletion})(θ)
 end
 function (f::Loss{:imports})(θ)
     (; W, K, h, dims) = f.p
-    m = hide(CR.Imports(fill(0.5, dims)), lf(f))
+    m = hide(CR.Add(TimeVarying(PerStratum(fill(0.5, dims)))), lf(f))
     r = Recurrence(G; coupling = K, modifiers = (m,))
     return sum(W .* log.(f.wrap(r)(exp.(reshape(θ, dims)); history = h)))
 end
@@ -104,9 +105,10 @@ function (f::Loss{:ar})(θ)
     return sum(f.p.W .* f.wrap(r)(; history = [0.1, 0.2], add = θ[3:end]))
 end
 function (f::Loss{:bvd_renewal})(θ)
-    dep = hide(CR.Depletion(1.0e5; seeded = true), lf(f))
+    seed = exp.(θ[(L + 1):(2L)])
+    dep = hide(CR.Depletion(1.0e5; pool0 = max(1.0e5 - sum(seed), 0.0)), lf(f))
     r = Recurrence(θ[1:L]; modifiers = (dep,))
-    y = f.wrap(r)(exp.(θ[(2L + 1):end]); history = exp.(θ[(L + 1):(2L)]))
+    y = f.wrap(r)(exp.(θ[(2L + 1):end]); history = seed)
     return sum(f.p.W .* log.(y))
 end
 function (f::Loss{:bvd_patch})(θ)
@@ -116,7 +118,8 @@ function (f::Loss{:bvd_patch})(θ)
     seeds = reshape(exp.(θ[(o + 1):(o + 5L)]), 5, L)
     o += 5L
     R = reshape(exp.(θ[(o + 1):(o + 5T)]), 5, T)
-    dep = hide(CR.Depletion(fill(1.0e5, 5); seeded = true), lf(f))
+    pool0 = PerStratum(max.(1.0e5 .- vec(sum(seeds; dims = 2)), 0.0))
+    dep = hide(CR.Depletion(PerStratum(fill(1.0e5, 5)); pool0), lf(f))
     r = Recurrence(θ[1:L]; modifiers = (CR.Redistribute(K, θ[end]), dep))
     return sum(f.p.W .* log.(f.wrap(r)(R; history = seeds)))
 end

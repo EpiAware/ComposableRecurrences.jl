@@ -49,9 +49,12 @@ end
     struct FlooredDepletion{P}
         pop::P
     end
-    ComposableRecurrences.init_state(m::FlooredDepletion, history) = collect(m.pop)
+    function ComposableRecurrences.forward(m::FlooredDepletion, ::ComposableRecurrences.Init, s, history)
+        s .= m.pop
+        return nothing
+    end
     ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-    function ComposableRecurrences.apply(m::FlooredDepletion, v, s, t, k)
+    function ComposableRecurrences.forward(m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k)
         v′ = max(s / m.pop[k], 1.0e-6) * v
         return v′, s - v′
     end
@@ -60,7 +63,7 @@ end
     struct Scale{A}
         a::A
     end
-    function ComposableRecurrences.apply!(m::Scale, v, s, t)
+    function ComposableRecurrences.forward(m::Scale, ::ComposableRecurrences.Step, v, s, t)
         v .*= m.a
         s .+= v
         return nothing
@@ -72,22 +75,23 @@ end
         params::NamedTuple
     end
     ComposableRecurrences.ispointwise(::LooseScale) = true
-    function ComposableRecurrences.apply(m::LooseScale, v, s, t, k)
+    function ComposableRecurrences.forward(m::LooseScale, ::ComposableRecurrences.Step, v, s, t, k)
         return m.a * v + m.params.b, s
     end
 
-    # Adds each stratum's history total, set once by `init_state`.
+    # Adds each stratum's history total, set once by its Init.
     struct HistoryTotal end
-    function ComposableRecurrences.init_state(::HistoryTotal, history)
-        return vec(sum(history; dims = ndims(history)))
+    function ComposableRecurrences.forward(::HistoryTotal, ::ComposableRecurrences.Init, s, history)
+        s .= vec(sum(history; dims = ndims(history)))
+        return nothing
     end
     ComposableRecurrences.ispointwise(::HistoryTotal) = true
-    ComposableRecurrences.apply(::HistoryTotal, v, s, t, k) = (v + s, s)
+    ComposableRecurrences.forward(::HistoryTotal, ::ComposableRecurrences.Step, v, s, t, k) = (v + s, s)
 
     # Pointwise and time-varying: add `b[t]`.
     struct Shift{B}
         b::B
     end
     ComposableRecurrences.ispointwise(::Shift) = true
-    ComposableRecurrences.apply(m::Shift, v, s, t, k) = (v + m.b[t], s)
+    ComposableRecurrences.forward(m::Shift, ::ComposableRecurrences.Step, v, s, t, k) = (v + m.b[t], s)
 end

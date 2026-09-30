@@ -1,30 +1,148 @@
-# The modifier interface. A modifier is any object; these functions give it
-# its behaviour, and modifiers run in tuple order after the core of each step.
+# The piece interface. Every piece (operator, coupling, modifier or variant)
+# implements `forward`, and optionally `pullback!`, for a role.
 
 @doc "
-The initial state of modifier `m`: a vector with one entry per stratum.
-
-The default is zeros.
-The state is copied into the operator's buffer eltype before the first step.
-
-# Arguments
-- `m`: the modifier.
-- `history`: the full history passed to the call (a vector, or strata × time),
-  not only the last `L` values.
+The role of an operator's whole call, `forward(op, Run(), args...; kwargs...)`,
+which returns `(y, cache)`; calling the operator lowers to it.
 
 # Examples
 ```@example
 using ComposableRecurrences
-ComposableRecurrences.init_state(nothing, ones(2, 3))
+CR = ComposableRecurrences
+y, cache = CR.forward(Recurrence([0.5, 0.5]), CR.Run(), fill(1.1, 4); history = ones(2))
 ```
 "
-init_state(m, history) = _zeros(history, eltype(history), _nstrata(history))
+struct Run end
+
+@doc "
+The role of one step of a modifier, or of a variant inside its owner (a
+depletion form inside [`ComposableRecurrences.Depletion`](@ref)).
+
+  - `forward(m, Step(), v, s, t)` updates the step's values `v` and the
+    modifier's state `s` in place (one entry per stratum) and returns
+    `nothing`.
+  - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
+    returning `(v′, s′)`; a modifier with
+    [`ComposableRecurrences.ispointwise`](@ref) implements this one.
+  - `forward(form, Step(), v, s, N, α)` draws `v` from pool `s` for a
+    depletion form, returning `(y, s′)`.
+
+`t` is the absolute time of the step.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+```
+"
+struct Step end
+
+@doc "
+The role of a modifier's initial state: `forward(m, Init(), s, history)`
+writes the state `s` (one entry per stratum, allocated by the operator at
+its buffer eltype) from the full history, and returns `nothing`.
+
+The default writes zeros.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+s = zeros(2)
+CR.forward(CR.Depletion(PerStratum([100.0, 50.0])), CR.Init(), s, ones(2, 3))
+s
+```
+"
+struct Init end
+
+@doc "
+The role of a coupling: `forward(C, Pressure(), q, p, t)` writes into `q`
+the mixing of the per-stratum kernel convolutions `p` at absolute time `t`,
+and returns `nothing`.
+
+`I` scales `p`, a matrix `C` gives `q = C p` and a [`TimeVarying`](@ref)
+coupling uses its `t`-th slice.
+A new coupling is a struct with this method.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+q = zeros(2)
+CR.forward([0.9 0.1; 0.2 0.8], CR.Pressure(), q, [1.0, 2.0], 1)
+q
+```
+"
+struct Pressure end
+
+@doc "
+Run `piece` in `role` on primal arguments `args`.
+
+Array outputs are written into the leading array arguments and the method
+returns `nothing`; a scalar [`ComposableRecurrences.Step`](@ref) returns its
+new scalars and [`ComposableRecurrences.Run`](@ref) returns `(y, cache)`.
+Extend the package by writing a struct and this method for its role:
+[`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
+for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
+coupling.
+
+# Arguments
+- `piece`: the operator, coupling, modifier or variant.
+- `role`: `Run()`, `Step()`, `Init()` or `Pressure()`.
+- `args`: the role's arguments.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+struct Offset
+    b::Float64
+end
+CR.ispointwise(::Offset) = true
+CR.forward(m::Offset, ::CR.Step, v, s, t, k) = (v + m.b, s)
+Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
+```
+"
+function forward end
+
+@doc "
+Accumulate the reverse pass of [`ComposableRecurrences.forward`](@ref) for
+`piece` in `role`.
+
+`grads` is a NamedTuple: `grads.piece` mirrors the piece's parameters (or is
+`nothing`) and the other fields are named after the role's arguments.
+Output cotangents are read on entry and input cotangents accumulated; a
+buffer `forward` updated in place is overwritten with the cotangent of its
+incoming value, and a scalar `Step` returns its input cotangents instead.
+A piece without it is differentiated by the AD backend.
+
+# Arguments
+- `grads`: the cotangents, `(; piece, ...)`.
+- `piece`: the piece.
+- `role`: the role.
+- `args`: the primal arguments `forward` was given.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+m = CR.Clamp(0.0, 1.0)
+grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0, 1.0], s = [0.0, 0.0])
+CR.pullback!(grads, m, CR.Step(), [0.5, 2.0], [0.0, 0.0], 1)
+grads.v, grads.piece.hi[]
+```
+"
+function pullback! end
 
 @doc "
 Whether modifier `m` acts on each stratum separately.
 
-A pointwise modifier implements the scalar [`apply`](@ref), and the default
-[`apply!`](@ref) loops it over strata.
+This sets which [`ComposableRecurrences.Step`](@ref) a modifier implements:
+a per-stratum map sets `ispointwise(m) = true` and implements the scalar
+`forward(m, Step(), v, s, t, k)`, which the default vector step loops over
+strata; a modifier that couples strata implements
+`forward(m, Step(), v, s, t)` instead.
 The default is `false`.
 
 # Arguments
@@ -38,113 +156,40 @@ ComposableRecurrences.ispointwise(nothing)
 "
 ispointwise(m) = false
 
-@doc "
-Apply pointwise modifier `m` to stratum `k`'s value `v` and state `s` at step
-`t`, returning the new `(v, s)`.
-
-Implement this, with [`ispointwise`](@ref) returning `true`, for a modifier
-that acts on each stratum separately.
-
-# Arguments
-- `m`: the modifier.
-- `v`: the stratum's value at this step.
-- `s`: the stratum's state before this step.
-- `t`: the time index of the step.
-- `k`: the stratum.
-
-# Examples
-```@example
-using ComposableRecurrences
-struct Offset
-    b::Float64
-end
-ComposableRecurrences.ispointwise(::Offset) = true
-ComposableRecurrences.apply(m::Offset, v, s, t, k) = (v + m.b, s)
-Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), add = zeros(4))
-```
-"
-function apply(m, v, s, t, k)
-    throw(ArgumentError("$(typeof(m)) implements no pointwise apply"))
-end
-
-@doc "
-Apply modifier `m` in place at step `t`: overwrite the step's values `v` and
-the modifier's state `s` (both one entry per stratum).
-
-The default loops the scalar [`apply`](@ref) over strata when
-[`ispointwise`](@ref) is `true`.
-A modifier that couples strata implements this method.
-
-# Arguments
-- `m`: the modifier.
-- `v`: the step's values, `gain ⊙ x + add` after earlier modifiers.
-- `s`: the modifier's state before this step.
-- `t`: the time index of the step.
-
-# Examples
-```@example
-using ComposableRecurrences
-struct Normalise end
-function ComposableRecurrences.apply!(::Normalise, v, s, t)
-    v ./= sum(v)
+# Defaults: a zero initial state, and a vector step that loops the scalar
+# one for a pointwise modifier.
+function forward(m, ::Init, s, history)
+    fill!(s, zero(eltype(s)))
     return nothing
 end
-Recurrence([0.5, 0.5]; modifiers = (Normalise(),))(ones(2, 4); history = ones(2, 2))
-```
-"
-function apply!(m, v, s, t)
+
+function forward(m, ::Step, v, s, t)
     ispointwise(m) || throw(
         ArgumentError(
-            "$(typeof(m)) implements neither apply! nor a pointwise apply"
+            "$(typeof(m)) implements neither forward(m, Step(), v, s, t) " *
+                "nor a pointwise forward(m, Step(), v, s, t, k)"
         )
     )
     for k in eachindex(v, s)
-        v[k], s[k] = apply(m, v[k], s[k], t, k)
+        v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
     end
     return nothing
 end
 
-@doc "
-Accumulate the reverse pass of [`apply!`](@ref) for modifier `m` at step `t`.
-
-Given the step's inputs `v`, `s` and the cotangents of its outputs in `v̄`,
-`s̄`, overwrite `v̄`, `s̄` with the cotangents of the inputs and add parameter
-cotangents into the mirror `m̄` (see [`ComposableRecurrences.pullback!`](@ref)
-for mirrors), at time `t` for time-varying parameters.
-A pointwise modifier implements the scalar
-[`ComposableRecurrences.apply_pullback`](@ref) instead: when every modifier
-of a recurrence is pointwise the reverse pass calls that per stratum.
-Declare [`ComposableRecurrences.uses_adjoint`](@ref) true for a modifier
-that implements either.
-A modifier without one is differentiated by the AD backend: a pointwise
-modifier whose float parameters are scalars locally per value, any other
-by plain AD of the whole operator.
-
-# Arguments
-- `m̄`: the cotangent of the modifier's parameters.
-- `m`: the modifier.
-- `v`: the step's values before the modifier.
-- `s`: the modifier's state before the step.
-- `t`: the step.
-- `v̄`: the cotangent of the values after the modifier.
-- `s̄`: the cotangent of the state after the step.
-
-# Examples
-```@example
-using ComposableRecurrences
-CR = ComposableRecurrences
-m = CR.Clamp(0.0, 1.0)
-m̄ = (; lo = Ref(0.0), hi = Ref(0.0))
-v̄, s̄ = [1.0, 1.0], [0.0, 0.0]
-CR.apply_pullback!(m̄, m, [0.5, 2.0], [0.0, 0.0], 1, v̄, s̄)
-v̄, m̄.hi[]
-```
-"
-function apply_pullback! end
+function pullback!(grads, m, ::Step, v, s, t)
+    v̄, s̄ = grads.v, grads.s
+    for k in eachindex(v, s, v̄, s̄)
+        v̄[k], s̄[k] = pullback!(
+            (; piece = grads.piece, v = v̄[k], s = s̄[k]), m, Step(), v[k],
+            s[k], t, k
+        )
+    end
+    return nothing
+end
 
 # Run the modifiers in tuple order on the step's values, in place.
 _stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
 function _stages!(ms::Tuple, states::Tuple, v, t)
-    apply!(first(ms), v, first(states), t)
+    forward(first(ms), Step(), v, first(states), t)
     return _stages!(Base.tail(ms), Base.tail(states), v, t)
 end

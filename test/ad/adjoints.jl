@@ -12,40 +12,44 @@
     struct Hazard{T}
         N::T
     end
-    CR.init_state(m::Hazard, history) = fill(m.N, CR._nstrata(history))
     CR.ispointwise(::Hazard) = true
-    function CR.apply(m::Hazard, v, s, t, k)
+    CR.uses_adjoint(::Hazard, ::CR.Step) = true
+    CR.forward(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward(m::Hazard, ::CR.Step, v, s, t, k)
         x = v / m.N
         return -s * expm1(-x), s * exp(-x)
     end
-    function CR.apply_pullback(m̄, m::Hazard, v, s, t, k, v̄, s̄)
+    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t, k)
+        v̄, s̄ = grads.v, grads.s
         x = v / m.N
         e = exp(-x)
         x̄ = s * e * (v̄ - s̄)
-        CR.add_cotangent!(CR.cotangent(m̄, :N), -x̄ * x / m.N)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
         return x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
     end
-    function CR.init_state_pullback!(m̄, h̄, m::Hazard, history, s̄)
-        CR.add_cotangent!(CR.cotangent(m̄, :N), sum(s̄))
+    function CR.pullback!(grads, m::Hazard, ::CR.Init, s, history)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
         return nothing
     end
-    CR.uses_adjoint(::Hazard) = true
 
     # Floored depletion from a per-stratum pool, no pullback of its own.
     struct PoolDepletion{P}
         pop::P
     end
-    CR.init_state(m::PoolDepletion, history) = collect(m.pop)
     CR.ispointwise(::PoolDepletion) = true
-    function CR.apply(m::PoolDepletion, v, s, t, k)
+    CR.forward(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
+    function CR.forward(m::PoolDepletion, ::CR.Step, v, s, t, k)
         v′ = max(s / m.pop[k], 1.0e-6) * v
         return v′, s - v′
     end
 
-    rec(gain, add, h; start = 1, states = nothing) = (gain, add, h, states, start)
+    # The positional arguments of a Recurrence's Run.
+    function rec(gain, add, h; start = 1, states = nothing, stop = nothing)
+        return (gain, add, h, states, start, stop)
+    end
 
     # `(name, op, args)` for `test_adjoint`: `args` are the positional
-    # arguments of `forward`.
+    # arguments of the operator's Run.
     function adjoint_cases()
         rng = Xoshiro(11)
         S, L, T = 3, 3, 6
@@ -72,16 +76,12 @@
                 rec(R, nothing, h),
             ),
             ("scalar gain and λ I", Recurrence(g; coupling = 0.7I), rec(0.9, R, h)),
-            (
-                "pairwise",
-                Recurrence(nothing; coupling = Pairwise(rand(rng, S, S, L) ./ 3)),
-                rec(R, nothing, h),
-            ),
+            ("pairwise", Recurrence(Pairwise(rand(rng, S, S, L) ./ 3)), rec(R, nothing, h)),
             (
                 "time-varying kernel and coupling",
                 Recurrence(
-                    TimeVarying(rand(rng, L, T + 2));
-                    coupling = TimeVarying(rand(rng, S, S, T + 2) ./ 2)
+                    TimeVarying(rand(rng, L, T));
+                    coupling = TimeVarying(rand(rng, S, S, T) ./ 2)
                 ),
                 rec(R, nothing, h; start = 3),
             ),
@@ -98,10 +98,10 @@
                 CR._WithState(Recurrence(g; coupling = K, modifiers = (Hazard(60.0),))),
                 rec(R, nothing, h),
             ),
-            ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1)),
+            ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1, nothing)),
             (
                 "time-varying delay",
-                Convolution(TimeVarying(rand(rng, S, 4, T + 4))), (R, h, 4),
+                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))), (R, h, 4, nothing),
             ),
         ]
     end
@@ -121,7 +121,7 @@ end
     struct Decay{T} <: CR.AbstractOperator
         ρ::T
     end
-    function CR.forward(op::Decay, y0, x)
+    function CR.forward(op::Decay, ::CR.Run, y0, x)
         y = similar(x, promote_type(typeof(op.ρ), typeof(y0), eltype(x)))
         prev = y0
         for t in eachindex(x)
@@ -130,8 +130,10 @@ end
         end
         return y, (; y0, y)
     end
-    function CR.pullback!(op::Decay, c, ȳ, op̄, y0̄, x̄)
+    function CR.pullback!(grads, op::Decay, ::CR.Run, c)
         CALLS[] += 1
+        ȳ = grads.y
+        y0̄, x̄ = grads.args
         λ = zero(eltype(ȳ))
         ρ̄ = zero(λ)
         for t in reverse(eachindex(ȳ))
@@ -139,28 +141,28 @@ end
             CR.add_cotangent!(x̄, λ, t)
             ρ̄ += λ * (t == 1 ? c.y0 : c.y[t - 1])
         end
-        CR.add_cotangent!(CR.cotangent(op̄, :ρ), ρ̄)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :ρ), ρ̄)
         CR.add_cotangent!(y0̄, op.ρ * λ)
         return nothing
     end
-    CR.uses_adjoint(::Decay) = true
+    CR.uses_adjoint(::Decay, ::CR.Run) = true
 
     struct DecayNoPB{T} <: CR.AbstractOperator
         ρ::T
     end
-    CR.forward(op::DecayNoPB, y0, x) = CR.forward(Decay(op.ρ), y0, x)
+    CR.forward(op::DecayNoPB, ::CR.Run, y0, x) = CR.forward(Decay(op.ρ), CR.Run(), y0, x)
 
     # v′ = v / (1 + v / K), vector-level.
     struct Saturate{V}
         K::V
     end
-    function CR.apply!(m::Saturate, v, s, t)
+    function CR.forward(m::Saturate, ::CR.Step, v, s, t)
         v ./= 1 .+ v ./ m.K
         return nothing
     end
-    function CR.apply_pullback!(m̄, m::Saturate, v, s, t, v̄, s̄)
+    function CR.pullback!(grads, m::Saturate, ::CR.Step, v, s, t)
         CALLS[] += 1
-        K̄ = CR.cotangent(m̄, :K)
+        K̄, v̄ = CR.cotangent(grads.piece, :K), grads.v
         for k in eachindex(v)
             d = 1 + v[k] / m.K[k]
             CR.add_cotangent!(K̄, v̄[k] * v[k]^2 / (m.K[k]^2 * d^2), k)
@@ -168,38 +170,40 @@ end
         end
         return nothing
     end
-    CR.uses_adjoint(::Saturate) = true
+    CR.uses_adjoint(::Saturate, ::CR.Step) = true
     struct SaturateNoPB{V}
         K::V
     end
-    CR.apply!(m::SaturateNoPB, v, s, t) = CR.apply!(Saturate(m.K), v, s, t)
+    function CR.forward(m::SaturateNoPB, ::CR.Step, v, s, t)
+        return CR.forward(Saturate(m.K), CR.Step(), v, s, t)
+    end
 
     # q = β ⊙ (K p).
-    struct Mix{M, V} <: CR.Coupling
+    struct Mix{M, V}
         K::M
         β::V
     end
-    function CR.pressure!(q, C::Mix, p, window, t)
+    function CR.forward(C::Mix, ::CR.Pressure, q, p, t)
         mul!(q, C.K, p)
         q .*= C.β
-        return q
-    end
-    function CR.pressure_pullback!(p̄, window̄, C̄, C::Mix, q̄, p, window, t)
-        CALLS[] += 1
-        z = q̄ .* C.β
-        K̄, β̄ = CR.cotangent(C̄, :K), CR.cotangent(C̄, :β)
-        β̄ === nothing || (β̄ .+= q̄ .* (C.K * p))
-        K̄ === nothing || (K̄ .+= z .* transpose(p))
-        p̄ .+= transpose(C.K) * z
         return nothing
     end
-    CR.uses_adjoint(::Mix) = true
-    struct MixNoPB{M, V} <: CR.Coupling
+    function CR.pullback!(grads, C::Mix, ::CR.Pressure, q, p, t)
+        CALLS[] += 1
+        z = grads.q .* C.β
+        K̄, β̄ = CR.cotangent(grads.piece, :K), CR.cotangent(grads.piece, :β)
+        β̄ === nothing || (β̄ .+= grads.q .* (C.K * p))
+        K̄ === nothing || (K̄ .+= z .* transpose(p))
+        grads.p .+= transpose(C.K) * z
+        return nothing
+    end
+    CR.uses_adjoint(::Mix, ::CR.Pressure) = true
+    struct MixNoPB{M, V}
         K::M
         β::V
     end
-    function CR.pressure!(q, C::MixNoPB, p, window, t)
-        return CR.pressure!(q, Mix(C.K, C.β), p, window, t)
+    function CR.forward(C::MixNoPB, ::CR.Pressure, q, p, t)
+        return CR.forward(Mix(C.K, C.β), CR.Pressure(), q, p, t)
     end
     end
 
@@ -263,7 +267,7 @@ end
     import Mooncake
     for (name, op, args) in adjoint_cases()
         @testset "$name" begin
-            CR.test_adjoint(AutoMooncake(; config = nothing), op, args...)
+            CR.test_adjoint(AutoMooncake(; config = nothing), op, CR.Run(), args...)
         end
     end
 end
@@ -274,7 +278,7 @@ end
     for (name, op, args) in adjoint_cases()
         @testset "$name" begin
             rtol = occursin("Float32", name) || occursin("mixed", name) ? 1.0e-3 : 1.0e-7
-            CR.test_adjoint(AutoEnzyme(), op, args...; rtol, atol = rtol)
+            CR.test_adjoint(AutoEnzyme(), op, CR.Run(), args...; rtol, atol = rtol)
         end
     end
 end
@@ -346,18 +350,16 @@ end
     using LinearAlgebra
     S, L, T = 3, 3, 5
     K0 = [0.5 0.1 0.1; 0.2 0.4 0.1; 0.0 0.3 0.5]
-    args = (1 .+ rand(S, T), nothing, 1 .+ rand(S, L), nothing, 1)
+    args = (1 .+ rand(S, T), nothing, 1 .+ rand(S, L), nothing, 1, nothing)
     cases = (
         (UserPkg.Decay(0.7), (1.0, rand(T))),
         (Recurrence(rand(L); coupling = K0, modifiers = (UserPkg.Saturate(5 .+ rand(S)),)), args),
-        (Recurrence(rand(L); coupling = K0, modifiers = (UserPkg.SaturateNoPB(5 .+ rand(S)),)), args),
         (Recurrence(rand(L); coupling = UserPkg.Mix(K0, 1 .+ rand(S))), args),
-        (Recurrence(rand(L); coupling = UserPkg.MixNoPB(K0, 1 .+ rand(S))), args),
     )
     for (op, xs) in cases,
             backend in (AutoMooncake(; config = nothing), AutoEnzyme())
         @testset "$(typeof(op).name.name) $(nameof(typeof(backend)))" begin
-            CR.test_adjoint(backend, op, xs...)
+            CR.test_adjoint(backend, op, CR.Run(), xs...)
         end
     end
 end
@@ -434,7 +436,7 @@ end
 
     # `(name, op, args)` in the shapes of the use cases: random walk, AR(2),
     # time-varying AR, seeded renewal, the patch model and a strata renewal
-    # with imports. `args` are the positional arguments of `forward`.
+    # with imports. `args` are the positional arguments of the Run.
     function use_case_shapes()
         rng = Xoshiro(21)
         S, L, T = 3, 4, 8
@@ -443,7 +445,9 @@ end
         h = 1 .+ rand(rng, S, L)
         R = 0.5 .+ rand(rng, S, T)
         ϵ = randn(rng, T)
-        rec(gain, add, h) = (gain, add, h, nothing, 1)
+        rec(gain, add, h) = (gain, add, h, nothing, 1, nothing)
+        pool(N, h::AbstractVector) = N - sum(h)
+        pool(N, h::AbstractMatrix) = PerStratum(N .- vec(sum(h; dims = 2)))
         return [
             ("random walk", Recurrence([1.0]), rec(true, ϵ, [0.3])),
             ("AR(2)", Recurrence([0.5, -0.2]), rec(true, ϵ, [0.1, 0.2])),
@@ -453,14 +457,15 @@ end
             ),
             (
                 "seeded renewal",
-                Recurrence(g; modifiers = (CR.Depletion(60.0; seeded = true),)),
+                Recurrence(g; modifiers = (CR.Depletion(60.0; pool0 = pool(60.0, h[1, :])),)),
                 rec(R[1, :], nothing, h[1, :]),
             ),
             (
                 "patch model",
                 Recurrence(
                     g; modifiers = (
-                        CR.Redistribute(K, 0.4), CR.Depletion(fill(80.0, S); seeded = true),
+                        CR.Redistribute(K, 0.4),
+                        CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
                     )
                 ),
                 rec(R, nothing, h),
@@ -469,14 +474,17 @@ end
                 "strata renewal with imports",
                 Recurrence(
                     g; coupling = 0.3 .* rand(rng, S, S),
-                    modifiers = (CR.Depletion(fill(80.0, S)), CR.Imports(0.2 .* rand(rng, S, T)))
+                    modifiers = (
+                        CR.Depletion(PerStratum(fill(80.0, S))),
+                        CR.Add(TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))),
+                    )
                 ),
                 rec(R, nothing, h),
             ),
             (
                 "patch model, sparse kernel",
                 Recurrence(
-                    g; modifiers = (CR.Redistribute(sparse(K), [0.4, 0.3, 0.2]),)
+                    g; modifiers = (CR.Redistribute(sparse(K), PerStratum([0.4, 0.3, 0.2])),)
                 ),
                 rec(R, nothing, h),
             ),
@@ -489,7 +497,7 @@ end
     import Mooncake
     for (name, op, args) in use_case_shapes()
         @testset "$name" begin
-            CR.test_adjoint(AutoMooncake(; config = nothing), op, args...)
+            CR.test_adjoint(AutoMooncake(; config = nothing), op, CR.Run(), args...)
         end
     end
 end
@@ -499,7 +507,7 @@ end
     import Enzyme, EnzymeTestUtils
     for (name, op, args) in use_case_shapes()
         @testset "$name" begin
-            CR.test_adjoint(AutoEnzyme(), op, args...)
+            CR.test_adjoint(AutoEnzyme(), op, CR.Run(), args...)
         end
     end
 end
@@ -518,7 +526,7 @@ end
         Kθ = SparseMatrixCSC(3, 3, K.colptr, K.rowval, θ[1:4])
         r = Recurrence(
             [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
-            modifiers = (CR.Redistribute(Kθ, θ[5]), CR.Depletion(fill(40.0, 3)))
+            modifiers = (CR.Redistribute(Kθ, θ[5]), CR.Depletion(PerStratum(fill(40.0, 3))))
         )
         return sum(W .* r(R; history = h))
     end
@@ -575,9 +583,9 @@ end
     struct PoolDep{P}
         pop::P
     end
-    CR.init_state(m::PoolDep, history) = collect(m.pop)
+    CR.forward(m::PoolDep, ::CR.Init, s, history) = (s .= m.pop; nothing)
     CR.ispointwise(::PoolDep) = true
-    function CR.apply(m::PoolDep, v, s, t, k)
+    function CR.forward(m::PoolDep, ::CR.Step, v, s, t, k)
         v′ = max(s / m.pop[k], 1.0e-6) * v
         return v′, s - v′
     end
@@ -586,7 +594,7 @@ end
         pop = view(exp.(θ) .* 50, 1:3)
         r = Recurrence([0.3, 0.2]; modifiers = (PoolDep(pop),))
         s = r(ones(3, 6); history = ones(3, 2))
-        r2 = Recurrence([0.3, 0.2]; modifiers = (CR.Depletion(pop),))
+        r2 = Recurrence([0.3, 0.2]; modifiers = (CR.Depletion(PerStratum(pop)),))
         return sum(W .* s) + sum(W .* r2(ones(3, 6); history = ones(3, 2)))
     end
     θ = [0.1, 0.2, 0.3]
@@ -631,7 +639,7 @@ end
     # regressed; folded, these cases allocate about 160 and 95.
     W = sin.(1:50)
     renewal(θ) = sum(
-        W .* Recurrence(θ[1:5]; modifiers = (CR.Depletion(1.0e3; seeded = true),))(
+        W .* Recurrence(θ[1:5]; modifiers = (CR.Depletion(1.0e3; pool0 = 995.0),))(
             θ[6:55]; history = ones(5)
         )
     )

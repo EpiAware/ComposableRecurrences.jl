@@ -21,15 +21,18 @@
 
     window = C.renewal_window(ref_step(N), g, I₀, r)
     function renewal(N)
-        depletion = ComposableRecurrences.Depletion(N; form = :floor)
+        depletion = ComposableRecurrences.Depletion(
+            N, ComposableRecurrences.Floor()
+        )
         return Recurrence(g; modifiers = (depletion,))
     end
-    # The state carries the last `L` values and the susceptible pool.
+    # The state carries the last `L` values, the susceptible pool and the
+    # next day, so both calls read the same full-length R_t.
     function split_run(N, Rt)
-        fitted, state = renewal(N)(
-            Rt[1:T₁]; history = window, return_state = true
+        fitted, state = ComposableRecurrences.with_state(
+            renewal(N), Rt; history = window, stop = T₁
         )
-        forecast = renewal(N)(Rt[(T₁ + 1):end]; history = state)
+        forecast = renewal(N)(Rt; state)
         return vcat(fitted, forecast)
     end
     @test renewal(N)(Rt; history = window) ≈ ref
@@ -53,8 +56,10 @@ end
 
     function split_run(ρ, ϵ)
         ar = Recurrence(ρ)
-        fitted, state = ar(1.0; history = init, add = ϵ[1:T₁], return_state = true)
-        forecast = ar(1.0; history = state, add = ϵ[(T₁ + 1):end])
+        fitted, state = ComposableRecurrences.with_state(
+            ar, 1.0; history = init, add = ϵ, stop = T₁
+        )
+        forecast = ar(1.0; state, add = ϵ)
         return vcat(init, fitted, forecast)
     end
     @test split_run(ρ, ϵ) ≈ ref
@@ -83,19 +88,19 @@ end
     ∇ref = ForwardDiff.gradient(ref_loss, vec(Rt))
 
     # One operator over the whole horizon. The state carries the day
-    # reached, so the forecast reads ε from the next day without a slice.
+    # reached, so the forecast reads R_t and ε from the next day.
     depletion = ComposableRecurrences.Depletion(
-        N; form = :hazard, seeded = true
+        PerStratum(N); pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
     )
-    importation = ComposableRecurrences.Redistribute(K, TimeVarying(ε))
+    importation = ComposableRecurrences.Redistribute(
+        K, TimeVarying(PerStratum(ε))
+    )
     patch = Recurrence(g; modifiers = (importation, depletion))
     function split_run(Rt)
-        first_days, rest = (L + 1):T₁, (T₁ + 1):n
-        fitted, state = patch(
-            Rt[:, first_days]; history = seeds, start = L + 1,
-            return_state = true
+        fitted, state = ComposableRecurrences.with_state(
+            patch, Rt; history = seeds, start = L + 1, stop = T₁
         )
-        forecast = patch(Rt[:, rest]; history = state)
+        forecast = patch(Rt; state)
         return hcat(seeds, fitted, forecast)
     end
     @test split_run(Rt) ≈ ref

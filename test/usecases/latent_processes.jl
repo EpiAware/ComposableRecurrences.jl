@@ -1,6 +1,7 @@
 # Latent processes from ComposableTuringIDModels: random walk, AR(p),
-# time-varying AR(1) and MA(q). Each is a recurrence (or, for MA, a
-# convolution) driven by innovations passed as `add`.
+# time-varying AR(1), MA(q) and MA(1) with a coefficient path, ARIMA and the
+# exponential growth rate. Each is a recurrence (or, for MA, a convolution)
+# driven by innovations passed as `add`.
 #
 # Kernels are lag first: `kernel[i]` weights the value `i` steps back.
 # `history` holds past values in time order, oldest first.
@@ -89,11 +90,12 @@ end
 
     # z_t = ϵ_t + Σ_i θ_i ϵ_{t-i}: a convolution with kernel `[1; θ]` from
     # lag 0. CTIDM passes the first `q` innovations through unchanged, which
-    # is the convolution of the rest given those `q` as history.
+    # is the convolution from day `q + 1`, reading the earlier innovations
+    # from the input itself.
     ma(θ, ϵ) = vcat(ϵ[1:q], Convolution(vcat(1, θ))(ϵ)[(q + 1):end])
     function ma_history(θ, ϵ)
         c = Convolution(vcat(1, θ))
-        return vcat(ϵ[1:q], c(ϵ[(q + 1):end]; history = ϵ[1:q]))
+        return vcat(ϵ[1:q], c(ϵ; start = q + 1))
     end
     @test ma(θ, ϵ) ≈ ref
     @test ma_history(θ, ϵ) ≈ ref
@@ -101,4 +103,104 @@ end
     @test ForwardDiff.gradient(
         p -> sum(w .* ma_history(p[1:2], p[3:end])), θ0
     ) ≈ ∇ref
+end
+
+@testitem "Use case: MA(1) with a coefficient path" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    C = UseCaseReferences.CTIDMReference
+
+    ϵ = [0.1, -0.2, 0.3, 0.05, -0.1, 0.2, 0.0, -0.3]
+    n = length(ϵ)
+    θ = [0.4, 0.35, 0.3, 0.2, 0.25, 0.1, 0.15]
+    ref = C.ma1(θ, ϵ)
+    w = range(0.5, 2.0; length = n)
+    θ0 = vcat(θ, ϵ)
+    unpack(p) = (p[1:(n - 1)], p[n:end])
+    ∇ref = ForwardDiff.gradient(p -> sum(w .* C.ma1(unpack(p)...)), θ0)
+
+    # z_t = ϵ_t + θ_{t-1} ϵ_{t-1}: a `2 × T` kernel from lag 0, column `t`
+    # holding `[1, θ_{t-1}]`. The first column's lag-1 weight reads no input.
+    function ma1(θ, ϵ)
+        K = vcat(ones(eltype(θ), 1, n), hcat(zero(eltype(θ)), θ'))
+        return Convolution(TimeVarying(K))(ϵ)
+    end
+    @test ma1(θ, ϵ) ≈ ref
+    @test ForwardDiff.gradient(p -> sum(w .* ma1(unpack(p)...)), θ0) ≈ ∇ref
+end
+
+@testitem "Use case: ARIMA (differenced ARMA)" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    C = UseCaseReferences.CTIDMReference
+
+    ρ, init = [0.5, 0.2], [0.1, 0.3]
+    θ = [0.4, 0.2]
+    diff_init = [0.2, -0.1]
+    ϵ = [0.1, -0.2, 0.3, 0.05, -0.1, 0.2, 0.0, -0.3]
+    p, q, d = length(ρ), length(θ), length(diff_init)
+    ref = C.arima(ρ, init, θ, ϵ, diff_init)
+    w = range(0.5, 2.0; length = length(ref))
+    θ0 = vcat(ρ, init, θ, ϵ, diff_init)
+    unpack(x) = (x[1:2], x[3:4], x[5:6], x[7:14], x[15:16])
+    ∇ref = ForwardDiff.gradient(x -> sum(w .* C.arima(unpack(x)...)), θ0)
+
+    # ARMA: the MA(q) convolution is the AR(p) recurrence's `add`.
+    function arma(ρ, init, θ, ϵ)
+        ma = vcat(ϵ[1:q], Convolution(vcat(1, θ))(ϵ; start = q + 1))
+        return vcat(init, Recurrence(ρ)(1.0; history = init, add = ma))
+    end
+    # Each integration is a cumulative sum, a unit lag-1 recurrence from zero
+    # driven by the series below it.
+    cumulative(x) = Recurrence([1.0])(1.0; history = [0.0], add = x)
+    function arima(ρ, init, θ, ϵ, diff_init)
+        x = vcat(diff_init, arma(ρ, init, θ, ϵ))
+        for _ in 1:d
+            x = cumulative(x)
+        end
+        return x
+    end
+    # The `d` integrations are also one recurrence of order `d` with the
+    # binomial kernel: z_t = 2 z_{t-1} - z_{t-2} + x_t for `d = 2`.
+    function arima_order_d(ρ, init, θ, ϵ, diff_init)
+        x = vcat(diff_init, arma(ρ, init, θ, ϵ))
+        return Recurrence([2.0, -1.0])(1.0; history = [0.0, 0.0], add = x)
+    end
+    @test arima(ρ, init, θ, ϵ, diff_init) ≈ ref
+    @test arima_order_d(ρ, init, θ, ϵ, diff_init) ≈ ref
+    @test ForwardDiff.gradient(x -> sum(w .* arima(unpack(x)...)), θ0) ≈ ∇ref
+    @test ForwardDiff.gradient(
+        x -> sum(w .* arima_order_d(unpack(x)...)), θ0
+    ) ≈ ∇ref
+end
+
+@testitem "Use case: exponential growth rate" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
+    C = UseCaseReferences.CTIDMReference
+
+    # log I_t = log I_0 + Σ_{s ≤ t} r_s, for one series and per stratum.
+    I₀ = 1.5
+    r = [0.1, 0.12, 0.08, 0.05, 0.0, -0.02, -0.05, -0.1]
+    I₀s = [1.5, 0.5, 2.0]
+    R = [r'; 0.5 .* r'; reverse(r)']
+    S, T = size(R)
+    w = range(0.5, 2.0; length = T)
+    W = reshape(range(0.5, 2.0; length = S * T), S, T)
+    ∇ref = ForwardDiff.gradient(
+        x -> sum(w .* C.exp_growth(x[1], x[2:end])), vcat(I₀, r)
+    )
+    unpackS(x) = (x[1:S], reshape(x[(S + 1):end], S, T))
+    ∇refS = ForwardDiff.gradient(
+        x -> sum(W .* C.exp_growth(unpackS(x)...)), vcat(I₀s, vec(R))
+    )
+
+    # A unit lag-1 recurrence seeded at the initial level, the growth rate
+    # added each step. The history sets the strata.
+    growth(I₀, r) = Recurrence([1.0])(1.0; history = [I₀], add = r)
+    growthS(I₀, R) = Recurrence([1.0])(1.0; history = reshape(I₀, :, 1), add = R)
+    @test growth(I₀, r) ≈ C.exp_growth(I₀, r)
+    @test growthS(I₀s, R) ≈ C.exp_growth(I₀s, R)
+    @test ForwardDiff.gradient(x -> sum(w .* growth(x[1], x[2:end])), vcat(I₀, r)) ≈
+        ∇ref
+    @test ForwardDiff.gradient(
+        x -> sum(W .* growthS(unpackS(x)...)), vcat(I₀s, vec(R))
+    ) ≈ ∇refS
 end

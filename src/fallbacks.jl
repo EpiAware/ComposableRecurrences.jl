@@ -127,17 +127,18 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
 # Default scalar pullback of a pointwise modifier: a local ForwardDiff
-# derivative in the value, the state and the modifier's parameters.
-function apply_pullback(m̄, m, v, s, t, k, v̄, s̄)
+# derivative in the value, the state and the modifier's float parameters.
+function pullback!(grads, m, ::Step, v, s, t, k)
+    m̄, v̄, s̄ = grads.piece, grads.v, grads.s
     P = _nactive(m̄, m)
     if P == 0
-        D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(apply_pullback, typeof(v)))}
-        v′, s′ = apply(m, D(v, one(v), zero(v)), D(s, zero(s), one(s)), t, k)
+        D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(pullback!, typeof(v)))}
+        v′, s′ = forward(m, Step(), D(v, one(v), zero(v)), D(s, zero(s), one(s)), t, k)
         ∂v, ∂s = _partials2(v′), _partials2(s′)
         return v̄ * ∂v[1] + s̄ * ∂s[1], v̄ * ∂v[2] + s̄ * ∂s[2]
     end
     J = ForwardDiff.jacobian([v; s; _params(m)]) do x
-        v′, s′ = apply(_rebuild(m, view(x, 3:(P + 2))), x[1], x[2], t, k)
+        v′, s′ = forward(_rebuild(m, view(x, 3:(P + 2))), Step(), x[1], x[2], t, k)
         return [v′, s′]
     end
     g = transpose(J) * [v̄, s̄]
@@ -147,34 +148,11 @@ end
 _partials2(x::ForwardDiff.Dual) = ForwardDiff.partials(x)
 _partials2(x::Real) = (zero(x), zero(x))
 
-# Default `apply_pullback!`: the pointwise loop, or the local Jacobian of
-# `apply!` in the step's values, state and the modifier's parameters.
-function apply_pullback!(m̄, m, v, s, t, v̄, s̄)
-    if ispointwise(m)
-        for k in eachindex(v, s, v̄, s̄)
-            v̄[k], s̄[k] = apply_pullback(m̄, m, v[k], s[k], t, k, v̄[k], s̄[k])
-        end
-        return nothing
-    end
-    S = length(v)
-    P = _nactive(m̄, m)
-    J = ForwardDiff.jacobian([v; s; _params(m)]) do x
-        vv, ss = x[1:S], x[(S + 1):(2S)]
-        mm = P == 0 ? m : _rebuild(m, view(x, (2S + 1):(2S + P)))
-        apply!(mm, vv, ss, t)
-        return [vv; ss]
-    end
-    g = transpose(J) * [v̄; s̄]
-    copyto!(v̄, 1, g, 1, S)
-    copyto!(s̄, 1, g, S + 1, S)
-    P == 0 || _addparams!(m̄, m, g, 2S)
-    return nothing
-end
-
-# Default initial-state pullback: a local ForwardDiff Jacobian of
-# `init_state`, skipped for the default zero state.
-function init_state_pullback!(m̄, h̄, m, history, s̄)
-    _default_init(m, history) && return nothing
+# Default initial-state pullback: a local ForwardDiff Jacobian of the Init,
+# skipped for the default zero state.
+function pullback!(grads, m, ::Init, s, history)
+    _default_init(m, s, history) && return nothing
+    m̄, s̄, h̄ = grads.piece, grads.s, grads.history
     P = _nactive(m̄, m)
     nh = h̄ === nothing ? 0 : length(history)
     P + nh == 0 && return nothing
@@ -182,7 +160,9 @@ function init_state_pullback!(m̄, h̄, m, history, s̄)
     J = ForwardDiff.jacobian(x0) do x
         mm = P == 0 ? m : _rebuild(m, view(x, 1:P))
         hh = nh == 0 ? history : reshape(x[(P + 1):end], size(history))
-        return collect(init_state(mm, hh))
+        ss = similar(x, length(s))
+        forward(mm, Init(), ss, hh)
+        return ss
     end
     g = transpose(J) * s̄
     P == 0 || _addparams!(m̄, m, g, 0)
@@ -191,26 +171,10 @@ function init_state_pullback!(m̄, h̄, m, history, s̄)
 end
 
 # Whether modifier `m` uses the default zero initial state.
-function _default_init(m, history)
-    return which(init_state, Tuple{typeof(m), typeof(history)}) ===
-        which(init_state, Tuple{Any, Any})
+function _default_init(m, s, history)
+    sig = Tuple{typeof(m), Init, typeof(s), typeof(history)}
+    return which(forward, sig) === which(forward, Tuple{Any, Init, Any, Any})
 end
 
-# Default `pressure_pullback!`: the local Jacobian of `pressure!` in the
-# kernel convolutions, the window and the coupling's parameters.
-function pressure_pullback!(p̄, window̄, C̄, C, q̄, p, window, t)
-    S = length(p)
-    nw = window̄ === nothing ? 0 : length(window)
-    P = _nactive(C̄, C)
-    J = ForwardDiff.jacobian([p; vec(window); _params(C)]) do x
-        pp = x[1:S]
-        ww = nw == 0 ? window : reshape(x[(S + 1):(S + length(window))], size(window))
-        CC = P == 0 ? C : _rebuild(C, view(x, (S + length(window) + 1):length(x)))
-        return pressure!(similar(x, length(q̄)), CC, pp, ww, t)
-    end
-    g = transpose(J) * q̄
-    p̄ .+= view(g, 1:S)
-    nw == 0 || (window̄ .+= reshape(view(g, (S + 1):(S + nw)), size(window)))
-    P == 0 || _addparams!(C̄, C, g, S + length(window))
-    return nothing
-end
+# A time-varying wrapper keeps its indexing when rebuilt.
+_constructorof(::Type{<:TimeVarying{I}}) where {I} = TimeVarying{I}

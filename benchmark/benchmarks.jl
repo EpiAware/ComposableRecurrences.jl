@@ -10,9 +10,6 @@ using ComposableRecurrences
 
 const SUITE = BenchmarkGroup()
 
-# Example evaluation benchmark — replace with the package's own:
-# SUITE["Evaluation"]["example"] = @benchmarkable sum(rand(100))
-
 # The AD gradient grid, read from the package-owned `test/ADFixtures`
 # registry: declare a scenario or a broken pair there, not here.
 using ADFixtures
@@ -47,4 +44,44 @@ let grad = BenchmarkGroup()
         end
     end
     SUITE["AD gradients"] = grad
+end
+
+# The `ci` tier of the benchmark matrix (`matrix.jl` runs the full grid):
+# each case's primal, and its gradient on the reverse backends with the
+# operator as users call it and under `NoAdjoint`, so the comparison comment
+# shows the rule gain. A case the checked-out revision cannot build is
+# skipped, since the history workflow runs this script on older revisions.
+using ADFixtures: MatrixCases
+
+let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
+    reverse = filter(
+        e -> e.name in ("Mooncake reverse", "Enzyme reverse"),
+        ADFixtures.backends()
+    )
+    for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
+        label = "Matrix $(c.name) $(z)"
+        f, θ = try
+            MatrixCases.build(c, z, "rule")
+        catch
+            @warn "matrix case not built" c.name
+            continue
+        end
+        eval_group[label] = @benchmarkable $f($θ)
+        for arm in ("rule", "NoAdjoint"), entry in reverse
+            c.sparse && entry.name == "Enzyme reverse" && continue
+            f, θ = MatrixCases.build(c, z, arm)
+            prep = try
+                DI.prepare_gradient(f, entry.backend, copy(θ))
+            catch
+                @warn "no gradient prep" label arm entry.name
+                continue
+            end
+            name = arm == "rule" ? label : "NoAdjoint $label"
+            haskey(grad, name) || (grad[name] = BenchmarkGroup())
+            grad[name][entry.name] = @benchmarkable DI.gradient(
+                $f, $prep, $(entry.backend), $θ
+            )
+        end
+    end
+    SUITE["Evaluation"] = eval_group
 end

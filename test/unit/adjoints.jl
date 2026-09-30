@@ -38,29 +38,36 @@
 
     randlike(rng, y::AbstractArray{<:AbstractFloat}) = randn(rng, size(y))
     randlike(rng, y::Union{Tuple, NamedTuple}) = map(z -> randlike(rng, z), y)
+    function randlike(rng, y::CR.State)
+        return (; history = randlike(rng, y.history), states = randlike(rng, y.states))
+    end
     randlike(rng, y) = y
     dotall(a::AbstractArray{<:Real}, b::AbstractArray) = sum(a .* b)
-    dotall(a::Union{Tuple, NamedTuple}, b) = sum(map(dotall, values(a), values(b)))
+    dotall(a::NamedTuple, b::CR.State) = dotall(a.history, b.history) + dotall(a.states, b.states)
+    dotall(a::Union{Tuple, NamedTuple}, b) = sum(map(dotall, values(a), values(b)); init = 0.0)
     dotall(a, b) = 0.0
 
     # `pullback!` of `op` at `args` against ForwardDiff, over every float
     # leaf of `(op, args...)`.
     function pullback_matches(op, args...; rng = Xoshiro(1), rtol = 1.0e-8)
         xs = (op, args...)
-        y, cache = CR.forward(xs...)
+        y, cache = CR._run_forward(xs...)
         ȳ = randlike(rng, y)
         θ = CR._params(xs)
-        f = θ -> dotall(ȳ, first(CR.forward(CR._rebuild(xs, θ)...)))
+        f = θ -> dotall(ȳ, first(CR._run_forward(CR._rebuild(xs, θ)...)))
         ref = ForwardDiff.gradient(f, θ)
         ms = zero_mirror(xs)
-        CR.pullback!(op, cache, ȳ, ms...)
+        grads = (; piece = first(ms), y = ȳ, args = Base.tail(ms))
+        CR._run_pullback!(grads, op, cache)
         got = mirror_vec(ms, xs)
         ok = isapprox(got, ref; rtol, atol = 1.0e-10)
         ok || @info "pullback mismatch" op maximum(abs.(got .- ref))
         return ok
     end
-    # The positional arguments of `r(gain; history, add, start)`.
-    recargs(gain, add, h; start = 1, states = nothing) = (gain, add, h, states, start)
+    # The positional arguments of `r(gain; history, add, start, stop)`.
+    function recargs(gain, add, h; start = 1, states = nothing, stop = nothing)
+        return (gain, add, h, states, start, stop)
+    end
 end
 
 @testsnippet AdjointModifiers begin
@@ -68,46 +75,46 @@ end
     using ForwardDiff
 
     # Floored depletion from a per-stratum pool that is also the initial
-    # state, so the pool's cotangent comes from both `apply` and
-    # `init_state`. No hand-written pullback: the pointwise fallback runs.
+    # state. No pullback: the local derivative runs when called directly.
     struct PoolDepletion{P}
         pop::P
     end
-    CR.init_state(m::PoolDepletion, history) = collect(m.pop)
     CR.ispointwise(::PoolDepletion) = true
-    function CR.apply(m::PoolDepletion, v, s, t, k)
+    CR.forward(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
+    function CR.forward(m::PoolDepletion, ::CR.Step, v, s, t, k)
         v′ = max(s / m.pop[k], 1.0e-6) * v
         return v′, s - v′
     end
 
-    # Hazard depletion with a scalar pool and a hand-written scalar pullback.
+    # Hazard depletion with a scalar pool and hand-written pullbacks.
     struct Hazard{T}
         N::T
     end
-    CR.init_state(m::Hazard, history) = fill(m.N, CR._nstrata(history))
     CR.ispointwise(::Hazard) = true
-    function CR.apply(m::Hazard, v, s, t, k)
+    CR.uses_adjoint(::Hazard, ::CR.Step) = true
+    CR.forward(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward(m::Hazard, ::CR.Step, v, s, t, k)
         x = v / m.N
         return -s * expm1(-x), s * exp(-x)
     end
-    function CR.apply_pullback(m̄, m::Hazard, v, s, t, k, v̄, s̄)
+    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t, k)
+        v̄, s̄ = grads.v, grads.s
         x = v / m.N
         e = exp(-x)
         x̄ = s * e * (v̄ - s̄)
-        CR.add_cotangent!(CR.cotangent(m̄, :N), -x̄ * x / m.N)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
         return x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
     end
-    function CR.init_state_pullback!(m̄, h̄, m::Hazard, history, s̄)
-        CR.add_cotangent!(CR.cotangent(m̄, :N), sum(s̄))
+    function CR.pullback!(grads, m::Hazard, ::CR.Init, s, history)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
         return nothing
     end
 
-    # Vector-level with a scalar parameter and a running total in the state,
-    # no pullback: the local Jacobian fallback runs.
+    # Vector-level with a scalar parameter and no pullback.
     struct Scale{A}
         a::A
     end
-    function CR.apply!(m::Scale, v, s, t)
+    function CR.forward(m::Scale, ::CR.Step, v, s, t)
         v .*= m.a
         s .+= v
         return nothing
@@ -118,22 +125,23 @@ end
         b::B
     end
     CR.ispointwise(::Shift) = true
-    CR.apply(m::Shift, v, s, t, k) = (v + m.b[t], s)
+    CR.forward(m::Shift, ::CR.Step, v, s, t, k) = (v + m.b[t], s)
 
-    # Adds each stratum's history total, set once by `init_state`.
+    # Adds a tenth of each stratum's history total, set once by its Init.
     struct HistoryTotal end
-    function CR.init_state(::HistoryTotal, history)
-        return vec(sum(history; dims = ndims(history)))
-    end
     CR.ispointwise(::HistoryTotal) = true
-    CR.apply(::HistoryTotal, v, s, t, k) = (v + 0.1 * s, s)
+    function CR.forward(::HistoryTotal, ::CR.Init, s, history)
+        s .= vec(sum(history; dims = ndims(history)))
+        return nothing
+    end
+    CR.forward(::HistoryTotal, ::CR.Step, v, s, t, k) = (v + 0.1 * s, s)
 
     # Pointwise, calling ForwardDiff itself: `v′ = d/dx (a x²) at v`.
     struct Slope{A}
         a::A
     end
     CR.ispointwise(::Slope) = true
-    function CR.apply(m::Slope, v, s, t, k)
+    function CR.forward(m::Slope, ::CR.Step, v, s, t, k)
         return ForwardDiff.derivative(x -> m.a * x^2, v), s
     end
 
@@ -142,65 +150,60 @@ end
         K::M
         β::V
     end
-    function CR.pressure!(q, C::Mix, p, window, t)
-        q .= C.β .* (C.K * p)
-        return q
-    end
+    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (q .= C.β .* (C.K * p); nothing)
 end
 
 @testitem "Adjoint: Recurrence, single series" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(3)
     L, T = 4, 9
-    g = rand(rng, L)
-    r = Recurrence(g)
+    r = Recurrence(rand(rng, L))
     R = 0.5 .+ rand(rng, T)
     @test pullback_matches(r, recargs(R, nothing, rand(rng, L))...)
     @test pullback_matches(r, recargs(0.8, randn(rng, T), rand(rng, L))...)
     @test pullback_matches(r, recargs(R, 0.3, rand(rng, L))...)
-    # Shorter and longer histories.
+    # Shorter and longer histories, and a later start.
     @test pullback_matches(r, recargs(R, nothing, rand(rng, 2))...)
     @test pullback_matches(r, recargs(R, nothing, rand(rng, 7))...)
     @test pullback_matches(r, recargs(true, randn(rng, T), rand(rng, L))...)
+    @test pullback_matches(r, recargs(R, nothing, rand(rng, L); start = 4)...)
 end
 
-@testitem "Adjoint: Recurrence couplings" setup = [AdjointCheck] begin
+@testitem "Adjoint: Recurrence couplings and kernels" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(4)
     S, L, T = 3, 3, 8
     g = rand(rng, L)
-    K = rand(rng, S, S)
     h = rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     ϵ = randn(rng, S, T)
     for C in (
-            I, 0.7I, K, sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.9]),
+            I, 0.7I, rand(rng, S, S), sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.9]),
             Diagonal(rand(rng, S)),
         )
         @test pullback_matches(Recurrence(g; coupling = C), recargs(R, ϵ, h)...)
     end
     @test pullback_matches(
-        Recurrence(PerStratum(rand(rng, S, L)); coupling = K),
+        Recurrence(PerStratum(rand(rng, S, L)); coupling = rand(rng, S, S)),
         recargs(R, nothing, h)...
     )
-    P = rand(rng, S, S, L) ./ 3
+    @test pullback_matches(Recurrence(Pairwise(rand(rng, S, S, L) ./ 3)), recargs(R, ϵ, h)...)
     @test pullback_matches(
-        Recurrence(nothing; coupling = Pairwise(P)), recargs(R, ϵ, h)...
+        Recurrence(TimeVarying(Pairwise(rand(rng, S, S, L, T) ./ 3))), recargs(R, ϵ, h)...
     )
 end
 
 @testitem "Adjoint: Recurrence time-varying slots at absolute time" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(5)
-    S, L, T, start = 2, 3, 5, 3
-    Tall = start + T - 1
+    S, L, T, start = 2, 3, 7, 3
     h = rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     r = Recurrence(
-        TimeVarying(rand(rng, L, Tall)); coupling = TimeVarying(rand(rng, S, S, Tall))
+        TimeVarying(rand(rng, L, T)); coupling = TimeVarying(rand(rng, S, S, T))
     )
     @test pullback_matches(r, recargs(R, nothing, h; start)...)
-    r = Recurrence(TimeVarying(rand(rng, S, L, Tall)))
+    r = Recurrence(TimeVarying(PerStratum(rand(rng, S, L, T))))
     @test pullback_matches(r, recargs(R, nothing, h; start)...)
 end
 
@@ -215,9 +218,13 @@ end
     for mods in (
             (PoolDepletion([30.0, 40.0, 50.0]),),
             (Hazard(45.0),),
-            (Scale(0.9),),
             (Shift(randn(rng, T)), HistoryTotal()),
-            (Shift(randn(rng, T)), Scale(0.8), Hazard(60.0)),
+            (Shift(randn(rng, T)), Hazard(60.0)),
+            (Slope(0.3),),
+            (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
+            (CR.Depletion(50.0, CR.Floor(); heterogeneity = 1.5),),
+            (CR.Redistribute(K, PerStratum([0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
+            (CR.Clamp(0.0, 3.0),),
         )
         r = Recurrence(g; coupling = K, modifiers = mods)
         @test pullback_matches(r, recargs(R, nothing, h)...)
@@ -225,12 +232,6 @@ end
     # A pool held in a view gets its cotangent.
     pool = view([0.0, 30.0, 40.0, 50.0], 2:4)
     r = Recurrence(g; coupling = K, modifiers = (PoolDepletion(pool),))
-    @test pullback_matches(r, recargs(R, nothing, h)...)
-    # A modifier that runs ForwardDiff itself nests under the local fallback.
-    r = Recurrence(g; coupling = K, modifiers = (Slope(0.3),))
-    @test pullback_matches(r, recargs(R, nothing, h)...)
-    # A coupling with no pullback falls back to its local Jacobian.
-    r = Recurrence(g; coupling = Mix(K, rand(rng, S)))
     @test pullback_matches(r, recargs(R, nothing, h)...)
     # Resumed from given states.
     r = Recurrence(g; coupling = K, modifiers = (PoolDepletion([30.0, 40.0, 50.0]),))
@@ -241,15 +242,14 @@ end
     using ComposableRecurrences
     rng = Xoshiro(7)
     S, L = 2, 3
-    g = rand(rng, L) ./ 2
-    r = Recurrence(g; coupling = rand(rng, S, S), modifiers = (Hazard(50.0),))
+    r = Recurrence(rand(rng, L) ./ 2; coupling = rand(rng, S, S), modifiers = (Hazard(50.0),))
     for (T, m) in ((6, 3), (2, 3), (6, 5), (2, 1))
         args = recargs(0.5 .+ rand(rng, S, T), nothing, 1 .+ rand(rng, S, m))
         @test pullback_matches(CR._WithState(r), args...)
     end
 end
 
-@testitem "Adjoint: Recurrence with mixed eltypes" setup = [AdjointCheck, AdjointModifiers] begin
+@testitem "Adjoint: Recurrence with mixed eltypes" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(8)
     S, L, T = 2, 3, 6
@@ -267,16 +267,16 @@ end
     g = rand(rng, D)
     x = rand(rng, T)
     X = rand(rng, S, T)
-    @test pullback_matches(Convolution(g), x, nothing, 1)
-    @test pullback_matches(Convolution(g), x, rand(rng, 2), 1)
-    @test pullback_matches(Convolution(g), X, rand(rng, S, 5), 1)
-    @test pullback_matches(Convolution(PerStratum(rand(rng, S, D))), X, nothing, 1)
-    for indexed_by in (:primary, :secondary), start in (4, 6)
-        m = 3
-        c = Convolution(TimeVarying(rand(rng, S, D, start + T)); indexed_by)
-        @test pullback_matches(c, X, rand(rng, S, m), start)
-        c = Convolution(TimeVarying(rand(rng, D, start + T)); indexed_by)
-        @test pullback_matches(c, x, rand(rng, m), start)
+    @test pullback_matches(Convolution(g), x, nothing, 1, nothing)
+    @test pullback_matches(Convolution(g), x, rand(rng, 2), 1, nothing)
+    @test pullback_matches(Convolution(g), X, rand(rng, S, 5), 3, nothing)
+    @test pullback_matches(Convolution(g), X, nothing, 2, 5)
+    @test pullback_matches(Convolution(PerStratum(rand(rng, S, D))), X, nothing, 1, nothing)
+    for start in (1, 4)
+        c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T))))
+        @test pullback_matches(c, X, rand(rng, S, 3), start, nothing)
+        c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
+        @test pullback_matches(c, x, nothing, start, nothing)
     end
 end
 
@@ -285,14 +285,14 @@ end
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
-    # Built-in pieces and pointwise modifiers with scalar parameters take
-    # the rule; the route is decided from the types.
+    # Built-in parts and pointwise modifiers with scalar parameters take the
+    # rule; the route is decided from the types.
     for op in (
             Recurrence(g), Recurrence(g; coupling = K),
             Recurrence(g; modifiers = (CR.Depletion(50.0),)),
             Recurrence(g; modifiers = (Slope(0.3),)),
         )
-        @test CR.uses_adjoint(op)
+        @test CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{true}]
     end
     # A vector-level modifier or a coupling without a pullback, or a
@@ -303,38 +303,37 @@ end
             Recurrence(g; coupling = Mix(K, [1.0, 1.0])),
             Recurrence(g; modifiers = (PoolDepletion([30.0, 40.0]),)),
         )
-        @test !CR.uses_adjoint(op)
+        @test !CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{false}]
     end
-    # Declaring it opts a piece in.
+    # Declaring it opts a modifier in.
     struct Scaled{A}
         a::A
     end
-    CR.apply!(m::Scaled, v, s, t) = (v .*= m.a; nothing)
-    CR.apply_pullback!(m̄, m::Scaled, v, s, t, v̄, s̄) = (v̄ .*= m.a; nothing)
-    @test !CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)))
-    CR.uses_adjoint(::Scaled) = true
-    @test CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)))
+    CR.forward(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
+    @test !CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
+    CR.uses_adjoint(::Scaled, ::CR.Step) = true
+    @test CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
 
-    # Duals and BigFloat take the plain path.
+    # Dual numbers and BigFloat take the plain path.
     r = Recurrence(g)
-    @test CR._gate(r, ones(4), nothing, ones(2), nothing, 1)
-    @test !CR._gate(r, ForwardDiff.Dual(1.0, 1.0), nothing, ones(2), nothing, 1)
-    @test !CR._gate(r, big.(ones(4)), nothing, ones(2), nothing, 1)
+    @test CR._gate(r, ones(4), nothing, ones(2), nothing, 1, nothing)
+    @test !CR._gate(r, ForwardDiff.Dual(1.0, 1.0), nothing, ones(2), nothing, 1, nothing)
+    @test !CR._gate(r, big.(ones(4)), nothing, ones(2), nothing, 1, nothing)
 end
 
 @testitem "Adjoint: user operators declare their adjoint" setup = [AdjointCheck] begin
     using ComposableRecurrences
     struct Twice <: CR.AbstractOperator end
-    CR.forward(::Twice, x) = (2 .* x, nothing)
-    @test !CR.uses_adjoint(Twice())
+    CR.forward(::Twice, ::CR.Run, x) = (2 .* x, nothing)
+    @test !CR.uses_adjoint(Twice(), CR.Run())
     @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{false}]
-    # A typed pullback! signature routes once declared.
-    function CR.pullback!(::Twice, c, ȳ::AbstractVector, op̄, x̄)
-        x̄ .+= 2 .* ȳ
+    function CR.pullback!(grads, ::Twice, ::CR.Run, cache)
+        only(grads.args) .+= 2 .* grads.y
         return nothing
     end
-    CR.uses_adjoint(::Twice) = true
+    CR.uses_adjoint(::Twice, ::CR.Run) = true
     @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{true}]
     @test Twice()(ones(2)) == [2.0, 2.0]
 end
@@ -364,14 +363,16 @@ end
 @testitem "Adjoint: NoAdjoint takes the plain path" begin
     using ComposableRecurrences
     using ComposableRecurrences: NoAdjoint
+    CR = ComposableRecurrences
     r = Recurrence([0.2, 0.3])
-    n0 = ComposableRecurrences._PULLBACK_CALLS[]
+    n0 = CR._PULLBACK_CALLS[]
     @test NoAdjoint(r)(ones(4); history = ones(2)) == r(ones(4); history = ones(2))
-    y, st = NoAdjoint(r)(ones(4); history = ones(2), return_state = true)
-    @test (y, st) == r(ones(4); history = ones(2), return_state = true)
+    y, st = CR.with_state(NoAdjoint(r), ones(4); history = ones(2))
+    y2, st2 = CR.with_state(r, ones(4); history = ones(2))
+    @test y == y2 && st.history == st2.history && st.t == st2.t
     c = Convolution([0.5, 0.5])
     @test NoAdjoint(c)(ones(3)) == c(ones(3))
-    @test ComposableRecurrences._PULLBACK_CALLS[] == n0
+    @test CR._PULLBACK_CALLS[] == n0
 end
 
 @testitem "Adjoint: buffers follow the input's array type" setup = [AdjointCheck] begin
@@ -392,20 +393,21 @@ end
     S, L, T = 2, 3, 5
     r = Recurrence(rand(rng, L); coupling = rand(rng, S, S), modifiers = (CR.Depletion(40.0),))
     R, h = 0.5 .+ rand(rng, S, T), 1 .+ rand(rng, S, L)
-    y, c = CR.forward(r, R, nothing, Wrapped(h), nothing, 1)
+    y, c = CR._run_forward(r, R, nothing, Wrapped(h), nothing, 1, nothing)
     @test c.H isa Wrapped && c.P isa Wrapped && c.X isa Wrapped
     @test only(c.rec).V isa Wrapped
-    yref, cref = CR.forward(r, R, nothing, h, nothing, 1)
+    yref, cref = CR._run_forward(r, R, nothing, h, nothing, 1, nothing)
     @test unwrap(y) ≈ yref
     ȳ = randn(rng, S, T)
     h̄, h̄ref = zeros(S, L), zeros(S, L)
-    CR.pullback!(r, c, ȳ, nothing, nothing, nothing, h̄, nothing, nothing)
-    CR.pullback!(r, cref, ȳ, nothing, nothing, nothing, h̄ref, nothing, nothing)
+    args(h̄) = (nothing, nothing, h̄, nothing, nothing, nothing)
+    CR._run_pullback!((; piece = nothing, y = ȳ, args = args(h̄)), r, c)
+    CR._run_pullback!((; piece = nothing, y = ȳ, args = args(h̄ref)), r, cref)
     @test h̄ ≈ h̄ref
 
     c = Convolution(rand(rng, 3))
     x = rand(rng, S, T)
-    y, cache = CR.forward(c, Wrapped(x), nothing, 1)
+    y, cache = CR._run_forward(c, Wrapped(x), nothing, 1, nothing)
     @test cache.X isa Wrapped
-    @test unwrap(y) ≈ first(CR.forward(c, x, nothing, 1))
+    @test unwrap(y) ≈ first(CR._run_forward(c, x, nothing, 1, nothing))
 end

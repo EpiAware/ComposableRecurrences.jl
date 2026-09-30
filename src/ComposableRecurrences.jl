@@ -10,15 +10,33 @@ The package owns the history buffer these steps read from, so reverse-mode
 automatic differentiation does not copy the lag window at every step.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
-[`TimeVarying`](@ref), [`PerStratum`](@ref) and [`Pairwise`](@ref) set the
-shape of a kernel or coupling.
-Public arrays are strata × time, with time on the last axis; a single series
-is a vector.
+A bare array in a slot has the slot's own axes only (a kernel's lags, a
+coupling's `S × S`, a modifier parameter's one value);
+[`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
+strata and time axes.
+Data (inputs, history, outputs) are strata × time, with time on the last
+axis; a single series is a vector.
+Every time-indexed array is read at absolute time `t`, and a call covers
+`start:stop`.
 
-Gradients are supported with ForwardDiff, Mooncake and Enzyme; the operators
-carry analytic adjoints for the reverse-mode backends.
-Backends that do not allow mutation, such as ReverseDiff and Zygote, are
-not supported.
+| concept               | one way                                                  |
+|:--------------------- |:-------------------------------------------------------- |
+| feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
+| causal convolution    | `Convolution(kernel)`, lag 0 first                       |
+| strata                | `PerStratum(x)`, `Pairwise(x)`                           |
+| time variation        | `TimeVarying(x, indexing = Secondary())`                 |
+| multiplicative input  | `r(gain; ...)`                                           |
+| additive input        | `add =`, before the modifiers                            |
+| seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
+| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
+| variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
+| extension             | a struct with `forward` for a role                       |
+
+The package is extended by writing a struct: a modifier, coupling or
+depletion form implements [`ComposableRecurrences.forward`](@ref), and
+optionally [`ComposableRecurrences.pullback!`](@ref), for its role
+([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
+or [`ComposableRecurrences.Pressure`](@ref)).
 
 # Example
 
@@ -45,23 +63,22 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public init_state, init_state_pullback!, apply, apply!, apply_pullback,
-    apply_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
-    AbstractOperator, Coupling, forward, pullback!, NoAdjoint, cotangent,
-    add_cotangent!, uses_adjoint, test_adjoint, OperatorInterface, CouplingInterface,
-    ModifierInterface, Depletion, Imports, Redistribute, Clamp
+public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
+    Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
+    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface,
+    uses_adjoint, test_adjoint, cotangent, add_cotangent!
 
-# Operator supertype, the adjoint seams and the routing to the native rules.
-include("adjoints.jl")
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The modifier interface and the stage loop that threads modifiers.
+# The piece interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
-# The built-in modifiers: Depletion, Imports, Redistribute and Clamp.
+# The operator supertype, `NoAdjoint` and the routing to the native rules.
+include("adjoints.jl")
+# The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
-# The coupling interface: `pressure!` for each coupling type.
+# The built-in couplings, `forward` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")
@@ -69,9 +86,9 @@ include("recurrence.jl")
 include("recurrence_adjoint.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")
-# Local ForwardDiff pullbacks for modifiers and couplings without one.
+# Local ForwardDiff pullbacks for pointwise modifiers and initial states.
 include("fallbacks.jl")
-# Interfaces.jl declarations for operators, couplings and modifiers.
+# Interfaces.jl declaration of the piece interface.
 include("interfaces.jl")
 
 end # module ComposableRecurrences

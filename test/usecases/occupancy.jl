@@ -47,7 +47,9 @@
         κ
         conf_hazard
     end
-    function ComposableRecurrences.apply!(m::OccupancyBalance, v, s, t)
+    function ComposableRecurrences.forward(
+            m::OccupancyBalance, ::ComposableRecurrences.Step, v, s, t
+        )
         z = zero(eltype(v))
         ε = eps(eltype(v))
         Obvd, Obg, Oconf, Osusp = v
@@ -69,9 +71,9 @@
             A_bvd, A_bg, deaths, recover, ruleout, κ, conf_hazard
         )
         r = Recurrence([1.0]; modifiers = (balance,))
-        # No gain: the flows live in the modifier. A zero `add` sets the
-        # number of days; the stocks start empty.
-        Y = r(; history = zeros(4, 1), add = zeros(4, T))
+        # No gain: the flows live in the modifier, so `stop` sets the number
+        # of days; the stocks start empty.
+        Y = r(; history = zeros(4, 1), stop = T)
         O_bvd, O_bg, O_conf, O_susp = eachrow(Y)
         return (;
             demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp,

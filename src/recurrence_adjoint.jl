@@ -5,20 +5,24 @@
 # the buffer's cotangent `H̄`, which carries it to earlier steps and the
 # history. Modifier and coupling pullbacks run per step.
 
-function pullback!(r::Recurrence, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, τ̄0)
-    _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, nothing)
+# `grads` is `(; piece, y, args)`: the mirror of the recurrence, the output
+# cotangent and the mirrors of the positional arguments
+# `(gain, add, history, states, start, stop)`.
+function pullback!(grads, r::Recurrence, ::Run, c)
+    ḡain, ādd, h̄, s̄0 = grads.args
+    _reverse!(c, grads.y, grads.piece, ḡain, ādd, h̄, s̄0, nothing)
     return nothing
 end
-
-function pullback!(w::_WithState, c, ȳ, w̄, ḡain, ādd, h̄, s̄0, τ̄0)
-    Ȳ, st̄ = ȳ
-    _reverse!(c, Ȳ, cotangent(w̄, :r), ḡain, ādd, h̄, s̄0, st̄)
+function pullback!(grads, w::_WithState, ::Run, c)
+    Ȳ, st̄ = grads.y
+    ḡain, ādd, h̄, s̄0 = grads.args
+    _reverse!(c, Ȳ, cotangent(grads.piece, :r), ḡain, ādd, h̄, s̄0, st̄)
     return nothing
 end
 
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
-    (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec) = c
+    (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec, init) = c
     (; coupling, modifiers) = r
     Tp = eltype(H)
     H̄ = _zeros(H, Tp, L + T, S)
@@ -39,9 +43,9 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         if _all_pointwise(modifiers)
             for k in 1:S
                 v̄k = _thread_back(modifiers, m̄s, rec, s̄s, H̄[L + t, k], τ, t, k)
-                _add_slot!(ādd, v̄k, k, t)
-                _add_slot!(ḡain, v̄k * X[k, t], k, t)
-                q̄[k] = _at(gain, k, t) * v̄k
+                _add_slot!(ādd, v̄k, k, τ)
+                _add_slot!(ḡain, v̄k * X[k, t], k, τ)
+                q̄[k] = _at(gain, k, τ) * v̄k
             end
         else
             for k in 1:S
@@ -49,9 +53,9 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
             end
             _stages_back!(modifiers, m̄s, rec, s̄s, v̄, τ, t)
             for k in 1:S
-                _add_slot!(ādd, v̄[k], k, t)
-                _add_slot!(ḡain, v̄[k] * X[k, t], k, t)
-                q̄[k] = _at(gain, k, t) * v̄[k]
+                _add_slot!(ādd, v̄[k], k, τ)
+                _add_slot!(ḡain, v̄[k] * X[k, t], k, τ)
+                q̄[k] = _at(gain, k, τ) * v̄[k]
             end
         end
         _coupling_back!(p̄, C̄, coupling, q̄, P, H, H̄, t, τ, L)
@@ -60,9 +64,9 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _kernel_finish!(ḡ, kbuf)
     _scatter_history!(h̄, H̄, h, L)
     if s0 === nothing
-        foreach(
-            (m̄, m, s̄) -> init_state_pullback!(m̄, h̄, m, h, s̄), m̄s, modifiers, s̄s
-        )
+        foreach(modifiers, m̄s, s̄s, init) do m, m̄, s̄, s
+            pullback!((; piece = m̄, s = s̄, history = h̄), m, Init(), s, h)
+        end
     elseif s̄0 !== nothing
         foreach((a, b) -> a === nothing || (a .+= b), s̄0, s̄s)
     end
@@ -97,7 +101,7 @@ _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
 _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 
 # One stratum's value cotangent back through pointwise modifiers, last
-# first, with the scalar `apply_pullback`; returns the cotangent of the
+# first, with each one's scalar `pullback!` on `Step()`; returns the cotangent of the
 # step's core value.
 _thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k) = v̄
 function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
@@ -105,8 +109,9 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k
     )
     R, s̄ = first(rec), first(s̄s)
-    v̄, s̄[k] = apply_pullback(
-        first(m̄s), first(ms), R.V[k, t], R.S[k, t], τ, k, v̄, s̄[k]
+    v̄, s̄[k] = pullback!(
+        (; piece = first(m̄s), v = v̄, s = s̄[k]), first(ms), Step(), R.V[k, t],
+        R.S[k, t], τ, k
     )
     return v̄
 end
@@ -118,9 +123,9 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t
     )
     R = first(rec)
-    apply_pullback!(
-        first(m̄s), first(ms), view(R.V, :, t), view(R.S, :, t), τ, v̄,
-        first(s̄s)
+    pullback!(
+        (; piece = first(m̄s), v = v̄, s = first(s̄s)), first(ms), Step(),
+        view(R.V, :, t), view(R.S, :, t), τ
     )
     return nothing
 end
@@ -145,10 +150,7 @@ function _coupling_back!(p̄, C̄, C::Diagonal, q̄, P, H, H̄, t, τ, L)
 end
 function _coupling_back!(p̄, C̄, C, q̄, P, H, H̄, t, τ, L)
     fill!(p̄, zero(eltype(p̄)))
-    rows = t:(t + L - 1)
-    pressure_pullback!(
-        p̄, view(H̄, rows, :), C̄, C, q̄, view(P, :, t), view(H, rows, :), τ
-    )
+    pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, view(P, :, t), τ)
     return p̄
 end
 
@@ -195,21 +197,32 @@ function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
     end
     return nothing
 end
-function _kernel_back!(kbuf, ḡ, g::TimeVarying, p̄, H, H̄, t, τ, L)
-    Ḡ = cotangent(ḡ, :x)
-    for k in eachindex(p̄), i in 1:L
+# Time-varying and pairwise kernels read their weights through `_weight`
+# and add their cotangents through `_add_weight!`; a pairwise kernel mixes
+# strata, so stratum `a`'s convolution reads every stratum `b`.
+function _kernel_back!(kbuf, ḡ, g::Union{TimeVarying, Pairwise}, p̄, H, H̄, t, τ, L)
+    for a in eachindex(p̄), b in _senders(g, a, H), i in 1:L
         j = t + L - i
-        _add_tv!(Ḡ, p̄[k] * H[j, k], k, i, τ)
-        H̄[j, k] += p̄[k] * _tv_weight(g.x, k, i, τ)
+        _add_weight!(ḡ, g, p̄[a] * H[j, b], a, b, i, τ)
+        H̄[j, b] += p̄[a] * _weight(g, a, b, i, τ)
     end
     return nothing
 end
 _kernel_back!(kbuf, ḡ, ::Nothing, p̄, H, H̄, t, τ, L) = nothing
+_senders(g, a, H) = a:a
+_senders(g::_PairwiseKernel, a, H) = axes(H, 2)
 
-# A time-varying weight's cotangent, as `_tv_weight` indexes it.
-_add_tv!(::Nothing, v, k, j, τ) = nothing
-_add_tv!(x̄::AbstractMatrix, v, k, j, τ) = (x̄[j, τ] += v; nothing)
-_add_tv!(x̄::AbstractArray{<:Any, 3}, v, k, j, τ) = (x̄[k, j, τ] += v; nothing)
+# A weight's cotangent, as `_weight` reads it.
+function _add_weight!(ḡ, g::TimeVarying{<:Any, <:AbstractMatrix}, v, a, b, i, τ)
+    return add_cotangent!(cotangent(ḡ, :x), v, i, τ)
+end
+function _add_weight!(ḡ, g::TimeVarying{<:Any, <:PerStratum}, v, a, b, i, τ)
+    return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, i, τ)
+end
+_add_weight!(ḡ, g::Pairwise, v, a, b, i, τ) = add_cotangent!(cotangent(ḡ, :x), v, a, b, i)
+function _add_weight!(ḡ, g::TimeVarying{<:Any, <:Pairwise}, v, a, b, i, τ)
+    return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, b, i, τ)
+end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.
 _kernel_finish!(ḡ, ::Nothing) = nothing

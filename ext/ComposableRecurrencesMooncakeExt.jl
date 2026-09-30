@@ -5,8 +5,8 @@
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
-using ComposableRecurrences: ComposableRecurrences, _ad, _note_plain_type, forward,
-    pullback!
+using ComposableRecurrences: ComposableRecurrences, Run, _ad, _note_plain_type,
+    _run_forward, _run_pullback!
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -69,7 +69,7 @@ Mooncake.@is_primitive(
 
 function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where {N}
     ps = map(primal, args)
-    y, cache = forward(ps...)
+    y, cache = _run_forward(ps...)
     # A scalar leaf in the output would carry rdata this rule drops.
     Mooncake.rdata_type(Mooncake.tangent_type(typeof(y))) === NoRData || throw(
         ArgumentError("an operator output with scalar float leaves is not supported")
@@ -77,14 +77,15 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
     ydual = Mooncake.zero_fcodual(y)
     function _ad_pullback(::NoRData)
         ms = map(a -> _mc(primal(a), tangent(a)), args)
-        pullback!(first(ps), cache, _mc(y, tangent(ydual)), ms...)
+        grads = (; piece = first(ms), y = _mc(y, tangent(ydual)), args = Base.tail(ms))
+        _run_pullback!(grads, first(ps), cache)
         return (NoRData(), map((a, m) -> _rd(primal(a), m), args, ms)...)
     end
     return ydual, _ad_pullback
 end
 
 function ComposableRecurrences.test_adjoint(
-        ::AutoMooncake, op, args...; rng = Xoshiro(1), kwargs...
+        ::AutoMooncake, op, ::Run, args...; rng = Xoshiro(1), kwargs...
     )
     return Mooncake.TestUtils.test_rule(
         rng, _ad, op, args...; is_primitive = true, perf_flag = :none,

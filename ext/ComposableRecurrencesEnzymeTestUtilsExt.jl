@@ -3,7 +3,7 @@
 module ComposableRecurrencesEnzymeTestUtilsExt
 
 using ADTypes: AutoEnzyme
-using ComposableRecurrences: ComposableRecurrences, _ad, forward
+using ComposableRecurrences: ComposableRecurrences, Run, _ad, _run_forward
 using Enzyme: Enzyme, Const, Active, Duplicated, MixedDuplicated
 using EnzymeTestUtils: test_reverse
 
@@ -18,8 +18,8 @@ end
 # a constant operator needs runtime activity. EnzymeTestUtils cannot build
 # MixedDuplicated, so an operator with array and scalar fields is tested
 # constant only.
-function ComposableRecurrences.test_adjoint(::AutoEnzyme, op, args...; kwargs...)
-    ret = _act(first(forward(op, args...)))
+function ComposableRecurrences.test_adjoint(::AutoEnzyme, op, ::Run, args...; kwargs...)
+    ret = _act(first(_run_forward(op, args...)))
     xs = map(x -> (x, _act(x)), args)
     opact = Enzyme.guess_activity(typeof(op), Enzyme.Reverse)
     acts = opact <: MixedDuplicated ? (Const,) :

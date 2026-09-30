@@ -1,98 +1,13 @@
-@doc "
-Supertype of operators whose positional call is routed through the package's
-native adjoint rules.
+# The native adjoint rules' entry point. An operator's call builds its
+# positional arguments and goes through `adjoint_call`, which routes to the
+# rule primitive `_ad` (Mooncake `rrule!!` and Enzyme rules in the
+# extensions) when the operator declares its adjoint and every float is
+# IEEE, and otherwise to `_plain`, which the AD backend differentiates.
 
-A subtype implements [`ComposableRecurrences.forward`](@ref) and, for an
-analytic adjoint, [`ComposableRecurrences.pullback!`](@ref); calling it as
-`op(args...)` then runs the analytic adjoint under Mooncake and Enzyme with no
-AD declarations of its own.
-Without a `pullback!` method the call is differentiated by the AD backend.
-
-# Examples
-```@example
-using ComposableRecurrences
-struct Double <: ComposableRecurrences.AbstractOperator end
-ComposableRecurrences.forward(::Double, x) = (2 .* x, nothing)
-Double()([1.0, 2.0])
-```
-"
+# Supertype of operators whose call is routed through the native rules. An
+# operator type implements `forward(op, Run(), args...) -> (y, cache)` and
+# `pullback!(grads, op, Run(), cache)` with `uses_adjoint(op, Run()) = true`.
 abstract type AbstractOperator end
-
-@doc "
-Supertype for user-defined couplings of a [`Recurrence`](@ref).
-
-A coupling implements [`ComposableRecurrences.pressure!`](@ref) and optionally
-[`ComposableRecurrences.pressure_pullback!`](@ref).
-Subtyping is optional: any object with a `pressure!` method is a coupling.
-
-# Examples
-```@example
-using ComposableRecurrences
-struct Twice <: ComposableRecurrences.Coupling end
-function ComposableRecurrences.pressure!(q, ::Twice, p, window, t)
-    q .= 2 .* p
-    return q
-end
-Recurrence([0.5]; coupling = Twice())(ones(2, 3); history = ones(2, 1))
-```
-"
-abstract type Coupling end
-
-@doc "
-Run operator `op` on its positional arguments, returning `(y, cache)`: the
-output and whatever [`ComposableRecurrences.pullback!`](@ref) reads.
-
-An [`ComposableRecurrences.AbstractOperator`](@ref) implements this method.
-The package's operators take the positional arguments their keyword calls
-build.
-
-# Arguments
-- `op`: the operator.
-- `args`: its positional arguments.
-
-# Examples
-```@example
-using ComposableRecurrences
-c = Convolution([0.5, 0.5])
-y, cache = ComposableRecurrences.forward(c, ones(3), nothing, 1)
-y
-```
-"
-function forward end
-
-@doc "
-Accumulate the reverse pass of operator `op` from the cotangent `ȳ` of its
-output, given the `cache` its [`ComposableRecurrences.forward`](@ref)
-recorded.
-
-Cotangents of the operator's fields (kernel, coupling, modifier parameters)
-are added into the mirror `op̄` and those of its positional arguments into
-`args̄`.
-A mirror is an array to accumulate into for a float array, a `Ref` for a float
-scalar, a NamedTuple of field mirrors for a struct (`(; nzval)` for a sparse
-matrix, `(; diag)` for a `Diagonal`), and `nothing` where there is no
-cotangent; read it with [`ComposableRecurrences.cotangent`](@ref) and add to it
-with [`ComposableRecurrences.add_cotangent!`](@ref).
-Returns `nothing`.
-
-# Arguments
-- `op`: the operator.
-- `cache`: what the forward pass recorded.
-- `ȳ`: the cotangent of the output.
-- `op̄`: the mirror of the operator.
-- `args̄`: the mirrors of the positional arguments.
-
-# Examples
-```@example
-using ComposableRecurrences
-c = Convolution([0.5, 0.5])
-y, cache = ComposableRecurrences.forward(c, ones(3), nothing, 1)
-x̄ = zeros(3)
-ComposableRecurrences.pullback!(c, cache, ones(3), nothing, x̄, nothing, nothing)
-x̄
-```
-"
-function pullback! end
 
 @doc "
 Wrap an operator so it is differentiated by the AD backend's own treatment of
@@ -121,6 +36,9 @@ end
 _invoke(op::AbstractOperator, route, args...) = adjoint_call(route, args...)
 (op::AbstractOperator)(args...; kwargs...) = _invoke(op, op, args...; kwargs...)
 (n::NoAdjoint)(args...; kwargs...) = _invoke(n.op, n, args...; kwargs...)
+function forward(n::NoAdjoint, ::Run, args...; kwargs...)
+    return forward(n.op, Run(), args...; kwargs...)
+end
 
 # `op` with the routing of `route`: wrapped in `NoAdjoint` if `route` is.
 _reroute(route, op) = op
@@ -131,69 +49,75 @@ const _PULLBACK_CALLS = Threads.Atomic{Int}(0)
 _count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
 
 @doc "
-Whether `piece`, an operator, modifier or coupling, carries its own
-analytic adjoint.
+Whether `piece` carries its own analytic adjoint in `role`: a
+[`ComposableRecurrences.pullback!`](@ref) method for that role.
 
-The author declares it next to the pullback: `true` for an operator with a
-[`ComposableRecurrences.pullback!`](@ref), a modifier with
-[`ComposableRecurrences.apply_pullback!`](@ref) or the pointwise
-[`ComposableRecurrences.apply_pullback`](@ref), and a coupling with
-[`ComposableRecurrences.pressure_pullback!`](@ref).
-The default is `false`.
-A [`Recurrence`](@ref) uses its adjoint when its coupling does and each
-modifier does or is pointwise with only scalar float parameters (those are
-differentiated locally per value).
+The author declares it next to the `pullback!` method; the default is
+`false`.
+An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
+declares it; a [`Recurrence`](@ref) does when its coupling does in
+[`ComposableRecurrences.Pressure`](@ref) and each modifier does in
+[`ComposableRecurrences.Step`](@ref) or is pointwise with only scalar float
+parameters (those are differentiated locally per value).
 Otherwise the whole operator is differentiated by plain AD of its forward
 loop, logged once per operator type.
 
 # Arguments
-- `piece`: the operator, modifier or coupling.
+- `piece`: the operator, coupling, modifier or variant.
+- `role`: the role.
 
 # Examples
 ```@example
 using ComposableRecurrences
-ComposableRecurrences.uses_adjoint(Recurrence([0.5, 0.5]))
+CR = ComposableRecurrences
+CR.uses_adjoint(Recurrence([0.5, 0.5]), CR.Run())
 ```
 "
-uses_adjoint(piece) = false
+uses_adjoint(piece, role) = false
 
 # The entry point: the rule path when the operator uses its adjoint and
 # every float leaf is IEEE, else plain AD. Both decisions are made from the
 # types, so the route is static.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
-_route_val(op, args...) = Val(uses_adjoint(op) && _gate(op, args...))
+_route_val(op, args...) = Val(uses_adjoint(op, Run()) && _gate(op, args...))
 _route(::Val{true}, op, args...) = _ad(op, args...)
 function _route(::Val{false}, op, args...)
     _note_plain(op)
     return _plain(op, args...)
 end
 
+# The positional Run of an operator and its pullback. Operators with a
+# keyword `forward` on `Run()` add methods for their positional form.
+_run_forward(op, args...) = forward(op, Run(), args...)
+_run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
+
 # The primal call. The extensions make `_ad` a rule primitive for Mooncake and
 # Enzyme; `_plain` is differentiated by the backend.
-_primal(op, args...) = first(forward(op, args...))
+_primal(op, args...) = first(_run_forward(op, args...))
 _ad(op, args...) = _primal(op, args...)
 _plain(op, args...) = _primal(op, args...)
 
 # Log, once per operator type, that an operator without an adjoint for all
-# of its pieces is differentiated by plain AD. The extensions mark
+# of its parts is differentiated by plain AD. The extensions mark
 # `_note_plain_type` as having no derivative.
-_note_plain(op) = uses_adjoint(op) ? nothing : _note_plain_type(typeof(op))
+_note_plain(op) = uses_adjoint(op, Run()) ? nothing : _note_plain_type(typeof(op))
 const _PLAIN_NOTED = Set{Any}()
 const _PLAIN_LOCK = ReentrantLock()
 @noinline function _note_plain_type(T)
     new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
-    new && @info "$(nameof(T)) has a piece without an analytic adjoint, so " *
-        "gradients of it use plain AD of the whole operator"
+    new && @info "$(nameof(T)) has a coupling or modifier without an analytic " *
+        "adjoint, so gradients of it use plain AD of the whole operator"
     return nothing
 end
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
-# is one whose tangent the wiring can read; Duals, BigFloat and other arrays
-# take the plain path, as do abstractly typed fields. `_ok` is one closed
-# function of the types (nothing extends it), evaluated once per signature
-# by a generated function: inference does not constant-fold the recursion,
-# and an unfolded gate costs a dynamic dispatch on every call under Mooncake.
+# is one whose tangent the wiring can read; dual numbers, BigFloat and other
+# arrays take the plain path, as do abstractly typed fields. `_ok` is one
+# closed function of the types (nothing extends it), evaluated once per
+# signature by a generated function: inference does not constant-fold the
+# recursion, and an unfolded gate costs a dynamic dispatch on every call
+# under Mooncake.
 const _IEEEFloat = Union{Float16, Float32, Float64}
 @generated _gate(xs...) = all(_ok, xs)
 function _ok(::Type{T}) where {T}
@@ -216,9 +140,12 @@ end
 The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`
 when `x̄` is `nothing` or has no such field.
 
-For use in [`ComposableRecurrences.pullback!`](@ref),
-[`ComposableRecurrences.apply_pullback!`](@ref) and
-[`ComposableRecurrences.pressure_pullback!`](@ref) methods.
+A mirror holds a struct's cotangents for a
+[`ComposableRecurrences.pullback!`](@ref): an array to accumulate into for a
+float array, a `Ref` for a float scalar, a NamedTuple of field mirrors for
+a struct (`(; nzval)` for a sparse matrix, `(; diag)` for a `Diagonal`,
+`(; x)` for a wrapper such as [`TimeVarying`](@ref)), and `nothing` where
+there is no cotangent.
 
 # Arguments
 - `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.
@@ -236,10 +163,11 @@ cotangent(x̄, name::Symbol) = getfield(x̄, name)
 
 @doc "
 Add `v` to the mirror `x̄` at index `idx`: `x̄[idx...] += v` for an array,
-`x̄[] += v` for a `Ref` (the index is ignored), and nothing for `nothing`.
+`x̄[] += v` for a `Ref` (the index is ignored), into the array of a
+wrapper's `(; x)` mirror, and nothing for `nothing`.
 
 # Arguments
-- `x̄`: the mirror: an array, a `Ref` or `nothing`.
+- `x̄`: the mirror: an array, a `Ref`, `(; x)` or `nothing`.
 - `v`: the cotangent to add.
 - `idx`: the index into an array mirror.
 
@@ -254,7 +182,6 @@ x̄
 add_cotangent!(::Nothing, v, idx...) = nothing
 add_cotangent!(x̄::Base.RefValue, v, idx...) = (x̄[] += v; nothing)
 add_cotangent!(x̄::AbstractArray, v, idx...) = (x̄[idx...] += v; nothing)
-# A wrapper's mirror, such as a `TimeVarying` field's `(; x)`.
 add_cotangent!(x̄::NamedTuple{(:x,)}, v, idx...) = add_cotangent!(x̄.x, v, idx...)
 
 # Add `v` to entry `(p, q)` of the mirror `K̄` of matrix `K`. A sparse or
@@ -275,13 +202,20 @@ function _add_entry!(K̄, K::Diagonal, v, p, q)
 end
 
 @doc "
-Test the analytic adjoint of `op` on the positional arguments `args` of
-[`ComposableRecurrences.forward`](@ref) with the AD `backend`'s own rule
-tester.
+Test the analytic adjoint of `piece` in `role` on the primal arguments
+`args` with the AD `backend`'s own rule tester.
 
+For an operator, `role` is [`ComposableRecurrences.Run`](@ref) and `args`
+are its positional arguments.
 Methods come from package extensions: `AutoMooncake` with Mooncake loaded
-(`Mooncake.TestUtils.test_rule`) and `AutoEnzyme` with EnzymeTestUtils loaded
-(`test_reverse`, with the operator active and constant).
+(`Mooncake.TestUtils.test_rule`) and `AutoEnzyme` with EnzymeTestUtils
+loaded (`test_reverse`, with the operator active and constant).
+
+# Arguments
+- `backend`: an `AutoMooncake` or `AutoEnzyme` from ADTypes.
+- `piece`: the operator.
+- `role`: `Run()`.
+- `args`: the positional arguments.
 
 # Examples
 ```@example

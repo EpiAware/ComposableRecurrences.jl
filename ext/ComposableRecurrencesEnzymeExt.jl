@@ -6,7 +6,7 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, _WithState, _ad, _note_plain_type, _plain,
-    forward, pullback!
+    _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -77,16 +77,22 @@ end
 
 EnzymeRules.inactive(::typeof(_note_plain_type), args...) = nothing
 
+# The primal and shadow are typed by the return annotation, which is the
+# inferred return type of `_ad` and may be abstract.
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_ad)},
-        ::Type{<:Annotation}, args::Vararg{Annotation, N}
-    ) where {N}
+        ::Type{RA}, args::Vararg{Annotation, N}
+    ) where {RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
-    y, cache = forward(map(a -> a.val, args)...)
+    y, cache = _run_forward(map(a -> a.val, args)...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing
-    return EnzymeRules.AugmentedReturn(ret, dy, (cache, y, dy))
+    R = eltype(RA)
+    P = EnzymeRules.needs_primal(config) ? R : Nothing
+    D = EnzymeRules.needs_shadow(config) ? R : Nothing
+    tape = (cache, y, dy)
+    return EnzymeRules.AugmentedReturn{P, D, typeof(tape)}(ret, dy, tape)
 end
 
 function EnzymeRules.reverse(
@@ -96,7 +102,8 @@ function EnzymeRules.reverse(
     cache, y, dy = tape
     dy === nothing && return map(_ -> nothing, args)
     ms = map(_ez, args)
-    pullback!(first(args).val, cache, _ezs(y, dy), ms...)
+    grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))
+    _run_pullback!(grads, first(args).val, cache)
     foreach(_ez_writeback!, args, ms)
     return map(_ez_ret, args, ms)
 end

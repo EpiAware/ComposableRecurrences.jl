@@ -61,7 +61,7 @@ function renewals(w, θ)
     K = reshape(view(θ, (L + 1):o), NS, NS)
     w0 = exp.(reshape(view(θ, (o + 1):(o + NS * L)), NS, L))
     R = exp.(reshape(view(θ, (o + NS * L + 1):length(θ)), NS, N))
-    r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(POP; form = :floor),))
+    r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(POP), CR.Floor()),))
     return sum(W_SN .* log.(w(r)(R; history = w0)))
 end
 
@@ -77,7 +77,8 @@ function bvd_renewal(w, θ)
     g = θ[1:L]
     seed = exp.(θ[(L + 1):(2L)])
     R = exp.(θ[(2L + 1):end])
-    r = Recurrence(g; modifiers = (CR.Depletion(POP1; seeded = true),))
+    dep = CR.Depletion(POP1; pool0 = max(POP1 - sum(seed), 0.0))
+    r = Recurrence(g; modifiers = (dep,))
     y = w(r)(view(R, (L + 1):NL); history = seed)
     return sum(W_N .* log.(y))
 end
@@ -88,7 +89,8 @@ function bvd_patch(w, θ)
     K = reshape(θ[(o + 1):(o + NS^2)], NS, NS); o += NS^2
     seeds = reshape(exp.(θ[(o + 1):(o + NS * L)]), NS, L); o += NS * L
     R = reshape(exp.(θ[(o + 1):(o + NS * NL)]), NS, NL); o += NS * NL
-    mods = (CR.Redistribute(K, θ[end]), CR.Depletion(POP; seeded = true))
+    pool0 = PerStratum(max.(POP .- vec(sum(seeds; dims = 2)), 0.0))
+    mods = (CR.Redistribute(K, θ[end]), CR.Depletion(PerStratum(POP); pool0))
     r = Recurrence(g; modifiers = mods)
     y = w(r)(R[:, (L + 1):end]; history = seeds)
     return sum(W_SN .* log.(y))
