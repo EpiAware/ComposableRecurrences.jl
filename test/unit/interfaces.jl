@@ -7,6 +7,7 @@
     @test Interfaces.test(ComposableRecurrences; show = false)
     @test Interfaces.implements(CR.OperatorInterface, Recurrence)
     @test Interfaces.implements(CR.OperatorInterface, Convolution)
+    @test Interfaces.implements(CR.OperatorInterface{(:resume,)}, Convolution)
     @test Interfaces.implements(CR.CouplingInterface, UniformScaling)
     @test Interfaces.implements(CR.CouplingInterface, Matrix{Float64})
     @test Interfaces.implements(CR.CouplingInterface, Diagonal{Float64, Vector{Float64}})

@@ -132,3 +132,123 @@ end
     @test_throws DimensionMismatch Convolution(PerStratum(ones(2, 3)))(ones(3, 5))
     @test_throws DimensionMismatch Convolution(TimeVarying(ones(3, 4)))(ones(5))
 end
+
+@testitem "Convolution: modifiers act on each output step" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(31)
+    S, D, T = 3, 4, 8
+    c = rand(rng, D)
+    X = rand(rng, S, T)
+    H = rand(rng, S, 2)
+    base = naive_convolution((t, k, d) -> c[d + 1], X, D; hist = H)
+    B = rand(rng, S, T + 2)
+    lo, hi = [0.2, 0.3, 0.4], 0.9
+    sat(v, θ) = θ * v / (1 + v)
+    conv(mods; kw...) = Convolution(c; modifiers = mods)(X; history = H, kw...)
+    # Imports read at the absolute time, then per-stratum Clamp, then a
+    # Transform, in tuple order.
+    mods = (CR.Imports(TimeVarying(B)), CR.Clamp(lo, hi), CR.Transform(sat, 2.0))
+    ref = [
+        sat(clamp(base[k, t] + B[k, t + 2], lo[k], hi), 2.0) for k in 1:S,
+            t in 1:T
+    ]
+    @test conv(mods; start = 3) ≈ ref
+    # The order matters: clamping last bounds the output.
+    y = conv((CR.Transform(sat, 2.0), CR.Clamp(lo, hi)))
+    @test y ≈ [clamp(sat(base[k, t], 2.0), lo[k], hi) for k in 1:S, t in 1:T]
+    # No modifiers is the plain convolution.
+    @test Convolution(c; modifiers = ())(X; history = H) ≈ base
+    # A single series.
+    x = X[1, :]
+    y = Convolution(c; modifiers = (CR.Transform(sqrt),))(x; history = H[1, :])
+    @test y ≈ sqrt.(base[1, :])
+end
+
+@testitem "Convolution: modifiers do not feed back into the input" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(32)
+    D, T = 3, 10
+    c = rand(rng, D)
+    x = 5 .* rand(rng, T)
+    base = vec(naive_convolution((t, k, d) -> c[d + 1], reshape(x, 1, T), D))
+    # Depletion draws each output from a pool that starts at N and shrinks
+    # by the outputs; the convolution still reads the undepleted input.
+    N = 20.0
+    pool = N
+    ref = map(base) do v
+        y = pool * (1 - exp(-v / N))
+        pool *= exp(-v / N)
+        return y
+    end
+    y = Convolution(c; modifiers = (CR.Depletion(N),))(x)
+    @test y ≈ ref
+    @test sum(y) < N
+    # The input history is not drawn from the pool, even when seeded.
+    h = [1.0, 2.0]
+    base_h = vec(
+        naive_convolution(
+            (t, k, d) -> c[d + 1], reshape(x, 1, T), D; hist = reshape(h, 1, 2)
+        )
+    )
+    pool = N
+    ref_h = map(base_h) do v
+        y = pool * (1 - exp(-v / N))
+        pool *= exp(-v / N)
+        return y
+    end
+    m = CR.Depletion(N; seeded = true)
+    @test Convolution(c; modifiers = (m,))(x; history = h) ≈ ref_h
+end
+
+@testitem "Convolution: resume from the returned state" begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(33)
+    S, D, T = 2, 4, 12
+    X = rand(rng, S, T)
+    H = rand(rng, S, 3)
+    B = rand(rng, S, T)
+    P = rand(rng, D, T + 1)
+    mods = (
+        CR.Imports(TimeVarying(B)), CR.Depletion([30.0, 40.0]),
+        CR.Transform(*, TimeVarying(1 .+ B)),
+    )
+    for kernel in (rand(rng, D), TimeVarying(P))
+        c = Convolution(kernel; modifiers = mods)
+        full = c(X; history = H, start = 2)
+        y1, state = c(X[:, 1:5]; history = H, start = 2, return_state = true)
+        @test state.t == 7
+        y2 = c(X[:, 6:end]; history = state)
+        @test hcat(y1, y2) ≈ full
+    end
+    # A single series, and without modifiers.
+    x = X[1, :]
+    c = Convolution(rand(rng, D))
+    y1, state = c(x[1:4]; return_state = true)
+    @test vcat(y1, c(x[5:end]; history = state)) ≈ c(x)
+end
+
+@testitem "Convolution: modifier eltypes and derivatives" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    c = Float32[0.2, 0.5, 0.3]
+    x = Float32[1.0, 2.0, 3.0, 4.0, 5.0]
+    y = Convolution(c; modifiers = (CR.Transform(*, 2.0f0),))(x)
+    @test eltype(y) == Float32
+    # A Dual parameter in a modifier promotes the buffer.
+    w = [0.5, 1.0, 1.5, 2.0, 2.5]
+    loss(θ) = sum(
+        w .* Convolution(c; modifiers = (CR.Depletion(θ[1]), CR.Clamp(0.0, θ[2])))(x)
+    )
+    θ = [20.0, 2.0]
+    ∇ = ForwardDiff.gradient(loss, θ)
+    fd = map(1:2) do i
+        e = zeros(2)
+        e[i] = 1.0e-6
+        (loss(θ + e) - loss(θ - e)) / 2.0e-6
+    end
+    @test ∇ ≈ fd rtol = 1.0e-6
+    @test all(!iszero, ∇)
+end
