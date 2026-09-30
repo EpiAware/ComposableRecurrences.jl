@@ -24,15 +24,16 @@ Called as `r(gain = 1; history, add = nothing, start, return_state = false)`:
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`; one when left out.
   - `history`: the values before the first step, oldest first, length
-    `m ≥ L` for a single series or `S × m`; the recursion reads the last
-    `L` and [`ComposableRecurrences.init_state`](@ref) sees all of it.
+    `m` for a single series or `S × m`; the recursion reads the last `L`,
+    with no earlier values (zeros) when `m < L`, and
+    [`ComposableRecurrences.init_state`](@ref) sees all of it.
     Or the state returned by an earlier call with `return_state = true`,
     to resume from it.
   - `add`: `nothing`, a scalar, length `T` or `S × T`.
   - `start`: the time index of the first output, at which time-varying
     slots and modifiers are read; `1`, or the next index when resuming.
   - `return_state`: also return `(; history, states, t)`: the last `L`
-    values, each modifier's state and the last time index.
+    values, each modifier's state and the time index of the next step.
 
 The gain and add inputs are indexed by the call's own steps.
 The output is length `T` for a single series (vector history) or `S × T`.
@@ -143,13 +144,18 @@ _kernel_pressure!(p, ::Nothing, H, t, τ, L) = p
 _tv_weight(x::AbstractMatrix, k, j, τ) = x[j, τ]
 _tv_weight(x::AbstractArray{<:Any, 3}, k, j, τ) = x[k, j, τ]
 
-# Load the last `L` values of a public-layout history into the buffer.
+# Load the last `L` values of a public-layout history into the buffer,
+# right aligned; a shorter history leaves the earlier rows zero.
 function _load_history!(H, h::AbstractVector, L)
-    H[1:L, 1] .= view(h, (length(h) - L + 1):length(h))
+    m = length(h)
+    n = min(m, L)
+    H[(L - n + 1):L, 1] .= view(h, (m - n + 1):m)
     return H
 end
 function _load_history!(H, h::AbstractMatrix, L)
-    H[1:L, :] .= transpose(view(h, :, (size(h, 2) - L + 1):size(h, 2)))
+    m = size(h, 2)
+    n = min(m, L)
+    H[(L - n + 1):L, :] .= transpose(view(h, :, (m - n + 1):m))
     return H
 end
 
@@ -158,8 +164,8 @@ _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
 
 # A history given as the state of an earlier call carries modifier states
-# and the time index reached.
-_split_history(h::AbstractArray) = (h, nothing, 0)
+# and the time index of the next step.
+_split_history(h::AbstractArray) = (h, nothing, 1)
 function _split_history(s::NamedTuple{(:history, :states, :t)})
     return (s.history, s.states, s.t)
 end
@@ -169,13 +175,13 @@ function (r::Recurrence)(
         return_state = false
     )
     h, s0, t0 = _split_history(history)
-    τ0 = start === nothing ? t0 + 1 : start
+    τ0 = start === nothing ? t0 : start
     Y, H, states = _recur(r, gain, add, h, s0, τ0)
     return_state || return Y
     T = size(Y, ndims(Y))
     L = size(H, 1) - T
     state = (;
-        history = _public(H, (T + 1):(T + L), h), states, t = τ0 + T - 1,
+        history = _public(H, (T + 1):(T + L), h), states, t = τ0 + T,
     )
     return Y, state
 end
@@ -185,12 +191,6 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel, coupling)
     S = _nstrata(h)
-    size(h, ndims(h)) >= L || throw(
-        DimensionMismatch(
-            "history has $(size(h, ndims(h))) values per stratum, " *
-                "fewer than the $L lags"
-        )
-    )
     _check_kernel_strata(kernel, S)
     _check_coupling(coupling, S)
     _check_strata(:gain, gain, S)
