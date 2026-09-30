@@ -145,8 +145,6 @@ const ORG_BRANDING = true
 const LINKCHECK_IGNORE = Regex[
     # Remove once the first release deploys the stable docs.
     r"^https://composablerecurrences\.epiaware\.org/stable",
-    # Remove once GitHub Discussions is enabled on the repository.
-    r"^https://github\.com/EpiAware/ComposableRecurrences\.jl/discussions",
 ]
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,
