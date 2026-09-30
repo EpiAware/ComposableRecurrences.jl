@@ -2,7 +2,7 @@
 # BVD's `convolve_delay`. Each is a causal convolution whose kernel is
 # indexed from lag 0.
 
-@testitem "Use case: fixed reporting delay (LatentDelay)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: fixed reporting delay (LatentDelay)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -25,7 +25,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: time-varying reporting delay" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying reporting delay" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -48,14 +48,12 @@ end
     ∇ref = ForwardDiff.gradient(ref_loss, θ0)
 
     # The kernel is `L × T`: column `t` weights the inputs reaching time `t`.
-    tv_delay(P, Y) = Convolution(TimeVarying(P); indexed_by = :secondary)(
-        Y
-    )[d:end]
+    tv_delay(P, Y) = Convolution(TimeVarying(P))(Y)[d:end]
     @test tv_delay(P, Y) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* tv_delay(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: BVD convolve_delay" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD convolve_delay" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 

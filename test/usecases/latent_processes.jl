@@ -5,7 +5,7 @@
 # Kernels are lag first: `kernel[i]` weights the value `i` steps back.
 # `history` holds past values in time order, oldest first.
 
-@testitem "Use case: random walk" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: random walk" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -24,7 +24,7 @@
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: AR(p)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: AR(p)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -47,7 +47,7 @@ end
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: time-varying AR(1)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying AR(1)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -75,7 +75,7 @@ end
         ∇ref
 end
 
-@testitem "Use case: MA(q)" tags = [:usecase, :usecase_pending] setup = [UseCaseReferences] begin
+@testitem "Use case: MA(q)" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -89,11 +89,12 @@ end
 
     # z_t = ϵ_t + Σ_i θ_i ϵ_{t-i}: a convolution with kernel `[1; θ]` from
     # lag 0. CTIDM passes the first `q` innovations through unchanged, which
-    # is the convolution of the rest given those `q` as history.
+    # is the convolution from day `q + 1`, reading the earlier innovations
+    # from the input itself.
     ma(θ, ϵ) = vcat(ϵ[1:q], Convolution(vcat(1, θ))(ϵ)[(q + 1):end])
     function ma_history(θ, ϵ)
         c = Convolution(vcat(1, θ))
-        return vcat(ϵ[1:q], c(ϵ[(q + 1):end]; history = ϵ[1:q]))
+        return vcat(ϵ[1:q], c(ϵ; start = q + 1))
     end
     @test ma(θ, ϵ) ≈ ref
     @test ma_history(θ, ϵ) ≈ ref
