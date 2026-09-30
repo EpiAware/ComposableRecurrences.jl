@@ -1,7 +1,7 @@
-# [Concepts: operators and the pieces they compose](@id concepts)
+# [Concepts: operators, couplings and modifiers](@id concepts)
 
-An operator is a recurrence or a convolution built from a kernel and the pieces that shape its steps.
-Find the piece you need by intent here, then see it at work in the tutorials.
+An operator is a recurrence or a convolution built from a kernel, a coupling and modifiers.
+Find what you need by intent here, then see it at work in the tutorials.
 
 Names that are public but not exported are written unqualified below.
 Load them with `using ComposableRecurrences: Depletion, Floor, with_state`, and so on.
@@ -13,8 +13,8 @@ The package has these layers.
 - **Shapes** mark how a kernel, coupling or parameter is indexed by strata and time.
 - **Couplings** mix strata within a step.
 - **Modifiers** act on each step's values in order.
-- **Variants** choose between forms of one piece.
-- **Extending** adds your own piece.
+- **Variants** choose between forms of a modifier or wrapper.
+- **Extending** adds your own modifier, coupling or depletion form.
 - **Tooling** checks an operator's gradients.
 
 ## Operators
@@ -86,12 +86,12 @@ A bare array is an error that names the wrapper to use.
 
 | Name | What it does | Returns |
 |---|---|---|
-| `forward(piece, role, args...)` | the piece's maths for a role | writes in place, or returns scalars |
+| `forward(piece, role, args...)` | the maths of a modifier, coupling or depletion form for a role | writes in place, or returns scalars |
 | `pullback!(grads, piece, role, args...)` | its hand-written adjoint, optional | accumulates cotangents |
 | `Run()`, `Step()`, `Init()`, `Pressure()` | roles: an operator call, a modifier step, a modifier's initial state, a coupling's mixing | singletons |
 | `ispointwise(m)` | opts a modifier into the scalar `Step()` form | `Bool` |
-| `param_eltype(x)` | the element type a piece's parameters promote the buffer to | a type |
-| `PieceInterface` | the Interfaces.jl conformance test for a new piece | a test result |
+| `param_eltype(x)` | the element type a modifier's or coupling's parameters promote the buffer to | a type |
+| `PieceInterface` | the Interfaces.jl conformance test for a new modifier, coupling or depletion form | a test result |
 
 ## Tooling
 

@@ -1,8 +1,18 @@
-@doc "
+@doc raw"
 The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
-read at output time `t`.
+read at time `t`.
 
-This is the only meaning outside a kernel slot.
+For a kernel, the weight on lag ``l`` of the output at time ``t`` is
+
+```math
+k_l(t),
+```
+
+where ``k_l(\tau)`` is the kernel's weight on lag ``l`` in column ``\tau``
+and ``t`` is the absolute time of the output, counted from 1.
+A time-varying coupling or modifier parameter ``\theta`` is likewise read
+as ``\theta(t)``.
+This is the only indexing outside a kernel.
 
 # Examples
 ```@example
@@ -12,11 +22,22 @@ TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
 "
 struct Secondary end
 
-@doc "
-The indexing of a [`TimeVarying`](@ref) kernel whose column `c` is the kernel
-of the input (cohort) at absolute time `c`, which spreads forward through
-it.
+@doc raw"
+The indexing of a [`TimeVarying`](@ref) kernel whose column `τ` is the kernel
+of the input at absolute time `τ`, which spreads forward through it.
 
+For a [`Convolution`](@ref) with kernel length ``L``,
+
+```math
+y_{t,i} = \sum_{l=0}^{L-1} k_{i,l}(t - l)\, x_{t-l,i},
+```
+
+where ``y_{t,i}`` is the output of stratum ``i`` at absolute time ``t``,
+``x_{t-l,i}`` the input ``l`` steps earlier, and ``k_{i,l}(\tau)`` the weight
+on delay ``l`` (`kernel[l + 1]`) in column ``\tau``, the column of the
+input's own time.
+When every column sums to one, each input's total is kept once all its
+delays fall inside the window.
 Kernel slots only: anywhere else it is an `ArgumentError`.
 In a [`Recurrence`](@ref) column `c` weights the output at time `c` at
 each lag, `p_t = Σ_l k_l(t - l) y_{t-l}` with `k_l(τ)` the weight on lag
@@ -37,11 +58,23 @@ CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), fill(1.5, 6); history = [1.0
 "
 struct Primary end
 
-@doc "
+@doc raw"
 A coefficient given per stratum: adds a leading strata axis to its slot.
 
-As a kernel it is `S × L`, one row of lag weights per stratum.
-As a modifier parameter it is a length-`S` vector.
+A stratum is one of ``S`` parallel series computed together, such as a
+place or an age group.
+As a [`Recurrence`](@ref) kernel it is `S × L`, one row of lag weights per
+stratum, and stratum ``i`` convolves only its own past values:
+
+```math
+p_{t,i} = \sum_{l=1}^{L} k_{i,l}\, y_{t-l,i},
+```
+
+with ``k_{i,l}`` = `x[i, l]` the weight on lag ``l``, ``y_{t-l,i}`` the
+output of stratum ``i`` at absolute time ``t - l`` and ``p_{t,i}`` the
+value passed on to the coupling.
+A [`Convolution`](@ref) kernel is read the same way from lag 0.
+As a modifier parameter it is a length-`S` vector, ``\theta_i`` = `x[i]`.
 `PerStratum(TimeVarying(x))` is the same object as
 `TimeVarying(PerStratum(x))`.
 
@@ -57,14 +90,25 @@ struct PerStratum{A <: AbstractArray}
     x::A
 end
 
-@doc "
+@doc raw"
 A [`Recurrence`](@ref) kernel for every pair of strata: adds leading
 `S × S` axes, so it is `S × S × L`.
 
-`x[a, b, i]` weights stratum `b`'s value at lag `i` in stratum `a`.
+Each stratum's pressure sums every stratum's past values through its own
+lag weights:
+
+```math
+q_{t,i} = \sum_{j=1}^{S} \sum_{l=1}^{L} k_{ij,l}\, y_{t-l,j},
+```
+
+where ``k_{ij,l}`` = `x[i, j, l]` weights stratum ``j``'s output at lag
+``l`` in stratum ``i``, ``y_{t-l,j}`` is that output at absolute time
+``t - l``, and ``q_{t,i}`` replaces the coupled pressure ``C_t p_t`` of a
+[`Recurrence`](@ref).
+A stratum is one of ``S`` parallel series computed together.
 It is equivalent to Routes over all pairs, with a faster path: one route
-per pair `(a, b)`, with kernel `x[a, b, :]` and a coupling that is the unit
-matrix at `(a, b)`.
+per pair `(i, j)`, with kernel `x[i, j, :]` and a coupling that is the unit
+matrix at `(i, j)`.
 The kernel already mixes strata, so the coupling must be `I`.
 `TimeVarying(Pairwise(A))` has `A` `S × S × L × T`.
 
@@ -80,11 +124,18 @@ struct Pairwise{A <: AbstractArray}
     x::A
 end
 
-@doc "
+@doc raw"
 A coefficient that changes over time: adds a trailing time axis to its slot.
 
-Column `t` is read at absolute time `t`, so a resumed call carries on
-through the same array.
+Column ``\tau`` of the array holds the coefficient ``c(\tau)`` for absolute
+time ``\tau``, counted from 1, so a resumed call carries on through the same
+array.
+With the default indexing the step at time ``t`` reads ``c(t)``; a
+`Primary()` kernel's weight on lag ``l`` is read from column ``t - l``:
+
+```math
+\text{Secondary: } k_l(t), \qquad \text{Primary: } k_l(t - l).
+```
 A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
 A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with

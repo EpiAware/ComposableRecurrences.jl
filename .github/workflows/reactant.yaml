@@ -1,0 +1,37 @@
+# Package-owned: not part of the kit's managed workflows.
+name: Reactant
+
+# Runs the Reactant support matrix in test/reactant/ on the CPU backend.
+# Reactant support is measured, not required, so the job never blocks.
+# The steps mirror `task test-reactant` but call Julia directly, so the job
+# does not depend on the managed Taskfile.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reactant:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 180
+    env:
+      REACTANT_BACKENDS: cpu
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.12'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reactant-results
+          path: test/reactant/RESULTS.md
