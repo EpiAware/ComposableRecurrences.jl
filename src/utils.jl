@@ -67,8 +67,8 @@ end
 The element type the parameters of `x` contribute to an operator's buffer.
 
 The buffer eltype is the float promotion of this over the kernel, coupling,
-modifiers, inputs and history, so a ForwardDiff Dual or a Float32 anywhere
-sets it.
+modifiers, inputs and history, so a dual number or a Float32 anywhere sets
+it.
 The default recurses by value through fields, tuples and named tuples, so
 abstractly typed fields count; a `Real` gives its type and an array of reals
 its eltype.
@@ -93,7 +93,9 @@ param_eltype(x::AbstractArray{<:Real}) = eltype(x)
 function param_eltype(x::AbstractArray)
     return mapreduce(param_eltype, promote_type, x; init = Bool)
 end
-param_eltype(x::Union{Tuple, NamedTuple}) = promote_type(Bool, map(param_eltype, values(x))...)
+function param_eltype(x::Union{Tuple, NamedTuple})
+    return promote_type(Bool, map(param_eltype, values(x))...)
+end
 param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 
 # Promote over the first `N` fields, unrolled so a concrete struct infers.

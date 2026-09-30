@@ -31,7 +31,9 @@
 end
 
 @testitem "Eltypes: ForwardDiff gradients through every slot" setup = [TestModifiers] begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra, SparseArrays
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra, Random,
+        SparseArrays
+    rng = Xoshiro(41)
     S, L, T = 3, 3, 8
     g0 = [0.2, 0.3, 0.5]
     K0 = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
@@ -79,8 +81,8 @@ end
             )
         ), [0.9, 1.0, 1.1, 0.2]
     )
-    @test check(P -> sum(W .* Recurrence(nothing; coupling = Pairwise(P))(R0; history = h0)), rand(S, S, L))
-    @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(L, T))
+    @test check(P -> sum(W .* Recurrence(nothing; coupling = Pairwise(P))(R0; history = h0)), rand(rng, S, S, L))
+    @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(rng, L, T))
     @test check(
         θ -> sum(
             W .* Recurrence(g0; modifiers = (LooseScale(θ[1], (; b = θ[2])),))(

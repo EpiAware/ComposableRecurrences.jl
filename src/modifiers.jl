@@ -9,7 +9,7 @@ The state is copied into the operator's buffer eltype before the first step.
 
 # Arguments
 - `m`: the modifier.
-- `history`: the full history passed to the call (length `m`, or `S × m`),
+- `history`: the full history passed to the call (a vector, or strata × time),
   not only the last `L` values.
 
 # Examples
