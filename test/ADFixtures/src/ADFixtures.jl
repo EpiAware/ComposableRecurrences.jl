@@ -80,77 +80,85 @@ const KS = sparse([0.8 0.2 0.0; 0.0 0.7 0.3; 0.1 0.0 0.9])
 const POP = [60.0, 90.0, 70.0]
 const LOGR = [0.1 * sin(a + t) for a in 1:S, t in 1:T]
 
-function _renewal(θ)
+# Each scenario takes `w`, which wraps the operator: `identity` runs the
+# analytic adjoint and `NoAdjoint` plain AD of the same call.
+function _renewal(w, θ)
     g, logh, logR = _unpack(θ, (L,), (L,), (T,))
-    y = Recurrence(g)(exp.(logR); history = exp.(logh))
+    y = w(Recurrence(g))(exp.(logR); history = exp.(logh))
     return sum(W1 .* log.(y))
 end
 
-function _renewal_noadjoint(θ)
-    g, logh, logR = _unpack(θ, (L,), (L,), (T,))
-    y = NoAdjoint(Recurrence(g))(exp.(logR); history = exp.(logh))
-    return sum(W1 .* log.(y))
-end
-
-function _renewal_strata(θ)
+function _renewal_strata(w, θ)
     g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
     r = Recurrence(g; coupling = K, modifiers = (FlooredDepletion(POP),))
-    y = r(exp.(logR); history = exp.(logh))
+    y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
 
 # A scalar modifier field, a Float32 kernel and Float64 history.
 const G0F = Float32.(G0)
-function _scalar_field_mixed(θ)
+function _scalar_field_mixed(w, θ)
     N, logR = θ[1], _unpack(view(θ, 2:length(θ)), (S, T))[1]
     r = Recurrence(G0F; coupling = K0, modifiers = (ScalarDepletion(N),))
-    y = r(exp.(logR); history = fill(5.0, S, L))
+    y = w(r)(exp.(logR); history = fill(5.0, S, L))
     return sum(WS .* log.(y))
 end
 
-function _sparse(θ)
+function _sparse(w, θ)
     v, logh, R = _unpack(θ, (length(KS.nzval),), (S, L), (S, T))
     K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
-    y = Recurrence(G0; coupling = K)(R; history = exp.(logh))
+    y = w(Recurrence(G0; coupling = K))(R; history = exp.(logh))
     return sum(WS .* y)
 end
 
-function _diagonal(θ)
+function _diagonal(w, θ)
     d, G, logh, R = _unpack(θ, (S,), (S, L), (S, L), (S, T))
     r = Recurrence(PerStratum(G); coupling = Diagonal(d))
-    return sum(WS .* r(R; history = exp.(logh)))
+    return sum(WS .* w(r)(R; history = exp.(logh)))
 end
 
-function _pairwise(θ)
+function _pairwise(w, θ)
     P, logh, R = _unpack(θ, (S, S, L), (S, L), (S, T))
     r = Recurrence(nothing; coupling = Pairwise(P))
-    return sum(WS .* r(R; history = exp.(logh)))
+    return sum(WS .* w(r)(R; history = exp.(logh)))
 end
 
-function _time_varying(θ)
+function _time_varying(w, θ)
     G, C, logh, ϵ = _unpack(θ, (L, T), (S, S, T), (S, L), (S, T))
     r = Recurrence(TimeVarying(G); coupling = TimeVarying(C))
-    return sum(WS .* r(0.9; history = exp.(logh), add = ϵ))
+    return sum(WS .* w(r)(0.9; history = exp.(logh), add = ϵ))
 end
 
-function _delay(θ)
+# The returned state feeds the loss, so its cotangent reaches the history
+# and the modifier's pool.
+function _with_state(w, θ)
+    g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
+    r = Recurrence(g; coupling = K0, modifiers = (FlooredDepletion(POP),))
+    y, st = w(r)(exp.(logR); history = exp.(logh), return_state = true)
+    return sum(WS .* log.(y)) + sum(st.history) + 0.01 * sum(only(st.states))
+end
+
+function _delay(w, θ)
     g, w0, ϵ = _unpack(θ, (L + 1,), (L,), (T,))
-    return sum(W1 .* Convolution(g)(ϵ; history = w0))
+    return sum(W1 .* w(Convolution(g))(ϵ; history = w0))
 end
 
-function _delay_varying(θ)
+function _delay_varying(w, θ)
     G, X = _unpack(θ, (S, L, T), (S, T))
-    return sum(WS .* Convolution(TimeVarying(G))(X))
+    return sum(WS .* w(Convolution(TimeVarying(G)))(X))
+end
+
+function _delay_varying_secondary(w, θ)
+    G, X, H = _unpack(θ, (L, T + 3), (S, T), (S, 2))
+    c = Convolution(TimeVarying(G); indexed_by = :secondary)
+    return sum(WS .* w(c)(X; history = H, start = 4))
 end
 
 _flat(xs...) = reduce(vcat, map(vec, xs))
 
+# `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
 const _SCENARIOS = [
     ("Recurrence renewal", _renewal, () -> _flat(G0, zeros(L), LOGR[1, :])),
-    (
-        "NoAdjoint Recurrence renewal", _renewal_noadjoint,
-        () -> _flat(G0, zeros(L), LOGR[1, :]),
-    ),
     (
         "Recurrence strata, coupling and depletion", _renewal_strata,
         () -> _flat(G0, K0, fill(log(5.0), S, L), LOGR),
@@ -176,6 +184,10 @@ const _SCENARIOS = [
         () -> _flat(repeat(G0, 1, T), repeat(K0, 1, 1, T), zeros(S, L), LOGR),
     ),
     (
+        "Recurrence returning its state", _with_state,
+        () -> _flat(G0, fill(log(5.0), S, L), LOGR),
+    ),
+    (
         "Convolution delay with history", _delay,
         () -> _flat([0.0; G0], ones(L), 1 .+ LOGR[1, :]),
     ),
@@ -183,6 +195,16 @@ const _SCENARIOS = [
         "Convolution time-varying kernel", _delay_varying,
         () -> _flat(fill(0.25, S, L, T), 1 .+ LOGR),
     ),
+    (
+        "Convolution time-varying kernel indexed by output", _delay_varying_secondary,
+        () -> _flat(fill(0.25, L, T + 3), 1 .+ LOGR, ones(S, 2)),
+    ),
+]
+
+const _TWINS = Tuple{String, Any, Any}[
+    (prefix * name, Base.Fix1(f, wrap), θ0)
+        for (prefix, wrap) in (("", identity), ("NoAdjoint ", NoAdjoint))
+        for (name, f, θ0) in _SCENARIOS
 ]
 
 """
@@ -196,7 +218,7 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
     category === :marginal || throw(
         ArgumentError("unknown category $(repr(category)); choose :marginal")
     )
-    return map(_SCENARIOS) do (name, f, θ0)
+    return map(_TWINS) do (name, f, θ0)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
@@ -233,20 +255,27 @@ correct.
 """
 function backend_broken_scenarios()
     return Dict(
-        "Enzyme forward" => Set(["Recurrence strata, coupling and depletion"]),
+        "Enzyme forward" => Set(
+            [
+                "Recurrence strata, coupling and depletion",
+                "NoAdjoint Recurrence strata, coupling and depletion",
+                "Recurrence returning its state",
+                "NoAdjoint Recurrence returning its state",
+            ]
+        ),
     )
 end
 
 """
 Per-backend scenario names too unstable to run at all.
 
-Plain Enzyme reverse AD of a sparse coupling repeated over steps has
-returned silently wrong gradients, so the sparse scenario is not run on
-Enzyme reverse.
+Plain Enzyme reverse AD of a sparse coupling repeated over steps returns
+silently wrong gradients, so `NoAdjoint` on a sparse coupling throws on
+Enzyme reverse; the analytic rule is correct and runs.
 """
 function backend_skip_scenarios()
     return Dict(
-        "Enzyme reverse" => Set(["Recurrence sparse coupling"]),
+        "Enzyme reverse" => Set(["NoAdjoint Recurrence sparse coupling"]),
     )
 end
 
