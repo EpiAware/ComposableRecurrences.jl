@@ -247,24 +247,9 @@ end
 broken_scenario_names() = String[]
 
 """
-Per-backend broken scenario names (`Dict{String, Set{String}}`).
-
-Enzyme forward mode with runtime activity returns a wrong gradient when a
-modifier reads a constant array, here the population; reverse mode is
-correct.
+Per-backend broken scenario names (`Dict{String, Set{String}}`); none.
 """
-function backend_broken_scenarios()
-    return Dict(
-        "Enzyme forward" => Set(
-            [
-                "Recurrence strata, coupling and depletion",
-                "NoAdjoint Recurrence strata, coupling and depletion",
-                "Recurrence returning its state",
-                "NoAdjoint Recurrence returning its state",
-            ]
-        ),
-    )
-end
+backend_broken_scenarios() = Dict{String, Set{String}}()
 
 """
 Per-backend scenario names too unstable to run at all.
