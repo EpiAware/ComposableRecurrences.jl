@@ -115,6 +115,11 @@ With pool `S`, value `v` and heterogeneity exponent `α`:
 With `seeded = true` the pool starts at `max(N − Σ history, 0)`, the whole
 history (not only the last `L` values) drawn from it.
 The state is the pool.
+On a [`Convolution`](@ref) the pool is drawn down by the outputs, which do
+not feed back into later steps, and `seeded` has no effect.
+
+Scope: [`Recurrence`](@ref) and [`Convolution`](@ref); pointwise; analytic
+adjoint.
 
 # Arguments
 - `N`: the population, one value or one per stratum.
@@ -256,6 +261,9 @@ Time is the absolute index, so with `start` the first step reads `b` at
 Alone, `Imports(b)` gives the same values as passing `b` as `add`.
 The state is unused.
 
+Scope: [`Recurrence`](@ref) and [`Convolution`](@ref); pointwise; analytic
+adjoint.
+
 # Arguments
 - `b`: the imports: a scalar, length `T` or `S × T`, or a `TimeVarying`
   of either array.
@@ -313,6 +321,9 @@ stratum, unlike [`Imports`](@ref), whose vector is indexed by time.
 The state is the step's arrivals in each stratum, `Σ_{q ≠ p} ε_q K[p, q] v_q`.
 Place it before a [`Depletion`](@ref) to deplete each stratum's pool by what
 it realises; a modifier sees `gain ⊙ x + add`, so the `add` values move too.
+
+Scope: [`Recurrence`](@ref) and [`Convolution`](@ref); vector-level;
+analytic adjoint; needs strata.
 
 # Arguments
 - `K`: the `S × S` kernel, `K[p, q]` from origin `q` to destination `p`.
@@ -409,6 +420,9 @@ Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 `lo` and `hi` are each one value or one per stratum.
 The state is unused.
 
+Scope: [`Recurrence`](@ref) and [`Convolution`](@ref); pointwise; analytic
+adjoint.
+
 # Arguments
 - `lo`: the lower bound.
 - `hi`: the upper bound.
@@ -473,6 +487,9 @@ Pass `derivative` to supply it instead: `derivative(v)` returns `∂f/∂v`
 when `θ` is `nothing`, and `derivative(v, θ_k)` otherwise returns
 `(∂f/∂v, ∂f/∂θ)`, with `∂f/∂θ` shaped as `θ_k`.
 The state is unused.
+
+Scope: [`Recurrence`](@ref) and [`Convolution`](@ref); pointwise; local
+forward-mode adjoint, analytic when `derivative` is given.
 
 # Arguments
 - `f`: the map, `f(v)` or `f(v, θ_k)`.
