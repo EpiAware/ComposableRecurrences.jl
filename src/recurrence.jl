@@ -226,11 +226,11 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
         τ = τ0 + t - 1
         _kernel_pressure!(p, kernel, H, t, τ, L)
         pressure!(q, coupling, p, view(H, t:(t + L - 1), :), τ)
-        for k in 1:S
+        for k in eachindex(v)
             v[k] = _at(gain, k, t) * q[k] + _at(add, k, t)
         end
         _stages!(modifiers, states, v, τ)
-        for k in 1:S
+        for k in eachindex(v)
             H[L + t, k] = v[k]
         end
     end
