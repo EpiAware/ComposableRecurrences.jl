@@ -103,8 +103,8 @@ vaccines = [
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# Both vaccines lower and delay the peak.
-# At the same efficacy the all-or-nothing vaccine prevents more infections, because the leaky vaccine leaves every vaccinated person some risk, which adds up while the epidemic runs.
+# Both vaccines lower the peak, which comes slightly earlier because the pool shrinks faster.
+# At the same efficacy the all-or-nothing vaccine prevents slightly more infections, because the leaky vaccine leaves every vaccinated person some risk, which adds up while the epidemic runs.
 # A delay from dose to protection is a `Convolution` of the doses before they are passed as `removals`.
 
 # ## Imported cases
