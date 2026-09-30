@@ -43,9 +43,9 @@ or the history.
 
 # Arguments
 - `m̄`: the cotangent of the modifier's parameters.
+- `h̄`: the cotangent of the history, or `nothing`.
 - `m`: the modifier.
 - `history`: the history the recurrence starts from.
-- `h̄`: the cotangent of the history, or `nothing`.
 - `s̄`: the cotangent of the initial state.
 
 # Examples
@@ -55,11 +55,11 @@ CR = ComposableRecurrences
 m = CR.Depletion([10.0, 20.0]; seeded = true)
 m̄ = (; N = zeros(2), heterogeneity = Ref(0.0), seeded = nothing)
 h̄ = zeros(2, 2)
-CR.init_pullback!(m̄, m, ones(2, 2), h̄, [1.0, 2.0])
+CR.init_state_pullback!(m̄, h̄, m, ones(2, 2), [1.0, 2.0])
 m̄.N, h̄
 ```
 "
-function init_pullback! end
+function init_state_pullback! end
 
 # The mirror slot for field `name`, or `nothing` without a mirror.
 _cotangent(::Nothing, name) = nothing
@@ -183,7 +183,7 @@ function init_state(m::Depletion, history)
     ]
 end
 
-function init_pullback!(m̄, m::Depletion, history, h̄, s̄)
+function init_state_pullback!(m̄, h̄, m::Depletion, history, s̄)
     N̄ = _cotangent(m̄, :N)
     for k in eachindex(s̄)
         N = _stratum(m.N, k)
@@ -271,7 +271,7 @@ struct Imports{B}
 end
 
 ispointwise(::Imports) = true
-init_pullback!(m̄, ::Imports, history, h̄, s̄) = nothing
+init_state_pullback!(m̄, h̄, ::Imports, history, s̄) = nothing
 
 _import_at(b::Real, k, t) = b
 _import_at(b::AbstractVector, k, t) = b[t]
@@ -337,7 +337,7 @@ struct Redistribute{K <: AbstractMatrix, E}
     end
 end
 
-init_pullback!(m̄, ::Redistribute, history, h̄, s̄) = nothing
+init_state_pullback!(m̄, h̄, ::Redistribute, history, s̄) = nothing
 
 _origin_at(ε::Real, q, t) = ε
 _origin_at(ε::AbstractVector, q, t) = ε[q]
@@ -422,7 +422,7 @@ struct Clamp{L, H}
 end
 
 ispointwise(::Clamp) = true
-init_pullback!(m̄, ::Clamp, history, h̄, s̄) = nothing
+init_state_pullback!(m̄, h̄, ::Clamp, history, s̄) = nothing
 
 function apply(m::Clamp, v, s, t, k)
     return clamp(v, _stratum(m.lo, k), _stratum(m.hi, k)), s

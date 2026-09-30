@@ -251,11 +251,11 @@ end
         m = CR.Depletion(n == 1 ? N0[1] : N0; seeded)
         m̄ = ModifierChecks.mirror(m)
         h̄ = zero(h)
-        CR.init_pullback!(m̄, m, h, h̄, s̄)
+        CR.init_state_pullback!(m̄, h̄, m, h, s̄)
         @test ModifierChecks.flat(m̄.N) ≈ expected[1:n]
         @test vec(h̄) ≈ expected[(n + 1):end]
         # No history cotangent is asked for.
-        CR.init_pullback!(ModifierChecks.mirror(m), m, h, nothing, s̄)
+        CR.init_state_pullback!(ModifierChecks.mirror(m), nothing, m, h, s̄)
     end
 end
 

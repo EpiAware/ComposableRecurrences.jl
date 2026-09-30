@@ -40,7 +40,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
 public init_state, apply, apply!, apply_pullback!, apply_pullback,
-    init_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
+    init_state_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
     pullback!, NoAdjoint, OperatorInterface, CouplingInterface,
     ModifierInterface, Depletion, Imports, Redistribute, Clamp
 
