@@ -148,9 +148,17 @@ struct Depletion{F, P, A} # F: the form, :hazard or :floor
     end
 end
 
-function Depletion(N; form = :hazard, seeded = false, heterogeneity = 1)
-    return Depletion{form}(float(N), float(heterogeneity), seeded)
+Base.@constprop :aggressive function Depletion(
+        N; form = :hazard, seeded = false, heterogeneity = 1
+    )
+    N = float(N)
+    return Depletion{form}(N, _exponent(heterogeneity, N), seeded)
 end
+
+# An integer exponent takes the population's float type, so it has a
+# cotangent and a Float32 population stays Float32.
+_exponent(α::Integer, N) = convert(float(param_eltype(N)), α)
+_exponent(α, N) = α
 
 const _DEPLETION_FLOOR = 1.0e-6
 
@@ -321,6 +329,9 @@ struct Redistribute{K <: AbstractMatrix, E}
     function Redistribute(K::M, ε::E) where {M <: AbstractMatrix, E}
         size(K, 1) == size(K, 2) || throw(
             DimensionMismatch("K is $(size(K)), expected a square matrix")
+        )
+        ε isa AbstractMatrix && throw(
+            ArgumentError("wrap a strata × time intensity as TimeVarying(ε)")
         )
         return new{M, E}(K, ε)
     end

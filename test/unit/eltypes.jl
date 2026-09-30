@@ -112,5 +112,6 @@ end
     # A plain matrix intensity must be wrapped as time-varying.
     @test_throws ArgumentError CR.Redistribute(K, fill(0.1f0, 2, 5))
     # The constructor infers with a literal form.
-    @test (@inferred (() -> CR.Depletion(1.0; form = :floor))()) isa CR.Depletion
+    floor_depletion() = ComposableRecurrences.Depletion(1.0; form = :floor)
+    @test (@inferred floor_depletion()) isa CR.Depletion
 end
