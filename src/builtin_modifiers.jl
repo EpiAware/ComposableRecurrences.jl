@@ -1,5 +1,5 @@
 # The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
-# mirrors the piece's fields as a NamedTuple: an array for a float array, a
+# mirrors the object's fields as a NamedTuple: an array for a float array, a
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
 # and `nothing` for a field without a cotangent.
 #
@@ -81,10 +81,21 @@ end
 
 # Depletion ---------------------------------------------------------------
 
-@doc "
-The hazard depletion form: `x = v / N ⋅ (s / N)^(α − 1)`, the drawn value is
-`s (1 − exp(−x))` and the pool becomes `s exp(−x)`, so the pool never goes
-negative.
+@doc raw"
+The hazard depletion form: the value is drawn from the pool as a hazard, so
+the pool never goes negative.
+
+For one stratum at one step,
+
+```math
+\lambda = \frac{v}{N} \Big(\frac{s}{N}\Big)^{\alpha - 1}, \qquad
+v' = s\,\big(1 - e^{-\lambda}\big), \qquad
+s' = s\, e^{-\lambda},
+```
+
+where ``v`` is the value asked for, ``s`` the pool before the step, ``N`` the
+population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
+``v'`` the value drawn and ``s'`` the pool after the step.
 
 The default form of [`ComposableRecurrences.Depletion`](@ref).
 
@@ -97,9 +108,20 @@ CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 "
 struct Hazard end
 
-@doc "
-The floored depletion form: the drawn value is
-`max(max(s / N, 0)^α, 1e-6) v` and the pool becomes `s` less it.
+@doc raw"
+The floored depletion form: the value is scaled by the share of the pool
+left, with a floor.
+
+For one stratum at one step,
+
+```math
+f = \max\!\Big(\max\big(\tfrac{s}{N}, 0\big)^{\alpha},\ 10^{-6}\Big),
+\qquad v' = f\, v, \qquad s' = s - v',
+```
+
+where ``v`` is the value asked for, ``s`` the pool before the step, ``N`` the
+population, ``\alpha`` the heterogeneity exponent, ``f`` the scaling, ``v'``
+the value drawn and ``s'`` the pool after the step.
 The pool can go negative, and then the floor applies.
 
 # Examples
@@ -111,15 +133,29 @@ CR.forward(CR.Floor(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 "
 struct Floor end
 
-@doc "
+@doc raw"
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
+
+For each stratum ``i`` (one of ``S`` parallel series) and absolute time
+``t`` from the call's first time ``t_0``,
+
+```math
+s_{t_0 - 1, i} = s_{0,i}, \qquad
+(v'_{t,i},\ s_{t,i}) = F\big(v_{t,i},\ s_{t-1,i},\ N_i,\ \alpha\big),
+```
+
+where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
+it passes on, ``s_{t,i}`` the pool after step ``t``, ``s_{0,i}`` the starting
+pool `pool0` (``N_i`` by default), ``N_i`` the population, ``\alpha`` the
+heterogeneity exponent and ``F`` the form's
+`forward(form, Step(), v, s, N, α)`.
 
 The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
-[`ComposableRecurrences.Floor`](@ref), or a new struct with that method.
+[`ComposableRecurrences.Floor`](@ref), or a new type with that method.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -189,7 +225,7 @@ function Depletion(
     )
 end
 
-# A form is a struct with a scalar Step.
+# A form is a type with a scalar Step.
 function _check_form(form::F) where {F}
     hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
         throw(
@@ -303,10 +339,20 @@ end
 
 # Add ---------------------------------------------------------------------
 
-@doc "
+@doc raw"
 Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
+
+For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+
+```math
+v'_{t,i} = v_{t,i} + b_{t,i},
+```
+
+where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
+it passes on and ``b_{t,i}`` the parameter read at stratum ``i`` and time
+``t``.
 
 `b` is a parameter: one value, [`PerStratum`](@ref), [`TimeVarying`](@ref)
 (one per time, shared by every stratum) or `TimeVarying(PerStratum(B))`
@@ -345,20 +391,33 @@ end
 
 # Redistribute ------------------------------------------------------------
 
-@doc "
+@doc raw"
 Moves a share of each stratum's values to others, conserving the total: a
-share `ε_q K[p, q]` of origin `q`'s value is realised in `p` instead.
+share ``\varepsilon_{t,j} K_{ij}`` of origin ``j``'s value is realised in
+destination ``i`` instead.
 
-    v′_p = (1 − ε_p Σ_{r ≠ p} K[r, p]) v_p + Σ_{q ≠ p} ε_q K[p, q] v_q
+For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
 
+```math
+\begin{aligned}
+s'_i &= \sum_{j \ne i} \varepsilon_{t,j} K_{ij}\, v_j, \\
+v'_i &= \Big(1 - \varepsilon_{t,i} \sum_{j \ne i} K_{ji}\Big) v_i + s'_i,
+\end{aligned}
+```
+
+where ``v_i`` is the value entering the modifier, ``v'_i`` the value it
+passes on, ``K_{ij}`` = `K[i, j]` the share from origin ``j`` to destination
+``i``, ``\varepsilon_{t,j}`` origin ``j``'s intensity at time ``t`` and
+``s'_i`` the arrivals, kept as the state.
+Summing ``v'_i`` over ``i`` gives ``\sum_i v_i``.
 The diagonal of `K` is not read: a stratum does not import from itself.
 The intensity `ε` belongs to the origin and is a parameter: one value,
 [`PerStratum`](@ref), [`TimeVarying`](@ref) or `TimeVarying(PerStratum(ε))`
 with `ε` strata × time, read at the absolute time.
-The state is the step's arrivals in each stratum, `Σ_{q ≠ p} ε_q K[p, q] v_q`.
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
-stratum's pool by what it realises; a modifier sees `gain ⊙ x + add`, so the
-`add` values move too.
+stratum's pool by what it realises; a modifier sees
+``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
+input, so the `add` values move too.
 
 # Arguments
 - `K`: the `S × S` kernel, `K[p, q]` from origin `q` to destination `p`.
@@ -441,8 +500,18 @@ end
 
 # Clamp -------------------------------------------------------------------
 
-@doc "
+@doc raw"
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
+
+For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+
+```math
+v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),
+```
+
+where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
+it passes on, and ``\ell_{t,i} \le u_{t,i}`` the bounds `lo` and `hi` read
+at stratum ``i`` and time ``t``.
 
 `lo` and `hi` are parameters: each one value, [`PerStratum`](@ref),
 [`TimeVarying`](@ref) or `TimeVarying(PerStratum(x))`.

@@ -108,11 +108,19 @@ function _check_strata(name, x::AbstractMatrix, S)
     return nothing
 end
 
-@doc "
+@doc raw"
 The element type the parameters of `x` contribute to an operator's buffer.
 
 The buffer eltype is the float promotion of this over the kernel, coupling,
-modifiers, inputs and history, so a dual number or a Float32 anywhere sets
+modifiers, inputs and history,
+
+```math
+T_{\mathrm{buf}} = \mathrm{float}\Big(\mathrm{promote}\big(E(\text{kernel}),
+E(\text{coupling}), E(\text{modifiers}), E(\text{gain}), E(\text{add}),
+E(\text{history})\big)\Big),
+```
+
+where ``E`` is `param_eltype`, so a dual number or a Float32 anywhere sets
 it.
 The default recurses by value through fields, tuples and named tuples, so
 abstractly typed fields count; a `Real` gives its type and an array of reals
