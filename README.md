@@ -14,18 +14,10 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 
 ## Why ComposableRecurrences?
 
-- Renewal processes, random walks, autoregressions and reporting delays are usually separate hand-written loops.
-  Here each is a `Recurrence` or a `Convolution`, so one pair of operators covers them all.
-- Kernels are lag first, as a generation interval or a set of AR coefficients is written, and can differ by stratum or change over time.
-  A time-varying delay can be indexed by the day of the primary event or by the day it is observed.
-- Strata couple through any `S × S` matrix (dense, sparse or `Diagonal`), a time-varying matrix, or a pairwise kernel with its own lags.
-  A spatial or multi-group model uses the same operator as a single series.
-- Modifiers act on each step in the order given and carry their own state.
-  An effect such as susceptible depletion is one small type with an `apply!` method, not a new loop.
-- A call can return its state, and the next call resumes from it, so a forecast continues a fitted series without rebuilding the operator.
-- No step copies its lag window, so gradients stay fast.
-  They are tested against ForwardDiff, Mooncake and Enzyme.
-- Interface tests check that a user-written operator, modifier or coupling meets the contract.
+- One pair of operators, `Recurrence` and `Convolution`, covers renewal processes, reporting delays and latent processes such as random walks.
+- Models are built from small pieces, such as depletion or mixing between groups, and your own pieces plug in alongside them.
+- Gradients are fast under ForwardDiff, Mooncake and Enzyme, so models fit with gradient-based samplers such as NUTS.
+- It is designed as the shared base that other EpiAware modelling packages build on.
 
 ## Getting started
 
@@ -37,7 +29,8 @@ using ComposableRecurrences
 
 ## Related packages
 
-- [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) builds infectious disease models from renewal, delay and latent process steps of the kind this package runs.
+- [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) builds infectious disease models from renewal, delay and latent process components.
+- [ConvolvedDistributions.jl](https://convolveddistributions.epiaware.org) builds convolutions of distributions, such as the total of two independent delays.
 
 ## Where to learn more
 
