@@ -192,7 +192,16 @@ const PACKAGE_TUTORIALS = Pair{String, String}[]
 # `"Title" => content` pairs where `content` is anything a nav entry may
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
-const PACKAGE_SECTIONS = Pair{String, Any}[]
+const PACKAGE_SECTIONS = Pair{String, Any}[
+    "Explanation" => [
+        "Operators" => "explanation/operators.md",
+        "Shapes and coefficients" => "explanation/shapes.md",
+        "Couplings" => "explanation/couplings.md",
+        "Modifiers" => "explanation/modifiers.md",
+        "Adjoints" => "explanation/adjoints.md",
+        "Extending" => "explanation/extending.md",
+    ],
+]
 
 # The one package-specific leaf in the managed "Development" group's fixed
 # skeleton (Overview, Contributing, this leaf, Release process, Developer
