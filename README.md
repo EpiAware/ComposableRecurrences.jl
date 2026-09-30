@@ -46,8 +46,6 @@ reports = 0.4 .* delay(infections)
 
 ![Infections, reports and the remaining susceptible share in each town](docs/src/assets/readme-example.png)
 
-The outbreak starts in town A, which turns before the intervention as its susceptible pool runs down.
-It reaches B and C through the coupling about three weeks later, and the intervention turns them while they are still growing, with about half of each pool left.
 See the [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/) for the full walkthrough.
 
 ## Related packages
