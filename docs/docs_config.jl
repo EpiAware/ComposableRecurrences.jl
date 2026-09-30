@@ -211,6 +211,7 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
         "Operators" => "explanation/operators.md",
         "Shapes and coefficients" => "explanation/shapes.md",
         "Couplings" => "explanation/couplings.md",
+        "Modifiers" => "explanation/modifiers.md",
     ],
 ]
 
