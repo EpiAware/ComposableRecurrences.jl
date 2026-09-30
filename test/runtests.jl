@@ -13,15 +13,24 @@
 #   skip_quality  — skip the QA testset (fast local iteration)
 #   quality_only  — run only the QA testset
 #   readme_only   — run only `:readme`-tagged items (README/tutorial tests)
+#   usecase_only  — run only `:usecase`-tagged items (real models in
+#                   test/usecases/ checked against their original code)
+#
+# `:usecase_pending` items need API that has not landed yet, so only
+# `usecase_only` runs them; drop the tag once they pass.
 
 using TestItemRunner
 
 if "skip_quality" in ARGS
-    @run_package_tests filter = ti -> !(:quality in ti.tags) && !(:ad in ti.tags)
+    @run_package_tests filter = ti -> !(:quality in ti.tags) &&
+        !(:ad in ti.tags) && !(:usecase_pending in ti.tags)
 elseif "quality_only" in ARGS
     @run_package_tests filter = ti -> :quality in ti.tags
 elseif "readme_only" in ARGS
     @run_package_tests filter = ti -> :readme in ti.tags
+elseif "usecase_only" in ARGS
+    @run_package_tests filter = ti -> :usecase in ti.tags
 else
-    @run_package_tests filter = ti -> !(:ad in ti.tags)
+    @run_package_tests filter = ti -> !(:ad in ti.tags) &&
+        !(:usecase_pending in ti.tags)
 end
