@@ -1,33 +1,48 @@
-@doc "
+@doc raw"
 Maps each stratum's value through a function `f`, with optional
-parameters `θ`:
+parameters `θ`.
+A stratum is one of ``S`` parallel series computed together, such as a
+place or an age group.
 
-    y_k = f(v_k, θ_k)
+At time ``t``, for each stratum ``i``,
 
-`f` is any callable, called as `f(v)` when `θ` is `nothing` (the default)
-and `f(v, θ_k)` otherwise.
-`θ_k` is `θ` read at stratum `k` and the absolute time, as every modifier
-parameter is: one value, `PerStratum(θ)`, `TimeVarying(θ)` or
-`TimeVarying(PerStratum(θ))`.
+```math
+v'_i = f(v_i, \theta_{t,i}), \qquad s'_i = s_i,
+```
+
+where ``v_i`` is the stratum's value when the modifier is reached (after
+the modifiers before it in the tuple), ``v'_i`` its value after, and
+``s_i`` the unused state.
+``\theta_{t,i}`` is `θ` read at stratum ``i`` and absolute time ``t``, as
+every modifier parameter is: one value ``\theta``, `PerStratum(θ)` giving
+``\theta_i``, `TimeVarying(θ)` giving ``\theta_t``, or
+`TimeVarying(PerStratum(θ))` giving ``\theta_{t,i}``.
 A tuple or NamedTuple of these is read entry by entry, so `f` receives a
 tuple or NamedTuple of scalars.
+Without `θ` the map is ``v'_i = f(v_i)``.
 
-The pullback is a local forward-mode derivative of `f` in the value and
-`θ_k`.
-Pass `derivative` to supply it instead: `derivative(v)` returns `∂f/∂v`
-when `θ` is `nothing`, and `derivative(v, θ_k)` otherwise returns
-`(∂f/∂v, ∂f/∂θ)`, with `∂f/∂θ` shaped as `θ_k`.
-Values captured in `f` (a closure or a callable struct with float fields)
-are not parameters of the local derivative: without `derivative`, such a
-map is differentiated by the AD backend instead, so they keep their
-gradients.
-The state is unused.
+The reverse pass, for output cotangent ``\bar v'_i``, is
+
+```math
+\bar v_i = \frac{\partial f}{\partial v}(v_i, \theta_{t,i})\, \bar v'_i,
+\qquad
+\bar\theta_{t,i} \mathrel{+}= \frac{\partial f}{\partial \theta}(v_i, \theta_{t,i})\, \bar v'_i,
+```
+
+with the partial derivatives from a local forward-mode derivative of `f`,
+or from `derivative` when given: `derivative(v)` returns
+``\partial f / \partial v`` without `θ`, and `derivative(v, θ)` returns
+``(\partial f / \partial v, \partial f / \partial \theta)``, the second
+shaped as ``\theta_{t,i}``.
+Values captured inside `f` (a closure, or a callable struct with float
+fields) are not in ``\theta``: without `derivative` such a map is
+differentiated by the AD backend instead, so they keep their gradients.
 
 Scope: [`Recurrence`](@ref); pointwise; local forward-mode adjoint, or
 `derivative`.
 
 # Arguments
-- `f`: the map, `f(v)` or `f(v, θ_k)`.
+- `f`: the map, called as `f(v)` or `f(v, θ)`.
 - `θ`: the parameters, or `nothing`.
 
 # Keyword Arguments
@@ -54,7 +69,7 @@ Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2)
 ```
 "
 struct Transform{F, P, D}
-    "The map, `f(v)` or `f(v, θ_k)`."
+    "The map, called as `f(v)` or `f(v, θ)`."
     f::F
     "The parameters, or `nothing`."
     θ::P
@@ -130,7 +145,7 @@ _add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = _add_param!(θ̄, θ, ȳ * ∂θ, k, t)
 _derivative(df, f, v, ::Nothing) = (df(v), nothing)
 _derivative(df, f, v, θ) = df(v, θ)
 
-# The local forward-mode derivative: one dual per scalar of `(v, θ_k)`.
+# The local forward-mode derivative: one dual per scalar of `(v, θ)`.
 struct _TransformTag end
 
 function _derivative(::Nothing, f, v, ::Nothing)
