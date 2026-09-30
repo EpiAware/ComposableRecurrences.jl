@@ -1,6 +1,6 @@
-# [Adding a modifier or coupling](@id extending)
+# [Adding a modifier](@id extending)
 
-A new modifier, coupling or depletion form is a struct with `forward` for its role.
+A new modifier, or a new depletion form for `Depletion`, is a struct with `forward` for its role.
 Variants such as a depletion form are struct values too, so there is no registry and no symbol to add.
 
 | Kind | Role | `forward` |
@@ -10,7 +10,6 @@ Variants such as a depletion form are struct values too, so there is no registry
 | modifier, pointwise step | `Step()` | `forward(m, Step(), v, s, t, k)` returns `(v′, s′)` |
 | modifier, initial state | `Init()` | `forward(m, Init(), s, history)` writes `s` |
 | depletion form | `Step()` | `forward(form, Step(), v, s, N, α)` returns `(y, s′)` |
-| coupling | `Pressure()` | `forward(C, Pressure(), q, p, t)` writes `q` |
 
 ```@example extending
 using ComposableRecurrences
@@ -45,29 +44,10 @@ d = CR.Depletion(10.0, Linear())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 
-## A custom coupling
-
-A coupling writes the mixed convolutions `q` from the per-stratum convolutions `p`.
-This one sends a fixed share of every stratum's convolution to the first stratum.
-
-```@example extending
-struct ToFirst
-    share::Float64
-end
-function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
-    q .= (1 - C.share) .* p
-    q[1] += C.share * sum(p)
-    return nothing
-end
-
-r = Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))
-r(1.0; history = [1.0 1.0; 1.0 1.0], stop = 4)
-```
-
 ## Checking an extension
 
 `PieceInterface` declares the roles with Interfaces.jl.
-Test a new modifier, coupling or depletion form against it with one `Arguments(; piece, role, args)` object per role it supports.
+Test a new modifier or depletion form against it with one `Arguments(; piece, role, args)` object per role it supports.
 The test runs its `forward` and checks it keeps to the role's conventions.
 
 ```@example extending

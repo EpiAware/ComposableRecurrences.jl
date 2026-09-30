@@ -245,7 +245,7 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 # `developer/release-process.md`, `developer/faq.md`) are then the package's
 # own to write, at those exact paths.
 const DEVELOPMENT_EXTEND_PAGE =
-    "Adding a modifier or coupling" => "developer/extending.md"
+    "Adding a modifier" => "developer/extending.md"
 
 # An optional Getting-started FAQ page, listed right after Overview, e.g.
 # `"getting-started/faq.md"`. Leave `nothing` to omit it.

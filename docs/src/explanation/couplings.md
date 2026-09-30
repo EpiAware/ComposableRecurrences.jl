@@ -47,5 +47,19 @@ See [Shapes and coefficients](@ref shapes).
 
 ## Writing your own coupling
 
-A coupling is any struct with `forward` on the `Pressure()` role.
-See the Extending table on the [Concepts](@ref concepts) page.
+A coupling is any struct with `forward(C, Pressure(), q, p, t)`, which writes the mixed convolutions into `q`.
+This one sends a fixed share of every stratum's convolution to the first stratum.
+
+```@example couplings
+struct ToFirst
+    share::Float64
+end
+function ComposableRecurrences.forward(C::ToFirst, ::ComposableRecurrences.Pressure, q, p, t)
+    q .= (1 - C.share) .* p
+    q[1] += C.share * sum(p)
+    return nothing
+end
+
+r = Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))
+r(1.0; history = [1.0 1.0; 1.0 1.0], stop = 4)
+```
