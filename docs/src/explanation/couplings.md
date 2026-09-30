@@ -23,7 +23,9 @@ A section on `TimeVarying(S × S × T)`.
 
 A section on `pressure` and `pressure_pullback!`, the two functions a coupling defines.
 
+```@raw html
 <!-- becomes @example once couplings land -->
+```
 ```julia
 K = [0.9 0.1; 0.2 0.8]
 r = Recurrence(PerStratum(kernels); coupling = K)

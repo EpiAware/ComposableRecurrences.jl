@@ -10,7 +10,7 @@
 # - write the same occupancy as a `Recurrence` with a daily discharge probability and admissions as `add`;
 # - cap that occupancy at a bed count with `Clamp`.
 #
-# <!-- becomes @example once Convolution and Clamp land -->
+# becomes @example once Convolution and Clamp land #src
 # ```julia
 # using ComposableRecurrences
 #

@@ -11,7 +11,7 @@
 # - pass its output through a reporting delay as a `Convolution`;
 # - differentiate the reports with respect to the reproduction number.
 #
-# <!-- becomes @example once Recurrence and Convolution land -->
+# becomes @example once Recurrence and Convolution land #src
 # ```julia
 # using ComposableRecurrences
 #

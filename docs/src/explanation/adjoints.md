@@ -26,7 +26,9 @@ A section on using it for A/B timing.
 
 A section on `benchmark_adjoint` and `scenarios`.
 
+```@raw html
 <!-- becomes @example once benchmark_adjoint lands -->
+```
 ```julia
 benchmark_adjoint(Recurrence(kernel))
 ```

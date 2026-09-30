@@ -34,7 +34,9 @@ y_t = \sum_i \text{kernel}_{t,i} \odot x_{t-i}
 
 ## Calling an operator
 
+```@raw html
 <!-- becomes @example once Recurrence and Convolution land -->
+```
 ```julia
 r = Recurrence(kernel)
 y = r(gain; history, add = nothing, return_state = false)

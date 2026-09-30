@@ -11,7 +11,7 @@
 # - map the latent process to a reproduction number;
 # - use that reproduction number as the gain of a renewal process.
 #
-# <!-- becomes @example once Recurrence and TimeVarying land -->
+# becomes @example once Recurrence and TimeVarying land #src
 # ```julia
 # using ComposableRecurrences
 #

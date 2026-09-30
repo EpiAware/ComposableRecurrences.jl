@@ -10,7 +10,7 @@
 # - use a reporting delay that changes over time in a `Convolution`;
 # - check the shapes each time-varying kernel needs.
 #
-# <!-- becomes @example once TimeVarying lands -->
+# becomes @example once TimeVarying lands #src
 # ```julia
 # using ComposableRecurrences
 #

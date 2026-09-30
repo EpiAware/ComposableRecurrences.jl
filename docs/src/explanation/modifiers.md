@@ -42,7 +42,9 @@ A section on the modifier interface.
 
 A modifier without a hand-written pullback is differentiated locally for its step.
 
+```@raw html
 <!-- becomes @example once modifiers land -->
+```
 ```julia
 r = Recurrence(kernel; modifiers = (Depletion(N), Clamp(0.0, Inf)))
 y = r(gain; history)

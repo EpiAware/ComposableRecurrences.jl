@@ -13,7 +13,7 @@
 # - add imported infections with `Imports`;
 # - move infections between strata with `Redistribute`.
 #
-# <!-- becomes @example once couplings and modifiers land -->
+# becomes @example once couplings and modifiers land #src
 # ```julia
 # using ComposableRecurrences
 #
