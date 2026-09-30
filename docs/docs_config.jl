@@ -14,7 +14,13 @@ const LIGHT_TUTORIALS = String[]
 # in a fresh subprocess so native/memory state cannot accumulate. The
 # kit-managed AD-comparison page is registered in `HEAVY_BENCHMARKS` below
 # instead, so this list starts empty and is yours to fill.
-const HEAVY_TUTORIALS = String[]
+const HEAVY_TUTORIALS = [
+    "renewal-then-delay.jl",
+    "latent-processes.jl",
+    "spatial-strata.jl",
+    "time-varying-delays.jl",
+    "occupancy.jl",
+]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
 # `docs/src`.
@@ -23,7 +29,18 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # Fast-build stubs (`--skip-notebooks`): `"file.md" => "# Heading"` pairs.
 # Preserve the tutorial's `@id` in the heading (e.g. `"# [Title](@id
 # my-anchor)"`) so cross-references still resolve in a fast build.
-const TUTORIAL_STUBS = Pair{String, String}[]
+const TUTORIAL_STUBS = [
+    "renewal-then-delay.md" =>
+        "# [Renewal then delay](@id tutorial-renewal-delay)",
+    "latent-processes.md" =>
+        "# [Latent processes driving R_t](@id tutorial-latent-rt)",
+    "spatial-strata.md" =>
+        "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
+    "time-varying-delays.md" =>
+        "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
+    "occupancy.md" =>
+        "# [Occupancy and capacity](@id tutorial-occupancy)",
+]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
 # never execute, independent of `--skip-notebooks` — the escape hatch for a
@@ -121,11 +138,16 @@ const AD_BENCHMARK_RESULTS = nothing
 # "Part of the EpiAware ecosystem" README section, and the EpiAware logo + org
 # links in the docs footer. Opt-in, off by default (the kit also scaffolds
 # non-org packages). Set `true` in an EpiAware org package.
-const ORG_BRANDING = false
+const ORG_BRANDING = true
 
 # Regexes for URLs to skip during the (full-build) linkcheck, e.g. a page
 # published by a separate workflow that is not yet live.
-const LINKCHECK_IGNORE = Regex[]
+const LINKCHECK_IGNORE = Regex[
+    # Remove once the first release deploys the stable docs.
+    r"^https://composablerecurrences\.epiaware\.org/stable",
+    # Remove once GitHub Discussions is enabled on the repository.
+    r"^https://github\.com/EpiAware/ComposableRecurrences\.jl/discussions",
+]
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,
 # e.g. rewriting an absolute docs URL to an in-site `@ref`.
@@ -185,14 +207,33 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # optional FAQ below) in the generated nav — one placement for the whole
 # ecosystem rather than a per-repo choice (#354). These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
-const PACKAGE_TUTORIALS = Pair{String, String}[]
+const PACKAGE_TUTORIALS = [
+    "Concepts" => "getting-started/concepts.md",
+    "Renewal then delay" =>
+        "getting-started/tutorials/renewal-then-delay.md",
+    "Latent processes driving R_t" =>
+        "getting-started/tutorials/latent-processes.md",
+    "Spatial and multi-type models" =>
+        "getting-started/tutorials/spatial-strata.md",
+    "Time-varying delays and kernels" =>
+        "getting-started/tutorials/time-varying-delays.md",
+    "Occupancy and capacity" =>
+        "getting-started/tutorials/occupancy.md",
+]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
 # a developer reference distinct from the Development skeleton below), as
 # `"Title" => content` pairs where `content` is anything a nav entry may
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
-const PACKAGE_SECTIONS = Pair{String, Any}[]
+const PACKAGE_SECTIONS = Pair{String, Any}[
+    "Explanation" => [
+        "Operators" => "explanation/operators.md",
+        "Shapes and coefficients" => "explanation/shapes.md",
+        "Couplings" => "explanation/couplings.md",
+        "Modifiers" => "explanation/modifiers.md",
+    ],
+]
 
 # The one package-specific leaf in the managed "Development" group's fixed
 # skeleton (Overview, Contributing, this leaf, Release process, Developer

@@ -1,186 +1,146 @@
-# Interfaces.jl declarations. Test objects are `Arguments` bundles holding
-# the object under test and the inputs its components call it with.
+# Interfaces.jl declaration of the piece interface. Test objects are
+# `Arguments(; piece, role, args)`, with `kwargs` for a `Run`.
 
-@interface OperatorInterface Any (
+_kwargs(a) = haskey(a, :kwargs) ? a.kwargs : (;)
+
+# `forward` runs and keeps to the role's conventions: outputs written into
+# the leading arrays, inputs unchanged.
+function _forward_ok(op, ::Run, args, kwargs)
+    x = copy(first(args))
+    y, cache = forward(op, Run(), args...; kwargs...)
+    return size(y) == size(x) && first(args) == x
+end
+function _forward_ok(m, ::Step, args, kwargs)
+    first(args) isa AbstractVector || return forward(m, Step(), args...) isa
+        Tuple{Any, Any}
+    v, s = float(copy(args[1])), float(copy(args[2]))
+    out = forward(m, Step(), v, s, args[3:end]...)
+    return out === nothing && length(v) == length(args[1]) &&
+        length(s) == length(args[2])
+end
+function _forward_ok(m, ::Init, args, kwargs)
+    s = float(copy(args[1]))
+    return forward(m, Init(), s, args[2]) === nothing && all(isfinite, s)
+end
+function _forward_ok(C, ::Pressure, args, kwargs)
+    q, p = float(copy(args[1])), copy(args[2])
+    out = forward(C, Pressure(), q, p, args[3])
+    return out === nothing && p == args[2] && all(isfinite, q)
+end
+
+# The vector Step of a pointwise piece matches its scalar Step per stratum.
+_pointwise_ok(piece, role, args) = true
+function _pointwise_ok(m, ::Step, args)
+    first(args) isa AbstractVector || return true
+    v, s = float(copy(args[1])), float(copy(args[2]))
+    t = args[3]
+    pairs = [forward(m, Step(), v[k], s[k], t, k) for k in eachindex(v)]
+    forward(m, Step(), v, s, t)
+    return ispointwise(m) && v ≈ first.(pairs) && s ≈ last.(pairs)
+end
+
+@interface PieceInterface Any (
     mandatory = (
-        shape = "the output has the shape of the input" =>
-            a -> size(a.op(a.input; a.kwargs...)) == size(a.input),
-        pure = "the call leaves its input unchanged" => function (a)
-            x = copy(a.input)
-            a.op(a.input; a.kwargs...)
-            return a.input == x
-        end,
+        forward = "forward runs the piece in its role" =>
+            a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
     ),
     optional = (
-        resume = "resuming from the returned state continues the run" =>
-            function (a)
-            n = size(a.input, ndims(a.input)) ÷ 2
-            head = selectdim(a.input, ndims(a.input), 1:n)
-            rest = selectdim(
-                a.input, ndims(a.input), (n + 1):size(a.input, ndims(a.input))
-            )
-            y1, state = a.op(head; a.kwargs..., return_state = true)
-            y2 = a.op(rest; a.kwargs..., history = state)
-            return cat(y1, y2; dims = ndims(a.input)) ≈
-                a.op(a.input; a.kwargs...)
-        end,
+        pointwise = "a vector Step matches the scalar Step on each stratum" =>
+            a -> _pointwise_ok(a.piece, a.role, a.args),
     ),
-) "An operator called on a strata × time input, returning the same shape.
+) "A piece (operator, coupling, modifier or variant) with `forward` for a role.
 
-Test objects are `Arguments(; op, input, kwargs)`."
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
 
-@interface CouplingInterface Any (
-    mandatory = (
-        pressure = "pressure! fills and returns q, one entry per stratum" =>
-            function (a)
-            q = zeros(length(a.p))
-            out = pressure!(q, a.coupling, a.p, a.window, a.t)
-            return out === q && all(isfinite, q)
-        end,
-        pure = "pressure! leaves p and the window unchanged" => function (a)
-            p, w = copy(a.p), copy(a.window)
-            pressure!(zeros(length(p)), a.coupling, a.p, a.window, a.t)
-            return a.p == p && a.window == w
-        end,
-    ),
-    optional = (
-        linear = "the pressure is linear in p and the window jointly" =>
-            function (a)
-            q1 = pressure!(zeros(length(a.p)), a.coupling, a.p, a.window, a.t)
-            q2 = pressure!(
-                zeros(length(a.p)), a.coupling, 2 .* a.p, 2 .* a.window, a.t
-            )
-            return q2 ≈ 2 .* q1
-        end,
-    ),
-) "A coupling of a `Recurrence`, applied by `pressure!`.
-
-Test objects are `Arguments(; coupling, p, window, t)`."
-
-@interface ModifierInterface Any (
-    mandatory = (
-        init_state = "init_state gives one entry per stratum" =>
-            a -> length(init_state(a.modifier, a.history)) == length(a.v),
-        apply! = "apply! keeps one value and one state per stratum" =>
-            function (a)
-            v = float(copy(a.v))
-            s = float(collect(init_state(a.modifier, a.history)))
-            apply!(a.modifier, v, s, a.t)
-            return length(v) == length(a.v) && length(s) == length(a.v)
-        end,
-    ),
-    optional = (
-        pointwise = "apply! matches the scalar apply on each stratum" =>
-            function (a)
-            m = a.modifier
-            v = float(copy(a.v))
-            s = float(collect(init_state(m, a.history)))
-            pairs = [apply(m, v[k], s[k], a.t, k) for k in eachindex(v)]
-            apply!(m, v, s, a.t)
-            return ispointwise(m) && v ≈ first.(pairs) && s ≈ last.(pairs)
-        end,
-    ),
-) "A modifier of a `Recurrence` or `Convolution` step, applied by `apply!` in
-tuple order.
-
-Test objects are `Arguments(; modifier, history, v, t)`."
-
-@implements OperatorInterface{(:resume,)} Recurrence [
+@implements PieceInterface Recurrence [
     Arguments(;
-        op = Recurrence([0.2, 0.3, 0.5]), input = [1.1, 0.9, 1.2, 1.0],
-        kwargs = (; history = [1.0, 2.0, 3.0])
+        piece = Recurrence([0.2, 0.3, 0.5]), role = Run(),
+        args = ([1.1, 0.9, 1.2, 1.0],), kwargs = (; history = [1.0, 2.0, 3.0])
     ),
     Arguments(;
-        op = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]),
-        input = [1.1 0.9 1.2 1.0; 0.8 1.3 1.1 0.9],
+        piece = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]),
+        role = Run(), args = ([1.1 0.9 1.2 1.0; 0.8 1.3 1.1 0.9],),
         kwargs = (; history = [1.0 2.0; 3.0 1.0])
     ),
+    Arguments(;
+        piece = Recurrence(Pairwise(fill(0.25, 2, 2, 2))), role = Run(),
+        args = ([1.1 0.9 1.2; 0.8 1.3 1.1],), kwargs = (; history = ones(2, 2))
+    ),
 ]
 
-@implements OperatorInterface{(:resume,)} Convolution [
+@implements PieceInterface Convolution [
     Arguments(;
-        op = Convolution([0.1, 0.6, 0.3]), input = [1.0, 2.0, 3.0, 4.0],
-        kwargs = (;)
+        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
+        args = ([1.0, 2.0, 3.0, 4.0],)
     ),
     Arguments(;
-        op = Convolution([0.1, 0.6, 0.3]), input = [1.0 2.0 3.0; 4.0 5.0 6.0],
+        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
+        args = ([1.0 2.0 3.0; 4.0 5.0 6.0],),
         kwargs = (; history = [1.0 1.0; 2.0 2.0])
     ),
+]
+
+@implements PieceInterface UniformScaling [
+    Arguments(; piece = I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)),
+    Arguments(; piece = 0.5I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)),
+]
+
+@implements PieceInterface AbstractMatrix [
     Arguments(;
-        op = Convolution(
-            [0.1, 0.6, 0.3]; modifiers = (Depletion(20.0), Clamp(0.0, 3.0))
-        ),
-        input = [1.0 2.0 3.0 4.0; 4.0 5.0 6.0 7.0],
-        kwargs = (; history = [1.0 1.0; 2.0 2.0])
+        piece = [0.9 0.1; 0.2 0.8], role = Pressure(),
+        args = (zeros(2), [1.0, 2.0], 1)
+    ),
+    Arguments(;
+        piece = Diagonal([0.5, 2.0]), role = Pressure(),
+        args = (zeros(2), [1.0, 2.0], 1)
     ),
 ]
 
-@implements CouplingInterface{(:linear,)} UniformScaling [
-    Arguments(; coupling = I, p = [1.0, 2.0], window = ones(3, 2), t = 1),
-    Arguments(; coupling = 0.5I, p = [1.0, 2.0], window = ones(3, 2), t = 1),
-]
-
-@implements CouplingInterface{(:linear,)} AbstractMatrix [
+@implements PieceInterface TimeVarying [
     Arguments(;
-        coupling = [0.9 0.1; 0.2 0.8], p = [1.0, 2.0], window = ones(3, 2),
-        t = 1
-    ),
-    Arguments(;
-        coupling = Diagonal([0.5, 2.0]), p = [1.0, 2.0], window = ones(3, 2),
-        t = 1
+        piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 2)
     ),
 ]
 
-@implements CouplingInterface{(:linear,)} TimeVarying [
+@implements PieceInterface{(:pointwise,)} Depletion [
     Arguments(;
-        coupling = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
-        p = [1.0, 2.0], window = ones(3, 2), t = 2
+        piece = Depletion(PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0])),
+        role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
+    ),
+    Arguments(;
+        piece = Depletion(80.0, Floor(); heterogeneity = 1.5), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 1)
     ),
 ]
 
-@implements CouplingInterface{(:linear,)} Pairwise [
+@implements PieceInterface Hazard [
+    Arguments(; piece = Hazard(), role = Step(), args = (2.0, 80.0, 100.0, 1.0)),
+]
+
+@implements PieceInterface Floor [
+    Arguments(; piece = Floor(), role = Step(), args = (2.0, 80.0, 100.0, 1.5)),
+]
+
+@implements PieceInterface{(:pointwise,)} Add [
     Arguments(;
-        coupling = Pairwise(reshape(collect(1.0:12.0), 2, 2, 3)),
-        p = [1.0, 2.0], window = [1.0 2.0; 3.0 4.0; 5.0 6.0], t = 1
+        piece = Add(TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))), role = Step(),
+        args = ([2.0, 3.0], [0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Add(0.5), role = Init(), args = (zeros(2), ones(2, 3))
     ),
 ]
 
-@implements ModifierInterface{(:pointwise,)} Depletion [
+@implements PieceInterface Redistribute [
     Arguments(;
-        modifier = Depletion([100.0, 50.0]; seeded = true),
-        history = [1.0 2.0; 3.0 1.0], v = [2.0, 3.0], t = 1
-    ),
-    Arguments(;
-        modifier = Depletion(80.0; form = :floor, heterogeneity = 1.5),
-        history = ones(2, 3), v = [2.0, 3.0], t = 1
+        piece = Redistribute([0.0 0.3; 0.2 0.0], PerStratum([0.1, 0.2])),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
 
-@implements ModifierInterface{(:pointwise,)} Imports [
+@implements PieceInterface{(:pointwise,)} Clamp [
     Arguments(;
-        modifier = Imports([0.5 1.0; 0.2 0.1]), history = ones(2, 3),
-        v = [2.0, 3.0], t = 2
+        piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
-]
-
-@implements ModifierInterface Redistribute [
-    Arguments(;
-        modifier = Redistribute([0.0 0.3; 0.2 0.0], [0.1, 0.2]),
-        history = ones(2, 3), v = [2.0, 3.0], t = 1
-    ),
-]
-
-@implements ModifierInterface{(:pointwise,)} Clamp [
-    Arguments(;
-        modifier = Clamp(0.0, 2.5), history = ones(2, 3), v = [2.0, 3.0],
-        t = 1
-    ),
-]
-
-@implements ModifierInterface{(:pointwise,)} Transform [
-    Arguments(;
-        modifier = Transform((v, θ) -> θ.a * v + θ.b, (; a = [0.5, 2.0], b = 0.1)),
-        history = ones(2, 3), v = [2.0, 3.0], t = 1
-    ),
-    Arguments(; modifier = Transform(log1p), history = ones(3), v = [2.0], t = 1),
 ]

@@ -1,40 +1,61 @@
-# Interfaces.jl declarations: the package's own implementations pass, and a
-# modifier defined outside the package can declare and test its own.
+# Interfaces.jl declarations: the package's own pieces pass, and pieces
+# defined outside the package (a modifier, a coupling) declare and test
+# their own.
 
-@testitem "Interfaces: package implementations" begin
+@testitem "Interfaces: package pieces" begin
     using ComposableRecurrences, Interfaces, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
     @test Interfaces.test(ComposableRecurrences; show = false)
-    @test Interfaces.implements(CR.OperatorInterface, Recurrence)
-    @test Interfaces.implements(CR.OperatorInterface, Convolution)
-    @test Interfaces.implements(CR.OperatorInterface{(:resume,)}, Convolution)
-    @test Interfaces.implements(CR.CouplingInterface, UniformScaling)
-    @test Interfaces.implements(CR.CouplingInterface, Matrix{Float64})
-    @test Interfaces.implements(CR.CouplingInterface, Diagonal{Float64, Vector{Float64}})
-    @test Interfaces.implements(CR.CouplingInterface, Pairwise)
-    @test Interfaces.implements(CR.CouplingInterface, TimeVarying)
+    for T in (
+            Recurrence, Convolution, UniformScaling, Matrix{Float64},
+            Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
+            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
+        )
+        @test Interfaces.implements(CR.PieceInterface, T)
+    end
     # A sparse coupling is an AbstractMatrix; test it explicitly.
     K = sparse([1, 2, 3], [1, 3, 2], [0.5, 0.2, 0.9], 3, 3)
-    obj = Interfaces.Arguments(; coupling = K, p = [1.0, 2.0, 3.0], window = ones(2, 3), t = 1)
-    @test Interfaces.test(CR.CouplingInterface, typeof(K), (obj,); show = false)
+    obj = Interfaces.Arguments(;
+        piece = K, role = CR.Pressure(), args = (zeros(3), [1.0, 2.0, 3.0], 1)
+    )
+    @test Interfaces.test(CR.PieceInterface, typeof(K), (obj,); show = false)
 end
 
-@testitem "Interfaces: a user-defined modifier" setup = [TestModifiers] begin
+@testitem "Interfaces: user pieces" setup = [TestModifiers] begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     objs = (
         Interfaces.Arguments(;
-            modifier = FlooredDepletion([10.0, 20.0]), history = ones(2, 3),
-            v = [1.0, 2.0], t = 1
+            piece = FlooredDepletion([10.0, 20.0]), role = CR.Init(),
+            args = (zeros(2), ones(2, 3))
+        ),
+        Interfaces.Arguments(;
+            piece = FlooredDepletion([10.0, 20.0]), role = CR.Step(),
+            args = ([1.0, 2.0], [10.0, 20.0], 1)
         ),
     )
-    @test Interfaces.test(CR.ModifierInterface{(:pointwise,)}, FlooredDepletion, objs; show = false)
+    @test Interfaces.test(CR.PieceInterface{(:pointwise,)}, FlooredDepletion, objs; show = false)
     objs = (
         Interfaces.Arguments(;
-            modifier = Scale(2.0), history = ones(2, 3), v = [1.0, 2.0], t = 1
+            piece = Scale(2.0), role = CR.Step(), args = ([1.0, 2.0], [0.0, 0.0], 1)
         ),
     )
-    @test Interfaces.test(CR.ModifierInterface, Scale, objs; show = false)
+    @test Interfaces.test(CR.PieceInterface, Scale, objs; show = false)
+    # A coupling is any struct with forward on Pressure().
+    struct Twice end
+    function CR.forward(::Twice, ::CR.Pressure, q, p, t)
+        q .= 2 .* p
+        return nothing
+    end
+    objs = (
+        Interfaces.Arguments(;
+            piece = Twice(), role = CR.Pressure(), args = (zeros(2), [1.0, 2.0], 1)
+        ),
+    )
+    @test Interfaces.test(CR.PieceInterface, Twice, objs; show = false)
+    g = [0.5, 0.5]
+    @test Recurrence(g; coupling = Twice())(ones(2, 4); history = ones(2, 2)) ≈
+        Recurrence(g; coupling = [2.0 0.0; 0.0 2.0])(ones(2, 4); history = ones(2, 2))
 end
 
 @testitem "param_eltype recurses through fields" setup = [TestModifiers] begin

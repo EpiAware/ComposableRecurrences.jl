@@ -37,9 +37,16 @@ scaled by `max(s / pop, 1e-6)` and removed from the pool `s`, which starts at
 struct FlooredDepletion{P}
     pop::P
 end
-ComposableRecurrences.init_state(m::FlooredDepletion, history) = collect(m.pop)
+function ComposableRecurrences.forward(
+        m::FlooredDepletion, ::ComposableRecurrences.Init, s, history
+    )
+    s .= m.pop
+    return nothing
+end
 ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-function ComposableRecurrences.apply(m::FlooredDepletion, v, s, t, k)
+function ComposableRecurrences.forward(
+        m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
+    )
     v′ = max(s / m.pop[k], 1.0e-6) * v
     return v′, s - v′
 end
@@ -51,11 +58,16 @@ the scalar field is differentiated.
 struct ScalarDepletion{T}
     N::T
 end
-function ComposableRecurrences.init_state(m::ScalarDepletion, history)
-    return fill(m.N, size(history, 1))
+function ComposableRecurrences.forward(
+        m::ScalarDepletion, ::ComposableRecurrences.Init, s, history
+    )
+    fill!(s, m.N)
+    return nothing
 end
 ComposableRecurrences.ispointwise(::ScalarDepletion) = true
-function ComposableRecurrences.apply(m::ScalarDepletion, v, s, t, k)
+function ComposableRecurrences.forward(
+        m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
+    )
     v′ = max(s / m.N, 1.0e-6) * v
     return v′, s - v′
 end
@@ -123,7 +135,7 @@ end
 
 function _pairwise(θ)
     P, logh, R = _unpack(θ, (S, S, L), (S, L), (S, T))
-    r = Recurrence(nothing; coupling = Pairwise(P))
+    r = Recurrence(Pairwise(P))
     return sum(WS .* r(R; history = exp.(logh)))
 end
 
@@ -140,28 +152,8 @@ end
 
 function _delay_varying(θ)
     G, X = _unpack(θ, (S, L, T), (S, T))
-    return sum(WS .* Convolution(TimeVarying(G))(X))
-end
-
-# A negative binomial PGF iterated per stratum, mixed by the coupling, with
-# a shared dispersion and per-stratum probabilities.
-_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
-function _transform(θ)
-    r, p = θ[1], θ[2:(S + 1)]
-    m = ComposableRecurrences.Transform(_pgf, (; r, p))
-    q = Recurrence([1.0]; coupling = K0, modifiers = (m,))(
-        ; history = zeros(S, 1), add = zeros(S, T)
-    )
-    return sum(WS .* q)
-end
-
-function _delay_modified(θ)
-    g, N, X = _unpack(θ, (L + 1,), (S,), (S, T))
-    mods = (
-        ComposableRecurrences.Depletion(collect(N)),
-        ComposableRecurrences.Transform(*, 2.0),
-    )
-    return sum(WS .* Convolution(g; modifiers = mods)(X))
+    kernel = TimeVarying(PerStratum(G), ComposableRecurrences.Primary())
+    return sum(WS .* Convolution(kernel)(X))
 end
 
 _flat(xs...) = reduce(vcat, map(vec, xs))
@@ -203,14 +195,6 @@ const _SCENARIOS = [
     (
         "Convolution time-varying kernel", _delay_varying,
         () -> _flat(fill(0.25, S, L, T), 1 .+ LOGR),
-    ),
-    (
-        "Recurrence Transform with per-stratum parameters", _transform,
-        () -> [0.5, 0.2, 0.3, 0.4],
-    ),
-    (
-        "Convolution with depletion and a transform", _delay_modified,
-        () -> _flat([0.0; G0], [20.0, 30.0, 25.0], 1 .+ LOGR),
     ),
 ]
 
@@ -256,19 +240,13 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-Enzyme forward mode with runtime activity returns a wrong gradient for
-these depletion scenarios; reverse mode is correct. The Convolution one is
-correct from a direct closure without the `_unpack` views and wrong here;
-the cause is not isolated.
+Enzyme forward mode with runtime activity returns a wrong gradient when a
+modifier reads a constant array, here the population; reverse mode is
+correct.
 """
 function backend_broken_scenarios()
     return Dict(
-        "Enzyme forward" => Set(
-            [
-                "Recurrence strata, coupling and depletion",
-                "Convolution with depletion and a transform",
-            ]
-        ),
+        "Enzyme forward" => Set(["Recurrence strata, coupling and depletion"]),
     )
 end
 
@@ -284,5 +262,8 @@ function backend_skip_scenarios()
         "Enzyme reverse" => Set(["Recurrence sparse coupling"]),
     )
 end
+
+# The benchmark matrix cases at realistic sizes (see benchmark/matrix.jl).
+include("matrix_cases.jl")
 
 end # module ADFixtures

@@ -61,14 +61,17 @@ end
     H = rand(rng, S, 2)
     # Column `t` weights the inputs reaching output `t`.
     Ct = rand(rng, D, T)
-    c = Convolution(TimeVarying(Ct); indexed_by = :secondary)
+    c = Convolution(TimeVarying(Ct))
     @test c(X; history = H) ≈
         naive_convolution((t, k, d) -> Ct[d + 1, t], X, D; hist = H)
+    @test Convolution(TimeVarying(Ct, ComposableRecurrences.Secondary()))(X) ≈ c(X)
     C3 = rand(rng, S, D, T)
-    @test Convolution(TimeVarying(C3); indexed_by = :secondary)(X) ≈
+    @test Convolution(TimeVarying(PerStratum(C3)))(X) ≈
         naive_convolution((t, k, d) -> C3[k, d + 1, t], X, D)
-    full = c(X)
-    @test c(X[:, 4:end]; history = X[:, 1:3], start = 4) ≈ full[:, 4:end]
+    # The inputs before `start` come from `x`.
+    full = c(X; history = H)
+    @test c(X; history = H, start = 4) ≈ full[:, 4:end]
+    @test c(X; history = H, start = 4, stop = 6) ≈ full[:, 4:6]
     @test c(X[1, :]) ≈
         vec(naive_convolution((t, k, d) -> Ct[d + 1, t], X[1:1, :], D))
 end
@@ -81,28 +84,33 @@ end
     # Column `s` is the delay pmf of the input at time `s`: output `t`
     # reads the input at `t - d` through that input's column.
     Ct = rand(rng, D, T)
-    c = Convolution(TimeVarying(Ct))
+    c = Convolution(TimeVarying(Ct, ComposableRecurrences.Primary()))
     ref = naive_convolution((t, k, d) -> t - d >= 1 ? Ct[d + 1, t - d] : 0.0, X, D)
     @test c(X) ≈ ref
-    @test Convolution(TimeVarying(Ct); indexed_by = :primary)(X) ≈ ref
     C3 = rand(rng, S, D, T)
-    @test Convolution(TimeVarying(C3))(X) ≈ naive_convolution(
+    @test Convolution(TimeVarying(PerStratum(C3), ComposableRecurrences.Primary()))(X) ≈
+        naive_convolution(
         (t, k, d) -> t - d >= 1 ? C3[k, d + 1, t - d] : 0.0, X, D
     )
 
-    # History inputs sit at their own times before `start`.
-    @test c(X[:, 4:end]; history = X[:, 1:3], start = 4) ≈ ref[:, 4:end]
+    # Inputs before `start` spread through their own columns; there is no
+    # column for an input before t = 1.
+    @test c(X; start = 4) ≈ ref[:, 4:end]
+    @test c(X; start = 4, stop = 6) ≈ ref[:, 4:6]
     @test_throws ArgumentError c(X; history = X[:, 1:2])
 
     # Every input's mass lands somewhere when the window is long enough.
     P = rand(rng, D, T)
     P ./= sum(P; dims = 1)
     x = [rand(rng, T - D); zeros(D)]
-    @test sum(Convolution(TimeVarying(P))(x)) ≈ sum(x)
+    @test sum(Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(x)) ≈ sum(x)
 
-    # A fixed kernel is the same under either indexing.
+    # A constant kernel is the same under either indexing.
     g = rand(rng, D)
-    @test Convolution(g; indexed_by = :secondary)(X) ≈ Convolution(g)(X)
+    G = repeat(g, 1, T)
+    @test Convolution(TimeVarying(G, ComposableRecurrences.Primary()))(X) ≈
+        Convolution(g)(X)
+    @test Convolution(TimeVarying(G))(X) ≈ Convolution(g)(X)
 end
 
 @testitem "Convolution: output indexing matches CTIDM's time-varying delay" setup = [UseCaseReferences] begin
@@ -113,172 +121,29 @@ end
     early, late = [0.6, 0.3, 0.1], [0.1, 0.3, 0.6]
     P = reduce(hcat, [early .* (1 - s) .+ late .* s for s in range(0, 1; length = n)])
     ref = C.time_varying_latent_delay(collect(eachcol(P)), Y)
-    c = Convolution(TimeVarying(P); indexed_by = :secondary)
+    c = Convolution(TimeVarying(P))
     @test c(Y)[d:end] ≈ ref
 end
 
 @testitem "Convolution: argument validation" begin
     using ComposableRecurrences
     err = try
-        Convolution([1.0]; indexed_by = :tertiary)
+        TimeVarying(ones(2, 2), :primary)
         nothing
     catch e
         e
     end
     @test err isa ArgumentError
-    @test occursin(":tertiary", err.msg) && occursin(":primary", err.msg) &&
-        occursin(":secondary", err.msg)
+    @test occursin("Secondary()", err.msg) && occursin("Primary()", err.msg)
+    # Indexing lives on TimeVarying only.
+    @test_throws MethodError Convolution([1.0]; indexed_by = :secondary)
+    @test_throws ArgumentError Convolution(Pairwise(ones(2, 2, 3)))
+    @test_throws ArgumentError Convolution(ones(2, 3))
+    @test_throws ArgumentError Convolution(TimeVarying(ones(2, 3, 4)))
+    @test_throws ArgumentError Convolution(nothing)
+    @test_throws ArgumentError Convolution(ones(3))(TimeVarying(ones(5)))
+    @test_throws DimensionMismatch Convolution(ones(3))(ones(5); stop = 6)
     @test_throws DimensionMismatch Convolution(ones(3))(ones(2, 5); history = ones(3, 2))
     @test_throws DimensionMismatch Convolution(PerStratum(ones(2, 3)))(ones(3, 5))
     @test_throws DimensionMismatch Convolution(TimeVarying(ones(3, 4)))(ones(5))
-end
-
-@testitem "Convolution: modifiers act on each output step" setup = [Reference] begin
-    using ComposableRecurrences, Random
-    CR = ComposableRecurrences
-    rng = Xoshiro(31)
-    S, D, T = 3, 4, 8
-    c = rand(rng, D)
-    X = rand(rng, S, T)
-    H = rand(rng, S, 2)
-    base = naive_convolution((t, k, d) -> c[d + 1], X, D; hist = H)
-    B = rand(rng, S, T + 2)
-    lo, hi = [0.2, 0.3, 0.4], 0.9
-    sat(v, θ) = θ * v / (1 + v)
-    conv(mods; kw...) = Convolution(c; modifiers = mods)(X; history = H, kw...)
-    # Imports read at the absolute time, then per-stratum Clamp, then a
-    # Transform, in tuple order.
-    mods = (CR.Imports(TimeVarying(B)), CR.Clamp(lo, hi), CR.Transform(sat, 2.0))
-    ref = [
-        sat(clamp(base[k, t] + B[k, t + 2], lo[k], hi), 2.0) for k in 1:S,
-            t in 1:T
-    ]
-    @test conv(mods; start = 3) ≈ ref
-    # The order matters: clamping last bounds the output.
-    y = conv((CR.Transform(sat, 2.0), CR.Clamp(lo, hi)))
-    @test y ≈ [clamp(sat(base[k, t], 2.0), lo[k], hi) for k in 1:S, t in 1:T]
-    # No modifiers is the plain convolution.
-    @test Convolution(c; modifiers = ())(X; history = H) ≈ base
-    # A single series.
-    x = X[1, :]
-    y = Convolution(c; modifiers = (CR.Transform(sqrt),))(x; history = H[1, :])
-    @test y ≈ sqrt.(base[1, :])
-end
-
-@testitem "Convolution: modifiers do not feed back into the input" setup = [Reference] begin
-    using ComposableRecurrences, Random
-    CR = ComposableRecurrences
-    rng = Xoshiro(32)
-    D, T = 3, 10
-    c = rand(rng, D)
-    x = 5 .* rand(rng, T)
-    base = vec(naive_convolution((t, k, d) -> c[d + 1], reshape(x, 1, T), D))
-    # Depletion draws each output from a pool that starts at N and shrinks
-    # by the outputs; the convolution still reads the undepleted input.
-    N = 20.0
-    function deplete(v)
-        y, pool = similar(v), N
-        for t in eachindex(v)
-            y[t] = pool * (1 - exp(-v[t] / N))
-            pool *= exp(-v[t] / N)
-        end
-        return y
-    end
-    y = Convolution(c; modifiers = (CR.Depletion(N),))(x)
-    @test y ≈ deplete(base)
-    @test sum(y) < N
-    # The input history is not drawn from the pool, even when seeded.
-    h = [1.0, 2.0]
-    base_h = vec(
-        naive_convolution(
-            (t, k, d) -> c[d + 1], reshape(x, 1, T), D; hist = reshape(h, 1, 2)
-        )
-    )
-    m = CR.Depletion(N; seeded = true)
-    @test Convolution(c; modifiers = (m,))(x; history = h) ≈ deplete(base_h)
-end
-
-@testitem "Convolution: resume from the returned state" begin
-    using ComposableRecurrences, Random
-    CR = ComposableRecurrences
-    rng = Xoshiro(33)
-    S, D, T = 2, 4, 12
-    X = rand(rng, S, T)
-    H = rand(rng, S, 3)
-    # The :primary kernel needs a column for each history input, so the run
-    # starts after them.
-    start = size(H, 2) + 1
-    B = rand(rng, S, T + start)
-    P = rand(rng, D, T + start)
-    mods = (
-        CR.Imports(TimeVarying(B)), CR.Depletion([30.0, 40.0]),
-        CR.Transform(*, TimeVarying(1 .+ B)),
-    )
-    for kernel in (rand(rng, D), TimeVarying(P))
-        c = Convolution(kernel; modifiers = mods)
-        full = c(X; history = H, start)
-        y1, state = c(X[:, 1:5]; history = H, start, return_state = true)
-        @test state.t == start + 5
-        y2 = c(X[:, 6:end]; history = state)
-        @test hcat(y1, y2) ≈ full
-    end
-    # A single series, and without modifiers.
-    x = X[1, :]
-    c = Convolution(rand(rng, D))
-    y1, state = c(x[1:4]; return_state = true)
-    @test vcat(y1, c(x[5:end]; history = state)) ≈ c(x)
-end
-
-@testitem "Convolution: modifier eltypes and derivatives" begin
-    using ComposableRecurrences, ForwardDiff
-    CR = ComposableRecurrences
-    c = Float32[0.2, 0.5, 0.3]
-    x = Float32[1.0, 2.0, 3.0, 4.0, 5.0]
-    y = Convolution(c; modifiers = (CR.Transform(*, 2.0f0),))(x)
-    @test eltype(y) == Float32
-    # A Dual parameter in a modifier promotes the buffer.
-    w = [0.5, 1.0, 1.5, 2.0, 2.5]
-    loss(θ) = sum(
-        w .* Convolution(c; modifiers = (CR.Depletion(θ[1]), CR.Clamp(0.0, θ[2])))(x)
-    )
-    θ = [20.0, 2.0]
-    ∇ = ForwardDiff.gradient(loss, θ)
-    fd = map(1:2) do i
-        e = zeros(2)
-        e[i] = 1.0e-6
-        (loss(θ + e) - loss(θ - e)) / 2.0e-6
-    end
-    @test ∇ ≈ fd rtol = 1.0e-6
-    @test all(!iszero, ∇)
-end
-
-@testitem "Convolution: a vector-level modifier with a pointwise one" setup = [Reference] begin
-    using ComposableRecurrences, Random
-    CR = ComposableRecurrences
-    rng = Xoshiro(34)
-    S, D, T = 3, 3, 8
-    c = rand(rng, D)
-    X = rand(rng, S, T)
-    base = naive_convolution((t, k, d) -> c[d + 1], X, D)
-    K = [0.0 0.3 0.1; 0.2 0.0 0.4; 0.5 0.1 0.0]
-    ε = [0.1, 0.2, 0.05]
-    N = [5.0, 8.0, 6.0]
-    # Redistribute moves shares between strata, then each stratum's pool is
-    # drawn down by what it realises.
-    ref = similar(base)
-    pool = copy(N)
-    for t in 1:T
-        v = base[:, t]
-        moved = [
-            (1 - ε[p] * sum(K[r, p] for r in 1:S if r != p)) * v[p] +
-                sum(ε[q] * K[p, q] * v[q] for q in 1:S if q != p) for p in 1:S
-        ]
-        x = moved ./ N
-        ref[:, t] .= pool .* (1 .- exp.(-x))
-        pool .*= exp.(-x)
-    end
-    mods = (CR.Redistribute(K, ε), CR.Depletion(N))
-    Y = Convolution(c; modifiers = mods)(X)
-    @test Y ≈ ref
-    @test sum(Y) < sum(base)
 end

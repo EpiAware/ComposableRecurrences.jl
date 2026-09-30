@@ -56,3 +56,6 @@ tune.json
 worktree-*
 worktrees/
 # managed:end
+
+# Benchmark matrix output (benchmark/matrix.jl).
+matrix-results/

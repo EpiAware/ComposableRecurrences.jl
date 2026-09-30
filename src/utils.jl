@@ -1,57 +1,102 @@
-# Shape and eltype helpers shared by the operators.
+# Shape, time and eltype helpers shared by the operators.
 
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 
-# A gain or add slot at stratum `k`, step `t`. A missing add is `false`,
-# the additive identity for every `Real`.
+# A gain or add slot at stratum `k`, absolute time `t`. A missing add is
+# `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x
 _at(::Nothing, k, t) = false
 _at(x::AbstractVector, k, t) = x[t]
 _at(x::AbstractMatrix, k, t) = x[k, t]
 
-# The number of steps a gain or add slot fixes, or `nothing`.
-_steps(x::AbstractArray) = size(x, ndims(x))
-_steps(x) = nothing
+# The times a call input covers: its last axis, or `nothing` without one.
+_extent(x::AbstractArray) = size(x, ndims(x))
+_extent(x) = nothing
 
-# The steps a kernel or coupling covers: only time-varying ones do.
-_tv_steps(x::TimeVarying) = size(x.x, ndims(x.x))
-_tv_steps(x) = nothing
-
-# The number of steps of a call. The gain and add inputs set it and must
-# agree; without them the time-varying slots set it from `start` on. Every
-# time-varying slot must cover steps `start` to `start + T - 1`.
-function _nsteps(start, inputs::Tuple, varying::Tuple)
-    T = nothing
-    for (name, n) in inputs
-        n === nothing && continue
-        if T === nothing
-            T = n
-        elseif n != T
-            throw(
-                DimensionMismatch(
-                    "$name has $n steps but an earlier input has $T"
-                )
-            )
-        end
-    end
-    for (name, n) in varying
-        n === nothing && continue
-        T === nothing && (T = n - start + 1)
-        n >= start + T - 1 || throw(
-            DimensionMismatch(
-                "$name covers $n steps, fewer than start + T - 1 = " *
-                    "$(start + T - 1)"
-            )
-        )
-    end
-    T === nothing && throw(
+# Call inputs are plain data; time enters a call one way.
+function _check_unwrapped(name, x)
+    x isa Union{TimeVarying, PerStratum, Pairwise} && throw(
         ArgumentError(
-            "the number of steps is not set: pass a length-T or S × T " *
-                "gain or add, or a TimeVarying kernel or coupling"
+            "$name is data, not a wrapped coefficient: pass the plain " *
+                "array, time on the last axis"
         )
     )
-    return T
+    return nothing
+end
+
+# The last time a call covers. Without `stop` the time-indexed inputs set it
+# and must agree; with it each must cover it.
+function _stop(stop, inputs::Tuple)
+    if stop === nothing
+        for (name, n) in inputs
+            n === nothing && continue
+            if stop === nothing
+                stop = n
+            elseif n != stop
+                throw(
+                    DimensionMismatch(
+                        "$name covers $n times but an earlier input covers " *
+                            "$stop: pass stop"
+                    )
+                )
+            end
+        end
+        stop === nothing && throw(
+            ArgumentError(
+                "stop is required when no input is indexed by time"
+            )
+        )
+        return stop
+    end
+    for (name, n) in inputs
+        n === nothing || _check_covers(name, n, stop)
+    end
+    return stop
+end
+
+function _check_covers(name, n, stop)
+    n >= stop || throw(
+        DimensionMismatch("$name covers $n times, fewer than stop = $stop")
+    )
+    return nothing
+end
+
+# Check a kernel covers times up to `stop`.
+_check_kernel_times(k, stop) = nothing
+function _check_kernel_times(k::TimeVarying, stop)
+    return _check_covers(:kernel, _extent(_array(k)), stop)
+end
+
+# Check every time-varying coefficient in a coupling or modifier covers
+# times up to `stop`, recursing through fields. Outside a kernel only
+# `Secondary()` indexing has a meaning.
+function _check_times(name, x::TimeVarying{Secondary}, stop)
+    return _check_covers(name, _extent(_array(x)), stop)
+end
+function _check_times(name, ::TimeVarying, stop)
+    throw(
+        ArgumentError(
+            "$name: Primary() indexing is only meaningful for a kernel"
+        )
+    )
+end
+const _Leaf = Union{
+    Real, AbstractArray, Nothing, Symbol, AbstractString, Type, Module,
+    Function,
+}
+_check_times(name, ::_Leaf, stop) = nothing
+function _check_times(name, x::Union{Tuple, NamedTuple}, stop)
+    foreach(v -> _check_times(name, v, stop), values(x))
+    return nothing
+end
+function _check_times(name, x, stop)
+    return _fields_times(name, x, stop, Val(fieldcount(typeof(x))))
+end
+_fields_times(name, x, stop, ::Val{0}) = nothing
+function _fields_times(name, x, stop, ::Val{N}) where {N}
+    _fields_times(name, x, stop, Val(N - 1))
+    return _check_times(name, getfield(x, N), stop)
 end
 
 # Check a strata × time slot against `S` strata.
@@ -106,5 +151,8 @@ function _fields_eltype(x, ::Val{N}) where {N}
     )
 end
 
+# A zeroed array like `x` of eltype `T` and size `dims`.
+_zeros(x, ::Type{T}, dims...) where {T} = fill!(similar(x, T, dims), zero(T))
+
 # A state vector of eltype `T`, copied so the caller's input is untouched.
-_state_vector(::Type{T}, s) where {T} = copyto!(zeros(T, length(s)), s)
+_state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
