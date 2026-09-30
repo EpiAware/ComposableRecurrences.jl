@@ -43,15 +43,17 @@ Each town is one series, and `PerStratum` gives each its own population.
 Chaining the renewal and the delay is function composition.
 
 ```@example overview
-long(x, series) = DataFrame(
-    day = repeat(1:T; inner = 3), town = repeat(towns, T), count = vec(x), series = series
-)
-df = vcat(long(infections, "Infections"), long(reports, "Reports"))
-draw(
-    data(df) * mapping(:day, :count, color = :series, layout = :town) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Count")
-)
+long(x) = @chain DataFrame(permutedims(x), towns) begin
+    @transform(:day = 1:T)
+    stack(Not(:day); variable_name = :town, value_name = :count)
+end
+@chain ["Infections" => infections, "Reports" => reports] begin
+    map(((series, x),) -> @transform(long(x), :series = series), _)
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :series, layout = :town) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Count"))
+end
 ```
 
 The outbreak starts in town A and reaches B and C through the coupling, so their waves are smaller.
@@ -68,11 +70,10 @@ size(∂R)
 ```
 
 ```@example overview
-sens = DataFrame(day = repeat(1:T; inner = 3), town = repeat(towns, T), value = vec(∂R))
-draw(
-    data(sens) * mapping(:day, :town, :value => "∂ reports / ∂R") * visual(Heatmap);
-    axis = (xlabel = "Day", ylabel = "Town")
-)
+@chain long(∂R) begin
+    data(_) * mapping(:day, :town, :count => "∂ reports / ∂R") * visual(Heatmap)
+    draw(_; axis = (xlabel = "Day", ylabel = "Town"))
+end
 ```
 
 Total reports are most sensitive to town A's reproduction number early on, when each extra infection seeds the most later ones.
@@ -130,20 +131,24 @@ maximum(maximum(abs, g .- ∇[1]) for g in ∇)
 This compares their forward and gradient times, measured when this page was built.
 
 ```@example overview
-times = DataFrame(
-    task = repeat(["Forward", "Gradient"]; inner = length(methods)),
-    method = repeat(first.(methods), 2),
-    time = vcat(
-        [@b(f($R), seconds = 0.5).time for (_, f) in methods],
-        [@b(ForwardDiff.gradient($f, $R), seconds = 0.5).time for (_, f) in methods]
-    )
-)
-@transform!(groupby(times, :task), :relative = :time ./ first(:time))
-draw(
-    data(times) * mapping(:method => "", :relative, color = :method, layout = :task) *
-        visual(BarPlot);
-    axis = (ylabel = "Time relative to ComposableRecurrences", xticklabelsvisible = false)
-)
+times = @chain methods begin
+    map(_) do (method, f)
+        DataFrame(
+            method = method,
+            Forward = @b(f($R), seconds = 0.5).time,
+            Gradient = @b(ForwardDiff.gradient($f, $R), seconds = 0.5).time
+        )
+    end
+    reduce(vcat, _)
+    stack(Not(:method); variable_name = :task, value_name = :time)
+    @groupby(:task)
+    @transform(:relative = :time ./ first(:time))
+end
+@chain times begin
+    data(_) * mapping(:method => "", :relative, color = :method, layout = :task) *
+        visual(BarPlot)
+    draw(_; axis = (ylabel = "Time relative to ComposableRecurrences", xticklabelsvisible = false))
+end
 ```
 
 ```@example overview

@@ -41,16 +41,12 @@ rw = Recurrence([1.0])(; history = [0.0], add = ϵ)
 ar = Recurrence([0.6, 0.3])(; history = zeros(2), add = ϵ)
 ma = Convolution([1.0, 0.8, 0.4])(ϵ)
 
-processes = vcat(
-    DataFrame(day = 1:T, value = rw, series = "Random walk"),
-    DataFrame(day = 1:T, value = ar, series = "AR(2)"),
-    DataFrame(day = 1:T, value = ma, series = "MA(2)")
-)
-draw(
-    data(processes) * mapping(:day, :value, color = :series, layout = :series) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Value")
-)
+@chain DataFrame("day" => 1:T, "Random walk" => rw, "AR(2)" => ar, "MA(2)" => ma) begin
+    stack(Not(:day); variable_name = :series, value_name = :value)
+    data(_) * mapping(:day, :value, color = :series, layout = :series) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Value"))
+end
 
 # The random walk wanders furthest, because every innovation persists.
 # The AR(2) process follows it more loosely, because its coefficients sum to 0.9 and old innovations decay.
@@ -74,21 +70,21 @@ maximum(abs, tvar_kernel .- tvar_gain)
 
 renewal = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1])
 rng = Xoshiro(2)
-draws = map(1:20) do i
-    log_R = Recurrence([0.95])(; history = [0.0], add = 0.05 .* randn(rng, T))
-    infections = renewal(exp.(log_R); history = fill(10.0, 5))
-    vcat(
-        DataFrame(day = 1:T, value = exp.(log_R), draw = i, quantity = "Reproduction number"),
-        DataFrame(day = 1:T, value = infections, draw = i, quantity = "Infections")
-    )
+@chain 1:20 begin
+    map(_) do i
+        log_R = Recurrence([0.95])(; history = [0.0], add = 0.05 .* randn(rng, T))
+        R = exp.(log_R)
+        DataFrame(
+            "day" => 1:T, "draw" => i, "Reproduction number" => R,
+            "Infections" => renewal(R; history = fill(10.0, 5))
+        )
+    end
+    reduce(vcat, _)
+    stack(Not([:day, :draw]); variable_name = :quantity, value_name = :value)
+    data(_) * mapping(:day, :value, group = :draw => nonnumeric, layout = :quantity) *
+        visual(Lines, linewidth = 1, alpha = 0.5)
+    draw(_; axis = (xlabel = "Day", ylabel = "Value"), facet = (; linkyaxes = :none))
 end
-draw(
-    data(vcat(draws...)) *
-        mapping(:day, :value, group = :draw => nonnumeric, layout = :quantity) *
-        visual(Lines, linewidth = 1, alpha = 0.5);
-    axis = (xlabel = "Day", ylabel = "Value"),
-    facet = (; linkyaxes = :none)
-)
 
 # ``R_t`` stays between about 0.6 and 1.8 in every draw.
 # Small differences in ``R_t`` compound, so infections range from dying out to one large outbreak.

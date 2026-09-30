@@ -41,11 +41,12 @@ dist = [0.0 15.0 40.0; 15.0 0.0 25.0; 40.0 25.0 0.0]
 gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:S, b in 1:S]
 K = 0.95 * I(S) + 0.05 * gravity ./ sum(gravity; dims = 2)
 
-draw(
-    data(DataFrame(to = repeat(patches, S), from = repeat(patches; inner = S), weight = vec(K))) *
-        mapping(:from, :to, :weight => "Weight") * visual(Heatmap);
-    axis = (xlabel = "From patch", ylabel = "To patch")
-)
+@chain DataFrame(K, patches) begin
+    @transform(:to = patches)
+    stack(Not(:to); variable_name = :from, value_name = :weight)
+    data(_) * mapping(:from, :to, :weight => "Weight") * visual(Heatmap)
+    draw(_; axis = (xlabel = "From patch", ylabel = "To patch"))
+end
 
 # Most weight sits on the diagonal.
 # A and B, the closest pair, share the most, and C is the most isolated.
@@ -73,15 +74,19 @@ models = [
     "Per-pair intervals" => Recurrence(Pairwise(A); modifiers = (depletion,)),
     "Travel cut on day 30" => Recurrence(gi; coupling = TimeVarying(Kt), modifiers = (depletion,)),
 ]
-long(y, model) = DataFrame(
-    day = repeat(1:T; inner = S), patch = repeat(patches, T), count = vec(y), model = model
-)
-runs = vcat([long(r(1.6; history = seed, stop = T), name) for (name, r) in models]...)
-draw(
-    data(runs) * mapping(:day, :count, color = :model, layout = :patch) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Infections")
-)
+long(y) = @chain DataFrame(permutedims(y), patches) begin
+    @transform(:day = 1:size(y, 2))
+    stack(Not(:day); variable_name = :patch, value_name = :count)
+end
+@chain models begin
+    map(_) do (name, r)
+        @transform(long(r(1.6; history = seed, stop = T)), :model = name)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :model, layout = :patch) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
 
 # All three patches take off together, because even 5% mixing seeds B and C within days.
 # Longer intervals between patches delay the peaks in B and C slightly.
@@ -89,7 +94,7 @@ draw(
 
 # ## Moving infections between patches
 #
-# `Redistribute(K, ε)` moves a share `ε` of what each patch generates to the others, weighted by `K`, conserving the total.
+# `Redistribute(K, ε)` moves a share ``\varepsilon`` of what each patch generates to the others, weighted by `K`, conserving the total.
 # The diagonal of `K` is ignored.
 # Here each origin has its own intensity, and it halves from day 40.
 # Placed before `Depletion`, each patch's pool is depleted by what it receives.
@@ -99,21 +104,18 @@ patch = Recurrence(gi; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε)))
 infections, state = with_state(patch, 1.6; history = seed, stop = T)
 
 # The importation series is not recorded, but it can be recomputed from the infections.
-# Each patch's pre-modifier value is `R` times its generation-interval convolution, which is a convolution with a zero at lag 0.
+# Each patch's value before the modifiers is ``R`` times its generation-interval convolution, which is a convolution with a zero at lag 0.
 # The arrivals are the off-diagonal `K` applied to each origin's `ε`-weighted value.
 
 force = Convolution(vcat(0.0, gi))(hcat(seed, infections))[:, (size(seed, 2) + 1):end]
 K_off = K - Diagonal(diag(K))
 arrivals = K_off * (ε .* (1.6 .* force))
-arrivals_df = DataFrame(
-    day = repeat(1:T; inner = S), patch = repeat(patches, T), count = vec(arrivals),
-    series = "Imported infections"
-)
-draw(
-    data(arrivals_df) * mapping(:day, :count, color = :series, layout = :patch) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Imported infections")
-)
+@chain long(arrivals) begin
+    @transform(:series = "Imported infections")
+    data(_) * mapping(:day, :count, color = :series, layout = :patch) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Imported infections"))
+end
 
 # B receives the most, from its large neighbour A, and A receives the least.
 # Arrivals halve on day 40 with the intensities.

@@ -41,11 +41,11 @@ T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 infections = renewal(R; history = [5.0])
 
-draw(
-    data(DataFrame(day = 1:T, count = infections, series = "Infections")) *
-        mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Count")
-)
+@chain DataFrame(day = 1:T, Infections = infections) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Count"))
+end
 
 # Infections grow while `R` is 1.4, fall after day 30 when it drops to 0.9, and grow again after day 50.
 # Each change in `R` shows as a jump, because `R` scales each day's infections directly.
@@ -54,25 +54,25 @@ draw(
 #
 # `Depletion(N)` draws each day's infections from a pool of `N` susceptibles.
 # The default `Hazard()` form draws ``s (1 - e^{-v/N})`` from pool ``s``, so the pool never goes negative.
-# The `Floor()` form draws `max(s / N, 1e-6) v` instead.
+# The `Floor()` form draws ``\max(s / N, 10^{-6}) \, v`` instead.
 
 N = 2_000.0
 R_high = fill(1.8, T)
 forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N, Floor())]
-depleted = map(forms) do (name, d)
-    y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
-    vcat(
-        DataFrame(day = 1:T, count = y, series = name, quantity = "Infections"),
-        DataFrame(day = 1:T, count = N .- cumsum(y), series = name, quantity = "Susceptible pool")
-    )
+@chain forms begin
+    map(_) do (name, d)
+        y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
+        DataFrame(
+            "day" => 1:T, "form" => name,
+            "Infections" => y, "Susceptible pool" => N .- cumsum(y)
+        )
+    end
+    reduce(vcat, _)
+    stack(Not([:day, :form]); variable_name = :quantity, value_name = :count)
+    data(_) * mapping(:day, :count, color = :form, layout = :quantity) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Count"), facet = (; linkyaxes = :none))
 end
-draw(
-    data(vcat(depleted...)) *
-        mapping(:day, :count, color = :series, layout = :quantity) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Count"),
-    facet = (; linkyaxes = :none)
-)
 
 # Both forms end the outbreak as the pool empties.
 # The hazard form draws slightly less at the peak and leaves more susceptibles, because ``1 - e^{-x}`` is below ``x``.
@@ -101,15 +101,11 @@ R_full = vcat(fill(1.0, 5), R)
 infections_seeded = seeded(renewal, R_full; history = seed)
 reports = 0.3 .* delay(infections_seeded)
 days = 1:length(reports)
-draw(
-    data(
-        vcat(
-            DataFrame(day = days, count = infections_seeded, series = "Infections"),
-            DataFrame(day = days, count = reports, series = "Reports")
-        )
-    ) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Count")
-)
+@chain DataFrame(day = days, Infections = infections_seeded, Reports = reports) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Count"))
+end
 
 # Reports are 30% of infections, delayed and smoothed by the reporting delay.
 # The seed days appear at the start of both series.
@@ -120,11 +116,10 @@ draw(
 
 total_reports(R) = sum(0.3 .* delay(seeded(renewal, R; history = seed)))
 ∂R = ForwardDiff.gradient(total_reports, R_full)
-draw(
-    data(DataFrame(day = days, value = ∂R, series = "∂ total reports / ∂R")) *
-        mapping(:day, :value, color = :series) * visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Sensitivity")
-)
+@chain DataFrame(day = days, sensitivity = ∂R) begin
+    data(_) * mapping(:day, :sensitivity) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "∂ total reports / ∂R"))
+end
 
 # The seed days have zero sensitivity, because the renewal does not run on them.
 # Later days matter less, because the infections they add have less time to grow and be reported.
@@ -138,16 +133,12 @@ draw(
 split = 50
 fitted, state = with_state(renewal, R; history = [5.0], stop = split)
 forecast = renewal(R; state)
-draw(
-    data(
-        vcat(
-            DataFrame(day = 1:split, count = fitted, series = "Fitted"),
-            DataFrame(day = (split + 1):T, count = forecast, series = "Forecast")
-        )
-    ) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2) +
-        mapping([split + 0.5]) * visual(VLines, color = :grey, linestyle = :dash);
-    axis = (xlabel = "Day", ylabel = "Infections")
-)
+@chain DataFrame(day = 1:T, count = vcat(fitted, forecast)) begin
+    @transform(:series = ifelse.(:day .<= split, "Fitted", "Forecast"))
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2) +
+        mapping([split + 0.5]) * visual(VLines, color = :grey, linestyle = :dash)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
 
 # The forecast continues from the state on day 50, with no rerun of the first 50 days.
 # The two calls together match one call over all 80 days exactly.

@@ -38,19 +38,18 @@ d = 0.15
 by_convolution = Convolution((1 - d) .^ (0:(T - 1)))(admissions)
 by_recurrence = Recurrence([1 - d])(; history = [0.0], add = admissions)
 
-draw(
-    data(
-        vcat(
-            DataFrame(day = 1:T, count = admissions, series = "Admissions"),
-            DataFrame(day = 1:T, count = by_convolution, series = "Occupancy (convolution)"),
-            DataFrame(day = 1:T, count = by_recurrence, series = "Occupancy (recurrence)")
-        )
-    ) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Patients")
-)
+@chain DataFrame(
+    "day" => 1:T, "Admissions" => admissions,
+    "Occupancy (convolution)" => by_convolution,
+    "Occupancy (recurrence)" => by_recurrence
+) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
+end
 
 # The two occupancy curves lie on top of each other.
-# Occupancy peaks a few days after admissions at nearly six times their height, because each patient stays about `1 / d` days.
+# Occupancy peaks a few days after admissions at nearly six times their height, because each patient stays about ``1 / d`` days.
 # The two differ only by rounding error.
 
 maximum(abs, by_convolution .- by_recurrence)
@@ -63,16 +62,12 @@ maximum(abs, by_convolution .- by_recurrence)
 beds = 120.0
 capped = Recurrence([1 - d]; modifiers = (Clamp(0.0, beds),))(; history = [0.0], add = admissions)
 
-draw(
-    data(
-        vcat(
-            DataFrame(day = 1:T, count = by_recurrence, series = "Uncapped"),
-            DataFrame(day = 1:T, count = capped, series = "Capped")
-        )
-    ) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2) +
-        mapping([beds]) * visual(HLines, color = :grey, linestyle = :dash);
-    axis = (xlabel = "Day", ylabel = "Occupied beds")
-)
+@chain DataFrame(day = 1:T, Uncapped = by_recurrence, Capped = capped) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2) +
+        mapping([beds]) * visual(HLines, color = :grey, linestyle = :dash)
+    draw(_; axis = (xlabel = "Day", ylabel = "Occupied beds"))
+end
 
 # Capped occupancy holds at 120 beds for about ten days, then falls earlier than the uncapped curve.
 # The bed-days lost to the cap are
@@ -109,15 +104,11 @@ end
 ward = Recurrence([1.0]; modifiers = (Ward(admissions, 0.3, 0.4, 0.1),))
 stocks = ward(; history = zeros(2, 1), stop = T)
 
-draw(
-    data(
-        vcat(
-            DataFrame(day = 1:T, count = stocks[1, :], series = "Suspected"),
-            DataFrame(day = 1:T, count = stocks[2, :], series = "Confirmed")
-        )
-    ) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Patients")
-)
+@chain DataFrame(day = 1:T, Suspected = stocks[1, :], Confirmed = stocks[2, :]) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
+end
 
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, because they leave more slowly.
