@@ -31,6 +31,7 @@ pages = [
         "Overview" => "getting-started/index.md",
         "Concepts" => "getting-started/concepts.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
+        "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
         "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",
     ],
     "API reference" => [
