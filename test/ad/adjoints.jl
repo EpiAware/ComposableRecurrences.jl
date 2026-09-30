@@ -619,3 +619,29 @@ end
     @test Mooncake.rdata_type(Mooncake.tangent_type(typeof(0.5I))) !== Mooncake.NoRData
     @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end
+
+@testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake
+    using DifferentiationInterface: gradient!, prepare_gradient
+    import Mooncake
+    # A route that is not decided at compile time costs a dynamic dispatch
+    # under Mooncake, with hundreds of allocations per gradient (about 350
+    # against about 25 here when it regressed).
+    W = sin.(1:50)
+    renewal(θ) = sum(
+        W .* Recurrence(θ[1:5]; modifiers = (CR.Depletion(1.0e3; seeded = true),))(
+            θ[6:55]; history = ones(5)
+        )
+    )
+    delay(θ) = sum(W .* Convolution(θ[1:5])(θ[6:55]))
+    backend = AutoMooncake(; config = nothing)
+    for f in (renewal, delay)
+        θ = [fill(0.2, 5); ones(50)]
+        prep = prepare_gradient(f, backend, θ)
+        grad = similar(θ)
+        gradient!(f, grad, prep, backend, θ)
+        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 150
+    end
+end
