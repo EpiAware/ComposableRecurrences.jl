@@ -2,8 +2,10 @@
 # public docstring's examples run here, one fresh module per docstring.
 
 @testitem "Docstring examples run" begin
-    using ComposableRecurrences, Markdown
+    using ComposableRecurrences
     CR = ComposableRecurrences
+    # The Markdown module the docstrings are parsed into.
+    Markdown = parentmodule(typeof(Base.Docs.doc(CR)))
 
     function example_blocks(md, out = String[])
         if md isa Markdown.Code
