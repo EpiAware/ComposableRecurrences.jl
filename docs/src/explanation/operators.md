@@ -1,6 +1,6 @@
 # [Operators](@id operators)
 
-An operator holds a kernel and the pieces that shape its steps.
+An operator holds a kernel and the coupling and modifiers that shape its steps.
 You build it once, outside any model loop, and call it on its inputs like a function.
 
 ## Recurrence
