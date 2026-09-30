@@ -44,7 +44,20 @@ z = c(x; history = nothing)
 ```
 
 `history` supplies the values before the first step.
-`return_state = true` also returns the modifier state.
+`return_state = true` also returns the state `(; history, states, t)`, where `t` is the index of the next step.
+
+## Starting and resuming
+
+A section on `start`, the time index of the first output, and on resuming a call from a returned state.
+
+## Calls without a gain
+
+A section on `r(; history, add)`, where the gain defaults to one and `T` comes from `add`.
+
+## Prepending and trimming
+
+Operators do not prepend histories or trim outputs.
+A section on the conventions for random walks, AR and MA processes and delays.
 
 ## Composing operators
 

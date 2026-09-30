@@ -10,7 +10,7 @@
 # - mix strata with a gravity coupling matrix `K`;
 # - give each stratum its own generation interval with `PerStratum`;
 # - deplete susceptibles in each stratum with `Depletion`;
-# - add imported infections through `add`;
+# - add imported infections with `Imports`;
 # - move infections between strata with `Redistribute`.
 #
 # <!-- becomes @example once couplings and modifiers land -->
@@ -18,6 +18,6 @@
 # using ComposableRecurrences
 #
 # renewal = Recurrence(PerStratum(gis); coupling = K,
-#     modifiers = (Depletion(N), Redistribute(K, 0.05)))
-# infections = renewal(R; history, add = imports)
+#     modifiers = (Imports(imports), Depletion(N), Redistribute(K, 0.05)))
+# infections = renewal(R; history)
 # ```

@@ -10,11 +10,24 @@ Time is always the last axis.
 A single series drops the `S` axis.
 Public arrays are strata × time.
 
+## Kernel orientation
+
+Every kernel is lag-first.
+Index 1 of a recurrence kernel is the weight on `y_{t-1}`.
+Index 1 of a convolution kernel is lag 0.
+`PerStratum`, `TimeVarying` and `Pairwise` kernels follow the same order.
+A generation interval or a set of AR coefficients goes in as written, with no reversal.
+
+## History length
+
+`history` may be longer than `L`, and the recurrence reads its last `L` columns.
+A history shorter than `L` is zero-padded, meaning no earlier values.
+
 ## Shape table
 
 | Slot | Fixed | Per stratum | Time-varying |
 |---|---|---|---|
-| kernel | Vector L | PerStratum(S × L) | TimeVarying(L × T or S × L × T) |
+| kernel (lag-first) | Vector L | PerStratum(S × L) | TimeVarying(L × T or S × L × T) |
 | coupling | I, Matrix S × S | Pairwise(S × S × L) | TimeVarying(S × S × T) |
 | gain | scalar | – | T or S × T |
 | add | scalar / nothing | – | T or S × T |
