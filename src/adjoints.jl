@@ -127,26 +127,46 @@ _reroute(route, op) = op
 _reroute(::NoAdjoint, op) = NoAdjoint(op)
 
 # Incremented by every analytic reverse pass, so tests can prove it ran.
-const _PULLBACK_CALLS = Ref(0)
+const _PULLBACK_CALLS = Threads.Atomic{Int}(0)
+_count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
 
-# The entry point: the rule path when `op` has a `pullback!` for these
-# arguments and every float leaf is IEEE, else plain AD. Both decisions are
-# made from the types, so the route is static.
+@doc "
+Whether `piece`, an operator, modifier or coupling, carries its own
+analytic adjoint.
+
+The author declares it next to the pullback: `true` for an operator with a
+[`ComposableRecurrences.pullback!`](@ref), a modifier with
+[`ComposableRecurrences.apply_pullback!`](@ref) or the pointwise
+[`ComposableRecurrences.apply_pullback`](@ref), and a coupling with
+[`ComposableRecurrences.pressure_pullback!`](@ref).
+The default is `false`.
+A [`Recurrence`](@ref) uses its adjoint when its coupling does and each
+modifier does or is pointwise with only scalar float parameters (those are
+differentiated locally per value).
+Otherwise the whole operator is differentiated by plain AD of its forward
+loop, logged once per operator type.
+
+# Arguments
+- `piece`: the operator, modifier or coupling.
+
+# Examples
+```@example
+using ComposableRecurrences
+ComposableRecurrences.uses_adjoint(Recurrence([0.5, 0.5]))
+```
+"
+uses_adjoint(piece) = false
+
+# The entry point: the rule path when the operator uses its adjoint and
+# every float leaf is IEEE, else plain AD. Both decisions are made from the
+# types, so the route is static.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
-_route_val(op, args...) = Val(has_adjoint(op, args...) && _gate(op, args...))
+_route_val(op, args...) = Val(uses_adjoint(op) && _gate(op, args...))
 _route(::Val{true}, op, args...) = _ad(op, args...)
-_route(::Val{false}, op, args...) = _plain(op, args...)
-
-# Whether `op` has a `pullback!(op, cache, ȳ, op̄, args̄...)` method. A
-# function of types only, declared foldable so every interpreter (Mooncake's
-# too) evaluates it at compile time; a `pullback!` method added after a call
-# has been compiled is not seen by that compiled call.
-function has_adjoint(op, args::Vararg{Any, N}) where {N}
-    return _has_pullback(typeof(op), Val(N))
-end
-Base.@assume_effects :foldable function _has_pullback(::Type{O}, ::Val{N}) where {O, N}
-    return hasmethod(pullback!, Tuple{O, Vararg{Any, N + 3}})
+function _route(::Val{false}, op, args...)
+    _note_plain(op)
+    return _plain(op, args...)
 end
 
 # The primal call. The extensions make `_ad` a rule primitive for Mooncake and
@@ -155,26 +175,42 @@ _primal(op, args...) = first(forward(op, args...))
 _ad(op, args...) = _primal(op, args...)
 _plain(op, args...) = _primal(op, args...)
 
+# Log, once per operator type, that an operator without an adjoint for all
+# of its pieces is differentiated by plain AD. The extensions mark
+# `_note_plain_type` as having no derivative.
+_note_plain(op) = uses_adjoint(op) ? nothing : _note_plain_type(typeof(op))
+const _PLAIN_NOTED = Set{Any}()
+const _PLAIN_LOCK = ReentrantLock()
+@noinline function _note_plain_type(T)
+    new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
+    new && @info "$(nameof(T)) has a piece without an analytic adjoint, so " *
+        "gradients of it use plain AD of the whole operator"
+    return nothing
+end
+
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; Duals, BigFloat and other arrays
-# take the plain path. Decided from the types alone; abstractly typed fields
-# take the plain path too.
+# take the plain path. A foldable function of the types, so every
+# interpreter evaluates it at compile time; abstractly typed fields take the
+# plain path.
 const _IEEEFloat = Union{Float16, Float32, Float64}
-_ok(::Type{<:_IEEEFloat}) = true
-_ok(::Type{<:Integer}) = true
-_ok(::Type{<:Real}) = false
-_ok(::Type{<:Union{Nothing, Symbol}}) = true
-_ok(::Type{<:Array{T}}) where {T} = _ok(T)
-_ok(::Type{<:SparseMatrixCSC{T}}) where {T} = _ok(T)
-_ok(::Type{<:Diagonal{T, V}}) where {T, V} = _ok(V)
-_ok(::Type{<:SubArray{T, N, P}}) where {T, N, P} = _ok(P)
-_ok(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P} = _ok(P)
-_ok(::Type{<:AbstractArray}) = false
-function _ok(::Type{T}) where {T}
+_gate(xs...) = _all_ok(Tuple{map(typeof, xs)...})
+Base.@assume_effects :foldable _all_ok(::Type{T}) where {T <: Tuple} = _ok(T)
+Base.@assume_effects :foldable function _ok(::Type{T}) where {T}
+    T <: _IEEEFloat && return true
+    T <: Union{Integer, Nothing, Symbol} && return true
+    T <: Real && return false
+    T <: Array && return _ok(eltype(T))
+    T <: SparseMatrixCSC && return _ok(eltype(T))
+    T <: Diagonal && return _ok(fieldtype(T, :diag))
+    T <: Union{SubArray, Base.ReshapedArray} && return _ok(fieldtype(T, :parent))
+    T <: AbstractArray && return false
     isconcretetype(T) && isstructtype(T) || return false
-    return all(_ok, fieldtypes(T))
+    for F in fieldtypes(T)
+        _ok(F) || return false
+    end
+    return true
 end
-@generated _gate(xs...) = all(_ok, xs)
 
 @doc "
 The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`
@@ -220,6 +256,23 @@ add_cotangent!(x̄::Base.RefValue, v, idx...) = (x̄[] += v; nothing)
 add_cotangent!(x̄::AbstractArray, v, idx...) = (x̄[idx...] += v; nothing)
 # A wrapper's mirror, such as a `TimeVarying` field's `(; x)`.
 add_cotangent!(x̄::NamedTuple{(:x,)}, v, idx...) = add_cotangent!(x̄.x, v, idx...)
+
+# Add `v` to entry `(p, q)` of the mirror `K̄` of matrix `K`. A sparse or
+# `Diagonal` matrix keeps its structure: an entry outside it gets nothing.
+_add_entry!(K̄, K, v, p, q) = add_cotangent!(K̄, v, p, q)
+function _add_entry!(K̄, K::SparseMatrixCSC, v, p, q)
+    nz̄ = cotangent(K̄, :nzval)
+    nz̄ === nothing && return nothing
+    rows = rowvals(K)
+    for idx in nzrange(K, q)
+        rows[idx] == p && (nz̄[idx] += v; break)
+    end
+    return nothing
+end
+function _add_entry!(K̄, K::Diagonal, v, p, q)
+    p == q && add_cotangent!(cotangent(K̄, :diag), v, p)
+    return nothing
+end
 
 @doc "
 Test the analytic adjoint of `op` on the positional arguments `args` of

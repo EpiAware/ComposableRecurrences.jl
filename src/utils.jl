@@ -107,4 +107,8 @@ function _fields_eltype(x, ::Val{N}) where {N}
 end
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
-_state_vector(::Type{T}, s) where {T} = copyto!(zeros(T, length(s)), s)
+_state_vector(::Type{T}, s) where {T} = copyto!(_zeros(s, T, length(s)), s)
+
+# A zeroed array of eltype `T` and size `dims`, allocated like `like` so the
+# buffers follow the input's array type.
+_zeros(like, ::Type{T}, dims...) where {T} = fill!(similar(like, T, dims...), zero(T))

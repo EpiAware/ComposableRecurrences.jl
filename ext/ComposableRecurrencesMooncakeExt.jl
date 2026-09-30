@@ -5,7 +5,9 @@
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
-using ComposableRecurrences: ComposableRecurrences, _ad, forward, pullback!
+using ComposableRecurrences: ComposableRecurrences, _ad, _note_plain_type, forward,
+    pullback!
+using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
 
@@ -48,6 +50,16 @@ function _rd_nz(x, m)
     rd = map(n -> _rd(getfield(x, n), getfield(m, n)), names)
     return Mooncake.RData(NamedTuple{names}(rd))
 end
+
+# Plain Mooncake AD of a convolution: BLAS `axpy!` per lag, which Mooncake
+# differentiates with one rule, instead of tracing the native loop.
+Mooncake.@mooncake_overlay function ComposableRecurrences._axpy!(
+        α::T, x::StridedVector{T}, y::StridedVector{T}
+    ) where {T <: Union{Float32, Float64}}
+    return axpy!(α, x, y)
+end
+
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Any}
 
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad), Vararg}

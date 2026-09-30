@@ -35,13 +35,14 @@ function pressure!(q, J::UniformScaling, p, window, t)
     return q
 end
 
+# Column by column, the order a column-major matrix is stored in.
 function pressure!(q, C::AbstractMatrix, p, window, t)
-    for a in axes(C, 1)
-        acc = zero(eltype(q))
-        for b in axes(C, 2)
-            acc += C[a, b] * p[b]
+    fill!(q, zero(eltype(q)))
+    for b in axes(C, 2)
+        pb = p[b]
+        for a in axes(C, 1)
+            q[a] += C[a, b] * pb
         end
-        q[a] = acc
     end
     return q
 end
@@ -69,12 +70,12 @@ end
 
 function pressure!(q, C::TimeVarying{<:AbstractArray{<:Any, 3}}, p, window, t)
     X = C.x
-    for a in axes(X, 1)
-        acc = zero(eltype(q))
-        for b in axes(X, 2)
-            acc += X[a, b, t] * p[b]
+    fill!(q, zero(eltype(q)))
+    for b in axes(X, 2)
+        pb = p[b]
+        for a in axes(X, 1)
+            q[a] += X[a, b, t] * pb
         end
-        q[a] = acc
     end
     return q
 end
@@ -82,12 +83,12 @@ end
 function pressure!(q, C::Pairwise, p, window, t)
     X = C.x
     L = size(X, 3)
-    for a in axes(X, 1)
-        acc = zero(eltype(q))
-        for i in 1:L, b in axes(X, 2)
-            acc += X[a, b, i] * window[L + 1 - i, b]
+    fill!(q, zero(eltype(q)))
+    for i in 1:L, b in axes(X, 2)
+        w = window[L + 1 - i, b]
+        for a in axes(X, 1)
+            q[a] += X[a, b, i] * w
         end
-        q[a] = acc
     end
     return q
 end
@@ -120,6 +121,9 @@ methods(ComposableRecurrences.pressure_pullback!)
 "
 function pressure_pullback! end
 
+# The built-in couplings carry their adjoints.
+uses_adjoint(::Union{UniformScaling, AbstractMatrix, TimeVarying, Pairwise}) = true
+
 # Coupling shape checks against `S` strata.
 _check_coupling(C, S) = nothing
 function _check_coupling(C::AbstractMatrix, S)
@@ -128,7 +132,17 @@ function _check_coupling(C::AbstractMatrix, S)
     )
     return nothing
 end
-function _check_coupling(C::Union{TimeVarying, Pairwise}, S)
+function _check_coupling(C::TimeVarying, S)
+    ndims(C.x) == 3 || throw(
+        ArgumentError(
+            "a TimeVarying coupling is S × S × T, got a " *
+                "$(ndims(C.x))-dimensional array of size $(size(C.x))"
+        )
+    )
+    return _check_pair_dims(C, S)
+end
+_check_coupling(C::Pairwise, S) = _check_pair_dims(C, S)
+function _check_pair_dims(C, S)
     size(C.x)[1:2] == (S, S) || throw(
         DimensionMismatch(
             "coupling is $(size(C.x)), expected ($S, $S, ...)"

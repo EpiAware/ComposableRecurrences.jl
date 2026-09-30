@@ -18,7 +18,7 @@ using ComposableRecurrences
 ComposableRecurrences.init_state(nothing, ones(2, 3))
 ```
 "
-init_state(m, history) = zeros(eltype(history), _nstrata(history))
+init_state(m, history) = _zeros(history, eltype(history), _nstrata(history))
 
 @doc "
 Whether modifier `m` acts on each stratum separately.

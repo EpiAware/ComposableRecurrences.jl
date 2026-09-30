@@ -188,6 +188,32 @@ struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
 
+# The rule applies when the coupling carries its adjoint and each modifier
+# does or is pointwise with only scalar float parameters.
+function uses_adjoint(r::Recurrence)
+    return uses_adjoint(r.coupling) && _all_modifiers_adjoint(r.modifiers)
+end
+uses_adjoint(w::_WithState) = uses_adjoint(w.r)
+_all_modifiers_adjoint(::Tuple{}) = true
+function _all_modifiers_adjoint(ms::Tuple)
+    return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
+end
+function _modifier_adjoint(m)
+    return uses_adjoint(m) || (ispointwise(m) && !_has_array_params(typeof(m)))
+end
+
+# Whether a type holds a float array (or a field of unknown type) that a
+# local per-value derivative would have to carry.
+Base.@assume_effects :foldable function _has_array_params(::Type{T}) where {T}
+    T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    isconcretetype(T) || return true
+    for F in fieldtypes(T)
+        _has_array_params(F) && return true
+    end
+    return false
+end
+
 # `forward(r, gain, add, h, s0, τ0)`: `h` is the history array and `s0` the
 # modifier states to resume from, or `nothing`.
 function forward(r::Recurrence, gain, add, h, s0, τ0)
@@ -210,6 +236,9 @@ function _state(Y, H, states, h, τ0)
     L = size(H, 1) - T
     return (; history = _public(H, (T + 1):(T + L), h), states, t = τ0 + T)
 end
+
+_tape(x::AbstractArray) = copy(x)
+_tape(x) = x
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(r::Recurrence, gain, add, h, s0, τ0, record::Val)
@@ -295,18 +324,19 @@ function _run(
     ) where {Tp, record}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
-    H = _load_history!(zeros(Tp, L + T, S), h, L)
-    p = zeros(Tp, S)
-    q = zeros(Tp, S)
-    v = zeros(Tp, S)
+    H = _load_history!(_zeros(h, Tp, L + T, S), h, L)
+    p = _zeros(h, Tp, S)
+    q = _zeros(h, Tp, S)
+    v = _zeros(h, Tp, S)
     states = if s0 === nothing
         map(m -> _state_vector(Tp, init_state(m, h)), modifiers)
     else
         map(s -> _state_vector(Tp, s), s0)
     end
-    P = record ? zeros(Tp, S, T) : nothing
-    X = record ? zeros(Tp, S, T) : nothing
-    rec = record ? map(_ -> (; V = zeros(Tp, S, T), S = zeros(Tp, S, T)), modifiers) :
+    P = record ? _zeros(h, Tp, S, T) : nothing
+    X = record ? _zeros(h, Tp, S, T) : nothing
+    rec = record ?
+        map(_ -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, S, T)), modifiers) :
         nothing
     for t in 1:T
         τ = τ0 + t - 1
@@ -341,7 +371,10 @@ function _run(
         end
     end
     Y = _public(H, (L + 1):(L + T), h)
+    # The cache holds copies of the inputs the reverse pass reads, so a caller
+    # overwriting them after the call cannot change the gradient.
     cache = record ?
-        (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec) : nothing
+        (; r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, S, T, H, P, X, rec) :
+        nothing
     return Y, H, states, cache
 end

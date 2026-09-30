@@ -17,23 +17,23 @@ function pullback!(w::_WithState, c, ȳ, w̄, ḡain, ādd, h̄, s̄0, τ̄0)
 end
 
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
-    _PULLBACK_CALLS[] += 1
+    _count_pullback()
     (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec) = c
     (; coupling, modifiers) = r
     Tp = eltype(H)
-    H̄ = zeros(Tp, L + T, S)
+    H̄ = _zeros(H, Tp, L + T, S)
     _seed_rows!(H̄, Ȳ, L)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
     ḡ = cotangent(r̄, :kernel)
     C̄ = cotangent(r̄, :coupling)
     m̄s = _mirrors(cotangent(r̄, :modifiers), modifiers)
-    s̄s = map(_ -> zeros(Tp, S), modifiers)
+    s̄s = map(_ -> _zeros(H, Tp, S), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
-    kbuf = _kernel_buffer(ḡ, kernel, Tp, S, L)
-    v̄ = zeros(Tp, S)
-    p̄ = zeros(Tp, S)
-    q̄ = zeros(Tp, S)
+    kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
+    v̄ = _zeros(H, Tp, S)
+    p̄ = _zeros(H, Tp, S)
+    q̄ = _zeros(H, Tp, S)
     for t in T:-1:1
         τ = τ0 + t - 1
         if _all_pointwise(modifiers)
@@ -154,17 +154,22 @@ end
 
 # A buffer for the kernel cotangent in the oldest-first order the forward
 # pass reads a reversed fixed kernel in, or `nothing`.
-_kernel_buffer(ḡ, kernel, Tp, S, L) = nothing
-_kernel_buffer(ḡ::AbstractVector, kernel::AbstractVector, Tp, S, L) = zeros(Tp, L)
-function _kernel_buffer(ḡ, kernel::PerStratum, Tp, S, L)
-    return cotangent(ḡ, :x) === nothing ? nothing : zeros(Tp, S, L)
+_kernel_buffer(ḡ, kernel, H, S, L) = nothing
+# One column per stratum, reduced after the loop, so each stratum writes only
+# its own slots.
+function _kernel_buffer(ḡ::AbstractVector, kernel::AbstractVector, H, S, L)
+    return _zeros(H, eltype(H), L, S)
+end
+function _kernel_buffer(ḡ, kernel::PerStratum, H, S, L)
+    return cotangent(ḡ, :x) === nothing ? nothing : _zeros(H, eltype(H), S, L)
 end
 
 # Correlate `p̄` with the kernel into the window's cotangent, and the window
 # with `p̄` into the kernel's, in one native loop per stratum.
 function _kernel_back!(kbuf, ḡ, g::AbstractVector, p̄, H, H̄, t, τ, L)
     for k in eachindex(p̄)
-        _window_back!(kbuf, g, p̄[k], H, H̄, t, L, k)
+        kb = kbuf === nothing ? nothing : view(kbuf, :, k)
+        _window_back!(kb, g, p̄[k], H, H̄, t, L, k)
     end
     return nothing
 end
@@ -208,14 +213,14 @@ _add_tv!(x̄::AbstractArray{<:Any, 3}, v, k, j, τ) = (x̄[k, j, τ] += v; nothi
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.
 _kernel_finish!(ḡ, ::Nothing) = nothing
-function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractVector)
-    L = length(kbuf)
-    for i in 1:L
-        ḡ[i] += kbuf[L + 1 - i]
+function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
+    L = size(kbuf, 1)
+    for k in axes(kbuf, 2), i in 1:L
+        ḡ[i] += kbuf[L + 1 - i, k]
     end
     return nothing
 end
-function _kernel_finish!(ḡ, kbuf::AbstractMatrix)
+function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
     Ḡ = cotangent(ḡ, :x)
     L = size(kbuf, 2)
     for i in 1:L, k in axes(kbuf, 1)

@@ -1,9 +1,9 @@
 # Default pullbacks for modifiers and couplings without a hand-written one:
 # a local ForwardDiff Jacobian of that one step, including the parameters.
 # A parameter is a float leaf of the object: a float scalar, the entries of a
-# float `Array`, the nonzeros of a sparse matrix or the diagonal of a
-# `Diagonal`, found by recursing through fields, tuples and named tuples.
-# Other arrays are held constant.
+# float array (a view or reshape is rebuilt as an `Array`), the nonzeros of a
+# sparse matrix or the diagonal of a `Diagonal`, found by recursing through
+# fields, tuples and named tuples.
 
 const _Leafless = Union{
     Real, AbstractArray, Nothing, Symbol, AbstractString, Function, Type,
@@ -12,9 +12,9 @@ const _Leafless = Union{
 
 # The number of parameters of `x`.
 _nparams(::AbstractFloat) = 1
-_nparams(x::Array{<:AbstractFloat}) = length(x)
+_nparams(x::AbstractArray{<:AbstractFloat}) = length(x)
 _nparams(x::SparseMatrixCSC{<:AbstractFloat}) = length(nonzeros(x))
-_nparams(x::Diagonal) = _nparams(x.diag)
+_nparams(x::Diagonal{<:AbstractFloat}) = _nparams(x.diag)
 _nparams(::_Leafless) = 0
 _nparams(x::Union{Tuple, NamedTuple}) = sum(_nparams, values(x); init = 0)
 function _nparams(x)
@@ -31,12 +31,14 @@ end
 
 # Write the parameters of `x` into `θ` after offset `o`; return the new offset.
 _getparams!(θ, x::AbstractFloat, o) = (θ[o + 1] = x; o + 1)
-function _getparams!(θ, x::Array{<:AbstractFloat}, o)
-    copyto!(θ, o + 1, x, 1, length(x))
+function _getparams!(θ, x::AbstractArray{<:AbstractFloat}, o)
+    for (i, xi) in enumerate(x)
+        θ[o + i] = xi
+    end
     return o + length(x)
 end
 _getparams!(θ, x::SparseMatrixCSC{<:AbstractFloat}, o) = _getparams!(θ, nonzeros(x), o)
-_getparams!(θ, x::Diagonal, o) = _getparams!(θ, x.diag, o)
+_getparams!(θ, x::Diagonal{<:AbstractFloat}, o) = _getparams!(θ, x.diag, o)
 _getparams!(θ, ::_Leafless, o) = o
 function _getparams!(θ, x::Union{Tuple, NamedTuple}, o)
     for xi in values(x)
@@ -57,7 +59,7 @@ end
 # constructor of their type's name.
 _rebuild(x, θ) = first(_rebuild(x, θ, 0))
 _rebuild(::AbstractFloat, θ, o) = (θ[o + 1], o + 1)
-function _rebuild(x::Array{<:AbstractFloat}, θ, o)
+function _rebuild(x::AbstractArray{<:AbstractFloat}, θ, o)
     n = length(x)
     return reshape(θ[(o + 1):(o + n)], size(x)), o + n
 end
@@ -66,7 +68,7 @@ function _rebuild(x::SparseMatrixCSC{<:AbstractFloat}, θ, o)
     nz = θ[(o + 1):(o + n)]
     return SparseMatrixCSC(size(x)..., copy(x.colptr), copy(x.rowval), nz), o + n
 end
-function _rebuild(x::Diagonal, θ, o)
+function _rebuild(x::Diagonal{<:AbstractFloat}, θ, o)
     d, o = _rebuild(x.diag, θ, o)
     return Diagonal(d), o
 end
@@ -90,7 +92,7 @@ end
 # Add the gradient `g` (after offset `o`) into the mirror `x̄` of `x`;
 # returns the new offset.
 _addparams!(x̄, x::AbstractFloat, g, o) = (add_cotangent!(x̄, g[o + 1]); o + 1)
-function _addparams!(x̄, x::Array{<:AbstractFloat}, g, o)
+function _addparams!(x̄, x::AbstractArray{<:AbstractFloat}, g, o)
     n = length(x)
     x̄ === nothing || (x̄ .+= reshape(view(g, (o + 1):(o + n)), size(x)))
     return o + n
@@ -98,7 +100,7 @@ end
 function _addparams!(x̄, x::SparseMatrixCSC{<:AbstractFloat}, g, o)
     return _addparams!(cotangent(x̄, :nzval), nonzeros(x), g, o)
 end
-_addparams!(x̄, x::Diagonal, g, o) = _addparams!(cotangent(x̄, :diag), x.diag, g, o)
+_addparams!(x̄, x::Diagonal{<:AbstractFloat}, g, o) = _addparams!(cotangent(x̄, :diag), x.diag, g, o)
 _addparams!(x̄, ::_Leafless, g, o) = o
 function _addparams!(x̄, x::Union{Tuple, NamedTuple}, g, o)
     for i in 1:length(x)
@@ -119,14 +121,12 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
-struct _LocalTag end
-
 # Default scalar pullback of a pointwise modifier: a local ForwardDiff
 # derivative in the value, the state and the modifier's parameters.
 function apply_pullback(m̄, m, v, s, t, k, v̄, s̄)
     P = _nactive(m̄, m)
     if P == 0
-        D = ForwardDiff.Dual{_LocalTag}
+        D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(apply_pullback, typeof(v)))}
         v′, s′ = apply(m, D(v, one(v), zero(v)), D(s, zero(s), one(s)), t, k)
         ∂v, ∂s = _partials2(v′), _partials2(s′)
         return v̄ * ∂v[1] + s̄ * ∂s[1], v̄ * ∂v[2] + s̄ * ∂s[2]

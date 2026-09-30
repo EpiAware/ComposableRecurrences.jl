@@ -98,10 +98,10 @@ function _conv(c::Convolution, x, history, start)
         )
     )
     Tp = float(param_eltype((kernel, x, history)))
-    X = zeros(Tp, m + T, S)
+    X = _zeros(x, Tp, m + T, S)
     history === nothing || _load_history!(X, history, m)
     _load_input!(X, x, m)
-    Y = zeros(Tp, T, S)
+    Y = _zeros(x, Tp, T, S)
     _convolve!(Y, kernel, X, m, start, c.indexed_by)
     return Y, X, m
 end
@@ -117,7 +117,7 @@ end
 _load_input!(X, x::AbstractVector, m) = (X[(m + 1):end, 1] .= x; X)
 _load_input!(X, x::AbstractMatrix, m) = (X[(m + 1):end, :] .= transpose(x); X)
 
-# One `axpy!` per lag over each stratum's contiguous series: lag `d` adds
+# One axpy per lag over each stratum's contiguous series: lag `d` adds
 # `c[d + 1] X[m + t - d]` to `Y[t]` for every `t` with a defined input.
 function _convolve_series!(y, c, X, k, m)
     T = size(y, 1)
@@ -129,16 +129,11 @@ function _convolve_series!(y, c, X, k, m)
     return y
 end
 
-# BLAS `axpy!` for float buffers. Other eltypes loop: the generic `axpy!`
-# returns early on a zero coefficient, which drops a tracked coefficient's
-# derivative (ReverseDiff).
-function _axpy!(α::T, x::StridedVector{T}, y::StridedVector{T}) where {
-        T <: Union{Float32, Float64},
-    }
-    return axpy!(α, x, y)
-end
+# `y .+= α x` as a native loop: at these lengths it is faster than a BLAS
+# call. Under plain Mooncake AD the extension swaps in BLAS `axpy!`, which
+# Mooncake differentiates with one rule.
 function _axpy!(α, x, y)
-    for i in eachindex(x, y)
+    @inbounds @simd ivdep for i in eachindex(x, y)
         y[i] += α * x[i]
     end
     return y
@@ -188,13 +183,15 @@ function _scatter!(Y, c::TimeVarying, X, m, start)
     return Y
 end
 
+uses_adjoint(::Convolution) = true
+
 # The reverse pass: correlate the output cotangent with the kernel into the
 # input buffer's cotangent, and with the inputs into the kernel's.
 function pullback!(c::Convolution, cache, ȳ, c̄, x̄, h̄, start̄)
-    _PULLBACK_CALLS[] += 1
+    _count_pullback()
     (; x, history, start, X, m) = cache
     T = size(X, 1) - m
-    Ȳ = _load_input!(zeros(eltype(X), T, size(X, 2)), ȳ, 0)
+    Ȳ = _load_input!(_zeros(X, eltype(X), T, size(X, 2)), ȳ, 0)
     X̄ = zero(X)
     _convolve_back!(X̄, cotangent(c̄, :kernel), c.kernel, X, Ȳ, m, start, c.indexed_by)
     _add_rows!(x̄, X̄, m, x)
@@ -213,15 +210,22 @@ function _add_rows!(x̄::AbstractMatrix, X̄, o, x)
     return nothing
 end
 
+# One fused pass per lag: the kernel cotangent's dot product and the input
+# cotangent's update together.
 function _convolve_series_back!(X̄k, c̄, c, Xk, ȳ, m)
     T = length(ȳ)
     for d in 0:(length(c) - 1)
         t0 = max(1, d + 1 - m)
         t0 > T && break
-        rows = (m + t0 - d):(m + T - d)
-        ȳd = view(ȳ, t0:T)
-        add_cotangent!(c̄, dot(ȳd, view(Xk, rows)), d + 1)
-        _axpy!(c[d + 1], ȳd, view(X̄k, rows))
+        o = m - d
+        cd = c[d + 1]
+        acc = zero(eltype(X̄k))
+        @inbounds @simd ivdep for t in t0:T
+            a = ȳ[t]
+            acc += a * Xk[o + t]
+            X̄k[o + t] += cd * a
+        end
+        add_cotangent!(c̄, acc, d + 1)
     end
     return nothing
 end

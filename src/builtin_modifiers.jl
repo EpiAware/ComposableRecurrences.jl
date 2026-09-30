@@ -379,7 +379,7 @@ function apply_pullback!(m̄, m::Redistribute, v, s, t, v̄, s̄)
         for p in eachindex(v)
             p == q && continue
             acc += s̄[p] * K[p, q]
-            add_cotangent!(K̄, εq * v[q] * (s̄[p] - v̄[q]), p, q)
+            _add_entry!(K̄, K, εq * v[q] * (s̄[p] - v̄[q]), p, q)
         end
         _add_origin!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
         v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
@@ -436,3 +436,6 @@ end
 function apply_pullback!(m̄, m::Clamp, v, s, t, v̄, s̄)
     return _pointwise_pullback!(m̄, m, v, s, t, v̄, s̄)
 end
+
+# The built-in modifiers carry their adjoints.
+uses_adjoint(::Union{Depletion, Imports, Redistribute, Clamp}) = true

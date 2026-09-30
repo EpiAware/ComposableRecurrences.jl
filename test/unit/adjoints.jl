@@ -9,9 +9,9 @@
     # A zero cotangent mirror: arrays for float arrays, a `Ref` for a float
     # scalar, NamedTuples for structs, `nothing` where there is none.
     zero_mirror(x::AbstractFloat) = Ref(zero(x))
-    zero_mirror(x::Array{<:AbstractFloat}) = zero(x)
+    zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
     zero_mirror(x::SparseMatrixCSC{<:AbstractFloat}) = (; nzval = zero(nonzeros(x)))
-    zero_mirror(x::Diagonal) = (; diag = zero_mirror(x.diag))
+    zero_mirror(x::Diagonal{<:AbstractFloat}) = (; diag = zero_mirror(x.diag))
     zero_mirror(x::Union{Tuple, NamedTuple}) = map(zero_mirror, x)
     zero_mirror(::Union{Real, AbstractArray, Nothing, Symbol}) = nothing
     function zero_mirror(x)
@@ -372,4 +372,40 @@ end
     c = Convolution([0.5, 0.5])
     @test NoAdjoint(c)(ones(3)) == c(ones(3))
     @test ComposableRecurrences._PULLBACK_CALLS[] == n0
+end
+
+@testitem "Adjoint: buffers follow the input's array type" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # An array type whose `similar` keeps the wrapper, standing in for a
+    # device array: every buffer and cotangent must be allocated like it.
+    struct Wrapped{T, N} <: AbstractArray{T, N}
+        a::Array{T, N}
+    end
+    Base.size(w::Wrapped) = size(w.a)
+    Base.getindex(w::Wrapped, i::Int...) = w.a[i...]
+    Base.setindex!(w::Wrapped, v, i::Int...) = (w.a[i...] = v)
+    Base.similar(w::Wrapped, ::Type{T}, dims::Dims) where {T} = Wrapped(similar(w.a, T, dims))
+    unwrap(x::Wrapped) = x.a
+    unwrap(x) = x
+
+    rng = Xoshiro(2)
+    S, L, T = 2, 3, 5
+    r = Recurrence(rand(rng, L); coupling = rand(rng, S, S), modifiers = (CR.Depletion(40.0),))
+    R, h = 0.5 .+ rand(rng, S, T), 1 .+ rand(rng, S, L)
+    y, c = CR.forward(r, R, nothing, Wrapped(h), nothing, 1)
+    @test c.H isa Wrapped && c.P isa Wrapped && c.X isa Wrapped
+    @test only(c.rec).V isa Wrapped
+    yref, cref = CR.forward(r, R, nothing, h, nothing, 1)
+    @test unwrap(y) ≈ yref
+    ȳ = randn(rng, S, T)
+    h̄, h̄ref = zeros(S, L), zeros(S, L)
+    CR.pullback!(r, c, ȳ, nothing, nothing, nothing, h̄, nothing, nothing)
+    CR.pullback!(r, cref, ȳ, nothing, nothing, nothing, h̄ref, nothing, nothing)
+    @test h̄ ≈ h̄ref
+
+    c = Convolution(rand(rng, 3))
+    x = rand(rng, S, T)
+    y, cache = CR.forward(c, Wrapped(x), nothing, 1)
+    @test cache.X isa Wrapped
+    @test unwrap(y) ≈ first(CR.forward(c, x, nothing, 1))
 end

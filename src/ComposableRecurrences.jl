@@ -15,6 +15,11 @@ shape of a kernel or coupling.
 Public arrays are strata × time, with time on the last axis; a single series
 is a vector.
 
+Gradients are supported with ForwardDiff, Mooncake and Enzyme; the operators
+carry analytic adjoints for the reverse-mode backends.
+Backends that do not allow mutation, such as ReverseDiff and Zygote, are
+not supported.
+
 # Example
 
 ```@example
@@ -31,7 +36,7 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
+using LinearAlgebra: Diagonal, I, UniformScaling
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
 # Register the standard EpiAware docstring conventions before any
@@ -43,7 +48,7 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 public init_state, init_state_pullback!, apply, apply!, apply_pullback,
     apply_pullback!, ispointwise, param_eltype, pressure!, pressure_pullback!,
     AbstractOperator, Coupling, forward, pullback!, NoAdjoint, cotangent,
-    add_cotangent!, test_adjoint, OperatorInterface, CouplingInterface,
+    add_cotangent!, uses_adjoint, test_adjoint, OperatorInterface, CouplingInterface,
     ModifierInterface, Depletion, Imports, Redistribute, Clamp
 
 # Operator supertype, the adjoint seams and the routing to the native rules.

@@ -5,8 +5,8 @@
 # written back for `MixedDuplicated` ones.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, _WithState, _ad, _plain, forward,
-    pullback!
+using ComposableRecurrences: Recurrence, _WithState, _ad, _note_plain_type, _plain,
+    forward, pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -68,10 +68,14 @@ _addback(dx, m) = m === nothing ? dx : _addback1(dx, m)
 _addback1(dx::Real, m::Base.RefValue) = dx + m[]
 _addback1(dx::AbstractArray, m) = dx
 _addback1(dx::Union{Tuple, NamedTuple}, m) = map(_addback, dx, m)
+# The shadow rebuilt with the same type and new scalar fields, bypassing
+# constructors (which may check or convert their arguments).
 function _addback1(dx::T, m) where {T}
-    fs = map(n -> _addback(getfield(dx, n), getfield(m, n)), fieldnames(T))
-    return Base.typename(T).wrapper(fs...)
+    fs = Any[_addback(getfield(dx, n), getfield(m, n)) for n in fieldnames(T)]
+    return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), T, fs, length(fs))::T
 end
+
+EnzymeRules.inactive(::typeof(_note_plain_type), args...) = nothing
 
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_ad)},

@@ -90,7 +90,7 @@ end
 
 function _renewal_strata(w, θ)
     g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
-    r = Recurrence(g; coupling = K, modifiers = (FlooredDepletion(POP),))
+    r = Recurrence(g; coupling = K, modifiers = (ComposableRecurrences.Depletion(POP; form = :floor),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -133,7 +133,7 @@ end
 # and the modifier's pool.
 function _with_state(w, θ)
     g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
-    r = Recurrence(g; coupling = K0, modifiers = (FlooredDepletion(POP),))
+    r = Recurrence(g; coupling = K0, modifiers = (ComposableRecurrences.Depletion(POP; form = :floor),))
     y, st = w(r)(exp.(logR); history = exp.(logh), return_state = true)
     return sum(WS .* log.(y)) + sum(st.history) + 0.01 * sum(only(st.states))
 end
