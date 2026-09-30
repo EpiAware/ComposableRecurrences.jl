@@ -1,5 +1,5 @@
-# The extension interface. Every operator, coupling, modifier or depletion
-# form has a `forward` method, and optionally `pullback!`, for a role.
+# The piece interface. Every piece (operator, coupling, modifier or variant)
+# implements `forward`, and optionally `pullback!`, for a role.
 
 @doc "
 The role of an operator's whole call, `forward(op, Run(), args...; kwargs...)`,
@@ -77,19 +77,18 @@ q
 struct Pressure end
 
 @doc "
-Run an operator, coupling, modifier or depletion form `piece` for the job
-selected by the singleton `role`, on primal arguments `args`.
+Run `piece` in `role` on primal arguments `args`.
 
 Array outputs are written into the leading array arguments and the method
 returns `nothing`; a scalar [`ComposableRecurrences.Step`](@ref) returns its
 new scalars and [`ComposableRecurrences.Run`](@ref) returns `(y, cache)`.
-To extend the package, define a type and add this method for it:
+Extend the package by writing a struct and this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
-for a modifier or depletion form, [`ComposableRecurrences.Pressure`](@ref)
-for a coupling.
+for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
+coupling.
 
 # Arguments
-- `piece`: the operator, coupling, modifier or depletion form.
+- `piece`: the operator, coupling, modifier or variant.
 - `role`: `Run()`, `Step()`, `Init()` or `Pressure()`.
 - `args`: the role's arguments.
 
@@ -109,18 +108,18 @@ function forward end
 
 @doc "
 Accumulate the reverse pass of [`ComposableRecurrences.forward`](@ref) for
-the operator, coupling, modifier or depletion form `piece` in `role`.
+`piece` in `role`.
 
-`grads` is a NamedTuple: `grads.piece` mirrors `piece`'s parameters (or is
+`grads` is a NamedTuple: `grads.piece` mirrors the piece's parameters (or is
 `nothing`) and the other fields are named after the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.
-A type without this method is differentiated by the AD backend.
+A piece without it is differentiated by the AD backend.
 
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`.
-- `piece`: the operator, coupling, modifier or depletion form.
+- `piece`: the piece.
 - `role`: the role.
 - `args`: the primal arguments `forward` was given.
 

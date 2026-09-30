@@ -1,29 +1,22 @@
 @doc "
-A recurrence whose kernel starts at lag 1, stepped from a window of its own
-past values, for one series or several run side by side.
+A recurrence over strata whose kernel starts at lag 1, stepped from a window
+of its own past values.
 
-At time ``t``, each series' kernel-weighted sum of its last ``L`` values is
-mixed by the coupling ``C_t``, multiplied by the gain ``g_t`` (such as a
-reproduction number) and shifted by the additive input ``a_t``, then passed
-through the modifiers ``M_1, \\dots, M_R`` in tuple order:
+At time `t`, each stratum's kernel convolution of its last `L` values is
+mixed by the coupling, scaled by the gain and shifted by the add input,
+then passed through the modifiers in tuple order:
 
-```math
-\\begin{aligned}
-p_t &= \\sum_{l=1}^{L} k_l \\, y_{t-l} \\\\
-v_t &= g_t \\odot C_t \\, p_t + a_t \\\\
-y_t &= M_R \\circ \\dots \\circ M_1 (v_t)
-\\end{aligned}
-```
+    x_t = coupling_t(Σ_i kernel_t[i] y_{t-i})
+    v_t = gain_t ⊙ x_t + add_t
+    (y_t, s_t) = modifiers(v_t, s_{t-1})
 
-Here ``y_t`` holds one value per series, ``\\odot`` multiplies element by
-element, and each modifier carries its own state from step to step.
-`kernel[l]` is ``k_l``, the weight on ``y_{t-l}``, as a generation interval
-or AR coefficients are written: a recurrence has no lag 0.
-The kernel is a length-`L` vector shared by every series, a
+`kernel[i]` weights `y_{t-i}`, as a generation interval or AR coefficients
+are written: a recurrence has no lag 0.
+The kernel is a length-`L` vector shared by every stratum, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
-weights every pair of series and already mixes them, so its coupling is `I`.
+weights every pair of strata and already mixes them, so its coupling is `I`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
@@ -33,26 +26,24 @@ and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 Called as `r(gain = 1; history, state, add = nothing, start, stop)`, the
 call covers the absolute times `start:stop`:
 
-  - `gain`: the multiplier on each step; a scalar, a length-`T` vector
-    shared by every series, or
+  - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`, read at absolute time `t`; one when left out.
   - `history`: the outputs at times `start - m` to `start - 1`, oldest
     first, length `m` for a single series or `S × m`; zeros when left out.
     The recursion reads the last `L`, and a history shorter than `L` is
     zero-padded. A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) from
-    [`ComposableRecurrences.with_state`](@ref), to continue the series from
-    the time it ended; not with
+    [`ComposableRecurrences.with_state`](@ref), to resume from it; not with
     `history` or `start`.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
-  - `start`: the first time; `1`, or `state.t` when continuing from a state.
+  - `start`: the first time; `1`, or `state.t` when resuming.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
 The output is length `stop - start + 1` for a single series or `S` rows of
-it; the history sets which, and the number of series.
+it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
@@ -61,7 +52,7 @@ dual numbers pass through any slot.
 - `kernel`: the kernel, lag 1 first.
 
 # Keyword Arguments
-- `coupling`: how the series mix within each step; `I` by default.
+- `coupling`: how the strata's kernel convolutions mix; `I` by default.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
 
 # Examples
@@ -107,19 +98,11 @@ function Recurrence(kernel; coupling = I, modifiers = ())
 end
 
 @doc "
-What a later call needs to continue a series, as returned by
-[`ComposableRecurrences.with_state`](@ref).
+The state [`ComposableRecurrences.with_state`](@ref) returns with an
+operator's output, passed back as `state` to resume.
 
-After a call that stopped at time ``t_1``, it holds:
-
-  - `history`: the last ``L`` outputs ``y_{t_1 - L + 1}, \\dots, y_{t_1}``,
-    which the next step's kernel reads;
-  - `states`: each modifier's state ``s^{(n)}_{t_1}``, such as the remaining
-    pool of a `Depletion`;
-  - `t`: the time of the next step, ``t_1 + 1``.
-
-Passing it as `r(gain; state)` continues from ``t_1 + 1`` exactly as if the
-first call had not stopped.
+`history` holds the last `L` outputs, `states` each modifier's state and
+`t` the time of the next step.
 
 # Examples
 ```@example
@@ -140,15 +123,10 @@ struct State{H, M, T}
 end
 
 @doc "
-Run operator `op` like `op(args...; kwargs...)` and also return a
-[`ComposableRecurrences.State`](@ref), as the tuple `(y, state)`.
+Call operator `op` and return its output with the
+[`ComposableRecurrences.State`](@ref) to resume from, `(y, state)`.
 
-For a recurrence `r` that stopped at time ``t_1``, the state holds the last
-``L`` outputs ``y_{t_1 - L + 1}, \\dots, y_{t_1}``, each modifier's state
-``s^{(n)}_{t_1}`` (such as the remaining pool) and the next time
-``t_1 + 1``.
-Then `r(gain; state)` continues the series from ``t_1 + 1``, as in a forecast
-after a fit, and gives the same values as one uninterrupted call.
+Takes the same arguments as calling `op`; resume with `op(...; state)`.
 
 # Arguments
 - `op`: the operator.
@@ -161,7 +139,7 @@ CR = ComposableRecurrences
 r = Recurrence([0.6, 0.4])
 R = fill(1.1, 8)
 y1, state = CR.with_state(r, R; history = ones(2), stop = 4)
-maximum(abs, vcat(y1, r(R; state)) .- r(R; history = ones(2)))
+vcat(y1, r(R; state)) ≈ r(R; history = ones(2))
 ```
 "
 function with_state(op, args...; kwargs...)

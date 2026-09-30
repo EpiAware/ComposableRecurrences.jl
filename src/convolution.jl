@@ -2,25 +2,21 @@
 A causal convolution whose kernel starts at lag 0: each output weights the
 current and past inputs,
 
-```math
-y_t = \\sum_{l=0}^{L-1} k_l \\, x_{t-l}
-```
+    y_t = Σ_d kernel_t[d + 1] x_{t-d}
 
-where `kernel[l + 1]` is ``k_l``, the weight on the input ``l`` steps back.
-
-A vector kernel is shared by every series, a [`PerStratum`](@ref) kernel is
+A vector kernel is shared by every stratum, a [`PerStratum`](@ref) kernel is
 `S × D`, and a [`TimeVarying`](@ref) kernel is `D × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × D × T`, all lag 0 first.
 A `TimeVarying` kernel's indexing sets which time its column belongs to:
 with [`ComposableRecurrences.Secondary`](@ref) (the default) column `t`
-belongs to output day `t` and weights the inputs reaching it; with
-[`ComposableRecurrences.Primary`](@ref) column `s` belongs to input day `s`
-and is the delay pmf of that day's input, which spreads forward through it,
-``y_t = \\sum_{\\tau} k_{t - \\tau}(\\tau) \\, x_\\tau``, so input mass is conserved up to the
+weights the inputs reaching output `t`; with
+[`ComposableRecurrences.Primary`](@ref) column `s` is the delay pmf of the
+input at time `s`, which spreads forward through it,
+`y_t = Σ_s x_s kernel_s[t - s + 1]`, so input mass is conserved up to the
 window's end.
 
 To weight lags from 1, as a renewal's force of infection does, prepend a
-zero: `Convolution(vcat(0, g))` recomputes ``\\sum_{l=1}^{L} g_l \\, y_{t-l}`` from the
+zero: `Convolution(vcat(0, g))` recomputes `Σ_i g_i y_{t-i}` from the
 outputs `y` of a [`Recurrence`](@ref) with kernel `g`.
 
 Called as `c(x; history = nothing, start = 1, stop)`, the call covers the

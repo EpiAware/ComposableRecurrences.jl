@@ -1,6 +1,6 @@
 @doc "
-The default indexing of a [`TimeVarying`](@ref) coefficient: column `t`
-belongs to output day `t`.
+The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
+read at output time `t`.
 
 This is the only meaning outside a kernel slot.
 
@@ -13,9 +13,9 @@ TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
 struct Secondary end
 
 @doc "
-The indexing of a [`TimeVarying`](@ref) kernel whose column `c` belongs to
-input day `c`: it is the kernel of that day's input, which spreads forward
-through it.
+The indexing of a [`TimeVarying`](@ref) kernel whose column `c` is the kernel
+of the input (cohort) at absolute time `c`, which spreads forward through
+it.
 
 Kernel slots only: anywhere else it is an `ArgumentError`.
 
@@ -29,12 +29,9 @@ Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(ones(3))
 struct Primary end
 
 @doc "
-A coefficient given per stratum: adds a leading axis with one entry for each
-of `S` series.
+A coefficient given per stratum: adds a leading strata axis to its slot.
 
-A stratum is one of several series run side by side, such as a region or an
-age group.
-As a kernel it is `S × L`, one row of lag weights per series.
+As a kernel it is `S × L`, one row of lag weights per stratum.
 As a modifier parameter it is a length-`S` vector.
 `PerStratum(TimeVarying(x))` is the same object as
 `TimeVarying(PerStratum(x))`.
@@ -47,19 +44,19 @@ Recurrence(PerStratum(G))(ones(2, 4); history = ones(2, 2))
 ```
 "
 struct PerStratum{A <: AbstractArray}
-    "The coefficients, series on the first axis."
+    "The coefficients, strata on the first axis."
     x::A
 end
 
 @doc "
-A [`Recurrence`](@ref) kernel for every pair of series: adds leading
+A [`Recurrence`](@ref) kernel for every pair of strata: adds leading
 `S × S` axes, so it is `S × S × L`.
 
-`x[a, b, i]` weights series `b`'s value at lag `i` in series `a`.
+`x[a, b, i]` weights stratum `b`'s value at lag `i` in stratum `a`.
 It is equivalent to Routes over all pairs, with a faster path: one route
 per pair `(a, b)`, with kernel `x[a, b, :]` and a coupling that is the unit
 matrix at `(a, b)`.
-The kernel already mixes the series, so the coupling must be `I`.
+The kernel already mixes strata, so the coupling must be `I`.
 `TimeVarying(Pairwise(A))` has `A` `S × S × L × T`.
 
 # Examples
@@ -88,10 +85,10 @@ The indexing sets which time a kernel's column belongs to, and is held as
 a type parameter so nothing branches on it:
 
   - [`ComposableRecurrences.Secondary`](@ref) (the default): column `t`
-    belongs to output day `t` and weights the inputs reaching it. This is
-    the only meaning outside a kernel.
-  - [`ComposableRecurrences.Primary`](@ref): column `c` belongs to input
-    day `c`, whose input spreads forward through it.
+    weights the inputs reaching output `t`. This is the only meaning
+    outside a kernel.
+  - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
+    the input at time `c`, which spreads forward through it.
     [`Convolution`](@ref) kernels only.
 
 The two agree for a fixed kernel.
