@@ -140,7 +140,8 @@ end
 
 function _delay_varying(θ)
     G, X = _unpack(θ, (S, L, T), (S, T))
-    return sum(WS .* Convolution(TimeVarying(G))(X))
+    kernel = TimeVarying(PerStratum(G); indexed_by = :primary)
+    return sum(WS .* Convolution(kernel)(X))
 end
 
 _flat(xs...) = reduce(vcat, map(vec, xs))

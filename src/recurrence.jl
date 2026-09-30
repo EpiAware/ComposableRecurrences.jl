@@ -1,5 +1,6 @@
 @doc "
-A recurrence over strata, stepped from a window of its own past values.
+A recurrence over strata whose kernel starts at lag 1, stepped from a window
+of its own past values.
 
 At time `t`, each stratum's kernel convolution of its last `L` values is
 mixed by the coupling, scaled by the gain and shifted by the add input,
@@ -9,42 +10,47 @@ then passed through the modifiers in tuple order:
     v_t = gain_t ⊙ x_t + add_t
     (y_t, s_t) = modifiers(v_t, s_{t-1})
 
-Every kernel is lag first: `kernel[i]` weights `y_{t-i}`, as a generation
-interval or AR coefficients are written.
-A [`PerStratum`](@ref) kernel is `S × L`, and a [`TimeVarying`](@ref) one is
-`L × T` or `S × L × T`, lag on the second to last axis.
+`kernel[i]` weights `y_{t-i}`, as a generation interval or AR coefficients
+are written: a recurrence has no lag 0.
+The kernel is a length-`L` vector shared by every stratum, a
+[`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
+`TimeVarying(PerStratum(G))` with `G` `S × L × T`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or a
 [`Pairwise`](@ref) kernel with `kernel = nothing`.
 Modifiers implement [`ComposableRecurrences.apply!`](@ref) or the pointwise
 [`ComposableRecurrences.apply`](@ref).
 
-Called as `r(gain = 1; history, add = nothing, start, return_state = false)`:
+Called as
+`r(gain = 1; history, state, add = nothing, start, stop, return_state = false)`,
+the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
-    `S × T`; one when left out.
-  - `history`: the values before the first step, oldest first, length
-    `m` for a single series or `S × m`; the recursion reads the last `L`,
-    with no earlier values (zeros) when `m < L`, and
-    [`ComposableRecurrences.init_state`](@ref) sees all of it.
-    Or the state returned by an earlier call with `return_state = true`,
-    to resume from it.
-  - `add`: `nothing`, a scalar, length `T` or `S × T`.
-  - `start`: the time index of the first output, at which time-varying
-    slots and modifiers are read; `1`, or the next index when resuming.
-  - `return_state`: also return `(; history, states, t)`: the last `L`
-    values, each modifier's state and the time index of the next step.
+    `S × T`, read at absolute time `t`; one when left out.
+  - `history`: the outputs at times `start - m` to `start - 1`, oldest
+    first, length `m` for a single series or `S × m`; zeros when left out.
+    The recursion reads the last `L`, and a history shorter than `L` is
+    zero-padded. [`ComposableRecurrences.init_state`](@ref) sees all of it.
+  - `state`: a [`ComposableRecurrences.State`](@ref) returned by an earlier
+    call, to resume from it; not with `history` or `start`.
+  - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
+  - `start`: the first time; `1`, or `state.t` when resuming.
+  - `stop`: the last time; by default the common length of the
+    time-indexed inputs (`gain`, `add`), required without one.
+  - `return_state`: also return the [`ComposableRecurrences.State`](@ref)
+    to resume from.
 
-The gain and add inputs are indexed by the call's own steps.
-The output is length `T` for a single series (vector history) or `S × T`.
-`T` is set by the gain or add input, or else by a time-varying kernel or
-coupling from `start` on.
+Every time-indexed array, kernels, couplings and modifier parameters
+included, must cover `stop`.
+The output is length `stop - start + 1` for a single series or `S` rows of
+it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
-ForwardDiff Duals pass through any slot.
+dual numbers pass through any slot.
 
 # Arguments
-- `kernel`: the kernel, or `nothing` with a [`Pairwise`](@ref) coupling.
+- `kernel`: the kernel, lag 1 first, or `nothing` with a
+  [`Pairwise`](@ref) coupling.
 
 # Keyword Arguments
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
@@ -59,14 +65,14 @@ R = fill(1.1, 2, 10)
 r = Recurrence(g; coupling = K)
 y = r(R; history = ones(2, 3))
 
-# Resume from the returned state.
-y1, state = r(R[:, 1:5]; history = ones(2, 3), return_state = true)
-y2 = r(R[:, 6:end]; history = state)
+# Resume from the returned state over the same inputs.
+y1, state = r(R; history = ones(2, 3), stop = 5, return_state = true)
+y2 = r(R; state)
 y ≈ hcat(y1, y2)
 ```
 "
 struct Recurrence{K, C, M <: Tuple}
-    "The kernel, lag first, or `nothing` with a pairwise coupling."
+    "The kernel, lag 1 first, or `nothing` with a pairwise coupling."
     kernel::K
     "How the strata's kernel convolutions mix."
     coupling::C
@@ -75,6 +81,14 @@ struct Recurrence{K, C, M <: Tuple}
     function Recurrence(kernel::K, coupling::C, modifiers::M) where {
             K, C, M <: Tuple,
         }
+        _check_kernel_shape(kernel)
+        kernel isa TimeVarying{_Primary} && throw(
+            ArgumentError(
+                "a :primary time-varying kernel is not yet supported by " *
+                    "Recurrence"
+            )
+        )
+        _check_coupling_shape(coupling)
         _check_kernel(kernel, coupling)
         return new{K, C, M}(kernel, coupling, modifiers)
     end
@@ -82,6 +96,27 @@ end
 
 function Recurrence(kernel; coupling = I, modifiers = ())
     return Recurrence(kernel, coupling, Tuple(modifiers))
+end
+
+@doc "
+The state a [`Recurrence`](@ref) call returns with `return_state = true`,
+passed back as `state` to resume.
+
+# Examples
+```@example
+using ComposableRecurrences
+r = Recurrence([0.5, 0.5])
+y, state = r(fill(1.1, 6); history = ones(2), stop = 3, return_state = true)
+state.t, r(fill(1.1, 6); state)
+```
+"
+struct State{H, M, T}
+    "The last `L` outputs, in the history's layout."
+    history::H
+    "Each modifier's state."
+    states::M
+    "The time of the next step."
+    t::T
 end
 
 _check_kernel(kernel, coupling) = nothing
@@ -93,15 +128,46 @@ function _check_kernel(kernel, ::Pairwise)
 end
 _check_kernel(::Nothing, ::Pairwise) = nothing
 
+# The kernel shapes: a bare array is lags only, strata and time are added
+# by wrappers.
+_check_kernel_shape(k) = nothing
+_check_kernel_shape(k::AbstractVector) = nothing
+_check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
+_check_kernel_shape(k::TimeVarying{<:Any, <:AbstractMatrix}) = nothing
+function _check_kernel_shape(
+        k::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}
+    )
+    return nothing
+end
+function _check_kernel_shape(k::AbstractArray)
+    throw(
+        ArgumentError(
+            "a kernel array is a vector of lag weights; wrap a strata × " *
+                "lags matrix as PerStratum(G)"
+        )
+    )
+end
+function _check_kernel_shape(k::PerStratum)
+    throw(ArgumentError("a PerStratum kernel is a strata × lags matrix"))
+end
+function _check_kernel_shape(k::TimeVarying)
+    throw(
+        ArgumentError(
+            "a TimeVarying kernel is lags × time, or " *
+                "TimeVarying(PerStratum(G)) with G strata × lags × time"
+        )
+    )
+end
+
 _nlags(k::AbstractVector, c) = length(k)
 _nlags(k::PerStratum, c) = size(k.x, 2)
-_nlags(k::TimeVarying, c) = size(k.x, ndims(k.x) - 1)
+_nlags(k::TimeVarying, c) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(::Nothing, c::Pairwise) = size(c.x, 3)
 
 # Kernel strata checks against `S` strata.
 _check_kernel_strata(k, S) = nothing
-function _check_kernel_strata(k::Union{PerStratum, TimeVarying}, S)
-    ndims(k.x) == 2 && k isa TimeVarying && return nothing
+_check_kernel_strata(k::TimeVarying, S) = _check_kernel_strata(k.x, S)
+function _check_kernel_strata(k::PerStratum, S)
     size(k.x, 1) == S || throw(
         DimensionMismatch("kernel has $(size(k.x, 1)) strata, expected $S")
     )
@@ -136,9 +202,9 @@ function _kernel_pressure!(p, g, H, t, τ, L)
 end
 _kernel_pressure!(p, ::Nothing, H, t, τ, L) = p
 
-# A time-varying kernel's weight on lag (or delay) index `j` at time `τ`.
+# A time-varying kernel's weight on lag (or delay) index `j` in column `τ`.
 _tv_weight(x::AbstractMatrix, k, j, τ) = x[j, τ]
-_tv_weight(x::AbstractArray{<:Any, 3}, k, j, τ) = x[k, j, τ]
+_tv_weight(x::PerStratum, k, j, τ) = x.x[k, j, τ]
 
 # Load the last `L` values of a public-layout history into the buffer,
 # right aligned; a shorter history leaves the earlier rows zero.
@@ -159,31 +225,48 @@ end
 _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
 
-# A history given as the state of an earlier call carries modifier states
-# and the time index of the next step.
-_split_history(h::AbstractArray) = (h, nothing, 1)
-function _split_history(s::NamedTuple{(:history, :states, :t)})
-    return (s.history, s.states, s.t)
+# Without a history the run starts from zeros, with the strata of a
+# strata × time input.
+function _empty_history(gain, add)
+    return _empty_history(gain isa AbstractMatrix ? gain : add)
+end
+_empty_history(x::AbstractMatrix) = zeros(Bool, size(x, 1), 0)
+_empty_history(x) = zeros(Bool, 0)
+
+# The history, modifier states and first time of a call: seeded from
+# `history`, or resumed from `state`.
+function _resume(history, state::Nothing, start, gain, add)
+    h = history === nothing ? _empty_history(gain, add) : history
+    return h, nothing, start === nothing ? 1 : start
+end
+function _resume(history, state::State, start, gain, add)
+    history === nothing || throw(
+        ArgumentError(
+            "pass history (a seed) or state (to resume), not both"
+        )
+    )
+    start === nothing || throw(
+        ArgumentError("a resumed call starts at state.t; do not pass start")
+    )
+    return state.history, state.states, state.t
 end
 
 Base.@constprop :aggressive function (r::Recurrence)(
-        gain = true; history, add = nothing, start = nothing,
-        return_state = false
+        gain = true; history = nothing, state = nothing, add = nothing,
+        start = nothing, stop = nothing, return_state = false
     )
-    h, s0, t0 = _split_history(history)
-    τ0 = start === nothing ? t0 : start
-    Y, H, states = _recur(r, gain, add, h, s0, τ0)
+    _check_unwrapped(:gain, gain)
+    _check_unwrapped(:add, add)
+    h, s0, τ0 = _resume(history, state, start, gain, add)
+    Y, H, states = _recur(r, gain, add, h, s0, τ0, stop)
     return_state || return Y
     T = size(Y, ndims(Y))
     L = size(H, 1) - T
-    state = (;
-        history = _public(H, (T + 1):(T + L), h), states, t = τ0 + T,
-    )
-    return Y, state
+    return Y, State(_public(H, (T + 1):(T + L), h), states, τ0 + T)
 end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
-function _recur(r::Recurrence, gain, add, h, s0, τ0)
+function _recur(r::Recurrence, gain, add, h, s0, τ0, stop)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel, coupling)
     S = _nstrata(h)
@@ -197,10 +280,15 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0)
                 "$(length(modifiers)) modifiers"
         )
     )
-    T = _nsteps(
-        τ0, (:gain => _steps(gain), :add => _steps(add)),
-        (:kernel => _tv_steps(kernel), :coupling => _tv_steps(coupling))
+    stop = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
+    τ0 >= 1 || throw(ArgumentError("start ($τ0) must be at least 1"))
+    stop >= τ0 - 1 || throw(
+        ArgumentError("stop ($stop) is before start ($τ0)")
     )
+    _check_kernel_times(kernel, stop)
+    _check_times(:coupling, coupling, stop)
+    _check_times(:modifiers, modifiers, stop)
+    T = stop - τ0 + 1
     Tp = float(param_eltype((r, gain, add, h, s0)))
     return _run(Tp, r, gain, add, h, s0, τ0, L, S, T)
 end
@@ -237,15 +325,16 @@ function _thread(ms::Tuple, states::Tuple, v, τ, k)
 end
 
 # The buffer loop: returns the output, the buffer and the final states.
-# With pointwise modifiers each stratum's value goes straight to the
-# buffer; otherwise the step's values are collected for `apply!`.
+# Buffer row `L + t` holds absolute time `τ0 + t - 1`. With pointwise
+# modifiers each stratum's value goes straight to the buffer; otherwise the
+# step's values are collected for `apply!`.
 function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
-    H = _load_history!(zeros(Tp, L + T, S), h, L)
-    p = zeros(Tp, S)
-    q = zeros(Tp, S)
-    v = zeros(Tp, S)
+    H = _load_history!(_zeros(h, Tp, L + T, S), h, L)
+    p = _zeros(h, Tp, S)
+    q = _zeros(h, Tp, S)
+    v = _zeros(h, Tp, S)
     states = if s0 === nothing
         map(m -> _state_vector(Tp, init_state(m, h)), modifiers)
     else
@@ -256,16 +345,16 @@ function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
         _prepare!(p, q, coupling, kernel, H, t, τ, L)
         if _all_pointwise(modifiers)
             for k in eachindex(v)
-                x = _at(gain, k, t) *
+                x = _at(gain, k, τ) *
                     _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                    _at(add, k, t)
+                    _at(add, k, τ)
                 H[L + t, k] = _thread(modifiers, states, x, τ, k)
             end
         else
             for k in eachindex(v)
-                v[k] = _at(gain, k, t) *
+                v[k] = _at(gain, k, τ) *
                     _pressure_at(coupling, kernel, q, H, t, τ, L, k) +
-                    _at(add, k, t)
+                    _at(add, k, τ)
             end
             _stages!(modifiers, states, v, τ)
             for k in eachindex(v)

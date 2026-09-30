@@ -67,7 +67,9 @@ function pressure!(q, C::SparseMatrixCSC, p, window, t)
     return q
 end
 
-function pressure!(q, C::TimeVarying{<:AbstractArray{<:Any, 3}}, p, window, t)
+function pressure!(
+        q, C::TimeVarying{_Secondary, <:AbstractArray{<:Any, 3}}, p, window, t
+    )
     X = C.x
     for a in axes(X, 1)
         acc = zero(eltype(q))
@@ -134,4 +136,21 @@ function _check_coupling(C::Union{TimeVarying, Pairwise}, S)
         )
     )
     return nothing
+end
+
+# The coupling slot: a time-varying coupling is `S × S × T`, read at time
+# `t`.
+_check_coupling_shape(C) = nothing
+function _check_coupling_shape(
+        ::TimeVarying{_Secondary, <:AbstractArray{<:Any, 3}}
+    )
+    return nothing
+end
+function _check_coupling_shape(::TimeVarying)
+    throw(
+        ArgumentError(
+            "a TimeVarying coupling is a strata × strata × time array with " *
+                "indexed_by = :secondary"
+        )
+    )
 end

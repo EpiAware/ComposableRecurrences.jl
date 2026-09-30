@@ -347,7 +347,7 @@ init_state_pullback!(m̄, h̄, ::Redistribute, history, s̄) = nothing
 
 _origin_at(ε::Real, q, t) = ε
 _origin_at(ε::AbstractVector, q, t) = ε[q]
-_origin_at(ε::TimeVarying{<:AbstractMatrix}, q, t) = ε.x[q, t]
+_origin_at(ε::TimeVarying{<:Any, <:AbstractMatrix}, q, t) = ε.x[q, t]
 _add_origin!(ε̄, ::Real, x, q, t) = _add_cotangent!(ε̄, x)
 _add_origin!(ε̄, ::AbstractVector, x, q, t) = _add_cotangent!(ε̄, x, q)
 _add_origin!(ε̄, ::TimeVarying, x, q, t) = _add_cotangent!(ε̄, x, q, t)

@@ -15,12 +15,9 @@
         resume = "resuming from the returned state continues the run" =>
             function (a)
             n = size(a.input, ndims(a.input)) ÷ 2
-            head = selectdim(a.input, ndims(a.input), 1:n)
-            rest = selectdim(
-                a.input, ndims(a.input), (n + 1):size(a.input, ndims(a.input))
-            )
-            y1, state = a.op(head; a.kwargs..., return_state = true)
-            y2 = a.op(rest; a.kwargs..., history = state)
+            y1, state = a.op(a.input; a.kwargs..., stop = n, return_state = true)
+            rest = Base.structdiff(a.kwargs, NamedTuple{(:history,)})
+            y2 = a.op(a.input; rest..., state)
             return cat(y1, y2; dims = ndims(a.input)) ≈
                 a.op(a.input; a.kwargs...)
         end,
