@@ -10,14 +10,12 @@ using ComposableRecurrences
 
 ## What ComposableRecurrences does
 
-Many time-series models step a value forward from a window of its own past.
-Renewal processes, autoregressions and random walks all work this way.
-Reporting delays instead weight past inputs by a kernel.
-ComposableRecurrences provides these two steps as operators, `Recurrence` and `Convolution`.
-An operator is built once from its kernel and then called like a function.
-Couplings and modifiers extend a recurrence to many strata, depletion and bounds.
-Every operator is differentiable with ForwardDiff, Mooncake and Enzyme.
-The package makes no epidemiological assumptions, so modelling packages build their models on top of it.
+With ComposableRecurrences you step a value forward from a window of its own past, as in a renewal process, an autoregression or a random walk.
+You can also weight past inputs by a kernel, as in a reporting delay.
+`Recurrence` and `Convolution` build these two steps from a kernel, and you call the result like a function.
+Couplings mix several strata, and modifiers add depletion, imports and bounds.
+You can chain operators, for example feeding a renewal process into a reporting delay.
+You can differentiate every operator with ForwardDiff, Mooncake and Enzyme.
 
 ## A first example
 

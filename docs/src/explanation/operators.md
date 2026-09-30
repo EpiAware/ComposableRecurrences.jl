@@ -56,7 +56,7 @@ A section on `r(; history, add)`, where the gain defaults to one and `T` comes f
 
 ## Prepending and trimming
 
-Operators do not prepend histories or trim outputs.
+You prepend histories and trim outputs yourself.
 A section on the conventions for random walks, AR and MA processes and delays.
 
 ## Composing operators
