@@ -31,19 +31,3 @@ naive vs package,T200_L20_S3,ComposableRecurrences,Enzyme reverse,ok,788.95,585.
 naive vs package,T200_L20_S3,hand loop,Enzyme reverse,ok,175.85,168.69,54,0.223,8.054381474340674e-16,ForwardDiff,19005eff,false
 naive vs package,T200_L20_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,19005eff,false
 naive vs package,T200_L20_S3,accumulate,Enzyme reverse,error,,,,,,,19005eff,false
-custom modifier,T100_L6_S1,forward only,primal,ok,6.80,6.07,47,1.000,,,19005eff,false
-custom modifier,T100_L6_S1,with pullback!,primal,ok,6.72,6.04,47,0.988,,,19005eff,false
-custom modifier,T100_L6_S1,forward only,ForwardDiff,ok,337.51,306.74,510,1.000,0.0,ForwardDiff,19005eff,false
-custom modifier,T100_L6_S1,with pullback!,ForwardDiff,ok,329.61,308.37,510,0.977,0.0,ForwardDiff,19005eff,false
-custom modifier,T100_L6_S1,forward only,Mooncake reverse,ok,187.66,180.16,1737,1.000,5.168775996488531e-16,ForwardDiff,19005eff,false
-custom modifier,T100_L6_S1,with pullback!,Mooncake reverse,ok,195.17,187.85,1737,1.040,5.168775996488531e-16,ForwardDiff,19005eff,false
-custom modifier,T100_L6_S1,forward only,Enzyme reverse,ok,91.92,87.68,256,1.000,1.1814345134830928e-15,ForwardDiff,19005eff,false
-custom modifier,T100_L6_S1,with pullback!,Enzyme reverse,ok,91.72,88.74,256,0.998,1.1814345134830928e-15,ForwardDiff,19005eff,false
-custom modifier,T200_L20_S1,forward only,primal,ok,11.83,10.41,47,1.000,,,19005eff,false
-custom modifier,T200_L20_S1,with pullback!,primal,ok,11.15,10.32,47,0.942,,,19005eff,false
-custom modifier,T200_L20_S1,forward only,ForwardDiff,ok,2820.80,2674.06,1134,1.000,0.0,ForwardDiff,19005eff,false
-custom modifier,T200_L20_S1,with pullback!,ForwardDiff,ok,2853.63,2675.84,1134,1.012,0.0,ForwardDiff,19005eff,false
-custom modifier,T200_L20_S1,forward only,Mooncake reverse,ok,243.49,230.35,2537,1.000,8.574175681007661e-16,ForwardDiff,19005eff,false
-custom modifier,T200_L20_S1,with pullback!,Mooncake reverse,ok,247.86,237.39,2537,1.018,8.574175681007661e-16,ForwardDiff,19005eff,false
-custom modifier,T200_L20_S1,forward only,Enzyme reverse,ok,131.27,126.42,256,1.000,1.4698586881727418e-15,ForwardDiff,19005eff,false
-custom modifier,T200_L20_S1,with pullback!,Enzyme reverse,ok,128.73,125.10,256,0.981,1.4698586881727418e-15,ForwardDiff,19005eff,false

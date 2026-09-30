@@ -340,8 +340,9 @@ case(name) = CASES[findfirst(c -> c.name == name, CASES)]
 """
 The size tiers. `smoke` checks every case at a tiny size; `docs` is the
 getting-started model at the page's size and at T 200, L 20; `convolved`
-holds the delay-distribution shapes (#19, #31, #32); `ci` is the AirspeedVelocity subset; `realistic` spans
-T 200-400, L 20-60 and S 1/5/50; `large` is S = 500, T = 2000.
+holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
+`realistic` spans T 200-400, L 20-60 and S 1/5/50; `large` is S = 500,
+T = 2000.
 """
 const TIERS = Dict(
     "smoke" => (

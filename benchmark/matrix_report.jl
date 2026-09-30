@@ -521,6 +521,13 @@ function docs_csv(run)
                 r === nothing && continue
                 startswith(r["status"], "skipped") && continue
                 m = run.meta["docs " * target]
+                # Without the backend's rules a pullback! is never called, so
+                # the modifier block would time the same code twice.
+                block == "custom modifier" && !_isprimal(target) &&
+                    target != "ForwardDiff" && get(m, "rules", "") != "true" &&
+                    continue
+                block == "custom modifier" &&
+                    (_isprimal(target) || target == "ForwardDiff") && continue
                 ok = _ok(r)
                 status = ok ? "ok" : first(split(r["status"], ':'))
                 num(k) = ok ? @sprintf("%.2f", _num(r, k) / 1.0e3) : ""
