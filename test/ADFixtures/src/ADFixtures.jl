@@ -290,6 +290,8 @@ supports(features::Symbol...) = all(s -> isdefined(ComposableRecurrences, s), fe
 # that uses a new public name, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
+    "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence Transform with per-stratum parameters" => (:Transform,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same

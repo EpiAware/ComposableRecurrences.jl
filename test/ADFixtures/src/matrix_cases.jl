@@ -409,6 +409,8 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
+    "strata_vaccination" => (:Protected,),
+    "transform" => (:Transform,),
 )
 
 """
