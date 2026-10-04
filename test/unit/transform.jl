@@ -210,14 +210,12 @@ end
     @test ∇ ≈ fd rtol = 1.0e-6
 end
 
-@testitem "Transform: the local derivative comes from the ForwardDiff extension" begin
+@testitem "Transform: the local derivative runs on an outer dual" begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
-    ext = Base.get_extension(CR, :ComposableRecurrencesForwardDiffExt)
-    @test ext !== nothing
     # The derivative also runs on an outer dual, as in forward-over-reverse.
     # Each entry's cotangent depends on every entry (∂²f/∂p∂r ≠ 0), so the
-    # mirror takes the piece's promoted eltype, not each entry's own.
+    # mirror takes the modifier's promoted eltype, not each entry's own.
     nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
     m(r) = CR.Transform(nb, (; r, p = 0.4))
     function pb(r)
@@ -238,10 +236,9 @@ end
 @testitem "Transform: pullback edge cases and refusals" begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
-    # Without the extension the core stub names both fixes.
-    @test_throws "needs ForwardDiff" invoke(
-        CR._forward_derivative, Tuple{Any, Any, Any}, log1p, 0.3, nothing
-    )
+    # A map whose output does not depend on its inputs has zero partials.
+    @test CR._forward_derivative((v, θ) -> 1.0, 0.3, (; a = 2.0)) ==
+        (0.0, (; a = 0.0))
     # A map with float fields and no derivative is left to the AD backend.
     struct Shift{T}
         b::T
@@ -258,7 +255,34 @@ end
     @test CR.pullback!(grads, m, CR.Init(), zeros(2), ones(2, 1)) === nothing
 end
 
-@testitem "Transform implements the piece interface" begin
+@testitem "Transform: the rule covers it unless the map has float fields" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
+    struct Shift{T}
+        b::T
+    end
+    (f::Shift)(v, θ) = θ * v + f.b
+    rule(m) = CR.uses_adjoint(Recurrence([0.5]; modifiers = (m,)), CR.Run())
+    # Scalars, per-stratum vectors, time-varying and named tuples of them.
+    for (f, θ) in (
+            (*, 0.5), (*, PerStratum([0.5, 0.7])), (*, TimeVarying([0.5, 0.6])),
+            (nb, (; r = PerStratum([0.5, 0.7]), p = TimeVarying(PerStratum(ones(2, 3))))),
+        )
+        m = CR.Transform(f, θ)
+        @test CR.uses_adjoint(m, CR.Step())
+        @test rule(m)
+    end
+    @test rule(CR.Transform(log1p))
+    # A map with float fields is left to plain AD, with or without θ arrays,
+    # unless a derivative is supplied.
+    @test !CR.uses_adjoint(CR.Transform(Shift(0.1), 2.0), CR.Step())
+    @test !rule(CR.Transform(Shift(0.1), 2.0))
+    @test !rule(CR.Transform(Shift(0.1), PerStratum([1.0, 2.0])))
+    @test rule(CR.Transform(Shift(0.1), 2.0; derivative = (v, θ) -> (θ, v)))
+end
+
+@testitem "Transform implements the role interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     @test Interfaces.implements(CR.PieceInterface, CR.Transform)

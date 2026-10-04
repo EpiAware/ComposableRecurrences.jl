@@ -178,7 +178,11 @@ the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.
-An object without this method is differentiated by the AD backend.
+Declare [`ComposableRecurrences.uses_adjoint`](@ref) for the same role so
+an operator's native rule calls it.
+Without one, a pointwise modifier with only scalar float parameters is
+differentiated locally with `ForwardDiff`, and any other object makes the AD
+backend differentiate the whole operator.
 
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of

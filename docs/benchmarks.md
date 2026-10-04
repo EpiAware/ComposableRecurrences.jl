@@ -10,6 +10,9 @@ setup and CI plumbing belongs in the repo, not on a results page. -->
 
 `ComposableRecurrences` benchmarks its core operations to track performance over time.
 
-Describe here what the suite covers (the operations measured, any analytical
-vs numerical comparisons) and anything needed to read the results above
-correctly.
+The "AD gradients" group times the gradient of each scenario in the package's AD test registry on each supported backend.
+Scenarios declared broken or skipped for a backend are left out of that backend's rows.
+The "Evaluation" group times the forward run of each benchmark matrix case at its CI size.
+Each matrix case also has gradient rows on the reverse-mode backends, once as users call the operator and once, prefixed "NoAdjoint", with any hand-written adjoint bypassed.
+
+Run the suite locally with `julia --project=benchmark benchmark/run.jl`.

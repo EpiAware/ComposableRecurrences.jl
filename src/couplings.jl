@@ -9,13 +9,14 @@ function forward(J::UniformScaling, ::Pressure, q, p, t)
     return nothing
 end
 
+# Column by column, the order a column-major matrix is stored in.
 function forward(C::AbstractMatrix, ::Pressure, q, p, t)
-    for a in axes(C, 1)
-        acc = zero(eltype(q))
-        for b in axes(C, 2)
-            acc += C[a, b] * p[b]
+    fill!(q, zero(eltype(q)))
+    for b in axes(C, 2)
+        pb = p[b]
+        for a in axes(C, 1)
+            q[a] += C[a, b] * pb
         end
-        q[a] = acc
     end
     return nothing
 end
@@ -45,12 +46,91 @@ function forward(
         C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure, q, p, t
     )
     X = C.x
-    for a in axes(X, 1)
-        acc = zero(eltype(q))
-        for b in axes(X, 2)
-            acc += X[a, b, t] * p[b]
+    fill!(q, zero(eltype(q)))
+    for b in axes(X, 2)
+        pb = p[b]
+        for a in axes(X, 1)
+            q[a] += X[a, b, t] * pb
         end
-        q[a] = acc
+    end
+    return nothing
+end
+
+# The reverse pass of the built-in couplings: `grads.q` is the pressure's
+# cotangent, `grads.p` accumulates the kernel convolutions' and
+# `grads.piece` the coupling's own. A sparse coupling's cotangent keeps its
+# sparsity pattern.
+uses_adjoint(
+    ::Union{
+        UniformScaling, AbstractMatrix,
+        TimeVarying{Secondary, <:AbstractArray{<:Any, 3}},
+    },
+    ::Pressure
+) = true
+
+function pullback!(grads, J::UniformScaling, ::Pressure, q, p, t)
+    q̄, p̄ = grads.q, grads.p
+    λ̄ = cotangent(grads.piece, :λ)
+    for a in eachindex(q̄, p)
+        p̄[a] += J.λ * q̄[a]
+        add_cotangent!(λ̄, q̄[a] * p[a])
+    end
+    return nothing
+end
+
+function pullback!(grads, C::AbstractMatrix, ::Pressure, q, p, t)
+    q̄, p̄, C̄ = grads.q, grads.p, grads.piece
+    for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        for a in axes(C, 1)
+            acc += C[a, b] * q̄[a]
+            add_cotangent!(C̄, q̄[a] * p[b], a, b)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+
+function pullback!(grads, C::Diagonal, ::Pressure, q, p, t)
+    q̄, p̄ = grads.q, grads.p
+    d̄ = cotangent(grads.piece, :diag)
+    for a in eachindex(q̄, p)
+        p̄[a] += C.diag[a] * q̄[a]
+        add_cotangent!(d̄, q̄[a] * p[a], a)
+    end
+    return nothing
+end
+
+function pullback!(grads, C::SparseMatrixCSC, ::Pressure, q, p, t)
+    q̄, p̄ = grads.q, grads.p
+    rows = rowvals(C)
+    vals = nonzeros(C)
+    nz̄ = cotangent(grads.piece, :nzval)
+    for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        for idx in nzrange(C, b)
+            acc += vals[idx] * q̄[rows[idx]]
+            add_cotangent!(nz̄, q̄[rows[idx]] * p[b], idx)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+
+function pullback!(
+        grads, C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure,
+        q, p, t
+    )
+    q̄, p̄ = grads.q, grads.p
+    X = C.x
+    X̄ = cotangent(grads.piece, :x)
+    for b in axes(X, 2)
+        acc = zero(eltype(p̄))
+        for a in axes(X, 1)
+            acc += X[a, b, t] * q̄[a]
+            add_cotangent!(X̄, q̄[a] * p[b], a, b, t)
+        end
+        p̄[b] += acc
     end
     return nothing
 end

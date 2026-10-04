@@ -140,27 +140,36 @@ end
 ComposableRecurrences.param_eltype(Scale(1.0f0, (; b = 2)))
 ```
 "
-param_eltype(x) = _fields_eltype(x, Val(fieldcount(typeof(x))))
+param_eltype(x) = _fields_eltype(x)
 param_eltype(x::Real) = typeof(x)
 param_eltype(x::AbstractArray{<:Real}) = eltype(x)
 function param_eltype(x::AbstractArray)
     return mapreduce(param_eltype, promote_type, x; init = Bool)
 end
-function param_eltype(x::Union{Tuple, NamedTuple})
-    return promote_type(Bool, map(param_eltype, values(x))...)
-end
+param_eltype(x::Union{Tuple, NamedTuple}) = _fields_eltype(x)
 param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 
-# Promote over the first `N` fields, unrolled so a concrete struct infers.
-_fields_eltype(x, ::Val{0}) = Bool
-function _fields_eltype(x, ::Val{N}) where {N}
-    return promote_type(
-        _fields_eltype(x, Val(N - 1)), param_eltype(getfield(x, N))
-    )
+# Promote over the fields of `x` (a struct, tuple or named tuple), unrolled
+# so a concrete type infers. The recursion goes only through
+# `param_eltype(field)`, whose argument is part of its parent. A recursion
+# that carries the field count or a tuple's length in its signature
+# (`Val(N)`, `map` over a tuple) is widened by inference's recursion limit
+# when an inner struct has more fields than an outer one, as
+# `Depletion` inside a `Recurrence` does (#70).
+@generated function _fields_eltype(x)
+    calls = (:(param_eltype(getfield(x, $i))) for i in 1:fieldcount(x))
+    return :(promote_type(Bool, $(calls...)))
 end
 
 # A zeroed array like `x` of eltype `T` and size `dims`.
 _zeros(x, ::Type{T}, dims...) where {T} = fill!(similar(x, T, dims), zero(T))
+# CPU arrays allocate with `zeros`, which AD backends treat as one call
+# rather than tracing the fill.
+const _CPUArray = Union{
+    Array, SubArray{<:Any, <:Any, <:Array}, Base.ReshapedArray{<:Any, <:Any, <:Array},
+    Base.ReshapedArray{<:Any, <:Any, <:SubArray{<:Any, <:Any, <:Array}},
+}
+_zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
