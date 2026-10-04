@@ -156,9 +156,10 @@ seed_iso = fill(10.0, 6)
 end
 
 # Without isolation the outbreak keeps growing, and both isolation curves turn down around day 30.
-# Read by calendar day, every case already infectious on day 30 is thinned at once, as if it were isolated on the spot, so infections drop that day.
+# Read by calendar day, every case already infectious on day 30 is thinned at once, as if its isolation had applied from infection, so infections halve that day.
 # Read by infection day, cases infected shortly before the start keep most of their transmission, because an isolation dated before day 30 does not happen.
-# Infections then peak a day later and stay about twice as high while those cases finish transmitting.
+# Infections then peak on day 31.
+# The extra cases from those cohorts seed later generations, so infections stay just under twice as high from then on.
 
 # ## Learning more
 #
