@@ -235,6 +235,29 @@ end
         ForwardDiff.derivative(∂p, 0.5)
 end
 
+@testitem "Transform: pullback edge cases and refusals" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # Without the extension the core stub names both fixes.
+    @test_throws "needs ForwardDiff" invoke(
+        CR._forward_derivative, Tuple{Any, Any, Any}, log1p, 0.3, nothing
+    )
+    # A map with float fields and no derivative is left to the AD backend.
+    struct Shift{T}
+        b::T
+    end
+    (f::Shift)(v) = v + f.b
+    grads = (; piece = nothing, v = 1.0, s = 0.0)
+    @test_throws "differentiated by the AD backend" CR.pullback!(
+        grads, CR.Transform(Shift(0.5)), CR.Step(), 0.3, 0.0, 1, 1
+    )
+    # Without a θ mirror only the value cotangent is returned.
+    m = CR.Transform((v, θ) -> θ.a * v^2, (; a = 2.0))
+    @test CR.pullback!(grads, m, CR.Step(), 0.3, 0.0, 1, 1) == (1.2, 0.0)
+    # Init has no parameters to pull back.
+    @test CR.pullback!(grads, m, CR.Init(), zeros(2), ones(2, 1)) === nothing
+end
+
 @testitem "Transform implements the piece interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
