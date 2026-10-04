@@ -17,6 +17,7 @@ This table maps common model parts to the code that builds them, with the tutori
 | Importation between patches | a share ``\varepsilon_j K_{ij}`` of patch ``j``'s infections occurs in patch ``i`` | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | [Spatial and multi-type models](@ref tutorial-spatial-strata) |
 | Districts sharing a patch total ``\bar I_{t,p}`` fixed elsewhere | ``I_{t,i} = \bar I_{t,p}\, u_{t,i} / \sum_{j \in p} u_{t,j}``, with ``u_{t,i}`` district ``i``'s own renewal value | [`Allocate(groups, TimeVarying(PerStratum(Ī)))`](@ref ComposableRecurrences.Allocate) | [Spatial and multi-type models](@ref tutorial-spatial-strata) |
 | Isolation | ``w_l \big(1 - p\, b\, F(l)\big)`` | a thinned kernel `w .* (1 .- p * b .* F)` | [Spatial and multi-type models](@ref tutorial-spatial-strata) |
+| Branching-process extinction by generation | ``q_t = G(q_{t-1})``, ``q_0 = 0``, with ``G`` the offspring probability generating function | `Recurrence([1.0]; modifiers = (Transform(G, θ),))(; history = [0.0], stop)` | – |
 | Bed occupancy | ``O_t = (1 - \delta) O_{t-1} + A_t`` | `Recurrence([1 - δ])(; history, add = A)`, or `Convolution((1 - δ) .^ (0:T-1))` | [Occupancy and capacity](@ref tutorial-occupancy) |
 | Bed cap | ``O_t = \min(O_t, B)`` | [`Clamp(0, B)`](@ref ComposableRecurrences.Clamp) | [Occupancy and capacity](@ref tutorial-occupancy) |
 | Forecast after a fit | continue ``I_t`` from the fitted days | [`with_state`](@ref ComposableRecurrences.with_state), then `r(R; state)` | [Renewal then delay](@ref tutorial-renewal-delay) |

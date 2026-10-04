@@ -182,6 +182,21 @@ function _delay_varying_secondary(w, θ)
     return sum(WS[:, 4:end] .* w(Convolution(TimeVarying(G)))(X; history = H, start = 4))
 end
 
+# A negative binomial probability generating function iterated per
+# stratum, mixed by the coupling, with per-stratum dispersion and
+# probability.
+_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+function _transform(w, θ)
+    r, p = _unpack(θ, (S,), (S,))
+    m = ComposableRecurrences.Transform(
+        _pgf, (; r = PerStratum(r), p = PerStratum(p))
+    )
+    q = w(Recurrence([1.0]; coupling = K0, modifiers = (m,)))(
+        ; history = zeros(S, 1), stop = T
+    )
+    return sum(WS .* q)
+end
+
 _flat(xs...) = reduce(vcat, map(vec, xs))
 
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
@@ -232,6 +247,10 @@ const _SCENARIOS = [
     (
         "Convolution time-varying kernel indexed by output", _delay_varying_secondary,
         () -> _flat(fill(0.25, L, T), 1 .+ LOGR, ones(S, 2)),
+    ),
+    (
+        "Recurrence Transform with per-stratum parameters", _transform,
+        () -> _flat([0.5, 0.6, 0.7], [0.2, 0.3, 0.4]),
     ),
 ]
 

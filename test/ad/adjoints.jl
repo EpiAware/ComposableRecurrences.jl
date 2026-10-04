@@ -43,6 +43,9 @@
         return v′, s - v′
     end
 
+    # A negative binomial probability generating function for `Transform`.
+    nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+
     # The positional arguments of a Recurrence's Run.
     function rec(gain, add, h; start = 1, states = nothing, stop = nothing)
         return (gain, add, h, states, start, stop)
@@ -106,6 +109,34 @@
             (
                 "with state",
                 CR._WithState(Recurrence(g; coupling = K, modifiers = (Hazard(60.0),))),
+                rec(R, nothing, h),
+            ),
+            (
+                "Transform, scalar parameters",
+                Recurrence([1.0]; modifiers = (CR.Transform(nb_pgf, (; r = 0.5, p = 0.4)),)),
+                rec(true, nothing, [0.1]; stop = T),
+            ),
+            (
+                "Transform, per-stratum and time-varying parameters",
+                Recurrence(
+                    g; coupling = K, modifiers = (
+                        CR.Transform(
+                            nb_pgf, (;
+                                r = PerStratum([0.5, 0.7, 0.9]),
+                                p = TimeVarying(0.2 .+ 0.5 .* rand(rng, T)),
+                            )
+                        ),
+                    )
+                ),
+                rec(R ./ 4, nothing, h ./ 4),
+            ),
+            (
+                "Transform, no parameter and a supplied derivative",
+                Recurrence(
+                    g; coupling = K, modifiers = (
+                        CR.Transform(log1p), CR.Transform(sqrt; derivative = v -> 1 / (2sqrt(v))),
+                    )
+                ),
                 rec(R, nothing, h),
             ),
             ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1, nothing)),
@@ -335,6 +366,43 @@ end
         n0 = CR._PULLBACK_CALLS[]
         @test gradient(f, backend, θ) ≈ ref
         @test (CR._PULLBACK_CALLS[] > n0) == fires
+    end
+end
+
+@testitem "Transform: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Mooncake, Enzyme, ForwardDiff
+    using ComposableRecurrences: NoAdjoint
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    W = [cos(a * t) for a in 1:2, t in 1:8]
+    K = [0.8 0.2; 0.3 0.7]
+    function run(w, m)
+        r = Recurrence([0.6, 0.3]; coupling = K, modifiers = (m,))
+        return sum(W .* w(r)(fill(1.1, 2, 8); history = fill(0.2, 2, 2)))
+    end
+    # Parameters in θ: per stratum, time-varying and scalar.
+    θm(θ) = CR.Transform(
+        nb_pgf, (; r = PerStratum(θ[1:2]), p = TimeVarying(θ[3:10]))
+    )
+    # A closure's captured value is not in θ, so plain AD takes it.
+    shift(b) = (v, a) -> a * v + b
+    cm(θ) = CR.Transform(shift(θ[1]), θ[2])
+    θ0 = [0.5, 0.8, collect(range(0.2, 0.6; length = 8))...]
+    for (m, θ, fires) in ((θm, θ0, true), (cm, [0.1, 0.9], false)), w in (identity, NoAdjoint)
+        f(θ) = run(w, m(θ))
+        ref = gradient(f, AutoForwardDiff(), θ)
+        for backend in backends
+            n0 = CR._PULLBACK_CALLS[]
+            @test gradient(f, backend, θ) ≈ ref
+            @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
+        end
     end
 end
 

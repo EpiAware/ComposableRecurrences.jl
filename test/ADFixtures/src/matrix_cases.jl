@@ -299,6 +299,25 @@ end
 conv_primary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Primary())
 conv_secondary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Secondary())
 
+# Multi-type branching-process extinction by generation: a negative
+# binomial probability generating function per stratum, iterated through a
+# generation interval and a mixing matrix.
+_nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+function transform(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    K = S == 1 ? ones(1, 1) : fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
+    f = function (θ)
+        g, r, p = _unpack(θ, (L,), (S,), (S,))
+        m = CR.Transform(_nb_pgf, (; r = PerStratum(r), p = PerStratum(p)))
+        y = wrap(Recurrence(g; coupling = K, modifiers = (m,)))(
+            ; history = zeros(S, L), stop = T
+        )
+        return sum(W .* y)
+    end
+    return f, _flat(_gi(L), fill(0.5, S), [0.2 + 0.2 * k / S for k in 1:S])
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -352,10 +371,14 @@ const CASES = [
         "conv_secondary", "pmf per output time (L × T)", conv_secondary, [1],
         false,
     ),
+    Case(
+        "transform", "per-stratum PGF iteration, Transform modifier",
+        transform, [5, 50], false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
-pending_cases() = [("transform", "pointwise Transform modifier (M4)")]
+pending_cases() = Tuple{String, String}[]
 
 "The case called `name`."
 case(name) = CASES[findfirst(c -> c.name == name, CASES)]
