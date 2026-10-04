@@ -131,7 +131,7 @@ end
 # `v̄_k = (T_p / s_p)(ȳ_k − a)`; on the floor the sum term drops.
 function pullback!(grads, m::Allocate, ::Step, v, s, t)
     v̄ = grads.v
-    T̄ = _cotangent(grads.piece, :total)
+    T̄ = cotangent(grads.piece, :total)
     ε = eps(eltype(v))
     for (p, zs) in enumerate(m.groups)
         tot = zero(eltype(v))
@@ -151,3 +151,6 @@ function pullback!(grads, m::Allocate, ::Step, v, s, t)
     end
     return nothing
 end
+
+# The pullback above is the adjoint the analytic `Recurrence` rule uses.
+uses_adjoint(::Allocate, ::Step) = true

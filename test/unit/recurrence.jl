@@ -256,8 +256,11 @@ end
     @test_throws ArgumentError Recurrence(ones(2, 3))
     @test_throws ArgumentError Recurrence(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Recurrence(PerStratum(ones(2, 3, 4)))
-    # Primary indexing is not yet supported, and not a coupling's meaning.
-    @test_throws ArgumentError Recurrence(TimeVarying(ones(3, 4), ComposableRecurrences.Primary()))
+    # Primary indexing is a convolution kernel's, not a recurrence's or a coupling's.
+    @test_throws ArgumentError(
+        "Recurrence takes a Secondary() time-varying kernel, " *
+            "not Primary(), which is for Convolution"
+    ) Recurrence(TimeVarying(ones(3, 4), ComposableRecurrences.Primary()))
     @test_throws ArgumentError Recurrence(
         g; coupling = TimeVarying(ones(2, 2, 4), ComposableRecurrences.Primary())
     )
@@ -275,6 +278,10 @@ end
         ones(2, 5); history = ones(2, 3)
     )
     @test_throws DimensionMismatch Recurrence(g)(ones(3, 5); history = ones(2, 3))
+    # A 2-D time-varying coupling is refused even when T equals S.
+    @test_throws ArgumentError Recurrence(g; coupling = TimeVarying(ones(2, 2)))(
+        ones(2, 2); history = ones(2, 3)
+    )
 end
 
 @testitem "Recurrence: resume from the returned state" setup = [TestModifiers] begin
@@ -422,4 +429,22 @@ end
     ϵ = collect(0.1:0.1:0.8)
     @test CR.seeded(Recurrence([0.5]), 1.0; history = [1.0], add = ϵ) ==
         vcat(1.0, Recurrence([0.5])(1.0; history = [1.0], add = ϵ, start = 2))
+end
+
+@testitem "Recurrence: history loads the same into any buffer" begin
+    import ComposableRecurrences as CR
+    using Random
+    rng = Xoshiro(16)
+    L, S = 4, 3
+    # Histories shorter and longer than the buffer's `L` rows.
+    for m in (2, 6)
+        h = rand(rng, m)
+        H = rand(rng, S, m)
+        for (buf, src) in ((zeros(L + 2, 1), h), (zeros(L + 2, S), H))
+            # `Array` buffers load by loop; a view takes the broadcast fallback.
+            alt = view(zeros(size(buf)), :, :)
+            @test !(alt isa Array)
+            @test CR._load_history!(alt, src, L) == CR._load_history!(buf, src, L)
+        end
+    end
 end
