@@ -225,6 +225,8 @@ end
             (CR.Depletion(50.0, CR.Floor(); heterogeneity = 1.5),),
             (CR.Redistribute(K, PerStratum([0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
             (CR.Clamp(0.0, 3.0),),
+            (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
+            (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
         )
         r = Recurrence(g; coupling = K, modifiers = mods)
         @test pullback_matches(r, recargs(R, nothing, h)...)
@@ -291,6 +293,7 @@ end
             Recurrence(g), Recurrence(g; coupling = K),
             Recurrence(g; modifiers = (CR.Depletion(50.0),)),
             Recurrence(g; modifiers = (Slope(0.3),)),
+            Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
         )
         @test CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{true}]
