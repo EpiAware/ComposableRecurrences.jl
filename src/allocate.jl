@@ -1,3 +1,6 @@
+# Marks the constructor that takes the flat fields as they are.
+struct _Flat end
+
 @doc raw"
 Rescales each group of strata to an exogenous total: the strata of a group
 keep their shares of the group's value and the group takes its total.
@@ -19,6 +22,9 @@ with ``\epsilon`` the machine epsilon of the buffer eltype, so the group
 sums of ``v'`` equal the totals wherever ``\sigma_p > \epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
+The groups are stored flat, in the fields `strata` (each group's strata in
+turn) and `offsets` (where each group starts), so the analytic adjoint sees
+only integer arrays and `total`.
 `total` is a parameter over groups, not strata: one value,
 [`PerStratum`](@ref) (one per group), [`TimeVarying`](@ref) (one per time)
 or `TimeVarying(PerStratum(T))` with `T` groups × time, read at the
@@ -51,18 +57,35 @@ split = CR.Allocate([1:2, 3:3], TimeVarying(PerStratum(totals)))
 Recurrence([0.6, 0.4]; modifiers = (split,))(fill(1.2, 3, 4); history = ones(3, 2))
 ```
 "
-struct Allocate{G <: AbstractVector, T}
-    "The groups, one vector of stratum indices each."
-    groups::G
+struct Allocate{T}
+    "The strata of every group, group by group."
+    strata::Vector{Int}
+    "Group `p` is `strata[(offsets[p] + 1):offsets[p + 1]]`."
+    offsets::Vector{Int}
     "Each group's total: one value, `PerStratum` or `TimeVarying`."
     total::T
-    function Allocate(groups::G, total::T) where {G <: AbstractVector, T}
+    function Allocate(groups::AbstractVector, total::T) where {T}
         _check_groups(groups)
         _check_param(:total, total)
         _check_group_totals(total, length(groups))
-        return new{G, T}(groups, total)
+        strata = Int[k for zs in groups for k in zs]
+        offsets = cumsum([0; length.(groups)])
+        return new{T}(strata, offsets, total)
+    end
+    function Allocate(::_Flat, strata, offsets, total::T) where {T}
+        return new{T}(strata, offsets, total)
     end
 end
+
+# An `Allocate` rebuilt from its fields, for the local derivatives and the
+# adjoint tests.
+_allocate_flat(strata, offsets, total) = Allocate(_Flat(), strata, offsets, total)
+_constructorof(::Type{<:Allocate}) = _allocate_flat
+
+# The groups are stored flat, as index vectors, so the analytic rules see
+# only integer arrays and the total.
+_ngroups(m::Allocate) = length(m.offsets) - 1
+_group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
 
 # The groups are disjoint, non-empty vectors of positive indices; that they
 # cover every stratum is checked once the strata are known.
@@ -91,12 +114,12 @@ function _check_group_totals(total::PerStratum, P)
     return nothing
 end
 
-function _check_partition(groups, S)
-    n = sum(length, groups; init = 0)
-    n == S && all(zs -> all(k -> k <= S, zs), groups) || throw(
+function _check_partition(m::Allocate, S)
+    n = length(m.strata)
+    n == S && maximum(m.strata) <= S || throw(
         ArgumentError(
             "the groups cover $n strata with indices up to " *
-                "$(maximum(maximum, groups)); they must partition 1:$S"
+                "$(maximum(m.strata)); they must partition 1:$S"
         )
     )
     return nothing
@@ -106,7 +129,7 @@ end
 param_eltype(m::Allocate) = param_eltype(m.total)
 
 function forward(m::Allocate, ::Init, s, history)
-    _check_partition(m.groups, length(s))
+    _check_partition(m, length(s))
     fill!(s, zero(eltype(s)))
     return nothing
 end
@@ -114,7 +137,8 @@ pullback!(grads, ::Allocate, ::Init, s, history) = nothing
 
 function forward(m::Allocate, ::Step, v, s, t)
     ε = eps(eltype(v))
-    for (p, zs) in enumerate(m.groups)
+    for p in 1:_ngroups(m)
+        zs = _group(m, p)
         tot = zero(eltype(v))
         for k in zs
             tot += v[k]
@@ -133,7 +157,8 @@ function pullback!(grads, m::Allocate, ::Step, v, s, t)
     v̄ = grads.v
     T̄ = cotangent(grads.piece, :total)
     ε = eps(eltype(v))
-    for (p, zs) in enumerate(m.groups)
+    for p in 1:_ngroups(m)
+        zs = _group(m, p)
         tot = zero(eltype(v))
         a = zero(eltype(v̄))
         for k in zs
