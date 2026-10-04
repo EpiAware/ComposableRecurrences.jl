@@ -10,8 +10,8 @@ total,
 
 ```math
 \begin{aligned}
-\sigma_p &= \max\Big(\sum_{j \in G_p} v_j,\ \epsilon\Big) \
-v'_i &= T_{t,p}\, \frac{v_i}{\sigma_p}, \quad i \in G_p
+\sigma_p &= \max\Big(\sum_{j \in G_p} v_j,\ \epsilon\Big), \\
+v'_i &= T_{t,p}\, \frac{v_i}{\sigma_p}, \quad i \in G_p,
 \end{aligned}
 ```
 
