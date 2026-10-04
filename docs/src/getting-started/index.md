@@ -64,7 +64,6 @@ Town A turns before the intervention because its susceptible pool runs down.
 
 ```@example overview
 using ComposableRecurrences: Floor, Add # hide
-using Printf # hide
 results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv") # hide
 bench = if isfile(results) # hide
     lines = readlines(results) # hide
