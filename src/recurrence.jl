@@ -196,12 +196,14 @@ function with_state(op, args...; kwargs...)
 end
 
 # A Primary() kernel reads the column of each value's own time, so a seed
-# must sit at times from 1: `start > m` for a seed of length `m`.
+# must sit at times from 1: `start > m` for a seed of length `m`. The check
+# runs once per call, so it stays out of line (which also lets coverage
+# count its signature line).
 _check_primary_seed(kernel, history, start) = nothing
-function _check_primary_seed(::TimeVarying{Primary}, history, start)
-    history === nothing && return nothing
+_check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
+@noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
     m = size(history, ndims(history))
-    s = start === nothing ? 1 : start
+    s = something(start, 1)
     s > m || throw(
         ArgumentError(
             "a Primary() kernel reads the column of each value's own time, " *
