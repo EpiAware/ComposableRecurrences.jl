@@ -565,7 +565,7 @@ end
 # Each modifier's initial state, written by its Init into a vector at the
 # buffer eltype.
 function _init_state(::Type{Tp}, m, h, S) where {Tp}
-    s = _zeros(h, Tp, S)
+    s = _zeros(h, Tp, _nstate(m, S))
     forward(m, Init(), s, h)
     return s
 end
@@ -595,7 +595,10 @@ function _run(
     P = record ? _zeros(h, Tp, S, T) : nothing
     X = record ? _zeros(h, Tp, S, T) : nothing
     rec = record ?
-        map(_ -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, S, T)), modifiers) :
+        map(
+            m -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, _nstate(m, S), T)),
+            modifiers
+        ) :
         nothing
     for t in 1:T
         τ = τ0 + t - 1

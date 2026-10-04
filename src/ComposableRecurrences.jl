@@ -39,7 +39,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
-| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`              |
+| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
 
@@ -74,10 +74,11 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public Depletion, Redistribute, Add, Clamp, Allocate, Hazard, Floor,
-    Primary, Secondary, seeded, with_state, State, forward, pullback!, Step,
-    Init, Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface,
-    uses_adjoint, test_adjoint, cotangent, add_cotangent!
+public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
+    Hazard, Floor, Primary, Secondary, seeded, with_state, State, forward,
+    pullback!, Step, Init, Pressure, Run, ispointwise, param_eltype,
+    NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
+    add_cotangent!
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -89,6 +90,8 @@ include("modifiers.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
+# Depletion with removals and a protected pool.
+include("depletion_pools.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.
@@ -103,5 +106,7 @@ include("convolution.jl")
 include("fallbacks.jl")
 # Interfaces.jl declaration of the role interface.
 include("interfaces.jl")
+# The Transform modifier, a pointwise map with parameters.
+include("transform.jl")
 
 end # module ComposableRecurrences

@@ -166,6 +166,25 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# Strata with leaky vaccination: doses move susceptibles into a protected
+# pool drawn from at relative susceptibility σ.
+function strata_vaccination(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    f = function (θ)
+        g, logh, logR, doses, σ = _unpack(θ, (L,), (S, L), (S, T), (S, T), (1,))
+        d = CR.Depletion(
+            pop; removals = TimeVarying(PerStratum(doses)),
+            protected = CR.Protected(only(σ))
+        )
+        r = Recurrence(g; modifiers = (d,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    doses = [100.0 * (1 + _noise(t, k + 9)) for k in 1:S, t in 1:T]
+    return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
+end
+
 # BVD's unmixed zone split: the zones renew from their own infections and
 # each group of zones (a province) takes its total from outside, shared by
 # the force each zone earns. Five zones per group.
@@ -301,6 +320,25 @@ end
 conv_primary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Primary())
 conv_secondary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Secondary())
 
+# Multi-type branching-process extinction by generation: a negative
+# binomial probability generating function per stratum, iterated through a
+# generation interval and a mixing matrix.
+_nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+function transform(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    K = S == 1 ? ones(1, 1) : fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
+    f = function (θ)
+        g, r, p = _unpack(θ, (L,), (S,), (S,))
+        m = CR.Transform(_nb_pgf, (; r = PerStratum(r), p = PerStratum(p)))
+        y = wrap(Recurrence(g; coupling = K, modifiers = (m,)))(
+            ; history = zeros(S, L), stop = T
+        )
+        return sum(W .* y)
+    end
+    return f, _flat(_gi(L), fill(0.5, S), [0.2 + 0.2 * k / S for k in 1:S])
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -329,6 +367,10 @@ const CASES = [
         bvd_patch, [5, 50], false,
     ),
     Case(
+        "strata_vaccination", "leaky vaccination into a protected pool",
+        strata_vaccination, [5, 50], false,
+    ),
+    Case(
         "zone_allocate", "zones sharing exogenous group totals",
         zone_allocate, [5, 50], false,
     ),
@@ -354,10 +396,14 @@ const CASES = [
         "conv_secondary", "pmf per output time (L × T)", conv_secondary, [1],
         false,
     ),
+    Case(
+        "transform", "per-stratum PGF iteration, Transform modifier",
+        transform, [5, 50], false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
-pending_cases() = [("transform", "pointwise Transform modifier (M4)")]
+pending_cases() = Tuple{String, String}[]
 
 # The features each case needs beyond the first release, by case name, as
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
