@@ -147,3 +147,18 @@ end
     @test_throws DimensionMismatch Convolution(PerStratum(ones(2, 3)))(ones(3, 5))
     @test_throws DimensionMismatch Convolution(TimeVarying(ones(3, 4)))(ones(5))
 end
+
+@testitem "Convolution: input loads the same into any buffer" begin
+    import ComposableRecurrences as CR
+    using Random
+    rng = Xoshiro(23)
+    m, stop, S = 2, 6, 3
+    x = rand(rng, stop + 1)
+    X = rand(rng, S, stop + 1)
+    # `Array` buffers load by loop; a view takes the broadcast fallback.
+    for (buf, src) in ((zeros(m + stop, 1), x), (zeros(m + stop, S), X))
+        alt = view(zeros(size(buf)), :, :)
+        @test !(alt isa Array)
+        @test CR._load_input!(alt, src, m, stop) == CR._load_input!(buf, src, m, stop)
+    end
+end
