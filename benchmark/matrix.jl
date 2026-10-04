@@ -15,12 +15,16 @@
 #   --timeout=SECONDS           per target process (default 3600)
 #   --seconds=SECONDS           BenchmarkTools budget per cell (default 2)
 #   --executor=serial|threaded  run the rule arm under this executor
+#                               (default serial)
 #   --threads=N,M               worker thread counts (default 1)
 #
 # Each target runs in its own Julia process, so one backend's hang or crash
 # does not stop the rest and no process loads two AD stacks. A worker writes
-# `DIR/<tier>-<target>.tsv`; `matrix_report.jl` turns a directory into a
-# Markdown table. Targets that need unmerged work are written as `pending`.
+# `DIR/<tier>-<run>.tsv` and its output goes to `DIR/<tier>-<run>.log`, where
+# `<run>` is the target, with the thread count and any executor other than
+# serial appended (`primal_t4`, `primal_Threaded_t4`); `matrix_report.jl`
+# turns a directory into a Markdown table. Targets that need unmerged work
+# are written as `pending`.
 
 using ADTypes: AutoEnzyme, AutoForwardDiff, AutoMooncake, AutoMooncakeForward
 using BenchmarkTools: @benchmark
@@ -104,6 +108,8 @@ end
 _list(s) = isempty(s) ? String[] : String.(split(s, ','))
 _file(label) = replace(label, r"[ @]+" => '_')
 
+const EXECUTORS = ("serial", "threaded")
+
 function git_rev()
     return try
         readchomp(`git -C $(@__DIR__) rev-parse HEAD`)
@@ -120,12 +126,18 @@ end
 
 # ---- worker ---------------------------------------------------------------
 
-# The name a worker's rows carry: the target, with the executor and thread
-# count appended when it is not the serial default.
-function target_label(target, opts)
-    opts["executor"] == "serial" && Threads.nthreads() == 1 && return target
-    return "$target @ $(titlecase(opts["executor"])) t$(Threads.nthreads())"
+# The name a run's rows carry: the target, with the thread count appended
+# when it is not one and the executor when it is not serial. A serial run on
+# more threads is `"<target> @ t<n>"`; only other executors are named, so
+# the report's executor table leaves serial runs out.
+function target_label(target, executor, n)
+    executor == "serial" && n == 1 && return target
+    executor == "serial" && return "$target @ t$n"
+    return "$target @ $(titlecase(executor)) t$n"
 end
+
+# The `<run>` part of a run's result and log file names.
+run_name(target, executor, n) = _file(target_label(target, executor, n))
 
 # The executor for `--executor`, from the package on this revision.
 function executor(CR, name)
@@ -180,9 +192,10 @@ relerr(a, b) = maximum(abs.(a .- b)) / max(1.0, maximum(abs.(b)))
 
 function run_worker(opts)
     target = opts["worker"]
-    label = target_label(target, opts)
+    label = target_label(target, opts["executor"], Threads.nthreads())
     outdir = mkpath(opts["out"])
-    file = joinpath(outdir, "$(opts["tier"])-$(_file(label)).tsv")
+    name = run_name(target, opts["executor"], Threads.nthreads())
+    file = joinpath(outdir, "$(opts["tier"])-$name.tsv")
     meta = metadata(opts, label)
     push!(meta, "executor" => opts["executor"])
     grad = target != "primal"
@@ -346,12 +359,25 @@ function run_all(opts)
     outdir = mkpath(opts["out"])
     timeout = parse(Float64, opts["timeout"])
     project = Base.active_project()
-    for target in _list(opts["targets"]), n in _list(opts["threads"])
+    opts["executor"] in EXECUTORS || error(
+        "unknown executor $(opts["executor"]); choose from ",
+        join(EXECUTORS, ", ")
+    )
+    threads = map(_list(opts["threads"])) do n
+        k = tryparse(Int, n)
+        k !== nothing && k >= 1 ||
+            error("--threads takes positive integers, not $n")
+        k
+    end
+    targets = _list(opts["targets"])
+    for target in targets
         target == "primal" || haskey(GRADIENTS, target) ||
             error(
             "unknown target $target; choose from primal, ",
             join(keys(GRADIENTS), ", ")
         )
+    end
+    for target in targets, n in threads
         args = [
             "--worker=$target", "--tier=$(opts["tier"])",
             "--cases=$(opts["cases"])", "--out=$outdir",
@@ -360,7 +386,7 @@ function run_all(opts)
         ]
         cmd = `$(Base.julia_cmd()) --project=$project --startup-file=no
             --threads=$n $(@__FILE__) $args`
-        name = "$(_file(target))-$(opts["executor"])-t$n"
+        name = run_name(target, opts["executor"], n)
         log = joinpath(outdir, "$(opts["tier"])-$name.log")
         println("== $target, $(opts["executor"]), $n threads (log: $log)")
         t0 = time()

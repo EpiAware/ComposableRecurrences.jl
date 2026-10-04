@@ -266,16 +266,30 @@ function baselines_section(io, run, tier)
     return nothing
 end
 
-# Speed-up of each executor over the serial run of the same target.
+# Whether a target label names an executor run (`"<target> @ Threaded t4"`),
+# rather than the serial default on one or more threads.
+_isexecutor(t) = occursin(r" @ [A-Z]", t)
+
+# Speed-up of each executor over the serial one-thread run of the same
+# target.
 function executor_section(io, run, tier)
     ix = index(run)
-    labels = unique(
-        r["target"] for r in run.rows
-            if r["tier"] == tier && occursin(" @ ", get(r, "target", ""))
-    )
+    targets = Set(r["target"] for r in run.rows if r["tier"] == tier)
+    labels = sort([t for t in targets if _isexecutor(t)])
     isempty(labels) && return
     println(io, "## Executors, tier `", tier, "`\n")
-    println(io, "Serial median / executor median, rule arm.\n")
+    println(io, "Serial one-thread median / executor median, rule arm.\n")
+    missing_base = unique(_base(t) for t in labels if !(_base(t) in targets))
+    if !isempty(missing_base)
+        println(
+            io, "No serial one-thread run of ",
+            join(("`" * t * "`" for t in missing_base), ", "),
+            " to compare against: run it with `--threads=1` and the ",
+            "default executor, into the same directory.\n"
+        )
+    end
+    filter!(t -> _base(t) in targets, labels)
+    isempty(labels) && return
     println(io, "| Case | Size | ", join(labels, " | "), " |")
     println(io, "|:--|:--|", repeat("--:|", length(labels)))
     for (c, sz, _) in cases_in(run, tier)
