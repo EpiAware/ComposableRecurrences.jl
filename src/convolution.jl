@@ -51,7 +51,7 @@ delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
 Convolution(delay)(ones(8); history = ones(3))
 ```
 "
-struct Convolution{K}
+struct Convolution{K} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
     function Convolution(kernel::K) where {K}
@@ -63,12 +63,34 @@ struct Convolution{K}
     end
 end
 
-(c::Convolution)(x; kwargs...) = first(forward(c, Run(), x; kwargs...))
+# The call builds the positional arguments `(x, history, start, stop)` and
+# routes them through the native rules; `route` is `c` or `NoAdjoint(c)`.
+function _invoke(c::Convolution, route, x; history = nothing, start = 1, stop = nothing)
+    return adjoint_call(route, x, history, start, stop)
+end
 
 # A Convolution has no modifiers, so its cache holds no state.
 function forward(
         c::Convolution, ::Run, x; history = nothing, start = 1, stop = nothing
     )
+    return _run_forward(c, x, history, start, stop)
+end
+
+uses_adjoint(::Convolution, ::Run) = true
+
+function _run_forward(c::Convolution, x, history, start, stop)
+    Y, X, m, stop = _conv(c, x, history, start, stop)
+    return _public(Y, axes(Y, 1), x), (; x, history, start, stop, X, m)
+end
+function _primal(c::Convolution, x, history, start, stop)
+    Y = first(_conv(c, x, history, start, stop))
+    return _public(Y, axes(Y, 1), x)
+end
+
+# Checks the call, then convolves into a time-first buffer; returns the
+# output buffer, the input buffer (history then `x`), the history length and
+# the last time.
+function _conv(c::Convolution, x, history, start, stop)
     kernel = c.kernel
     _check_unwrapped(:x, x)
     S = _nstrata(x)
@@ -88,7 +110,7 @@ function forward(
     _load_input!(X, x, m, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
     _convolve!(Y, kernel, X, m, start)
-    return _public(Y, axes(Y, 1), x), (;)
+    return Y, X, m, stop
 end
 
 _check_input_history(::Nothing, x) = nothing
@@ -149,16 +171,11 @@ function _convolve_series!(y, c, X, k, m, start)
     return y
 end
 
-# BLAS `axpy!` for float buffers. Other eltypes loop: the generic `axpy!`
-# returns early on a zero coefficient, which drops a tracked coefficient's
-# derivative.
-function _axpy!(α::T, x::StridedVector{T}, y::StridedVector{T}) where {
-        T <: Union{Float32, Float64},
-    }
-    return axpy!(α, x, y)
-end
+# `y .+= α x` as a native loop: at these lengths it is faster than a BLAS
+# call. Under plain `Mooncake` AD the extension swaps in BLAS `axpy!`, which
+# `Mooncake` differentiates with one rule.
 function _axpy!(α, x, y)
-    for i in eachindex(x, y)
+    @inbounds @simd ivdep for i in eachindex(x, y)
         y[i] += α * x[i]
     end
     return y
@@ -206,4 +223,99 @@ function _convolve!(Y, c::TimeVarying{Primary}, X, m, start)
         end
     end
     return Y
+end
+
+# The reverse pass: correlate the output cotangent with the kernel into the
+# input buffer's cotangent, and with the inputs into the kernel's.
+# `grads.args` are the mirrors of `(x, history, start, stop)`.
+function pullback!(grads, c::Convolution, ::Run, cache)
+    _count_pullback()
+    (; x, history, start, X, m, stop) = cache
+    x̄, h̄ = grads.args
+    T = stop - start + 1
+    Ȳ = _zeros(X, eltype(X), T, size(X, 2))
+    _load_input!(Ȳ, grads.y, 0, T)
+    X̄ = zero(X)
+    _convolve_back!(X̄, cotangent(grads.piece, :kernel), c.kernel, X, Ȳ, m, start)
+    _add_rows!(x̄, X̄, m, stop)
+    _add_rows!(h̄, X̄, 0, m)
+    return nothing
+end
+
+# Add buffer rows `o + 1` to `o + n` into the public-layout cotangent `x̄`.
+_add_rows!(::Nothing, X̄, o, n) = nothing
+function _add_rows!(x̄::AbstractVector, X̄, o, n)
+    view(x̄, 1:n) .+= view(X̄, (o + 1):(o + n), 1)
+    return nothing
+end
+function _add_rows!(x̄::AbstractMatrix, X̄, o, n)
+    view(x̄, :, 1:n) .+= transpose(view(X̄, (o + 1):(o + n), :))
+    return nothing
+end
+
+# One fused pass per lag: the kernel cotangent's dot product and the input
+# cotangent's update together, the reverse of `_convolve_series!`.
+function _convolve_series_back!(X̄k, c̄, c, Xk, ȳ, m, start)
+    T = length(ȳ)
+    for d in 0:(length(c) - 1)
+        j0 = max(1, d + 2 - m - start)
+        j0 > T && break
+        o = m + start - 1 - d
+        cd = c[d + 1]
+        acc = zero(eltype(X̄k))
+        @inbounds @simd ivdep for j in j0:T
+            a = ȳ[j]
+            acc += a * Xk[o + j]
+            X̄k[o + j] += cd * a
+        end
+        add_cotangent!(c̄, acc, d + 1)
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::AbstractVector, X, Ȳ, m, start)
+    for k in axes(Ȳ, 2)
+        _convolve_series_back!(
+            view(X̄, :, k), c̄, c, view(X, :, k), view(Ȳ, :, k), m, start
+        )
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::PerStratum, X, Ȳ, m, start)
+    C̄ = cotangent(c̄, :x)
+    for k in axes(Ȳ, 2)
+        _convolve_series_back!(
+            view(X̄, :, k), C̄ === nothing ? nothing : view(C̄, k, :),
+            view(c.x, k, :), view(X, :, k), view(Ȳ, :, k), m, start
+        )
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::TimeVarying{Secondary}, X, Ȳ, m, start)
+    D = _nlags(c)
+    for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
+        t = start + j - 1
+        for d in 0:min(D - 1, m + t - 1)
+            _add_weight!(c̄, c, Ȳ[j, k] * X[m + t - d, k], k, k, d + 1, t)
+            X̄[m + t - d, k] += _weight(c, k, k, d + 1, t) * Ȳ[j, k]
+        end
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::TimeVarying{Primary}, X, Ȳ, m, start)
+    D = _nlags(c)
+    stop = start + size(Ȳ, 1) - 1
+    for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
+        for d in max(0, start - σ):(D - 1)
+            t = σ + d
+            t > stop && break
+            ȳ = Ȳ[t - start + 1, k]
+            _add_weight!(c̄, c, ȳ * X[σ, k], k, k, d + 1, σ)
+            X̄[σ, k] += _weight(c, k, k, d + 1, σ) * ȳ
+        end
+    end
+    return nothing
 end

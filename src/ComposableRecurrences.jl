@@ -63,8 +63,9 @@ module ComposableRecurrences
 # the main module file, rather than scattered across included files.
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
+using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
+using LinearAlgebra: Diagonal, I, UniformScaling
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
 # Register the standard docstring conventions before any
@@ -75,7 +76,8 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
 public Depletion, Redistribute, Add, Clamp, Hazard, Floor, Primary,
     Secondary, seeded, with_state, State, forward, pullback!, Step, Init,
-    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface
+    Pressure, Run, ispointwise, param_eltype, NoAdjoint, PieceInterface,
+    uses_adjoint, test_adjoint, cotangent, add_cotangent!
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -83,17 +85,21 @@ include("wrappers.jl")
 include("utils.jl")
 # The role interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
+# The operator supertype, `NoAdjoint` and the routing to the native rules.
+include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
-# The built-in couplings, `forward` on `Pressure()`.
+# The built-in couplings, `forward` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")
-# The causal convolution operator.
+# The analytic reverse pass of the recurrence.
+include("recurrence_adjoint.jl")
+# The causal convolution operator and its reverse pass.
 include("convolution.jl")
-# Adjoint seams: `NoAdjoint` and the `pullback!` contract.
-include("adjoints.jl")
-# Interfaces.jl declarations for operators, couplings and modifiers.
+# Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.
+include("fallbacks.jl")
+# Interfaces.jl declaration of the role interface.
 include("interfaces.jl")
 
 end # module ComposableRecurrences

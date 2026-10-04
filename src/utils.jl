@@ -163,6 +163,13 @@ end
 
 # A zeroed array like `x` of eltype `T` and size `dims`.
 _zeros(x, ::Type{T}, dims...) where {T} = fill!(similar(x, T, dims), zero(T))
+# CPU arrays allocate with `zeros`, which AD backends treat as one call
+# rather than tracing the fill.
+const _CPUArray = Union{
+    Array, SubArray{<:Any, <:Any, <:Array}, Base.ReshapedArray{<:Any, <:Any, <:Array},
+    Base.ReshapedArray{<:Any, <:Any, <:SubArray{<:Any, <:Any, <:Array}},
+}
+_zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)

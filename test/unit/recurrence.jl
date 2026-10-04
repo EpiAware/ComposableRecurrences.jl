@@ -278,6 +278,10 @@ end
         ones(2, 5); history = ones(2, 3)
     )
     @test_throws DimensionMismatch Recurrence(g)(ones(3, 5); history = ones(2, 3))
+    # A 2-D time-varying coupling is refused even when T equals S.
+    @test_throws ArgumentError Recurrence(g; coupling = TimeVarying(ones(2, 2)))(
+        ones(2, 2); history = ones(2, 3)
+    )
 end
 
 @testitem "Recurrence: resume from the returned state" setup = [TestModifiers] begin
