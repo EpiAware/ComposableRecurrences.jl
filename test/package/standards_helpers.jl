@@ -3,7 +3,7 @@
 # docstring, without the signature and field templates), src comments from
 # the tokeniser, and prose from Markdown pages and Literate comment lines.
 
-using EpiAwarePackageTools: EpiAwarePackageTools, BANNED_README_WORDS
+using EpiAwarePackageTools: BANNED_README_WORDS
 include(joinpath(@__DIR__, "standards_config.jl"))
 
 # The authored text of every docstring attached to `name` in `mod`.
@@ -138,11 +138,31 @@ function plain_words(line::AbstractString)
     return s
 end
 
-# The banned word patterns, built with the stem rule `test_readme_prose`
-# uses (an internal EpiAwarePackageTools helper), so docs, docstrings and
-# comments are held to the same list as the README.
+# A banned word as a regular expression. This mirrors the stem rule that
+# EpiAwarePackageTools documents for `BANNED_README_WORDS`: case-insensitive,
+# word-boundary anchored, any suffix allowed, with a trailing `e` trimmed so
+# `leverage` also catches `leveraging`. The three entries the stem rule gets
+# wrong carry their own pattern, as in the shared package.
+const BANNED_WORD_PATTERNS = Dict(
+    "novel" => "novel(?:s|ly|ty|ties)?",
+    "synergy" => "synerg(?:y|ies|i[sz]e[sd]?|i[sz]ing|istic(?:ally)?)",
+    "current approaches" => "current\\s+approach(?:es)?",
+)
+
+function banned_word_regex(word::AbstractString)
+    key = String(strip(word))
+    body = get(BANNED_WORD_PATTERNS, lowercase(key), nothing)
+    if body === nothing
+        # The entries are plain words, so need no regex escaping.
+        stems = String.(split(key))
+        stems[end] = replace(stems[end], r"e$" => "")
+        body = join(stems, "\\s+") * "[a-z]*"
+    end
+    return Regex("\\b" * body * "\\b", "i")
+end
+
 const BANNED_PATTERNS = [
-    EpiAwarePackageTools._banned_word_regex(w) for w in vcat(
+    banned_word_regex(w) for w in vcat(
             filter(!in(BANNED_SHARED_SKIP), BANNED_README_WORDS),
             collect(BANNED_EXTRA)
         )

@@ -88,6 +88,9 @@ end
     @test has_example(["```julia\nusing ComposableRecurrences\nx = 1\n```\n"])
     @test !has_example(["```julia\nRecurrence(kernel)\n```\n"])
     @test banned_hits("A robust method.") == ["robust"]
+    @test banned_hits("Leveraging it.") == ["Leveraging"]
+    @test banned_hits("Synergies abound.") == ["Synergies"]
+    @test isempty(banned_hits("A novelist and a piecewise kernel."))
     @test banned_hits("Each piece runs.") == ["piece"]
     @test isempty(banned_hits("`piece` and `PieceInterface` are names."))
     @test package_hits("As in Mooncake.") == ["Mooncake"]
