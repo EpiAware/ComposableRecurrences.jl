@@ -1,9 +1,11 @@
 # [Adding a modifier](@id extending)
 
-A new modifier, or a new depletion form for `Depletion`, is a struct with `forward` for its role.
-Variants such as a depletion form are struct values too, so there is no registry and no symbol to add.
+To add a modifier, define a type and add a `forward` method for it.
+The second argument is a singleton that selects the job by dispatch: `Step()` for one step, `Init()` for the starting state, `Pressure()` for a coupling's mixing and `Run()` for a whole call.
+Depletion forms are types too, so pass `Hazard()` or `Floor()`, or define your own.
+Add a `pullback!` method for a hand-written gradient.
 
-| Kind | Role | `forward` |
+| Kind | Dispatch on | Method |
 |---|---|---|
 | operator call | `Run()` | `forward(op, Run(), args...; kwargs...)` returns `(y, cache)` |
 | modifier, vector step | `Step()` | `forward(m, Step(), v, s, t)` updates `v` and `s` in place |
@@ -18,7 +20,7 @@ const CR = ComposableRecurrences
 
 ## A custom modifier
 
-A pointwise modifier sets `ispointwise` and implements the scalar step.
+A modifier that acts on each series separately sets `ispointwise` and implements the step for one value.
 This one scales each value by a factor.
 
 ```@example extending
