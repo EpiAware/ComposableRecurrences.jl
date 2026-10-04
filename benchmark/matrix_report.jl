@@ -89,14 +89,16 @@ function _targets(run)
     )
     # Targets beyond the serial CPU ones (a traced or threaded run, say) are
     # named "... primal" or "... gradient" and follow the built-in ones.
+    # A target run under an executor is labelled "<target> @ <executor>".
     grads = [t for t in GRADIENT_ORDER if t in ts]
-    append!(grads, sort([t for t in ts if endswith(t, "gradient")]))
+    append!(grads, sort([t for t in ts if !(t in grads) && !_isprimal(t)]))
     primal = "primal" in ts ? ["primal"] : String[]
-    append!(primal, sort([t for t in ts if t != "primal" && endswith(t, "primal")]))
+    append!(primal, sort([t for t in ts if t != "primal" && _isprimal(t)]))
     return primal, grads
 end
 
-_isprimal(t) = endswith(t, "primal")
+_base(t) = first(split(t, " @ "))
+_isprimal(t) = endswith(_base(t), "primal")
 
 # The row of a target as users call the operator: the `rule` arm, or
 # `traced` for a target that compiles the call.
@@ -262,6 +264,32 @@ function baselines_section(io, run, tier)
         println(io)
     end
     return nothing
+end
+
+# Speed-up of each executor over the serial run of the same target.
+function executor_section(io, run, tier)
+    ix = index(run)
+    labels = unique(
+        r["target"] for r in run.rows
+            if r["tier"] == tier && occursin(" @ ", get(r, "target", ""))
+    )
+    isempty(labels) && return
+    println(io, "## Executors, tier `", tier, "`\n")
+    println(io, "Serial median / executor median, rule arm.\n")
+    println(io, "| Case | Size | ", join(labels, " | "), " |")
+    println(io, "|:--|:--|", repeat("--:|", length(labels)))
+    for (c, sz, _) in cases_in(run, tier)
+        cells = map(labels) do t
+            r = get(ix, (tier, c, sz, t, "rule"), nothing)
+            b = get(ix, (tier, c, sz, _base(t), "rule"), nothing)
+            (r === nothing || b === nothing) && return ""
+            _ok(r) && _ok(b) || return _short(_ok(r) ? b["status"] : r["status"])
+            return fmt_ratio(_num(b, "median_ns") / _num(r, "median_ns"))
+        end
+        all(isempty, cells) && continue
+        println(io, "| ", c, " | ", sz, " | ", join(cells, " | "), " |")
+    end
+    return println(io)
 end
 
 function bars_section(io, run)
@@ -464,6 +492,7 @@ function report(dir, prevdir = nothing)
         timings_section(io, run, tier)
         gain_section(io, run, tier)
         baselines_section(io, run, tier)
+        executor_section(io, run, tier)
     end
     bars_section(io, run)
     opportunities_section(io, run)
