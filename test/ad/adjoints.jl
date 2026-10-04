@@ -580,6 +580,32 @@ end
                 ),
                 rec(R, nothing, h),
             ),
+            (
+                "strata renewal with doses removed",
+                Recurrence(
+                    g; modifiers = (
+                        CR.Depletion(
+                            PerStratum(fill(80.0, S));
+                            removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T)))
+                        ),
+                    )
+                ),
+                rec(R, nothing, h),
+            ),
+            (
+                "leaky vaccination into a protected pool",
+                Recurrence(
+                    g; coupling = 0.3 .* rand(rng, S, S),
+                    modifiers = (
+                        CR.Depletion(
+                            PerStratum(fill(80.0, S)); pool0 = pool(80.0, h),
+                            removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))),
+                            protected = CR.Protected(PerStratum([0.2, 0.3, 0.4]); pool0 = 1.0)
+                        ),
+                    )
+                ),
+                rec(R, nothing, h),
+            ),
         ]
     end
 end

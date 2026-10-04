@@ -132,6 +132,10 @@ Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
         piece = Depletion(80.0, Floor(); heterogeneity = 1.5), role = Step(),
         args = ([2.0, 3.0], [80.0, 60.0], 1)
     ),
+    Arguments(;
+        piece = Depletion(80.0; removals = TimeVarying([4.0, 6.0])),
+        role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
+    ),
 ]
 
 @implements PieceInterface Hazard [

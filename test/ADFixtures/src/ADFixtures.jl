@@ -182,6 +182,20 @@ function _delay_varying_secondary(w, θ)
     return sum(WS[:, 4:end] .* w(Convolution(TimeVarying(G)))(X; history = H, start = 4))
 end
 
+# Leaky vaccination: removals move susceptibles into a protected pool drawn
+# from at relative susceptibility σ. The doses stay below the pools, away
+# from the removal cap.
+function _vaccination(w, θ)
+    logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(POP); removals = TimeVarying(PerStratum(doses)),
+        protected = ComposableRecurrences.Protected(only(σ))
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -209,6 +223,10 @@ const _SCENARIOS = [
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
         () -> _flat([80.0], 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence vaccination into a protected pool", _vaccination,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
     (
         "Recurrence grouped totals (Allocate)", _allocate,
