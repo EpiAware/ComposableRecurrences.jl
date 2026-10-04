@@ -116,3 +116,80 @@ end
     @test with(() -> CR.EXECUTOR[], CR.EXECUTOR => ex) === ex
     @test CR.EXECUTOR[] === CR.Serial()
 end
+
+@testitem "Operators: threaded calls match serial calls exactly" begin
+    using ComposableRecurrences, Random
+    using Base.ScopedValues: with
+    using LinearAlgebra: Diagonal
+    const CR = ComposableRecurrences
+    rng = Xoshiro(17)
+    S, T, L = 7, 25, 4
+    g = rand(rng, L) ./ 2L
+    R = 1.0 .+ rand(rng, S, T)
+    seed = rand(rng, S, L)
+    K = fill(1 / S, S, S)
+    recurrences = (
+        Recurrence(g),
+        Recurrence(PerStratum(rand(rng, S, L) ./ 2L)),
+        Recurrence(g; coupling = Diagonal(fill(0.9, S))),
+        Recurrence(g; modifiers = (CR.Depletion(1.0e3; pool0 = 1.0e3),)),
+        Recurrence(g; coupling = K),
+        Recurrence(Pairwise(rand(rng, S, S, L) ./ (2 * S * L))),
+        Recurrence(g; modifiers = (CR.Redistribute(K, 0.1),)),
+    )
+    convolutions = (
+        Convolution(g),
+        Convolution(PerStratum(rand(rng, S, L))),
+        Convolution(TimeVarying(rand(rng, L, T))),
+        Convolution(TimeVarying(rand(rng, L, T), CR.Primary())),
+    )
+    for ex in (CR.Threaded(; min_work = 0), CR.Threaded())
+        for r in recurrences
+            y = r(R; history = seed)
+            @test with(() -> r(R; history = seed), CR.EXECUTOR => ex) == y
+        end
+        for c in convolutions
+            @test with(() -> c(R), CR.EXECUTOR => ex) == c(R)
+        end
+    end
+end
+
+@testitem "Operators: the default executor keeps calls type stable" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    g = [0.2, 0.3, 0.5]
+    R = fill(1.1, 2, 10)
+    seed = ones(2, 3)
+    for r in (Recurrence(g), Recurrence(g; coupling = fill(0.5, 2, 2)))
+        @test (@inferred r(R; history = seed)) isa Matrix{Float64}
+    end
+    @test (@inferred Convolution(g)(R)) isa Matrix{Float64}
+    # Serial blocks run inline, with nothing allocated by the loop.
+    body!(ks, y) = (y[ks] .= 1.0; nothing)
+    y = zeros(4)
+    blocks(y) = @allocated CR._blocks!(body!, CR._current(), y, 4, 4, y)
+    blocks(y)
+    @test blocks(y) == 0
+    @test y == ones(4)
+end
+
+@testitem "Operators: GPU arrays run their strata loops on the device" begin
+    using ComposableRecurrences, JLArrays, KernelAbstractions
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    JLArrays.allowscalar(false)
+    S, T, L = 5, 20, 4
+    g = [0.1, 0.2, 0.3, 0.2]
+    R = [1.0 + 0.05 * sin(i + t) for i in 1:S, t in 1:T]
+    seed = ones(S, L)
+    for r in (
+            Recurrence(g), Recurrence(PerStratum(repeat(g', S))),
+            Recurrence(g; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
+        )
+        @test Array(r(JLArray(R); history = JLArray(seed))) ≈
+            r(R; history = seed)
+    end
+    for c in (Convolution(g), Convolution(PerStratum(repeat(g', S))))
+        @test Array(c(JLArray(R))) ≈ c(R)
+    end
+end
