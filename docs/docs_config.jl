@@ -245,8 +245,10 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 # four fixed pages (`developer/index.md`, `developer/contributing.md`,
 # `developer/release-process.md`, `developer/faq.md`) are then the package's
 # own to write, at those exact paths.
-const DEVELOPMENT_EXTEND_PAGE =
-    "Adding a modifier" => "developer/extending.md"
+const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
+    "Adding a modifier" => "developer/extending.md",
+    "Testing and benchmarking" => "developer/testing.md",
+]
 
 # An optional Getting-started FAQ page, listed right after Overview, e.g.
 # `"getting-started/faq.md"`. Leave `nothing` to omit it.
