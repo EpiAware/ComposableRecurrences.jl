@@ -12,7 +12,8 @@
 # 1. Build a gravity coupling from populations and distances.
 # 2. Compare a fixed coupling, per-pair generation intervals and mixing that changes over time.
 # 3. Move infections between patches with `Redistribute` and recompute the importation series.
-# 4. Use the series as types for a multi-type process, isolation and contact tracing in expectation.
+# 4. Share each patch's infections, fixed by an earlier fit, among its districts with `Allocate`.
+# 5. Use the series as types for a multi-type process, isolation and contact tracing in expectation.
 #
 # ### What might I need to know before starting
 #
@@ -22,7 +23,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, with_state
+using ComposableRecurrences: Depletion, Redistribute, Allocate, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 
@@ -123,6 +124,36 @@ end
 # The modifier's state, which it carries from step to step, holds the last step's arrivals, which match the recomputed series.
 
 maximum(abs, state.states[1] .- arrivals[:, end])
+
+# ## Sharing a total fixed elsewhere
+#
+# Sometimes each patch's infections are already known, from the model above or an earlier fit, and the question is how they split among the patch's districts.
+# The districts renew from their own infections, and each day `Allocate(groups, total)` rescales every patch's districts so they sum to the patch's infections.
+# Each district's share follows its own renewal, so it depends on the infections the district starts with and on its reproduction number.
+# Here patch A has three districts and patches B and C two each, and the patch totals are the fixed-coupling infections from above.
+# Each district has its own reproduction number, passed as a series × time gain.
+
+districts = [1:3, 4:5, 6:7]
+totals = models[1].second(1.6; history = seed, stop = T)
+district_seed = repeat([6.0, 3.0, 1.0, 2.0, 1.0, 1.0, 1.0], 1, 6)
+share = Allocate(districts, TimeVarying(PerStratum(totals)))
+R_district = repeat([1.5, 1.6, 1.8, 1.6, 1.6, 1.4, 1.8], 1, T)
+by_district = Recurrence(gi; modifiers = (share,))(R_district; history = district_seed)
+@chain DataFrame(permutedims(by_district), ["A1", "A2", "A3", "B1", "B2", "C1", "C2"]) begin
+    @transform(:day = 1:T)
+    stack(Not(:day); variable_name = :district, value_name = :count)
+    @transform(:patch = first.(:district, 1))
+    data(_) * mapping(:day, :count, color = :district, layout = :patch) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# The districts of each patch sum to that patch's infections every day.
+# B1 and B2 share a reproduction number, so B1 keeps twice B2's infections throughout.
+# A district with a higher reproduction number takes a growing share of its patch's infections: A3 overtakes A1 on day 26 despite starting with a sixth of its seed, and C2 leads C1 from the first day.
+# The patch totals do not change, because they come from outside.
+
+maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts]) .- totals)
 
 # ## Types, not places
 #
