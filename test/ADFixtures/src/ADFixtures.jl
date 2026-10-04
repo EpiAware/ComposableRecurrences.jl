@@ -119,6 +119,18 @@ function _scalar_field_mixed(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The strata split into two groups, each rescaled to a total per group and
+# day.
+const GROUPS = [1:2, 3:3]
+function _allocate(w, θ)
+    g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (2, T))
+    split = ComposableRecurrences.Allocate(
+        GROUPS, TimeVarying(PerStratum(exp.(logtot)))
+    )
+    y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 function _sparse(w, θ)
     v, logh, R = _unpack(θ, (length(KS.nzval),), (S, L), (S, T))
     K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
@@ -182,6 +194,12 @@ const _SCENARIOS = [
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
         () -> _flat([80.0], 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence grouped totals (Allocate)", _allocate,
+        () -> _flat(
+            G0, fill(log(5.0), S, L), LOGR, [log(8.0 + p + t) for p in 1:2, t in 1:T]
+        ),
     ),
     (
         "Recurrence sparse coupling", _sparse,

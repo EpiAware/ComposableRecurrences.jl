@@ -94,6 +94,16 @@
                 rec(R, nothing, h),
             ),
             (
+                "grouped totals",
+                Recurrence(
+                    g; coupling = K,
+                    modifiers = (
+                        CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),
+                    )
+                ),
+                rec(R, nothing, h),
+            ),
+            (
                 "with state",
                 CR._WithState(Recurrence(g; coupling = K, modifiers = (Hazard(60.0),))),
                 rec(R, nothing, h),
@@ -301,10 +311,24 @@ end
     renewal_na(θ) = sum(W .* NoAdjoint(Recurrence(g; modifiers = (Hazard(θ[1]),)))(θ[2:end]; history = h))
     delay(θ) = sum(W .* Convolution(θ[1:3])(θ[4:end]))
     delay_na(θ) = sum(W .* NoAdjoint(Convolution(θ[1:3]))(θ[4:end]))
+    # Two groups of strata with totals over time: the totals and the gains
+    # get cotangents.
+    W2, h2 = randn(rng, 3, 4), 1 .+ rand(rng, 3, 3)
+    split(θ) = CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(reshape(θ[1:8], 2, 4))))
+    allocate(θ) = sum(
+        W2 .* Recurrence(g; modifiers = (split(θ),))(reshape(θ[9:end], 3, 4); history = h2)
+    )
+    allocate_na(θ) = sum(
+        W2 .* NoAdjoint(Recurrence(g; modifiers = (split(θ),)))(
+            reshape(θ[9:end], 3, 4); history = h2
+        )
+    )
     for (f, θ, fires) in (
                 (renewal, [50.0; 1 .+ rand(rng, 8)], true),
                 (renewal_na, [50.0; 1 .+ rand(rng, 8)], false),
                 (delay, rand(rng, 11), true), (delay_na, rand(rng, 11), false),
+                (allocate, 1 .+ rand(rng, 20), true),
+                (allocate_na, 1 .+ rand(rng, 20), false),
             ),
             backend in backends
         ref = gradient(f, AutoForwardDiff(), θ)

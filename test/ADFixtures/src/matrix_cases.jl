@@ -164,6 +164,25 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# BVD's unmixed zone split: the zones renew from their own infections and
+# each group of zones (a province) takes its total from outside, shared by
+# the force each zone earns. Five zones per group.
+function zone_allocate(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    P = max(S ÷ 5, 1)
+    edges = round.(Int, range(0, S; length = P + 1))
+    groups = [(edges[p] + 1):edges[p + 1] for p in 1:P]
+    f = function (θ)
+        g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (P, T))
+        split = CR.Allocate(groups, TimeVarying(PerStratum(exp.(logtot))))
+        r = Recurrence(g; modifiers = (split,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    logtot = [log(50.0) + 0.2 * _noise(t, p + 7) for p in 1:P, t in 1:T]
+    return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .* _weights(S, T), logtot)
+end
+
 # A fixed reporting delay with history.
 function delay_fixed(wrap, z::Size)
     (; T, L) = z
@@ -306,6 +325,10 @@ const CASES = [
     Case(
         "bvd_patch", "importation redistribution, seeded hazard depletion",
         bvd_patch, [5, 50], false,
+    ),
+    Case(
+        "zone_allocate", "zones sharing exogenous group totals",
+        zone_allocate, [5, 50], false,
     ),
     Case("delay_fixed", "fixed delay with history", delay_fixed, [1], false),
     Case(
