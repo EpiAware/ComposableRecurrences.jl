@@ -119,6 +119,21 @@ function _load_input!(X, x::AbstractMatrix, m, stop)
     return X
 end
 
+# CPU buffers load by loop: a broadcast copy may alias its source, and Enzyme
+# cannot give that branch one activity when the input is constant.
+function _load_input!(X::Array, x::AbstractVector, m, stop)
+    for t in 1:stop
+        X[m + t, 1] = x[t]
+    end
+    return X
+end
+function _load_input!(X::Array, x::AbstractMatrix, m, stop)
+    for t in 1:stop, k in axes(X, 2)
+        X[m + t, k] = x[k, t]
+    end
+    return X
+end
+
 # One `axpy!` per lag over each stratum's contiguous series: output row `j`
 # is time `start + j - 1`, and lag `d` adds `c[d + 1]` times buffer row
 # `m + start + j - 1 - d` for every row with a defined input.
