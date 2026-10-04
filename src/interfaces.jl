@@ -64,17 +64,12 @@ time ``t`` and ``S`` the number of strata.
 
 Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
 
-# Example
+# Examples
 
 ```@example
-using ComposableRecurrences: Depletion, PieceInterface, Step
-using Interfaces: Interfaces, Arguments
-args = ([2.0, 3.0], [80.0, 60.0], 1)
-Interfaces.test(
-    PieceInterface, Depletion,
-    [Arguments(; piece = Depletion(80.0), role = Step(), args)];
-    show = false
-)
+using ComposableRecurrences, Interfaces
+CR = ComposableRecurrences
+Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
 ```"
 
 @implements PieceInterface Recurrence [

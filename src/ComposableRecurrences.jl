@@ -35,7 +35,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
 | causal convolution    | `Convolution(kernel)`, lag 0 first                       |
 | strata                | `PerStratum(x)`, `Pairwise(x)`                           |
-| time variation        | `TimeVarying(x, indexing = Secondary())`                 |
+| time variation        | `TimeVarying(x, Secondary())`                            |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
@@ -49,7 +49,7 @@ To extend the package, define a type and add a
 ([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
 or [`ComposableRecurrences.Pressure`](@ref)).
 
-# Example
+# Examples
 
 ```@example
 using ComposableRecurrences
