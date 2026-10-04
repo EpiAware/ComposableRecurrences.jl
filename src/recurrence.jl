@@ -337,8 +337,9 @@ function _load_history!(H, h::AbstractMatrix, L)
     return H
 end
 
-# CPU buffers load by loop: a broadcast copy may alias its source, and Enzyme
-# cannot give that branch one activity when the history is constant.
+# CPU buffers load by loop: a broadcast copy may alias its source, and
+# reverse-mode AD cannot give that branch one activity when the history is
+# constant.
 function _load_history!(H::Array, h::AbstractVector, L)
     m = length(h)
     n = min(m, L)
