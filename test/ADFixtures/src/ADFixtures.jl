@@ -22,7 +22,8 @@ using LinearAlgebra: Diagonal
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
-    backend_broken_scenarios, backend_skip_scenarios, FlooredDepletion
+    backend_broken_scenarios, backend_skip_scenarios, FlooredDepletion,
+    supports, unsupported_scenarios
 
 # ForwardDiff reference gradient for a scenario function.
 function _reference(f, θ)
@@ -272,10 +273,56 @@ const _SCENARIOS = [
     ),
 ]
 
+"""
+    supports(features...)
+
+Whether the loaded ComposableRecurrences defines every name in `features`.
+
+The benchmark history workflow runs this registry, as on `main`, against the
+last few tagged releases.
+A scenario that needs a feature newer than the oldest of those lists it in
+`_REQUIRES`, and is left out where the loaded version lacks it.
+"""
+supports(features::Symbol...) = all(s -> isdefined(ComposableRecurrences, s), features)
+
+# The features each scenario needs beyond the first release, by scenario
+# name. A scenario not listed needs none. Add an entry with each scenario
+# that uses a new public name, e.g. `"..." => (:Transform,)`.
+const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "Recurrence grouped totals (Allocate)" => (:Allocate,),
+    "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence Transform with per-stratum parameters" => (:Transform,),
+)
+
+# A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same
+# call. Releases before the adjoint (`uses_adjoint`) have no rule to compare,
+# and some calls fail under their `NoAdjoint`, so the twins are left out.
+const _TWIN_REQUIRES = (:uses_adjoint,)
+
+_requires(name) = get(_REQUIRES, name, ())
+
+"""
+    unsupported_scenarios()
+
+The scenario names left out because the loaded ComposableRecurrences lacks a
+feature they need. Empty on the current version.
+"""
+function unsupported_scenarios()
+    return [
+        prefix * name
+            for (prefix, extra) in (("", ()), ("NoAdjoint ", _TWIN_REQUIRES))
+            for (name, _, _) in _SCENARIOS
+            if !supports(_requires(name)..., extra...)
+    ]
+end
+
 const _TWINS = Tuple{String, Any, Any}[
     (prefix * name, Base.Fix1(f, wrap), θ0)
-        for (prefix, wrap) in (("", identity), ("NoAdjoint ", NoAdjoint))
+        for (prefix, wrap, extra) in (
+            ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
+        )
         for (name, f, θ0) in _SCENARIOS
+        if supports(_requires(name)..., extra...)
 ]
 
 """
@@ -284,6 +331,8 @@ const _TWINS = Tuple{String, Any, Any}[
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
 There is one category, `:marginal`.
+Scenarios the loaded ComposableRecurrences cannot run are left out (see
+`unsupported_scenarios`).
 """
 function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
     category === :marginal || throw(
