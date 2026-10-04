@@ -15,26 +15,38 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 
 ## Why ComposableRecurrences?
 
-- One pair of operators, `Recurrence` and `Convolution`, covers renewal processes, reporting delays and latent processes such as random walks.
-- Models are built from small parts, such as depletion or mixing between groups, and your own modifiers and couplings plug in alongside them.
-- Gradients are fast under ForwardDiff, Mooncake and Enzyme, so models fit with gradient-based samplers such as NUTS.
-- It is designed as the shared base that other EpiAware modelling packages build on.
+- Recurrences and causal convolutions are usually hand-written loops, rewritten for each model; `Recurrence` and `Convolution` express them as two operators, for one series or many coupled series.
+- Extra behaviour such as coupling between series, finite pools or bounds is added by composing small couplings and modifiers, and you can extend it with your own.
+- Gradients are fast under ForwardDiff, Mooncake and Enzyme.
 
 ## Getting started
 
-A renewal process followed by a reporting delay.
+Three towns share an outbreak.
+Infections follow a renewal process, a gravity coupling mixes the towns, and each town's susceptible pool is depleted.
+An intervention from day 50 lowers the reproduction number over a week, and a reporting delay turns infections into reports.
 
 ```julia
 using ComposableRecurrences
+using ComposableRecurrences: Depletion
 
-renewal = Recurrence([0.2, 0.5, 0.3])
-delay = Convolution([0.1, 0.4, 0.3, 0.2])
-infections = renewal(fill(1.2, 30); history = fill(10.0, 3))
-reports = delay(infections)
-round.(reports[(end - 4):end])
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
+
+gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+
+R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in 1:3, t in 1:75]
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+infections = renewal(R; history = seed)
+reports = 0.4 .* delay(infections)
 ```
 
-See the [documentation](https://composablerecurrences.epiaware.org/stable/) for a three-town model with depletion, its gradients and a full walkthrough.
+![Infections, reports and the remaining susceptible share in each town](docs/src/assets/readme-example.png)
+
+See the [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/) for the full walkthrough.
 
 ## Related packages
 
@@ -44,6 +56,7 @@ See the [documentation](https://composablerecurrences.epiaware.org/stable/) for 
 
 ## Where to learn more
 
+- [Developer documentation](https://composablerecurrences.epiaware.org/stable/developer/), including how to add your own modifiers and couplings
 - [GitHub Discussions](https://github.com/EpiAware/ComposableRecurrences.jl/discussions)
 - [GitHub Repository](https://github.com/EpiAware/ComposableRecurrences.jl)
 

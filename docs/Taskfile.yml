@@ -1,0 +1,13 @@
+# Docs tasks, package-owned (the root Taskfile.yml is managed by the
+# scaffold). Run from the repository root:
+#
+#   task -t docs/Taskfile.yml readme-figure
+version: '3'
+
+tasks:
+  readme-figure:
+    desc: Regenerate the README figure from the README example
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=docs docs/readme_figure.jl
