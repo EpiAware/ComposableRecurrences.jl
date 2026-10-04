@@ -423,3 +423,21 @@ end
     @test CR.seeded(Recurrence([0.5]), 1.0; history = [1.0], add = ϵ) ==
         vcat(1.0, Recurrence([0.5])(1.0; history = [1.0], add = ϵ, start = 2))
 end
+
+@testitem "Recurrence: history loads the same into any buffer" begin
+    import ComposableRecurrences as CR
+    using Random
+    rng = Xoshiro(16)
+    L, S = 4, 3
+    # Histories shorter and longer than the buffer's `L` rows.
+    for m in (2, 6)
+        h = rand(rng, m)
+        H = rand(rng, S, m)
+        for (buf, src) in ((zeros(L + 2, 1), h), (zeros(L + 2, S), H))
+            # `Array` buffers load by loop; a view takes the broadcast fallback.
+            alt = view(zeros(size(buf)), :, :)
+            @test !(alt isa Array)
+            @test CR._load_history!(alt, src, L) == CR._load_history!(buf, src, L)
+        end
+    end
+end
