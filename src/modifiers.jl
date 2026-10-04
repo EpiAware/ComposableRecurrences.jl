@@ -43,8 +43,9 @@ A pointwise modifier acts on each stratum ``i`` separately,
 ``(v'_i, s'_i) = M_i(v_i, s_i, t)``.
 
   - `forward(m, Step(), v, s, t)` updates the step's values `v` and the
-    modifier's state `s` in place (one entry per stratum) and returns
-    `nothing`.
+    modifier's state `s` in place (one entry per stratum, or two for a
+    [`ComposableRecurrences.Depletion`](@ref) with a protected pool) and
+    returns `nothing`.
   - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
     returning `(v′, s′)`; a modifier with
     [`ComposableRecurrences.ispointwise`](@ref) implements this one.
@@ -62,8 +63,10 @@ struct Step end
 
 @doc raw"
 The role of a modifier's initial state: `forward(m, Init(), s, history)`
-writes the state `s` (one entry per stratum, allocated by the operator at
-its buffer eltype) from the full history, and returns `nothing`.
+writes the state `s` (one entry per stratum, or two for a
+[`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
+by the operator at its buffer eltype) from the full history, and returns
+`nothing`.
 
 It sets the state before the first step of the call at ``t_0``,
 

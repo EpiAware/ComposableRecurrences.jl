@@ -309,6 +309,7 @@ end
 function forward(m::Depletion, ::Init, s, history)
     _check_param_strata(:N, m.N, length(s))
     _check_param_strata(:pool0, m.pool0, length(s))
+    _check_param_strata(:removals, m.removals, length(s))
     for k in eachindex(s)
         s[k] = _pool0(m, k)
     end

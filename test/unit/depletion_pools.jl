@@ -231,4 +231,10 @@ end
     @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (d,))(
         fill(1.1, 2, 3); history = ones(2, 1)
     )
+    for protected in (nothing, CR.Protected(0.5))
+        d = CR.Depletion(100.0; removals = PerStratum([1.0, 2.0, 3.0]), protected)
+        @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (d,))(
+            fill(1.1, 2, 3); history = ones(2, 1)
+        )
+    end
 end

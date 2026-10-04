@@ -119,6 +119,7 @@ function forward(m::_Protecting, ::Init, s, history)
     V = m.protected
     _check_param_strata(:N, m.N, S)
     _check_param_strata(:pool0, m.pool0, S)
+    _check_param_strata(:removals, m.removals, S)
     _check_param_strata(:σ, V.σ, S)
     _check_param_strata(:pool0, V.pool0, S)
     for k in 1:S
