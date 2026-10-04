@@ -29,17 +29,18 @@ The reverse pass, for output cotangent ``\bar v'_i``, is
 \bar\theta_{t,i} \mathrel{+}= \frac{\partial f}{\partial \theta}(v_i, \theta_{t,i})\, \bar v'_i,
 ```
 
-with the partial derivatives from a local forward-mode derivative of `f`,
-or from `derivative` when given: `derivative(v)` returns
-``\partial f / \partial v`` without `θ`, and `derivative(v, θ)` returns
+with the partial derivatives from `derivative` when given, or else from a
+local forward-mode derivative of `f`, which needs ForwardDiff loaded.
+`derivative(v)` returns ``\partial f / \partial v`` without `θ`, and
+`derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
 shaped as ``\theta_{t,i}``.
 Values captured inside `f` (a closure, or a callable struct with float
 fields) are not in ``\theta``: without `derivative` such a map is
 differentiated by the AD backend instead, so they keep their gradients.
 
-Scope: [`Recurrence`](@ref); pointwise; local forward-mode adjoint, or
-`derivative`.
+Scope: [`Recurrence`](@ref); pointwise; local forward-mode adjoint (with
+ForwardDiff), or `derivative`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
@@ -141,43 +142,22 @@ function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
 end
 _add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = _add_param!(θ̄, θ, ȳ * ∂θ, k, t)
 
-# `(∂f/∂v, ∂f/∂θ)` from a supplied derivative.
-_derivative(df, f, v, ::Nothing) = (df(v), nothing)
-_derivative(df, f, v, θ) = df(v, θ)
+# `(∂f/∂v, ∂f/∂θ)`: from a supplied derivative, or else the local
+# forward-mode derivative from the ForwardDiff extension.
+_derivative(df, f, v, θ) = _supplied_derivative(df, v, θ)
+_derivative(::Nothing, f, v, θ) = _forward_derivative(f, v, θ)
 
-# The local forward-mode derivative: one dual per scalar of `(v, θ)`.
-struct _TransformTag end
+_supplied_derivative(df, v, ::Nothing) = (df(v), nothing)
+_supplied_derivative(df, v, θ) = df(v, θ)
 
-function _derivative(::Nothing, f, v, ::Nothing)
-    return first(_partials(f(first(_seeds((v,)))), Val(1))), nothing
+function _forward_derivative(f, v, θ)
+    throw(
+        ArgumentError(
+            "a Transform's local derivative needs ForwardDiff: load it " *
+                "(`using ForwardDiff`) or supply derivative"
+        )
+    )
 end
-function _derivative(::Nothing, f, v, θ::Real)
-    x, a = _seeds(promote(v, θ))
-    ∂ = _partials(f(x, a), Val(2))
-    return ∂[1], ∂[2]
-end
-function _derivative(::Nothing, f, v, θ::Union{Tuple, NamedTuple})
-    xs = _seeds(promote(v, values(θ)...))
-    y = f(first(xs), _restructure(θ, Base.tail(xs)))
-    ∂ = _partials(y, Val(length(xs)))
-    return first(∂), _restructure(θ, Base.tail(∂))
-end
-
-_restructure(::Tuple, x) = x
-_restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
-
-function _seeds(xs::Tuple{T, Vararg{T, M}}) where {T, M}
-    N = Val(M + 1)
-    return ntuple(N) do i
-        ForwardDiff.Dual{_TransformTag}(xs[i], ntuple(j -> T(i == j), N))
-    end
-end
-
-# The partials of `f`'s output; a constant output has none.
-function _partials(y::ForwardDiff.Dual{_TransformTag}, ::Val{N}) where {N}
-    return ntuple(i -> ForwardDiff.partials(y, i), Val(N))
-end
-_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
 
 @implements PieceInterface{(:pointwise,)} Transform [
     Arguments(;

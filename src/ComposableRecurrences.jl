@@ -4,20 +4,21 @@
 Fast, composable and differentiable recurrences and causal convolutions.
 
 A recurrence steps a value forward from a window of its own past values, as in
-a renewal process, a random walk or an autoregression.
-A causal convolution weights past inputs by a kernel, as in a reporting delay.
-The package owns the history buffer these steps read from, so reverse-mode
-automatic differentiation does not copy the lag window at every step.
+an autoregression.
+A causal convolution weights past inputs by a kernel, as in a delay.
+Every operator is differentiable, and gradients work under ForwardDiff,
+Mooncake and Enzyme.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
-A bare array in a slot has the slot's own axes only (a kernel's lags, a
-coupling's `S × S`, a modifier parameter's one value);
-[`PerStratum`](@ref), [`Pairwise`](@ref) and [`TimeVarying`](@ref) add
-strata and time axes.
-Data (inputs, history, outputs) are strata × time, with time on the last
-axis; a single series is a vector.
-Every time-indexed array is read at absolute time `t`, and a call covers
-`start:stop`.
+A plain array holds one set of coefficients: a kernel's lag weights, a
+coupling's `S × S` matrix or a modifier parameter's single value.
+[`PerStratum`](@ref) gives one set per stratum, [`Pairwise`](@ref) one per
+pair of strata and [`TimeVarying`](@ref) one per time.
+A stratum is one of `S` parallel series computed together, such as a place
+or an age group.
+Inputs, histories and outputs are strata × time arrays, or a vector for a
+single series.
+Time is absolute, counted from 1, and a call covers the times `start:stop`.
 
 | concept               | one way                                                  |
 |:--------------------- |:-------------------------------------------------------- |
@@ -30,11 +31,11 @@ Every time-indexed array is read at absolute time `t`, and a call covers
 | seed and resume       | `history =`, `with_state`, `state =`, `seeded`           |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
-| extension             | a struct with `forward` for a role                       |
+| extension             | a type with a `forward` method for a role                |
 
-The package is extended by writing a struct: a modifier, coupling or
-depletion form implements [`ComposableRecurrences.forward`](@ref), and
-optionally [`ComposableRecurrences.pullback!`](@ref), for its role
+To extend the package, define a type and add a
+[`ComposableRecurrences.forward`](@ref) method, and optionally a
+[`ComposableRecurrences.pullback!`](@ref) method, for its role
 ([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
 or [`ComposableRecurrences.Pressure`](@ref)).
 
@@ -52,7 +53,6 @@ module ComposableRecurrences
 # the main module file, rather than scattered across included files.
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
-using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, axpy!, dot
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
@@ -71,7 +71,7 @@ public Depletion, Redistribute, Add, Clamp, Transform, Hazard, Floor, Primary,
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
-# The piece interface: roles, `forward`, `pullback!` and the stage loop.
+# The role interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")

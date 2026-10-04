@@ -137,7 +137,7 @@ end
 end
 
 @testitem "Transform: Float32 and no allocation in the pullback" begin
-    using ComposableRecurrences
+    using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
     m = CR.Transform(nb, (; r = 0.5f0, p = 0.4f0))
@@ -208,6 +208,22 @@ end
         (loss(θ + e) - loss(θ - e)) / 2.0e-6
     end
     @test ∇ ≈ fd rtol = 1.0e-6
+end
+
+@testitem "Transform: the local derivative comes from the ForwardDiff extension" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    ext = Base.get_extension(CR, :ComposableRecurrencesForwardDiffExt)
+    @test ext !== nothing
+    # The derivative also runs on an outer dual, as in forward-over-reverse.
+    nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
+    m(r) = CR.Transform(nb, (; r, p = 0.4))
+    function v̄(r)
+        grads = (; piece = (; θ = (; r = Ref(zero(r)), p = Ref(0.0))), v = 1.0, s = 0.0)
+        return first(CR.pullback!(grads, m(r), CR.Step(), 0.3, 0.0, 1, 1))
+    end
+    ∂v(r) = ForwardDiff.derivative(v -> nb(v, (; r, p = 0.4)), 0.3)
+    @test ForwardDiff.derivative(v̄, 0.5) ≈ ForwardDiff.derivative(∂v, 0.5)
 end
 
 @testitem "Transform implements the piece interface" begin
