@@ -216,14 +216,23 @@ end
     ext = Base.get_extension(CR, :ComposableRecurrencesForwardDiffExt)
     @test ext !== nothing
     # The derivative also runs on an outer dual, as in forward-over-reverse.
+    # Each entry's cotangent depends on every entry (∂²f/∂p∂r ≠ 0), so the
+    # mirror takes the piece's promoted eltype, not each entry's own.
     nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
     m(r) = CR.Transform(nb, (; r, p = 0.4))
-    function v̄(r)
-        grads = (; piece = (; θ = (; r = Ref(zero(r)), p = Ref(0.0))), v = 1.0, s = 0.0)
-        return first(CR.pullback!(grads, m(r), CR.Step(), 0.3, 0.0, 1, 1))
+    function pb(r)
+        T = CR.param_eltype(m(r))
+        θ̄ = (; r = Ref(zero(T)), p = Ref(zero(T)))
+        grads = (; piece = (; θ = θ̄), v = 1.0, s = 0.0)
+        v̄, _ = CR.pullback!(grads, m(r), CR.Step(), 0.3, 0.0, 1, 1)
+        return v̄, θ̄.p[]
     end
     ∂v(r) = ForwardDiff.derivative(v -> nb(v, (; r, p = 0.4)), 0.3)
-    @test ForwardDiff.derivative(v̄, 0.5) ≈ ForwardDiff.derivative(∂v, 0.5)
+    ∂p(r) = ForwardDiff.derivative(p -> nb(0.3, (; r, p)), 0.4)
+    @test ForwardDiff.derivative(r -> pb(r)[1], 0.5) ≈
+        ForwardDiff.derivative(∂v, 0.5)
+    @test ForwardDiff.derivative(r -> pb(r)[2], 0.5) ≈
+        ForwardDiff.derivative(∂p, 0.5)
 end
 
 @testitem "Transform implements the piece interface" begin

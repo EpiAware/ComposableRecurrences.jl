@@ -131,7 +131,10 @@ function pullback!(grads, m::Transform, ::Step, v, s, t, k)
     return grads.v * ∂v, grads.s
 end
 
-# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`.
+# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. Each
+# entry's `∂θ` depends on every entry of `(v, θ)`, so a mirror holds the
+# piece's `param_eltype` (a dual for forward-over-reverse), not each
+# entry's own type.
 _add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
 function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
     θ̄ === nothing && return nothing
