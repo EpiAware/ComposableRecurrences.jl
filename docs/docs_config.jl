@@ -151,7 +151,10 @@ const LINKCHECK_IGNORE = Regex[
 
 # README -> index.md link rewrites: `from => to` pairs applied line by line,
 # e.g. rewriting an absolute docs URL to an in-site `@ref`.
-const INDEX_REWRITES = Pair{String, String}[]
+const INDEX_REWRITES = Pair{String, String}[
+    # The README's figure, relative to the site root.
+    "](docs/src/assets/" => "](assets/",
+]
 
 # Whether README ```julia blocks become runnable `@example readme` blocks on
 # the home page. Keep `true` for real, runnable examples; set `false` when
@@ -208,7 +211,7 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # ecosystem rather than a per-repo choice (#354). These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
-    "Concepts" => "getting-started/concepts.md",
+    "API overview" => "getting-started/api-overview.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
@@ -227,11 +230,9 @@ const PACKAGE_TUTORIALS = [
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
 const PACKAGE_SECTIONS = Pair{String, Any}[
-    "Explanation" => [
-        "Operators" => "explanation/operators.md",
-        "Shapes and coefficients" => "explanation/shapes.md",
-        "Couplings" => "explanation/couplings.md",
-        "Modifiers" => "explanation/modifiers.md",
+    "Domain guides" => [
+        "Infectious disease models" =>
+            "domain-guides/infectious-disease-models.md",
     ],
 ]
 
@@ -244,8 +245,10 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 # four fixed pages (`developer/index.md`, `developer/contributing.md`,
 # `developer/release-process.md`, `developer/faq.md`) are then the package's
 # own to write, at those exact paths.
-const DEVELOPMENT_EXTEND_PAGE =
-    "Adding a modifier" => "developer/extending.md"
+const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
+    "Adding a modifier" => "developer/extending.md",
+    "Testing and benchmarking" => "developer/testing.md",
+]
 
 # An optional Getting-started FAQ page, listed right after Overview, e.g.
 # `"getting-started/faq.md"`. Leave `nothing` to omit it.
