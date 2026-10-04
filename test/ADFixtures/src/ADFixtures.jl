@@ -299,4 +299,7 @@ function backend_skip_scenarios()
     )
 end
 
+# The benchmark matrix cases at realistic sizes (see benchmark/matrix.jl).
+include("matrix_cases.jl")
+
 end # module ADFixtures
