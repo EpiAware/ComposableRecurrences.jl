@@ -256,8 +256,11 @@ end
     @test_throws ArgumentError Recurrence(ones(2, 3))
     @test_throws ArgumentError Recurrence(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Recurrence(PerStratum(ones(2, 3, 4)))
-    # Primary indexing is not yet supported, and not a coupling's meaning.
-    @test_throws ArgumentError Recurrence(TimeVarying(ones(3, 4), ComposableRecurrences.Primary()))
+    # Primary indexing is a convolution kernel's, not a recurrence's or a coupling's.
+    @test_throws ArgumentError(
+        "Recurrence takes a Secondary() time-varying kernel, " *
+            "not Primary(), which is for Convolution"
+    ) Recurrence(TimeVarying(ones(3, 4), ComposableRecurrences.Primary()))
     @test_throws ArgumentError Recurrence(
         g; coupling = TimeVarying(ones(2, 2, 4), ComposableRecurrences.Primary())
     )

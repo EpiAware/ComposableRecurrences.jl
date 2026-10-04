@@ -55,7 +55,14 @@ conventions (outputs written into the leading arrays, inputs unchanged).
 The optional `pointwise` component checks that a modifier's vector step
 equals its scalar step on every stratum, ``M(v, s, t)_i = M_i(v_i, s_i, t)``.
 
-Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
+
+# Examples
+```@example
+using ComposableRecurrences, Interfaces
+CR = ComposableRecurrences
+Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
+```"
 
 @implements PieceInterface Recurrence [
     Arguments(;
