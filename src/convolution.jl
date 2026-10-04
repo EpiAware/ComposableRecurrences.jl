@@ -1,23 +1,32 @@
-@doc "
+@doc raw"
 A causal convolution whose kernel starts at lag 0: each output weights the
 current and past inputs,
 
-    y_t = Σ_d kernel_t[d + 1] x_{t-d}
+```math
+y_{t,i} = \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i},
+\qquad t = t_0, \dots, t_1,
+```
+
+where ``y_{t,i}`` is the output of stratum ``i`` (one of ``S`` parallel
+series) at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
+``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l`` and ``L`` the
+kernel length.
+``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.
+Strata do not mix.
 
 A vector kernel is shared by every stratum, a [`PerStratum`](@ref) kernel is
-`S × D`, and a [`TimeVarying`](@ref) kernel is `D × T` or
-`TimeVarying(PerStratum(G))` with `G` `S × D × T`, all lag 0 first.
+`S × L`, and a [`TimeVarying`](@ref) kernel is `L × T` or
+`TimeVarying(PerStratum(G))` with `G` `S × L × T`, all lag 0 first.
 A `TimeVarying` kernel's indexing sets which time its column belongs to:
-with [`ComposableRecurrences.Secondary`](@ref) (the default) column `t`
-weights the inputs reaching output `t`; with
-[`ComposableRecurrences.Primary`](@ref) column `s` is the delay pmf of the
-input at time `s`, which spreads forward through it,
-`y_t = Σ_s x_s kernel_s[t - s + 1]`, so input mass is conserved up to the
-window's end.
+with [`ComposableRecurrences.Secondary`](@ref) (the default) column ``t``
+weights the inputs reaching output ``t``, as above; with
+[`ComposableRecurrences.Primary`](@ref) column ``\tau`` is the delay pmf of
+the input at time ``\tau``, which spreads forward through it, so the weight
+is ``k_{i,l}(t - l)`` and input mass is conserved up to the window's end.
 
 To weight lags from 1, as a renewal's force of infection does, prepend a
-zero: `Convolution(vcat(0, g))` recomputes `Σ_i g_i y_{t-i}` from the
-outputs `y` of a [`Recurrence`](@ref) with kernel `g`.
+zero: `Convolution(vcat(0, g))` recomputes ``\sum_{l=1}^{L} g_l\, y_{t-l}``
+from the outputs ``y`` of a [`Recurrence`](@ref) with kernel ``g``.
 
 Called as `c(x; history = nothing, start = 1, stop)`, the call covers the
 absolute times `start:stop`:
