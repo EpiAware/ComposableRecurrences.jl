@@ -1,22 +1,30 @@
 # # [Threads and GPUs](@id tutorial-threads-gpus)
 #
+# !!! note "Draft"
+#     This tutorial is a draft and is not in the docs build yet: it is not
+#     listed in `docs/docs_config.jl`, and the docs environment does not have
+#     JLArrays.jl or KernelAbstractions.jl.
+#     Before it is listed it needs speed-up results from a benchmark run on a
+#     dedicated machine (`benchmark/matrix.jl --executor=threaded`), with the
+#     hardware stated.
+#
 # ## Introduction
 #
 # A stratum is one of `S` series computed together, such as a place or an age group.
-# Strata that do not mix within a step, and the outputs of a convolution, can be computed at the same time.
+# Strata that do not mix within a step, and the strata of a convolution, can be computed at the same time.
 # An executor sets how: `Serial()` runs them in order, `Threaded()` splits them across CPU threads, and `Device(backend)` runs them as a kernel on a GPU.
 # The executor is chosen for a block of code, so the model code does not change.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Run a many-strata renewal model on threads and check it matches the serial run.
-# 2. Read how the speed-up grows with threads and strata.
-# 3. Run the same model, and its gradient, on GPU-style arrays.
+# 2. See when threads pay off.
+# 3. Run the same model on GPU-style arrays.
 # 4. See what each executor supports.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on the [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial.
 # Start Julia with more than one thread, for example `julia --threads=4`, to see a speed-up.
 
 # ## Packages used
@@ -24,11 +32,7 @@
 using ComposableRecurrences
 using ComposableRecurrences: EXECUTOR, Serial, Threaded, Device
 using Base.ScopedValues: with
-using CairoMakie, AlgebraOfGraphics, DataFramesMeta, CSV
 using JLArrays, KernelAbstractions
-using ForwardDiff
-
-CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Threads
 #
@@ -57,47 +61,29 @@ y_threaded == y_serial
 
 Threads.nthreads()
 
-# ## Speed-up over threads
+# ## When threads pay off
 #
-# The benchmark run times the model above at `S` = 5, 50 and 500 strata over 1 to 8 threads.
-# The numbers are read from the published results, not timed while these docs were built.
+# Starting and joining the tasks costs a few microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (10 000 by default).
+# Strata that do not mix are split once per call, over the whole series.
+# Strata that mix through a coupling, a pairwise kernel or a modifier with a vector step are split once per step, so threads pay off only with many strata.
+# On a Threadripper with a 20-day kernel, two threads ran independent strata 1.5 to 1.9 times faster than one from `S × T` of about 10 000, and eight threads 3.6 to 7.8 times faster.
+# Below about 1 000 strata-times, threads were slower than the serial loop.
+#
+# Set `min_work` to move the break-even point:
 
-results_file = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "executors.csv")
-if isfile(results_file)
-    speedup = @chain CSV.read(results_file, DataFrame) begin
-        @rsubset :device == "CPU"
-        @groupby :case :S :arm
-        @transform :speedup = first(:time_us[:threads .== 1]) ./ :time_us
-    end
-    draw(
-        data(speedup) *
-            mapping(
-            :threads => "Threads", :speedup => "Speed-up over one thread",
-            color = :S => nonnumeric => "Strata", col = :arm
-        ) *
-            visual(ScatterLines);
-        axis = (xticks = [1, 2, 4, 8],)
-    )
-else
-    @info "No executor benchmark results at $results_file; run `task benchmark-executor`."
-end
-
-# TODO(numbers): one sentence on the break-even size, from the results file.
+with(EXECUTOR => Threaded(; min_work = 50_000)) do
+    r(R; history = seed)
+end == y_serial
 
 # ## GPU arrays
 #
-# `Device(backend)` runs the same per-stratum loops as one GPU kernel each.
+# `Device(backend)` runs the same strata loops as one GPU kernel each.
 # Calls on arrays that live on a GPU use it without being asked.
 # JLArrays.jl provides GPU-style arrays that run on the CPU, so this section runs anywhere.
 
 JLArrays.allowscalar(false)
 y_device = r(JLArray(R); history = JLArray(seed))
 Array(y_device) ≈ y_serial
-
-# The gradient of a loss with respect to the reproduction numbers goes through the same kernels.
-
-loss(R) = sum(abs2, r(R; history = JLArray(seed)))
-# TODO(gradient): gradient on JLArrays through the package's adjoints, compared with the CPU gradient.
 
 # On a real GPU the code is the same, with the arrays moved to the device:
 #
@@ -106,21 +92,17 @@ loss(R) = sum(abs2, r(R; history = JLArray(seed)))
 # y = r(CuArray(R); history = CuArray(seed))
 # ```
 #
-# TODO(numbers): RTX 2070 timings from the results file, with the hardware stated.
+# A recurrence pays one kernel launch per step when its strata mix, so a GPU pays off only with many strata or many series.
 
 # ## What each executor supports
 #
-# TODO(table): forward and gradient support per executor and AD backend, filled from the tests.
+# | executor | forward | ForwardDiff | Enzyme reverse | Mooncake reverse |
+# |:-------- |:------- |:----------- |:-------------- |:---------------- |
+# | `Serial()` | all operators | yes | yes | yes |
+# | `Threaded()` | all operators | yes, threaded | yes, runs serially | yes, runs serially |
+# | `Device(backend)` | convolutions; recurrences with an `I` coupling and no modifiers, `Add` or `Clamp` | not tested | not tested | not tested |
 #
-# | executor | forward | ForwardDiff | Mooncake | Enzyme |
-# |:-------- |:------- |:----------- |:-------- |:------ |
-# | `Serial()` | | | | |
-# | `Threaded()` | | | | |
-# | `Device(backend)` | | | | |
-#
-# Calls that an AD backend traces itself, rather than differentiating through the package's adjoints, always run serially.
-
-# ## Compiling the whole model with Reactant
-#
-# Reactant.jl compiles a whole model, including the loops, for a CPU or GPU, and differentiates it with Enzyme.
-# See the [Reactant](@ref reactant) page for what runs.
+# Enzyme and Mooncake reverse mode do not differentiate tasks, so a call they differentiate runs serially whatever executor is set.
+# The `Device(backend)` row was checked on JLArrays only.
+# On a device, a dense or sparse coupling, `Depletion` and modifiers with a vector step still index the arrays on the host, so they fail with scalar indexing disallowed.
+# The kernel must live on the device too.
