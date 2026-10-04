@@ -99,13 +99,13 @@ function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     N, α, r = _param(m.N, k, t), m.heterogeneity, _param(m.removals, k, t)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     r̄, s̄m = _removal_pullback(r, s′, -grads.s)
-    _add_param!(_cotangent(m̄, :removals), m.removals, r̄, k, t)
+    _add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
     v̄, s̄, N̄, ᾱ = pullback!(
-        (; piece = _cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
+        (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
         m.form, Step(), v, s, N, α
     )
-    _add_param!(_cotangent(m̄, :N), m.N, N̄, k, t)
-    _add_cotangent!(_cotangent(m̄, :heterogeneity), ᾱ)
+    _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
     return v̄, s̄
 end
 
@@ -132,7 +132,7 @@ end
 function pullback!(grads, m::_Protecting, ::Init, s, history)
     S = length(s) ÷ 2
     s̄ = grads.s
-    V̄0 = _cotangent(_cotangent(grads.piece, :protected), :pool0)
+    V̄0 = cotangent(cotangent(grads.piece, :protected), :pool0)
     for k in 1:S
         _add_pool0!(grads.piece, m, s̄[k], k)
         _add_param!(V̄0, m.protected.pool0, s̄[S + k], k, 1)
@@ -173,7 +173,7 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
     S = length(v)
     v̄, s̄ = grads.v, grads.s
     m̄ = grads.piece
-    V̄ = _cotangent(m̄, :protected)
+    V̄ = cotangent(m̄, :protected)
     α = m.heterogeneity
     for k in 1:S
         Su, V = s[k], s[S + k]
@@ -185,7 +185,7 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
         q = P > 0 ? y / P : zero(y)
         S′ = P > 0 ? Su - q * Su : Su - y
         r̄, S̄m = _removal_pullback(r, S′, V̄″ - S̄″)
-        _add_removals!(_cotangent(m̄, :removals), m.removals, r̄, k, t)
+        _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
         S̄′ = S̄″ + S̄m
         V̄′ = V̄″
         if P > 0
@@ -201,13 +201,13 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
             P̄ = zero(S̄′)
         end
         v̄k, P̄f, N̄, ᾱ = pullback!(
-            (; piece = _cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
+            (; piece = cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
             Step(), v[k], P, N, α
         )
         P̄ += P̄f
-        _add_param!(_cotangent(m̄, :N), m.N, N̄, k, t)
-        _add_cotangent!(_cotangent(m̄, :heterogeneity), ᾱ)
-        _add_param!(_cotangent(V̄, :σ), m.protected.σ, σ̄ + V * P̄, k, t)
+        _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+        add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
+        _add_param!(cotangent(V̄, :σ), m.protected.σ, σ̄ + V * P̄, k, t)
         v̄[k] = v̄k
         s̄[k] = S̄u + P̄
         s̄[S + k] = V̄v + σ * P̄

@@ -232,9 +232,55 @@ end
         fill(1.1, 2, 3); history = ones(2, 1)
     )
     for protected in (nothing, CR.Protected(0.5))
-        d = CR.Depletion(100.0; removals = PerStratum([1.0, 2.0, 3.0]), protected)
-        @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (d,))(
+        dp = CR.Depletion(100.0; removals = PerStratum([1.0, 2.0, 3.0]), protected)
+        @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (dp,))(
             fill(1.1, 2, 3); history = ones(2, 1)
         )
     end
+end
+
+@testitem "Depletion pools: declare their adjoint" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    doses = TimeVarying([1.0, 2.0])
+    for d in (
+            CR.Depletion(100.0; removals = doses),
+            CR.Depletion(100.0, CR.Floor(); protected = CR.Protected(0.3)),
+            CR.Depletion(100.0; removals = doses, protected = CR.Protected(0.3)),
+        )
+        @test CR.uses_adjoint(d, CR.Step())
+        @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
+    end
+end
+
+@testitem "Depletion pools: the Recurrence reverse pass" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(12)
+    S, L, T = 2, 3, 6
+    g = rand(rng, L) ./ 2
+    K = [0.4 0.1; 0.2 0.3]
+    h = 1 .+ rand(rng, S, L)
+    R = 1.5 .+ rand(rng, S, T)
+    doses = TimeVarying(PerStratum(1 .+ rand(rng, S, T)))
+    mods = (
+        CR.Depletion(PerStratum([60.0, 80.0]); removals = doses),
+        CR.Depletion(
+            PerStratum([60.0, 80.0]); removals = doses,
+            protected = CR.Protected(PerStratum([0.3, 0.5]); pool0 = 2.0)
+        ),
+        CR.Depletion(
+            70.0, CR.Floor(); heterogeneity = 1.3, pool0 = 65.0,
+            removals = TimeVarying(rand(rng, T)), protected = CR.Protected(0.2)
+        ),
+        CR.Depletion(70.0; protected = CR.Protected(0.4; pool0 = 10.0)),
+    )
+    for m in mods
+        r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+        @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
+    end
+    # Resumed from given states: two pools per stratum.
+    r = Recurrence(g; coupling = K, modifiers = (mods[2],))
+    states = ([40.0, 70.0, 5.0, 3.0],)
+    @test pullback_matches(r, recargs(R, nothing, h; states)...)
 end

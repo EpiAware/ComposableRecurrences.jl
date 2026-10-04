@@ -49,5 +49,20 @@ const QA_CONFIG = (
     #      prefixes = ("MyPkg", "SomeTrigger"),
     #      expect_phantoms = false,    # true if a third party adds phantoms
     #      broken = false)             # true to quarantine a known ambiguity
-    extensions = (),
+    extensions = (
+        (;
+            name = :ComposableRecurrencesMooncakeExt,
+            triggers = ("ADTypes", "Mooncake", "Random"),
+            prefixes = ("ComposableRecurrences",),
+        ),
+        (;
+            name = :ComposableRecurrencesEnzymeExt, triggers = ("Enzyme",),
+            prefixes = ("ComposableRecurrences",),
+        ),
+        (;
+            name = :ComposableRecurrencesEnzymeTestUtilsExt,
+            triggers = ("ADTypes", "Enzyme", "EnzymeTestUtils"),
+            prefixes = ("ComposableRecurrences",),
+        ),
+    ),
 )
