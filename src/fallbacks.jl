@@ -164,10 +164,11 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     return g[1], g[2]
 end
 
-# Dual numbers with one unit partial each, for the `N` values in `x`.
-function _seed(tag::G, x::NTuple{N, T}) where {G, N, T}
-    return ntuple(Val(N)) do i
-        ForwardDiff.Dual{G}(x[i], ForwardDiff.Partials(ntuple(j -> T(i == j), Val(N))))
+# Dual numbers with one unit partial each, for the values in `x` (the value
+# and the state come first, so there is at least one).
+function _seed(tag::G, x::Tuple{T, Vararg{T, M}}) where {G, T, M}
+    return ntuple(Val(M + 1)) do i
+        ForwardDiff.Dual{G}(x[i], ForwardDiff.Partials(ntuple(j -> T(i == j), Val(M + 1))))
     end
 end
 
