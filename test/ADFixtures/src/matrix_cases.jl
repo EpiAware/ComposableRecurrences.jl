@@ -15,8 +15,10 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
+using ..ADFixtures: supports, _TWIN_REQUIRES
 
-export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases
+export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
+    available
 
 "A problem size: `T` steps, `L` lags (or delays) and `S` strata."
 struct Size
@@ -356,6 +358,24 @@ const CASES = [
 
 "Cases not yet on `main`, listed so the report shows them as pending."
 pending_cases() = [("transform", "pointwise Transform modifier (M4)")]
+
+# The features each case needs beyond the first release, by case name, as
+# `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
+const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "zone_allocate" => (:Allocate,),
+)
+
+"""
+    available(c::Case, arm = "rule")
+
+Whether the loaded ComposableRecurrences can run case `c` in arm `arm`.
+The benchmark history workflow builds the cases against older releases.
+The `NoAdjoint` arm also needs the analytic adjoint (`uses_adjoint`).
+"""
+function available(c::Case, arm::AbstractString = "rule")
+    extra = arm == "NoAdjoint" ? _TWIN_REQUIRES : ()
+    return supports(get(REQUIRES, c.name, ())..., extra...)
+end
 
 "The case called `name`."
 case(name) = CASES[findfirst(c -> c.name == name, CASES)]
