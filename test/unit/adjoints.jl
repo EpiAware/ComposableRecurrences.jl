@@ -358,6 +358,17 @@ end
     CR.add_cotangent!((; x = x̄), 1.0, 1, 2)
     @test x̄[1, 2] == 3.0
     @test CR.add_cotangent!(nothing, 1.0, 1) === nothing
+    # A structured matrix's mirror keeps its structure: only stored entries
+    # take a cotangent.
+    d̄ = (; diag = zeros(2))
+    CR._add_entry!(d̄, Diagonal(ones(2)), 1.5, 2, 2)
+    CR._add_entry!(d̄, Diagonal(ones(2)), 1.0, 1, 2)
+    @test d̄.diag == [0.0, 1.5]
+    K = sparse([1.0 0.0; 0.5 1.0])
+    K̄ = (; nzval = zeros(3))
+    CR._add_entry!(K̄, K, 2.0, 2, 1)
+    CR._add_entry!(K̄, K, 1.0, 1, 2)
+    @test K̄.nzval == [0.0, 2.0, 0.0]
 end
 
 @testitem "Adjoint: NoAdjoint takes the plain path" begin
