@@ -411,3 +411,60 @@ end
     @test cache.X isa Wrapped
     @test unwrap(y) ≈ first(CR._run_forward(c, x, nothing, 1, nothing))
 end
+
+@testitem "Adjoint: scalar-parameter local pullback" setup = [AdjointCheck] begin
+    # A pointwise modifier with only scalar parameters, nested in a struct,
+    # mixed float types and an integer field: the default `Step` pullback
+    # seeds them as one tuple of dual numbers.
+    struct Inner{T}
+        N::T
+        k::Int
+    end
+    struct Outer{A, B}
+        a::A
+        inner::B
+    end
+    CR.ispointwise(::Outer) = true
+    function CR.forward(m::Outer, ::CR.Step, v, s, t, k)
+        v′ = m.a * max(s / m.inner.N, 1.0e-6) * v * m.inner.k
+        return v′, s - v′
+    end
+    m = Outer(0.7f0, Inner(50.0, 2))
+    @test CR._scalar_params(m)
+    @test CR._param_tuple(m) == (0.7f0, 50.0)
+    for (v, s) in ((2.0, 30.0), (1.5, 0.2))
+        # Reference: the Jacobian of the step in the value, state and
+        # parameters.
+        J = ForwardDiff.jacobian([v; s; CR._params(m)]) do x
+            v′, s′ = CR.forward(
+                CR._rebuild(m, view(x, 3:4)), CR.Step(), x[1], x[2], 1, 1
+            )
+            return [v′, s′]
+        end
+        ref = transpose(J) * [0.3, 0.7]
+        m̄ = zero_mirror(m)
+        got = CR.pullback!((; piece = m̄, v = 0.3, s = 0.7), m, CR.Step(), v, s, 1, 1)
+        @test collect(got) ≈ ref[1:2]
+        @test mirror_vec(m̄, m) ≈ ref[3:4] rtol = 1.0e-6
+        # Without a mirror only the value and state cotangents come back.
+        @test collect(CR.pullback!((; piece = nothing, v = 0.3, s = 0.7), m, CR.Step(), v, s, 1, 1)) ≈
+            ref[1:2]
+    end
+    # A step allocates nothing: a thousand cost less than one kilobyte.
+    function steps(m, m̄, n)
+        acc = 0.0
+        for i in 1:n
+            v̄, s̄ = CR.pullback!(
+                (; piece = m̄, v = 0.3, s = 0.7), m, CR.Step(), 2.0 + i, 30.0, 1, 1
+            )
+            acc += v̄ + s̄
+        end
+        return acc
+    end
+    m̄ = zero_mirror(m)
+    steps(m, m̄, 2)
+    @test (@allocated steps(m, m̄, 1000)) < 1000
+    # Through a recurrence the rule matches ForwardDiff.
+    r = CR.Recurrence([0.3, 0.2]; modifiers = (m,))
+    @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
+end

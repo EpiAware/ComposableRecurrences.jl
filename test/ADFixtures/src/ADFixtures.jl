@@ -278,13 +278,9 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-ReverseDiff is unsupported (the package relies on mutation); remove these
-jobs once the kit backend subset (#438) is released.
+None: every scenario and its `NoAdjoint` twin passes on every backend.
 """
-function backend_broken_scenarios()
-    names = Set(first.(_TWINS))
-    return Dict("ReverseDiff (tape)" => names, "ReverseDiff (compiled)" => names)
-end
+backend_broken_scenarios() = Dict{String, Set{String}}()
 
 """
 Per-backend scenario names too unstable to run at all.

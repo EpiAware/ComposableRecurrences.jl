@@ -130,6 +130,8 @@ _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 # derivative in the value, the state and the modifier's float parameters.
 function pullback!(grads, m, ::Step, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
+    m̄ === nothing || !_scalar_params(m) ||
+        return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     P = _nactive(m̄, m)
     if P == 0
         D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(pullback!, typeof(v)))}
@@ -147,6 +149,86 @@ function pullback!(grads, m, ::Step, v, s, t, k)
 end
 _partials2(x::ForwardDiff.Dual) = ForwardDiff.partials(x)
 _partials2(x::Real) = (zero(x), zero(x))
+
+# The same derivative for a modifier whose parameters are all scalars: the
+# value, the state and the parameters are seeded as one tuple of dual
+# numbers, so a step allocates nothing (this runs once per stratum and step).
+function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
+    x = (v, s, _param_tuple(m)...)
+    T = promote_type(map(typeof, x)...)
+    xd = _seed(ForwardDiff.Tag(_scalar_pullback, T), map(T, x))
+    md = first(_rebuild_scalar(m, Base.tail(Base.tail(xd))))
+    v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
+    g = _vjp(v′, s′, v̄, s̄, xd)
+    _add_scalar!(m̄, m, Base.tail(Base.tail(g)))
+    return g[1], g[2]
+end
+
+# Dual numbers with one unit partial each, for the `N` values in `x`.
+function _seed(tag::G, x::NTuple{N, T}) where {G, N, T}
+    return ntuple(Val(N)) do i
+        ForwardDiff.Dual{G}(x[i], ForwardDiff.Partials(ntuple(j -> T(i == j), Val(N))))
+    end
+end
+
+# `v̄ ∂v′/∂x + s̄ ∂s′/∂x` for each of the `N` seeded values.
+function _vjp(v′, s′, v̄, s̄, x::NTuple{N}) where {N}
+    ∂v, ∂s = _partialsN(v′, Val(N)), _partialsN(s′, Val(N))
+    return ntuple(i -> v̄ * ∂v[i] + s̄ * ∂s[i], Val(N))
+end
+_partialsN(x::ForwardDiff.Dual, ::Val) = ForwardDiff.partials(x).values
+_partialsN(x::Real, ::Val{N}) where {N} = ntuple(_ -> zero(x), Val(N))
+
+# The float scalars of `x` in the order `_getparams!` reads them, as a tuple.
+_param_tuple(x::AbstractFloat) = (x,)
+_param_tuple(::_Leafless) = ()
+_param_tuple(x::Union{Tuple, NamedTuple}) = _param_tuples(values(x)...)
+function _param_tuple(x)
+    isstructtype(typeof(x)) || return ()
+    return _param_tuples(ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))...)
+end
+_param_tuples() = ()
+_param_tuples(x, xs...) = (_param_tuple(x)..., _param_tuples(xs...)...)
+
+# `_rebuild` and `_addparams!` for the tuple of scalars: each consumes the
+# leading entries of `θ` or `g` and returns the rest, so the recursion over
+# fields is resolved at compile time.
+_rebuild_scalar(::AbstractFloat, θ) = (first(θ), Base.tail(θ))
+_rebuild_scalar(x::_Leafless, θ) = (x, θ)
+_rebuild_scalar(::Tuple{}, θ) = ((), θ)
+function _rebuild_scalar(x::Tuple, θ)
+    a, θ = _rebuild_scalar(first(x), θ)
+    b, θ = _rebuild_scalar(Base.tail(x), θ)
+    return (a, b...), θ
+end
+function _rebuild_scalar(x::NamedTuple{N}, θ) where {N}
+    y, θ = _rebuild_scalar(Tuple(x), θ)
+    return NamedTuple{N}(y), θ
+end
+function _rebuild_scalar(x, θ)
+    _param_tuple(x) === () && return x, θ
+    fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
+    ys, θ = _rebuild_scalar(fs, θ)
+    return _constructorof(typeof(x))(ys...), θ
+end
+
+_add_scalar!(x̄, ::AbstractFloat, g) = (add_cotangent!(x̄, first(g)); Base.tail(g))
+_add_scalar!(x̄, ::_Leafless, g) = g
+_add_scalar!(x̄, ::Tuple{}, g) = g
+function _add_scalar!(x̄, x::Tuple, g)
+    g = _add_scalar!(x̄ === nothing ? nothing : first(x̄), first(x), g)
+    return _add_scalar!(x̄ === nothing ? nothing : Base.tail(x̄), Base.tail(x), g)
+end
+function _add_scalar!(x̄, x::NamedTuple, g)
+    return _add_scalar!(x̄ === nothing ? nothing : Tuple(x̄), Tuple(x), g)
+end
+function _add_scalar!(x̄, x, g)
+    _param_tuple(x) === () && return g
+    names = fieldnames(typeof(x))
+    fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
+    m̄s = map(n -> _field_mirror(x̄, n), names)
+    return _add_scalar!(m̄s, fs, g)
+end
 
 # Default initial-state pullback: a local ForwardDiff Jacobian of the Init,
 # skipped for the default zero state.
