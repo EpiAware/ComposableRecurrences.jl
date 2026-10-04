@@ -255,6 +255,31 @@ end
     @test CR.pullback!(grads, m, CR.Init(), zeros(2), ones(2, 1)) === nothing
 end
 
+@testitem "Transform: local derivative helpers called directly" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # Each method runs on its own here, not only inlined into a caller.
+    m = CR.Transform((v, θ) -> θ[1] * v^2 + θ[2], (2.0, 0.5))
+    @test CR.ispointwise(m)
+    @test !CR._scalar_params(m)
+    @test CR._forward_derivative(v -> v^2, 0.3, nothing) == (0.6, nothing)
+    @test CR._forward_derivative((v, a) -> a * v^2, 0.3, 2.0) == (1.2, 0.09)
+    # A Tuple of parameters keeps its form.
+    ∂v, ∂θ = CR._forward_derivative(m.f, 0.3, m.θ)
+    @test ∂v ≈ 1.2 && ∂θ isa Tuple && collect(∂θ) ≈ [0.09, 1.0]
+    @test CR._restructure((1.0, 2.0), (3.0, 4.0)) == (3.0, 4.0)
+    xs = CR._transform_seeds((0.3, 2.0))
+    @test ForwardDiff.value.(xs) == (0.3, 2.0)
+    @test CR._transform_partials(xs[1] * xs[2], Val(2)) == (2.0, 0.3)
+    θ̄ = (Ref(0.0), Ref(0.0))
+    @test CR._add_theta!(θ̄, m.θ, ∂θ, 2.0, 1, 1) === nothing
+    @test θ̄[1][] ≈ 0.18 && θ̄[2][] ≈ 2.0
+    # The pullback with a Tuple of parameters.
+    grads = (; piece = (; θ = (Ref(0.0), Ref(0.0))), v = 1.0, s = 0.0)
+    @test CR.pullback!(grads, m, CR.Step(), 0.3, 0.0, 1, 1)[1] ≈ 1.2
+    @test grads.piece.θ[2][] ≈ 1.0
+end
+
 @testitem "Transform: the rule covers it unless the map has float fields" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
