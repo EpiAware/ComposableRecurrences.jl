@@ -1,6 +1,6 @@
 # The native adjoint rules' entry point. An operator's call builds its
 # positional arguments and goes through `adjoint_call`, which routes to the
-# rule primitive `_ad` (Mooncake `rrule!!` and Enzyme rules in the
+# rule primitive `_ad` (`Mooncake` `rrule!!` and `Enzyme` rules in the
 # extensions) when the operator declares its adjoint and every float is
 # IEEE, and otherwise to `_plain`, which the AD backend differentiates.
 
@@ -24,8 +24,8 @@ by a different route: the backend's derivative of the forward loop rather
 than the hand-written pullback.
 Useful to time a hand-written adjoint against plain AD, and to check the two
 gradients agree.
-Plain Enzyme reverse AD of a sparse coupling is wrong, so an active sparse
-coupling under `NoAdjoint` throws an `ArgumentError` with Enzyme.
+Plain `Enzyme` reverse AD of a sparse coupling is wrong, so an active sparse
+coupling under `NoAdjoint` throws an `ArgumentError` with `Enzyme`.
 
 # Examples
 ```@example
@@ -57,9 +57,20 @@ _reroute(::NoAdjoint, op) = NoAdjoint(op)
 const _PULLBACK_CALLS = Threads.Atomic{Int}(0)
 _count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
 
-@doc "
+@doc raw"
 Whether `piece` carries its own analytic adjoint in `role`: a
 [`ComposableRecurrences.pullback!`](@ref) method for that role.
+
+For outputs ``o = f(u, \theta)`` of the role, with inputs ``u`` and
+parameters ``\theta``, a declared adjoint computes the cotangents
+
+```math
+\bar u = \Big(\frac{\partial o}{\partial u}\Big)^{\top} \bar o, \qquad
+\bar\theta = \Big(\frac{\partial o}{\partial \theta}\Big)^{\top} \bar o
+```
+
+by hand, where ``\bar o`` is the gradient of a scalar loss with respect to
+``o``.
 
 The author declares it next to the `pullback!` method; the default is
 `false`.
@@ -101,8 +112,8 @@ end
 _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
-# The primal call. The extensions make `_ad` a rule primitive for Mooncake and
-# Enzyme; `_plain` is differentiated by the backend.
+# The primal call. The extensions make `_ad` a rule primitive for `Mooncake`
+# and `Enzyme`; `_plain` is differentiated by the backend.
 _primal(op, args...) = first(_run_forward(op, args...))
 _ad(op, args...) = _primal(op, args...)
 _plain(op, args...) = _primal(op, args...)
@@ -126,7 +137,7 @@ end
 # closed function of the types (nothing extends it), evaluated once per
 # signature by a generated function: inference does not constant-fold the
 # recursion, and an unfolded gate costs a dynamic dispatch on every call
-# under Mooncake.
+# under `Mooncake`.
 const _IEEEFloat = Union{Float16, Float32, Float64}
 @generated _gate(xs...) = all(_ok, xs)
 function _ok(::Type{T}) where {T}
@@ -145,9 +156,19 @@ function _ok(::Type{T}) where {T}
     return true
 end
 
-@doc "
+@doc raw"
 The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`
 when `x̄` is `nothing` or has no such field.
+
+For a struct with fields ``\theta_1, \dots, \theta_n`` and a scalar loss
+``\ell``, the mirror holds
+
+```math
+\bar\theta_j = \frac{\partial \ell}{\partial \theta_j},
+\qquad j = 1, \dots, n,
+```
+
+and this returns ``\bar\theta_j`` for the field named `name`.
 
 A mirror holds a struct's cotangents for a
 [`ComposableRecurrences.pullback!`](@ref): an array to accumulate into for a
@@ -170,10 +191,17 @@ cotangent(::Nothing, name::Symbol) = nothing
 cotangent(x̄::NamedTuple, name::Symbol) = get(x̄, name, nothing)
 cotangent(x̄, name::Symbol) = getfield(x̄, name)
 
-@doc "
-Add `v` to the mirror `x̄` at index `idx`: `x̄[idx...] += v` for an array,
-`x̄[] += v` for a `Ref` (the index is ignored), into the array of a
-wrapper's `(; x)` mirror, and nothing for `nothing`.
+@doc raw"
+Add `v` to the mirror `x̄` at index `idx`,
+
+```math
+\bar x_{\mathrm{idx}} \leftarrow \bar x_{\mathrm{idx}} + v,
+```
+
+so the cotangents from every use of a parameter sum.
+This is `x̄[idx...] += v` for an array, `x̄[] += v` for a `Ref` (the index
+is ignored), the same into the array of a wrapper's `(; x)` mirror, and
+nothing for `nothing`.
 
 # Arguments
 - `x̄`: the mirror: an array, a `Ref`, `(; x)` or `nothing`.
@@ -210,14 +238,27 @@ function _add_entry!(K̄, K::Diagonal, v, p, q)
     return nothing
 end
 
-@doc "
+@doc raw"
 Test the analytic adjoint of `piece` in `role` on the primal arguments
 `args` with the AD `backend`'s own rule tester.
 
+The tester checks the pullback against finite differences of the forward
+map ``o = f(u)``: for random directions ``\dot u`` and cotangents
+``\bar o``,
+
+```math
+\big\langle \bar o,\ J \dot u \big\rangle =
+\big\langle J^{\top} \bar o,\ \dot u \big\rangle,
+\qquad J = \frac{\partial o}{\partial u},
+```
+
+with ``J \dot u`` from finite differences and ``J^{\top} \bar o`` from the
+pullback.
+
 For an operator, `role` is [`ComposableRecurrences.Run`](@ref) and `args`
 are its positional arguments.
-Methods come from package extensions: `AutoMooncake` with Mooncake loaded
-(`Mooncake.TestUtils.test_rule`) and `AutoEnzyme` with EnzymeTestUtils
+Methods come from package extensions: `AutoMooncake` with `Mooncake` loaded
+(`Mooncake.TestUtils.test_rule`) and `AutoEnzyme` with `EnzymeTestUtils`
 loaded (`test_reverse`, with the operator active and constant).
 
 # Arguments

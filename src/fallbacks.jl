@@ -1,5 +1,5 @@
 # Default pullbacks for modifiers and couplings without a hand-written one:
-# a local ForwardDiff Jacobian of that one step, including the parameters.
+# a local `ForwardDiff` Jacobian of that one step, including the parameters.
 # A parameter is a float leaf of the object: a float scalar, the entries of a
 # float array (a view or reshape is rebuilt as an `Array`), the nonzeros of a
 # sparse matrix or the diagonal of a `Diagonal`, found by recursing through
@@ -126,7 +126,7 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
-# Default scalar pullback of a pointwise modifier: a local ForwardDiff
+# Default scalar pullback of a pointwise modifier: a local `ForwardDiff`
 # derivative in the value, the state and the modifier's float parameters.
 function pullback!(grads, m, ::Step, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
@@ -231,7 +231,7 @@ function _add_scalar!(x̄, x, g)
     return _add_scalar!(m̄s, fs, g)
 end
 
-# Default initial-state pullback: a local ForwardDiff Jacobian of the Init,
+# Default initial-state pullback: a local `ForwardDiff` Jacobian of the Init,
 # skipped for the default zero state.
 function pullback!(grads, m, ::Init, s, history)
     _default_init(m, s, history) && return nothing

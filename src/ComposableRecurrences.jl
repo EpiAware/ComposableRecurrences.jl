@@ -97,9 +97,9 @@ include("recurrence.jl")
 include("recurrence_adjoint.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")
-# Local ForwardDiff pullbacks for pointwise modifiers and initial states.
+# Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.
 include("fallbacks.jl")
-# Interfaces.jl declaration of the piece interface.
+# Interfaces.jl declaration of the role interface.
 include("interfaces.jl")
 
 end # module ComposableRecurrences

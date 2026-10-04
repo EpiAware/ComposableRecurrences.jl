@@ -172,8 +172,8 @@ function _convolve_series!(y, c, X, k, m, start)
 end
 
 # `y .+= α x` as a native loop: at these lengths it is faster than a BLAS
-# call. Under plain Mooncake AD the extension swaps in BLAS `axpy!`, which
-# Mooncake differentiates with one rule.
+# call. Under plain `Mooncake` AD the extension swaps in BLAS `axpy!`, which
+# `Mooncake` differentiates with one rule.
 function _axpy!(α, x, y)
     @inbounds @simd ivdep for i in eachindex(x, y)
         y[i] += α * x[i]

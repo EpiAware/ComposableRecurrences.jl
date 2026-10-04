@@ -181,7 +181,7 @@ incoming value, and a scalar `Step` returns its input cotangents instead.
 Declare [`ComposableRecurrences.uses_adjoint`](@ref) for the same role so
 an operator's native rule calls it.
 Without one, a pointwise modifier with only scalar float parameters is
-differentiated locally with ForwardDiff, and any other object makes the AD
+differentiated locally with `ForwardDiff`, and any other object makes the AD
 backend differentiate the whole operator.
 
 # Arguments
