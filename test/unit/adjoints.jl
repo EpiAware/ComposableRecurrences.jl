@@ -468,3 +468,71 @@ end
     r = CR.Recurrence([0.3, 0.2]; modifiers = (m,))
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
 end
+
+@testitem "Adjoint: coupling pullbacks called directly" setup = [AdjointCheck] begin
+    # `I` and `Diagonal` couplings have fused paths inside the recurrence
+    # rule; their `Pressure` pullbacks are public and checked here.
+    rng = Xoshiro(3)
+    p, q̄ = randn(rng, 3), randn(rng, 3)
+    for (C, m̄, θ) in (
+            (2.5I, (; λ = Ref(0.0)), [2.5]),
+            (Diagonal([0.5, 1.5, 2.0]), (; diag = zeros(3)), [0.5, 1.5, 2.0]),
+        )
+        rebuild(θ) = C isa UniformScaling ? θ[1] * I : Diagonal(θ)
+        function pressure(θ, p)
+            q = zeros(promote_type(eltype(θ), eltype(p)), 3)
+            CR.forward(rebuild(θ), CR.Pressure(), q, p, 1)
+            return sum(q̄ .* q)
+        end
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, 1)
+        @test p̄ ≈ ForwardDiff.gradient(x -> pressure(θ, x), p)
+        @test mirror_vec(m̄, C isa UniformScaling ? (; λ = 2.5) : C) ≈
+            ForwardDiff.gradient(x -> pressure(x, p), θ)
+    end
+end
+
+@testitem "Adjoint: local pullback over structured and nested parameters" setup = [AdjointCheck] begin
+    # A pointwise modifier with array parameters takes the local Jacobian:
+    # a Diagonal, a sparse matrix, a named tuple and a tuple holding an
+    # array, read back in the order the parameters are collected.
+    struct Mixed{D, M, N, P}
+        D::D
+        K::M
+        nt::N
+        tp::P
+    end
+    CR.ispointwise(::Mixed) = true
+    function CR.forward(m::Mixed, ::CR.Step, v, s, t, k)
+        w = m.D.diag[k] + m.K[k, k] + m.nt.a + m.tp[1] + m.tp[2][k]
+        return v * w, s + 0.1 * v
+    end
+    m = Mixed(
+        Diagonal([0.2, 0.3]), sparse([0.1 0.0; 0.0 0.2]), (; a = 0.05),
+        (0.1, [0.01, 0.02])
+    )
+    @test !CR._scalar_params(m)
+    r = CR.Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.1 0.9], modifiers = (m,))
+    @test pullback_matches(r, recargs(1.1, nothing, ones(2, 2); stop = 6)...)
+
+    # Scalar parameters inside a named tuple and a tuple take the dual-number
+    # path.
+    struct Nested{N, P}
+        nt::N
+        tp::P
+    end
+    CR.ispointwise(::Nested) = true
+    function CR.forward(m::Nested, ::CR.Step, v, s, t, k)
+        return v * (m.nt.a + m.nt.b * m.tp[2]), s + m.tp[1] * v
+    end
+    n = Nested((; a = 0.5, b = 0.25), (0.1, 2))
+    @test CR._scalar_params(n)
+    @test CR._param_tuple(n) == (0.5, 0.25, 0.1)
+    r = CR.Recurrence([0.3, 0.2]; modifiers = (n,))
+    @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
+end
+
+@testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin
+    using ComposableRecurrences
+    @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2)))
+end
