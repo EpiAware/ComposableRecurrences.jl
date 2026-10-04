@@ -27,3 +27,13 @@ tasks:
     dir: '{{.TASKFILE_DIR}}/..'
     cmds:
       - julia --startup-file=no benchmark/matrix_report.jl {{.CLI_ARGS}}
+
+  matrix-docs:
+    desc: Time the docs tier and rewrite benchmark/results/docs.csv
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=benchmark benchmark/matrix.jl --tier=docs --out=matrix-results/docs {{.CLI_ARGS}}
+      - >-
+        julia --startup-file=no benchmark/matrix_report.jl matrix-results/docs
+        --docs=benchmark/results/docs.csv

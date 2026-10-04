@@ -2,20 +2,21 @@
 #
 # ## Introduction
 #
-# Strata can be places, such as towns or health zones, or types, such as age groups or traced and untraced cases.
-# A coupling mixes strata within each step, a `Pairwise` kernel gives each pair its own generation interval, and `Redistribute` moves infections between places.
-# This tutorial builds a three-patch model several ways, recovers its importation series, and then treats strata as types.
+# A model can run several series side by side, one for each place, such as a town, or each type, such as an age group or traced and untraced cases.
+# Each of these series is a stratum.
+# A coupling mixes the series within each step, a `Pairwise` kernel gives each pair its own generation interval, and `Redistribute` moves infections between places.
+# This tutorial builds a three-patch model several ways, recovers its importation series, and then treats the series as types.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Build a gravity coupling from populations and distances.
 # 2. Compare a fixed coupling, per-pair generation intervals and mixing that changes over time.
 # 3. Move infections between patches with `Redistribute` and recompute the importation series.
-# 4. Use strata as types for a multi-type process, isolation and contact tracing in expectation.
+# 4. Use the series as types for a multi-type process, isolation and contact tracing in expectation.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) overview and the [Concepts](@ref concepts) page, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on the [Getting started](@ref getting-started) overview and the [API overview](@ref api-overview), and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
 # No fitting is involved.
 
 # ## Packages used
@@ -40,11 +41,12 @@ dist = [0.0 15.0 40.0; 15.0 0.0 25.0; 40.0 25.0 0.0]
 gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:S, b in 1:S]
 K = 0.95 * I(S) + 0.05 * gravity ./ sum(gravity; dims = 2)
 
-draw(
-    data(DataFrame(to = repeat(patches, S), from = repeat(patches; inner = S), weight = vec(K))) *
-        mapping(:from, :to, :weight => "Weight") * visual(Heatmap);
-    axis = (xlabel = "From patch", ylabel = "To patch")
-)
+@chain DataFrame(K, patches) begin
+    @transform(:to = patches)
+    stack(Not(:to); variable_name = :from, value_name = :weight)
+    data(_) * mapping(:from, :to, :weight => "Weight") * visual(Heatmap)
+    draw(_; axis = (xlabel = "From patch", ylabel = "To patch"))
+end
 
 # Most weight sits on the diagonal.
 # A and B, the closest pair, share the most, and C is the most isolated.
@@ -72,15 +74,19 @@ models = [
     "Per-pair intervals" => Recurrence(Pairwise(A); modifiers = (depletion,)),
     "Travel cut on day 30" => Recurrence(gi; coupling = TimeVarying(Kt), modifiers = (depletion,)),
 ]
-long(y, model) = DataFrame(
-    day = repeat(1:T; inner = S), patch = repeat(patches, T), count = vec(y), model = model
-)
-runs = vcat([long(r(1.6; history = seed, stop = T), name) for (name, r) in models]...)
-draw(
-    data(runs) * mapping(:day, :count, color = :model, layout = :patch) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Infections")
-)
+long(y) = @chain DataFrame(permutedims(y), patches) begin
+    @transform(:day = 1:size(y, 2))
+    stack(Not(:day); variable_name = :patch, value_name = :count)
+end
+@chain models begin
+    map(_) do (name, r)
+        @transform(long(r(1.6; history = seed, stop = T)), :model = name)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :model, layout = :patch) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
 
 # All three patches take off together, because even 5% mixing seeds B and C within days.
 # Longer intervals between patches delay the peaks in B and C slightly.
@@ -88,7 +94,7 @@ draw(
 
 # ## Moving infections between patches
 #
-# `Redistribute(K, ε)` moves a share `ε` of what each patch generates to the others, weighted by `K`, conserving the total.
+# `Redistribute(K, ε)` moves a share ``\varepsilon`` of what each patch generates to the others, weighted by `K`, conserving the total.
 # The diagonal of `K` is ignored.
 # Here each origin has its own intensity, and it halves from day 40.
 # Placed before `Depletion`, each patch's pool is depleted by what it receives.
@@ -98,26 +104,23 @@ patch = Recurrence(gi; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε)))
 infections, state = with_state(patch, 1.6; history = seed, stop = T)
 
 # The importation series is not recorded, but it can be recomputed from the infections.
-# Each patch's pre-modifier value is `R` times its generation-interval convolution, which is a convolution with a zero at lag 0.
+# Each patch's value before the modifiers is ``R`` times its generation-interval convolution, which is a convolution with a zero at lag 0.
 # The arrivals are the off-diagonal `K` applied to each origin's `ε`-weighted value.
 
 force = Convolution(vcat(0.0, gi))(hcat(seed, infections))[:, (size(seed, 2) + 1):end]
 K_off = K - Diagonal(diag(K))
 arrivals = K_off * (ε .* (1.6 .* force))
-arrivals_df = DataFrame(
-    day = repeat(1:T; inner = S), patch = repeat(patches, T), count = vec(arrivals),
-    series = "Imported infections"
-)
-draw(
-    data(arrivals_df) * mapping(:day, :count, color = :series, layout = :patch) *
-        visual(Lines, linewidth = 2);
-    axis = (xlabel = "Day", ylabel = "Imported infections")
-)
+@chain long(arrivals) begin
+    @transform(:series = "Imported infections")
+    data(_) * mapping(:day, :count, color = :series, layout = :patch) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Imported infections"))
+end
 
 # B receives the most, from its large neighbour A, and A receives the least.
 # Arrivals halve on day 40 with the intensities.
 #
-# The modifier's state holds the last step's arrivals, which match the recomputed series.
+# The modifier's state, which it carries from step to step, holds the last step's arrivals, which match the recomputed series.
 
 maximum(abs, state.states[1] .- arrivals[:, end])
 
@@ -171,5 +174,5 @@ round.((sum(traced_outbreak(0.0)), sum(traced_outbreak(0.5)), sum(traced_outbrea
 
 # ## Learning more
 #
-# - See every type used here on the [Concepts](@ref concepts) page.
+# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
 # - Want the full interface? See the [Public API](@ref public-api).
