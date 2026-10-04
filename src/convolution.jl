@@ -141,8 +141,9 @@ function _load_input!(X, x::AbstractMatrix, m, stop)
     return X
 end
 
-# CPU buffers load by loop: a broadcast copy may alias its source, and Enzyme
-# cannot give that branch one activity when the input is constant.
+# CPU buffers load by loop: a broadcast copy may alias its source, and
+# reverse-mode AD cannot give that branch one activity when the input is
+# constant.
 function _load_input!(X::Array, x::AbstractVector, m, stop)
     for t in 1:stop
         X[m + t, 1] = x[t]

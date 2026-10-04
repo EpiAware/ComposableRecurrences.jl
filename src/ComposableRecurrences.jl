@@ -1,4 +1,4 @@
-"""
+@doc raw"""
     ComposableRecurrences
 
 Fast, composable and differentiable recurrences and causal convolutions.
@@ -6,8 +6,18 @@ Fast, composable and differentiable recurrences and causal convolutions.
 A recurrence steps a value forward from a window of its own past values, as in
 an autoregression.
 A causal convolution weights past inputs by a kernel, as in a delay.
-Every operator is differentiable, and gradients work under ForwardDiff,
-Mooncake and Enzyme.
+For a single series the two are
+
+```math
+y_t = g_t \sum_{l=1}^{L} k_l\, y_{t-l}
+\qquad \text{and} \qquad
+y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
+```
+
+where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
+``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
+Every operator is differentiable, and the README lists the automatic
+differentiation backends it is tested with.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
 A plain array holds one set of coefficients: a kernel's lag weights, a
@@ -58,7 +68,7 @@ using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
-# Register the standard EpiAware docstring conventions before any
+# Register the standard docstring conventions before any
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
