@@ -57,7 +57,6 @@ See the [getting started guide](https://composablerecurrences.epiaware.org/stabl
 ## Where to learn more
 
 - [Developer documentation](https://composablerecurrences.epiaware.org/stable/developer/), including how to add your own modifiers and couplings
-- [GitHub Discussions](https://github.com/EpiAware/ComposableRecurrences.jl/discussions)
 - [GitHub Repository](https://github.com/EpiAware/ComposableRecurrences.jl)
 
 <!-- standard-sections:start -->

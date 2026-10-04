@@ -109,8 +109,8 @@ struct Recurrence{K, C, M <: Tuple}
         _check_kernel_shape(kernel)
         kernel isa TimeVarying{Primary} && throw(
             ArgumentError(
-                "a Primary() time-varying kernel is not yet supported by " *
-                    "Recurrence"
+                "Recurrence takes a Secondary() time-varying kernel, " *
+                    "not Primary(), which is for Convolution"
             )
         )
         _check_coupling_shape(coupling)
