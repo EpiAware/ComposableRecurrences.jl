@@ -1,8 +1,9 @@
 # PACKAGE-OWNED: documentation standards. Every public docstring states its
 # maths and carries a runnable example; prose avoids filler words and the
 # word "piece"; docstrings and src comments do not name other packages; and
-# Markdown prose keeps one sentence per line. Inputs live in
-# `standards_config.jl`.
+# Markdown prose keeps one sentence per line. The README and docs pages also
+# go through the shared `test_readme_prose` (banned words, sentence length).
+# Inputs live in `standards_config.jl`.
 
 @testitem "Standards: docstring maths" tags = [:quality] begin
     using ComposableRecurrences
@@ -43,6 +44,18 @@ end
         @testset "$label" begin
             @test !any(startswith(label * ","), found) broken = true
         end
+    end
+end
+
+@testitem "Standards: README and page prose" tags = [:quality] begin
+    using EpiAwarePackageTools
+    include(joinpath(@__DIR__, "standards_helpers.jl"))
+    banned = vcat(
+        filter(!in(BANNED_SHARED_SKIP), BANNED_README_WORDS),
+        collect(BANNED_EXTRA)
+    )
+    for file in filter(endswith(".md"), standards_prose_files())
+        test_readme_prose(file; banned)
     end
 end
 

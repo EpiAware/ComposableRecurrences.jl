@@ -3,6 +3,7 @@
 # docstring, without the signature and field templates), src comments from
 # the tokeniser, and prose from Markdown pages and Literate comment lines.
 
+using EpiAwarePackageTools: EpiAwarePackageTools, BANNED_README_WORDS
 include(joinpath(@__DIR__, "standards_config.jl"))
 
 # The authored text of every docstring attached to `name` in `mod`.
@@ -137,11 +138,21 @@ function plain_words(line::AbstractString)
     return s
 end
 
+# The banned word patterns, built with the stem rule `test_readme_prose`
+# uses (an internal EpiAwarePackageTools helper), so docs, docstrings and
+# comments are held to the same list as the README.
+const BANNED_PATTERNS = [
+    EpiAwarePackageTools._banned_word_regex(w) for w in vcat(
+            filter(!in(BANNED_SHARED_SKIP), BANNED_README_WORDS),
+            collect(BANNED_EXTRA)
+        )
+]
+
 function banned_hits(line)
     s = plain_words(line)
     hits = String[]
-    for w in BANNED_WORDS
-        m = match(Regex("\\b$(w)\\b", "i"), s)
+    for pattern in BANNED_PATTERNS
+        m = match(pattern, s)
         m === nothing || push!(hits, m.match)
     end
     m = match(r"\bpieces?\b"i, s)

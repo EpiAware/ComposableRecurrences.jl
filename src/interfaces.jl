@@ -53,9 +53,29 @@ end
 The mandatory component checks that `forward` runs and keeps to its role's
 conventions (outputs written into the leading arrays, inputs unchanged).
 The optional `pointwise` component checks that a modifier's vector step
-equals its scalar step on every stratum, ``M(v, s, t)_i = M_i(v_i, s_i, t)``.
+equals its scalar step on every stratum,
 
-Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
+```math
+M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
+```
+
+where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
+time ``t`` and ``S`` the number of strata.
+
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
+
+# Example
+
+```@example
+using ComposableRecurrences: Depletion, PieceInterface, Step
+using Interfaces: Interfaces, Arguments
+args = ([2.0, 3.0], [80.0, 60.0], 1)
+Interfaces.test(
+    PieceInterface, Depletion,
+    [Arguments(; piece = Depletion(80.0), role = Step(), args)];
+    show = false
+)
+```"
 
 @implements PieceInterface Recurrence [
     Arguments(;

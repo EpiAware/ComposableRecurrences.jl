@@ -12,27 +12,20 @@ const MATHS_ALLOW = (
 )
 
 # Public names still missing a ```math block or a runnable example, marked
-# broken until `docs/docstring-maths` (standards-review) adds them. A name
-# that passes is reported as an unexpected pass: remove it from the list.
-const PENDING_MATHS = (
-    :Add, :Clamp, :ComposableRecurrences, :Convolution, :Depletion, :Floor,
-    :Hazard, :NoAdjoint, :Pairwise, :PerStratum, :PieceInterface, :Primary,
-    :Recurrence, :Redistribute, :Secondary, :State, :TimeVarying, :forward,
-    :ispointwise, :param_eltype, :pullback!, :seeded, :with_state,
-)
-const PENDING_EXAMPLES = (:PieceInterface,)
-# Docstrings whose prose still uses the word "piece", fixed on the same
-# branch.
-const PENDING_WORDING = ("docstring PieceInterface", "docstring pullback!")
+# broken until they gain one. A name that passes is reported as an
+# unexpected pass: remove it from the list.
+const PENDING_MATHS = ()
+const PENDING_EXAMPLES = ()
+# Labels of sources whose prose still uses a banned word, marked broken.
+const PENDING_WORDING = ()
 
-# Words that read as filler in docs, docstrings and comments. Each entry is a
-# regular expression matched case-insensitively on word boundaries.
-const BANNED_WORDS = (
-    "comprehensive", "leverag\\w*", "facilitat\\w*", "robust\\w*",
-    "novel", "seamless\\w*", "utili[sz]\\w*", "streamlin\\w*", "pivotal",
-    "nuanced", "multifaceted", "cornerstone\\w*", "synerg\\w*",
-    "overarching", "landscapes?", "harness\\w*", "foster\\w*",
-)
+# Words that read as filler in docs, docstrings and comments: the shared
+# `BANNED_README_WORDS` from EpiAwarePackageTools, minus the entries this
+# package uses as plain terms, plus local additions. Each entry is matched
+# by stem, case-insensitively, at a word boundary. The word "piece" is
+# checked separately, so that "piecewise" passes.
+const BANNED_SHARED_SKIP = ()
+const BANNED_EXTRA = ("seamless",)
 
 # Package names that docstrings and src comments must not use: sibling
 # packages and automatic differentiation backends. Matched case-sensitively.
