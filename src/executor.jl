@@ -78,16 +78,18 @@ end
 """
 $(TYPEDEF)
 
-Runs the indices of a loop in contiguous chunks, one task per thread.
-With `m` threads, chunk `c` covers
+Runs the indices of a loop in contiguous chunks, one task per chunk.
+With `m` chunks, chunk `c` covers
 
 ```math
 k = \\lfloor (c - 1) n / m \\rfloor + 1, \\ldots, \\lfloor c n / m \\rfloor,
 \\qquad c = 1, \\ldots, m.
 ```
 
-A loop whose `work` is below `min_work`, or a session with one thread,
-runs in order on the calling task, as [`Serial`](@ref) does.
+There are `m = min(ntasks, n)` chunks, with `ntasks` the number of threads
+unless it is set.
+A loop whose `work` is below `min_work`, or with one chunk, runs in order on
+the calling task, as [`Serial`](@ref) does.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
 
@@ -99,21 +101,24 @@ $(TYPEDFIELDS)
 using ComposableRecurrences
 const CR = ComposableRecurrences
 y = zeros(4)
-CR.each!((k, y) -> (y[k] = k^2; nothing), CR.Threaded(; min_work = 0), 4, 4, y)
+ex = CR.Threaded(; min_work = 0, ntasks = 2)
+CR.each!((k, y) -> (y[k] = k^2; nothing), ex, 4, 4, y)
 y
 ```
 """
 struct Threaded <: Executor
     "The smallest loop `work` that is split across threads."
     min_work::Int
+    "The most chunks a loop is split into; `0` uses the number of threads."
+    ntasks::Int
 end
-Threaded(; min_work = 10_000) = Threaded(min_work)
+Threaded(; min_work = 10_000, ntasks = 0) = Threaded(min_work, ntasks)
 
 @inline function each!(
         body::F, ex::Threaded, n, work, args::Vararg{Any, N}
     ) where {F, N}
     _splits(ex, n, work) || return each!(body, Serial(), n, work, args...)
-    m = min(Threads.nthreads(), n)
+    m = _nchunks(ex, n)
     run = function (ks)
         for k in ks
             @inline body(k, args...)
@@ -124,10 +129,10 @@ Threaded(; min_work = 10_000) = Threaded(min_work)
     return nothing
 end
 
-# Whether `Threaded` splits a loop of `n` indices and cost `work`.
-function _splits(ex::Threaded, n, work)
-    return min(Threads.nthreads(), n) > 1 && work >= ex.min_work
-end
+# The number of chunks `Threaded` splits a loop of `n` indices into, and
+# whether it splits one of cost `work`.
+_nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
+_splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
 
 # Run `run(ks)` on `m` contiguous chunks of `1:n`, one task each, and wait
 # for every task, so a failing chunk cannot leave others writing after the
@@ -231,6 +236,14 @@ _current() = _Current(EXECUTOR[])
     return nothing
 end
 
+# The default executor, known at compile time.
+@inline function _each!(
+        body::F, ex::Serial, x, n, work, args::Vararg{Any, N}
+    ) where {F, N}
+    each!(body, _resolve(ex, x), n, work, args...)
+    return nothing
+end
+
 @noinline function _each_dynamic!(body::F, c::_Current, n, work, args...) where {F}
     each!(body, c.ex, n, work, args...)
     return nothing
@@ -253,6 +266,17 @@ end
     return nothing
 end
 
+@inline function _blocks!(
+        body::F, ex::Serial, x, n, work, args::Vararg{Any, N}
+    ) where {F, N}
+    if _resolve(ex, x) isa Serial
+        n == 0 || @inline body(1:n, args...)
+    else
+        _blocks_on!(body, _resolve(ex, x), n, work, args...)
+    end
+    return nothing
+end
+
 @noinline function _blocks_dynamic!(
         body::F, c::_Current, x, n, work, args...
     ) where {F}
@@ -262,7 +286,7 @@ end
 
 function _blocks_on!(body::F, ex::Threaded, n, work, args...) where {F}
     if _splits(ex, n, work)
-        _spawn_chunks(ks -> body(ks, args...), n, min(Threads.nthreads(), n))
+        _spawn_chunks(ks -> body(ks, args...), n, _nchunks(ex, n))
     else
         n == 0 || body(1:n, args...)
     end

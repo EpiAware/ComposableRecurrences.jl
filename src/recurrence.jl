@@ -511,8 +511,19 @@ end
 # straight to the buffer, else the step's values are collected for the
 # vector Step.
 function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T) where {Tp}
+    c = _current()
+    # The default executor is passed as the singleton `Serial()`, so the loop
+    # below holds no abstractly typed executor.
+    if c.ex isa Serial
+        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, S, T)
+    end
+    return _run(Tp, c, r, gain, add, h, s0, τ0, L, S, T)
+end
+
+function _run(
+        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, S, T
+    ) where {Tp}
     (; coupling, modifiers) = r
-    ex = _current()
     kernel = _oldest_first(r.kernel)
     H = _load_history!(_zeros(h, Tp, L + T, S), h, L)
     p = _zeros(h, Tp, S)

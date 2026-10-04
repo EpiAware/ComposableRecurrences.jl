@@ -87,7 +87,12 @@ function forward(
     history === nothing || _load_history!(X, history, m)
     _load_input!(X, x, m, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    _convolve!(_current(), Y, kernel, X, m, start)
+    c = _current()
+    if c.ex isa Serial
+        _convolve!(Serial(), Y, kernel, X, m, start)
+    else
+        _convolve!(c, Y, kernel, X, m, start)
+    end
     return _public(Y, axes(Y, 1), x), (;)
 end
 

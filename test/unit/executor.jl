@@ -89,7 +89,10 @@ end
     H = rand(L + T, S)
     p, pt = zeros(S), zeros(S)
     CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 2, L)
-    for ex in (CR.Threaded(), CR.Threaded(; min_work = 0))
+    for ex in (
+            CR.Threaded(), CR.Threaded(; min_work = 0),
+            CR.Threaded(; min_work = 0, ntasks = 4),
+        )
         fill!(pt, 0)
         CR.each!(window_dot!, ex, S, S * L, pt, g, H, 2, L)
         @test pt == p
@@ -143,7 +146,11 @@ end
         Convolution(TimeVarying(rand(rng, L, T))),
         Convolution(TimeVarying(rand(rng, L, T), CR.Primary())),
     )
-    for ex in (CR.Threaded(; min_work = 0), CR.Threaded())
+    # `ntasks` forces the split path even on one thread.
+    for ex in (
+            CR.Threaded(; min_work = 0), CR.Threaded(),
+            CR.Threaded(; min_work = 0, ntasks = 3),
+        )
         for r in recurrences
             y = r(R; history = seed)
             @test with(() -> r(R; history = seed), CR.EXECUTOR => ex) == y
@@ -192,4 +199,37 @@ end
     for c in (Convolution(g), Convolution(PerStratum(repeat(g', S))))
         @test Array(c(JLArray(R))) ≈ c(R)
     end
+    # The device executor set explicitly, through the dynamic loop path.
+    Rd, seedd = JLArray(R), JLArray(seed)
+    ex = CR.Device(KernelAbstractions.get_backend(Rd))
+    r = Recurrence(g)
+    @test Array(with(() -> r(Rd; history = seedd), CR.EXECUTOR => ex)) ≈
+        r(R; history = seed)
+    c = Convolution(g)
+    @test Array(with(() -> c(Rd), CR.EXECUTOR => ex)) ≈ c(R)
+end
+
+@testitem "Threaded: a failing chunk fails the loop after every chunk ends" begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    ex = CR.Threaded(; min_work = 0, ntasks = 4)
+    done = zeros(Int, 8)
+    function body!(k, done)
+        k == 2 && error("chunk failed")
+        done[k] = 1
+        return nothing
+    end
+    @test_throws CompositeException CR.each!(body!, ex, 8, 8, done)
+    # Every other chunk ran to the end before the error was raised.
+    @test done[3:8] == ones(Int, 6)
+    @test CR._nchunks(ex, 2) == 2
+    @test CR._nchunks(CR.Threaded(), 100) == min(Threads.nthreads(), 100)
+    # Blocks through the executor read from `EXECUTOR`.
+    y = zeros(6)
+    blk!(ks, y) = (y[ks] .+= 1; nothing)
+    with(CR.EXECUTOR => ex) do
+        CR._blocks!(blk!, CR._current(), y, 6, 6, y)
+    end
+    @test y == ones(6)
 end
