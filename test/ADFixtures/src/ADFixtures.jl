@@ -245,17 +245,30 @@ end
     backends()
 
 The AD backends to test, as `(; name, backend)` named tuples.
+
+The Enzyme backends mark the function `Const`.
+The matrix-case losses are closures over constant data (weights,
+populations, kernels), which Enzyme cannot always prove read-only.
+Without the annotation, Enzyme reverse on Julia 1.13 throws an
+`EnzymeMutabilityException` on them.
 """
 function backends()
     return [
         (name = "ForwardDiff", backend = AutoForwardDiff()),
         (name = "ReverseDiff (tape)", backend = AutoReverseDiff(compile = false)),
         (name = "ReverseDiff (compiled)", backend = AutoReverseDiff(compile = true)),
-        (name = "Enzyme forward", backend = AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Forward))),
-        (name = "Enzyme reverse", backend = AutoEnzyme(mode = Enzyme.set_runtime_activity(Enzyme.Reverse))),
+        (name = "Enzyme forward", backend = _enzyme(Enzyme.Forward)),
+        (name = "Enzyme reverse", backend = _enzyme(Enzyme.Reverse)),
         (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
         (name = "Mooncake forward", backend = AutoMooncakeForward()),
     ]
+end
+
+function _enzyme(mode)
+    return AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(mode),
+        function_annotation = Enzyme.Const
+    )
 end
 
 "Scenario names broken on every backend."
