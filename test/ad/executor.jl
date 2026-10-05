@@ -34,8 +34,16 @@
         )
         totals = TimeVarying(PerStratum(fill(8.0, 2, T)))
         ra = Recurrence(g; modifiers = (CR.Allocate([1:3, 4:6], totals),))
+        rva = Recurrence(
+            g; modifiers = (
+                CR.Depletion(
+                    1.0e3; removals = doses, protected = CR.Protected(0.3)
+                ),
+                CR.Allocate([1:3, 4:6], totals),
+            )
+        )
         losses = Any[]
-        for op in (r, rc, c, rv, ra), route in (op, CR.NoAdjoint(op))
+        for op in (r, rc, c, rv, ra, rva), route in (op, CR.NoAdjoint(op))
             push!(
                 losses, op isa Convolution ?
                     θ -> sum(w .* route(reshape(θ, S, T))) :
@@ -71,7 +79,7 @@ end
 @testitem "Executor gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse] setup = [ExecutorAD] begin
     using Enzyme: Enzyme
     using ADTypes: AutoEnzyme
-    # Runtime activity for the constant history (see #64); the losses close
+    # Runtime activity for the constant history; the losses close
     # over constant operators.
     test_executor_gradients(
         AutoEnzyme(;

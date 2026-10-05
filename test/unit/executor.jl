@@ -154,6 +154,16 @@ end
                 CR.Allocate([1:3, 4:7], TimeVarying(PerStratum(fill(5.0, 2, T)))),
             )
         ),
+        # Both in one call: a protected pool, then grouped totals.
+        Recurrence(
+            g; modifiers = (
+                CR.Depletion(
+                    1.0e3; removals = TimeVarying(fill(2.0, T)),
+                    protected = CR.Protected(0.3),
+                ),
+                CR.Allocate([1:3, 4:7], TimeVarying(PerStratum(fill(5.0, 2, T)))),
+            )
+        ),
         Recurrence(g; modifiers = (CR.Transform((v, c) -> c * v / (c + v), 20.0),)),
     )
     convolutions = (

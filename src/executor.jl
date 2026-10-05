@@ -10,6 +10,13 @@
 """
 How [`ComposableRecurrences.each!`](@ref) runs a loop over independent
 indices.
+Every executor `e` calls the same bodies, so the result does not depend on
+it:
+
+```math
+\\operatorname{each!}_e(\\operatorname{body}, n) =
+\\{\\operatorname{body}(k) : k = 1, \\ldots, n\\}.
+```
 
 # Examples
 ```@example
@@ -22,7 +29,11 @@ abstract type Executor end
 """
 $(TYPEDEF)
 
-Runs every index in order on the calling task.
+Runs every index in order on the calling task:
+
+```math
+\\operatorname{body}(1), \\operatorname{body}(2), \\ldots, \\operatorname{body}(n).
+```
 
 # Examples
 ```@example
@@ -149,6 +160,13 @@ The executor that operator calls use for their parallel loops, [`Serial`](@ref)
 by default.
 
 Set it for a block of code with `with`; operator types do not change.
+An operator `op` gives the same output under any two executors `e_1` and
+`e_2`:
+
+```math
+\\operatorname{op}_{e_1}(x) = \\operatorname{op}_{e_2}(x).
+```
+
 Each operator call reads it once.
 `Threaded` needs every modifier the loops run, including user-defined ones,
 to write only its own stratum's slots.
@@ -177,7 +195,11 @@ const EXECUTOR = ScopedValue{Executor}(Serial())
 $(TYPEDEF)
 
 Runs every index of a loop as one thread of a kernel on a device, such as a
-GPU.
+GPU: thread `k` computes
+
+```math
+\\operatorname{body}(k), \\qquad k = 1, \\ldots, n.
+```
 
 `backend` is a `KernelAbstractions` backend, such as `CUDABackend()`, and
 the arrays the loop reads and writes must live on it.
@@ -187,7 +209,7 @@ Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, operator calls on arrays that
 live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
 without being asked.
-Pieces that index arrays on the host, such as dense and sparse couplings,
+Parts that index arrays on the host, such as dense and sparse couplings,
 `Depletion` and modifiers with a vector step, do not run on a device yet.
 
 # Fields
