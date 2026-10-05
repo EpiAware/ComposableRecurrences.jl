@@ -346,12 +346,21 @@ _column(::TimeVarying{Primary}, τ, i) = τ - i
 _lags(g, τ, L) = 1:L
 _lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
 
-function _kernel_pressure!(p, g, H, t, τ, L)
-    for k in eachindex(p)
-        p[k] = _kdot(g, H, t, τ, L, k)
-    end
+# Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
+function _pressure_body!(k, p, g, H, t, τ, L)
+    p[k] = _kdot(g, H, t, τ, L, k)
+    return nothing
+end
+
+function _kernel_pressure!(ex, p, g, H, t, τ, L)
+    S = length(p)
+    _each!(_pressure_body!, ex, H, S, S * _kwork(g, S, L), p, g, H, t, τ, L)
     return p
 end
+
+# The inner operations of one stratum's kernel convolution.
+_kwork(g, S, L) = L
+_kwork(g::_PairwiseKernel, S, L) = S * L
 
 # Load the last `L` values of a public-layout history into the buffer,
 # right aligned; a shorter history leaves the earlier rows zero.
@@ -545,9 +554,9 @@ _coef(J::UniformScaling, k) = J.λ
 _coef(C::Diagonal, k) = C.diag[k]
 
 # Fill the pressure vectors for step `t`; pointwise couplings need none.
-_prepare!(p, q, C::_PointwiseCoupling, kernel, H, t, τ, L) = nothing
-function _prepare!(p, q, C, kernel, H, t, τ, L)
-    _kernel_pressure!(p, kernel, H, t, τ, L)
+_prepare!(ex, p, q, C::_PointwiseCoupling, kernel, H, t, τ, L) = nothing
+function _prepare!(ex, p, q, C, kernel, H, t, τ, L)
+    _kernel_pressure!(ex, p, kernel, H, t, τ, L)
     forward(C, Pressure(), q, p, τ)
     return nothing
 end
@@ -596,15 +605,85 @@ function _init_state(::Type{Tp}, m, h, S) where {Tp}
     return s
 end
 
+# Strata run on their own when the coupling is pointwise, the kernel does
+# not mix strata and every modifier is pointwise: no step reads another
+# stratum.
+_independent(coupling, kernel, modifiers) = false
+function _independent(
+        ::_PointwiseCoupling, kernel, modifiers::Tuple
+    )
+    return !(kernel isa _PairwiseKernel) && _all_pointwise(modifiers)
+end
+
+# Stratum `k`'s value at step `t` before the modifiers, recording its kernel
+# convolution and pressure in `P` and `X` when they are not `nothing`.
+@inline function _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+    pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
+    _record_pressure!(P, X, pk, xk, t, k)
+    return _at(gain, k, τ) * xk + _at(add, k, τ)
+end
+_record_pressure!(::Nothing, ::Nothing, pk, xk, t, k) = nothing
+@inline function _record_pressure!(P, X, pk, xk, t, k)
+    P[k, t] = pk
+    X[k, t] = xk
+    return nothing
+end
+
+# The whole run of the independent strata `ks`, time outermost.
+function _series_body!(
+        ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, T
+    )
+    for t in 1:T
+        τ = τ0 + t - 1
+        for k in ks
+            x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+            H[L + t, k] = _thread(ms, states, rec, x, τ, t, k)
+        end
+    end
+    return nothing
+end
+
+# Stratum `k` at step `t`, through pointwise modifiers to the buffer.
+function _step_body!(
+        k, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L
+    )
+    x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+    H[L + t, k] = _thread(ms, states, rec, x, τ, t, k)
+    return nothing
+end
+
+# Stratum `k` at step `t`, collected for the modifiers' vector Step.
+function _value_body!(k, v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L)
+    v[k] = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+    return nothing
+end
+
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. Buffer row `L + t`
 # holds absolute time `τ0 + t - 1`. The records are the kernel convolutions
 # `P` and pressures `X` of every step (strata × steps), and each modifier's
-# input values and states. With pointwise modifiers each stratum's value
-# goes straight to the buffer; otherwise the step's values are collected
-# for the vector Step.
+# input values and states.
+#
+# Independent strata run in blocks, each block over the whole series, so a
+# threaded run splits the strata once per call rather than once per step.
+# Otherwise each step is a loop over strata: with pointwise modifiers each
+# stratum's value goes straight to the buffer, else the step's values are
+# collected for the vector Step. Vector Steps (such as `Allocate`,
+# `Redistribute` and `Protected`) read every stratum, so they run on the
+# calling task whatever the executor.
+function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T, record::Val) where {Tp}
+    c = _current()
+    # The default executor is passed as the singleton `Serial()`, so the loop
+    # below holds no abstractly typed executor.
+    if c.ex isa Serial
+        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, S, T, record)
+    end
+    return _run(Tp, c, r, gain, add, h, s0, τ0, L, S, T, record)
+end
+
 function _run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T, ::Val{record}
+        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, S, T,
+        ::Val{record}
     ) where {Tp, record}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
@@ -626,35 +705,36 @@ function _run(
             modifiers
         ) :
         nothing
-    for t in 1:T
-        τ = τ0 + t - 1
-        _prepare!(p, q, coupling, kernel, H, t, τ, L)
-        if _all_pointwise(modifiers)
-            for k in eachindex(v)
-                pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
-                if record
-                    P[k, t] = pk
-                    X[k, t] = xk
-                end
-                x = _at(gain, k, τ) * xk + _at(add, k, τ)
-                H[L + t, k] = _thread(modifiers, states, rec, x, τ, t, k)
-            end
-        else
-            for k in eachindex(v)
-                pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
-                if record
-                    P[k, t] = pk
-                    X[k, t] = xk
-                end
-                v[k] = _at(gain, k, τ) * xk + _at(add, k, τ)
-            end
-            if record
-                _stages_rec!(modifiers, states, rec, v, τ, t)
+    work = S * _kwork(kernel, S, L)
+    if _independent(coupling, kernel, modifiers)
+        _blocks!(
+            _series_body!, ex, H, S, T * work,
+            H, P, X, gain, add, coupling, kernel, p, q, modifiers, states, rec,
+            τ0, L, T
+        )
+    else
+        for t in 1:T
+            τ = τ0 + t - 1
+            _prepare!(ex, p, q, coupling, kernel, H, t, τ, L)
+            if _all_pointwise(modifiers)
+                _each!(
+                    _step_body!, ex, H, S, work,
+                    H, P, X, gain, add, coupling, kernel, p, q, modifiers, states,
+                    rec, t, τ, L
+                )
             else
-                _stages!(modifiers, states, v, τ)
-            end
-            for k in eachindex(v)
-                H[L + t, k] = v[k]
+                _each!(
+                    _value_body!, ex, H, S, work,
+                    v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L
+                )
+                if record
+                    _stages_rec!(modifiers, states, rec, v, τ, t)
+                else
+                    _stages!(modifiers, states, v, τ)
+                end
+                for k in eachindex(v)
+                    H[L + t, k] = v[k]
+                end
             end
         end
     end

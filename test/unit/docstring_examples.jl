@@ -20,7 +20,9 @@
     function run_examples(mod)
         failed, nrun = Symbol[], 0
         for name in names(mod)
-            blocks = example_blocks(Base.Docs.doc(getfield(mod, name)))
+            # Look up by binding, so a documented constant gives its own docstring
+            # rather than its type's.
+            blocks = example_blocks(Base.Docs.doc(Base.Docs.Binding(mod, name)))
             sandbox = Module(gensym(name))
             for code in blocks
                 nrun += 1
