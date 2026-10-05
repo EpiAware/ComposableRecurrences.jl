@@ -9,7 +9,7 @@
 # `pullback!(grads, op, Run(), cache)` with `uses_adjoint(op, Run()) = true`.
 abstract type AbstractOperator end
 
-@doc raw"
+@doc raw"""
 Wrap an operator so it is differentiated by the AD backend's own treatment of
 its forward loop, bypassing any hand-written adjoint.
 
@@ -33,7 +33,7 @@ using ComposableRecurrences
 r = Recurrence([0.2, 0.3, 0.5])
 ComposableRecurrences.NoAdjoint(r)(fill(1.1, 6); history = ones(3))
 ```
-"
+"""
 struct NoAdjoint{O}
     "The wrapped operator."
     op::O
@@ -57,7 +57,7 @@ _reroute(::NoAdjoint, op) = NoAdjoint(op)
 const _PULLBACK_CALLS = Threads.Atomic{Int}(0)
 _count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
 
-@doc raw"
+@doc raw"""
 Whether `piece` carries its own analytic adjoint in `role`: a
 [`ComposableRecurrences.pullback!`](@ref) method for that role.
 
@@ -92,7 +92,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 CR.uses_adjoint(Recurrence([0.5, 0.5]), CR.Run())
 ```
-"
+"""
 uses_adjoint(piece, role) = false
 
 # The entry point: the rule path when the operator uses its adjoint and
@@ -156,7 +156,7 @@ function _ok(::Type{T}) where {T}
     return true
 end
 
-@doc raw"
+@doc raw"""
 The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`
 when `x̄` is `nothing` or has no such field.
 
@@ -186,12 +186,12 @@ there is no cotangent.
 using ComposableRecurrences
 ComposableRecurrences.cotangent((; K = zeros(2)), :K)
 ```
-"
+"""
 cotangent(::Nothing, name::Symbol) = nothing
 cotangent(x̄::NamedTuple, name::Symbol) = get(x̄, name, nothing)
 cotangent(x̄, name::Symbol) = getfield(x̄, name)
 
-@doc raw"
+@doc raw"""
 Add `v` to the mirror `x̄` at index `idx`,
 
 ```math
@@ -215,7 +215,7 @@ x̄ = zeros(2)
 ComposableRecurrences.add_cotangent!(x̄, 1.5, 2)
 x̄
 ```
-"
+"""
 add_cotangent!(::Nothing, v, idx...) = nothing
 add_cotangent!(x̄::Base.RefValue, v, idx...) = (x̄[] += v; nothing)
 add_cotangent!(x̄::AbstractArray, v, idx...) = (x̄[idx...] += v; nothing)
@@ -238,7 +238,7 @@ function _add_entry!(K̄, K::Diagonal, v, p, q)
     return nothing
 end
 
-@doc raw"
+@doc raw"""
 Test the analytic adjoint of `piece` in `role` on the primal arguments
 `args` with the AD `backend`'s own rule tester.
 
@@ -272,5 +272,5 @@ loaded (`test_reverse`, with the operator active and constant).
 using ComposableRecurrences
 methods(ComposableRecurrences.test_adjoint)
 ```
-"
+"""
 function test_adjoint end

@@ -485,7 +485,7 @@ end
     CR = ComposableRecurrences
     K = [0.0 0.3; 0.2 0.0]
     # Depletion nests a form struct in a modifier tuple in the Recurrence,
-    # which inference once widened to `Any` (#70).
+    # a depth that inference's recursion limit can widen to `Any`.
     for m in (
             CR.Depletion(100.0),
             CR.Depletion(100.0, CR.Floor()),
