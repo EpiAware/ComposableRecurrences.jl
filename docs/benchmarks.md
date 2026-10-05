@@ -10,9 +10,12 @@ setup and CI plumbing belongs in the repo, not on a results page. -->
 
 `ComposableRecurrences` benchmarks its core operations to track performance over time.
 
-The "AD gradients" group times the gradient of each scenario in the package's AD test registry on each supported backend.
+The "AD gradients" group times the gradient of each scenario in the package's AD test registry on each backend the package targets: ForwardDiff, and Enzyme and Mooncake in forward and reverse mode.
+The AD tests also run ReverseDiff, but the suite does not time it.
 Scenarios declared broken or skipped for a backend are left out of that backend's rows.
 The "Evaluation" group times the forward run of each benchmark matrix case at its CI size.
 Each matrix case also has gradient rows on the reverse-mode backends, once as users call the operator and once, prefixed "NoAdjoint", with any hand-written adjoint bypassed.
+
+Each entry takes one evaluation per sample for up to a second, so a single history point is indicative rather than exact.
 
 Run the suite locally with `julia --project=benchmark benchmark/run.jl`.
