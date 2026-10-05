@@ -121,6 +121,7 @@ end
     r = Recurrence(TimeVarying(ones(2, 6), CR.Primary()))
     @test_throws ArgumentError r(ones(6); history = ones(2))
     @test_throws ArgumentError r(ones(6); history = ones(2), start = 2)
+    @test_throws "not start = 2" r(ones(6); history = ones(2), start = 2)
     @test length(r(ones(6); history = ones(2), start = 3)) == 4
     # Without a seed there is nothing earlier to read.
     @test r(ones(6)) == zeros(6)

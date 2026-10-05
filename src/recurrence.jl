@@ -207,7 +207,8 @@ _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
     s > m || throw(
         ArgumentError(
             "a Primary() kernel reads the column of each value's own time, " *
-                "so a seed of length $m needs start > $m (see seeded)"
+                "so a seed of length $m needs start > $m, not start = $s " *
+                "(see seeded)"
         )
     )
     return nothing
