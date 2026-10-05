@@ -110,6 +110,14 @@ end
     end
 end
 
+@testitem "Threaded: options are checked when it is built" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    @test_throws "ntasks must be at least 0, got -1" CR.Threaded(; ntasks = -1)
+    @test_throws "min_work must be at least 0, got -5" CR.Threaded(; min_work = -5)
+    @test CR.Threaded(0, 0) === CR.Threaded(; min_work = 0)
+end
+
 @testitem "EXECUTOR: serial by default, set per block" begin
     using ComposableRecurrences
     using Base.ScopedValues: with

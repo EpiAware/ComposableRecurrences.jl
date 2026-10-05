@@ -115,6 +115,15 @@ struct Threaded <: Executor
     min_work::Int
     "The most chunks a loop is split into; `0` uses the number of threads."
     ntasks::Int
+    function Threaded(min_work, ntasks)
+        min_work >= 0 || throw(
+            ArgumentError("min_work must be at least 0, got $(repr(min_work))")
+        )
+        ntasks >= 0 || throw(
+            ArgumentError("ntasks must be at least 0, got $(repr(ntasks))")
+        )
+        return new(min_work, ntasks)
+    end
 end
 Threaded(; min_work = 10_000, ntasks = 0) = Threaded(min_work, ntasks)
 
