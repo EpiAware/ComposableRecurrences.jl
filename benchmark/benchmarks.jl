@@ -10,16 +10,32 @@ using ComposableRecurrences
 
 const SUITE = BenchmarkGroup()
 
+# Every entry below sets `evals = 1, seconds = 1, gctrial = false`: one
+# evaluation per sample, for at most a second. Setting `evals` marks an entry
+# as tuned, so the `tune!` pass of the history workflow skips it rather than
+# spending seconds per entry estimating an evaluation count. The pull request
+# workflow already measures with one evaluation and `seconds = 1`.
+# `gctrial = false` drops the full garbage collections before each entry: with
+# every AD backend loaded the heap is large, each collection takes seconds,
+# and the minimum time reported is not sensitive to it.
+
 # The AD gradient grid, read from the package-owned `test/ADFixtures`
 # registry: declare a scenario or a broken pair there, not here.
 using ADFixtures
 import DifferentiationInterface as DI
 
+# The backends the package targets: ForwardDiff, and Enzyme and Mooncake in
+# forward and reverse mode. The registry also lists ReverseDiff, which the AD
+# tests still run, but the suite does not time it.
+const BENCHMARK_BACKENDS = filter(
+    e -> !startswith(e.name, "ReverseDiff"), ADFixtures.backends()
+)
+
 let grad = BenchmarkGroup()
     broken = Set(ADFixtures.broken_scenario_names())
     per_backend = ADFixtures.backend_broken_scenarios()
     skipped = ADFixtures.backend_skip_scenarios()
-    for entry in ADFixtures.backends()
+    for entry in BENCHMARK_BACKENDS
         excluded = union(
             broken,
             get(per_backend, entry.name, Set{String}()),
@@ -37,9 +53,12 @@ let grad = BenchmarkGroup()
             end
             haskey(grad, scen.name) ||
                 (grad[scen.name] = BenchmarkGroup())
-            grad[scen.name][entry.name] = @benchmarkable DI.gradient(
-                $(scen.f), $prep, $(entry.backend), $(scen.x),
-                $(scen.contexts)...
+            grad[scen.name][entry.name] = @benchmarkable(
+                DI.gradient(
+                    $(scen.f), $prep, $(entry.backend), $(scen.x),
+                    $(scen.contexts)...
+                ),
+                evals = 1, seconds = 1, gctrial = false
             )
         end
     end
@@ -72,7 +91,9 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             @warn "matrix case not built" c.name
             continue
         end
-        eval_group[label] = @benchmarkable $f($θ)
+        eval_group[label] = @benchmarkable(
+            $f($θ), evals = 1, seconds = 1, gctrial = false
+        )
         for arm in ("rule", "NoAdjoint"), entry in reverse
             MatrixCases.available(c, arm) || continue
             c.sparse && entry.name == "Enzyme reverse" && continue
@@ -85,8 +106,9 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             end
             name = arm == "rule" ? label : "NoAdjoint $label"
             haskey(grad, name) || (grad[name] = BenchmarkGroup())
-            grad[name][entry.name] = @benchmarkable DI.gradient(
-                $f, $prep, $(entry.backend), $θ
+            grad[name][entry.name] = @benchmarkable(
+                DI.gradient($f, $prep, $(entry.backend), $θ),
+                evals = 1, seconds = 1, gctrial = false
             )
         end
     end
