@@ -10,7 +10,7 @@
 #
 # With unprotected S, protected V and a hazard draw from P = S + σ V,
 #   y = P (1 - exp(-v / N)),  S ← S - y S / P - m,  V ← V - y σ V / P + m,
-# and m = min(r_t, S) the doses taken up (EpiAware/ComposableRecurrences#9).
+# and m = min(r_t, S) the doses taken up.
 
 @testitem "Use case: all-or-nothing and leaky vaccination" tags = [:usecase] begin
     using ComposableRecurrences, ForwardDiff
