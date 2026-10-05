@@ -204,6 +204,21 @@ function zone_allocate(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .* _weights(S, T), logtot)
 end
 
+# A renewal whose kernel belongs to each infector's own infection time
+# (Primary indexing), seeded at times 1 to L.
+function renewal_primary(wrap, z::Size)
+    (; T, L) = z
+    W = _weights(T)
+    f = function (θ)
+        K, logh, logR = _unpack(θ, (L, T), (L,), (T,))
+        r = wrap(Recurrence(TimeVarying(K, CR.Primary())))
+        y = r(exp.(logR); history = exp.(logh), start = L + 1)
+        return sum(W[(L + 1):end] .* log.(y))
+    end
+    K0 = [g * (1 - 0.3 * (c > T ÷ 2)) for g in _gi(L), c in 1:T]
+    return f, _flat(K0, fill(log(10.0), L), [0.05 * _noise(t, 2) for t in 1:T])
+end
+
 # A fixed reporting delay with history.
 function delay_fixed(wrap, z::Size)
     (; T, L) = z
@@ -374,6 +389,10 @@ const CASES = [
         "zone_allocate", "zones sharing exogenous group totals",
         zone_allocate, [5, 50], false,
     ),
+    Case(
+        "renewal_primary", "renewal with a kernel per infection time",
+        renewal_primary, [1], false,
+    ),
     Case("delay_fixed", "fixed delay with history", delay_fixed, [1], false),
     Case(
         "delay_secondary", "time-varying delay by output time",
@@ -411,6 +430,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
     "transform" => (:Transform,),
+    "renewal_primary" => (:_check_primary_seed,),
 )
 
 """

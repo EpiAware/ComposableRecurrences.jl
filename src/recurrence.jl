@@ -41,6 +41,10 @@ coefficients are written: a recurrence has no lag 0.
 The kernel is a length-`L` vector shared by every stratum, a
 [`PerStratum`](@ref) `S × L` matrix, or a [`TimeVarying`](@ref) `L × T` or
 `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
+A `TimeVarying` kernel with [`ComposableRecurrences.Primary`](@ref)
+indexing reads the column of each output's own time, ``k_{i,l}(t - l)`` in
+place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
+produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
@@ -107,12 +111,6 @@ struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
             K, C, M <: Tuple,
         }
         _check_kernel_shape(kernel)
-        kernel isa TimeVarying{Primary} && throw(
-            ArgumentError(
-                "Recurrence takes a Secondary() time-varying kernel, " *
-                    "not Primary(), which is for Convolution"
-            )
-        )
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
         return new{K, C, M}(kernel, coupling, modifiers)
@@ -195,6 +193,25 @@ function with_state(op, args...; kwargs...)
         ArgumentError("$(nameof(typeof(op))) has no state to return")
     )
     return y, cache.state
+end
+
+# A Primary() kernel reads the column of each value's own time, so a seed
+# must sit at times from 1: `start > m` for a seed of length `m`. The check
+# runs once per call, so it stays out of line (which also lets coverage
+# count its signature line).
+_check_primary_seed(kernel, history, start) = nothing
+_check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
+@noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
+    m = size(history, ndims(history))
+    s = something(start, 1)
+    s > m || throw(
+        ArgumentError(
+            "a Primary() kernel reads the column of each value's own time, " *
+                "so a seed of length $m needs start > $m, not start = $s " *
+                "(see seeded)"
+        )
+    )
+    return nothing
 end
 
 # A Pairwise kernel already mixes strata, so its coupling is `I`.
@@ -308,18 +325,26 @@ function _window_dot(g, H, t, L, a)
 end
 function _kdot(g::TimeVarying, H, t, τ, L, a)
     acc = zero(eltype(H))
-    for i in 1:L
-        acc += _weight(g, a, a, i, τ) * H[t + L - i, a]
+    for i in _lags(g, τ, L)
+        acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
 end
 function _kdot(g::_PairwiseKernel, H, t, τ, L, a)
     acc = zero(eltype(H))
-    for i in 1:L, b in axes(H, 2)
-        acc += _weight(g, a, b, i, τ) * H[t + L - i, b]
+    for i in _lags(g, τ, L), b in axes(H, 2)
+        acc += _weight(g, a, b, i, _column(g, τ, i)) * H[t + L - i, b]
     end
     return acc
 end
+
+# The kernel column lag `i` reads at time `τ`: the output's own column, or
+# with `Primary()` the column of the value's own time `τ - i`, which exists
+# only back to time 1.
+_column(g, τ, i) = τ
+_column(::TimeVarying{Primary}, τ, i) = τ - i
+_lags(g, τ, L) = 1:L
+_lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
 
 # Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
 function _pressure_body!(k, p, g, H, t, τ, L)
@@ -408,12 +433,13 @@ Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = nothing, stop = nothing
     )
-    return adjoint_call(route, _run_args(gain, history, state, add, start)..., stop)
+    return adjoint_call(route, _run_args(r, gain, history, state, add, start)..., stop)
 end
 
-function _run_args(gain, history, state, add, start)
+function _run_args(r, gain, history, state, add, start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
+    _check_primary_seed(r.kernel, history, start)
     h, s0, τ0 = _resume(history, state, start, gain, add)
     return gain, add, h, s0, τ0
 end
@@ -422,7 +448,7 @@ function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
         add = nothing, start = nothing, stop = nothing
     )
-    return _run_forward(r, _run_args(gain, history, state, add, start)..., stop)
+    return _run_forward(r, _run_args(r, gain, history, state, add, start)..., stop)
 end
 
 # `with_state` routes through the rules too: a recurrence whose output is
@@ -434,7 +460,7 @@ Base.@constprop :aggressive function with_state(
         r::Recurrence, gain = true; history = nothing, state = nothing,
         add = nothing, start = nothing, stop = nothing
     )
-    args = _run_args(gain, history, state, add, start)
+    args = _run_args(r, gain, history, state, add, start)
     return adjoint_call(_WithState(r), args..., stop)
 end
 

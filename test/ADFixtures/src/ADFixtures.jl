@@ -167,6 +167,16 @@ function _with_state(w, θ)
     return sum(WS .* log.(y)) + sum(st.history) + 0.01 * sum(only(st.states))
 end
 
+# Each infector keeps the kernel of its own infection time (`Primary()`),
+# per stratum, seeded at times 1 to L.
+function _primary(w, θ)
+    G, logh, logR = _unpack(θ, (S, L, T), (S, L), (S, T))
+    kernel = TimeVarying(PerStratum(G), ComposableRecurrences.Primary())
+    r = Recurrence(kernel; coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh), start = L + 1)
+    return sum(WS[:, (L + 1):end] .* log.(y))
+end
+
 function _delay(w, θ)
     g, w0, ϵ = _unpack(θ, (L + 1,), (L,), (T,))
     return sum(W1 .* w(Convolution(g))(ϵ; history = w0))
@@ -252,6 +262,13 @@ const _SCENARIOS = [
         () -> _flat(repeat(G0, 1, T), repeat(K0, 1, 1, T), zeros(S, L), LOGR),
     ),
     (
+        "Recurrence Primary time-varying kernel", _primary,
+        () -> _flat(
+            [G0[i] * (1 - 0.3 * (c > T ÷ 2)) for a in 1:S, i in 1:L, c in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence returning its state", _with_state,
         () -> _flat(G0, fill(log(5.0), S, L), LOGR),
     ),
@@ -292,6 +309,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
+    # A Primary() kernel in a Recurrence: the seed check came with it.
+    "Recurrence Primary time-varying kernel" => (:_check_primary_seed,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same

@@ -89,6 +89,24 @@
                 rec(R, nothing, h; start = 3),
             ),
             (
+                "Primary time-varying kernel",
+                Recurrence(TimeVarying(rand(rng, L, T), CR.Primary())),
+                rec(R[1, :], nothing, h[1, :]; start = L + 1),
+            ),
+            (
+                "Primary per-stratum kernel and coupling",
+                Recurrence(
+                    TimeVarying(PerStratum(rand(rng, S, L, T)), CR.Primary());
+                    coupling = K
+                ),
+                rec(R, nothing, h; start = L + 1),
+            ),
+            (
+                "Primary pairwise kernel, short seed",
+                Recurrence(TimeVarying(Pairwise(rand(rng, S, S, L, T) ./ 3), CR.Primary())),
+                rec(R, nothing, h[:, 1:2]; start = 3),
+            ),
+            (
                 "modifiers",
                 Recurrence(
                     g; coupling = K,

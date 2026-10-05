@@ -199,12 +199,15 @@ function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
 end
 # Time-varying and pairwise kernels read their weights through `_weight`
 # and add their cotangents through `_add_weight!`; a pairwise kernel mixes
-# strata, so stratum `a`'s convolution reads every stratum `b`.
+# strata, so stratum `a`'s convolution reads every stratum `b`. Lag `i`
+# reads column `_column(g, τ, i)`: `τ`, or `τ - i` for a `Primary()` kernel,
+# whose lags before time 1 have no column (`_lags`).
 function _kernel_back!(kbuf, ḡ, g::Union{TimeVarying, Pairwise}, p̄, H, H̄, t, τ, L)
-    for a in eachindex(p̄), b in _senders(g, a, H), i in 1:L
+    for a in eachindex(p̄), b in _senders(g, a, H), i in _lags(g, τ, L)
         j = t + L - i
-        _add_weight!(ḡ, g, p̄[a] * H[j, b], a, b, i, τ)
-        H̄[j, b] += p̄[a] * _weight(g, a, b, i, τ)
+        c = _column(g, τ, i)
+        _add_weight!(ḡ, g, p̄[a] * H[j, b], a, b, i, c)
+        H̄[j, b] += p̄[a] * _weight(g, a, b, i, c)
     end
     return nothing
 end

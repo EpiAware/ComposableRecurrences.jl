@@ -38,13 +38,30 @@ on delay ``l`` (`kernel[l + 1]`) in column ``\tau``, the column of the
 input's own time.
 When every column sums to one, each input's total is kept once all its
 delays fall inside the window.
+In a [`Recurrence`](@ref) with kernel length ``L`` the input is the
+output itself, so each output keeps the kernel of the time it was produced:
+
+```math
+p_{t,i} = \sum_{l=1}^{L} k_{i,l}(t - l)\, y_{t-l,i},
+```
+
+where ``p_{t,i}`` is stratum ``i``'s kernel convolution at time ``t``,
+``y_{t-l,i}`` its output ``l`` steps earlier and ``k_{i,l}(\tau)`` the weight
+on lag ``l`` (`kernel[l]`) in column ``\tau``.
+Only outputs at times from 1 have a column, so a seed of length ``m`` needs
+`start > m`.
 Kernel slots only: anywhere else it is an `ArgumentError`.
 
 # Examples
 ```@example
 using ComposableRecurrences
+CR = ComposableRecurrences
 P = [0.6 0.2 0.4; 0.4 0.8 0.6]         # one delay pmf per input time
-Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(ones(3))
+Convolution(TimeVarying(P, CR.Primary()))(ones(3))
+
+# Cohorts from time 3 on transmit less.
+K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
+CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), fill(1.5, 6); history = [1.0, 1.0])
 ```
 """
 struct Primary end
@@ -139,8 +156,9 @@ a type parameter so nothing branches on it:
     weights the inputs reaching output `t`. This is the only meaning
     outside a kernel.
   - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
-    the input at time `c`, which spreads forward through it.
-    [`Convolution`](@ref) kernels only.
+    the input at time `c`, which spreads forward through it. In a
+    [`Recurrence`](@ref) the input is the output at time `c`, so each
+    output keeps the kernel of the time it was produced.
 
 The two agree for a fixed kernel.
 
