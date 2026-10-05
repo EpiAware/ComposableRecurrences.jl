@@ -1,7 +1,7 @@
 # Marks the constructor that takes the flat fields as they are.
 struct _Flat end
 
-@doc raw"
+@doc raw"""
 Rescales each group of strata to an exogenous total: the strata of a group
 keep their shares of the group's value and the group takes its total.
 A stratum is one of ``S`` parallel series computed together, such as a
@@ -56,7 +56,7 @@ totals = [10.0 12.0 15.0 18.0; 2.0 3.0 3.0 4.0]  # groups × time
 split = CR.Allocate([1:2, 3:3], TimeVarying(PerStratum(totals)))
 Recurrence([0.6, 0.4]; modifiers = (split,))(fill(1.2, 3, 4); history = ones(3, 2))
 ```
-"
+"""
 struct Allocate{T}
     "The strata of every group, group by group."
     strata::Vector{Int}

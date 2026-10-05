@@ -21,4 +21,4 @@ Once the registry pull request merges, TagBot creates the GitHub release and its
 
 - All CI passes, including the AD and documentation builds.
 - New public names have docstrings, tests and a place in the documentation.
-- The docs environment no longer pins EpiAwarePackageTools to its `main` branch.
+- The docs environment does not pin EpiAwarePackageTools to its `main` branch.
