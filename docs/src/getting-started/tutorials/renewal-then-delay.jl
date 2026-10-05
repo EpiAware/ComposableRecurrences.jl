@@ -23,7 +23,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Floor, Add, seeded, with_state
+using ComposableRecurrences: Depletion, Protected, Floor, Add, seeded, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 
@@ -76,6 +76,36 @@ end
 
 # Both forms end the outbreak as the pool empties.
 # The hazard form draws slightly less at the peak and leaves more susceptibles, because ``1 - e^{-x}`` is below ``x``.
+
+# ## Vaccination
+#
+# Vaccine doses move susceptibles into a protected pool.
+# `removals` takes the doses out of the susceptible pool after each day's infections, capped by what remains, and `Protected(σ)` keeps them in a second pool that is infected at relative susceptibility ``\sigma``.
+# Each day's infections come from both pools in proportion to ``S + \sigma V``.
+# With efficacy ``e``, an all-or-nothing vaccine fully protects a share ``e`` of those vaccinated, so ``\sigma = 0`` with ``e`` times the doses removed.
+# A leaky vaccine reduces every vaccinated person's risk by ``e``, so ``\sigma = 1 - e`` with all the doses removed.
+# Here 40 doses a day start on day 15.
+
+e = 0.7
+doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
+vaccines = [
+    "None" => Depletion(N),
+    "All-or-nothing" => Depletion(N; removals = TimeVarying(e .* doses), protected = Protected(0.0)),
+    "Leaky" => Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e)),
+]
+@chain vaccines begin
+    map(_) do (name, d)
+        y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
+        DataFrame(day = 1:T, vaccine = name, count = y)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :vaccine) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Both vaccines lower the peak, which comes slightly earlier because the pool shrinks faster.
+# At the same efficacy the all-or-nothing vaccine prevents slightly more infections, because the leaky vaccine leaves every vaccinated person some risk, which adds up while the epidemic runs.
+# A delay from dose to protection is a `Convolution` of the doses before they are passed as `removals`.
 
 # ## Imported cases
 #

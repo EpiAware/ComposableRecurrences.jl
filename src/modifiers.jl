@@ -43,8 +43,9 @@ A pointwise modifier acts on each stratum ``i`` separately,
 ``(v'_i, s'_i) = M_i(v_i, s_i, t)``.
 
   - `forward(m, Step(), v, s, t)` updates the step's values `v` and the
-    modifier's state `s` in place (one entry per stratum) and returns
-    `nothing`.
+    modifier's state `s` in place (one entry per stratum, or two for a
+    [`ComposableRecurrences.Depletion`](@ref) with a protected pool) and
+    returns `nothing`.
   - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
     returning `(v′, s′)`; a modifier with
     [`ComposableRecurrences.ispointwise`](@ref) implements this one.
@@ -62,8 +63,10 @@ struct Step end
 
 @doc raw"
 The role of a modifier's initial state: `forward(m, Init(), s, history)`
-writes the state `s` (one entry per stratum, allocated by the operator at
-its buffer eltype) from the full history, and returns `nothing`.
+writes the state `s` (one entry per stratum, or two for a
+[`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
+by the operator at its buffer eltype) from the full history, and returns
+`nothing`.
 
 It sets the state before the first step of the call at ``t_0``,
 
@@ -178,7 +181,11 @@ the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.
-An object without this method is differentiated by the AD backend.
+Declare [`ComposableRecurrences.uses_adjoint`](@ref) for the same role so
+an operator's native rule calls it.
+Without one, a pointwise modifier with only scalar float parameters is
+differentiated locally with `ForwardDiff`, and any other object makes the AD
+backend differentiate the whole operator.
 
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of
@@ -227,6 +234,9 @@ ComposableRecurrences.ispointwise(nothing)
 ```
 "
 ispointwise(m) = false
+
+# The length of a modifier's state for `S` strata.
+_nstate(m, S) = S
 
 # Defaults: a zero initial state, and a vector step that loops the scalar
 # one for a pointwise modifier.

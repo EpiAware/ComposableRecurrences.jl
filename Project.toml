@@ -8,13 +8,32 @@ projects = ["test", "docs"]
 
 [deps]
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Interfaces = "85a1e053-f937-4924-92a5-1367d23b7b87"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[weakdeps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+EnzymeTestUtils = "12d8515a-0907-448a-8884-5fe00fdf1c5a"
+Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[extensions]
+ComposableRecurrencesEnzymeExt = "Enzyme"
+ComposableRecurrencesEnzymeTestUtilsExt = ["ADTypes", "Enzyme", "EnzymeTestUtils"]
+ComposableRecurrencesMooncakeExt = ["ADTypes", "Mooncake", "Random"]
+
 [compat]
+ADTypes = "1"
 DocStringExtensions = "0.9.5"
+Enzyme = "0.13"
+EnzymeTestUtils = "0.2"
+ForwardDiff = "0.10, 1"
 Interfaces = "0.3"
 LinearAlgebra = "1"
+Mooncake = "0.5.61"
+Random = "1"
 SparseArrays = "1"
 julia = "1.11, 1.12"

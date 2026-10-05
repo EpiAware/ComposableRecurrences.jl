@@ -39,3 +39,14 @@ end
 # @testitem "ForwardDiff gradients (latent)" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
 #     test_working_backend("ForwardDiff"; category = :latent)
 # end
+
+# The registry leaves out scenarios and matrix cases whose features the loaded
+# version lacks, for the benchmark history on older releases. On the current
+# version nothing may be left out, so a misspelt requirement fails here.
+@testitem "AD fixtures need only features this version has" tags = [:ad, :forwarddiff] begin
+    using ADFixtures
+    using ADFixtures: MatrixCases
+    @test isempty(ADFixtures.unsupported_scenarios())
+    @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in ("rule", "NoAdjoint"))
+    @test length(ADFixtures.scenarios()) == 2 * length(ADFixtures._SCENARIOS)
+end

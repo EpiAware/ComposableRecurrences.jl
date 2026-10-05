@@ -53,9 +53,24 @@ end
 The mandatory component checks that `forward` runs and keeps to its role's
 conventions (outputs written into the leading arrays, inputs unchanged).
 The optional `pointwise` component checks that a modifier's vector step
-equals its scalar step on every stratum, ``M(v, s, t)_i = M_i(v_i, s_i, t)``.
+equals its scalar step on every stratum,
 
-Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
+```math
+M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
+```
+
+where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
+time ``t`` and ``S`` the number of strata.
+
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
+
+# Examples
+
+```@example
+using ComposableRecurrences, Interfaces
+CR = ComposableRecurrences
+Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
+```"
 
 @implements PieceInterface Recurrence [
     Arguments(;
@@ -117,6 +132,10 @@ Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
         piece = Depletion(80.0, Floor(); heterogeneity = 1.5), role = Step(),
         args = ([2.0, 3.0], [80.0, 60.0], 1)
     ),
+    Arguments(;
+        piece = Depletion(80.0; removals = TimeVarying([4.0, 6.0])),
+        role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
+    ),
 ]
 
 @implements PieceInterface Hazard [
@@ -147,5 +166,16 @@ Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`."
 @implements PieceInterface{(:pointwise,)} Clamp [
     Arguments(;
         piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+]
+
+@implements PieceInterface Allocate [
+    Arguments(;
+        piece = Allocate([1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))),
+        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Allocate([1:2, 3:3], 1.0), role = Init(),
+        args = (zeros(3), ones(3, 2))
     ),
 ]
