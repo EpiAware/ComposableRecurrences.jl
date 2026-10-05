@@ -77,11 +77,17 @@ end
 
 EnzymeRules.inactive(::typeof(_note_plain_type), args...) = nothing
 
-# The executor carries no derivative. Plain reverse mode (a `NoAdjoint`
-# route) does not differentiate tasks, so a call it traces runs serially
-# whatever executor is set. The rule below runs its forward pass as primal
-# code, so it uses the set executor.
+# The executor carries no derivative. Forward mode and plain reverse mode
+# (a `NoAdjoint` route) do not differentiate tasks or the scoped value
+# lookup, so a call they trace runs serially whatever executor is set. The
+# reverse rule below runs its forward pass as primal code, so it uses the
+# set executor.
 EnzymeRules.inactive_type(::Type{_Current}) = true
+function EnzymeRules.forward(
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_current)}, ::Type{<:Const}
+    )
+    return EnzymeRules.needs_primal(config) ? _Current(Serial()) : nothing
+end
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_current)}, ::Type{<:Const}
     )

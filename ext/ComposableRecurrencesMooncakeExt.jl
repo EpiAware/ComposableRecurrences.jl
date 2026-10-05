@@ -64,13 +64,14 @@ end
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Any}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
-# differentiate, and the executor carries no derivative. Plain reverse mode
-# (a `NoAdjoint` route) does not differentiate tasks, so a call it traces
-# runs serially whatever executor is set; forward mode keeps the executor.
-# The native rule above runs its forward pass as primal code, so it uses the
-# set executor.
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_current)} Mooncake.ForwardMode
-Mooncake.@is_primitive Mooncake.DefaultCtx Mooncake.ReverseMode Tuple{typeof(_current)}
+# differentiate, and the executor carries no derivative. Forward mode and
+# plain reverse mode (a `NoAdjoint` route) do not differentiate tasks, so a
+# call they trace runs serially whatever executor is set. The native rule
+# above runs its forward pass as primal code, so it uses the set executor.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_current)}
+function Mooncake.frule!!(::Mooncake.Dual{typeof(_current)})
+    return Mooncake.zero_dual(_Current(Serial()))
+end
 function Mooncake.rrule!!(f::CoDual{typeof(_current)})
     return Mooncake.zero_fcodual(_Current(Serial())), Mooncake.NoPullback(f)
 end

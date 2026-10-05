@@ -1,7 +1,8 @@
 # Gradients under a threaded executor match the serial gradients exactly.
 # ForwardDiff runs the threaded loops. Under Enzyme and Mooncake reverse
 # mode the native rule runs its forward pass threaded and its reverse pass
-# serially, and a NoAdjoint call they trace runs serially.
+# serially, and a NoAdjoint call they trace runs serially. Enzyme and
+# Mooncake forward mode run serially under any executor.
 
 @testsnippet ExecutorAD begin
     using ComposableRecurrences, DifferentiationInterface, ForwardDiff
@@ -93,4 +94,21 @@ end
     using Mooncake: Mooncake
     using ADTypes: AutoMooncake
     test_executor_gradients(AutoMooncake(; config = nothing))
+end
+
+@testitem "Executor gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward] setup = [ExecutorAD] begin
+    using Enzyme: Enzyme
+    using ADTypes: AutoEnzyme
+    test_executor_gradients(
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
+            function_annotation = Enzyme.Const,
+        )
+    )
+end
+
+@testitem "Executor gradients: Mooncake forward" tags = [:ad, :mooncake, :mooncake_forward] setup = [ExecutorAD] begin
+    using Mooncake: Mooncake
+    using ADTypes: AutoMooncakeForward
+    test_executor_gradients(AutoMooncakeForward())
 end
