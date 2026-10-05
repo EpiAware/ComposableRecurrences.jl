@@ -1,4 +1,4 @@
-@doc raw"
+@doc raw"""
 A recurrence over strata whose kernel starts at lag 1, stepped from a window
 of its own past values.
 
@@ -95,7 +95,7 @@ y1, state = ComposableRecurrences.with_state(r, R; history = ones(2, 3), stop = 
 y2 = r(R; state)
 y ≈ hcat(y1, y2)
 ```
-"
+"""
 struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
     "The kernel, lag 1 first."
     kernel::K
@@ -123,7 +123,7 @@ function Recurrence(kernel; coupling = I, modifiers = ())
     return Recurrence(kernel, coupling, Tuple(modifiers))
 end
 
-@doc raw"
+@doc raw"""
 The state [`ComposableRecurrences.with_state`](@ref) returns with an
 operator's output, passed back as `state` to resume.
 
@@ -149,7 +149,7 @@ r = Recurrence([0.5, 0.5])
 y, state = CR.with_state(r, fill(1.1, 6); history = ones(2), stop = 3)
 state.t, r(fill(1.1, 6); state)
 ```
-"
+"""
 struct State{H, M, T}
     "The last `L` outputs, in the history's layout."
     history::H
@@ -159,7 +159,7 @@ struct State{H, M, T}
     t::T
 end
 
-@doc raw"
+@doc raw"""
 Call operator `op` and return its output with the
 [`ComposableRecurrences.State`](@ref) to resume from, `(y, state)`.
 
@@ -188,7 +188,7 @@ R = fill(1.1, 8)
 y1, state = CR.with_state(r, R; history = ones(2), stop = 4)
 vcat(y1, r(R; state)) ≈ r(R; history = ones(2))
 ```
-"
+"""
 function with_state(op, args...; kwargs...)
     y, cache = forward(op, Run(), args...; kwargs...)
     hasproperty(cache, :state) || throw(
@@ -723,7 +723,7 @@ function _run(
     return Y, H, states, cache
 end
 
-@doc raw"
+@doc raw"""
 Run `r` from a seed and return the seed followed by the run.
 
 With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
@@ -757,7 +757,7 @@ seed = [2.0, 3.0, 4.0]
 r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(80.0; pool0 = 80.0 - sum(seed)),))
 CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
 ```
-"
+"""
 function seeded(r::Recurrence, gain = true; history, kwargs...)
     m = size(history, ndims(history))
     y = r(gain; history, start = m + 1, kwargs...)

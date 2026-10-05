@@ -3,7 +3,7 @@
 # the removals move into it, and the draw takes from both pools in
 # proportion to their susceptible mass `S + σ V`.
 
-@doc raw"
+@doc raw"""
 A protected pool for [`ComposableRecurrences.Depletion`](@ref): the
 depletion's removals move into it, and it is drawn from at relative
 susceptibility ``\sigma``.
@@ -49,7 +49,7 @@ doses = TimeVarying(fill(5.0, 10))
 leaky = CR.Depletion(1000.0; removals = doses, protected = CR.Protected(0.3))
 Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 10); history = [5.0])
 ```
-"
+"""
 struct Protected{Σ, V0}
     "The relative susceptibility, one value or `PerStratum`."
     σ::Σ

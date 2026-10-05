@@ -69,7 +69,7 @@ end
 
 # Depletion ---------------------------------------------------------------
 
-@doc raw"
+@doc raw"""
 The hazard depletion form: the value is drawn from the pool as a hazard, so
 the pool never goes negative.
 
@@ -93,10 +93,10 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 ```
-"
+"""
 struct Hazard end
 
-@doc raw"
+@doc raw"""
 The floored depletion form: the value is scaled by the share of the pool
 left, with a floor.
 
@@ -118,10 +118,10 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 CR.forward(CR.Floor(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 ```
-"
+"""
 struct Floor end
 
-@doc raw"
+@doc raw"""
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
 
@@ -172,7 +172,7 @@ seed = [1.0, 2.0]
 depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
 Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
 ```
-"
+"""
 struct Depletion{F, P, A, P0, R, V}
     "The population, one value or `PerStratum`."
     N::P
@@ -328,7 +328,7 @@ end
 
 # Add ---------------------------------------------------------------------
 
-@doc raw"
+@doc raw"""
 Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
@@ -360,7 +360,7 @@ CR = ComposableRecurrences
 mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 ```
-"
+"""
 struct Add{B}
     "The values to add: one value, `PerStratum` or `TimeVarying`."
     b::B
@@ -380,7 +380,7 @@ end
 
 # Redistribute ------------------------------------------------------------
 
-@doc raw"
+@doc raw"""
 Moves a share of each stratum's values to others, conserving the total: a
 share ``\varepsilon_{t,j} K_{ij}`` of origin ``j``'s value is realised in
 destination ``i`` instead.
@@ -420,7 +420,7 @@ K = [0.0 0.3; 0.2 0.0]
 r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
 r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
 ```
-"
+"""
 struct Redistribute{K <: AbstractMatrix, E}
     "The kernel, `K[p, q]` from origin `q` to destination `p`."
     K::K
@@ -489,7 +489,7 @@ end
 
 # Clamp -------------------------------------------------------------------
 
-@doc raw"
+@doc raw"""
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
 For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
@@ -516,7 +516,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
 ```
-"
+"""
 struct Clamp{L, H}
     "The lower bound, one value, `PerStratum` or `TimeVarying`."
     lo::L

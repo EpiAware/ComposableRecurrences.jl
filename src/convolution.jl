@@ -1,4 +1,4 @@
-@doc raw"
+@doc raw"""
 A causal convolution whose kernel starts at lag 0: each output weights the
 current and past inputs,
 
@@ -50,7 +50,7 @@ using ComposableRecurrences
 delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
 Convolution(delay)(ones(8); history = ones(3))
 ```
-"
+"""
 struct Convolution{K} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K

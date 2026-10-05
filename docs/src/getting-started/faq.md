@@ -20,7 +20,9 @@ See the [time-series processes](@ref overview-time-series) on the API overview.
 
 ## Which AD backends work?
 
-The AD tests run ForwardDiff, ReverseDiff, Mooncake and Enzyme.
+The targets are ForwardDiff, Mooncake and Enzyme.
+The hand-written gradients are rules for Mooncake and Enzyme.
+The AD tests also run ReverseDiff, which is not a target.
 The [AD comparison](@ref ad-comparison) page compares their gradient times.
 
 ## Why is my history padded with zeros?
