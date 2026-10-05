@@ -7,15 +7,15 @@
 # how the `n` indices run. Shared cotangents stay out of the bodies: they
 # go to per-slot storage and are reduced after the loop.
 
-"""
+@doc raw"""
 How [`ComposableRecurrences.each!`](@ref) runs a loop over independent
 indices.
 Every executor `e` calls the same bodies, so the result does not depend on
 it:
 
 ```math
-\\operatorname{each!}_e(\\operatorname{body}, n) =
-\\{\\operatorname{body}(k) : k = 1, \\ldots, n\\}.
+\operatorname{each!}_e(\operatorname{body}, n) =
+\{\operatorname{body}(k) : k = 1, \ldots, n\}.
 ```
 
 # Examples
@@ -26,13 +26,11 @@ ComposableRecurrences.Serial() isa ComposableRecurrences.Executor
 """
 abstract type Executor end
 
-"""
-$(TYPEDEF)
-
+@doc raw"""
 Runs every index in order on the calling task:
 
 ```math
-\\operatorname{body}(1), \\operatorname{body}(2), \\ldots, \\operatorname{body}(n).
+\operatorname{body}(1), \operatorname{body}(2), \ldots, \operatorname{body}(n).
 ```
 
 # Examples
@@ -86,15 +84,13 @@ y
     return nothing
 end
 
-"""
-$(TYPEDEF)
-
+@doc raw"""
 Runs the indices of a loop in contiguous chunks, one task per chunk.
 With `m` chunks, chunk `c` covers
 
 ```math
-k = \\lfloor (c - 1) n / m \\rfloor + 1, \\ldots, \\lfloor c n / m \\rfloor,
-\\qquad c = 1, \\ldots, m.
+k = \lfloor (c - 1) n / m \rfloor + 1, \ldots, \lfloor c n / m \rfloor,
+\qquad c = 1, \ldots, m.
 ```
 
 There are `m = min(ntasks, n)` chunks, with `ntasks` the number of threads
@@ -103,9 +99,6 @@ A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
-
-# Fields
-$(TYPEDFIELDS)
 
 # Examples
 ```@example
@@ -155,7 +148,7 @@ function _spawn_chunks(run::R, n, m) where {R}
     return nothing
 end
 
-"""
+@doc raw"""
 The executor that operator calls use for their parallel loops, [`Serial`](@ref)
 by default.
 
@@ -164,7 +157,7 @@ An operator `op` gives the same output under any two executors `e_1` and
 `e_2`:
 
 ```math
-\\operatorname{op}_{e_1}(x) = \\operatorname{op}_{e_2}(x).
+\operatorname{op}_{e_1}(x) = \operatorname{op}_{e_2}(x).
 ```
 
 Each operator call reads it once.
@@ -191,14 +184,12 @@ end
 """
 const EXECUTOR = ScopedValue{Executor}(Serial())
 
-"""
-$(TYPEDEF)
-
+@doc raw"""
 Runs every index of a loop as one thread of a kernel on a device, such as a
 GPU: thread `k` computes
 
 ```math
-\\operatorname{body}(k), \\qquad k = 1, \\ldots, n.
+\operatorname{body}(k), \qquad k = 1, \ldots, n.
 ```
 
 `backend` is a `KernelAbstractions` backend, such as `CUDABackend()`, and
@@ -211,9 +202,6 @@ live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
 without being asked.
 Parts that index arrays on the host, such as dense and sparse couplings,
 `Depletion` and modifiers with a vector step, do not run on a device yet.
-
-# Fields
-$(TYPEDFIELDS)
 
 # Examples
 ```@example
