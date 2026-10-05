@@ -1,4 +1,4 @@
-@doc raw"
+@doc raw"""
 Maps each stratum's value through a function `f`, with optional
 parameters `θ`.
 A stratum is one of ``S`` parallel series computed together, such as a
@@ -69,7 +69,7 @@ CR = ComposableRecurrences
 sat = CR.Transform((v, c) -> c * v / (c + v), PerStratum([5.0, 20.0]))
 Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2))
 ```
-"
+"""
 struct Transform{F, P, D}
     "The map, called as `f(v)` or `f(v, θ)`."
     f::F

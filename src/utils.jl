@@ -108,7 +108,7 @@ function _check_strata(name, x::AbstractMatrix, S)
     return nothing
 end
 
-@doc raw"
+@doc raw"""
 The element type the parameters of `x` contribute to an operator's buffer.
 
 The buffer eltype is the float promotion of this over the kernel, coupling,
@@ -139,7 +139,7 @@ struct Scale
 end
 ComposableRecurrences.param_eltype(Scale(1.0f0, (; b = 2)))
 ```
-"
+"""
 param_eltype(x) = _fields_eltype(x)
 param_eltype(x::Real) = typeof(x)
 param_eltype(x::AbstractArray{<:Real}) = eltype(x)

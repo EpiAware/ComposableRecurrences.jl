@@ -1,4 +1,4 @@
-@doc raw"
+@doc raw"""
 The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
 read at time `t`.
 
@@ -19,10 +19,10 @@ This is the only indexing outside a kernel.
 using ComposableRecurrences
 TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
 ```
-"
+"""
 struct Secondary end
 
-@doc raw"
+@doc raw"""
 The indexing of a [`TimeVarying`](@ref) kernel whose column `τ` is the kernel
 of the input at absolute time `τ`, which spreads forward through it.
 
@@ -46,10 +46,10 @@ using ComposableRecurrences
 P = [0.6 0.2 0.4; 0.4 0.8 0.6]         # one delay pmf per input time
 Convolution(TimeVarying(P, ComposableRecurrences.Primary()))(ones(3))
 ```
-"
+"""
 struct Primary end
 
-@doc raw"
+@doc raw"""
 A coefficient given per stratum: adds a leading strata axis to its slot.
 
 A stratum is one of ``S`` parallel series computed together, such as a
@@ -75,13 +75,13 @@ using ComposableRecurrences
 G = [0.2 0.8; 0.5 0.5]
 Recurrence(PerStratum(G))(ones(2, 4); history = ones(2, 2))
 ```
-"
+"""
 struct PerStratum{A <: AbstractArray}
     "The coefficients, strata on the first axis."
     x::A
 end
 
-@doc raw"
+@doc raw"""
 A [`Recurrence`](@ref) kernel for every pair of strata: adds leading
 `S × S` axes, so it is `S × S × L`.
 
@@ -109,13 +109,13 @@ using ComposableRecurrences
 P = fill(0.25, 2, 2, 2)
 Recurrence(Pairwise(P))(ones(2, 4); history = ones(2, 2))
 ```
-"
+"""
 struct Pairwise{A <: AbstractArray}
     "The pairwise kernels, lag on the last axis."
     x::A
 end
 
-@doc raw"
+@doc raw"""
 A coefficient that changes over time: adds a trailing time axis to its slot.
 
 Column ``\tau`` of the array holds the coefficient ``c(\tau)`` for absolute
@@ -155,7 +155,7 @@ using ComposableRecurrences
 G = [0.8 0.7; 0.2 0.3]  # lags 1 and 2 over two steps
 Recurrence(TimeVarying(G))(1.0; history = [1.0, 1.0], stop = 2)
 ```
-"
+"""
 struct TimeVarying{I, A}
     "The coefficients, time on the last axis."
     x::A
