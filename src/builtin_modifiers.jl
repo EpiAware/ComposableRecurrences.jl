@@ -7,31 +7,19 @@
 # `TimeVarying` (one per time) or `TimeVarying(PerStratum(x))` (strata ×
 # time); every built-in modifier reads its parameters through `_param`.
 
-# The mirror slot for field `name`, or `nothing` without a mirror.
-_cotangent(::Nothing, name) = nothing
-_cotangent(m̄, name) = getfield(m̄, name)
-
-# Add `x` into a mirror slot at `idx`; a `Ref` takes every index.
-_add_cotangent!(::Nothing, x, idx...) = nothing
-_add_cotangent!(r::Base.RefValue, x, idx...) = (r[] += x; nothing)
-function _add_cotangent!(a::AbstractArray, x, idx...)
-    a[idx...] += x
-    return nothing
-end
-_add_cotangent!(w::NamedTuple{(:x,)}, x, idx...) = _add_cotangent!(w.x, x, idx...)
 
 # A parameter at stratum `k` and absolute time `t`, and its cotangent.
 _param(x::Real, k, t) = x
 _param(x::PerStratum, k, t) = x.x[k]
 _param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
 _param(x::TimeVarying{<:Any, <:PerStratum}, k, t) = x.x.x[k, t]
-_add_param!(x̄, ::Real, v, k, t) = _add_cotangent!(x̄, v)
-_add_param!(x̄, ::PerStratum, v, k, t) = _add_cotangent!(x̄, v, k)
+_add_param!(x̄, ::Real, v, k, t) = add_cotangent!(x̄, v)
+_add_param!(x̄, ::PerStratum, v, k, t) = add_cotangent!(x̄, v, k)
 function _add_param!(x̄, ::TimeVarying{<:Any, <:AbstractVector}, v, k, t)
-    return _add_cotangent!(x̄, v, t)
+    return add_cotangent!(x̄, v, t)
 end
 function _add_param!(x̄, ::TimeVarying{<:Any, <:PerStratum}, v, k, t)
-    return _add_cotangent!(x̄, v, k, t)
+    return add_cotangent!(x̄, v, k, t)
 end
 
 # Check a parameter's shape at construction.
@@ -169,6 +157,12 @@ pool starts at.
 - `heterogeneity`: the exponent `α`; `1` by default.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` by default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
+- `removals`: values taken out of the pool after each step's draw, capped
+  by what remains; a parameter (one value, `PerStratum`, `TimeVarying` or
+  `TimeVarying(PerStratum(r))`), or `nothing` for none.
+- `protected`: a [`ComposableRecurrences.Protected`](@ref) pool that the
+  removals move into and that is drawn from at a relative susceptibility,
+  or `nothing` for none.
 
 # Examples
 ```@example
@@ -179,7 +173,7 @@ depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
 Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
 ```
 "
-struct Depletion{F, P, A, P0}
+struct Depletion{F, P, A, P0, R, V}
     "The population, one value or `PerStratum`."
     N::P
     "The depletion form."
@@ -188,19 +182,35 @@ struct Depletion{F, P, A, P0}
     heterogeneity::A
     "The starting pool, or `nothing` for `N`."
     pool0::P0
-    function Depletion(N::P, form::F, heterogeneity::A, pool0::P0) where {
-            P, F, A, P0,
-        }
+    "The removals, or `nothing`."
+    removals::R
+    "The protected pool, or `nothing`."
+    protected::V
+    function Depletion(
+            N::P, form::F, heterogeneity::A, pool0::P0, removals::R,
+            protected::V
+        ) where {P, F, A, P0, R, V}
         _check_form(form)
-        return new{F, P, A, P0}(N, form, heterogeneity, pool0)
+        return new{F, P, A, P0, R, V}(
+            N, form, heterogeneity, pool0, removals, protected
+        )
     end
 end
 
-function Depletion(N, form = Hazard(); heterogeneity = 1, pool0 = nothing)
+function Depletion(
+        N, form = Hazard(); heterogeneity = 1, pool0 = nothing,
+        removals = nothing, protected = nothing
+    )
     N = _float_param(_check_constant(:N, N))
     pool0 = pool0 === nothing ? nothing :
         _float_param(_check_constant(:pool0, pool0))
-    return Depletion(N, form, _exponent(heterogeneity, N), pool0)
+    removals = removals === nothing ? nothing : _check_param(:removals, removals)
+    protected === nothing || protected isa Protected || throw(
+        ArgumentError("protected is a Protected pool or nothing")
+    )
+    return Depletion(
+        N, form, _exponent(heterogeneity, N), pool0, removals, protected
+    )
 end
 
 # A form is a type with a scalar Step.
@@ -278,15 +288,16 @@ ispointwise(::Depletion) = true
 _pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = _param(m.N, k, 1)
 _pool0(m::Depletion, k) = _param(m.pool0, k, 1)
 function _add_pool0!(m̄, m::Depletion{<:Any, <:Any, <:Any, Nothing}, x, k)
-    return _add_param!(_cotangent(m̄, :N), m.N, x, k, 1)
+    return _add_param!(cotangent(m̄, :N), m.N, x, k, 1)
 end
 function _add_pool0!(m̄, m::Depletion, x, k)
-    return _add_param!(_cotangent(m̄, :pool0), m.pool0, x, k, 1)
+    return _add_param!(cotangent(m̄, :pool0), m.pool0, x, k, 1)
 end
 
 function forward(m::Depletion, ::Init, s, history)
     _check_param_strata(:N, m.N, length(s))
     _check_param_strata(:pool0, m.pool0, length(s))
+    _check_param_strata(:removals, m.removals, length(s))
     for k in eachindex(s)
         s[k] = _pool0(m, k)
     end
@@ -307,11 +318,11 @@ end
 function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = pullback!(
-        (; piece = _cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
+        (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
         Step(), v, s, _param(m.N, k, t), m.heterogeneity
     )
-    _add_param!(_cotangent(m̄, :N), m.N, N̄, k, t)
-    _add_cotangent!(_cotangent(m̄, :heterogeneity), ᾱ)
+    _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
     return v̄, s̄
 end
 
@@ -363,7 +374,7 @@ pullback!(grads, ::Add, ::Init, s, history) = nothing
 forward(m::Add, ::Step, v, s, t, k) = (v + _param(m.b, k, t), s)
 
 function pullback!(grads, m::Add, ::Step, v, s, t, k)
-    _add_param!(_cotangent(grads.piece, :b), m.b, grads.v, k, t)
+    _add_param!(cotangent(grads.piece, :b), m.b, grads.v, k, t)
     return grads.v, grads.s
 end
 
@@ -456,7 +467,7 @@ end
 function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
     v̄, s̄ = grads.v, grads.s
-    K̄, ε̄ = _cotangent(grads.piece, :K), _cotangent(grads.piece, :ε)
+    K̄, ε̄ = cotangent(grads.piece, :K), cotangent(grads.piece, :ε)
     for p in eachindex(v̄, s̄)
         s̄[p] += v̄[p]
     end
@@ -467,7 +478,7 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
         for p in eachindex(v)
             p == q && continue
             acc += s̄[p] * K[p, q]
-            _add_cotangent!(K̄, εq * v[q] * (s̄[p] - v̄[q]), p, q)
+            _add_entry!(K̄, K, εq * v[q] * (s̄[p] - v̄[q]), p, q)
         end
         _add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
         v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
@@ -528,11 +539,16 @@ end
 function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
     v̄′, s̄′ = grads.v, grads.s
     if v > _param(m.hi, k, t)
-        _add_param!(_cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
+        _add_param!(cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
         return zero(v̄′), s̄′
     elseif v < _param(m.lo, k, t)
-        _add_param!(_cotangent(grads.piece, :lo), m.lo, v̄′, k, t)
+        _add_param!(cotangent(grads.piece, :lo), m.lo, v̄′, k, t)
         return zero(v̄′), s̄′
     end
     return v̄′, s̄′
 end
+
+# The built-in modifiers and depletion forms carry their adjoints; a
+# depletion does when its form does.
+uses_adjoint(::Union{Hazard, Floor, Add, Redistribute, Clamp}, ::Step) = true
+uses_adjoint(m::Depletion, ::Step) = uses_adjoint(m.form, Step())

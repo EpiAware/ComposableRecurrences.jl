@@ -49,8 +49,11 @@ end
 # The `ci` tier of the benchmark matrix (`matrix.jl` runs the full grid):
 # each case's primal, and its gradient on the reverse backends with the
 # operator as users call it and under `NoAdjoint`, so the comparison comment
-# shows the rule gain. A case the checked-out revision cannot build is
-# skipped, since the history workflow runs this script on older revisions.
+# shows the rule gain. The history workflow runs this script, and the
+# registry, against older releases: a case or arm needing a feature the
+# loaded version lacks is left out (`MatrixCases.available`, and
+# `ADFixtures.supports` for the scenarios above), and one that still fails
+# to build or run is skipped with a warning.
 using ADFixtures: MatrixCases
 
 let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
@@ -59,15 +62,19 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
         ADFixtures.backends()
     )
     for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
+        MatrixCases.available(c) || continue
         label = "Matrix $(c.name) $(z)"
         f, θ = try
-            MatrixCases.build(c, z, "rule")
+            built = MatrixCases.build(c, z, "rule")
+            first(built)(last(built))
+            built
         catch
             @warn "matrix case not built" c.name
             continue
         end
         eval_group[label] = @benchmarkable $f($θ)
         for arm in ("rule", "NoAdjoint"), entry in reverse
+            MatrixCases.available(c, arm) || continue
             c.sparse && entry.name == "Enzyme reverse" && continue
             f, θ = MatrixCases.build(c, z, arm)
             prep = try

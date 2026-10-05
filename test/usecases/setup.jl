@@ -8,4 +8,5 @@
 @testmodule UseCaseReferences begin
     include(joinpath(@__DIR__, "references", "ctidm.jl"))
     include(joinpath(@__DIR__, "references", "bvd.jl"))
+    include(joinpath(@__DIR__, "references", "epibranch.jl"))
 end

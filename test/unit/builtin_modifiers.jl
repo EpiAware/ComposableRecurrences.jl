@@ -13,6 +13,7 @@
     # `nothing` for anything without a cotangent.
     mirror(x::AbstractFloat) = Ref(zero(x))
     mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
+    mirror(::AbstractArray) = nothing
     mirror(::Union{Integer, Symbol, Nothing}) = nothing
     function mirror(x)
         names = fieldnames(typeof(x))
@@ -477,6 +478,33 @@ end
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
     @test (@inferred default_depletion()) isa CR.Depletion{CR.Hazard}
+end
+
+@testitem "Built-in modifiers: a Recurrence infers its return type" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    K = [0.0 0.3; 0.2 0.0]
+    # Depletion nests a form struct in a modifier tuple in the Recurrence,
+    # which inference once widened to `Any` (#70).
+    for m in (
+            CR.Depletion(100.0),
+            CR.Depletion(100.0, CR.Floor()),
+            CR.Depletion(
+                PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0]),
+                heterogeneity = 1.5
+            ),
+            CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(K, 0.1),
+        )
+        r = Recurrence([0.5, 0.5]; modifiers = (m,))
+        @test (@inferred r(fill(1.1, 2, 6); history = ones(2, 2))) isa
+            Matrix{Float64}
+    end
+    r = Recurrence(
+        Float32[0.5, 0.5];
+        modifiers = (CR.Depletion(100.0f0), CR.Clamp(0.0f0, 5.0f0))
+    )
+    @test (@inferred r(fill(1.1f0, 6); history = ones(Float32, 2))) isa
+        Vector{Float32}
 end
 
 @testitem "Variants: a user depletion form, with and without a pullback" setup = [ModifierChecks] begin

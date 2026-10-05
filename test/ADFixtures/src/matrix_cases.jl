@@ -15,8 +15,10 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
+using ..ADFixtures: supports, _TWIN_REQUIRES
 
-export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases
+export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
+    available
 
 "A problem size: `T` steps, `L` lags (or delays) and `S` strata."
 struct Size
@@ -164,6 +166,44 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# Strata with leaky vaccination: doses move susceptibles into a protected
+# pool drawn from at relative susceptibility σ.
+function strata_vaccination(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    f = function (θ)
+        g, logh, logR, doses, σ = _unpack(θ, (L,), (S, L), (S, T), (S, T), (1,))
+        d = CR.Depletion(
+            pop; removals = TimeVarying(PerStratum(doses)),
+            protected = CR.Protected(only(σ))
+        )
+        r = Recurrence(g; modifiers = (d,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    doses = [100.0 * (1 + _noise(t, k + 9)) for k in 1:S, t in 1:T]
+    return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
+end
+
+# BVD's unmixed zone split: the zones renew from their own infections and
+# each group of zones (a province) takes its total from outside, shared by
+# the force each zone earns. Five zones per group.
+function zone_allocate(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    P = max(S ÷ 5, 1)
+    edges = round.(Int, range(0, S; length = P + 1))
+    groups = [(edges[p] + 1):edges[p + 1] for p in 1:P]
+    f = function (θ)
+        g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (P, T))
+        split = CR.Allocate(groups, TimeVarying(PerStratum(exp.(logtot))))
+        r = Recurrence(g; modifiers = (split,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    logtot = [log(50.0) + 0.2 * _noise(t, p + 7) for p in 1:P, t in 1:T]
+    return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .* _weights(S, T), logtot)
+end
+
 # A fixed reporting delay with history.
 function delay_fixed(wrap, z::Size)
     (; T, L) = z
@@ -280,6 +320,25 @@ end
 conv_primary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Primary())
 conv_secondary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Secondary())
 
+# Multi-type branching-process extinction by generation: a negative
+# binomial probability generating function per stratum, iterated through a
+# generation interval and a mixing matrix.
+_nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+function transform(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    K = S == 1 ? ones(1, 1) : fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
+    f = function (θ)
+        g, r, p = _unpack(θ, (L,), (S,), (S,))
+        m = CR.Transform(_nb_pgf, (; r = PerStratum(r), p = PerStratum(p)))
+        y = wrap(Recurrence(g; coupling = K, modifiers = (m,)))(
+            ; history = zeros(S, L), stop = T
+        )
+        return sum(W .* y)
+    end
+    return f, _flat(_gi(L), fill(0.5, S), [0.2 + 0.2 * k / S for k in 1:S])
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -307,6 +366,14 @@ const CASES = [
         "bvd_patch", "importation redistribution, seeded hazard depletion",
         bvd_patch, [5, 50], false,
     ),
+    Case(
+        "strata_vaccination", "leaky vaccination into a protected pool",
+        strata_vaccination, [5, 50], false,
+    ),
+    Case(
+        "zone_allocate", "zones sharing exogenous group totals",
+        zone_allocate, [5, 50], false,
+    ),
     Case("delay_fixed", "fixed delay with history", delay_fixed, [1], false),
     Case(
         "delay_secondary", "time-varying delay by output time",
@@ -329,10 +396,34 @@ const CASES = [
         "conv_secondary", "pmf per output time (L × T)", conv_secondary, [1],
         false,
     ),
+    Case(
+        "transform", "per-stratum PGF iteration, Transform modifier",
+        transform, [5, 50], false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
-pending_cases() = [("transform", "pointwise Transform modifier (M4)")]
+pending_cases() = Tuple{String, String}[]
+
+# The features each case needs beyond the first release, by case name, as
+# `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
+const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "zone_allocate" => (:Allocate,),
+    "strata_vaccination" => (:Protected,),
+    "transform" => (:Transform,),
+)
+
+"""
+    available(c::Case, arm = "rule")
+
+Whether the loaded ComposableRecurrences can run case `c` in arm `arm`.
+The benchmark history workflow builds the cases against older releases.
+The `NoAdjoint` arm also needs the analytic adjoint (`uses_adjoint`).
+"""
+function available(c::Case, arm::AbstractString = "rule")
+    extra = arm == "NoAdjoint" ? _TWIN_REQUIRES : ()
+    return supports(get(REQUIRES, c.name, ())..., extra...)
+end
 
 "The case called `name`."
 case(name) = CASES[findfirst(c -> c.name == name, CASES)]

@@ -152,9 +152,14 @@ Set it for a block of code with `with`; operator types do not change.
 Each operator call reads it once.
 `Threaded` needs every modifier the loops run, including user-defined ones,
 to write only its own stratum's slots.
-Enzyme and Mooncake reverse mode do not differentiate tasks, so calls they
-differentiate run serially whatever executor is set; ForwardDiff runs the
-set executor.
+Forward-mode AD with dual numbers runs the set executor.
+Under reverse mode the operators' own rules run their forward pass with the
+set executor and their reverse pass on the calling task, because the
+reverse pass adds every stratum's terms into shared kernel and parameter
+cotangents.
+A [`NoAdjoint`](@ref) call that a reverse-mode backend differentiates
+directly runs serially whatever executor is set, as the supported backends
+do not differentiate tasks.
 
 # Examples
 ```@example
@@ -219,9 +224,9 @@ _current() = _Current(EXECUTOR[])
 # executor `c.ex` of a call and arrays like `x`. `Serial`, and a `Threaded`
 # loop too small to split, run inline with no dynamic dispatch; on device
 # arrays `Serial` runs on their device. A loop that does split is reached by
-# a dynamic call, so the inline path holds no task code: automatic
-# differentiation backends that compile the whole call (Enzyme, Mooncake)
-# never see tasks unless a loop is split.
+# a dynamic call, so the inline path holds no task code: reverse-mode AD
+# backends that compile the whole call never see tasks unless a loop is
+# split.
 @inline function _each!(
         body::F, c::_Current, x, n, work, args::Vararg{Any, N}
     ) where {F, N}

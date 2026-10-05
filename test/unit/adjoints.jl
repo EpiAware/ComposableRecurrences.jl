@@ -1,0 +1,552 @@
+# Analytic adjoints called directly, with no AD backend: `pullback!` against
+# a ForwardDiff gradient over every float leaf of the operator and its
+# arguments. The backend rules in ext/ are tested in test/ad.
+
+@testsnippet AdjointCheck begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ForwardDiff, LinearAlgebra, Random, SparseArrays
+
+    # A zero cotangent mirror: arrays for float arrays, a `Ref` for a float
+    # scalar, NamedTuples for structs, `nothing` where there is none.
+    zero_mirror(x::AbstractFloat) = Ref(zero(x))
+    zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
+    zero_mirror(x::SparseMatrixCSC{<:AbstractFloat}) = (; nzval = zero(nonzeros(x)))
+    zero_mirror(x::Diagonal{<:AbstractFloat}) = (; diag = zero_mirror(x.diag))
+    zero_mirror(x::Union{Tuple, NamedTuple}) = map(zero_mirror, x)
+    zero_mirror(::Union{Real, AbstractArray, Nothing, Symbol}) = nothing
+    function zero_mirror(x)
+        n = fieldnames(typeof(x))
+        return NamedTuple{n}(map(k -> zero_mirror(getfield(x, k)), n))
+    end
+
+    # The mirror's float leaves in the order `CR._params` gives the primal's.
+    mirror_vec(x̄::Base.RefValue, x) = [x̄[]]
+    mirror_vec(x̄::AbstractArray, x) = vec(copy(x̄))
+    mirror_vec(x̄::Nothing, x) = zeros(CR._nparams(x))
+    mirror_vec(x̄, x::SparseMatrixCSC) = copy(x̄.nzval)
+    mirror_vec(x̄, x::Diagonal) = mirror_vec(x̄.diag, x.diag)
+    function mirror_vec(x̄, x::Union{Tuple, NamedTuple})
+        return reduce(vcat, map(mirror_vec, values(x̄), values(x)); init = Float64[])
+    end
+    function mirror_vec(x̄, x)
+        n = fieldnames(typeof(x))
+        return reduce(
+            vcat, map(k -> mirror_vec(getfield(x̄, k), getfield(x, k)), n);
+            init = Float64[]
+        )
+    end
+
+    randlike(rng, y::AbstractArray{<:AbstractFloat}) = randn(rng, size(y))
+    randlike(rng, y::Union{Tuple, NamedTuple}) = map(z -> randlike(rng, z), y)
+    function randlike(rng, y::CR.State)
+        return (; history = randlike(rng, y.history), states = randlike(rng, y.states))
+    end
+    randlike(rng, y) = y
+    dotall(a::AbstractArray{<:Real}, b::AbstractArray) = sum(a .* b)
+    dotall(a::NamedTuple, b::CR.State) = dotall(a.history, b.history) + dotall(a.states, b.states)
+    dotall(a::Union{Tuple, NamedTuple}, b) = sum(map(dotall, values(a), values(b)); init = 0.0)
+    dotall(a, b) = 0.0
+
+    # `pullback!` of `op` at `args` against ForwardDiff, over every float
+    # leaf of `(op, args...)`.
+    function pullback_matches(op, args...; rng = Xoshiro(1), rtol = 1.0e-8)
+        xs = (op, args...)
+        y, cache = CR._run_forward(xs...)
+        ȳ = randlike(rng, y)
+        θ = CR._params(xs)
+        f = θ -> dotall(ȳ, first(CR._run_forward(CR._rebuild(xs, θ)...)))
+        ref = ForwardDiff.gradient(f, θ)
+        ms = zero_mirror(xs)
+        grads = (; piece = first(ms), y = ȳ, args = Base.tail(ms))
+        CR._run_pullback!(grads, op, cache)
+        got = mirror_vec(ms, xs)
+        ok = isapprox(got, ref; rtol, atol = 1.0e-10)
+        ok || @info "pullback mismatch" op maximum(abs.(got .- ref))
+        return ok
+    end
+    # The positional arguments of `r(gain; history, add, start, stop)`.
+    function recargs(gain, add, h; start = 1, states = nothing, stop = nothing)
+        return (gain, add, h, states, start, stop)
+    end
+end
+
+@testsnippet AdjointModifiers begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ForwardDiff
+
+    # Floored depletion from a per-stratum pool that is also the initial
+    # state. No pullback: the local derivative runs when called directly.
+    struct PoolDepletion{P}
+        pop::P
+    end
+    CR.ispointwise(::PoolDepletion) = true
+    CR.forward(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
+    function CR.forward(m::PoolDepletion, ::CR.Step, v, s, t, k)
+        v′ = max(s / m.pop[k], 1.0e-6) * v
+        return v′, s - v′
+    end
+
+    # Hazard depletion with a scalar pool and hand-written pullbacks.
+    struct Hazard{T}
+        N::T
+    end
+    CR.ispointwise(::Hazard) = true
+    CR.uses_adjoint(::Hazard, ::CR.Step) = true
+    CR.forward(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward(m::Hazard, ::CR.Step, v, s, t, k)
+        x = v / m.N
+        return -s * expm1(-x), s * exp(-x)
+    end
+    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t, k)
+        v̄, s̄ = grads.v, grads.s
+        x = v / m.N
+        e = exp(-x)
+        x̄ = s * e * (v̄ - s̄)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
+        return x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+    end
+    function CR.pullback!(grads, m::Hazard, ::CR.Init, s, history)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
+        return nothing
+    end
+
+    # Vector-level with a scalar parameter and no pullback.
+    struct Scale{A}
+        a::A
+    end
+    function CR.forward(m::Scale, ::CR.Step, v, s, t)
+        v .*= m.a
+        s .+= v
+        return nothing
+    end
+
+    # Pointwise and time-varying: add `b[t]` (absolute time).
+    struct Shift{B}
+        b::B
+    end
+    CR.ispointwise(::Shift) = true
+    CR.forward(m::Shift, ::CR.Step, v, s, t, k) = (v + m.b[t], s)
+
+    # Adds a tenth of each stratum's history total, set once by its Init.
+    struct HistoryTotal end
+    CR.ispointwise(::HistoryTotal) = true
+    function CR.forward(::HistoryTotal, ::CR.Init, s, history)
+        s .= vec(sum(history; dims = ndims(history)))
+        return nothing
+    end
+    CR.forward(::HistoryTotal, ::CR.Step, v, s, t, k) = (v + 0.1 * s, s)
+
+    # Pointwise, calling ForwardDiff itself: `v′ = d/dx (a x²) at v`.
+    struct Slope{A}
+        a::A
+    end
+    CR.ispointwise(::Slope) = true
+    function CR.forward(m::Slope, ::CR.Step, v, s, t, k)
+        return ForwardDiff.derivative(x -> m.a * x^2, v), s
+    end
+
+    # A coupling with no pullback: `q = β ⊙ (K p)`.
+    struct Mix{M, V}
+        K::M
+        β::V
+    end
+    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (q .= C.β .* (C.K * p); nothing)
+end
+
+@testitem "Adjoint: Recurrence, single series" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(3)
+    L, T = 4, 9
+    r = Recurrence(rand(rng, L))
+    R = 0.5 .+ rand(rng, T)
+    @test pullback_matches(r, recargs(R, nothing, rand(rng, L))...)
+    @test pullback_matches(r, recargs(0.8, randn(rng, T), rand(rng, L))...)
+    @test pullback_matches(r, recargs(R, 0.3, rand(rng, L))...)
+    # Shorter and longer histories, and a later start.
+    @test pullback_matches(r, recargs(R, nothing, rand(rng, 2))...)
+    @test pullback_matches(r, recargs(R, nothing, rand(rng, 7))...)
+    @test pullback_matches(r, recargs(true, randn(rng, T), rand(rng, L))...)
+    @test pullback_matches(r, recargs(R, nothing, rand(rng, L); start = 4)...)
+end
+
+@testitem "Adjoint: Recurrence couplings and kernels" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(4)
+    S, L, T = 3, 3, 8
+    g = rand(rng, L)
+    h = rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    ϵ = randn(rng, S, T)
+    for C in (
+            I, 0.7I, rand(rng, S, S), sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.9]),
+            Diagonal(rand(rng, S)),
+        )
+        @test pullback_matches(Recurrence(g; coupling = C), recargs(R, ϵ, h)...)
+    end
+    @test pullback_matches(
+        Recurrence(PerStratum(rand(rng, S, L)); coupling = rand(rng, S, S)),
+        recargs(R, nothing, h)...
+    )
+    @test pullback_matches(Recurrence(Pairwise(rand(rng, S, S, L) ./ 3)), recargs(R, ϵ, h)...)
+    @test pullback_matches(
+        Recurrence(TimeVarying(Pairwise(rand(rng, S, S, L, T) ./ 3))), recargs(R, ϵ, h)...
+    )
+end
+
+@testitem "Adjoint: Recurrence time-varying slots at absolute time" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(5)
+    S, L, T, start = 2, 3, 7, 3
+    h = rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    r = Recurrence(
+        TimeVarying(rand(rng, L, T)); coupling = TimeVarying(rand(rng, S, S, T))
+    )
+    @test pullback_matches(r, recargs(R, nothing, h; start)...)
+    r = Recurrence(TimeVarying(PerStratum(rand(rng, S, L, T))))
+    @test pullback_matches(r, recargs(R, nothing, h; start)...)
+end
+
+@testitem "Adjoint: Recurrence modifiers" setup = [AdjointCheck, AdjointModifiers] begin
+    using ComposableRecurrences
+    rng = Xoshiro(6)
+    S, L, T = 3, 3, 7
+    g = rand(rng, L) ./ 2
+    K = rand(rng, S, S) ./ 2
+    h = 1 .+ rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    for mods in (
+            (PoolDepletion([30.0, 40.0, 50.0]),),
+            (Hazard(45.0),),
+            (Shift(randn(rng, T)), HistoryTotal()),
+            (Shift(randn(rng, T)), Hazard(60.0)),
+            (Slope(0.3),),
+            (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
+            (CR.Depletion(50.0, CR.Floor(); heterogeneity = 1.5),),
+            (CR.Redistribute(K, PerStratum([0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
+            (CR.Clamp(0.0, 3.0),),
+            (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
+            (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+        )
+        r = Recurrence(g; coupling = K, modifiers = mods)
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
+    # A pool held in a view gets its cotangent.
+    pool = view([0.0, 30.0, 40.0, 50.0], 2:4)
+    r = Recurrence(g; coupling = K, modifiers = (PoolDepletion(pool),))
+    @test pullback_matches(r, recargs(R, nothing, h)...)
+    # Resumed from given states.
+    r = Recurrence(g; coupling = K, modifiers = (PoolDepletion([30.0, 40.0, 50.0]),))
+    @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
+end
+
+@testitem "Adjoint: Recurrence returning its state" setup = [AdjointCheck, AdjointModifiers] begin
+    using ComposableRecurrences
+    rng = Xoshiro(7)
+    S, L = 2, 3
+    r = Recurrence(rand(rng, L) ./ 2; coupling = rand(rng, S, S), modifiers = (Hazard(50.0),))
+    for (T, m) in ((6, 3), (2, 3), (6, 5), (2, 1))
+        args = recargs(0.5 .+ rand(rng, S, T), nothing, 1 .+ rand(rng, S, m))
+        @test pullback_matches(CR._WithState(r), args...)
+    end
+end
+
+@testitem "Adjoint: Recurrence with mixed eltypes" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(8)
+    S, L, T = 2, 3, 6
+    r = Recurrence(Float32.(rand(rng, L)); coupling = Float32.(rand(rng, S, S)))
+    @test pullback_matches(
+        r, recargs(0.5 .+ rand(rng, S, T), nothing, rand(Float32, S, L))...;
+        rtol = 1.0e-5
+    )
+end
+
+@testitem "Adjoint: Convolution" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(9)
+    S, D, T = 2, 4, 7
+    g = rand(rng, D)
+    x = rand(rng, T)
+    X = rand(rng, S, T)
+    @test pullback_matches(Convolution(g), x, nothing, 1, nothing)
+    @test pullback_matches(Convolution(g), x, rand(rng, 2), 1, nothing)
+    @test pullback_matches(Convolution(g), X, rand(rng, S, 5), 3, nothing)
+    @test pullback_matches(Convolution(g), X, nothing, 2, 5)
+    @test pullback_matches(Convolution(PerStratum(rand(rng, S, D))), X, nothing, 1, nothing)
+    for start in (1, 4)
+        c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T))))
+        @test pullback_matches(c, X, rand(rng, S, 3), start, nothing)
+        c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
+        @test pullback_matches(c, x, nothing, start, nothing)
+    end
+end
+
+@testitem "Adjoint: routing by uses_adjoint" setup = [AdjointCheck, AdjointModifiers] begin
+    using ComposableRecurrences, ForwardDiff
+    g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
+    args = recargs(ones(2, 4), nothing, ones(2, 2))
+    val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
+    # Built-in parts and pointwise modifiers with scalar parameters take the
+    # rule; the route is decided from the types.
+    for op in (
+            Recurrence(g), Recurrence(g; coupling = K),
+            Recurrence(g; modifiers = (CR.Depletion(50.0),)),
+            Recurrence(g; modifiers = (Slope(0.3),)),
+            Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
+        )
+        @test CR.uses_adjoint(op, CR.Run())
+        @test val(op) == [Val{true}]
+    end
+    # A vector-level modifier or a coupling without a pullback, or a
+    # pointwise modifier without one and with array parameters, sends the
+    # whole operator to plain AD.
+    for op in (
+            Recurrence(g; modifiers = (Scale(0.9),)),
+            Recurrence(g; coupling = Mix(K, [1.0, 1.0])),
+            Recurrence(g; modifiers = (PoolDepletion([30.0, 40.0]),)),
+        )
+        @test !CR.uses_adjoint(op, CR.Run())
+        @test val(op) == [Val{false}]
+    end
+    # Declaring it opts a modifier in.
+    struct Scaled{A}
+        a::A
+    end
+    CR.forward(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
+    @test !CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
+    CR.uses_adjoint(::Scaled, ::CR.Step) = true
+    @test CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
+
+    # Dual numbers and BigFloat take the plain path.
+    r = Recurrence(g)
+    @test CR._gate(r, ones(4), nothing, ones(2), nothing, 1, nothing)
+    @test !CR._gate(r, ForwardDiff.Dual(1.0, 1.0), nothing, ones(2), nothing, 1, nothing)
+    @test !CR._gate(r, big.(ones(4)), nothing, ones(2), nothing, 1, nothing)
+end
+
+@testitem "Adjoint: user operators declare their adjoint" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    struct Twice <: CR.AbstractOperator end
+    CR.forward(::Twice, ::CR.Run, x) = (2 .* x, nothing)
+    @test !CR.uses_adjoint(Twice(), CR.Run())
+    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{false}]
+    function CR.pullback!(grads, ::Twice, ::CR.Run, cache)
+        only(grads.args) .+= 2 .* grads.y
+        return nothing
+    end
+    CR.uses_adjoint(::Twice, ::CR.Run) = true
+    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{true}]
+    @test Twice()(ones(2)) == [2.0, 2.0]
+end
+
+@testitem "Adjoint: a plain-AD fallback is logged once" setup = [AdjointModifiers] begin
+    using ComposableRecurrences
+    r = Recurrence([0.2, 0.3]; modifiers = (Scale(0.9),))
+    @test_logs (:info, r"plain AD") r(ones(4); history = ones(2))
+    @test_logs r(ones(4); history = ones(2))
+end
+
+@testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    @test CR.cotangent(nothing, :a) === nothing
+    @test CR.cotangent((; a = [1.0]), :a) == [1.0]
+    x̄ = Ref(1.0)
+    CR.add_cotangent!(x̄, 2.0, 3)
+    @test x̄[] == 3.0
+    x̄ = zeros(2, 2)
+    CR.add_cotangent!(x̄, 2.0, 1, 2)
+    @test x̄[1, 2] == 2.0
+    CR.add_cotangent!((; x = x̄), 1.0, 1, 2)
+    @test x̄[1, 2] == 3.0
+    @test CR.add_cotangent!(nothing, 1.0, 1) === nothing
+    # A structured matrix's mirror keeps its structure: only stored entries
+    # take a cotangent.
+    d̄ = (; diag = zeros(2))
+    CR._add_entry!(d̄, Diagonal(ones(2)), 1.5, 2, 2)
+    CR._add_entry!(d̄, Diagonal(ones(2)), 1.0, 1, 2)
+    @test d̄.diag == [0.0, 1.5]
+    K = sparse([1.0 0.0; 0.5 1.0])
+    K̄ = (; nzval = zeros(3))
+    CR._add_entry!(K̄, K, 2.0, 2, 1)
+    CR._add_entry!(K̄, K, 1.0, 1, 2)
+    @test K̄.nzval == [0.0, 2.0, 0.0]
+end
+
+@testitem "Adjoint: NoAdjoint takes the plain path" begin
+    using ComposableRecurrences
+    using ComposableRecurrences: NoAdjoint
+    CR = ComposableRecurrences
+    r = Recurrence([0.2, 0.3])
+    n0 = CR._PULLBACK_CALLS[]
+    @test NoAdjoint(r)(ones(4); history = ones(2)) == r(ones(4); history = ones(2))
+    y, st = CR.with_state(NoAdjoint(r), ones(4); history = ones(2))
+    y2, st2 = CR.with_state(r, ones(4); history = ones(2))
+    @test y == y2 && st.history == st2.history && st.t == st2.t
+    c = Convolution([0.5, 0.5])
+    @test NoAdjoint(c)(ones(3)) == c(ones(3))
+    @test CR._PULLBACK_CALLS[] == n0
+end
+
+@testitem "Adjoint: buffers follow the input's array type" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # An array type whose `similar` keeps the wrapper, standing in for a
+    # device array: every buffer and cotangent must be allocated like it.
+    struct Wrapped{T, N} <: AbstractArray{T, N}
+        a::Array{T, N}
+    end
+    Base.size(w::Wrapped) = size(w.a)
+    Base.getindex(w::Wrapped, i::Int...) = w.a[i...]
+    Base.setindex!(w::Wrapped, v, i::Int...) = (w.a[i...] = v)
+    Base.similar(w::Wrapped, ::Type{T}, dims::Dims) where {T} = Wrapped(similar(w.a, T, dims))
+    unwrap(x::Wrapped) = x.a
+    unwrap(x) = x
+
+    rng = Xoshiro(2)
+    S, L, T = 2, 3, 5
+    r = Recurrence(rand(rng, L); coupling = rand(rng, S, S), modifiers = (CR.Depletion(40.0),))
+    R, h = 0.5 .+ rand(rng, S, T), 1 .+ rand(rng, S, L)
+    y, c = CR._run_forward(r, R, nothing, Wrapped(h), nothing, 1, nothing)
+    @test c.H isa Wrapped && c.P isa Wrapped && c.X isa Wrapped
+    @test only(c.rec).V isa Wrapped
+    yref, cref = CR._run_forward(r, R, nothing, h, nothing, 1, nothing)
+    @test unwrap(y) ≈ yref
+    ȳ = randn(rng, S, T)
+    h̄, h̄ref = zeros(S, L), zeros(S, L)
+    args(h̄) = (nothing, nothing, h̄, nothing, nothing, nothing)
+    CR._run_pullback!((; piece = nothing, y = ȳ, args = args(h̄)), r, c)
+    CR._run_pullback!((; piece = nothing, y = ȳ, args = args(h̄ref)), r, cref)
+    @test h̄ ≈ h̄ref
+
+    c = Convolution(rand(rng, 3))
+    x = rand(rng, S, T)
+    y, cache = CR._run_forward(c, Wrapped(x), nothing, 1, nothing)
+    @test cache.X isa Wrapped
+    @test unwrap(y) ≈ first(CR._run_forward(c, x, nothing, 1, nothing))
+end
+
+@testitem "Adjoint: scalar-parameter local pullback" setup = [AdjointCheck] begin
+    # A pointwise modifier with only scalar parameters, nested in a struct,
+    # mixed float types and an integer field: the default `Step` pullback
+    # seeds them as one tuple of dual numbers.
+    struct Inner{T}
+        N::T
+        k::Int
+    end
+    struct Outer{A, B}
+        a::A
+        inner::B
+    end
+    CR.ispointwise(::Outer) = true
+    function CR.forward(m::Outer, ::CR.Step, v, s, t, k)
+        v′ = m.a * max(s / m.inner.N, 1.0e-6) * v * m.inner.k
+        return v′, s - v′
+    end
+    m = Outer(0.7f0, Inner(50.0, 2))
+    @test CR._scalar_params(m)
+    @test CR._param_tuple(m) == (0.7f0, 50.0)
+    for (v, s) in ((2.0, 30.0), (1.5, 0.2))
+        # Reference: the Jacobian of the step in the value, state and
+        # parameters.
+        J = ForwardDiff.jacobian([v; s; CR._params(m)]) do x
+            v′, s′ = CR.forward(
+                CR._rebuild(m, view(x, 3:4)), CR.Step(), x[1], x[2], 1, 1
+            )
+            return [v′, s′]
+        end
+        ref = transpose(J) * [0.3, 0.7]
+        m̄ = zero_mirror(m)
+        got = CR.pullback!((; piece = m̄, v = 0.3, s = 0.7), m, CR.Step(), v, s, 1, 1)
+        @test collect(got) ≈ ref[1:2]
+        @test mirror_vec(m̄, m) ≈ ref[3:4] rtol = 1.0e-6
+        # Without a mirror only the value and state cotangents come back.
+        @test collect(CR.pullback!((; piece = nothing, v = 0.3, s = 0.7), m, CR.Step(), v, s, 1, 1)) ≈
+            ref[1:2]
+    end
+    # A step allocates nothing: a thousand cost less than one kilobyte.
+    function steps(m, m̄, n)
+        acc = 0.0
+        for i in 1:n
+            v̄, s̄ = CR.pullback!(
+                (; piece = m̄, v = 0.3, s = 0.7), m, CR.Step(), 2.0 + i, 30.0, 1, 1
+            )
+            acc += v̄ + s̄
+        end
+        return acc
+    end
+    m̄ = zero_mirror(m)
+    steps(m, m̄, 2)
+    @test (@allocated steps(m, m̄, 1000)) < 1000
+    # Through a recurrence the rule matches ForwardDiff.
+    r = CR.Recurrence([0.3, 0.2]; modifiers = (m,))
+    @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
+end
+
+@testitem "Adjoint: coupling pullbacks called directly" setup = [AdjointCheck] begin
+    # `I` and `Diagonal` couplings have fused paths inside the recurrence
+    # rule; their `Pressure` pullbacks are public and checked here.
+    rng = Xoshiro(3)
+    p, q̄ = randn(rng, 3), randn(rng, 3)
+    for (C, m̄, θ) in (
+            (2.5I, (; λ = Ref(0.0)), [2.5]),
+            (Diagonal([0.5, 1.5, 2.0]), (; diag = zeros(3)), [0.5, 1.5, 2.0]),
+        )
+        rebuild(θ) = C isa UniformScaling ? θ[1] * I : Diagonal(θ)
+        function pressure(θ, p)
+            q = zeros(promote_type(eltype(θ), eltype(p)), 3)
+            CR.forward(rebuild(θ), CR.Pressure(), q, p, 1)
+            return sum(q̄ .* q)
+        end
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, 1)
+        @test p̄ ≈ ForwardDiff.gradient(x -> pressure(θ, x), p)
+        @test mirror_vec(m̄, C isa UniformScaling ? (; λ = 2.5) : C) ≈
+            ForwardDiff.gradient(x -> pressure(x, p), θ)
+    end
+end
+
+@testitem "Adjoint: local pullback over structured and nested parameters" setup = [AdjointCheck] begin
+    # A pointwise modifier with array parameters takes the local Jacobian:
+    # a Diagonal, a sparse matrix, a named tuple and a tuple holding an
+    # array, read back in the order the parameters are collected.
+    struct Mixed{D, M, N, P}
+        D::D
+        K::M
+        nt::N
+        tp::P
+    end
+    CR.ispointwise(::Mixed) = true
+    function CR.forward(m::Mixed, ::CR.Step, v, s, t, k)
+        w = m.D.diag[k] + m.K[k, k] + m.nt.a + m.tp[1] + m.tp[2][k]
+        return v * w, s + 0.1 * v
+    end
+    m = Mixed(
+        Diagonal([0.2, 0.3]), sparse([0.1 0.0; 0.0 0.2]), (; a = 0.05),
+        (0.1, [0.01, 0.02])
+    )
+    @test !CR._scalar_params(m)
+    r = CR.Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.1 0.9], modifiers = (m,))
+    @test pullback_matches(r, recargs(1.1, nothing, ones(2, 2); stop = 6)...)
+
+    # Scalar parameters inside a named tuple and a tuple take the dual-number
+    # path.
+    struct Nested{N, P}
+        nt::N
+        tp::P
+    end
+    CR.ispointwise(::Nested) = true
+    function CR.forward(m::Nested, ::CR.Step, v, s, t, k)
+        return v * (m.nt.a + m.nt.b * m.tp[2]), s + m.tp[1] * v
+    end
+    n = Nested((; a = 0.5, b = 0.25), (0.1, 2))
+    @test CR._scalar_params(n)
+    @test CR._param_tuple(n) == (0.5, 0.25, 0.1)
+    r = CR.Recurrence([0.3, 0.2]; modifiers = (n,))
+    @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
+end
+
+@testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin
+    using ComposableRecurrences
+    @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2)))
+end

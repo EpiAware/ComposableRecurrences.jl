@@ -71,6 +71,24 @@ end
     @test CR.param_eltype(HistoryTotal()) == Bool
 end
 
+@testitem "param_eltype infers through nested structs" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    struct Outer{T}
+        x::T
+    end
+    struct Inner{A, B, C}
+        a::A
+        b::B
+        c::C
+    end
+    struct Leaf end
+    # An inner struct or tuple with more fields than the outer one.
+    x = (Outer((Inner(Leaf(), 1.0f0, (Leaf(), 2.0, (; c = 3.0f0))),)),)
+    @test (@inferred CR.param_eltype(x)) == Float64
+    @test (@inferred CR.param_eltype(Outer(Leaf()))) == Bool
+end
+
 @testitem "NoAdjoint forwards to the operator" begin
     using ComposableRecurrences
     CR = ComposableRecurrences

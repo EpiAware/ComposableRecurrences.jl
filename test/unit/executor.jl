@@ -139,6 +139,22 @@ end
         Recurrence(g; coupling = K),
         Recurrence(Pairwise(rand(rng, S, S, L) ./ (2 * S * L))),
         Recurrence(g; modifiers = (CR.Redistribute(K, 0.1),)),
+        # Vector steps that read every stratum run serially between the
+        # threaded strata loops.
+        Recurrence(
+            g; modifiers = (
+                CR.Depletion(
+                    1.0e3; removals = TimeVarying(fill(2.0, T)),
+                    protected = CR.Protected(0.3),
+                ),
+            )
+        ),
+        Recurrence(
+            g; modifiers = (
+                CR.Allocate([1:3, 4:7], TimeVarying(PerStratum(fill(5.0, 2, T)))),
+            )
+        ),
+        Recurrence(g; modifiers = (CR.Transform((v, c) -> c * v / (c + v), 20.0),)),
     )
     convolutions = (
         Convolution(g),
@@ -154,6 +170,15 @@ end
         for r in recurrences
             y = r(R; history = seed)
             @test with(() -> r(R; history = seed), CR.EXECUTOR => ex) == y
+            # The forward pass of the reverse rule records the same cache.
+            yr, cache = CR.forward(r, CR.Run(), R; history = seed)
+            yt, cachet = with(CR.EXECUTOR => ex) do
+                CR.forward(r, CR.Run(), R; history = seed)
+            end
+            @test yt == yr == y
+            @test cachet.P == cache.P && cachet.X == cache.X
+            @test map(x -> (x.V, x.S), cachet.rec) == map(x -> (x.V, x.S), cache.rec)
+            @test cachet.state.states == cache.state.states
         end
         for c in convolutions
             @test with(() -> c(R), CR.EXECUTOR => ex) == c(R)

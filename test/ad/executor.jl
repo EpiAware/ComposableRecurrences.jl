@@ -1,6 +1,7 @@
-# Gradients under a threaded executor match the serial ForwardDiff gradient.
-# ForwardDiff runs the threaded loops; Enzyme and Mooncake reverse mode run a
-# call they differentiate serially whatever executor is set.
+# Gradients under a threaded executor match the serial gradients exactly.
+# ForwardDiff runs the threaded loops. Under Enzyme and Mooncake reverse
+# mode the native rule runs its forward pass threaded and its reverse pass
+# serially, and a NoAdjoint call they trace runs serially.
 
 @testsnippet ExecutorAD begin
     using ComposableRecurrences, DifferentiationInterface, ForwardDiff
@@ -21,23 +22,43 @@
         )
         rc = Recurrence(g; coupling = fill(1 / S, S, S))
         c = Convolution(g)
-        losses = (
-            θ -> sum(w .* r(reshape(θ, S, T); history = seed)),
-            θ -> sum(w .* rc(reshape(θ, S, T); history = seed)),
-            θ -> sum(w .* c(reshape(θ, S, T))),
+        # Vector steps that read every stratum: a protected pool and
+        # grouped totals.
+        doses = TimeVarying(PerStratum(fill(5.0, S, T)))
+        rv = Recurrence(
+            g; modifiers = (
+                CR.Depletion(
+                    1.0e3; removals = doses, protected = CR.Protected(0.3)
+                ),
+            )
         )
-        return losses, vec(1.0 .+ 0.05 .* rand(rng, S, T))
+        totals = TimeVarying(PerStratum(fill(8.0, 2, T)))
+        ra = Recurrence(g; modifiers = (CR.Allocate([1:3, 4:6], totals),))
+        losses = Any[]
+        for op in (r, rc, c, rv, ra), route in (op, CR.NoAdjoint(op))
+            push!(
+                losses, op isa Convolution ?
+                    θ -> sum(w .* route(reshape(θ, S, T))) :
+                    θ -> sum(w .* route(reshape(θ, S, T); history = seed))
+            )
+        end
+        return Tuple(losses), vec(1.0 .+ 0.05 .* rand(rng, S, T))
     end
 
+    # The gradient under a threaded executor is the serial gradient on the
+    # same backend, and matches the serial ForwardDiff gradient.
     function test_executor_gradients(backend)
         losses, θ = executor_losses()
-        ex = CR.Threaded(; min_work = 0)
-        for loss in losses
-            ref = DifferentiationInterface.gradient(loss, AutoForwardDiff(), θ)
-            g = with(CR.EXECUTOR => ex) do
-                DifferentiationInterface.gradient(loss, backend, θ)
+        for ex in (CR.Threaded(; min_work = 0), CR.Threaded(; min_work = 0, ntasks = 3))
+            for loss in losses
+                ref = DifferentiationInterface.gradient(loss, AutoForwardDiff(), θ)
+                gs = DifferentiationInterface.gradient(loss, backend, θ)
+                g = with(CR.EXECUTOR => ex) do
+                    DifferentiationInterface.gradient(loss, backend, θ)
+                end
+                @test g == gs
+                @test g ≈ ref
             end
-            @test g ≈ ref
         end
         return nothing
     end

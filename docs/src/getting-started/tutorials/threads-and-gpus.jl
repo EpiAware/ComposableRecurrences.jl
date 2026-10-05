@@ -99,10 +99,12 @@ Array(y_device) ≈ y_serial
 # | executor | forward | ForwardDiff | Enzyme reverse | Mooncake reverse |
 # |:-------- |:------- |:----------- |:-------------- |:---------------- |
 # | `Serial()` | all operators | yes | yes | yes |
-# | `Threaded()` | all operators | yes, threaded | yes, runs serially | yes, runs serially |
+# | `Threaded()` | all operators | yes, threaded | forward pass threaded | forward pass threaded |
 # | `Device(backend)` | convolutions; recurrences with an `I` coupling and no modifiers, `Add` or `Clamp` | not tested | not tested | not tested |
 #
-# Enzyme and Mooncake reverse mode do not differentiate tasks, so a call they differentiate runs serially whatever executor is set.
+# Under Enzyme and Mooncake reverse mode the operators' own rules run their forward pass with the set executor.
+# Their reverse pass runs on the calling task, because it adds every stratum's terms into shared kernel and parameter cotangents.
+# A `NoAdjoint` call that these backends differentiate directly runs serially whatever executor is set, as they do not differentiate tasks.
 # The `Device(backend)` row was checked on JLArrays only.
 # On a device, a dense or sparse coupling, `Depletion` and modifiers with a vector step still index the arrays on the host, so they fail with scalar indexing disallowed.
 # The kernel must live on the device too.

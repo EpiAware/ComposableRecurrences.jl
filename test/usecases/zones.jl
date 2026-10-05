@@ -1,7 +1,8 @@
 # BVD's zone share renewal: the health zones of each patch renew from their
 # own past infections, and each day the patch's infections are split among
-# its zones in proportion to that force. The split reads every zone of a
-# patch at once, so it is a user modifier on the zones' renewal.
+# its zones in proportion to that force. The unmixed split is `Allocate`;
+# the mixed split also reads the force before a within-patch spill, so it
+# is a user modifier on the zones' renewal.
 #
 # The zones are the strata; time is the grid day `j`, absolute day
 # `t0 + j - 1`.
@@ -60,22 +61,10 @@
     )
 
     # Unmixed, each zone takes the share of its patch's infections its own
-    # force earns: I_z = Ī_p u_z / Σ_{z' ∈ p} u_{z'}.
-    struct Allocate{I, P}
-        I_bar::I
-        patch_ranges::P
-        t0::Int
-    end
-    function ComposableRecurrences.forward(
-            m::Allocate, ::ComposableRecurrences.Step, v, s, t
-        )
-        floor_ = eps(eltype(v))
-        for (p, zs) in enumerate(m.patch_ranges)
-            tot = max(sum(view(v, zs)), floor_)
-            v[zs] .= m.I_bar[p, m.t0 + t - 1] .* view(v, zs) ./ tot
-        end
-        return nothing
-    end
+    # force earns, I_z = Ī_p u_z / Σ_{z' ∈ p} u_{z'}: an Allocate over the
+    # patches with the patch trajectories as totals.
+    CR = ComposableRecurrences
+    unmixed = CR.Allocate(patch_ranges, TimeVarying(PerStratum(I_bar[:, t0:n])))
 
     # Mixed, a share `ε_q` of zone q's force spills within its patch, the
     # patch's imported share lands in the pattern the other patches' zones
@@ -113,7 +102,7 @@
         gain = exp.(permutedims(δ))
         add = gain .* w0 .* force_pre[patch_of_zone, t0:n]
         split = mixed ? AllocateMixed(I_bar, patch_ranges, t0, mix, ε) :
-            Allocate(I_bar, patch_ranges, t0)
+            unmixed
         r = Recurrence(g; modifiers = (split,))
         return permutedims(r(gain; history = zeros(nz, 1), add))
     end

@@ -3,7 +3,7 @@
 To add a modifier, define a type and add a `forward` method for it.
 The second argument is a singleton that selects the job by dispatch: `Step()` for one step, `Init()` for the starting state, `Pressure()` for a coupling's mixing and `Run()` for a whole call.
 Depletion forms are types too, so pass `Hazard()` or `Floor()`, or define your own.
-Add a `pullback!` method for a hand-written gradient.
+Add a `pullback!` method for a hand-written gradient, and declare `uses_adjoint` for the same job so the operator's rule calls it.
 
 | Kind | Dispatch on | Method |
 |---|---|---|
@@ -32,6 +32,26 @@ CR.forward(m::Scale, ::CR.Step, v, s, t, k) = (m.a * v, s)
 
 Recurrence([0.5, 0.5]; modifiers = (Scale(0.9),))(2.0; history = ones(2), stop = 5)
 ```
+
+## A hand-written gradient
+
+A pointwise step's `pullback!` returns the cotangents of the value and the state.
+`grads.v` and `grads.s` hold the output cotangents, and `grads.piece` mirrors the fields, here a `Ref` for `a` (or `nothing`).
+`uses_adjoint` tells the Mooncake and Enzyme rules of a `Recurrence` to call it.
+
+```@example extending
+function CR.pullback!(grads, m::Scale, ::CR.Step, v, s, t, k)
+    CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.v * v)
+    return m.a * grads.v, grads.s
+end
+CR.uses_adjoint(::Scale, ::CR.Step) = true
+
+grads = (; piece = (; a = Ref(0.0)), v = 1.0, s = 0.0)
+CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
+```
+
+Without a `pullback!`, a pointwise modifier with only scalar float parameters, such as `Scale`, is differentiated locally with ForwardDiff inside the rule.
+Any other modifier without one makes the backend differentiate the whole operator.
 
 ## A custom depletion form
 
