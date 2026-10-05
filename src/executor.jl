@@ -58,10 +58,17 @@ such as a place or age group), one series or one output time.
 
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
-`work` is an estimate of the loop's total cost in inner operations, which
-an executor may use to run small loops in order; [`Serial`](@ref) ignores
-it.
+A new executor type adds a method of `each!`.
 Returns `nothing`.
+
+# Arguments
+- `body`: the per-index function, called as `body(k, args...)`.
+- `ex`: the executor that runs the loop.
+- `n`: the number of indices.
+- `work`: an estimate of the loop's total cost in inner operations, which
+  an executor may use to run small loops in order; [`Serial`](@ref) ignores
+  it.
+- `args`: the arguments passed to every call of `body`.
 
 # Examples
 ```@example
@@ -97,8 +104,15 @@ There are `m = min(ntasks, n)` chunks, with `ntasks` the number of threads
 unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
+The threshold applies to each loop.
+Independent strata are one loop per call, but strata that mix through a
+coupling, a pairwise kernel or a modifier with a vector step are one loop
+per step, so such models gain only with many strata.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
+Errors inside a split loop arrive wrapped in a `CompositeException`.
+On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
+arrays from the host; use [`Device`](@ref) there.
 
 # Examples
 ```@example
@@ -125,7 +139,7 @@ struct Threaded <: Executor
         return new(min_work, ntasks)
     end
 end
-Threaded(; min_work = 10_000, ntasks = 0) = Threaded(min_work, ntasks)
+Threaded(; min_work = 100_000, ntasks = 0) = Threaded(min_work, ntasks)
 
 @inline function each!(
         body::F, ex::Threaded, n, work, args::Vararg{Any, N}
@@ -173,6 +187,8 @@ Each operator call reads it once.
 `Threaded` needs every modifier the loops run, including user-defined ones,
 to write only its own stratum's slots.
 Forward-mode AD with dual numbers runs the set executor.
+Forward-mode AD that transforms the code runs serially whatever executor is
+set, as the supported backends do not differentiate tasks.
 Under reverse mode the operators' own rules run their forward pass with the
 set executor and their reverse pass on the calling task, because the
 reverse pass adds every stratum's terms into shared kernel and parameter
@@ -240,27 +256,26 @@ end
 _current() = _Current(EXECUTOR[])
 
 # The loop `each!(body, ex, n, work, args...)` as operators run it, for the
-# executor `c.ex` of a call and arrays like `x`. `Serial`, and a `Threaded`
-# loop too small to split, run inline with no dynamic dispatch; on device
-# arrays `Serial` runs on their device. A loop that does split is reached by
-# a dynamic call, so the inline path holds no task code: reverse-mode AD
-# backends that compile the whole call never see tasks unless a loop is
-# split.
+# executor `c.ex` of a call and arrays like `x`. Operators pass the default
+# executor as the singleton `Serial()` (the method below), so here a
+# `Threaded` loop too small to split runs inline with no dynamic dispatch.
+# A loop that does split is reached by a dynamic call, so the inline path
+# holds no task code: reverse-mode AD backends that compile the whole call
+# never see tasks unless a loop is split.
 @inline function _each!(
         body::F, c::_Current, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
     ex = c.ex
-    if ex isa Serial
-        each!(body, _resolve(ex, x), n, work, args...)
-    elseif ex isa Threaded && !_splits(ex, n, work)
+    if ex isa Threaded && !_splits(ex, n, work)
         each!(body, Serial(), n, work, args...)
     else
-        _each_dynamic!(body, c, n, work, args...)
+        _each_dynamic!(body, c, x, n, work, args...)
     end
     return nothing
 end
 
-# The default executor, known at compile time.
+# The default executor, known at compile time; on device arrays it runs on
+# their device.
 @inline function _each!(
         body::F, ex::Serial, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
@@ -268,8 +283,10 @@ end
     return nothing
 end
 
-@noinline function _each_dynamic!(body::F, c::_Current, n, work, args...) where {F}
-    each!(body, c.ex, n, work, args...)
+@noinline function _each_dynamic!(
+        body::F, c::_Current, x, n, work, args...
+    ) where {F}
+    each!(body, _resolve(c.ex, x), n, work, args...)
     return nothing
 end
 
