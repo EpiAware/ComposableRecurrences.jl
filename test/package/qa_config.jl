@@ -51,6 +51,11 @@ const QA_CONFIG = (
     #      broken = false)             # true to quarantine a known ambiguity
     extensions = (
         (;
+            name = :ComposableRecurrencesConstructionBaseExt,
+            triggers = ("ConstructionBase",),
+            prefixes = ("ComposableRecurrences",),
+        ),
+        (;
             name = :ComposableRecurrencesMooncakeExt,
             triggers = ("ADTypes", "Mooncake", "Random"),
             prefixes = ("ComposableRecurrences",),

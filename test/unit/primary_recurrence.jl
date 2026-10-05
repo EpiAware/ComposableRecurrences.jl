@@ -127,3 +127,15 @@ end
     # A short seed is zero-padded; the padding has no column and is skipped.
     @test r(ones(6); history = [1.0], start = 2) ≈ [1.0, 2.0, 3.0, 5.0, 8.0]
 end
+
+@testitem "Primary Recurrence: a rebuild from fields keeps the indexing" begin
+    using ComposableRecurrences, ConstructionBase
+    CR = ComposableRecurrences
+    tv = TimeVarying(ones(2, 4), CR.Primary())
+    @test ConstructionBase.constructorof(typeof(tv))(2 .* tv.x) isa
+        TimeVarying{CR.Primary}
+    @test ConstructionBase.setproperties(tv; x = zeros(2, 4)) isa
+        TimeVarying{CR.Primary}
+    @test ConstructionBase.constructorof(typeof(TimeVarying(ones(2, 4))))(tv.x) isa
+        TimeVarying{CR.Secondary}
+end

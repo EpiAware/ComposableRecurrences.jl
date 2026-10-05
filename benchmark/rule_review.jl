@@ -1,7 +1,8 @@
 #!/usr/bin/env julia
 # Keep/delete evidence for each analytic adjoint: its gradient time against
 # the paths that would replace it, per backend, at S = 1, 5 and 50 strata
-# (T = 200 steps, L = 20 lags).
+# (T = 200 steps, L = 20 lags; S = 10 at most for a `Primary()` kernel,
+# whose ForwardDiff reference grows with S L T parameters).
 #
 #   julia --project=benchmark benchmark/rule_review.jl [row ...]
 #
@@ -53,7 +54,7 @@ CR.forward(w::LocalFD, ::CR.Step, v, s, t, k) = CR.forward(w.m, CR.Step(), v, s,
 hide(m, ::Val{true}) = LocalFD(m)
 hide(m, ::Val{false}) = m
 strata(S, x) = S == 1 ? x : PerStratum(fill(x, S))
-weights(S) = (Random.seed!(S); S == 1 ? randn(T) : randn(S, T))
+weights(S, matrix = false) = (Random.seed!(S); S == 1 && !matrix ? randn(T) : randn(S, T))
 history(S, x) = S == 1 ? fill(x, L) : fill(x, S, L)
 mixing(S) = S == 1 ? I : Matrix(0.8I(S) .+ 0.2 / S .* ones(S, S))
 function sparse_mixing(S)
@@ -92,6 +93,16 @@ function (f::Loss{:clamp})(θ)
     (; W, K, h, dims) = f.p
     r = Recurrence(G; coupling = K, modifiers = (hide(CR.Clamp(0.0, 50.0), lf(f)),))
     return sum(W .* log.(f.wrap(r)(exp.(reshape(θ, dims)); history = h)))
+end
+# A kernel per infection time (`Primary()`), per stratum, seeded at times
+# 1 to L; `θ` holds the kernel then the log gain.
+function (f::Loss{:primary})(θ)
+    (; W, K, h, dims) = f.p
+    S = first(dims)
+    kern = TimeVarying(PerStratum(reshape(θ[1:(S * L * T)], S, L, T)), CR.Primary())
+    R = exp.(reshape(θ[(S * L * T + 1):end], S, T))
+    r = Recurrence(kern; coupling = K)
+    return sum(W[:, (L + 1):end] .* log.(f.wrap(r)(R; history = h, start = L + 1)))
 end
 function (f::Loss{:convolution})(θ)
     (; W, dims) = f.p
@@ -143,6 +154,12 @@ function rows()
     for S in (5, 50)
         p = params(S, sparse_mixing(S))
         push!(out, ("sparse coupling S=$S", :core, p, θstrata(S), (:rule, :plain)))
+    end
+    for S in (1, 5, 10)
+        p = (; W = weights(S, true), K = mixing(S), h = fill(5.0, S, L), dims = (S, T))
+        K0 = [G[i] * (1 - 0.3 * (c > T ÷ 2)) for a in 1:S, i in 1:L, c in 1:T]
+        θ = [vec(K0); θstrata(S)]
+        push!(out, ("Primary kernel S=$S", :primary, p, θ, (:rule, :plain)))
     end
     p = params(5, mixing(5))
     push!(out, ("Imports S=5", :imports, p, θstrata(5), (:rule, :local, :plain)))
