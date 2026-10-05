@@ -1,7 +1,7 @@
 # The role interface. Every operator, coupling, modifier or variant
 # implements `forward`, and optionally `pullback!`, for a role.
 
-@doc raw"
+@doc raw"""
 The role of an operator's whole call, `forward(op, Run(), args...; kwargs...)`,
 which returns `(y, cache)`; calling the operator lowers to it.
 
@@ -22,10 +22,10 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 y, cache = CR.forward(Recurrence([0.5, 0.5]), CR.Run(), fill(1.1, 4); history = ones(2))
 ```
-"
+"""
 struct Run end
 
-@doc raw"
+@doc raw"""
 The role of one step of a modifier, or of a variant inside its owner (a
 depletion form inside [`ComposableRecurrences.Depletion`](@ref)).
 
@@ -58,10 +58,10 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
 ```
-"
+"""
 struct Step end
 
-@doc raw"
+@doc raw"""
 The role of a modifier's initial state: `forward(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or two for a
 [`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
@@ -86,10 +86,10 @@ s = zeros(2)
 CR.forward(CR.Depletion(PerStratum([100.0, 50.0])), CR.Init(), s, ones(2, 3))
 s
 ```
-"
+"""
 struct Init end
 
-@doc raw"
+@doc raw"""
 The role of a coupling: `forward(C, Pressure(), q, p, t)` writes into `q`
 the mixing of the per-stratum kernel convolutions `p` at absolute time `t`,
 and returns `nothing`.
@@ -117,10 +117,10 @@ q = zeros(2)
 CR.forward([0.9 0.1; 0.2 0.8], CR.Pressure(), q, [1.0, 2.0], 1)
 q
 ```
-"
+"""
 struct Pressure end
 
-@doc raw"
+@doc raw"""
 Run `x` in `role` on primal arguments `args`.
 
 For the role's inputs ``u`` it computes its outputs
@@ -158,10 +158,10 @@ CR.ispointwise(::Offset) = true
 CR.forward(m::Offset, ::CR.Step, v, s, t, k) = (v + m.b, s)
 Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
 ```
-"
+"""
 function forward end
 
-@doc raw"
+@doc raw"""
 Accumulate the reverse pass of [`ComposableRecurrences.forward`](@ref) for
 `x` in `role`.
 
@@ -203,10 +203,10 @@ grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0, 1.0], s = [0.0, 0
 CR.pullback!(grads, m, CR.Step(), [0.5, 2.0], [0.0, 0.0], 1)
 grads.v, grads.piece.hi[]
 ```
-"
+"""
 function pullback! end
 
-@doc raw"
+@doc raw"""
 Whether modifier `m` acts on each stratum separately.
 
 A pointwise modifier's step factorises over strata (the ``S`` parallel
@@ -232,7 +232,7 @@ The default is `false`.
 using ComposableRecurrences
 ComposableRecurrences.ispointwise(nothing)
 ```
-"
+"""
 ispointwise(m) = false
 
 # The length of a modifier's state for `S` strata.

@@ -108,7 +108,7 @@ function _check_strata(name, x::AbstractMatrix, S)
     return nothing
 end
 
-@doc raw"
+@doc raw"""
 The element type the parameters of `x` contribute to an operator's buffer.
 
 The buffer eltype is the float promotion of this over the kernel, coupling,
@@ -139,7 +139,7 @@ struct Scale
 end
 ComposableRecurrences.param_eltype(Scale(1.0f0, (; b = 2)))
 ```
-"
+"""
 param_eltype(x) = _fields_eltype(x)
 param_eltype(x::Real) = typeof(x)
 param_eltype(x::AbstractArray{<:Real}) = eltype(x)
@@ -155,7 +155,7 @@ param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 # that carries the field count or a tuple's length in its signature
 # (`Val(N)`, `map` over a tuple) is widened by inference's recursion limit
 # when an inner struct has more fields than an outer one, as
-# `Depletion` inside a `Recurrence` does (#70).
+# `Depletion` inside a `Recurrence` does.
 @generated function _fields_eltype(x)
     calls = (:(param_eltype(getfield(x, $i))) for i in 1:fieldcount(x))
     return :(promote_type(Bool, $(calls...)))
