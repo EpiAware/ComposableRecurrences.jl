@@ -91,7 +91,9 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             @warn "matrix case not built" c.name
             continue
         end
-        eval_group[label] = @benchmarkable $f($θ) evals = 1 seconds = 1 gctrial = false
+        eval_group[label] = @benchmarkable(
+            $f($θ), evals = 1, seconds = 1, gctrial = false
+        )
         for arm in ("rule", "NoAdjoint"), entry in reverse
             MatrixCases.available(c, arm) || continue
             c.sparse && entry.name == "Enzyme reverse" && continue
