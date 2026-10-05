@@ -5,8 +5,8 @@
 # written back for `MixedDuplicated` ones.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, _WithState, _ad, _note_plain_type, _plain,
-    _run_forward, _run_pullback!
+using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
+    _current, _note_plain_type, _plain, _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -76,6 +76,29 @@ function _addback1(dx::T, m) where {T}
 end
 
 EnzymeRules.inactive(::typeof(_note_plain_type), args...) = nothing
+
+# The executor carries no derivative. Forward mode and plain reverse mode
+# (a `NoAdjoint` route) do not differentiate tasks or the scoped value
+# lookup, so a call they trace runs serially whatever executor is set. The
+# reverse rule below runs its forward pass as primal code, so it uses the
+# set executor.
+EnzymeRules.inactive_type(::Type{_Current}) = true
+function EnzymeRules.forward(
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_current)}, ::Type{<:Const}
+    )
+    return EnzymeRules.needs_primal(config) ? _Current(Serial()) : nothing
+end
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_current)}, ::Type{<:Const}
+    )
+    primal = EnzymeRules.needs_primal(config) ? _Current(Serial()) : nothing
+    return EnzymeRules.AugmentedReturn(primal, nothing, nothing)
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_current)}, ::Type{<:Const}, tape
+    )
+    return ()
+end
 
 # The primal and shadow are typed by the return annotation, which is the
 # inferred return type of `_ad` and may be abstract.

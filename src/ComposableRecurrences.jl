@@ -67,6 +67,7 @@ using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
+using Base.ScopedValues: ScopedValue
 
 # Register the standard docstring conventions before any
 # docstrings are defined (see src/docstrings.jl).
@@ -78,12 +79,14 @@ public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
     Hazard, Floor, Primary, Secondary, seeded, with_state, State, forward,
     pullback!, Step, Init, Pressure, Run, ispointwise, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
-    add_cotangent!
+    add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
 # Shape and eltype helpers shared by the operators.
 include("utils.jl")
+# Executors: how loops over independent strata, series or times run.
+include("executor.jl")
 # The role interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The operator supertype, `NoAdjoint` and the routing to the native rules.

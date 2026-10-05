@@ -109,7 +109,12 @@ function _conv(c::Convolution, x, history, start, stop)
     history === nothing || _load_history!(X, history, m)
     _load_input!(X, x, m, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    _convolve!(Y, kernel, X, m, start)
+    cur = _current()
+    if cur.ex isa Serial
+        _convolve!(Serial(), Y, kernel, X, m, start)
+    else
+        _convolve!(cur, Y, kernel, X, m, start)
+    end
     return Y, X, m, stop
 end
 
@@ -181,24 +186,29 @@ function _axpy!(α, x, y)
     return y
 end
 
-function _convolve!(Y, c::AbstractVector, X, m, start)
-    for k in axes(Y, 2)
-        _convolve_series!(view(Y, :, k), c, X, k, m, start)
-    end
+# Each stratum is one index of the executor loop; `work` counts one
+# multiply-add per output row and lag.
+function _convolve!(ex, Y, c, X, m, start)
+    S = size(Y, 2)
+    work = length(Y) * _nlags(c)
+    _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
     return Y
 end
 
-function _convolve!(Y, c::PerStratum, X, m, start)
-    for k in axes(Y, 2)
-        _convolve_series!(view(Y, :, k), view(c.x, k, :), X, k, m, start)
-    end
-    return Y
+function _convolve_body!(k, Y, c::AbstractVector, X, m, start)
+    _convolve_series!(view(Y, :, k), c, X, k, m, start)
+    return nothing
+end
+
+function _convolve_body!(k, Y, c::PerStratum, X, m, start)
+    _convolve_series!(view(Y, :, k), view(c.x, k, :), X, k, m, start)
+    return nothing
 end
 
 # Secondary indexing: output time `t` reads its own column.
-function _convolve!(Y, c::TimeVarying{Secondary}, X, m, start)
+function _convolve_body!(k, Y, c::TimeVarying{Secondary}, X, m, start)
     D = _nlags(c)
-    for k in axes(Y, 2), j in axes(Y, 1)
+    for j in axes(Y, 1)
         t = start + j - 1
         acc = zero(eltype(Y))
         for d in 0:min(D - 1, m + t - 1)
@@ -206,15 +216,15 @@ function _convolve!(Y, c::TimeVarying{Secondary}, X, m, start)
         end
         Y[j, k] = acc
     end
-    return Y
+    return nothing
 end
 
 # Primary indexing: the input at time `σ` spreads forward through its own
 # column. There is no history, so buffer row `σ` is time `σ`.
-function _convolve!(Y, c::TimeVarying{Primary}, X, m, start)
+function _convolve_body!(k, Y, c::TimeVarying{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
-    for k in axes(Y, 2), σ in max(1, start - D + 1):stop
+    for σ in max(1, start - D + 1):stop
         x = X[σ, k]
         for d in max(0, start - σ):(D - 1)
             t = σ + d
@@ -222,7 +232,7 @@ function _convolve!(Y, c::TimeVarying{Primary}, X, m, start)
             Y[t - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
         end
     end
-    return Y
+    return nothing
 end
 
 # The reverse pass: correlate the output cotangent with the kernel into the
