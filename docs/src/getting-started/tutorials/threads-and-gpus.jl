@@ -97,6 +97,7 @@ Array(y_device) ≈ y_serial
 #
 # A recurrence pays one kernel launch per step when its strata mix, so a GPU pays off only with many strata or many series.
 # On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the arrays from the host, so use `Device(backend)` there.
+# To compile a model with Reactant.jl instead, see the [FAQ](@ref faq-reactant).
 
 # ## What each executor supports
 #

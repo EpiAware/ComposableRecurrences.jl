@@ -10,7 +10,7 @@
 # Environment variables:
 #   REACTANT_TIMEOUT   seconds per subprocess (default 300)
 #   REACTANT_CASES     comma-separated case names (default all)
-#   REACTANT_CONFIGS   comma-separated configs (default "baseline,shims")
+#   REACTANT_CONFIGS   comma-separated configs (default "extension")
 #   REACTANT_BACKENDS  comma-separated backends (default "cpu,gpu")
 #   REACTANT_REUSE     "1" rebuilds RESULTS.md and the tests from results.tsv
 using Test, Dates, Printf
@@ -25,7 +25,7 @@ const TIMEOUT = parse(Float64, get(ENV, "REACTANT_TIMEOUT", "300"))
 const NAMES = let s = get(ENV, "REACTANT_CASES", "")
     isempty(s) ? [c.name for c in CASES] : split(s, ',')
 end
-const CONFIGS = envlist("REACTANT_CONFIGS", "baseline,shims")
+const CONFIGS = envlist("REACTANT_CONFIGS", "extension")
 const BACKENDS = envlist("REACTANT_BACKENDS", "cpu,gpu")
 const MODES = ("forward", "reverse")
 const FIELDS = (
@@ -115,8 +115,7 @@ function write_results(path, results, elapsed)
     println(io, "Run on $(Dates.today()), Julia $(VERSION), Reactant $(vs.Reactant), Enzyme $(vs.Enzyme).")
     println(io, "Sizes: T = $(ReactantCases.T) steps, L = $(ReactantCases.L) lags, S = $(ReactantCases.S) strata.")
     println(io, "Total run time $(round(elapsed / 60; digits = 1)) min, one subprocess per cell, timeout $(Int(TIMEOUT)) s.\n")
-    println(io, "- `baseline`: the package as it is on this commit.")
-    println(io, "- `shims`: with the candidate changes in `shims.jl` and the call wrapped in `Reactant.@allowscalar`.")
+    println(io, "- `extension`: the package as it is on this commit, with its Reactant extension (`ext/ComposableRecurrencesReactantExt.jl`).")
     println(io, "- `forward`: `Reactant.@compile` of the operator call against plain Julia.")
     println(io, "- `reverse`: `Enzyme.gradient` inside `@compile` of a weighted sum of the output, against ForwardDiff.")
     println(io, "- `works` cells give compile time (s) / median run time (µs); `wrong` means relative error ≥ 1e-8.")
@@ -143,7 +142,7 @@ function write_results(path, results, elapsed)
         println(io, "| ", join(row, " | "), " |")
     end
     println(io)
-    print(io, read(joinpath(@__DIR__, "candidates.md"), String))
+    print(io, read(joinpath(@__DIR__, "extension.md"), String))
     write(path, String(take!(io)))
     return path
 end
@@ -188,6 +187,11 @@ write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
 @printf("Total %.1f min\n", elapsed / 60)
 
 @testset "Reactant support" begin
+    @testset "extension loads without ambiguities" begin
+        cmd = `$(Base.julia_cmd()) --project=$(@__DIR__) --startup-file=no
+            $(joinpath(@__DIR__, "extension_check.jl"))`
+        @test success(pipeline(cmd; stdout, stderr))
+    end
     for config in CONFIGS, backend in BACKENDS
         @testset "$config $backend" begin
             for r in results
