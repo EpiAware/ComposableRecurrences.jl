@@ -113,3 +113,12 @@ Run one backend with `TAG=mooncake_reverse task test-ad-backend`.
 
 `test/usecases` rebuilds real models from modelling packages with the operators and compares values and gradients with reference code in `test/usecases/references`.
 Run them with `julia --project=test test/runtests.jl usecase_only`.
+
+## Threads and Reactant in CI
+
+The `Threads` workflow runs the tests with four threads, so `Threaded` loops run on separate threads.
+Run `julia --threads=4 --project=test test/runtests.jl skip_quality` to do the same locally.
+
+The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
+After a change, rerun it with `task test-reactant`, then commit `results.tsv` and `RESULTS.md` and update `expected.jl`.
+The main tests check that these three agree.
