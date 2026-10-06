@@ -4,8 +4,7 @@ This page covers the tools for checking a new modifier, coupling or depletion fo
 
 ## Conformance with `PieceInterface`
 
-`PieceInterface` declares, with Interfaces.jl, what a `forward` method must do for each job.
-Test a new type by passing one `Arguments(; piece, role, args)` object per job it supports.
+Test a new type against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), which lists the checks and the `Arguments` form.
 
 ```@example testing
 using ComposableRecurrences
@@ -24,13 +23,9 @@ Interfaces.test(
 )
 ```
 
-The mandatory check runs `forward` and confirms it keeps to the job's conventions.
-The optional `pointwise` check confirms that the step for all series matches the step for one value.
-
 ## [Comparing with plain automatic differentiation](@id rule-policy)
 
-`NoAdjoint(op)` is called like `op`, but an automatic differentiation backend differentiates its forward loop instead of any hand-written gradient.
-Comparing the two checks a gradient and shows what the hand-written one saves.
+[`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) gives the plain automatic differentiation gradient to compare with.
 
 ```@example testing
 using ComposableRecurrences: NoAdjoint, Depletion
@@ -102,8 +97,7 @@ task -t benchmark/Taskfile.yml matrix -- --tier=realistic --targets=primal \
 The report adds an executor table with each threaded run's speed-up over the serial one-thread run of the same target.
 Run the serial one-thread run into the same directory first; without it the report says so and leaves the table out.
 Serial runs on more than one thread are labelled `<target> @ t<n>` and stay out of the executor table.
-On Enzyme and Mooncake reverse mode the rule's forward pass runs under the executor and its reverse pass runs serially, so their threaded rows speed up only the forward pass.
-Enzyme and Mooncake forward mode run serially under any executor, so their threaded rows match the serial ones.
+See [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) for which passes run threaded under each backend.
 Each row records the load average when its cell started, so a busy machine shows in the results.
 
 ## Gradient tests and use-case tests
