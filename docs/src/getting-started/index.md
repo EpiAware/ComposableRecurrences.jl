@@ -1,6 +1,9 @@
 # [Getting started](@id getting-started)
 
-ComposableRecurrences has two operators, [`Recurrence`](@ref) and [`Convolution`](@ref), which compose with couplings and modifiers and are differentiable.
+[`Recurrence`](@ref) steps a series forward from a kernel-weighted window of its own past.
+[`Convolution`](@ref) weights past inputs by a kernel.
+Couplings link series, and modifiers add behaviour such as finite pools to each step.
+Every operator is differentiable.
 Computational efficiency is a main focus; see [Performance](@ref overview-performance).
 
 ## A first example
