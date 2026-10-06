@@ -10,6 +10,10 @@ _nstrata(x::AbstractMatrix) = size(x, 1)
 _primal_value(x) = x
 _primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
 
+# The type `_primal_value` returns for a number of type `T`.
+_primal_type(::Type{T}) where {T} = T
+_primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
+
 # A gain or add slot at stratum `k`, absolute time `t`. A missing add is
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x

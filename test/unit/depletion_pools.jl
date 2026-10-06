@@ -334,3 +334,36 @@ end
     states = ([40.0, 70.0, 5.0, 3.0],)
     @test pullback_matches(r, recargs(R, nothing, h; states)...)
 end
+
+@testitem "Depletion pools: the removal picks its arm as its pullback does" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    using ForwardDiff: Dual, partials
+    xs = (-1.0, -0.0, 0.0, 3.0, 4.0)
+    for r in xs, s in xs
+        # Float64 values match `min(r, max(s, 0))` bit for bit.
+        @test CR._removal(r, s) === min(r, max(s, zero(s)))
+        r̄, s̄ = CR._removal_pullback(r, s, 1.0)
+        for ṙ in (1.0, -1.0), ṡ in (1.0, -1.0)
+            m = CR._removal(Dual(r, ṙ), Dual(s, ṡ))
+            @test partials(m)[1] == r̄ * ṙ + s̄ * ṡ
+        end
+    end
+    @test CR._removal(false, 2.0) === 0.0
+    @test (@inferred CR._removal(false, 2.0f0)) === 0.0f0
+    @test (@inferred CR._removal(1.0, Dual(0.0, 1.0))) isa Dual
+end
+
+@testitem "Depletion pools: removals at an empty pool, reverse against ForwardDiff" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
+    # A seeded pool emptied by removals; with all-or-nothing protection the
+    # pool stays at zero with a tangent from `σ`, a tie in the removal.
+    for protected in (nothing, CR.Protected(0.0))
+        d = CR.Depletion(
+            100.0; pool0 = 3.0, removals = TimeVarying(fill(4.0, 6)), protected
+        )
+        r = Recurrence(g; modifiers = (d,))
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
+end

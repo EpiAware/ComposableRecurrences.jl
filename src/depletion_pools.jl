@@ -94,11 +94,20 @@ _removals_at(::Nothing, k, t) = false
 _add_removals!(r̄, r, x, k, t) = _add_param!(r̄, r, x, k, t)
 _add_removals!(r̄, ::Nothing, x, k, t) = nothing
 
-# The removal from what remains after the draw, `min(r, max(s, 0))`.
-_removal(r, s) = min(r, max(s, zero(s)))
+# The removal from what remains after the draw, `min(r, max(s, 0))`. The
+# arms follow primal values, as in the pullback: a dual with value zero is
+# ordered by its partials, so `min` and `max` on duals could take the other
+# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does, and
+# `ifelse` keeps a traced step branch-free.
+function _removal(r, s)
+    r, s = promote(r, s)
+    z = zero(s)
+    c = ifelse(_primal_value(s) < 0, z, s + z)
+    return ifelse(_primal_value(r) <= _primal_value(c), r, c)
+end
 
-# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the branch
-# `min` and `max` take.
+# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the arm
+# `_removal` takes: `r` on a tie, else `s` when it is not negative.
 function _removal_pullback(r, s, m̄)
     z = zero(m̄)
     r <= max(s, zero(s)) && return m̄, z
