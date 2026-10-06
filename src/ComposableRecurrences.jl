@@ -61,6 +61,7 @@ module ComposableRecurrences
 
 # All genuine module-scope `using`/`import` statements live here, in
 # the main module file, rather than scattered across included files.
+using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using ForwardDiff: ForwardDiff

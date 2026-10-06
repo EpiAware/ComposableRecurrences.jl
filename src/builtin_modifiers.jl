@@ -147,6 +147,8 @@ population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
 [`ComposableRecurrences.Floor`](@ref), or a new type with that method.
+A new form without a `pullback!` is differentiated locally with
+`ForwardDiff` in ``(v, s, N, \alpha)`` and its own float scalars.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -323,9 +325,9 @@ end
 
 function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
     m̄ = grads.piece
-    v̄, s̄, N̄, ᾱ = pullback!(
+    v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        Step(), v, s, _param(m.N, k, t), m.heterogeneity
+        v, s, _param(m.N, k, t), m.heterogeneity
     )
     _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -555,6 +557,7 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
 end
 
 # The built-in modifiers and depletion forms carry their adjoints; a
-# depletion does when its form does.
+# depletion does when its form does or the form's local derivative covers
+# it (see `_form_pullback`).
 uses_adjoint(::Union{Hazard, Floor, Add, Redistribute, Clamp}, ::Step) = true
-uses_adjoint(m::Depletion, ::Step) = uses_adjoint(m.form, Step())
+uses_adjoint(m::Depletion, ::Step) = _form_adjoint(m.form)

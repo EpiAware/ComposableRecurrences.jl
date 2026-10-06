@@ -82,7 +82,7 @@ end
 # An `Allocate` rebuilt from its fields, for the local derivatives and the
 # adjoint tests.
 _allocate_flat(strata, offsets, total) = Allocate(_Flat(), strata, offsets, total)
-_constructorof(::Type{<:Allocate}) = _allocate_flat
+ConstructionBase.constructorof(::Type{<:Allocate}) = _allocate_flat
 
 # The groups are stored flat, as index vectors, so the analytic rules see
 # only integer arrays and the total.
