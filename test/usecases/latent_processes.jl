@@ -19,7 +19,7 @@
 
     # z_t = z_{t-1} + ϵ_t: a unit lag-1 kernel, unit gain, innovations added.
     # CTIDM returns the initial value first.
-    random_walk(z0, ϵ) = vcat(z0, Recurrence([1.0])(1.0; history = [z0], add = ϵ))
+    random_walk(z0, ϵ) = Recurrence([1.0])(1.0; history = [z0], add = ϵ, prepend = true)
     @test random_walk(z0, ϵ) ≈ ref
     ∇ = ForwardDiff.gradient(θ -> sum(w .* random_walk(θ[1], θ[2:end])), θ0)
     @test ∇ ≈ ∇ref
@@ -39,10 +39,7 @@ end
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* C.ar(unpack(θ)...)), θ0)
 
     # z_t = Σ_i ρ_i z_{t-i} + ϵ_t: the AR coefficients are the kernel.
-    function ar(ρ, init, ϵ)
-        r = Recurrence(ρ)
-        return vcat(init, r(1.0; history = init, add = ϵ))
-    end
+    ar(ρ, init, ϵ) = Recurrence(ρ)(1.0; history = init, add = ϵ, prepend = true)
     @test ar(ρ, init, ϵ) ≈ ref
     ∇ = ForwardDiff.gradient(θ -> sum(w .* ar(unpack(θ)...)), θ0)
     @test ∇ ≈ ∇ref
@@ -63,11 +60,11 @@ end
 
     # z_t = ρ_t z_{t-1} + ϵ_t. The coefficient path can be the gain on a
     # unit lag-1 kernel ...
-    tvar_gain(ρ, z1, ϵ) = vcat(z1, Recurrence([1.0])(ρ; history = [z1], add = ϵ))
+    tvar_gain(ρ, z1, ϵ) = Recurrence([1.0])(ρ; history = [z1], add = ϵ, prepend = true)
     # ... or a time-varying kernel, `L × T`.
     function tvar_kernel(ρ, z1, ϵ)
         r = Recurrence(TimeVarying(reshape(ρ, 1, :)))
-        return vcat(z1, r(1.0; history = [z1], add = ϵ))
+        return r(1.0; history = [z1], add = ϵ, prepend = true)
     end
     @test tvar_gain(ρ, z1, ϵ) ≈ ref
     @test tvar_kernel(ρ, z1, ϵ) ≈ ref
@@ -146,7 +143,7 @@ end
     # ARMA: the MA(q) convolution is the AR(p) recurrence's `add`.
     function arma(ρ, init, θ, ϵ)
         ma = vcat(ϵ[1:q], Convolution(vcat(1, θ))(ϵ; start = q + 1))
-        return vcat(init, Recurrence(ρ)(1.0; history = init, add = ma))
+        return Recurrence(ρ)(1.0; history = init, add = ma, prepend = true)
     end
     # Each integration is a cumulative sum, a unit lag-1 recurrence from zero
     # driven by the series below it.

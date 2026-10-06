@@ -25,6 +25,8 @@ u' &= u^{*} - m, \qquad w' = w^{*} + m
 ```
 
 When ``P \le 0`` the draw comes from ``u`` alone, ``u^{*} = u - v'``.
+A ``\sigma`` with ``0 \le \sigma \le 1`` gives protection, and
+``\sigma > 1`` makes the protected pool more susceptible than ``u``.
 With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
 doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
@@ -115,9 +117,9 @@ function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     r̄, s̄m = _removal_pullback(r, s′, -grads.s)
     _add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
-    v̄, s̄, N̄, ᾱ = pullback!(
+    v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
-        m.form, Step(), v, s, N, α
+        m.form, v, s, N, α
     )
     _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -127,7 +129,7 @@ end
 # With a protected pool the state holds `S` then `V`, `2S` entries, and a
 # step reads both, so the step is vector-level.
 ispointwise(::_Protecting) = false
-_nstate(::_Protecting, S) = 2S
+nstate(::_Protecting, S) = 2S
 
 function forward(m::_Protecting, ::Init, s, history)
     S = length(s) ÷ 2
@@ -159,12 +161,13 @@ end
 function _protected_step(form, v, Su, V, σ, N, α, r)
     P = Su + σ * V
     y, _ = forward(form, Step(), v, P, N, α)
-    if P > 0
-        q = y / P
-        S′, V′ = Su - q * Su, V - q * σ * V
-    else
-        S′, V′ = Su - y, V
-    end
+    # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
+    # division keeps the unused arm finite. The arm follows the primal `P`,
+    # so a dual `P` with value zero takes the arm without the division.
+    on = _primal_value(P) > 0
+    q = y / ifelse(on, P, one(P))
+    S′ = ifelse(on, Su - q * Su, Su - y)
+    V′ = ifelse(on, V - q * σ * V, V)
     mr = _removal(r, S′)
     return y, S′ - mr, V′ + mr
 end
@@ -197,13 +200,14 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
         P = Su + σ * V
         y, _ = forward(m.form, Step(), v[k], P, N, α)
         ȳ, S̄″, V̄″ = v̄[k], s̄[k], s̄[S + k]
-        q = P > 0 ? y / P : zero(y)
-        S′ = P > 0 ? Su - q * Su : Su - y
+        on = _primal_value(P) > 0
+        q = on ? y / P : zero(y)
+        S′ = on ? Su - q * Su : Su - y
         r̄, S̄m = _removal_pullback(r, S′, V̄″ - S̄″)
         _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
         S̄′ = S̄″ + S̄m
         V̄′ = V̄″
-        if P > 0
+        if on
             q̄ = -S̄′ * Su - V̄′ * σ * V
             S̄u = S̄′ * (1 - q)
             V̄v = V̄′ * (1 - q * σ)
@@ -215,9 +219,9 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
             ȳ -= S̄′
             P̄ = zero(S̄′)
         end
-        v̄k, P̄f, N̄, ᾱ = pullback!(
+        v̄k, P̄f, N̄, ᾱ = _form_pullback(
             (; piece = cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
-            Step(), v[k], P, N, α
+            v[k], P, N, α
         )
         P̄ += P̄f
         _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)

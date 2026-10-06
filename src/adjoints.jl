@@ -112,11 +112,17 @@ uses_adjoint(piece, role) = false
 
 # The entry point: the rule path when the operator uses its adjoint and
 # every float leaf is IEEE, else plain AD. Both decisions are made from the
-# types, so the route is static.
+# types, so the route is static. A modifier left to the default pullback is
+# also checked by value to rebuild from its parameters (`_rebuilds`); this
+# folds to `true` for operators without one.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 _route_val(op, args...) = Val(uses_adjoint(op, Run()) && _gate(op, args...))
-_route(::Val{true}, op, args...) = _ad(op, args...)
+function _route(::Val{true}, op, args...)
+    _rebuilds(op) && return _ad(op, args...)
+    _note_plain_type(typeof(op))
+    return _plain(op, args...)
+end
 function _route(::Val{false}, op, args...)
     _note_plain(op)
     return _plain(op, args...)
@@ -148,7 +154,8 @@ end
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; dual numbers, BigFloat and other
-# arrays take the plain path, as do abstractly typed fields. `_ok` is one
+# arrays take the plain path, as do abstractly typed fields. Integer arrays
+# of any type, such as index ranges, and arrays of them carry no tangent. `_ok` is one
 # closed function of the types (nothing extends it), evaluated once per
 # signature by a generated function: inference does not constant-fold the
 # recursion, and an unfolded gate costs a dynamic dispatch on every call
@@ -159,6 +166,7 @@ function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true
     T <: Union{Integer, Nothing, Symbol} && return true
     T <: Real && return false
+    T <: AbstractArray{<:Integer} && return true
     T <: Array && return _ok(eltype(T))
     T <: SparseMatrixCSC && return _ok(eltype(T))
     T <: Diagonal && return _ok(fieldtype(T, :diag))

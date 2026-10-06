@@ -33,7 +33,10 @@ function _check_param(
 end
 function _check_param(name, x::TimeVarying{Primary})
     throw(
-        ArgumentError("$name: Primary() indexing is only meaningful for a kernel")
+        ArgumentError(
+            "$name: Primary() indexing is only meaningful for a kernel; " *
+                "got $(_describe(x))"
+        )
     )
 end
 function _check_param(name, x)
@@ -41,8 +44,8 @@ function _check_param(name, x)
         ArgumentError(
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, or " *
-                "TimeVarying(PerStratum($name)) strata × time; not a " *
-                "$(typeof(x))"
+                "TimeVarying(PerStratum($name)) strata × time; got " *
+                _describe(x)
         )
     )
 end
@@ -153,6 +156,8 @@ population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
 [`ComposableRecurrences.Floor`](@ref), or a new type with that method.
+A new form without a `pullback!` is differentiated locally with
+`ForwardDiff` in ``(v, s, N, \alpha)`` and its own float scalars.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -228,7 +233,10 @@ function Depletion(
         _float_param(_check_constant(:pool0, pool0))
     removals = removals === nothing ? nothing : _check_param(:removals, removals)
     protected === nothing || protected isa Protected || throw(
-        ArgumentError("protected is a Protected pool or nothing")
+        ArgumentError(
+            "protected must be a Protected pool or nothing, got " *
+                _describe(protected)
+        )
     )
     return Depletion(
         N, form, _exponent(heterogeneity, N), pool0, removals, protected
@@ -240,7 +248,7 @@ function _check_form(form::F) where {F}
     hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
         throw(
         ArgumentError(
-            "$F is not a depletion form: a form implements " *
+            "$(_describe(form)) is not a depletion form: a form implements " *
                 "forward(form, Step(), v, s, N, α) -> (y, s′)"
         )
     )
@@ -249,11 +257,11 @@ end
 
 # The population and starting pool are per stratum, not over time.
 _check_constant(name, x) = _check_param(name, x)
-function _check_constant(name, ::TimeVarying)
+function _check_constant(name, x::TimeVarying)
     throw(
         ArgumentError(
             "$name is one value or PerStratum($name); it does not vary over " *
-                "time"
+                "time, got $(_describe(x))"
         )
     )
 end
@@ -280,7 +288,7 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     x̄ = s * e * (ȳ - s̄′)
     s̄ = -ȳ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = r > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    ᾱ = _primal_value(r) > 0 ? x̄ * x * log(r) : zero(x̄ * x)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
@@ -339,9 +347,9 @@ end
 
 function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
     m̄ = grads.piece
-    v̄, s̄, N̄, ᾱ = pullback!(
+    v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        Step(), v, s, _param(m.N, k, t), m.heterogeneity
+        v, s, _param(m.N, k, t), m.heterogeneity
     )
     _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -593,6 +601,7 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
 end
 
 # The built-in modifiers and depletion forms carry their adjoints; a
-# depletion does when its form does.
+# depletion does when its form does or the form's local derivative covers
+# it (see `_form_pullback`).
 uses_adjoint(::Union{Hazard, Floor, Add, Redistribute, Clamp}, ::Step) = true
-uses_adjoint(m::Depletion, ::Step) = uses_adjoint(m.form, Step())
+uses_adjoint(m::Depletion, ::Step) = _form_adjoint(m.form)

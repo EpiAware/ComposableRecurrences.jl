@@ -46,7 +46,9 @@
     vaccinated(σ, r) = CR.Depletion(
         N; pool0, removals = TimeVarying(r), protected = CR.Protected(σ)
     )
-    model(R, d) = CR.seeded(Recurrence(g; modifiers = (d,)), R; history = seed)
+    model(R, d) = Recurrence(g; modifiers = (d,))(
+        R; history = seed, start = length(seed) + 1, prepend = true
+    )
 
     aon(e, doses) = vaccinated(0.0, e .* doses)
     leaky(e, doses) = vaccinated(1 - e, doses)
@@ -70,4 +72,72 @@
     final(d) = sum(model(R, d))
     @test final(aon(e, doses)) < final(leaky(e, doses)) <
         final(CR.Depletion(N; pool0))
+end
+
+# The same two vaccines against seeded stochastic simulations of
+# EpiBranch.jl's `HomogeneousProcess`, a continuous-time SIR model, in
+# `references/epibranch_homogeneous.jl`. A share of the population is
+# vaccinated before the outbreak, so the protected pool starts full and
+# there are no removals. With an infectious period of mean D the SIR
+# generation interval is Exponential with mean D, binned by day here. The
+# hazard form leaves an unprotected share exp(-Λ) uninfected, with Λ the
+# cumulative force of infection, which is the SIR final-size relation, so
+# the final sizes should match whatever the binning.
+@testitem "Use case: vaccination against a seeded HomogeneousProcess" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    E = UseCaseReferences.EpiBranchHomogeneousReference
+
+    N, n0 = float(E.N), E.N_INITIAL
+    c, e, D = E.COVERAGE, E.EFFICACY, E.INFECTIOUS_PERIOD
+    g = [exp(-(i - 1) / D) - exp(-i / D) for i in 1:120]
+    g ./= sum(g)
+    R = fill(E.R0, 400)
+    # The simulation picks its index cases at random, so in expectation they
+    # come from each pool in proportion to its size.
+    rest = N - n0
+    attack(x∞, x0) = 1 - (1 - n0 / N) * x∞ / x0
+    function final_size(σ, protected0)
+        d = CR.Depletion(
+            N; pool0 = rest - protected0,
+            protected = CR.Protected(σ; pool0 = protected0)
+        )
+        y, state = CR.with_state(
+            Recurrence(g; modifiers = (d,)), R; history = [float(n0)]
+        )
+        u∞, w∞ = state.states[1]
+        @test y[end] < 1.0e-6
+        return (;
+            total = (n0 + sum(y)) / N,
+            unvaccinated = attack(u∞, rest - protected0),
+            protected = attack(w∞, protected0),
+        )
+    end
+
+    none = final_size(1.0, 0.0)
+    # All-or-nothing: responders are never infected and non-responders
+    # share the unprotected pool, so the vaccinated attack rate mixes the
+    # two (plus responders picked as index cases).
+    aon = final_size(0.0, c * e * rest)
+    aon_vaccinated = (1 - e) * aon.unvaccinated + e * n0 / N
+    leaky = final_size(1 - e, c * rest)
+
+    # The reference is fixed by its seeds, so this test is deterministic.
+    # Four standard errors of the simulation means covers their Monte Carlo
+    # error; the gaps from the daily step, the finite population and the
+    # proportional draw from the two pools are all below one standard
+    # error at these settings.
+    close(x, ref) = abs(x - ref.mean) <= 4 * ref.se
+    @test close(none.total, E.NONE.total)
+    @test close(none.unvaccinated, E.NONE.unvaccinated)
+    @test close(none.unvaccinated, E.NONE.vaccinated)
+    @test close(aon.total, E.ALL_OR_NOTHING.total)
+    @test close(aon.unvaccinated, E.ALL_OR_NOTHING.unvaccinated)
+    @test close(aon_vaccinated, E.ALL_OR_NOTHING.vaccinated)
+    @test close(leaky.total, E.LEAKY.total)
+    @test close(leaky.unvaccinated, E.LEAKY.unvaccinated)
+    @test close(leaky.protected, E.LEAKY.vaccinated)
+    # The tolerance is tight enough to tell the two vaccines apart.
+    @test !close(aon.total, E.LEAKY.total)
+    @test !close(leaky.total, E.ALL_OR_NOTHING.total)
 end

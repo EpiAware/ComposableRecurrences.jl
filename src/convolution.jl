@@ -68,7 +68,10 @@ struct Convolution{K} <: AbstractOperator
     kernel::K
     function Convolution(kernel::K) where {K}
         kernel isa _PairwiseKernel && throw(
-            ArgumentError("a Pairwise kernel is for a Recurrence")
+            ArgumentError(
+                "a Pairwise kernel is for a Recurrence, not a Convolution; " *
+                    "got $(_describe(kernel))"
+            )
         )
         _check_kernel_shape(kernel)
         return new{K}(kernel)
@@ -133,7 +136,10 @@ end
 _check_input_history(::Nothing, x) = nothing
 function _check_input_history(h, x)
     ndims(h) == ndims(x) && _nstrata(h) == _nstrata(x) || throw(
-        DimensionMismatch("history does not match the strata of x")
+        DimensionMismatch(
+            "history is $(summary(h)) but x is $(summary(x)): history " *
+                "must have the strata of x"
+        )
     )
     return nothing
 end
@@ -144,7 +150,8 @@ function _check_primary_history(::TimeVarying{Primary}, history)
     throw(
         ArgumentError(
             "a Primary() kernel has no column for an input before t = 1: " *
-                "pass those inputs inside x"
+                "pass those inputs inside x, not as history " *
+                "($(_describe(history)))"
         )
     )
 end

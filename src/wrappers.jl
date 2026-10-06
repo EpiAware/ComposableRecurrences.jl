@@ -65,7 +65,8 @@ Convolution(TimeVarying(P, CR.Primary()))(ones(3))
 
 # Cohorts from time 3 on transmit less.
 K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
-y = CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), fill(1.5, 6); history = [1.0, 1.0])
+r = Recurrence(TimeVarying(K, CR.Primary()))
+y = r(fill(1.5, 6); history = [1.0, 1.0], start = 3, prepend = true)
 round.(y; digits = 3)
 
 # output
@@ -212,12 +213,15 @@ struct TimeVarying{I, A}
     x::A
     function TimeVarying{I}(x::A) where {I, A}
         x isa TimeVarying && throw(
-            ArgumentError("TimeVarying cannot wrap another TimeVarying")
+            ArgumentError(
+                "TimeVarying cannot wrap another TimeVarying, got " *
+                    _describe(x)
+            )
         )
         x isa Union{AbstractArray, PerStratum, Pairwise} || throw(
             ArgumentError(
                 "TimeVarying wraps an array, a PerStratum or a Pairwise, " *
-                    "not a $(typeof(x))"
+                    "got $(_describe(x))"
             )
         )
         return new{I, A}(x)
@@ -225,12 +229,15 @@ struct TimeVarying{I, A}
 end
 
 TimeVarying(x) = TimeVarying{Secondary}(x)
+# The indexing is a type parameter with no field, so a rebuild from the
+# fields names it, or `TimeVarying(x)` would read the kernel as `Secondary()`.
+ConstructionBase.constructorof(::Type{<:TimeVarying{I}}) where {I} = TimeVarying{I}
 TimeVarying(x, ::I) where {I <: Union{Primary, Secondary}} = TimeVarying{I}(x)
 function TimeVarying(x, indexing)
     throw(
         ArgumentError(
-            "TimeVarying indexing is Secondary() or Primary(), not " *
-                "$(typeof(indexing))"
+            "TimeVarying indexing is Secondary() or Primary(), got " *
+                _describe(indexing)
         )
     )
 end

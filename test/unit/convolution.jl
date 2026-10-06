@@ -98,6 +98,7 @@ end
     @test c(X; start = 4) ≈ ref[:, 4:end]
     @test c(X; start = 4, stop = 6) ≈ ref[:, 4:6]
     @test_throws ArgumentError c(X; history = X[:, 1:2])
+    @test_throws "not as history (" c(X; history = X[:, 1:2])
 
     # Every input's mass lands somewhere when the window is long enough.
     P = rand(rng, D, T)
@@ -138,12 +139,16 @@ end
     # Indexing lives on TimeVarying only.
     @test_throws MethodError Convolution([1.0]; indexed_by = :secondary)
     @test_throws ArgumentError Convolution(Pairwise(ones(2, 2, 3)))
+    @test_throws "not a Convolution; got Pairwise(" Convolution(Pairwise(ones(2, 2, 3)))
     @test_throws ArgumentError Convolution(ones(2, 3))
     @test_throws ArgumentError Convolution(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Convolution(nothing)
     @test_throws ArgumentError Convolution(ones(3))(TimeVarying(ones(5)))
     @test_throws DimensionMismatch Convolution(ones(3))(ones(5); stop = 6)
     @test_throws DimensionMismatch Convolution(ones(3))(ones(2, 5); history = ones(3, 2))
+    @test_throws "history is 3×2 Matrix{Float64} but x is 2×5" Convolution(ones(3))(
+        ones(2, 5); history = ones(3, 2)
+    )
     @test_throws DimensionMismatch Convolution(PerStratum(ones(2, 3)))(ones(3, 5))
     @test_throws DimensionMismatch Convolution(TimeVarying(ones(3, 4)))(ones(5))
 end

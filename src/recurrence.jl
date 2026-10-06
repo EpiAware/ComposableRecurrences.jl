@@ -53,7 +53,7 @@ struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
 Modifiers are structs with `forward` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
-Called as `r(gain = 1; history, state, add = nothing, start, stop)`, the
+Called as `r(gain = 1; history, state, add, start, stop, prepend)`, the
 call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
@@ -64,11 +64,15 @@ call covers the absolute times `start:stop`:
     zero-padded. A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) from
     [`ComposableRecurrences.with_state`](@ref), to resume from it; not with
-    `history` or `start`.
+    `history`.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
+    With `start = m + 1` the seed sits at times `1:m`, and the
+    time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
+  - `prepend`: `false`, or `true` to return `history` followed by the
+    output, covering the times `start - m` to `stop`.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -93,6 +97,9 @@ K = [0.9 0.1; 0.2 0.8]
 R = fill(1.1, 2, 10)
 r = Recurrence(g; coupling = K)
 y = r(R; history = ones(2, 3))
+
+# The seed followed by the run, with the seed at times 1 to 3.
+r(hcat(ones(2, 3), R); history = ones(2, 3), start = 4, prepend = true)
 
 # Resume from the returned state over the same inputs.
 y1, state = ComposableRecurrences.with_state(r, R; history = ones(2, 3), stop = 5)
@@ -209,18 +216,15 @@ end
 
 # A Primary() kernel reads the column of each value's own time, so a seed
 # must sit at times from 1: `start > m` for a seed of length `m`. The check
-# runs once per call, so it stays out of line (which also lets coverage
-# count its signature line).
+# runs once per call, so it stays out of line.
 _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
     m = size(history, ndims(history))
-    s = something(start, 1)
-    s > m || throw(
+    start > m || throw(
         ArgumentError(
             "a Primary() kernel reads the column of each value's own time, " *
-                "so a seed of length $m needs start > $m, not start = $s " *
-                "(see seeded)"
+                "so a seed of length $m needs start > $m, not start = $(repr(start))"
         )
     )
     return nothing
@@ -232,7 +236,7 @@ function _check_pairwise_coupling(::_PairwiseKernel, coupling)
     coupling isa UniformScaling && isone(coupling.λ) || throw(
         ArgumentError(
             "a Pairwise kernel already mixes strata, so its coupling must " *
-                "be I"
+                "be I, got $(_describe(coupling))"
         )
     )
     return nothing
@@ -258,7 +262,7 @@ function _check_kernel_shape(k)
     throw(
         ArgumentError(
             "a kernel is a vector of lag weights, PerStratum, Pairwise or " *
-                "TimeVarying, not a $(typeof(k))"
+                "TimeVarying, got $(_describe(k))"
         )
     )
 end
@@ -267,22 +271,31 @@ function _check_kernel_shape(k::AbstractArray)
         ArgumentError(
             "a kernel array is a vector of lag weights; wrap a strata × " *
                 "lags matrix as PerStratum(G) and a strata × strata × lags " *
-                "array as Pairwise(A)"
+                "array as Pairwise(A); got $(_describe(k))"
         )
     )
 end
 function _check_kernel_shape(k::PerStratum)
-    throw(ArgumentError("a PerStratum kernel is a strata × lags matrix"))
+    throw(
+        ArgumentError(
+            "a PerStratum kernel is a strata × lags matrix, got $(_describe(k))"
+        )
+    )
 end
 function _check_kernel_shape(k::Pairwise)
-    throw(ArgumentError("a Pairwise kernel is a strata × strata × lags array"))
+    throw(
+        ArgumentError(
+            "a Pairwise kernel is a strata × strata × lags array, got " *
+                _describe(k)
+        )
+    )
 end
 function _check_kernel_shape(k::TimeVarying)
     throw(
         ArgumentError(
             "a TimeVarying kernel is lags × time, TimeVarying(PerStratum(G)) " *
                 "with G strata × lags × time, or TimeVarying(Pairwise(A)) " *
-                "with A strata × strata × lags × time"
+                "with A strata × strata × lags × time; got $(_describe(k))"
         )
     )
 end
@@ -421,44 +434,60 @@ end
 _empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
+# The first time of a call: the step after the history or the state.
+_start(::Nothing) = 1
+_start(state::State) = state.t
+
 # The history, modifier states and first time of a call: seeded from
 # `history`, or resumed from `state`.
 function _resume(history, state::Nothing, start, gain, add)
     h = history === nothing ? _empty_history(gain, add) : history
-    return h, nothing, start === nothing ? 1 : start
+    return h, nothing, start
 end
 function _resume(history, state::State, start, gain, add)
     history === nothing || throw(
         ArgumentError(
-            "pass history (a seed) or state (to resume), not both"
+            "pass history (a seed) or state (to resume), not both; got " *
+                "history = $(_describe(history)) and a state at t = $(state.t)"
         )
     )
-    start === nothing || throw(
-        ArgumentError("a resumed call starts at state.t; do not pass start")
+    start == state.t || throw(
+        ArgumentError(
+            "a resumed call starts at state.t = $(state.t), not " *
+                "start = $(repr(start))"
+        )
     )
     return state.history, state.states, state.t
 end
+
+# `prepend = true` joins the history and the output along time.
+_prepend(prepend::Bool, history, y) = prepend ? _join(history, y) : y
+_join(history::AbstractVector, y) = vcat(history, y)
+# `cat` rather than `hcat`, which is ambiguous for some tracked array types.
+_join(history::AbstractMatrix, y) = cat(history, y; dims = 2)
+_join(::Nothing, y) = throw(ArgumentError("prepend = true needs a history, not nothing"))
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = nothing, stop = nothing
+        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
     )
-    return adjoint_call(route, _run_args(r, gain, history, state, add, start)..., stop)
+    args = _run_args(r, gain, history, state, add, start)
+    return _prepend(prepend, history, adjoint_call(route, args..., stop))
 end
 
 function _run_args(r, gain, history, state, add, start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
-    _check_primary_seed(r.kernel, history, start)
     h, s0, τ0 = _resume(history, state, start, gain, add)
+    _check_primary_seed(r.kernel, history, start)
     return gain, add, h, s0, τ0
 end
 
 function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
-        add = nothing, start = nothing, stop = nothing
+        add = nothing, start = _start(state), stop = nothing
     )
     return _run_forward(r, _run_args(r, gain, history, state, add, start)..., stop)
 end
@@ -470,14 +499,16 @@ struct _WithState{R <: Recurrence} <: AbstractOperator
 end
 Base.@constprop :aggressive function with_state(
         r::Recurrence, gain = true; history = nothing, state = nothing,
-        add = nothing, start = nothing, stop = nothing
+        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
     )
     args = _run_args(r, gain, history, state, add, start)
-    return adjoint_call(_WithState(r), args..., stop)
+    y, st = adjoint_call(_WithState(r), args..., stop)
+    return _prepend(prepend, history, y), st
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is pointwise with only scalar float parameters.
+# does or is pointwise with only scalar float parameters outside functions,
+# rebuilt with dual numbers by `constructorof`.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -488,19 +519,55 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
 end
 function _modifier_adjoint(m)
-    return uses_adjoint(m, Step()) || (ispointwise(m) && _scalar_params(m))
+    return uses_adjoint(m, Step()) ||
+        (ispointwise(m) && _scalar_params(m) && _rebuildable(m))
+end
+
+# Whether the default pullback's rebuild of each modifier from its own
+# parameters gives them back. A constructor that transforms its arguments
+# (`new(2a)`) does not, and the local derivative would then be of the
+# transformed value. A depletion's form is checked the same way.
+_rebuilds(op) = true
+_rebuilds(r::Recurrence) = _all_rebuild(r.modifiers)
+_rebuilds(w::_WithState) = _rebuilds(w.r)
+_all_rebuild(::Tuple{}) = true
+_all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
+_rebuilds_modifier(m) = uses_adjoint(m, Step()) || _rebuilds_value(m)
+function _rebuilds_modifier(m::Depletion)
+    return uses_adjoint(m.form, Step()) || _rebuilds_value(m.form)
+end
+function _rebuilds_value(m)
+    _rebuildable(m) || return false
+    θ = _param_tuple(m)
+    return isequal(_param_tuple(first(_rebuild_scalar(m, θ))), θ)
 end
 
 # Whether a type holds a float array (or a field of unknown type) that a
-# local per-value derivative would have to carry. A closed function of the
-# type, evaluated once per type by a generated function so the route folds.
+# local per-value derivative would have to carry, or a function with float
+# fields of its own (a closure's captured values), which the local
+# derivative does not reach. A closed function of the type, evaluated once
+# per type by a generated function so the route folds.
 @generated _scalar_params(m) = !_has_array_params(m)
 function _has_array_params(::Type{T}) where {T}
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
-    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    T <: Function && return _has_float(T)
+    T <: Union{Real, Nothing, Symbol, AbstractString} && return false
     isconcretetype(T) || return true
     for F in fieldtypes(T)
         _has_array_params(F) && return true
+    end
+    return false
+end
+
+# Whether a type holds a float, or a field of unknown type that may. A
+# plain function or a callable singleton has no fields, so holds none.
+function _has_float(::Type{T}) where {T}
+    T <: Union{Integer, Nothing, Symbol, AbstractString, Type, Module} && return false
+    T <: Real && return true
+    T <: AbstractArray && return _has_float(eltype(T))
+    isconcretetype(T) || return true
+    for F in fieldtypes(T)
+        _has_float(F) && return true
     end
     return false
 end
@@ -531,6 +598,18 @@ end
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
 
+# A resumed state must have each modifier's `nstate` entries, as an
+# `Init` would have written.
+_check_states(modifiers, s0, S) = foreach(eachindex(modifiers), modifiers, s0) do i, m, s
+    n = nstate(m, S)
+    length(s) == n || throw(
+        ArgumentError(
+            "modifier $i ($(nameof(typeof(m)))) has a state of length " *
+                "$(length(s)); expected nstate(m, $S) = $n"
+        )
+    )
+end
+
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     (; kernel, coupling, modifiers) = r
@@ -546,6 +625,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
                 "$(length(modifiers)) modifiers"
         )
     )
+    s0 === nothing || _check_states(modifiers, s0, S)
     stop = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     τ0 >= 1 || throw(ArgumentError("start ($τ0) must be at least 1"))
     stop >= τ0 - 1 || throw(
@@ -612,7 +692,7 @@ end
 # Each modifier's initial state, written by its Init into a vector at the
 # buffer eltype.
 function _init_state(::Type{Tp}, m, h, S) where {Tp}
-    s = _zeros(h, Tp, _nstate(m, S))
+    s = _zeros(h, Tp, nstate(m, S))
     forward(m, Init(), s, h)
     return s
 end
@@ -713,7 +793,7 @@ function _run(
     X = record ? _zeros(h, Tp, S, T) : nothing
     rec = record ?
         map(
-            m -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, _nstate(m, S), T)),
+            m -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, nstate(m, S), T)),
             modifiers
         ) :
         nothing
@@ -764,6 +844,9 @@ end
 @doc raw"""
 Run `r` from a seed and return the seed followed by the run.
 
+Deprecated: `seeded(r, gain; history)` is
+`r(gain; history, start = m + 1, prepend = true)`, see [`Recurrence`](@ref).
+
 With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
 returns
 
@@ -773,11 +856,6 @@ returns
 
 where ``y_t`` for ``t > m`` is the output of `r` started at ``t_0 = m + 1``
 from history ``h``, and ``t_1`` is the last time.
-Equivalent to
-`cat(history, r(gain; history, start = m + 1, kwargs...); dims = ndims(history))`:
-the time-indexed inputs are full length, their first ``m`` times covering
-the seed.
-A seed shorter than the kernel is zero-padded.
 
 # Arguments
 - `r`: the [`Recurrence`](@ref).
@@ -790,25 +868,87 @@ A seed shorter than the kernel is zero-padded.
 # Examples
 ```jldoctest
 using ComposableRecurrences
-CR = ComposableRecurrences
 seed = [2.0, 3.0, 4.0]
-r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(80.0; pool0 = 80.0 - sum(seed)),))
-y = CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
+r = Recurrence([0.3, 0.5, 0.2])
+y = r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
 round.(y; digits = 3)
 
 # output
 
 6-element Vector{Float64}:
- 2.0
- 3.0
- 4.0
- 6.555
- 7.606
- 7.578
+  2.0
+  3.0
+  4.0
+  7.75
+ 10.835
+ 14.266
 ```
 """
 function seeded(r::Recurrence, gain = true; history, kwargs...)
-    m = size(history, ndims(history))
-    y = r(gain; history, start = m + 1, kwargs...)
-    return cat(history, y; dims = ndims(history))
+    Base.depwarn(
+        "seeded(r, gain; history) is deprecated, use " *
+            "r(gain; history, start = m + 1, prepend = true)", :seeded
+    )
+    return r(gain; history, start = size(history, ndims(history)) + 1, prepend = true, kwargs...)
+end
+
+@doc raw"""
+A history growing exponentially at rate `r` and reaching `I0` on its last
+day, to seed a [`Recurrence`](@ref) on a growth path.
+
+For one series, and for stratum ``i`` of ``S``, it is
+
+```math
+h_l = I_0\, e^{r (l - L)}
+\qquad \text{and} \qquad
+h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
+\qquad l = 1, \dots, L,
+```
+
+oldest first, so ``h_L = I_0``.
+For a renewal with generation interval ``g`` (lag 1 first) and constant
+reproduction number ``R``, the growth rate that keeps the seed on the
+renewal's own path solves
+
+```math
+1 = R \sum_{l \ge 1} g_l\, e^{-r l}.
+```
+
+# Arguments
+- `I0`: the value on the last day; a vector gives one per stratum.
+- `r`: the growth rate per step; with a vector `I0`, a scalar or one per
+  stratum.
+- `L`: the number of days, at least 1, usually the kernel length.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+g = [0.2, 0.5, 0.3]
+h = CR.exponential_history(5.0, 0.1, length(g))
+round.(Recurrence(g)(fill(1.2, 6); history = h, prepend = true); digits = 3)
+
+# output
+
+9-element Vector{Float64}:
+ 4.094
+ 4.524
+ 5.0
+ 5.388
+ 5.922
+ 6.454
+ 7.042
+ 7.694
+ 8.395
+```
+"""
+exponential_history(I0::Real, r::Real, L::Integer) = I0 .* exp.(r .* _days_to_last(L))
+function exponential_history(I0::AbstractVector, r, L::Integer)
+    return I0 .* exp.(r .* transpose(_days_to_last(L)))
+end
+
+# The days of an `L`-day history counted back from its last, `1 - L` to 0.
+function _days_to_last(L)
+    L >= 1 || throw(ArgumentError("a history needs L >= 1 days, not L = $L"))
+    return collect((1 - L):0)
 end

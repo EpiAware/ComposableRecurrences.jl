@@ -54,9 +54,67 @@ function _getparams!(θ, x, o)
     return o
 end
 
+# Whether the default pullback can rebuild `m` with dual numbers for its
+# float scalars: each struct holding one is rebuilt by
+# `ConstructionBase.constructorof` from its fields, positionally. A
+# keyword-only constructor, or a float field typed `Float64` in the
+# struct, cannot take them, so such a modifier takes plain AD. The
+# generator lists the method checks from the type; each is a
+# `Core._hasmethod` call, which inference folds at compile time.
+@generated function _rebuildable(m)
+    checks = Any[]
+    _rebuild_checks!(checks, m)
+    return foldr((a, b) -> :($a && $b), checks; init = true)
+end
+function _rebuild_checks!(checks, ::Type{T}) where {T}
+    T <: AbstractFloat && return checks
+    _has_scalar(T) || return checks
+    if !(isconcretetype(T) && isstructtype(T))
+        push!(checks, false)
+        return checks
+    end
+    for F in fieldtypes(T)
+        _rebuild_checks!(checks, F)
+    end
+    T <: Union{Tuple, NamedTuple} && return checks
+    args = map(_dual_argtype, fieldtypes(T))
+    push!(checks, :(Core._hasmethod(Tuple{Core.Typeof(constructorof($T)), $(args...)})))
+    # The default constructor converts to a field type fixed in the struct,
+    # so each float field must be a type parameter wide enough for a dual.
+    W = Base.typename(T).wrapper
+    push!(checks, :(constructorof($T) !== $W || $(_fields_hold_duals(T))))
+    return checks
+end
+function _fields_hold_duals(::Type{T}) where {T}
+    D = ForwardDiff.Dual{Nothing, Float64, 1}
+    U = Base.unwrap_unionall(Base.typename(T).wrapper)
+    for (i, F) in enumerate(fieldtypes(T))
+        F <: AbstractFloat || continue
+        G = U.types[i]
+        G isa TypeVar && (G = G.ub)
+        G isa Type && D <: G || return false
+    end
+    return true
+end
+
+# The argument type of a field in the rebuild: a dual number for a float,
+# any type for a struct or tuple that holds one, else the field's own type.
+function _dual_argtype(::Type{F}) where {F}
+    F <: AbstractFloat && return ForwardDiff.Dual{Nothing, F, 1}
+    return _has_scalar(F) ? Any : F
+end
+
+# Whether a type holds a float scalar that `_param_tuple` reads.
+function _has_scalar(::Type{T}) where {T}
+    T <: AbstractFloat && return true
+    T <: _Leafless && return false
+    isconcretetype(T) || return true
+    return any(_has_scalar, fieldtypes(T))
+end
+
 # `x` with its parameters read from `θ` (possibly Duals) after offset `o`;
-# returns the new object and offset. Structs are rebuilt through the
-# constructor of their type's name.
+# returns the new object and offset. Structs are rebuilt through
+# `ConstructionBase.constructorof`.
 _rebuild(x, θ) = first(_rebuild(x, θ, 0))
 _rebuild(::AbstractFloat, θ, o) = (θ[o + 1], o + 1)
 function _rebuild(x::AbstractArray{<:AbstractFloat}, θ, o)
@@ -86,13 +144,9 @@ end
 function _rebuild(x, θ, o)
     _nparams(x) == 0 && return x, o
     fs, o = _rebuild(ntuple(i -> getfield(x, i), fieldcount(typeof(x))), θ, o)
-    return _constructorof(typeof(x))(fs...), o
+    return constructorof(typeof(x))(fs...), o
 end
 
-# The constructor that rebuilds a struct of type `T` from its fields, with
-# new field types. A struct whose only constructor is parametric adds a
-# method.
-_constructorof(::Type{T}) where {T} = Base.typename(T).wrapper
 
 # Add the gradient `g` (after offset `o`) into the mirror `x̄` of `x`;
 # returns the new offset.
@@ -164,6 +218,31 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     return g[1], g[2]
 end
 
+# The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
+# when it declares one, else a local derivative that seeds the value, the
+# pool, the population, the exponent and the form's float scalars as one
+# tuple of dual numbers. Returns the cotangents of `(v, s, N, α)`.
+function _form_adjoint(form)
+    return uses_adjoint(form, Step()) || (_scalar_params(form) && _rebuildable(form))
+end
+function _form_pullback(grads, form, v, s, N, α)
+    return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
+end
+function _form_pullback(::Val{true}, grads, form, v, s, N, α)
+    return pullback!(grads, form, Step(), v, s, N, α)
+end
+function _form_pullback(::Val{false}, grads, form, v, s, N, α)
+    x = (v, s, N, α, _param_tuple(form)...)
+    T = promote_type(map(typeof, x)...)
+    xd = _seed(ForwardDiff.Tag(_form_pullback, T), map(T, x))
+    θd = Base.tail(Base.tail(Base.tail(Base.tail(xd))))
+    fd = first(_rebuild_scalar(form, θd))
+    y, s′ = forward(fd, Step(), xd[1], xd[2], xd[3], xd[4])
+    g = _vjp(y, s′, grads.v, grads.s, xd)
+    _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(Base.tail(g)))))
+    return g[1], g[2], g[3], g[4]
+end
+
 # Dual numbers with one unit partial each, for the values in `x` (the value
 # and the state come first, so there is at least one).
 function _seed(tag::G, x::Tuple{T, Vararg{T, M}}) where {G, T, M}
@@ -210,7 +289,7 @@ function _rebuild_scalar(x, θ)
     _param_tuple(x) === () && return x, θ
     fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
     ys, θ = _rebuild_scalar(fs, θ)
-    return _constructorof(typeof(x))(ys...), θ
+    return constructorof(typeof(x))(ys...), θ
 end
 
 _add_scalar!(x̄, ::AbstractFloat, g) = (add_cotangent!(x̄, first(g)); Base.tail(g))
@@ -258,6 +337,3 @@ function _default_init(m, s, history)
     sig = Tuple{typeof(m), Init, typeof(s), typeof(history)}
     return which(forward, sig) === which(forward, Tuple{Any, Init, Any, Any})
 end
-
-# A time-varying wrapper keeps its indexing when rebuilt.
-_constructorof(::Type{<:TimeVarying{I}}) where {I} = TimeVarying{I}

@@ -3,6 +3,13 @@
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 
+# The primal value of `x`, through any nesting of `ForwardDiff.Dual`s, for
+# deciding a branch. A dual with value zero is ordered by its partials, so
+# `P > 0` on the dual can hold where the value is zero. Other numbers,
+# traced ones included, pass through.
+_primal_value(x) = x
+_primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
+
 # A gain or add slot at stratum `k`, absolute time `t`. A missing add is
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x
@@ -14,12 +21,22 @@ _at(x::AbstractMatrix, k, t) = x[k, t]
 _extent(x::AbstractArray) = size(x, ndims(x))
 _extent(x) = nothing
 
+# A bad value as an error message names it: in full when it is small, by
+# type and size when it is an array.
+_describe(x) = repr(x)
+_describe(x::AbstractArray) = summary(x)
+_describe(x::AbstractRange) = repr(x)
+_describe(x::Union{PerStratum, Pairwise}) = _wrapped(nameof(typeof(x)), x.x)
+_describe(x::TimeVarying{I}) where {I} = _wrapped(:TimeVarying, x.x, nameof(I))
+_wrapped(name, x) = string(name, "(", _describe(x), ")")
+_wrapped(name, x, i) = string(name, "(", _describe(x), ", ", i, "())")
+
 # Call inputs are plain data; time enters a call one way.
 function _check_unwrapped(name, x)
     x isa Union{TimeVarying, PerStratum, Pairwise} && throw(
         ArgumentError(
             "$name is data, not a wrapped coefficient: pass the plain " *
-                "array, time on the last axis"
+                "array, time on the last axis; got $(_describe(x))"
         )
     )
     return nothing
@@ -74,10 +91,11 @@ end
 function _check_times(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
-function _check_times(name, ::TimeVarying, stop)
+function _check_times(name, x::TimeVarying, stop)
     throw(
         ArgumentError(
-            "$name: Primary() indexing is only meaningful for a kernel"
+            "$name: Primary() indexing is only meaningful for a kernel; " *
+                "got $(_describe(x))"
         )
     )
 end
