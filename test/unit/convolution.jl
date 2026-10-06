@@ -53,6 +53,27 @@ end
         naive_convolution((t, k, d) -> C[k, d + 1], X, D; hist = H)
 end
 
+@testitem "Convolution: other number types take the gather body" begin
+    using ComposableRecurrences, Random
+    rng = Xoshiro(26)
+    S, D, T = 3, 4, 9
+    c, C = rand(rng, D), rand(rng, S, D)
+    x, X = rand(rng, T), rand(rng, S, T)
+    h, H = rand(rng, 2), rand(rng, S, 2)
+    big = v -> BigFloat.(v)
+    for (k, u, hu) in ((c, x, h), (c, X, H), (PerStratum(C), X, H))
+        conv = Convolution(k)
+        @test conv(big(u)) isa AbstractArray{BigFloat}
+        @test conv(big(u)) ≈ conv(u)
+        @test conv(big(u); history = big(hu)) ≈ conv(u; history = hu)
+        @test conv(big(u); history = big(hu), start = 3, stop = 7) ≈
+            conv(u; history = hu, start = 3, stop = 7)
+    end
+    # A kernel longer than the series and its history.
+    long = rand(rng, T + 3)
+    @test Convolution(long)(big(x); history = big(h)) ≈ Convolution(long)(x; history = h)
+end
+
 @testitem "Convolution: time-varying kernel indexed by output" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(24)

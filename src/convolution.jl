@@ -95,12 +95,16 @@ uses_adjoint(::Convolution, ::Run) = true
 
 function _run_forward(c::Convolution, x, history, start, stop)
     Y, X, m, stop = _conv(c, x, history, start, stop)
-    return _public(Y, axes(Y, 1), x), (; x, history, start, stop, X, m)
+    return _output(Y, x), (; x, history, start, stop, X, m)
 end
 function _primal(c::Convolution, x, history, start, stop)
     Y = first(_conv(c, x, history, start, stop))
-    return _public(Y, axes(Y, 1), x)
+    return _output(Y, x)
 end
+
+# The output buffer in the layout of `x`; a single series shares its memory.
+_output(Y, x::AbstractVector) = vec(Y)
+_output(Y, x::AbstractMatrix) = permutedims(Y)
 
 # Checks the call, then convolves into a time-first buffer; returns the
 # output buffer, the input buffer (history then `x`), the history length and
@@ -196,14 +200,29 @@ end
 
 # One `axpy!` per lag over each stratum's contiguous series: output row `j`
 # is time `start + j - 1`, and lag `d` adds `c[d + 1]` times buffer row
-# `m + start + j - 1 - d` for every row with a defined input.
-function _convolve_series!(y, c, X, k, m, start)
+# `m + start + j - 1 - d` for every row with a defined input. IEEE floats
+# vectorise this; other numbers (dual numbers, say) gather instead, one
+# dot of the kernel with the window per output, so each output is written
+# once and its sum stays in registers.
+function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     T = size(y, 1)
     for d in 0:(length(c) - 1)
         j0 = max(1, d + 2 - m - start)
         j0 > T && break
         r0 = m + start + j0 - 1 - d
         _axpy!(c[d + 1], view(X, r0:(r0 + T - j0), k), view(y, j0:T))
+    end
+    return y
+end
+function _convolve_series!(y, c, X, k, m, start)
+    L = length(c)
+    for j in eachindex(y)
+        r = m + start + j - 1
+        acc = zero(eltype(y))
+        @inbounds for d in 0:(min(L, r) - 1)
+            acc += c[d + 1] * X[r - d, k]
+        end
+        y[j] = acc
     end
     return y
 end
@@ -237,16 +256,18 @@ function _convolve_body!(k, Y, c::PerStratum, X, m, start)
     return nothing
 end
 
-# Secondary indexing: output time `t` reads its own column.
+# Secondary indexing: output time `t` reads its own column, one dot with
+# the window per output.
 function _convolve_body!(k, Y, c::TimeVarying{Secondary}, X, m, start)
     D = _nlags(c)
     for j in axes(Y, 1)
         t = start + j - 1
+        w = _wcolumn(c, k, t)
         acc = zero(eltype(Y))
-        for d in 0:min(D - 1, m + t - 1)
-            acc += _weight(c, k, k, d + 1, t) * X[m + t - d, k]
+        @inbounds @simd for d in 0:(min(D, m + t) - 1)
+            acc += w[d + 1] * X[m + t - d, k]
         end
-        Y[j, k] = acc
+        @inbounds Y[j, k] = acc
     end
     return nothing
 end
@@ -257,11 +278,11 @@ function _convolve_body!(k, Y, c::TimeVarying{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
     for σ in max(1, start - D + 1):stop
-        x = X[σ, k]
-        for d in max(0, start - σ):(D - 1)
-            t = σ + d
-            t > stop && break
-            Y[t - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
+        w = _wcolumn(c, k, σ)
+        @inbounds x = X[σ, k]
+        o = σ - start + 1
+        @inbounds @simd ivdep for d in max(0, start - σ):min(D - 1, stop - σ)
+            Y[o + d, k] += w[d + 1] * x
         end
     end
     return nothing
@@ -335,13 +356,20 @@ function _convolve_back!(X̄, c̄, c::PerStratum, X, Ȳ, m, start)
     return nothing
 end
 
+# The time-varying kernel's cotangent is added through the column mirror
+# `_wcolumn(c̄, c, k, τ)`, `nothing` when the kernel is constant. The
+# mirror, the inputs and their cotangent are distinct arrays (`ivdep`).
 function _convolve_back!(X̄, c̄, c::TimeVarying{Secondary}, X, Ȳ, m, start)
     D = _nlags(c)
     for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
         t = start + j - 1
-        for d in 0:min(D - 1, m + t - 1)
-            _add_weight!(c̄, c, Ȳ[j, k] * X[m + t - d, k], k, k, d + 1, t)
-            X̄[m + t - d, k] += _weight(c, k, k, d + 1, t) * Ȳ[j, k]
+        w = _wcolumn(c, k, t)
+        w̄ = _wcolumn(c̄, c, k, t)
+        @inbounds a = Ȳ[j, k]
+        @inbounds @simd ivdep for d in 0:(min(D, m + t) - 1)
+            r = m + t - d
+            _add_at!(w̄, a * X[r, k], d + 1)
+            X̄[r, k] += w[d + 1] * a
         end
     end
     return nothing
@@ -351,13 +379,17 @@ function _convolve_back!(X̄, c̄, c::TimeVarying{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
     for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
-        for d in max(0, start - σ):(D - 1)
-            t = σ + d
-            t > stop && break
-            ȳ = Ȳ[t - start + 1, k]
-            _add_weight!(c̄, c, ȳ * X[σ, k], k, k, d + 1, σ)
-            X̄[σ, k] += _weight(c, k, k, d + 1, σ) * ȳ
+        w = _wcolumn(c, k, σ)
+        w̄ = _wcolumn(c̄, c, k, σ)
+        o = σ - start + 1
+        @inbounds x = X[σ, k]
+        acc = zero(eltype(X̄))
+        @inbounds @simd ivdep for d in max(0, start - σ):min(D - 1, stop - σ)
+            ȳ = Ȳ[o + d, k]
+            _add_at!(w̄, ȳ * x, d + 1)
+            acc += w[d + 1] * ȳ
         end
+        @inbounds X̄[σ, k] += acc
     end
     return nothing
 end

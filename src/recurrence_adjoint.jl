@@ -165,6 +165,9 @@ end
 function _kernel_buffer(ḡ, kernel::PerStratum, H, S, L)
     return cotangent(ḡ, :x) === nothing ? nothing : _zeros(H, eltype(H), S, L)
 end
+function _kernel_buffer(ḡ, kernel::_OldestFirstPairwise, H, S, L)
+    return cotangent(ḡ, :x) === nothing ? nothing : _zeros(H, eltype(H), L, S, S)
+end
 
 # Correlate `p̄` with the kernel into the window's cotangent, and the window
 # with `p̄` into the kernel's, in one native loop per stratum.
@@ -179,6 +182,13 @@ function _kernel_back!(kbuf, ḡ, g::PerStratum, p̄, H, H̄, t, τ, L)
     for k in eachindex(p̄)
         kb = kbuf === nothing ? nothing : view(kbuf, k, :)
         _window_back!(kb, view(g.x, k, :), p̄[k], H, H̄, t, L, k)
+    end
+    return nothing
+end
+function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L)
+    for a in eachindex(p̄), b in axes(H, 2)
+        kb = kbuf === nothing ? nothing : view(kbuf, :, b, a)
+        _window_back!(kb, view(g.x, :, b, a), p̄[a], H, H̄, t, L, b)
     end
     return nothing
 end
@@ -197,17 +207,22 @@ function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
     end
     return nothing
 end
-# Time-varying and pairwise kernels read their weights through `_weight`
-# and add their cotangents through `_add_weight!`; a pairwise kernel mixes
-# strata, so stratum `a`'s convolution reads every stratum `b`. Lag `i`
-# reads column `_column(g, τ, i)`: `τ`, or `τ - i` for a `Primary()` kernel,
-# whose lags before time 1 have no column (`_lags`).
-function _kernel_back!(kbuf, ḡ, g::Union{TimeVarying, Pairwise}, p̄, H, H̄, t, τ, L)
-    for a in eachindex(p̄), b in _senders(g, a, H), i in _lags(g, τ, L)
-        j = t + L - i
-        c = _column(g, τ, i)
-        _add_weight!(ḡ, g, p̄[a] * H[j, b], a, b, i, c)
-        H̄[j, b] += p̄[a] * _weight(g, a, b, i, c)
+# Time-varying kernels read their weights through `_weight` and add their
+# cotangents through `_add_weight!`; a pairwise kernel mixes strata, so
+# stratum `a`'s convolution reads every stratum `b`. Lag `i` reads column
+# `_column(g, τ, i)`: `τ`, or `τ - i` for a `Primary()` kernel, whose lags
+# before time 1 have no column (`_lags`). Lag runs innermost, so each
+# sender's window is read in order.
+function _kernel_back!(kbuf, ḡ, g::TimeVarying, p̄, H, H̄, t, τ, L)
+    lags = _lags(g, τ, L)
+    for a in eachindex(p̄)
+        @inbounds pa = p̄[a]
+        for b in _senders(g, a, H), i in lags
+            j = t + L - i
+            c = _column(g, τ, i)
+            @inbounds _add_weight!(ḡ, g, pa * H[j, b], a, b, i, c)
+            @inbounds H̄[j, b] += pa * _weight(g, a, b, i, c)
+        end
     end
     return nothing
 end
@@ -216,14 +231,19 @@ _senders(g, a, H) = a:a
 _senders(g::_PairwiseKernel, a, H) = axes(H, 2)
 
 # A weight's cotangent, as `_weight` reads it.
-function _add_weight!(ḡ, g::TimeVarying{<:Any, <:AbstractMatrix}, v, a, b, i, τ)
+Base.@propagate_inbounds function _add_weight!(
+        ḡ, g::TimeVarying{<:Any, <:AbstractMatrix}, v, a, b, i, τ
+    )
     return add_cotangent!(cotangent(ḡ, :x), v, i, τ)
 end
-function _add_weight!(ḡ, g::TimeVarying{<:Any, <:PerStratum}, v, a, b, i, τ)
+Base.@propagate_inbounds function _add_weight!(
+        ḡ, g::TimeVarying{<:Any, <:PerStratum}, v, a, b, i, τ
+    )
     return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, i, τ)
 end
-_add_weight!(ḡ, g::Pairwise, v, a, b, i, τ) = add_cotangent!(cotangent(ḡ, :x), v, a, b, i)
-function _add_weight!(ḡ, g::TimeVarying{<:Any, <:Pairwise}, v, a, b, i, τ)
+Base.@propagate_inbounds function _add_weight!(
+        ḡ, g::TimeVarying{<:Any, <:Pairwise}, v, a, b, i, τ
+    )
     return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, b, i, τ)
 end
 
@@ -241,6 +261,14 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
     L = size(kbuf, 2)
     for i in 1:L, k in axes(kbuf, 1)
         Ḡ[k, i] += kbuf[k, L + 1 - i]
+    end
+    return nothing
+end
+function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractArray{<:Any, 3})
+    Ḡ = cotangent(ḡ, :x)
+    L = size(kbuf, 1)
+    for i in 1:L, b in axes(kbuf, 2), a in axes(kbuf, 3)
+        Ḡ[a, b, i] += kbuf[L + 1 - i, b, a]
     end
     return nothing
 end
