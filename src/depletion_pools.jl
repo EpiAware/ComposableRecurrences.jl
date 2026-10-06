@@ -146,12 +146,12 @@ end
 function _protected_step(form, v, Su, V, σ, N, α, r)
     P = Su + σ * V
     y, _ = forward(form, Step(), v, P, N, α)
-    if P > 0
-        q = y / P
-        S′, V′ = Su - q * Su, V - q * σ * V
-    else
-        S′, V′ = Su - y, V
-    end
+    # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
+    # division keeps the unused arm finite.
+    on = P > 0
+    q = y / ifelse(on, P, one(P))
+    S′ = ifelse(on, Su - q * Su, Su - y)
+    V′ = ifelse(on, V - q * σ * V, V)
     mr = _removal(r, S′)
     return y, S′ - mr, V′ + mr
 end
