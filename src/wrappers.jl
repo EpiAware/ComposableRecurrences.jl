@@ -61,7 +61,8 @@ Convolution(TimeVarying(P, CR.Primary()))(ones(3))
 
 # Cohorts from time 3 on transmit less.
 K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
-CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), fill(1.5, 6); history = [1.0, 1.0])
+r = Recurrence(TimeVarying(K, CR.Primary()))
+r(fill(1.5, 6); history = [1.0, 1.0], start = 3, prepend = true)
 ```
 """
 struct Primary end

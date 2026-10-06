@@ -73,13 +73,15 @@ A recurrence has no lag 0, because a value cannot depend on itself in the same s
 | [`(c::Convolution)(x; history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop` | an array shaped like `x` |
 | [`with_state(r, gain; kwargs...)`](@ref ComposableRecurrences.with_state) | runs `r` like `r(gain; kwargs...)` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
 | [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t` | the values from `state.t` on |
-| [`seeded(r, gain; history)`](@ref ComposableRecurrences.seeded) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |
+| [`(r::Recurrence)(gain; history, prepend = true)`](@ref Recurrence) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |
+| [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | an `L`-day seed growing at rate `r` up to `I0` | a `Vector`, or `S × L` for a vector `I0` |
 | [`State`](@ref ComposableRecurrences.State) | holds the last ``L`` values ``y_{t-L}, \dots, y_{t-1}``, each modifier's state ``s^{(n)}_{t-1}`` (such as the remaining pool) and the next time ``t`` | a struct |
 
 A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` coefficient) at absolute time ``t``.
 `stop` defaults to the common length of those inputs, and inputs of different lengths without a `stop` are an error.
 A history shorter than the kernel is padded with zeros, meaning no earlier values.
-The operators do not prepend the history or trim the output, so `vcat(history, y)` or `seeded` returns a seed with the run.
+A recurrence returns only the run unless `prepend = true`, and a convolution never prepends its history.
+With `start = m + 1` a seed of `m` days sits at times `1:m`, and the time-indexed inputs cover it.
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial forecasts by continuing from a `State`.
 
 ## [Shapes](@id overview-shapes)

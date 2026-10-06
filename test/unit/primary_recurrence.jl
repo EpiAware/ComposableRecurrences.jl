@@ -53,13 +53,11 @@ end
     CR = ComposableRecurrences
     (; reindex, shapes, m) = PrimaryChecks
     for (wrap, K, R, h, C) in values(shapes)
-        prim(K, R, h) = CR.seeded(
-            Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C), R;
-            history = h
+        prim(K, R, h) = Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C)(
+            R; history = h, start = m + 1, prepend = true
         )
-        sec(K, R, h) = CR.seeded(
-            Recurrence(TimeVarying(wrap(reindex(K))); coupling = C), R;
-            history = h
+        sec(K, R, h) = Recurrence(TimeVarying(wrap(reindex(K))); coupling = C)(
+            R; history = h, start = m + 1, prepend = true
         )
         @test prim(K, R, h) ≈ sec(K, R, h)
         W = reshape(range(0.3, 1.2; length = length(R)), size(R))
@@ -79,8 +77,8 @@ end
     g = [0.5, 0.3, 0.2]
     K = repeat(g, 1, 10)
     R = fill(1.3, 10)
-    @test CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), R; history = [1.0, 2.0]) ≈
-        CR.seeded(Recurrence(g), R; history = [1.0, 2.0])
+    seed = (; history = [1.0, 2.0], start = 3, prepend = true)
+    @test Recurrence(TimeVarying(K, CR.Primary()))(R; seed...) ≈ Recurrence(g)(R; seed...)
 end
 
 @testitem "Primary Recurrence: a cohort's onward weight is its column sum" setup = [PrimaryChecks] begin
