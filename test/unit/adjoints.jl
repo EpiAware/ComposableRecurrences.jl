@@ -287,16 +287,22 @@ end
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
-    # Built-in parts and pointwise modifiers with scalar parameters take the
-    # rule; the route is decided from the types.
-    for op in (
-            Recurrence(g), Recurrence(g; coupling = K),
-            Recurrence(g; modifiers = (CR.Depletion(50.0),)),
-            Recurrence(g; modifiers = (Slope(0.3),)),
-            Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
+    # Built-in parts take the rule, and pointwise modifiers with scalar
+    # parameters and no pullback take the local route; the route is decided
+    # from the types.
+    for (op, route) in (
+            (Recurrence(g), :rule), (Recurrence(g; coupling = K), :rule),
+            (Recurrence(g; modifiers = (CR.Depletion(50.0),)), :rule),
+            (Recurrence(g; modifiers = (Slope(0.3),)), :local),
+            (Recurrence(g; modifiers = (Slope(0.3), CR.Clamp(0.0, 9.0))), :local),
+            (
+                Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
+                :rule,
+            ),
         )
         @test CR.uses_adjoint(op, CR.Run())
-        @test val(op) == [Val{true}]
+        @test val(op) == [Val{route}]
+        @test val(CR._WithState(op)) == [Val{route}]
     end
     # A vector-level modifier or a coupling without a pullback, or a
     # pointwise modifier without one and with array parameters, sends the
@@ -307,17 +313,37 @@ end
             Recurrence(g; modifiers = (PoolDepletion([30.0, 40.0]),)),
         )
         @test !CR.uses_adjoint(op, CR.Run())
-        @test val(op) == [Val{false}]
+        @test val(op) == [Val{:plain}]
     end
-    # Declaring it opts a modifier in.
+    # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
+    # overrides it.
     struct Scaled{A}
         a::A
     end
     CR.forward(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    op = Recurrence(g; modifiers = (Scaled(0.5),))
+    @test !CR.uses_adjoint(op, CR.Run())
     CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
-    @test !CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
-    CR.uses_adjoint(::Scaled, ::CR.Step) = true
-    @test CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
+    @test CR.uses_adjoint(Scaled(0.5), CR.Step())
+    @test CR.uses_adjoint(op, CR.Run())
+    @test val(op) == [Val{:rule}]
+    CR.uses_adjoint(::Scaled, ::CR.Step) = false
+    @test !CR.uses_adjoint(op, CR.Run())
+    # A method with typed arguments is not found; declaring it opts in.
+    struct Typed{A}
+        a::A
+    end
+    CR.ispointwise(::Typed) = true
+    CR.forward(m::Typed, ::CR.Step, v, s, t, k) = (m.a * v, s)
+    function CR.pullback!(grads, m::Typed, ::CR.Step, v::Real, s::Real, t, k)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.v * v)
+        return m.a * grads.v, grads.s
+    end
+    op = Recurrence(g; modifiers = (Typed(0.5),))
+    @test val(op) == [Val{:local}]
+    CR.uses_adjoint(::Typed, ::CR.Step) = true
+    @test val(op) == [Val{:rule}]
+    @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
 
     # A function stored in a pointwise modifier with no pullback: a plain
     # function or a callable singleton keeps the rule, a closure that
@@ -340,7 +366,7 @@ end
         op = Recurrence(g; modifiers = (MapBy(f, 0.9),))
         @test CR._scalar_params(MapBy(f, 0.9)) == rule
         @test CR.uses_adjoint(op, CR.Run()) == rule
-        @test val(op) == [Val{rule}]
+        @test val(op) == [Val{rule ? :local : :plain}]
     end
     # Integer ranges and arrays are structure, not parameters, for the gate.
     struct Pick{I, T}
@@ -352,7 +378,7 @@ end
     for idx in (1:2, 1:2:3, Base.OneTo(2), [1, 2], [1:1, 2:2], [[1], [2]], (1:1, 2:2))
         op = Recurrence(g; modifiers = (Pick(idx, 0.5),))
         @test CR._ok(typeof(idx))
-        @test val(op) == [Val{true}]
+        @test val(op) == [Val{:local}]
     end
     @test pullback_matches(
         Recurrence(g; modifiers = (Pick(2:2, 0.5),)),
@@ -393,7 +419,8 @@ end
     # A modifier that takes the rule by type but does not rebuild by value
     # is sent to plain AD at call time.
     op = Recurrence(g; modifiers = (Doubled(0.5),))
-    @test CR.adjoint_call(op, args...) == CR._plain(op, args...)
+    y = @test_logs (:info, r"does not give it back") CR.adjoint_call(op, args...)
+    @test y == CR._plain(op, args...)
     # A field of abstract type cannot be rebuilt.
     struct Loose
         a::Any
@@ -428,7 +455,7 @@ end
             Recurrence(g; modifiers = (CR.Depletion(50.0, f; removals = 0.5),)),
         )
         @test CR.uses_adjoint(op, CR.Run())
-        @test val(op) == [Val{true}]
+        @test val(op) == [Val{:rule}]
         @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
     end
     # A form whose constructor transforms its argument is found by value.
@@ -454,14 +481,33 @@ end
     struct Twice <: CR.AbstractOperator end
     CR.forward(::Twice, ::CR.Run, x) = (2 .* x, nothing)
     @test !CR.uses_adjoint(Twice(), CR.Run())
-    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{false}]
+    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{:plain}]
     function CR.pullback!(grads, ::Twice, ::CR.Run, cache)
         only(grads.args) .+= 2 .* grads.y
         return nothing
     end
-    CR.uses_adjoint(::Twice, ::CR.Run) = true
-    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{true}]
+    @test CR.uses_adjoint(Twice(), CR.Run())
+    @test Base.return_types(CR._route_val, (Twice, Vector{Float64})) == [Val{:rule}]
     @test Twice()(ones(2)) == [2.0, 2.0]
+end
+
+@testitem "Adjoint: a declared adjoint without a pullback! throws" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # Declared for a role with no `pullback!` method: the reverse pass names
+    # the piece and the role.
+    struct Halved end
+    CR.ispointwise(::Halved) = true
+    CR.forward(::Halved, ::CR.Step, v, s, t, k) = (v / 2, s)
+    CR.uses_adjoint(::Halved, ::CR.Step) = true
+    args = recargs(ones(2, 4), nothing, ones(2, 2))
+    r = Recurrence([0.3, 0.2]; modifiers = (Halved(),))
+    @test Base.return_types(CR._route_val, typeof.((r, args...))) == [Val{:rule}]
+    @test_throws "Halved uses its adjoint in Step()" pullback_matches(r, args...)
+    struct Thrice <: CR.AbstractOperator end
+    CR.forward(::Thrice, ::CR.Run, x) = (3 .* x, nothing)
+    CR.uses_adjoint(::Thrice, ::CR.Run) = true
+    grads = (; piece = nothing, y = ones(2), args = (zeros(2),))
+    @test_throws "Thrice uses its adjoint in Run()" CR._run_pullback!(grads, Thrice(), nothing)
 end
 
 @testitem "Adjoint: a plain-AD fallback is logged once" setup = [AdjointModifiers] begin
@@ -580,19 +626,19 @@ end
         end
         ref = transpose(J) * [0.3, 0.7]
         m̄ = zero_mirror(m)
-        got = CR.pullback!((; piece = m̄, v = 0.3, s = 0.7), m, CR.Step(), v, s, 1, 1)
+        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, v, s, 1, 1)
         @test collect(got) ≈ ref[1:2]
         @test mirror_vec(m̄, m) ≈ ref[3:4] rtol = 1.0e-6
         # Without a mirror only the value and state cotangents come back.
-        @test collect(CR.pullback!((; piece = nothing, v = 0.3, s = 0.7), m, CR.Step(), v, s, 1, 1)) ≈
+        @test collect(CR._step_pullback((; piece = nothing, v = 0.3, s = 0.7), m, v, s, 1, 1)) ≈
             ref[1:2]
     end
     # A step allocates nothing: a thousand cost less than one kilobyte.
     function steps(m, m̄, n)
         acc = 0.0
         for i in 1:n
-            v̄, s̄ = CR.pullback!(
-                (; piece = m̄, v = 0.3, s = 0.7), m, CR.Step(), 2.0 + i, 30.0, 1, 1
+            v̄, s̄ = CR._step_pullback(
+                (; piece = m̄, v = 0.3, s = 0.7), m, 2.0 + i, 30.0, 1, 1
             )
             acc += v̄ + s̄
         end
@@ -601,9 +647,34 @@ end
     m̄ = zero_mirror(m)
     steps(m, m̄, 2)
     @test (@allocated steps(m, m̄, 1000)) < 1000
+    steps(m, nothing, 2)
+    @test (@allocated steps(m, nothing, 1000)) < 1000
     # Through a recurrence the rule matches ForwardDiff.
     r = CR.Recurrence([0.3, 0.2]; modifiers = (m,))
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
+end
+
+@testitem "Adjoint: the default Init pullback skips a zero state cotangent" setup = [AdjointCheck] begin
+    # A modifier with its own Init whose state never reaches the output: the
+    # state cotangent is zero, so the Jacobian over the history is skipped.
+    struct Capped{K}
+        κ::K
+    end
+    CR.ispointwise(::Capped) = true
+    CR.forward(::Capped, ::CR.Init, s, history) = (s .= sum(history); nothing)
+    CR.forward(m::Capped, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
+    m, h = Capped(5.0), ones(3, 4)
+    init_back(s̄) = (; piece = (; κ = Ref(0.0)), s = s̄, history = fill(NaN, 3, 4))
+    zero_grads, one_grads = init_back(zeros(3)), init_back(ones(3))
+    one_grads.history .= 0
+    CR.pullback!(zero_grads, m, CR.Init(), zeros(3), h)
+    CR.pullback!(one_grads, m, CR.Init(), zeros(3), h)
+    # Untouched: the Jacobian would have added to the NaN history mirror.
+    @test all(isnan, zero_grads.history)
+    # A nonzero one takes the Jacobian.
+    @test one_grads.history ≈ fill(3.0, 3, 4)
+    r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m,))
+    @test pullback_matches(r, recargs(ones(3, 5), nothing, h)...)
 end
 
 @testitem "Adjoint: coupling pullbacks called directly" setup = [AdjointCheck] begin
@@ -651,6 +722,10 @@ end
     @test !CR._scalar_params(m)
     r = CR.Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.1 0.9], modifiers = (m,))
     @test pullback_matches(r, recargs(1.1, nothing, ones(2, 2); stop = 6)...)
+    # Without a mirror only the value and state cotangents come back.
+    grads = (; piece = nothing, v = 0.3, s = 0.7)
+    J = ForwardDiff.jacobian(x -> collect(CR.forward(m, CR.Step(), x[1], x[2], 1, 2)), [2.0, 1.0])
+    @test collect(CR._step_pullback(grads, m, 2.0, 1.0, 1, 2)) ≈ transpose(J) * [0.3, 0.7]
 
     # Scalar parameters inside a named tuple and a tuple take the dual-number
     # path.

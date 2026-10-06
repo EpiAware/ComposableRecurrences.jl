@@ -556,8 +556,7 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
     return v̄′, s̄′
 end
 
-# The built-in modifiers and depletion forms carry their adjoints; a
-# depletion does when its form does or the form's local derivative covers
-# it (see `_form_pullback`).
-uses_adjoint(::Union{Hazard, Floor, Add, Redistribute, Clamp}, ::Step) = true
+# The built-in modifiers and depletion forms carry their adjoints through
+# their `pullback!` methods; a depletion uses its own when its form does or
+# the form's local derivative covers it (see `_form_pullback`).
 uses_adjoint(m::Depletion, ::Step) = _form_adjoint(m.form)

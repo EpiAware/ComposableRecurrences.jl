@@ -181,11 +181,12 @@ the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.
-Declare [`ComposableRecurrences.uses_adjoint`](@ref) for the same role so
-an operator's native rule calls it.
+An operator's native rule calls a method whose `grads` and arguments after
+the role are untyped (see [`ComposableRecurrences.uses_adjoint`](@ref)).
 Without one, a pointwise modifier with only scalar float parameters is
-differentiated locally with `ForwardDiff`, and any other object makes the AD
-backend differentiate the whole operator.
+differentiated locally with `ForwardDiff` on the backends where that is
+faster than plain AD, and any other object makes the AD backend
+differentiate the whole operator.
 A float captured by a closure stored in a modifier is a parameter the local
 derivative does not reach, so such a modifier also takes the AD backend.
 Integer fields, index ranges and integer arrays are structure, not
@@ -203,9 +204,8 @@ parameters.
 using ComposableRecurrences
 CR = ComposableRecurrences
 m = CR.Clamp(0.0, 1.0)
-grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0, 1.0], s = [0.0, 0.0])
-CR.pullback!(grads, m, CR.Step(), [0.5, 2.0], [0.0, 0.0], 1)
-grads.v, grads.piece.hi[]
+grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = 1.0, s = 0.0)
+CR.pullback!(grads, m, CR.Step(), 2.0, 0.0, 1, 1), grads.piece.hi[]
 ```
 """
 function pullback! end
@@ -292,12 +292,19 @@ function forward(m, ::Step, v, s, t)
     return nothing
 end
 
-function pullback!(grads, m, ::Step, v, s, t)
+# The vector step's pullback: the modifier's own, or for a pointwise
+# modifier without one the scalar pullback per stratum. Not a `pullback!`
+# method, which would count as every modifier's own.
+function _vector_pullback!(grads, m, v, s, t)
+    ispointwise(m) && !_has_vector_pullback(m) &&
+        return _strata_pullback!(grads, m, v, s, t)
+    return _call_pullback!(grads, m, Step(), v, s, t)
+end
+function _strata_pullback!(grads, m, v, s, t)
     v̄, s̄ = grads.v, grads.s
     for k in eachindex(v, s, v̄, s̄)
-        v̄[k], s̄[k] = pullback!(
-            (; piece = grads.piece, v = v̄[k], s = s̄[k]), m, Step(), v[k],
-            s[k], t, k
+        v̄[k], s̄[k] = _step_pullback(
+            (; piece = grads.piece, v = v̄[k], s = s̄[k]), m, v[k], s[k], t, k
         )
     end
     return nothing

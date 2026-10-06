@@ -51,6 +51,7 @@ maximum(abs, ForwardDiff.gradient(loss(r), R) .- ForwardDiff.gradient(loss(NoAdj
 
 ForwardDiff differentiates the same forward code in both, so a hand-written gradient only matters on a reverse-mode backend such as Mooncake or Enzyme.
 A hand-written gradient is worth keeping when it is about 10% faster than plain automatic differentiation on the backend it targets.
+The local ForwardDiff derivative of a modifier without a `pullback!` follows the same rule, so it runs inside the Mooncake rule and Enzyme differentiates the whole operator.
 
 ## The benchmark matrix
 

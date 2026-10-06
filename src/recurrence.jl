@@ -477,8 +477,8 @@ Base.@constprop :aggressive function with_state(
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is pointwise with only scalar float parameters outside functions,
-# rebuilt with dual numbers by `constructorof`.
+# does or is differentiated locally. An operator with a local modifier
+# takes the `_ad_local` route.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -486,11 +486,24 @@ end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
 _all_modifiers_adjoint(::Tuple{}) = true
 function _all_modifiers_adjoint(ms::Tuple)
-    return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
+    return _modifier_adjoint(first(ms)) !== :none &&
+        _all_modifiers_adjoint(Base.tail(ms))
 end
+_needs_local(r::Recurrence) = _any_local(r.modifiers)
+_needs_local(w::_WithState) = _needs_local(w.r)
+_any_local(::Tuple{}) = false
+function _any_local(ms::Tuple)
+    return _modifier_adjoint(first(ms)) === :local || _any_local(Base.tail(ms))
+end
+
+# How the rule differentiates modifier `m`'s step: `:pullback` with its own
+# `pullback!`, `:local` with a local derivative (a pointwise modifier with
+# only scalar float parameters outside functions, rebuilt with dual numbers
+# by `constructorof`), or `:none` when it cannot. Decided from the type.
 function _modifier_adjoint(m)
-    return uses_adjoint(m, Step()) ||
-        (ispointwise(m) && _scalar_params(m) && _rebuildable(m))
+    uses_adjoint(m, Step()) && return :pullback
+    ispointwise(m) && _scalar_params(m) && _rebuildable(m) && return :local
+    return :none
 end
 
 # Whether the default pullback's rebuild of each modifier from its own

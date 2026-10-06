@@ -79,8 +79,6 @@ function forward(
     return _run_forward(c, x, history, start, stop)
 end
 
-uses_adjoint(::Convolution, ::Run) = true
-
 function _run_forward(c::Convolution, x, history, start, stop)
     Y, X, m, stop = _conv(c, x, history, start, stop)
     return _public(Y, axes(Y, 1), x), (; x, history, start, stop, X, m)

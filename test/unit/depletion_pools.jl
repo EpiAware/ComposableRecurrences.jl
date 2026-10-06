@@ -48,7 +48,7 @@
         m = build(θ)
         m̄ = mirror(m)
         gv, gs = copy(v̄), copy(s̄)
-        CR.pullback!((; piece = m̄, v = gv, s = gs), m, CR.Step(), copy(v), copy(s), t)
+        CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
         return (;
             v = gv ≈ expected[1:S], s = gs ≈ expected[(S + 1):(S + n)],
             θ = flat(m̄) ≈ expected[(S + n + 1):end],
