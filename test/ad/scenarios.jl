@@ -47,6 +47,7 @@ end
     using ADFixtures
     using ADFixtures: MatrixCases
     @test isempty(ADFixtures.unsupported_scenarios())
-    @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in ("rule", "NoAdjoint"))
+    @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in MatrixCases.arms(c))
+    @test MatrixCases.LOCAL_CASES ⊆ Set(c.name for c in MatrixCases.CASES)
     @test length(ADFixtures.scenarios()) == 2 * length(ADFixtures._SCENARIOS)
 end

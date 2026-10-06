@@ -50,9 +50,12 @@ maximum(abs, ForwardDiff.gradient(loss(r), R) .- ForwardDiff.gradient(loss(NoAdj
 ```
 
 ForwardDiff differentiates the same forward code in both, so a hand-written gradient only matters on a reverse-mode backend such as Mooncake or Enzyme.
-An operator or modifier keeps its rule when the rule beats its `NoAdjoint` twin by at least 10% on Mooncake or Enzyme reverse mode; otherwise its `uses_adjoint` methods route it to plain automatic differentiation.
+A hand-written rule is kept only where it beats plain automatic differentiation, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme.
+Where it does not, [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) is `false` for that operator or modifier, so dispatch sends the operator to plain automatic differentiation.
+This route does not depend on the backend, so a rule that wins on one backend and loses on the other runs on both.
 The table gives the rule time over the `NoAdjoint` time, from matrix cases at `T` 200 and `L` 20 where one covers it, else from the small CI scenarios (marked ¹).
-Every rule passes; the local `ForwardDiff` step of a pointwise modifier without a `pullback!` is slower on Enzyme and kept for its gain on Mooncake.
+Every rule passes on both backends except the local `ForwardDiff` step of a pointwise modifier without a `pullback!`, timed by the `local` arm below.
+It is 1.12 to 1.38 times slower than plain automatic differentiation on Enzyme, and on Mooncake it is within noise or slower at small sizes.
 
 | Rule switched on by | Mooncake reverse | Enzyme reverse | Decision |
 |---|---|---|---|
@@ -69,7 +72,7 @@ Every rule passes; the local `ForwardDiff` step of a pointwise modifier without 
 | sparse coupling | 0.75¹ | plain AD is wrong | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
-| pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep |
+| pointwise modifier without a `pullback!` | 0.64 | 1.12 | fails on Enzyme |
 
 ## The benchmark matrix
 
