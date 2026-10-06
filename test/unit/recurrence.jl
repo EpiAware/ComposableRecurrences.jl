@@ -471,6 +471,9 @@ end
         y, st = CR.with_state(r, R; history = h, start, prepend = true)
         @test y == expansion(h, R)
         @test st.t == size(R, ndims(R)) + 1
+        yn, stn = @inferred CR.with_state(CR.NoAdjoint(r), R; history = h, start, prepend = true)
+        @test yn ≈ y
+        @test stn.history ≈ st.history && stn.t == st.t
         loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
         θ = vcat(vec(h), vec(R))
         @test ForwardDiff.gradient(loss(seeded), θ) ≈ ForwardDiff.gradient(loss(expansion), θ)
@@ -483,6 +486,22 @@ end
     _, st = CR.with_state(r, ones(8); history = ones(3), stop = 4)
     @test_throws "needs a history" r(ones(8); state = st, prepend = true)
     @test_throws TypeError r(ones(8); history = ones(3), prepend = 1)
+end
+
+@testitem "start = nothing names the default to use" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    r = Recurrence([0.5, 0.5])
+    _, st = CR.with_state(r, ones(6); history = ones(2), stop = 3)
+    for call in (
+            () -> r(ones(6); history = ones(2), start = nothing),
+            () -> r(ones(6); state = st, start = nothing),
+            () -> CR.with_state(r, ones(6); history = ones(2), start = nothing),
+            () -> CR.forward(r, CR.Run(), ones(6); start = nothing),
+        )
+        @test_throws ArgumentError call()
+        @test_throws "leave start out" call()
+    end
 end
 
 @testitem "seeded is deprecated for prepend" begin

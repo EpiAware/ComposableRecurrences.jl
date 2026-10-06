@@ -426,6 +426,16 @@ _empty_history(x) = zeros(Bool, 0)
 _start(::Nothing) = 1
 _start(state::State) = state.t
 
+_check_start(start) = nothing
+function _check_start(::Nothing)
+    throw(
+        ArgumentError(
+            "start = nothing is not a start time; leave start out for the " *
+                "default (1, or state.t when resuming) or pass an integer"
+        )
+    )
+end
+
 # The history, modifier states and first time of a call: seeded from
 # `history`, or resumed from `state`.
 function _resume(history, state::Nothing, start, gain, add)
@@ -466,6 +476,7 @@ Base.@constprop :aggressive function _invoke(
 end
 
 function _run_args(r, gain, history, state, add, start)
+    _check_start(start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
     h, s0, τ0 = _resume(history, state, start, gain, add)
@@ -485,12 +496,16 @@ end
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
-Base.@constprop :aggressive function with_state(
-        r::Recurrence, gain = true; history = nothing, state = nothing,
+with_state(r::Recurrence, args...; kwargs...) = _with_state(r, r, args...; kwargs...)
+function with_state(n::NoAdjoint{<:Recurrence}, args...; kwargs...)
+    return _with_state(n.op, n, args...; kwargs...)
+end
+Base.@constprop :aggressive function _with_state(
+        r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
     )
     args = _run_args(r, gain, history, state, add, start)
-    y, st = adjoint_call(_WithState(r), args..., stop)
+    y, st = adjoint_call(_reroute(route, _WithState(r)), args..., stop)
     return _prepend(prepend, history, y), st
 end
 
@@ -870,8 +885,8 @@ function seeded(r::Recurrence, gain = true; history, kwargs...)
 end
 
 @doc raw"""
-A history growing exponentially at rate `r` and reaching `I0` on its last
-day, to seed a [`Recurrence`](@ref) on a growth path.
+A history growing exponentially at rate `r` and reaching `I0` at its last
+time, to seed a [`Recurrence`](@ref) on a growth path.
 
 For one series, and for stratum ``i`` of ``S``, it is
 
@@ -892,10 +907,10 @@ renewal's own path solves
 ```
 
 # Arguments
-- `I0`: the value on the last day; a vector gives one per stratum.
+- `I0`: the value at the last time; a vector gives one per stratum.
 - `r`: the growth rate per step; with a vector `I0`, a scalar or one per
   stratum.
-- `L`: the number of days, at least 1, usually the kernel length.
+- `L`: the number of time steps, at least 1, usually the kernel length.
 
 # Examples
 ```@example
@@ -906,13 +921,13 @@ h = CR.exponential_history(5.0, 0.1, length(g))
 Recurrence(g)(fill(1.2, 6); history = h, prepend = true)
 ```
 """
-exponential_history(I0::Real, r::Real, L::Integer) = I0 .* exp.(r .* _days_to_last(L))
+exponential_history(I0::Real, r::Real, L::Integer) = I0 .* exp.(r .* _steps_to_last(L))
 function exponential_history(I0::AbstractVector, r, L::Integer)
-    return I0 .* exp.(r .* transpose(_days_to_last(L)))
+    return I0 .* exp.(r .* transpose(_steps_to_last(L)))
 end
 
-# The days of an `L`-day history counted back from its last, `1 - L` to 0.
-function _days_to_last(L)
-    L >= 1 || throw(ArgumentError("a history needs L >= 1 days, not L = $L"))
+# The times of an `L`-step history counted back from its last, `1 - L` to 0.
+function _steps_to_last(L)
+    L >= 1 || throw(ArgumentError("a history needs L >= 1 steps, not L = $L"))
     return collect((1 - L):0)
 end
