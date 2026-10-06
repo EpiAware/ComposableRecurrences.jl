@@ -59,7 +59,7 @@ end
 end
 
 @testitem "Interfaces: state length" begin
-    using ComposableRecurrences, Interfaces
+    using ComposableRecurrences, Interfaces, LinearAlgebra
     CR = ComposableRecurrences
     # A protected pool keeps two entries per stratum.
     d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
@@ -93,6 +93,13 @@ end
     )
     @test !Interfaces.test(
         CR.PieceInterface{(:nstate,)}, CR.Clamp, (obj,); show = false
+    )
+    # Roles other than Init and Step have no state to check.
+    obj = Interfaces.Arguments(;
+        piece = 0.5I, role = CR.Pressure(), args = (zeros(2), [1.0, 2.0], 1)
+    )
+    @test Interfaces.test(
+        CR.PieceInterface{(:nstate,)}, UniformScaling, (obj,); show = false
     )
 end
 

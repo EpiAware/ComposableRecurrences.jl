@@ -521,17 +521,14 @@ _tape(x) = x
 
 # A resumed state must have each modifier's `nstate` entries, as an
 # `Init` would have written.
-function _check_states(modifiers, s0, S)
-    foreach(eachindex(modifiers), modifiers, s0) do i, m, s
-        n = nstate(m, S)
-        length(s) == n || throw(
-            ArgumentError(
-                "modifier $i ($(nameof(typeof(m)))) has a state of length " *
-                    "$(length(s)); expected nstate(m, $S) = $n"
-            )
+_check_states(modifiers, s0, S) = foreach(eachindex(modifiers), modifiers, s0) do i, m, s
+    n = nstate(m, S)
+    length(s) == n || throw(
+        ArgumentError(
+            "modifier $i ($(nameof(typeof(m)))) has a state of length " *
+                "$(length(s)); expected nstate(m, $S) = $n"
         )
-    end
-    return nothing
+    )
 end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.

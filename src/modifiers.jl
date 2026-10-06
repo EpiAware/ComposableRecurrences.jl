@@ -243,7 +243,7 @@ place or an age group.
 The recurrence allocates each modifier's state ``s`` with
 
 ```math
-|s| = n(m, S), \qquad n(m, S) = S 	ext{ by default},
+|s| = n(m, S), \qquad n(m, S) = S \text{ by default},
 ```
 
 passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
