@@ -484,14 +484,17 @@ end
 # Whether the default pullback's rebuild of each modifier from its own
 # parameters gives them back. A constructor that transforms its arguments
 # (`new(2a)`) does not, and the local derivative would then be of the
-# transformed value.
+# transformed value. A depletion's form is checked the same way.
 _rebuilds(op) = true
 _rebuilds(r::Recurrence) = _all_rebuild(r.modifiers)
 _rebuilds(w::_WithState) = _rebuilds(w.r)
 _all_rebuild(::Tuple{}) = true
 _all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
-function _rebuilds_modifier(m)
-    uses_adjoint(m, Step()) && return true
+_rebuilds_modifier(m) = uses_adjoint(m, Step()) || _rebuilds_value(m)
+function _rebuilds_modifier(m::Depletion)
+    return uses_adjoint(m.form, Step()) || _rebuilds_value(m.form)
+end
+function _rebuilds_value(m)
     _rebuildable(m) || return false
     θ = _param_tuple(m)
     return isequal(_param_tuple(first(_rebuild_scalar(m, θ))), θ)

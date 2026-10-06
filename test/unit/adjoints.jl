@@ -420,6 +420,16 @@ end
         @test val(op) == [Val{true}]
         @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
     end
+    # A form whose constructor transforms its argument is found by value.
+    struct DoubledRate{T}
+        c::T
+        DoubledRate(c::T) where {T} = new{T}(2c)
+    end
+    CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
+    op = Recurrence(g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),))
+    @test CR.uses_adjoint(op, CR.Run())
+    @test !CR._rebuilds(op)
+    @test CR._rebuilds(Recurrence(g; modifiers = (CR.Depletion(50.0, f),)))
 
     # Dual numbers and BigFloat take the plain path.
     r = Recurrence(g)

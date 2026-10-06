@@ -492,6 +492,11 @@ end
         y = f.c * v * max(s, 0)^α / N
         return y, s - y
     end
+    struct DoubledRate{T}
+        c::T
+        DoubledRate(c::T) where {T} = new{T}(2c)
+    end
+    CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
     # `(modifier, uses_adjoint, rule fires)`.
     cases = (
         (θ -> MapBy(scale(θ), 0.9), false, false),
@@ -506,6 +511,7 @@ end
         (θ -> CR.Depletion(100 * θ, Linear()), true, true),
         (θ -> CR.Depletion(100.0, LinearRate(θ); heterogeneity = 1.1), true, true),
         (θ -> CR.Depletion(100.0, Linear(); removals = θ), true, true),
+        (θ -> CR.Depletion(100.0, DoubledRate(θ)), true, false),
     )
     for (m, adj, fires) in cases, w in (identity, NoAdjoint)
         @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
