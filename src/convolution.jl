@@ -105,6 +105,13 @@ function _conv(c::Convolution, x, history, start, stop)
     )
     _check_kernel_times(kernel, stop)
     Tp = float(param_eltype((kernel, x, history)))
+    Y, X = _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
+    return Y, X, m, stop
+end
+
+# Allocates and fills the input buffer and convolves it into the output
+# buffer at eltype `Tp`; an extension adds methods for its own number types.
+function _conv_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
     X = _zeros(x, Tp, m + stop, S)
     history === nothing || _load_history!(X, history, m)
     _load_input!(X, x, m, stop)
@@ -115,7 +122,7 @@ function _conv(c::Convolution, x, history, start, stop)
     else
         _convolve!(cur, Y, kernel, X, m, start)
     end
-    return Y, X, m, stop
+    return Y, X
 end
 
 _check_input_history(::Nothing, x) = nothing

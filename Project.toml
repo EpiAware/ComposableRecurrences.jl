@@ -22,6 +22,7 @@ GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
 
 [extensions]
 ComposableRecurrencesConstructionBaseExt = "ConstructionBase"
@@ -30,6 +31,7 @@ ComposableRecurrencesEnzymeTestUtilsExt = ["ADTypes", "Enzyme", "EnzymeTestUtils
 ComposableRecurrencesGPUArraysCoreExt = ["GPUArraysCore", "KernelAbstractions"]
 ComposableRecurrencesKernelAbstractionsExt = "KernelAbstractions"
 ComposableRecurrencesMooncakeExt = ["ADTypes", "Mooncake", "Random"]
+ComposableRecurrencesReactantExt = "Reactant"
 
 [compat]
 ADTypes = "1"
@@ -44,5 +46,6 @@ KernelAbstractions = "0.9.34"
 LinearAlgebra = "1"
 Mooncake = "0.5.61"
 Random = "1"
+Reactant = "0.2.290"
 SparseArrays = "1"
 julia = "1.11, 1.12"
