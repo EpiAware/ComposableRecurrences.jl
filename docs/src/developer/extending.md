@@ -70,8 +70,7 @@ grads = (; piece = (; a = Ref(0.0)), v = 1.0, s = 0.0)
 CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
 ```
 
-Without a `pullback!`, a pointwise modifier with only scalar float parameters is differentiated locally with ForwardDiff inside the Mooncake rule.
-On Enzyme plain AD of the whole operator is faster, so Enzyme differentiates it instead.
+Without a `pullback!`, a pointwise modifier with only scalar float parameters is differentiated locally with ForwardDiff inside the rule.
 The rule rebuilds the modifier with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
 Integer fields, index ranges and integer arrays are structure, not parameters.

@@ -1,15 +1,12 @@
 # Mooncake reverse-mode rule for every operator with a `pullback!`: one
-# rule on the internal entry points `_ad(op, args...)` and
-# `_ad_local(op, args...)`. The local `ForwardDiff` derivative of a
-# modifier's step is faster than plain Mooncake AD, so both are primitives.
-# Tangents are read into the mirrors `pullback!` accumulates into, and scalar
-# cotangents are returned as rdata.
+# primitive on the internal entry point `_ad(op, args...)`. Tangents are read
+# into the mirrors `pullback!` accumulates into, and scalar cotangents are
+# returned as rdata.
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _ad_local, _current, _note_plain_type, _rebuilds, _run_forward,
-    _run_pullback!
+    _current, _note_plain_type, _rebuilds, _run_forward, _run_pullback!
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -89,13 +86,8 @@ end
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad), Vararg}
 )
-Mooncake.@is_primitive(
-    Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad_local), Vararg}
-)
 
-function Mooncake.rrule!!(
-        ::CoDual{<:Union{typeof(_ad), typeof(_ad_local)}}, args::Vararg{CoDual, N}
-    ) where {N}
+function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where {N}
     ps = map(primal, args)
     y, cache = _run_forward(ps...)
     # A scalar leaf in the output would carry rdata this rule drops.

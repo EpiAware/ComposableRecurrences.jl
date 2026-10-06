@@ -1,11 +1,8 @@
 # The native adjoint rules' entry point. An operator's call builds its
-# positional arguments and goes through `adjoint_call`, which routes to a
-# rule primitive when the operator uses its adjoint and every float is IEEE,
-# and otherwise to `_plain`, which the AD backend differentiates. `_ad` is
-# the rule primitive of every backend with rules (`Mooncake` `rrule!!` and
-# `Enzyme` rules in the extensions). `_ad_local` is the primitive of an
-# operator with a modifier differentiated locally with `ForwardDiff` inside
-# the rule; only the backends where that beats plain AD make it one.
+# positional arguments and goes through `adjoint_call`, which routes to the
+# rule primitive `_ad` (`Mooncake` `rrule!!` and `Enzyme` rules in the
+# extensions) when the operator uses its adjoint and every float is IEEE,
+# and otherwise to `_plain`, which the AD backend differentiates.
 
 # Supertype of operators whose call is routed through the native rules. An
 # operator type implements `forward(op, Run(), args...) -> (y, cache)` and
@@ -148,25 +145,18 @@ end
     )
 end
 
-# The entry point: a rule when the operator uses its adjoint and every float
-# leaf is IEEE, else plain AD. An operator with a modifier differentiated
-# locally takes `_ad_local`, a rule only on the backends where that pays.
-# The decisions are made from the types, so the route is static. A modifier
-# left to the default pullback is also checked by value to rebuild from its
-# parameters (`_rebuilds`); this folds to `true` for operators without one.
+# The entry point: the rule when the operator uses its adjoint and every
+# float leaf is IEEE, else plain AD. Both decisions are made from the
+# types, so the route is static. A modifier left to the default pullback is
+# also checked by value to rebuild from its parameters (`_rebuilds`); this
+# folds to `true` for operators without one.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 function _route_val(op, args...)
-    uses_adjoint(op, Run()) && _gate(op, args...) || return Val(:plain)
-    return _needs_local(op) ? Val(:local) : Val(:rule)
+    return Val(uses_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
 function _route(::Val{:rule}, op, args...)
     _rebuilds(op) && return _ad(op, args...)
-    _note_rebuild(typeof(op))
-    return _plain(op, args...)
-end
-function _route(::Val{:local}, op, args...)
-    _rebuilds(op) && return _ad_local(op, args...)
     _note_rebuild(typeof(op))
     return _plain(op, args...)
 end
@@ -175,19 +165,15 @@ function _route(::Val{:plain}, op, args...)
     return _plain(op, args...)
 end
 
-# Whether an operator has a modifier differentiated locally.
-_needs_local(op) = false
-
 # The positional Run of an operator and its pullback. Operators with a
 # keyword `forward` on `Run()` add methods for their positional form.
 _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = _call_pullback!(grads, op, Run(), cache)
 
-# The primal call. The extensions make `_ad` and `_ad_local` rule
-# primitives; `_plain` is differentiated by the backend.
+# The primal call. The extensions make `_ad` a rule primitive for `Mooncake`
+# and `Enzyme`; `_plain` is differentiated by the backend.
 _primal(op, args...) = first(_run_forward(op, args...))
 _ad(op, args...) = _primal(op, args...)
-_ad_local(op, args...) = _primal(op, args...)
 _plain(op, args...) = _primal(op, args...)
 
 # Log, once per operator type, that an operator is differentiated by plain

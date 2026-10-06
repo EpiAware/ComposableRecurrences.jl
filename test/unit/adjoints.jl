@@ -287,14 +287,13 @@ end
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
-    # Built-in parts take the rule, and pointwise modifiers with scalar
-    # parameters and no pullback take the local route; the route is decided
-    # from the types.
+    # Built-in parts and pointwise modifiers with scalar parameters take the
+    # rule; the route is decided from the types.
     for (op, route) in (
             (Recurrence(g), :rule), (Recurrence(g; coupling = K), :rule),
             (Recurrence(g; modifiers = (CR.Depletion(50.0),)), :rule),
-            (Recurrence(g; modifiers = (Slope(0.3),)), :local),
-            (Recurrence(g; modifiers = (Slope(0.3), CR.Clamp(0.0, 9.0))), :local),
+            (Recurrence(g; modifiers = (Slope(0.3),)), :rule),
+            (Recurrence(g; modifiers = (Slope(0.3), CR.Clamp(0.0, 9.0))), :rule),
             (
                 Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
                 :rule,
@@ -340,9 +339,9 @@ end
         return m.a * grads.v, grads.s
     end
     op = Recurrence(g; modifiers = (Typed(0.5),))
-    @test val(op) == [Val{:local}]
+    @test CR._modifier_adjoint(Typed(0.5)) === :local
     CR.uses_adjoint(::Typed, ::CR.Step) = true
-    @test val(op) == [Val{:rule}]
+    @test CR._modifier_adjoint(Typed(0.5)) === :pullback
     @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
 
     # A function stored in a pointwise modifier with no pullback: a plain
@@ -366,7 +365,7 @@ end
         op = Recurrence(g; modifiers = (MapBy(f, 0.9),))
         @test CR._scalar_params(MapBy(f, 0.9)) == rule
         @test CR.uses_adjoint(op, CR.Run()) == rule
-        @test val(op) == [Val{rule ? :local : :plain}]
+        @test val(op) == [Val{rule ? :rule : :plain}]
     end
     # Integer ranges and arrays are structure, not parameters, for the gate.
     struct Pick{I, T}
@@ -378,7 +377,7 @@ end
     for idx in (1:2, 1:2:3, Base.OneTo(2), [1, 2], [1:1, 2:2], [[1], [2]], (1:1, 2:2))
         op = Recurrence(g; modifiers = (Pick(idx, 0.5),))
         @test CR._ok(typeof(idx))
-        @test val(op) == [Val{:local}]
+        @test val(op) == [Val{:rule}]
     end
     @test pullback_matches(
         Recurrence(g; modifiers = (Pick(2:2, 0.5),)),

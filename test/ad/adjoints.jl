@@ -514,10 +514,7 @@ end
         (θ -> CR.Depletion(100.0, DoubledRate(θ)), true, false),
     )
     for (m, adj, fires) in cases, w in (identity, NoAdjoint)
-        op = Recurrence([0.3]; modifiers = (m(0.8),))
-        @test CR.uses_adjoint(op, CR.Run()) == adj
-        # A modifier differentiated locally takes the rule on Mooncake only.
-        is_local = CR._needs_local(op)
+        @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
         f(θ) = run(w, m(θ[1]), θ[2])
         θ = [0.8, 1.1]
         # Central differences: a field typed `Float64` cannot hold the
@@ -528,8 +525,7 @@ end
         for backend in backends
             n0 = CR._PULLBACK_CALLS[]
             @test gradient(f, backend, θ) ≈ ref rtol = 1.0e-6
-            rule = fires && w === identity && !(is_local && backend isa AutoEnzyme)
-            @test (CR._PULLBACK_CALLS[] > n0) == rule
+            @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
         end
     end
 end
@@ -639,16 +635,12 @@ end
             ),
         ),
     )
-    # A modifier differentiated locally takes the rule on Mooncake only.
-    is_local = Set(["Recurrence scalar modifier field, mixed eltypes"])
     for (name, backend) in backends, scen in ADFixtures.scenarios()
         scen.name in get(skip, name, Set{String}()) && continue
         @testset "$(scen.name) $name" begin
             n0 = CR._PULLBACK_CALLS[]
             gradient(scen.f, backend, scen.x)
-            rule = !startswith(scen.name, "NoAdjoint") &&
-                !(backend isa AutoEnzyme && scen.name in is_local)
-            @test (CR._PULLBACK_CALLS[] > n0) == rule
+            @test (CR._PULLBACK_CALLS[] > n0) == !startswith(scen.name, "NoAdjoint")
         end
     end
 end

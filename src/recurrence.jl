@@ -477,8 +477,7 @@ Base.@constprop :aggressive function with_state(
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is differentiated locally. An operator with a local modifier
-# takes the `_ad_local` route.
+# does or is differentiated locally.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -488,12 +487,6 @@ _all_modifiers_adjoint(::Tuple{}) = true
 function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
         _all_modifiers_adjoint(Base.tail(ms))
-end
-_needs_local(r::Recurrence) = _any_local(r.modifiers)
-_needs_local(w::_WithState) = _needs_local(w.r)
-_any_local(::Tuple{}) = false
-function _any_local(ms::Tuple)
-    return _modifier_adjoint(first(ms)) === :local || _any_local(Base.tail(ms))
 end
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own

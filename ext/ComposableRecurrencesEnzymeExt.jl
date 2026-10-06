@@ -1,16 +1,12 @@
 # Enzyme reverse-mode rule for every operator with a `pullback!`: one
 # varargs `augmented_primal`/`reverse` pair on the internal entry point
-# `_ad(op, args...)`. The local `ForwardDiff` derivative of a modifier's
-# step is slower than plain Enzyme AD, so `_ad_local` has no rule and
-# Enzyme differentiates its primal, except for an active sparse coupling
-# (below). Shadows are read into the mirrors `pullback!`
+# `_ad(op, args...)`. Shadows are read into the mirrors `pullback!`
 # accumulates into; scalar cotangents are returned for `Active` arguments and
 # written back for `MixedDuplicated` ones.
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _ad_local, _current, _note_plain_type, _rebuilds, _plain, _run_forward,
-    _run_pullback!
+    _current, _note_plain_type, _rebuilds, _plain, _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -114,9 +110,6 @@ function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_ad)},
         ::Type{RA}, args::Vararg{Annotation, N}
     ) where {RA <: Annotation, N}
-    return _augmented(config, RA, args)
-end
-function _augmented(config, ::Type{RA}, args) where {RA}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     y, cache = _run_forward(map(a -> a.val, args)...)
@@ -133,9 +126,6 @@ function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_ad)}, ::Type{<:Annotation},
         tape, args::Vararg{Annotation, N}
     ) where {N}
-    return _reverse(tape, args)
-end
-function _reverse(tape, args)
     cache, y, dy = tape
     dy === nothing && return map(_ -> nothing, args)
     ms = map(_ez, args)
@@ -167,21 +157,6 @@ function EnzymeRules.reverse(
         tape, op::_ActiveSparse, args::Vararg{Annotation, N}
     ) where {N}
     throw(ArgumentError(_SPARSE_MSG))
-end
-
-# For the same reason an active sparse coupling with a locally
-# differentiated modifier keeps the rule.
-function EnzymeRules.augmented_primal(
-        config::EnzymeRules.RevConfig, ::Const{typeof(_ad_local)}, ::Type{RA},
-        op::_ActiveSparse, args::Vararg{Annotation, N}
-    ) where {RA <: Annotation, N}
-    return _augmented(config, RA, (op, args...))
-end
-function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_ad_local)}, ::Type{<:Annotation},
-        tape, op::_ActiveSparse, args::Vararg{Annotation, N}
-    ) where {N}
-    return _reverse(tape, (op, args...))
 end
 
 end
