@@ -242,6 +242,13 @@ end
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = ones(2, 2))
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = 0.5I)
     @test_throws ArgumentError Recurrence(nothing)
+    @test_throws "got nothing" Recurrence(nothing)
+    @test_throws ["coupling must be I, got", "UniformScaling{Float64}(0.5)"] Recurrence(
+        Pairwise(ones(2, 2, 3)); coupling = 0.5I
+    )
+    @test_throws "not coupling = Pairwise(2×2×3 Array{Float64, 3})" Recurrence(
+        g; coupling = Pairwise(ones(2, 2, 3))
+    )
     # No time-indexed input: stop is required.
     @test_throws ArgumentError Recurrence(g)(1.0; history = ones(3))
     # Inputs of different lengths need stop, and must cover it.
@@ -256,6 +263,10 @@ end
     @test_throws ArgumentError Recurrence(ones(2, 3))
     @test_throws ArgumentError Recurrence(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Recurrence(PerStratum(ones(2, 3, 4)))
+    @test_throws "got 2×3 Matrix{Float64}" Recurrence(ones(2, 3))
+    @test_throws "got PerStratum(2×3×4 Array{Float64, 3})" Recurrence(
+        PerStratum(ones(2, 3, 4))
+    )
     # A Primary kernel needs its seed at times from 1; Primary is not a
     # coupling's meaning.
     @test_throws ArgumentError Recurrence(
@@ -265,13 +276,22 @@ end
         g; coupling = TimeVarying(ones(2, 2, 4), ComposableRecurrences.Primary())
     )
     @test_throws ArgumentError Recurrence(g; coupling = TimeVarying(ones(2, 4)))
+    @test_throws "got TimeVarying(2×4 Matrix{Float64}, Secondary())" Recurrence(
+        g; coupling = TimeVarying(ones(2, 4))
+    )
     # Call inputs are data, never wrapped.
     @test_throws ArgumentError Recurrence(g)(TimeVarying(ones(5)); history = ones(3))
+    @test_throws "got TimeVarying(5-element" Recurrence(g)(
+        TimeVarying(ones(5)); history = ones(3)
+    )
     # A seed or a state, and a resumed call starts where it left off.
     y, state = ComposableRecurrences.with_state(
         Recurrence(g), ones(5); history = ones(3), stop = 2
     )
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), state)
+    @test_throws "not both; got history = 3-element" Recurrence(g)(
+        ones(5); history = ones(3), state
+    )
     @test_throws "state.t = 3, not start = 4" Recurrence(g)(ones(5); state, start = 4)
     @test Recurrence(g)(ones(5); state, start = 3) == Recurrence(g)(ones(5); state)
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), start = 0)
@@ -320,6 +340,32 @@ end
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
     @test r1(R[1, :]; state = st) ≈ full1[7:end]
+end
+
+@testitem "Recurrence: a resumed state has nstate entries per modifier" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
+    @test CR.nstate(d, 2) == 4
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
+    R, h = fill(1.1, 2, 6), ones(2, 2)
+    y, state = CR.with_state(r, R; history = h, stop = 3)
+    @test length.(state.states) == (2, 4)
+    @test r(R; state) ≈ r(R; history = h)[:, 4:end]
+    # A state of the wrong length names the modifier and both lengths.
+    bad = CR.State(state.history, (state.states[1], state.states[2][1:2]), state.t)
+    err = try
+        r(R; state = bad)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("modifier 2 (Depletion)", err.msg)
+    @test occursin("length 2", err.msg)
+    @test occursin("nstate(m, 2) = 4", err.msg)
+    bad = CR.State(state.history, (state.states[1][1:1], state.states[2]), state.t)
+    @test_throws ArgumentError r(R; state = bad)
 end
 
 @testitem "Recurrence: absolute time and start" setup = [Reference, TestModifiers] begin
@@ -489,4 +535,23 @@ end
             @test CR._load_history!(alt, src, L) == CR._load_history!(buf, src, L)
         end
     end
+end
+
+@testitem "Error messages describe wrapped values by size and type" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    @test CR._describe(0.5) == "0.5"
+    @test CR._describe(0:1) == "0:1"
+    @test CR._describe(ones(2, 3)) == summary(ones(2, 3))
+    @test CR._describe(PerStratum(ones(2, 3))) ==
+        "PerStratum($(summary(ones(2, 3))))"
+    @test CR._describe(Pairwise(ones(2, 2, 3))) ==
+        "Pairwise($(summary(ones(2, 2, 3))))"
+    @test CR._describe(TimeVarying(ones(2, 4))) ==
+        "TimeVarying($(summary(ones(2, 4))), Secondary())"
+    @test CR._describe(TimeVarying(ones(2, 4), CR.Primary())) ==
+        "TimeVarying($(summary(ones(2, 4))), Primary())"
+    @test_throws "only meaningful for a kernel; got TimeVarying(" CR._check_times(
+        :x, TimeVarying(ones(2, 4), CR.Primary()), 4
+    )
 end

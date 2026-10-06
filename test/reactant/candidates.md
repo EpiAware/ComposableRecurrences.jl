@@ -1,8 +1,8 @@
 ## Candidates for the Reactant extension
 
-Each change below lives in `shims.jl` and is loaded only in the `shims` configuration.
+Changes 1 to 4 live in `shims.jl` and are loaded only in the `shims` configuration; 5 and 6 are in the package.
 They were found one at a time: add a shim, rerun, read the next failure.
-None changes `src/`; they are the starting list for the Reactant extension step.
+The shims do not change `src/`; they are the starting list for the Reactant extension step.
 
 1. `param_eltype` for traced arrays (`src/utils.jl`).
    A traced array's eltype is `TracedRNumber{T}`, which is not a `Real`, so the generic array method runs `mapreduce(param_eltype, promote_type, x; init = Bool)`.
@@ -23,8 +23,10 @@ None changes `src/`; they are the starting list for the Reactant extension step.
    Fix: `_oldest_first(g::AnyTracedRVector) = reverse(copy(g))`, and the same for `PerStratum`.
 5. Buffers allocated like a constant history (`_zeros`, `src/utils.jl`).
    `_zeros(x, T, dims...)` calls `similar(x, T, dims)`, so a plain `Array` history, as a fixed seed is, gives an `Array` of traced numbers, and `fill!` on it fails.
-   Every `Recurrence` case with a constant history fails here once 1 and 2 are fixed; `Convolution` allocates like its traced input and is not affected.
-   Fix: `_zeros(x, ::Type{T}, dims...) where {T <: TracedRNumber} = zeros(T, dims...)`.
+   The package now allocates CPU buffers with `zeros(T, dims...)`, which is what the shim did, so the shim is gone: kept, it was ambiguous with that method and every `Recurrence` case failed with a `MethodError` in `_run`.
+6. Value-dependent `if` in a step (`_protected_step`, `src/depletion_pools.jl`).
+   A traced comparison gives a traced `Bool`, which `if` refuses with a `TypeError`.
+   The protected pool's step now picks between its two arms with `ifelse`, with the division guarded so the unused arm stays finite; this is a package change, not a shim.
 
 Two things to keep in mind when reading compile times.
 The package's plain `for` loops are unrolled when traced, so compile time and program size grow with `T × S`; a production extension would move the step loop to `@trace for`.

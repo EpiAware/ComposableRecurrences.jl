@@ -33,7 +33,10 @@ function _check_param(
 end
 function _check_param(name, x::TimeVarying{Primary})
     throw(
-        ArgumentError("$name: Primary() indexing is only meaningful for a kernel")
+        ArgumentError(
+            "$name: Primary() indexing is only meaningful for a kernel; " *
+                "got $(_describe(x))"
+        )
     )
 end
 function _check_param(name, x)
@@ -41,8 +44,8 @@ function _check_param(name, x)
         ArgumentError(
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, or " *
-                "TimeVarying(PerStratum($name)) strata × time; not a " *
-                "$(typeof(x))"
+                "TimeVarying(PerStratum($name)) strata × time; got " *
+                _describe(x)
         )
     )
 end
@@ -206,7 +209,10 @@ function Depletion(
         _float_param(_check_constant(:pool0, pool0))
     removals = removals === nothing ? nothing : _check_param(:removals, removals)
     protected === nothing || protected isa Protected || throw(
-        ArgumentError("protected is a Protected pool or nothing")
+        ArgumentError(
+            "protected must be a Protected pool or nothing, got " *
+                _describe(protected)
+        )
     )
     return Depletion(
         N, form, _exponent(heterogeneity, N), pool0, removals, protected
@@ -218,7 +224,7 @@ function _check_form(form::F) where {F}
     hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
         throw(
         ArgumentError(
-            "$F is not a depletion form: a form implements " *
+            "$(_describe(form)) is not a depletion form: a form implements " *
                 "forward(form, Step(), v, s, N, α) -> (y, s′)"
         )
     )
@@ -227,11 +233,11 @@ end
 
 # The population and starting pool are per stratum, not over time.
 _check_constant(name, x) = _check_param(name, x)
-function _check_constant(name, ::TimeVarying)
+function _check_constant(name, x::TimeVarying)
     throw(
         ArgumentError(
             "$name is one value or PerStratum($name); it does not vary over " *
-                "time"
+                "time, got $(_describe(x))"
         )
     )
 end
