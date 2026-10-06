@@ -341,8 +341,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence Primary time-varying kernel" => (:_check_primary_seed,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
-    # `with_state` on a `NoAdjoint` took `prepend` with `_with_state`.
-    "Recurrence returning its state after its seed" => (:_with_state,),
+    # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
+    # growth-path seed but before any release with it.
+    "Recurrence returning its state after its seed" => (:exponential_history,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same
