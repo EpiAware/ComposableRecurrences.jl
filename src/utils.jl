@@ -149,13 +149,17 @@ Add a method for a type whose parameters this does not reach.
 - `x`: any object, such as a modifier, coupling or kernel.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 struct Scale
     a
     extra::NamedTuple
 end
 ComposableRecurrences.param_eltype(Scale(1.0f0, (; b = 2)))
+
+# output
+
+Float32
 ```
 """
 param_eltype(x) = _fields_eltype(x)

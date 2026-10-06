@@ -91,10 +91,15 @@ population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
 The default form of [`ComposableRecurrences.Depletion`](@ref).
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+round(y; digits = 3), round(s; digits = 3)
+
+# output
+
+(1.584, 78.416)
 ```
 """
 struct Hazard end
@@ -116,10 +121,14 @@ the value drawn and ``s'`` the pool after the step.
 The pool can go negative, and then the floor applies.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 CR.forward(CR.Floor(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+
+# output
+
+(1.6, 78.4)
 ```
 """
 struct Floor end
@@ -170,12 +179,25 @@ pool starts at.
   or `nothing` for none.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 seed = [1.0, 2.0]
 depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
-Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+y = Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+round.(y; digits = 3)
+
+# output
+
+8-element Vector{Float64}:
+  2.867
+  4.472
+  6.344
+  8.541
+ 10.342
+ 11.087
+ 10.29
+  8.287
 ```
 """
 struct Depletion{F, P, A, P0, R, V}
@@ -362,11 +384,18 @@ The state is unused.
 - `b`: the values to add.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
+
+# output
+
+3-element Vector{Float64}:
+ 3.0
+ 2.88
+ 4.598912
 ```
 """
 struct Add{B}
@@ -421,12 +450,19 @@ input, so the `add` values move too.
 - `ε`: the origin intensity.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 K = [0.0 0.3; 0.2 0.0]
 r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
-r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+y = r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+round.(y; digits = 3)
+
+# output
+
+2×5 Matrix{Float64}:
+ 1.176  1.28  1.445  1.604  1.796
+ 0.024  0.04  0.067  0.095  0.131
 ```
 """
 struct Redistribute{K <: AbstractMatrix, E}
@@ -519,10 +555,18 @@ The state is unused.
 - `hi`: the upper bound.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
+
+# output
+
+4-element Vector{Float64}:
+ 2.0
+ 4.0
+ 5.0
+ 5.0
 ```
 """
 struct Clamp{L, H}

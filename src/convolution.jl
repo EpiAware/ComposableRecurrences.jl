@@ -45,10 +45,22 @@ The output has the layout of `x` and length `stop - start + 1`.
 - `kernel`: the kernel, lag 0 first.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
 Convolution(delay)(ones(8); history = ones(3))
+
+# output
+
+8-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
 ```
 """
 struct Convolution{K} <: AbstractOperator

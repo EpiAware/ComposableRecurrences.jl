@@ -90,7 +90,7 @@ dual numbers pass through any slot.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 g = [0.6, 0.3, 0.1]                   # weights on lags 1, 2, 3
 K = [0.9 0.1; 0.2 0.8]
@@ -105,6 +105,10 @@ r(hcat(ones(2, 3), R); history = ones(2, 3), start = 4, prepend = true)
 y1, state = ComposableRecurrences.with_state(r, R; history = ones(2, 3), stop = 5)
 y2 = r(R; state)
 y ≈ hcat(y1, y2)
+
+# output
+
+true
 ```
 """
 struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
@@ -147,12 +151,16 @@ where ``y_t`` is the output at time ``t`` (one entry per stratum),
 A call with `state` continues exactly as one call over both ranges would.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.5, 0.5])
 y, state = CR.with_state(r, fill(1.1, 6); history = ones(2), stop = 3)
-state.t, r(fill(1.1, 6); state)
+state.t, round.(r(fill(1.1, 6); state); digits = 3)
+
+# output
+
+(4, [1.317, 1.407, 1.498])
 ```
 """
 struct State{H, M, T}
@@ -185,13 +193,17 @@ Takes the same arguments as calling `op`; resume with `op(...; state)`.
 - `args`, `kwargs`: the call's arguments.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.6, 0.4])
 R = fill(1.1, 8)
 y1, state = CR.with_state(r, R; history = ones(2), stop = 4)
 vcat(y1, r(R; state)) ≈ r(R; history = ones(2))
+
+# output
+
+true
 ```
 """
 function with_state(op, args...; kwargs...)
@@ -869,11 +881,22 @@ from history ``h``, and ``t_1`` is the last time.
 - `kwargs`: passed to the call of `r`, such as `add` or `stop`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 seed = [2.0, 3.0, 4.0]
 r = Recurrence([0.3, 0.5, 0.2])
-r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
+y = r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
+round.(y; digits = 3)
+
+# output
+
+6-element Vector{Float64}:
+  2.0
+  3.0
+  4.0
+  7.75
+ 10.835
+ 14.266
 ```
 """
 function seeded(r::Recurrence, gain = true; history, kwargs...)
@@ -913,12 +936,25 @@ renewal's own path solves
 - `L`: the number of time steps, at least 1, usually the kernel length.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 g = [0.2, 0.5, 0.3]
 h = CR.exponential_history(5.0, 0.1, length(g))
-Recurrence(g)(fill(1.2, 6); history = h, prepend = true)
+round.(Recurrence(g)(fill(1.2, 6); history = h, prepend = true); digits = 3)
+
+# output
+
+9-element Vector{Float64}:
+ 4.094
+ 4.524
+ 5.0
+ 5.388
+ 5.922
+ 6.454
+ 7.042
+ 7.694
+ 8.395
 ```
 """
 exponential_history(I0::Real, r::Real, L::Integer) = I0 .* exp.(r .* _steps_to_last(L))

@@ -19,9 +19,13 @@ it:
 ```
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 ComposableRecurrences.Serial() isa ComposableRecurrences.Executor
+
+# output
+
+true
 ```
 """
 abstract type Executor end
@@ -34,12 +38,19 @@ Runs every index in order on the calling task:
 ```
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 const CR = ComposableRecurrences
 y = zeros(3)
 CR.each!((k, y) -> (y[k] = k^2; nothing), CR.Serial(), 3, 3, y)
 y
+
+# output
+
+3-element Vector{Float64}:
+ 1.0
+ 4.0
+ 9.0
 ```
 """
 struct Serial <: Executor end
@@ -71,7 +82,7 @@ Returns `nothing`.
 - `args`: the arguments passed to every call of `body`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 const CR = ComposableRecurrences
 # Row sums of a matrix, one row per index.
@@ -80,6 +91,12 @@ A = [1.0 2.0; 3.0 4.0]
 y = zeros(2)
 CR.each!(rowsum!, CR.Serial(), 2, length(A), y, A)
 y
+
+# output
+
+2-element Vector{Float64}:
+ 3.0
+ 7.0
 ```
 """
 @inline function each!(
@@ -115,13 +132,21 @@ On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Device`](@ref) there.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 const CR = ComposableRecurrences
 y = zeros(4)
 ex = CR.Threaded(; min_work = 0, ntasks = 2)
 CR.each!((k, y) -> (y[k] = k^2; nothing), ex, 4, 4, y)
 y
+
+# output
+
+4-element Vector{Float64}:
+  1.0
+  4.0
+  9.0
+ 16.0
 ```
 """
 struct Threaded <: Executor
@@ -198,13 +223,17 @@ directly runs serially whatever executor is set, as the supported backends
 do not differentiate tasks.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 using Base.ScopedValues: with
 const CR = ComposableRecurrences
 with(CR.EXECUTOR => CR.Threaded()) do
     CR.EXECUTOR[]
 end
+
+# output
+
+ComposableRecurrences.Threaded(100000, 0)
 ```
 """
 const EXECUTOR = ScopedValue{Executor}(Serial())
@@ -229,13 +258,21 @@ Parts that index arrays on the host, such as dense and sparse couplings,
 `Depletion` and modifiers with a vector step, do not run on a device yet.
 
 # Examples
-```@example
+```jldoctest; setup = :(using JLArrays, KernelAbstractions)
 using ComposableRecurrences, JLArrays, KernelAbstractions
 const CR = ComposableRecurrences
 y = JLArray(zeros(4))
 ex = CR.Device(KernelAbstractions.get_backend(y))
 CR.each!((k, y) -> (y[k] = k^2; nothing), ex, 4, 4, y)
 Array(y)
+
+# output
+
+4-element Vector{Float64}:
+  1.0
+  4.0
+  9.0
+ 16.0
 ```
 """
 struct Device{B} <: Executor
