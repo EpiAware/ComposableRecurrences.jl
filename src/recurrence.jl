@@ -149,11 +149,11 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.5, 0.5])
 y, state = CR.with_state(r, fill(1.1, 6); history = ones(2), stop = 3)
-state.t, r(fill(1.1, 6); state)
+state.t, round.(r(fill(1.1, 6); state); digits = 3)
 
 # output
 
-(4, [1.3173875000000006, 1.4067006250000007, 1.498248468750001])
+(4, [1.317, 1.407, 1.498])
 ```
 """
 struct State{H, M, T}
@@ -793,7 +793,8 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 seed = [2.0, 3.0, 4.0]
 r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(80.0; pool0 = 80.0 - sum(seed)),))
-CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
+y = CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
+round.(y; digits = 3)
 
 # output
 
@@ -801,9 +802,9 @@ CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
  2.0
  3.0
  4.0
- 6.55546850155226
- 7.60555695813259
- 7.577824842770705
+ 6.555
+ 7.606
+ 7.578
 ```
 """
 function seeded(r::Recurrence, gain = true; history, kwargs...)

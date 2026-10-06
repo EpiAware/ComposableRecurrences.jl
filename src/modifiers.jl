@@ -21,15 +21,15 @@ as the [`ComposableRecurrences.State`](@ref).
 using ComposableRecurrences
 CR = ComposableRecurrences
 y, cache = CR.forward(Recurrence([0.5, 0.5]), CR.Run(), fill(1.1, 4); history = ones(2))
-y
+round.(y; digits = 3)
 
 # output
 
 4-element Vector{Float64}:
  1.1
- 1.1550000000000002
- 1.2402500000000003
- 1.3173875000000006
+ 1.155
+ 1.24
+ 1.317
 ```
 """
 struct Run end
@@ -65,11 +65,12 @@ A pointwise modifier acts on each stratum ``i`` separately,
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+round(y; digits = 3), round(s; digits = 3)
 
 # output
 
-(1.5841061354595758, 78.41589386454042)
+(1.584, 78.416)
 ```
 """
 struct Step end

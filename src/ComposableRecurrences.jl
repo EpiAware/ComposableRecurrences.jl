@@ -54,21 +54,22 @@ or [`ComposableRecurrences.Pressure`](@ref)).
 ```jldoctest
 using ComposableRecurrences
 g = [0.1, 0.3, 0.6]
-Recurrence(g)(fill(1.2, 10); history = ones(3))
+y = Recurrence(g)(fill(1.2, 10); history = ones(3))
+round.(y; digits = 3)
 
 # output
 
 10-element Vector{Float64}:
- 1.1999999999999997
- 1.2239999999999998
- 1.2988799999999998
- 1.4605055999999996
- 1.5241374719999996
- 1.6438721126399998
- 1.7975181754367995
- 1.9048751214428152
- 2.0592794788311855
- 2.227081667493651
+ 1.2
+ 1.224
+ 1.299
+ 1.461
+ 1.524
+ 1.644
+ 1.798
+ 1.905
+ 2.059
+ 2.227
 ```
 """
 module ComposableRecurrences

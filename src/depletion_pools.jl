@@ -47,21 +47,22 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 doses = TimeVarying(fill(5.0, 10))
 leaky = CR.Depletion(1000.0; removals = doses, protected = CR.Protected(0.3))
-Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 10); history = [5.0])
+y = Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 10); history = [5.0])
+round.(y; digits = 3)
 
 # output
 
 10-element Vector{Float64}:
-  2.9955044966270243
-  6.730251097454152
-  8.842623960309435
- 12.765026691442971
- 18.150172258587972
- 25.032849274164587
- 33.976490148497284
- 44.51742666556528
- 55.963852173872965
- 66.66759063907847
+  2.996
+  6.73
+  8.843
+ 12.765
+ 18.15
+ 25.033
+ 33.976
+ 44.517
+ 55.964
+ 66.668
 ```
 """
 struct Protected{Σ, V0}

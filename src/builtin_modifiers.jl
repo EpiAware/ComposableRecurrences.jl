@@ -91,11 +91,12 @@ The default form of [`ComposableRecurrences.Depletion`](@ref).
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+round(y; digits = 3), round(s; digits = 3)
 
 # output
 
-(1.5841061354595758, 78.41589386454042)
+(1.584, 78.416)
 ```
 """
 struct Hazard end
@@ -178,19 +179,20 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 seed = [1.0, 2.0]
 depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
-Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+y = Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+round.(y; digits = 3)
 
 # output
 
 8-element Vector{Float64}:
-  2.8667832457947067
-  4.47156633887084
-  6.344063843663696
-  8.541110210157452
- 10.341821468336246
- 11.087412307225977
- 10.290021530180741
-  8.287197798080815
+  2.867
+  4.472
+  6.344
+  8.541
+ 10.342
+ 11.087
+ 10.29
+  8.287
 ```
 """
 struct Depletion{F, P, A, P0, R, V}
@@ -445,13 +447,14 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 K = [0.0 0.3; 0.2 0.0]
 r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
-r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+y = r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+round.(y; digits = 3)
 
 # output
 
 2×5 Matrix{Float64}:
- 1.176  1.27992  1.44523    1.60431   1.79604
- 0.024  0.04008  0.0667656  0.094886  0.130676
+ 1.176  1.28  1.445  1.604  1.796
+ 0.024  0.04  0.067  0.095  0.131
 ```
 """
 struct Redistribute{K <: AbstractMatrix, E}

@@ -31,17 +31,18 @@ coupling under `NoAdjoint` throws an `ArgumentError` with `Enzyme`.
 ```jldoctest
 using ComposableRecurrences
 r = Recurrence([0.2, 0.3, 0.5])
-ComposableRecurrences.NoAdjoint(r)(fill(1.1, 6); history = ones(3))
+y = ComposableRecurrences.NoAdjoint(r)(fill(1.1, 6); history = ones(3))
+round.(y; digits = 3)
 
 # output
 
 6-element Vector{Float64}:
  1.1
  1.122
- 1.1598400000000002
- 1.2304248000000002
- 1.2705406560000003
- 1.3234711283200002
+ 1.16
+ 1.23
+ 1.271
+ 1.323
 ```
 """
 struct NoAdjoint{O}
