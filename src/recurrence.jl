@@ -53,7 +53,7 @@ struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
 Modifiers are structs with `forward` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
-Called as `r(gain = 1; history, state, add = nothing, start, stop)`, the
+Called as `r(gain = 1; history, state, add, start, stop, prepend)`, the
 call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
@@ -64,11 +64,15 @@ call covers the absolute times `start:stop`:
     zero-padded. A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) from
     [`ComposableRecurrences.with_state`](@ref), to resume from it; not with
-    `history` or `start`.
+    `history`.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
+    With `start = m + 1` the seed sits at times `1:m`, and the
+    time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
+  - `prepend`: `false`, or `true` to return `history` followed by the
+    output, covering the times `start - m` to `stop`.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -93,6 +97,9 @@ K = [0.9 0.1; 0.2 0.8]
 R = fill(1.1, 2, 10)
 r = Recurrence(g; coupling = K)
 y = r(R; history = ones(2, 3))
+
+# The seed followed by the run, with the seed at times 1 to 3.
+r(hcat(ones(2, 3), R); history = ones(2, 3), start = 4, prepend = true)
 
 # Resume from the returned state over the same inputs.
 y1, state = ComposableRecurrences.with_state(r, R; history = ones(2, 3), stop = 5)
@@ -202,12 +209,10 @@ _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
     m = size(history, ndims(history))
-    s = something(start, 1)
-    s > m || throw(
+    start > m || throw(
         ArgumentError(
             "a Primary() kernel reads the column of each value's own time, " *
-                "so a seed of length $m needs start > $m, not start = $s " *
-                "(see seeded)"
+                "so a seed of length $m needs start > $m, not start = $(repr(start))"
         )
     )
     return nothing
@@ -417,11 +422,15 @@ end
 _empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
+# The first time of a call: the step after the history or the state.
+_start(::Nothing) = 1
+_start(state::State) = state.t
+
 # The history, modifier states and first time of a call: seeded from
 # `history`, or resumed from `state`.
 function _resume(history, state::Nothing, start, gain, add)
     h = history === nothing ? _empty_history(gain, add) : history
-    return h, nothing, start === nothing ? 1 : start
+    return h, nothing, start
 end
 function _resume(history, state::State, start, gain, add)
     history === nothing || throw(
@@ -430,22 +439,30 @@ function _resume(history, state::State, start, gain, add)
                 "history = $(_describe(history)) and a state at t = $(state.t)"
         )
     )
-    start === nothing || throw(
+    start == state.t || throw(
         ArgumentError(
-            "a resumed call starts at state.t = $(state.t); do not pass " *
-                "start, got start = $(repr(start))"
+            "a resumed call starts at state.t = $(state.t), not " *
+                "start = $(repr(start))"
         )
     )
     return state.history, state.states, state.t
 end
 
+# `prepend = true` joins the history and the output along time.
+_prepend(prepend::Bool, history, y) = prepend ? _join(history, y) : y
+_join(history::AbstractVector, y) = vcat(history, y)
+# `cat` rather than `hcat`, which is ambiguous for some tracked array types.
+_join(history::AbstractMatrix, y) = cat(history, y; dims = 2)
+_join(::Nothing, y) = throw(ArgumentError("prepend = true needs a history, not nothing"))
+
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = nothing, stop = nothing
+        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
     )
-    return adjoint_call(route, _run_args(r, gain, history, state, add, start)..., stop)
+    args = _run_args(r, gain, history, state, add, start)
+    return _prepend(prepend, history, adjoint_call(route, args..., stop))
 end
 
 function _run_args(r, gain, history, state, add, start)
@@ -458,7 +475,7 @@ end
 
 function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
-        add = nothing, start = nothing, stop = nothing
+        add = nothing, start = _start(state), stop = nothing
     )
     return _run_forward(r, _run_args(r, gain, history, state, add, start)..., stop)
 end
@@ -470,10 +487,11 @@ struct _WithState{R <: Recurrence} <: AbstractOperator
 end
 Base.@constprop :aggressive function with_state(
         r::Recurrence, gain = true; history = nothing, state = nothing,
-        add = nothing, start = nothing, stop = nothing
+        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
     )
     args = _run_args(r, gain, history, state, add, start)
-    return adjoint_call(_WithState(r), args..., stop)
+    y, st = adjoint_call(_WithState(r), args..., stop)
+    return _prepend(prepend, history, y), st
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
@@ -814,6 +832,9 @@ end
 @doc raw"""
 Run `r` from a seed and return the seed followed by the run.
 
+Deprecated: `seeded(r, gain; history)` is
+`r(gain; history, start = m + 1, prepend = true)`, see [`Recurrence`](@ref).
+
 With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
 returns
 
@@ -823,11 +844,6 @@ returns
 
 where ``y_t`` for ``t > m`` is the output of `r` started at ``t_0 = m + 1``
 from history ``h``, and ``t_1`` is the last time.
-Equivalent to
-`cat(history, r(gain; history, start = m + 1, kwargs...); dims = ndims(history))`:
-the time-indexed inputs are full length, their first ``m`` times covering
-the seed.
-A seed shorter than the kernel is zero-padded.
 
 # Arguments
 - `r`: the [`Recurrence`](@ref).
@@ -840,14 +856,63 @@ A seed shorter than the kernel is zero-padded.
 # Examples
 ```@example
 using ComposableRecurrences
-CR = ComposableRecurrences
 seed = [2.0, 3.0, 4.0]
-r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(80.0; pool0 = 80.0 - sum(seed)),))
-CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
+r = Recurrence([0.3, 0.5, 0.2])
+r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
 ```
 """
 function seeded(r::Recurrence, gain = true; history, kwargs...)
-    m = size(history, ndims(history))
-    y = r(gain; history, start = m + 1, kwargs...)
-    return cat(history, y; dims = ndims(history))
+    Base.depwarn(
+        "seeded(r, gain; history) is deprecated, use " *
+            "r(gain; history, start = m + 1, prepend = true)", :seeded
+    )
+    return r(gain; history, start = size(history, ndims(history)) + 1, prepend = true, kwargs...)
+end
+
+@doc raw"""
+A history growing exponentially at rate `r` and reaching `I0` on its last
+day, to seed a [`Recurrence`](@ref) on a growth path.
+
+For one series, and for stratum ``i`` of ``S``, it is
+
+```math
+h_l = I_0\, e^{r (l - L)}
+\qquad \text{and} \qquad
+h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
+\qquad l = 1, \dots, L,
+```
+
+oldest first, so ``h_L = I_0``.
+For a renewal with generation interval ``g`` (lag 1 first) and constant
+reproduction number ``R``, the growth rate that keeps the seed on the
+renewal's own path solves
+
+```math
+1 = R \sum_{l \ge 1} g_l\, e^{-r l}.
+```
+
+# Arguments
+- `I0`: the value on the last day; a vector gives one per stratum.
+- `r`: the growth rate per step; with a vector `I0`, a scalar or one per
+  stratum.
+- `L`: the number of days, at least 1, usually the kernel length.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+g = [0.2, 0.5, 0.3]
+h = CR.exponential_history(5.0, 0.1, length(g))
+Recurrence(g)(fill(1.2, 6); history = h, prepend = true)
+```
+"""
+exponential_history(I0::Real, r::Real, L::Integer) = I0 .* exp.(r .* _days_to_last(L))
+function exponential_history(I0::AbstractVector, r, L::Integer)
+    return I0 .* exp.(r .* transpose(_days_to_last(L)))
+end
+
+# The days of an `L`-day history counted back from its last, `1 - L` to 0.
+function _days_to_last(L)
+    L >= 1 || throw(ArgumentError("a history needs L >= 1 days, not L = $L"))
+    return collect((1 - L):0)
 end

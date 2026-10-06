@@ -34,8 +34,8 @@
         end
         return y
     end
-    model(K, R) = CR.seeded(
-        Recurrence(TimeVarying(K, CR.Primary())), R; history = seed
+    model(K, R) = Recurrence(TimeVarying(K, CR.Primary()))(
+        R; history = seed, start = 4, prepend = true
     )
     K = kernel(p, b)
     @test model(K, R) ≈ naive(K, R)

@@ -46,7 +46,9 @@
     vaccinated(σ, r) = CR.Depletion(
         N; pool0, removals = TimeVarying(r), protected = CR.Protected(σ)
     )
-    model(R, d) = CR.seeded(Recurrence(g; modifiers = (d,)), R; history = seed)
+    model(R, d) = Recurrence(g; modifiers = (d,))(
+        R; history = seed, start = length(seed) + 1, prepend = true
+    )
 
     aon(e, doses) = vaccinated(0.0, e .* doses)
     leaky(e, doses) = vaccinated(1 - e, doses)
