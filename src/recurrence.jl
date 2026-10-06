@@ -197,8 +197,7 @@ end
 
 # A Primary() kernel reads the column of each value's own time, so a seed
 # must sit at times from 1: `start > m` for a seed of length `m`. The check
-# runs once per call, so it stays out of line (which also lets coverage
-# count its signature line).
+# runs once per call, so it stays out of line.
 _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
@@ -220,7 +219,7 @@ function _check_pairwise_coupling(::_PairwiseKernel, coupling)
     coupling isa UniformScaling && isone(coupling.λ) || throw(
         ArgumentError(
             "a Pairwise kernel already mixes strata, so its coupling must " *
-                "be I"
+                "be I, got $(_describe(coupling))"
         )
     )
     return nothing
@@ -246,7 +245,7 @@ function _check_kernel_shape(k)
     throw(
         ArgumentError(
             "a kernel is a vector of lag weights, PerStratum, Pairwise or " *
-                "TimeVarying, not a $(typeof(k))"
+                "TimeVarying, got $(_describe(k))"
         )
     )
 end
@@ -255,22 +254,31 @@ function _check_kernel_shape(k::AbstractArray)
         ArgumentError(
             "a kernel array is a vector of lag weights; wrap a strata × " *
                 "lags matrix as PerStratum(G) and a strata × strata × lags " *
-                "array as Pairwise(A)"
+                "array as Pairwise(A); got $(_describe(k))"
         )
     )
 end
 function _check_kernel_shape(k::PerStratum)
-    throw(ArgumentError("a PerStratum kernel is a strata × lags matrix"))
+    throw(
+        ArgumentError(
+            "a PerStratum kernel is a strata × lags matrix, got $(_describe(k))"
+        )
+    )
 end
 function _check_kernel_shape(k::Pairwise)
-    throw(ArgumentError("a Pairwise kernel is a strata × strata × lags array"))
+    throw(
+        ArgumentError(
+            "a Pairwise kernel is a strata × strata × lags array, got " *
+                _describe(k)
+        )
+    )
 end
 function _check_kernel_shape(k::TimeVarying)
     throw(
         ArgumentError(
             "a TimeVarying kernel is lags × time, TimeVarying(PerStratum(G)) " *
                 "with G strata × lags × time, or TimeVarying(Pairwise(A)) " *
-                "with A strata × strata × lags × time"
+                "with A strata × strata × lags × time; got $(_describe(k))"
         )
     )
 end
@@ -418,11 +426,15 @@ end
 function _resume(history, state::State, start, gain, add)
     history === nothing || throw(
         ArgumentError(
-            "pass history (a seed) or state (to resume), not both"
+            "pass history (a seed) or state (to resume), not both; got " *
+                "history = $(_describe(history)) and a state at t = $(state.t)"
         )
     )
     start === nothing || throw(
-        ArgumentError("a resumed call starts at state.t; do not pass start")
+        ArgumentError(
+            "a resumed call starts at state.t = $(state.t); do not pass " *
+                "start, got start = $(repr(start))"
+        )
     )
     return state.history, state.states, state.t
 end
@@ -439,8 +451,8 @@ end
 function _run_args(r, gain, history, state, add, start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
-    _check_primary_seed(r.kernel, history, start)
     h, s0, τ0 = _resume(history, state, start, gain, add)
+    _check_primary_seed(r.kernel, history, start)
     return gain, add, h, s0, τ0
 end
 

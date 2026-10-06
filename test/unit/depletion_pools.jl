@@ -221,6 +221,9 @@ end
     CR = ComposableRecurrences
     @test_throws ArgumentError CR.Depletion(100.0; removals = [1.0, 2.0])
     @test_throws ArgumentError CR.Depletion(100.0; protected = 0.3)
+    @test_throws "Protected pool or nothing, got 0.3" CR.Depletion(
+        100.0; protected = 0.3
+    )
     @test_throws ArgumentError CR.Protected(TimeVarying([0.1, 0.2]))
     @test_throws ArgumentError CR.Protected([0.1, 0.2])
     d = CR.Depletion(100.0; removals = TimeVarying([1.0, 2.0]))

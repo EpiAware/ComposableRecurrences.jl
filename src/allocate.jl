@@ -92,16 +92,32 @@ _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
 # The groups are disjoint, non-empty vectors of positive indices; that they
 # cover every stratum is checked once the strata are known.
 function _check_groups(groups)
-    isempty(groups) && throw(ArgumentError("groups is empty"))
+    isempty(groups) && throw(
+        ArgumentError(
+            "groups must hold at least one group, got $(_describe(groups))"
+        )
+    )
     for zs in groups
         zs isa AbstractVector{<:Integer} && !isempty(zs) || throw(
-            ArgumentError("each group is a non-empty vector of stratum indices")
+            ArgumentError(
+                "each group is a non-empty vector of stratum indices, got " *
+                    "$(_describe(zs))"
+            )
         )
-        minimum(zs) >= 1 || throw(ArgumentError("stratum indices start at 1"))
+        minimum(zs) >= 1 || throw(
+            ArgumentError(
+                "stratum indices start at 1, got $(minimum(zs)) in group " *
+                    _describe(zs)
+            )
+        )
     end
     seen = zeros(Bool, maximum(maximum, groups))
     for zs in groups, k in zs
-        seen[k] && throw(ArgumentError("stratum $k is in two groups"))
+        seen[k] && throw(
+            ArgumentError(
+                "stratum $k is in two groups; the groups must be disjoint"
+            )
+        )
         seen[k] = true
     end
     return nothing

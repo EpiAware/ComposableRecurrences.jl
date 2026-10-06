@@ -126,6 +126,7 @@ end
     # not vary over time.
     @test_throws ArgumentError CR.Depletion(N)
     @test_throws ArgumentError CR.Depletion(TimeVarying(N))
+    @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(TimeVarying(N))
     @test_throws ArgumentError CR.Depletion(1.0; pool0 = TimeVarying(N))
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
@@ -155,6 +156,9 @@ end
     @test_throws ArgumentError CR.Add(b[1, :])
     @test_throws ArgumentError CR.Add(b)
     @test_throws ArgumentError CR.Add(TimeVarying(b[1, :], CR.Primary()))
+    @test_throws "only meaningful for a kernel; got TimeVarying(" CR.Add(
+        TimeVarying(b[1, :], CR.Primary())
+    )
     @test_throws DimensionMismatch r(TimeVarying(b[1, :]))(1.1; history = h, stop = 5)
     @test_throws DimensionMismatch r(PerStratum([1.0, 2.0, 3.0]))(
         1.1; history = h, stop = 4
@@ -460,6 +464,7 @@ end
     @test occursin("NotAForm", err.msg) &&
         occursin("forward(form, Step(), v, s, N, α)", err.msg)
     @test_throws ArgumentError CR.Depletion(1.0, :floor)
+    @test_throws ":floor is not a depletion form" CR.Depletion(1.0, :floor)
 end
 
 @testitem "Variants: one path per step" begin

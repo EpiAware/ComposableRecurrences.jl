@@ -179,12 +179,15 @@ struct TimeVarying{I, A}
     x::A
     function TimeVarying{I}(x::A) where {I, A}
         x isa TimeVarying && throw(
-            ArgumentError("TimeVarying cannot wrap another TimeVarying")
+            ArgumentError(
+                "TimeVarying cannot wrap another TimeVarying, got " *
+                    _describe(x)
+            )
         )
         x isa Union{AbstractArray, PerStratum, Pairwise} || throw(
             ArgumentError(
                 "TimeVarying wraps an array, a PerStratum or a Pairwise, " *
-                    "not a $(typeof(x))"
+                    "got $(_describe(x))"
             )
         )
         return new{I, A}(x)
@@ -196,8 +199,8 @@ TimeVarying(x, ::I) where {I <: Union{Primary, Secondary}} = TimeVarying{I}(x)
 function TimeVarying(x, indexing)
     throw(
         ArgumentError(
-            "TimeVarying indexing is Secondary() or Primary(), not " *
-                "$(typeof(indexing))"
+            "TimeVarying indexing is Secondary() or Primary(), got " *
+                _describe(indexing)
         )
     )
 end

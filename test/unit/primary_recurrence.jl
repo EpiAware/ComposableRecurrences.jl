@@ -123,6 +123,9 @@ end
     @test_throws ArgumentError r(ones(6); history = ones(2), start = 2)
     @test_throws "not start = 2" r(ones(6); history = ones(2), start = 2)
     @test length(r(ones(6); history = ones(2), start = 3)) == 4
+    # Both a seed and a state is refused as such, before the seed check.
+    _, st = CR.with_state(r, ones(6); history = ones(2), start = 3, stop = 4)
+    @test_throws "not both" r(ones(6); history = ones(2), state = st)
     # Without a seed there is nothing earlier to read.
     @test r(ones(6)) == zeros(6)
     # A short seed is zero-padded; the padding has no column and is skipped.
