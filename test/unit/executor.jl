@@ -286,6 +286,8 @@ end
     if nt > 1
         # One index per chunk; each chunk spins, without yielding, until every
         # chunk has started, so they can only meet on distinct threads.
+        # The spin reaches a GC safepoint, so a collection started while the
+        # other chunks are spawned does not wait out the timeout.
         m = min(nt, 4)
         arrived = Threads.Atomic{Int}(0)
         ids = zeros(Int, m)
@@ -295,6 +297,7 @@ end
             Threads.atomic_add!(arrived, 1)
             t0 = time()
             while arrived[] < m && time() - t0 < 60
+                GC.safepoint()
             end
             met[k] = arrived[] == m
             return nothing
