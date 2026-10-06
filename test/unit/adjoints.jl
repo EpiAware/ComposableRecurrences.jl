@@ -319,6 +319,108 @@ end
     CR.uses_adjoint(::Scaled, ::CR.Step) = true
     @test CR.uses_adjoint(Recurrence(g; modifiers = (Scaled(0.5),)), CR.Run())
 
+    # A function stored in a pointwise modifier with no pullback: a plain
+    # function or a callable singleton keeps the rule, a closure that
+    # captures a float takes plain AD, as the local derivative does not reach
+    # its captured value.
+    struct MapBy{F, T}
+        f::F
+        a::T
+    end
+    CR.ispointwise(::MapBy) = true
+    CR.forward(m::MapBy, ::CR.Step, v, s, t, k) = (m.a * m.f(v), s)
+    struct Halve end
+    (::Halve)(x) = x / 2
+    shift(b) = x -> x + b
+    count_up(n::Int) = x -> x + n
+    for (f, rule) in (
+            (sqrt, true), (Halve(), true), (count_up(2), true),
+            (shift(0.5), false), (shift([0.5]), false), (Base.Fix1(*, 2.0), false),
+        )
+        op = Recurrence(g; modifiers = (MapBy(f, 0.9),))
+        @test CR._scalar_params(MapBy(f, 0.9)) == rule
+        @test CR.uses_adjoint(op, CR.Run()) == rule
+        @test val(op) == [Val{rule}]
+    end
+    # Integer ranges and arrays are structure, not parameters, for the gate.
+    struct Pick{I, T}
+        idx::I
+        a::T
+    end
+    CR.ispointwise(::Pick) = true
+    CR.forward(m::Pick, ::CR.Step, v, s, t, k) = (k in m.idx ? m.a * v : v, s)
+    for idx in (1:2, 1:2:3, Base.OneTo(2), [1, 2], [1:1, 2:2], [[1], [2]], (1:1, 2:2))
+        op = Recurrence(g; modifiers = (Pick(idx, 0.5),))
+        @test CR._ok(typeof(idx))
+        @test val(op) == [Val{true}]
+    end
+    @test pullback_matches(
+        Recurrence(g; modifiers = (Pick(2:2, 0.5),)),
+        recargs(ones(2, 4), nothing, ones(2, 2))...
+    )
+    # The default pullback rebuilds a scalar modifier with dual numbers by
+    # `constructorof`: a keyword-only constructor or a field typed `Float64`
+    # cannot take them (decided from the type), and a constructor that
+    # transforms its argument does not give it back (checked by value).
+    struct ScaleKw
+        a::Float64
+        ScaleKw(; a) = new(a)
+    end
+    struct ScaleF
+        a::Float64
+    end
+    struct Doubled{T}
+        a::T
+        Doubled(a::T) where {T} = new{T}(2a)
+    end
+    struct Kept{T}
+        a::T
+        Kept(a::T) where {T} = new{T}(abs(a))
+    end
+    for M in (ScaleKw, ScaleF, Doubled, Kept)
+        @eval CR.ispointwise(::$M) = true
+        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+    end
+    for (m, rule, rebuilds) in (
+            (ScaleKw(; a = 0.5), false, false), (ScaleF(0.5), false, false),
+            (Doubled(0.5), true, false), (Kept(0.5), true, true),
+        )
+        op = Recurrence(g; modifiers = (m,))
+        @test CR._rebuildable(m) == rule
+        @test CR.uses_adjoint(op, CR.Run()) == rule
+        @test CR._rebuilds(op) == rebuilds
+    end
+    @test pullback_matches(
+        Recurrence(g; modifiers = (Kept(0.5),)),
+        recargs(ones(2, 4), nothing, ones(2, 2))...
+    )
+
+    # A depletion form without a pullback takes the rule through the local
+    # derivative of its step in `(v, s, N, α)` and its own float scalars.
+    struct LinearRate{T}
+        c::T
+    end
+    function CR.forward(f::LinearRate, ::CR.Step, v, s, N, α)
+        y = f.c * v * max(s, 0)^α / N
+        return y, s - y
+    end
+    f = LinearRate(0.7)
+    grads = (; piece = (; c = Ref(0.0)), v = 0.3, s = 0.6)
+    got = CR._form_pullback(grads, f, 2.0, 40.0, 50.0, 1.2)
+    ref = ForwardDiff.gradient(collect((2.0, 40.0, 50.0, 1.2, 0.7))) do x
+        y, s′ = CR.forward(LinearRate(x[5]), CR.Step(), x[1], x[2], x[3], x[4])
+        return 0.3 * y + 0.6 * s′
+    end
+    @test [got..., grads.piece.c[]] ≈ ref
+    for op in (
+            Recurrence(g; modifiers = (CR.Depletion(50.0, f; heterogeneity = 1.2),)),
+            Recurrence(g; modifiers = (CR.Depletion(50.0, f; removals = 0.5),)),
+        )
+        @test CR.uses_adjoint(op, CR.Run())
+        @test val(op) == [Val{true}]
+        @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
+    end
+
     # Dual numbers and BigFloat take the plain path.
     r = Recurrence(g)
     @test CR._gate(r, ones(4), nothing, ones(2), nothing, 1, nothing)

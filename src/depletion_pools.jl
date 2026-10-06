@@ -100,9 +100,9 @@ function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     r̄, s̄m = _removal_pullback(r, s′, -grads.s)
     _add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
-    v̄, s̄, N̄, ᾱ = pullback!(
+    v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
-        m.form, Step(), v, s, N, α
+        m.form, v, s, N, α
     )
     _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -200,9 +200,9 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
             ȳ -= S̄′
             P̄ = zero(S̄′)
         end
-        v̄k, P̄f, N̄, ᾱ = pullback!(
+        v̄k, P̄f, N̄, ᾱ = _form_pullback(
             (; piece = cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
-            Step(), v[k], P, N, α
+            v[k], P, N, α
         )
         P̄ += P̄f
         _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)

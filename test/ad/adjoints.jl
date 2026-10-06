@@ -424,6 +424,106 @@ end
     end
 end
 
+@testitem "User modifiers: functions, index ranges and constructors" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme
+    using DifferentiationInterface: gradient
+    import Enzyme, Mooncake
+    using ComposableRecurrences: NoAdjoint
+    # A pointwise modifier with no pullback that maps the value through a
+    # stored function and scales it by `a`.
+    struct MapBy{F, T}
+        f::F
+        a::T
+    end
+    CR.ispointwise(::MapBy) = true
+    CR.forward(m::MapBy, ::CR.Step, v, s, t, k) = (m.a * m.f(v), s)
+    # A closure's captured value is a parameter the local derivative does not
+    # reach, so the operator takes plain AD; a plain function keeps the rule.
+    scale(b) = x -> b * x
+    # Pointwise modifiers that scale the strata in index ranges.
+    struct Pick{I, T}
+        idx::I
+        a::T
+    end
+    CR.ispointwise(::Pick) = true
+    _in(k, idx) = k in idx
+    _in(k, idx::AbstractVector{<:AbstractVector}) = any(i -> k in i, idx)
+    CR.forward(m::Pick, ::CR.Step, v, s, t, k) = (_in(k, m.idx) ? m.a * v : v, s)
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    W = cos.(reshape(1:18, 3, 6))
+    function run(w, m, θ)
+        r = Recurrence([0.3, 0.2]; modifiers = (m,))
+        return sum(W .* w(r)(θ .* ones(3, 6); history = ones(3, 2)))
+    end
+    # Scalar modifiers the default pullback cannot rebuild with dual numbers
+    # by `constructorof`: a keyword-only constructor, a field typed
+    # `Float64`, and a constructor that transforms its argument (found by
+    # value, so `uses_adjoint` is still true).
+    struct ScaleKw
+        a::Float64
+        ScaleKw(; a) = new(a)
+    end
+    struct ScaleF
+        a::Float64
+    end
+    struct Doubled{T}
+        a::T
+        Doubled(a::T) where {T} = new{T}(2a)
+    end
+    for M in (ScaleKw, ScaleF, Doubled)
+        @eval CR.ispointwise(::$M) = true
+        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+    end
+    # Depletion forms with no pullback: the local derivative covers them.
+    struct Linear end
+    CR.forward(::Linear, ::CR.Step, v, s, N, α) = (y = v * max(s, 0) / N; (y, s - y))
+    struct LinearRate{T}
+        c::T
+    end
+    function CR.forward(f::LinearRate, ::CR.Step, v, s, N, α)
+        y = f.c * v * max(s, 0)^α / N
+        return y, s - y
+    end
+    # `(modifier, uses_adjoint, rule fires)`.
+    cases = (
+        (θ -> MapBy(scale(θ), 0.9), false, false),
+        (θ -> MapBy(sqrt, θ), true, true),
+        (θ -> Pick(2:3, θ), true, true),
+        (θ -> Pick(1:2:3, θ), true, true),
+        (θ -> Pick([1:1, 3:3], θ), true, true),
+        (θ -> Pick([1, 3], θ), true, true),
+        (θ -> ScaleKw(; a = θ), false, false),
+        (θ -> ScaleF(θ), false, false),
+        (θ -> Doubled(θ), true, false),
+        (θ -> CR.Depletion(100 * θ, Linear()), true, true),
+        (θ -> CR.Depletion(100.0, LinearRate(θ); heterogeneity = 1.1), true, true),
+        (θ -> CR.Depletion(100.0, Linear(); removals = θ), true, true),
+    )
+    for (m, adj, fires) in cases, w in (identity, NoAdjoint)
+        @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
+        f(θ) = run(w, m(θ[1]), θ[2])
+        θ = [0.8, 1.1]
+        # Central differences: a field typed `Float64` cannot hold the
+        # dual numbers of ForwardDiff.
+        e(i) = 1.0e-6 .* (1:2 .== i)
+        ref = [(f(θ + e(i)) - f(θ - e(i))) / 2.0e-6 for i in 1:2]
+        @test all(!iszero, ref)
+        for backend in backends
+            n0 = CR._PULLBACK_CALLS[]
+            @test gradient(f, backend, θ) ≈ ref rtol = 1.0e-6
+            @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
+        end
+    end
+end
+
 @testitem "User-defined operator, modifier and coupling" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient

@@ -465,7 +465,8 @@ Base.@constprop :aggressive function with_state(
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is pointwise with only scalar float parameters.
+# does or is pointwise with only scalar float parameters outside functions,
+# rebuilt with dual numbers by `constructorof`.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -476,19 +477,52 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
 end
 function _modifier_adjoint(m)
-    return uses_adjoint(m, Step()) || (ispointwise(m) && _scalar_params(m))
+    return uses_adjoint(m, Step()) ||
+        (ispointwise(m) && _scalar_params(m) && _rebuildable(m))
+end
+
+# Whether the default pullback's rebuild of each modifier from its own
+# parameters gives them back. A constructor that transforms its arguments
+# (`new(2a)`) does not, and the local derivative would then be of the
+# transformed value.
+_rebuilds(op) = true
+_rebuilds(r::Recurrence) = _all_rebuild(r.modifiers)
+_rebuilds(w::_WithState) = _rebuilds(w.r)
+_all_rebuild(::Tuple{}) = true
+_all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
+function _rebuilds_modifier(m)
+    uses_adjoint(m, Step()) && return true
+    _rebuildable(m) || return false
+    θ = _param_tuple(m)
+    return isequal(_param_tuple(first(_rebuild_scalar(m, θ))), θ)
 end
 
 # Whether a type holds a float array (or a field of unknown type) that a
-# local per-value derivative would have to carry. A closed function of the
-# type, evaluated once per type by a generated function so the route folds.
+# local per-value derivative would have to carry, or a function with float
+# fields of its own (a closure's captured values), which the local
+# derivative does not reach. A closed function of the type, evaluated once
+# per type by a generated function so the route folds.
 @generated _scalar_params(m) = !_has_array_params(m)
 function _has_array_params(::Type{T}) where {T}
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
-    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    T <: Function && return _has_float(T)
+    T <: Union{Real, Nothing, Symbol, AbstractString} && return false
     isconcretetype(T) || return true
     for F in fieldtypes(T)
         _has_array_params(F) && return true
+    end
+    return false
+end
+
+# Whether a type holds a float, or a field of unknown type that may. A
+# plain function or a callable singleton has no fields, so holds none.
+function _has_float(::Type{T}) where {T}
+    T <: Union{Integer, Nothing, Symbol, AbstractString, Type, Module} && return false
+    T <: Real && return true
+    T <: AbstractArray && return _has_float(eltype(T))
+    isconcretetype(T) || return true
+    for F in fieldtypes(T)
+        _has_float(F) && return true
     end
     return false
 end

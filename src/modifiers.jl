@@ -186,6 +186,10 @@ an operator's native rule calls it.
 Without one, a pointwise modifier with only scalar float parameters is
 differentiated locally with `ForwardDiff`, and any other object makes the AD
 backend differentiate the whole operator.
+A float captured by a closure stored in a modifier is a parameter the local
+derivative does not reach, so such a modifier also takes the AD backend.
+Integer fields, index ranges and integer arrays are structure, not
+parameters.
 
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of

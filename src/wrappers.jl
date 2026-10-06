@@ -192,6 +192,9 @@ struct TimeVarying{I, A}
 end
 
 TimeVarying(x) = TimeVarying{Secondary}(x)
+# The indexing is a type parameter with no field, so a rebuild from the
+# fields names it, or `TimeVarying(x)` would read the kernel as `Secondary()`.
+ConstructionBase.constructorof(::Type{<:TimeVarying{I}}) where {I} = TimeVarying{I}
 TimeVarying(x, ::I) where {I <: Union{Primary, Secondary}} = TimeVarying{I}(x)
 function TimeVarying(x, indexing)
     throw(

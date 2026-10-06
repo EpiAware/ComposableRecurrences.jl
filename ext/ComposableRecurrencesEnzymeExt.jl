@@ -6,14 +6,17 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _current, _note_plain_type, _plain, _run_forward, _run_pullback!
+    _current, _note_plain_type, _rebuilds, _plain, _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
 using SparseArrays: SparseMatrixCSC, nonzeros
 
 const _IEEEFloat = Union{Float16, Float32, Float64}
-const _Inert = Union{Nothing, Integer, Symbol, AbstractArray{<:Integer}}
+const _Inert = Union{
+    Nothing, Integer, Symbol, AbstractArray{<:Integer},
+    AbstractArray{<:AbstractArray{<:Integer}},
+}
 
 # The mirror of an annotated argument.
 _ez(::Const) = nothing
@@ -76,6 +79,7 @@ function _addback1(dx::T, m) where {T}
 end
 
 EnzymeRules.inactive(::typeof(_note_plain_type), args...) = nothing
+EnzymeRules.inactive(::typeof(_rebuilds), args...) = nothing
 
 # The executor carries no derivative. Forward mode and plain reverse mode
 # (a `NoAdjoint` route) do not differentiate tasks or the scoped value
