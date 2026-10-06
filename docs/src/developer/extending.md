@@ -52,6 +52,7 @@ CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
 
 Without a `pullback!`, a pointwise modifier with only scalar float parameters, such as `Scale`, is differentiated locally with ForwardDiff inside the rule.
 Any other modifier without one makes the backend differentiate the whole operator.
+A `pullback!` is kept only where it beats plain automatic differentiation; see [the rule policy](@ref rule-policy).
 
 ## A custom depletion form
 

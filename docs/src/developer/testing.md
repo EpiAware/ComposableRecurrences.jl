@@ -27,7 +27,7 @@ Interfaces.test(
 The mandatory check runs `forward` and confirms it keeps to the job's conventions.
 The optional `pointwise` check confirms that the step for all series matches the step for one value.
 
-## Comparing with plain automatic differentiation
+## [Comparing with plain automatic differentiation](@id rule-policy)
 
 `NoAdjoint(op)` is called like `op`, but an automatic differentiation backend differentiates its forward loop instead of any hand-written gradient.
 Comparing the two checks a gradient and shows what the hand-written one saves.
@@ -50,7 +50,26 @@ maximum(abs, ForwardDiff.gradient(loss(r), R) .- ForwardDiff.gradient(loss(NoAdj
 ```
 
 ForwardDiff differentiates the same forward code in both, so a hand-written gradient only matters on a reverse-mode backend such as Mooncake or Enzyme.
-A hand-written gradient is worth keeping when it is about 10% faster than plain automatic differentiation on the backend it targets.
+An operator or modifier keeps its rule when the rule beats its `NoAdjoint` twin by at least 10% on Mooncake or Enzyme reverse mode; otherwise its `uses_adjoint` methods route it to plain automatic differentiation.
+The table gives the rule time over the `NoAdjoint` time, from matrix cases at `T` 200 and `L` 20 where one covers it, else from the small CI scenarios (marked ¹).
+Every rule passes; the local `ForwardDiff` step of a pointwise modifier without a `pullback!` is slower on Enzyme and kept for its gain on Mooncake.
+
+| Rule switched on by | Mooncake reverse | Enzyme reverse | Decision |
+|---|---|---|---|
+| core recurrence (kernel, `I` or dense coupling) | 0.44 | 0.84 | keep |
+| `Depletion`, hazard form | 0.16 | 0.31 | keep |
+| `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
+| `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
+| `Redistribute` | 0.26 | 0.32 | keep |
+| `Allocate` | 0.78¹ | 0.78¹ | keep |
+| `Transform` | 0.18 | 0.43 | keep |
+| `Primary()` kernel | 0.51 | 0.66 | keep |
+| `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
+| `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
+| sparse coupling | 0.75¹ | plain AD is wrong | keep |
+| `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
+| `Convolution` | 0.48 | 0.64 | keep |
+| pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep |
 
 ## The benchmark matrix
 
@@ -65,6 +84,7 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
+Cases in `LOCAL_CASES` also run a `local` arm, which replaces each pointwise modifier's `pullback!` with the local `ForwardDiff` step.
 
 `--executor` and `--threads` time the operators under an executor.
 `--threads=1,2,4` runs each target once per thread count, and `--executor=threaded` runs the `rule` arm under `Threaded()` (the default is `serial`).
