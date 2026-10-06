@@ -339,10 +339,11 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     using ForwardDiff: Dual, partials
-    xs = (-1.0, -0.0, 0.0, 3.0, 4.0)
+    xs = (-1.0, -0.0, 0.0, 3.0, 4.0, NaN)
     for r in xs, s in xs
-        # Float64 values match `min(r, max(s, 0))` bit for bit.
-        @test CR._removal(r, s) === min(r, max(s, zero(s)))
+        # Float64 values match `min(r, max(s, 0))` bit for bit; a NaN
+        # in either input is returned.
+        @test isequal(CR._removal(r, s), min(r, max(s, zero(s))))
         r̄, s̄ = CR._removal_pullback(r, s, 1.0)
         for ṙ in (1.0, -1.0), ṡ in (1.0, -1.0)
             m = CR._removal(Dual(r, ṙ), Dual(s, ṡ))
@@ -352,6 +353,10 @@ end
     @test CR._removal(false, 2.0) === 0.0
     @test (@inferred CR._removal(false, 2.0f0)) === 0.0f0
     @test (@inferred CR._removal(1.0, Dual(0.0, 1.0))) isa Dual
+    # A NaN removal reaches the trajectory.
+    d = CR.Depletion(100.0; pool0 = 3.0, removals = TimeVarying(fill(NaN, 6)))
+    y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 6); history = [5.0])
+    @test any(isnan, y)
 end
 
 @testitem "Depletion pools: removals at an empty pool, reverse against ForwardDiff" setup = [AdjointCheck] begin

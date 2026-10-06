@@ -97,21 +97,25 @@ _add_removals!(r̄, ::Nothing, x, k, t) = nothing
 # The removal from what remains after the draw, `min(r, max(s, 0))`. The
 # arms follow primal values, as in the pullback: a dual with value zero is
 # ordered by its partials, so `min` and `max` on duals could take the other
-# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does, and
-# `ifelse` keeps a traced step branch-free.
+# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does; a NaN
+# in either input is returned, as `min` does; `ifelse` keeps a traced step
+# branch-free.
 function _removal(r, s)
     r, s = promote(r, s)
     z = zero(s)
     c = ifelse(_primal_value(s) < 0, z, s + z)
-    return ifelse(_primal_value(r) <= _primal_value(c), r, c)
+    return ifelse(_takes_pool(_primal_value(r), _primal_value(c)), c, r)
 end
 
+# Whether the removal is the pool `c` rather than `r`: `r` on a tie.
+_takes_pool(r, c) = (c < r) | isnan(c)
+
 # Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the arm
-# `_removal` takes: `r` on a tie, else `s` when it is not negative.
+# `_removal` takes.
 function _removal_pullback(r, s, m̄)
     z = zero(m̄)
-    r <= max(s, zero(s)) && return m̄, z
-    return z, s >= 0 ? m̄ : z
+    _takes_pool(r, max(s, zero(s))) || return m̄, z
+    return z, s < 0 ? z : m̄
 end
 
 # Removals only: a pointwise step on the one pool.

@@ -283,11 +283,13 @@ end
 
 # `r^e` for the share of the pool left. With a dual exponent the tangent
 # at an empty pool is `log(0) * ė`; the pullback sets the exponent's
-# cotangent to zero there, so the power takes the primal exponent.
+# cotangent to zero there, so the power takes the primal exponent. A NaN
+# share keeps the dual power, so its NaN reaches the tangent. A dual
+# exponent is never traced, so a branch computes only one power.
 _pool_power(r, e) = r^e
 function _pool_power(r, e::ForwardDiff.Dual)
-    y = r^e
-    return ifelse(_primal_value(r) > 0, y, oftype(y, r^_primal_value(e)))
+    _primal_value(r) <= 0 || return r^e
+    return convert(promote_type(typeof(r), typeof(e)), r^_primal_value(e))
 end
 
 function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
@@ -299,7 +301,7 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     x̄ = s * e * (ȳ - s̄′)
     s̄ = -ȳ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = _primal_value(r) > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : x̄ * x * log(r)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
