@@ -3,6 +3,13 @@
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 
+# The primal value of `x`, through any nesting of `ForwardDiff.Dual`s, for
+# deciding a branch. A dual with value zero is ordered by its partials, so
+# `P > 0` on the dual can hold where the value is zero. Other numbers,
+# traced ones included, pass through.
+_primal_value(x) = x
+_primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
+
 # A gain or add slot at stratum `k`, absolute time `t`. A missing add is
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x

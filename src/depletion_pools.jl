@@ -147,8 +147,9 @@ function _protected_step(form, v, Su, V, σ, N, α, r)
     P = Su + σ * V
     y, _ = forward(form, Step(), v, P, N, α)
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
-    # division keeps the unused arm finite.
-    on = P > 0
+    # division keeps the unused arm finite. The arm follows the primal `P`,
+    # so a dual `P` with value zero takes the arm without the division.
+    on = _primal_value(P) > 0
     q = y / ifelse(on, P, one(P))
     S′ = ifelse(on, Su - q * Su, Su - y)
     V′ = ifelse(on, V - q * σ * V, V)
@@ -184,13 +185,14 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
         P = Su + σ * V
         y, _ = forward(m.form, Step(), v[k], P, N, α)
         ȳ, S̄″, V̄″ = v̄[k], s̄[k], s̄[S + k]
-        q = P > 0 ? y / P : zero(y)
-        S′ = P > 0 ? Su - q * Su : Su - y
+        on = _primal_value(P) > 0
+        q = on ? y / P : zero(y)
+        S′ = on ? Su - q * Su : Su - y
         r̄, S̄m = _removal_pullback(r, S′, V̄″ - S̄″)
         _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
         S̄′ = S̄″ + S̄m
         V̄′ = V̄″
-        if P > 0
+        if on
             q̄ = -S̄′ * Su - V̄′ * σ * V
             S̄u = S̄′ * (1 - q)
             V̄v = V̄′ * (1 - q * σ)

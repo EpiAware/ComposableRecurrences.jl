@@ -195,6 +195,49 @@ end
     @test c.v && c.s && c.θ
 end
 
+@testitem "Depletion pools: an empty pool with a tangent under ForwardDiff" setup = [PoolChecks] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # A dual with value zero and non-zero partials compares above zero, so
+    # the step must pick its arm on the value and not divide by zero.
+    P = ForwardDiff.Dual(0.0, 1.0, 0.4)
+    y, S′, V′ = CR._protected_step(CR.Hazard(), 2.0, P, 0.0, 0.3, 100.0, 1.0, 0.0)
+    @test all(isfinite, ForwardDiff.partials(S′))
+    @test ForwardDiff.value(S′) == 0
+    @test S′ == P - y
+    @test V′ == 0
+    # Both pools start empty with sizes set by parameters.
+    g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
+    W = collect(range(0.5, 1.5; length = 6))
+    function f(θ)
+        d = CR.Depletion(
+            100.0; pool0 = θ[1], protected = CR.Protected(θ[2]; pool0 = θ[3])
+        )
+        return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
+    end
+    ∇ = ForwardDiff.gradient(f, [0.0, 0.3, 0.0])
+    @test all(isfinite, ∇)
+    @test ∇[1] ≈ (f([1.0e-7, 0.3, 0.0]) - f([0.0, 0.3, 0.0])) / 1.0e-7 rtol = 1.0e-5
+    # A seeded pool emptied by removals, with all-or-nothing protection.
+    function fr(θ)
+        d = CR.Depletion(
+            100.0; pool0 = θ[1], removals = TimeVarying(fill(θ[2], 6)),
+            protected = CR.Protected(θ[3])
+        )
+        return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
+    end
+    @test all(isfinite, ForwardDiff.gradient(fr, [3.0, 4.0, 0.0]))
+    # The step's pullback at an empty pool against its local Jacobian.
+    build(θ) = CR.Depletion(
+        θ[1], CR.Floor(); heterogeneity = θ[2],
+        protected = CR.Protected(θ[3]; pool0 = θ[4])
+    )
+    c = PoolChecks.check_vector_pullback(
+        build, [100.0, 1.0, 0.4, 0.0], [2.0], [0.0, 0.0], 1
+    )
+    @test c.v && c.s && c.θ
+end
+
 @testitem "Depletion pools: the initial state and its pullback" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -273,6 +316,10 @@ end
             removals = TimeVarying(rand(rng, T)), protected = CR.Protected(0.2)
         ),
         CR.Depletion(70.0; protected = CR.Protected(0.4; pool0 = 10.0)),
+        # Both pools start empty.
+        CR.Depletion(
+            70.0, CR.Floor(); pool0 = 0.0, protected = CR.Protected(0.4)
+        ),
     )
     for m in mods
         r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))

@@ -747,6 +747,36 @@ end
     end
 end
 
+@testitem "Empty protected pools: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # Both pools start empty with sizes set by parameters, so the combined
+    # pool is zero with a non-zero ForwardDiff tangent at every step.
+    W = collect(range(0.5, 1.5; length = 6))
+    function f(θ)
+        d = CR.Depletion(
+            100.0; pool0 = θ[1], protected = CR.Protected(θ[2]; pool0 = θ[3])
+        )
+        r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
+        return sum(W .* r(fill(2.0, 6); history = [5.0]))
+    end
+    θ = [0.0, 0.3, 0.0]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    @test all(isfinite, ref)
+    for backend in (
+            AutoMooncake(; config = nothing),
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        @test gradient(f, backend, θ) ≈ ref
+    end
+end
+
 @testitem "Mooncake tangent layout the rule reads (canary)" tags = [:ad, :mooncake, :mooncake_reverse] begin
     import Mooncake
     using SparseArrays, LinearAlgebra

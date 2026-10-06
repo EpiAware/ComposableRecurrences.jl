@@ -258,7 +258,7 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     x̄ = s * e * (ȳ - s̄′)
     s̄ = -ȳ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = r > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    ᾱ = _primal_value(r) > 0 ? x̄ * x * log(r) : zero(x̄ * x)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
