@@ -25,6 +25,8 @@ u' &= u^{*} - m, \qquad w' = w^{*} + m
 ```
 
 When ``P \le 0`` the draw comes from ``u`` alone, ``u^{*} = u - v'``.
+A ``\sigma`` with ``0 \le \sigma \le 1`` gives protection, and
+``\sigma > 1`` makes the protected pool more susceptible than ``u``.
 With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
 doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
@@ -112,7 +114,7 @@ end
 # With a protected pool the state holds `S` then `V`, `2S` entries, and a
 # step reads both, so the step is vector-level.
 ispointwise(::_Protecting) = false
-_nstate(::_Protecting, S) = 2S
+nstate(::_Protecting, S) = 2S
 
 function forward(m::_Protecting, ::Init, s, history)
     S = length(s) ÷ 2

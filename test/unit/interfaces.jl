@@ -58,6 +58,44 @@ end
         Recurrence(g; coupling = [2.0 0.0; 0.0 2.0])(ones(2, 4); history = ones(2, 2))
 end
 
+@testitem "Interfaces: state length" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # A protected pool keeps two entries per stratum.
+    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    objs = (
+        Interfaces.Arguments(; piece = d, role = CR.Init(), args = (zeros(4), ones(2, 3))),
+        Interfaces.Arguments(;
+            piece = d, role = CR.Step(), args = ([1.0, 2.0], [90.0, 80.0, 5.0, 6.0], 1)
+        ),
+    )
+    @test Interfaces.test(CR.PieceInterface{(:nstate,)}, CR.Depletion, objs; show = false)
+    # A pointwise modifier that claims more than one entry per stratum fails.
+    struct DoubleState end
+    CR.ispointwise(::DoubleState) = true
+    CR.nstate(::DoubleState, S) = 2S
+    CR.forward(::DoubleState, ::CR.Step, v, s, t, k) = (v, s)
+    function CR.forward(m::DoubleState, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k], s[k] = CR.forward(m, CR.Step(), v[k], s[k], t, k)
+        end
+        return nothing
+    end
+    obj = Interfaces.Arguments(;
+        piece = DoubleState(), role = CR.Step(), args = ([1.0, 2.0], zeros(4), 1)
+    )
+    @test !Interfaces.test(
+        CR.PieceInterface{(:nstate,)}, DoubleState, (obj,); show = false
+    )
+    # A state that does not match nstate fails.
+    obj = Interfaces.Arguments(;
+        piece = CR.Clamp(0.0, 1.0), role = CR.Step(), args = ([1.0, 2.0], zeros(3), 1)
+    )
+    @test !Interfaces.test(
+        CR.PieceInterface{(:nstate,)}, CR.Clamp, (obj,); show = false
+    )
+end
+
 @testitem "param_eltype recurses through fields" setup = [TestModifiers] begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra
     CR = ComposableRecurrences

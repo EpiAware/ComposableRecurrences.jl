@@ -235,8 +235,38 @@ ComposableRecurrences.ispointwise(nothing)
 """
 ispointwise(m) = false
 
-# The length of a modifier's state for `S` strata.
-_nstate(m, S) = S
+@doc raw"""
+The number of state entries modifier `m` keeps for `S` strata.
+
+A stratum is one of the ``S`` parallel series computed together, such as a
+place or an age group.
+The recurrence allocates each modifier's state ``s`` with
+
+```math
+|s| = n(m, S), \qquad n(m, S) = S 	ext{ by default},
+```
+
+passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
+[`ComposableRecurrences.Step`](@ref), and checks a resumed state against it.
+This is the extension point for a modifier that holds more than one stock
+per stratum: a depletion with a protected pool keeps the unprotected pool
+then the protected pool, ``n(m, S) = 2S``.
+A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
+one entry per stratum, so it must have ``n(m, S) = S``.
+
+# Arguments
+- `m`: the modifier.
+- `S`: the number of strata.
+
+# Examples
+```@example
+using ComposableRecurrences
+CR = ComposableRecurrences
+leaky = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
+```
+"""
+nstate(m, S) = S
 
 # Defaults: a zero initial state, and a vector step that loops the scalar
 # one for a pointwise modifier.
