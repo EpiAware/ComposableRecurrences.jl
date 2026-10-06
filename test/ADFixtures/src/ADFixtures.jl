@@ -7,8 +7,8 @@
 #
 # Each scenario differentiates a scalar loss of one operator call with
 # respect to a flat parameter vector holding every differentiable slot.
-# Sizes are small so the per-backend CI stays fast; benchmark/gradients.jl
-# times harness-sized cases.
+# Sizes are small so the per-backend CI stays fast; benchmark/matrix.jl
+# times realistic sizes.
 module ADFixtures
 
 using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,

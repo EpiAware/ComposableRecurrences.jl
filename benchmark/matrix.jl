@@ -1,8 +1,8 @@
 #!/usr/bin/env julia
 # The benchmark matrix: every case of `test/ADFixtures/src/matrix_cases.jl`
 # at every size of a tier, on every target (primal, gradient backends and
-# their NoAdjoint arms). The CI suite in `benchmarks.jl` times the `ci` tier
-# only; this script runs the full grid.
+# their NoAdjoint and local arms). The CI suite in `benchmarks.jl` times the
+# `ci` tier only; this script runs the full grid.
 #
 #   julia --project=benchmark benchmark/matrix.jl [options]
 #
@@ -34,11 +34,7 @@ import Pkg
 using Printf: @printf
 using Statistics: median
 
-const CASES_FILE = joinpath(
-    @__DIR__, "..", "test", "ADFixtures", "src", "matrix_cases.jl"
-)
-include(CASES_FILE)
-using .MatrixCases
+using ADFixtures: MatrixCases
 
 # Gradient targets: name => (module to import, backend expression).
 const GRADIENTS = Dict(
@@ -67,11 +63,10 @@ const DEFAULT_TARGETS = [
     "primal", "ForwardDiff", "Mooncake reverse", "Enzyme reverse",
 ]
 
-# Targets waiting on unmerged work, with what they wait for.
+# Targets not run yet, with what they wait for. CPU threaded runs are not
+# listed: every target runs under `Threaded()` with `--executor=threaded`.
 const PENDING_TARGETS = [
-    ("CPU threaded primal", "executor (#17)"),
-    ("CPU threaded gradient", "executor (#17)"),
-    ("KA CPU primal", "KernelAbstractions extension (#17)"),
+    ("KA CPU primal", "a `--executor=device` option for `Device`"),
     ("CUDA primal", "GPU array path (#14)"),
     ("CUDA gradient", "GPU array path and rules (#14)"),
     ("Reactant CPU primal", "test/reactant env and traced bodies"),
@@ -171,12 +166,12 @@ end
 
 # Why a cell is not run, or `nothing` to run it.
 function skip_reason(c, target, arm, θ, rules)
-    target == "primal" && arm == "NoAdjoint" && return "same as rule arm"
+    target == "primal" && arm in ("NoAdjoint", "local") && return "same as rule arm"
     if startswith(target, "ForwardDiff")
-        arm == "NoAdjoint" && return "rules do not apply to dual numbers"
+        arm in ("NoAdjoint", "local") && return "rules do not apply to dual numbers"
         length(θ) > FD_MAX && return "over $FD_MAX parameters"
     end
-    if target == "Enzyme reverse" && c.sparse && (arm != "rule" || !rules)
+    if target == "Enzyme reverse" && c.sparse && (!(arm in ("rule", "local")) || !rules)
         return "known wrong: plain Enzyme on a repeated sparse mul!"
     end
     if target in ("Enzyme forward", "Mooncake forward") && length(θ) > FD_MAX
@@ -251,6 +246,7 @@ function run_cells(io, opts, target, label, backend, rules)
         for z in MatrixCases.sizes(c, tier)
             grads = Dict{String, Vector{Float64}}()
             for arm in MatrixCases.arms(c)
+                MatrixCases.available(c, arm) || continue
                 row = Dict{String, Any}(
                     "case" => c.name, "size" => string(z), "S" => z.S,
                     "T" => z.T, "L" => z.L, "target" => label, "arm" => arm,
