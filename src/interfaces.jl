@@ -39,6 +39,26 @@ function _pointwise_ok(m, ::Step, args)
     return ispointwise(m) && v ≈ first.(pairs) && s ≈ last.(pairs)
 end
 
+# A modifier's state keeps `nstate(m, S)` entries through Init and Step,
+# and a pointwise modifier keeps one per stratum.
+_nstate_ok(piece, role, args) = true
+function _nstate_ok(m, ::Init, args)
+    n = nstate(m, _nstrata(args[2]))
+    s = float(copy(args[1]))
+    length(s) == n || return false
+    forward(m, Init(), s, args[2])
+    return length(s) == n
+end
+function _nstate_ok(m, ::Step, args)
+    first(args) isa AbstractVector || return true
+    v, s = float(copy(args[1])), float(copy(args[2]))
+    S = length(v)
+    n = nstate(m, S)
+    length(s) == n || return false
+    forward(m, Step(), v, s, args[3:end]...)
+    return length(s) == n && (!ispointwise(m) || n == S)
+end
+
 @interface PieceInterface Any (
     mandatory = (
         forward = "forward runs in its role" =>
@@ -47,6 +67,8 @@ end
     optional = (
         pointwise = "a vector Step matches the scalar Step on each stratum" =>
             a -> _pointwise_ok(a.piece, a.role, a.args),
+        nstate = "Init and Step keep the state at nstate(m, S) entries" =>
+            a -> _nstate_ok(a.piece, a.role, a.args),
     ),
 ) "An operator, coupling, modifier or variant with `forward` for a role.
 
@@ -61,6 +83,8 @@ M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
 
 where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
 time ``t`` and ``S`` the number of strata.
+The optional `nstate` component checks the state length against
+[`ComposableRecurrences.nstate`](@ref).
 
 Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
 
@@ -123,7 +147,7 @@ Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
     ),
 ]
 
-@implements PieceInterface{(:pointwise,)} Depletion [
+@implements PieceInterface{(:pointwise, :nstate)} Depletion [
     Arguments(;
         piece = Depletion(PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0])),
         role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
@@ -146,7 +170,7 @@ Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
     Arguments(; piece = Floor(), role = Step(), args = (2.0, 80.0, 100.0, 1.5)),
 ]
 
-@implements PieceInterface{(:pointwise,)} Add [
+@implements PieceInterface{(:pointwise, :nstate)} Add [
     Arguments(;
         piece = Add(TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))), role = Step(),
         args = ([2.0, 3.0], [0.0, 0.0], 2)
@@ -156,20 +180,20 @@ Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
     ),
 ]
 
-@implements PieceInterface Redistribute [
+@implements PieceInterface{(:nstate,)} Redistribute [
     Arguments(;
         piece = Redistribute([0.0 0.3; 0.2 0.0], PerStratum([0.1, 0.2])),
         role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
 
-@implements PieceInterface{(:pointwise,)} Clamp [
+@implements PieceInterface{(:pointwise, :nstate)} Clamp [
     Arguments(;
         piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
 
-@implements PieceInterface Allocate [
+@implements PieceInterface{(:nstate,)} Allocate [
     Arguments(;
         piece = Allocate([1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))),
         role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2)

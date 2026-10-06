@@ -434,12 +434,6 @@ function renewal(step, gen_int, I₀, r, Rt)
     return accumulate_scan(step, init, _steps(Rt))
 end
 
-# The renewal initial window alone, which the recurrence takes as `history`.
-function renewal_window(step, gen_int, I₀, r)
-    core = step isa RenewalStep ? step.core : step
-    return renewal_init_window(core, I₀, r, _n_lags(gen_int))
-end
-
 # A renewal whose mixing matrix changes each step: the copied
 # `ConstantRenewalStep` rebuilt with `Ks[:, :, t]` at step `t`.
 function time_varying_mixing_renewal(rev_gen_int, Ks, window, Rt)

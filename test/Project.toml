@@ -33,7 +33,7 @@ ComposableRecurrences = {path = ".."}
 ADTypes = "1"
 Aqua = "0.8"
 BenchmarkTools = "1.4"
-ConstructionBase = "1"
+ConstructionBase = "1.6"
 DifferentiationInterface = "0.6, 0.7"
 DifferentiationInterfaceTest = "0.9, 0.10, 0.11"
 Documenter = "1"
