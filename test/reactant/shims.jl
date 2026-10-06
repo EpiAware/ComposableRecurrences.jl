@@ -36,12 +36,3 @@ function ComposableRecurrences._oldest_first(
     )
     return PerStratum(reverse(copy(g.x); dims = 2))
 end
-
-# Buffers are allocated `similar` to the history. A constant history (a plain
-# `Array`, as a fixed seed is) then gives an `Array` of traced numbers, and
-# `fill!` on it fails. Allocating a traced array instead avoids that.
-function ComposableRecurrences._zeros(
-        x, ::Type{T}, dims...
-    ) where {T <: Reactant.TracedRNumber}
-    return zeros(T, dims...)
-end
