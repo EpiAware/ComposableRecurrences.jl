@@ -8,7 +8,7 @@
     T = 15
     ϵ = randn(rng, T)
     ref = CTIDM.accumulate_scan(CTIDM.RWStep(), 0.3, ϵ)
-    @test [0.3; Recurrence([1.0])(1.0; history = [0.3], add = ϵ)] ≈ ref
+    @test Recurrence([1.0])(1.0; history = [0.3], add = ϵ, prepend = true) ≈ ref
 
     damp = [0.1, -0.2, 0.6]
     w0 = randn(rng, 3)
@@ -16,7 +16,7 @@
         CTIDM.ARStep(damp), (; val = 0.0, window = w0), ϵ
     )
     # CTIDM's AR coefficients are oldest first.
-    @test [w0; Recurrence(reverse(damp))(1.0; history = w0, add = ϵ)] ≈ ref
+    @test Recurrence(reverse(damp))(1.0; history = w0, add = ϵ, prepend = true) ≈ ref
 end
 
 @testitem "CTIDM: delay as a convolution" begin

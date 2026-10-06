@@ -73,11 +73,11 @@
     end
 end
 
-@testitem "Executor gradients: ForwardDiff" tags = [:ad, :forwarddiff] setup = [ExecutorAD] begin
+@testitem "Executor gradients: ForwardDiff" tags = [:ad, :executor, :forwarddiff] setup = [ExecutorAD] begin
     test_executor_gradients(AutoForwardDiff())
 end
 
-@testitem "Executor gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse] setup = [ExecutorAD] begin
+@testitem "Executor gradients: Enzyme reverse" tags = [:ad, :executor, :enzyme, :enzyme_reverse] setup = [ExecutorAD] begin
     using Enzyme: Enzyme
     using ADTypes: AutoEnzyme
     # Runtime activity for the constant history; the losses close
@@ -90,13 +90,13 @@ end
     )
 end
 
-@testitem "Executor gradients: Mooncake reverse" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ExecutorAD] begin
+@testitem "Executor gradients: Mooncake reverse" tags = [:ad, :executor, :mooncake, :mooncake_reverse] setup = [ExecutorAD] begin
     using Mooncake: Mooncake
     using ADTypes: AutoMooncake
     test_executor_gradients(AutoMooncake(; config = nothing))
 end
 
-@testitem "Executor gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward] setup = [ExecutorAD] begin
+@testitem "Executor gradients: Enzyme forward" tags = [:ad, :executor, :enzyme, :enzyme_forward] setup = [ExecutorAD] begin
     using Enzyme: Enzyme
     using ADTypes: AutoEnzyme
     test_executor_gradients(
@@ -107,7 +107,7 @@ end
     )
 end
 
-@testitem "Executor gradients: Mooncake forward" tags = [:ad, :mooncake, :mooncake_forward] setup = [ExecutorAD] begin
+@testitem "Executor gradients: Mooncake forward" tags = [:ad, :executor, :mooncake, :mooncake_forward] setup = [ExecutorAD] begin
     using Mooncake: Mooncake
     using ADTypes: AutoMooncakeForward
     test_executor_gradients(AutoMooncakeForward())

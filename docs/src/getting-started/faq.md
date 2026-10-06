@@ -3,7 +3,7 @@
 ## Why is there no renewal or AR constructor?
 
 The operators describe steps, not models.
-A renewal process is `Recurrence(gi)` with the reproduction number as its gain, and an AR(p) process is `Recurrence(ρ)` with the innovations as `add`.
+A renewal process is [`Recurrence(gi)`](@ref Recurrence) with the reproduction number as its gain, and an AR(p) process is `Recurrence(ρ)` with the innovations as `add`.
 Modelling packages such as [ComposableTuringIDModels.jl](https://composableturingidmodels.epiaware.org) name these and give them priors.
 
 ## Why does a recurrence kernel start at lag 1 and a convolution kernel at lag 0?
@@ -15,8 +15,7 @@ Both are written as the quantity is usually written, so a generation interval or
 ## How do I get intermediate quantities?
 
 Operators return only their outputs.
-A step's value before the gain multiplies it is a convolution of the outputs, so `Convolution(vcat(0, g))` recomputes it.
-See the [time-series processes](@ref overview-time-series) on the API overview.
+Recompute the rest; [`Convolution`](@ref) shows how for the value before the gain.
 
 ## Which AD backends work?
 
@@ -27,9 +26,9 @@ The [AD comparison](@ref ad-comparison) page compares their gradient times.
 
 ## Why is my history padded with zeros?
 
-A history shorter than the kernel means there were no earlier values, so the missing lags count as zero.
+A shorter history means no earlier values; see `history` in [`Recurrence`](@ref).
 
 ## `Recurrence` clashes with Lux
 
 Lux also exports a `Recurrence`.
-With both loaded by `using`, write `ComposableRecurrences.Recurrence` or import the one you need by name.
+With both loaded by `using`, write [`ComposableRecurrences.Recurrence`](@ref Recurrence) or import the one you need by name.

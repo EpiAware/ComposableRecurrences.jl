@@ -23,7 +23,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Protected, Floor, Add, seeded, with_state
+using ComposableRecurrences: Depletion, Protected, Floor, Add, exponential_history, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 
@@ -49,6 +49,25 @@ end
 
 # Infections grow while `R` is 1.4, fall after day 30 when it drops to 0.9, and grow again after day 50.
 # Each change in `R` shows as a jump, because `R` scales each day's infections directly.
+#
+# ### Seeding on a growth path
+#
+# A single seed day makes the first generations uneven.
+# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r`, and its docstring states the equation linking `r` to `R` for a generation interval.
+# A few Newton steps solve it.
+
+euler_lotka(r, R, gi) = R * sum(gi[l] * exp(-r * l) for l in eachindex(gi)) - 1
+function growth_rate(R, gi; r = 0.0)
+    for _ in 1:20
+        r -= euler_lotka(r, R, gi) / ForwardDiff.derivative(x -> euler_lotka(x, R, gi), r)
+    end
+    return r
+end
+r0 = growth_rate(R[1], gi)
+y0 = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
+round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
+
+# Every daily growth ratio, seed days included, equals ``e^{r}`` until `R` changes.
 
 # ## Susceptible depletion
 #
@@ -164,12 +183,12 @@ round.((sum(before), sum(after)))
 #
 # The delay is a convolution kernel, lag 0 first.
 # Ascertainment is a plain multiplication.
-# `seeded` returns the seed days followed by the run, so the delay sees the seed too.
+# The five seed days sit at days 1 to 5 with `start = 6`, and `prepend = true` returns them before the run, so the delay sees the seed too.
 
 delay = Convolution([0.1, 0.3, 0.3, 0.2, 0.1])
 seed = fill(5.0, 5)
 R_full = vcat(fill(1.0, 5), R)
-infections_seeded = seeded(renewal, R_full; history = seed)
+infections_seeded = renewal(R_full; history = seed, start = 6, prepend = true)
 reports = 0.3 .* delay(infections_seeded)
 days = 1:length(reports)
 @chain DataFrame(day = days, Infections = infections_seeded, Reports = reports) begin
@@ -185,7 +204,7 @@ end
 #
 # Both operators run on dual numbers, so ForwardDiff gives the gradient of the total reports with respect to every day's reproduction number.
 
-total_reports(R) = sum(0.3 .* delay(seeded(renewal, R; history = seed)))
+total_reports(R) = sum(0.3 .* delay(renewal(R; history = seed, start = 6, prepend = true)))
 ∂R = ForwardDiff.gradient(total_reports, R_full)
 @chain DataFrame(day = days, sensitivity = ∂R) begin
     data(_) * mapping(:day, :sensitivity) * visual(Lines, linewidth = 2)
