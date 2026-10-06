@@ -23,7 +23,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Primary, seeded
+using ComposableRecurrences: Primary
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -134,7 +134,7 @@ end
 # ```
 #
 # With `Primary()` column ``c`` of the kernel is cohort ``c``'s interval.
-# The seed must sit at times from 1, which `seeded` does.
+# The seed must sit at times from 1, so the run starts at `start = 7` after six seed days, and `prepend = true` returns the seed with the run.
 # For comparison, the `Secondary()` kernel starts the same thinning on day ``t_0`` for every case, whenever it was infected.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
@@ -144,11 +144,12 @@ cohort = [long_gi[l] * (1 - p_iso * b_iso * P_iso(l, t0 - c)) for l in 1:6, c in
 period = [long_gi[l] * (1 - (t >= t0 ? p_iso * b_iso * P_iso(l, 0) : 0.0)) for l in 1:6, t in 1:T]
 R_iso = fill(1.8, T)
 seed_iso = fill(10.0, 6)
+seeded_iso(kernel) = Recurrence(kernel)(R_iso; history = seed_iso, start = 7, prepend = true)
 @chain DataFrame(
     "day" => 1:T,
-    "No isolation" => seeded(Recurrence(long_gi), R_iso; history = seed_iso),
-    "By infection day" => seeded(Recurrence(TimeVarying(cohort, Primary())), R_iso; history = seed_iso),
-    "By calendar day" => seeded(Recurrence(TimeVarying(period)), R_iso; history = seed_iso),
+    "No isolation" => seeded_iso(long_gi),
+    "By infection day" => seeded_iso(TimeVarying(cohort, Primary())),
+    "By calendar day" => seeded_iso(TimeVarying(period)),
 ) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)

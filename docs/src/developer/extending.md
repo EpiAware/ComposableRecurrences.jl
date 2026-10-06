@@ -33,6 +33,27 @@ CR.forward(m::Scale, ::CR.Step, v, s, t, k) = (m.a * v, s)
 Recurrence([0.5, 0.5]; modifiers = (Scale(0.9),))(2.0; history = ones(2), stop = 5)
 ```
 
+## A modifier with more state
+
+A modifier that keeps more than one entry per series adds an [`nstate`](@ref ComposableRecurrences.nstate) method and a vector step.
+This one keeps a running total and a step count per series, and adds their mean to the value.
+
+```@example extending
+struct AddMean end
+CR.nstate(::AddMean, S) = 2S
+function CR.forward(::AddMean, ::CR.Step, v, s, t)
+    S = length(v)
+    for k in 1:S
+        s[k] += v[k]
+        s[S + k] += 1
+        v[k] += s[k] / s[S + k]
+    end
+    return nothing
+end
+
+Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0 2.0; 3.0 1.0])
+```
+
 ## A hand-written gradient
 
 A pointwise step's `pullback!` returns the cotangents of the value and the state.
@@ -51,7 +72,12 @@ CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
 ```
 
 Without a `pullback!`, a pointwise modifier with only scalar float parameters, such as `Scale`, is differentiated locally with ForwardDiff inside the rule.
-Any other modifier without one makes the backend differentiate the whole operator.
+The rule rebuilds the modifier with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
+Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
+Integer fields, index ranges and integer arrays are structure, not parameters.
+Any other modifier without a `pullback!` makes the backend differentiate the whole operator.
+This includes one holding a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
+Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 A `pullback!` is kept only where it beats plain automatic differentiation; see [the rule policy](@ref rule-policy).
 
 ## A custom depletion form
@@ -67,11 +93,15 @@ d = CR.Depletion(10.0, Linear())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 
+A form without a `pullback!` is differentiated locally with ForwardDiff inside the rule, in the value, the pool, the population, the exponent and its own float scalars.
+The same conditions on its constructor apply as for a pointwise modifier.
+
 ## Checking an extension
 
 `PieceInterface` declares the roles with Interfaces.jl.
 Test a new modifier or depletion form against it with one `Arguments(; piece, role, args)` object per role it supports.
 The test runs its `forward` and checks it keeps to the role's conventions.
+`CR.PieceInterface{(:nstate,)}` also checks the state length against [`nstate`](@ref ComposableRecurrences.nstate).
 
 ```@example extending
 using Interfaces: Interfaces, Arguments

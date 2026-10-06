@@ -53,13 +53,11 @@ end
     CR = ComposableRecurrences
     (; reindex, shapes, m) = PrimaryChecks
     for (wrap, K, R, h, C) in values(shapes)
-        prim(K, R, h) = CR.seeded(
-            Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C), R;
-            history = h
+        prim(K, R, h) = Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C)(
+            R; history = h, start = m + 1, prepend = true
         )
-        sec(K, R, h) = CR.seeded(
-            Recurrence(TimeVarying(wrap(reindex(K))); coupling = C), R;
-            history = h
+        sec(K, R, h) = Recurrence(TimeVarying(wrap(reindex(K))); coupling = C)(
+            R; history = h, start = m + 1, prepend = true
         )
         @test prim(K, R, h) ≈ sec(K, R, h)
         W = reshape(range(0.3, 1.2; length = length(R)), size(R))
@@ -79,8 +77,8 @@ end
     g = [0.5, 0.3, 0.2]
     K = repeat(g, 1, 10)
     R = fill(1.3, 10)
-    @test CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), R; history = [1.0, 2.0]) ≈
-        CR.seeded(Recurrence(g), R; history = [1.0, 2.0])
+    seed = (; history = [1.0, 2.0], start = 3, prepend = true)
+    @test Recurrence(TimeVarying(K, CR.Primary()))(R; seed...) ≈ Recurrence(g)(R; seed...)
 end
 
 @testitem "Primary Recurrence: a cohort's onward weight is its column sum" setup = [PrimaryChecks] begin
@@ -123,6 +121,9 @@ end
     @test_throws ArgumentError r(ones(6); history = ones(2), start = 2)
     @test_throws "not start = 2" r(ones(6); history = ones(2), start = 2)
     @test length(r(ones(6); history = ones(2), start = 3)) == 4
+    # Both a seed and a state is refused as such, before the seed check.
+    _, st = CR.with_state(r, ones(6); history = ones(2), start = 3, stop = 4)
+    @test_throws "not both" r(ones(6); history = ones(2), state = st)
     # Without a seed there is nothing earlier to read.
     @test r(ones(6)) == zeros(6)
     # A short seed is zero-padded; the padding has no column and is skipped.

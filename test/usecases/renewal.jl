@@ -26,7 +26,7 @@
 
     # I_t = R_t Σ_i g_i I_{t-i}, from CTIDM's exponentially seeded window.
     function renewal(g, I₀, Rt)
-        window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+        window = ComposableRecurrences.exponential_history(I₀, r, length(g))
         return Recurrence(g)(Rt; history = window)
     end
     @test renewal(g, I₀, Rt) ≈ ref
@@ -40,7 +40,7 @@ end
     g = [0.2, 0.5, 0.3]
     I₀, r, N = 5.0, 0.1, 400.0
     Rt = [2.4, 2.3, 2.5, 2.2, 2.1, 2.0, 1.9, 2.2, 2.3, 2.1]
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     ref_step(N) = C.RenewalStep(
         C.ConstantRenewalStep(reverse(g)), (C.SusceptibleDepletion(N),)
     )
@@ -75,7 +75,7 @@ end
     I₀, r, N = 1.0, 0.0, 300.0
     Rt = [0.8, 0.9, 1.2, 1.5, 1.8, 2.0, 1.6, 1.2, 1.0, 0.9]
     ι = [0.5, 0.5, 1.0, 2.0, 1.5, 0.5, 0.2, 0.1, 0.0, 0.0]
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     core = C.ConstantRenewalStep(reverse(g))
     ref_alone(ι, N) = C.renewal(
         C.RenewalStep(core, (C.ImportedRate(ι),)), g, I₀, r, Rt
@@ -115,7 +115,7 @@ end
     I₀, r, N = 1.0, 0.0, 300.0
     Rt = [0.8, 0.9, 1.2, 1.5, 1.8, 2.0, 1.6, 1.2, 1.0, 0.9]
     ι = [0.5, 0.5, 1.0, 2.0, 1.5, 0.5, 0.2, 0.1, 0.0, 0.0]
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     core = C.ConstantRenewalStep(reverse(g))
     ref_after(ι, N) = C.renewal(
         C.RenewalStep(core, (C.SusceptibleDepletion(N), C.ImportedRate(ι))),
@@ -166,7 +166,7 @@ end
     end
     function bvd_renewal(Rt, g, seed, N)
         r = renewal(g, seed, N)
-        return ComposableRecurrences.seeded(r, Rt; history = seed)
+        return r(Rt; history = seed, start = length(seed) + 1, prepend = true)
     end
 
     # Seed as long as the generation interval, shorter, then longer.

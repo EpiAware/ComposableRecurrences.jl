@@ -6,13 +6,16 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _current, _note_plain_type, _run_forward, _run_pullback!
+    _current, _note_plain_type, _rebuilds, _run_forward, _run_pullback!
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
 
 const _IEEEFloat = Union{Float16, Float32, Float64}
-const _Inert = Union{Nothing, Integer, Symbol, AbstractArray{<:Integer}}
+const _Inert = Union{
+    Nothing, Integer, Symbol, AbstractArray{<:Integer},
+    AbstractArray{<:AbstractArray{<:Integer}},
+}
 
 # The mirror of primal `x` from its fdata `dx`.
 _mc(x::_IEEEFloat, dx) = Ref(zero(x))
@@ -62,6 +65,7 @@ Mooncake.@mooncake_overlay function ComposableRecurrences._axpy!(
 end
 
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Any}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuilds), Any}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and

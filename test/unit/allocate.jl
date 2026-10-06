@@ -107,9 +107,16 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     @test_throws ArgumentError CR.Allocate([1:2, 2:3], 1.0)
+    @test_throws "stratum 2 is in two groups" CR.Allocate([1:2, 2:3], 1.0)
     @test_throws ArgumentError CR.Allocate([1:2, Int[]], 1.0)
+    @test_throws "got 0-element Vector{Int64}" CR.Allocate([1:2, Int[]], 1.0)
+    @test_throws "got 2-element Vector{Float64}" CR.Allocate([[1.0, 2.0]], 1.0)
     @test_throws ArgumentError CR.Allocate([0:1], 1.0)
+    @test_throws "got 0 in group 0:1" CR.Allocate([0:1], 1.0)
     @test_throws ArgumentError CR.Allocate(UnitRange{Int}[], 1.0)
+    @test_throws "at least one group, got 0-element" CR.Allocate(
+        UnitRange{Int}[], 1.0
+    )
     @test_throws ArgumentError CR.Allocate([1:2], [1.0, 2.0])
     @test_throws DimensionMismatch CR.Allocate([1:2, 3:3], PerStratum([1.0]))
     @test_throws ArgumentError CR.Allocate(
@@ -117,6 +124,9 @@ end
     )
     r = Recurrence([0.5]; modifiers = (CR.Allocate([1:2, 4:4], 1.0),))
     @test_throws ArgumentError r(ones(3, 2); history = ones(3, 1))
+    @test_throws "cover 3 strata with indices up to 4" r(
+        ones(3, 2); history = ones(3, 1)
+    )
     r = Recurrence([0.5]; modifiers = (CR.Allocate([1:2], TimeVarying([1.0, 2.0])),))
     @test_throws DimensionMismatch r(ones(2, 3); history = ones(2, 1))
 end
