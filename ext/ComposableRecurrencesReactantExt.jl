@@ -27,9 +27,9 @@ function ComposableRecurrences._kdot(g::AbstractVector, H::AnyTracedRArray, t, Ï
     return sum(g .* view(H, t:(t + L - 1), a))
 end
 
-# The step loops read and write one entry at a time, so a traced run allows
-# scalar indexing. It runs serially: the executors split work across
-# threads or devices, which the traced program does itself.
+# The step and convolution loops read and write one entry at a time, so a
+# traced run allows scalar indexing. It runs serially: the executors split
+# work across threads or devices, which the traced program does itself.
 function ComposableRecurrences._run(
         ::Type{Tp}, r, gain, add, h, s0, Ï„0, L, S, T, record::Val
     ) where {Tp <: TracedRNumber}
@@ -41,10 +41,8 @@ end
 function ComposableRecurrences._conv_buffers(
         ::Type{Tp}, kernel, x, history, m, S, start, stop
     ) where {Tp <: TracedRNumber}
-    return @allowscalar invoke(
-        ComposableRecurrences._conv_buffers,
-        Tuple{Type, Any, Any, Any, Any, Any, Any, Any},
-        Tp, kernel, x, history, m, S, start, stop
+    return @allowscalar ComposableRecurrences._conv_buffers(
+        Tp, Serial(), kernel, x, history, m, S, start, stop
     )
 end
 
