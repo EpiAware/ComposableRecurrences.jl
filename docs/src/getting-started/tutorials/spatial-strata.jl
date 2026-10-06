@@ -99,8 +99,8 @@ end
 # ## Moving infections between patches
 #
 # Each patch sends a share `ε` of its infections to the others.
-# The modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute).
 # Each origin has its own share, which halves from day 40.
+# The modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute).
 # It sits before [`Depletion`](@ref ComposableRecurrences.Depletion).
 # Each pool is then depleted by what its patch receives.
 
@@ -154,6 +154,7 @@ end
 # A district with a higher reproduction number takes a growing share of its patch.
 # A3 overtakes A1 on day 26 despite starting with a sixth of its seed.
 # C2 leads C1 from the first day.
+# The districts still sum to their patch's infections:
 
 maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts]) .- totals)
 
@@ -207,8 +208,7 @@ round.((R0 * sum(gi), R0 * sum(gi_isolated)); digits = 3)
     draw(_; axis = (xlabel = "Lag (days)", ylabel = "Generation interval weight"))
 end
 
-
-# Isolation brings the reproduction number below one.
+# Isolation thins the later lags most and brings the reproduction number below one.
 #
 # ### Contact tracing as two types
 #
