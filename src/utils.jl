@@ -14,12 +14,24 @@ _at(x::AbstractMatrix, k, t) = x[k, t]
 _extent(x::AbstractArray) = size(x, ndims(x))
 _extent(x) = nothing
 
+# A bad value as an error message names it: in full when it is small, by
+# type and size when it is an array.
+_describe(x) = repr(x)
+_describe(x::AbstractArray) = summary(x)
+_describe(x::AbstractRange) = repr(x)
+function _describe(x::Union{PerStratum, Pairwise})
+    return string(nameof(typeof(x)), "(", _describe(x.x), ")")
+end
+function _describe(x::TimeVarying{I}) where {I}
+    return string("TimeVarying(", _describe(x.x), ", ", nameof(I), "())")
+end
+
 # Call inputs are plain data; time enters a call one way.
 function _check_unwrapped(name, x)
     x isa Union{TimeVarying, PerStratum, Pairwise} && throw(
         ArgumentError(
             "$name is data, not a wrapped coefficient: pass the plain " *
-                "array, time on the last axis"
+                "array, time on the last axis; got $(_describe(x))"
         )
     )
     return nothing
@@ -74,10 +86,11 @@ end
 function _check_times(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
-function _check_times(name, ::TimeVarying, stop)
+function _check_times(name, x::TimeVarying, stop)
     throw(
         ArgumentError(
-            "$name: Primary() indexing is only meaningful for a kernel"
+            "$name: Primary() indexing is only meaningful for a kernel; " *
+                "got $(_describe(x))"
         )
     )
 end
