@@ -123,7 +123,7 @@ function _has_vector_pullback(x)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})
 end
 
-# `pullback!` for a piece that uses its adjoint, with a clear error when it
+# `pullback!` for an object that uses its adjoint, with a clear error when it
 # declares one but has no method for these arguments. The check is on the
 # types, so it folds.
 function _call_pullback!(grads, x, role, args...)
