@@ -81,7 +81,7 @@ A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` 
 `stop` defaults to the common length of those inputs, and inputs of different lengths without a `stop` are an error.
 A history shorter than the kernel is padded with zeros, meaning no earlier values.
 A recurrence returns only the run unless `prepend = true`, and a convolution never prepends its history.
-With `start = m + 1` a seed of `m` days sits at times `1:m`, and the time-indexed inputs cover it.
+[`Recurrence`](@ref) states where a seed sits for a given `start`.
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial forecasts by continuing from a `State`.
 
 ## [Shapes](@id overview-shapes)
