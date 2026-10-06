@@ -2,21 +2,25 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, the [strata](@ref PerStratum): one per place, such as a town, or per type, such as an age group or traced and untraced cases.
-# A coupling mixes the series within each step, a [`Pairwise`](@ref) kernel gives each pair its own generation interval, and [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves infections between places.
-# This tutorial builds a three-patch model several ways, recovers its importation series, and then treats the series as types.
+# A model can run several series side by side, the [strata](@ref PerStratum).
+# A stratum is a place, such as a town, or a type, such as an age group or traced cases.
+# A coupling mixes the series within each step.
+# A [`Pairwise`](@ref) kernel gives each pair its own generation interval.
+# [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves infections between places.
+# This tutorial builds a three-patch model several ways and recovers its importation series.
+# It then treats the series as types.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Build a gravity coupling from populations and distances.
-# 2. Compare a fixed coupling, per-pair generation intervals and mixing that changes over time.
-# 3. Move infections between patches with `Redistribute` and recompute the importation series.
-# 4. Share each patch's infections, fixed by an earlier fit, among its districts with `Allocate`.
-# 5. Use the series as types for a multi-type process, isolation and contact tracing in expectation.
+# 2. Compare a fixed coupling, per-pair generation intervals and changing mixing.
+# 3. Move infections between patches with `Redistribute` and recompute the imports.
+# 4. Share each patch's known infections among its districts with `Allocate`.
+# 5. Use the series as types for a multi-type process, isolation and contact tracing.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) overview and the [API overview](@ref api-overview), and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# It extends the three-town [Getting started](@ref getting-started) example.
 # No fitting is involved.
 
 # ## Packages used
@@ -30,7 +34,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A gravity coupling
 #
-# A gravity coupling weights each pair of patches by the destination's population over the squared distance.
+# A gravity coupling weights each pair of patches by population over squared distance.
 # Most contact stays within a patch, so the gravity weights share a small part of each row.
 
 patches = ["A", "B", "C"]
@@ -53,9 +57,10 @@ end
 # ## Three ways to mix
 #
 # The fixed coupling applies `K` after the generation interval.
-# A `Pairwise` kernel gives each pair its own interval, here longer between patches than within, and weights it by `K`, so its coupling stays `I`.
-# A [`TimeVarying`](@ref) coupling changes by day, here cutting travel between patches by 80% from day 30.
-# Each model depletes every patch's own pool and starts from ten infections a day in patch A.
+# A `Pairwise` kernel gives each pair its own interval, longer between patches than within.
+# It weights each interval by `K`, so its coupling stays `I`.
+# A [`TimeVarying`](@ref) coupling changes by day, here cutting travel by 80% from day 30.
+# Each model depletes every patch's pool and starts from ten infections a day in patch A.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 gi_between = [0.0, 0.1, 0.2, 0.3, 0.2, 0.2]
@@ -89,20 +94,23 @@ end
 
 # All three patches take off together, because even 5% mixing seeds B and C within days.
 # Longer intervals between patches delay the peaks in B and C slightly.
-# Cutting travel on day 30 lowers every peak, most in B and C, which depend most on infections from A.
+# Cutting travel on day 30 lowers every peak, most in B and C, which depend most on A.
 
 # ## Moving infections between patches
 #
-# [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) moves a share of each patch's infections to the others.
-# Here each origin has its own intensity, and it halves from day 40.
-# Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), each patch's pool is depleted by what it receives.
+# Each patch sends a share `ε` of its infections to the others.
+# The modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute).
+# Each origin has its own share, which halves from day 40.
+# It sits before [`Depletion`](@ref ComposableRecurrences.Depletion).
+# Each pool is then depleted by what its patch receives.
 
 ε = [t < 40 ? e : e / 2 for e in [0.05, 0.03, 0.02], t in 1:T]
 patch = Recurrence(gi; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε))), depletion))
 infections, state = with_state(patch, 1.6; history = seed, stop = T)
 
 # The importation series is not recorded, but it can be recomputed from the infections.
-# Each patch's value before the modifiers is ``R`` times a [`Convolution`](@ref) with a zero at lag 0.
+# Each patch's value before the modifiers is ``R`` times a [`Convolution`](@ref).
+# Its kernel is the generation interval with a zero at lag 0.
 # The arrivals are the off-diagonal `K` applied to each origin's `ε`-weighted value.
 
 force = Convolution(vcat(0.0, gi))(hcat(seed, infections))[:, (size(seed, 2) + 1):end]
@@ -117,15 +125,15 @@ end
 
 # B receives the most, from its large neighbour A, and A receives the least.
 #
-# The modifier's state, which it carries from step to step, holds the last step's arrivals, which match the recomputed series.
+# The modifier's state holds the last step's arrivals, which match the recomputed series.
 
 maximum(abs, state.states[1] .- arrivals[:, end])
 
 # ## Sharing a total fixed elsewhere
 #
-# Sometimes each patch's infections are already known, from the model above or an earlier fit, and the question is how they split among the patch's districts.
-# [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) splits each patch's known infections among its districts by their own renewals.
-# Patch A has three districts and B and C two each; each district has its own reproduction number.
+# Sometimes each patch's infections are known, from the model above or an earlier fit.
+# The question is how they split among the patch's districts.
+# [`Allocate`](@ref ComposableRecurrences.Allocate) splits them by the districts' renewals.
 
 districts = [1:3, 4:5, 6:7]
 totals = models[1].second(1.6; history = seed, stop = T)
@@ -143,29 +151,46 @@ by_district = Recurrence(gi; modifiers = (share,))(R_district; history = distric
 end
 
 # B1 and B2 share a reproduction number, so B1 keeps twice B2's infections throughout.
-# A district with a higher reproduction number takes a growing share of its patch's infections: A3 overtakes A1 on day 26 despite starting with a sixth of its seed, and C2 leads C1 from the first day.
+# A district with a higher reproduction number takes a growing share of its patch.
+# A3 overtakes A1 on day 26 despite starting with a sixth of its seed.
+# C2 leads C1 from the first day.
 
 maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts]) .- totals)
 
 # ## Types, not places
 #
 # The same operators model types.
-# These are expectations of branching processes, so they give mean numbers of cases, not simulated chains.
+# These are expectations of branching processes: mean cases, not simulated chains.
 #
 # ### A multi-type process
 #
-# With a unit kernel each step is one generation, and a mean offspring matrix `M` is the coupling.
-# The growth ratio between generations converges to the spectral radius of `M`, the reproduction number.
+# With a unit kernel each step is one generation.
+# The mean offspring matrix `M` is the coupling.
+# Growth per generation converges to the spectral radius of `M`, the reproduction number.
 
 M = [1.2 0.4; 0.3 0.6]
 generations = Recurrence([1.0]; coupling = M)(1.0; history = [1.0; 0.0;;], stop = 30)
 growth = norm(generations[:, end]) / norm(generations[:, end - 1])
 round.((growth, maximum(abs, eigvals(M))); digits = 4)
 
+#-
+
+@chain DataFrame(
+    "generation" => 0:30, "Type 1" => [1.0; generations[1, :]], "Type 2" => [0.0; generations[2, :]]
+) begin
+    stack(Not(:generation); variable_name = :type, value_name = :cases)
+    @subset(:cases .> 0)
+    data(_) * mapping(:generation, :cases, color = :type) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Generation", ylabel = "Mean cases (log scale)", yscale = log10))
+end
+
+# After a few generations both types grow at the same rate, in a fixed ratio.
+
 # ### Isolation as a thinned kernel
 #
-# Isolating a share `p` of cases blocks a share `b` of their onward transmission once they are isolated.
-# If `F_D` is the probability a case is isolated by lag `τ`, the mean offspring at lag `τ` is `R g(τ) (1 - p b F_D(τ))`.
+# Isolating a share `p` of cases blocks a share `b` of their later transmission.
+# `F_D(τ)` is the probability a case is isolated by lag `τ`.
+# The mean offspring at lag `τ` is then `R g(τ) (1 - p b F_D(τ))`.
 # This assumes the generation interval is independent of the time to isolation.
 
 p, b = 0.8, 0.9
@@ -174,14 +199,24 @@ gi_isolated = gi .* (1 .- p * b .* F_D)
 R0 = 1.6
 round.((R0 * sum(gi), R0 * sum(gi_isolated)); digits = 3)
 
+#-
+
+@chain DataFrame("lag" => eachindex(gi), "No isolation" => gi, "Isolation" => gi_isolated) begin
+    stack(Not(:lag); variable_name = :kernel, value_name = :weight)
+    data(_) * mapping(:lag, :weight, color = :kernel, dodge = :kernel) * visual(BarPlot)
+    draw(_; axis = (xlabel = "Lag (days)", ylabel = "Generation interval weight"))
+end
+
+
 # Isolation brings the reproduction number below one.
 #
 # ### Contact tracing as two types
 #
 # Traced and untraced cases are two types.
-# A share `q` of each case's contacts is traced, and traced cases transmit on a thinned kernel.
-# A `Pairwise` kernel gives each pair of types its interval, rows the infectee type and columns the infector type.
-# This is an approximation, because tracing correlates an infector's and infectee's isolation times.
+# A share `q` of each case's contacts is traced, and traced cases use the thinned kernel.
+# A `Pairwise` kernel gives each pair of types its interval.
+# Rows are the infectee type and columns the infector type.
+# This is an approximation: tracing correlates an infector's and infectee's isolation times.
 
 function traced_outbreak(q)
     A_trace = zeros(2, 2, length(gi))
@@ -191,11 +226,16 @@ function traced_outbreak(q)
     end
     return Recurrence(Pairwise(A_trace))(R0; history = [10.0; 0.0;;], stop = 60)
 end
-round.((sum(traced_outbreak(0.0)), sum(traced_outbreak(0.5)), sum(traced_outbreak(0.9))))
+@chain [0.0, 0.5, 0.9] begin
+    map(q -> DataFrame(day = 1:60, q = string(q), cases = vec(sum(traced_outbreak(q); dims = 1))), _)
+    reduce(vcat, _)
+    data(_) * mapping(:day, :cases, color = :q => "Traced share") * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Cases (log scale)", yscale = log10))
+end
 
 # More tracing means fewer cases.
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
+# - See every operator, coupling and modifier on the [API overview](@ref api-overview).
 # - Want the full interface? See the [Public API](@ref public-api).
