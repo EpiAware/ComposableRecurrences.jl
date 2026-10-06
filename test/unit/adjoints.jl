@@ -390,6 +390,17 @@ end
         @test CR.uses_adjoint(op, CR.Run()) == rule
         @test CR._rebuilds(op) == rebuilds
     end
+    # A modifier that takes the rule by type but does not rebuild by value
+    # is sent to plain AD at call time.
+    op = Recurrence(g; modifiers = (Doubled(0.5),))
+    @test CR.adjoint_call(op, args...) == CR._plain(op, args...)
+    # A field of abstract type cannot be rebuilt.
+    struct Loose
+        a::Any
+    end
+    @test !CR._rebuildable(Loose(0.5))
+    @test CR._rebuilds(Convolution([0.5, 0.5]))
+    @test CR._rebuilds(Recurrence(g))
     @test pullback_matches(
         Recurrence(g; modifiers = (Kept(0.5),)),
         recargs(ones(2, 4), nothing, ones(2, 2))...
