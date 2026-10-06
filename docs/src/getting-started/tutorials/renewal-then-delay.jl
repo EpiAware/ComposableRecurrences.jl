@@ -106,6 +106,38 @@ end
 # Both vaccines lower the peak, which comes slightly earlier because the pool shrinks faster.
 # At the same efficacy the all-or-nothing vaccine prevents slightly more infections, because the leaky vaccine leaves every vaccinated person some risk, which adds up while the epidemic runs.
 # A delay from dose to protection is a `Convolution` of the doses before they are passed as `removals`.
+#
+# ### Checking against a stochastic simulation
+#
+# The model gives expected values, so it should match the mean of many stochastic simulations.
+# We compare it with [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl)'s `HomogeneousProcess`, a stochastic SIR model in continuous time.
+# Its population is 5,000, ``R_0 = 2``, the infectious period is exponential with mean 4 days, and 10 people are infected at the start.
+# Before the outbreak 40% of people are vaccinated with efficacy 0.7, so [`Protected`](@ref ComposableRecurrences.Protected) starts with them in its pool and there are no removals.
+# The SIR generation interval is then exponential with mean 4 days, binned here by day.
+# The reference column is the mean final share infected over the major outbreaks in 200 seeded simulations per vaccine.
+
+N_sir, n0, D = 5_000.0, 10, 4.0
+gi_sir = [exp(-(i - 1) / D) - exp(-i / D) for i in 1:120]
+gi_sir ./= sum(gi_sir)
+vaccinated = 0.4 * (N_sir - n0)
+function final_share(σ, protected0)
+    d = Depletion(
+        N_sir; pool0 = N_sir - n0 - protected0,
+        protected = Protected(σ; pool0 = protected0)
+    )
+    y = Recurrence(gi_sir; modifiers = (d,))(fill(2.0, 400); history = [float(n0)])
+    return round((n0 + sum(y)) / N_sir; digits = 3)
+end
+DataFrame(
+    "Vaccine" => ["None", "All-or-nothing", "Leaky"],
+    "ComposableRecurrences" => [
+        final_share(1.0, 0.0), final_share(0.0, e * vaccinated),
+        final_share(1 - e, vaccinated),
+    ],
+    "HomogeneousProcess" => [0.798, 0.391, 0.454],
+)
+
+# The differences are within the sampling error of the simulation means, about 0.002.
 
 # ## Imported cases
 #
