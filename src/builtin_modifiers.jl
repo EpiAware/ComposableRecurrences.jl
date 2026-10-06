@@ -270,13 +270,26 @@ _float_param(x::Real) = float(x)
 _float_param(x::PerStratum) = PerStratum(float(x.x))
 
 # An integer exponent takes the population's float type, so it has a
-# cotangent and a Float32 population stays Float32.
-_exponent(α::Integer, N) = convert(float(param_eltype(N)), α)
+# cotangent and a Float32 population stays Float32. A dual population gives
+# its primal type: a dual exponent with zero partials makes
+# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool.
+_exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
 _exponent(α, N) = α
 
 function forward(::Hazard, ::Step, v, s, N, α)
-    x = v / N * (s / N)^(α - 1)
+    x = v / N * _pool_power(s / N, α - 1)
     return -s * expm1(-x), s * exp(-x)
+end
+
+# `r^e` for the share of the pool left. With a dual exponent the tangent
+# at an empty pool is `log(0) * ė`; the pullback sets the exponent's
+# cotangent to zero there, so the power takes the primal exponent. A NaN
+# share keeps the dual power, so its NaN reaches the tangent. A dual
+# exponent is never traced, so a branch computes only one power.
+_pool_power(r, e) = r^e
+function _pool_power(r, e::ForwardDiff.Dual)
+    _primal_value(r) <= 0 || return r^e
+    return convert(promote_type(typeof(r), typeof(e)), r^_primal_value(e))
 end
 
 function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
@@ -288,7 +301,7 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     x̄ = s * e * (ȳ - s̄′)
     s̄ = -ȳ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = _primal_value(r) > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : x̄ * x * log(r)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 

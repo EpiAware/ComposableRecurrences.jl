@@ -883,6 +883,52 @@ end
     end
 end
 
+@testitem "Empty pools with removals or a dual population: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    W = collect(range(0.5, 1.5; length = 6))
+    function total(d)
+        r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
+        return sum(W .* r(fill(2.0, 6); history = [5.0]))
+    end
+    # A seeded pool emptied by removals: with all-or-nothing protection the
+    # pool stays at zero with a tangent from `σ`, a tie in the removal.
+    by_removals(θ) = total(
+        CR.Depletion(
+            100.0; pool0 = θ[1], removals = TimeVarying(fill(θ[2], 6)),
+            protected = CR.Protected(θ[3])
+        )
+    )
+    # An empty pool with a dual population and an integer heterogeneity,
+    # alone and with a protected pool.
+    by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pool0 = θ[2]))
+    by_protected(θ) = total(
+        CR.Depletion(θ[1]; pool0 = θ[2], protected = CR.Protected(θ[3]))
+    )
+    # A differentiated heterogeneity at an empty pool.
+    by_heterogeneity(θ) = total(CR.Depletion(100.0; heterogeneity = θ[1], pool0 = θ[2]))
+    cases = (
+        (by_removals, [3.0, 4.0, 0.0]), (by_population, [100.0, 0.0]),
+        (by_protected, [100.0, 0.0, 0.3]), (by_heterogeneity, [1.0, 0.0]),
+    )
+    for (f, θ) in cases
+        ref = gradient(f, AutoForwardDiff(), θ)
+        @test all(isfinite, ref)
+        for backend in (
+                AutoMooncake(; config = nothing),
+                AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            )
+            @test gradient(f, backend, θ) ≈ ref
+        end
+    end
+end
+
 @testitem "Mooncake tangent layout the rule reads (canary)" tags = [:ad, :mooncake, :mooncake_reverse] begin
     import Mooncake
     using SparseArrays, LinearAlgebra
