@@ -32,7 +32,7 @@ ComposableRecurrencesMooncakeExt = ["ADTypes", "Mooncake", "Random"]
 
 [compat]
 ADTypes = "1"
-ConstructionBase = "1"
+ConstructionBase = "1.6"
 DocStringExtensions = "0.9.5"
 Enzyme = "0.13"
 EnzymeTestUtils = "0.2"
