@@ -1,0 +1,58 @@
+# Package-owned: not part of the kit's managed workflows.
+name: Threads
+
+# Runs the tests with four threads, so `Threaded` loops split across real
+# tasks on separate threads. The managed Test and AD workflows run on one
+# thread, where a split loop's tasks all share it.
+# `unit` runs the main suite without the quality checks, which the Test
+# workflow already runs; `ad` runs the threaded-executor gradient items
+# (tag `executor`) on every backend.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JULIA_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=test -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=test -e 'println("threads: ", Threads.nthreads())'
+      - run: julia --project=test test/runtests.jl skip_quality
+
+  ad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JULIA_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=test/ad test/ad/runtests.jl executor

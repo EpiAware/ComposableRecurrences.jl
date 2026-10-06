@@ -276,3 +276,34 @@ end
     end
     @test y == ones(6)
 end
+
+@testitem "Threaded: chunks run in parallel on several threads" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    nt = Threads.nthreads()
+    # Without `ntasks` a loop splits only when there is more than one thread.
+    @test CR._splits(CR.Threaded(; min_work = 0), 8, 1) == (nt > 1)
+    if nt > 1
+        # One index per chunk; each chunk spins, without yielding, until every
+        # chunk has started, so they can only meet on distinct threads.
+        m = min(nt, 4)
+        arrived = Threads.Atomic{Int}(0)
+        ids = zeros(Int, m)
+        met = zeros(Bool, m)
+        function wait_all!(k, arrived, ids, met, m)
+            ids[k] = Threads.threadid()
+            Threads.atomic_add!(arrived, 1)
+            t0 = time()
+            while arrived[] < m && time() - t0 < 60
+            end
+            met[k] = arrived[] == m
+            return nothing
+        end
+        CR.each!(wait_all!, CR.Threaded(; min_work = 0), m, m, arrived, ids, met, m)
+        @test all(met)
+        @test length(unique(ids)) == m
+    else
+        # Run the suite with `--threads` above 1 to exercise this.
+        @test_skip nt > 1
+    end
+end
