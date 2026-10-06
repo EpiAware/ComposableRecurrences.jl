@@ -20,6 +20,7 @@ const HEAVY_TUTORIALS = [
     "spatial-strata.jl",
     "time-varying-delays.jl",
     "occupancy.jl",
+    "transform.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -40,6 +41,8 @@ const TUTORIAL_STUBS = [
         "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
     "occupancy.md" =>
         "# [Occupancy and capacity](@id tutorial-occupancy)",
+    "transform.md" =>
+        "# [Transforms inside a recurrence](@id tutorial-transform)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -220,6 +223,8 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/time-varying-delays.md",
     "Occupancy and capacity" =>
         "getting-started/tutorials/occupancy.md",
+    "Transforms inside a recurrence" =>
+        "getting-started/tutorials/transform.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
