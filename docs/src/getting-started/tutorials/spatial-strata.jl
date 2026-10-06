@@ -2,9 +2,8 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, one for each place, such as a town, or each type, such as an age group or traced and untraced cases.
-# Each of these series is a stratum.
-# A coupling mixes the series within each step, a `Pairwise` kernel gives each pair its own generation interval, and `Redistribute` moves infections between places.
+# A model can run several series side by side, the [strata](@ref PerStratum): one per place, such as a town, or per type, such as an age group or traced and untraced cases.
+# A coupling mixes the series within each step, a [`Pairwise`](@ref) kernel gives each pair its own generation interval, and [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves infections between places.
 # This tutorial builds a three-patch model several ways, recovers its importation series, and then treats the series as types.
 #
 # ### What are we going to do in this exercise
@@ -33,7 +32,6 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 #
 # A gravity coupling weights each pair of patches by the destination's population over the squared distance.
 # Most contact stays within a patch, so the gravity weights share a small part of each row.
-# Row `a` of `K` gives the weights patch `a` puts on each patch's infections.
 
 patches = ["A", "B", "C"]
 S, T = 3, 120
@@ -56,7 +54,7 @@ end
 #
 # The fixed coupling applies `K` after the generation interval.
 # A `Pairwise` kernel gives each pair its own interval, here longer between patches than within, and weights it by `K`, so its coupling stays `I`.
-# A `TimeVarying` coupling changes by day, here cutting travel between patches by 80% from day 30.
+# A [`TimeVarying`](@ref) coupling changes by day, here cutting travel between patches by 80% from day 30.
 # Each model depletes every patch's own pool and starts from ten infections a day in patch A.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
@@ -95,17 +93,16 @@ end
 
 # ## Moving infections between patches
 #
-# `Redistribute(K, ε)` moves a share ``\varepsilon`` of what each patch generates to the others, weighted by `K`, conserving the total.
-# The diagonal of `K` is ignored.
+# [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) moves a share of each patch's infections to the others.
 # Here each origin has its own intensity, and it halves from day 40.
-# Placed before `Depletion`, each patch's pool is depleted by what it receives.
+# Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), each patch's pool is depleted by what it receives.
 
 ε = [t < 40 ? e : e / 2 for e in [0.05, 0.03, 0.02], t in 1:T]
 patch = Recurrence(gi; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε))), depletion))
 infections, state = with_state(patch, 1.6; history = seed, stop = T)
 
 # The importation series is not recorded, but it can be recomputed from the infections.
-# Each patch's value before the modifiers is ``R`` times its generation-interval convolution, which is a convolution with a zero at lag 0.
+# Each patch's value before the modifiers is ``R`` times a [`Convolution`](@ref) with a zero at lag 0.
 # The arrivals are the off-diagonal `K` applied to each origin's `ε`-weighted value.
 
 force = Convolution(vcat(0.0, gi))(hcat(seed, infections))[:, (size(seed, 2) + 1):end]
@@ -119,7 +116,6 @@ arrivals = K_off * (ε .* (1.6 .* force))
 end
 
 # B receives the most, from its large neighbour A, and A receives the least.
-# Arrivals halve on day 40 with the intensities.
 #
 # The modifier's state, which it carries from step to step, holds the last step's arrivals, which match the recomputed series.
 
@@ -128,10 +124,8 @@ maximum(abs, state.states[1] .- arrivals[:, end])
 # ## Sharing a total fixed elsewhere
 #
 # Sometimes each patch's infections are already known, from the model above or an earlier fit, and the question is how they split among the patch's districts.
-# The districts renew from their own infections, and each day `Allocate(groups, total)` rescales every patch's districts so they sum to the patch's infections.
-# Each district's share follows its own renewal, so it depends on the infections the district starts with and on its reproduction number.
-# Here patch A has three districts and patches B and C two each, and the patch totals are the fixed-coupling infections from above.
-# Each district has its own reproduction number, passed as a series × time gain.
+# [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) splits each patch's known infections among its districts by their own renewals.
+# Patch A has three districts and B and C two each; each district has its own reproduction number.
 
 districts = [1:3, 4:5, 6:7]
 totals = models[1].second(1.6; history = seed, stop = T)
@@ -148,10 +142,8 @@ by_district = Recurrence(gi; modifiers = (share,))(R_district; history = distric
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# The districts of each patch sum to that patch's infections every day.
 # B1 and B2 share a reproduction number, so B1 keeps twice B2's infections throughout.
 # A district with a higher reproduction number takes a growing share of its patch's infections: A3 overtakes A1 on day 26 despite starting with a sixth of its seed, and C2 leads C1 from the first day.
-# The patch totals do not change, because they come from outside.
 
 maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts]) .- totals)
 
@@ -182,7 +174,7 @@ gi_isolated = gi .* (1 .- p * b .* F_D)
 R0 = 1.6
 round.((R0 * sum(gi), R0 * sum(gi_isolated)); digits = 3)
 
-# The effective reproduction number falls from `R0` to `R0` times the kernel's sum, which is below one here.
+# Isolation brings the reproduction number below one.
 #
 # ### Contact tracing as two types
 #
@@ -201,7 +193,7 @@ function traced_outbreak(q)
 end
 round.((sum(traced_outbreak(0.0)), sum(traced_outbreak(0.5)), sum(traced_outbreak(0.9))))
 
-# Total cases over 60 days fall as the traced share `q` rises from 0 to 0.5 and 0.9.
+# More tracing means fewer cases.
 
 # ## Learning more
 #

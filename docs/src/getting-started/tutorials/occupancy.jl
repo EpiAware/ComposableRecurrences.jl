@@ -30,7 +30,6 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # Each patient leaves with probability `d` each day, so the chance of still being in a bed `k` days after admission is ``(1 - d)^k``.
 # As a convolution, occupancy is the admissions weighted by that survival, lag 0 first.
 # As a recurrence, it is yesterday's occupancy times `1 - d`, plus today's admissions through `add`.
-# The recurrence needs no multiplier (gain), and runs over the length of `add`.
 
 T = 90
 admissions = [30 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -48,15 +47,13 @@ by_recurrence = Recurrence([1 - d])(; history = [0.0], add = admissions)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
 end
 
-# The two occupancy curves lie on top of each other.
 # Occupancy peaks a few days after admissions at nearly six times their height, because each patient stays about ``1 / d`` days.
-# The two differ only by rounding error.
 
 maximum(abs, by_convolution .- by_recurrence)
 
 # ## A bed cap
 #
-# `Clamp` bounds each day's occupancy.
+# [`Clamp`](@ref ComposableRecurrences.Clamp) bounds each day's occupancy.
 # As a modifier on the recurrence, the capped stock is what carries into the next day, so patients turned away never occupy a bed later.
 
 beds = 120.0
@@ -81,8 +78,7 @@ round(sum(by_recurrence .- capped))
 # That move couples the two stocks, so it is not a multiplier plus an input, and it is written as a modifier.
 # The recurrence carries yesterday's stocks forward with the unit kernel, and the modifier applies the day's flows.
 #
-# A modifier is a struct with a `forward` method for each step, marked by `Step()`.
-# This one couples the two stocks, so its step updates the values of both, `v`, in place.
+# A modifier is a type with a [`forward`](@ref ComposableRecurrences.forward) method for [`Step()`](@ref ComposableRecurrences.Step); this one couples the two stocks, so it updates `v` in place.
 
 const CR = ComposableRecurrences
 
@@ -113,7 +109,7 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, because they leave more slowly.
 #
-# See the [API overview](@ref api-overview) for the roles a modifier can implement, and for `pullback!`, which adds a hand-written adjoint.
+# See [Extending](@ref extending) for the roles a modifier can implement, and for [`pullback!`](@ref ComposableRecurrences.pullback!), which adds a hand-written adjoint.
 
 # ## Learning more
 #

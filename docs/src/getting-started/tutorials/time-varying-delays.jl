@@ -3,7 +3,7 @@
 # ## Introduction
 #
 # Reporting delays and generation intervals often change during an outbreak, as testing capacity or behaviour changes.
-# A `TimeVarying` kernel has one column per day.
+# A [`TimeVarying`](@ref) kernel has one column per day.
 # For a delay there are two ways to read that column: by the day a case is reported, or by the day it is infected.
 # This tutorial shows both, checks which one conserves cases, and uses a changing generation interval in a renewal process.
 #
@@ -51,8 +51,7 @@ end
 
 # ## Reporting by report day or infection day
 #
-# With the default `Secondary()`, column `t` belongs to the report day: it weights the infections reported on day `t`.
-# With `Primary()`, column `s` belongs to the infection day: it is the delay of the infections on day `s`, which spread forward through it.
+# With the default [`Secondary()`](@ref ComposableRecurrences.Secondary) column `t` is the report day; with [`Primary()`](@ref ComposableRecurrences.Primary) column `s` is the infection day.
 # A constant delay at the starting mean is a reference.
 
 infections = [100 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -76,7 +75,7 @@ end
 
 # ## Which indexing conserves cases
 #
-# Indexed by infection day, every infection's delay sums to one, so every case is reported once, up to those still in the delay at the end of the window.
+# Indexed by infection day, every infection's delay sums to one, so every case is reported once.
 # Indexed by report day, each day's weights sum to one but an infection can be counted by several columns with different delays, so the total drifts.
 
 cumulative = @chain reports begin
@@ -133,8 +132,7 @@ end
 # w_l(c) = w_l \big(1 - p\, b\, P(D \le l,\ c + D \ge t_0)\big).
 # ```
 #
-# With `Primary()` column ``c`` of the kernel is cohort ``c``'s interval.
-# The seed must sit at times from 1, which `seeded` does.
+# With `Primary()` column ``c`` is cohort ``c``'s interval; [`seeded`](@ref ComposableRecurrences.seeded) places the seed.
 # For comparison, the `Secondary()` kernel starts the same thinning on day ``t_0`` for every case, whenever it was infected.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30

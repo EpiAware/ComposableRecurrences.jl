@@ -27,12 +27,8 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Three processes from one set of innovations
 #
-# Each process is driven by the innovations through `add`.
-# A call with no multiplier (gain) runs over the length of `add`.
-# A random walk is a recurrence with the unit kernel `[1.0]`.
-# An AR(p) process is a recurrence whose kernel is its coefficients, lag 1 first.
-# An MA(q) process is a convolution with kernel `[1; θ]`, lag 0 first.
-# The operators do not prepend histories or trim outputs, so each process starts from zero and the MA process reads its first `q` innovations from the input itself.
+# Each process is driven by the innovations through `add`; with no gain the call runs over the length of `add`.
+# The processes are those in the [time-series table](@ref overview-time-series).
 
 T = 100
 ϵ = 0.1 .* randn(Xoshiro(1), T)
@@ -54,8 +50,8 @@ end
 
 # ## A time-varying AR coefficient
 #
-# An AR(1) coefficient that changes over time can be a `TimeVarying` kernel, one column per day.
-# With a single lag it can also be the multiplier (gain) on the unit kernel, and the two give the same output.
+# An AR(1) coefficient that changes over time can be a [`TimeVarying`](@ref) kernel, one column per day.
+# With a single lag it can also be the gain on the unit kernel.
 
 ρ = range(0.95, 0.5; length = T)
 tvar_kernel = Recurrence(TimeVarying(reshape(collect(ρ), 1, :)))(; history = [0.0], add = ϵ)

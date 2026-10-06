@@ -27,10 +27,8 @@ On a shared machine, run one Julia process at a time.
 
 ## Use-case tests
 
-`test/usecases/` checks real models against the code they came from.
-Each use case rebuilds a model with the operators and compares values and gradients with a reference implementation in `test/usecases/references/`.
 A new operator, modifier or coupling adds a use case when it replaces code in a modelling package.
-Run them alone with `julia --project=test test/runtests.jl usecase_only`.
+[Testing and benchmarking](@ref testing) describes the use-case tests and how to run them.
 
 ## Documentation
 

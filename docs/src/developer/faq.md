@@ -22,7 +22,7 @@ run_tests("test"; filter = ti -> occursin("Depletion", ti.name))
 ## Where do the AD tests run?
 
 Gradient tests live in `test/ad/`, with their own environment, and run per backend in CI.
-Run one backend locally with `TAG=mooncake_reverse task test-ad-backend`.
+To run one backend locally, see [Testing and benchmarking](@ref testing).
 
 ## How do I check a documentation page quickly?
 
