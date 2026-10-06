@@ -82,8 +82,6 @@ end
 
 @combine(groupby(runs, :order), :total = round(sum(:count)))
 
-# The transform belongs before `Depletion` here.
-
 # ## Extinction by generation
 #
 # A branching process dies out by generation ``n`` with probability ``q_n = G(q_{n-1})``, from ``q_0 = 0``, where ``G`` is the offspring probability generating function (@placeholder).
