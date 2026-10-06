@@ -114,30 +114,39 @@ end
 # Its population is 5,000, ``R_0 = 2``, the infectious period is exponential with mean 4 days, and 10 people are infected at the start.
 # Before the outbreak 40% of people are vaccinated with efficacy 0.7, so [`Protected`](@ref ComposableRecurrences.Protected) starts with them in its pool and there are no removals.
 # The SIR generation interval is then exponential with mean 4 days, binned here by day.
-# The reference column is the mean final share infected over the major outbreaks in 200 seeded simulations per vaccine.
+# The reference column is the mean final share infected over the major outbreaks in 200 seeded simulations per vaccine, read from the file that also holds its parameters; it and its generator are in `test/usecases/references`.
 
-N_sir, n0, D = 5_000.0, 10, 4.0
+ref = include(
+    joinpath(
+        pkgdir(ComposableRecurrences),
+        "test", "usecases", "references", "epibranch_homogeneous.jl"
+    )
+)
+N_sir, n0, D = float(ref.N), ref.N_INITIAL, ref.INFECTIOUS_PERIOD
 gi_sir = [exp(-(i - 1) / D) - exp(-i / D) for i in 1:120]
 gi_sir ./= sum(gi_sir)
-vaccinated = 0.4 * (N_sir - n0)
+vaccinated = ref.COVERAGE * (N_sir - n0)
 function final_share(σ, protected0)
     d = Depletion(
         N_sir; pool0 = N_sir - n0 - protected0,
         protected = Protected(σ; pool0 = protected0)
     )
-    y = Recurrence(gi_sir; modifiers = (d,))(fill(2.0, 400); history = [float(n0)])
+    y = Recurrence(gi_sir; modifiers = (d,))(fill(ref.R0, 400); history = [float(n0)])
     return round((n0 + sum(y)) / N_sir; digits = 3)
 end
 DataFrame(
     "Vaccine" => ["None", "All-or-nothing", "Leaky"],
     "ComposableRecurrences" => [
-        final_share(1.0, 0.0), final_share(0.0, e * vaccinated),
-        final_share(1 - e, vaccinated),
+        final_share(1.0, 0.0), final_share(0.0, ref.EFFICACY * vaccinated),
+        final_share(1 - ref.EFFICACY, vaccinated),
     ],
-    "HomogeneousProcess" => [0.798, 0.391, 0.454],
+    "HomogeneousProcess" => [
+        round(arm.total.mean; digits = 3)
+            for arm in (ref.NONE, ref.ALL_OR_NOTHING, ref.LEAKY)
+    ],
 )
 
-# The differences are within the sampling error of the simulation means, about 0.002.
+# Each difference is within about one standard error of the simulation mean, which is about 0.002.
 
 # ## Imported cases
 #
