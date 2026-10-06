@@ -115,8 +115,8 @@ pullback!(grads, ::Transform, ::Init, s, history) = nothing
 
 # The parameters at stratum `k` and absolute time `t`.
 _theta_at(::Nothing, k, t) = nothing
-_theta_at(θ::Union{Tuple, NamedTuple}, k, t) = map(x -> _param(x, k, t), θ)
-_theta_at(θ, k, t) = _param(θ, k, t)
+_theta_at(θ::Union{Tuple, NamedTuple}, k, t) = map(x -> param(x, k, t), θ)
+_theta_at(θ, k, t) = param(θ, k, t)
 
 _call(f, v, ::Nothing) = f(v)
 _call(f, v, θ) = f(v, θ)
@@ -145,11 +145,11 @@ _add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
 function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
     θ̄ === nothing && return nothing
     map(values(θ̄), values(θ), values(∂θ)) do b, x, d
-        _add_param!(b, x, ȳ * d, k, t)
+        add_param!(b, x, ȳ * d, k, t)
     end
     return nothing
 end
-_add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = _add_param!(θ̄, θ, ȳ * ∂θ, k, t)
+_add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = add_param!(θ̄, θ, ȳ * ∂θ, k, t)
 
 # `(∂f/∂v, ∂f/∂θ)`: from a supplied derivative, or else the local
 # forward-mode derivative.
@@ -163,14 +163,12 @@ _supplied_derivative(df, v, θ) = df(v, θ)
 # `(v, θ)`, evaluated once.
 struct _TransformTag end
 
-function _forward_derivative(f, v::Real, ::Nothing)
-    return first(_transform_partials(f(first(_transform_seeds((v,)))), Val(1))), nothing
+# The partial derivatives of `f(xs...)` in each of its scalar arguments.
+function _forward_derivative(f, xs::Tuple{Real, Vararg{Real}})
+    return _transform_partials(f(_transform_seeds(promote(xs...))...), Val(length(xs)))
 end
-function _forward_derivative(f, v::Real, θ::Real)
-    x, a = _transform_seeds(promote(v, θ))
-    ∂ = _transform_partials(f(x, a), Val(2))
-    return ∂[1], ∂[2]
-end
+_forward_derivative(f, v::Real, ::Nothing) = (only(_forward_derivative(f, (v,))), nothing)
+_forward_derivative(f, v::Real, θ::Real) = _forward_derivative(f, (v, θ))
 function _forward_derivative(f, v::Real, θ::Union{Tuple, NamedTuple})
     xs = _transform_seeds(promote(v, values(θ)...))
     y = f(first(xs), _restructure(θ, Base.tail(xs)))

@@ -72,9 +72,9 @@ const _Protecting = Depletion{
 }
 
 # The removals at stratum `k` and time `t`; none without removals.
-_removals_at(r, k, t) = _param(r, k, t)
+_removals_at(r, k, t) = param(r, k, t)
 _removals_at(::Nothing, k, t) = false
-_add_removals!(r̄, r, x, k, t) = _add_param!(r̄, r, x, k, t)
+_add_removals!(r̄, r, x, k, t) = add_param!(r̄, r, x, k, t)
 _add_removals!(r̄, ::Nothing, x, k, t) = nothing
 
 # The removal from what remains after the draw, `min(r, max(s, 0))`.
@@ -90,21 +90,21 @@ end
 
 # Removals only: a pointwise step on the one pool.
 function forward(m::_Removing, ::Step, v, s, t, k)
-    y, s′ = forward(m.form, Step(), v, s, _param(m.N, k, t), m.heterogeneity)
-    return y, s′ - _removal(_param(m.removals, k, t), s′)
+    y, s′ = forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
+    return y, s′ - _removal(param(m.removals, k, t), s′)
 end
 
 function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     m̄ = grads.piece
-    N, α, r = _param(m.N, k, t), m.heterogeneity, _param(m.removals, k, t)
+    N, α, r = param(m.N, k, t), m.heterogeneity, param(m.removals, k, t)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     r̄, s̄m = _removal_pullback(r, s′, -grads.s)
-    _add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
+    add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
     v̄, s̄, N̄, ᾱ = pullback!(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
         m.form, Step(), v, s, N, α
     )
-    _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+    add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
     return v̄, s̄
 end
@@ -124,7 +124,7 @@ function forward(m::_Protecting, ::Init, s, history)
     _check_param_strata(:pool0, V.pool0, S)
     for k in 1:S
         s[k] = _pool0(m, k)
-        s[S + k] = _param(V.pool0, k, 1)
+        s[S + k] = param(V.pool0, k, 1)
     end
     return nothing
 end
@@ -135,7 +135,7 @@ function pullback!(grads, m::_Protecting, ::Init, s, history)
     V̄0 = cotangent(cotangent(grads.piece, :protected), :pool0)
     for k in 1:S
         _add_pool0!(grads.piece, m, s̄[k], k)
-        _add_param!(V̄0, m.protected.pool0, s̄[S + k], k, 1)
+        add_param!(V̄0, m.protected.pool0, s̄[S + k], k, 1)
     end
     return nothing
 end
@@ -159,8 +159,8 @@ function forward(m::_Protecting, ::Step, v, s, t)
     α = m.heterogeneity
     for k in 1:S
         y, s[k], s[S + k] = _protected_step(
-            m.form, v[k], s[k], s[S + k], _param(m.protected.σ, k, t),
-            _param(m.N, k, t), α, _removals_at(m.removals, k, t)
+            m.form, v[k], s[k], s[S + k], param(m.protected.σ, k, t),
+            param(m.N, k, t), α, _removals_at(m.removals, k, t)
         )
         v[k] = y
     end
@@ -177,7 +177,7 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
     α = m.heterogeneity
     for k in 1:S
         Su, V = s[k], s[S + k]
-        σ, N = _param(m.protected.σ, k, t), _param(m.N, k, t)
+        σ, N = param(m.protected.σ, k, t), param(m.N, k, t)
         r = _removals_at(m.removals, k, t)
         P = Su + σ * V
         y, _ = forward(m.form, Step(), v[k], P, N, α)
@@ -205,9 +205,9 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
             Step(), v[k], P, N, α
         )
         P̄ += P̄f
-        _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+        add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
         add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
-        _add_param!(cotangent(V̄, :σ), m.protected.σ, σ̄ + V * P̄, k, t)
+        add_param!(cotangent(V̄, :σ), m.protected.σ, σ̄ + V * P̄, k, t)
         v̄[k] = v̄k
         s̄[k] = S̄u + P̄
         s̄[S + k] = V̄v + σ * P̄

@@ -465,7 +465,8 @@ Base.@constprop :aggressive function with_state(
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is pointwise with only scalar float parameters.
+# does or is pointwise with only scalar float parameters, and no `Derived`
+# parameter's map holds float fields of its own.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -476,7 +477,8 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
 end
 function _modifier_adjoint(m)
-    return uses_adjoint(m, Step()) || (ispointwise(m) && _scalar_params(m))
+    return _derived_local(m) &&
+        (uses_adjoint(m, Step()) || (ispointwise(m) && _scalar_params(m)))
 end
 
 # Whether a type holds a float array (or a field of unknown type) that a

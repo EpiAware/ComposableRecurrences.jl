@@ -157,6 +157,21 @@
                 ),
                 rec(R, nothing, h),
             ),
+            (
+                "Derived parameters",
+                Recurrence(
+                    g; coupling = K, modifiers = (
+                        CR.Add(0.3 * Derived(exp, TimeVarying(rand(rng, T)))),
+                        CR.Transform(
+                            *, Derived(
+                                (x, c) -> c / (1 + x^2),
+                                TimeVarying(PerStratum(rand(rng, S, T))), 0.9
+                            )
+                        ),
+                    )
+                ),
+                rec(R, nothing, h),
+            ),
             ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1, nothing)),
             (
                 "time-varying delay",
@@ -419,6 +434,41 @@ end
         for backend in backends
             n0 = CR._PULLBACK_CALLS[]
             @test gradient(f, backend, θ) ≈ ref
+            @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
+        end
+    end
+end
+
+@testitem "Derived: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Mooncake, Enzyme, ForwardDiff
+    using ComposableRecurrences: NoAdjoint
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    W = [cos(a * t) for a in 1:2, t in 1:8]
+    K = [0.8 0.2; 0.3 0.7]
+    function run(w, m)
+        r = Recurrence([0.6, 0.3]; coupling = K, modifiers = (m,))
+        return sum(W .* w(r)(fill(1.1, 2, 8); history = fill(0.2, 2, 2)))
+    end
+    # A scalar times a function of a time-varying parameter.
+    θm(θ) = CR.Add(θ[1] * Derived(exp, TimeVarying(θ[2:9])))
+    # A closure's captured value is not an argument, so plain AD takes it.
+    scaled(c) = x -> c * exp(x)
+    cm(θ) = CR.Add(Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
+    θ0 = [0.5, collect(range(-0.2, 0.6; length = 8))...]
+    for (m, fires) in ((θm, true), (cm, false)), w in (identity, NoAdjoint)
+        f(θ) = run(w, m(θ))
+        ref = gradient(f, AutoForwardDiff(), θ0)
+        for backend in backends
+            n0 = CR._PULLBACK_CALLS[]
+            @test gradient(f, backend, θ0) ≈ ref
             @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
         end
     end
