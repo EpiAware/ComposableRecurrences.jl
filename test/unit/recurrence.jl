@@ -469,3 +469,19 @@ end
         end
     end
 end
+
+@testitem "Error messages describe wrapped values by size and type" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    @test CR._describe(0.5) == "0.5"
+    @test CR._describe(0:1) == "0:1"
+    @test CR._describe(ones(2, 3)) == summary(ones(2, 3))
+    @test CR._describe(PerStratum(ones(2, 3))) ==
+        "PerStratum($(summary(ones(2, 3))))"
+    @test CR._describe(Pairwise(ones(2, 2, 3))) ==
+        "Pairwise($(summary(ones(2, 2, 3))))"
+    @test CR._describe(TimeVarying(ones(2, 4))) ==
+        "TimeVarying($(summary(ones(2, 4))), Secondary())"
+    @test CR._describe(TimeVarying(ones(2, 4), CR.Primary())) ==
+        "TimeVarying($(summary(ones(2, 4))), Primary())"
+end

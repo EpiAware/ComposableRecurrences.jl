@@ -19,12 +19,10 @@ _extent(x) = nothing
 _describe(x) = repr(x)
 _describe(x::AbstractArray) = summary(x)
 _describe(x::AbstractRange) = repr(x)
-function _describe(x::Union{PerStratum, Pairwise})
-    return string(nameof(typeof(x)), "(", _describe(x.x), ")")
-end
-function _describe(x::TimeVarying{I}) where {I}
-    return string("TimeVarying(", _describe(x.x), ", ", nameof(I), "())")
-end
+_describe(x::Union{PerStratum, Pairwise}) =
+    string(nameof(typeof(x)), "(", _describe(x.x), ")")
+_describe(x::TimeVarying{I}) where {I} =
+    string("TimeVarying(", _describe(x.x), ", ", nameof(I), "())")
 
 # Call inputs are plain data; time enters a call one way.
 function _check_unwrapped(name, x)
