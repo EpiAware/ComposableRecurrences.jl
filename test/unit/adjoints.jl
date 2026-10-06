@@ -320,14 +320,14 @@ end
         a::A
     end
     CR.forward(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
-    op = Recurrence(g; modifiers = (Scaled(0.5),))
-    @test !CR.uses_adjoint(op, CR.Run())
+    rs = Recurrence(g; modifiers = (Scaled(0.5),))
+    @test !CR.uses_adjoint(rs, CR.Run())
     CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
     @test CR.uses_adjoint(Scaled(0.5), CR.Step())
-    @test CR.uses_adjoint(op, CR.Run())
-    @test val(op) == [Val{:rule}]
+    @test CR.uses_adjoint(rs, CR.Run())
+    @test val(rs) == [Val{:rule}]
     CR.uses_adjoint(::Scaled, ::CR.Step) = false
-    @test !CR.uses_adjoint(op, CR.Run())
+    @test !CR.uses_adjoint(rs, CR.Run())
     # A method with typed arguments is not found; declaring it opts in.
     struct Typed{A}
         a::A
@@ -338,11 +338,11 @@ end
         CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.v * v)
         return m.a * grads.v, grads.s
     end
-    op = Recurrence(g; modifiers = (Typed(0.5),))
+    rt = Recurrence(g; modifiers = (Typed(0.5),))
     @test CR._modifier_adjoint(Typed(0.5)) === :local
     CR.uses_adjoint(::Typed, ::CR.Step) = true
     @test CR._modifier_adjoint(Typed(0.5)) === :pullback
-    @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
+    @test pullback_matches(rt, recargs(ones(2, 4), nothing, ones(2, 2))...)
 
     # A function stored in a pointwise modifier with no pullback: a plain
     # function or a callable singleton keeps the rule, a closure that
