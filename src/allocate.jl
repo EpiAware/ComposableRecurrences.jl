@@ -49,12 +49,19 @@ and on the floor (``\sigma_p = \epsilon``) the ``a_p`` term drops.
 - `total`: each group's total.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 totals = [10.0 12.0 15.0 18.0; 2.0 3.0 3.0 4.0]  # groups × time
 split = CR.Allocate([1:2, 3:3], TimeVarying(PerStratum(totals)))
 Recurrence([0.6, 0.4]; modifiers = (split,))(fill(1.2, 3, 4); history = ones(3, 2))
+
+# output
+
+3×4 Matrix{Float64}:
+ 5.0  6.0  7.5  9.0
+ 5.0  6.0  7.5  9.0
+ 2.0  3.0  3.0  4.0
 ```
 """
 struct Allocate{T}

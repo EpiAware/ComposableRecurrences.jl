@@ -28,10 +28,20 @@ Plain `Enzyme` reverse AD of a sparse coupling is wrong, so an active sparse
 coupling under `NoAdjoint` throws an `ArgumentError` with `Enzyme`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 r = Recurrence([0.2, 0.3, 0.5])
 ComposableRecurrences.NoAdjoint(r)(fill(1.1, 6); history = ones(3))
+
+# output
+
+6-element Vector{Float64}:
+ 1.1
+ 1.122
+ 1.1598400000000002
+ 1.2304248000000002
+ 1.2705406560000003
+ 1.3234711283200002
 ```
 """
 struct NoAdjoint{O}
@@ -87,10 +97,14 @@ loop, logged once per operator type.
 - `role`: the role.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 CR.uses_adjoint(Recurrence([0.5, 0.5]), CR.Run())
+
+# output
+
+true
 ```
 """
 uses_adjoint(piece, role) = false
@@ -182,9 +196,15 @@ there is no cotangent.
 - `name`: the field.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 ComposableRecurrences.cotangent((; K = zeros(2)), :K)
+
+# output
+
+2-element Vector{Float64}:
+ 0.0
+ 0.0
 ```
 """
 cotangent(::Nothing, name::Symbol) = nothing
@@ -209,11 +229,17 @@ nothing for `nothing`.
 - `idx`: the index into an array mirror.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 x̄ = zeros(2)
 ComposableRecurrences.add_cotangent!(x̄, 1.5, 2)
 x̄
+
+# output
+
+2-element Vector{Float64}:
+ 0.0
+ 1.5
 ```
 """
 add_cotangent!(::Nothing, v, idx...) = nothing
@@ -268,7 +294,7 @@ loaded (`test_reverse`, with the operator active and constant).
 - `args`: the positional arguments.
 
 # Examples
-```@example
+```julia
 using ComposableRecurrences
 methods(ComposableRecurrences.test_adjoint)
 ```

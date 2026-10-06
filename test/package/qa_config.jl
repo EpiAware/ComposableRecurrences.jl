@@ -30,11 +30,20 @@ const QA_CONFIG = (
 
     # Docstring `crossref_ignore`: upstream names docstrings link to via
     # `[`name`](@ref)`, e.g. (:pdf, :cdf, :logpdf).
-    crossref_ignore = (),
+    # Docstrings link to public, unexported names in qualified form, which
+    # Documenter resolves but the check matches only as bare names.
+    crossref_ignore = Tuple(
+        Symbol(:ComposableRecurrences, '.', name)
+            for name in names(ComposableRecurrences)
+    ),
 
     # Extra docstring-format options, e.g.
     # (; exported_only_examples = true, require_field_docs = true).
-    docstring = (;),
+    # Docstring examples are doctests, so that they run and the API page
+    # shows their output; this check matches only `@example`.
+    # "Standards: docstring examples" requires an example on every public
+    # name and accepts doctests.
+    docstring = (; require_examples = false),
 
     # README section-structure check. `path` is the package root (its
     # README.md). Override `required`/`order` to extend or relax the standard

@@ -86,7 +86,7 @@ dual numbers pass through any slot.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 g = [0.6, 0.3, 0.1]                   # weights on lags 1, 2, 3
 K = [0.9 0.1; 0.2 0.8]
@@ -98,6 +98,10 @@ y = r(R; history = ones(2, 3))
 y1, state = ComposableRecurrences.with_state(r, R; history = ones(2, 3), stop = 5)
 y2 = r(R; state)
 y ≈ hcat(y1, y2)
+
+# output
+
+true
 ```
 """
 struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
@@ -140,12 +144,16 @@ where ``y_t`` is the output at time ``t`` (one entry per stratum),
 A call with `state` continues exactly as one call over both ranges would.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.5, 0.5])
 y, state = CR.with_state(r, fill(1.1, 6); history = ones(2), stop = 3)
 state.t, r(fill(1.1, 6); state)
+
+# output
+
+(4, [1.3173875000000006, 1.4067006250000007, 1.498248468750001])
 ```
 """
 struct State{H, M, T}
@@ -178,13 +186,17 @@ Takes the same arguments as calling `op`; resume with `op(...; state)`.
 - `args`, `kwargs`: the call's arguments.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.6, 0.4])
 R = fill(1.1, 8)
 y1, state = CR.with_state(r, R; history = ones(2), stop = 4)
 vcat(y1, r(R; state)) ≈ r(R; history = ones(2))
+
+# output
+
+true
 ```
 """
 function with_state(op, args...; kwargs...)
@@ -776,12 +788,22 @@ A seed shorter than the kernel is zero-padded.
 - `kwargs`: passed to the call of `r`, such as `add` or `stop`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 seed = [2.0, 3.0, 4.0]
 r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(80.0; pool0 = 80.0 - sum(seed)),))
 CR.seeded(r, [0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed)
+
+# output
+
+6-element Vector{Float64}:
+ 2.0
+ 3.0
+ 4.0
+ 6.55546850155226
+ 7.60555695813259
+ 7.577824842770705
 ```
 """
 function seeded(r::Recurrence, gain = true; history, kwargs...)

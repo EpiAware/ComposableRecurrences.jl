@@ -15,9 +15,13 @@ as ``\theta(t)``.
 This is the only indexing outside a kernel.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
+
+# output
+
+TimeVarying{ComposableRecurrences.Secondary, Matrix{Float64}}([0.8 0.7; 0.2 0.3])
 ```
 """
 struct Secondary end
@@ -53,7 +57,7 @@ Only outputs at times from 1 have a column, so a seed of length ``m`` needs
 Kernel slots only: anywhere else it is an `ArgumentError`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 P = [0.6 0.2 0.4; 0.4 0.8 0.6]         # one delay pmf per input time
@@ -62,6 +66,16 @@ Convolution(TimeVarying(P, CR.Primary()))(ones(3))
 # Cohorts from time 3 on transmit less.
 K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
 CR.seeded(Recurrence(TimeVarying(K, CR.Primary())), fill(1.5, 6); history = [1.0, 1.0])
+
+# output
+
+6-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.5
+ 1.2000000000000002
+ 0.81
+ 0.6030000000000001
 ```
 """
 struct Primary end
@@ -87,10 +101,16 @@ As a modifier parameter it is a length-`S` vector, ``\theta_i`` = `x[i]`.
 `TimeVarying(PerStratum(x))`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 G = [0.2 0.8; 0.5 0.5]
 Recurrence(PerStratum(G))(ones(2, 4); history = ones(2, 2))
+
+# output
+
+2×4 Matrix{Float64}:
+ 1.0  1.0  1.0  1.0
+ 1.0  1.0  1.0  1.0
 ```
 """
 struct PerStratum{A <: AbstractArray}
@@ -121,10 +141,16 @@ The kernel already mixes strata, so the coupling must be `I`.
 `TimeVarying(Pairwise(A))` has `A` `S × S × L × T`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 P = fill(0.25, 2, 2, 2)
 Recurrence(Pairwise(P))(ones(2, 4); history = ones(2, 2))
+
+# output
+
+2×4 Matrix{Float64}:
+ 1.0  1.0  1.0  1.0
+ 1.0  1.0  1.0  1.0
 ```
 """
 struct Pairwise{A <: AbstractArray}
@@ -168,10 +194,16 @@ The two agree for a fixed kernel.
 - `indexing`: `Secondary()` (default) or `Primary()`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 G = [0.8 0.7; 0.2 0.3]  # lags 1 and 2 over two steps
 Recurrence(TimeVarying(G))(1.0; history = [1.0, 1.0], stop = 2)
+
+# output
+
+2-element Vector{Float64}:
+ 1.0
+ 1.0
 ```
 """
 struct TimeVarying{I, A}

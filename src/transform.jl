@@ -51,7 +51,7 @@ forward-mode derivative or `derivative`.
 - `derivative`: the derivative of `f`, or `nothing` for the local one.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 # Iterate a probability generating function, q_t = G(q_{t-1}) from q_0 = 0:
@@ -60,14 +60,30 @@ CR = ComposableRecurrences
 G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
 q = CR.Transform(G, (; r = 0.5, p = 0.4))
 Recurrence([1.0]; modifiers = (q,))(; history = [0.0], stop = 6)
+
+# output
+
+6-element Vector{Float64}:
+ 0.6324555320336759
+ 0.8028783846699259
+ 0.8785181055415391
+ 0.9197087682711639
+ 0.9447269586555603
+ 0.9609568916608494
 ```
 
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 # One saturation level per stratum.
 sat = CR.Transform((v, c) -> c * v / (c + v), PerStratum([5.0, 20.0]))
 Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2))
+
+# output
+
+2×6 Matrix{Float64}:
+ 1.15385  1.22093  1.31327  1.37715  1.43764  1.48437
+ 1.39535  1.64844  2.04897  2.43538  2.8791   3.32351
 ```
 """
 struct Transform{F, P, D}

@@ -17,10 +17,19 @@ and [`Convolution`](@ref)); `cache` holds what the reverse pass needs, such
 as the [`ComposableRecurrences.State`](@ref).
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 y, cache = CR.forward(Recurrence([0.5, 0.5]), CR.Run(), fill(1.1, 4); history = ones(2))
+y
+
+# output
+
+4-element Vector{Float64}:
+ 1.1
+ 1.1550000000000002
+ 1.2402500000000003
+ 1.3173875000000006
 ```
 """
 struct Run end
@@ -53,10 +62,14 @@ A pointwise modifier acts on each stratum ``i`` separately,
     depletion form, returning `(y, s′)`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+
+# output
+
+(1.5841061354595758, 78.41589386454042)
 ```
 """
 struct Step end
@@ -79,12 +92,18 @@ values the recursion reads, and ``I_M`` is the modifier's own map.
 The default is ``s_{t_0 - 1} = 0``.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 s = zeros(2)
 CR.forward(CR.Depletion(PerStratum([100.0, 50.0])), CR.Init(), s, ones(2, 3))
 s
+
+# output
+
+2-element Vector{Float64}:
+ 100.0
+  50.0
 ```
 """
 struct Init end
@@ -110,12 +129,18 @@ To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 q = zeros(2)
 CR.forward([0.9 0.1; 0.2 0.8], CR.Pressure(), q, [1.0, 2.0], 1)
 q
+
+# output
+
+2-element Vector{Float64}:
+ 1.1
+ 1.8
 ```
 """
 struct Pressure end
@@ -148,7 +173,7 @@ coupling.
 - `args`: the role's arguments.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 struct Offset
@@ -157,6 +182,14 @@ end
 CR.ispointwise(::Offset) = true
 CR.forward(m::Offset, ::CR.Step, v, s, t, k) = (v + m.b, s)
 Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
+
+# output
+
+4-element Vector{Float64}:
+ 2.0
+ 2.5
+ 3.25
+ 3.875
 ```
 """
 function forward end
@@ -195,13 +228,17 @@ backend differentiate the whole operator.
 - `args`: the primal arguments `forward` was given.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 m = CR.Clamp(0.0, 1.0)
 grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0, 1.0], s = [0.0, 0.0])
 CR.pullback!(grads, m, CR.Step(), [0.5, 2.0], [0.0, 0.0], 1)
 grads.v, grads.piece.hi[]
+
+# output
+
+([1.0, 0.0], 1.0)
 ```
 """
 function pullback! end
@@ -228,9 +265,13 @@ The default is `false`.
 - `m`: the modifier.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 ComposableRecurrences.ispointwise(nothing)
+
+# output
+
+false
 ```
 """
 ispointwise(m) = false

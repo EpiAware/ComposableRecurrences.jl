@@ -66,10 +66,14 @@ Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
 
 # Examples
 
-```@example
+```jldoctest
 using ComposableRecurrences, Interfaces
 CR = ComposableRecurrences
 Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
+
+# output
+
+true
 ```"
 
 @implements PieceInterface Recurrence [

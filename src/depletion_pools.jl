@@ -42,12 +42,26 @@ The depletion's state holds ``u`` for every stratum, then ``w``.
   default.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 doses = TimeVarying(fill(5.0, 10))
 leaky = CR.Depletion(1000.0; removals = doses, protected = CR.Protected(0.3))
 Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 10); history = [5.0])
+
+# output
+
+10-element Vector{Float64}:
+  2.9955044966270243
+  6.730251097454152
+  8.842623960309435
+ 12.765026691442971
+ 18.150172258587972
+ 25.032849274164587
+ 33.976490148497284
+ 44.51742666556528
+ 55.963852173872965
+ 66.66759063907847
 ```
 """
 struct Protected{Σ, V0}
