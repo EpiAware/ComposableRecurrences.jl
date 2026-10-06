@@ -233,7 +233,7 @@ end
     draw(_; axis = (xlabel = "Day", ylabel = "Cases (log scale)", yscale = log10))
 end
 
-# More tracing means fewer cases.
+# More tracing means fewer cases, and with 90% traced the outbreak declines.
 
 # ## Learning more
 #
