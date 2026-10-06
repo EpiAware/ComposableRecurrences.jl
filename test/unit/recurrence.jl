@@ -484,4 +484,7 @@ end
         "TimeVarying($(summary(ones(2, 4))), Secondary())"
     @test CR._describe(TimeVarying(ones(2, 4), CR.Primary())) ==
         "TimeVarying($(summary(ones(2, 4))), Primary())"
+    @test_throws "only meaningful for a kernel; got TimeVarying(" CR._check_times(
+        :x, TimeVarying(ones(2, 4), CR.Primary()), 4
+    )
 end
