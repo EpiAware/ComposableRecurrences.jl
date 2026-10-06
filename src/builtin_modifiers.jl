@@ -478,7 +478,20 @@ struct Redistribute{K <: AbstractMatrix, E}
     end
 end
 
-forward(m::Redistribute, ::Init, s, history) = _zero_state!(s, :ε => m.ε)
+# The kernel is checked against the strata once, here and on a resumed
+# state, not on every step.
+function forward(m::Redistribute, ::Init, s, history)
+    _check_modifier_strata(m, length(s))
+    return _zero_state!(s, :ε => m.ε)
+end
+function _check_modifier_strata(m::Redistribute, S)
+    size(m.K, 1) == S || throw(
+        DimensionMismatch(
+            "Redistribute K is $(size(m.K)), expected ($S, $S) for $S strata"
+        )
+    )
+    return nothing
+end
 pullback!(grads, ::Redistribute, ::Init, s, history) = nothing
 
 # Origin `q`'s total share sent away, Σ_{r ≠ q} K[r, q].
@@ -492,7 +505,6 @@ end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
-    _check_coupling(K, length(v))
     for p in eachindex(v, s)
         acc = zero(eltype(s))
         for q in eachindex(v)

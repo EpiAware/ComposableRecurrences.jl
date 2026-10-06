@@ -216,6 +216,15 @@ end
         @test s ≈ [sum(εv[q] * Ktrue[p, q] * v[q] for q in 1:3 if q != p) for p in 1:3]
     end
     @test_throws DimensionMismatch CR.Redistribute(ones(2, 3), 0.1)
+    # The kernel is checked against the strata once per call, in Init, and
+    # on a resumed state.
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
+    @test_throws "Redistribute K is (3, 3), expected (2, 2) for 2 strata" r(
+        ones(2, 4); history = ones(2, 2)
+    )
+    r2 = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K[1:2, 1:2], 0.1),))
+    _, state = CR.with_state(r2, ones(2, 4); history = ones(2, 2), stop = 2)
+    @test_throws DimensionMismatch r(ones(2, 4); state)
     @test_throws ArgumentError CR.Redistribute(K, [0.1, 0.2, 0.05])
     @test_throws ArgumentError CR.Redistribute(K, ones(3, 2))
 end

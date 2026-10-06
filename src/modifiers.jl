@@ -318,6 +318,10 @@ CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 """
 nstate(m, S) = S
 
+# A modifier's shape checks against `S` strata, run once per call by its
+# `Init` and on a resumed state.
+_check_modifier_strata(m, S) = nothing
+
 # Defaults: a zero initial state, and a vector step that loops the scalar
 # one for a pointwise modifier.
 function forward(m, ::Init, s, history)
