@@ -418,7 +418,7 @@ end
     # A modifier that takes the rule by type but does not rebuild by value
     # is sent to plain AD at call time.
     op = Recurrence(g; modifiers = (Doubled(0.5),))
-    y = @test_logs (:info, r"does not give it back") CR.adjoint_call(op, args...)
+    y = @test_logs CR.adjoint_call(op, args...)
     @test y == CR._plain(op, args...)
     # A field of abstract type cannot be rebuilt.
     struct Loose
@@ -509,11 +509,20 @@ end
     @test_throws "Thrice uses its adjoint in Run()" CR._run_pullback!(grads, Thrice(), nothing)
 end
 
-@testitem "Adjoint: a plain-AD fallback is logged once" setup = [AdjointModifiers] begin
+@testitem "Adjoint: a plain primal call logs nothing" setup = [AdjointModifiers] begin
     using ComposableRecurrences
-    r = Recurrence([0.2, 0.3]; modifiers = (Scale(0.9),))
-    @test_logs (:info, r"plain AD") r(ones(4); history = ones(2))
-    @test_logs r(ones(4); history = ones(2))
+    # A modifier without an adjoint, and one whose float field is typed
+    # `Float64`: the plain path is taken, but only differentiation logs it.
+    struct ScaleF
+        a::Float64
+    end
+    CR.ispointwise(::ScaleF) = true
+    CR.forward(m::ScaleF, ::CR.Step, v, s, t, k) = (m.a * v, s)
+    for m in (Scale(0.9), ScaleF(0.9))
+        r = Recurrence([0.2, 0.3]; modifiers = (m,))
+        @test_logs r(ones(4); history = ones(2))
+        @test_logs CR.with_state(r, ones(4); history = ones(2))
+    end
 end
 
 @testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin

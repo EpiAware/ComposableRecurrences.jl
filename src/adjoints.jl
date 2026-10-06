@@ -157,11 +157,11 @@ function _route_val(op, args...)
 end
 function _route(::Val{:rule}, op, args...)
     _rebuilds(op) && return _ad(op, args...)
-    _note_rebuild(typeof(op))
+    _note_rebuild(op, args...)
     return _plain(op, args...)
 end
 function _route(::Val{:plain}, op, args...)
-    _note_plain(op)
+    _note_plain(op, args...)
     return _plain(op, args...)
 end
 
@@ -176,19 +176,25 @@ _primal(op, args...) = first(_run_forward(op, args...))
 _ad(op, args...) = _primal(op, args...)
 _plain(op, args...) = _primal(op, args...)
 
-# Log, once per operator type, that an operator is differentiated by plain
-# AD: it has a part without an adjoint, or a modifier the default pullback
-# cannot rebuild from its parameters. The extensions mark
-# `_note_plain_type` as having no derivative.
-_note_plain(op) = uses_adjoint(op, Run()) ? nothing : _note_plain_type(typeof(op))
+# Note that an operator is differentiated by plain AD: it has a part
+# without an adjoint, or a modifier the default pullback cannot rebuild
+# from its parameters. The primal `_note_plain_type` does nothing, so a
+# call that is not differentiated logs nothing; the extensions' reverse
+# rules for it log, once per operator type. It takes the operator and its
+# arguments so that a backend sees an active argument and runs the rule,
+# and `donotdelete` keeps the call, which has no effect of its own.
+const _ADJOINT_NOTE = "has a coupling or modifier without an analytic adjoint"
 const _REBUILD_NOTE = "has a modifier or depletion form whose constructor " *
     "does not give it back from its own parameters"
-_note_rebuild(T) = _note_plain_type(T, _REBUILD_NOTE)
+function _note_plain(op, args...)
+    uses_adjoint(op, Run()) && return nothing
+    return _note_plain_type(_ADJOINT_NOTE, op, args...)
+end
+_note_rebuild(op, args...) = _note_plain_type(_REBUILD_NOTE, op, args...)
+@noinline _note_plain_type(why, op, args...) = (Base.donotdelete(op, args...); nothing)
 const _PLAIN_NOTED = Set{Any}()
 const _PLAIN_LOCK = ReentrantLock()
-@noinline function _note_plain_type(
-        T, why = "has a coupling or modifier without an analytic adjoint"
-    )
+function _log_plain(T, why)
     new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
     new && @info "$(nameof(T)) $why, so gradients of it use plain AD of " *
         "the whole operator"
