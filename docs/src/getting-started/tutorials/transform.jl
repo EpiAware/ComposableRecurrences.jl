@@ -56,7 +56,7 @@ end
 
 # ## Combining with depletion
 #
-# Placed before `Depletion`, the transform lowers the force of infection, and the pool loses the infections that occur.
+# Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), the transform lowers the force of infection, and the pool loses the infections that occur.
 # Placed after it, the pool loses the draws before the response, which are more than the infections recorded.
 
 N = 5_000.0
