@@ -200,7 +200,7 @@ function _transform_partials(
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
 
-@implements PieceInterface{(:pointwise,)} Transform [
+@implements PieceInterface{(:pointwise, :nstate)} Transform [
     Arguments(;
         piece = Transform(
             (v, θ) -> θ.a * v + θ.b, (; a = PerStratum([0.5, 2.0]), b = 0.1)

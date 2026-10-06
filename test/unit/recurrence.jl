@@ -321,6 +321,32 @@ end
     @test r1(R[1, :]; state = st) ≈ full1[7:end]
 end
 
+@testitem "Recurrence: a resumed state has nstate entries per modifier" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
+    @test CR.nstate(d, 2) == 4
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
+    R, h = fill(1.1, 2, 6), ones(2, 2)
+    y, state = CR.with_state(r, R; history = h, stop = 3)
+    @test length.(state.states) == (2, 4)
+    @test r(R; state) ≈ r(R; history = h)[:, 4:end]
+    # A state of the wrong length names the modifier and both lengths.
+    bad = CR.State(state.history, (state.states[1], state.states[2][1:2]), state.t)
+    err = try
+        r(R; state = bad)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("modifier 2 (Depletion)", err.msg)
+    @test occursin("length 2", err.msg)
+    @test occursin("nstate(m, 2) = 4", err.msg)
+    bad = CR.State(state.history, (state.states[1][1:1], state.states[2]), state.t)
+    @test_throws ArgumentError r(R; state = bad)
+end
+
 @testitem "Recurrence: absolute time and start" setup = [Reference, TestModifiers] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(12)
