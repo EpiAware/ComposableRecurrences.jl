@@ -1,182 +1,182 @@
-|                                                                                           | v0.1.0              | 22913b2baa259f...   | v0.1.0 / 22913b2baa259f... |
-|:------------------------------------------------------------------------------------------|:-------------------:|:-------------------:|:--------------------------:|
-| AD gradients/Convolution delay with history/Enzyme forward                                | 0.0643 ± 0.0064 ms  | 0.0651 ± 0.0069 ms  | 0.987 ± 0.14               |
-| AD gradients/Convolution delay with history/Enzyme reverse                                | 28.5 ± 0.61 μs      | 30.3 ± 2.3 μs       | 0.941 ± 0.075              |
-| AD gradients/Convolution delay with history/ForwardDiff                                   | 7.14 ± 4.2 μs       | 13.4 ± 1.3 μs       | 0.534 ± 0.32               |
-| AD gradients/Convolution delay with history/Mooncake forward                              | 0.199 ± 0.032 ms    | 0.171 ± 0.023 ms    | 1.16 ± 0.24                |
-| AD gradients/Convolution delay with history/Mooncake reverse                              | 0.0411 ± 0.0017 ms  | 0.034 ± 0.0039 ms   | 1.21 ± 0.15                |
-| AD gradients/Convolution time-varying kernel indexed by output/Enzyme forward             | 0.33 ± 0.026 ms     | 0.329 ± 0.02 ms     | 1 ± 0.1                    |
-| AD gradients/Convolution time-varying kernel indexed by output/Enzyme reverse             | 0.0342 ± 0.00077 ms | 0.034 ± 0.00072 ms  | 1 ± 0.031                  |
-| AD gradients/Convolution time-varying kernel indexed by output/ForwardDiff                | 0.0469 ± 0.0047 ms  | 0.0496 ± 0.0058 ms  | 0.945 ± 0.15               |
-| AD gradients/Convolution time-varying kernel indexed by output/Mooncake forward           | 0.965 ± 0.063 ms    | 0.955 ± 0.061 ms    | 1.01 ± 0.092               |
-| AD gradients/Convolution time-varying kernel indexed by output/Mooncake reverse           | 0.0472 ± 0.00097 ms | 0.0355 ± 0.0011 ms  | 1.33 ± 0.051               |
-| AD gradients/Convolution time-varying kernel/Enzyme forward                               | 0.6 ± 0.034 ms      | 0.596 ± 0.031 ms    | 1.01 ± 0.077               |
-| AD gradients/Convolution time-varying kernel/Enzyme reverse                               | 29.1 ± 1.3 μs       | 26.8 ± 0.77 μs      | 1.09 ± 0.057               |
-| AD gradients/Convolution time-varying kernel/ForwardDiff                                  | 0.104 ± 0.034 ms    | 0.102 ± 0.021 ms    | 1.01 ± 0.39                |
-| AD gradients/Convolution time-varying kernel/Mooncake forward                             | 1.61 ± 0.16 ms      | 1.48 ± 0.2 ms       | 1.09 ± 0.18                |
-| AD gradients/Convolution time-varying kernel/Mooncake reverse                             | 0.042 ± 0.0031 ms   | 28.1 ± 2.4 μs       | 1.49 ± 0.17                |
-| AD gradients/Matrix bvd_patch T200_L20_S5/Enzyme reverse                                  | 1.74 ± 0.28 ms      | 0.262 ± 0.012 ms    | 6.63 ± 1.1                 |
-| AD gradients/Matrix bvd_patch T200_L20_S5/Mooncake reverse                                | 1.21 ± 0.034 ms     | 0.321 ± 0.081 ms    | 3.75 ± 0.95                |
-| AD gradients/Matrix delay_fixed T200_L20_S1/Enzyme reverse                                | 0.0643 ± 0.0063 ms  | 0.0383 ± 0.0049 ms  | 1.68 ± 0.27                |
-| AD gradients/Matrix delay_fixed T200_L20_S1/Mooncake reverse                              | 0.0911 ± 0.02 ms    | 0.0459 ± 0.0022 ms  | 1.99 ± 0.44                |
-| AD gradients/Matrix overview T200_L20_S3/Enzyme reverse                                   | 0.739 ± 0.15 ms     | 0.0846 ± 0.0089 ms  | 8.73 ± 2                   |
-| AD gradients/Matrix overview T200_L20_S3/Mooncake reverse                                 | 0.658 ± 0.027 ms    | 0.129 ± 0.0045 ms   | 5.11 ± 0.27                |
-| AD gradients/Matrix renewal T200_L20_S1/Enzyme reverse                                    | 0.085 ± 0.012 ms    | 0.0577 ± 0.0039 ms  | 1.47 ± 0.22                |
-| AD gradients/Matrix renewal T200_L20_S1/Mooncake reverse                                  | 0.117 ± 0.0067 ms   | 0.0656 ± 0.0037 ms  | 1.78 ± 0.14                |
-| AD gradients/Matrix strata_mixing T200_L20_S5/Enzyme reverse                              | 1.17 ± 0.11 ms      | 0.198 ± 0.032 ms    | 5.89 ± 1.1                 |
-| AD gradients/Matrix strata_mixing T200_L20_S5/Mooncake reverse                            | 0.977 ± 0.06 ms     | 0.278 ± 0.012 ms    | 3.51 ± 0.26                |
-| AD gradients/Recurrence pairwise kernel/Enzyme forward                                    | 0.392 ± 0.029 ms    | 0.37 ± 0.02 ms      | 1.06 ± 0.096               |
-| AD gradients/Recurrence pairwise kernel/Enzyme reverse                                    | 0.0618 ± 0.0025 ms  | 0.0401 ± 0.0016 ms  | 1.54 ± 0.088               |
-| AD gradients/Recurrence pairwise kernel/ForwardDiff                                       | 0.0683 ± 0.031 ms   | 0.0744 ± 0.0062 ms  | 0.917 ± 0.42               |
-| AD gradients/Recurrence pairwise kernel/Mooncake forward                                  | 1.16 ± 0.19 ms      | 1.13 ± 0.024 ms     | 1.03 ± 0.17                |
-| AD gradients/Recurrence pairwise kernel/Mooncake reverse                                  | 0.0652 ± 0.0038 ms  | 0.0412 ± 0.0016 ms  | 1.58 ± 0.11                |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme forward              | 0.367 ± 0.029 ms    | 0.345 ± 0.032 ms    | 1.06 ± 0.13                |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme reverse              | 0.0505 ± 0.0021 ms  | 0.0468 ± 0.0012 ms  | 1.08 ± 0.052               |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ForwardDiff                 | 0.0772 ± 0.015 ms   | 0.0913 ± 0.0046 ms  | 0.845 ± 0.17               |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake forward            | 0.992 ± 0.16 ms     | 1.09 ± 0.021 ms     | 0.91 ± 0.15                |
-| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake reverse            | 0.0709 ± 0.0039 ms  | 0.0523 ± 0.0024 ms  | 1.36 ± 0.098               |
-| AD gradients/Recurrence renewal/Enzyme forward                                            | 0.0697 ± 0.0037 ms  | 0.068 ± 0.003 ms    | 1.03 ± 0.07                |
-| AD gradients/Recurrence renewal/Enzyme reverse                                            | 0.0372 ± 0.0023 ms  | 0.0382 ± 0.0021 ms  | 0.975 ± 0.082              |
-| AD gradients/Recurrence renewal/ForwardDiff                                               | 10.9 ± 1.9 μs       | 13.2 ± 2.3 μs       | 0.826 ± 0.2                |
-| AD gradients/Recurrence renewal/Mooncake forward                                          | 0.2 ± 0.013 ms      | 0.189 ± 0.024 ms    | 1.06 ± 0.15                |
-| AD gradients/Recurrence renewal/Mooncake reverse                                          | 0.0553 ± 0.0028 ms  | 0.0435 ± 0.0025 ms  | 1.27 ± 0.097               |
-| AD gradients/Recurrence returning its state/Enzyme forward                                | 0.413 ± 0.031 ms    | 0.317 ± 0.027 ms    | 1.3 ± 0.15                 |
-| AD gradients/Recurrence returning its state/Enzyme reverse                                | 0.061 ± 0.0025 ms   | 0.0584 ± 0.0013 ms  | 1.04 ± 0.05                |
-| AD gradients/Recurrence returning its state/ForwardDiff                                   | 0.068 ± 0.014 ms    | 0.102 ± 0.027 ms    | 0.665 ± 0.22               |
-| AD gradients/Recurrence returning its state/Mooncake forward                              | 1.16 ± 0.091 ms     | 1.04 ± 0.011 ms     | 1.12 ± 0.089               |
-| AD gradients/Recurrence returning its state/Mooncake reverse                              | 0.115 ± 0.0062 ms   | 0.0678 ± 0.0014 ms  | 1.7 ± 0.097                |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme forward               | 0.132 ± 0.009 ms    | 0.124 ± 0.0059 ms   | 1.07 ± 0.089               |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme reverse               | 27.6 ± 2.7 μs       | 0.0341 ± 0.00093 ms | 0.809 ± 0.083              |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/ForwardDiff                  | 0.0341 ± 0.011 ms   | 0.0435 ± 0.004 ms   | 0.783 ± 0.27               |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake forward             | 0.335 ± 0.041 ms    | 0.335 ± 0.016 ms    | 1 ± 0.13                   |
-| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake reverse             | 0.0402 ± 0.0017 ms  | 0.0369 ± 0.0029 ms  | 1.09 ± 0.098               |
-| AD gradients/Recurrence sparse coupling/Enzyme forward                                    | 0.275 ± 0.027 ms    | 0.243 ± 0.028 ms    | 1.13 ± 0.17                |
-| AD gradients/Recurrence sparse coupling/Enzyme reverse                                    | 0.0681 ± 0.0052 ms  | 0.0385 ± 0.00089 ms | 1.77 ± 0.14                |
-| AD gradients/Recurrence sparse coupling/ForwardDiff                                       | 0.0384 ± 0.0048 ms  | 0.0516 ± 0.0074 ms  | 0.743 ± 0.14               |
-| AD gradients/Recurrence sparse coupling/Mooncake forward                                  | 0.695 ± 0.082 ms    | 0.673 ± 0.082 ms    | 1.03 ± 0.17                |
-| AD gradients/Recurrence sparse coupling/Mooncake reverse                                  | 0.0677 ± 0.0051 ms  | 0.0461 ± 0.0031 ms  | 1.47 ± 0.15                |
-| AD gradients/Recurrence strata, coupling and depletion/Enzyme forward                     | 0.527 ± 0.033 ms    | 0.382 ± 0.036 ms    | 1.38 ± 0.16                |
-| AD gradients/Recurrence strata, coupling and depletion/Enzyme reverse                     | 0.0782 ± 0.0047 ms  | 0.0536 ± 0.0023 ms  | 1.46 ± 0.11                |
-| AD gradients/Recurrence strata, coupling and depletion/ForwardDiff                        | 0.0734 ± 0.0091 ms  | 0.0985 ± 0.0092 ms  | 0.745 ± 0.12               |
-| AD gradients/Recurrence strata, coupling and depletion/Mooncake forward                   | 1.45 ± 0.1 ms       | 1.35 ± 0.022 ms     | 1.08 ± 0.079               |
-| AD gradients/Recurrence strata, coupling and depletion/Mooncake reverse                   | 0.107 ± 0.01 ms     | 0.0717 ± 0.0027 ms  | 1.49 ± 0.15                |
-| AD gradients/Recurrence time-varying kernel and coupling/Enzyme forward                   | 1.26 ± 0.07 ms      | 1.19 ± 0.097 ms     | 1.05 ± 0.1                 |
-| AD gradients/Recurrence time-varying kernel and coupling/Enzyme reverse                   | 0.0578 ± 0.0043 ms  | 0.0477 ± 0.0033 ms  | 1.21 ± 0.12                |
-| AD gradients/Recurrence time-varying kernel and coupling/ForwardDiff                      | 0.156 ± 0.03 ms     | 0.147 ± 0.04 ms     | 1.06 ± 0.36                |
-| AD gradients/Recurrence time-varying kernel and coupling/Mooncake forward                 | 3.09 ± 0.47 ms      | 3.18 ± 0.56 ms      | 0.974 ± 0.23               |
-| AD gradients/Recurrence time-varying kernel and coupling/Mooncake reverse                 | 0.0703 ± 0.0039 ms  | 0.0518 ± 0.0026 ms  | 1.36 ± 0.1                 |
-| Evaluation/Matrix bvd_patch T200_L20_S5                                                   | 0.0664 ± 0.0037 ms  | 0.0589 ± 0.0021 ms  | 1.13 ± 0.075               |
-| Evaluation/Matrix delay_fixed T200_L20_S1                                                 | 3.27 ± 1.8 μs       | 2.17 ± 0.51 μs      | 1.51 ± 0.91                |
-| Evaluation/Matrix overview T200_L20_S3                                                    | 0.0468 ± 0.009 ms   | 0.0426 ± 0.0025 ms  | 1.1 ± 0.22                 |
-| Evaluation/Matrix renewal T200_L20_S1                                                     | 8.25 ± 1.5 μs       | 8.55 ± 1.4 μs       | 0.965 ± 0.23               |
-| Evaluation/Matrix strata_mixing T200_L20_S5                                               | 0.0621 ± 0.0029 ms  | 0.0428 ± 0.011 ms   | 1.45 ± 0.39                |
-| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Mooncake reverse |                     | 0.0472 ± 0.0028 ms  |                            |
-| AD gradients/NoAdjoint Recurrence renewal/ForwardDiff                                     |                     | 11 ± 2.1 μs         |                            |
-| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Enzyme reverse    |                     | 0.0499 ± 0.0031 ms  |                            |
-| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Mooncake forward      |                     | 2.55 ± 0.029 ms     |                            |
-| AD gradients/NoAdjoint Recurrence pairwise kernel/Enzyme reverse                          |                     | 0.0567 ± 0.0022 ms  |                            |
-| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Mooncake reverse            |                     | 0.0627 ± 0.0024 ms  |                            |
-| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Mooncake reverse   |                     | 0.0359 ± 0.0012 ms  |                            |
-| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Enzyme forward              |                     | 0.984 ± 0.044 ms    |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/ForwardDiff      |                     | 0.056 ± 0.0051 ms   |                            |
-| AD gradients/NoAdjoint Matrix strata_mixing T200_L20_S5/Mooncake reverse                  |                     | 0.902 ± 0.014 ms    |                            |
-| AD gradients/NoAdjoint Recurrence returning its state/Enzyme forward                      |                     | 0.405 ± 0.035 ms    |                            |
-| AD gradients/Recurrence vaccination into a protected pool/Mooncake forward                |                     | 2.38 ± 0.12 ms      |                            |
-| AD gradients/Recurrence Primary time-varying kernel/Enzyme reverse                        |                     | 0.0437 ± 0.0013 ms  |                            |
-| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Mooncake reverse  |                     | 0.0594 ± 0.0013 ms  |                            |
-| AD gradients/NoAdjoint Convolution delay with history/Enzyme forward                      |                     | 0.0664 ± 0.0047 ms  |                            |
-| AD gradients/NoAdjoint Recurrence returning its state/Enzyme reverse                      |                     | 0.0726 ± 0.0051 ms  |                            |
-| AD gradients/Recurrence Primary time-varying kernel/Enzyme forward                        |                     | 0.93 ± 0.029 ms     |                            |
-| AD gradients/Recurrence Transform with per-stratum parameters/Mooncake reverse            |                     | 0.0419 ± 0.0029 ms  |                            |
-| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Enzyme forward         |                     | 1.17 ± 0.042 ms     |                            |
-| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/ForwardDiff           |                     | 0.146 ± 0.012 ms    |                            |
-| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Mooncake reverse      |                     | 0.111 ± 0.0067 ms   |                            |
-| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Enzyme forward                |                     | 0.495 ± 0.052 ms    |                            |
-| AD gradients/Recurrence grouped totals (Allocate)/Mooncake reverse                        |                     | 0.0634 ± 0.0012 ms  |                            |
-| AD gradients/NoAdjoint Recurrence renewal/Mooncake reverse                                |                     | 0.047 ± 0.0025 ms   |                            |
-| AD gradients/NoAdjoint Recurrence returning its state/Mooncake forward                    |                     | 1.33 ± 0.063 ms     |                            |
-| AD gradients/NoAdjoint Matrix renewal T200_L20_S1/Enzyme reverse                          |                     | 0.0744 ± 0.0044 ms  |                            |
-| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/ForwardDiff            |                     | 0.186 ± 0.05 ms     |                            |
-| AD gradients/Recurrence Transform with per-stratum parameters/Enzyme forward              |                     | 0.0363 ± 0.0038 ms  |                            |
-| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Mooncake reverse       |                     | 0.0702 ± 0.0022 ms  |                            |
-| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Enzyme forward    |                     | 0.345 ± 0.032 ms    |                            |
-| AD gradients/NoAdjoint Recurrence pairwise kernel/Mooncake forward                        |                     | 1.07 ± 0.19 ms      |                            |
-| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Enzyme reverse                |                     | 0.0741 ± 0.0054 ms  |                            |
-| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/ForwardDiff                 |                     | 0.148 ± 0.0087 ms   |                            |
-| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/ForwardDiff        |                     | 0.0378 ± 0.0023 ms  |                            |
-| AD gradients/Recurrence Transform with per-stratum parameters/Mooncake forward            |                     | 0.0912 ± 0.0059 ms  |                            |
-| AD gradients/NoAdjoint Recurrence returning its state/ForwardDiff                         |                     | 0.108 ± 0.025 ms    |                            |
-| AD gradients/NoAdjoint Matrix delay_fixed T200_L20_S1/Enzyme reverse                      |                     | 0.063 ± 0.0034 ms   |                            |
-| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Mooncake forward   |                     | 0.349 ± 0.016 ms    |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Enzyme reverse   |                     | 0.0394 ± 0.00097 ms |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel/Enzyme forward                     |                     | 0.621 ± 0.024 ms    |                            |
-| AD gradients/NoAdjoint Matrix overview T200_L20_S3/Mooncake reverse                       |                     | 0.665 ± 0.017 ms    |                            |
-| AD gradients/NoAdjoint Recurrence renewal/Enzyme reverse                                  |                     | 0.0362 ± 0.0015 ms  |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel/Mooncake forward                   |                     | 1.92 ± 0.099 ms     |                            |
-| AD gradients/Recurrence vaccination into a protected pool/Enzyme forward                  |                     | 0.685 ± 0.037 ms    |                            |
-| AD gradients/Recurrence grouped totals (Allocate)/Mooncake forward                        |                     | 1.63 ± 0.11 ms      |                            |
-| AD gradients/NoAdjoint Matrix renewal T200_L20_S1/Mooncake reverse                        |                     | 0.14 ± 0.0041 ms    |                            |
-| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Enzyme reverse    |                     | 0.0488 ± 0.001 ms   |                            |
-| AD gradients/Recurrence Primary time-varying kernel/ForwardDiff                           |                     | 0.119 ± 0.0064 ms   |                            |
-| AD gradients/NoAdjoint Matrix bvd_patch T200_L20_S5/Mooncake reverse                      |                     | 1.17 ± 0.015 ms     |                            |
-| AD gradients/NoAdjoint Recurrence sparse coupling/Enzyme forward                          |                     | 0.261 ± 0.016 ms    |                            |
-| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Mooncake reverse              |                     | 0.0801 ± 0.0051 ms  |                            |
-| AD gradients/NoAdjoint Matrix delay_fixed T200_L20_S1/Mooncake reverse                    |                     | 0.0923 ± 0.004 ms   |                            |
-| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/ForwardDiff       |                     | 10.4 ± 1.3 μs       |                            |
-| AD gradients/NoAdjoint Recurrence sparse coupling/Mooncake forward                        |                     | 0.868 ± 0.032 ms    |                            |
-| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Mooncake forward       |                     | 3.75 ± 0.17 ms      |                            |
-| AD gradients/Recurrence vaccination into a protected pool/Mooncake reverse                |                     | 0.0858 ± 0.0037 ms  |                            |
-| AD gradients/Recurrence vaccination into a protected pool/Enzyme reverse                  |                     | 0.0746 ± 0.0036 ms  |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Enzyme forward   |                     | 0.344 ± 0.02 ms     |                            |
-| AD gradients/Recurrence grouped totals (Allocate)/Enzyme forward                          |                     | 0.475 ± 0.042 ms    |                            |
-| AD gradients/Recurrence Primary time-varying kernel/Mooncake reverse                      |                     | 0.0463 ± 0.0011 ms  |                            |
-| AD gradients/NoAdjoint Recurrence pairwise kernel/Mooncake reverse                        |                     | 0.0619 ± 0.0036 ms  |                            |
-| AD gradients/NoAdjoint Convolution delay with history/ForwardDiff                         |                     | 14.5 ± 1.3 μs       |                            |
-| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Enzyme reverse              |                     | 0.0505 ± 0.0014 ms  |                            |
-| AD gradients/NoAdjoint Recurrence renewal/Enzyme forward                                  |                     | 0.0732 ± 0.0037 ms  |                            |
-| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/ForwardDiff                   |                     | 0.117 ± 0.01 ms     |                            |
-| AD gradients/NoAdjoint Matrix bvd_patch T200_L20_S5/Enzyme reverse                        |                     | 1.13 ± 0.16 ms      |                            |
-| AD gradients/NoAdjoint Convolution delay with history/Mooncake forward                    |                     | 0.23 ± 0.0079 ms    |                            |
-| AD gradients/NoAdjoint Recurrence pairwise kernel/Enzyme forward                          |                     | 0.379 ± 0.018 ms    |                            |
-| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/ForwardDiff              |                     | 0.115 ± 0.029 ms    |                            |
-| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Mooncake forward  |                     | 0.111 ± 0.0064 ms   |                            |
-| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Mooncake reverse         |                     | 0.0922 ± 0.0057 ms  |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel/Enzyme reverse                     |                     | 31.4 ± 0.77 μs      |                            |
-| AD gradients/NoAdjoint Recurrence pairwise kernel/ForwardDiff                             |                     | 0.0561 ± 0.0099 ms  |                            |
-| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Enzyme reverse           |                     | 0.0618 ± 0.0046 ms  |                            |
-| AD gradients/NoAdjoint Convolution delay with history/Mooncake reverse                    |                     | 0.0429 ± 0.0027 ms  |                            |
-| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Enzyme forward        |                     | 0.685 ± 0.043 ms    |                            |
-| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Mooncake forward              |                     | 1.6 ± 0.29 ms       |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Mooncake forward |                     | 1.18 ± 0.015 ms     |                            |
-| AD gradients/NoAdjoint Recurrence sparse coupling/Mooncake reverse                        |                     | 0.0588 ± 0.0011 ms  |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel/ForwardDiff                        |                     | 0.114 ± 0.01 ms     |                            |
-| AD gradients/NoAdjoint Convolution time-varying kernel/Mooncake reverse                   |                     | 0.0407 ± 0.0013 ms  |                            |
-| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Enzyme reverse        |                     | 0.0941 ± 0.0026 ms  |                            |
-| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Mooncake forward         |                     | 1.3 ± 0.1 ms        |                            |
-| AD gradients/Recurrence Primary time-varying kernel/Mooncake forward                      |                     | 2.83 ± 0.096 ms     |                            |
-| AD gradients/Recurrence Transform with per-stratum parameters/Enzyme reverse              |                     | 0.0402 ± 0.0036 ms  |                            |
-| AD gradients/Recurrence grouped totals (Allocate)/Enzyme reverse                          |                     | 0.0594 ± 0.0013 ms  |                            |
-| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Enzyme reverse         |                     | 0.0592 ± 0.0027 ms  |                            |
-| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Mooncake reverse  |                     | 0.0558 ± 0.0026 ms  |                            |
-| AD gradients/NoAdjoint Recurrence sparse coupling/ForwardDiff                             |                     | 0.0607 ± 0.0084 ms  |                            |
-| AD gradients/NoAdjoint Convolution delay with history/Enzyme reverse                      |                     | 31.2 ± 1.7 μs       |                            |
-| AD gradients/NoAdjoint Matrix overview T200_L20_S3/Enzyme reverse                         |                     | 0.314 ± 0.014 ms    |                            |
-| AD gradients/Recurrence vaccination into a protected pool/ForwardDiff                     |                     | 0.126 ± 0.0072 ms   |                            |
-| AD gradients/Recurrence grouped totals (Allocate)/ForwardDiff                             |                     | 0.111 ± 0.053 ms    |                            |
-| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/ForwardDiff       |                     | 0.0954 ± 0.012 ms   |                            |
-| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Enzyme forward           |                     | 0.407 ± 0.028 ms    |                            |
-| AD gradients/NoAdjoint Recurrence renewal/Mooncake forward                                |                     | 0.2 ± 0.012 ms      |                            |
-| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Mooncake forward  |                     | 0.965 ± 0.034 ms    |                            |
-| AD gradients/NoAdjoint Matrix strata_mixing T200_L20_S5/Enzyme reverse                    |                     | 0.563 ± 0.037 ms    |                            |
-| AD gradients/NoAdjoint Recurrence returning its state/Mooncake reverse                    |                     | 0.0975 ± 0.0046 ms  |                            |
-| AD gradients/Recurrence Transform with per-stratum parameters/ForwardDiff                 |                     | 9.6 ± 0.89 μs       |                            |
-| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Enzyme reverse     |                     | 27.5 ± 0.91 μs      |                            |
-| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Enzyme forward    |                     | 0.0353 ± 0.0025 ms  |                            |
-| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Enzyme forward     |                     | 0.126 ± 0.0086 ms   |                            |
-| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Mooncake forward            |                     | 3.09 ± 0.086 ms     |                            |
-| time_to_load                                                                              | 0.226 ± 0.00063 s   | 0.33 ± 0.0019 s     | 0.684 ± 0.0043             |
+|                                                                                           | v0.1.0             | 144d9f2d913358...   | v0.1.0 / 144d9f2d913358... |
+|:------------------------------------------------------------------------------------------|:------------------:|:-------------------:|:--------------------------:|
+| AD gradients/Convolution delay with history/Enzyme forward                                | 0.0671 ± 0.0081 ms | 0.067 ± 0.0059 ms   | 1 ± 0.15                   |
+| AD gradients/Convolution delay with history/Enzyme reverse                                | 30.2 ± 0.59 μs     | 0.0335 ± 0.0034 ms  | 0.901 ± 0.094              |
+| AD gradients/Convolution delay with history/ForwardDiff                                   | 8.9 ± 2 μs         | 9.31 ± 1.7 μs       | 0.956 ± 0.27               |
+| AD gradients/Convolution delay with history/Mooncake forward                              | 0.233 ± 0.04 ms    | 0.172 ± 0.037 ms    | 1.35 ± 0.37                |
+| AD gradients/Convolution delay with history/Mooncake reverse                              | 0.0511 ± 0.0036 ms | 0.0442 ± 0.0077 ms  | 1.16 ± 0.22                |
+| AD gradients/Convolution time-varying kernel indexed by output/Enzyme forward             | 0.332 ± 0.049 ms   | 0.335 ± 0.015 ms    | 0.991 ± 0.15               |
+| AD gradients/Convolution time-varying kernel indexed by output/Enzyme reverse             | 0.0365 ± 0.0011 ms | 0.0364 ± 0.00091 ms | 1 ± 0.038                  |
+| AD gradients/Convolution time-varying kernel indexed by output/ForwardDiff                | 0.0384 ± 0.0031 ms | 0.0427 ± 0.0064 ms  | 0.899 ± 0.15               |
+| AD gradients/Convolution time-varying kernel indexed by output/Mooncake forward           | 1 ± 0.2 ms         | 1.1 ± 0.11 ms       | 0.907 ± 0.2                |
+| AD gradients/Convolution time-varying kernel indexed by output/Mooncake reverse           | 0.0632 ± 0.0024 ms | 0.044 ± 0.0019 ms   | 1.44 ± 0.083               |
+| AD gradients/Convolution time-varying kernel/Enzyme forward                               | 0.628 ± 0.04 ms    | 0.627 ± 0.03 ms     | 1 ± 0.079                  |
+| AD gradients/Convolution time-varying kernel/Enzyme reverse                               | 30.8 ± 3.7 μs      | 29.1 ± 0.72 μs      | 1.06 ± 0.13                |
+| AD gradients/Convolution time-varying kernel/ForwardDiff                                  | 0.0782 ± 0.0068 ms | 0.0726 ± 0.01 ms    | 1.08 ± 0.18                |
+| AD gradients/Convolution time-varying kernel/Mooncake forward                             | 1.84 ± 0.39 ms     | 1.61 ± 0.45 ms      | 1.14 ± 0.41                |
+| AD gradients/Convolution time-varying kernel/Mooncake reverse                             | 0.0604 ± 0.0036 ms | 0.0342 ± 0.0032 ms  | 1.76 ± 0.2                 |
+| AD gradients/Matrix bvd_patch T200_L20_S5/Enzyme reverse                                  | 1.39 ± 0.089 ms    | 0.282 ± 0.013 ms    | 4.93 ± 0.39                |
+| AD gradients/Matrix bvd_patch T200_L20_S5/Mooncake reverse                                | 1.29 ± 0.037 ms    | 0.416 ± 0.092 ms    | 3.11 ± 0.69                |
+| AD gradients/Matrix delay_fixed T200_L20_S1/Enzyme reverse                                | 0.0633 ± 0.0042 ms | 0.0425 ± 0.0078 ms  | 1.49 ± 0.29                |
+| AD gradients/Matrix delay_fixed T200_L20_S1/Mooncake reverse                              | 0.0908 ± 0.025 ms  | 0.0585 ± 0.0032 ms  | 1.55 ± 0.44                |
+| AD gradients/Matrix overview T200_L20_S3/Enzyme reverse                                   | 0.665 ± 0.023 ms   | 0.0858 ± 0.014 ms   | 7.75 ± 1.3                 |
+| AD gradients/Matrix overview T200_L20_S3/Mooncake reverse                                 | 0.653 ± 0.02 ms    | 0.148 ± 0.0043 ms   | 4.41 ± 0.19                |
+| AD gradients/Matrix renewal T200_L20_S1/Enzyme reverse                                    | 0.0813 ± 0.017 ms  | 0.0655 ± 0.005 ms   | 1.24 ± 0.28                |
+| AD gradients/Matrix renewal T200_L20_S1/Mooncake reverse                                  | 0.147 ± 0.013 ms   | 0.084 ± 0.0046 ms   | 1.75 ± 0.18                |
+| AD gradients/Matrix strata_mixing T200_L20_S5/Enzyme reverse                              | 0.956 ± 0.019 ms   | 0.247 ± 0.012 ms    | 3.87 ± 0.2                 |
+| AD gradients/Matrix strata_mixing T200_L20_S5/Mooncake reverse                            | 1 ± 0.11 ms        | 0.321 ± 0.015 ms    | 3.13 ± 0.36                |
+| AD gradients/Recurrence pairwise kernel/Enzyme forward                                    | 0.417 ± 0.063 ms   | 0.397 ± 0.049 ms    | 1.05 ± 0.21                |
+| AD gradients/Recurrence pairwise kernel/Enzyme reverse                                    | 0.0641 ± 0.0032 ms | 0.0448 ± 0.00094 ms | 1.43 ± 0.077               |
+| AD gradients/Recurrence pairwise kernel/ForwardDiff                                       | 0.0543 ± 0.045 ms  | 0.107 ± 0.013 ms    | 0.505 ± 0.43               |
+| AD gradients/Recurrence pairwise kernel/Mooncake forward                                  | 1.36 ± 0.2 ms      | 1.26 ± 0.031 ms     | 1.09 ± 0.16                |
+| AD gradients/Recurrence pairwise kernel/Mooncake reverse                                  | 0.0908 ± 0.0046 ms | 0.0533 ± 0.0016 ms  | 1.71 ± 0.099               |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme forward              | 0.37 ± 0.025 ms    | 0.345 ± 0.033 ms    | 1.07 ± 0.13                |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Enzyme reverse              | 0.0559 ± 0.003 ms  | 0.0594 ± 0.0046 ms  | 0.943 ± 0.088              |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/ForwardDiff                 | 0.0661 ± 0.012 ms  | 0.0472 ± 0.0027 ms  | 1.4 ± 0.27                 |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake forward            | 1.11 ± 0.18 ms     | 1.29 ± 0.028 ms     | 0.862 ± 0.14               |
+| AD gradients/Recurrence per-stratum kernel, Diagonal coupling/Mooncake reverse            | 0.0907 ± 0.0031 ms | 0.0683 ± 0.002 ms   | 1.33 ± 0.06                |
+| AD gradients/Recurrence renewal/Enzyme forward                                            | 0.0703 ± 0.0041 ms | 0.0675 ± 0.0016 ms  | 1.04 ± 0.066               |
+| AD gradients/Recurrence renewal/Enzyme reverse                                            | 0.0396 ± 0.003 ms  | 0.0424 ± 0.0038 ms  | 0.933 ± 0.11               |
+| AD gradients/Recurrence renewal/ForwardDiff                                               | 12.9 ± 1.9 μs      | 12 ± 1.6 μs         | 1.07 ± 0.21                |
+| AD gradients/Recurrence renewal/Mooncake forward                                          | 0.235 ± 0.01 ms    | 0.203 ± 0.029 ms    | 1.16 ± 0.17                |
+| AD gradients/Recurrence renewal/Mooncake reverse                                          | 0.0722 ± 0.0043 ms | 0.0571 ± 0.0035 ms  | 1.26 ± 0.11                |
+| AD gradients/Recurrence returning its state/Enzyme forward                                | 0.432 ± 0.051 ms   | 0.323 ± 0.037 ms    | 1.33 ± 0.22                |
+| AD gradients/Recurrence returning its state/Enzyme reverse                                | 0.0692 ± 0.0049 ms | 0.0816 ± 0.0028 ms  | 0.848 ± 0.067              |
+| AD gradients/Recurrence returning its state/ForwardDiff                                   | 0.0606 ± 0.0091 ms | 0.0627 ± 0.035 ms   | 0.967 ± 0.56               |
+| AD gradients/Recurrence returning its state/Mooncake forward                              | 1.33 ± 0.047 ms    | 1.24 ± 0.058 ms     | 1.07 ± 0.063               |
+| AD gradients/Recurrence returning its state/Mooncake reverse                              | 0.138 ± 0.0052 ms  | 0.0904 ± 0.0024 ms  | 1.53 ± 0.071               |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme forward               | 0.143 ± 0.0093 ms  | 0.133 ± 0.016 ms    | 1.07 ± 0.15                |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Enzyme reverse               | 28 ± 4.4 μs        | 0.0427 ± 0.001 ms   | 0.656 ± 0.1                |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/ForwardDiff                  | 26.5 ± 1.5 μs      | 29.3 ± 2.9 μs       | 0.905 ± 0.1                |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake forward             | 0.384 ± 0.081 ms   | 0.377 ± 0.016 ms    | 1.02 ± 0.22                |
+| AD gradients/Recurrence scalar modifier field, mixed eltypes/Mooncake reverse             | 0.056 ± 0.0024 ms  | 0.0524 ± 0.0055 ms  | 1.07 ± 0.12                |
+| AD gradients/Recurrence sparse coupling/Enzyme forward                                    | 0.265 ± 0.041 ms   | 0.244 ± 0.028 ms    | 1.09 ± 0.21                |
+| AD gradients/Recurrence sparse coupling/Enzyme reverse                                    | 0.0777 ± 0.0039 ms | 0.0472 ± 0.002 ms   | 1.65 ± 0.11                |
+| AD gradients/Recurrence sparse coupling/ForwardDiff                                       | 0.0317 ± 0.0021 ms | 0.0325 ± 0.0018 ms  | 0.977 ± 0.085              |
+| AD gradients/Recurrence sparse coupling/Mooncake forward                                  | 0.786 ± 0.13 ms    | 0.76 ± 0.12 ms      | 1.04 ± 0.24                |
+| AD gradients/Recurrence sparse coupling/Mooncake reverse                                  | 0.0907 ± 0.0084 ms | 0.0629 ± 0.0025 ms  | 1.44 ± 0.15                |
+| AD gradients/Recurrence strata, coupling and depletion/Enzyme forward                     | 0.526 ± 0.03 ms    | 0.386 ± 0.046 ms    | 1.36 ± 0.18                |
+| AD gradients/Recurrence strata, coupling and depletion/Enzyme reverse                     | 0.0896 ± 0.0063 ms | 0.0677 ± 0.0033 ms  | 1.32 ± 0.11                |
+| AD gradients/Recurrence strata, coupling and depletion/ForwardDiff                        | 0.0678 ± 0.0032 ms | 0.0505 ± 0.0096 ms  | 1.34 ± 0.26                |
+| AD gradients/Recurrence strata, coupling and depletion/Mooncake forward                   | 1.83 ± 0.28 ms     | 1.59 ± 0.028 ms     | 1.15 ± 0.17                |
+| AD gradients/Recurrence strata, coupling and depletion/Mooncake reverse                   | 0.131 ± 0.0036 ms  | 0.0938 ± 0.006 ms   | 1.4 ± 0.097                |
+| AD gradients/Recurrence time-varying kernel and coupling/Enzyme forward                   | 1.27 ± 0.1 ms      | 1.2 ± 0.1 ms        | 1.05 ± 0.12                |
+| AD gradients/Recurrence time-varying kernel and coupling/Enzyme reverse                   | 0.0641 ± 0.0075 ms | 0.0565 ± 0.0025 ms  | 1.13 ± 0.14                |
+| AD gradients/Recurrence time-varying kernel and coupling/ForwardDiff                      | 0.128 ± 0.0087 ms  | 0.125 ± 0.012 ms    | 1.03 ± 0.12                |
+| AD gradients/Recurrence time-varying kernel and coupling/Mooncake forward                 | 3.44 ± 0.71 ms     | 3.64 ± 0.96 ms      | 0.946 ± 0.32               |
+| AD gradients/Recurrence time-varying kernel and coupling/Mooncake reverse                 | 0.0969 ± 0.0052 ms | 0.0736 ± 0.01 ms    | 1.32 ± 0.19                |
+| Evaluation/Matrix bvd_patch T200_L20_S5                                                   | 0.072 ± 0.0018 ms  | 0.0625 ± 0.0009 ms  | 1.15 ± 0.033               |
+| Evaluation/Matrix delay_fixed T200_L20_S1                                                 | 2.81 ± 2.6 μs      | 2.3 ± 0.44 μs       | 1.22 ± 1.2                 |
+| Evaluation/Matrix overview T200_L20_S3                                                    | 0.0521 ± 0.0032 ms | 0.0459 ± 0.003 ms   | 1.13 ± 0.1                 |
+| Evaluation/Matrix renewal T200_L20_S1                                                     | 9.84 ± 1.7 μs      | 9.95 ± 1.8 μs       | 0.989 ± 0.25               |
+| Evaluation/Matrix strata_mixing T200_L20_S5                                               | 0.067 ± 0.0034 ms  | 0.0392 ± 0.012 ms   | 1.71 ± 0.52                |
+| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Mooncake reverse |                    | 0.0622 ± 0.0016 ms  |                            |
+| AD gradients/NoAdjoint Recurrence renewal/ForwardDiff                                     |                    | 7.25 ± 0.43 μs      |                            |
+| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Enzyme reverse    |                    | 0.0573 ± 0.0041 ms  |                            |
+| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Mooncake forward      |                    | 3.27 ± 0.053 ms     |                            |
+| AD gradients/NoAdjoint Recurrence pairwise kernel/Enzyme reverse                          |                    | 0.0577 ± 0.0013 ms  |                            |
+| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Mooncake reverse            |                    | 0.0899 ± 0.0042 ms  |                            |
+| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Mooncake reverse   |                    | 0.0497 ± 0.0035 ms  |                            |
+| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Enzyme forward              |                    | 1.02 ± 0.11 ms      |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/ForwardDiff      |                    | 0.0446 ± 0.0033 ms  |                            |
+| AD gradients/NoAdjoint Matrix strata_mixing T200_L20_S5/Mooncake reverse                  |                    | 0.963 ± 0.011 ms    |                            |
+| AD gradients/NoAdjoint Recurrence returning its state/Enzyme forward                      |                    | 0.414 ± 0.083 ms    |                            |
+| AD gradients/Recurrence vaccination into a protected pool/Mooncake forward                |                    | 3.02 ± 0.6 ms       |                            |
+| AD gradients/Recurrence Primary time-varying kernel/Enzyme reverse                        |                    | 0.0514 ± 0.0012 ms  |                            |
+| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Mooncake reverse  |                    | 0.0811 ± 0.002 ms   |                            |
+| AD gradients/NoAdjoint Convolution delay with history/Enzyme forward                      |                    | 0.0667 ± 0.0019 ms  |                            |
+| AD gradients/NoAdjoint Recurrence returning its state/Enzyme reverse                      |                    | 0.0969 ± 0.0071 ms  |                            |
+| AD gradients/Recurrence Primary time-varying kernel/Enzyme forward                        |                    | 0.957 ± 0.025 ms    |                            |
+| AD gradients/Recurrence Transform with per-stratum parameters/Mooncake reverse            |                    | 0.0558 ± 0.004 ms   |                            |
+| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Enzyme forward         |                    | 1.08 ± 0.13 ms      |                            |
+| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/ForwardDiff           |                    | 0.129 ± 0.015 ms    |                            |
+| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Mooncake reverse      |                    | 0.141 ± 0.0047 ms   |                            |
+| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Enzyme forward                |                    | 0.501 ± 0.055 ms    |                            |
+| AD gradients/Recurrence grouped totals (Allocate)/Mooncake reverse                        |                    | 0.0867 ± 0.0023 ms  |                            |
+| AD gradients/NoAdjoint Recurrence renewal/Mooncake reverse                                |                    | 0.0649 ± 0.0034 ms  |                            |
+| AD gradients/NoAdjoint Recurrence returning its state/Mooncake forward                    |                    | 1.66 ± 0.059 ms     |                            |
+| AD gradients/NoAdjoint Matrix renewal T200_L20_S1/Enzyme reverse                          |                    | 0.0825 ± 0.0049 ms  |                            |
+| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/ForwardDiff            |                    | 0.197 ± 0.033 ms    |                            |
+| AD gradients/Recurrence Transform with per-stratum parameters/Enzyme forward              |                    | 0.04 ± 0.0065 ms    |                            |
+| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Mooncake reverse       |                    | 0.0989 ± 0.0033 ms  |                            |
+| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Enzyme forward    |                    | 0.334 ± 0.038 ms    |                            |
+| AD gradients/NoAdjoint Recurrence pairwise kernel/Mooncake forward                        |                    | 1.2 ± 0.18 ms       |                            |
+| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Enzyme reverse                |                    | 0.106 ± 0.0023 ms   |                            |
+| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/ForwardDiff                 |                    | 0.145 ± 0.023 ms    |                            |
+| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/ForwardDiff        |                    | 24.9 ± 1.9 μs       |                            |
+| AD gradients/Recurrence Transform with per-stratum parameters/Mooncake forward            |                    | 0.11 ± 0.02 ms      |                            |
+| AD gradients/NoAdjoint Recurrence returning its state/ForwardDiff                         |                    | 0.0648 ± 0.013 ms   |                            |
+| AD gradients/NoAdjoint Matrix delay_fixed T200_L20_S1/Enzyme reverse                      |                    | 0.0697 ± 0.0039 ms  |                            |
+| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Mooncake forward   |                    | 0.406 ± 0.019 ms    |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Enzyme reverse   |                    | 0.0411 ± 0.001 ms   |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel/Enzyme forward                     |                    | 0.653 ± 0.021 ms    |                            |
+| AD gradients/NoAdjoint Matrix overview T200_L20_S3/Mooncake reverse                       |                    | 0.705 ± 0.017 ms    |                            |
+| AD gradients/NoAdjoint Recurrence renewal/Enzyme reverse                                  |                    | 0.0408 ± 0.0023 ms  |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel/Mooncake forward                   |                    | 2.55 ± 0.2 ms       |                            |
+| AD gradients/Recurrence vaccination into a protected pool/Enzyme forward                  |                    | 0.707 ± 0.058 ms    |                            |
+| AD gradients/Recurrence grouped totals (Allocate)/Mooncake forward                        |                    | 1.78 ± 0.075 ms     |                            |
+| AD gradients/NoAdjoint Matrix renewal T200_L20_S1/Mooncake reverse                        |                    | 0.172 ± 0.0062 ms   |                            |
+| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Enzyme reverse    |                    | 0.0566 ± 0.0014 ms  |                            |
+| AD gradients/Recurrence Primary time-varying kernel/ForwardDiff                           |                    | 0.116 ± 0.0042 ms   |                            |
+| AD gradients/NoAdjoint Matrix bvd_patch T200_L20_S5/Mooncake reverse                      |                    | 1.29 ± 0.017 ms     |                            |
+| AD gradients/NoAdjoint Recurrence sparse coupling/Enzyme forward                          |                    | 0.276 ± 0.045 ms    |                            |
+| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Mooncake reverse              |                    | 0.109 ± 0.0088 ms   |                            |
+| AD gradients/NoAdjoint Matrix delay_fixed T200_L20_S1/Mooncake reverse                    |                    | 0.111 ± 0.0047 ms   |                            |
+| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/ForwardDiff       |                    | 11 ± 2 μs           |                            |
+| AD gradients/NoAdjoint Recurrence sparse coupling/Mooncake forward                        |                    | 1.08 ± 0.029 ms     |                            |
+| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Mooncake forward       |                    | 4.7 ± 0.13 ms       |                            |
+| AD gradients/Recurrence vaccination into a protected pool/Mooncake reverse                |                    | 0.112 ± 0.0077 ms   |                            |
+| AD gradients/Recurrence vaccination into a protected pool/Enzyme reverse                  |                    | 0.0899 ± 0.0032 ms  |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Enzyme forward   |                    | 0.368 ± 0.022 ms    |                            |
+| AD gradients/Recurrence grouped totals (Allocate)/Enzyme forward                          |                    | 0.455 ± 0.054 ms    |                            |
+| AD gradients/Recurrence Primary time-varying kernel/Mooncake reverse                      |                    | 0.0627 ± 0.0017 ms  |                            |
+| AD gradients/NoAdjoint Recurrence pairwise kernel/Mooncake reverse                        |                    | 0.083 ± 0.0026 ms   |                            |
+| AD gradients/NoAdjoint Convolution delay with history/ForwardDiff                         |                    | 11.1 ± 1.6 μs       |                            |
+| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Enzyme reverse              |                    | 0.0573 ± 0.0029 ms  |                            |
+| AD gradients/NoAdjoint Recurrence renewal/Enzyme forward                                  |                    | 0.0711 ± 0.0018 ms  |                            |
+| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/ForwardDiff                   |                    | 0.0686 ± 0.0032 ms  |                            |
+| AD gradients/NoAdjoint Matrix bvd_patch T200_L20_S5/Enzyme reverse                        |                    | 0.845 ± 0.079 ms    |                            |
+| AD gradients/NoAdjoint Convolution delay with history/Mooncake forward                    |                    | 0.263 ± 0.018 ms    |                            |
+| AD gradients/NoAdjoint Recurrence pairwise kernel/Enzyme forward                          |                    | 0.415 ± 0.044 ms    |                            |
+| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/ForwardDiff              |                    | 0.0591 ± 0.046 ms   |                            |
+| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Mooncake forward  |                    | 0.133 ± 0.0072 ms   |                            |
+| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Mooncake reverse         |                    | 0.11 ± 0.0024 ms    |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel/Enzyme reverse                     |                    | 0.0353 ± 0.00097 ms |                            |
+| AD gradients/NoAdjoint Recurrence pairwise kernel/ForwardDiff                             |                    | 0.0899 ± 0.042 ms   |                            |
+| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Enzyme reverse           |                    | 0.0695 ± 0.0061 ms  |                            |
+| AD gradients/NoAdjoint Convolution delay with history/Mooncake reverse                    |                    | 0.058 ± 0.0039 ms   |                            |
+| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Enzyme forward        |                    | 0.672 ± 0.073 ms    |                            |
+| AD gradients/NoAdjoint Recurrence grouped totals (Allocate)/Mooncake forward              |                    | 1.64 ± 0.049 ms     |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel indexed by output/Mooncake forward |                    | 1.44 ± 0.036 ms     |                            |
+| AD gradients/NoAdjoint Recurrence sparse coupling/Mooncake reverse                        |                    | 0.0836 ± 0.0018 ms  |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel/ForwardDiff                        |                    | 0.0957 ± 0.0077 ms  |                            |
+| AD gradients/NoAdjoint Convolution time-varying kernel/Mooncake reverse                   |                    | 0.0598 ± 0.0053 ms  |                            |
+| AD gradients/NoAdjoint Recurrence vaccination into a protected pool/Enzyme reverse        |                    | 0.111 ± 0.0023 ms   |                            |
+| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Mooncake forward         |                    | 1.47 ± 0.21 ms      |                            |
+| AD gradients/Recurrence Primary time-varying kernel/Mooncake forward                      |                    | 3.32 ± 0.81 ms      |                            |
+| AD gradients/Recurrence Transform with per-stratum parameters/Enzyme reverse              |                    | 0.0459 ± 0.0071 ms  |                            |
+| AD gradients/Recurrence grouped totals (Allocate)/Enzyme reverse                          |                    | 0.0739 ± 0.0017 ms  |                            |
+| AD gradients/NoAdjoint Recurrence time-varying kernel and coupling/Enzyme reverse         |                    | 0.0648 ± 0.0043 ms  |                            |
+| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Mooncake reverse  |                    | 0.0807 ± 0.0038 ms  |                            |
+| AD gradients/NoAdjoint Recurrence sparse coupling/ForwardDiff                             |                    | 0.0442 ± 0.008 ms   |                            |
+| AD gradients/NoAdjoint Convolution delay with history/Enzyme reverse                      |                    | 0.0355 ± 0.0032 ms  |                            |
+| AD gradients/NoAdjoint Matrix overview T200_L20_S3/Enzyme reverse                         |                    | 0.297 ± 0.016 ms    |                            |
+| AD gradients/Recurrence vaccination into a protected pool/ForwardDiff                     |                    | 0.0971 ± 0.0032 ms  |                            |
+| AD gradients/Recurrence grouped totals (Allocate)/ForwardDiff                             |                    | 0.0742 ± 0.0051 ms  |                            |
+| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/ForwardDiff       |                    | 0.0571 ± 0.0039 ms  |                            |
+| AD gradients/NoAdjoint Recurrence strata, coupling and depletion/Enzyme forward           |                    | 0.421 ± 0.025 ms    |                            |
+| AD gradients/NoAdjoint Recurrence renewal/Mooncake forward                                |                    | 0.227 ± 0.015 ms    |                            |
+| AD gradients/NoAdjoint Recurrence per-stratum kernel, Diagonal coupling/Mooncake forward  |                    | 1.15 ± 0.053 ms     |                            |
+| AD gradients/NoAdjoint Matrix strata_mixing T200_L20_S5/Enzyme reverse                    |                    | 0.441 ± 0.078 ms    |                            |
+| AD gradients/NoAdjoint Recurrence returning its state/Mooncake reverse                    |                    | 0.128 ± 0.0058 ms   |                            |
+| AD gradients/Recurrence Transform with per-stratum parameters/ForwardDiff                 |                    | 10.3 ± 0.61 μs      |                            |
+| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Enzyme reverse     |                    | 29.5 ± 0.82 μs      |                            |
+| AD gradients/NoAdjoint Recurrence Transform with per-stratum parameters/Enzyme forward    |                    | 0.0331 ± 0.0014 ms  |                            |
+| AD gradients/NoAdjoint Recurrence scalar modifier field, mixed eltypes/Enzyme forward     |                    | 0.134 ± 0.0073 ms   |                            |
+| AD gradients/NoAdjoint Recurrence Primary time-varying kernel/Mooncake forward            |                    | 3.88 ± 0.052 ms     |                            |
+| time_to_load                                                                              | 0.235 ± 0.0015 s   | 0.348 ± 0.0017 s    | 0.676 ± 0.0053             |
 
-|                                                                                           | v0.1.0                    | 22913b2baa259f...         | v0.1.0 / 22913b2baa259f... |
+|                                                                                           | v0.1.0                    | 144d9f2d913358...         | v0.1.0 / 144d9f2d913358... |
 |:------------------------------------------------------------------------------------------|:-------------------------:|:-------------------------:|:--------------------------:|
 | AD gradients/Convolution delay with history/Enzyme forward                                | 0.631 k allocs: 0.0348 MB | 0.631 k allocs: 0.0348 MB | 1                          |
 | AD gradients/Convolution delay with history/Enzyme reverse                                | 0.147 k allocs: 7.97 kB   | 0.152 k allocs: 7.52 kB   | 1.06                       |
