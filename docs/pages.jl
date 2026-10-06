@@ -36,6 +36,7 @@ pages = [
         "Spatial and multi-type models" => "getting-started/tutorials/spatial-strata.md",
         "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",
         "Occupancy and capacity" => "getting-started/tutorials/occupancy.md",
+        "Transforms inside a recurrence" => "getting-started/tutorials/transform.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",

@@ -1,7 +1,7 @@
 # Which (case, mode, config, backend) entries work under Reactant today.
 # Unlisted entries are expected to fail. With the package's Reactant
-# extension every case works, forward and reverse, on CPU and GPU; see
-# RESULTS.md.
+# extension every case works, forward and reverse, on CPU; see RESULTS.md.
+# GPU has not been run, so the GPU entries are untested.
 const EXPECTED = let d = Dict{Tuple{String, String, String, String}, Bool}()
     for mode in ("forward", "reverse"), backend in ("cpu", "gpu")
         for c in ReactantCases.CASES

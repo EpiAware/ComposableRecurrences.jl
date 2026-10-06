@@ -20,6 +20,8 @@ v'_i &= T_{t,p}\, \frac{v_i}{\sigma_p}, \quad i \in G_p,
 
 with ``\epsilon`` the machine epsilon of the buffer eltype, so the group
 sums of ``v'`` equal the totals wherever ``\sigma_p > \epsilon``.
+It is meant for non-negative values: a group sum at or below zero is
+floored to ``\epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
 The groups are stored flat, in the fields `strata` (each group's strata in

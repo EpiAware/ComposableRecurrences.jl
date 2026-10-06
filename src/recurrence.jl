@@ -519,6 +519,18 @@ end
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
 
+# A resumed state must have each modifier's `nstate` entries, as an
+# `Init` would have written.
+_check_states(modifiers, s0, S) = foreach(eachindex(modifiers), modifiers, s0) do i, m, s
+    n = nstate(m, S)
+    length(s) == n || throw(
+        ArgumentError(
+            "modifier $i ($(nameof(typeof(m)))) has a state of length " *
+                "$(length(s)); expected nstate(m, $S) = $n"
+        )
+    )
+end
+
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     (; kernel, coupling, modifiers) = r
@@ -534,6 +546,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
                 "$(length(modifiers)) modifiers"
         )
     )
+    s0 === nothing || _check_states(modifiers, s0, S)
     stop = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     τ0 >= 1 || throw(ArgumentError("start ($τ0) must be at least 1"))
     stop >= τ0 - 1 || throw(
@@ -600,7 +613,7 @@ end
 # Each modifier's initial state, written by its Init into a vector at the
 # buffer eltype.
 function _init_state(::Type{Tp}, m, h, S) where {Tp}
-    s = _zeros(h, Tp, _nstate(m, S))
+    s = _zeros(h, Tp, nstate(m, S))
     forward(m, Init(), s, h)
     return s
 end
@@ -701,7 +714,7 @@ function _run(
     X = record ? _zeros(h, Tp, S, T) : nothing
     rec = record ?
         map(
-            m -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, _nstate(m, S), T)),
+            m -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, nstate(m, S), T)),
             modifiers
         ) :
         nothing

@@ -20,6 +20,7 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 A fifth shim, allocating buffers with `zeros` when the history is a plain `Array`, is no longer needed: the package allocates CPU buffers that way.
+The protected pool's step (`_protected_step`, `src/depletion_pools.jl`) picks its arm with `ifelse` rather than `if`, since `if` refuses a traced `Bool`; this lives in the package, not the extension.
 
 Two things to keep in mind when reading compile times.
 The package's plain `for` loops are unrolled when traced, so compile time and program size grow with `T × S`; moving the step loop to `@trace for` would stop that.
