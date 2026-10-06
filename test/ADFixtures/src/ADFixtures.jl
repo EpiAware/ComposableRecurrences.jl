@@ -187,6 +187,16 @@ function _growth_seed(w, θ)
     return sum(WSL .* log.(y))
 end
 
+# The state returned after the seed and the run, with the seed prepended.
+function _with_state_prepend(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    r = Recurrence(G0; coupling = K0)
+    y, st = ComposableRecurrences.with_state(
+        w(r), exp.(logR); history = exp.(logh), start = L + 1, prepend = true
+    )
+    return sum(WS .* log.(y)) + sum(st.history)
+end
+
 function _delay(w, θ)
     g, w0, ϵ = _unpack(θ, (L + 1,), (L,), (T,))
     return sum(W1 .* w(Convolution(g))(ϵ; history = w0))
@@ -287,6 +297,10 @@ const _SCENARIOS = [
         () -> _flat(log.([5.0, 2.0, 1.0]), [0.1], LOGR),
     ),
     (
+        "Recurrence returning its state after its seed", _with_state_prepend,
+        () -> _flat(fill(log(5.0), S, L), LOGR),
+    ),
+    (
         "Convolution delay with history", _delay,
         () -> _flat([0.0; G0], ones(L), 1 .+ LOGR[1, :]),
     ),
@@ -327,6 +341,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence Primary time-varying kernel" => (:_check_primary_seed,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
+    # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
+    # growth-path seed but before any release with it.
+    "Recurrence returning its state after its seed" => (:exponential_history,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same
