@@ -1,11 +1,10 @@
 # [Getting started](@id getting-started)
 
-ComposableRecurrences has two operators.
-`Recurrence` steps a series forward from a kernel-weighted window of its own past.
-`Convolution` weights past inputs by a kernel.
-Many series can be linked so that each one feeds the others, and extra behaviour such as finite pools or bounds can be added to each step.
-Every operator is differentiable, so a model built from them can be fitted with gradient-based methods.
-Computational efficiency is a main focus of the package; see [Performance](@ref overview-performance).
+[`Recurrence`](@ref) steps a series forward from a kernel-weighted window of its own past.
+[`Convolution`](@ref) weights past inputs by a kernel.
+Couplings link series, and modifiers add behaviour such as finite pools to each step.
+Every operator is differentiable.
+Computational efficiency is a main focus; see [Performance](@ref overview-performance).
 
 ## A first example
 
@@ -39,10 +38,7 @@ reports = 0.4 .* delay(infections)
 round.(vec(sum(reports; dims = 2)))
 ```
 
-The operators are built once and called like functions.
-The coupling mixes the towns after the generation interval is applied, and the depletion runs after each step.
-Each town is one series, and `PerStratum` gives each its own population.
-Chaining the renewal and the delay is function composition.
+[`Recurrence`](@ref) describes `coupling` and `modifiers`; [`PerStratum`](@ref) gives each town its own population.
 
 ```@example overview
 long(x) = @chain DataFrame(permutedims(x), towns) begin
