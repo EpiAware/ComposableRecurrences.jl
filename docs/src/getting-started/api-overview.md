@@ -161,7 +161,7 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 ## [Extending](@id overview-extending)
 
 To extend the package, define a new type and add a `forward` method for it.
-Add a `pullback!` method for a hand-written gradient, and declare `uses_adjoint` for the same job so the operator's rule calls it.
+Add a `pullback!` method for a hand-written gradient, and the operator's rule calls it.
 See [Adding a modifier](@ref extending).
 
 | Name | What it does | Returns |
@@ -169,7 +169,7 @@ See [Adding a modifier](@ref extending).
 | [`forward(m, role, args...)`](@ref ComposableRecurrences.forward) | the maths of a modifier, coupling or depletion form for one job | writes in place, or returns values |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | declares that `m` has a `pullback!` for `role` | `Bool` |
+| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; a method overrides it | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series | `Int` |
 | [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the element type a type's parameters promote the buffer to | a type |

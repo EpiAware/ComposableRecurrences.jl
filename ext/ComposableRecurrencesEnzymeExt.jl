@@ -6,7 +6,8 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _current, _note_plain_type, _rebuilds, _plain, _run_forward, _run_pullback!
+    _current, _log_plain, _note_plain_type, _rebuilds, _plain, _run_forward,
+    _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -78,7 +79,27 @@ function _addback1(dx::T, m) where {T}
     return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), T, fs, length(fs))::T
 end
 
-EnzymeRules.inactive(::typeof(_note_plain_type), args...) = nothing
+# The plain-AD note logs only while Enzyme differentiates the call in
+# reverse mode.
+function EnzymeRules.forward(
+        ::EnzymeRules.FwdConfig, ::Const{typeof(_note_plain_type)}, ::Type,
+        args::Vararg{Annotation, N}
+    ) where {N}
+    return nothing
+end
+function EnzymeRules.augmented_primal(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_note_plain_type)}, ::Type,
+        why::Annotation, op::Annotation, args::Vararg{Annotation, N}
+    ) where {N}
+    _log_plain(typeof(op.val), why.val)
+    return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_note_plain_type)}, ::Type,
+        tape, why::Annotation, op::Annotation, args::Vararg{Annotation, N}
+    ) where {N}
+    return map(a -> a isa Active ? Enzyme.make_zero(a.val) : nothing, (why, op, args...))
+end
 EnzymeRules.inactive(::typeof(_rebuilds), args...) = nothing
 
 # The executor carries no derivative. Forward mode and plain reverse mode

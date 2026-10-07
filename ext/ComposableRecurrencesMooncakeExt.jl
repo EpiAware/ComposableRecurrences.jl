@@ -6,7 +6,8 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _current, _note_plain_type, _rebuilds, _run_forward, _run_pullback!
+    _current, _log_plain, _note_plain_type, _rebuilds, _run_forward,
+    _run_pullback!
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -64,7 +65,21 @@ Mooncake.@mooncake_overlay function ComposableRecurrences._axpy!(
     return axpy!(α, x, y)
 end
 
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Any}
+# The plain-AD note logs only while Mooncake differentiates the call in
+# reverse mode.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Vararg}
+function Mooncake.frule!!(
+        ::Mooncake.Dual{typeof(_note_plain_type)}, args::Vararg{Mooncake.Dual, N}
+    ) where {N}
+    return Mooncake.zero_dual(nothing)
+end
+function Mooncake.rrule!!(
+        f::CoDual{typeof(_note_plain_type)}, why::CoDual, op::CoDual,
+        args::Vararg{CoDual, N}
+    ) where {N}
+    _log_plain(typeof(primal(op)), primal(why))
+    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, why, op, args...)
+end
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuilds), Any}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot

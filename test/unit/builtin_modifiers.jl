@@ -43,7 +43,7 @@
         m = build(θ)
         m̄ = mirror(m)
         gv, gs = copy(v̄′), copy(s̄′)
-        CR.pullback!((; piece = m̄, v = gv, s = gs), m, CR.Step(), copy(v), copy(s), t)
+        CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
         return (;
             v = gv ≈ expected[1:S],
             s = gs ≈ expected[(S + 1):(2S)],
@@ -276,8 +276,8 @@ end
     # An exhausted pool (a seed larger than N) has a finite hazard pullback.
     m = CR.Depletion(200.0; heterogeneity = 1.3)
     v̄, s̄ = [0.5, 1.0, 0.2], [0.3, -0.2, 0.1]
-    CR.pullback!(
-        (; piece = ModifierChecks.mirror(m), v = v̄, s = s̄), m, CR.Step(), v,
+    CR._vector_pullback!(
+        (; piece = ModifierChecks.mirror(m), v = v̄, s = s̄), m, v,
         [150.0, 0.0, 90.0], 1
     )
     @test all(isfinite, v̄) && all(isfinite, s̄)

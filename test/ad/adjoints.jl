@@ -604,10 +604,10 @@ end
     end
     @test Base.return_types(
         CR._route_val, (UserPkg.Decay{Float64}, Float64, Vector{Float64})
-    ) == [Val{true}]
+    ) == [Val{:rule}]
     @test Base.return_types(
         CR._route_val, (UserPkg.DecayNoPB{Float64}, Float64, Vector{Float64})
-    ) == [Val{false}]
+    ) == [Val{:plain}]
 end
 
 @testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
@@ -1019,5 +1019,45 @@ end
         grad = similar(θ)
         gradient!(f, grad, prep, backend, θ)
         @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300
+    end
+end
+
+@testitem "Plain-AD note logs once under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme
+    using DifferentiationInterface: gradient
+    import Enzyme, Mooncake
+    # Pointwise modifiers whose float field is typed `Float64`, so the
+    # operator takes plain AD; one type per backend, as the note is logged
+    # once per operator type.
+    struct ScaleM
+        a::Float64
+    end
+    struct ScaleE
+        a::Float64
+    end
+    for M in (ScaleM, ScaleE)
+        @eval CR.ispointwise(::$M) = true
+        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+    end
+    for (M, backend) in (
+            (ScaleM, AutoMooncake(; config = nothing)),
+            (
+                ScaleE,
+                AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+        )
+        f(θ) = sum(Recurrence([0.3, 0.2]; modifiers = (M(0.9),))(θ; history = ones(2)))
+        θ = ones(4)
+        # The primal call logs nothing; the first gradient logs once.
+        @test_logs f(θ)
+        empty!(CR._PLAIN_NOTED)
+        g = @test_logs (:info, r"plain AD of the whole operator") match_mode = :any gradient(f, backend, θ)
+        @test all(isfinite, g)
+        @test_logs gradient(f, backend, θ)
     end
 end

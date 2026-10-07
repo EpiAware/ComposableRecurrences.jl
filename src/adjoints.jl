@@ -1,12 +1,12 @@
 # The native adjoint rules' entry point. An operator's call builds its
 # positional arguments and goes through `adjoint_call`, which routes to the
 # rule primitive `_ad` (`Mooncake` `rrule!!` and `Enzyme` rules in the
-# extensions) when the operator declares its adjoint and every float is
-# IEEE, and otherwise to `_plain`, which the AD backend differentiates.
+# extensions) when the operator uses its adjoint and every float is IEEE,
+# and otherwise to `_plain`, which the AD backend differentiates.
 
 # Supertype of operators whose call is routed through the native rules. An
 # operator type implements `forward(op, Run(), args...) -> (y, cache)` and
-# `pullback!(grads, op, Run(), cache)` with `uses_adjoint(op, Run()) = true`.
+# `pullback!(grads, op, Run(), cache)`.
 abstract type AbstractOperator end
 
 @doc raw"""
@@ -73,7 +73,7 @@ Whether `piece` carries its own analytic adjoint in `role`: a
 [`ComposableRecurrences.pullback!`](@ref) method for that role.
 
 For outputs ``o = f(u, \theta)`` of the role, with inputs ``u`` and
-parameters ``\theta``, a declared adjoint computes the cotangents
+parameters ``\theta``, the adjoint computes the cotangents
 
 ```math
 \bar u = \Big(\frac{\partial o}{\partial u}\Big)^{\top} \bar o, \qquad
@@ -83,10 +83,17 @@ parameters ``\theta``, a declared adjoint computes the cotangents
 by hand, where ``\bar o`` is the gradient of a scalar loss with respect to
 ``o``.
 
-The author declares it next to the `pullback!` method; the default is
-`false`.
+By default it is `true` when `pullback!` has a method for the type of
+`piece` and `role` whose other arguments are untyped, so writing the
+method is enough.
+A method with typed arguments is not found; declare
+`uses_adjoint(::T, role) = true` for it.
+A method of `uses_adjoint` also overrides the default, for example when
+the adjoint covers only some values of a type.
+If it is `true` but no `pullback!` method fits the arguments, the reverse
+pass throws an `ArgumentError`.
 An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
-declares it; a [`Recurrence`](@ref) does when its coupling does in
+has one; a [`Recurrence`](@ref) does when its coupling does in
 [`ComposableRecurrences.Pressure`](@ref) and each modifier does in
 [`ComposableRecurrences.Step`](@ref) or is pointwise with only scalar float
 parameters (those are differentiated locally per value).
@@ -108,30 +115,76 @@ CR.uses_adjoint(Recurrence([0.5, 0.5]), CR.Run())
 true
 ```
 """
-uses_adjoint(piece, role) = false
+uses_adjoint(piece, role) = _has_pullback(piece, role)
 
-# The entry point: the rule path when the operator uses its adjoint and
-# every float leaf is IEEE, else plain AD. Both decisions are made from the
+# Whether `pullback!` has a method for `piece` in `role` that takes untyped
+# cotangents and arguments, so a method that fits every call.
+# `Core._hasmethod` folds at compile time, and adding a method invalidates
+# the code that read it.
+_has_pullback(piece, role) = false
+function _has_pullback(x, ::Run)
+    return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Run, Any})
+end
+function _has_pullback(x, ::Pressure)
+    sig = Tuple{typeof(pullback!), Any, typeof(x), Pressure, Any, Any, Any}
+    return Core._hasmethod(sig)
+end
+_has_pullback(x, ::Step) = _has_scalar_pullback(x) || _has_vector_pullback(x)
+function _has_scalar_pullback(x)
+    sig = Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any, Any}
+    return Core._hasmethod(sig)
+end
+function _has_vector_pullback(x)
+    return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})
+end
+
+# `pullback!` for an object that uses its adjoint, with a clear error when it
+# declares one but has no method for these arguments. The check is on the
+# types, so it folds.
+function _call_pullback!(grads, x, role, args...)
+    sig = Tuple{
+        typeof(pullback!), typeof(grads), typeof(x), typeof(role),
+        map(typeof, args)...,
+    }
+    Core._hasmethod(sig) || _no_pullback(x, role)
+    return pullback!(grads, x, role, args...)
+end
+@noinline function _no_pullback(x, role)
+    R = nameof(typeof(role))
+    throw(
+        ArgumentError(
+            "$(nameof(typeof(x))) uses its adjoint in $R() (uses_adjoint is " *
+                "true) but has no pullback! method for $R() and these " *
+                "arguments; add one or declare uses_adjoint(x, $R()) = false"
+        )
+    )
+end
+
+# The entry point: the rule when the operator uses its adjoint and every
+# float leaf is IEEE, else plain AD. Both decisions are made from the
 # types, so the route is static. A modifier left to the default pullback is
 # also checked by value to rebuild from its parameters (`_rebuilds`); this
-# folds to `true` for operators without one.
+# folds to `true` for operators without one. `Vararg{Any, N}` makes the
+# routes specialise on the arguments, which they pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
-_route_val(op, args...) = Val(uses_adjoint(op, Run()) && _gate(op, args...))
-function _route(::Val{true}, op, args...)
+function _route_val(op, args...)
+    return Val(uses_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
+end
+function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     _rebuilds(op) && return _ad(op, args...)
-    _note_plain_type(typeof(op))
+    _note_rebuild(op, args...)
     return _plain(op, args...)
 end
-function _route(::Val{false}, op, args...)
-    _note_plain(op)
+function _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N}
+    _note_plain(op, args...)
     return _plain(op, args...)
 end
 
 # The positional Run of an operator and its pullback. Operators with a
 # keyword `forward` on `Run()` add methods for their positional form.
 _run_forward(op, args...) = forward(op, Run(), args...)
-_run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
+_run_pullback!(grads, op, cache) = _call_pullback!(grads, op, Run(), cache)
 
 # The primal call. The extensions make `_ad` a rule primitive for `Mooncake`
 # and `Enzyme`; `_plain` is differentiated by the backend.
@@ -139,27 +192,39 @@ _primal(op, args...) = first(_run_forward(op, args...))
 _ad(op, args...) = _primal(op, args...)
 _plain(op, args...) = _primal(op, args...)
 
-# Log, once per operator type, that an operator without an adjoint for all
-# of its parts is differentiated by plain AD. The extensions mark
-# `_note_plain_type` as having no derivative.
-_note_plain(op) = uses_adjoint(op, Run()) ? nothing : _note_plain_type(typeof(op))
+# Note that an operator is differentiated by plain AD: it has a part
+# without an adjoint, or a modifier the default pullback cannot rebuild
+# from its parameters. The primal `_note_plain_type` does nothing, so a
+# call that is not differentiated logs nothing; the extensions' reverse
+# rules for it log, once per operator type. It takes the operator and its
+# arguments so that a backend sees an active argument and runs the rule,
+# and `donotdelete` keeps the call, which has no effect of its own.
+const _ADJOINT_NOTE = "has a coupling or modifier without an analytic adjoint"
+const _REBUILD_NOTE = "has a modifier or depletion form whose constructor " *
+    "does not give it back from its own parameters"
+function _note_plain(op, args...)
+    uses_adjoint(op, Run()) && return nothing
+    return _note_plain_type(_ADJOINT_NOTE, op, args...)
+end
+_note_rebuild(op, args...) = _note_plain_type(_REBUILD_NOTE, op, args...)
+@noinline _note_plain_type(why, op, args...) = (Base.donotdelete(op, args...); nothing)
 const _PLAIN_NOTED = Set{Any}()
 const _PLAIN_LOCK = ReentrantLock()
-@noinline function _note_plain_type(T)
+function _log_plain(T, why)
     new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
-    new && @info "$(nameof(T)) has a coupling or modifier without an analytic " *
-        "adjoint, so gradients of it use plain AD of the whole operator"
+    new && @info "$(nameof(T)) $why, so gradients of it use plain AD of " *
+        "the whole operator"
     return nothing
 end
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; dual numbers, BigFloat and other
 # arrays take the plain path, as do abstractly typed fields. Integer arrays
-# of any type, such as index ranges, and arrays of them carry no tangent. `_ok` is one
-# closed function of the types (nothing extends it), evaluated once per
-# signature by a generated function: inference does not constant-fold the
-# recursion, and an unfolded gate costs a dynamic dispatch on every call
-# under `Mooncake`.
+# of any type, such as index ranges, and arrays of them carry no tangent.
+# `_ok` is one closed function of the types (nothing extends it), evaluated
+# once per signature by a generated function: inference does not
+# constant-fold the recursion, and an unfolded gate costs a dynamic dispatch
+# on every call under `Mooncake`.
 const _IEEEFloat = Union{Float16, Float32, Float64}
 @generated _gate(xs...) = all(_ok, xs)
 function _ok(::Type{T}) where {T}

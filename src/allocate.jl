@@ -201,6 +201,3 @@ function pullback!(grads, m::Allocate, ::Step, v, s, t)
     end
     return nothing
 end
-
-# The pullback above is the adjoint the analytic `Recurrence` rule uses.
-uses_adjoint(::Allocate, ::Step) = true

@@ -522,9 +522,7 @@ Base.@constprop :aggressive function _with_state(
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is pointwise with only scalar float parameters outside functions,
-# rebuilt with dual numbers by `constructorof`, and no `Derived` parameter's
-# map holds float fields of its own.
+# does or is differentiated locally.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -532,13 +530,21 @@ end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
 _all_modifiers_adjoint(::Tuple{}) = true
 function _all_modifiers_adjoint(ms::Tuple)
-    return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
+    return _modifier_adjoint(first(ms)) !== :none &&
+        _all_modifiers_adjoint(Base.tail(ms))
 end
+
+# How the rule differentiates modifier `m`'s step: `:pullback` with its own
+# `pullback!`, `:local` with a local derivative (a pointwise modifier with
+# only scalar float parameters outside functions, rebuilt with dual numbers
+# by `constructorof`), or `:none` when it cannot, which includes a
+# `Derived` parameter whose map holds float fields of its own. Decided from
+# the type.
 function _modifier_adjoint(m)
-    return _derived_local(m) && (
-        uses_adjoint(m, Step()) ||
-            (ispointwise(m) && _scalar_params(m) && _rebuildable(m))
-    )
+    _derived_local(m) || return :none
+    uses_adjoint(m, Step()) && return :pullback
+    ispointwise(m) && _scalar_params(m) && _rebuildable(m) && return :local
+    return :none
 end
 
 # Whether the default pullback's rebuild of each modifier from its own

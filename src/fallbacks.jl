@@ -180,29 +180,47 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
-# Default scalar pullback of a pointwise modifier: a local `ForwardDiff`
-# derivative in the value, the state and the modifier's float parameters.
-function pullback!(grads, m, ::Step, v, s, t, k)
+# A pointwise modifier's scalar step pullback: its own when it uses one,
+# else the local derivative.
+function _step_pullback(grads, m, v, s, t, k)
+    uses_adjoint(m, Step()) || return _local_pullback(grads, m, v, s, t, k)
+    return _call_pullback!(grads, m, Step(), v, s, t, k)
+end
+
+# Default scalar pullback of a pointwise modifier without its own: a local
+# `ForwardDiff` derivative in the value, the state and the modifier's float
+# parameters. Each case is its own method, so no variable is shared with a
+# closure (which would box it and allocate on every step).
+function _local_pullback(grads, m, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
     m̄ === nothing || !_scalar_params(m) ||
         return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
-    P = _nactive(m̄, m)
-    if P == 0
-        D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(pullback!, typeof(v)))}
-        v′, s′ = forward(m, Step(), D(v, one(v), zero(v)), D(s, zero(s), one(s)), t, k)
-        ∂v, ∂s = _partials2(v′), _partials2(s′)
-        return v̄ * ∂v[1] + s̄ * ∂s[1], v̄ * ∂v[2] + s̄ * ∂s[2]
-    end
-    J = ForwardDiff.jacobian([v; s; _params(m)]) do x
-        v′, s′ = forward(_rebuild(m, view(x, 3:(P + 2))), Step(), x[1], x[2], t, k)
-        return [v′, s′]
-    end
+    _nactive(m̄, m) == 0 && return _value_pullback(m, v̄, s̄, v, s, t, k)
+    return _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
+end
+
+# The derivative in the value and the state only.
+function _value_pullback(m, v̄, s̄, v, s, t, k)
+    T = promote_type(typeof(v), typeof(s))
+    xd = _seed(ForwardDiff.Tag(_value_pullback, T), (T(v), T(s)))
+    v′, s′ = forward(m, Step(), xd[1], xd[2], t, k)
+    g = _vjp(v′, s′, v̄, s̄, xd)
+    return g[1], g[2]
+end
+
+# The derivative for a modifier with array parameters: a Jacobian in
+# `[v; s; θ]`.
+function _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
+    P = _nparams(m)
+    J = ForwardDiff.jacobian(x -> _step_vector(m, x, P, t, k), [v; s; _params(m)])
     g = transpose(J) * [v̄, s̄]
     _addparams!(m̄, m, g, 2)
     return g[1], g[2]
 end
-_partials2(x::ForwardDiff.Dual) = ForwardDiff.partials(x)
-_partials2(x::Real) = (zero(x), zero(x))
+function _step_vector(m, x, P, t, k)
+    v′, s′ = forward(_rebuild(m, view(x, 3:(P + 2))), Step(), x[1], x[2], t, k)
+    return [v′, s′]
+end
 
 # The same derivative for a modifier whose parameters are all scalars: the
 # value, the state and the parameters are seeded as one tuple of dual
@@ -229,7 +247,7 @@ function _form_pullback(grads, form, v, s, N, α)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
 end
 function _form_pullback(::Val{true}, grads, form, v, s, N, α)
-    return pullback!(grads, form, Step(), v, s, N, α)
+    return _call_pullback!(grads, form, Step(), v, s, N, α)
 end
 function _form_pullback(::Val{false}, grads, form, v, s, N, α)
     x = (v, s, N, α, _param_tuple(form)...)
@@ -311,10 +329,13 @@ function _add_scalar!(x̄, x, g)
 end
 
 # Default initial-state pullback: a local `ForwardDiff` Jacobian of the Init,
-# skipped for the default zero state.
+# skipped for the default zero state and for a zero state cotangent (a
+# modifier whose state never reaches the output), where the Jacobian over
+# the whole history would cost more than the rest of the reverse pass.
 function pullback!(grads, m, ::Init, s, history)
     _default_init(m, s, history) && return nothing
     m̄, s̄, h̄ = grads.piece, grads.s, grads.history
+    all(iszero, s̄) && return nothing
     P = _nactive(m̄, m)
     nh = h̄ === nothing ? 0 : length(history)
     P + nh == 0 && return nothing
