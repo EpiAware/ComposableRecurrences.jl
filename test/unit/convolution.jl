@@ -95,6 +95,10 @@ end
     @test c(X; history = H, start = 4, stop = 6) ≈ full[:, 4:6]
     @test c(X[1, :]) ≈
         vec(naive_convolution((t, k, d) -> Ct[d + 1, t], X[1:1, :], D))
+    # A kernel with more lags than the history and series hold.
+    Cl = rand(rng, T + 3, T)
+    @test Convolution(TimeVarying(Cl))(X; history = H) ≈
+        naive_convolution((t, k, d) -> Cl[d + 1, t], X, T + 3; hist = H)
 end
 
 @testitem "Convolution: time-varying kernel indexed by input" setup = [Reference] begin
@@ -118,6 +122,8 @@ end
     # column for an input before t = 1.
     @test c(X; start = 4) ≈ ref[:, 4:end]
     @test c(X; start = 4, stop = 6) ≈ ref[:, 4:6]
+    cp = Convolution(TimeVarying(PerStratum(C3), ComposableRecurrences.Primary()))
+    @test cp(X; start = 4, stop = 6) ≈ cp(X)[:, 4:6]
     @test_throws ArgumentError c(X; history = X[:, 1:2])
     @test_throws "not as history (" c(X; history = X[:, 1:2])
 
