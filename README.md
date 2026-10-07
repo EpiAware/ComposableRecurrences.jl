@@ -41,7 +41,7 @@ delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in 1:3, t in 1:75]
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 infections = renewal(R; history = seed)
-reports = 0.4 .* delay(infections)
+reports = delay(infections; gain = 0.4)
 ```
 
 ![Infections, reports and the remaining susceptible share in each town](docs/src/assets/readme-example.png)

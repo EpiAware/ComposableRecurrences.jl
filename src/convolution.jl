@@ -1,18 +1,21 @@
 @doc raw"""
 A causal convolution whose kernel starts at lag 0: each output weights the
-current and past inputs,
+current and past inputs, then is scaled by the gain and shifted by the add
+input,
 
 ```math
-y_{t,i} = \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i},
+y_{t,i} = g_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
 \qquad t = t_0, \dots, t_1,
 ```
 
 where ``y_{t,i}`` is the output of stratum ``i`` (one of ``S`` parallel
 series) at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
-``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l`` and ``L`` the
-kernel length.
+``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l``, ``L`` the
+kernel length, ``g_{t,i}`` the gain and ``a_{t,i}`` the add input.
 ``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.
 Strata do not mix.
+[`ComposableRecurrences.contributions`](@ref) returns the terms of the sum
+over ``l`` before it is taken.
 
 A vector kernel is shared by every stratum, a [`PerStratum`](@ref) kernel is
 `S × L`, and a [`TimeVarying`](@ref) kernel is `L × T` or
@@ -28,16 +31,20 @@ To weight lags from 1, as a renewal's force of infection does, prepend a
 zero: `Convolution(vcat(0, g))` recomputes ``\sum_{l=1}^{L} g_l\, y_{t-l}``
 from the outputs ``y`` of a [`Recurrence`](@ref) with kernel ``g``.
 
-Called as `c(x; history = nothing, start = 1, stop)`, the call covers the
-absolute times `start:stop`:
+Called as `c(x; gain = 1, add, history = nothing, start = 1, stop)`, the
+call covers the absolute times `start:stop`:
 
   - `x`: the inputs, length `T` or `S × T`, read at absolute time `t`. The
     inputs before `start` come from `x` itself.
+  - `gain`: a scalar, a length-`T` vector shared by every stratum, or
+    `S × T`, read at time `t`; one when left out.
+  - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `history`: the inputs before `t = 1`, oldest first (any length `m`, or
     `S × m`); earlier inputs are zero. Not with a `Primary()` kernel, which
     has no column for them.
   - `start`: the first time; `1` by default.
-  - `stop`: the last time; the length of `x` by default.
+  - `stop`: the last time; by default the common length of the
+    time-indexed inputs (`x`, `gain`, `add`).
 
 The output has the layout of `x` and length `stop - start + 1`.
 
@@ -48,19 +55,20 @@ The output has the layout of `x` and length `stop - start + 1`.
 ```jldoctest
 using ComposableRecurrences
 delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
-Convolution(delay)(ones(8); history = ones(3))
+# Report 40% of the delayed inputs, on a baseline of 1.
+Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
 
 # output
 
 8-element Vector{Float64}:
- 1.0
- 1.0
- 1.0
- 1.0
- 1.0
- 1.0
- 1.0
- 1.0
+ 1.4
+ 1.4
+ 1.4
+ 1.4
+ 1.4
+ 1.4
+ 1.4
+ 1.4
 ```
 """
 struct Convolution{K} <: AbstractOperator
@@ -78,48 +86,68 @@ struct Convolution{K} <: AbstractOperator
     end
 end
 
-# The call builds the positional arguments `(x, history, start, stop)` and
-# routes them through the native rules; `route` is `c` or `NoAdjoint(c)`.
-function _invoke(c::Convolution, route, x; history = nothing, start = 1, stop = nothing)
-    return adjoint_call(route, x, history, start, stop)
+# The call builds the positional arguments
+# `(x, gain, add, history, start, stop)` and routes them through the native
+# rules; `route` is `c` or `NoAdjoint(c)`.
+function _invoke(
+        c::Convolution, route, x; gain = true, add = nothing, history = nothing,
+        start = 1, stop = nothing
+    )
+    return adjoint_call(route, x, gain, add, history, start, stop)
 end
 
 # A Convolution has no modifiers, so its cache holds no state.
 function forward(
-        c::Convolution, ::Run, x; history = nothing, start = 1, stop = nothing
+        c::Convolution, ::Run, x; gain = true, add = nothing, history = nothing,
+        start = 1, stop = nothing
     )
-    return _run_forward(c, x, history, start, stop)
+    return _run_forward(c, x, gain, add, history, start, stop)
 end
 
-function _run_forward(c::Convolution, x, history, start, stop)
-    Y, X, m, stop = _conv(c, x, history, start, stop)
-    return _public(Y, axes(Y, 1), x), (; x, history, start, stop, X, m)
+# The cache keeps the lag sums `Y` before the gain, which the gain's
+# cotangent reads.
+function _run_forward(c::Convolution, x, gain, add, history, start, stop)
+    Y, X, m, stop = _conv(c, x, gain, add, history, start, stop)
+    out = _finish(Y, x, gain, add, start)
+    return out, (; gain = _tape(gain), add, start, stop, X, Y, m)
 end
-function _primal(c::Convolution, x, history, start, stop)
-    Y = first(_conv(c, x, history, start, stop))
-    return _public(Y, axes(Y, 1), x)
+function _primal(c::Convolution, x, gain, add, history, start, stop)
+    Y = first(_conv(c, x, gain, add, history, start, stop))
+    return _finish(Y, x, gain, add, start)
 end
 
 # Checks the call, then convolves into a time-first buffer; returns the
-# output buffer, the input buffer (history then `x`), the history length and
-# the last time.
-function _conv(c::Convolution, x, history, start, stop)
-    kernel = c.kernel
+# output buffer of lag sums, the input buffer (history then `x`), the
+# history length and the last time.
+function _conv(c::Convolution, x, gain, add, history, start, stop)
+    Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
+    Y, X = _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
+    return Y, X, m, stop
+end
+
+# The checks a convolution call shares with `contributions`; returns the
+# buffer eltype, the strata, the history length and the last time.
+function _check_conv(kernel, x, gain, add, history, start, stop)
     _check_unwrapped(:x, x)
+    _check_unwrapped(:gain, gain)
+    _check_unwrapped(:add, add)
     S = _nstrata(x)
     m = history === nothing ? 0 : size(history, ndims(history))
     _check_input_history(history, x)
     _check_primary_history(kernel, history)
     _check_kernel_strata(kernel, S)
-    stop = _stop(stop, (:x => _extent(x),))
+    _check_strata(:gain, gain, S)
+    _check_strata(:add, add, S)
+    stop = _stop(
+        stop, (:x => _extent(x), :gain => _extent(gain), :add => _extent(add))
+    )
     start >= 1 || throw(ArgumentError("start ($start) must be at least 1"))
     stop >= start - 1 || throw(
         ArgumentError("stop ($stop) is before start ($start)")
     )
     _check_kernel_times(kernel, stop)
-    Tp = float(param_eltype((kernel, x, history)))
-    Y, X = _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
-    return Y, X, m, stop
+    Tp = float(param_eltype((kernel, x, history, gain, add)))
+    return Tp, S, m, stop
 end
 
 # Allocates and fills the input buffer and convolves it into the output
@@ -136,13 +164,58 @@ end
 function _conv_buffers(
         ::Type{Tp}, ex::Union{Serial, _Current}, kernel, x, history, m, S, start, stop
     ) where {Tp}
-    X = _zeros(x, Tp, m + stop, S)
-    history === nothing || _load_history!(X, history, m)
-    _load_input!(X, x, m, stop)
+    X = _input_buffer(Tp, x, history, m, S, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
     _convolve!(ex, Y, kernel, X, m, start)
     return Y, X
 end
+
+# The inputs at times `1 - m` to `stop`, time first: history then `x`.
+function _input_buffer(::Type{Tp}, x, history, m, S, stop) where {Tp}
+    X = _zeros(x, Tp, m + stop, S)
+    history === nothing || _load_history!(X, history, m)
+    _load_input!(X, x, m, stop)
+    return X
+end
+
+# The output in the layout of `x`: the lag sums `Y` scaled by the gain and
+# shifted by the add input in the one pass that copies them out. With
+# neither it is the copy alone.
+_unscaled(gain::Bool, ::Nothing) = gain
+_unscaled(gain, add) = false
+function _finish(Y, x, gain, add, start)
+    _unscaled(gain, add) && return _public(Y, axes(Y, 1), x)
+    return _scaled_public(Y, x, gain, add, start)
+end
+function _scaled_public(Y::Array, x::AbstractVector, gain, add, start)
+    out = similar(Y, size(Y, 1))
+    @inbounds for j in eachindex(out)
+        t = start + j - 1
+        out[j] = _at(gain, 1, t) * Y[j, 1] + _at(add, 1, t)
+    end
+    return out
+end
+function _scaled_public(Y::Array, x::AbstractMatrix, gain, add, start)
+    out = similar(Y, size(Y, 2), size(Y, 1))
+    @inbounds for j in axes(Y, 1), k in axes(Y, 2)
+        t = start + j - 1
+        out[k, j] = _at(gain, k, t) * Y[j, k] + _at(add, k, t)
+    end
+    return out
+end
+# Other arrays (device or traced) broadcast over the public copy.
+function _scaled_public(Y, x, gain, add, start)
+    out = _public(Y, axes(Y, 1), x)
+    times = start:(start + size(Y, 1) - 1)
+    out .= _tslice(gain, x, times) .* out .+ _tslice(add, x, times)
+    return out
+end
+_tslice(g::Real, x, times) = g
+_tslice(::Nothing, x, times) = false
+_tslice(g::AbstractVector, ::AbstractVector, times) = view(g, times)
+_tslice(g::AbstractVector, ::AbstractMatrix, times) = transpose(view(g, times))
+_tslice(g::AbstractMatrix, ::AbstractVector, times) = view(g, 1, times)
+_tslice(g::AbstractMatrix, ::AbstractMatrix, times) = view(g, :, times)
 
 _check_input_history(::Nothing, x) = nothing
 function _check_input_history(h, x)
@@ -307,22 +380,42 @@ function _convolve_body!(k, Y, c::_TVPerStratum{Primary}, X, m, start)
     return nothing
 end
 
-# The reverse pass: correlate the output cotangent with the kernel into the
-# input buffer's cotangent, and with the inputs into the kernel's.
-# `grads.args` are the mirrors of `(x, history, start, stop)`.
+# The reverse pass: take the output cotangent back through the gain and
+# add input, then correlate it with the kernel into the input buffer's
+# cotangent and with the inputs into the kernel's. `grads.args` are the
+# mirrors of `(x, gain, add, history, start, stop)`.
 function pullback!(grads, c::Convolution, ::Run, cache)
     _count_pullback()
-    (; x, history, start, X, m, stop) = cache
-    x̄, h̄ = grads.args
+    (; gain, add, start, X, Y, m, stop) = cache
+    x̄, ḡ, ā, h̄ = grads.args
     T = stop - start + 1
     Ȳ = _zeros(X, eltype(X), T, size(X, 2))
-    _load_input!(Ȳ, grads.y, 0, T)
+    if _unscaled(gain, add)
+        _load_input!(Ȳ, grads.y, 0, T)
+    else
+        _scale_back!(Ȳ, ḡ, ā, grads.y, Y, gain, start)
+    end
     X̄ = zero(X)
     _convolve_back!(X̄, cotangent(grads.piece, :kernel), c.kernel, X, Ȳ, m, start)
     _add_rows!(x̄, X̄, m, stop)
     _add_rows!(h̄, X̄, 0, m)
     return nothing
 end
+
+# The cotangent of the lag sums `Ȳ` from the output's `ȳ`, adding the gain's
+# and the add input's on the way.
+function _scale_back!(Ȳ, ḡ, ā, ȳ, Y, gain, start)
+    for j in axes(Ȳ, 1), k in axes(Ȳ, 2)
+        t = start + j - 1
+        @inbounds a = _ycot(ȳ, k, j)
+        _add_slot!(ā, a, k, t)
+        @inbounds _add_slot!(ḡ, a * Y[j, k], k, t)
+        @inbounds Ȳ[j, k] = _at(gain, k, t) * a
+    end
+    return nothing
+end
+Base.@propagate_inbounds _ycot(ȳ::AbstractVector, k, j) = ȳ[j]
+Base.@propagate_inbounds _ycot(ȳ::AbstractMatrix, k, j) = ȳ[k, j]
 
 # Add buffer rows `o + 1` to `o + n` into the public-layout cotangent `x̄`.
 _add_rows!(::Nothing, X̄, o, n) = nothing
@@ -441,5 +534,154 @@ function _convolve_back!(X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
         end
         X̄[σ, k] += acc
     end
+    return nothing
+end
+
+@doc raw"""
+The lag contributions of a [`Convolution`](@ref): the terms of its sum over
+lags, before the sum,
+
+```math
+c_{t,i,l} = g_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
+\qquad l = 0, \dots, L - 1, \quad t = t_0, \dots, t_1,
+```
+
+in the notation of [`Convolution`](@ref), so that
+``\sum_l c_{t,i,l} + a_{t,i} = y_{t,i}``.
+A [`ComposableRecurrences.Primary`](@ref) kernel reads ``k_{i,l}(t - l)``,
+so ``c_{t,i,l}`` is the part of the input at time ``t - l`` that arrives
+at ``t``: a reporting triangle by arrival time.
+Terms whose input is before the history, or past a ragged column's end,
+are zero.
+
+Takes the arguments of a call of `c` except `add`, which no lag carries.
+The output is `L × T` for a single series and `S × L × T` for `S` strata,
+with `T = stop - start + 1` and lag 0 first, so summing over the lag axis
+gives `c(x; gain, history, start, stop)`.
+A [`ComposableRecurrences.NoAdjoint`](@ref) convolution is differentiated
+by plain AD.
+
+# Arguments
+- `c`: the convolution, or its `NoAdjoint`.
+- `x`: the inputs, as in a call of `c`.
+
+# Keyword Arguments
+- `gain`, `history`, `start`, `stop`: as in a call of `c`.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+c = Convolution([0.5, 0.3, 0.2])
+Y = ComposableRecurrences.contributions(c, [1.0, 2.0, 4.0, 8.0])
+vec(sum(Y; dims = 1)) ≈ c([1.0, 2.0, 4.0, 8.0]), Y
+
+# output
+
+(true, [0.5 1.0 2.0 4.0; 0.0 0.3 0.6 1.2; 0.0 0.0 0.2 0.4])
+```
+"""
+contributions(c::Convolution, x; kwargs...) = _contributions(c, c, x; kwargs...)
+function contributions(n::NoAdjoint{<:Convolution}, x; kwargs...)
+    return _contributions(n.op, n, x; kwargs...)
+end
+function _contributions(
+        c::Convolution, route, x; gain = true, history = nothing, start = 1,
+        stop = nothing
+    )
+    op = _reroute(route, _Contributions(c))
+    return adjoint_call(op, x, gain, history, start, stop)
+end
+
+# `contributions` routes through the rules as an operator of its own, with
+# positional arguments `(x, gain, history, start, stop)`.
+struct _Contributions{C <: Convolution} <: AbstractOperator
+    c::C
+end
+
+function _run_forward(op::_Contributions, x, gain, history, start, stop)
+    kernel = op.c.kernel
+    Tp, S, m, stop = _check_conv(kernel, x, gain, nothing, history, start, stop)
+    X = _input_buffer(Tp, x, history, m, S, stop)
+    T = stop - start + 1
+    L = _nlags(kernel)
+    C = x isa AbstractVector ? _zeros(x, Tp, L, T) : _zeros(x, Tp, S, L, T)
+    cur = _current()
+    if cur.ex isa Serial
+        _contribute!(Serial(), C, kernel, X, gain, m, start)
+    else
+        _contribute!(cur, C, kernel, X, gain, m, start)
+    end
+    return C, (; gain = _tape(gain), start, stop, X, m)
+end
+
+# Each stratum is one index of the executor loop.
+function _contribute!(ex, C, kernel, X, gain, m, start)
+    _each!(_contributions_body!, ex, C, size(X, 2), length(C), C, kernel, X, gain, m, start)
+    return C
+end
+
+# Stratum `k`'s terms: lag `d` at output row `j` reads buffer row
+# `m + t - d`, and rows before the buffer are zero inputs.
+function _contributions_body!(k, C, kernel, X, gain, m, start)
+    L = size(C, ndims(C) - 1)
+    for j in axes(C, ndims(C))
+        t = start + j - 1
+        g = _at(gain, k, t)
+        @inbounds for d in 0:(min(L, m + t) - 1)
+            _setcell!(C, g * _lagweight(kernel, k, d, t) * X[m + t - d, k], k, d + 1, j)
+        end
+    end
+    return nothing
+end
+
+Base.@propagate_inbounds _setcell!(C::AbstractMatrix, v, k, i, j) = (C[i, j] = v; nothing)
+Base.@propagate_inbounds _setcell!(C::AbstractArray{<:Any, 3}, v, k, i, j) = (C[k, i, j] = v; nothing)
+Base.@propagate_inbounds _cell(C::AbstractMatrix, k, i, j) = C[i, j]
+Base.@propagate_inbounds _cell(C::AbstractArray{<:Any, 3}, k, i, j) = C[k, i, j]
+
+# Stratum `k`'s weight on lag `d` at output time `t`, and its cotangent: a
+# `Primary()` kernel reads the column of the input's time `t - d`.
+Base.@propagate_inbounds _lagweight(c::AbstractVector, k, d, t) = c[d + 1]
+Base.@propagate_inbounds _lagweight(c::PerStratum, k, d, t) = c.x[k, d + 1]
+Base.@propagate_inbounds function _lagweight(c::TimeVarying, k, d, t)
+    return _weight(c, k, k, d + 1, _lagcolumn(c, t, d))
+end
+_lagcolumn(c, t, d) = t
+_lagcolumn(::TimeVarying{Primary}, t, d) = t - d
+_add_lagweight!(c̄, c::AbstractVector, v, k, d, t) = add_cotangent!(c̄, v, d + 1)
+function _add_lagweight!(c̄, c::PerStratum, v, k, d, t)
+    return add_cotangent!(cotangent(c̄, :x), v, k, d + 1)
+end
+Base.@propagate_inbounds function _add_lagweight!(c̄, c::TimeVarying, v, k, d, t)
+    return _add_weight!(c̄, c, v, k, k, d + 1, _lagcolumn(c, t, d))
+end
+
+# Each term's cotangent goes to its weight, its input and the gain.
+function pullback!(grads, op::_Contributions, ::Run, cache)
+    _count_pullback()
+    (; gain, start, stop, X, m) = cache
+    x̄, ḡ, h̄ = grads.args
+    kernel = op.c.kernel
+    k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
+    C̄ = grads.y
+    X̄ = zero(X)
+    L = _nlags(kernel)
+    for k in axes(X, 2), j in 1:(stop - start + 1)
+        t = start + j - 1
+        g = _at(gain, k, t)
+        acc = zero(eltype(X̄))
+        for d in 0:(min(L, m + t) - 1)
+            r = m + t - d
+            @inbounds a = _cell(C̄, k, d + 1, j)
+            @inbounds w = _lagweight(kernel, k, d, t)
+            @inbounds x = X[r, k]
+            acc += a * w * x
+            @inbounds _add_lagweight!(k̄, kernel, g * a * x, k, d, t)
+            @inbounds X̄[r, k] += g * w * a
+        end
+        _add_slot!(ḡ, acc, k, t)
+    end
+    _add_rows!(x̄, X̄, m, stop)
+    _add_rows!(h̄, X̄, 0, m)
     return nothing
 end

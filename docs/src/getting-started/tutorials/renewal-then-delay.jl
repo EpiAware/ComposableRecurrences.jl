@@ -182,14 +182,14 @@ round.((sum(before), sum(after)))
 # ## Reporting delay
 #
 # The delay is a convolution kernel, lag 0 first.
-# Ascertainment is a plain multiplication.
+# Ascertainment is the convolution's `gain`.
 # The five seed days sit at days 1 to 5 with `start = 6`, and `prepend = true` returns them before the run, so the delay sees the seed too.
 
 delay = Convolution([0.1, 0.3, 0.3, 0.2, 0.1])
 seed = fill(5.0, 5)
 R_full = vcat(fill(1.0, 5), R)
 infections_seeded = renewal(R_full; history = seed, start = 6, prepend = true)
-reports = 0.3 .* delay(infections_seeded)
+reports = delay(infections_seeded; gain = 0.3)
 days = 1:length(reports)
 @chain DataFrame(day = days, Infections = infections_seeded, Reports = reports) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
@@ -204,7 +204,7 @@ end
 #
 # Both operators run on dual numbers, so ForwardDiff gives the gradient of the total reports with respect to every day's reproduction number.
 
-total_reports(R) = sum(0.3 .* delay(renewal(R; history = seed, start = 6, prepend = true)))
+total_reports(R) = sum(delay(renewal(R; history = seed, start = 6, prepend = true); gain = 0.3))
 ∂R = ForwardDiff.gradient(total_reports, R_full)
 @chain DataFrame(day = days, sensitivity = ∂R) begin
     data(_) * mapping(:day, :sensitivity) * visual(Lines, linewidth = 2)
