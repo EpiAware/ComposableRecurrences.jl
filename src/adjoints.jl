@@ -93,14 +93,17 @@ the adjoint covers only some values of a type.
 If it is `true` but no `pullback!` method fits the arguments, the reverse
 pass throws an `ArgumentError`.
 An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
-has one; a [`Recurrence`](@ref) does when its coupling does in
-[`ComposableRecurrences.Pressure`](@ref) and each modifier does in
-[`ComposableRecurrences.Step`](@ref) or is pointwise with only scalar float
-parameters (those are differentiated locally per value).
-A modifier differentiated locally is rebuilt with dual numbers through
-`ConstructionBase.constructorof`.
-The `Recurrence` constructor checks once that this gives the modifier
+has one.
+A [`Recurrence`](@ref) does when its coupling does in
+[`ComposableRecurrences.Pressure`](@ref) or has only scalar float
+parameters, and each modifier does in [`ComposableRecurrences.Step`](@ref)
+or is pointwise with only scalar float parameters.
+Those are differentiated locally with dual numbers, after a rebuild
+through `ConstructionBase.constructorof`.
+The `Recurrence` constructor checks once that the rebuild gives each one
 back, and `uses_adjoint` is `false` for the `Recurrence` when it does not.
+A coupling's local derivative seeds the strata and its scalars in one pass
+of dual numbers, at most 12 of them; a call with more takes plain AD.
 Otherwise the whole operator is differentiated by plain AD of its forward
 loop, logged once per operator type.
 
@@ -168,17 +171,23 @@ end
 # float leaf is IEEE, else plain AD. Both decisions are made from the
 # types, so the route is static. An operator whose local derivative
 # rebuilds a modifier from its parameters stores at construction whether
-# that works (`_rebuilds`): `Val(true)` when no modifier needs it, so the
-# route still folds, else a `Bool` read here. `Vararg{Any, N}` makes the
-# routes specialise on the arguments, which they pass to two calls.
+# that works (`_rebuilds`), and one whose local derivative suits only some
+# arguments says so per call (`_fits`): each is `Val(true)` when nothing
+# needs it, so the route still folds, else a `Bool` read here.
+# `Vararg{Any, N}` makes the routes specialise on the arguments, which they
+# pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 function _route_val(op, args...)
     return Val(_type_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
-    return _rule(_rebuilds(op), op, args...)
+    return _rule(_both(_rebuilds(op), _fits(op, args...)), op, args...)
 end
+_fits(op, args...) = Val(true)
+_both(::Val{true}, b) = b
+_both(a::Bool, ::Val{true}) = a
+_both(a::Bool, b::Bool) = a && b
 function _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N}
     _note_plain(op, args...)
     return _plain(op, args...)

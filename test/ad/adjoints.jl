@@ -1076,3 +1076,57 @@ end
         @test_logs gradient(f, backend, θ)
     end
 end
+
+@testitem "Local coupling step: the rule and its limits" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    # A coupling without a pullback: the strata average, weighted by `a`.
+    struct Blend{A}
+        a::A
+    end
+    function CR.forward(C::Blend, ::CR.Pressure, q, p, t)
+        m = sum(p) / length(p)
+        q .= (1 - C.a) .* p .+ C.a * m
+        return nothing
+    end
+    # A pointwise modifier with a per-stratum parameter and no pullback.
+    struct Cap{K}
+        κ::K
+    end
+    CR.ispointwise(::Cap) = true
+    CR.forward(m::Cap, ::CR.Step, v, s, t, k) = (v / (1 + v / CR.param(m.κ, k, t)), s)
+    function loss(w, θ, S)
+        W = [cos(a * t) for a in 1:S, t in 1:6]
+        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Cap(θ[2]),))
+        return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
+    end
+    function loss_strata(w, θ, S)
+        W = [cos(a * t) for a in 1:S, t in 1:6]
+        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Cap(PerStratum(θ[2:(S + 1)])),))
+        return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
+    end
+    # Blend's local step fires up to 11 strata (with its one scalar); the
+    # per-stratum parameter sends the operator to plain AD at any size.
+    for (L, S, fires) in ((loss, 3, true), (loss, 11, true), (loss, 12, false), (loss_strata, 3, false))
+        θ = L === loss ? [0.4, 5.0] : [0.4; fill(5.0, S)]
+        for w in (identity, NoAdjoint)
+            f(θ) = L(w, θ, S)
+            ref = gradient(f, AutoForwardDiff(), θ)
+            for backend in backends
+                n0 = CR._PULLBACK_CALLS[]
+                @test gradient(f, backend, θ) ≈ ref
+                @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
+            end
+        end
+    end
+end

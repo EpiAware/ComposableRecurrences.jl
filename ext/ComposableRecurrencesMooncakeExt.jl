@@ -81,7 +81,7 @@ function Mooncake.rrule!!(
 end
 # The `Recurrence` constructor's rebuild check returns a flag, and its
 # rebuild with dual numbers (which may throw) is not differentiated.
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuild_flag), Tuple}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuild_flag), Any, Tuple}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and

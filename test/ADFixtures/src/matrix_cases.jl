@@ -613,7 +613,9 @@ end
 if supports(_TWIN_REQUIRES...)
     _inner(grads) = merge(grads, (; piece = CR.cotangent(grads.piece, :m)))
     CR.ispointwise(::LocalStep) = true
-    CR.uses_adjoint(::LocalStep, ::CR.Step) = true
+    # Releases that read the adjoint off `pullback!` methods differentiate
+    # a step without one locally; earlier ones needed it declared.
+    supports(:_local_pullback) || (CR.uses_adjoint(::LocalStep, ::CR.Step) = true)
     CR.forward(w::LocalStep, ::CR.Init, s, h) = CR.forward(w.m, CR.Init(), s, h)
     function CR.pullback!(grads, w::LocalStep, ::CR.Init, s, h)
         return CR.pullback!(_inner(grads), w.m, CR.Init(), s, h)
@@ -623,10 +625,27 @@ if supports(_TWIN_REQUIRES...)
     end
 end
 
+"""
+A user coupling with its hand-written `pullback!` hidden, so the rule
+differentiates its `Pressure()` step locally with `ForwardDiff`.
+"""
+struct LocalPressure{C}
+    C::C
+end
+if supports(_TWIN_REQUIRES...)
+    function CR.forward(w::LocalPressure, ::CR.Pressure, q, p, t)
+        return CR.forward(w.C, CR.Pressure(), q, p, t)
+    end
+end
+
 # The `local` arm's wrap: each pointwise modifier with a hand-written
-# `pullback!` is differentiated locally instead, the rest of the rule kept.
+# `pullback!`, and a user coupling with one, is differentiated locally
+# instead, the rest of the rule kept.
 _hide(m) = CR.ispointwise(m) && CR.uses_adjoint(m, CR.Step()) ? LocalStep(m) : m
-_local(r::Recurrence) = Recurrence(r.kernel, r.coupling, map(_hide, r.modifiers))
+_hide_coupling(C) = C
+function _local(r::Recurrence)
+    return Recurrence(r.kernel, _hide_coupling(r.coupling), map(_hide, r.modifiers))
+end
 _local(op) = op
 
 # Cases with a pointwise modifier that has a hand-written `pullback!`: they
@@ -640,7 +659,8 @@ const LOCAL_CASES = Set(
 
 """
 The arms of case `c`: `rule`, `NoAdjoint`, `local` where the case has a
-pointwise modifier with a hand-written `pullback!`, and its baselines.
+pointwise modifier or user coupling with a hand-written `pullback!`, and
+its baselines.
 """
 function arms(c::Case)
     return vcat(
@@ -701,6 +721,105 @@ if isfile(DOCS_MODIFIER)
         ),
     )
     append!(TIERS["docs"].cases, ["custom_modifier", "custom_modifier_pullback"])
+end
+
+# A user coupling and a user modifier with a per-stratum parameter, each
+# with a hand-written `pullback!`. The coupling's `local` arm times the
+# local derivative that runs without one, and `NoAdjoint` plain AD.
+"A share `a` of every other stratum's pressure goes to the first."
+struct ToFirst{A}
+    a::A
+end
+"Saturation at a per-stratum or time-varying `κ`, read through `param`."
+struct StrataSaturation{K}
+    κ::K
+end
+if supports(:_local_pressure!)
+    function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
+        tot = sum(view(p, 2:length(p)))
+        q[1] = p[1] + C.a * tot
+        for k in 2:length(p)
+            q[k] = (1 - C.a) * p[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, C::ToFirst, ::CR.Pressure, q, p, t)
+        q̄, p̄ = grads.q, grads.p
+        tot = sum(view(p, 2:length(p)))
+        ā = q̄[1] * tot
+        p̄[1] += q̄[1]
+        for k in 2:length(p)
+            ā -= q̄[k] * p[k]
+            p̄[k] += C.a * q̄[1] + (1 - C.a) * q̄[k]
+        end
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), ā)
+        return nothing
+    end
+    _hide_coupling(C::ToFirst) = LocalPressure(C)
+
+    CR.ispointwise(::StrataSaturation) = true
+    function CR.forward(m::StrataSaturation, ::CR.Step, v, s, t, k)
+        κ = CR.param(m.κ, k, t)
+        return v * κ / (κ + v), s
+    end
+    function CR.pullback!(grads, m::StrataSaturation, ::CR.Step, v, s, t, k)
+        κ = CR.param(m.κ, k, t)
+        d = inv(κ + v)^2
+        CR.add_param!(CR.cotangent(grads.piece, :κ), m.κ, grads.v * v^2 * d, k, t)
+        return grads.v * κ^2 * d, grads.s
+    end
+
+    function custom_coupling(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, a = _unpack(θ, (L,), (S, L), (S, T), (1,))
+            r = Recurrence(g; coupling = ToFirst(only(a)))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 7) for k in 1:S, t in 1:T], [0.2]
+        )
+        return f, θ
+    end
+
+    function custom_modifier_strata(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, logκ = _unpack(θ, (L,), (S, L), (S, T), (S,))
+            r = Recurrence(g; modifiers = (StrataSaturation(PerStratum(exp.(logκ))),))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.3 + 0.05 * _noise(t, k + 8) for k in 1:S, t in 1:T],
+            [log(40.0 + 5k) for k in 1:S]
+        )
+        return f, θ
+    end
+
+    push!(
+        CASES,
+        Case(
+            "custom_coupling", "renewal across strata with a user coupling",
+            custom_coupling, [3, 5, 50], false,
+        ),
+        Case(
+            "custom_modifier_strata",
+            "renewal with a user modifier with a per-stratum parameter",
+            custom_modifier_strata, [3, 5, 50], false,
+        ),
+    )
+    REQUIRES["custom_coupling"] = (:_local_pressure!,)
+    REQUIRES["custom_modifier_strata"] = (:_local_pressure!,)
+    push!(LOCAL_CASES, "custom_coupling")
+    for tier in ("smoke", "realistic")
+        append!(TIERS[tier].cases, ["custom_coupling", "custom_modifier_strata"])
+    end
 end
 
 end # module MatrixCases

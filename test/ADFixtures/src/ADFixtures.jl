@@ -463,6 +463,40 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
 # and some calls fail under their `NoAdjoint`, so the twins are left out.
 const _TWIN_REQUIRES = (:uses_adjoint,)
 
+# A user coupling without a `pullback!`: the rule differentiates its step
+# locally.
+"A share `a` of every other stratum's pressure goes to the first."
+struct ShareFirst{A}
+    a::A
+end
+function ComposableRecurrences.forward(
+        C::ShareFirst, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    tot = sum(view(p, 2:length(p)))
+    q[1] = p[1] + C.a * tot
+    for k in 2:length(p)
+        q[k] = (1 - C.a) * p[k]
+    end
+    return nothing
+end
+
+function _user_coupling(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
+    r = Recurrence(G0; coupling = ShareFirst(only(a)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Recurrence user coupling without a pullback", _user_coupling,
+        () -> _flat(zeros(S, L), LOGR, [0.3]),
+    ),
+)
+# The local derivative of a coupling came later.
+_REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
+
 _requires(name) = get(_REQUIRES, name, ())
 
 """

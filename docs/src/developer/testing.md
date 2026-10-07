@@ -68,6 +68,10 @@ It is 1.12 to 1.38 times slower than plain automatic differentiation on Enzyme, 
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
 | pointwise modifier without a `pullback!` | 0.64 | 1.12 | fails on Enzyme |
+| coupling without a `pullback!`, up to 12 strata and scalars | 0.64² | 0.68² | keep |
+
+² The worst of 3 and 10 strata for a user type, at `T` 200 and `L` 20.
+A coupling whose cost grows with the strata squared was 1.7 to 4 times slower than plain automatic differentiation on Enzyme from 16 strata, so a call with more takes plain automatic differentiation.
 
 ## The benchmark matrix
 
@@ -82,7 +86,7 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
-Cases in `LOCAL_CASES` also run a `local` arm, which replaces each pointwise modifier's `pullback!` with the local `ForwardDiff` step.
+Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
 
 `--executor` and `--threads` time the operators under an executor.
 `--threads=1,2,4` runs each target once per thread count, and `--executor=threaded` runs the `rule` arm under `Threaded()` (the default is `serial`).

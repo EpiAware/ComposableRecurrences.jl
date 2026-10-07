@@ -22,10 +22,11 @@ const CR = ComposableRecurrences
 
 A modifier that acts on each series separately sets `ispointwise` and implements the step for one value.
 This one scales each value by a factor.
+The factor's type is a parameter, so automatic differentiation can pass a dual number in its place.
 
 ```@example extending
-struct Scale
-    a::Float64
+struct Scale{A}
+    a::A
 end
 CR.ispointwise(::Scale) = true
 CR.forward(m::Scale, ::CR.Step, v, s, t, k) = (m.a * v, s)
@@ -77,7 +78,8 @@ The rule rebuilds the modifier with dual numbers through `ConstructionBase.const
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
 The `Recurrence` constructor checks this once, by rebuilding the modifier from its own parameters.
 Integer fields, index ranges and integer arrays are structure, not parameters.
-Any other modifier without a `pullback!` makes the backend differentiate the whole operator.
+A coupling without a `pullback!` whose float parameters are all scalars is differentiated locally the same way, in its pressures and scalars, while they number at most 12 (see [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint)).
+Any other modifier or coupling without a `pullback!` makes the backend differentiate the whole operator.
 This includes one holding a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 A `pullback!` is kept only where it beats plain automatic differentiation; see [the rule policy](@ref rule-policy).

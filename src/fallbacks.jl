@@ -178,6 +178,67 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     return g[1], g[2]
 end
 
+# A coupling's pullback at one step: its own when it uses one, else the
+# local derivative. Adds into `p̄`.
+function _pressure_back!(p̄, C̄, C, q̄, p, t)
+    return _pressure_back!(Val(uses_adjoint(C, Pressure())), p̄, C̄, C, q̄, p, t)
+end
+function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t)
+    _call_pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
+    return nothing
+end
+function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t)
+    θ = C̄ === nothing ? () : _param_tuple(C)
+    return _local_pressure!(p̄, C̄, C, q̄, p, t, θ)
+end
+
+# Default pullback of a coupling without its own: the local `ForwardDiff`
+# derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
+# The `n = S + P` inputs are seeded `N` at a time, and each pass adds
+# `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored. The rule takes
+# this route only while one pass covers every input (`_LOCAL_PRESSURE`).
+const _LOCAL_PRESSURE = 12
+function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple)
+    n = length(p) + length(θ)
+    n <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ)
+    n <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ)
+    return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ)
+end
+function _local_pressure!(
+        ::Val{N}, p̄, C̄, C, q̄, p, t, θ::NTuple{P, Any}
+    ) where {N, P}
+    T = float(promote_type(eltype(p), map(typeof, θ)...))
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_pressure!, T)), T, N}
+    S = length(p)
+    pd, qd = Vector{D}(undef, S), Vector{D}(undef, S)
+    for o in 0:N:(S + P - 1)
+        for i in 1:S
+            @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
+        end
+        θd = ntuple(j -> D(T(θ[j]), _unit(T, S + j - o, Val(N))), Val(P))
+        forward(_with_scalars(C, θd), Pressure(), qd, pd, t)
+        ā = zero(ForwardDiff.Partials{N, T})
+        for i in 1:S
+            @inbounds ā += q̄[i] * ForwardDiff.partials(qd[i])
+        end
+        for j in 1:min(N, S - o)
+            p̄[o + j] += ā[j]
+        end
+        P == 0 || o + N <= S ||
+            _add_scalar!(C̄, C, _picks(ā, S - o, Val(P)))
+    end
+    return nothing
+end
+# Partials with a one at `i`, and entries `o + 1` to `o + P` of partials
+# `ā`, zero outside `1:N`.
+function _unit(T, i, ::Val{N}) where {N}
+    return ForwardDiff.Partials(ntuple(j -> T(j == i), Val(N)))
+end
+_picks(ā, o, ::Val{P}) where {P} = ntuple(j -> _pick(ā, o + j), Val(P))
+_pick(ā, i) = 1 <= i <= length(ā) ? ā[i] : zero(eltype(ā))
+_with_scalars(C, ::Tuple{}) = C
+_with_scalars(C, θ) = first(_rebuild_scalar(C, θ))
+
 # The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the
 # pool, the population, the exponent and the form's float scalars as one
