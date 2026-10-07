@@ -24,6 +24,23 @@ The hand-written gradients are rules for Mooncake and Enzyme.
 The AD tests also run ReverseDiff, which is not a target.
 The [AD comparison](@ref ad-comparison) page compares their gradient times.
 
+## [Does it run under Reactant?](@id faq-reactant)
+
+Yes.
+With [Reactant.jl](https://github.com/EnzymeAD/Reactant.jl) loaded, operator calls on traced arrays compile with `Reactant.@compile`, and so do Enzyme gradients of them:
+
+```julia
+using ComposableRecurrences, Reactant
+r = Recurrence([0.5, 0.3])
+R = Reactant.to_rarray(fill(1.1, 50))
+f(R) = r(R; history = [1.0, 1.0])
+y = (Reactant.@compile f(R))(R)
+```
+
+A traced call runs serially whatever executor is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
+The step loops are unrolled when traced, so compile time grows with the number of steps and strata.
+[`test/reactant/RESULTS.md`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) lists the cases checked.
+
 ## Why is my history padded with zeros?
 
 A shorter history means no earlier values; see `history` in [`Recurrence`](@ref).

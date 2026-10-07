@@ -242,6 +242,19 @@ function _transform(w, θ)
     return sum(WS .* q)
 end
 
+# A modifier parameter derived from a time-varying parameter and a scalar:
+# imports scaled by κ, and a per-stratum, time-varying multiplier.
+function _derived(w, θ)
+    logh, logR, logι, κ, a = _unpack(θ, (S, L), (S, T), (T,), (1,), (S, T))
+    imports = only(κ) * Derived(exp, TimeVarying(logι))
+    scale = Derived((x, c) -> c / (1 + x^2), TimeVarying(PerStratum(a)), only(κ))
+    mods = (
+        ComposableRecurrences.Add(imports), ComposableRecurrences.Transform(*, scale),
+    )
+    y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 _flat(xs...) = reduce(vcat, map(vec, xs))
 
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
@@ -316,6 +329,10 @@ const _SCENARIOS = [
         "Recurrence Transform with per-stratum parameters", _transform,
         () -> _flat([0.5, 0.6, 0.7], [0.2, 0.3, 0.4]),
     ),
+    (
+        "Recurrence Derived modifier parameters", _derived,
+        () -> _flat(zeros(S, L), LOGR, W1 .- 1, [0.8], 0.5 .* WS),
+    ),
 ]
 
 """
@@ -337,6 +354,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
+    "Recurrence Derived modifier parameters" => (:Derived,),
     # A Primary() kernel in a Recurrence: the seed check came with it.
     "Recurrence Primary time-varying kernel" => (:_check_primary_seed,),
     # The growth-path seed and `prepend` came together.

@@ -537,8 +537,11 @@ end
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
 # only scalar float parameters outside functions, rebuilt with dual numbers
-# by `constructorof`), or `:none` when it cannot. Decided from the type.
+# by `constructorof`), or `:none` when it cannot, which includes a
+# `Derived` parameter whose map holds float fields of its own. Decided from
+# the type.
 function _modifier_adjoint(m)
+    _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
     ispointwise(m) && _scalar_params(m) && _rebuildable(m) && return :local
     return :none

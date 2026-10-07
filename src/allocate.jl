@@ -168,7 +168,7 @@ function forward(m::Allocate, ::Step, v, s, t)
         for k in zs
             tot += v[k]
         end
-        c = _param(m.total, p, t) / max(tot, ε)
+        c = param(m.total, p, t) / max(tot, ε)
         for k in zs
             v[k] *= c
         end
@@ -192,8 +192,8 @@ function pullback!(grads, m::Allocate, ::Step, v, s, t)
         end
         sp = max(tot, ε)
         a /= sp
-        _add_param!(T̄, m.total, a, p, t)
-        c = _param(m.total, p, t) / sp
+        add_param!(T̄, m.total, a, p, t)
+        c = param(m.total, p, t) / sp
         on = tot >= ε
         for k in zs
             v̄[k] = c * (on ? v̄[k] - a : v̄[k])
