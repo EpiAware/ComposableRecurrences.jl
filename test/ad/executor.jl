@@ -77,6 +77,12 @@ end
     test_executor_gradients(AutoForwardDiff())
 end
 
+@testitem "Executor gradients: ReverseDiff" tags = [:ad, :executor, :reversediff] setup = [ExecutorAD] begin
+    using ReverseDiff: ReverseDiff
+    using ADTypes: AutoReverseDiff
+    test_executor_gradients(AutoReverseDiff())
+end
+
 @testitem "Executor gradients: Enzyme reverse" tags = [:ad, :executor, :enzyme, :enzyme_reverse] setup = [ExecutorAD] begin
     using Enzyme: Enzyme
     using ADTypes: AutoEnzyme

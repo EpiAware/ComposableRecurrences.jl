@@ -1,8 +1,12 @@
 # The native Mooncake and Enzyme rules: each backend's own rule tester via
-# `test_adjoint`, proof that the rule fires, user-defined types with no AD
-# code of their own, and the guard on plain Enzyme AD of a sparse coupling.
+# `test_adjoint` on the operator of every AD registry scenario and on shapes
+# the registry lacks, proof that the rule fires, user-defined types with no
+# AD code of their own, and the guard on plain Enzyme AD of a sparse
+# coupling.
 
 @testsnippet AdjointCases begin
+    using ADFixtures
+    import DifferentiationInterface
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using LinearAlgebra, Random, SparseArrays
@@ -46,42 +50,81 @@
     # A negative binomial probability generating function for `Transform`.
     nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
 
+    # A route that records the operator it reaches and the positional
+    # arguments of its Run, then runs it as the operator itself would.
+    struct Capture{O}
+        op::O
+        seen::Base.RefValue{Any}
+    end
+    (c::Capture)(args...; kwargs...) = CR._invoke(c.op, c, args...; kwargs...)
+    function CR.with_state(c::Capture, args...; kwargs...)
+        return CR._with_state(c.op, c, args...; kwargs...)
+    end
+    function CR.contributions(c::Capture, args...; kwargs...)
+        return CR._contributions(c.op, c, args...; kwargs...)
+    end
+    CR._reroute(c::Capture, op) = Capture(op, c.seen)
+    function CR.adjoint_call(c::Capture, args...)
+        c.seen[] = (c.op, args)
+        return CR.adjoint_call(c.op, args...)
+    end
+
+    # `x` with each view copied to an array of its own. The scenarios cut
+    # their slots as views of one parameter vector, and the finite
+    # differences EnzymeTestUtils takes read a view's parent.
+    plain(x::Union{SubArray, Base.ReshapedArray}) = collect(x)
+    plain(x::Diagonal) = Diagonal(plain(x.diag))
+    plain(x::AbstractArray) = x
+    plain(x::Union{Tuple, NamedTuple}) = map(plain, x)
+    function plain(x)
+        T = typeof(x)
+        isstructtype(T) && fieldcount(T) > 0 || return x
+        return CR.constructorof(T)(ntuple(i -> plain(getfield(x, i)), fieldcount(T))...)
+    end
+
+    # `(name, op, args)` for each AD registry scenario at its starting
+    # parameters: the operator the scenario calls and its Run arguments.
+    function registry_cases()
+        return map(ADFixtures._SCENARIOS) do (name, f, θ0)
+            seen = Ref{Any}(nothing)
+            f(op -> Capture(op, seen), θ0())
+            seen[] === nothing && error("scenario $(repr(name)) reached no rule through `Capture`")
+            op, args = seen[]
+            (name, plain(op), plain(args))
+        end
+    end
+
     # The positional arguments of a Recurrence's Run.
     function rec(gain, add, h; start = 1, states = nothing, stop = nothing)
         return (gain, add, h, states, start, stop)
     end
 
-    # `(name, op, args)` for `test_adjoint`: `args` are the positional
-    # arguments of the operator's Run.
-    function adjoint_cases()
+    # `(name, op, args)` for shapes no registry scenario has: user modifiers
+    # with and without pullbacks, scalar gains, short seeds, `Transform`
+    # forms, and the shapes of the use cases (random walk, AR(2),
+    # time-varying AR, seeded renewal, patch models and strata renewals with
+    # imports, doses or a protected pool).
+    function extra_cases()
         rng = Xoshiro(11)
         S, L, T = 3, 3, 6
         g = rand(rng, L) ./ 2
         K = rand(rng, S, S) ./ 2
         h = 1 .+ rand(rng, S, L)
         R = 0.5 .+ rand(rng, S, T)
-        f32(x) = Float32.(x)
         Ks = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
-        return [
-            ("renewal", Recurrence(g), rec(R[1, :], nothing, h[1, :])),
+        cases = [
             (
-                "renewal, Float32",
-                Recurrence(f32(g)), rec(f32(R[1, :]), nothing, f32(h[1, :])),
+                "renewal, one series, Float32",
+                Recurrence(Float32.(g)), rec(Float32.(R[1, :]), nothing, Float32.(h[1, :])),
             ),
             (
-                "strata, mixed eltypes",
-                Recurrence(f32(g); coupling = K), rec(R, nothing, f32(h)),
+                "strata, mixed eltypes, Float32 history",
+                Recurrence(Float32.(g); coupling = K), rec(R, nothing, Float32.(h)),
             ),
-            ("sparse coupling", Recurrence(g; coupling = Ks), rec(R, copy(R), h)),
-            (
-                "Diagonal coupling, per-stratum kernel",
-                Recurrence(PerStratum(rand(rng, S, L)); coupling = Diagonal(rand(rng, S))),
-                rec(R, nothing, h),
-            ),
+            ("sparse coupling with an add input", Recurrence(g; coupling = Ks), rec(R, copy(R), h)),
             ("scalar gain and λ I", Recurrence(g; coupling = 0.7I), rec(0.9, R, h)),
-            ("pairwise", Recurrence(Pairwise(rand(rng, S, S, L) ./ 3)), rec(R, nothing, h)),
             (
-                "time-varying kernel and coupling",
+                "time-varying kernel and coupling from a later start",
                 Recurrence(
                     TimeVarying(rand(rng, L, T));
                     coupling = TimeVarying(rand(rng, S, S, T) ./ 2)
@@ -89,17 +132,9 @@
                 rec(R, nothing, h; start = 3),
             ),
             (
-                "Primary time-varying kernel",
+                "Primary time-varying kernel, one series",
                 Recurrence(TimeVarying(rand(rng, L, T), CR.Primary())),
                 rec(R[1, :], nothing, h[1, :]; start = L + 1),
-            ),
-            (
-                "Primary per-stratum kernel and coupling",
-                Recurrence(
-                    TimeVarying(PerStratum(rand(rng, S, L, T)), CR.Primary());
-                    coupling = K
-                ),
-                rec(R, nothing, h; start = L + 1),
             ),
             (
                 "Primary pairwise kernel, short seed",
@@ -107,7 +142,7 @@
                 rec(R, nothing, h[:, 1:2]; start = 3),
             ),
             (
-                "modifiers",
+                "user modifiers",
                 Recurrence(
                     g; coupling = K,
                     modifiers = (PoolDepletion([30.0, 40.0, 50.0]), Hazard(60.0))
@@ -115,17 +150,7 @@
                 rec(R, nothing, h),
             ),
             (
-                "grouped totals",
-                Recurrence(
-                    g; coupling = K,
-                    modifiers = (
-                        CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),
-                    )
-                ),
-                rec(R, nothing, h),
-            ),
-            (
-                "with state",
+                "with state, user modifier",
                 CR._WithState(Recurrence(g; coupling = K, modifiers = (Hazard(60.0),))),
                 rec(R, nothing, h),
             ),
@@ -158,33 +183,13 @@
                 rec(R, nothing, h),
             ),
             (
-                "Derived parameters",
-                Recurrence(
-                    g; coupling = K, modifiers = (
-                        CR.Add(0.3 * Derived(exp, TimeVarying(rand(rng, T)))),
-                        CR.Transform(
-                            *, Derived(
-                                (x, c) -> c / (1 + x^2),
-                                TimeVarying(PerStratum(rand(rng, S, T))), 0.9
-                            )
-                        ),
-                    )
-                ),
-                rec(R, nothing, h),
-            ),
-            ("delay", Convolution(rand(rng, 4)), (R[1, :], true, nothing, h[1, :], 1, nothing)),
-            (
-                "time-varying delay",
-                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))), (R, true, nothing, h, 4, nothing),
+                "time-varying per-stratum delay from a later start",
+                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))),
+                (R, true, nothing, h, 4, nothing),
             ),
             (
-                "delay with gain and add", Convolution(rand(rng, 4)),
-                (R, rand(rng, T), rand(rng, S, T), h, 2, nothing),
-            ),
-            (
-                "lag contributions",
-                CR._Contributions(Convolution(TimeVarying(rand(rng, 4, T), CR.Primary()))),
-                (R, 0.4, nothing, 1, nothing),
+                "delay with gain and add",
+                Convolution(rand(rng, 4)), (R, rand(rng, T), rand(rng, S, T), h, 2, nothing),
             ),
             (
                 "lag contributions, ragged",
@@ -192,6 +197,110 @@
                 (R[1, :], rand(rng, T), h[1, :], 2, nothing),
             ),
         ]
+        rng = Xoshiro(21)
+        S, L, T = 3, 4, 8
+        g = rand(rng, L) ./ 2
+        K = [0.0 0.2 0.1; 0.1 0.0 0.3; 0.2 0.1 0.0]
+        h = 1 .+ rand(rng, S, L)
+        R = 0.5 .+ rand(rng, S, T)
+        ϵ = randn(rng, T)
+        pool(N, h::AbstractVector) = N - sum(h)
+        pool(N, h::AbstractMatrix) = PerStratum(N .- vec(sum(h; dims = 2)))
+        return vcat(
+            cases, [
+                ("random walk", Recurrence([1.0]), rec(true, ϵ, [0.3])),
+                ("AR(2)", Recurrence([0.5, -0.2]), rec(true, ϵ, [0.1, 0.2])),
+                (
+                    "time-varying AR",
+                    Recurrence(TimeVarying(0.3 .* rand(rng, 2, T))), rec(true, ϵ, [0.1, 0.2]),
+                ),
+                (
+                    "seeded renewal",
+                    Recurrence(g; modifiers = (CR.Depletion(60.0; pool0 = pool(60.0, h[1, :])),)),
+                    rec(R[1, :], nothing, h[1, :]),
+                ),
+                (
+                    "patch model",
+                    Recurrence(
+                        g; modifiers = (
+                            CR.Redistribute(K, 0.4),
+                            CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
+                        )
+                    ),
+                    rec(R, nothing, h),
+                ),
+                (
+                    "strata renewal with imports",
+                    Recurrence(
+                        g; coupling = 0.3 .* rand(rng, S, S),
+                        modifiers = (
+                            CR.Depletion(PerStratum(fill(80.0, S))),
+                            CR.Add(TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))),
+                        )
+                    ),
+                    rec(R, nothing, h),
+                ),
+                (
+                    "patch model, sparse kernel",
+                    Recurrence(
+                        g; modifiers = (CR.Redistribute(sparse(K), PerStratum([0.4, 0.3, 0.2])),)
+                    ),
+                    rec(R, nothing, h),
+                ),
+                (
+                    "strata renewal with doses removed",
+                    Recurrence(
+                        g; modifiers = (
+                            CR.Depletion(
+                                PerStratum(fill(80.0, S));
+                                removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T)))
+                            ),
+                        )
+                    ),
+                    rec(R, nothing, h),
+                ),
+                (
+                    "leaky vaccination into a protected pool",
+                    Recurrence(
+                        g; coupling = 0.3 .* rand(rng, S, S),
+                        modifiers = (
+                            CR.Depletion(
+                                PerStratum(fill(80.0, S)); pool0 = pool(80.0, h),
+                                removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))),
+                                protected = CR.Protected(PerStratum([0.2, 0.3, 0.4]); pool0 = 1.0)
+                            ),
+                        )
+                    ),
+                    rec(R, nothing, h),
+                ),
+            ]
+        )
+    end
+
+    # Every operator `test_adjoint` checks: the registry's, then the extras.
+    adjoint_cases() = [registry_cases(); extra_cases()]
+
+    # EnzymeTestUtils checks the rule against finite differences taken in
+    # the arguments' precision. In single precision these differ from the
+    # rule by up to about 5e-4 relative (on a Float32 history with Float64
+    # gains), so cases with Float32 values compare at 1e-3.
+    const FLOAT32_RTOL = 1.0e-3
+
+    # Each registry scenario's gradient on `backend` runs the analytic
+    # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
+    # scenario. In one CI job the gradients reuse the code the backend's
+    # registry item compiled.
+    function test_rules_fire(name, backend)
+        skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
+        for scen in ADFixtures.scenarios()
+            scen.name in skip && continue
+            @testset "$(scen.name)" begin
+                CR._PULLBACK_CALLS[] = 0
+                DifferentiationInterface.gradient(scen.f, backend, scen.x)
+                @test (CR._PULLBACK_CALLS[] > 0) == !startswith(scen.name, "NoAdjoint")
+            end
+        end
+        return nothing
     end
 end
 
@@ -365,10 +474,28 @@ end
     import Enzyme, EnzymeTestUtils
     for (name, op, args) in adjoint_cases()
         @testset "$name" begin
-            rtol = occursin("Float32", name) || occursin("mixed", name) ? 1.0e-3 : 1.0e-7
+            rtol = occursin(r"Float32|mixed", name) ? FLOAT32_RTOL : 1.0e-7
             CR.test_adjoint(AutoEnzyme(), op, CR.Run(), args...; rtol, atol = rtol)
         end
     end
+end
+
+@testitem "Mooncake reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake
+    import Mooncake
+    test_rules_fire("Mooncake reverse", AutoMooncake(; config = nothing))
+end
+
+@testitem "Enzyme reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoEnzyme
+    import Enzyme
+    test_rules_fire(
+        "Enzyme reverse",
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        )
+    )
 end
 
 @testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
@@ -681,142 +808,6 @@ end
         Recurrence([0.3, 0.2]; coupling = 0.7I)
     )[1]
     @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
-end
-
-@testitem "Every AD scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
-    using ADFixtures
-    using ADTypes: AutoMooncake, AutoEnzyme
-    using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
-    using ComposableRecurrences: ComposableRecurrences as CR
-    skip = ADFixtures.backend_skip_scenarios()
-    backends = (
-        ("Mooncake reverse", AutoMooncake(; config = nothing)),
-        (
-            "Enzyme reverse",
-            AutoEnzyme(;
-                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-                function_annotation = Enzyme.Const
-            ),
-        ),
-    )
-    for (name, backend) in backends, scen in ADFixtures.scenarios()
-        scen.name in get(skip, name, Set{String}()) && continue
-        @testset "$(scen.name) $name" begin
-            n0 = CR._PULLBACK_CALLS[]
-            gradient(scen.f, backend, scen.x)
-            @test (CR._PULLBACK_CALLS[] > n0) == !startswith(scen.name, "NoAdjoint")
-        end
-    end
-end
-
-@testsnippet UseCaseShapes begin
-    using ComposableRecurrences
-    using ComposableRecurrences: ComposableRecurrences as CR
-    using LinearAlgebra, Random, SparseArrays
-
-    # `(name, op, args)` in the shapes of the use cases: random walk, AR(2),
-    # time-varying AR, seeded renewal, the patch model and a strata renewal
-    # with imports. `args` are the positional arguments of the Run.
-    function use_case_shapes()
-        rng = Xoshiro(21)
-        S, L, T = 3, 4, 8
-        g = rand(rng, L) ./ 2
-        K = [0.0 0.2 0.1; 0.1 0.0 0.3; 0.2 0.1 0.0]
-        h = 1 .+ rand(rng, S, L)
-        R = 0.5 .+ rand(rng, S, T)
-        ϵ = randn(rng, T)
-        rec(gain, add, h) = (gain, add, h, nothing, 1, nothing)
-        pool(N, h::AbstractVector) = N - sum(h)
-        pool(N, h::AbstractMatrix) = PerStratum(N .- vec(sum(h; dims = 2)))
-        return [
-            ("random walk", Recurrence([1.0]), rec(true, ϵ, [0.3])),
-            ("AR(2)", Recurrence([0.5, -0.2]), rec(true, ϵ, [0.1, 0.2])),
-            (
-                "time-varying AR",
-                Recurrence(TimeVarying(0.3 .* rand(rng, 2, T))), rec(true, ϵ, [0.1, 0.2]),
-            ),
-            (
-                "seeded renewal",
-                Recurrence(g; modifiers = (CR.Depletion(60.0; pool0 = pool(60.0, h[1, :])),)),
-                rec(R[1, :], nothing, h[1, :]),
-            ),
-            (
-                "patch model",
-                Recurrence(
-                    g; modifiers = (
-                        CR.Redistribute(K, 0.4),
-                        CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
-                    )
-                ),
-                rec(R, nothing, h),
-            ),
-            (
-                "strata renewal with imports",
-                Recurrence(
-                    g; coupling = 0.3 .* rand(rng, S, S),
-                    modifiers = (
-                        CR.Depletion(PerStratum(fill(80.0, S))),
-                        CR.Add(TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))),
-                    )
-                ),
-                rec(R, nothing, h),
-            ),
-            (
-                "patch model, sparse kernel",
-                Recurrence(
-                    g; modifiers = (CR.Redistribute(sparse(K), PerStratum([0.4, 0.3, 0.2])),)
-                ),
-                rec(R, nothing, h),
-            ),
-            (
-                "strata renewal with doses removed",
-                Recurrence(
-                    g; modifiers = (
-                        CR.Depletion(
-                            PerStratum(fill(80.0, S));
-                            removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T)))
-                        ),
-                    )
-                ),
-                rec(R, nothing, h),
-            ),
-            (
-                "leaky vaccination into a protected pool",
-                Recurrence(
-                    g; coupling = 0.3 .* rand(rng, S, S),
-                    modifiers = (
-                        CR.Depletion(
-                            PerStratum(fill(80.0, S)); pool0 = pool(80.0, h),
-                            removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))),
-                            protected = CR.Protected(PerStratum([0.2, 0.3, 0.4]); pool0 = 1.0)
-                        ),
-                    )
-                ),
-                rec(R, nothing, h),
-            ),
-        ]
-    end
-end
-
-@testitem "Use-case shapes: test_adjoint on Mooncake" tags = [:ad, :mooncake, :mooncake_reverse] setup = [UseCaseShapes] begin
-    using ADTypes: AutoMooncake
-    import Mooncake
-    for (name, op, args) in use_case_shapes()
-        @testset "$name" begin
-            CR.test_adjoint(AutoMooncake(; config = nothing), op, CR.Run(), args...)
-        end
-    end
-end
-
-@testitem "Use-case shapes: test_adjoint on Enzyme" tags = [:ad, :enzyme, :enzyme_reverse] setup = [UseCaseShapes] begin
-    using ADTypes: AutoEnzyme
-    import Enzyme, EnzymeTestUtils
-    for (name, op, args) in use_case_shapes()
-        @testset "$name" begin
-            CR.test_adjoint(AutoEnzyme(), op, CR.Run(), args...)
-        end
-    end
 end
 
 @testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin

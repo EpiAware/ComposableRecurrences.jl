@@ -84,6 +84,9 @@ function _unpack(θ, shapes...)
     end
 end
 
+# The arrays `xs` flattened into one parameter vector.
+_flat(xs...) = reduce(vcat, map(vec, xs))
+
 const S, L, T = 3, 4, 12
 const W1 = [sin(t) for t in 1:T]
 const WS = [cos(a * t) for a in 1:S, t in 1:T]
@@ -312,9 +315,48 @@ function _derived(w, θ)
     return sum(WS .* log.(y))
 end
 
-_flat(xs...) = reduce(vcat, map(vec, xs))
+# Imports moved between strata, imports added and the values capped per
+# stratum: the cap binds on strata 1 and 2 throughout and never on stratum
+# 3, with a margin that keeps finite differences off the kink.
+# The parameters are offsets from `CRA0`, so the scenario starts at zero.
+# Compiled ReverseDiff tapes keep the branches taken where they were
+# recorded, and the harness records them at zero parameters: there the cap
+# would bind on every stratum.
+const HI = [2.8, 3.2, 100.0]
+const CRA0 = _flat(
+    [0.0 0.2 0.1; 0.1 0.0 0.3; 0.2 0.1 0.0], [0.4, 0.3, 0.2],
+    0.2 .+ 0.1 .* abs.(WS), HI, fill(log(5.0), S, L), LOGR,
+)
+function _clamp_redistribute_add(w, θ)
+    K, ε, B, hi, logh, logR = _unpack(
+        CRA0 .+ θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T)
+    )
+    mods = (
+        ComposableRecurrences.Redistribute(K, PerStratum(ε)),
+        ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
+        ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
+    )
+    y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Every float in single precision: the kernel, coupling, history and gain.
+const K0F, WSF = Float32.(K0), Float32.(WS)
+function _float32(w, θ)
+    g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
+    y = w(Recurrence(g; coupling = K0F))(exp.(logR); history = exp.(logh))
+    return sum(WSF .* log.(y))
+end
+
+# A fixed kernel per stratum, with history.
+function _conv_per_stratum(w, θ)
+    G, X, H = _unpack(θ, (S, L + 1), (S, T), (S, L))
+    return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
+end
 
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
+# test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
+# and checks that its rule fires, so a scenario added here is covered there.
 const _SCENARIOS = [
     ("Recurrence renewal", _renewal, () -> _flat(G0, zeros(L), LOGR[1, :])),
     (
@@ -419,19 +461,53 @@ const _SCENARIOS = [
         "Recurrence Derived modifier parameters", _derived,
         () -> _flat(zeros(S, L), LOGR, W1 .- 1, [0.8], 0.5 .* WS),
     ),
+    (
+        "Recurrence Redistribute, Add and Clamp", _clamp_redistribute_add,
+        () -> zero(CRA0),
+    ),
+    (
+        "Recurrence in Float32", _float32,
+        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
+    ),
+    (
+        "Convolution per-stratum kernel with history", _conv_per_stratum,
+        () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
+    ),
 ]
 
 """
     supports(features...)
 
-Whether the loaded ComposableRecurrences defines every name in `features`.
+Whether the loaded ComposableRecurrences has every feature in `features`: a
+name it defines, or a key of `_PROBES` whose probe passes.
 
 The benchmark history workflow runs this registry, as on `main`, against the
 last few tagged releases.
 A scenario that needs a feature newer than the oldest of those lists it in
 `_REQUIRES`, and is left out where the loaded version lacks it.
 """
-supports(features::Symbol...) = all(s -> isdefined(ComposableRecurrences, s), features)
+supports(features::Symbol...) = all(_supports, features)
+function _supports(feature::Symbol)
+    haskey(_PROBES, feature) && return _PROBES[feature]()
+    return isdefined(ComposableRecurrences, feature)
+end
+
+# Features that came without a name of their own, found by trying them.
+# `Primary` predates its use in a Recurrence, which older releases reject
+# at construction.
+function _accepts(build)
+    try
+        build()
+    catch
+        return false
+    end
+    return true
+end
+const _PROBES = Dict{Symbol, Function}(
+    :primary_recurrence => () -> _accepts(
+        () -> Recurrence(TimeVarying(ones(1, 2), ComposableRecurrences.Primary()))
+    ),
+)
 
 # The features each scenario needs beyond the first release, by scenario
 # name. A scenario not listed needs none. Add an entry with each scenario
@@ -443,8 +519,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence Derived modifier parameters" => (:Derived,),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
-    # A Primary() kernel in a Recurrence: the seed check came with it.
-    "Recurrence Primary time-varying kernel" => (:_check_primary_seed,),
+    "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
     # Kernels as vectors of columns are stored as `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
