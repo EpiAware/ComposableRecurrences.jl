@@ -64,9 +64,7 @@ Threads.nthreads()
 # ## When threads pay off
 #
 # Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (100 000 by default).
-# The threshold applies to each loop.
-# Strata that do not mix are one loop per call, over the whole series.
-# Strata that mix through a coupling, a pairwise kernel or a modifier with a vector step are one loop per step, so these models gain from threads only with many strata.
+# [`Threaded`](@ref ComposableRecurrences.Threaded) says which loops a model has, and so when mixing strata gain.
 # The timings below are indicative and depend on the machine and its load.
 # On a Threadripper with a 20-day kernel, two threads ran independent strata 1.5 to 1.9 times faster than one from `S × T` of about 10 000, and eight threads 3.6 to 7.8 times faster.
 # Below about 1 000 strata-times, threads were slower than the serial loop.

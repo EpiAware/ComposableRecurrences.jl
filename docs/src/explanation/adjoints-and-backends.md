@@ -10,10 +10,10 @@ Each operator call takes one of two routes:
 - the rule, a reverse pass written for the operator, which the [Mooncake and Enzyme extensions](@ref extensions) register with those backends;
 - plain AD, where the backend differentiates the operator's forward loop.
 
-The route is chosen from the types of the operator and its arguments, so it costs nothing at run time.
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
-Dual numbers, tracked values, `BigFloat` and other array types take plain AD.
+Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
+The route is read from types, apart from the rebuild check and the strata limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
@@ -21,20 +21,21 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | Part without a `pullback!` | Route |
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
-| pointwise modifier with a `PerStratum`, `TimeVarying` or array parameter | plain AD |
+| pointwise modifier or depletion form with a `PerStratum`, `TimeVarying` or array parameter | plain AD |
 | modifier with a vector step | plain AD |
 | coupling with only scalar float parameters, strata plus scalars at most 12 | rule, local ForwardDiff step |
 | the same coupling with more than 12 | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
-A part with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
+A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
 The local step rebuilds a part with dual numbers in place of its float parameters; [Adding a modifier](@ref extending) lists what that needs.
 The `Recurrence` constructor checks the rebuild once and stores the result.
-Above 12 strata and scalars the local step needs more than one pass of dual numbers per step, and plain AD was faster in the benchmarks below.
+Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step.
 
-Under Mooncake or Enzyme reverse mode, the first plain-AD call of each operator type logs an `@info` that names the part which sent it there.
+Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` saying why.
+A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs nothing.
 
 ## [Backends](@id adjoint-backends)
 
@@ -71,12 +72,14 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | sparse coupling | 0.75¹ | plain AD is wrong | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
-| pointwise modifier without a `pullback!` | 0.64 | 1.12 | fails on Enzyme |
+| pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep, slower on Enzyme |
 | coupling without a `pullback!`, up to 12 strata and scalars | 0.64² | 0.68² | keep |
 
 ² The worst of 3 and 10 strata for a user type, at `T` 200 and `L` 20.
 
-The local step of a pointwise modifier is 1.12 to 1.38 times slower than plain AD on Enzyme, and on Mooncake it is within noise or slower at small sizes.
+Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier.
+That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
+On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
 A coupling whose cost grows with the strata squared was 1.7 to 4 times slower than plain AD on Enzyme from 16 strata, hence the limit of 12.
 
 ## [Checking a rule](@id adjoint-checks)
@@ -90,7 +93,6 @@ A coupling whose cost grows with the strata squared was 1.7 to 4 times slower th
 An executor sets how an operator's loops over strata, series or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Device`](@ref ComposableRecurrences.Device) runs it as a kernel on a GPU.
-Calls on GPU arrays under `Serial` use their `Device`.
 A new executor is a subtype of [`Executor`](@ref ComposableRecurrences.Executor) with a method of [`each!`](@ref ComposableRecurrences.each!).
 
 | Executor | Forward | ForwardDiff | ReverseDiff | Mooncake, Enzyme forward | Mooncake, Enzyme reverse |
