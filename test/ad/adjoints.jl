@@ -157,6 +157,21 @@
                 ),
                 rec(R, nothing, h),
             ),
+            (
+                "Derived parameters",
+                Recurrence(
+                    g; coupling = K, modifiers = (
+                        CR.Add(0.3 * Derived(exp, TimeVarying(rand(rng, T)))),
+                        CR.Transform(
+                            *, Derived(
+                                (x, c) -> c / (1 + x^2),
+                                TimeVarying(PerStratum(rand(rng, S, T))), 0.9
+                            )
+                        ),
+                    )
+                ),
+                rec(R, nothing, h),
+            ),
             ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1, nothing)),
             (
                 "time-varying delay",
@@ -424,6 +439,41 @@ end
     end
 end
 
+@testitem "Derived: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Mooncake, Enzyme, ForwardDiff
+    using ComposableRecurrences: NoAdjoint
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    W = [cos(a * t) for a in 1:2, t in 1:8]
+    K = [0.8 0.2; 0.3 0.7]
+    function run(w, m)
+        r = Recurrence([0.6, 0.3]; coupling = K, modifiers = (m,))
+        return sum(W .* w(r)(fill(1.1, 2, 8); history = fill(0.2, 2, 2)))
+    end
+    # A scalar times a function of a time-varying parameter.
+    θm(θ) = CR.Add(θ[1] * Derived(exp, TimeVarying(θ[2:9])))
+    # A closure's captured value is not an argument, so plain AD takes it.
+    scaled(c) = x -> c * exp(x)
+    cm(θ) = CR.Add(Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
+    θ0 = [0.5, collect(range(-0.2, 0.6; length = 8))...]
+    for (m, fires) in ((θm, true), (cm, false)), w in (identity, NoAdjoint)
+        f(θ) = run(w, m(θ))
+        ref = gradient(f, AutoForwardDiff(), θ0)
+        for backend in backends
+            n0 = CR._PULLBACK_CALLS[]
+            @test gradient(f, backend, θ0) ≈ ref
+            @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
+        end
+    end
+end
+
 @testitem "User modifiers: functions, index ranges and constructors" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
@@ -554,10 +604,10 @@ end
     end
     @test Base.return_types(
         CR._route_val, (UserPkg.Decay{Float64}, Float64, Vector{Float64})
-    ) == [Val{true}]
+    ) == [Val{:rule}]
     @test Base.return_types(
         CR._route_val, (UserPkg.DecayNoPB{Float64}, Float64, Vector{Float64})
-    ) == [Val{false}]
+    ) == [Val{:plain}]
 end
 
 @testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
@@ -883,6 +933,52 @@ end
     end
 end
 
+@testitem "Empty pools with removals or a dual population: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    W = collect(range(0.5, 1.5; length = 6))
+    function total(d)
+        r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
+        return sum(W .* r(fill(2.0, 6); history = [5.0]))
+    end
+    # A seeded pool emptied by removals: with all-or-nothing protection the
+    # pool stays at zero with a tangent from `σ`, a tie in the removal.
+    by_removals(θ) = total(
+        CR.Depletion(
+            100.0; pool0 = θ[1], removals = TimeVarying(fill(θ[2], 6)),
+            protected = CR.Protected(θ[3])
+        )
+    )
+    # An empty pool with a dual population and an integer heterogeneity,
+    # alone and with a protected pool.
+    by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pool0 = θ[2]))
+    by_protected(θ) = total(
+        CR.Depletion(θ[1]; pool0 = θ[2], protected = CR.Protected(θ[3]))
+    )
+    # A differentiated heterogeneity at an empty pool.
+    by_heterogeneity(θ) = total(CR.Depletion(100.0; heterogeneity = θ[1], pool0 = θ[2]))
+    cases = (
+        (by_removals, [3.0, 4.0, 0.0]), (by_population, [100.0, 0.0]),
+        (by_protected, [100.0, 0.0, 0.3]), (by_heterogeneity, [1.0, 0.0]),
+    )
+    for (f, θ) in cases
+        ref = gradient(f, AutoForwardDiff(), θ)
+        @test all(isfinite, ref)
+        for backend in (
+                AutoMooncake(; config = nothing),
+                AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            )
+            @test gradient(f, backend, θ) ≈ ref
+        end
+    end
+end
+
 @testitem "Mooncake tangent layout the rule reads (canary)" tags = [:ad, :mooncake, :mooncake_reverse] begin
     import Mooncake
     using SparseArrays, LinearAlgebra
@@ -923,5 +1019,45 @@ end
         grad = similar(θ)
         gradient!(f, grad, prep, backend, θ)
         @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300
+    end
+end
+
+@testitem "Plain-AD note logs once under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme
+    using DifferentiationInterface: gradient
+    import Enzyme, Mooncake
+    # Pointwise modifiers whose float field is typed `Float64`, so the
+    # operator takes plain AD; one type per backend, as the note is logged
+    # once per operator type.
+    struct ScaleM
+        a::Float64
+    end
+    struct ScaleE
+        a::Float64
+    end
+    for M in (ScaleM, ScaleE)
+        @eval CR.ispointwise(::$M) = true
+        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+    end
+    for (M, backend) in (
+            (ScaleM, AutoMooncake(; config = nothing)),
+            (
+                ScaleE,
+                AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+        )
+        f(θ) = sum(Recurrence([0.3, 0.2]; modifiers = (M(0.9),))(θ; history = ones(2)))
+        θ = ones(4)
+        # The primal call logs nothing; the first gradient logs once.
+        @test_logs f(θ)
+        empty!(CR._PLAIN_NOTED)
+        g = @test_logs (:info, r"plain AD of the whole operator") match_mode = :any gradient(f, backend, θ)
+        @test all(isfinite, g)
+        @test_logs gradient(f, backend, θ)
     end
 end

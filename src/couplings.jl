@@ -59,15 +59,7 @@ end
 # The reverse pass of the built-in couplings: `grads.q` is the pressure's
 # cotangent, `grads.p` accumulates the kernel convolutions' and
 # `grads.piece` the coupling's own. A sparse coupling's cotangent keeps its
-# sparsity pattern.
-uses_adjoint(
-    ::Union{
-        UniformScaling, AbstractMatrix,
-        TimeVarying{Secondary, <:AbstractArray{<:Any, 3}},
-    },
-    ::Pressure
-) = true
-
+# sparsity pattern. Each method makes `uses_adjoint` true for its type.
 function pullback!(grads, J::UniformScaling, ::Pressure, q, p, t)
     q̄, p̄ = grads.q, grads.p
     λ̄ = cotangent(grads.piece, :λ)

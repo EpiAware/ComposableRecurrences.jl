@@ -89,14 +89,15 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
     Hazard, Floor, Primary, Secondary, seeded, exponential_history,
     with_state, State, forward,
     pullback!, Step, Init, Pressure, Run, ispointwise, nstate, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
-    add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!
+    add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
+    param, add_param!
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -128,5 +129,7 @@ include("fallbacks.jl")
 include("interfaces.jl")
 # The Transform modifier, a pointwise map with parameters.
 include("transform.jl")
+# Parameters computed from other parameters.
+include("derived.jl")
 
 end # module ComposableRecurrences

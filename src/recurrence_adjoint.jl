@@ -101,7 +101,7 @@ _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
 _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 
 # One stratum's value cotangent back through pointwise modifiers, last
-# first, with each one's scalar `pullback!` on `Step()`; returns the cotangent of the
+# first, with each one's scalar step pullback; returns the cotangent of the
 # step's core value.
 _thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k) = v̄
 function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
@@ -109,8 +109,8 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k
     )
     R, s̄ = first(rec), first(s̄s)
-    v̄, s̄[k] = pullback!(
-        (; piece = first(m̄s), v = v̄, s = s̄[k]), first(ms), Step(), R.V[k, t],
+    v̄, s̄[k] = _step_pullback(
+        (; piece = first(m̄s), v = v̄, s = s̄[k]), first(ms), R.V[k, t],
         R.S[k, t], τ, k
     )
     return v̄
@@ -123,8 +123,8 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t
     )
     R = first(rec)
-    pullback!(
-        (; piece = first(m̄s), v = v̄, s = first(s̄s)), first(ms), Step(),
+    _vector_pullback!(
+        (; piece = first(m̄s), v = v̄, s = first(s̄s)), first(ms),
         view(R.V, :, t), view(R.S, :, t), τ
     )
     return nothing
@@ -150,7 +150,8 @@ function _coupling_back!(p̄, C̄, C::Diagonal, q̄, P, H, H̄, t, τ, L)
 end
 function _coupling_back!(p̄, C̄, C, q̄, P, H, H̄, t, τ, L)
     fill!(p̄, zero(eltype(p̄)))
-    pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, view(P, :, t), τ)
+    grads = (; piece = C̄, q = q̄, p = p̄)
+    _call_pullback!(grads, C, Pressure(), nothing, view(P, :, t), τ)
     return p̄
 end
 
