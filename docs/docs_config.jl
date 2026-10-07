@@ -236,7 +236,6 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
     "Explanation" => [
         "Adjoints and backends" =>
             "explanation/adjoints-and-backends.md",
-        "Extensions" => "explanation/extensions.md",
     ],
     "Domain guides" => [
         "Infectious disease models" =>

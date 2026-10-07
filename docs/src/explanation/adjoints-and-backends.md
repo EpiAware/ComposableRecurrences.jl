@@ -7,7 +7,7 @@ For which backend to choose, see [Choosing a backend](@ref ad-backends).
 
 Each operator call takes one of two routes:
 
-- the rule, a reverse pass written for the operator, which the [Mooncake and Enzyme extensions](@ref extensions) register with those backends;
+- the rule, a reverse pass written for the operator, which the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions register with those backends;
 - plain AD, where the backend differentiates the operator's forward loop.
 
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
