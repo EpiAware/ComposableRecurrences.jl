@@ -128,8 +128,9 @@ function _check_param(name, x)
     throw(
         ArgumentError(
             "$name is one value, PerStratum($name) with one per stratum, " *
-                "TimeVarying($name) with one per time, or " *
-                "TimeVarying(PerStratum($name)) strata × time; got " *
+                "TimeVarying($name) with one per time, " *
+                "TimeVarying(PerStratum($name)) strata × time, or " *
+                "Derived(f, args...) computed from other parameters; got " *
                 _describe(x)
         )
     )
@@ -227,13 +228,13 @@ For each stratum ``i`` (one of ``S`` parallel series) and absolute time
 
 ```math
 s_{t_0 - 1, i} = s_{0,i}, \qquad
-(v'_{t,i},\ s_{t,i}) = F\big(v_{t,i},\ s_{t-1,i},\ N_i,\ \alpha\big),
+(v'_{t,i},\ s_{t,i}) = F\big(v_{t,i},\ s_{t-1,i},\ N_{t,i},\ \alpha\big),
 ```
 
 where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on, ``s_{t,i}`` the pool after step ``t``, ``s_{0,i}`` the starting
-pool `pool0` (``N_i`` by default), ``N_i`` the population, ``\alpha`` the
-heterogeneity exponent and ``F`` the form's
+pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
+``t``, ``\alpha`` the heterogeneity exponent and ``F`` the form's
 `forward(form, Step(), v, s, N, α)`.
 
 The form is a variant struct that draws value `v` from pool `s` with
@@ -247,18 +248,27 @@ A new form without a `pullback!` is differentiated locally with
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
 
+A population that changes over time, through births, deaths or turnover,
+is a `TimeVarying` `N`, with arrivals as negative `removals` and
+susceptible departures as positive ones.
+The step reads `N` at its own time, and the pool is not rescaled when `N`
+changes: arrivals enter the pool only through the removals.
+
 # Arguments
-- `N`: the population, one value or [`PerStratum`](@ref), constant over
-  time: a `TimeVarying` `N` is an `ArgumentError`.
+- `N`: the population, a parameter read at each step's stratum and time:
+  one value, [`PerStratum`](@ref), [`TimeVarying`](@ref),
+  `TimeVarying(PerStratum(N))` or [`Derived`](@ref).
 - `form`: the depletion form; `Hazard()` by default.
 
 # Keyword Arguments
 - `heterogeneity`: the exponent `α`; `1` by default.
-- `pool0`: the starting pool, one value or `PerStratum`; `N` by default.
+- `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
+  default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
 - `removals`: values taken out of the pool after each step's draw, capped
-  by what remains; a parameter (one value, `PerStratum`, `TimeVarying` or
-  `TimeVarying(PerStratum(r))`), or `nothing` for none.
+  by what remains; a parameter (one value, `PerStratum`, `TimeVarying`,
+  `TimeVarying(PerStratum(r))` or `Derived`), or `nothing` for none.
+  A negative removal adds to the pool, without a cap.
 - `protected`: a [`ComposableRecurrences.Protected`](@ref) pool that the
   removals move into and that is drawn from at a relative susceptibility,
   or `nothing` for none.
@@ -284,9 +294,34 @@ round.(y; digits = 3)
  10.29
   8.287
 ```
+
+A herd of 100 with 3 births a step: `N` grows by the births, and the births
+enter the pool as negative removals.
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+births = fill(3.0, 8)
+N = TimeVarying(100.0 .+ cumsum(births))
+herd = CR.Depletion(N; pool0 = 90.0, removals = TimeVarying(-births))
+y = Recurrence([0.5, 0.5]; modifiers = (herd,))(fill(1.5, 8); history = [5.0, 5.0])
+round.(y; digits = 3)
+
+# output
+
+8-element Vector{Float64}:
+ 6.32
+ 6.672
+ 7.099
+ 6.951
+ 6.563
+ 5.876
+ 5.085
+ 4.261
+```
 """
 struct Depletion{F, P, A, P0, R, V}
-    "The population, one value or `PerStratum`."
+    "The population, a parameter read at each step's stratum and time."
     N::P
     "The depletion form."
     form::F
@@ -313,7 +348,7 @@ function Depletion(
         N, form = Hazard(); heterogeneity = 1, pool0 = nothing,
         removals = nothing, protected = nothing
     )
-    N = _float_param(_check_constant(:N, N))
+    N = _population(N)
     pool0 = pool0 === nothing ? nothing :
         _float_param(_check_constant(:pool0, pool0))
     removals = removals === nothing ? nothing : _check_param(:removals, removals)
@@ -328,10 +363,12 @@ function Depletion(
     )
 end
 
-# A form is a type with a scalar Step.
+# The population: any parameter, read at each step's stratum and time.
+_population(N) = _float_param(_check_param(:N, N))
+
+# A form is a type with a scalar Step, for generic reals or one float type.
 function _check_form(form::F) where {F}
-    hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
-        throw(
+    _is_form(F) || throw(
         ArgumentError(
             "$(_describe(form)) is not a depletion form: a form implements " *
                 "forward(form, Step(), v, s, N, α) -> (y, s′)"
@@ -339,8 +376,13 @@ function _check_form(form::F) where {F}
     )
     return nothing
 end
+function _is_form(::Type{F}) where {F}
+    return hasmethod(forward, Tuple{F, Step, Vararg{Real, 4}}) ||
+        hasmethod(forward, Tuple{F, Step, Vararg{Float64, 4}}) ||
+        hasmethod(forward, Tuple{F, Step, Vararg{Float32, 4}})
+end
 
-# The population and starting pool are per stratum, not over time.
+# The starting pool is per stratum, not over time.
 _check_constant(name, x) = _check_param(name, x)
 function _check_constant(name, x::TimeVarying)
     throw(
@@ -353,6 +395,10 @@ end
 
 _float_param(x::Real) = float(x)
 _float_param(x::PerStratum) = PerStratum(float(x.x))
+_float_param(x::TimeVarying{I, <:AbstractArray}) where {I} = TimeVarying{I}(float(x.x))
+function _float_param(x::TimeVarying{I, <:PerStratum}) where {I}
+    return TimeVarying{I}(_float_param(x.x))
+end
 
 # An integer exponent takes the population's float type, so it has a
 # cotangent and a Float32 population stays Float32. A dual population gives
