@@ -45,10 +45,22 @@ The output has the layout of `x` and length `stop - start + 1`.
 - `kernel`: the kernel, lag 0 first.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 delay = [0.0, 0.5, 0.3, 0.2]         # P(delay = 0, 1, 2, 3)
 Convolution(delay)(ones(8); history = ones(3))
+
+# output
+
+8-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+ 1.0
 ```
 """
 struct Convolution{K} <: AbstractOperator
@@ -56,7 +68,10 @@ struct Convolution{K} <: AbstractOperator
     kernel::K
     function Convolution(kernel::K) where {K}
         kernel isa _PairwiseKernel && throw(
-            ArgumentError("a Pairwise kernel is for a Recurrence")
+            ArgumentError(
+                "a Pairwise kernel is for a Recurrence, not a Convolution; " *
+                    "got $(_describe(kernel))"
+            )
         )
         _check_kernel_shape(kernel)
         return new{K}(kernel)
@@ -105,23 +120,39 @@ function _conv(c::Convolution, x, history, start, stop)
     )
     _check_kernel_times(kernel, stop)
     Tp = float(param_eltype((kernel, x, history)))
+    Y, X = _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
+    return Y, X, m, stop
+end
+
+# Allocates and fills the input buffer and convolves it into the output
+# buffer at eltype `Tp` with the set executor; an extension adds methods for
+# its own number types.
+function _conv_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
+    cur = _current()
+    if cur.ex isa Serial
+        return _conv_buffers(Tp, Serial(), kernel, x, history, m, S, start, stop)
+    end
+    return _conv_buffers(Tp, cur, kernel, x, history, m, S, start, stop)
+end
+
+function _conv_buffers(
+        ::Type{Tp}, ex::Union{Serial, _Current}, kernel, x, history, m, S, start, stop
+    ) where {Tp}
     X = _zeros(x, Tp, m + stop, S)
     history === nothing || _load_history!(X, history, m)
     _load_input!(X, x, m, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    cur = _current()
-    if cur.ex isa Serial
-        _convolve!(Serial(), Y, kernel, X, m, start)
-    else
-        _convolve!(cur, Y, kernel, X, m, start)
-    end
-    return Y, X, m, stop
+    _convolve!(ex, Y, kernel, X, m, start)
+    return Y, X
 end
 
 _check_input_history(::Nothing, x) = nothing
 function _check_input_history(h, x)
     ndims(h) == ndims(x) && _nstrata(h) == _nstrata(x) || throw(
-        DimensionMismatch("history does not match the strata of x")
+        DimensionMismatch(
+            "history is $(summary(h)) but x is $(summary(x)): history " *
+                "must have the strata of x"
+        )
     )
     return nothing
 end
@@ -132,7 +163,8 @@ function _check_primary_history(::TimeVarying{Primary}, history)
     throw(
         ArgumentError(
             "a Primary() kernel has no column for an input before t = 1: " *
-                "pass those inputs inside x"
+                "pass those inputs inside x, not as history " *
+                "($(_describe(history)))"
         )
     )
 end

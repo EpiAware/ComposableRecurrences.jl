@@ -17,10 +17,19 @@ and [`Convolution`](@ref)); `cache` holds what the reverse pass needs, such
 as the [`ComposableRecurrences.State`](@ref).
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 y, cache = CR.forward(Recurrence([0.5, 0.5]), CR.Run(), fill(1.1, 4); history = ones(2))
+round.(y; digits = 3)
+
+# output
+
+4-element Vector{Float64}:
+ 1.1
+ 1.155
+ 1.24
+ 1.317
 ```
 """
 struct Run end
@@ -53,10 +62,15 @@ A pointwise modifier acts on each stratum ``i`` separately,
     depletion form, returning `(y, s′)`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+round(y; digits = 3), round(s; digits = 3)
+
+# output
+
+(1.584, 78.416)
 ```
 """
 struct Step end
@@ -79,12 +93,18 @@ values the recursion reads, and ``I_M`` is the modifier's own map.
 The default is ``s_{t_0 - 1} = 0``.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 s = zeros(2)
 CR.forward(CR.Depletion(PerStratum([100.0, 50.0])), CR.Init(), s, ones(2, 3))
 s
+
+# output
+
+2-element Vector{Float64}:
+ 100.0
+  50.0
 ```
 """
 struct Init end
@@ -110,12 +130,18 @@ To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 q = zeros(2)
 CR.forward([0.9 0.1; 0.2 0.8], CR.Pressure(), q, [1.0, 2.0], 1)
 q
+
+# output
+
+2-element Vector{Float64}:
+ 1.1
+ 1.8
 ```
 """
 struct Pressure end
@@ -148,15 +174,23 @@ coupling.
 - `args`: the role's arguments.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-struct Offset
-    b::Float64
+struct Offset{T}
+    b::T
 end
 CR.ispointwise(::Offset) = true
 CR.forward(m::Offset, ::CR.Step, v, s, t, k) = (v + m.b, s)
 Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
+
+# output
+
+4-element Vector{Float64}:
+ 2.0
+ 2.5
+ 3.25
+ 3.875
 ```
 """
 function forward end
@@ -186,6 +220,10 @@ an operator's native rule calls it.
 Without one, a pointwise modifier with only scalar float parameters is
 differentiated locally with `ForwardDiff`, and any other object makes the AD
 backend differentiate the whole operator.
+A float captured by a closure stored in a modifier is a parameter the local
+derivative does not reach, so such a modifier also takes the AD backend.
+Integer fields, index ranges and integer arrays are structure, not
+parameters.
 
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of
@@ -195,13 +233,17 @@ backend differentiate the whole operator.
 - `args`: the primal arguments `forward` was given.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 m = CR.Clamp(0.0, 1.0)
 grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0, 1.0], s = [0.0, 0.0])
 CR.pullback!(grads, m, CR.Step(), [0.5, 2.0], [0.0, 0.0], 1)
 grads.v, grads.piece.hi[]
+
+# output
+
+([1.0, 0.0], 1.0)
 ```
 """
 function pullback! end
@@ -228,15 +270,53 @@ The default is `false`.
 - `m`: the modifier.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 ComposableRecurrences.ispointwise(nothing)
+
+# output
+
+false
 ```
 """
 ispointwise(m) = false
 
-# The length of a modifier's state for `S` strata.
-_nstate(m, S) = S
+@doc raw"""
+The number of state entries modifier `m` keeps for `S` strata.
+
+A stratum is one of the ``S`` parallel series computed together, such as a
+place or an age group.
+The recurrence allocates each modifier's state ``s`` with
+
+```math
+|s| = n(m, S), \qquad n(m, S) = S \text{ by default},
+```
+
+passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
+[`ComposableRecurrences.Step`](@ref), and checks a resumed state against it.
+This is the extension point for a modifier that holds more than one stock
+per stratum: a depletion with a protected pool keeps the unprotected pool
+then the protected pool, ``n(m, S) = 2S``.
+A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
+one entry per stratum, so it must have ``n(m, S) = S``.
+
+# Arguments
+- `m`: the modifier.
+- `S`: the number of strata.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+leaky = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
+
+# output
+
+(3, 6)
+```
+"""
+nstate(m, S) = S
 
 # Defaults: a zero initial state, and a vector step that loops the scalar
 # one for a pointwise modifier.

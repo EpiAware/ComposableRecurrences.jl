@@ -160,18 +160,19 @@ function _check_coupling_shape(
     )
     return nothing
 end
-function _check_coupling_shape(::TimeVarying)
+function _check_coupling_shape(C::TimeVarying)
     throw(
         ArgumentError(
             "a TimeVarying coupling is a strata × strata × time array with " *
-                "Secondary() indexing"
+                "Secondary() indexing, got $(_describe(C))"
         )
     )
 end
-function _check_coupling_shape(::Pairwise)
+function _check_coupling_shape(C::Pairwise)
     throw(
         ArgumentError(
-            "Pairwise is a kernel: use Recurrence(Pairwise(A)) with coupling I"
+            "Pairwise is a kernel: use Recurrence(Pairwise(A)) with " *
+                "coupling I, not coupling = $(_describe(C))"
         )
     )
 end

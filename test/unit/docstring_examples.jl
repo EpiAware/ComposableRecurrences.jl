@@ -1,17 +1,22 @@
-# The API page does not run `@example` blocks inside docstrings, so each
-# public docstring's examples run here, one fresh module per docstring.
+# Docstring examples are doctests, which only the quality run and the docs
+# build check. This runs each public docstring's examples in the default unit
+# run too, one fresh module per docstring, ignoring the expected output.
 
 @testitem "Docstring examples run" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    # The Markdown module the docstrings are parsed into.
-    Markdown = parentmodule(typeof(Base.Docs.doc(CR)))
 
-    function example_blocks(md, out = String[])
-        if md isa Markdown.Code
-            startswith(md.language, "@example") && push!(out, md.code)
-        elseif hasproperty(md, :content) && md.content isa AbstractVector
-            foreach(x -> example_blocks(x, out), md.content)
+    # The code of each doctest in the authored docstrings of `name`, read
+    # from the raw text so the check does not need the REPL docs system.
+    function example_blocks(mod, name)
+        multidoc = get(Base.Docs.meta(mod), Base.Docs.Binding(mod, name), nothing)
+        multidoc === nothing && return String[]
+        out = String[]
+        for ds in values(multidoc.docs)
+            text = join(x for x in ds.text if x isa AbstractString)
+            for m in eachmatch(r"^```jldoctest[^\n]*\n(.*?)^```"ms, text)
+                push!(out, first(split(m.captures[1], r"^# output$"m)))
+            end
         end
         return out
     end
@@ -20,11 +25,8 @@
     function run_examples(mod)
         failed, nrun = Symbol[], 0
         for name in names(mod)
-            # Look up by binding, so a documented constant gives its own docstring
-            # rather than its type's.
-            blocks = example_blocks(Base.Docs.doc(Base.Docs.Binding(mod, name)))
             sandbox = Module(gensym(name))
-            for code in blocks
+            for code in example_blocks(mod, name)
                 nrun += 1
                 try
                     include_string(sandbox, code, "docstring of $name")

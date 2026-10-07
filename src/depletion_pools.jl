@@ -25,6 +25,8 @@ u' &= u^{*} - m, \qquad w' = w^{*} + m
 ```
 
 When ``P \le 0`` the draw comes from ``u`` alone, ``u^{*} = u - v'``.
+A ``\sigma`` with ``0 \le \sigma \le 1`` gives protection, and
+``\sigma > 1`` makes the protected pool more susceptible than ``u``.
 With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
 doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
@@ -42,12 +44,27 @@ The depletion's state holds ``u`` for every stratum, then ``w``.
   default.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 doses = TimeVarying(fill(5.0, 10))
 leaky = CR.Depletion(1000.0; removals = doses, protected = CR.Protected(0.3))
-Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 10); history = [5.0])
+y = Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 10); history = [5.0])
+round.(y; digits = 3)
+
+# output
+
+10-element Vector{Float64}:
+  2.996
+  6.73
+  8.843
+ 12.765
+ 18.15
+ 25.033
+ 33.976
+ 44.517
+ 55.964
+ 66.668
 ```
 """
 struct Protected{Σ, V0}
@@ -77,15 +94,28 @@ _removals_at(::Nothing, k, t) = false
 _add_removals!(r̄, r, x, k, t) = add_param!(r̄, r, x, k, t)
 _add_removals!(r̄, ::Nothing, x, k, t) = nothing
 
-# The removal from what remains after the draw, `min(r, max(s, 0))`.
-_removal(r, s) = min(r, max(s, zero(s)))
+# The removal from what remains after the draw, `min(r, max(s, 0))`. The
+# arms follow primal values, as in the pullback: a dual with value zero is
+# ordered by its partials, so `min` and `max` on duals could take the other
+# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does; a NaN
+# in either input is returned, as `min` does; `ifelse` keeps a traced step
+# branch-free.
+function _removal(r, s)
+    r, s = promote(r, s)
+    z = zero(s)
+    c = ifelse(_primal_value(s) < 0, z, s + z)
+    return ifelse(_takes_pool(_primal_value(r), _primal_value(c)), c, r)
+end
 
-# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the branch
-# `min` and `max` take.
+# Whether the removal is the pool `c` rather than `r`: `r` on a tie.
+_takes_pool(r, c) = (c < r) | isnan(c)
+
+# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the arm
+# `_removal` takes.
 function _removal_pullback(r, s, m̄)
     z = zero(m̄)
-    r <= max(s, zero(s)) && return m̄, z
-    return z, s >= 0 ? m̄ : z
+    _takes_pool(r, max(s, zero(s))) || return m̄, z
+    return z, s < 0 ? z : m̄
 end
 
 # Removals only: a pointwise step on the one pool.
@@ -100,9 +130,9 @@ function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     r̄, s̄m = _removal_pullback(r, s′, -grads.s)
     add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
-    v̄, s̄, N̄, ᾱ = pullback!(
+    v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
-        m.form, Step(), v, s, N, α
+        m.form, v, s, N, α
     )
     add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -112,7 +142,7 @@ end
 # With a protected pool the state holds `S` then `V`, `2S` entries, and a
 # step reads both, so the step is vector-level.
 ispointwise(::_Protecting) = false
-_nstate(::_Protecting, S) = 2S
+nstate(::_Protecting, S) = 2S
 
 function forward(m::_Protecting, ::Init, s, history)
     S = length(s) ÷ 2
@@ -144,12 +174,13 @@ end
 function _protected_step(form, v, Su, V, σ, N, α, r)
     P = Su + σ * V
     y, _ = forward(form, Step(), v, P, N, α)
-    if P > 0
-        q = y / P
-        S′, V′ = Su - q * Su, V - q * σ * V
-    else
-        S′, V′ = Su - y, V
-    end
+    # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
+    # division keeps the unused arm finite. The arm follows the primal `P`,
+    # so a dual `P` with value zero takes the arm without the division.
+    on = _primal_value(P) > 0
+    q = y / ifelse(on, P, one(P))
+    S′ = ifelse(on, Su - q * Su, Su - y)
+    V′ = ifelse(on, V - q * σ * V, V)
     mr = _removal(r, S′)
     return y, S′ - mr, V′ + mr
 end
@@ -182,13 +213,14 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
         P = Su + σ * V
         y, _ = forward(m.form, Step(), v[k], P, N, α)
         ȳ, S̄″, V̄″ = v̄[k], s̄[k], s̄[S + k]
-        q = P > 0 ? y / P : zero(y)
-        S′ = P > 0 ? Su - q * Su : Su - y
+        on = _primal_value(P) > 0
+        q = on ? y / P : zero(y)
+        S′ = on ? Su - q * Su : Su - y
         r̄, S̄m = _removal_pullback(r, S′, V̄″ - S̄″)
         _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
         S̄′ = S̄″ + S̄m
         V̄′ = V̄″
-        if P > 0
+        if on
             q̄ = -S̄′ * Su - V̄′ * σ * V
             S̄u = S̄′ * (1 - q)
             V̄v = V̄′ * (1 - q * σ)
@@ -200,9 +232,9 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
             ȳ -= S̄′
             P̄ = zero(S̄′)
         end
-        v̄k, P̄f, N̄, ᾱ = pullback!(
+        v̄k, P̄f, N̄, ᾱ = _form_pullback(
             (; piece = cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
-            Step(), v[k], P, N, α
+            v[k], P, N, α
         )
         P̄ += P̄f
         add_param!(cotangent(m̄, :N), m.N, N̄, k, t)

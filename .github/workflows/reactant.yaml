@@ -2,13 +2,21 @@
 name: Reactant
 
 # Runs the Reactant support matrix in test/reactant/ on the CPU backend.
-# Reactant support is measured, not required, so the job never blocks.
+# Reactant support is measured, not required, so it does not run on pull
+# requests. It runs weekly as well as on main, so a Reactant or Enzyme
+# release that changes what works shows up without a package change.
+# The job fails when any cell's status differs from the committed
+# results.tsv (test/reactant/compare.jl), with the changed cells in the job
+# summary; the committed results are checked against expected.jl in the
+# main test suite.
 # The steps mirror `task test-reactant` but call Julia directly, so the job
 # does not depend on the managed Taskfile.
 
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +26,6 @@ concurrency:
 jobs:
   reactant:
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 180
     env:
       REACTANT_BACKENDS: cpu
@@ -29,9 +36,22 @@ jobs:
           version: '1.12'
       - uses: julia-actions/cache@v3
       - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+      # Moved, so a run that writes no results fails the comparison.
+      - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
+      # The test set marks expected failures broken, so an unexpected pass
+      # fails this step; the comparison below reports which cells changed.
       - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
+        continue-on-error: true
+      - name: Compare with the committed results
+        run: |
+          julia --startup-file=no test/reactant/compare.jl \
+            "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: reactant-results
-          path: test/reactant/RESULTS.md
+          path: |
+            test/reactant/RESULTS.md
+            test/reactant/results.tsv

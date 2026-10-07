@@ -36,11 +36,15 @@ parameter form, including forms added later.
 - `t`: the absolute time.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 x = TimeVarying(PerStratum([1.0 2.0; 3.0 4.0]))
-CR.param(x, 2, 1), CR.param(2 * Derived(sqrt, x), 2, 1)
+CR.param(x, 2, 1), round(CR.param(2 * Derived(sqrt, x), 2, 1); digits = 3)
+
+# output
+
+(3.0, 3.464)
 ```
 """
 function param end
@@ -73,12 +77,19 @@ A `nothing` mirror takes nothing.
 - `t`: the absolute time.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 x̄ = (; x = zeros(3))
 CR.add_param!(x̄, TimeVarying([1.0, 2.0, 3.0]), 0.5, 1, 2)
 x̄.x
+
+# output
+
+3-element Vector{Float64}:
+ 0.0
+ 0.5
+ 0.0
 ```
 """
 function add_param! end
@@ -107,7 +118,10 @@ function _check_param(
 end
 function _check_param(name, x::TimeVarying{Primary})
     throw(
-        ArgumentError("$name: Primary() indexing is only meaningful for a kernel")
+        ArgumentError(
+            "$name: Primary() indexing is only meaningful for a kernel; " *
+                "got $(_describe(x))"
+        )
     )
 end
 function _check_param(name, x)
@@ -115,8 +129,8 @@ function _check_param(name, x)
         ArgumentError(
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, or " *
-                "TimeVarying(PerStratum($name)) strata × time; not a " *
-                "$(typeof(x))"
+                "TimeVarying(PerStratum($name)) strata × time; got " *
+                _describe(x)
         )
     )
 end
@@ -162,10 +176,15 @@ population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
 The default form of [`ComposableRecurrences.Depletion`](@ref).
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+round(y; digits = 3), round(s; digits = 3)
+
+# output
+
+(1.584, 78.416)
 ```
 """
 struct Hazard end
@@ -187,10 +206,14 @@ the value drawn and ``s'`` the pool after the step.
 The pool can go negative, and then the floor applies.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 CR.forward(CR.Floor(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+
+# output
+
+(1.6, 78.4)
 ```
 """
 struct Floor end
@@ -218,6 +241,8 @@ population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
 [`ComposableRecurrences.Floor`](@ref), or a new type with that method.
+A new form without a `pullback!` is differentiated locally with
+`ForwardDiff` in ``(v, s, N, \alpha)`` and its own float scalars.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -239,12 +264,25 @@ pool starts at.
   or `nothing` for none.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 seed = [1.0, 2.0]
 depletion = CR.Depletion(100.0; pool0 = 100.0 - sum(seed))
-Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+y = Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+round.(y; digits = 3)
+
+# output
+
+8-element Vector{Float64}:
+  2.867
+  4.472
+  6.344
+  8.541
+ 10.342
+ 11.087
+ 10.29
+  8.287
 ```
 """
 struct Depletion{F, P, A, P0, R, V}
@@ -280,7 +318,10 @@ function Depletion(
         _float_param(_check_constant(:pool0, pool0))
     removals = removals === nothing ? nothing : _check_param(:removals, removals)
     protected === nothing || protected isa Protected || throw(
-        ArgumentError("protected is a Protected pool or nothing")
+        ArgumentError(
+            "protected must be a Protected pool or nothing, got " *
+                _describe(protected)
+        )
     )
     return Depletion(
         N, form, _exponent(heterogeneity, N), pool0, removals, protected
@@ -292,7 +333,7 @@ function _check_form(form::F) where {F}
     hasmethod(forward, Tuple{F, Step, Float64, Float64, Float64, Float64}) ||
         throw(
         ArgumentError(
-            "$F is not a depletion form: a form implements " *
+            "$(_describe(form)) is not a depletion form: a form implements " *
                 "forward(form, Step(), v, s, N, α) -> (y, s′)"
         )
     )
@@ -301,11 +342,11 @@ end
 
 # The population and starting pool are per stratum, not over time.
 _check_constant(name, x) = _check_param(name, x)
-function _check_constant(name, ::TimeVarying)
+function _check_constant(name, x::TimeVarying)
     throw(
         ArgumentError(
             "$name is one value or PerStratum($name); it does not vary over " *
-                "time"
+                "time, got $(_describe(x))"
         )
     )
 end
@@ -314,13 +355,26 @@ _float_param(x::Real) = float(x)
 _float_param(x::PerStratum) = PerStratum(float(x.x))
 
 # An integer exponent takes the population's float type, so it has a
-# cotangent and a Float32 population stays Float32.
-_exponent(α::Integer, N) = convert(float(param_eltype(N)), α)
+# cotangent and a Float32 population stays Float32. A dual population gives
+# its primal type: a dual exponent with zero partials makes
+# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool.
+_exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
 _exponent(α, N) = α
 
 function forward(::Hazard, ::Step, v, s, N, α)
-    x = v / N * (s / N)^(α - 1)
+    x = v / N * _pool_power(s / N, α - 1)
     return -s * expm1(-x), s * exp(-x)
+end
+
+# `r^e` for the share of the pool left. With a dual exponent the tangent
+# at an empty pool is `log(0) * ė`; the pullback sets the exponent's
+# cotangent to zero there, so the power takes the primal exponent. A NaN
+# share keeps the dual power, so its NaN reaches the tangent. A dual
+# exponent is never traced, so a branch computes only one power.
+_pool_power(r, e) = r^e
+function _pool_power(r, e::ForwardDiff.Dual)
+    _primal_value(r) <= 0 || return r^e
+    return convert(promote_type(typeof(r), typeof(e)), r^_primal_value(e))
 end
 
 function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
@@ -332,7 +386,7 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     x̄ = s * e * (ȳ - s̄′)
     s̄ = -ȳ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = r > 0 ? x̄ * x * log(r) : zero(x̄ * x)
+    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : x̄ * x * log(r)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
@@ -391,9 +445,9 @@ end
 
 function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
     m̄ = grads.piece
-    v̄, s̄, N̄, ᾱ = pullback!(
+    v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        Step(), v, s, param(m.N, k, t), m.heterogeneity
+        v, s, param(m.N, k, t), m.heterogeneity
     )
     add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -428,11 +482,18 @@ The state is unused.
 - `b`: the values to add.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
+
+# output
+
+3-element Vector{Float64}:
+ 3.0
+ 2.88
+ 4.598912
 ```
 """
 struct Add{B}
@@ -487,12 +548,19 @@ input, so the `add` values move too.
 - `ε`: the origin intensity.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 K = [0.0 0.3; 0.2 0.0]
 r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
-r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+y = r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
+round.(y; digits = 3)
+
+# output
+
+2×5 Matrix{Float64}:
+ 1.176  1.28  1.445  1.604  1.796
+ 0.024  0.04  0.067  0.095  0.131
 ```
 """
 struct Redistribute{K <: AbstractMatrix, E}
@@ -585,10 +653,18 @@ The state is unused.
 - `hi`: the upper bound.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
+
+# output
+
+4-element Vector{Float64}:
+ 2.0
+ 4.0
+ 5.0
+ 5.0
 ```
 """
 struct Clamp{L, H}
@@ -623,6 +699,7 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
 end
 
 # The built-in modifiers and depletion forms carry their adjoints; a
-# depletion does when its form does.
+# depletion does when its form does or the form's local derivative covers
+# it (see `_form_pullback`).
 uses_adjoint(::Union{Hazard, Floor, Add, Redistribute, Clamp}, ::Step) = true
-uses_adjoint(m::Depletion, ::Step) = uses_adjoint(m.form, Step())
+uses_adjoint(m::Depletion, ::Step) = _form_adjoint(m.form)

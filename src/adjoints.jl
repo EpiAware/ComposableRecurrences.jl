@@ -28,10 +28,21 @@ Plain `Enzyme` reverse AD of a sparse coupling is wrong, so an active sparse
 coupling under `NoAdjoint` throws an `ArgumentError` with `Enzyme`.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 r = Recurrence([0.2, 0.3, 0.5])
-ComposableRecurrences.NoAdjoint(r)(fill(1.1, 6); history = ones(3))
+y = ComposableRecurrences.NoAdjoint(r)(fill(1.1, 6); history = ones(3))
+round.(y; digits = 3)
+
+# output
+
+6-element Vector{Float64}:
+ 1.1
+ 1.122
+ 1.16
+ 1.23
+ 1.271
+ 1.323
 ```
 """
 struct NoAdjoint{O}
@@ -87,21 +98,31 @@ loop, logged once per operator type.
 - `role`: the role.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 CR.uses_adjoint(Recurrence([0.5, 0.5]), CR.Run())
+
+# output
+
+true
 ```
 """
 uses_adjoint(piece, role) = false
 
 # The entry point: the rule path when the operator uses its adjoint and
 # every float leaf is IEEE, else plain AD. Both decisions are made from the
-# types, so the route is static.
+# types, so the route is static. A modifier left to the default pullback is
+# also checked by value to rebuild from its parameters (`_rebuilds`); this
+# folds to `true` for operators without one.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 _route_val(op, args...) = Val(uses_adjoint(op, Run()) && _gate(op, args...))
-_route(::Val{true}, op, args...) = _ad(op, args...)
+function _route(::Val{true}, op, args...)
+    _rebuilds(op) && return _ad(op, args...)
+    _note_plain_type(typeof(op))
+    return _plain(op, args...)
+end
 function _route(::Val{false}, op, args...)
     _note_plain(op)
     return _plain(op, args...)
@@ -133,7 +154,8 @@ end
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; dual numbers, BigFloat and other
-# arrays take the plain path, as do abstractly typed fields. `_ok` is one
+# arrays take the plain path, as do abstractly typed fields. Integer arrays
+# of any type, such as index ranges, and arrays of them carry no tangent. `_ok` is one
 # closed function of the types (nothing extends it), evaluated once per
 # signature by a generated function: inference does not constant-fold the
 # recursion, and an unfolded gate costs a dynamic dispatch on every call
@@ -144,6 +166,7 @@ function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true
     T <: Union{Integer, Nothing, Symbol} && return true
     T <: Real && return false
+    T <: AbstractArray{<:Integer} && return true
     T <: Array && return _ok(eltype(T))
     T <: SparseMatrixCSC && return _ok(eltype(T))
     T <: Diagonal && return _ok(fieldtype(T, :diag))
@@ -182,9 +205,15 @@ there is no cotangent.
 - `name`: the field.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 ComposableRecurrences.cotangent((; K = zeros(2)), :K)
+
+# output
+
+2-element Vector{Float64}:
+ 0.0
+ 0.0
 ```
 """
 cotangent(::Nothing, name::Symbol) = nothing
@@ -209,11 +238,17 @@ nothing for `nothing`.
 - `idx`: the index into an array mirror.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 x̄ = zeros(2)
 ComposableRecurrences.add_cotangent!(x̄, 1.5, 2)
 x̄
+
+# output
+
+2-element Vector{Float64}:
+ 0.0
+ 1.5
 ```
 """
 add_cotangent!(::Nothing, v, idx...) = nothing
@@ -268,7 +303,7 @@ loaded (`test_reverse`, with the operator active and constant).
 - `args`: the positional arguments.
 
 # Examples
-```@example
+```julia
 using ComposableRecurrences
 methods(ComposableRecurrences.test_adjoint)
 ```

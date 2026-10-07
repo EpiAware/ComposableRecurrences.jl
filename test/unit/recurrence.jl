@@ -242,6 +242,13 @@ end
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = ones(2, 2))
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = 0.5I)
     @test_throws ArgumentError Recurrence(nothing)
+    @test_throws "got nothing" Recurrence(nothing)
+    @test_throws ["coupling must be I, got", "UniformScaling{Float64}(0.5)"] Recurrence(
+        Pairwise(ones(2, 2, 3)); coupling = 0.5I
+    )
+    @test_throws "not coupling = Pairwise(2×2×3 Array{Float64, 3})" Recurrence(
+        g; coupling = Pairwise(ones(2, 2, 3))
+    )
     # No time-indexed input: stop is required.
     @test_throws ArgumentError Recurrence(g)(1.0; history = ones(3))
     # Inputs of different lengths need stop, and must cover it.
@@ -256,6 +263,10 @@ end
     @test_throws ArgumentError Recurrence(ones(2, 3))
     @test_throws ArgumentError Recurrence(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Recurrence(PerStratum(ones(2, 3, 4)))
+    @test_throws "got 2×3 Matrix{Float64}" Recurrence(ones(2, 3))
+    @test_throws "got PerStratum(2×3×4 Array{Float64, 3})" Recurrence(
+        PerStratum(ones(2, 3, 4))
+    )
     # A Primary kernel needs its seed at times from 1; Primary is not a
     # coupling's meaning.
     @test_throws ArgumentError Recurrence(
@@ -265,14 +276,24 @@ end
         g; coupling = TimeVarying(ones(2, 2, 4), ComposableRecurrences.Primary())
     )
     @test_throws ArgumentError Recurrence(g; coupling = TimeVarying(ones(2, 4)))
+    @test_throws "got TimeVarying(2×4 Matrix{Float64}, Secondary())" Recurrence(
+        g; coupling = TimeVarying(ones(2, 4))
+    )
     # Call inputs are data, never wrapped.
     @test_throws ArgumentError Recurrence(g)(TimeVarying(ones(5)); history = ones(3))
+    @test_throws "got TimeVarying(5-element" Recurrence(g)(
+        TimeVarying(ones(5)); history = ones(3)
+    )
     # A seed or a state, and a resumed call starts where it left off.
     y, state = ComposableRecurrences.with_state(
         Recurrence(g), ones(5); history = ones(3), stop = 2
     )
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), state)
-    @test_throws ArgumentError Recurrence(g)(ones(5); state, start = 3)
+    @test_throws "not both; got history = 3-element" Recurrence(g)(
+        ones(5); history = ones(3), state
+    )
+    @test_throws "state.t = 3, not start = 4" Recurrence(g)(ones(5); state, start = 4)
+    @test Recurrence(g)(ones(5); state, start = 3) == Recurrence(g)(ones(5); state)
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), start = 0)
     @test_throws DimensionMismatch Recurrence(g; coupling = ones(3, 3))(
         ones(2, 5); history = ones(2, 3)
@@ -319,6 +340,32 @@ end
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
     @test r1(R[1, :]; state = st) ≈ full1[7:end]
+end
+
+@testitem "Recurrence: a resumed state has nstate entries per modifier" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
+    @test CR.nstate(d, 2) == 4
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
+    R, h = fill(1.1, 2, 6), ones(2, 2)
+    y, state = CR.with_state(r, R; history = h, stop = 3)
+    @test length.(state.states) == (2, 4)
+    @test r(R; state) ≈ r(R; history = h)[:, 4:end]
+    # A state of the wrong length names the modifier and both lengths.
+    bad = CR.State(state.history, (state.states[1], state.states[2][1:2]), state.t)
+    err = try
+        r(R; state = bad)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("modifier 2 (Depletion)", err.msg)
+    @test occursin("length 2", err.msg)
+    @test occursin("nstate(m, 2) = 4", err.msg)
+    bad = CR.State(state.history, (state.states[1][1:1], state.states[2]), state.t)
+    @test_throws ArgumentError r(R; state = bad)
 end
 
 @testitem "Recurrence: absolute time and start" setup = [Reference, TestModifiers] begin
@@ -405,30 +452,90 @@ end
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
 
-@testitem "seeded matches its expansion" begin
+@testitem "prepend returns the history then the run" begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
     d = CR.Depletion(80.0; pool0 = 71.0)
     r = Recurrence(g; modifiers = (d,))
-    # A single series, and strata with a seed shorter than the kernel.
+    # A single series, and strata with a seed shorter than the kernel; the
+    # seed before time 1 or at times 1 to m.
     for (h, R) in (
-            ([2.0, 3.0, 4.0], [0.0, 0.0, 0.0, 2.5, 2.2, 1.8, 1.5, 1.2]),
-            ([1.0 2.0; 0.5 1.0], fill(1.8, 2, 7)),
-        )
-        m = size(h, ndims(h))
-        expansion(h, R) = cat(h, r(R; history = h, start = m + 1); dims = ndims(h))
-        @test CR.seeded(r, R; history = h) == expansion(h, R)
-        @test size(CR.seeded(r, R; history = h)) == size(R)
+                ([2.0, 3.0, 4.0], [0.0, 0.0, 0.0, 2.5, 2.2, 1.8, 1.5, 1.2]),
+                ([1.0 2.0; 0.5 1.0], fill(1.8, 2, 7)),
+            ), start in (1, size(h, ndims(h)) + 1)
+        expansion(h, R) = cat(h, r(R; history = h, start); dims = ndims(h))
+        seeded(h, R) = r(R; history = h, start, prepend = true)
+        @test seeded(h, R) == expansion(h, R)
+        @test CR.NoAdjoint(r)(R; history = h, start, prepend = true) ≈ expansion(h, R)
+        y, st = CR.with_state(r, R; history = h, start, prepend = true)
+        @test y == expansion(h, R)
+        @test st.t == size(R, ndims(R)) + 1
+        yn, stn = @inferred CR.with_state(CR.NoAdjoint(r), R; history = h, start, prepend = true)
+        @test yn ≈ y
+        @test stn.history ≈ st.history && stn.t == st.t
         loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
         θ = vcat(vec(h), vec(R))
-        @test ForwardDiff.gradient(loss((h, R) -> CR.seeded(r, R; history = h)), θ) ≈
-            ForwardDiff.gradient(loss(expansion), θ)
+        @test ForwardDiff.gradient(loss(seeded), θ) ≈ ForwardDiff.gradient(loss(expansion), θ)
     end
-    # Keywords pass through to the call.
+    # With the seed at times 1 to m the result is as long as the inputs.
+    @test size(@inferred r(fill(1.8, 2, 7); history = ones(2, 2), start = 3, prepend = true)) ==
+        (2, 7)
+    @test length(@inferred r(fill(1.8, 7); history = [1, 2], prepend = true)) == 9
+    # There is nothing to prepend to a resumed call.
+    _, st = CR.with_state(r, ones(8); history = ones(3), stop = 4)
+    @test_throws "needs a history" r(ones(8); state = st, prepend = true)
+    @test_throws TypeError r(ones(8); history = ones(3), prepend = 1)
+end
+
+@testitem "start = nothing names the default to use" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    r = Recurrence([0.5, 0.5])
+    _, st = CR.with_state(r, ones(6); history = ones(2), stop = 3)
+    for call in (
+            () -> r(ones(6); history = ones(2), start = nothing),
+            () -> r(ones(6); state = st, start = nothing),
+            () -> CR.with_state(r, ones(6); history = ones(2), start = nothing),
+            () -> CR.forward(r, CR.Run(), ones(6); start = nothing),
+        )
+        @test_throws ArgumentError call()
+        @test_throws "leave start out" call()
+    end
+end
+
+@testitem "seeded is deprecated for prepend" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    r = Recurrence([0.5])
     ϵ = collect(0.1:0.1:0.8)
-    @test CR.seeded(Recurrence([0.5]), 1.0; history = [1.0], add = ϵ) ==
-        vcat(1.0, Recurrence([0.5])(1.0; history = [1.0], add = ϵ, start = 2))
+    y = @test_deprecated CR.seeded(r, 1.0; history = [1.0], add = ϵ)
+    @test y == vcat(1.0, r(1.0; history = [1.0], add = ϵ, start = 2))
+end
+
+@testitem "exponential_history" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    @test CR.exponential_history(5.0, 0.1, 3) ≈ 5.0 .* exp.(0.1 .* [-2, -1, 0])
+    @test CR.exponential_history(2, 0.0, 1) == [2.0]
+    # One row per stratum, with a shared or a per-stratum rate.
+    I0, r = [1.0, 4.0], [0.1, -0.2]
+    H = CR.exponential_history(I0, r, 4)
+    @test size(H) == (2, 4)
+    @test H[2, :] ≈ CR.exponential_history(4.0, -0.2, 4)
+    @test CR.exponential_history(I0, 0.1, 4)[1, :] ≈ CR.exponential_history(1.0, 0.1, 4)
+    @test_throws "not L = 0" CR.exponential_history(1.0, 0.1, 0)
+    # A constant reproduction number at the matching growth rate keeps the
+    # run on the seed's growth path.
+    g = [0.2, 0.5, 0.3]
+    rate = 0.15
+    R = 1 / sum(g[l] * exp(-rate * l) for l in 1:3)
+    y = Recurrence(g)(fill(R, 6); history = CR.exponential_history(5.0, rate, 3))
+    @test y ≈ 5.0 .* exp.(rate .* (1:6))
+    @test ForwardDiff.derivative(r -> sum(CR.exponential_history(5.0, r, 3)), 0.1) ≈
+        sum(5.0 .* [-2, -1, 0] .* exp.(0.1 .* [-2, -1, 0]))
+    @inferred CR.exponential_history(5.0, 0.1, 3)
+    @inferred CR.exponential_history(I0, r, 3)
 end
 
 @testitem "Recurrence: history loads the same into any buffer" begin
@@ -447,4 +554,23 @@ end
             @test CR._load_history!(alt, src, L) == CR._load_history!(buf, src, L)
         end
     end
+end
+
+@testitem "Error messages describe wrapped values by size and type" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    @test CR._describe(0.5) == "0.5"
+    @test CR._describe(0:1) == "0:1"
+    @test CR._describe(ones(2, 3)) == summary(ones(2, 3))
+    @test CR._describe(PerStratum(ones(2, 3))) ==
+        "PerStratum($(summary(ones(2, 3))))"
+    @test CR._describe(Pairwise(ones(2, 2, 3))) ==
+        "Pairwise($(summary(ones(2, 2, 3))))"
+    @test CR._describe(TimeVarying(ones(2, 4))) ==
+        "TimeVarying($(summary(ones(2, 4))), Secondary())"
+    @test CR._describe(TimeVarying(ones(2, 4), CR.Primary())) ==
+        "TimeVarying($(summary(ones(2, 4))), Primary())"
+    @test_throws "only meaningful for a kernel; got TimeVarying(" CR._check_times(
+        :x, TimeVarying(ones(2, 4), CR.Primary()), 4
+    )
 end

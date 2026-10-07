@@ -27,7 +27,7 @@
 
     # I_{g,t} = R_{g,t} Σ_h K_{gh} Σ_i g_i I_{h,t-i}: K couples the strata
     # after the generation-interval convolution.
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g), K), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function mixed(K, Rt)
         return Recurrence(g; coupling = K)(Rt; history = window)
     end
@@ -60,7 +60,7 @@ end
 
     # The gravity K is built by the caller and is differentiable through the
     # coupling slot; depletion takes one population per stratum.
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function coupled(θ)
         depletion = ComposableRecurrences.Depletion(
             PerStratum(N), ComposableRecurrences.Floor()
@@ -89,7 +89,7 @@ end
     )
 
     # `PerStratum` takes a strata × lags kernel, one row per stratum.
-    window = C.renewal_window(step(G), G, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, size(G, 2))
     function per_stratum(G)
         r = Recurrence(PerStratum(G); coupling = K)
         return r(Rt; history = window)
@@ -126,7 +126,7 @@ end
 
     # A strata × strata × lags kernel carries the intervals and the mixing,
     # lag 1 at `[:, :, 1]`, so the coupling stays `I`.
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function per_pair(K)
         r = Recurrence(Pairwise(pairwise(K)))
         return r(Rt; history = window)
@@ -152,7 +152,7 @@ end
     )
     Rt = fill(1.2, 3, T)
     w = reshape(range(0.5, 2.0; length = length(Rt)), size(Rt))
-    window = C.renewal_window(C.ConstantRenewalStep(reverse(g)), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     ref_renewal(Ks) = C.time_varying_mixing_renewal(reverse(g), Ks, window, Rt)
     ref = ref_renewal(Ks)
     ∇ref = ForwardDiff.gradient(
@@ -207,7 +207,7 @@ end
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
         r = Recurrence(g; modifiers = (importation, depletion))
-        return ComposableRecurrences.seeded(r, Rt; history = seeds)
+        return r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)
     end
     @test patch(K, TimeVarying(PerStratum(ε)), N) ≈ ref
     function loss(θ)
@@ -275,7 +275,7 @@ end
 
     # The mixing is the coupling, the pool is per stratum, and the imports
     # are per stratum and day: `Add` after the depletion, or `add` before it.
-    window = C.renewal_window(core(K), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function after(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
             PerStratum(N), ComposableRecurrences.Floor()

@@ -25,10 +25,9 @@
     θ0 = vcat(ρ, ϵ)
     ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_chain(θ[1:2], θ[3:end])), θ0)
 
-    window = C.renewal_window(step, g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function chain(ρ, ϵ)
-        ar = Recurrence(ρ)
-        log_Rt = vcat(init, ar(1.0; history = init, add = ϵ))
+        log_Rt = Recurrence(ρ)(1.0; history = init, add = ϵ, prepend = true)
         depletion = ComposableRecurrences.Depletion(
             N, ComposableRecurrences.Floor()
         )
@@ -61,7 +60,7 @@ end
             N; pool0 = max(N - sum(seed), 0)
         )
         renewal = Recurrence(g; modifiers = (depletion,))
-        infections = ComposableRecurrences.seeded(renewal, Rt; history = seed)
+        infections = renewal(Rt; history = seed, start = length(seed) + 1, prepend = true)
         return Convolution(delay)(infections)
     end
     @test chain(Rt) ≈ ref

@@ -438,10 +438,11 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
 
 Whether the loaded ComposableRecurrences can run case `c` in arm `arm`.
 The benchmark history workflow builds the cases against older releases.
-The `NoAdjoint` arm also needs the analytic adjoint (`uses_adjoint`).
+The `NoAdjoint` and `local` arms also need the analytic adjoint
+(`uses_adjoint`).
 """
 function available(c::Case, arm::AbstractString = "rule")
-    extra = arm == "NoAdjoint" ? _TWIN_REQUIRES : ()
+    extra = arm in ("NoAdjoint", "local") ? _TWIN_REQUIRES : ()
     return supports(get(REQUIRES, c.name, ())..., extra...)
 end
 
@@ -506,16 +507,61 @@ end
 # Baseline arms without the package, by case name: `arm => builder(z)`.
 const BASELINES = Dict{String, Vector{Pair{String, Function}}}()
 
-"The arms of case `c`: `rule`, `NoAdjoint` and its baselines."
-arms(c::Case) = vcat(["rule", "NoAdjoint"], first.(get(BASELINES, c.name, [])))
+"""
+A pointwise modifier with its hand-written `pullback!` hidden, so the rule
+differentiates its step locally with `ForwardDiff` in its place.
+"""
+struct LocalStep{M}
+    m::M
+end
+# Older releases, which the history workflow loads, have no adjoints.
+if supports(_TWIN_REQUIRES...)
+    _inner(grads) = merge(grads, (; piece = CR.cotangent(grads.piece, :m)))
+    CR.ispointwise(::LocalStep) = true
+    CR.uses_adjoint(::LocalStep, ::CR.Step) = true
+    CR.forward(w::LocalStep, ::CR.Init, s, h) = CR.forward(w.m, CR.Init(), s, h)
+    function CR.pullback!(grads, w::LocalStep, ::CR.Init, s, h)
+        return CR.pullback!(_inner(grads), w.m, CR.Init(), s, h)
+    end
+    function CR.forward(w::LocalStep, ::CR.Step, v, s, t, k)
+        return CR.forward(w.m, CR.Step(), v, s, t, k)
+    end
+end
+
+# The `local` arm's wrap: each pointwise modifier with a hand-written
+# `pullback!` is differentiated locally instead, the rest of the rule kept.
+_hide(m) = CR.ispointwise(m) && CR.uses_adjoint(m, CR.Step()) ? LocalStep(m) : m
+_local(r::Recurrence) = Recurrence(r.kernel, r.coupling, map(_hide, r.modifiers))
+_local(op) = op
+
+# Cases with a pointwise modifier that has a hand-written `pullback!`: they
+# also run the `local` arm.
+const LOCAL_CASES = Set(
+    [
+        "overview", "renewal_depletion", "strata_mixing", "strata_independent",
+        "zones_sparse", "bvd_patch",
+    ]
+)
 
 """
-`(f, θ)` for case `c` at size `z` in arm `arm`: `\"rule\"`, `\"NoAdjoint\"`
-or one of its baselines.
+The arms of case `c`: `rule`, `NoAdjoint`, `local` where the case has a
+pointwise modifier with a hand-written `pullback!`, and its baselines.
+"""
+function arms(c::Case)
+    return vcat(
+        ["rule", "NoAdjoint"], c.name in LOCAL_CASES ? ["local"] : String[],
+        first.(get(BASELINES, c.name, []))
+    )
+end
+
+"""
+`(f, θ)` for case `c` at size `z` in arm `arm`: `\"rule\"`, `\"NoAdjoint\"`,
+`\"local\"` or one of its baselines.
 """
 function build(c::Case, z::Size, arm::AbstractString)
     arm == "rule" && return c.loss(identity, z)
     arm == "NoAdjoint" && return c.loss(NoAdjoint, z)
+    arm == "local" && return c.loss(_local, z)
     return Dict(get(BASELINES, c.name, []))[arm](z)
 end
 

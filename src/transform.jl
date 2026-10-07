@@ -51,7 +51,7 @@ forward-mode derivative or `derivative`.
 - `derivative`: the derivative of `f`, or `nothing` for the local one.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 # Iterate a probability generating function, q_t = G(q_{t-1}) from q_0 = 0:
@@ -59,15 +59,33 @@ CR = ComposableRecurrences
 # died out by generation t.
 G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
 q = CR.Transform(G, (; r = 0.5, p = 0.4))
-Recurrence([1.0]; modifiers = (q,))(; history = [0.0], stop = 6)
+y = Recurrence([1.0]; modifiers = (q,))(; history = [0.0], stop = 6)
+round.(y; digits = 3)
+
+# output
+
+6-element Vector{Float64}:
+ 0.632
+ 0.803
+ 0.879
+ 0.92
+ 0.945
+ 0.961
 ```
 
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 # One saturation level per stratum.
 sat = CR.Transform((v, c) -> c * v / (c + v), PerStratum([5.0, 20.0]))
-Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2))
+y = Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2))
+round.(y; digits = 3)
+
+# output
+
+2×6 Matrix{Float64}:
+ 1.154  1.221  1.313  1.377  1.438  1.484
+ 1.395  1.648  2.049  2.435  2.879  3.324
 ```
 """
 struct Transform{F, P, D}
@@ -198,7 +216,7 @@ function _transform_partials(
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
 
-@implements PieceInterface{(:pointwise,)} Transform [
+@implements PieceInterface{(:pointwise, :nstate)} Transform [
     Arguments(;
         piece = Transform(
             (v, θ) -> θ.a * v + θ.b, (; a = PerStratum([0.5, 2.0]), b = 0.1)

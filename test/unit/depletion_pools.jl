@@ -195,6 +195,49 @@ end
     @test c.v && c.s && c.θ
 end
 
+@testitem "Depletion pools: an empty pool with a tangent under ForwardDiff" setup = [PoolChecks] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # A dual with value zero and non-zero partials compares above zero, so
+    # the step must pick its arm on the value and not divide by zero.
+    P = ForwardDiff.Dual(0.0, 1.0, 0.4)
+    y, S′, V′ = CR._protected_step(CR.Hazard(), 2.0, P, 0.0, 0.3, 100.0, 1.0, 0.0)
+    @test all(isfinite, ForwardDiff.partials(S′))
+    @test ForwardDiff.value(S′) == 0
+    @test S′ == P - y
+    @test V′ == 0
+    # Both pools start empty with sizes set by parameters.
+    g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
+    W = collect(range(0.5, 1.5; length = 6))
+    function f(θ)
+        d = CR.Depletion(
+            100.0; pool0 = θ[1], protected = CR.Protected(θ[2]; pool0 = θ[3])
+        )
+        return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
+    end
+    ∇ = ForwardDiff.gradient(f, [0.0, 0.3, 0.0])
+    @test all(isfinite, ∇)
+    @test ∇[1] ≈ (f([1.0e-7, 0.3, 0.0]) - f([0.0, 0.3, 0.0])) / 1.0e-7 rtol = 1.0e-5
+    # A seeded pool emptied by removals, with all-or-nothing protection.
+    function fr(θ)
+        d = CR.Depletion(
+            100.0; pool0 = θ[1], removals = TimeVarying(fill(θ[2], 6)),
+            protected = CR.Protected(θ[3])
+        )
+        return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
+    end
+    @test all(isfinite, ForwardDiff.gradient(fr, [3.0, 4.0, 0.0]))
+    # The step's pullback at an empty pool against its local Jacobian.
+    build(θ) = CR.Depletion(
+        θ[1], CR.Floor(); heterogeneity = θ[2],
+        protected = CR.Protected(θ[3]; pool0 = θ[4])
+    )
+    c = PoolChecks.check_vector_pullback(
+        build, [100.0, 1.0, 0.4, 0.0], [2.0], [0.0, 0.0], 1
+    )
+    @test c.v && c.s && c.θ
+end
+
 @testitem "Depletion pools: the initial state and its pullback" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -221,6 +264,9 @@ end
     CR = ComposableRecurrences
     @test_throws ArgumentError CR.Depletion(100.0; removals = [1.0, 2.0])
     @test_throws ArgumentError CR.Depletion(100.0; protected = 0.3)
+    @test_throws "Protected pool or nothing, got 0.3" CR.Depletion(
+        100.0; protected = 0.3
+    )
     @test_throws ArgumentError CR.Protected(TimeVarying([0.1, 0.2]))
     @test_throws ArgumentError CR.Protected([0.1, 0.2])
     d = CR.Depletion(100.0; removals = TimeVarying([1.0, 2.0]))
@@ -273,6 +319,10 @@ end
             removals = TimeVarying(rand(rng, T)), protected = CR.Protected(0.2)
         ),
         CR.Depletion(70.0; protected = CR.Protected(0.4; pool0 = 10.0)),
+        # Both pools start empty.
+        CR.Depletion(
+            70.0, CR.Floor(); pool0 = 0.0, protected = CR.Protected(0.4)
+        ),
     )
     for m in mods
         r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))
@@ -283,4 +333,42 @@ end
     r = Recurrence(g; coupling = K, modifiers = (mods[2],))
     states = ([40.0, 70.0, 5.0, 3.0],)
     @test pullback_matches(r, recargs(R, nothing, h; states)...)
+end
+
+@testitem "Depletion pools: the removal picks its arm as its pullback does" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    using ForwardDiff: Dual, partials
+    xs = (-1.0, -0.0, 0.0, 3.0, 4.0, NaN)
+    for r in xs, s in xs
+        # Float64 values match `min(r, max(s, 0))` bit for bit; a NaN
+        # in either input is returned.
+        @test isequal(CR._removal(r, s), min(r, max(s, zero(s))))
+        r̄, s̄ = CR._removal_pullback(r, s, 1.0)
+        for ṙ in (1.0, -1.0), ṡ in (1.0, -1.0)
+            m = CR._removal(Dual(r, ṙ), Dual(s, ṡ))
+            @test partials(m)[1] == r̄ * ṙ + s̄ * ṡ
+        end
+    end
+    @test CR._removal(false, 2.0) === 0.0
+    @test (@inferred CR._removal(false, 2.0f0)) === 0.0f0
+    @test (@inferred CR._removal(1.0, Dual(0.0, 1.0))) isa Dual
+    # A NaN removal reaches the trajectory.
+    d = CR.Depletion(100.0; pool0 = 3.0, removals = TimeVarying(fill(NaN, 6)))
+    y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 6); history = [5.0])
+    @test any(isnan, y)
+end
+
+@testitem "Depletion pools: removals at an empty pool, reverse against ForwardDiff" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
+    # A seeded pool emptied by removals; with all-or-nothing protection the
+    # pool stays at zero with a tangent from `σ`, a tie in the removal.
+    for protected in (nothing, CR.Protected(0.0))
+        d = CR.Depletion(
+            100.0; pool0 = 3.0, removals = TimeVarying(fill(4.0, 6)), protected
+        )
+        r = Recurrence(g; modifiers = (d,))
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
 end

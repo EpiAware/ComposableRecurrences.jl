@@ -5,8 +5,8 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Add, Clamp, Depletion, Floor, Primary,
-    Redistribute, Step, with_state
+using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Primary,
+    Protected, Redistribute, Step, Transform, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -145,6 +145,43 @@ function mod_depletion_floor(θ)
     return r(θ[(L + 1):end]; history = H1)
 end
 
+# Removals traced as a `TimeVarying` parameter after the kernel and `R`.
+function mod_depletion_removals(θ)
+    rm = TimeVarying(θ[(L + T + 1):end])
+    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0; removals = rm),))
+    return r(θ[(L + 1):(L + T)]; history = H1)
+end
+
+# `σ` is a constant: `Protected` takes one value or `PerStratum`, and a
+# traced scalar is not a `Real`.
+const σ0 = 0.3
+
+function mod_depletion_protected(θ)
+    rm = TimeVarying(θ[(L + T + 1):end])
+    d = Depletion(N0; removals = rm, protected = Protected(σ0))
+    r = Recurrence(θ[1:L]; modifiers = (d,))
+    return r(θ[(L + 1):(L + T)]; history = H1)
+end
+
+# Strata 1 and 2 share a total, stratum 3 has its own.
+const GROUPS = [1:2, 3:3]
+
+function mod_allocate(θ)
+    R = reshape(θ[1:(S * T)], S, T)
+    tot = TimeVarying(PerStratum(reshape(θ[(S * T + 1):end], 2, T)))
+    r = Recurrence(g0; modifiers = (Allocate(GROUPS, tot),))
+    return r(R; history = HS)
+end
+
+# A saturating map with a traced, time-varying saturation level.
+saturate(v, c) = c * v / (c + v)
+
+function mod_transform(θ)
+    c = TimeVarying(θ[(L + T + 1):end])
+    r = Recurrence(θ[1:L]; modifiers = (Transform(saturate, c),))
+    return r(θ[(L + 1):(L + T)]; history = H1)
+end
+
 function mod_add(θ)
     b = TimeVarying(θ[(L + T + 1):end])
     r = Recurrence(θ[1:L]; modifiers = (Add(b),))
@@ -238,6 +275,24 @@ const CASES = [
     Case(
         "mod_depletion_floor", "Recurrence with Depletion (Floor)",
         mod_depletion_floor, vcat(g0, 1.5 .* R0), W1
+    ),
+    Case(
+        "mod_depletion_removals", "Recurrence with Depletion (removals)",
+        mod_depletion_removals,
+        vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
+    ),
+    Case(
+        "mod_depletion_protected", "Recurrence with Depletion (Protected)",
+        mod_depletion_protected,
+        vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
+    ),
+    Case(
+        "mod_allocate", "Recurrence with Allocate", mod_allocate,
+        vcat(vec(RS0), vec([4.0 + 0.2 * t + p for p in 1:2, t in 1:T])), WS
+    ),
+    Case(
+        "mod_transform", "Recurrence with Transform (TimeVarying θ)",
+        mod_transform, vcat(g0, R0, 5.0 .+ 0.1 .* (1:T)), W1
     ),
     Case(
         "mod_add", "Recurrence with Add (TimeVarying)", mod_add,

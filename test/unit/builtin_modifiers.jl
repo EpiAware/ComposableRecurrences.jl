@@ -126,6 +126,7 @@ end
     # not vary over time.
     @test_throws ArgumentError CR.Depletion(N)
     @test_throws ArgumentError CR.Depletion(TimeVarying(N))
+    @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(TimeVarying(N))
     @test_throws ArgumentError CR.Depletion(1.0; pool0 = TimeVarying(N))
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
@@ -155,6 +156,9 @@ end
     @test_throws ArgumentError CR.Add(b[1, :])
     @test_throws ArgumentError CR.Add(b)
     @test_throws ArgumentError CR.Add(TimeVarying(b[1, :], CR.Primary()))
+    @test_throws "only meaningful for a kernel; got TimeVarying(" CR.Add(
+        TimeVarying(b[1, :], CR.Primary())
+    )
     @test_throws DimensionMismatch r(TimeVarying(b[1, :]))(1.1; history = h, stop = 5)
     @test_throws DimensionMismatch r(PerStratum([1.0, 2.0, 3.0]))(
         1.1; history = h, stop = 4
@@ -460,6 +464,7 @@ end
     @test occursin("NotAForm", err.msg) &&
         occursin("forward(form, Step(), v, s, N, α)", err.msg)
     @test_throws ArgumentError CR.Depletion(1.0, :floor)
+    @test_throws ":floor is not a depletion form" CR.Depletion(1.0, :floor)
 end
 
 @testitem "Variants: one path per step" begin
@@ -553,4 +558,43 @@ end
         [100.0, 1.0], [2.0, 5.0], [4.0, 3.0], 1
     )
     @test c.v && c.s && c.θ
+end
+
+@testitem "Depletion: a dual population keeps an integer heterogeneity plain" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    using ForwardDiff: Dual
+    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === 1.0
+    @test CR.Depletion(Dual(100.0f0, 1.0f0); heterogeneity = 2).heterogeneity ===
+        2.0f0
+    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0)).heterogeneity === 1.0
+    @test CR.Depletion(100.0f0).heterogeneity === 1.0f0
+    # A dual exponent at an empty pool takes the primal exponent, as the
+    # pullback gives the exponent no cotangent there.
+    @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
+    @test CR._pool_power(0.5, Dual(2.0, 1.0)) == Dual(0.25, 0.25 * log(0.5))
+    # A NaN share or exponent stays NaN in the value and the tangent.
+    @test all(isnan, ForwardDiff.partials(CR._pool_power(NaN, Dual(1.0, 1.0))))
+    @test isnan(ForwardDiff.value(CR._pool_power(0.0, Dual(NaN, 1.0))))
+    grads = (; v = 1.0, s = 0.0)
+    @test isnan(CR.pullback!(grads, CR.Hazard(), CR.Step(), 1.0, NaN, 1.0, 2.0)[4])
+    @test CR.pullback!(grads, CR.Hazard(), CR.Step(), 1.0, 0.0, 1.0, 2.0)[4] == 0
+    # At an empty pool a dual exponent would give `log(0) * 0 = NaN`.
+    g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
+    W = collect(range(0.5, 1.5; length = 6))
+    pools = (nothing, CR.Protected(0.3))
+    for form in (CR.Hazard(), CR.Floor()), α in (1, 2), protected in pools
+        function f(θ)
+            d = CR.Depletion(
+                θ[1], form; heterogeneity = α, pool0 = θ[2], protected
+            )
+            return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
+        end
+        θ = [100.0, 0.0]
+        ∇ = ForwardDiff.gradient(f, θ)
+        @test all(isfinite, ∇)
+        e = 1.0e-7
+        @test ∇[1] ≈ (f(θ + [e, 0]) - f(θ - [e, 0])) / 2e atol = 1.0e-6
+        @test ∇[2] ≈ (f(θ + [0, e]) - f(θ)) / e rtol = 1.0e-4 atol = 1.0e-6
+    end
 end

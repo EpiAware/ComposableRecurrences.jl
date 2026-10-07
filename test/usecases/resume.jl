@@ -19,7 +19,7 @@
         θ -> sum(w .* C.renewal(ref_step(θ[1]), g, I₀, r, θ[2:end])), θ0
     )
 
-    window = C.renewal_window(ref_step(N), g, I₀, r)
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function renewal(N)
         depletion = ComposableRecurrences.Depletion(
             N, ComposableRecurrences.Floor()

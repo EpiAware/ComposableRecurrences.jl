@@ -1,82 +1,50 @@
-# elapsed_s	4367.156433795
+# elapsed_s	2986.054953232
 status	relerr	compile_s	run_us	plain_us	error	frame	message	name	mode	config	backend	wall
-works	0.0e+00	29.3	7.1	0.1				control	forward	baseline	cpu	47.25125002861023
-works	0.0e+00	35.6	8.5	0.5				control	reverse	baseline	cpu	55.23779106140137
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_single	forward	baseline	cpu	45.19247388839722
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_single	reverse	baseline	cpu	49.22535419464111
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_add	forward	baseline	cpu	49.23347592353821
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_add	reverse	baseline	cpu	46.19691514968872
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_tv_kernel	forward	baseline	cpu	42.160396099090576
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_tv_kernel	reverse	baseline	cpu	55.23995590209961
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_strata_I	forward	baseline	cpu	53.24385619163513
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_strata_I	reverse	baseline	cpu	56.253885984420776
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_dense_K	forward	baseline	cpu	45.20372009277344
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_dense_K	reverse	baseline	cpu	47.18841910362244
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_per_stratum	forward	baseline	cpu	44.18316698074341
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_per_stratum	reverse	baseline	cpu	56.25182390213013
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_pairwise	forward	baseline	cpu	43.169137954711914
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_pairwise	reverse	baseline	cpu	45.199501037597656
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_tv_coupling	forward	baseline	cpu	43.19246006011963
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_tv_coupling	reverse	baseline	cpu	47.19119310379028
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_resume	forward	baseline	cpu	40.17280387878418
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_resume	reverse	baseline	cpu	47.2023549079895
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_pointwise_modifier	forward	baseline	cpu	38.148048877716064
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_pointwise_modifier	reverse	baseline	cpu	45.190227031707764
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_apply_modifier	forward	baseline	cpu	44.198697090148926
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	rec_apply_modifier	reverse	baseline	cpu	46.19801092147827
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	conv_fixed	forward	baseline	cpu	43.206764936447144
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	conv_fixed	reverse	baseline	cpu	48.21683096885681
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	conv_tv_primary	forward	baseline	cpu	46.19697594642639
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	conv_tv_primary	reverse	baseline	cpu	50.25480318069458
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	conv_tv_secondary	forward	baseline	cpu	44.239153146743774
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	conv_tv_secondary	reverse	baseline	cpu	48.234618186950684
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_depletion	forward	baseline	cpu	38.16150712966919
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_depletion	reverse	baseline	cpu	46.19597315788269
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_depletion_floor	forward	baseline	cpu	43.20592904090881
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_depletion_floor	reverse	baseline	cpu	66.34489393234253
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_add	forward	baseline	cpu	60.358234882354736
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_add	reverse	baseline	cpu	51.23837995529175
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_clamp	forward	baseline	cpu	44.19848299026489
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_clamp	reverse	baseline	cpu	44.18600606918335
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_redistribute	forward	baseline	cpu	41.16480994224548
-error	NaN	NaN	NaN	NaN	MethodError	param_eltype	MethodError: no method matching unwrapped_eltype(::Type{Type{Float64}}) The function `unwrapped_eltype` exists, but no method is defined for this combination of argument types. Closest candidates are:   unwrapped_eltype(!Matched::Type{Reactant.TracedRNumber{T}}) where T    @ Reactant ~/.julia/packag	mod_redistribute	reverse	baseline	cpu	45.187854051589966
-works	0.0e+00	26.2	7.3	0.0				control	forward	shims	cpu	42.17323684692383
-works	0.0e+00	30.7	7.0	0.5				control	reverse	shims	cpu	48.19550704956055
-works	2.0e-16	41.4	18.6	0.5				rec_single	forward	shims	cpu	58.240715980529785
-works	4.2e-16	46.0	85.1	13.1				rec_single	reverse	shims	cpu	63.267553091049194
-works	0.0e+00	42.0	19.2	0.5				rec_add	forward	shims	cpu	59.255187034606934
-works	9.3e-17	46.4	55.3	8.7				rec_add	reverse	shims	cpu	64.27592587471008
-works	4.1e-16	37.4	10.2	0.5				rec_tv_kernel	forward	shims	cpu	54.232475996017456
-works	2.6e-16	42.5	83.6	51.2				rec_tv_kernel	reverse	shims	cpu	60.24179196357727
-works	7.1e-17	38.3	41.2	1.3				rec_strata_I	forward	shims	cpu	55.23090100288391
-works	2.4e-16	44.5	192.1	84.4				rec_strata_I	reverse	shims	cpu	62.256468057632446
-works	1.8e-16	40.8	211.8	1.7				rec_dense_K	forward	shims	cpu	58.26016902923584
-works	3.3e-16	52.7	146.9	77.4				rec_dense_K	reverse	shims	cpu	71.2861180305481
-works	7.1e-17	39.6	42.7	1.9				rec_per_stratum	forward	shims	cpu	56.22272992134094
-works	2.6e-16	47.7	361.8	91.0				rec_per_stratum	reverse	shims	cpu	71.29665684700012
-works	1.8e-16	40.7	126.2	2.4				rec_pairwise	forward	shims	cpu	59.24548316001892
-works	4.0e-16	139.8	189.7	116.2				rec_pairwise	reverse	shims	cpu	158.65350317955017
-works	2.4e-16	38.5	188.0	2.0				rec_tv_coupling	forward	shims	cpu	55.225565910339355
-works	5.2e-16	58.6	490.0	317.6				rec_tv_coupling	reverse	shims	cpu	76.31401419639587
-works	2.0e-16	40.2	17.8	1.2				rec_resume	forward	shims	cpu	56.23205614089966
-works	2.1e-16	44.5	77.2	15.6				rec_resume	reverse	shims	cpu	62.26677203178406
-works	2.0e-16	40.2	18.2	0.6				rec_pointwise_modifier	forward	shims	cpu	56.23220109939575
-works	4.2e-16	43.7	43.1	13.7				rec_pointwise_modifier	reverse	shims	cpu	61.24816083908081
-works	1.1e-16	38.9	27.3	1.5				rec_apply_modifier	forward	shims	cpu	56.2251877784729
-works	1.1e-15	46.9	310.9	68.2				rec_apply_modifier	reverse	shims	cpu	66.2922580242157
-works	1.6e-16	36.6	8.9	0.3				conv_fixed	forward	shims	cpu	54.223556995391846
-works	1.3e-16	39.5	10.4	9.0				conv_fixed	reverse	shims	cpu	57.242594957351685
-works	1.3e-16	34.7	14.4	0.4				conv_tv_primary	forward	shims	cpu	50.193702936172485
-works	3.7e-17	39.6	85.8	53.8				conv_tv_primary	reverse	shims	cpu	56.2296838760376
-works	6.4e-17	34.9	55.9	0.6				conv_tv_secondary	forward	shims	cpu	50.19792294502258
-works	7.4e-17	38.5	37.7	48.0				conv_tv_secondary	reverse	shims	cpu	55.22914099693298
-works	3.0e-16	39.2	22.6	4.5				mod_depletion	forward	shims	cpu	55.23182201385498
-works	6.1e-16	44.5	113.7	27.8				mod_depletion	reverse	shims	cpu	62.245670795440674
-works	1.4e-16	39.4	17.5	4.0				mod_depletion_floor	forward	shims	cpu	56.235761880874634
-works	1.3e-15	45.8	101.8	24.2				mod_depletion_floor	reverse	shims	cpu	63.26603817939758
-works	4.0e-16	40.0	16.8	0.6				mod_add	forward	shims	cpu	56.24959707260132
-works	5.3e-17	43.2	20.6	18.8				mod_add	reverse	shims	cpu	61.27180314064026
-works	1.4e-16	43.5	19.5	0.6				mod_clamp	forward	shims	cpu	61.29173302650452
-works	2.2e-16	46.2	72.0	12.6				mod_clamp	reverse	shims	cpu	65.30271196365356
-works	3.1e-16	41.5	87.9	1.9				mod_redistribute	forward	shims	cpu	60.28143382072449
-works	4.0e-16	56.2	549.0	86.2				mod_redistribute	reverse	shims	cpu	76.34727501869202
+works	0.0e+00	24.7	6.3	0.1				control	forward	extension	cpu	41.12949514389038
+works	0.0e+00	27.5	4.4	0.4				control	reverse	extension	cpu	44.05009698867798
+works	0.0e+00	37.1	9.3	0.6				rec_single	forward	extension	cpu	53.0653760433197
+works	4.2e-16	40.7	182.1	5.9				rec_single	reverse	extension	cpu	59.08684587478638
+works	0.0e+00	37.2	12.6	0.5				rec_add	forward	extension	cpu	55.11668014526367
+works	9.3e-17	39.6	43.1	5.0				rec_add	reverse	extension	cpu	58.08058500289917
+works	4.1e-16	33.6	6.9	1.0				rec_tv_kernel	forward	extension	cpu	51.06743288040161
+works	2.6e-16	38.4	214.4	46.0				rec_tv_kernel	reverse	extension	cpu	57.07600283622742
+works	3.6e-17	36.0	23.7	1.5				rec_strata_I	forward	extension	cpu	53.07388877868652
+works	2.4e-16	42.1	204.5	59.5				rec_strata_I	reverse	extension	cpu	61.08194017410278
+works	1.8e-16	37.1	217.2	2.4				rec_dense_K	forward	extension	cpu	54.097835063934326
+works	3.3e-16	46.5	340.8	66.0				rec_dense_K	reverse	extension	cpu	66.08060097694397
+works	1.4e-16	32.4	6.1	0.9				rec_per_stratum	forward	extension	cpu	49.07410502433777
+works	5.3e-16	165.0	72.1	60.8				rec_per_stratum	reverse	extension	cpu	187.30282402038574
+works	1.8e-16	37.6	152.3	2.3				rec_pairwise	forward	extension	cpu	56.08097004890442
+works	4.0e-16	127.1	348.1	102.6				rec_pairwise	reverse	extension	cpu	146.19096899032593
+works	2.4e-16	38.0	227.8	3.6				rec_tv_coupling	forward	extension	cpu	55.07071900367737
+works	5.2e-16	54.9	525.4	271.0				rec_tv_coupling	reverse	extension	cpu	74.095144033432
+works	0.0e+00	40.0	9.8	0.5				rec_resume	forward	extension	cpu	58.07103204727173
+works	2.1e-16	41.9	56.5	13.2				rec_resume	reverse	extension	cpu	61.077123165130615
+works	0.0e+00	37.4	12.7	0.5				rec_pointwise_modifier	forward	extension	cpu	54.075814962387085
+works	4.2e-16	41.8	39.3	7.5				rec_pointwise_modifier	reverse	extension	cpu	59.07227897644043
+works	1.1e-16	37.2	18.2	0.8				rec_apply_modifier	forward	extension	cpu	55.07545185089111
+works	1.1e-15	42.2	60.0	41.5				rec_apply_modifier	reverse	extension	cpu	62.09705901145935
+works	1.6e-16	33.2	7.0	0.4				conv_fixed	forward	extension	cpu	50.06334614753723
+works	1.3e-16	37.4	7.6	8.2				conv_fixed	reverse	extension	cpu	55.072798013687134
+works	1.3e-16	33.3	23.6	0.5				conv_tv_primary	forward	extension	cpu	50.060997009277344
+works	3.7e-17	37.3	132.2	37.3				conv_tv_primary	reverse	extension	cpu	55.074179887771606
+works	6.4e-17	33.7	190.3	0.5				conv_tv_secondary	forward	extension	cpu	50.07081913948059
+works	7.4e-17	37.6	64.0	47.2				conv_tv_secondary	reverse	extension	cpu	55.0899178981781
+works	4.5e-16	38.7	13.2	0.8				mod_depletion	forward	extension	cpu	55.071346044540405
+works	6.1e-16	44.5	141.6	11.4				mod_depletion	reverse	extension	cpu	63.07096195220947
+works	1.4e-16	38.2	11.5	0.9				mod_depletion_floor	forward	extension	cpu	55.07282996177673
+works	1.3e-15	43.7	123.9	10.5				mod_depletion_floor	reverse	extension	cpu	62.079041957855225
+works	3.5e-16	39.0	50.3	1.3				mod_depletion_removals	forward	extension	cpu	56.070605993270874
+works	1.5e-16	44.4	129.4	24.7				mod_depletion_removals	reverse	extension	cpu	63.08242893218994
+works	5.0e-16	41.5	13.0	1.1				mod_depletion_protected	forward	extension	cpu	59.06790494918823
+works	1.1e-15	52.1	359.4	28.2				mod_depletion_protected	reverse	extension	cpu	71.09775614738464
+works	1.8e-16	39.3	29.5	1.7				mod_allocate	forward	extension	cpu	57.06501817703247
+works	1.8e-15	53.8	261.9	101.4				mod_allocate	reverse	extension	cpu	74.09249091148376
+works	0.0e+00	38.7	11.8	0.5				mod_transform	forward	extension	cpu	56.1047089099884
+works	2.0e-16	42.6	69.4	11.9				mod_transform	reverse	extension	cpu	62.07211112976074
+works	1.0e-16	40.7	17.3	0.4				mod_add	forward	extension	cpu	59.07109880447388
+works	5.3e-17	41.9	22.0	15.6				mod_add	reverse	extension	cpu	61.09359908103943
+works	0.0e+00	39.8	11.6	0.7				mod_clamp	forward	extension	cpu	58.10464906692505
+works	2.2e-16	42.6	138.4	16.9				mod_clamp	reverse	extension	cpu	61.09235692024231
+works	3.1e-16	39.5	254.3	1.9				mod_redistribute	forward	extension	cpu	57.06790089607239
+works	4.0e-16	48.9	324.3	74.9				mod_redistribute	reverse	extension	cpu	69.08379888534546

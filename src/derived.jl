@@ -37,13 +37,28 @@ derivative.
 - `args`: the arguments, at least one, each a parameter.
 
 # Examples
-```@example
+```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 # A reproduction number from a daily log growth rate and a scale.
 logR = TimeVarying(0.3 .* sin.(1:10))
 β = 0.8 * Derived(exp, logR)
-Recurrence([0.5, 0.5]; modifiers = (CR.Transform(*, β),))(; history = ones(2), stop = 10)
+r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(*, β),))
+round.(r(; history = ones(2), stop = 10); digits = 3)
+
+# output
+
+10-element Vector{Float64}:
+ 1.03
+ 1.067
+ 0.875
+ 0.619
+ 0.448
+ 0.392
+ 0.409
+ 0.432
+ 0.381
+ 0.276
 ```
 """
 struct Derived{F, A <: Tuple}
