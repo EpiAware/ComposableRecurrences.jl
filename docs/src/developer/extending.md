@@ -75,6 +75,7 @@ To accept every parameter form, such as `PerStratum`, `TimeVarying` or `Derived`
 Without a `pullback!`, a pointwise modifier with only scalar float parameters, such as `Scale`, is differentiated locally with ForwardDiff inside the rule.
 The rule rebuilds the modifier with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
+The `Recurrence` constructor checks this once, by rebuilding the modifier from its own parameters.
 Integer fields, index ranges and integer arrays are structure, not parameters.
 Any other modifier without a `pullback!` makes the backend differentiate the whole operator.
 This includes one holding a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.

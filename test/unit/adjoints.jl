@@ -359,7 +359,7 @@ end
 end
 
 @testitem "Adjoint: routing by uses_adjoint" setup = [AdjointCheck, AdjointModifiers] begin
-    using ComposableRecurrences, ForwardDiff
+    using ComposableRecurrences, ConstructionBase, ForwardDiff
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
@@ -462,9 +462,10 @@ end
         recargs(ones(2, 4), nothing, ones(2, 2))...
     )
     # The default pullback rebuilds a scalar modifier with dual numbers by
-    # `constructorof`: a keyword-only constructor or a field typed `Float64`
-    # cannot take them (decided from the type), and a constructor that
-    # transforms its argument does not give it back (checked by value).
+    # `constructorof`. A keyword-only constructor or a field typed `Float64`
+    # cannot take them, and a constructor that transforms its argument does
+    # not give it back. The `Recurrence` constructor checks this once, by
+    # value, and stores the outcome; the route from the types is the rule.
     struct ScaleKw
         a::Float64
         ScaleKw(; a) = new(a)
@@ -484,27 +485,56 @@ end
         @eval CR.ispointwise(::$M) = true
         @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
     end
-    for (m, rule, rebuilds) in (
-            (ScaleKw(; a = 0.5), false, false), (ScaleF(0.5), false, false),
-            (Doubled(0.5), true, false), (Kept(0.5), true, true),
+    for (m, rule) in (
+            (ScaleKw(; a = 0.5), false), (ScaleF(0.5), false),
+            (Doubled(0.5), false), (Kept(0.5), true),
         )
         op = Recurrence(g; modifiers = (m,))
-        @test CR._rebuildable(m) == rule
+        @test CR._modifier_adjoint(m) === :local
+        @test CR._round_trips(m) == rule
+        @test CR._rebuilds(op) === rule
         @test CR.uses_adjoint(op, CR.Run()) == rule
-        @test CR._rebuilds(op) == rebuilds
+        @test val(op) == [Val{:rule}]
+        rule || @test occursin(string(nameof(typeof(m))), CR._plain_why(op))
+        # The check runs at construction, which stays type stable.
+        @inferred Recurrence(g, I, (m,))
     end
-    # A modifier that takes the rule by type but does not rebuild by value
-    # is sent to plain AD at call time.
+    # A modifier that does not rebuild is sent to plain AD, and the primal
+    # call logs nothing.
     op = Recurrence(g; modifiers = (Doubled(0.5),))
     y = @test_logs CR.adjoint_call(op, args...)
     @test y == CR._plain(op, args...)
-    # A field of abstract type cannot be rebuilt.
+    # A field of abstract type is not differentiated locally.
     struct Loose
         a::Any
     end
-    @test !CR._rebuildable(Loose(0.5))
-    @test CR._rebuilds(Convolution([0.5, 0.5]))
-    @test CR._rebuilds(Recurrence(g))
+    CR.ispointwise(::Loose) = true
+    @test CR._modifier_adjoint(Loose(0.5)) === :none
+    # Without a modifier to check, the outcome is read off the types.
+    for ms in ((), (CR.Depletion(50.0), CR.Clamp(0.0, 9.0)), (CR.Add(1.0),))
+        @test CR._rebuilds(@inferred Recurrence(g, I, ms)) === Val(true)
+    end
+    @test CR._rebuilds(Convolution([0.5, 0.5])) === Val(true)
+    @test CR._round_trips(Loose(1))
+    @test CR._plain_why(Recurrence(g)) == CR._ADJOINT_NOTE
+    @test occursin("Doubled", CR._plain_why(CR._WithState(op)))
+    # A rebuild through `constructorof` recomputes the check.
+    op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
+    @test CR._rebuilds(op) === true
+    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
+    @test CR._rebuilds(op) === Val(true)
+    # A constructor that throws is taken as not rebuilding, but an interrupt
+    # is not swallowed.
+    struct Strict{T}
+        a::T
+        Strict(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(ArgumentError("no"))
+    end
+    struct Halt{T}
+        a::T
+        Halt(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(InterruptException())
+    end
+    @test CR._round_trips(Strict(0.5)) === false
+    @test_throws InterruptException CR._round_trips(Halt(0.5))
     @test pullback_matches(
         Recurrence(g; modifiers = (Kept(0.5),)),
         recargs(ones(2, 4), nothing, ones(2, 2))...
@@ -542,9 +572,10 @@ end
     end
     CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
     op = Recurrence(g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),))
-    @test CR.uses_adjoint(op, CR.Run())
-    @test !CR._rebuilds(op)
-    @test CR._rebuilds(Recurrence(g; modifiers = (CR.Depletion(50.0, f),)))
+    @test !CR.uses_adjoint(op, CR.Run())
+    @test CR._rebuilds(op) === false
+    @test occursin("DoubledRate", CR._plain_why(op))
+    @test CR.uses_adjoint(Recurrence(g; modifiers = (CR.Depletion(50.0, f),)), CR.Run())
 
     # Dual numbers and BigFloat take the plain path.
     r = Recurrence(g)

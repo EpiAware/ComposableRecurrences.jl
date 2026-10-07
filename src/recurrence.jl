@@ -1,3 +1,6 @@
+# Marks the call that sets the fields once the arguments are checked.
+struct _Checked end
+
 @doc raw"""
 A recurrence over strata whose kernel starts at lag 1, stepped from a window
 of its own past values.
@@ -81,6 +84,9 @@ it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
+The constructor sets the field `rebuilds`, whether the local derivative
+can rebuild the modifiers that use it (see
+[`ComposableRecurrences.uses_adjoint`](@ref)).
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
@@ -111,22 +117,33 @@ y ≈ hcat(y1, y2)
 true
 ```
 """
-struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
+struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
     "The kernel, lag 1 first."
     kernel::K
     "How the strata's kernel convolutions mix."
     coupling::C
     "The modifiers, applied in order after the core of each step."
     modifiers::M
+    "Whether the local derivative rebuilds the modifiers that use it."
+    rebuilds::B
     function Recurrence(kernel::K, coupling::C, modifiers::M) where {
             K, C, M <: Tuple,
         }
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
-        return new{K, C, M}(kernel, coupling, modifiers)
+        return Recurrence(_Checked(), kernel, coupling, modifiers, _rebuild_flag(modifiers))
+    end
+    function Recurrence(
+            ::_Checked, kernel::K, coupling::C, modifiers::M, rebuilds::B
+        ) where {K, C, M <: Tuple, B}
+        return new{K, C, M, B}(kernel, coupling, modifiers, rebuilds)
     end
 end
+
+# A rebuild of a `Recurrence` from its fields recomputes `rebuilds`.
+_recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
+ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
 function Recurrence(kernel; coupling = I, modifiers = ())
     return Recurrence(kernel, coupling, Tuple(modifiers))
@@ -591,12 +608,18 @@ Base.@constprop :aggressive function _with_state(
 end
 
 # The rule applies when the coupling carries its adjoint and each modifier
-# does or is differentiated locally.
+# does or is differentiated locally (`_type_adjoint`, read off the types,
+# which routes the call), and the local derivative rebuilds each modifier
+# that uses it (`rebuilds`, found at construction).
 function uses_adjoint(r::Recurrence, ::Run)
+    return _type_adjoint(r, Run()) && _istrue(r.rebuilds)
+end
+uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
+function _type_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
 end
-uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
+_type_adjoint(w::_WithState, ::Run) = _type_adjoint(w.r, Run())
 _all_modifiers_adjoint(::Tuple{}) = true
 function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
@@ -608,31 +631,56 @@ end
 # only scalar float parameters outside functions, rebuilt with dual numbers
 # by `constructorof`), or `:none` when it cannot, which includes a
 # `Derived` parameter whose map holds float fields of its own. Decided from
-# the type.
+# the type; whether the rebuild works is checked by value at construction.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _scalar_params(m) && _rebuildable(m) && return :local
+    ispointwise(m) && _scalar_params(m) && return :local
     return :none
 end
 
-# Whether the default pullback's rebuild of each modifier from its own
-# parameters gives them back. A constructor that transforms its arguments
-# (`new(2a)`) does not, and the local derivative would then be of the
-# transformed value. A depletion's form is checked the same way.
-_rebuilds(op) = true
-_rebuilds(r::Recurrence) = _all_rebuild(r.modifiers)
-_rebuilds(w::_WithState) = _rebuilds(w.r)
+# The `rebuilds` field: `Val(true)` when no modifier is rebuilt by the local
+# derivative, which the types show, so the route folds; otherwise the
+# outcome of the value check (`_round_trips`) for each one that is, and
+# for the form of a depletion without its own pullback.
+function _rebuild_flag(ms::Tuple)
+    _any_rebuilt(ms) || return Val(true)
+    return _all_rebuild(ms)
+end
+_any_rebuilt(::Tuple{}) = false
+_any_rebuilt(ms::Tuple) = _rebuilt(first(ms)) || _any_rebuilt(Base.tail(ms))
+_rebuilt(m) = _modifier_adjoint(m) === :local && _param_tuple(m) !== ()
+function _rebuilt(m::Depletion)
+    return !uses_adjoint(m.form, Step()) && _scalar_params(m.form) &&
+        _param_tuple(m.form) !== ()
+end
 _all_rebuild(::Tuple{}) = true
 _all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
-_rebuilds_modifier(m) = uses_adjoint(m, Step()) || _rebuilds_value(m)
-function _rebuilds_modifier(m::Depletion)
-    return uses_adjoint(m.form, Step()) || _rebuilds_value(m.form)
+_rebuilds_modifier(m) = !_rebuilt(m) || _round_trips(m)
+_rebuilds_modifier(m::Depletion) = !_rebuilt(m) || _round_trips(m.form)
+
+_istrue(::Val{true}) = true
+_istrue(b::Bool) = b
+
+# Whether the local derivative rebuilds the operator's modifiers.
+_rebuilds(op) = Val(true)
+_rebuilds(r::Recurrence) = r.rebuilds
+_rebuilds(w::_WithState) = _rebuilds(w.r)
+
+# The plain-AD note names the modifiers and depletion forms that do not
+# rebuild.
+function _plain_why(r::Recurrence)
+    _istrue(r.rebuilds) && return _ADJOINT_NOTE
+    names = join(unique(_not_rebuilt(r.modifiers...)), ", ")
+    return "has a modifier or depletion form ($names) whose constructor " *
+        "does not give it back from its own parameters"
 end
-function _rebuilds_value(m)
-    _rebuildable(m) || return false
-    θ = _param_tuple(m)
-    return isequal(_param_tuple(first(_rebuild_scalar(m, θ))), θ)
+_plain_why(w::_WithState) = _plain_why(w.r)
+_not_rebuilt() = ()
+function _not_rebuilt(m, ms...)
+    rest = _not_rebuilt(ms...)
+    _rebuilds_modifier(m) && return rest
+    return (nameof(typeof(m isa Depletion ? m.form : m)), rest...)
 end
 
 # Whether a type holds a float array (or a field of unknown type) that a
