@@ -177,8 +177,13 @@ function skip_reason(c, target, arm, θ, rules)
     if target in ("Enzyme forward", "Mooncake forward") && length(θ) > FD_MAX
         return "over $FD_MAX parameters"
     end
-    if target == "Enzyme forward" && occursin("depletion", c.description)
-        return "known wrong: forward Enzyme with a modifier constant"
+    # The overview's hand-written baselines do not compile under forward
+    # Enzyme: one calls BLAS, which has no forward rule with runtime
+    # activity, and the other fails its type analysis. The package's arms
+    # match ForwardDiff there.
+    if target == "Enzyme forward" && c.name == "overview" &&
+            arm in ("copy loop", "accumulate")
+        return "Enzyme forward does not compile this baseline"
     end
     return nothing
 end

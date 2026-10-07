@@ -479,7 +479,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
     "transform" => (:Transform,),
-    "renewal_primary" => (:_check_primary_seed,),
+    "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),
 )
 
