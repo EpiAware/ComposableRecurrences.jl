@@ -1063,7 +1063,7 @@ end
     end
 end
 
-@testitem "Local coupling and entry-parameter steps: the rule and its limits" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Local coupling step: the rule and its limits" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
@@ -1085,32 +1085,26 @@ end
         q .= (1 - C.a) .* p .+ C.a * m
         return nothing
     end
-    # A modifier that reads its per-stratum parameter's array directly.
-    struct Direct{K}
+    # A pointwise modifier with a per-stratum parameter and no pullback.
+    struct Cap{K}
         κ::K
     end
-    CR.ispointwise(::Direct) = true
-    CR.forward(m::Direct, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ.x[k]), s)
+    CR.ispointwise(::Cap) = true
+    CR.forward(m::Cap, ::CR.Step, v, s, t, k) = (v / (1 + v / CR.param(m.κ, k, t)), s)
     function loss(w, θ, S)
         W = [cos(a * t) for a in 1:S, t in 1:6]
-        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Direct(PerStratum(θ[2:(S + 1)])),))
+        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Cap(θ[2]),))
         return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
     end
-    # The same modifier reading its parameter through `param`.
-    struct Plain{K}
-        κ::K
-    end
-    CR.ispointwise(::Plain) = true
-    CR.forward(m::Plain, ::CR.Step, v, s, t, k) = (v / (1 + v / CR.param(m.κ, k, t)), s)
-    function loss_param(w, θ, S)
+    function loss_strata(w, θ, S)
         W = [cos(a * t) for a in 1:S, t in 1:6]
-        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Plain(PerStratum(θ[2:(S + 1)])),))
+        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Cap(PerStratum(θ[2:(S + 1)])),))
         return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
     end
-    # Blend's local step fires up to 11 strata (with its one scalar);
-    # Direct sends the operator to plain AD at any size.
-    for (L, S, fires) in ((loss_param, 3, true), (loss_param, 11, true), (loss_param, 12, false), (loss, 3, false))
-        θ = [0.4; fill(5.0, S)]
+    # Blend's local step fires up to 11 strata (with its one scalar); the
+    # per-stratum parameter sends the operator to plain AD at any size.
+    for (L, S, fires) in ((loss, 3, true), (loss, 11, true), (loss, 12, false), (loss_strata, 3, false))
+        θ = L === loss ? [0.4, 5.0] : [0.4; fill(5.0, S)]
         for w in (identity, NoAdjoint)
             f(θ) = L(w, θ, S)
             ref = gradient(f, AutoForwardDiff(), θ)

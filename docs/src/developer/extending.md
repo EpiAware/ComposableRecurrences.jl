@@ -22,10 +22,11 @@ const CR = ComposableRecurrences
 
 A modifier that acts on each series separately sets `ispointwise` and implements the step for one value.
 This one scales each value by a factor.
+The factor's type is a parameter, so automatic differentiation can pass a dual number in its place.
 
 ```@example extending
-struct Scale
-    a::Float64
+struct Scale{A}
+    a::A
 end
 CR.ispointwise(::Scale) = true
 CR.forward(m::Scale, ::CR.Step, v, s, t, k) = (m.a * v, s)
@@ -72,8 +73,7 @@ CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
 
 To accept every parameter form, such as `PerStratum`, `TimeVarying` or `Derived`, read each parameter with [`param`](@ref ComposableRecurrences.param) and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 
-Without a `pullback!`, a pointwise modifier is differentiated locally with ForwardDiff inside the rule when each float parameter is a scalar or is read one entry per step through `param`, such as a `PerStratum` or `TimeVarying` parameter.
-A step that reads such a parameter's array directly takes plain automatic differentiation instead.
+Without a `pullback!`, a pointwise modifier with only scalar float parameters, such as `Scale`, is differentiated locally with ForwardDiff inside the rule.
 The rule rebuilds the modifier with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
 The `Recurrence` constructor checks this once, by rebuilding the modifier from its own parameters.

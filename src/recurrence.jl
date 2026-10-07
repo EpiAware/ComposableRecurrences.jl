@@ -629,16 +629,15 @@ function _all_modifiers_adjoint(ms::Tuple)
 end
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
-# `pullback!`, `:local` with a local derivative (a pointwise modifier whose
-# float parameters are scalars or `_EntryParam`s, outside functions,
-# rebuilt with dual numbers by `constructorof`), or `:none` when it cannot,
-# which includes a `Derived` parameter whose map holds float fields of its
-# own. Decided from the type; whether the rebuild works is checked by value
-# at construction.
+# `pullback!`, `:local` with a local derivative (a pointwise modifier with
+# only scalar float parameters outside functions, rebuilt with dual numbers
+# by `constructorof`), or `:none` when it cannot, which includes a
+# `Derived` parameter whose map holds float fields of its own. Decided from
+# the type; whether the rebuild works is checked by value at construction.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _local_params(m) && return :local
+    ispointwise(m) && _scalar_params(m) && return :local
     return :none
 end
 
@@ -669,7 +668,7 @@ function _rebuilt(m::Depletion)
 end
 _all_rebuild(::Tuple{}) = true
 _all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
-_rebuilds_modifier(m) = !_rebuilt(m) || (_round_trips(m) && _reads_by_param(m))
+_rebuilds_modifier(m) = !_rebuilt(m) || _round_trips(m)
 _rebuilds_modifier(m::Depletion) = !_rebuilt(m) || _round_trips(m.form)
 
 _istrue(::Val{true}) = true
@@ -720,19 +719,16 @@ end
 # Whether a type holds a float array (or a field of unknown type) that a
 # local per-value derivative would have to carry, or a function with float
 # fields of its own (a closure's captured values), which the local
-# derivative does not reach. `_local_params` also allows array parameters
-# a step reads one entry of (`_EntryParam`). Closed functions of the type,
-# evaluated once per type by a generated function so the route folds.
-@generated _scalar_params(m) = !_has_array_params(m, false)
-@generated _local_params(m) = !_has_array_params(m, true)
-function _has_array_params(::Type{T}, entries::Bool) where {T}
-    entries && T <: _EntryParam && return false
+# derivative does not reach. A closed function of the type, evaluated once
+# per type by a generated function so the route folds.
+@generated _scalar_params(m) = !_has_array_params(m)
+function _has_array_params(::Type{T}) where {T}
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
     T <: Function && return _has_float(T)
     T <: Union{Real, Nothing, Symbol, AbstractString} && return false
     isconcretetype(T) || return true
     for F in fieldtypes(T)
-        _has_array_params(F, entries) && return true
+        _has_array_params(F) && return true
     end
     return false
 end

@@ -122,14 +122,6 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
-# Parameter forms a step reads one entry of through `param`, at stratum `k`
-# and time `t`: the local derivative seeds only that entry, as a scalar.
-const _EntryParam = Union{
-    PerStratum{<:AbstractVector{<:AbstractFloat}},
-    TimeVarying{<:Any, <:AbstractVector{<:AbstractFloat}},
-    TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix{<:AbstractFloat}}},
-}
-
 # A pointwise modifier's scalar step pullback: its own when it uses one,
 # else the local derivative.
 function _step_pullback(grads, m, v, s, t, k)
@@ -139,12 +131,11 @@ end
 
 # Default scalar pullback of a pointwise modifier without its own: a local
 # `ForwardDiff` derivative in the value, the state and the modifier's float
-# parameters, of which an array parameter read by `param` gives the one
-# entry the step reads. Each case is its own method, so no variable is
-# shared with a closure (which would box it and allocate on every step).
+# parameters. Each case is its own method, so no variable is shared with a
+# closure (which would box it and allocate on every step).
 function _local_pullback(grads, m, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
-    m̄ === nothing || !_local_params(m) ||
+    m̄ === nothing || !_scalar_params(m) ||
         return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     _nactive(m̄, m) == 0 && return _value_pullback(m, v̄, s̄, v, s, t, k)
     return _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
@@ -173,18 +164,17 @@ function _step_vector(m, x, P, t, k)
     return [v′, s′]
 end
 
-# The same derivative for a modifier whose parameters are scalars or read
-# one entry per step: the value, the state and the parameters are seeded as
-# one tuple of dual numbers, so a step allocates nothing (this runs once per
-# stratum and step).
+# The same derivative for a modifier whose parameters are all scalars: the
+# value, the state and the parameters are seeded as one tuple of dual
+# numbers, so a step allocates nothing (this runs once per stratum and step).
 function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
-    x = (v, s, _param_tuple(m, (k, t))...)
+    x = (v, s, _param_tuple(m)...)
     T = promote_type(map(typeof, x)...)
     xd = _seed(ForwardDiff.Tag(_scalar_pullback, T), map(T, x))
     md = first(_rebuild_scalar(m, Base.tail(Base.tail(xd))))
     v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
-    _add_scalar!(m̄, m, Base.tail(Base.tail(g)), (k, t))
+    _add_scalar!(m̄, m, Base.tail(Base.tail(g)))
     return g[1], g[2]
 end
 
@@ -235,7 +225,7 @@ function _local_pressure!(
             p̄[o + j] += ā[j]
         end
         P == 0 || o + N <= S ||
-            _add_scalar!(C̄, C, _picks(ā, S - o, Val(P)), nothing)
+            _add_scalar!(C̄, C, _picks(ā, S - o, Val(P)))
     end
     return nothing
 end
@@ -268,7 +258,7 @@ function _form_pullback(::Val{false}, grads, form, v, s, N, α)
     fd = first(_rebuild_scalar(form, θd))
     y, s′ = forward(fd, Step(), xd[1], xd[2], xd[3], xd[4])
     g = _vjp(y, s′, grads.v, grads.s, xd)
-    _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(Base.tail(g)))), nothing)
+    _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(Base.tail(g)))))
     return g[1], g[2], g[3], g[4]
 end
 
@@ -288,29 +278,21 @@ end
 _partialsN(x::ForwardDiff.Dual, ::Val) = ForwardDiff.partials(x).values
 _partialsN(x::Real, ::Val{N}) where {N} = ntuple(_ -> zero(x), Val(N))
 
-# The float scalars of `x` in the order `_getparams!` reads them, as a tuple,
-# with the entry of each `_EntryParam` read at `at = (k, t)` (a zero for
-# `at = nothing`, where only the types matter).
-_param_tuple(x) = _param_tuple(x, nothing)
-_param_tuple(x::AbstractFloat, at) = (x,)
-_param_tuple(x::_EntryParam, at) = (_entry(x, at),)
-_param_tuple(::_Leafless, at) = ()
-_param_tuple(x::Union{Tuple, NamedTuple}, at) = _param_tuples(at, values(x)...)
-function _param_tuple(x, at)
+# The float scalars of `x` in the order `_getparams!` reads them, as a tuple.
+_param_tuple(x::AbstractFloat) = (x,)
+_param_tuple(::_Leafless) = ()
+_param_tuple(x::Union{Tuple, NamedTuple}) = _param_tuples(values(x)...)
+function _param_tuple(x)
     isstructtype(typeof(x)) || return ()
-    return _param_tuples(at, ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))...)
+    return _param_tuples(ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))...)
 end
-_param_tuples(at) = ()
-_param_tuples(at, x, xs...) = (_param_tuple(x, at)..., _param_tuples(at, xs...)...)
-_entry(x, at::Tuple) = param(x, at...)
-_entry(x::PerStratum, ::Nothing) = zero(eltype(x.x))
-_entry(x::TimeVarying{<:Any, <:AbstractVector}, ::Nothing) = zero(eltype(x.x))
-_entry(x::TimeVarying{<:Any, <:PerStratum}, ::Nothing) = zero(eltype(x.x.x))
+_param_tuples() = ()
+_param_tuples(x, xs...) = (_param_tuple(x)..., _param_tuples(xs...)...)
 
 # `_rebuild` and `_addparams!` for the tuple of scalars: each consumes the
 # leading entries of `θ` or `g` and returns the rest, so the recursion over
 # fields is resolved at compile time.
-_rebuild_scalar(::Union{AbstractFloat, _EntryParam}, θ) = (first(θ), Base.tail(θ))
+_rebuild_scalar(::AbstractFloat, θ) = (first(θ), Base.tail(θ))
 _rebuild_scalar(x::_Leafless, θ) = (x, θ)
 _rebuild_scalar(::Tuple{}, θ) = ((), θ)
 function _rebuild_scalar(x::Tuple, θ)
@@ -347,22 +329,8 @@ function _round_trips(m, θ)
         false
     end
 end
-# Whether the step of a modifier with `_EntryParam`s reads them through
-# `param`, as the local derivative passes it a scalar in their place: one
-# step of the rebuilt modifier must run. Checked with the round trip.
-_reads_by_param(m) = _scalar_params(m) || _steps_rebuilt(m, _param_tuple(m))
-function _steps_rebuilt(m, θ)
-    T = promote_type(map(typeof, θ)...)
-    return try
-        forward(first(_rebuild_scalar(m, θ)), Step(), one(T), one(T), 1, 1)
-        true
-    catch e
-        e isa InterruptException && rethrow()
-        false
-    end
-end
 # The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.
-_rebuilt_tuple(::Union{AbstractFloat, _EntryParam}, y) = (y,)
+_rebuilt_tuple(::AbstractFloat, y) = (y,)
 _rebuilt_tuple(::_Leafless, y) = ()
 _rebuilt_tuple(x::Union{Tuple, NamedTuple}, y) = _rebuilt_tuples(values(x), values(y))
 function _rebuilt_tuple(x, y)
@@ -376,25 +344,22 @@ function _rebuilt_tuples(xs::Tuple, ys)
     return (a..., _rebuilt_tuples(Base.tail(xs), Base.tail(ys))...)
 end
 
-# Add the scalar gradients `g` into the mirror `x̄` of `x`, an entry
-# parameter's at `at = (k, t)` through `add_param!`; returns the rest of `g`.
-_add_scalar!(x̄, ::AbstractFloat, g, at) = (add_cotangent!(x̄, first(g)); Base.tail(g))
-_add_scalar!(x̄, x::_EntryParam, g, at) = (add_param!(x̄, x, first(g), at...); Base.tail(g))
-_add_scalar!(x̄, ::_Leafless, g, at) = g
-_add_scalar!(x̄, ::Tuple{}, g, at) = g
-function _add_scalar!(x̄, x::Tuple, g, at)
-    g = _add_scalar!(x̄ === nothing ? nothing : first(x̄), first(x), g, at)
-    return _add_scalar!(x̄ === nothing ? nothing : Base.tail(x̄), Base.tail(x), g, at)
+_add_scalar!(x̄, ::AbstractFloat, g) = (add_cotangent!(x̄, first(g)); Base.tail(g))
+_add_scalar!(x̄, ::_Leafless, g) = g
+_add_scalar!(x̄, ::Tuple{}, g) = g
+function _add_scalar!(x̄, x::Tuple, g)
+    g = _add_scalar!(x̄ === nothing ? nothing : first(x̄), first(x), g)
+    return _add_scalar!(x̄ === nothing ? nothing : Base.tail(x̄), Base.tail(x), g)
 end
-function _add_scalar!(x̄, x::NamedTuple, g, at)
-    return _add_scalar!(x̄ === nothing ? nothing : Tuple(x̄), Tuple(x), g, at)
+function _add_scalar!(x̄, x::NamedTuple, g)
+    return _add_scalar!(x̄ === nothing ? nothing : Tuple(x̄), Tuple(x), g)
 end
-function _add_scalar!(x̄, x, g, at)
+function _add_scalar!(x̄, x, g)
     _param_tuple(x) === () && return g
     names = fieldnames(typeof(x))
     fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
     m̄s = map(n -> _field_mirror(x̄, n), names)
-    return _add_scalar!(m̄s, fs, g, at)
+    return _add_scalar!(m̄s, fs, g)
 end
 
 # Default initial-state pullback: a local `ForwardDiff` Jacobian of the Init,

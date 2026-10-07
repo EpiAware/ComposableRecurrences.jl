@@ -683,9 +683,9 @@ if isfile(DOCS_MODIFIER)
     append!(TIERS["docs"].cases, ["custom_modifier", "custom_modifier_pullback"])
 end
 
-# A user coupling and a user modifier with per-stratum parameters, each
-# with a hand-written `pullback!`: the `local` arm times the local
-# derivative that runs without one, and `NoAdjoint` plain AD.
+# A user coupling and a user modifier with a per-stratum parameter, each
+# with a hand-written `pullback!`. The coupling's `local` arm times the
+# local derivative that runs without one, and `NoAdjoint` plain AD.
 "A share `a` of every other stratum's pressure goes to the first."
 struct ToFirst{A}
     a::A
@@ -694,7 +694,7 @@ end
 struct StrataSaturation{K}
     κ::K
 end
-if supports(:_local_pressure!, :_EntryParam)
+if supports(:_local_pressure!)
     function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
         tot = sum(view(p, 2:length(p)))
         q[1] = p[1] + C.a * tot
@@ -775,8 +775,8 @@ if supports(:_local_pressure!, :_EntryParam)
         ),
     )
     REQUIRES["custom_coupling"] = (:_local_pressure!,)
-    REQUIRES["custom_modifier_strata"] = (:_EntryParam,)
-    push!(LOCAL_CASES, "custom_coupling", "custom_modifier_strata")
+    REQUIRES["custom_modifier_strata"] = (:_local_pressure!,)
+    push!(LOCAL_CASES, "custom_coupling")
     for tier in ("smoke", "realistic")
         append!(TIERS[tier].cases, ["custom_coupling", "custom_modifier_strata"])
     end

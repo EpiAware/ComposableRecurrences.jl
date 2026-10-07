@@ -97,10 +97,7 @@ has one.
 A [`Recurrence`](@ref) does when its coupling does in
 [`ComposableRecurrences.Pressure`](@ref) or has only scalar float
 parameters, and each modifier does in [`ComposableRecurrences.Step`](@ref)
-or is pointwise with float parameters that are scalars or are read one
-entry per step by [`ComposableRecurrences.param`](@ref)
-([`PerStratum`](@ref), [`TimeVarying`](@ref) or
-`TimeVarying(PerStratum(x))`).
+or is pointwise with only scalar float parameters.
 Those are differentiated locally with dual numbers, after a rebuild
 through `ConstructionBase.constructorof`.
 The `Recurrence` constructor checks once that the rebuild gives each one
