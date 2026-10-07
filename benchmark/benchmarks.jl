@@ -68,7 +68,9 @@ end
 # The `ci` tier of the benchmark matrix (`matrix.jl` runs the full grid):
 # each case's primal, and its gradient on the reverse backends with the
 # operator as users call it and under `NoAdjoint`, so the comparison comment
-# shows the rule gain. The history workflow runs this script, and the
+# shows the rule gain. ForwardDiff times the operator and, where the case
+# has one, the hand-written `loop` baseline, so the ratio between them is
+# tracked. The history workflow runs this script, and the
 # registry, against older releases: a case or arm needing a feature the
 # loaded version lacks is left out (`MatrixCases.available`, and
 # `ADFixtures.supports` for the scenarios above), and one that still fails
@@ -80,6 +82,7 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
         e -> e.name in ("Mooncake reverse", "Enzyme reverse"),
         ADFixtures.backends()
     )
+    forward = filter(e -> e.name == "ForwardDiff", ADFixtures.backends())
     for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
         MatrixCases.available(c) || continue
         label = "Matrix $(c.name) $(z)"
@@ -105,6 +108,22 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
                 continue
             end
             name = arm == "rule" ? label : "NoAdjoint $label"
+            haskey(grad, name) || (grad[name] = BenchmarkGroup())
+            grad[name][entry.name] = @benchmarkable(
+                DI.gradient($f, $prep, $(entry.backend), $θ),
+                evals = 1, seconds = 1, gctrial = false
+            )
+        end
+        for arm in ("rule", "loop"), entry in forward
+            arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) || continue
+            f, θ = MatrixCases.build(c, z, arm)
+            prep = try
+                DI.prepare_gradient(f, entry.backend, copy(θ))
+            catch
+                @warn "no gradient prep" label arm entry.name
+                continue
+            end
+            name = arm == "rule" ? label : "$(titlecase(arm)) $label"
             haskey(grad, name) || (grad[name] = BenchmarkGroup())
             grad[name][entry.name] = @benchmarkable(
                 DI.gradient($f, $prep, $(entry.backend), $θ),

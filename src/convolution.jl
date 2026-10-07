@@ -194,14 +194,29 @@ end
 
 # One `axpy!` per lag over each stratum's contiguous series: output row `j`
 # is time `start + j - 1`, and lag `d` adds `c[d + 1]` times buffer row
-# `m + start + j - 1 - d` for every row with a defined input.
-function _convolve_series!(y, c, X, k, m, start)
+# `m + start + j - 1 - d` for every row with a defined input. IEEE floats
+# vectorise this; other numbers (dual numbers, say) gather instead, one
+# dot of the kernel with the window per output, so each output is written
+# once and its sum stays in registers.
+function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     T = size(y, 1)
     for d in 0:(length(c) - 1)
         j0 = max(1, d + 2 - m - start)
         j0 > T && break
         r0 = m + start + j0 - 1 - d
         _axpy!(c[d + 1], view(X, r0:(r0 + T - j0), k), view(y, j0:T))
+    end
+    return y
+end
+function _convolve_series!(y, c, X, k, m, start)
+    L = length(c)
+    for j in eachindex(y)
+        r = m + start + j - 1
+        acc = zero(eltype(y))
+        @inbounds for d in 0:(min(L, r) - 1)
+            acc += c[d + 1] * X[r - d, k]
+        end
+        y[j] = acc
     end
     return y
 end
@@ -235,31 +250,59 @@ function _convolve_body!(k, Y, c::PerStratum, X, m, start)
     return nothing
 end
 
-# Secondary indexing: output time `t` reads its own column.
-function _convolve_body!(k, Y, c::TimeVarying{Secondary}, X, m, start)
+# Secondary indexing: output time `t` reads its own column, one dot with
+# the window per output. A lags × time kernel's column is contiguous and
+# vectorises; a per-stratum column is strided, so it is read entry by entry.
+function _convolve_body!(k, Y, c::_TVMatrix{Secondary}, X, m, start)
+    D = _nlags(c)
+    for j in axes(Y, 1)
+        t = start + j - 1
+        w = _wcolumn(c, k, t)
+        acc = zero(eltype(Y))
+        @inbounds @simd for d in 0:(min(D, m + t) - 1)
+            acc += w[d + 1] * X[m + t - d, k]
+        end
+        @inbounds Y[j, k] = acc
+    end
+    return nothing
+end
+function _convolve_body!(k, Y, c::_TVPerStratum{Secondary}, X, m, start)
     D = _nlags(c)
     for j in axes(Y, 1)
         t = start + j - 1
         acc = zero(eltype(Y))
-        for d in 0:min(D - 1, m + t - 1)
+        @inbounds for d in 0:(min(D, m + t) - 1)
             acc += _weight(c, k, k, d + 1, t) * X[m + t - d, k]
         end
-        Y[j, k] = acc
+        @inbounds Y[j, k] = acc
     end
     return nothing
 end
 
 # Primary indexing: the input at time `σ` spreads forward through its own
 # column. There is no history, so buffer row `σ` is time `σ`.
-function _convolve_body!(k, Y, c::TimeVarying{Primary}, X, m, start)
+function _convolve_body!(k, Y, c::_TVMatrix{Primary}, X, m, start)
+    D = _nlags(c)
+    stop = start + size(Y, 1) - 1
+    for σ in max(1, start - D + 1):stop
+        w = _wcolumn(c, k, σ)
+        @inbounds x = X[σ, k]
+        o = σ - start + 1
+        @inbounds @simd ivdep for d in max(0, start - σ):min(D - 1, stop - σ)
+            Y[o + d, k] += w[d + 1] * x
+        end
+    end
+    return nothing
+end
+# A strided per-stratum column is faster read with bounds checks left in,
+# which keep the compiler from a gather.
+function _convolve_body!(k, Y, c::_TVPerStratum{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
     for σ in max(1, start - D + 1):stop
         x = X[σ, k]
-        for d in max(0, start - σ):(D - 1)
-            t = σ + d
-            t > stop && break
-            Y[t - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
+        for d in max(0, start - σ):min(D - 1, stop - σ)
+            Y[σ + d - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
         end
     end
     return nothing
@@ -333,29 +376,72 @@ function _convolve_back!(X̄, c̄, c::PerStratum, X, Ȳ, m, start)
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::TimeVarying{Secondary}, X, Ȳ, m, start)
+# A lags × time kernel's cotangent is added through the column mirror
+# `_wcolumn(c̄, c, k, τ)`, `nothing` when the kernel is constant. The
+# mirror, the inputs and their cotangent are distinct arrays (`ivdep`).
+function _convolve_back!(X̄, c̄, c::_TVMatrix{Secondary}, X, Ȳ, m, start)
     D = _nlags(c)
     for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
         t = start + j - 1
-        for d in 0:min(D - 1, m + t - 1)
-            _add_weight!(c̄, c, Ȳ[j, k] * X[m + t - d, k], k, k, d + 1, t)
-            X̄[m + t - d, k] += _weight(c, k, k, d + 1, t) * Ȳ[j, k]
+        w = _wcolumn(c, k, t)
+        w̄ = _wcolumn(c̄, c, k, t)
+        @inbounds a = Ȳ[j, k]
+        @inbounds @simd ivdep for d in 0:(min(D, m + t) - 1)
+            r = m + t - d
+            _add_at!(w̄, a * X[r, k], d + 1)
+            X̄[r, k] += w[d + 1] * a
         end
     end
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::TimeVarying{Primary}, X, Ȳ, m, start)
+function _convolve_back!(X̄, c̄, c::_TVMatrix{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
     for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
-        for d in max(0, start - σ):(D - 1)
-            t = σ + d
-            t > stop && break
-            ȳ = Ȳ[t - start + 1, k]
-            _add_weight!(c̄, c, ȳ * X[σ, k], k, k, d + 1, σ)
-            X̄[σ, k] += _weight(c, k, k, d + 1, σ) * ȳ
+        w = _wcolumn(c, k, σ)
+        w̄ = _wcolumn(c̄, c, k, σ)
+        o = σ - start + 1
+        @inbounds x = X[σ, k]
+        acc = zero(eltype(X̄))
+        @inbounds @simd ivdep for d in max(0, start - σ):min(D - 1, stop - σ)
+            ȳ = Ȳ[o + d, k]
+            _add_at!(w̄, ȳ * x, d + 1)
+            acc += w[d + 1] * ȳ
         end
+        @inbounds X̄[σ, k] += acc
+    end
+    return nothing
+end
+
+# A per-stratum kernel reads and adds each weight through `_weight` and
+# `_add_weight!`.
+function _convolve_back!(X̄, c̄, c::_TVPerStratum{Secondary}, X, Ȳ, m, start)
+    D = _nlags(c)
+    for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
+        t = start + j - 1
+        a = Ȳ[j, k]
+        for d in 0:(min(D, m + t) - 1)
+            r = m + t - d
+            _add_weight!(c̄, c, a * X[r, k], k, k, d + 1, t)
+            X̄[r, k] += _weight(c, k, k, d + 1, t) * a
+        end
+    end
+    return nothing
+end
+
+function _convolve_back!(X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
+    D = _nlags(c)
+    stop = start + size(Ȳ, 1) - 1
+    for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
+        x = X[σ, k]
+        acc = zero(eltype(X̄))
+        for d in max(0, start - σ):min(D - 1, stop - σ)
+            ȳ = Ȳ[σ + d - start + 1, k]
+            _add_weight!(c̄, c, ȳ * x, k, k, d + 1, σ)
+            acc += _weight(c, k, k, d + 1, σ) * ȳ
+        end
+        X̄[σ, k] += acc
     end
     return nothing
 end

@@ -119,6 +119,22 @@ function strata_independent(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
 end
 
+# Strata mixing through a kernel per pair of strata, with floored depletion:
+# each stratum's force reads every stratum's own past at its own weights.
+function strata_pairwise(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    f = function (θ)
+        A, logh, logR = _unpack(θ, (S, S, L), (S, L), (S, T))
+        r = Recurrence(Pairwise(A); modifiers = (CR.Depletion(pop, CR.Floor()),))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    K0 = 0.8I(S) .+ 0.2 / S .* ones(S, S)
+    A0 = [K0[a, b] * g for a in 1:S, b in 1:S, g in _gi(L)]
+    return f, _flat(A0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
+end
+
 # A ring of neighbours: self plus two either side, rows sum to one.
 function _ring(S)
     I_, J_, V_ = Int[], Int[], Float64[]
@@ -374,6 +390,10 @@ const CASES = [
         strata_independent, [5, 50, 500], false,
     ),
     Case(
+        "strata_pairwise", "kernel per pair of strata, floored depletion",
+        strata_pairwise, [5, 50], false,
+    ),
+    Case(
         "zones_sparse", "sparse ring coupling, floored depletion",
         zones_sparse, [50, 500], true,
     ),
@@ -465,6 +485,7 @@ const TIERS = Dict(
     "ci" => (
         cases = [
             "overview", "renewal", "strata_mixing", "bvd_patch", "delay_fixed",
+            "conv_fixed",
         ],
         sizes = [(T = 200, L = 20)],
         strata = [1, 3, 5],

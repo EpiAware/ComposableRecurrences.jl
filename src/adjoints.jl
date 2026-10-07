@@ -318,8 +318,13 @@ x̄
 """
 add_cotangent!(::Nothing, v, idx...) = nothing
 add_cotangent!(x̄::Base.RefValue, v, idx...) = (x̄[] += v; nothing)
-add_cotangent!(x̄::AbstractArray, v, idx...) = (x̄[idx...] += v; nothing)
-add_cotangent!(x̄::NamedTuple{(:x,)}, v, idx...) = add_cotangent!(x̄.x, v, idx...)
+Base.@propagate_inbounds function add_cotangent!(x̄::AbstractArray, v, idx...)
+    x̄[idx...] += v
+    return nothing
+end
+Base.@propagate_inbounds function add_cotangent!(x̄::NamedTuple{(:x,)}, v, idx...)
+    return add_cotangent!(x̄.x, v, idx...)
+end
 
 # Add `v` to entry `(p, q)` of the mirror `K̄` of matrix `K`. A sparse or
 # `Diagonal` matrix keeps its structure: an entry outside it gets nothing.

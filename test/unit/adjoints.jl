@@ -64,6 +64,20 @@
         ok || @info "pullback mismatch" op maximum(abs.(got .- ref))
         return ok
     end
+    # With the kernel held constant (no kernel mirror), the argument
+    # cotangents match those of the full pullback.
+    function constant_kernel_matches(op, args...; rng = Xoshiro(2))
+        xs = (op, args...)
+        y, cache = CR._run_forward(xs...)
+        ȳ = randlike(rng, y)
+        full = zero_mirror(xs)
+        CR._run_pullback!((; piece = first(full), y = ȳ, args = Base.tail(full)), op, cache)
+        part = zero_mirror(xs)
+        piece = merge(first(part), (; kernel = nothing))
+        _, cache = CR._run_forward(xs...)
+        CR._run_pullback!((; piece, y = ȳ, args = Base.tail(part)), op, cache)
+        return mirror_vec(Base.tail(part), args) ≈ mirror_vec(Base.tail(full), args)
+    end
     # The positional arguments of `r(gain; history, add, start, stop)`.
     function recargs(gain, add, h; start = 1, states = nothing, stop = nothing)
         return (gain, add, h, states, start, stop)
@@ -191,6 +205,11 @@ end
     @test pullback_matches(
         Recurrence(TimeVarying(Pairwise(rand(rng, S, S, L, T) ./ 3))), recargs(R, ϵ, h)...
     )
+    # A fixed pairwise kernel with a short history and a later start, and
+    # held constant.
+    pw = Recurrence(Pairwise(rand(rng, S, S, L) ./ 3))
+    @test pullback_matches(pw, recargs(R, nothing, h[:, 1:2]; start = 3)...)
+    @test constant_kernel_matches(pw, recargs(R, ϵ, h)...)
 end
 
 @testitem "Adjoint: Recurrence time-varying slots at absolute time" setup = [AdjointCheck] begin
@@ -305,6 +324,13 @@ end
         @test pullback_matches(c, X, rand(rng, S, 3), start, nothing)
         c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
         @test pullback_matches(c, x, nothing, start, nothing)
+        c = Convolution(TimeVarying(rand(rng, D, T)))
+        @test pullback_matches(c, X, rand(rng, S, 2), start, nothing)
+        @test constant_kernel_matches(c, X, rand(rng, S, 2), start, nothing)
+        c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T)), CR.Primary()))
+        @test pullback_matches(c, X, nothing, start, nothing)
+        c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
+        @test constant_kernel_matches(c, X, nothing, start, nothing)
     end
 end
 
