@@ -201,3 +201,16 @@ Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop 
 | Name | What it does | Returns |
 |---|---|---|
 | [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its hand-written gradient, to check or time one against the other | an operator |
+| [`test_adjoint(backend, op, Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs a backend's own rule tester on an operator's hand-written gradient | a test result |
+
+[Adjoints and backends](@ref adjoints-backends) says when each backend uses the hand-written gradient.
+
+## [Executors](@id overview-executors)
+
+| Name | What it does | Returns |
+|---|---|---|
+| [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor operator calls use, set for a block with `with` | a scoped value |
+| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | run loops in order, across CPU threads, or as a GPU kernel | an executor |
+| [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | runs a loop with an [`Executor`](@ref ComposableRecurrences.Executor); a new executor adds a method | `nothing` |
+
+[Executors](@ref executors) gives what each supports under each AD backend.

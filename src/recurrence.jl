@@ -86,7 +86,7 @@ every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
 The constructor sets the field `rebuilds`, whether the local derivative
 can rebuild the coupling and modifiers that use it (see
-[`ComposableRecurrences.uses_adjoint`](@ref)).
+[Rules and plain AD](@ref adjoint-routing)).
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
