@@ -6,8 +6,8 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _current, _log_plain, _note_plain_type, _plain, _run_forward,
-    _run_pullback!
+    _current, _log_plain, _note_plain_type, _plain, _rebuild_flag,
+    _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -100,6 +100,9 @@ function EnzymeRules.reverse(
     ) where {N}
     return map(a -> a isa Active ? Enzyme.make_zero(a.val) : nothing, (op, args...))
 end
+# The `Recurrence` constructor's rebuild check returns a flag, and its
+# rebuild with dual numbers (which may throw) is not differentiated.
+EnzymeRules.inactive(::typeof(_rebuild_flag), args...) = nothing
 
 # The executor carries no derivative. Forward mode and plain reverse mode
 # (a `NoAdjoint` route) do not differentiate tasks or the scoped value

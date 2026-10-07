@@ -309,7 +309,7 @@ end
 end
 
 @testitem "Adjoint: routing by uses_adjoint" setup = [AdjointCheck, AdjointModifiers] begin
-    using ComposableRecurrences, ForwardDiff
+    using ComposableRecurrences, ConstructionBase, ForwardDiff
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     val(op) = Base.return_types(CR._route_val, typeof.((op, args...)))
@@ -465,6 +465,26 @@ end
         @test CR._rebuilds(@inferred Recurrence(g, I, ms)) === Val(true)
     end
     @test CR._rebuilds(Convolution([0.5, 0.5])) === Val(true)
+    @test CR._round_trips(Loose(1))
+    @test CR._plain_why(Recurrence(g)) == CR._ADJOINT_NOTE
+    @test occursin("Doubled", CR._plain_why(CR._WithState(op)))
+    # A rebuild through `constructorof` recomputes the check.
+    op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
+    @test CR._rebuilds(op) === true
+    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
+    @test CR._rebuilds(op) === Val(true)
+    # A constructor that throws is taken as not rebuilding, but an interrupt
+    # is not swallowed.
+    struct Strict{T}
+        a::T
+        Strict(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(ArgumentError("no"))
+    end
+    struct Halt{T}
+        a::T
+        Halt(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(InterruptException())
+    end
+    @test CR._round_trips(Strict(0.5)) === false
+    @test_throws InterruptException CR._round_trips(Halt(0.5))
     @test pullback_matches(
         Recurrence(g; modifiers = (Kept(0.5),)),
         recargs(ones(2, 4), nothing, ones(2, 2))...

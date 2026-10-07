@@ -98,8 +98,9 @@ has one; a [`Recurrence`](@ref) does when its coupling does in
 [`ComposableRecurrences.Step`](@ref) or is pointwise with only scalar float
 parameters (those are differentiated locally per value).
 A modifier differentiated locally is rebuilt with dual numbers through
-`ConstructionBase.constructorof`; whether that gives it back is checked
-once, when the `Recurrence` is built.
+`ConstructionBase.constructorof`.
+The `Recurrence` constructor checks once that this gives the modifier
+back, and `uses_adjoint` is `false` for the `Recurrence` when it does not.
 Otherwise the whole operator is differentiated by plain AD of its forward
 loop, logged once per operator type.
 

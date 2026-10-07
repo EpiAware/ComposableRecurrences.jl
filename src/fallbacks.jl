@@ -263,7 +263,8 @@ function _round_trips(m, θ)
     θd = _seed(ForwardDiff.Tag(_round_trips, T), map(T, θ))
     return try
         _rebuilt_tuple(m, first(_rebuild_scalar(m, θd))) === θd
-    catch
+    catch e
+        e isa InterruptException && rethrow()
         false
     end
 end
