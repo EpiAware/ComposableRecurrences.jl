@@ -334,6 +334,30 @@ end
     end
 end
 
+@testitem "Adjoint: ragged time-varying kernels" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(10)
+    S, T = 2, 9
+    # An empty column, and columns shorter and longer than the window reaches.
+    ks = [rand(rng, n) ./ 3 for n in (2, 0, 4, 1, 3, 4, 0, 2, 1)]
+    X = rand(rng, S, T)
+    R = 0.5 .+ rand(rng, S, T)
+    h = rand(rng, S, 4)
+    for start in (1, 4)
+        c = Convolution(TimeVarying(ks))
+        @test pullback_matches(c, X, rand(rng, S, 2), start, nothing)
+        @test constant_kernel_matches(c, X, rand(rng, S, 2), start, nothing)
+        c = Convolution(TimeVarying(ks, CR.Primary()))
+        @test pullback_matches(c, X, nothing, start, 7)
+        @test constant_kernel_matches(c, X, nothing, start, nothing)
+    end
+    r = Recurrence(TimeVarying(ks); coupling = rand(rng, S, S))
+    @test pullback_matches(r, recargs(R, nothing, h; start = 2)...)
+    r = Recurrence(TimeVarying(ks, CR.Primary()))
+    @test pullback_matches(r, recargs(R, randn(rng, S, T), h; start = 5)...)
+    @test constant_kernel_matches(r, recargs(R, nothing, h; start = 5)...)
+end
+
 @testitem "Adjoint: routing by uses_adjoint" setup = [AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences, ConstructionBase, ForwardDiff
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]

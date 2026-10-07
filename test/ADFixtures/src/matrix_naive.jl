@@ -1,8 +1,10 @@
 # Baseline arms for the headline matrix cases, written without the package:
 # the loss each case times, as a preallocated hand loop, as a naive loop that
 # copies its window every step, and as an `accumulate` over a NamedTuple
-# state. `CTIDM` below is a verbatim copy of the step code of an existing
-# accumulate-based model package, so that arm runs its exact arithmetic.
+# state. The ragged convolution also times its columns padded into a
+# dense kernel, as a caller without the ragged form would. `CTIDM` below
+# is a verbatim copy of the step code of an existing accumulate-based model
+# package, so that arm runs its exact arithmetic.
 # Included by `matrix_cases.jl` inside `MatrixCases`.
 
 # Step code copied verbatim from ComposableTuringIDModels (f7d6cc9f,
@@ -404,6 +406,42 @@ BASELINES["conv_primary"] = [
         conv_primary,
         (θ, T, L, w) -> θ -> sum(
             w .* loop_conv_primary(reshape(θ[1:(L * T)], L, T), θ[(L * T + 1):end])
+        )
+    ),
+]
+# Column `s` of the ragged `ks` spreads the input at time `s` forward.
+function loop_conv_primary(ks::AbstractVector{<:AbstractVector}, x)
+    T = length(x)
+    y = zeros(promote_type(eltype(eltype(ks)), eltype(x)), T)
+    for s in 1:T, d in 0:min(length(ks[s]) - 1, T - s)
+        y[s + d] += ks[s][d + 1] * x[s]
+    end
+    return y
+end
+
+# The ragged columns padded with zeros into the dense `L × T` kernel a
+# caller builds without the ragged form; it runs through the package.
+function _pad_columns(ks, L)
+    P = zeros(eltype(eltype(ks)), L, length(ks))
+    for (τ, k) in enumerate(ks), i in eachindex(k)
+        P[i, τ] = k[i]
+    end
+    return P
+end
+
+function _ragged_baseline(run)
+    return function (z::Size)
+        ns, w, θ = _ragged_inputs(z)
+        n = sum(ns)
+        return θ -> run(_columns(view(θ, 1:n), ns), θ[(n + 1):end], z.L, w), θ
+    end
+end
+
+BASELINES["conv_primary_ragged"] = [
+    "loop" => _ragged_baseline((ks, x, L, w) -> sum(w .* loop_conv_primary(ks, x))),
+    "padded" => _ragged_baseline(
+        (ks, x, L, w) -> sum(
+            w .* Convolution(TimeVarying(_pad_columns(ks, L), CR.Primary()))(x)
         )
     ),
 ]

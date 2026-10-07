@@ -94,11 +94,11 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | vector | one kernel shared by every series | ``L`` lags |
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter per series | adds a leading `S` axis |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
-| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis |
+| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel, and `PerStratum(TimeVarying(G))` is the same object.
-They tag one stored array and make no copies.
+They tag one stored array and make no copies, except that kernel columns are stacked once.
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 

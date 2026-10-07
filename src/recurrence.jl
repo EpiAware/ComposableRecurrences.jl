@@ -265,6 +265,7 @@ _check_kernel_shape(k::AbstractVector) = nothing
 _check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
 _check_kernel_shape(k::Pairwise{<:AbstractArray{<:Any, 3}}) = nothing
 _check_kernel_shape(k::TimeVarying{<:Any, <:AbstractMatrix}) = nothing
+_check_kernel_shape(k::TimeVarying{<:Any, <:_Ragged}) = nothing
 function _check_kernel_shape(
         k::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}
     )
@@ -320,6 +321,7 @@ end
 _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
+_nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
 
 # Kernel strata checks against `S` strata.
 _check_kernel_strata(k, S) = nothing
@@ -363,16 +365,30 @@ Base.@propagate_inbounds function _weight(
     )
     return g.x.x[a, b, i, τ]
 end
+# Past a ragged column's end the weight is zero.
+Base.@propagate_inbounds function _weight(
+        g::TimeVarying{<:Any, <:_Ragged}, a, b, i, τ
+    )
+    r = _colrange(g.x, τ)
+    return i <= length(r) ? g.x.values[r[i]] : zero(eltype(g.x.values))
+end
 
 # Time-varying kernels that do not mix strata: lags × time, and strata ×
 # lags × time.
 const _TVMatrix{I} = TimeVarying{I, <:AbstractMatrix}
 const _TVPerStratum{I} = TimeVarying{I, <:PerStratum}
+# Kernels read column by column, each column contiguous: lags × time, or
+# ragged columns, whose lengths may differ.
+const _TVColumns{I} = TimeVarying{I, <:Union{AbstractMatrix, _Ragged}}
 
-# Column `τ` of a lags × time kernel, contiguous, and the same view of its
-# mirror `ḡ`, or `nothing` without one.
+# Column `τ` of a column kernel, and the same view of its mirror `ḡ`, or
+# `nothing` without one. A loop over a column stops at its length.
 _wcolumn(g::_TVMatrix, a, τ) = view(g.x, :, τ)
 _wcolumn(ḡ, ::_TVMatrix, a, τ) = _mirror_view(cotangent(ḡ, :x), :, τ)
+_wcolumn(g::TimeVarying{<:Any, <:_Ragged}, a, τ) = view(g.x.values, _colrange(g.x, τ))
+function _wcolumn(ḡ, g::TimeVarying{<:Any, <:_Ragged}, a, τ)
+    return _mirror_view(cotangent(cotangent(ḡ, :x), :values), _colrange(g.x, τ))
+end
 _mirror_view(::Nothing, I...) = nothing
 _mirror_view(x, I...) = view(x, I...)
 _add_at!(::Nothing, v, i) = nothing
@@ -390,10 +406,10 @@ function _window_dot(g, H, t, L, a)
     end
     return acc
 end
-function _kdot(g::_TVMatrix{Secondary}, H, t, τ, L, a)
+function _kdot(g::_TVColumns{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
     acc = zero(eltype(H))
-    @inbounds @simd for i in 1:L
+    @inbounds @simd for i in 1:length(w)
         acc += w[i] * H[t + L - i, a]
     end
     return acc
@@ -406,7 +422,7 @@ function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
     end
     return acc
 end
-function _kdot(g::Union{_TVMatrix{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
+function _kdot(g::Union{_TVColumns{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
     @inbounds @simd for i in _lags(g, τ, L)
         acc += _weight(g, a, a, i, τ - i) * H[t + L - i, a]
@@ -439,6 +455,7 @@ _column(g, τ, i) = τ
 _column(::TimeVarying{Primary}, τ, i) = τ - i
 _lags(g, τ, L) = 1:L
 _lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
+_lags(g::TimeVarying{Secondary, <:_Ragged}, τ, L) = 1:length(_colrange(g.x, τ))
 
 # Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
 function _pressure_body!(k, p, g, H, t, τ, L)

@@ -173,6 +173,10 @@ With the default indexing the step at time ``t`` reads ``c(t)``; a
 \text{Secondary: } k_l(t), \qquad \text{Primary: } k_l(t - l).
 ```
 A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
+It may also be a vector of `T` columns of any lengths, `ks[τ]` being
+column ``\tau``, with zero weight past each column's end.
+The columns are stored stacked without padding, so a `Primary()` pmf
+truncated at the horizon stores and visits only its entries.
 A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
@@ -191,8 +195,8 @@ a type parameter so nothing branches on it:
 The two agree for a fixed kernel.
 
 # Arguments
-- `x`: the coefficients, time on the last axis, or a [`PerStratum`](@ref)
-  of them.
+- `x`: the coefficients, time on the last axis, a [`PerStratum`](@ref)
+  of them, or a vector of kernel columns.
 - `indexing`: `Secondary()` (default) or `Primary()`.
 
 # Examples
@@ -207,6 +211,21 @@ Recurrence(TimeVarying(G))(1.0; history = [1.0, 1.0], stop = 2)
  1.0
  1.0
 ```
+
+A delay pmf per input time, truncated at the horizon:
+
+```jldoctest
+using ComposableRecurrences
+ks = [[0.5, 0.5], [0.75, 0.25], [1.0]]
+Convolution(TimeVarying(ks, ComposableRecurrences.Primary()))(ones(3))
+
+# output
+
+3-element Vector{Float64}:
+ 0.5
+ 1.25
+ 1.25
+```
 """
 struct TimeVarying{I, A}
     "The coefficients, time on the last axis."
@@ -218,14 +237,74 @@ struct TimeVarying{I, A}
                     _describe(x)
             )
         )
-        x isa Union{AbstractArray, PerStratum, Pairwise} || throw(
+        x isa Union{AbstractArray, PerStratum, Pairwise, _Ragged} || throw(
             ArgumentError(
-                "TimeVarying wraps an array, a PerStratum or a Pairwise, " *
-                    "got $(_describe(x))"
+                "TimeVarying wraps an array, a PerStratum, a Pairwise or a " *
+                    "vector of kernel columns, got $(_describe(x))"
             )
         )
         return new{I, A}(x)
     end
+end
+
+# A kernel's columns, of any lengths, stacked: column `τ` is
+# `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each
+# column to its own end, so no padding is stored or visited, and the
+# integer offsets carry no cotangent. The constructor checks the offsets,
+# so a loop that reads column `τ ≤ ncols` within its range skips bounds
+# checks.
+struct _Ragged{V <: AbstractVector}
+    values::V
+    offsets::Vector{Int}
+    function _Ragged(values::V, offsets::AbstractVector{<:Integer}) where {
+            V <: AbstractVector,
+        }
+        Base.require_one_based_indexing(values, offsets)
+        ok = !isempty(offsets) && first(offsets) == 0 &&
+            last(offsets) == length(values) && issorted(offsets)
+        ok || throw(
+            ArgumentError(
+                "ragged kernel offsets rise from 0 to the number of values " *
+                    "($(length(values))), got $(_describe(offsets))"
+            )
+        )
+        return new{V}(values, convert(Vector{Int}, offsets))
+    end
+end
+
+# Stacks the columns with one `copyto!` each, which AD backends
+# differentiate as a block copy.
+function _Ragged(ks::AbstractVector{<:AbstractVector})
+    Base.require_one_based_indexing(ks)
+    offsets = Vector{Int}(undef, length(ks) + 1)
+    offsets[1] = 0
+    for (τ, k) in enumerate(ks)
+        offsets[τ + 1] = offsets[τ] + length(k)
+    end
+    values = Vector{_column_eltype(ks)}(undef, last(offsets))
+    for (τ, k) in enumerate(ks)
+        copyto!(values, offsets[τ] + 1, k, firstindex(k), length(k))
+    end
+    return _Ragged(values, offsets)
+end
+function _column_eltype(ks)
+    isconcretetype(eltype(ks)) && return eltype(eltype(ks))
+    return mapreduce(eltype, promote_type, ks; init = Bool)
+end
+
+_ncols(g::_Ragged) = length(g.offsets) - 1
+Base.@propagate_inbounds _colrange(g::_Ragged, τ) = (g.offsets[τ] + 1):g.offsets[τ + 1]
+function _maxlen(g::_Ragged)
+    n = 0
+    for τ in 1:_ncols(g)
+        n = max(n, g.offsets[τ + 1] - g.offsets[τ])
+    end
+    return n
+end
+param_eltype(x::_Ragged) = param_eltype(x.values)
+
+function TimeVarying{I}(ks::AbstractVector{<:AbstractVector}) where {I}
+    return TimeVarying{I}(_Ragged(ks))
 end
 
 TimeVarying(x) = TimeVarying{Secondary}(x)
@@ -245,6 +324,16 @@ end
 # Nesting is normalised to TimeVarying outermost.
 PerStratum(x::TimeVarying{I}) where {I} = TimeVarying{I}(PerStratum(x.x))
 Pairwise(x::TimeVarying{I}) where {I} = TimeVarying{I}(Pairwise(x.x))
+PerStratum(x::TimeVarying{<:Any, <:_Ragged}) = _strata_ragged(x)
+Pairwise(x::TimeVarying{<:Any, <:_Ragged}) = _strata_ragged(x)
+function _strata_ragged(x)
+    throw(
+        ArgumentError(
+            "a vector of kernel columns is shared by every stratum; use a " *
+                "dense array for a kernel per stratum, got $(_describe(x))"
+        )
+    )
+end
 
 # A fixed pairwise kernel as a call prepares it: `x[L + 1 - i, b, a]` is
 # the weight of stratum `b`'s value at lag `i` in stratum `a`, so the dot of

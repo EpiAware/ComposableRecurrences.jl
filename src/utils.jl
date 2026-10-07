@@ -32,6 +32,9 @@ _describe(x::AbstractArray) = summary(x)
 _describe(x::AbstractRange) = repr(x)
 _describe(x::Union{PerStratum, Pairwise}) = _wrapped(nameof(typeof(x)), x.x)
 _describe(x::TimeVarying{I}) where {I} = _wrapped(:TimeVarying, x.x, nameof(I))
+function _describe(x::_Ragged)
+    return string(_ncols(x), " kernel columns of up to ", _maxlen(x), " entries")
+end
 _wrapped(name, x) = string(name, "(", _describe(x), ")")
 _wrapped(name, x, i) = string(name, "(", _describe(x), ", ", i, "())")
 
@@ -87,6 +90,9 @@ end
 _check_kernel_times(k, stop) = nothing
 function _check_kernel_times(k::TimeVarying, stop)
     return _check_covers(:kernel, _extent(_array(k)), stop)
+end
+function _check_kernel_times(k::TimeVarying{<:Any, <:_Ragged}, stop)
+    return _check_covers(:kernel, _ncols(k.x), stop)
 end
 
 # Check every time-varying coefficient in a coupling or modifier covers

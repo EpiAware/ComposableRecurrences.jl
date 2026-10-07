@@ -213,6 +213,32 @@ function _delay_varying_secondary(w, θ)
     return sum(WS[:, 4:end] .* w(Convolution(TimeVarying(G)))(X; history = H, start = 4))
 end
 
+# Kernels as vectors of columns of different lengths, cut from the flat
+# values `v`: column `τ` has `ns[τ]` entries.
+function _columns(v, ns)
+    o = cumsum([0; ns])
+    return [v[(o[τ] + 1):o[τ + 1]] for τ in eachindex(ns)]
+end
+
+# A delay pmf per input time truncated at the horizon: column `τ` holds
+# delays 0 to `min(L, T - τ)`.
+const NS_HORIZON = [min(L + 1, T - τ + 1) for τ in 1:T]
+function _delay_ragged(w, θ)
+    v, X = _unpack(θ, (sum(NS_HORIZON),), (S, T))
+    kernel = TimeVarying(_columns(v, NS_HORIZON), ComposableRecurrences.Primary())
+    return sum(WS .* w(Convolution(kernel))(X))
+end
+
+# Each infector keeps the kernel of its own infection time, of a length
+# that varies with that time; times with an empty column do not transmit.
+const NS_CYCLE = [mod(τ, L + 1) for τ in 1:T]
+function _primary_ragged(w, θ)
+    v, logh, logR = _unpack(θ, (sum(NS_CYCLE),), (S, L), (S, T))
+    kernel = TimeVarying(_columns(v, NS_CYCLE), ComposableRecurrences.Primary())
+    y = w(Recurrence(kernel; coupling = K0))(exp.(logR); history = exp.(logh), start = L + 1)
+    return sum(WS[:, (L + 1):end] .* y)
+end
+
 # Leaky vaccination: removals move susceptibles into a protected pool drawn
 # from at relative susceptibility σ. The doses stay below the pools, away
 # from the removal cap.
@@ -339,6 +365,19 @@ const _SCENARIOS = [
         () -> _flat(fill(0.25, L, T), 1 .+ LOGR, ones(S, 2)),
     ),
     (
+        "Convolution ragged kernel truncated at the horizon", _delay_ragged,
+        () -> _flat(
+            [0.2 + 0.1 * sin(τ + i) for τ in 1:T for i in 1:NS_HORIZON[τ]], 1 .+ LOGR
+        ),
+    ),
+    (
+        "Recurrence ragged Primary kernel", _primary_ragged,
+        () -> _flat(
+            [G0[i] * (1 + 0.1 * cos(τ)) for τ in 1:T for i in 1:NS_CYCLE[τ]],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence Transform with per-stratum parameters", _transform,
         () -> _flat([0.5, 0.6, 0.7], [0.2, 0.3, 0.4]),
     ),
@@ -380,6 +419,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence population varying over time with births" => (:_population,),
     # A Primary() kernel in a Recurrence: the seed check came with it.
     "Recurrence Primary time-varying kernel" => (:_check_primary_seed,),
+    # Kernels as vectors of columns are stored as `_Ragged`.
+    "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
+    "Recurrence ragged Primary kernel" => (:_Ragged,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
