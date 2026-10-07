@@ -173,12 +173,10 @@ With the default indexing the step at time ``t`` reads ``c(t)``; a
 \text{Secondary: } k_l(t), \qquad \text{Primary: } k_l(t - l).
 ```
 A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
-It may also be a vector of `T` columns, `ks[τ]` being column ``\tau``, of
-any lengths: the entries past a column's end are zero.
-These columns are stored stacked, without the padding a dense `L × T`
-kernel needs, and every loop stops at a column's own end.
-A `Primary()` pmf truncated at the horizon, with column lengths
-`T:-1:1`, stores only its entries.
+It may also be a vector of `T` columns of any lengths, `ks[τ]` being
+column ``\tau``, with zero weight past each column's end.
+The columns are stored stacked without padding, so a `Primary()` pmf
+truncated at the horizon stores and visits only its entries.
 A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
