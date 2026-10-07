@@ -164,18 +164,19 @@ end
 # float leaf is IEEE, else plain AD. Both decisions are made from the
 # types, so the route is static. A modifier left to the default pullback is
 # also checked by value to rebuild from its parameters (`_rebuilds`); this
-# folds to `true` for operators without one.
+# folds to `true` for operators without one. `Vararg{Any, N}` makes the
+# routes specialise on the arguments, which they pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 function _route_val(op, args...)
     return Val(uses_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
-function _route(::Val{:rule}, op, args...)
+function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     _rebuilds(op) && return _ad(op, args...)
     _note_rebuild(op, args...)
     return _plain(op, args...)
 end
-function _route(::Val{:plain}, op, args...)
+function _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N}
     _note_plain(op, args...)
     return _plain(op, args...)
 end

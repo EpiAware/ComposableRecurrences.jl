@@ -324,6 +324,8 @@ end
     @test !CR.uses_adjoint(rs, CR.Run())
     CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
     @test CR.uses_adjoint(Scaled(0.5), CR.Step())
+    # Only the roles an operator's rule calls are derived.
+    @test !CR._has_pullback(Scaled(0.5), CR.Init())
     @test CR.uses_adjoint(rs, CR.Run())
     @test val(rs) == [Val{:rule}]
     CR.uses_adjoint(::Scaled, ::CR.Step) = false
@@ -669,17 +671,23 @@ end
         κ::K
     end
     CR.ispointwise(::Capped) = true
-    CR.forward(::Capped, ::CR.Init, s, history) = (s .= sum(history); nothing)
+    # Counts the Init calls on dual numbers, which only the Jacobian makes.
+    const DUAL_INITS = Ref(0)
+    function CR.forward(::Capped, ::CR.Init, s, history)
+        eltype(history) <: ForwardDiff.Dual && (DUAL_INITS[] += 1)
+        s .= sum(history)
+        return nothing
+    end
     CR.forward(m::Capped, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
     m, h = Capped(5.0), ones(3, 4)
-    init_back(s̄) = (; piece = (; κ = Ref(0.0)), s = s̄, history = fill(NaN, 3, 4))
+    init_back(s̄) = (; piece = (; κ = Ref(0.0)), s = s̄, history = zeros(3, 4))
     zero_grads, one_grads = init_back(zeros(3)), init_back(ones(3))
-    one_grads.history .= 0
     CR.pullback!(zero_grads, m, CR.Init(), zeros(3), h)
-    CR.pullback!(one_grads, m, CR.Init(), zeros(3), h)
-    # Untouched: the Jacobian would have added to the NaN history mirror.
-    @test all(isnan, zero_grads.history)
+    @test DUAL_INITS[] == 0
+    @test all(iszero, zero_grads.history)
     # A nonzero one takes the Jacobian.
+    CR.pullback!(one_grads, m, CR.Init(), zeros(3), h)
+    @test DUAL_INITS[] > 0
     @test one_grads.history ≈ fill(3.0, 3, 4)
     r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m,))
     @test pullback_matches(r, recargs(ones(3, 5), nothing, h)...)
