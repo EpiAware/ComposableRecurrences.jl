@@ -122,12 +122,14 @@ end
     @test_throws DimensionMismatch init(
         CR.Depletion(80.0; pool0 = PerStratum([1.0, 2.0, 3.0])), h
     )
-    # A plain array is not a parameter; the population and starting pool do
-    # not vary over time.
+    # A plain array is not a parameter; the starting pool does not vary over
+    # time.
     @test_throws ArgumentError CR.Depletion(N)
-    @test_throws ArgumentError CR.Depletion(TimeVarying(N))
-    @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(TimeVarying(N))
+    @test_throws "or Derived(f, args...)" CR.Depletion(N)
     @test_throws ArgumentError CR.Depletion(1.0; pool0 = TimeVarying(N))
+    @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(
+        1.0; pool0 = TimeVarying(N)
+    )
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
     @test size(y) == (2, 6)
@@ -281,6 +283,116 @@ end
         [150.0, 0.0, 90.0], 1
     )
     @test all(isfinite, v̄) && all(isfinite, s̄)
+end
+
+@testitem "Depletion: a population that varies over time" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    g = [0.3, 0.5, 0.2]
+    h = [2.0 3.0 4.0; 1.0 1.0 2.0]
+    T = 9
+    # The gain is read at absolute time.
+    R = [2.5 - 0.1t + 0.3k for k in 1:2, t in 1:T]
+    Nt = [100.0 + 2t + 5k for k in 1:2, t in 1:T]
+    # The hazard draw with the population read at each step's time.
+    function naive(N, pool0)
+        y = copy(h)
+        pool = copy(pool0)
+        for t in (size(h, 2) + 1):T
+            v = R[:, t] .* [sum(g[i] * y[k, end - i + 1] for i in 1:3) for k in 1:2]
+            x = v ./ N[:, t]
+            y = hcat(y, pool .* (1 .- exp.(-x)))
+            pool .*= exp.(-x)
+        end
+        return y[:, (size(h, 2) + 1):end]
+    end
+    start = size(h, 2) + 1
+    run(m) = Recurrence(g; modifiers = (m,))(R; history = h, start)
+    pool0 = [90.0, 95.0]
+    @test run(CR.Depletion(TimeVarying(PerStratum(Nt)); pool0 = PerStratum(pool0))) ≈
+        naive(Nt, pool0)
+    @test run(CR.Depletion(TimeVarying(Nt[1, :]); pool0 = 90.0)) ≈
+        naive(repeat(Nt[1:1, :], 2), [90.0, 90.0])
+    # A Derived population, and the default pool is the population at time 1.
+    grow = Derived((a, b) -> a + b, PerStratum([105.0, 110.0]), TimeVarying(2.0 .* (1:T)))
+    @test run(CR.Depletion(grow)) ≈ naive(Nt, Nt[:, 1])
+    # An integer population is stored as floats.
+    @test CR.Depletion(TimeVarying(1:T)).N.x == float.(1:T)
+    @test CR.Depletion(TimeVarying(PerStratum(round.(Int, Nt)))).N.x.x == Nt
+    # Shapes are checked against the strata and the times.
+    @test_throws DimensionMismatch run(CR.Depletion(TimeVarying(PerStratum(Nt[1:1, :]))))
+    @test_throws DimensionMismatch run(CR.Depletion(TimeVarying(Nt[1, 1:4])))
+    @test_throws ArgumentError CR.Depletion(TimeVarying(Nt[1, :], CR.Primary()))
+end
+
+@testitem "Depletion: negative removals add to the pool" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    g, h = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0]
+    b = [1.0, 0.0, 3.0, 2.0, 0.5, 4.0, 1.0, 2.0]
+    T = length(h) + length(b)
+    R = [2.5 - 0.15t for t in 1:T]
+    births = [zeros(length(h)); b]
+    N = 50.0 .+ cumsum(births)
+    function naive(R, births)
+        y = h .+ zero(eltype(births))
+        pool = 40.0 + zero(eltype(births))
+        for t in (length(h) + 1):T
+            v = R[t] * sum(g[i] * y[end - i + 1] for i in 1:3)
+            x = v / N[t]
+            push!(y, pool * (1 - exp(-x)))
+            pool = pool * exp(-x) + births[t]
+        end
+        return y[(length(h) + 1):end]
+    end
+    function run(R, births)
+        d = CR.Depletion(TimeVarying(N); pool0 = 40.0, removals = TimeVarying(-births))
+        return Recurrence(g; modifiers = (d,))(R; history = h, start = length(h) + 1)
+    end
+    @test run(R, births) ≈ naive(R, births)
+    W = collect(range(0.5, 1.5; length = length(b)))
+    @test ForwardDiff.gradient(x -> sum(W .* run(R, x)), births) ≈
+        ForwardDiff.gradient(x -> sum(W .* naive(R, x)), births)
+    # The removal and its pullback take the negative arm.
+    @test CR._removal(-2.0, 5.0) == -2.0
+    @test CR._removal(-2.0, -1.0) == -2.0
+    @test CR._removal_pullback(-2.0, 5.0, 0.7) == (0.7, 0.0)
+    # With a protected pool a removal moves from the unprotected pool to the
+    # protected one, and a negative removal adds to the unprotected pool only.
+    step(r) = CR._protected_step(CR.Hazard(), 0.0, 10.0, 4.0, 0.5, 20.0, 1.0, r)
+    @test step(3.0) == (0.0, 7.0, 7.0)
+    @test step(-2.0) == (0.0, 12.0, 4.0)
+end
+
+@testitem "Depletion pullback with a time-varying population" setup = [ModifierChecks] begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    v, s = [3.0, 0.5, 8.0], [150.0, 40.0, 90.0]
+    for form in (CR.Hazard(), CR.Floor()), t in (1, 2)
+        c = ModifierChecks.check_pullback(
+            θ -> CR.Depletion(TimeVarying(θ[1:2]), form; heterogeneity = θ[3]),
+            [200.0, 180.0, 1.2], v, s, t
+        )
+        @test c.v && c.s && c.θ
+        @test iszero(c.θ̄[3 - t])
+        c = ModifierChecks.check_pullback(
+            θ -> CR.Depletion(
+                TimeVarying(PerStratum(reshape(θ[1:6], 3, 2))), form;
+                heterogeneity = θ[7], removals = TimeVarying(θ[8:9])
+            ),
+            [200.0, 60.0, 100.0, 210.0, 70.0, 90.0, 1.0, -3.0, 2.0], v, s, t
+        )
+        @test c.v && c.s && c.θ
+    end
+    # The default pool is the population at time 1, so its cotangent lands
+    # there.
+    m = CR.Depletion(TimeVarying(PerStratum([100.0 110.0; 60.0 70.0])))
+    m̄ = ModifierChecks.mirror(m)
+    CR.pullback!(
+        (; piece = m̄, s = [0.7, -1.2], history = nothing), m, CR.Init(),
+        zeros(2), ones(2, 1)
+    )
+    @test m̄.N.x.x == [0.7 0.0; -1.2 0.0]
 end
 
 @testitem "Depletion init pullback matches ForwardDiff" setup = [ModifierChecks] begin
@@ -465,6 +577,23 @@ end
         occursin("forward(form, Step(), v, s, N, α)", err.msg)
     @test_throws ArgumentError CR.Depletion(1.0, :floor)
     @test_throws ":floor is not a depletion form" CR.Depletion(1.0, :floor)
+    # A form for one float type, or for any real, is a form.
+    struct Float32Form end
+    CR.forward(::Float32Form, ::CR.Step, v::Float32, s::Float32, N::Float32, α::Float32) =
+        (v, s - v)
+    struct RealForm end
+    CR.forward(::RealForm, ::CR.Step, v::Real, s::Real, N::Real, α::Real) = (v, s - v)
+    struct SameTypeForm end
+    CR.forward(::SameTypeForm, ::CR.Step, v::T, s::T, N::T, α::T) where {T <: Real} =
+        (v, s - v)
+    m = CR.Depletion(100.0f0, Float32Form())
+    @test m.N isa Float32 && m.heterogeneity isa Float32
+    y = Recurrence(Float32[0.5, 0.5]; modifiers = (m,))(
+        fill(1.0f0, 3); history = Float32[1, 1]
+    )
+    @test eltype(y) == Float32
+    @test CR.Depletion(1.0, RealForm()).form === RealForm()
+    @test CR.Depletion(1.0, SameTypeForm()).form === SameTypeForm()
 end
 
 @testitem "Variants: one path per step" begin

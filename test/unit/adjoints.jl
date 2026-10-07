@@ -240,6 +240,32 @@ end
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
 end
 
+@testitem "Adjoint: Depletion with a population that varies over time" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(8)
+    S, L, T, start = 2, 3, 6, 4
+    g = rand(rng, L) ./ 2
+    K = rand(rng, S, S) ./ 2
+    h = 1 .+ rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    stop = start + T - 1
+    N = 40 .+ 10 .* rand(rng, S, stop)
+    births = TimeVarying(PerStratum(-rand(rng, S, stop)))
+    for d in (
+            CR.Depletion(TimeVarying(PerStratum(N))),
+            CR.Depletion(TimeVarying(N[1, :]), CR.Floor(); pool0 = 30.0),
+            CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
+            CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
+            CR.Depletion(
+                TimeVarying(PerStratum(N)); removals = births,
+                protected = CR.Protected(0.3; pool0 = 5.0)
+            ),
+        )
+        r = Recurrence(g; coupling = K, modifiers = (d,))
+        @test pullback_matches(r, recargs(R, nothing, h; start)...)
+    end
+end
+
 @testitem "Adjoint: Recurrence returning its state" setup = [AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences
     rng = Xoshiro(7)
