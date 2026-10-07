@@ -72,12 +72,14 @@ CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
 
 To accept every parameter form, such as `PerStratum`, `TimeVarying` or `Derived`, read each parameter with [`param`](@ref ComposableRecurrences.param) and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 
-Without a `pullback!`, a pointwise modifier with only scalar float parameters, such as `Scale`, is differentiated locally with ForwardDiff inside the rule.
+Without a `pullback!`, a pointwise modifier is differentiated locally with ForwardDiff inside the rule when each float parameter is a scalar or is read one entry per step through `param`, such as a `PerStratum` or `TimeVarying` parameter.
+A step that reads such a parameter's array directly takes plain automatic differentiation instead.
 The rule rebuilds the modifier with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
 The `Recurrence` constructor checks this once, by rebuilding the modifier from its own parameters.
 Integer fields, index ranges and integer arrays are structure, not parameters.
-Any other modifier without a `pullback!` makes the backend differentiate the whole operator.
+A coupling without a `pullback!` whose float parameters are all scalars is differentiated locally the same way, in its pressures and scalars, while they number at most 12 (see [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint)).
+Any other modifier or coupling without a `pullback!` makes the backend differentiate the whole operator.
 This includes one holding a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 A `pullback!` is kept only where it beats plain automatic differentiation; see [the rule policy](@ref rule-policy).

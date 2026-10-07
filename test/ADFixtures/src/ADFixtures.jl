@@ -434,6 +434,67 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
 # and some calls fail under their `NoAdjoint`, so the twins are left out.
 const _TWIN_REQUIRES = (:uses_adjoint,)
 
+# A user coupling and a user modifier with array parameters, neither with a
+# `pullback!`: the rule differentiates each step locally.
+"A share `a` of every other stratum's pressure goes to the first."
+struct ShareFirst{A}
+    a::A
+end
+function ComposableRecurrences.forward(
+        C::ShareFirst, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    tot = sum(view(p, 2:length(p)))
+    q[1] = p[1] + C.a * tot
+    for k in 2:length(p)
+        q[k] = (1 - C.a) * p[k]
+    end
+    return nothing
+end
+
+"Saturation at a per-stratum `κ`, scaled by a time-varying `β`."
+struct StrataCap{K, B}
+    κ::K
+    β::B
+end
+ComposableRecurrences.ispointwise(::StrataCap) = true
+function ComposableRecurrences.forward(
+        m::StrataCap, ::ComposableRecurrences.Step, v, s, t, k
+    )
+    κ = ComposableRecurrences.param(m.κ, k, t)
+    return ComposableRecurrences.param(m.β, k, t) * v * κ / (κ + v), s
+end
+
+function _user_coupling(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
+    r = Recurrence(G0; coupling = ShareFirst(only(a)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+function _strata_modifier(w, θ)
+    logh, logR, logκ, β = _unpack(θ, (S, L), (S, T), (S,), (T,))
+    m = StrataCap(PerStratum(exp.(logκ)), TimeVarying(β))
+    r = Recurrence(G0; coupling = K0, modifiers = (m,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Recurrence user coupling without a pullback", _user_coupling,
+        () -> _flat(zeros(S, L), LOGR, [0.3]),
+    ),
+    (
+        "Recurrence per-stratum modifier without a pullback", _strata_modifier,
+        () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
+    ),
+)
+# The local derivatives of a coupling and of array parameters read one
+# entry per step came together.
+_REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
+_REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+
 _requires(name) = get(_REQUIRES, name, ())
 
 """

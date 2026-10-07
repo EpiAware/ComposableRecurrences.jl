@@ -150,8 +150,7 @@ function _coupling_back!(p̄, C̄, C::Diagonal, q̄, P, H, H̄, t, τ, L)
 end
 function _coupling_back!(p̄, C̄, C, q̄, P, H, H̄, t, τ, L)
     fill!(p̄, zero(eltype(p̄)))
-    grads = (; piece = C̄, q = q̄, p = p̄)
-    _call_pullback!(grads, C, Pressure(), nothing, view(P, :, t), τ)
+    _pressure_back!(p̄, C̄, C, q̄, view(P, :, t), τ)
     return p̄
 end
 

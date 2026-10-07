@@ -49,7 +49,7 @@ A hand-written rule is kept only where it beats plain automatic differentiation,
 Where it does not, [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) is `false` for that operator or modifier, so dispatch sends the operator to plain automatic differentiation.
 This route does not depend on the backend, so a rule that wins on one backend and loses on the other runs on both.
 The table gives the rule time over the `NoAdjoint` time, from matrix cases at `T` 200 and `L` 20 where one covers it, else from the small CI scenarios (marked ¹).
-Every rule passes on both backends except the local `ForwardDiff` step of a pointwise modifier without a `pullback!`, timed by the `local` arm below.
+Every rule passes on both backends except the local `ForwardDiff` step of a pointwise modifier with scalar parameters and no `pullback!`, timed by the `local` arm below.
 It is 1.12 to 1.38 times slower than plain automatic differentiation on Enzyme, and on Mooncake it is within noise or slower at small sizes.
 
 | Rule switched on by | Mooncake reverse | Enzyme reverse | Decision |
@@ -68,6 +68,11 @@ It is 1.12 to 1.38 times slower than plain automatic differentiation on Enzyme, 
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
 | pointwise modifier without a `pullback!` | 0.64 | 1.12 | fails on Enzyme |
+| pointwise modifier without a `pullback!`, `PerStratum` or `TimeVarying` parameters | 0.30² | 0.90² | keep |
+| coupling without a `pullback!`, up to 12 strata and scalars | 0.34² | 0.67² | keep |
+
+² The worst of 3, 10 and 50 strata (3 to 11 for the coupling) for a user type, at `T` 200 and `L` 20.
+A coupling whose cost grows with the strata squared was 1.7 to 4 times slower than plain automatic differentiation on Enzyme from 16 strata, so a call with more takes plain automatic differentiation.
 
 ## The benchmark matrix
 
@@ -82,7 +87,7 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
-Cases in `LOCAL_CASES` also run a `local` arm, which replaces each pointwise modifier's `pullback!` with the local `ForwardDiff` step.
+Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
 
 `--executor` and `--threads` time the operators under an executor.
 `--threads=1,2,4` runs each target once per thread count, and `--executor=threaded` runs the `rule` arm under `Threaded()` (the default is `serial`).

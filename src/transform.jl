@@ -123,6 +123,7 @@ ispointwise(::Transform) = true
 # the default pointwise pullback, which does not reach a closure's fields.
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
 _scalar_params(::Transform) = false
+_local_params(::Transform) = false
 
 _theta_pairs(::Nothing) = ()
 _theta_pairs(θ::Union{Tuple, NamedTuple}) = map(x -> :θ => x, Tuple(θ))
