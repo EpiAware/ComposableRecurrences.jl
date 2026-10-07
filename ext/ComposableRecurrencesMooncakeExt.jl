@@ -6,7 +6,7 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _current, _log_plain, _note_plain_type, _rebuilds, _run_forward,
+    _current, _log_plain, _note_plain_type, _rebuild_flag, _run_forward,
     _run_pullback!
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
@@ -74,13 +74,14 @@ function Mooncake.frule!!(
     return Mooncake.zero_dual(nothing)
 end
 function Mooncake.rrule!!(
-        f::CoDual{typeof(_note_plain_type)}, why::CoDual, op::CoDual,
-        args::Vararg{CoDual, N}
+        f::CoDual{typeof(_note_plain_type)}, op::CoDual, args::Vararg{CoDual, N}
     ) where {N}
-    _log_plain(typeof(primal(op)), primal(why))
-    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, why, op, args...)
+    _log_plain(primal(op))
+    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, op, args...)
 end
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuilds), Any}
+# The `Recurrence` constructor's rebuild check returns a flag, and its
+# rebuild with dual numbers (which may throw) is not differentiated.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuild_flag), Tuple}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and

@@ -97,6 +97,10 @@ has one; a [`Recurrence`](@ref) does when its coupling does in
 [`ComposableRecurrences.Pressure`](@ref) and each modifier does in
 [`ComposableRecurrences.Step`](@ref) or is pointwise with only scalar float
 parameters (those are differentiated locally per value).
+A modifier differentiated locally is rebuilt with dual numbers through
+`ConstructionBase.constructorof`.
+The `Recurrence` constructor checks once that this gives the modifier
+back, and `uses_adjoint` is `false` for the `Recurrence` when it does not.
 Otherwise the whole operator is differentiated by plain AD of its forward
 loop, logged once per operator type.
 
@@ -162,24 +166,33 @@ end
 
 # The entry point: the rule when the operator uses its adjoint and every
 # float leaf is IEEE, else plain AD. Both decisions are made from the
-# types, so the route is static. A modifier left to the default pullback is
-# also checked by value to rebuild from its parameters (`_rebuilds`); this
-# folds to `true` for operators without one. `Vararg{Any, N}` makes the
+# types, so the route is static. An operator whose local derivative
+# rebuilds a modifier from its parameters stores at construction whether
+# that works (`_rebuilds`): `Val(true)` when no modifier needs it, so the
+# route still folds, else a `Bool` read here. `Vararg{Any, N}` makes the
 # routes specialise on the arguments, which they pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 function _route_val(op, args...)
-    return Val(uses_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
+    return Val(_type_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
-    _rebuilds(op) && return _ad(op, args...)
-    _note_rebuild(op, args...)
-    return _plain(op, args...)
+    return _rule(_rebuilds(op), op, args...)
 end
 function _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N}
     _note_plain(op, args...)
     return _plain(op, args...)
 end
+_rule(::Val{true}, op, args::Vararg{Any, N}) where {N} = _ad(op, args...)
+function _rule(rebuilds::Bool, op, args::Vararg{Any, N}) where {N}
+    rebuilds && return _ad(op, args...)
+    _note_plain_type(op, args...)
+    return _plain(op, args...)
+end
+
+# Whether an operator uses its adjoint from its type alone; an operator
+# that also stores a value check adds a method.
+_type_adjoint(op, role) = uses_adjoint(op, role)
 
 # The positional Run of an operator and its pullback. Operators with a
 # keyword `forward` on `Run()` add methods for their positional form.
@@ -199,23 +212,25 @@ _plain(op, args...) = _primal(op, args...)
 # rules for it log, once per operator type. It takes the operator and its
 # arguments so that a backend sees an active argument and runs the rule,
 # and `donotdelete` keeps the call, which has no effect of its own.
-const _ADJOINT_NOTE = "has a coupling or modifier without an analytic adjoint"
-const _REBUILD_NOTE = "has a modifier or depletion form whose constructor " *
-    "does not give it back from its own parameters"
 function _note_plain(op, args...)
     uses_adjoint(op, Run()) && return nothing
-    return _note_plain_type(_ADJOINT_NOTE, op, args...)
+    return _note_plain_type(op, args...)
 end
-_note_rebuild(op, args...) = _note_plain_type(_REBUILD_NOTE, op, args...)
-@noinline _note_plain_type(why, op, args...) = (Base.donotdelete(op, args...); nothing)
+@noinline _note_plain_type(op, args...) = (Base.donotdelete(op, args...); nothing)
 const _PLAIN_NOTED = Set{Any}()
 const _PLAIN_LOCK = ReentrantLock()
-function _log_plain(T, why)
+function _log_plain(op)
+    T = typeof(op)
     new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
-    new && @info "$(nameof(T)) $why, so gradients of it use plain AD of " *
-        "the whole operator"
+    new && @info "$(nameof(T)) $(_plain_why(op)), so gradients of it use " *
+        "plain AD of the whole operator"
     return nothing
 end
+
+# Why an operator takes plain AD; operators that store a failed rebuild
+# check name the modifiers it failed for.
+const _ADJOINT_NOTE = "has a coupling or modifier without an analytic adjoint"
+_plain_why(op) = _ADJOINT_NOTE
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; dual numbers, BigFloat and other
