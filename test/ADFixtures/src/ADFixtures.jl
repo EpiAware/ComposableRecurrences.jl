@@ -84,6 +84,9 @@ function _unpack(θ, shapes...)
     end
 end
 
+# The arrays `xs` flattened into one parameter vector.
+_flat(xs...) = reduce(vcat, map(vec, xs))
+
 const S, L, T = 3, 4, 12
 const W1 = [sin(t) for t in 1:T]
 const WS = [cos(a * t) for a in 1:S, t in 1:T]
@@ -315,9 +318,19 @@ end
 # Imports moved between strata, imports added and the values capped per
 # stratum: the cap binds on strata 1 and 2 throughout and never on stratum
 # 3, with a margin that keeps finite differences off the kink.
+# The parameters are offsets from `CRA0`, so the scenario starts at zero.
+# Compiled ReverseDiff tapes keep the branches taken where they were
+# recorded, and the harness records them at zero parameters: there the cap
+# would bind on every stratum.
 const HI = [2.8, 3.2, 100.0]
+const CRA0 = _flat(
+    [0.0 0.2 0.1; 0.1 0.0 0.3; 0.2 0.1 0.0], [0.4, 0.3, 0.2],
+    0.2 .+ 0.1 .* abs.(WS), HI, fill(log(5.0), S, L), LOGR,
+)
 function _clamp_redistribute_add(w, θ)
-    K, ε, B, hi, logh, logR = _unpack(θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T))
+    K, ε, B, hi, logh, logR = _unpack(
+        CRA0 .+ θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T)
+    )
     mods = (
         ComposableRecurrences.Redistribute(K, PerStratum(ε)),
         ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
@@ -340,8 +353,6 @@ function _conv_per_stratum(w, θ)
     G, X, H = _unpack(θ, (S, L + 1), (S, T), (S, L))
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
 end
-
-_flat(xs...) = reduce(vcat, map(vec, xs))
 
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
@@ -452,10 +463,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence Redistribute, Add and Clamp", _clamp_redistribute_add,
-        () -> _flat(
-            [0.0 0.2 0.1; 0.1 0.0 0.3; 0.2 0.1 0.0], [0.4, 0.3, 0.2],
-            0.2 .+ 0.1 .* abs.(WS), HI, fill(log(5.0), S, L), LOGR,
-        ),
+        () -> zero(CRA0),
     ),
     (
         "Recurrence in Float32", _float32,
