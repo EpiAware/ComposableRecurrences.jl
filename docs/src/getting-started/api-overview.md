@@ -19,7 +19,7 @@ y_t &= M_R \circ \dots \circ M_1 (v_t)
 and a convolution computes
 
 ```math
-y_t = \sum_{l=0}^{L-1} k_l \, x_{t-l} .
+y_t = g_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t .
 ```
 
 - ``y_t`` is the output and ``x_t`` the convolution input; each has one entry per series.
@@ -70,7 +70,8 @@ A recurrence has no lag 0, because a value cannot depend on itself in the same s
 | Call | What it does | Returns |
 |---|---|---|
 | [`(r::Recurrence)(gain; history, add, start, stop)`](@ref Recurrence) | runs `r` over times `start:stop`, multiplying each step by `gain` and adding `add` before the modifiers | a `Vector` of length `T`, or an `S × T` `Matrix` for `S` series |
-| [`(c::Convolution)(x; history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop` | an array shaped like `x` |
+| [`(c::Convolution)(x; gain, add, history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop`, then multiplies by `gain` and adds `add` | an array shaped like `x` |
+| [`contributions(c, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | the terms of `c(x; gain)` before the sum over lags, such as a reporting triangle | `L × T`, or `S × L × T` for `S` series |
 | [`with_state(r, gain; kwargs...)`](@ref ComposableRecurrences.with_state) | runs `r` like `r(gain; kwargs...)` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
 | [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t` | the values from `state.t` on |
 | [`(r::Recurrence)(gain; history, prepend = true)`](@ref Recurrence) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |

@@ -66,14 +66,17 @@
     end
     # With the kernel held constant (no kernel mirror), the argument
     # cotangents match those of the full pullback.
-    function constant_kernel_matches(op, args...; rng = Xoshiro(2))
+    function constant_kernel_matches(
+            op, args...; rng = Xoshiro(2),
+            constant = p -> merge(p, (; kernel = nothing))
+        )
         xs = (op, args...)
         y, cache = CR._run_forward(xs...)
         ȳ = randlike(rng, y)
         full = zero_mirror(xs)
         CR._run_pullback!((; piece = first(full), y = ȳ, args = Base.tail(full)), op, cache)
         part = zero_mirror(xs)
-        piece = merge(first(part), (; kernel = nothing))
+        piece = constant(first(part))
         _, cache = CR._run_forward(xs...)
         CR._run_pullback!((; piece, y = ȳ, args = Base.tail(part)), op, cache)
         return mirror_vec(Base.tail(part), args) ≈ mirror_vec(Base.tail(full), args)
@@ -314,23 +317,65 @@ end
     g = rand(rng, D)
     x = rand(rng, T)
     X = rand(rng, S, T)
-    @test pullback_matches(Convolution(g), x, nothing, 1, nothing)
-    @test pullback_matches(Convolution(g), x, rand(rng, 2), 1, nothing)
-    @test pullback_matches(Convolution(g), X, rand(rng, S, 5), 3, nothing)
-    @test pullback_matches(Convolution(g), X, nothing, 2, 5)
-    @test pullback_matches(Convolution(PerStratum(rand(rng, S, D))), X, nothing, 1, nothing)
+    @test pullback_matches(Convolution(g), x, true, nothing, nothing, 1, nothing)
+    @test pullback_matches(Convolution(g), x, true, nothing, rand(rng, 2), 1, nothing)
+    @test pullback_matches(Convolution(g), X, true, nothing, rand(rng, S, 5), 3, nothing)
+    @test pullback_matches(Convolution(g), X, true, nothing, nothing, 2, 5)
+    @test pullback_matches(Convolution(PerStratum(rand(rng, S, D))), X, true, nothing, nothing, 1, nothing)
     for start in (1, 4)
         c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T))))
-        @test pullback_matches(c, X, rand(rng, S, 3), start, nothing)
+        @test pullback_matches(c, X, true, nothing, rand(rng, S, 3), start, nothing)
         c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
-        @test pullback_matches(c, x, nothing, start, nothing)
+        @test pullback_matches(c, x, true, nothing, nothing, start, nothing)
         c = Convolution(TimeVarying(rand(rng, D, T)))
-        @test pullback_matches(c, X, rand(rng, S, 2), start, nothing)
-        @test constant_kernel_matches(c, X, rand(rng, S, 2), start, nothing)
+        @test pullback_matches(c, X, true, nothing, rand(rng, S, 2), start, nothing)
+        @test constant_kernel_matches(c, X, true, nothing, rand(rng, S, 2), start, nothing)
         c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T)), CR.Primary()))
-        @test pullback_matches(c, X, nothing, start, nothing)
+        @test pullback_matches(c, X, true, nothing, nothing, start, nothing)
         c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
-        @test constant_kernel_matches(c, X, nothing, start, nothing)
+        @test constant_kernel_matches(c, X, true, nothing, nothing, start, nothing)
+    end
+end
+
+@testitem "Adjoint: Convolution gain and add" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(11)
+    S, D, T = 2, 4, 7
+    x, X = rand(rng, T), rand(rng, S, T)
+    h = rand(rng, S, 3)
+    c = Convolution(rand(rng, D))
+    @test pullback_matches(c, x, 0.4, nothing, nothing, 1, nothing)
+    @test pullback_matches(c, x, rand(rng, T), 0.3, rand(rng, 2), 2, nothing)
+    @test pullback_matches(c, X, rand(rng, T), rand(rng, S, T), h, 3, nothing)
+    @test pullback_matches(c, X, true, rand(rng, T), nothing, 1, 5)
+    @test constant_kernel_matches(c, X, rand(rng, S, T), 0.5, h, 2, nothing)
+    c = Convolution(TimeVarying(rand(rng, D, T), CR.Primary()))
+    @test pullback_matches(c, X, rand(rng, S, T), rand(rng, T), nothing, 3, nothing)
+end
+
+@testitem "Adjoint: contributions" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(12)
+    S, D, T = 2, 4, 7
+    x, X = rand(rng, T), rand(rng, S, T)
+    ks = [rand(rng, n) for n in (2, 0, 4, 1, 3, 4, 2)]
+    kernels = (
+        rand(rng, D), PerStratum(rand(rng, S, D)), TimeVarying(rand(rng, D, T)),
+        TimeVarying(PerStratum(rand(rng, S, D, T))), TimeVarying(ks),
+    )
+    for k in kernels, start in (1, 3)
+        op = CR._Contributions(Convolution(k))
+        @test pullback_matches(op, X, rand(rng, S, T), rand(rng, S, 2), start, nothing)
+        @test constant_kernel_matches(
+            op, X, 0.5, nothing, start, nothing; constant = p -> (; c = (; kernel = nothing))
+        )
+        k isa PerStratum || k isa TimeVarying && k.x isa PerStratum ||
+            @test pullback_matches(op, x, rand(rng, T), nothing, start, 6)
+    end
+    for k in (TimeVarying(rand(rng, D, T), CR.Primary()), TimeVarying(ks, CR.Primary()))
+        op = CR._Contributions(Convolution(k))
+        @test pullback_matches(op, X, rand(rng, T), nothing, 2, nothing)
+        @test pullback_matches(op, x, 0.7, nothing, 1, nothing)
     end
 end
 
@@ -345,11 +390,11 @@ end
     h = rand(rng, S, 4)
     for start in (1, 4)
         c = Convolution(TimeVarying(ks))
-        @test pullback_matches(c, X, rand(rng, S, 2), start, nothing)
-        @test constant_kernel_matches(c, X, rand(rng, S, 2), start, nothing)
+        @test pullback_matches(c, X, true, nothing, rand(rng, S, 2), start, nothing)
+        @test constant_kernel_matches(c, X, true, nothing, rand(rng, S, 2), start, nothing)
         c = Convolution(TimeVarying(ks, CR.Primary()))
-        @test pullback_matches(c, X, nothing, start, 7)
-        @test constant_kernel_matches(c, X, nothing, start, nothing)
+        @test pullback_matches(c, X, true, nothing, nothing, start, 7)
+        @test constant_kernel_matches(c, X, true, nothing, nothing, start, nothing)
     end
     r = Recurrence(TimeVarying(ks); coupling = rand(rng, S, S))
     @test pullback_matches(r, recargs(R, nothing, h; start = 2)...)
@@ -707,9 +752,9 @@ end
 
     c = Convolution(rand(rng, 3))
     x = rand(rng, S, T)
-    y, cache = CR._run_forward(c, Wrapped(x), nothing, 1, nothing)
+    y, cache = CR._run_forward(c, Wrapped(x), true, nothing, nothing, 1, nothing)
     @test cache.X isa Wrapped
-    @test unwrap(y) ≈ first(CR._run_forward(c, x, nothing, 1, nothing))
+    @test unwrap(y) ≈ first(CR._run_forward(c, x, true, nothing, nothing, 1, nothing))
 end
 
 @testitem "Adjoint: scalar-parameter local pullback" setup = [AdjointCheck] begin
@@ -865,6 +910,103 @@ end
     @test CR._param_tuple(n) == (0.5, 0.25, 0.1)
     r = CR.Recurrence([0.3, 0.2]; modifiers = (n,))
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
+end
+
+@testitem "Adjoint: a modifier with array parameters and no pullback takes plain AD" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # Its local step was slower than plain AD on one reverse backend, so a
+    # pointwise modifier whose parameter is a `PerStratum` or `TimeVarying`
+    # sends the operator to plain AD.
+    struct Cap{K}
+        κ::K
+    end
+    CR.ispointwise(::Cap) = true
+    function CR.forward(m::Cap, ::CR.Step, v, s, t, k)
+        κ = CR.param(m.κ, k, t)
+        return v * κ / (κ + v), s
+    end
+    for m in (Cap(PerStratum([5.0, 6.0])), Cap(TimeVarying(fill(4.0, 8))))
+        @test CR._modifier_adjoint(m) === :none
+        r = Recurrence([0.3, 0.2]; modifiers = (m,))
+        @test !CR.uses_adjoint(r, CR.Run())
+        @test CR._rebuilds(@inferred Recurrence([0.3, 0.2], I, (m,))) === Val(true)
+    end
+    @test CR._modifier_adjoint(Cap(5.0)) === :local
+end
+
+@testitem "Adjoint: local coupling pullback" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # A coupling without a pullback: a share `a` of every other stratum's
+    # pressure goes to the first, scaled by `c`.
+    struct ToFirst{A, C}
+        a::A
+        c::C
+        n::Int
+    end
+    function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
+        tot = sum(view(p, 2:length(p)))
+        q[1] = C.c * (p[1] + C.a * tot)
+        for k in 2:length(p)
+            q[k] = C.c * (1 - C.a) * p[k] + C.n * t * 1.0e-3
+        end
+        return nothing
+    end
+    C = ToFirst(0.3, 0.9f0, 2)
+    @test CR._coupling_adjoint(C) === :local
+    @test CR._param_tuple(C) == (0.3, 0.9f0)
+    # One pass of 4, 8 or 12 partials, and more than one when called
+    # directly with more inputs.
+    rng = Xoshiro(5)
+    for S in (2, 6, 10, 30)
+        p, q̄ = randn(rng, S), randn(rng, S)
+        function pressure(x)
+            q = zeros(eltype(x), S)
+            CR.forward(ToFirst(x[S + 1], x[S + 2], 2), CR.Pressure(), q, x[1:S], 4)
+            return sum(q̄ .* q)
+        end
+        ref = ForwardDiff.gradient(pressure, [p; 0.3; Float64(0.9f0)])
+        p̄, C̄ = fill(1.0, S), (; a = Ref(0.0), c = Ref(0.0f0), n = nothing)
+        CR._pressure_back!(p̄, C̄, C, q̄, p, 4)
+        @test p̄ ≈ 1 .+ ref[1:S]
+        @test [C̄.a[], C̄.c[]] ≈ ref[(S + 1):end] rtol = 1.0e-6
+        # Without a mirror only `p̄` comes back.
+        p̄ = zeros(S)
+        CR._pressure_back!(p̄, nothing, C, q̄, p, 4)
+        @test p̄ ≈ ref[1:S]
+    end
+    # Through a recurrence the rule matches ForwardDiff.
+    r = Recurrence([0.3, 0.2]; coupling = C)
+    @test pullback_matches(r, recargs(ones(3, 6), nothing, ones(3, 2))...; rtol = 1.0e-6)
+    # The route: the rule from the types, and plain AD once the strata and
+    # the coupling's scalars outgrow one pass.
+    @test CR.uses_adjoint(r, CR.Run())
+    @test CR._rebuilds(@inferred Recurrence([0.3], C, ())) === true
+    args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
+    val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
+    @test val(r, 3) == [Val{:rule}]
+    @test CR._fits(r, args(10)...) === true
+    @test CR._fits(r, args(11)...) === false
+    @test CR._fits(Recurrence([0.3]), args(50)...) === Val(true)
+    @test occursin("ToFirst", CR._plain_why(r))
+    @test CR._plain_why(Recurrence([0.3])) == CR._ADJOINT_NOTE
+    y = @test_logs CR.adjoint_call(r, args(11)...)
+    @test y ≈ CR._plain(r, args(11)...)
+    # A coupling with no float parameters keeps the rule at any size.
+    struct Swap end
+    CR.forward(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
+    @test CR._rebuilds(Recurrence([0.3], Swap(), ())) === Val(true)
+    @test pullback_matches(
+        Recurrence([0.3, 0.2]; coupling = Swap()), args(3)...
+    )
+    # A coupling whose constructor changes its argument takes plain AD.
+    struct Halved{A}
+        a::A
+        Halved(a::A) where {A} = new{A}(a / 2)
+    end
+    CR.forward(C::Halved, ::CR.Pressure, q, p, t) = (q .= C.a .* p; nothing)
+    op = Recurrence([0.3]; coupling = Halved(0.5))
+    @test op.rebuilds === false
+    @test occursin("Halved", CR._plain_why(op))
 end
 
 @testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin

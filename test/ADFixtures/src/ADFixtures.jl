@@ -213,6 +213,24 @@ function _delay_varying_secondary(w, θ)
     return sum(WS[:, 4:end] .* w(Convolution(TimeVarying(G)))(X; history = H, start = 4))
 end
 
+# A reported delay: a fraction of each stratum's delayed inputs on a
+# shared baseline (`conv_gain`).
+function _conv_gain(w, θ)
+    g, logρ, A, X, H = _unpack(θ, (L,), (S, T), (T,), (S, T), (S, 2))
+    y = w(Convolution(g))(X; gain = exp.(logρ), add = A, history = H)
+    return sum(WS .* y)
+end
+
+# A reporting triangle (`triangle`): each input's delay pmf, of its own time,
+# spread over the lags, scaled by one ascertainment.
+const WT = [cos(a + d * t) for a in 1:S, d in 1:L, t in 1:T]
+function _triangle(w, θ)
+    G, X, ρ = _unpack(θ, (L, T), (S, T), (1,))
+    kernel = TimeVarying(G, ComposableRecurrences.Primary())
+    Y = ComposableRecurrences.contributions(w(Convolution(kernel)), X; gain = ρ[1])
+    return sum(WT .* Y)
+end
+
 # Kernels as vectors of columns of different lengths, cut from the flat
 # values `v`: column `τ` has `ns[τ]` entries.
 function _columns(v, ns)
@@ -402,6 +420,14 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Convolution with gain and add", _conv_gain,
+        () -> _flat(G0, LOGR, W1, 1 .+ LOGR, ones(S, 2)),
+    ),
+    (
+        "Convolution lag contributions", _triangle,
+        () -> _flat(fill(0.25, L, T), 1 .+ LOGR, [0.4]),
+    ),
+    (
         "Recurrence ragged Primary kernel", _primary_ragged,
         () -> _flat(
             [G0[i] * (1 + 0.1 * cos(τ)) for τ in 1:T for i in 1:NS_CYCLE[τ]],
@@ -489,6 +515,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # Kernels as vectors of columns are stored as `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
+    # Gain and add on a convolution came with `contributions`.
+    "Convolution with gain and add" => (:contributions,),
+    "Convolution lag contributions" => (:contributions,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
@@ -500,6 +529,40 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
 # call. Releases before the adjoint (`uses_adjoint`) have no rule to compare,
 # and some calls fail under their `NoAdjoint`, so the twins are left out.
 const _TWIN_REQUIRES = (:uses_adjoint,)
+
+# A user coupling without a `pullback!`: the rule differentiates its step
+# locally.
+"A share `a` of every other stratum's pressure goes to the first."
+struct ShareFirst{A}
+    a::A
+end
+function ComposableRecurrences.forward(
+        C::ShareFirst, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    tot = sum(view(p, 2:length(p)))
+    q[1] = p[1] + C.a * tot
+    for k in 2:length(p)
+        q[k] = (1 - C.a) * p[k]
+    end
+    return nothing
+end
+
+function _user_coupling(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
+    r = Recurrence(G0; coupling = ShareFirst(only(a)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Recurrence user coupling without a pullback", _user_coupling,
+        () -> _flat(zeros(S, L), LOGR, [0.3]),
+    ),
+)
+# The local derivative of a coupling came later.
+_REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 
 _requires(name) = get(_REQUIRES, name, ())
 

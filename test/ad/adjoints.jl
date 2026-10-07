@@ -60,6 +60,9 @@
     function CR.with_state(c::Capture, args...; kwargs...)
         return CR._with_state(c.op, c, args...; kwargs...)
     end
+    function CR.contributions(c::Capture, args...; kwargs...)
+        return CR._contributions(c.op, c, args...; kwargs...)
+    end
     CR._reroute(c::Capture, op) = Capture(op, c.seen)
     function CR.adjoint_call(c::Capture, args...)
         c.seen[] = (c.op, args)
@@ -85,6 +88,7 @@
         return map(ADFixtures._SCENARIOS) do (name, f, θ0)
             seen = Ref{Any}(nothing)
             f(op -> Capture(op, seen), θ0())
+            seen[] === nothing && error("scenario $(repr(name)) reached no rule through `Capture`")
             op, args = seen[]
             (name, plain(op), plain(args))
         end
@@ -109,6 +113,10 @@
         R = 0.5 .+ rand(rng, S, T)
         Ks = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
         cases = [
+            (
+                "renewal, one series, Float32",
+                Recurrence(Float32.(g)), rec(Float32.(R[1, :]), nothing, Float32.(h[1, :])),
+            ),
             (
                 "strata, mixed eltypes, Float32 history",
                 Recurrence(Float32.(g); coupling = K), rec(R, nothing, Float32.(h)),
@@ -176,7 +184,17 @@
             ),
             (
                 "time-varying per-stratum delay from a later start",
-                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))), (R, h, 4, nothing),
+                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))),
+                (R, true, nothing, h, 4, nothing),
+            ),
+            (
+                "delay with gain and add",
+                Convolution(rand(rng, 4)), (R, rand(rng, T), rand(rng, S, T), h, 2, nothing),
+            ),
+            (
+                "lag contributions, ragged",
+                CR._Contributions(Convolution(TimeVarying([rand(rng, mod(τ, 4)) for τ in 1:T]))),
+                (R[1, :], rand(rng, T), h[1, :], 2, nothing),
             ),
         ]
         rng = Xoshiro(21)
@@ -1047,5 +1065,59 @@ end
         g = @test_logs (:info, r"plain AD of the whole operator") match_mode = :any gradient(f, backend, θ)
         @test all(isfinite, g)
         @test_logs gradient(f, backend, θ)
+    end
+end
+
+@testitem "Local coupling step: the rule and its limits" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    # A coupling without a pullback: the strata average, weighted by `a`.
+    struct Blend{A}
+        a::A
+    end
+    function CR.forward(C::Blend, ::CR.Pressure, q, p, t)
+        m = sum(p) / length(p)
+        q .= (1 - C.a) .* p .+ C.a * m
+        return nothing
+    end
+    # A pointwise modifier with a per-stratum parameter and no pullback.
+    struct Cap{K}
+        κ::K
+    end
+    CR.ispointwise(::Cap) = true
+    CR.forward(m::Cap, ::CR.Step, v, s, t, k) = (v / (1 + v / CR.param(m.κ, k, t)), s)
+    function loss(w, θ, S)
+        W = [cos(a * t) for a in 1:S, t in 1:6]
+        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Cap(θ[2]),))
+        return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
+    end
+    function loss_strata(w, θ, S)
+        W = [cos(a * t) for a in 1:S, t in 1:6]
+        r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Cap(PerStratum(θ[2:(S + 1)])),))
+        return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
+    end
+    # Blend's local step fires up to 11 strata (with its one scalar); the
+    # per-stratum parameter sends the operator to plain AD at any size.
+    for (L, S, fires) in ((loss, 3, true), (loss, 11, true), (loss, 12, false), (loss_strata, 3, false))
+        θ = L === loss ? [0.4, 5.0] : [0.4; fill(5.0, S)]
+        for w in (identity, NoAdjoint)
+            f(θ) = L(w, θ, S)
+            ref = gradient(f, AutoForwardDiff(), θ)
+            for backend in backends
+                n0 = CR._PULLBACK_CALLS[]
+                @test gradient(f, backend, θ) ≈ ref
+                @test (CR._PULLBACK_CALLS[] > n0) == (fires && w === identity)
+            end
+        end
     end
 end
