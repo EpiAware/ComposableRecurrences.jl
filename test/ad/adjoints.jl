@@ -172,10 +172,24 @@
                 ),
                 rec(R, nothing, h),
             ),
-            ("delay", Convolution(rand(rng, 4)), (R[1, :], h[1, :], 1, nothing)),
+            ("delay", Convolution(rand(rng, 4)), (R[1, :], true, nothing, h[1, :], 1, nothing)),
             (
                 "time-varying delay",
-                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))), (R, h, 4, nothing),
+                Convolution(TimeVarying(PerStratum(rand(rng, S, 4, T)))), (R, true, nothing, h, 4, nothing),
+            ),
+            (
+                "delay with gain and add", Convolution(rand(rng, 4)),
+                (R, rand(rng, T), rand(rng, S, T), h, 2, nothing),
+            ),
+            (
+                "lag contributions",
+                CR._Contributions(Convolution(TimeVarying(rand(rng, 4, T), CR.Primary()))),
+                (R, 0.4, nothing, 1, nothing),
+            ),
+            (
+                "lag contributions, ragged",
+                CR._Contributions(Convolution(TimeVarying([rand(rng, mod(τ, 4)) for τ in 1:T]))),
+                (R[1, :], rand(rng, T), h[1, :], 2, nothing),
             ),
         ]
     end

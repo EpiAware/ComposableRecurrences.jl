@@ -376,6 +376,35 @@ function conv_primary_ragged(wrap, z::Size)
     return f, θ0
 end
 
+# A reported delay: a fixed pmf, an ascertainment per output time and a
+# baseline added after the delay.
+function conv_gain(wrap, z::Size)
+    (; T, L) = z
+    pmf, x, w = _conv_inputs(T, L)
+    ρ = [0.3 + 0.1 * _noise(t, 9) for t in 1:T]
+    f = function (θ)
+        g, r = θ[1:L], θ[(L + 1):(L + T)]
+        a, u = θ[(L + T + 1):(L + 2T)], θ[(L + 2T + 1):end]
+        return sum(w .* wrap(Convolution(g))(u; gain = r, add = a))
+    end
+    return f, _flat(pmf, ρ, fill(2.0, T), x)
+end
+
+# A reporting triangle: the `conv_primary` pmfs spread over the lags before
+# the sum, scaled by one ascertainment.
+function triangle(wrap, z::Size)
+    (; T, L) = z
+    pmf, x, w = _conv_inputs(T, L)
+    P = [pmf[i] * (1 + 0.1 * _noise(i, t)) for i in 1:L, t in 1:T]
+    W = [w[t] * _noise(d, t) for d in 1:L, t in 1:T]
+    f = function (θ)
+        K = TimeVarying(reshape(θ[1:(L * T)], L, T), CR.Primary())
+        u = θ[(L * T + 1):(L * T + T)]
+        return sum(W .* CR.contributions(wrap(Convolution(K)), u; gain = θ[end]))
+    end
+    return f, vcat(vec(P), x, 0.4)
+end
+
 # Multi-type branching-process extinction by generation: a negative
 # binomial probability generating function per stratum, iterated through a
 # generation interval and a mixing matrix.
@@ -465,6 +494,14 @@ const CASES = [
         conv_primary_ragged, [1], false,
     ),
     Case(
+        "conv_gain", "fixed pmf with ascertainment and a baseline",
+        conv_gain, [1], false,
+    ),
+    Case(
+        "triangle", "reporting triangle, pmf per input time (L × T)",
+        triangle, [1], false,
+    ),
+    Case(
         "transform", "per-stratum PGF iteration, Transform modifier",
         transform, [5, 50], false,
     ),
@@ -481,6 +518,8 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "transform" => (:Transform,),
     "renewal_primary" => (:_check_primary_seed,),
     "conv_primary_ragged" => (:_Ragged,),
+    "conv_gain" => (:contributions,),
+    "triangle" => (:contributions,),
 )
 
 """
@@ -528,13 +567,14 @@ const TIERS = Dict(
     "convolved" => (
         cases = [
             "conv_fixed", "conv_masked", "conv_primary", "conv_secondary",
-            "conv_primary_ragged",
+            "conv_primary_ragged", "conv_gain", "triangle",
         ],
         sizes = [(T = 400, L = 60), (T = 100, L = 10)],
         strata = [1],
         bycase = Dict(
             "conv_primary" => [(T = 400, L = 60)],
             "conv_primary_ragged" => [(T = 400, L = 60)],
+            "triangle" => [(T = 400, L = 60)],
             "conv_secondary" => [(T = 100, L = 10)],
         ),
     ),

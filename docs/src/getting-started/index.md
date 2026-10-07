@@ -34,7 +34,7 @@ T = 75
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 infections = renewal(R; history = seed)
-reports = 0.4 .* delay(infections)
+reports = delay(infections; gain = 0.4)
 round.(vec(sum(reports; dims = 2)))
 ```
 
