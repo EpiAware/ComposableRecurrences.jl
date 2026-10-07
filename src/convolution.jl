@@ -95,16 +95,12 @@ uses_adjoint(::Convolution, ::Run) = true
 
 function _run_forward(c::Convolution, x, history, start, stop)
     Y, X, m, stop = _conv(c, x, history, start, stop)
-    return _output(Y, x), (; x, history, start, stop, X, m)
+    return _public(Y, axes(Y, 1), x), (; x, history, start, stop, X, m)
 end
 function _primal(c::Convolution, x, history, start, stop)
     Y = first(_conv(c, x, history, start, stop))
-    return _output(Y, x)
+    return _public(Y, axes(Y, 1), x)
 end
-
-# The output buffer in the layout of `x`; a single series shares its memory.
-_output(Y, x::AbstractVector) = vec(Y)
-_output(Y, x::AbstractMatrix) = permutedims(Y)
 
 # Checks the call, then convolves into a time-first buffer; returns the
 # output buffer, the input buffer (history then `x`), the history length and
