@@ -50,32 +50,36 @@ function _check_unwrapped(name, x)
 end
 
 # The last time a call covers. Without `stop` the time-indexed inputs set it
-# and must agree; with it each must cover it.
-function _stop(stop, inputs::Tuple)
-    if stop === nothing
-        for (name, n) in inputs
-            n === nothing && continue
-            if stop === nothing
-                stop = n
-            elseif n != stop
-                throw(
-                    DimensionMismatch(
-                        "$name covers $n times but an earlier input covers " *
-                            "$stop: pass stop"
-                    )
-                )
-            end
-        end
-        stop === nothing && throw(
-            ArgumentError(
-                "stop is required when no input is indexed by time"
-            )
+# and must agree; with it each must cover it. The inputs mix `Int` and
+# `nothing` extents, so they are folded by recursion, which keeps the call
+# type stable and free of allocations.
+function _stop(::Nothing, inputs::Tuple)
+    stop = _common_extent(nothing, inputs...)
+    stop === nothing && throw(
+        ArgumentError(
+            "stop is required when no input is indexed by time"
         )
-        return stop
-    end
-    for (name, n) in inputs
-        n === nothing || _check_covers(name, n, stop)
-    end
+    )
+    return stop
+end
+function _stop(stop, inputs::Tuple)
+    foreach(p -> p.second === nothing || _check_covers(p.first, p.second, stop), inputs)
+    return stop
+end
+
+_common_extent(stop) = stop
+function _common_extent(stop, p::Pair, rest::Vararg{Pair, N}) where {N}
+    return _common_extent(_agree(stop, p.first, p.second), rest...)
+end
+_agree(stop, name, ::Nothing) = stop
+_agree(::Nothing, name, n) = n
+_agree(::Nothing, name, ::Nothing) = nothing
+function _agree(stop, name, n)
+    n == stop || throw(
+        DimensionMismatch(
+            "$name covers $n times but an earlier input covers $stop: pass stop"
+        )
+    )
     return stop
 end
 

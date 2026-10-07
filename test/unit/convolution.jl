@@ -222,12 +222,22 @@ end
     @test conv(X[1, :]; history = H[1, :], gain = g', add = a') ≈ hand(g, a)[1, :]
     # Other arrays take the broadcast fallback.
     Y = rand(rng, T, S)
-    for (u, gg, aa) in ((X, g, rand(rng, S, T)), (X[1, :], 0.5, a))
+    for (u, gg, aa) in (
+            (X, g, rand(rng, S, T)), (X[1, :], 0.5, a),
+            (X[1, :], rand(rng, 1, T), nothing),
+        )
         Yu = u isa AbstractVector ? Y[:, 1:1] : Y
         @test CR._scaled_public(view(Yu, :, :), u, gg, aa, 1) ≈
             CR._scaled_public(Yu, u, gg, aa, 1)
     end
     @test (@inferred conv(X; gain = rand(rng, S, T), add = 0.1)) isa Matrix{Float64}
+    # The default stop, read from a mix of arrays and absent inputs, does
+    # not allocate.
+    stop_of(u, g, a) = CR._stop(
+        nothing, (:x => CR._extent(u), :gain => CR._extent(g), :add => CR._extent(a))
+    )
+    stop_allocs(u) = (stop_of(u, true, nothing); @allocated stop_of(u, true, nothing))
+    @test stop_allocs(X) == 0
     @test Convolution(Float32.(c))(Float32.(X); gain = 0.5f0) isa Matrix{Float32}
     @test_throws DimensionMismatch conv(X; gain = rand(rng, 2, T))
     @test_throws "gain has 2 strata, expected 3" conv(X; gain = rand(rng, 2, T))
