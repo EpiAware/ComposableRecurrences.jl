@@ -20,13 +20,12 @@ draw in proportion, then the removals move from ``u`` to ``w``:
 (v', \cdot) &= F(v, P, N, \alpha) \\
 u^{*} &= u - v' \frac{u}{P}, \qquad w^{*} = w - v' \frac{\sigma w}{P} \\
 m &= \min\big(r_t, \max(u^{*}, 0)\big) \\
-u' &= u^{*} - m, \qquad w' = w^{*} + m
+u' &= u^{*} - m, \qquad w' = w^{*} + \max(m, 0)
 \end{aligned}
 ```
 
 When ``P \le 0`` the draw comes from ``u`` alone, ``u^{*} = u - v'``.
-A negative removal moves ``-r_t`` from ``w`` back to ``u`` without a cap,
-so ``w`` can go negative.
+A negative removal, such as births, adds to ``u`` and leaves ``w`` as it is.
 A ``\sigma`` with ``0 \le \sigma \le 1`` gives protection, and
 ``\sigma > 1`` makes the protected pool more susceptible than ``u``.
 With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
@@ -184,8 +183,12 @@ function _protected_step(form, v, Su, V, σ, N, α, r)
     S′ = ifelse(on, Su - q * Su, Su - y)
     V′ = ifelse(on, V - q * σ * V, V)
     mr = _removal(r, S′)
-    return y, S′ - mr, V′ + mr
+    return y, S′ - mr, V′ + _protects(mr)
 end
+
+# What a removal moves into the protected pool: a negative removal adds to
+# the unprotected pool only. The arm follows the primal value.
+_protects(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
 function forward(m::_Protecting, ::Step, v, s, t)
     S = length(v)
@@ -218,7 +221,9 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t)
         on = _primal_value(P) > 0
         q = on ? y / P : zero(y)
         S′ = on ? Su - q * Su : Su - y
-        r̄, S̄m = _removal_pullback(r, S′, V̄″ - S̄″)
+        mr = _removal(r, S′)
+        V̄m = ifelse(_primal_value(mr) < 0, zero(V̄″), V̄″)
+        r̄, S̄m = _removal_pullback(r, S′, V̄m - S̄″)
         _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
         S̄′ = S̄″ + S̄m
         V̄′ = V̄″

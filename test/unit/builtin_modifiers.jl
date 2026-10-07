@@ -357,6 +357,11 @@ end
     @test CR._removal(-2.0, 5.0) == -2.0
     @test CR._removal(-2.0, -1.0) == -2.0
     @test CR._removal_pullback(-2.0, 5.0, 0.7) == (0.7, 0.0)
+    # With a protected pool a removal moves from the unprotected pool to the
+    # protected one, and a negative removal adds to the unprotected pool only.
+    step(r) = CR._protected_step(CR.Hazard(), 0.0, 10.0, 4.0, 0.5, 20.0, 1.0, r)
+    @test step(3.0) == (0.0, 7.0, 7.0)
+    @test step(-2.0) == (0.0, 12.0, 4.0)
 end
 
 @testitem "Depletion pullback with a time-varying population" setup = [ModifierChecks] begin
