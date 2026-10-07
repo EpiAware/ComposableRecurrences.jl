@@ -20,9 +20,7 @@ Recompute the rest; [`Convolution`](@ref) shows how for the value before the gai
 ## Which AD backends work?
 
 The targets are ForwardDiff, Mooncake and Enzyme.
-The hand-written gradients are rules for Mooncake and Enzyme.
-The AD tests also run ReverseDiff, which is not a target.
-The [AD comparison](@ref ad-comparison) page compares their gradient times.
+[Adjoints and backends](@ref adjoint-backends) says what each runs, and the [AD comparison](@ref ad-comparison) page compares their gradient times.
 
 ## [Does it run under Reactant?](@id faq-reactant)
 

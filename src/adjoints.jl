@@ -94,18 +94,8 @@ If it is `true` but no `pullback!` method fits the arguments, the reverse
 pass throws an `ArgumentError`.
 An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
 has one.
-A [`Recurrence`](@ref) does when its coupling does in
-[`ComposableRecurrences.Pressure`](@ref) or has only scalar float
-parameters, and each modifier does in [`ComposableRecurrences.Step`](@ref)
-or is pointwise with only scalar float parameters.
-Those are differentiated locally with dual numbers, after a rebuild
-through `ConstructionBase.constructorof`.
-The `Recurrence` constructor checks once that the rebuild gives each one
-back, and `uses_adjoint` is `false` for the `Recurrence` when it does not.
-A coupling's local derivative seeds the strata and its scalars in one pass
-of dual numbers, at most 12 of them; a call with more takes plain AD.
-Otherwise the whole operator is differentiated by plain AD of its forward
-loop, logged once per operator type.
+A [`Recurrence`](@ref) does when its coupling and modifiers allow it;
+[Rules and plain AD](@ref adjoint-routing) gives the conditions.
 
 # Arguments
 - `piece`: the operator, coupling, modifier or variant.

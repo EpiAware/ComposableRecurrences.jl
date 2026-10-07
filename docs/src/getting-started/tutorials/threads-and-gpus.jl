@@ -64,9 +64,7 @@ Threads.nthreads()
 # ## When threads pay off
 #
 # Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (100 000 by default).
-# The threshold applies to each loop.
-# Strata that do not mix are one loop per call, over the whole series.
-# Strata that mix through a coupling, a pairwise kernel or a modifier with a vector step are one loop per step, so these models gain from threads only with many strata.
+# [`Threaded`](@ref ComposableRecurrences.Threaded) says which loops a model has, and so when mixing strata gain.
 # The timings below are indicative and depend on the machine and its load.
 # On a Threadripper with a 20-day kernel, two threads ran independent strata 1.5 to 1.9 times faster than one from `S × T` of about 10 000, and eight threads 3.6 to 7.8 times faster.
 # Below about 1 000 strata-times, threads were slower than the serial loop.
@@ -101,17 +99,4 @@ Array(y_device) ≈ y_serial
 
 # ## What each executor supports
 #
-# | executor | forward | ForwardDiff | Enzyme forward | Mooncake forward | Enzyme reverse | Mooncake reverse |
-# |:-------- |:------- |:----------- |:-------------- |:---------------- |:-------------- |:---------------- |
-# | `Serial()` | all operators | yes | yes | yes | yes | yes |
-# | `Threaded()` | all operators | yes, threaded | yes, serial | yes, serial | forward pass threaded | forward pass threaded |
-# | `Device(backend)` | convolutions; recurrences with an `I` coupling and no modifiers, `Add` or `Clamp` | not tested | not tested | not tested | not tested | not tested |
-#
-# ForwardDiff runs the threaded loops on dual numbers.
-# Enzyme and Mooncake forward mode run serially whatever executor is set, as they do not differentiate tasks.
-# Under Enzyme and Mooncake reverse mode the operators' own rules run their forward pass with the set executor.
-# Their reverse pass runs on the calling task, because it adds every stratum's terms into shared kernel and parameter cotangents.
-# A `NoAdjoint` call that these backends differentiate directly also runs serially whatever executor is set.
-# The `Device(backend)` row was checked on JLArrays only.
-# On a device, a dense or sparse coupling, `Depletion` and modifiers with a vector step still index the arrays on the host, so they fail with scalar indexing disallowed.
-# The kernel must live on the device too.
+# [Executors](@ref executors) lists what each executor supports under each AD backend.

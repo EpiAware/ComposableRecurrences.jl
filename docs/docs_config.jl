@@ -233,6 +233,10 @@ const PACKAGE_TUTORIALS = [
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
 const PACKAGE_SECTIONS = Pair{String, Any}[
+    "Explanation" => [
+        "Adjoints and backends" =>
+            "explanation/adjoints-and-backends.md",
+    ],
     "Domain guides" => [
         "Infectious disease models" =>
             "domain-guides/infectious-disease-models.md",

@@ -211,16 +211,7 @@ An operator `op` gives the same output under any two executors `e_1` and
 Each operator call reads it once.
 `Threaded` needs every modifier the loops run, including user-defined ones,
 to write only its own stratum's slots.
-Forward-mode AD with dual numbers runs the set executor.
-Forward-mode AD that transforms the code runs serially whatever executor is
-set, as the supported backends do not differentiate tasks.
-Under reverse mode the operators' own rules run their forward pass with the
-set executor and their reverse pass on the calling task, because the
-reverse pass adds every stratum's terms into shared kernel and parameter
-cotangents.
-A [`NoAdjoint`](@ref) call that a reverse-mode backend differentiates
-directly runs serially whatever executor is set, as the supported backends
-do not differentiate tasks.
+[Executors](@ref executors) says which passes use it under each AD backend.
 
 # Examples
 ```jldoctest
