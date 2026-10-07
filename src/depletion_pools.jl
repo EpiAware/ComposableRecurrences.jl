@@ -25,6 +25,8 @@ u' &= u^{*} - m, \qquad w' = w^{*} + m
 ```
 
 When ``P \le 0`` the draw comes from ``u`` alone, ``u^{*} = u - v'``.
+A negative removal moves ``-r_t`` from ``w`` back to ``u`` without a cap,
+so ``w`` can go negative.
 A ``\sigma`` with ``0 \le \sigma \le 1`` gives protection, and
 ``\sigma > 1`` makes the protected pool more susceptible than ``u``.
 With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
