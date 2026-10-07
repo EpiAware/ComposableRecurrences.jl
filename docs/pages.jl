@@ -42,10 +42,21 @@ pages = [
         "Public API" => "lib/public.md",
         "Internal API" => "lib/internals.md",
     ],
+    "Extensions" => [
+        "ADTypes + Enzyme + EnzymeTestUtils" => "extensions/enzyme-test-utils.md",
+        "ADTypes + Mooncake + Random" => "extensions/mooncake.md",
+        "Enzyme" => "extensions/enzyme.md",
+        "GPUArraysCore + KernelAbstractions" => "extensions/gpuarrays-core.md",
+        "KernelAbstractions" => "extensions/kernel-abstractions.md",
+        "Reactant" => "extensions/reactant.md",
+    ],
     "Benchmarks" => [
         "Performance over time" => "benchmarks/over-time.md",
         "AD comparison" =>
             "benchmarks/ad-comparison.md",
+    ],
+    "Explanation" => [
+        "Adjoints and backends" => "explanation/adjoints-and-backends.md",
     ],
     "Domain guides" => [
         "Infectious disease models" => "domain-guides/infectious-disease-models.md",

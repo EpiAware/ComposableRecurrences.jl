@@ -61,10 +61,14 @@ flags:
   ad-enzyme-forward:
     paths:
       - src
+      - ext/ComposableRecurrencesEnzymeExt.jl
+      - ext/ComposableRecurrencesEnzymeTestUtilsExt.jl
     carryforward: true
   ad-enzyme-reverse:
     paths:
       - src
+      - ext/ComposableRecurrencesEnzymeExt.jl
+      - ext/ComposableRecurrencesEnzymeTestUtilsExt.jl
     carryforward: true
   ad-mooncake-reverse:
     paths:
