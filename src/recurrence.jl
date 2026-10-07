@@ -347,17 +347,15 @@ Base.@propagate_inbounds function _weight(
     return g.x.x[a, b, i, τ]
 end
 
-# Stratum `a`'s weights in column `τ` of a time-varying kernel that does not
-# mix strata, lag (or delay) index first; and the same view of its mirror
-# `ḡ`, or `nothing` without one.
-_wcolumn(g::TimeVarying{<:Any, <:AbstractMatrix}, a, τ) = view(g.x, :, τ)
-_wcolumn(g::TimeVarying{<:Any, <:PerStratum}, a, τ) = view(g.x.x, a, :, τ)
-function _wcolumn(ḡ, ::TimeVarying{<:Any, <:AbstractMatrix}, a, τ)
-    return _mirror_view(cotangent(ḡ, :x), :, τ)
-end
-function _wcolumn(ḡ, ::TimeVarying{<:Any, <:PerStratum}, a, τ)
-    return _mirror_view(cotangent(cotangent(ḡ, :x), :x), a, :, τ)
-end
+# Time-varying kernels that do not mix strata: lags × time, and strata ×
+# lags × time.
+const _TVMatrix{I} = TimeVarying{I, <:AbstractMatrix}
+const _TVPerStratum{I} = TimeVarying{I, <:PerStratum}
+
+# Column `τ` of a lags × time kernel, contiguous, and the same view of its
+# mirror `ḡ`, or `nothing` without one.
+_wcolumn(g::_TVMatrix, a, τ) = view(g.x, :, τ)
+_wcolumn(ḡ, ::_TVMatrix, a, τ) = _mirror_view(cotangent(ḡ, :x), :, τ)
 _mirror_view(::Nothing, I...) = nothing
 _mirror_view(x, I...) = view(x, I...)
 _add_at!(::Nothing, v, i) = nothing
@@ -375,9 +373,7 @@ function _window_dot(g, H, t, L, a)
     end
     return acc
 end
-# Time-varying kernels that do not mix strata.
-const _OwnTimeVarying{I} = TimeVarying{I, <:Union{AbstractMatrix, PerStratum}}
-function _kdot(g::_OwnTimeVarying{Secondary}, H, t, τ, L, a)
+function _kdot(g::_TVMatrix{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
     acc = zero(eltype(H))
     @inbounds @simd for i in 1:L
@@ -385,7 +381,15 @@ function _kdot(g::_OwnTimeVarying{Secondary}, H, t, τ, L, a)
     end
     return acc
 end
-function _kdot(g::_OwnTimeVarying{Primary}, H, t, τ, L, a)
+# A per-stratum column is strided, so it is read entry by entry.
+function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
+    acc = zero(eltype(H))
+    @inbounds for i in 1:L
+        acc += _weight(g, a, a, i, τ) * H[t + L - i, a]
+    end
+    return acc
+end
+function _kdot(g::Union{_TVMatrix{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
     @inbounds @simd for i in _lags(g, τ, L)
         acc += _weight(g, a, a, i, τ - i) * H[t + L - i, a]
