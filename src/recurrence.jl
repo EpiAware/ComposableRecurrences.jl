@@ -523,7 +523,8 @@ end
 
 # The rule applies when the coupling carries its adjoint and each modifier
 # does or is pointwise with only scalar float parameters outside functions,
-# rebuilt with dual numbers by `constructorof`.
+# rebuilt with dual numbers by `constructorof`, and no `Derived` parameter's
+# map holds float fields of its own.
 function uses_adjoint(r::Recurrence, ::Run)
     return uses_adjoint(r.coupling, Pressure()) &&
         _all_modifiers_adjoint(r.modifiers)
@@ -534,8 +535,10 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) && _all_modifiers_adjoint(Base.tail(ms))
 end
 function _modifier_adjoint(m)
-    return uses_adjoint(m, Step()) ||
-        (ispointwise(m) && _scalar_params(m) && _rebuildable(m))
+    return _derived_local(m) && (
+        uses_adjoint(m, Step()) ||
+            (ispointwise(m) && _scalar_params(m) && _rebuildable(m))
+    )
 end
 
 # Whether the default pullback's rebuild of each modifier from its own

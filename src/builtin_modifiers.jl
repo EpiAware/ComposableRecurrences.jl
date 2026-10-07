@@ -5,20 +5,105 @@
 #
 # A parameter is one value, `PerStratum` (one per stratum),
 # `TimeVarying` (one per time) or `TimeVarying(PerStratum(x))` (strata ×
-# time); every built-in modifier reads its parameters through `_param`.
+# time); every built-in modifier reads its parameters through `param`.
 
 
-# A parameter at stratum `k` and absolute time `t`, and its cotangent.
-_param(x::Real, k, t) = x
-_param(x::PerStratum, k, t) = x.x[k]
-_param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
-_param(x::TimeVarying{<:Any, <:PerStratum}, k, t) = x.x.x[k, t]
-_add_param!(x̄, ::Real, v, k, t) = add_cotangent!(x̄, v)
-_add_param!(x̄, ::PerStratum, v, k, t) = add_cotangent!(x̄, v, k)
-function _add_param!(x̄, ::TimeVarying{<:Any, <:AbstractVector}, v, k, t)
+@doc raw"""
+The value ``u_{t,k}`` of the modifier parameter `x` at stratum `k` and
+absolute time `t`.
+
+A parameter is one value ``x``, [`PerStratum`](@ref) giving ``x_k``,
+[`TimeVarying`](@ref) giving ``x_t``, `TimeVarying(PerStratum(x))` giving
+``x_{t,k}``, or a [`Derived`](@ref) parameter computed from these:
+
+```math
+u_{t,k} = \begin{cases}
+x & \text{one value} \\
+x_k & \text{per stratum} \\
+x_t & \text{per time} \\
+x_{t,k} & \text{per stratum and time} \\
+f\big(a_{1,t,k}, \dots, a_{n,t,k}\big) & \text{derived},
+\end{cases}
+```
+
+A modifier reads every parameter through `param`, and writes its cotangent
+through [`ComposableRecurrences.add_param!`](@ref), so it accepts every
+parameter form, including forms added later.
+
+# Arguments
+- `x`: the parameter.
+- `k`: the stratum.
+- `t`: the absolute time.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+x = TimeVarying(PerStratum([1.0 2.0; 3.0 4.0]))
+CR.param(x, 2, 1), round(CR.param(2 * Derived(sqrt, x), 2, 1); digits = 3)
+
+# output
+
+(3.0, 3.464)
+```
+"""
+function param end
+
+@doc raw"""
+Add the cotangent `v` of the parameter `x`, read at stratum `k` and absolute
+time `t`, into its mirror `x̄`.
+
+For a scalar loss ``\ell`` and the value ``u_{t,k}`` read by
+[`ComposableRecurrences.param`](@ref),
+
+```math
+\bar x \mathrel{+}= v\, \frac{\partial u_{t,k}}{\partial x},
+\qquad v = \frac{\partial \ell}{\partial u_{t,k}},
+```
+
+so `v` lands in the entry `param` read, or, for a [`Derived`](@ref)
+parameter, in each of its arguments by the chain rule.
+A modifier's [`ComposableRecurrences.pullback!`](@ref) writes every
+parameter's cotangent through `add_param!`, with `x̄` from
+[`ComposableRecurrences.cotangent`](@ref), so it accepts every parameter
+form.
+A `nothing` mirror takes nothing.
+
+# Arguments
+- `x̄`: the mirror of `x`.
+- `x`: the parameter.
+- `v`: the cotangent of the value read.
+- `k`: the stratum.
+- `t`: the absolute time.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+x̄ = (; x = zeros(3))
+CR.add_param!(x̄, TimeVarying([1.0, 2.0, 3.0]), 0.5, 1, 2)
+x̄.x
+
+# output
+
+3-element Vector{Float64}:
+ 0.0
+ 0.5
+ 0.0
+```
+"""
+function add_param! end
+
+param(x::Real, k, t) = x
+param(x::PerStratum, k, t) = x.x[k]
+param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
+param(x::TimeVarying{<:Any, <:PerStratum}, k, t) = x.x.x[k, t]
+add_param!(x̄, ::Real, v, k, t) = add_cotangent!(x̄, v)
+add_param!(x̄, ::PerStratum, v, k, t) = add_cotangent!(x̄, v, k)
+function add_param!(x̄, ::TimeVarying{<:Any, <:AbstractVector}, v, k, t)
     return add_cotangent!(x̄, v, t)
 end
-function _add_param!(x̄, ::TimeVarying{<:Any, <:PerStratum}, v, k, t)
+function add_param!(x̄, ::TimeVarying{<:Any, <:PerStratum}, v, k, t)
     return add_cotangent!(x̄, v, k, t)
 end
 
@@ -328,13 +413,13 @@ end
 ispointwise(::Depletion) = true
 
 # The starting pool of stratum `k` and its cotangent slot.
-_pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = _param(m.N, k, 1)
-_pool0(m::Depletion, k) = _param(m.pool0, k, 1)
+_pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = param(m.N, k, 1)
+_pool0(m::Depletion, k) = param(m.pool0, k, 1)
 function _add_pool0!(m̄, m::Depletion{<:Any, <:Any, <:Any, Nothing}, x, k)
-    return _add_param!(cotangent(m̄, :N), m.N, x, k, 1)
+    return add_param!(cotangent(m̄, :N), m.N, x, k, 1)
 end
 function _add_pool0!(m̄, m::Depletion, x, k)
-    return _add_param!(cotangent(m̄, :pool0), m.pool0, x, k, 1)
+    return add_param!(cotangent(m̄, :pool0), m.pool0, x, k, 1)
 end
 
 function forward(m::Depletion, ::Init, s, history)
@@ -355,16 +440,16 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
 end
 
 function forward(m::Depletion, ::Step, v, s, t, k)
-    return forward(m.form, Step(), v, s, _param(m.N, k, t), m.heterogeneity)
+    return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
 end
 
 function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        v, s, _param(m.N, k, t), m.heterogeneity
+        v, s, param(m.N, k, t), m.heterogeneity
     )
-    _add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+    add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
     return v̄, s̄
 end
@@ -421,10 +506,10 @@ ispointwise(::Add) = true
 forward(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
 pullback!(grads, ::Add, ::Init, s, history) = nothing
 
-forward(m::Add, ::Step, v, s, t, k) = (v + _param(m.b, k, t), s)
+forward(m::Add, ::Step, v, s, t, k) = (v + param(m.b, k, t), s)
 
 function pullback!(grads, m::Add, ::Step, v, s, t, k)
-    _add_param!(cotangent(grads.piece, :b), m.b, grads.v, k, t)
+    add_param!(cotangent(grads.piece, :b), m.b, grads.v, k, t)
     return grads.v, grads.s
 end
 
@@ -509,12 +594,12 @@ function forward(m::Redistribute, ::Step, v, s, t)
     for p in eachindex(v, s)
         acc = zero(eltype(s))
         for q in eachindex(v)
-            q == p || (acc += _param(ε, q, t) * K[p, q] * v[q])
+            q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
         end
         s[p] = acc
     end
     for p in eachindex(v, s)
-        v[p] = (1 - _param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
+        v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     end
     return nothing
 end
@@ -529,7 +614,7 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
         s̄[p] += v̄[p]
     end
     for q in eachindex(v, v̄)
-        εq = _param(ε, q, t)
+        εq = param(ε, q, t)
         out = _outflow(K, q)
         acc = zero(eltype(v̄))
         for p in eachindex(v)
@@ -537,7 +622,7 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
             acc += s̄[p] * K[p, q]
             _add_entry!(K̄, K, εq * v[q] * (s̄[p] - v̄[q]), p, q)
         end
-        _add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
+        add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
         v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
     end
     fill!(s̄, zero(eltype(s̄)))
@@ -597,17 +682,17 @@ forward(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi
 pullback!(grads, ::Clamp, ::Init, s, history) = nothing
 
 function forward(m::Clamp, ::Step, v, s, t, k)
-    return clamp(v, _param(m.lo, k, t), _param(m.hi, k, t)), s
+    return clamp(v, param(m.lo, k, t), param(m.hi, k, t)), s
 end
 
 # Matches `clamp`'s branches: above `hi`, then below `lo`, else `v`.
 function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
     v̄′, s̄′ = grads.v, grads.s
-    if v > _param(m.hi, k, t)
-        _add_param!(cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
+    if v > param(m.hi, k, t)
+        add_param!(cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
         return zero(v̄′), s̄′
-    elseif v < _param(m.lo, k, t)
-        _add_param!(cotangent(grads.piece, :lo), m.lo, v̄′, k, t)
+    elseif v < param(m.lo, k, t)
+        add_param!(cotangent(grads.piece, :lo), m.lo, v̄′, k, t)
         return zero(v̄′), s̄′
     end
     return v̄′, s̄′
