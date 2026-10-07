@@ -81,6 +81,13 @@ function _check_constant(name, x::Derived)
     return x
 end
 _float_param(x::Derived) = x
+# Walk the map and the arguments directly: the generic field walk recurses
+# through a nested `Derived` past inference's recursion limit.
+function _check_times(name, x::Derived, stop)
+    _check_times(name, x.f, stop)
+    _check_times(name, x.args, stop)
+    return nothing
+end
 
 # Whether every `Derived` inside a value of type `T` has a map without float
 # fields of its own, so its local derivative covers every parameter. A
