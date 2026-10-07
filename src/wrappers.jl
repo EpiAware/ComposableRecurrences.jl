@@ -246,7 +246,16 @@ end
 PerStratum(x::TimeVarying{I}) where {I} = TimeVarying{I}(PerStratum(x.x))
 Pairwise(x::TimeVarying{I}) where {I} = TimeVarying{I}(Pairwise(x.x))
 
-const _PairwiseKernel = Union{Pairwise, TimeVarying{<:Any, <:Pairwise}}
+# A fixed pairwise kernel as a call prepares it: `x[L + 1 - i, b, a]` is
+# the weight of stratum `b`'s value at lag `i` in stratum `a`, so the dot of
+# each pair's weights with its window reads both in memory order.
+struct _OldestFirstPairwise{A <: AbstractArray}
+    x::A
+end
+
+const _PairwiseKernel = Union{
+    Pairwise, TimeVarying{<:Any, <:Pairwise}, _OldestFirstPairwise,
+}
 
 # The array under any wrappers.
 _array(x::AbstractArray) = x

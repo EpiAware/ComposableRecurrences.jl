@@ -343,15 +343,40 @@ end
 # the kernel with a contiguous, oldest-first window.
 _oldest_first(g::AbstractVector) = reverse(g)
 _oldest_first(g::PerStratum) = PerStratum(reverse(g.x; dims = 2))
+function _oldest_first(g::Pairwise)
+    return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
+end
 _oldest_first(g) = g
 
 # A kernel's weight on stratum `b`'s value at lag (or delay) index `i` in
 # stratum `a`, read in column `τ`. Kernels that do not mix strata read only
-# `b = a`.
-_weight(g::TimeVarying{<:Any, <:AbstractMatrix}, a, b, i, τ) = g.x[i, τ]
-_weight(g::TimeVarying{<:Any, <:PerStratum}, a, b, i, τ) = g.x.x[a, i, τ]
-_weight(g::Pairwise, a, b, i, τ) = g.x[a, b, i]
-_weight(g::TimeVarying{<:Any, <:Pairwise}, a, b, i, τ) = g.x.x[a, b, i, τ]
+# `b = a`. The call checks the kernel's strata and times, so the loops
+# reading it skip bounds checks.
+Base.@propagate_inbounds _weight(g::TimeVarying{<:Any, <:AbstractMatrix}, a, b, i, τ) = g.x[i, τ]
+Base.@propagate_inbounds function _weight(
+        g::TimeVarying{<:Any, <:PerStratum}, a, b, i, τ
+    )
+    return g.x.x[a, i, τ]
+end
+Base.@propagate_inbounds function _weight(
+        g::TimeVarying{<:Any, <:Pairwise}, a, b, i, τ
+    )
+    return g.x.x[a, b, i, τ]
+end
+
+# Time-varying kernels that do not mix strata: lags × time, and strata ×
+# lags × time.
+const _TVMatrix{I} = TimeVarying{I, <:AbstractMatrix}
+const _TVPerStratum{I} = TimeVarying{I, <:PerStratum}
+
+# Column `τ` of a lags × time kernel, contiguous, and the same view of its
+# mirror `ḡ`, or `nothing` without one.
+_wcolumn(g::_TVMatrix, a, τ) = view(g.x, :, τ)
+_wcolumn(ḡ, ::_TVMatrix, a, τ) = _mirror_view(cotangent(ḡ, :x), :, τ)
+_mirror_view(::Nothing, I...) = nothing
+_mirror_view(x, I...) = view(x, I...)
+_add_at!(::Nothing, v, i) = nothing
+Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 
 # Stratum `a`'s kernel convolution of the window `H[t:(t + L - 1), :]`,
 # for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
@@ -365,17 +390,44 @@ function _window_dot(g, H, t, L, a)
     end
     return acc
 end
-function _kdot(g::TimeVarying, H, t, τ, L, a)
+function _kdot(g::_TVMatrix{Secondary}, H, t, τ, L, a)
+    w = _wcolumn(g, a, τ)
     acc = zero(eltype(H))
-    for i in _lags(g, τ, L)
-        acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
+    @inbounds @simd for i in 1:L
+        acc += w[i] * H[t + L - i, a]
     end
     return acc
 end
-function _kdot(g::_PairwiseKernel, H, t, τ, L, a)
+# A per-stratum column is strided, so it is read entry by entry.
+function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
     acc = zero(eltype(H))
-    for i in _lags(g, τ, L), b in axes(H, 2)
-        acc += _weight(g, a, b, i, _column(g, τ, i)) * H[t + L - i, b]
+    @inbounds for i in 1:L
+        acc += _weight(g, a, a, i, τ) * H[t + L - i, a]
+    end
+    return acc
+end
+function _kdot(g::Union{_TVMatrix{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
+    acc = zero(eltype(H))
+    @inbounds @simd for i in _lags(g, τ, L)
+        acc += _weight(g, a, a, i, τ - i) * H[t + L - i, a]
+    end
+    return acc
+end
+function _kdot(g::_OldestFirstPairwise, H, t, τ, L, a)
+    acc = zero(eltype(H))
+    for b in axes(H, 2)
+        acc += _window_dot(view(g.x, :, b, a), H, t, L, b)
+    end
+    return acc
+end
+# Lag innermost, so each sender's window is read in order.
+function _kdot(g::TimeVarying{<:Any, <:Pairwise}, H, t, τ, L, a)
+    acc = zero(eltype(H))
+    lags = _lags(g, τ, L)
+    for b in axes(H, 2)
+        @inbounds @simd for i in lags
+            acc += _weight(g, a, b, i, _column(g, τ, i)) * H[t + L - i, b]
+        end
     end
     return acc
 end
@@ -671,8 +723,10 @@ _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
 
 # A resumed state must have each modifier's `nstate` entries, as an
-# `Init` would have written.
+# `Init` would have written, and the modifiers must fit the strata, as
+# their `Init` checks.
 _check_states(modifiers, s0, S) = foreach(eachindex(modifiers), modifiers, s0) do i, m, s
+    _check_modifier_strata(m, S)
     n = nstate(m, S)
     length(s) == n || throw(
         ArgumentError(
