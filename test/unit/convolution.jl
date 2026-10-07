@@ -194,3 +194,99 @@ end
         @test CR._load_input!(alt, src, m, stop) == CR._load_input!(buf, src, m, stop)
     end
 end
+
+@testitem "Convolution: gain and add" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    import ComposableRecurrences as CR
+    rng = Xoshiro(27)
+    S, D, T = 3, 4, 9
+    c = rand(rng, D)
+    X, H = rand(rng, S, T), rand(rng, S, 2)
+    ref = naive_convolution((t, k, d) -> c[d + 1], X, D; hist = H)
+    conv = Convolution(c)
+    slot(v::Real, k, t) = v
+    slot(::Nothing, k, t) = 0.0
+    slot(v::AbstractVector, k, t) = v[t]
+    slot(v::AbstractMatrix, k, t) = v[k, t]
+    hand(g, a) = [slot(g, k, t) * ref[k, t] + slot(a, k, t) for k in 1:S, t in 1:T]
+    for g in (true, 0.4, rand(rng, T), rand(rng, S, T)),
+            a in (nothing, 1.5, rand(rng, T), rand(rng, S, T))
+        @test conv(X; history = H, gain = g, add = a) ≈ hand(g, a)
+        @test conv(X; history = H, gain = g, add = a, start = 3, stop = 7) ≈
+            hand(g, a)[:, 3:7]
+        @test conv(big.(X); history = H, gain = g, add = a) ≈ hand(g, a)
+    end
+    g, a = rand(rng, T), rand(rng, T)
+    @test conv(X[1, :]; history = H[1, :], gain = g, add = a) ≈ hand(g, a)[1, :]
+    # A gain or add matrix covers the strata of a single series too.
+    @test conv(X[1, :]; history = H[1, :], gain = g', add = a') ≈ hand(g, a)[1, :]
+    # Other arrays take the broadcast fallback.
+    Y = rand(rng, T, S)
+    for (u, gg, aa) in ((X, g, rand(rng, S, T)), (X[1, :], 0.5, a))
+        Yu = u isa AbstractVector ? Y[:, 1:1] : Y
+        @test CR._scaled_public(view(Yu, :, :), u, gg, aa, 1) ≈
+            CR._scaled_public(Yu, u, gg, aa, 1)
+    end
+    @test (@inferred conv(X; gain = rand(rng, S, T), add = 0.1)) isa Matrix{Float64}
+    @test Convolution(Float32.(c))(Float32.(X); gain = 0.5f0) isa Matrix{Float32}
+    @test_throws DimensionMismatch conv(X; gain = rand(rng, 2, T))
+    @test_throws "gain has 2 strata, expected 3" conv(X; gain = rand(rng, 2, T))
+    @test_throws DimensionMismatch conv(X; add = rand(rng, T + 1))
+    @test_throws DimensionMismatch conv(X; gain = rand(rng, T - 1), stop = T)
+    @test_throws ArgumentError conv(X; gain = TimeVarying(rand(rng, T)))
+end
+
+@testitem "Convolution: contributions" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    import ComposableRecurrences as CR
+    rng = Xoshiro(28)
+    S, D, T = 2, 4, 8
+    X, H = rand(rng, S, T), rand(rng, S, 3)
+    G = rand(rng, S, T)
+    ks = [rand(rng, n) for n in (2, 0, 4, 1, 3, 4, 2, 1)]
+    Ct, C3 = rand(rng, D, T), rand(rng, S, D, T)
+    P = CR.Primary()
+    # Each kernel with its weight on lag `d` at output time `t` for stratum
+    # `k`, zero where it has none.
+    rag(τ, d) = τ >= 1 && d < length(ks[τ]) ? ks[τ][d + 1] : 0.0
+    c = rand(rng, D)
+    C = rand(rng, S, D)
+    cases = [
+        (c, (t, k, d) -> c[d + 1], true),
+        (PerStratum(C), (t, k, d) -> C[k, d + 1], true),
+        (TimeVarying(Ct), (t, k, d) -> Ct[d + 1, t], true),
+        (TimeVarying(PerStratum(C3)), (t, k, d) -> C3[k, d + 1, t], true),
+        (TimeVarying(ks), (t, k, d) -> rag(t, d), true),
+        (TimeVarying(Ct, P), (t, k, d) -> t - d >= 1 ? Ct[d + 1, t - d] : 0.0, false),
+        (TimeVarying(PerStratum(C3), P), (t, k, d) -> t - d >= 1 ? C3[k, d + 1, t - d] : 0.0, false),
+        (TimeVarying(ks, P), (t, k, d) -> rag(t - d, d), false),
+    ]
+    for (kernel, w, history) in cases
+        conv = Convolution(kernel)
+        L = CR._nlags(kernel)
+        h = history ? H : nothing
+        m = history ? size(H, 2) : 0
+        at(k, τ) = τ >= 1 ? X[k, τ] : (τ >= 1 - m ? H[k, τ + m] : 0.0)
+        hand = [G[k, t] * w(t, k, d) * at(k, t - d) for k in 1:S, d in 0:(L - 1), t in 1:T]
+        Y = CR.contributions(conv, X; gain = G, history = h)
+        @test size(Y) == (S, L, T)
+        @test Y ≈ hand
+        @test dropdims(sum(Y; dims = 2); dims = 2) ≈ conv(X; gain = G, history = h)
+        @test CR.contributions(conv, X; gain = G, history = h, start = 3, stop = 6) ≈
+            hand[:, :, 3:6]
+        @test CR.contributions(CR.NoAdjoint(conv), X; history = h) ≈
+            CR.contributions(conv, X; history = h)
+        if !(kernel isa PerStratum || kernel isa TimeVarying && kernel.x isa PerStratum)
+            hist1 = history ? H[1, :] : nothing
+            Y1 = CR.contributions(conv, X[1, :]; gain = 0.5, history = hist1)
+            @test size(Y1) == (L, T)
+            @test Y1 ≈ 0.5 .* hand[1, :, :] ./ G[1:1, :]
+        end
+    end
+    conv = Convolution(c)
+    @test (@inferred CR.contributions(conv, X; gain = G)) isa Array{Float64, 3}
+    @test (@inferred CR.contributions(conv, X[1, :])) isa Matrix{Float64}
+    @test_throws MethodError CR.contributions(conv, X; add = 1.0)
+    @test_throws ArgumentError CR.contributions(Convolution(TimeVarying(Ct, P)), X; history = H)
+    @test_throws DimensionMismatch CR.contributions(conv, X; gain = rand(rng, 3, T))
+end
