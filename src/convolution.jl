@@ -251,15 +251,14 @@ function _convolve_body!(k, Y, c::PerStratum, X, m, start)
 end
 
 # Secondary indexing: output time `t` reads its own column, one dot with
-# the window per output. A lags × time kernel's column is contiguous and
+# the window per output. A column kernel's column is contiguous and
 # vectorises; a per-stratum column is strided, so it is read entry by entry.
-function _convolve_body!(k, Y, c::_TVMatrix{Secondary}, X, m, start)
-    D = _nlags(c)
+function _convolve_body!(k, Y, c::_TVColumns{Secondary}, X, m, start)
     for j in axes(Y, 1)
         t = start + j - 1
         w = _wcolumn(c, k, t)
         acc = zero(eltype(Y))
-        @inbounds @simd for d in 0:(min(D, m + t) - 1)
+        @inbounds @simd for d in 0:(min(length(w), m + t) - 1)
             acc += w[d + 1] * X[m + t - d, k]
         end
         @inbounds Y[j, k] = acc
@@ -281,14 +280,14 @@ end
 
 # Primary indexing: the input at time `σ` spreads forward through its own
 # column. There is no history, so buffer row `σ` is time `σ`.
-function _convolve_body!(k, Y, c::_TVMatrix{Primary}, X, m, start)
+function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
     for σ in max(1, start - D + 1):stop
         w = _wcolumn(c, k, σ)
         @inbounds x = X[σ, k]
         o = σ - start + 1
-        @inbounds @simd ivdep for d in max(0, start - σ):min(D - 1, stop - σ)
+        @inbounds @simd ivdep for d in max(0, start - σ):min(length(w) - 1, stop - σ)
             Y[o + d, k] += w[d + 1] * x
         end
     end
@@ -376,17 +375,16 @@ function _convolve_back!(X̄, c̄, c::PerStratum, X, Ȳ, m, start)
     return nothing
 end
 
-# A lags × time kernel's cotangent is added through the column mirror
+# A column kernel's cotangent is added through the column mirror
 # `_wcolumn(c̄, c, k, τ)`, `nothing` when the kernel is constant. The
 # mirror, the inputs and their cotangent are distinct arrays (`ivdep`).
-function _convolve_back!(X̄, c̄, c::_TVMatrix{Secondary}, X, Ȳ, m, start)
-    D = _nlags(c)
+function _convolve_back!(X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
     for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
         t = start + j - 1
         w = _wcolumn(c, k, t)
         w̄ = _wcolumn(c̄, c, k, t)
         @inbounds a = Ȳ[j, k]
-        @inbounds @simd ivdep for d in 0:(min(D, m + t) - 1)
+        @inbounds @simd ivdep for d in 0:(min(length(w), m + t) - 1)
             r = m + t - d
             _add_at!(w̄, a * X[r, k], d + 1)
             X̄[r, k] += w[d + 1] * a
@@ -395,7 +393,7 @@ function _convolve_back!(X̄, c̄, c::_TVMatrix{Secondary}, X, Ȳ, m, start)
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::_TVMatrix{Primary}, X, Ȳ, m, start)
+function _convolve_back!(X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
     for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
@@ -404,7 +402,7 @@ function _convolve_back!(X̄, c̄, c::_TVMatrix{Primary}, X, Ȳ, m, start)
         o = σ - start + 1
         @inbounds x = X[σ, k]
         acc = zero(eltype(X̄))
-        @inbounds @simd ivdep for d in max(0, start - σ):min(D - 1, stop - σ)
+        @inbounds @simd ivdep for d in max(0, start - σ):min(length(w) - 1, stop - σ)
             ȳ = Ȳ[o + d, k]
             _add_at!(w̄, ȳ * x, d + 1)
             acc += w[d + 1] * ȳ

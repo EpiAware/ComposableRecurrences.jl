@@ -351,6 +351,31 @@ end
 conv_primary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Primary())
 conv_secondary(wrap, z::Size) = _conv_matrix(wrap, z, CR.Secondary())
 
+# The `conv_primary` pmfs truncated at the horizon and given as a vector of
+# columns, as a delay-distribution package returns them: column `τ` holds
+# delays 0 to `min(L, T - τ + 1) - 1`.
+_horizon(T, L) = [min(L, T - τ + 1) for τ in 1:T]
+function _columns(v, ns)
+    o = cumsum([0; ns])
+    return [v[(o[τ] + 1):o[τ + 1]] for τ in eachindex(ns)]
+end
+function _ragged_inputs(z::Size)
+    (; T, L) = z
+    pmf, x, w = _conv_inputs(T, L)
+    ns = _horizon(T, L)
+    v = [pmf[i] * (1 + 0.1 * _noise(i, t)) for t in 1:T for i in 1:ns[t]]
+    return ns, w, vcat(v, x)
+end
+function conv_primary_ragged(wrap, z::Size)
+    ns, w, θ0 = _ragged_inputs(z)
+    n = sum(ns)
+    f = function (θ)
+        K = TimeVarying(_columns(view(θ, 1:n), ns), CR.Primary())
+        return sum(w .* wrap(Convolution(K))(θ[(n + 1):end]))
+    end
+    return f, θ0
+end
+
 # Multi-type branching-process extinction by generation: a negative
 # binomial probability generating function per stratum, iterated through a
 # generation interval and a mixing matrix.
@@ -436,6 +461,10 @@ const CASES = [
         false,
     ),
     Case(
+        "conv_primary_ragged", "pmf per input time, ragged at the horizon",
+        conv_primary_ragged, [1], false,
+    ),
+    Case(
         "transform", "per-stratum PGF iteration, Transform modifier",
         transform, [5, 50], false,
     ),
@@ -451,6 +480,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "strata_vaccination" => (:Protected,),
     "transform" => (:Transform,),
     "renewal_primary" => (:_check_primary_seed,),
+    "conv_primary_ragged" => (:_Ragged,),
 )
 
 """
@@ -496,11 +526,15 @@ const TIERS = Dict(
         strata = [1, 3],
     ),
     "convolved" => (
-        cases = ["conv_fixed", "conv_masked", "conv_primary", "conv_secondary"],
+        cases = [
+            "conv_fixed", "conv_masked", "conv_primary", "conv_secondary",
+            "conv_primary_ragged",
+        ],
         sizes = [(T = 400, L = 60), (T = 100, L = 10)],
         strata = [1],
         bycase = Dict(
             "conv_primary" => [(T = 400, L = 60)],
+            "conv_primary_ragged" => [(T = 400, L = 60)],
             "conv_secondary" => [(T = 100, L = 10)],
         ),
     ),
