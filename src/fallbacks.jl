@@ -54,64 +54,6 @@ function _getparams!(θ, x, o)
     return o
 end
 
-# Whether the default pullback can rebuild `m` with dual numbers for its
-# float scalars: each struct holding one is rebuilt by
-# `ConstructionBase.constructorof` from its fields, positionally. A
-# keyword-only constructor, or a float field typed `Float64` in the
-# struct, cannot take them, so such a modifier takes plain AD. The
-# generator lists the method checks from the type; each is a
-# `Core._hasmethod` call, which inference folds at compile time.
-@generated function _rebuildable(m)
-    checks = Any[]
-    _rebuild_checks!(checks, m)
-    return foldr((a, b) -> :($a && $b), checks; init = true)
-end
-function _rebuild_checks!(checks, ::Type{T}) where {T}
-    T <: AbstractFloat && return checks
-    _has_scalar(T) || return checks
-    if !(isconcretetype(T) && isstructtype(T))
-        push!(checks, false)
-        return checks
-    end
-    for F in fieldtypes(T)
-        _rebuild_checks!(checks, F)
-    end
-    T <: Union{Tuple, NamedTuple} && return checks
-    args = map(_dual_argtype, fieldtypes(T))
-    push!(checks, :(Core._hasmethod(Tuple{Core.Typeof(constructorof($T)), $(args...)})))
-    # The default constructor converts to a field type fixed in the struct,
-    # so each float field must be a type parameter wide enough for a dual.
-    W = Base.typename(T).wrapper
-    push!(checks, :(constructorof($T) !== $W || $(_fields_hold_duals(T))))
-    return checks
-end
-function _fields_hold_duals(::Type{T}) where {T}
-    D = ForwardDiff.Dual{Nothing, Float64, 1}
-    U = Base.unwrap_unionall(Base.typename(T).wrapper)
-    for (i, F) in enumerate(fieldtypes(T))
-        F <: AbstractFloat || continue
-        G = U.types[i]
-        G isa TypeVar && (G = G.ub)
-        G isa Type && D <: G || return false
-    end
-    return true
-end
-
-# The argument type of a field in the rebuild: a dual number for a float,
-# any type for a struct or tuple that holds one, else the field's own type.
-function _dual_argtype(::Type{F}) where {F}
-    F <: AbstractFloat && return ForwardDiff.Dual{Nothing, F, 1}
-    return _has_scalar(F) ? Any : F
-end
-
-# Whether a type holds a float scalar that `_param_tuple` reads.
-function _has_scalar(::Type{T}) where {T}
-    T <: AbstractFloat && return true
-    T <: _Leafless && return false
-    isconcretetype(T) || return true
-    return any(_has_scalar, fieldtypes(T))
-end
-
 # `x` with its parameters read from `θ` (possibly Duals) after offset `o`;
 # returns the new object and offset. Structs are rebuilt through
 # `ConstructionBase.constructorof`.
@@ -240,9 +182,7 @@ end
 # when it declares one, else a local derivative that seeds the value, the
 # pool, the population, the exponent and the form's float scalars as one
 # tuple of dual numbers. Returns the cotangents of `(v, s, N, α)`.
-function _form_adjoint(form)
-    return uses_adjoint(form, Step()) || (_scalar_params(form) && _rebuildable(form))
-end
+_form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
 function _form_pullback(grads, form, v, s, N, α)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
 end
@@ -308,6 +248,38 @@ function _rebuild_scalar(x, θ)
     fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
     ys, θ = _rebuild_scalar(fs, θ)
     return constructorof(typeof(x))(ys...), θ
+end
+
+# Whether the local derivative's rebuild of `m` from its float scalars gives
+# them back: each is seeded as a dual number with its own partial, `m` is
+# rebuilt by `constructorof` and its scalars must come back unchanged. A
+# keyword-only constructor, a field typed `Float64` or a constructor that
+# transforms its arguments fails, and the operator then takes plain AD.
+# Checked once, when a `Recurrence` is built, which stores the outcome.
+_round_trips(m) = _round_trips(m, _param_tuple(m))
+_round_trips(m, ::Tuple{}) = true
+function _round_trips(m, θ)
+    T = promote_type(map(typeof, θ)...)
+    θd = _seed(ForwardDiff.Tag(_round_trips, T), map(T, θ))
+    return try
+        _rebuilt_tuple(m, first(_rebuild_scalar(m, θd))) === θd
+    catch
+        false
+    end
+end
+# The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.
+_rebuilt_tuple(::AbstractFloat, y) = (y,)
+_rebuilt_tuple(::_Leafless, y) = ()
+_rebuilt_tuple(x::Union{Tuple, NamedTuple}, y) = _rebuilt_tuples(values(x), values(y))
+function _rebuilt_tuple(x, y)
+    isstructtype(typeof(x)) || return ()
+    n = Val(fieldcount(typeof(x)))
+    return _rebuilt_tuples(ntuple(i -> getfield(x, i), n), ntuple(i -> getfield(y, i), n))
+end
+_rebuilt_tuples(::Tuple{}, ys) = ()
+function _rebuilt_tuples(xs::Tuple, ys)
+    a = _rebuilt_tuple(first(xs), first(ys))
+    return (a..., _rebuilt_tuples(Base.tail(xs), Base.tail(ys))...)
 end
 
 _add_scalar!(x̄, ::AbstractFloat, g) = (add_cotangent!(x̄, first(g)); Base.tail(g))
