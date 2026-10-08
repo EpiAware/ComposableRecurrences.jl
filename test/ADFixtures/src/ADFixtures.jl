@@ -302,6 +302,19 @@ function _transform(w, θ)
     return sum(WS .* q)
 end
 
+# A pool that starts empty with a differentiated heterogeneity. At
+# `α = 1` the pool power is `0^0`, whose exponent tangent is `log(0)`
+# unless the power avoids it. The parameters are offsets from `α = 1` and
+# an empty pool, so compiled ReverseDiff tapes, recorded at zero, take the
+# branches of the scenario point.
+function _empty_pool(w, θ)
+    d = ComposableRecurrences.Depletion(
+        100.0; heterogeneity = 1 + θ[1], pool0 = θ[2]
+    )
+    y = w(Recurrence(G0; modifiers = (d,)))(fill(2.0, T); history = fill(5.0, L))
+    return sum(W1 .* y)
+end
+
 # A modifier parameter derived from a time-varying parameter and a scalar:
 # imports scaled by κ, and a per-stratum, time-varying multiplier.
 function _derived(w, θ)
@@ -456,6 +469,10 @@ const _SCENARIOS = [
             [log(POP[k] + 2t) for k in 1:S, t in 1:(L + T)],
             [1.0 + 0.5 * sin(k + t) for k in 1:S, t in 1:(L + T)],
         ),
+    ),
+    (
+        "Recurrence empty pool with a differentiated heterogeneity", _empty_pool,
+        () -> zeros(2),
     ),
     (
         "Recurrence Derived modifier parameters", _derived,
