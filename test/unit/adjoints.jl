@@ -442,6 +442,15 @@ end
     @test occursin(
         "(PoolDepletion)", why(modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0])))
     )
+    # A depletion is named by its form when the form has no adjoint.
+    struct VecForm
+        w::Vector{Float64}
+    end
+    CR.forward(f::VecForm, ::CR.Step, v, s, N, α) = (y = min(v * f.w[1], s); (y, s - y))
+    @test CR._part_name(CR.Depletion(50.0)) === :Depletion
+    @test CR._part_name(CR.Depletion(50.0, VecForm([1.0]))) === :VecForm
+    # Roles the rule does not call pass the adjoint check.
+    @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
     # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
     # overrides it.
     struct Scaled{A}

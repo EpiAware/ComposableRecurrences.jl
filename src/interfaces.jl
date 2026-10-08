@@ -63,8 +63,8 @@ end
 # found by `uses_adjoint`, unless the type declares its own `uses_adjoint`.
 # A method with typed arguments is missed by the folded lookup, and the
 # rule would otherwise drop it without a word.
-_adjoint_found(piece, role) = true
-function _adjoint_found(x, role::Union{Run, Step, Pressure})
+function _adjoint_found(x, role)
+    role isa Union{Run, Step, Pressure} || return true
     sig = Tuple{Any, typeof(x), typeof(role), Vararg{Any}}
     isempty(methods(pullback!, sig)) && return true
     default = which(uses_adjoint, Tuple{Any, Any})
