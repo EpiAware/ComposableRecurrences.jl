@@ -133,11 +133,8 @@ struct _Gathered end
 const _FixedKernel = Union{AbstractVector, PerStratum}
 _conv_path(::Type{Tp}, kernel, x) where {Tp} = _Buffered()
 function _conv_path(::Type{Tp}, kernel::_FixedKernel, x::_CPUArray) where {Tp}
-    return _gathers(Tp) ? _Gathered() : _Buffered()
+    return Tp <: Real && !(Tp <: _IEEEFloat) ? _Gathered() : _Buffered()
 end
-_gathers(::Type) = false
-_gathers(::Type{<:Real}) = true
-_gathers(::Type{<:_IEEEFloat}) = false
 
 function _convolve_public(
         ::_Buffered, ::Type{Tp}, kernel, x, gain, add, history, m, S, start, stop
