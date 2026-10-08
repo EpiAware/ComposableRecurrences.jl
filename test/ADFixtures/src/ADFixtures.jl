@@ -341,9 +341,14 @@ function _clamp_redistribute_add(w, θ)
 end
 
 # Depletion that draws up to a small pool per stratum, so the pools run out
-# within the run: exact, and smooth with its softness differentiated.
+# within the run: exact, and smooth with its softness differentiated. The
+# parameters are offsets from `TRUNC0`, so the scenarios start at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const TRUNC0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]), [0.1])
 function _truncate(w, θ)
-    logh, logR, logpool = _unpack(θ, (S, L), (S, T), (S,))
+    x = TRUNC0[1:length(θ)] .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
     d = ComposableRecurrences.Depletion(
         PerStratum(exp.(logpool)), ComposableRecurrences.Truncate()
     )
@@ -351,8 +356,9 @@ function _truncate(w, θ)
     return sum(WS .* y)
 end
 function _soft_truncate(w, θ)
-    logh, logR, logpool = _unpack(θ, (S, L), (S, T), (S,))
-    form = ComposableRecurrences.SoftTruncate(θ[length(θ)])
+    x = TRUNC0 .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    form = ComposableRecurrences.SoftTruncate(x[length(x)])
     d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)), form)
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
@@ -485,11 +491,11 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence depletion with truncated draws", _truncate,
-        () -> _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0])),
+        () -> zeros(length(TRUNC0) - 1),
     ),
     (
         "Recurrence depletion with smoothly truncated draws", _soft_truncate,
-        () -> _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]), [0.1]),
+        () -> zero(TRUNC0),
     ),
     (
         "Recurrence in Float32", _float32,

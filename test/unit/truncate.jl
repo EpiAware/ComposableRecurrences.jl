@@ -84,6 +84,12 @@ end
         end
     end
     @test draw(0.01, 1.0, 2.0) ≈ 1.0
+    # The exact form takes the value asked for on a tie and returns a NaN
+    # pool's NaN, as a depletion's removals do.
+    y, s = CR.forward(CR.Truncate(), CR.Step(), 2.0, 2.0, 1.0, 1.0)
+    @test (y, s) == (2.0, 0.0)
+    @test isnan(first(CR.forward(CR.Truncate(), CR.Step(), 2.0, NaN, 1.0, 1.0)))
+    @test isnan(first(CR.forward(CR.Truncate(), CR.Step(), NaN, 2.0, 1.0, 1.0)))
     # Smooth through the tie: the derivatives match on either side.
     lo = CR._soft_min_back(0.2, 3.0 - 1.0e-9, 3.0, 1.0)
     hi = CR._soft_min_back(0.2, 3.0 + 1.0e-9, 3.0, 1.0)
@@ -96,6 +102,12 @@ end
     @test_throws "between 0 and 1, got 0" CR.SoftTruncate(0)
     @test_throws "between 0 and 1, got 1.5" CR.SoftTruncate(1.5)
     @test CR.SoftTruncate(0.1f0).κ isa Float32
+    # Mixed argument types promote, so the step infers one type.
+    for form in (CR.Truncate(), CR.SoftTruncate(0.1), CR.SoftTruncate(0.1f0))
+        @inferred CR.forward(form, CR.Step(), 2.0, 1.5f0, 1.0, 1.0)
+        @inferred CR.forward(form, CR.Step(), 2.0f0, 1.5f0, 1.0, 1.0)
+        @inferred CR.forward(form, CR.Step(), 0.0f0, 1.5, 1.0, 1.0)
+    end
     for form in (CR.Truncate(), CR.SoftTruncate(0.2))
         d = CR.Depletion(50.0, form)
         @test CR.uses_adjoint(d, CR.Step())

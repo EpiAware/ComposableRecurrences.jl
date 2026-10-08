@@ -62,8 +62,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | core recurrence (kernel, `I` or dense coupling) | 0.44 | 0.84 | keep |
 | `Depletion`, hazard form | 0.16 | 0.31 | keep |
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
-| `Depletion`, `Truncate()`, dense coupling | 0.20 | 0.24 | keep |
-| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20 | 0.32 | keep |
+| `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
+| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
@@ -78,6 +78,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | coupling without a `pullback!`, up to 12 strata and scalars | 0.64² | 0.68² | keep |
 
 ² The worst of 3 and 10 strata for a user type, at `T` 200 and `L` 20.
+
+³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
