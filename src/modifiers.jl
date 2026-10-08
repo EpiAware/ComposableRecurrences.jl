@@ -83,9 +83,7 @@ The role of a modifier's initial state: `forward(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or two for a
 [`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
 by the operator at its buffer eltype) from the full history, and returns
-`nothing`.
-`history` is the call's history as given: a vector for one series, else
-strata × time.
+`nothing`; [Roles](@ref extending-roles) gives the arguments.
 
 It sets the state before the first step of the call at ``t_0``,
 
@@ -133,9 +131,8 @@ stratum ``j`` in stratum ``i``, with ``S`` strata (parallel series).
 coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
-Its [`ComposableRecurrences.pullback!`](@ref) is
-`pullback!(grads, C, Pressure(), q, p, t)` with `q === nothing`; see
-[A coupling](@ref extending-coupling).
+[A coupling](@ref extending-coupling) writes one with its
+[`ComposableRecurrences.pullback!`](@ref).
 
 # Examples
 ```jldoctest
@@ -175,9 +172,7 @@ To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling.
-Write it generic in the element type of its arguments, as dual numbers and
-`Float32` values pass through it; [Writing new types](@ref extending)
-gives each role's arguments.
+[Roles](@ref extending-roles) gives each role's arguments.
 
 # Arguments
 - `x`: the operator, coupling, modifier or variant.
@@ -223,8 +218,6 @@ the object's parameters ``\theta``, given the output cotangent ``\bar o``
 `grads` is a NamedTuple: `grads.piece` holds ``\bar\theta``, mirroring the
 object's parameters (or is `nothing`), and the other fields are named after
 the role's arguments.
-For a modifier, coupling or variant the arguments after the role are the
-values `forward` was given, before the step, and are read only.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.

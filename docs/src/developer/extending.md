@@ -26,7 +26,7 @@ The arguments mean the same in every role:
 - `t` is the absolute time, counted from 1 as `start` and `stop` are, and `k` is the stratum.
 - `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
 - `history` is the call's `history` as given: a vector for one series, else strata × time.
-  Without an `Init` method the state starts at zero.
+  Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward` was given, so the values before the step.
   Read them, but do not write to them.
 - A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise) and implements the scalar step.
@@ -46,6 +46,7 @@ Under [`Threaded`](@ref ComposableRecurrences.Threaded), strata run at once, so 
 | float array | an array of the same shape |
 | [`PerStratum`](@ref), [`TimeVarying`](@ref) or another struct | a NamedTuple of its own fields' mirrors, such as `(; x = zeros(S))` |
 | integer, range, `nothing`, function | `nothing` |
+| struct with no fields | `(;)` |
 
 The whole mirror, or any entry, is `nothing` when the backend holds it constant.
 So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent) and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skip `nothing`.
@@ -55,17 +56,15 @@ These accept every parameter form, so the type works with one value, `PerStratum
 ## [Gradient routes](@id extending-routes)
 
 [Rules and plain AD](@ref adjoint-routing) says which route a type gives its operator.
-In short, a type with a `pullback!` keeps the rule; one without takes either a local ForwardDiff step inside the rule or plain AD of the whole operator.
 
 Give each float field a type parameter, as `struct Smooth{A}; a::A; end`.
-A field typed `Real`, `Any` or left untyped sends the operator to plain AD with no note.
+A field typed `Real`, `Any` or left untyped sends the operator to plain AD.
 
 The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
 So a closure that captures a float, a keyword-only constructor, a float field typed `Float64` or a constructor that changes its arguments sends the operator to plain AD.
 Integer fields, index ranges and integer arrays are structure, not parameters.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
-The `@info` note logged then names the type; the note for a type without a `pullback!` names only the operator.
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 
@@ -89,8 +88,6 @@ end
 
 Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))(2.0; history = [1.0, 2.0], stop = 5)
 ```
-
-Without a `pullback!` the rule differentiates it with a local ForwardDiff step.
 
 ## [Its pullback](@id extending-pullback)
 
@@ -136,8 +133,6 @@ m = Shift(PerStratum([0.1, 0.2]))
 grads = (; piece = (; b = (; x = zeros(2))), v = 1.5, s = 0.0)
 CR.pullback!(grads, m, CR.Step(), 2.0, 0.0, 1, 2), grads.piece.b.x
 ```
-
-A modifier with an array parameter and no `pullback!` sends its operator to plain AD.
 
 ## [A coupling](@id extending-coupling)
 
@@ -199,13 +194,12 @@ end
 Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.0], stop = 3)
 ```
 
-A vector step without a `pullback!` sends its operator to plain AD.
-
 ## [A depletion form](@id extending-form)
 
 A depletion form draws value `v` from pool `s` with population `N` and exponent `α`, and is passed to [`Depletion`](@ref ComposableRecurrences.Depletion).
 This one takes what is asked, up to the pool.
 Its pullback returns the cotangents of `v`, `s`, `N` and `α`, and [`Depletion`](@ref ComposableRecurrences.Depletion) adds those of `N` and `α` into its own mirror.
+Its `grads.piece` is the mirror of the form's own fields.
 
 ```@example extending
 struct Linear end
@@ -221,12 +215,11 @@ d = CR.Depletion(10.0, Linear())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 
-A form without a `pullback!` is differentiated with a local ForwardDiff step in `v`, `s`, `N`, `α` and its own float scalars.
-
 ## [Checking a new type](@id extending-checks)
 
 First test `forward` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), with one `Arguments(; piece, role, args)` per role the type has.
-`PieceInterface{(:pointwise, :nstate)}` also checks a pointwise step and the state length.
+Here `args` are the arguments after the role: `(s, history)` for `Init()`, `(v, s, t)` with vectors for a modifier's `Step()`, `(q, p, t)` for `Pressure()` and scalars `(v, s, N, α)` for a depletion form.
+The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments
@@ -253,13 +246,13 @@ J' * [grads.v, grads.s] ≈ [grads.piece.a[], v̄, s̄]
 ```
 
 Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, which differentiates the forward loop instead.
-ForwardDiff runs the same code on both, so use Mooncake or Enzyme.
+ForwardDiff runs the same code on both, so use Mooncake or Enzyme, and a loss that changes with every parameter.
 
 ```julia
 using DifferentiationInterface, Mooncake
 
 r(a) = Recurrence([0.5, 0.5]; modifiers = (Smooth(a[1]),))
-loss(op) = a -> sum(op(a)(fill(1.2, 30); history = [1.0, 2.0]))
+loss(op) = a -> sum(abs2, op(a)(fill(1.2, 30); history = [1.0, 2.0]))
 backend = AutoMooncake(; config = nothing)
 gradient(loss(r), backend, [0.3]) ≈
     gradient(loss(CR.NoAdjoint ∘ r), backend, [0.3])
@@ -272,6 +265,6 @@ gradient(loss(r), backend, [0.3]) ≈
 - Keep `forward` and `pullback!` free of allocations: return scalars from a pointwise step and loop over a vector step in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
-- A type without a `pullback!` runs a local ForwardDiff step or sends the operator to plain AD; [Which rules are kept](@ref rule-policy) gives the cost.
+- [Which rules are kept](@ref rule-policy) gives the cost of a missing `pullback!`.
 - With an `I` or `Diagonal` coupling and pointwise modifiers each stratum runs its whole series alone, which `Threaded` runs in parallel.
   A vector step makes every step wait for all strata.
