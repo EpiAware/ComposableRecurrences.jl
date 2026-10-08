@@ -10,6 +10,10 @@
     @test Recent([0.5, 0.2]).w == [0.5, 0.2]
     @test CR.depth(Recent(7)) == 7
     @test CR.depth(CR.Transform(*, Derived(exp, -0.1 * Recent(9)))) == 9
+    # A nested operator keeps its own buffer.
+    inner = Recurrence([0.5]; modifiers = (CR.Add(Recent(12)),))
+    @test CR.depth(inner) == 0
+    @test CR.depth((inner, Recent(3))) == 3
     @test_throws "n >= 1" Recent(0)
     @test_throws "at least one weight" Recent(Float64[])
     err = try

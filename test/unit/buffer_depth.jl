@@ -24,6 +24,10 @@ end
 
 @testitem "depth: default walk and recursion" setup = [DeepBuffer] begin
     using LinearAlgebra
+    # Each kind of leaf reads nothing.
+    for x in (1.0, 2, [1.0], nothing, :a, "a", Float64, Base, sin)
+        @test CR.depth(x) === 0
+    end
     @test CR.depth(1.0) == 0
     @test CR.depth([1.0, 2.0]) == 0
     @test CR.depth(I) == 0
