@@ -76,6 +76,12 @@ struct Allocate{T}
     function Allocate(groups::AbstractVector, total::T) where {T}
         _check_groups(groups)
         _check_param(:total, total)
+        _reads_outputs(total) && throw(
+            ArgumentError(
+                "total is read per group, not per stratum, so it cannot " *
+                    "read the outputs; got $(_describe(total))"
+            )
+        )
         _check_group_totals(total, length(groups))
         strata = Int[k for zs in groups for k in zs]
         offsets = cumsum([0; length.(groups)])

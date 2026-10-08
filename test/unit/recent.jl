@@ -182,7 +182,44 @@ end
     const CR = ComposableRecurrences
     # Depletion's Init reads N at time 1, before a run that starts at 5.
     r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(100.0 + Recent(3)),))
-    @test_throws BoundsError r(fill(1.2, 8); history = ones(4), start = 5)
+    @test_throws "read at time 1" r(fill(1.2, 8); history = ones(4), start = 5)
+end
+
+@testitem "Recent: an Init that reads the outputs sends its cotangent to the history" setup = [AdjointCheck] begin
+    using ComposableRecurrences, LinearAlgebra, Random
+    rng = Xoshiro(24)
+    S, L, T = 2, 3, 8
+    g = rand(rng, L) ./ 2
+    K = [0.8 0.2; 0.3 0.7]
+    h = 5 .+ rand(rng, S, 4)
+    R = 1.0 .+ rand(rng, S, T)
+    mods = (
+        (CR.Depletion(100.0 + 10 * Recent(3)),),
+        (
+            CR.Depletion(
+                100.0 + 10 * Recent(3); removals = 0.1 * Recent(2),
+                protected = CR.Protected(0.3)
+            ),
+        ),
+    )
+    for ms in mods, C in (I, K)
+        r = Recurrence(g; coupling = C, modifiers = ms)
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
+end
+
+@testitem "Recent: binding infers" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    H = zeros(10, 2)
+    mods = (
+        CR.Transform(*, Derived(exp, -0.05 * Recent(7))),
+        CR.Depletion(PerStratum([1.0, 2.0]); removals = 0.2 * Recent(3)),
+        CR.Transform((v, θ) -> v * θ.a, (; a = Recent(2))),
+    )
+    @test @inferred(CR._bind(mods, H, nothing, 1)) isa Tuple
+    @test @inferred(CR._bind(mods, H, H, 1)) isa Tuple
+    @test_throws "per group" CR.Allocate([[1], [2]], Recent(2))
 end
 
 @testitem "Recent: a coupling against a naive loop" begin

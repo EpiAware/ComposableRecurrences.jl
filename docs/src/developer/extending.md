@@ -71,7 +71,8 @@ grads = (; piece = (; a = Ref(0.0)), v = 1.0, s = 0.0)
 CR.pullback!(grads, Scale(0.9), CR.Step(), 2.0, 0.0, 1, 1), grads.piece.a[]
 ```
 
-To accept every parameter form, such as `PerStratum`, `TimeVarying` or `Derived`, read each parameter with [`param`](@ref ComposableRecurrences.param) and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
+To accept every parameter form, such as `PerStratum`, `TimeVarying`, `Derived` or `Recent`, read each parameter with [`param`](@ref ComposableRecurrences.param) and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
+Call `add_param!` even when the parameter's mirror is `nothing`: a `Recent` parameter still sends its cotangent to the outputs it read.
 
 Without a `pullback!`, some modifiers and couplings are differentiated inside the rule by a local ForwardDiff step, and the rest send the operator to plain AD; [Rules and plain AD](@ref adjoint-routing) lists which.
 The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.

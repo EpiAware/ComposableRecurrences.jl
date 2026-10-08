@@ -324,12 +324,14 @@ D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_R)\b
 
 past outputs per stratum, where ``L`` is the kernel length, ``d`` is
 `depth` and ``M_1, \dots, M_R`` are the modifiers.
-The kernel reads the last ``L`` of them, and an object with ``d(x) > L``
-can read further back.
+The kernel reads the last ``L`` of them; the deeper rows are kept for
+objects that read further back than the kernel.
 A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a
 resumed call reads the same past.
-The default recurses by value through fields, tuples and named tuples and
-takes the largest; numbers, arrays and functions read nothing, ``d = 0``.
+The default recurses by value through the fields of immutable structs,
+tuples and named tuples and takes the largest.
+Numbers, arrays, functions and mutable objects read nothing, ``d = 0``, so
+an object held inside an array or a mutable struct is not counted.
 Add a method for a type that reads the buffer.
 
 # Arguments
@@ -357,8 +359,14 @@ depth(::Union{Type, Module, Function}) = 0
 # The largest depth over the fields of `x`, unrolled so a concrete type
 # infers, as `_fields_eltype` does. Each field's depth is checked here, so
 # a bad one is not hidden by the maximum.
+# Mutable objects are not walked, so a cycle or an undefined field cannot
+# stop a call.
 @generated function _fields_depth(x)
-    calls = (:(_checked_depth(getfield(x, $i))) for i in 1:fieldcount(x))
+    ismutabletype(x) && return 0
+    calls = (
+        :(isdefined(x, $i) ? _checked_depth(getfield(x, $i)) : 0)
+            for i in 1:fieldcount(x)
+    )
     return :(max(0, $(calls...)))
 end
 
@@ -370,7 +378,7 @@ function _checked_depth(x)
                 "got $(repr(d))"
         )
     )
-    return Int(d)
+    return Int(d)::Int
 end
 
 # A modifier's shape checks against `S` strata, run once per call by its
