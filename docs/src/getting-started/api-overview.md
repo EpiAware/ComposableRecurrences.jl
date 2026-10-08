@@ -196,7 +196,7 @@ end
 Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop = 4)
 ```
 
-`ToFirst` has no `pullback!`, so the operator's rule takes a local derivative of its `forward`.
+`ToFirst` has no `pullback!`, and its `Float64` field cannot hold dual numbers, so a `Recurrence` using it takes plain AD.
 [Rules and plain AD](@ref adjoint-routing) gives the conditions.
 
 ## [Checking gradients](@id overview-gradients)

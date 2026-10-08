@@ -203,7 +203,7 @@ round.((sum(before), sum(after)))
 
 #-
 
-@chain DataFrame("day" => 1:T, "`add`, drawn from the pool" => before, "`Add` after `Depletion`" => after) begin
+@chain DataFrame("day" => 1:T, "add, drawn from the pool" => before, "Add after Depletion" => after) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
