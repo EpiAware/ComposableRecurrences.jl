@@ -302,16 +302,26 @@ function _transform(w, θ)
     return sum(WS .* q)
 end
 
-# A pool that starts empty with a differentiated heterogeneity. At
-# `α = 1` the pool power is `0^0`, whose exponent tangent is `log(0)`
-# unless the power avoids it. The parameters are offsets from `α = 1` and
-# an empty pool, so compiled ReverseDiff tapes, recorded at zero, take the
+# A pool emptied after the first step with a differentiated heterogeneity.
+# At `α = 1` the pool power is `0^0`, whose exponent tangent is `log(0)`
+# unless the power avoids it.
+# A removal larger than the pool takes what remains, so the pool is exactly
+# empty from the second step on.
+# A pool that starts empty would not do: rule testers perturb the starting
+# pool itself, and a negative share has no real power.
+# Imports added after the depletion keep the value drawn positive, so a
+# perturbed `α < 1` gives an infinite hazard on the empty pool, not
+# `0 * Inf`.
+# The parameters are offsets from `α = 1`, a starting pool of 50 and a
+# removal of 1000, so compiled ReverseDiff tapes, recorded at zero, take the
 # branches of the scenario point.
 function _empty_pool(w, θ)
     d = ComposableRecurrences.Depletion(
-        100.0; heterogeneity = 1 + θ[1], pool0 = θ[2]
+        100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2],
+        removals = 1000 + θ[3]
     )
-    y = w(Recurrence(G0; modifiers = (d,)))(fill(2.0, T); history = fill(5.0, L))
+    mods = (d, ComposableRecurrences.Add(1.0))
+    y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
     return sum(W1 .* y)
 end
 
@@ -472,7 +482,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence empty pool with a differentiated heterogeneity", _empty_pool,
-        () -> zeros(2),
+        () -> zeros(3),
     ),
     (
         "Recurrence Derived modifier parameters", _derived,
@@ -532,6 +542,8 @@ const _PROBES = Dict{Symbol, Function}(
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    # Depletion removals came with `Protected`.
+    "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
     # A population that varies over time came with `_population`.
