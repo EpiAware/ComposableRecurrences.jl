@@ -150,6 +150,10 @@ end
     @test copies[1].v isa Vector
     CR._reduce!((acc, copies))
     @test parent(v) == [0.0, 1.0, 1.0, 0.0]
+    # Other executors run the loop as one block; a mirror with no copy rule
+    # is refused by name.
+    @test CR._nblocks(CR.Serial(), 10, 10) == 1
+    @test_throws "cannot copy a cotangent of type Int64" CR._private(1)
     # A loop too small to split runs as one block on the shared mirrors.
     small = CR._accumulators(CR._Current(CR.Threaded()), nothing, 4, 4, (; r = Ref(0.0)))
     @test isempty(small[2])

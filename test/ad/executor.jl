@@ -69,15 +69,15 @@
             g, R = split(θ, L + 1)
             r = Recurrence(
                 g[1:L]; modifiers = (
-                    CR.Depletion(PerStratum(fill(1.0e3, S)), CR.Floor()),
-                    CR.Add(g[L + 1]),
+                    CR.Depletion(1.0e3, CR.Floor()), CR.Add(g[L + 1]),
                 )
             )
             return sum(w .* r(R; history = seed))
         end
+        # The coupling is read from θ, so its cotangent reaches θ directly.
         mixed = function (θ)
-            g, R = split(θ, L + 1)
-            K = fill(0.05, S, S) .+ g[L + 1] .* [i == j for i in 1:S, j in 1:S]
+            g, R = split(θ, L + S^2)
+            K = reshape(view(g, (L + 1):(L + S^2)), S, S)
             r = Recurrence(g[1:L]; coupling = K)
             return sum(w .* r(R; history = seed))
         end
@@ -85,9 +85,12 @@
             g, X = split(θ, L)
             return sum(w .* Convolution(g)(X))
         end
-        θ = vcat([0.1, 0.3, 0.4, 0.2, 0.5], vec(1.0 .+ 0.05 .* rand(rng, S, T)))
+        g0 = [0.1, 0.3, 0.4, 0.2]
+        R0 = vec(1.0 .+ 0.05 .* rand(rng, S, T))
+        K0 = vec(fill(0.05, S, S) .+ 0.5 .* (1:S .== (1:S)'))
         return (
-            (independent, θ), (mixed, θ), (convolution, θ[[1:4; 6:end]]),
+            (independent, vcat(g0, 0.5, R0)), (mixed, vcat(g0, K0, R0)),
+            (convolution, vcat(g0, R0)),
         )
     end
 
