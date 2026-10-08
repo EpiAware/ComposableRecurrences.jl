@@ -103,9 +103,9 @@ round(sum(by_recurrence .- capped))
 
 ward_flows = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))
 ward = Recurrence([1.0]; modifiers = (ward_flows,))
-counts = ward(; history = zeros(2, 1), add = [admissions'; zero(admissions')], stop = T)
+patients = ward(; history = zeros(2, 1), add = [admissions'; zero(admissions')], stop = T)
 
-@chain DataFrame(day = 1:T, Suspected = counts[1, :], Confirmed = counts[2, :]) begin
+@chain DataFrame(day = 1:T, Suspected = patients[1, :], Confirmed = patients[2, :]) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
@@ -114,7 +114,7 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# A [`Linear`](@ref ComposableRecurrences.Linear) flow moves a share instead, as the daily discharge probability ``d`` at the start of this tutorial does: `Flow(1 => 0, Linear(d))`.
+# A [`Linear`](@ref ComposableRecurrences.Linear) flow moves a share instead, like the daily discharge probability ``d`` at the start of this tutorial, except that the day's admissions can also leave that day.
 # An [`Amount`](@ref ComposableRecurrences.Amount) flow moves a count, capped by what the compartment holds, such as a fixed number of transfers a day.
 # Several wards are several groups: with ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
 

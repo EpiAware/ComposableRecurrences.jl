@@ -205,6 +205,20 @@ end
         c = check_pullback(build, θ, v, zeros(6), t)
         @test c.v && c.s && c.θ
     end
+    # Derived and group-by-time parameters, and a count into a compartment
+    # followed by a count out of it whose cap binds.
+    chained(θ) = CR.Flows(
+        CR.Flow(1 => 2, Derived(exp, PerStratum(θ[1:2]))),
+        CR.Flow(2 => 0, CR.Linear(TimeVarying(PerStratum(reshape(θ[3:6], 2, 2))))),
+        CR.Flow(1 => 2, CR.Amount(θ[7])), CR.Flow(2 => 0, CR.Amount(θ[8]))
+    )
+    v = [4.0, 2.0, 1.0, 0.5]
+    # The second count's cap binds, then the first's.
+    for (a1, a2) in ((1.5, 50.0), (4.0, 0.5)), t in (1, 2)
+        θ = [-1.0, -2.0, 0.1, 0.2, 0.3, 0.05, a1, a2]
+        c = check_pullback(chained, θ, v, zeros(4), t)
+        @test c.v && c.s && c.θ
+    end
 end
 
 @testitem "Flows: the share that leaves near zero hazard" begin
@@ -256,6 +270,10 @@ end
     @test_throws "expected a Flow, got 0.3" CR.Flows(CR.Flow(1 => 2, 0.1), 0.3)
     @test_throws "up to 2, got compartments = 1" CR.Flows(
         CR.Flow(1 => 2, 0.1); compartments = 1
+    )
+    @test CR.blocks(CR.Flows(CR.Flow(1 => 2, 0.1); compartments = Int32(3))) == Val((3, 3))
+    @test_throws "a positive integer, got 2.5" CR.Flows(
+        CR.Flow(1 => 2, 0.1); compartments = 2.5
     )
     # A third compartment without flows is named by `compartments`.
     flows = CR.Flows(CR.Flow(1 => 2, CR.Linear(0.5)); compartments = 3)

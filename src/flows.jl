@@ -8,17 +8,21 @@
 A flow kind: a hazard rate ``r``, the default for a
 [`ComposableRecurrences.Flow`](@ref).
 
-The rate flows out of compartment ``i`` compete: with ``H_i`` the sum of
-their rates, flow ``f`` moves
+The rate flows out of a compartment compete, as in the
+[`ComposableRecurrences.Hazard`](@ref) depletion form: with ``H`` the sum of
+their rates, together they move
 
 ```math
-m_f = x_i\, \frac{r_f}{H_i} \big(1 - e^{-H_i}\big),
+x \big(1 - e^{-H}\big)
 ```
 
-so together they move ``x_i (1 - e^{-H_i})``, and with non-negative, finite
-rates a non-negative compartment stays non-negative.
+of the compartment's ``x``, shared in proportion to the rates
+([`ComposableRecurrences.Flows`](@ref) gives the step).
+With non-negative, finite rates a non-negative compartment stays
+non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
-The rates are not checked, as a dual or [`Derived`](@ref) rate cannot be.
+Rates are not checked: a time-varying or [`Derived`](@ref) rate is only
+known at each step.
 
 # Arguments
 - `r`: the rate, a parameter read at each step's group and time: one
@@ -44,8 +48,13 @@ end
 @doc raw"""
 A flow kind: a share ``p`` of the compartment it leaves.
 
-Flow ``f`` out of compartment ``i`` moves ``m_f = p_f x_i``, from the
-compartment before the step's flows, alongside any
+Flow ``f`` out of compartment ``i`` moves
+
+```math
+m_f = p_f\, x_i,
+```
+
+with ``x_i`` the compartment before the step's flows, alongside any
 [`ComposableRecurrences.Rate`](@ref) flows.
 Shares out of one compartment that sum to more than ``e^{-H_i}`` leave it
 negative.
@@ -111,10 +120,18 @@ const _FlowKind = Union{Rate, Linear, Amount}
 A flow from compartment `from` into compartment `to`, or out of the
 compartments with `to = 0`, for [`ComposableRecurrences.Flows`](@ref).
 
-The kind sets how much it moves each step:
-[`ComposableRecurrences.Rate`](@ref) a competing hazard rate,
-[`ComposableRecurrences.Linear`](@ref) a share or
-[`ComposableRecurrences.Amount`](@ref) a count.
+Each step it moves an amount ``m_f`` out of compartment `from` and into
+`to`,
+
+```math
+x'_{\mathrm{from}} = x_{\mathrm{from}} - m_f, \qquad
+x'_{\mathrm{to}} = x_{\mathrm{to}} + m_f,
+```
+
+with the kind setting ``m_f``: [`ComposableRecurrences.Rate`](@ref) a
+competing hazard rate, [`ComposableRecurrences.Linear`](@ref) a share or
+[`ComposableRecurrences.Amount`](@ref) a count
+([`ComposableRecurrences.Flows`](@ref) gives the step).
 A bare parameter is a `Rate`.
 
 # Arguments
@@ -204,9 +221,15 @@ y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
 ```
 
 then each [`ComposableRecurrences.Amount`](@ref) flow, in the order given,
-moves ``\min(a_f, \max(y_i, 0))`` out of compartment ``i``.
+moves ``m_f = \min(a_f, \max(y_i, 0))`` out of compartment ``i``.
 The result is the value passed on, and the state holds what flowed into
-each compartment at the step.
+each compartment at the step,
+
+```math
+s'_j = \sum_{f \text{ into } j} m_f,
+```
+
+where a negative count adds nothing.
 On a [`Recurrence`](@ref) with kernel `[1.0]`, the core carries the
 previous step's compartments forward and the modifier applies the step's
 flows.
@@ -256,7 +279,7 @@ end
 function Flows(fs...; compartments = nothing)
     fs = _flow_tuple(fs)
     n = compartments === nothing ? _max_compartment(fs) : compartments
-    return Flows{n}(fs)
+    return Flows{n isa Integer ? Int(n) : n}(fs)
 end
 ConstructionBase.constructorof(::Type{<:Flows{N}}) where {N} = Flows{N}
 
@@ -307,7 +330,7 @@ function _series_cut(H)
 end
 
 # Tuple entry `i` of `x` replaced by `v`, in the tuple's eltype.
-_set(x::NTuple{N, T}, i, v) where {N, T} = Base.setindex(x, convert(T, v), i)
+_set(x::Tuple, i, v) = Base.setindex(x, convert(eltype(x), v), i)
 
 # What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
@@ -349,7 +372,7 @@ function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
     y = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
-    y, a = _spread(fs, x, L, y, ntuple(_ -> z, Val(N)), g, t)
+    y, a = _spread(fs, x, L, y, ntuple(_ -> zero(first(y)), Val(N)), g, t)
     return _counts(fs, y, a, g, t)
 end
 
@@ -396,25 +419,30 @@ function _arrivals_back(fs::Tuple, ā, i, g, t, B)
 end
 
 function pullback!(grads, m::Flows{N}, ::Step, v, s, t, g) where {N}
-    fs = m.flows
-    f̄s = cotangent(grads.piece, :flows)
-    x = v
+    x̄ = _flows_pullback(
+        m.flows, cotangent(grads.piece, :flows), v, grads.v, grads.s, g, t
+    )
+    return x̄, ntuple(_ -> zero(eltype(x̄)), Val(N))
+end
+
+# The cotangent of one group's compartments `x` before the flows, from
+# those of the compartments `ȳ` and arrivals `ā` after them; the flows'
+# parameter cotangents are added into their mirrors `f̄s`.
+function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳ, ā, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
     y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
-    y, a = _spread(fs, x, L, y0, ntuple(_ -> z, Val(N)), g, t)
-    ā = grads.s
-    ȳ = _counts_back(fs, f̄s, y, a, grads.v, ā, g, t)
+    y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    ȳ = _counts_back(fs, f̄s, y, a, ȳ, ā, g, t)
     # The rate and share arrivals feed both the compartments and the state.
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _arrivals_back(fs, āt, i, g, t, zero(eltype(āt))), Val(N))
-    _rates_back!(fs, f̄s, x, L, H, B, ȳ, āt, g, t)
-    x̄ = ntuple(Val(N)) do i
+    _kinds_back!(fs, f̄s, x, L, H, B, ȳ, āt, g, t)
+    return ntuple(Val(N)) do i
         E, gH, P = L[i]
         (E - P) * ȳ[i] + gH * B[i] + _shares_back(fs, āt, i, g, t, zero(gH))
     end
-    return x̄, ntuple(_ -> zero(eltype(āt)), Val(N))
 end
 
 # `Σ_f p_f ā_to(f)` over the share flows out of compartment `i`.
@@ -429,10 +457,10 @@ end
 
 # Each rate takes `x_i (g ā_to + g′ B_i - e^{-H_i} ȳ_i)` and each share
 # `x_i (ā_to - ȳ_i)`, with `ā_to = 0` for an exit.
-_rates_back!(::Tuple{}, f̄s, x, L, H, B, ȳ, ā, g, t) = nothing
-function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
+_kinds_back!(::Tuple{}, f̄s, x, L, H, B, ȳ, ā, g, t) = nothing
+function _kinds_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
     _rate_back!(first(fs), _head(f̄s), x, L, H, B, ȳ, ā, g, t)
-    return _rates_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
+    return _kinds_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
 end
 _rate_back!(f::Flow{<:Amount}, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
 function _rate_back!(f::Flow{<:Rate}, f̄, x, L, H, B, ȳ, ā, g, t)
