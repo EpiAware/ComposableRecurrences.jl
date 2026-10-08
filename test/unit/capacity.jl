@@ -314,7 +314,7 @@ end
             x -> CR.Capacity(x[1], CR.Budget(2); pairs = [2], overflow = CR.Drop()),
             [0.3], [0.6], (1, 2),
         ),
-        # A tie, demand 2 against 2 free beds: the free beds take it, as with
+        # A tie, demand 2 against 2 free beds: the demand takes it, as with
         # dual numbers.
         (
             x -> CR.Capacity(x[2], CR.Beds(x[1]); pairs = [1 => 2], initial = x[3]),
