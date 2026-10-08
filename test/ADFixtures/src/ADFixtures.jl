@@ -371,8 +371,8 @@ function _capacity_budget(w, θ)
     return sum(WS .* y)
 end
 
-# Capped transmission from a pool drawn with the smooth truncation, and a
-# per-pair bed cap whose overflow is dropped: the softness and the beds are
+# A pool that runs low, drawn with the smooth truncation, then a bed cap per
+# pair whose overflow is dropped: the pool, softness and beds are
 # parameters.
 function _capacity_drop(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
@@ -528,7 +528,7 @@ const _SCENARIOS = [
         "Recurrence capacity, dropped overflow after a truncated draw",
         _capacity_drop,
         () -> _flat(
-            fill(log(5.0), S, L), 0.5 .+ LOGR, [log(150.0), 0.15, log(8.0), log(6.0)]
+            fill(log(5.0), S, L), 0.5 .+ LOGR, [log(500.0), 0.15, log(8.0), log(6.0)]
         ),
     ),
     (
