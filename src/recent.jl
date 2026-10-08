@@ -218,7 +218,7 @@ _add_buffer!(::Nothing, v, i, k) = nothing
 _check_param(name, x::_BoundRecent) = x
 
 # Whether a value of type `T` holds a `Recent`, from the type alone, so a
-# piece without one is left as it is.
+# value without one is left as it is.
 @generated _reads_outputs(x) = _reads_outputs_type(x)
 function _reads_outputs_type(::Type{T}) where {T}
     T <: Union{Recent, _BoundRecent} && return true
@@ -242,7 +242,7 @@ function _reads_across_type(::Type{T}) where {T}
 end
 
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
-# rebuilding only the pieces that hold one.
+# rebuilding only the values that hold one.
 _bind(x, H, H̄, o) = _bind(Val(_reads_outputs(x)), x, H, H̄, o)
 _bind(::Val{false}, x, H, H̄, o) = x
 _bind(::Val{true}, x::Recent, H, H̄, o) = _BoundRecent(x, H, H̄, o)
