@@ -9,15 +9,27 @@ function forward(J::UniformScaling, ::Pressure, q, p, t)
     return nothing
 end
 
-# Column by column, the order a column-major matrix is stored in.
+# Column by column, the order a column-major matrix is stored in. The
+# shapes are checked once, so the loop reads without bounds checks.
 function forward(C::AbstractMatrix, ::Pressure, q, p, t)
+    _check_pressure(C, q, p)
     fill!(q, zero(eltype(q)))
-    for b in axes(C, 2)
+    @inbounds for b in axes(C, 2)
         pb = p[b]
         for a in axes(C, 1)
             q[a] += C[a, b] * pb
         end
     end
+    return nothing
+end
+
+# A dense or time-varying coupling's rows and columns against the pressures.
+function _check_pressure(C, q, p)
+    axes(C, 1) == eachindex(q) && axes(C, 2) == eachindex(p) || throw(
+        DimensionMismatch(
+            "coupling is $(size(C)), pressures are $(length(q)) and $(length(p))"
+        )
+    )
     return nothing
 end
 
@@ -46,8 +58,10 @@ function forward(
         C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure, q, p, t
     )
     X = C.x
+    checkbounds(X, :, :, t)
+    _check_pressure(X, q, p)
     fill!(q, zero(eltype(q)))
-    for b in axes(X, 2)
+    @inbounds for b in axes(X, 2)
         pb = p[b]
         for a in axes(X, 1)
             q[a] += X[a, b, t] * pb
