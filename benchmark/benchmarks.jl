@@ -177,3 +177,40 @@ let body = BenchmarkGroup(), T = 200, L = 20
     end
     SUITE["Convolution body"] = body
 end
+
+# Direct against FFT lag sums, forward and Mooncake gradient, either side of
+# the crossover: FFT pays only for long kernels.
+using FFTW: FFTW
+using Mooncake: Mooncake
+using ADTypes: AutoMooncake
+
+if isdefined(ComposableRecurrences, :FFTMethod)
+    let methods = BenchmarkGroup()
+        backend = AutoMooncake(; config = nothing)
+        sizes = (
+            (1, 200, 32), (1, 200, 64), (1, 300, 60), (1, 2000, 32),
+            (1, 2000, 100), (1, 20000, 500), (50, 200, 64),
+        )
+        for (S, T, L) in sizes, (name, method) in (
+                ("Direct", ComposableRecurrences.Direct()),
+                ("FFT", ComposableRecurrences.FFTMethod()),
+            )
+            x = S == 1 ? rand(T) : rand(S, T)
+            w = rand(size(x)...)
+            label = "S $S T $T L $L"
+            haskey(methods, label) || (methods[label] = BenchmarkGroup())
+            c = Convolution(fill(1 / L, L); method)
+            methods[label]["$name forward"] = @benchmarkable(
+                $c($x), evals = 1, seconds = 1, gctrial = false
+            )
+            loss = k -> sum(w .* Convolution(k; method)(x))
+            k = fill(1 / L, L)
+            prep = DI.prepare_gradient(loss, backend, k)
+            methods[label]["$name Mooncake gradient"] = @benchmarkable(
+                DI.gradient($loss, $prep, $backend, $k),
+                evals = 1, seconds = 1, gctrial = false
+            )
+        end
+        SUITE["Convolution methods"] = methods
+    end
+end

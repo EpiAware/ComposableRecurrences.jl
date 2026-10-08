@@ -60,6 +60,7 @@ end
 
 @testitem "FFT convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse] setup = [FFTAD] begin
     using Enzyme: Enzyme
+    import EnzymeTestUtils
     using ADTypes: AutoEnzyme
     test_fft_gradients(
         AutoEnzyme(;

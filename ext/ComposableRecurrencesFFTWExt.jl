@@ -64,9 +64,10 @@ function _spectrum(c::PerStratum, ::Type{Tp}, N, S, rev) where {Tp}
 end
 
 # Forward: `Y[j, k] = Σ_d c[d + 1] X[o + j - d, k]`, `o = m + start - 1`.
-function ComposableRecurrences._fft_convolve!(Y, kernel, X, m, start)
+function ComposableRecurrences._fft_convolve!(
+        Y::Matrix{Tp}, kernel, X::Matrix{Tp}, m, start
+    ) where {Tp <: _FFTFloat}
     isempty(Y) && return Y
-    Tp = eltype(X)
     L = _nlags(kernel)
     N = _fftsize(size(X, 1), L)
     S = size(X, 2)
@@ -80,9 +81,10 @@ end
 # the output cotangent convolved with the reversed kernel, and the kernel
 # cotangent `k̄[d + 1] += Σ_j Ȳ[j, k] X[o + j - d, k]` its correlation with
 # the inputs. Both take each block of `Ȳ` from one transform of it.
-function ComposableRecurrences._fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start)
+function ComposableRecurrences._fft_convolve_back!(
+        X̄::Matrix{Tp}, k̄, kernel, X::Matrix{Tp}, Ȳ::Matrix{Tp}, m, start
+    ) where {Tp <: _FFTFloat}
     isempty(Ȳ) && return nothing
-    Tp = eltype(X)
     L = _nlags(kernel)
     n = size(X, 1)
     N = _fftsize(n, L)

@@ -234,7 +234,8 @@ end
 # `FFTMethod()` the FFTW extension adds the methods that answer; without it
 # the call is refused.
 _fft_path(::Direct, kernel, ::Type, x) = false
-function _fft_path(::FFTMethod, kernel, ::Type, x)
+_fft_path(::FFTMethod, kernel, ::Type, x) = _no_fftw()
+function _no_fftw()
     throw(
         ArgumentError(
             "FFTMethod() needs the FFTW package: load it with `using FFTW`"
@@ -242,15 +243,17 @@ function _fft_path(::FFTMethod, kernel, ::Type, x)
     )
 end
 
-# The transform's forward and reverse passes, added by the FFTW extension.
-function _fft_convolve! end
-function _fft_convolve_back! end
+# The transform's forward and reverse passes over `Float32` or `Float64`
+# buffers, added by the FFTW extension.
+_fft_convolve!(Y, kernel, X, m, start) = _no_fftw()
+_fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 
 # Whether AD is tracing the code that calls this: `false` under forward-mode
 # AD and plain reverse-mode AD, whose extensions say so, and `true`
 # otherwise, including the forward pass of a native rule, which runs as
-# primal code.
-_untraced() = true
+# primal code. Inference must not see the constant, or it folds the branch
+# away before the AD rules replace it.
+_untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
 # buffer eltype, the strata, the history length and the last time.
