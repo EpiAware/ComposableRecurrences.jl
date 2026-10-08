@@ -1,4 +1,4 @@
-# The Routes coupling: a sum of (coupling, kernel) routes, against the
+# The Routes kernel: a sum of (coupling, kernel) routes, against the
 # naive reference loop and the equivalent Pairwise kernel.
 
 @testsnippet RouteCases begin
@@ -169,6 +169,7 @@ end
     @test_throws "(coupling, kernel) tuple" Routes((K, g, g))
     @test_throws "cannot itself be Routes" Routes((K, Routes((K, g))))
     @test_throws "Routes is a kernel" Routes((Routes((K, g)), g))
+    @test_throws "not a Convolution" Convolution(Routes((K, g), (2K, g)))
     @test_throws "Pairwise is a kernel" Routes((Pairwise(ones(2, 2, 2)), g))
     @test_throws "a kernel array is a vector" Routes((K, ones(2, 2)))
     r = Recurrence(Routes((K, g), (ones(3, 3), g)))

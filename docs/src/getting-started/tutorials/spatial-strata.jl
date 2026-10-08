@@ -241,9 +241,7 @@ end
 # Ebola spreads in the community while a case is ill and at the funeral after death.
 # [`Routes`](@ref) pairs each route's kernel with its own coupling.
 # The routes are the recurrence's kernel, so its coupling stays `I`.
-# This is the `Pairwise` kernel ``A_{ij,l} = \sum_r C^{(r)}_{ij} w^{(r)}_l`` held as its routes.
-# Each step costs one convolution and one coupling product per route.
-# A sparse route coupling stays sparse.
+# Its docstring gives the maths, the cost and how it relates to `Pairwise`.
 #
 # The funeral kernel is the infection-to-death delay convolved with the funeral days.
 # The fatality ratio scales it, and a [`Convolution`](@ref) builds it.
@@ -261,6 +259,7 @@ ebola_cases = ebola(0.9; history = seed, stop = T);
 
 # Each route's share of the force is not recorded, but it can be recomputed.
 # It is the route's coupling applied to a `Convolution` of the infections with its kernel.
+# This is the force before depletion, so the routes sum to more than the cases.
 
 function route_force(C, w)
     y = hcat(seed, ebola_cases)

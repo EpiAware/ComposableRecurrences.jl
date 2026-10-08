@@ -479,7 +479,7 @@ const CASES = [
     ),
     Case(
         "strata_routes", "dense and sparse routes, floored depletion",
-        strata_routes, [5, 50], false,
+        strata_routes, [5, 50], true,
     ),
     Case(
         "zones_sparse", "sparse ring coupling, floored depletion",

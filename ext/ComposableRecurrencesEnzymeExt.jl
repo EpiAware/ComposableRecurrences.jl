@@ -5,7 +5,7 @@
 # written back for `MixedDuplicated` ones.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
+using ComposableRecurrences: Recurrence, Routes, Serial, _Current, _WithState, _ad,
     _current, _log_plain, _note_plain_type, _plain, _rebuild_flag,
     _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
@@ -159,8 +159,17 @@ function EnzymeRules.reverse(
 end
 
 # Plain Enzyme reverse AD of a sparse coupling's products in a loop gives
-# wrong gradients, so `NoAdjoint` on an active sparse coupling is refused.
-const _SparseRec = Recurrence{<:Any, <:SparseMatrixCSC}
+# wrong gradients, so `NoAdjoint` on an active sparse coupling is refused,
+# as the recurrence's coupling or as one of the first eight route couplings.
+const _SparseRoutes = Union{
+    (
+        Routes{<:Tuple{ntuple(_ -> Any, i - 1)..., SparseMatrixCSC, Vararg{Any}}}
+            for i in 1:8
+    )...,
+}
+const _SparseRec = Union{
+    Recurrence{<:Any, <:SparseMatrixCSC}, Recurrence{<:_SparseRoutes},
+}
 const _SparseOp = Union{_SparseRec, _WithState{<:_SparseRec}}
 const _ActiveSparse = Union{
     Duplicated{<:_SparseOp}, DuplicatedNoNeed{<:_SparseOp},

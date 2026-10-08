@@ -813,6 +813,19 @@ end
     )
     @test Enzyme.gradient(mode, Enzyme.Const(g), r)[1].coupling.nzval ≈
         ForwardDiff.gradient(fnz, copy(K.nzval))
+    # A sparse route coupling, after a dense route, is refused too.
+    rr = Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, [0.3, 0.2])))
+    @test_throws ArgumentError Enzyme.gradient(mode, Enzyme.Const(f), rr)
+    froutes(nz) = g(
+        Recurrence(
+            Routes(
+                (fill(0.2, 3, 3), [0.1]),
+                (SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz), [0.3, 0.2])
+            )
+        )
+    )
+    @test Enzyme.gradient(mode, Enzyme.Const(g), rr)[1].kernel.couplings[2].nzval ≈
+        ForwardDiff.gradient(froutes, copy(K.nzval))
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin

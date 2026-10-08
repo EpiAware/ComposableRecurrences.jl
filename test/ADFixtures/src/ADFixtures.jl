@@ -679,12 +679,18 @@ backend_broken_scenarios() = Dict{String, Set{String}}()
 Per-backend scenario names too unstable to run at all.
 
 Plain Enzyme reverse AD of a sparse coupling repeated over steps returns
-silently wrong gradients, so `NoAdjoint` on a sparse coupling throws on
-Enzyme reverse; the analytic rule is correct and runs.
+silently wrong gradients, so `NoAdjoint` on a sparse coupling, or a sparse
+route coupling, throws on Enzyme reverse; the analytic rule is correct and
+runs.
 """
 function backend_skip_scenarios()
     return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence sparse coupling"]),
+        "Enzyme reverse" => Set(
+            [
+                "NoAdjoint Recurrence sparse coupling",
+                "NoAdjoint Recurrence routes, dense and sparse",
+            ]
+        ),
     )
 end
 

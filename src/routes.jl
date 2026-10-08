@@ -8,13 +8,14 @@ result with its own coupling:
 ```math
 z^{(r)}_{t,j} = \sum_{l=1}^{L_r} k^{(r)}_{j,l}(t)\, y_{t-l,j},
 \qquad
-p_t = \sum_{r=1}^{R} C^{(r)}_t\, z^{(r)}_t,
+q_t = \sum_{r=1}^{R} C^{(r)}_t\, z^{(r)}_t,
 ```
 
 where ``y_{t,j}`` is the output of stratum ``j`` at absolute time ``t``,
 ``k^{(r)}_{j,l}(t)`` the weight of route ``r``'s kernel on lag ``l``,
-``L_r`` its length, ``C^{(r)}_t`` its ``S \times S`` coupling and ``p_t``
-the pressure the recurrence scales by the gain.
+``L_r`` its length, ``C^{(r)}_t`` its ``S \times S`` coupling and ``q_t``
+the pressure, in place of the coupled pressure ``C_t p_t`` of a
+[`Recurrence`](@ref), that the gain scales.
 A [`Pairwise`](@ref) route kernel replaces ``z^{(r)}_{t,j}`` with
 ``\sum_{b} \sum_{l} k^{(r)}_{jb,l}(t)\, y_{t-l,b}``.
 
@@ -27,8 +28,10 @@ A route kernel is any [`Recurrence`](@ref) kernel but `Routes`, and a route
 coupling any [`Recurrence`](@ref) coupling; kernels may differ in length.
 The recurrence's history covers the longest route kernel.
 
-Routes with a cheaper equivalent form fold into it when the
-[`Recurrence`](@ref) is built: one route is its kernel with its coupling,
+Routes with a cheaper equivalent form fold into it when
+`Recurrence(routes)` is built by keyword with the default coupling `I`.
+The positional constructor keeps them.
+One route is its kernel with its coupling,
 and routes whose couplings are all `λ * I` on vector kernels are the one
 kernel ``\sum_r \lambda_r k^{(r)}``.
 The analytic adjoint applies when every route coupling has its own
@@ -146,11 +149,7 @@ _fold_one(C, g::_PairwiseKernel, R, J) = (R, J)
 function _scaled_sum(Cs, gs)
     T = promote_type(map(C -> typeof(C.λ), Cs)..., map(eltype, gs)...)
     g = _zeros(first(gs), T, maximum(map(length, gs)))
-    foreach(Cs, gs) do C, gr
-        for i in eachindex(gr)
-            g[i] += C.λ * gr[i]
-        end
-    end
+    foreach((C, gr) -> view(g, eachindex(gr)) .+= C.λ .* gr, Cs, gs)
     return g
 end
 
@@ -180,6 +179,13 @@ _all_pressure_pullbacks(::Tuple{}) = true
 function _all_pressure_pullbacks(Cs::Tuple)
     return uses_adjoint(first(Cs), Pressure()) &&
         _all_pressure_pullbacks(Base.tail(Cs))
+end
+
+# The plain-AD note names the route couplings without a pullback.
+function _plain_why_kernel(R::Routes)
+    names = [nameof(typeof(C)) for C in R.couplings if !uses_adjoint(C, Pressure())]
+    isempty(names) && return nothing
+    return "has route couplings ($(join(unique(names), ", "))) without a pullback!"
 end
 
 # The routes as a run reads them: the couplings, each kernel oldest first
@@ -222,9 +228,7 @@ function _routes_pressure!(ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, �
     Lr = first(Ls)
     _kernel_pressure!(ex, z, first(gs), H, t + L - Lr, τ, Lr)
     forward(first(Cs), Pressure(), w, z, τ)
-    for a in eachindex(p, w)
-        p[a] += w[a]
-    end
+    p .+= w
     return _routes_pressure!(
         ex, p, z, w, Base.tail(Cs), Base.tail(gs), Base.tail(Ls), H, t, τ, L
     )

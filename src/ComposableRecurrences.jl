@@ -121,7 +121,7 @@ include("couplings.jl")
 include("recurrence.jl")
 # The analytic reverse pass of the recurrence.
 include("recurrence_adjoint.jl")
-# The routes coupling: a sum of (coupling, kernel) routes.
+# The routes kernel: a sum of (coupling, kernel) routes.
 include("routes.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")

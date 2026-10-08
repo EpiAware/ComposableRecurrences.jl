@@ -641,6 +641,7 @@ end
 
 # Whether the rule covers the kernel; routes add their couplings.
 _kernel_adjoint(kernel) = true
+_plain_why_kernel(kernel) = nothing
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
@@ -710,6 +711,8 @@ end
 # The plain-AD note names the coupling, modifiers and depletion forms that
 # do not rebuild, or the coupling whose local derivative the strata outgrow.
 function _plain_why(r::Recurrence)
+    why = _plain_why_kernel(r.kernel)
+    why === nothing || return why
     if _istrue(r.rebuilds)
         _type_adjoint(r, Run()) && _coupling_adjoint(r.coupling) === :local ||
             return _ADJOINT_NOTE
