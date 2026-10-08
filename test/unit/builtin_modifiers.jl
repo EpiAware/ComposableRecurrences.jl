@@ -108,6 +108,66 @@ end
     end
 end
 
+@testitem "Depletion: the fixed default exponent matches an exponent of 1.0" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Pools above, at and below zero, with values on both sides of the
+    # hazard's switch between `expm1` and `exp`.
+    for form in (CR.Hazard(), CR.Floor()), s in (80.0, 0.0, -3.0), v in (0.5, 150.0)
+        s < 0 && form isa CR.Hazard && continue
+        @test all(
+            CR.forward(form, CR.Step(), v, s, 100.0, true) .≈
+                CR.forward(form, CR.Step(), v, s, 100.0, 1.0)
+        )
+        grads = (; piece = nothing, v = 0.7, s = -0.2)
+        fixed = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, true)
+        float = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, 1.0)
+        @test all(fixed[1:3] .≈ float[1:3])
+        @test iszero(fixed[4])
+    end
+    g = [0.3, 0.5, 0.2]
+    h = [5.0, 6.0, 7.0]
+    for form in (CR.Hazard(), CR.Floor())
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0, form),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0, form; heterogeneity = 1.0),))
+        @test fixed(fill(3.0, 12); history = h) ≈ float(fill(3.0, 12); history = h)
+    end
+    # With removals and with a protected pool.
+    R = fill(3.0, 12)
+    for kw in (
+            (; removals = TimeVarying(fill(0.5, 12))),
+            (; removals = TimeVarying(fill(0.5, 12)), protected = CR.Protected(0.3)),
+        )
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0; kw...),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0; heterogeneity = 1.0, kw...),))
+        @test fixed(R; history = h) ≈ float(R; history = h)
+    end
+    # A Float32 population stays Float32.
+    r32 = Recurrence(Float32.(g); modifiers = (CR.Depletion(60.0f0),))
+    @test eltype(r32(fill(3.0f0, 12); history = Float32.(h))) == Float32
+    # A dual population differentiates as with a float exponent.
+    using ForwardDiff
+    total(N, α) = sum(
+        Recurrence(g; modifiers = (CR.Depletion(N; heterogeneity = α),))(R; history = h)
+    )
+    @test ForwardDiff.derivative(N -> total(N, true), 60.0) ≈
+        ForwardDiff.derivative(N -> total(N, 1.0), 60.0)
+    # `false` is a fixed exponent of zero for the built-in forms.
+    @test CR.Depletion(60.0; heterogeneity = false).heterogeneity === false
+    for form in (CR.Hazard(), CR.Floor())
+        @test all(
+            CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, false) .≈
+                CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 0.0)
+        )
+    end
+    # Other forms take a `Bool` as a float, as they may type their exponent.
+    struct Float64Form end
+    CR.forward(::Float64Form, ::CR.Step, v::Float64, s::Float64, N::Float64, α::Float64) =
+        (v, s - v)
+    @test CR.Depletion(60.0, Float64Form()).heterogeneity === 1.0
+    @test CR.Depletion(60.0, Float64Form(); heterogeneity = true).heterogeneity === 1.0
+end
+
 @testitem "Depletion: one population per stratum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -702,11 +762,15 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     using ForwardDiff: Dual
-    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === 1.0
+    @test CR.Depletion(Dual(100.0, 1.0); heterogeneity = 1).heterogeneity === 1.0
     @test CR.Depletion(Dual(100.0f0, 1.0f0); heterogeneity = 2).heterogeneity ===
         2.0f0
-    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0)).heterogeneity === 1.0
-    @test CR.Depletion(100.0f0).heterogeneity === 1.0f0
+    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0); heterogeneity = 1).heterogeneity ===
+        1.0
+    @test CR.Depletion(100.0f0; heterogeneity = 1).heterogeneity === 1.0f0
+    # The built-in forms default to a fixed exponent of one.
+    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === true
+    @test CR.Depletion(100.0f0, CR.Floor()).heterogeneity === true
     # A dual exponent at an empty pool takes the primal exponent, as the
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
@@ -735,4 +799,23 @@ end
         @test ∇[1] ≈ (f(θ + [e, 0]) - f(θ - [e, 0])) / 2e atol = 1.0e-6
         @test ∇[2] ≈ (f(θ + [0, e]) - f(θ)) / e rtol = 1.0e-4 atol = 1.0e-6
     end
+end
+
+@testitem "Hazard: one exponential gives exp(-x) and expm1(-x)" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    xs = (-3.0, -1.0e-12, 0.0, 1.0e-12, 0.4999, 0.5, 0.5001, 5.0, 40.0, Inf)
+    for x in (xs..., Float32.(xs)...)
+        e, em = CR._exp_neg(x)
+        @test e ≈ exp(-x) && em ≈ expm1(-x)
+        @test typeof(e) === typeof(x) && typeof(em) === typeof(x)
+        d = ForwardDiff.Dual(x, one(x))
+        de, dem = CR._exp_neg(d)
+        @test ForwardDiff.value(de) ≈ exp(-x) && ForwardDiff.value(dem) ≈ expm1(-x)
+        @test ForwardDiff.partials(de)[1] ≈ -exp(-x)
+        @test ForwardDiff.partials(dem)[1] ≈ -exp(-x)
+    end
+    @test all(isnan, CR._exp_neg(NaN))
+    # Other numbers take both exponentials.
+    @test CR._exp_neg(big(0.25)) == (exp(-big(0.25)), expm1(-big(0.25)))
 end
