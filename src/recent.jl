@@ -78,7 +78,10 @@ end
 
 depth(x::Recent) = length(x.w)
 
-@noinline function param(x::Recent, k, t)
+# A `Recent` has a value only once a recurrence binds it to its outputs.
+param(x::Recent, k, t) = _unbound(x)
+add_param!(x̄, x::Recent, v, k, t) = _unbound(x)
+@noinline function _unbound(x::Recent)
     throw(
         ArgumentError(
             "Recent($(_describe(x.w))) reads a recurrence's outputs, so it " *
