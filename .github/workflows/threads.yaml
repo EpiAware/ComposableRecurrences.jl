@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.11', '1', 'pre']
+        version: ['1', 'pre']
     env:
       JULIA_NUM_THREADS: '4'
     steps:
