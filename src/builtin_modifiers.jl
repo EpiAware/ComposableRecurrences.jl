@@ -241,7 +241,10 @@ The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
-[`ComposableRecurrences.Floor`](@ref), or a new type with that method.
+[`ComposableRecurrences.Floor`](@ref),
+[`ComposableRecurrences.Truncate`](@ref),
+[`ComposableRecurrences.SoftTruncate`](@ref), or a new type with that
+method.
 A new form without a `pullback!` is differentiated locally with
 `ForwardDiff` in ``(v, s, N, \alpha)`` and its own float scalars.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).

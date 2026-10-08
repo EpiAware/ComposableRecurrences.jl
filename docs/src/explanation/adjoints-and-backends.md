@@ -62,6 +62,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | core recurrence (kernel, `I` or dense coupling) | 0.44 | 0.84 | keep |
 | `Depletion`, hazard form | 0.16 | 0.31 | keep |
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
+| `Depletion`, `Truncate()`, dense coupling | 0.20 | 0.24 | keep |
+| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20 | 0.32 | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
