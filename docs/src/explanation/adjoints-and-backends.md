@@ -68,7 +68,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
-| `Routes` kernel, dense and sparse routes, 50 strata | 0.12 | plain AD is wrong | keep |
+| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | plain AD is wrong | keep |
 | `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
 | sparse coupling | 0.75¹ | plain AD is wrong | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
