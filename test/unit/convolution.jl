@@ -99,7 +99,8 @@ end
     )
     @test threaded == conv(big(X); history = big(H))
     # Offset axes are refused rather than read out of place.
-    @test_throws ArgumentError conv(view(big(vcat(0.0, x)), Base.IdentityUnitRange(2:(T + 1))))
+    shifted = view(big(vcat(0.0, x)), Base.IdentityUnitRange(2:(T + 1)))
+    @test_throws ArgumentError conv(shifted)
 end
 
 @testitem "Convolution: calls without a rule gather on CPU arrays of other numbers" begin
