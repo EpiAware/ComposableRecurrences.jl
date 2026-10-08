@@ -128,6 +128,7 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | no | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | no | hand-written | `total`, one per group |
+| [`Capacity(C, mode; pairs)`](@ref ComposableRecurrences.Capacity) | admits each step's demand up to free beds or a budget per period, and routes the rest to an overflow series, a queue or nowhere | yes, with several series | no | no | hand-written | `C`, `exit`, `κ`, `initial` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | no | yes | hand-written, with a local forward-mode derivative or `derivative` | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
@@ -135,14 +136,17 @@ The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` wi
 
 ## [Depletion forms and indexing](@id overview-variants)
 
-Depletion forms and time indexing are types, and you pass an instance.
+Depletion forms, capacity modes and time indexing are types, and you pass an instance.
 
 | Name | What it does | Example |
 |---|---|---|
 | [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N, Floor())` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly; for `Depletion` and `Capacity` | `Capacity(C, Beds(δ); pairs, form = SoftTruncate(0.1))` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
+| [`Beds(δ)`](@ref ComposableRecurrences.Beds), [`Budget(period; carry_over)`](@ref ComposableRecurrences.Budget) | capacity modes: places with occupancy and exit fraction ``\delta``, or an allowance granted each period | `Capacity(C, Beds(δ); pairs = [1 => 2])` |
+| [`Route()`](@ref ComposableRecurrences.Route), [`Hold()`](@ref ComposableRecurrences.Hold), [`Drop()`](@ref ComposableRecurrences.Drop) | capacity overflow: to the paired series at the same step, to a queue offered again next step, or removed | `Capacity(C, Beds(δ); pairs = [1], overflow = Hold())` |
 | [`Protected(σ; pool0)`](@ref ComposableRecurrences.Protected) | a pool the depletion's removals move into, drawn from at relative susceptibility ``\sigma`` | `Depletion(N; removals, protected = Protected(σ))` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.

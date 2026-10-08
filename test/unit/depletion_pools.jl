@@ -158,7 +158,8 @@ end
     CR = ComposableRecurrences
     v = [2.0, 3.0, 1.5]
     # Removals only: a pointwise step on one pool, below and at the cap.
-    for form in (CR.Hazard(), CR.Floor()), s in ([80.0, 60.0, 40.0], [3.0, 60.0, 1.0])
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate()),
+            s in ([80.0, 60.0, 40.0], [3.0, 60.0, 1.0])
         build(θ) = CR.Depletion(
             PerStratum(θ[1:3]), form; heterogeneity = θ[4],
             removals = TimeVarying(PerStratum(reshape(θ[5:10], 3, 2)))
@@ -174,7 +175,7 @@ end
         [3.0, 60.0, 1.0, 5.0, 10.0, 2.0],
         [-4.0, 60.0, 40.0, 1.0, 10.0, 0.0],
     )
-    for form in (CR.Hazard(), CR.Floor()), s in pools
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate()), s in pools
         form isa CR.Hazard && s[1] < 0 && continue
         build(θ) = CR.Depletion(
             PerStratum(θ[1:3]), form; heterogeneity = θ[4],

@@ -207,3 +207,37 @@ true
         args = (zeros(3), ones(3, 2))
     ),
 ]
+
+@implements PieceInterface{(:nstate,)} Capacity [
+    Arguments(;
+        piece = Capacity(
+            4.0, Beds(0.2); pairs = [1 => 2], form = SoftTruncate(0.1)
+        ),
+        role = Step(),
+        args = ([5.0, 1.0, 0.5], [2.0], 1)
+    ),
+    Arguments(;
+        piece = Capacity(
+            PerStratum([3.0, 2.0]), Budget(7); pairs = [1, 3], overflow = Hold()
+        ),
+        role = Step(), args = ([5.0, 1.0, 0.5], [0.0, 1.0, 0.0, 2.0], 1)
+    ),
+    Arguments(;
+        piece = Capacity(4.0, Budget(Inf); pairs = [2 => 1], initial = 1.0),
+        role = Init(), args = (zeros(1), ones(3, 2))
+    ),
+    Arguments(;
+        piece = Capacity(2.0, Budget(3); pairs = [2], overflow = Drop()),
+        role = Step(), args = ([5.0, 1.0, 0.5], [0.0], 1)
+    ),
+]
+
+@implements PieceInterface Truncate [
+    Arguments(; piece = Truncate(), role = Step(), args = (2.0, 1.5, 100.0, 1.0)),
+]
+
+@implements PieceInterface SoftTruncate [
+    Arguments(;
+        piece = SoftTruncate(0.1), role = Step(), args = (2.0, 1.5, 100.0, 1.0)
+    ),
+]

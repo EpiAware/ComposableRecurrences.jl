@@ -29,14 +29,15 @@
     # Compare the Step's `pullback!` with the transposed Jacobian of its
     # `forward` in
     # `[v; s; θ]`, for a modifier `build(θ)` whose mirror flattens in the
-    # order of `θ`. Returns the parameter cotangent for further checks.
+    # order of `θ`. The state may be longer than `v`. Returns the parameter
+    # cotangent for further checks.
     function check_pullback(build, θ, v, s, t; v̄ = nothing, s̄ = nothing)
-        S = length(v)
+        S, n = length(v), length(s)
         v̄′ = v̄ === nothing ? collect(range(0.3, 1.7; length = S)) : v̄
-        s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = S)) : s̄
+        s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = n)) : s̄
         J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
-            vv, ss = x[1:S], x[(S + 1):(2S)]
-            CR.forward(build(x[(2S + 1):end]), CR.Step(), vv, ss, t)
+            vv, ss = x[1:S], x[(S + 1):(S + n)]
+            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
             return vcat(vv, ss)
         end
         expected = transpose(J) * vcat(v̄′, s̄′)
@@ -46,8 +47,8 @@
         CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
         return (;
             v = gv ≈ expected[1:S],
-            s = gs ≈ expected[(S + 1):(2S)],
-            θ = flat(m̄) ≈ expected[(2S + 1):end],
+            s = gs ≈ expected[(S + 1):(S + n)],
+            θ = flat(m̄) ≈ expected[(S + n + 1):end],
             θ̄ = flat(m̄),
         )
     end
@@ -608,7 +609,7 @@ end
 @testitem "Variants: one path per step" begin
     using ComposableRecurrences, JET
     CR = ComposableRecurrences
-    for form in (CR.Hazard(), CR.Floor())
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
         @test m isa CR.Depletion{typeof(form)}
         # The built-in maths is the form's Step.

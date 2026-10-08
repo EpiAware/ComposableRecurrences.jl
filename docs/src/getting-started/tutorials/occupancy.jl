@@ -6,13 +6,15 @@
 # A stock is a recurrence.
 # When stays are independent it is also a convolution over the length of stay.
 # This tutorial builds occupancy both ways and caps it at the number of beds.
-# It then writes a modifier for a ward with two linked stocks.
+# It then routes the patients turned away to a second series.
+# Last, it writes a modifier for a ward with two linked stocks.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Turn admissions into occupancy with a convolution and with a recurrence.
 # 2. Cap occupancy at the number of beds with `Clamp`.
-# 3. Write a modifier for suspected and confirmed patients in one ward.
+# 3. Admit up to the free beds with `Capacity` and keep the rest.
+# 4. Write a modifier for suspected and confirmed patients in one ward.
 #
 # ### What might I need to know before starting
 #
@@ -22,7 +24,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp
+using ComposableRecurrences: Clamp, Capacity, Beds
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -76,6 +78,36 @@ end
 # The bed-days lost to the cap are
 
 round(sum(by_recurrence .- capped))
+
+# ## Admitted and turned away
+#
+# The cap deletes the patients it turns away.
+# [`Capacity`](@ref ComposableRecurrences.Capacity) keeps them instead.
+# It admits each day's demand up to the free beds and routes the rest to a second series.
+# In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy.
+# A share `d` of it leaves each day.
+# Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
+
+routing = Capacity(beds, Beds(d); pairs = [1 => 2])
+routed = Recurrence([0.0]; modifiers = (routing,))(;
+    history = zeros(2, 1), add = [admissions'; zeros(1, T)]
+)
+admitted_occupancy = Recurrence([1 - d])(; history = [0.0], add = routed[1, :])
+
+turned = DataFrame("day" => 1:T, "Admitted" => routed[1, :], "Turned away" => routed[2, :])
+@chain turned begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
+end
+
+# Admissions fall to the beds freed each day while the ward is full.
+# The occupancy of those admitted never passes the number of beds, and no patient is lost:
+
+maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
+
+# A [`Budget`](@ref ComposableRecurrences.Budget) mode grants an allowance each period instead.
+# Vaccine doses per week are one example.
 
 # ## A ward with two linked stocks
 #
