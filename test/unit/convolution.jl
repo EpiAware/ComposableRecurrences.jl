@@ -72,6 +72,49 @@ end
     # A kernel longer than the series and its history.
     long = rand(rng, T + 3)
     @test Convolution(long)(big(x); history = big(h)) ≈ Convolution(long)(x; history = h)
+    # Gain and add, from a view of the input, scaled in the same pass.
+    g, a = rand(rng, S, T), rand(rng, S, T)
+    conv = Convolution(PerStratum(C))
+    @test conv(view(big(X), :, 1:T); gain = g, add = a, history = big(H)) ≈
+        conv(X; gain = g, add = a, history = H)
+    b = rand(rng, T)
+    @test Convolution(c)(big(x); gain = 2.0, add = b) ≈ Convolution(c)(x; gain = 2.0, add = b)
+end
+
+@testitem "Convolution: calls without a rule gather on CPU arrays of other numbers" begin
+    using ComposableRecurrences, ForwardDiff, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(3)
+    S, D, T = 3, 4, 9
+    x, h = rand(rng, S, T), rand(rng, S, 2)
+    g, a = rand(rng, S, T), rand(rng, S, T)
+    Dual = ForwardDiff.Dual
+    @test CR._conv_path(Float64, rand(D), x) === CR._Buffered()
+    @test CR._conv_path(Dual{Nothing, Float64, 1}, rand(D), x) === CR._Gathered()
+    @test CR._conv_path(BigFloat, PerStratum(rand(S, D)), view(x, :, 1:2)) ===
+        CR._Gathered()
+    # Time-varying kernels keep the buffer.
+    @test CR._conv_path(BigFloat, TimeVarying(rand(D, T), CR.Secondary()), x) ===
+        CR._Buffered()
+    # The gather matches the buffered values, and its derivatives match a
+    # hand-written convolution's.
+    function naive(K, u)
+        w = hcat(h, u)
+        return [
+            g[k, t] * sum(K[k, d + 1] * w[k, 2 + t - d] for d in 0:min(D - 1, t + 1)) +
+                a[k, t] for k in 1:S, t in 1:T
+        ]
+    end
+    K = rand(rng, S, D)
+    for (k, Kk) in ((K[1, :], repeat(K[1, :]', S)), (PerStratum(K), K))
+        conv = Convolution(k)
+        f(θ) = sum(abs2, conv(reshape(θ, S, T); gain = g, add = a, history = h))
+        @test ForwardDiff.gradient(f, vec(x)) ≈
+            ForwardDiff.gradient(θ -> sum(abs2, naive(Kk, reshape(θ, S, T))), vec(x))
+        y = conv(Dual.(x, 1.0); gain = g, add = a, history = h, start = 2, stop = 8)
+        @test ForwardDiff.value.(y) ≈
+            conv(x; gain = g, add = a, history = h, start = 2, stop = 8)
+    end
 end
 
 @testitem "Convolution: time-varying kernel indexed by output" setup = [Reference] begin

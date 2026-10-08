@@ -112,9 +112,77 @@ function _run_forward(c::Convolution, x, gain, add, history, start, stop)
     return out, (; gain = _tape(gain), add, start, stop, X, Y, m)
 end
 function _primal(c::Convolution, x, gain, add, history, start, stop)
-    Y = first(_conv(c, x, gain, add, history, start, stop))
+    kernel = c.kernel
+    Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
+    path = _conv_path(Tp, kernel, x)
+    return _convolve_public(path, Tp, kernel, x, gain, add, history, m, S, start, stop)
+end
+
+# How a call without a rule convolves, chosen by dispatch on the buffer
+# eltype, the kernel and the input. `_Buffered()` copies the input into a
+# time-first buffer, convolves there and copies the lag sums out: the
+# per-lag `axpy` body vectorises for IEEE floats and suits device arrays.
+# `_Gathered()` reads the input and history where they are and writes each
+# output once, in the public layout: for numbers that do not vectorise
+# (dual numbers, tracked reals, `BigFloat`) on CPU arrays, where each copy
+# of a wide number costs more than the arithmetic it saves.
+struct _Buffered end
+struct _Gathered end
+const _FixedKernel = Union{AbstractVector, PerStratum}
+_conv_path(::Type{Tp}, kernel, x) where {Tp} = _Buffered()
+function _conv_path(::Type{Tp}, kernel::_FixedKernel, x::_CPUArray) where {Tp}
+    return _gathers(Tp) ? _Gathered() : _Buffered()
+end
+_gathers(::Type) = false
+_gathers(::Type{<:Real}) = true
+_gathers(::Type{<:_IEEEFloat}) = false
+
+function _convolve_public(
+        ::_Buffered, ::Type{Tp}, kernel, x, gain, add, history, m, S, start, stop
+    ) where {Tp}
+    Y, _ = _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
     return _finish(Y, x, gain, add, start)
 end
+function _convolve_public(
+        ::_Gathered, ::Type{Tp}, kernel, x, gain, add, history, m, S, start, stop
+    ) where {Tp}
+    T = stop - start + 1
+    out = x isa AbstractVector ? similar(x, Tp, T) : similar(x, Tp, S, T)
+    cur = _current()
+    ex = cur.ex isa Serial ? Serial() : cur
+    _each!(
+        _gather_body!, ex, out, S, T * _nlags(kernel),
+        out, kernel, x, history, gain, add, m, start
+    )
+    return out
+end
+
+# Stratum `k`'s outputs, each one dot of the kernel with its window: lags
+# up to `t - 1` read `x`, older ones the history, and lags before the
+# history read zeros. The call's checks fix every shape, so the loops read
+# without bounds checks.
+function _gather_body!(k, out, kernel, x, history, gain, add, m, start)
+    L = _nlags(kernel)
+    for j in 1:size(out, ndims(out))
+        t = start + j - 1
+        acc = zero(eltype(out))
+        @inbounds for d in 0:(min(L, t) - 1)
+            acc += _lagweight(kernel, k, d, t) * _at(x, k, t - d)
+        end
+        acc = _add_history(acc, kernel, history, k, t, L, m)
+        @inbounds _set_at!(out, _at(gain, k, t) * acc + _at(add, k, t), k, j)
+    end
+    return nothing
+end
+_add_history(acc, kernel, ::Nothing, k, t, L, m) = acc
+function _add_history(acc, kernel, history, k, t, L, m)
+    @inbounds for d in t:(min(L, m + t) - 1)
+        acc += _lagweight(kernel, k, d, t) * _at(history, k, m + t - d)
+    end
+    return acc
+end
+Base.@propagate_inbounds _set_at!(y::AbstractVector, v, k, j) = (y[j] = v; nothing)
+Base.@propagate_inbounds _set_at!(y::AbstractMatrix, v, k, j) = (y[k, j] = v; nothing)
 
 # Checks the call, then convolves into a time-first buffer; returns the
 # output buffer of lag sums, the input buffer (history then `x`), the
