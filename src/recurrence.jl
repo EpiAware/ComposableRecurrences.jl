@@ -641,14 +641,15 @@ end
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
-# only scalar float parameters outside functions, rebuilt with dual numbers
-# by `constructorof`), or `:none` when it cannot, which includes a
+# only scalar float parameters outside functions and no parameter read from
+# the outputs, rebuilt with dual numbers by `constructorof`), or `:none`
+# when it cannot, which includes a
 # `Derived` parameter whose map holds float fields of its own. Decided from
 # the type; whether the rebuild works is checked by value at construction.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _scalar_params(m) && return :local
+    ispointwise(m) && _scalar_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -973,9 +974,11 @@ function _run(
         ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
         T, ::Val{record}
     ) where {Tp, record}
-    (; coupling, modifiers) = r
+    coupling = r.coupling
     kernel = _oldest_first(r.kernel)
     H = _load_history!(_zeros(h, Tp, D + T, S), h, D)
+    # Parameters that read the outputs are bound to this call's buffer.
+    modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
     v = _zeros(h, Tp, S)

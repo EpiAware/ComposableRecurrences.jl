@@ -82,7 +82,8 @@ function Protected(σ; pool0 = 0)
 end
 
 const _Removing = Depletion{
-    <:Any, <:Any, <:Any, <:Any, <:Union{Real, PerStratum, TimeVarying},
+    <:Any, <:Any, <:Any, <:Any,
+    <:Union{Real, PerStratum, TimeVarying, Derived, Recent, _BoundRecent},
     Nothing,
 }
 const _Protecting = Depletion{

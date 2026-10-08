@@ -78,7 +78,7 @@ Derived(f, args...) = Derived(f, args)
 param(x::Derived, k, t) = x.f(map(a -> param(a, k, t), x.args)...)
 
 function add_param!(x̄, x::Derived, v, k, t)
-    ā = cotangent(x̄, :args)
+    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
     ā === nothing && return nothing
     ∂ = _forward_derivative(x.f, map(a -> param(a, k, t), x.args))
     foreach((b, a, d) -> add_param!(b, a, v * d, k, t), ā, x.args, ∂)

@@ -23,9 +23,11 @@ end
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
     (; r, kernel, gain, add, h, s0, τ0, L, D, S, T, H, P, X, rec, init) = c
-    (; coupling, modifiers) = r
+    coupling = r.coupling
     Tp = eltype(H)
     H̄ = _zeros(H, Tp, D + T, S)
+    # Parameters that read the outputs send their cotangents into `H̄`.
+    modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
     _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
