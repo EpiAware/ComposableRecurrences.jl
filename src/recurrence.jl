@@ -891,13 +891,14 @@ function _init_state(::Type{Tp}, m, h, S) where {Tp}
 end
 
 # Strata run on their own when the coupling is pointwise, the kernel does
-# not mix strata and every modifier is pointwise: no step reads another
-# stratum.
+# not mix strata, every modifier is pointwise and no parameter reads other
+# strata's outputs: no step reads another stratum.
 _independent(coupling, kernel, modifiers) = false
 function _independent(
         ::_PointwiseCoupling, kernel, modifiers::Tuple
     )
-    return !(kernel isa _PairwiseKernel) && _all_pointwise(modifiers)
+    return !(kernel isa _PairwiseKernel) && _all_pointwise(modifiers) &&
+        !_reads_across(modifiers)
 end
 
 # Stratum `k`'s value at step `t` before the modifiers, recording its kernel

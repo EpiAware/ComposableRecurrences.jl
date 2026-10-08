@@ -225,3 +225,81 @@ end
     @test @inferred(CR._bind(mods, H, H, 1)) isa Tuple
     @test_throws "per group" CR.Allocate([[1], [2]], Recent(2))
 end
+
+@testitem "Recent: a coupling against a naive loop" begin
+    using ComposableRecurrences, LinearAlgebra, Random, SparseArrays
+    const CR = ComposableRecurrences
+    rng = Xoshiro(31)
+    S, L, T, W = 3, 3, 12, 5
+    g = rand(rng, L) ./ 2
+    h = rand(rng, S, W)
+    R = 1.0 .+ rand(rng, S, T)
+    w = rand(rng, W)
+    κ = 0.04
+    naive = function (C)
+        y = hcat(h, zeros(S, T))
+        for t in 1:T, k in 1:S
+            i = W + t
+            p = sum(g[l] * y[k, i - l] for l in 1:L)
+            u = sum(C[k, j] * w[l] * y[j, i - l] for j in 1:S, l in 1:W)
+            y[k, i] = R[k, t] * p * exp(-κ * u)
+        end
+        return y[:, (W + 1):end]
+    end
+    for C in (rand(rng, S, S), ones(S, S), sparse([1.0 0.0 0.5; 0.0 1.0 0.0; 0.2 0.0 1.0]))
+        r = Recurrence(
+            g; modifiers = (CR.Transform(*, Derived(exp, -κ * Recent(w; coupling = C))),)
+        )
+        @test r(R; history = h) ≈ naive(C)
+        # Threaded, the strata no longer run on their own.
+        @test CR._reads_across(r.modifiers)
+        @test !CR._independent(I, g, r.modifiers)
+        # Split into one task per stratum, so a stratum run on its own
+        # would read the others' outputs before they are written.
+        y = Base.ScopedValues.with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = S)) do
+            r(R; history = h)
+        end
+        @test y ≈ naive(C)
+    end
+    @test !CR._reads_across((CR.Transform(*, Derived(exp, Recent(3))),))
+    # The identity coupling reads each stratum's own outputs.
+    rI = Recurrence(g; modifiers = (CR.Transform(*, Derived(exp, -κ * Recent(w; coupling = Matrix(1.0I, S, S)))),))
+    r0 = Recurrence(g; modifiers = (CR.Transform(*, Derived(exp, -κ * Recent(w))),))
+    @test rI(R; history = h) ≈ r0(R; history = h)
+end
+
+@testitem "Recent: coupling errors name the value" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    @test_throws "S × S matrix" Recent(3; coupling = 2.0)
+    @test Recent(3, ones(2, 2)).w == Recent(3; coupling = ones(2, 2)).w
+    # Errors describe a Recent by its sizes, not its contents.
+    @test_throws "Recent(2 weights; coupling 40 × 40)" CR.Depletion(
+        100.0; pool0 = Recent(2; coupling = ones(40, 40))
+    )
+    r = Recurrence(
+        [0.5]; modifiers = (CR.Add(Recent(2; coupling = ones(3, 3))),)
+    )
+    @test_throws "expected 2 × 2" r(ones(2, 4); history = ones(2, 2))
+end
+
+@testitem "Recent: reverse pass through a coupling" setup = [AdjointCheck] begin
+    using ComposableRecurrences, LinearAlgebra, Random, SparseArrays
+    rng = Xoshiro(32)
+    S, L, T, W = 3, 3, 9, 4
+    g = rand(rng, L) ./ 2
+    h = rand(rng, S, W)
+    R = 1.0 .+ rand(rng, S, T)
+    w = rand(rng, W)
+    for C in (rand(rng, S, S), sparse([1.0 0.0 0.5; 0.0 1.0 0.0; 0.2 0.0 1.0]))
+        mods = (
+            (CR.Transform(*, Derived(exp, -0.05 * Recent(w; coupling = C))),),
+            (CR.Depletion(PerStratum([50.0, 80.0, 60.0]); removals = 0.1 * Recent(W; coupling = C)),),
+        )
+        for ms in mods
+            r = Recurrence(g; modifiers = ms)
+            @test pullback_matches(r, recargs(R, nothing, h)...)
+            @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
+        end
+    end
+end

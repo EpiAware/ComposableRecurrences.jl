@@ -403,6 +403,16 @@ function _recent_removals(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Each stratum responds to the recent incidence it sees through a contact
+# matrix that is itself a parameter.
+function _recent_coupled(w, θ)
+    C, logh, logR = _unpack(θ, (S, S), (S, 6), (S, T))
+    β = Derived(exp, -0.02 * ComposableRecurrences.Recent(6; coupling = C))
+    r = Recurrence(G0; modifiers = (ComposableRecurrences.Transform(*, β),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
@@ -531,6 +541,10 @@ const _SCENARIOS = [
         () -> _flat([0.1], fill(log(5.0), S, 7), LOGR),
     ),
     (
+        "Recurrence feedback from recent outputs across strata", _recent_coupled,
+        () -> _flat(K0, fill(log(5.0), S, 6), LOGR),
+    ),
+    (
         "Convolution per-stratum kernel with history", _conv_per_stratum,
         () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
     ),
@@ -581,6 +595,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
     "Recurrence feedback from recent outputs" => (:Recent,),
     "Recurrence removals from recent outputs" => (:Recent,),
+    # The coupling on `Recent` came after `Recent`.
+    "Recurrence feedback from recent outputs across strata" => (:Recent, :_reads_across),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
