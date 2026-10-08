@@ -110,6 +110,13 @@ end
 end
 
 @testitem "Convolution FFT: refused without FFTW" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # The stubs refuse what the transforms do not take.
+    Y, X = zeros(BigFloat, 3, 1), zeros(BigFloat, 5, 1)
+    @test_throws ArgumentError CR._fft_convolve!(Y, [1.0], X, 2, 1)
+    @test_throws ArgumentError CR._fft_convolve_back!(X, nothing, [1.0], X, Y, 2, 1)
+    @test_throws ArgumentError CR._fft_path(CR.FFTMethod(), [1.0], Float64, nothing)
     # A fresh process that loads the package but not FFTW.
     code = """
     using ComposableRecurrences
