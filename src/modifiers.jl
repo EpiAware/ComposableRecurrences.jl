@@ -339,8 +339,9 @@ A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a
 resumed call reads the same past.
 The default recurses by value through the fields of immutable structs,
 tuples and named tuples and takes the largest.
-Numbers, arrays, functions and mutable objects read nothing, ``d = 0``, so
-an object held inside an array or a mutable struct is not counted.
+Numbers, arrays, functions, mutable objects and operators (which keep
+their own buffers) read nothing, ``d = 0``, so an object held inside an
+array or a mutable struct is not counted.
 Add a method for a type that reads the buffer.
 
 # Arguments

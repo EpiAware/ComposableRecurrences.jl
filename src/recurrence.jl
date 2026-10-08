@@ -327,6 +327,10 @@ _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
 
+# An operator held inside a modifier keeps its own buffer, so it does not
+# deepen this one.
+depth(::AbstractOperator) = 0
+
 # The buffer depth: the kernel length, or deeper when a modifier, coupling
 # or kernel reads further back (see `depth`).
 function _buffer_depth(r::Recurrence, L)
