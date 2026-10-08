@@ -97,7 +97,7 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
-| [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)` | a weighted sum of past outputs |
+| [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel, and `PerStratum(TimeVarying(G))` is the same object.
 They tag one stored array and make no copies, except that kernel columns are stacked once.
