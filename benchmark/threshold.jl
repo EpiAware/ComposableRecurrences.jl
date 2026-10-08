@@ -5,6 +5,7 @@
 # the loop the executor splits runs from 10 000 to 2 million multiply-adds.
 #
 #   julia --project=benchmark --threads=N benchmark/threshold.jl [options]
+#   task -t benchmark/Taskfile.yml threshold -- [options]
 #
 # Options:
 #   --target=primal|gradient   time the loss or its Mooncake reverse

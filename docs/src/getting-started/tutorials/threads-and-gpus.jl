@@ -4,9 +4,8 @@
 #     This tutorial is a draft and is not in the docs build yet: it is not
 #     listed in `docs/docs_config.jl`, and the docs environment does not have
 #     JLArrays.jl or KernelAbstractions.jl.
-#     Before it is listed it needs speed-up results from a benchmark run on a
-#     dedicated machine (`benchmark/matrix.jl --executor=threaded`), with the
-#     hardware stated.
+#     Before it is listed it needs speed-up results from 8 to 16 threads on a
+#     dedicated machine (`benchmark/threshold.jl`), with the hardware stated.
 #
 # ## Introduction
 #
@@ -63,16 +62,19 @@ Threads.nthreads()
 
 # ## When threads pay off
 #
-# Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (100 000 by default).
+# Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (500 000 by default).
 # [`Threaded`](@ref ComposableRecurrences.Threaded) says which loops a model has, and so when mixing strata gain.
-# The timings below are indicative and depend on the machine and its load.
-# On a Threadripper with a 20-day kernel, two threads ran independent strata 1.5 to 1.9 times faster than one from `S × T` of about 10 000, and eight threads 3.6 to 7.8 times faster.
-# Below about 1 000 strata-times, threads were slower than the serial loop.
+# The timings below depend on the machine.
+# On a quiet 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12), four threads beat one from about 500 000 multiply-adds per loop for independent strata and pairwise kernels, and from about 200 000 for a sparse coupling.
+# At two million multiply-adds, independent strata ran 1.1 to 1.2 times faster and pairwise kernels 1.4 to 1.6 times faster.
+# At 10 000 multiply-adds, threads were 1.6 to 5.5 times slower than the serial loop.
+# A convolution gained at most 1.2 times, and lost again from one million multiply-adds.
+# Under Mooncake reverse mode only the rule's forward pass is threaded, so gradients gained less, and a convolution's gradient not at all.
 #
 # Set `min_work` to move the break-even point.
 # This model's work is `S × T × L`, two million multiply-adds, so it still splits with a higher threshold:
 
-with(EXECUTOR => Threaded(; min_work = 500_000)) do
+with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
     r(R; history = seed)
 end == y_serial
 

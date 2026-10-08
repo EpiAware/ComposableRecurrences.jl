@@ -122,6 +122,9 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
+`work` counts multiply-adds; the default `min_work` of 500 000 is where
+four threads began to beat one on the recurrence loops that
+`benchmark/threshold.jl` times.
 Independent strata are one loop per call, but strata that mix through a
 coupling, a pairwise kernel or a modifier with a vector step are one loop
 per step, so such models gain only with many strata.
@@ -164,7 +167,7 @@ struct Threaded <: Executor
         return new(min_work, ntasks)
     end
 end
-Threaded(; min_work = 100_000, ntasks = 0) = Threaded(min_work, ntasks)
+Threaded(; min_work = 500_000, ntasks = 0) = Threaded(min_work, ntasks)
 
 @inline function each!(
         body::F, ex::Threaded, n, work, args::Vararg{Any, N}
@@ -224,7 +227,7 @@ end
 
 # output
 
-ComposableRecurrences.Threaded(100000, 0)
+ComposableRecurrences.Threaded(500000, 0)
 ```
 """
 const EXECUTOR = ScopedValue{Executor}(Serial())
