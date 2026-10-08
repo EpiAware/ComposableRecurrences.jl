@@ -127,6 +127,9 @@ coupling, a pairwise kernel or a modifier with a vector step are one loop
 per step, so such models gain only with many strata.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
+A reverse pass sums some parameter cotangents per chunk, so those agree
+with [`Serial`](@ref) up to rounding; [Executors](@ref executors) says
+which.
 Errors inside a split loop arrive wrapped in a `CompositeException`.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Device`](@ref) there.
@@ -371,3 +374,98 @@ struct _Single{F}
     body::F
 end
 @inline (s::_Single)(k, args::Vararg{Any, N}) where {N} = s.body(k:k, args...)
+
+# A loop whose indices also add into shared cotangents: `acc` holds those
+# cotangents, a tuple of mirrors. `_accumulators` gives `(acc, copies)`
+# with a slot in `copies` for each block after the first that the loop runs
+# in. `_reduce_blocks!` calls `body(ks, acc, args...)` on the first block
+# and `body(ks, copies[b - 1], args...)` on block `b`, where the copy is a
+# zeroed `acc` that block `b` allocates on its own task the first time, so
+# copies of small cotangents written by different tasks do not share cache
+# lines. `_reduce!` adds the copies into `acc` in block order afterwards.
+# Serial runs are one block on `acc`, so they add in the order of a loop
+# written by hand; split runs agree with them up to rounding. A `Device` or
+# another executor runs the loop as one block on the calling task.
+_accumulators(::Serial, x, n, work, acc) = (acc, ())
+function _accumulators(c::_Current, x, n, work, acc)
+    m = _nblocks(c.ex, n, work)
+    P = Base.promote_op(_private, typeof(acc))
+    return acc, Vector{Union{Nothing, P}}(nothing, m - 1)
+end
+_nblocks(ex::Threaded, n, work) = _splits(ex, n, work) ? _nchunks(ex, n) : 1
+_nblocks(ex, n, work) = 1
+
+@inline function _reduce_blocks!(
+        body::F, accs, n, args::Vararg{Any, N}
+    ) where {F, N}
+    acc, copies = accs
+    if isempty(copies)
+        n == 0 || @inline body(1:n, acc, args...)
+    else
+        _spawn_blocks(body, acc, copies, n, args...)
+    end
+    return nothing
+end
+
+# Incremented by every loop that `_reduce_blocks!` splits, so tests can
+# prove a reverse pass ran on more than one task.
+const _SPLIT_BLOCKS = Threads.Atomic{Int}(0)
+
+@noinline function _spawn_blocks(body::F, acc, copies, n, args...) where {F}
+    Threads.atomic_add!(_SPLIT_BLOCKS, 1)
+    m = length(copies) + 1
+    @sync for b in 1:m
+        ks = ((b - 1) * n ÷ m + 1):(b * n ÷ m)
+        if b == 1
+            Threads.@spawn body(ks, acc, args...)
+        else
+            Threads.@spawn _copy_block!(body, ks, acc, copies, b - 1, args...)
+        end
+    end
+    return nothing
+end
+function _copy_block!(body::F, ks, acc, copies, i, args...) where {F}
+    a = copies[i]
+    if a === nothing
+        a = _private(acc)
+        copies[i] = a
+    end
+    body(ks, a, args...)
+    return nothing
+end
+
+function _reduce!(accs)
+    acc, copies = accs
+    for c in copies
+        c === nothing || _add_into!(acc, c)
+    end
+    return nothing
+end
+
+# A zeroed copy of a mirror, and the sum of two mirrors into the first.
+# Mirrors that every index writes only at its own slots are `_Owned` and
+# shared by every block.
+struct _Owned{X}
+    x::X
+end
+_private(::Nothing) = nothing
+_private(x::Base.RefValue) = Ref(zero(x[]))
+_private(x::AbstractArray) = fill!(similar(x), zero(eltype(x)))
+_private(x::Union{Tuple, NamedTuple}) = map(_private, x)
+_private(x::_Owned) = x
+function _private(x)
+    throw(
+        ArgumentError(
+            "a reverse pass split across tasks cannot copy a cotangent of " *
+                "type $(typeof(x)); use the Serial() executor"
+        )
+    )
+end
+_add_into!(::Nothing, ::Nothing) = nothing
+_add_into!(x::Base.RefValue, y::Base.RefValue) = (x[] += y[]; nothing)
+_add_into!(x::AbstractArray, y::AbstractArray) = (x .+= y; nothing)
+function _add_into!(x::Union{Tuple, NamedTuple}, y::Union{Tuple, NamedTuple})
+    foreach(_add_into!, x, y)
+    return nothing
+end
+_add_into!(::_Owned, ::_Owned) = nothing

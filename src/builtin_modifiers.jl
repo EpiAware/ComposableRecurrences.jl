@@ -549,6 +549,7 @@ struct Add{B}
 end
 
 ispointwise(::Add) = true
+_stateless(::Add) = true
 forward(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
 pullback!(grads, ::Add, ::Init, s, history) = nothing
 
@@ -736,6 +737,7 @@ struct Clamp{L, H}
 end
 
 ispointwise(::Clamp) = true
+_stateless(::Clamp) = true
 forward(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
 pullback!(grads, ::Clamp, ::Init, s, history) = nothing
 

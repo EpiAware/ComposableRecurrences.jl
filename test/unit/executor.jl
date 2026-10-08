@@ -110,6 +110,51 @@ end
     end
 end
 
+@testitem "Block accumulators: one per chunk, summed afterwards" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # Each index adds its own value into a shared scalar and vector and
+    # writes its own slot of an owned vector.
+    function body!(ks, acc, y)
+        for k in ks
+            acc.r[] += k
+            acc.v .+= k
+            acc.o.x[k] = k
+            y[k] = 2k
+        end
+        return nothing
+    end
+    n = 10
+    for ex in (CR.Serial(), CR.Threaded(; min_work = 0, ntasks = 3))
+        acc = (; r = Ref(0.0), v = zeros(2), o = CR._Owned(zeros(n)), z = nothing)
+        c = ex isa CR.Serial ? ex : CR._Current(ex)
+        accs = CR._accumulators(c, nothing, n, n, acc)
+        @test length(accs[2]) == (ex isa CR.Serial ? 0 : 2)
+        @test first(accs) === acc
+        splits = CR._SPLIT_BLOCKS[]
+        y = zeros(n)
+        CR._reduce_blocks!(body!, accs, n, y)
+        CR._reduce!(accs)
+        @test CR._SPLIT_BLOCKS[] - splits == (ex isa CR.Serial ? 0 : 1)
+        @test acc.r[] == sum(1:n)
+        @test acc.v == fill(sum(1:n), 2)
+        @test acc.o.x == 1:n
+        @test y == 2 .* (1:n)
+    end
+    # A view's copy is an array of its own.
+    v = view(zeros(4), 2:3)
+    acc, copies = CR._accumulators(
+        CR._Current(CR.Threaded(; min_work = 0, ntasks = 2)), nothing, 2, 2, (; v)
+    )
+    CR._reduce_blocks!((ks, a) -> (a.v[ks] .+= 1.0; nothing), (acc, copies), 2)
+    @test copies[1].v isa Vector
+    CR._reduce!((acc, copies))
+    @test parent(v) == [0.0, 1.0, 1.0, 0.0]
+    # A loop too small to split runs as one block on the shared mirrors.
+    small = CR._accumulators(CR._Current(CR.Threaded()), nothing, 4, 4, (; r = Ref(0.0)))
+    @test isempty(small[2])
+end
+
 @testitem "Threaded: options are checked when it is built" begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
@@ -194,7 +239,7 @@ end
                 CR.forward(r, CR.Run(), R; history = seed)
             end
             @test yt == yr == y
-            @test cachet.P == cache.P && cachet.X == cache.X
+            @test cachet.pr == cache.pr
             @test map(x -> (x.V, x.S), cachet.rec) == map(x -> (x.V, x.S), cache.rec)
             @test cachet.state.states == cache.state.states
         end

@@ -262,6 +262,63 @@ end
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
 end
 
+@testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    rng = Xoshiro(16)
+    S, L, T = 5, 3, 9
+    g = rand(rng, L) ./ 2
+    K = rand(rng, S, S) ./ 4
+    h = 1 .+ rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    ϵ = randn(rng, S, T)
+    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Add(0.2))
+    ops = (
+        Recurrence(g; modifiers = mods),
+        Recurrence(g; coupling = 0.8I, modifiers = (CR.Clamp(0.0, 4.0),)),
+        Recurrence(PerStratum(rand(rng, S, L)); coupling = Diagonal(rand(rng, S))),
+        Recurrence(TimeVarying(rand(rng, L, T)); modifiers = (PoolDepletion(fill(40.0, S)),)),
+        Recurrence(g; coupling = K, modifiers = mods),
+        Recurrence(Pairwise(rand(rng, S, S, L) ./ S); modifiers = mods),
+        Recurrence(g; modifiers = (CR.Allocate([1:2, 3:5], 6.0), CR.Add(0.1))),
+    )
+    for ex in (CR.Threaded(; min_work = 0, ntasks = 2), CR.Threaded(; min_work = 0))
+        with(CR.EXECUTOR => ex) do
+            for r in ops
+                @test pullback_matches(r, recargs(R, ϵ, h)...)
+                @test pullback_matches(r, recargs(R[1, :], nothing, h)...)
+            end
+        end
+    end
+end
+
+@testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    S, L, T = 3, 2, 5
+    h = ones(S, L)
+    R = fill(1.2, S, T)
+    mods = (CR.Add(0.1), CR.Depletion(50.0), CR.Clamp(0.0, 9.0))
+    for C in (I, rand(S, S))
+        r = Recurrence([0.4, 0.3]; coupling = C, modifiers = mods)
+        _, c = CR._run_forward(r, recargs(R, nothing, h)...)
+        @test size(c.pr.P) == (S, T)
+        # A pointwise coupling's pressures follow from the convolutions.
+        if C === I
+            @test c.pr.X === nothing
+        else
+            @test size(c.pr.X) == (S, T)
+        end
+        # A modifier whose state never changes keeps the state it started
+        # from rather than a record per step.
+        @test c.rec[1].S == zeros(S)
+        @test size(c.rec[2].S) == (S, T)
+        @test c.rec[3].S == zeros(S)
+    end
+    # A resumed stateless modifier reads the state it was given.
+    r = Recurrence([0.4, 0.3]; modifiers = (CR.Add(0.1),))
+    @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
+end
+
 @testitem "Adjoint: Depletion with a population that varies over time" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(8)
@@ -739,7 +796,7 @@ end
     r = Recurrence(rand(rng, L); coupling = rand(rng, S, S), modifiers = (CR.Depletion(40.0),))
     R, h = 0.5 .+ rand(rng, S, T), 1 .+ rand(rng, S, L)
     y, c = CR._run_forward(r, R, nothing, Wrapped(h), nothing, 1, nothing)
-    @test c.H isa Wrapped && c.P isa Wrapped && c.X isa Wrapped
+    @test c.H isa Wrapped && c.pr.P isa Wrapped && c.pr.X isa Wrapped
     @test only(c.rec).V isa Wrapped
     yref, cref = CR._run_forward(r, R, nothing, h, nothing, 1, nothing)
     @test unwrap(y) ≈ yref

@@ -396,7 +396,13 @@ function pullback!(grads, c::Convolution, ::Run, cache)
         _scale_back!(Ȳ, ḡ, ā, grads.y, Y, gain, start)
     end
     X̄ = zero(X)
-    _convolve_back!(X̄, cotangent(grads.piece, :kernel), c.kernel, X, Ȳ, m, start)
+    c̄ = cotangent(grads.piece, :kernel)
+    cur = _current()
+    if cur.ex isa Serial
+        _convolve_back!(Serial(), X̄, c̄, c.kernel, X, Ȳ, m, start)
+    else
+        _convolve_back!(cur, X̄, c̄, c.kernel, X, Ȳ, m, start)
+    end
     _add_rows!(x̄, X̄, m, stop)
     _add_rows!(h̄, X̄, 0, m)
     return nothing
@@ -428,6 +434,20 @@ function _add_rows!(x̄::AbstractMatrix, X̄, o, n)
     return nothing
 end
 
+# The strata run in blocks of the executor `ex`; each block adds the kernel
+# cotangent into its own accumulator.
+function _convolve_back!(ex, X̄, c̄, c, X, Ȳ, m, start)
+    S = size(Ȳ, 2)
+    accs = _accumulators(ex, X̄, S, length(Ȳ) * _nlags(c), (; c̄))
+    _reduce_blocks!(_convolve_back_body!, accs, S, X̄, c, X, Ȳ, m, start)
+    _reduce!(accs)
+    return nothing
+end
+function _convolve_back_body!(ks, acc, X̄, c, X, Ȳ, m, start)
+    _strata_back!(ks, X̄, acc.c̄, c, X, Ȳ, m, start)
+    return nothing
+end
+
 # One fused pass per lag: the kernel cotangent's dot product and the input
 # cotangent's update together, the reverse of `_convolve_series!`.
 function _convolve_series_back!(X̄k, c̄, c, Xk, ȳ, m, start)
@@ -448,8 +468,8 @@ function _convolve_series_back!(X̄k, c̄, c, Xk, ȳ, m, start)
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::AbstractVector, X, Ȳ, m, start)
-    for k in axes(Ȳ, 2)
+function _strata_back!(ks, X̄, c̄, c::AbstractVector, X, Ȳ, m, start)
+    for k in ks
         _convolve_series_back!(
             view(X̄, :, k), c̄, c, view(X, :, k), view(Ȳ, :, k), m, start
         )
@@ -457,9 +477,9 @@ function _convolve_back!(X̄, c̄, c::AbstractVector, X, Ȳ, m, start)
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::PerStratum, X, Ȳ, m, start)
+function _strata_back!(ks, X̄, c̄, c::PerStratum, X, Ȳ, m, start)
     C̄ = cotangent(c̄, :x)
-    for k in axes(Ȳ, 2)
+    for k in ks
         _convolve_series_back!(
             view(X̄, :, k), C̄ === nothing ? nothing : view(C̄, k, :),
             view(c.x, k, :), view(X, :, k), view(Ȳ, :, k), m, start
@@ -471,8 +491,8 @@ end
 # A column kernel's cotangent is added through the column mirror
 # `_wcolumn(c̄, c, k, τ)`, `nothing` when the kernel is constant. The
 # mirror, the inputs and their cotangent are distinct arrays (`ivdep`).
-function _convolve_back!(X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
-    for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
+function _strata_back!(ks, X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
+    for k in ks, j in axes(Ȳ, 1)
         t = start + j - 1
         w = _wcolumn(c, k, t)
         w̄ = _wcolumn(c̄, c, k, t)
@@ -486,10 +506,10 @@ function _convolve_back!(X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
+function _strata_back!(ks, X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
-    for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
+    for k in ks, σ in max(1, start - D + 1):stop
         w = _wcolumn(c, k, σ)
         w̄ = _wcolumn(c̄, c, k, σ)
         o = σ - start + 1
@@ -507,9 +527,9 @@ end
 
 # A per-stratum kernel reads and adds each weight through `_weight` and
 # `_add_weight!`.
-function _convolve_back!(X̄, c̄, c::_TVPerStratum{Secondary}, X, Ȳ, m, start)
+function _strata_back!(ks, X̄, c̄, c::_TVPerStratum{Secondary}, X, Ȳ, m, start)
     D = _nlags(c)
-    for k in axes(Ȳ, 2), j in axes(Ȳ, 1)
+    for k in ks, j in axes(Ȳ, 1)
         t = start + j - 1
         a = Ȳ[j, k]
         for d in 0:(min(D, m + t) - 1)
@@ -521,10 +541,10 @@ function _convolve_back!(X̄, c̄, c::_TVPerStratum{Secondary}, X, Ȳ, m, start)
     return nothing
 end
 
-function _convolve_back!(X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
+function _strata_back!(ks, X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
-    for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
+    for k in ks, σ in max(1, start - D + 1):stop
         x = X[σ, k]
         acc = zero(eltype(X̄))
         for d in max(0, start - σ):min(D - 1, stop - σ)

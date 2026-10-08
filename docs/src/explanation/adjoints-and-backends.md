@@ -98,10 +98,14 @@ A new executor is a subtype of [`Executor`](@ref ComposableRecurrences.Executor)
 | Executor | Forward | ForwardDiff | ReverseDiff | Mooncake, Enzyme forward | Mooncake, Enzyme reverse |
 |---|---|---|---|---|---|
 | `Serial()` | all operators | yes | yes | yes | yes |
-| `Threaded()` | all operators | yes, threaded | not tested | yes, serial | rule's forward pass threaded, all else serial |
+| `Threaded()` | all operators | yes, threaded | not tested | yes, serial | rule's forward and reverse passes threaded, all else serial |
 | `Device(backend)` | convolutions; recurrences with an `I` coupling and no modifiers, `Add` or `Clamp` | not tested | not tested | not tested | not tested |
 
 Mooncake and Enzyme do not differentiate tasks, so code they trace runs serially whatever executor is set.
 A rule's forward pass is not traced, so it uses the set executor.
-Its reverse pass runs on the calling task, because it adds every stratum's terms into shared kernel and parameter cotangents.
+Its reverse pass splits strata with the executor set when it runs.
+Each chunk of strata adds the cotangents of parameters it shares with other chunks, such as a scalar modifier parameter, into its own copy.
+The copies are summed after the loop, so these cotangents agree with `Serial()` up to rounding.
+The cotangents of the inputs, the history and an `S × T` gain or add input match exactly.
+A coupling that mixes strata, a pairwise kernel and modifiers with a vector step run their reverse steps on the calling task.
 The `Device(backend)` row was checked on JLArrays only; the [`Device`](@ref ComposableRecurrences.Device) docstring lists what does not run on a device.
