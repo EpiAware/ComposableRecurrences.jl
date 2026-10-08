@@ -99,8 +99,7 @@ output of stratum ``i`` at absolute time ``t - l`` and ``p_{t,i}`` the
 value passed on to the coupling.
 A [`Convolution`](@ref) kernel is read the same way from lag 0.
 As a modifier parameter it is a length-`S` vector, ``\theta_i`` = `x[i]`.
-`PerStratum(TimeVarying(x))` is the same object as
-`TimeVarying(PerStratum(x))`.
+A coefficient per stratum and per time is `TimeVarying(PerStratum(x))`.
 
 # Examples
 ```jldoctest

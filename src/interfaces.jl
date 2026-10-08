@@ -59,10 +59,25 @@ function _nstate_ok(m, ::Step, args)
     return length(s) == n && (!ispointwise(m) || n == S)
 end
 
+# A `pullback!` method for the piece's type in a role the rule calls is
+# found by `uses_adjoint`, unless the type declares its own `uses_adjoint`.
+# A method with typed arguments is missed by the folded lookup, and the
+# rule would otherwise drop it without a word.
+_adjoint_found(piece, role) = true
+function _adjoint_found(x, role::Union{Run, Step, Pressure})
+    sig = Tuple{Any, typeof(x), typeof(role), Vararg{Any}}
+    isempty(methods(pullback!, sig)) && return true
+    default = which(uses_adjoint, Tuple{Any, Any})
+    which(uses_adjoint, Tuple{typeof(x), typeof(role)}) === default || return true
+    return uses_adjoint(x, role)
+end
+
 @interface PieceInterface Any (
     mandatory = (
         forward = "forward runs in its role" =>
             a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
+        adjoint = "uses_adjoint finds a pullback! method for the role" =>
+            a -> _adjoint_found(a.piece, a.role),
     ),
     optional = (
         pointwise = "a vector Step matches the scalar Step on each stratum" =>
@@ -72,8 +87,12 @@ end
     ),
 ) "An operator, coupling, modifier or variant with `forward` for a role.
 
-The mandatory component checks that `forward` runs and keeps to its role's
-conventions (outputs written into the leading arrays, inputs unchanged).
+The mandatory `forward` component checks that `forward` runs and keeps to
+its role's conventions (outputs written into the leading arrays, inputs
+unchanged).
+The mandatory `adjoint` component checks that a `pullback!` method for the
+type and role is found by [`ComposableRecurrences.uses_adjoint`](@ref): a
+method with typed arguments is not, and needs a `uses_adjoint` method.
 The optional `pointwise` component checks that a modifier's vector step
 equals its scalar step on every stratum,
 

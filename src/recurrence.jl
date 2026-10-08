@@ -79,6 +79,8 @@ call covers the absolute times `start:stop`:
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
+Only a kernel takes `Primary()` indexing; the constructor rejects it in
+the coupling or a modifier.
 The output is length `stop - start + 1` for a single series or `S` rows of
 it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
@@ -132,6 +134,8 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
+        _check_times(:coupling, coupling, nothing)
+        _check_times(:modifiers, modifiers, nothing)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
         )
@@ -1015,57 +1019,6 @@ function _run(
             P, X, rec, init, state = State(_public(H, (T + 1):(T + L), h), states, τ0 + T),
         ) : nothing
     return Y, H, states, cache
-end
-
-@doc raw"""
-Run `r` from a seed and return the seed followed by the run.
-
-Deprecated: `seeded(r, gain; history)` is
-`r(gain; history, start = m + 1, prepend = true)`, see [`Recurrence`](@ref).
-
-With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
-returns
-
-```math
-(h_1, \dots, h_m,\ y_{m+1}, \dots, y_{t_1}),
-```
-
-where ``y_t`` for ``t > m`` is the output of `r` started at ``t_0 = m + 1``
-from history ``h``, and ``t_1`` is the last time.
-
-# Arguments
-- `r`: the [`Recurrence`](@ref).
-- `gain`: the gain, as in a call of `r`.
-
-# Keyword Arguments
-- `history`: the seed, length `m` or `S × m`.
-- `kwargs`: passed to the call of `r`, such as `add` or `stop`.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-seed = [2.0, 3.0, 4.0]
-r = Recurrence([0.3, 0.5, 0.2])
-y = r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
-round.(y; digits = 3)
-
-# output
-
-6-element Vector{Float64}:
-  2.0
-  3.0
-  4.0
-  7.75
- 10.835
- 14.266
-```
-"""
-function seeded(r::Recurrence, gain = true; history, kwargs...)
-    Base.depwarn(
-        "seeded(r, gain; history) is deprecated, use " *
-            "r(gain; history, start = m + 1, prepend = true)", :seeded
-    )
-    return r(gain; history, start = size(history, ndims(history)) + 1, prepend = true, kwargs...)
 end
 
 @doc raw"""
