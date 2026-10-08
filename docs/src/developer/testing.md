@@ -22,7 +22,7 @@ R = fill(1.4, 60)
 )
 ```
 
-ForwardDiff runs the same code on both routes, so time a rule on a reverse-mode backend.
+Time a rule on a reverse-mode backend, as [forward mode runs the same code on both routes](@ref adjoint-backends).
 [Which rules are kept](@ref rule-policy) gives the policy and the timings behind it.
 
 ## The benchmark matrix

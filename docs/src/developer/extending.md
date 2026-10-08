@@ -33,8 +33,10 @@ The arguments mean the same in every role:
   Any other modifier implements the vector step and may read every stratum.
 
 `forward` must be generic in the element type of its arguments.
-A dual number, a `Float32` or a tracked value can arrive in `v`, `s` or a field, so do not annotate `Float64` or build `0.0`; use `zero(v)` and `oftype`.
-Under [`Threaded`](@ref ComposableRecurrences.Threaded), strata run at once, so a step writes only its own stratum's slots and the type holds no mutable state.
+A dual number, a `Float32` or a tracked value can arrive in `v`, `s` or a field.
+So do not annotate `Float64` or build `0.0`; use `zero(v)` and `oftype`.
+Under [`Threaded`](@ref ComposableRecurrences.Threaded) the steps of different strata can run at once.
+So a step writes only its own stratum's slots, and never to the type's fields.
 
 ## [The gradient mirror](@id extending-mirror)
 
@@ -49,20 +51,21 @@ Under [`Threaded`](@ref ComposableRecurrences.Threaded), strata run at once, so 
 | struct with no fields | `(;)` |
 
 The whole mirror, or any entry, is `nothing` when the backend holds it constant.
-So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent) and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skip `nothing`.
-A field that is a modifier parameter is read with [`param`](@ref ComposableRecurrences.param) and its cotangent added with [`add_param!`](@ref ComposableRecurrences.add_param!).
+So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent).
+Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
+Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).
+Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 These accept every parameter form, so the type works with one value, `PerStratum`, `TimeVarying` or [`Derived`](@ref).
 
 ## [Gradient routes](@id extending-routes)
 
 [Rules and plain AD](@ref adjoint-routing) says which route a type gives its operator.
 
-Give each float field a type parameter, as `struct Smooth{A}; a::A; end`.
-A field typed `Real`, `Any` or left untyped sends the operator to plain AD.
+Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
 
 The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
-So a closure that captures a float, a keyword-only constructor, a float field typed `Float64` or a constructor that changes its arguments sends the operator to plain AD.
+So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
 Integer fields, index ranges and integer arrays are structure, not parameters.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 
@@ -196,9 +199,11 @@ Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.
 
 ## [A depletion form](@id extending-form)
 
-A depletion form draws value `v` from pool `s` with population `N` and exponent `α`, and is passed to [`Depletion`](@ref ComposableRecurrences.Depletion).
+A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
+It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion).
 This one takes what is asked, up to the pool.
-Its pullback returns the cotangents of `v`, `s`, `N` and `α`, and [`Depletion`](@ref ComposableRecurrences.Depletion) adds those of `N` and `α` into its own mirror.
+Its pullback returns the cotangents of `v`, `s`, `N` and `α`.
+`Depletion` adds those of `N` and `α` into its own mirror.
 Its `grads.piece` is the mirror of the form's own fields.
 
 ```@example extending
@@ -218,7 +223,12 @@ Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ## [Checking a new type](@id extending-checks)
 
 First test `forward` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), with one `Arguments(; piece, role, args)` per role the type has.
-Here `args` are the arguments after the role: `(s, history)` for `Init()`, `(v, s, t)` with vectors for a modifier's `Step()`, `(q, p, t)` for `Pressure()` and scalars `(v, s, N, α)` for a depletion form.
+Here `args` are the arguments after the role:
+
+- `(s, history)` for `Init()`;
+- `(v, s, t)`, with vectors, for a modifier's `Step()`;
+- `(q, p, t)` for `Pressure()`;
+- scalars `(v, s, N, α)` for a depletion form.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length.
 
 ```@example extending
@@ -245,8 +255,8 @@ v̄, s̄ = CR.pullback!(grads, Smooth(0.5), CR.Step(), 2.0, 1.0, 1, 1)
 J' * [grads.v, grads.s] ≈ [grads.piece.a[], v̄, s̄]
 ```
 
-Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, which differentiates the forward loop instead.
-ForwardDiff runs the same code on both, so use Mooncake or Enzyme, and a loss that changes with every parameter.
+Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
+Use Mooncake or Enzyme, since [forward mode runs the same code on both](@ref adjoint-backends), and a loss that changes with every parameter.
 
 ```julia
 using DifferentiationInterface, Mooncake
@@ -258,7 +268,8 @@ gradient(loss(r), backend, [0.3]) ≈
     gradient(loss(CR.NoAdjoint ∘ r), backend, [0.3])
 ```
 
-[`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator, and [Testing and benchmarking](@ref testing) covers timing.
+[`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator.
+[Testing and benchmarking](@ref testing) covers timing.
 
 ## [Performance](@id extending-performance)
 
@@ -266,5 +277,4 @@ gradient(loss(r), backend, [0.3]) ≈
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
 - [Which rules are kept](@ref rule-policy) gives the cost of a missing `pullback!`.
-- With an `I` or `Diagonal` coupling and pointwise modifiers each stratum runs its whole series alone, which `Threaded` runs in parallel.
-  A vector step makes every step wait for all strata.
+- A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.

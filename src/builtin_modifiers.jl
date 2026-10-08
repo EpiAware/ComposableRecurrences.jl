@@ -242,9 +242,9 @@ population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
 [`ComposableRecurrences.Floor`](@ref), or a new type with that method.
-[A depletion form](@ref extending-form) writes a new form with its
-`pullback!`; without one, a form is differentiated locally with dual numbers
-in ``(v, s, N, \alpha)`` and its own float scalars.
+[A depletion form](@ref extending-form) writes a new form, and
+[Rules and plain AD](@ref adjoint-routing) gives the gradient of one without
+a `pullback!`.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
