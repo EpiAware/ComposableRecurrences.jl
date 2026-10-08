@@ -276,11 +276,9 @@ For a struct with fields ``\theta_1, \dots, \theta_n`` and a scalar loss
 and this returns ``\bar\theta_j`` for the field named `name`.
 
 A mirror holds a struct's cotangents for a
-[`ComposableRecurrences.pullback!`](@ref): an array to accumulate into for a
-float array, a `Ref` for a float scalar, a NamedTuple of field mirrors for
-a struct (`(; nzval)` for a sparse matrix, `(; diag)` for a `Diagonal`,
-`(; x)` for a wrapper such as [`TimeVarying`](@ref)), and `nothing` where
-there is no cotangent.
+[`ComposableRecurrences.pullback!`](@ref);
+[The gradient mirror](@ref extending-mirror) gives its entry for each field
+type.
 
 # Arguments
 - `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.

@@ -163,7 +163,7 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 
 To extend the package, define a new type and add a `forward` method for it.
 Add a `pullback!` method for a hand-written gradient, and the operator's rule calls it.
-See [Adding a modifier](@ref extending).
+See [Writing new types](@ref extending).
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -171,31 +171,15 @@ See [Adding a modifier](@ref extending).
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; a method overrides it | `Bool` |
+| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent), [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | read a field's entry in the gradient mirror, and add to it | the entry, or `nothing` |
+| [`param(x, k, t)`](@ref ComposableRecurrences.param), [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | read a modifier parameter at stratum `k` and time `t`, and add its cotangent | the value, or `nothing` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series | `Int` |
 | [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the element type a type's parameters promote the buffer to | a type |
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
 
-### Adding a coupling
-
-A coupling is any type with a `forward` method for `Pressure()`, which writes the mixed values into `q` from each series' kernel-weighted past `p`.
-This one sends a fixed share of every series to the first.
-
-```@example overview-coupling
-using ComposableRecurrences
-
-struct ToFirst
-    share::Float64
-end
-function ComposableRecurrences.forward(C::ToFirst, ::ComposableRecurrences.Pressure, q, p, t)
-    q .= (1 - C.share) .* p
-    q[1] += C.share * sum(p)
-    return nothing
-end
-
-Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop = 4)
-```
+A coupling is any type with a `forward` method for `Pressure()`; [A coupling](@ref extending-coupling) writes one with its `pullback!`.
 
 ## [Checking gradients](@id overview-gradients)
 
