@@ -105,11 +105,68 @@ end
     h = rand(rng, S, D + 1)
     R = 0.5 .+ rand(rng, S, T)
     gt = 0.3 .* rand(rng, L, T)
-    for kernel in (g, PerStratum(rand(rng, S, L)), TimeVarying(gt))
-        for C in (I, K), m in (Deep(D), DeepVector(D))
+    ragged = [0.3 .* rand(rng, 1 + mod(t, L)) for t in 1:T]
+    kernels = (
+        g, PerStratum(rand(rng, S, L)), Pairwise(0.2 .* rand(rng, S, S, L)),
+        TimeVarying(gt), TimeVarying(PerStratum(0.3 .* rand(rng, S, L, T))),
+        TimeVarying(Pairwise(0.1 .* rand(rng, S, S, L, T))), TimeVarying(ragged),
+        TimeVarying(gt, CR.Primary()), TimeVarying(ragged, CR.Primary()),
+    )
+    for kernel in kernels, C in (I, Diagonal(rand(rng, S)), K)
+        kernel isa Union{Pairwise, TimeVarying{<:Any, <:Pairwise}} && C !== I &&
+            continue
+        primary = kernel isa TimeVarying{CR.Primary}
+        # Histories longer than the buffer, between the kernel and the
+        # buffer, and shorter than the kernel; a Primary() kernel runs
+        # unseeded.
+        hs = primary ? (zeros(S, 0),) : (h, h[:, 1:(L + 1)], h[:, 1:1])
+        for m in (Deep(D), DeepVector(D)), hk in hs
             r = Recurrence(kernel; coupling = C, modifiers = (m,))
-            @test pullback_matches(r, recargs(R, nothing, h)...)
-            @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
+            @test pullback_matches(r, recargs(R, nothing, hk)...)
+            @test pullback_matches(CR._WithState(r), recargs(R, nothing, hk)...)
         end
     end
+end
+
+@testitem "depth: a coupling or kernel can deepen the buffer" setup = [DeepBuffer] begin
+    using ComposableRecurrences, LinearAlgebra
+    struct DeepCoupling
+        C::Matrix{Float64}
+    end
+    function CR.forward(c::DeepCoupling, ::CR.Pressure, q, p, t)
+        q .= c.C * p
+        return nothing
+    end
+    CR.depth(::DeepCoupling) = 6
+    K = [0.9 0.1; 0.2 0.8]
+    R = fill(1.1, 2, 8)
+    h = ones(2, 7)
+    y, st = CR.with_state(Recurrence([0.5, 0.3]; coupling = DeepCoupling(K)), R; history = h)
+    @test size(st.history) == (2, 6)
+    @test y ≈ Recurrence([0.5, 0.3]; coupling = K)(R; history = h)
+end
+
+@testitem "depth: the walk skips mutable and undefined fields" setup = [DeepBuffer] begin
+    mutable struct Node
+        next::Any
+        w::Deep
+        Node() = new()
+    end
+    n = Node()
+    @test CR.depth(n) == 0
+    n.next = n
+    n.w = Deep(4)
+    @test CR.depth(n) == 0
+    struct Holder{T}
+        x::T
+    end
+    @test CR.depth(Holder(Deep(5))) == 5
+    @test CR.depth(Holder{Any}(Deep(5))) == 5
+end
+
+@testitem "depth: a deep call infers" setup = [DeepBuffer] begin
+    using ComposableRecurrences
+    r = Recurrence([0.5, 0.3]; modifiers = (Deep(6),))
+    @test @inferred(r(fill(1.1, 2, 8); history = ones(2, 7))) isa Matrix{Float64}
+    @test @inferred(CR._buffer_depth(r, 2)) == 6
 end
