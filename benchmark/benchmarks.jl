@@ -133,3 +133,47 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
     end
     SUITE["Evaluation"] = eval_group
 end
+
+# The fixed-kernel convolution body against the forms it replaced, at
+# `T = 200`, `L = 20`: BLAS `axpy!` per lag, a native loop per lag, and the
+# package's body. A Julia or BLAS upgrade that reorders them shows up here.
+# Each call is well under a microsecond, so a sample is 100 evaluations.
+using LinearAlgebra: axpy!
+
+function _bench_conv_per_lag!(axpy, y, c, X, m)
+    T = length(y)
+    for d in 0:(length(c) - 1)
+        j0 = max(1, d + 1 - m)
+        j0 > T && break
+        axpy(c[d + 1], view(X, (m + j0 - d):(m + T - d), 1), view(y, j0:T))
+    end
+    return y
+end
+function _bench_native_axpy!(α, x, y)
+    @inbounds @simd ivdep for i in eachindex(x, y)
+        y[i] += α * x[i]
+    end
+    return y
+end
+
+let body = BenchmarkGroup(), T = 200, L = 20
+    c = fill(1 / L, L)
+    X = ones(L + T, 1)
+    y = zeros(T)
+    body["BLAS axpy per lag"] = @benchmarkable(
+        _bench_conv_per_lag!(axpy!, $y, $c, $X, $L),
+        evals = 100, seconds = 1, gctrial = false
+    )
+    body["native axpy per lag"] = @benchmarkable(
+        _bench_conv_per_lag!(_bench_native_axpy!, $y, $c, $X, $L),
+        evals = 100, seconds = 1, gctrial = false
+    )
+    if isdefined(ComposableRecurrences, :_convolve_series!) &&
+            applicable(ComposableRecurrences._convolve_series!, y, c, X, 1, L, 1)
+        body["package"] = @benchmarkable(
+            ComposableRecurrences._convolve_series!($y, $c, $X, 1, $L, 1),
+            evals = 100, seconds = 1, gctrial = false
+        )
+    end
+    SUITE["Convolution body"] = body
+end

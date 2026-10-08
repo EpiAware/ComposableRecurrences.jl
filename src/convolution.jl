@@ -265,19 +265,35 @@ function _load_input!(X::Array, x::AbstractMatrix, m, stop)
     return X
 end
 
-# One `axpy!` per lag over each stratum's contiguous series: output row `j`
-# is time `start + j - 1`, and lag `d` adds `c[d + 1]` times buffer row
-# `m + start + j - 1 - d` for every row with a defined input. IEEE floats
-# vectorise this; other numbers (dual numbers, say) gather instead, one
-# dot of the kernel with the window per output, so each output is written
-# once and its sum stays in registers.
+# Lags in blocks of four over each stratum's contiguous series, one pass
+# over the output per block: output row `j` is time `start + j - 1`, and lag
+# `d` adds `c[d + 1]` times buffer row `o + j - d`, `o = m + start - 1`, for
+# every row with a defined input. Rows that only some lags of a block reach,
+# and the lags after the last block, take one `axpy` per lag. IEEE floats
+# vectorise this; other numbers (dual numbers, say) gather instead, one dot
+# of the kernel with the window per output, so each output is written once
+# and its sum stays in registers.
 function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
-    T = size(y, 1)
-    for d in 0:(length(c) - 1)
-        j0 = max(1, d + 2 - m - start)
-        j0 > T && break
-        r0 = m + start + j0 - 1 - d
-        _axpy!(c[d + 1], view(X, r0:(r0 + T - j0), k), view(y, j0:T))
+    T = length(y)
+    o = m + start - 1
+    nb = length(c) ÷ 4
+    for b in 0:(nb - 1)
+        d = 4b
+        j1 = max(1, d + 4 - o)
+        for q in 0:3
+            _lag_axpy!(y, c, X, k, o, d + q, min(j1 - 1, T))
+        end
+        j1 > T && return y
+        r = o - d
+        _axpy4!(
+            c[d + 1], c[d + 2], c[d + 3], c[d + 4],
+            view(X, (r + j1):(r + T), k), view(X, (r + j1 - 1):(r + T - 1), k),
+            view(X, (r + j1 - 2):(r + T - 2), k), view(X, (r + j1 - 3):(r + T - 3), k),
+            view(y, j1:T)
+        )
+    end
+    for d in (4nb):(length(c) - 1)
+        _lag_axpy!(y, c, X, k, o, d, T)
     end
     return y
 end
@@ -294,12 +310,27 @@ function _convolve_series!(y, c, X, k, m, start)
     return y
 end
 
-# `y .+= α x` as a native loop: at these lengths it is faster than a BLAS
-# call. Under plain `Mooncake` AD the extension swaps in BLAS `axpy!`, which
-# `Mooncake` differentiates with one rule.
-function _axpy!(α, x, y)
+# Lag `d`'s part of output rows up to `j1`.
+@inline function _lag_axpy!(y, c, X, k, o, d, j1)
+    j0 = max(1, d + 1 - o)
+    j0 > j1 && return y
+    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + j1 - d), k), view(y, j0:j1))
+    return y
+end
+
+# `y .+= α x` and `y .+= α₀ x₀ .+ α₁ x₁ .+ α₂ x₂ .+ α₃ x₃` as native loops:
+# at these lengths they are faster than BLAS calls. Under plain `Mooncake`
+# AD the extension swaps in BLAS `axpy!`, which `Mooncake` differentiates
+# with one rule.
+@inline function _axpy!(α, x, y)
     @inbounds @simd ivdep for i in eachindex(x, y)
         y[i] += α * x[i]
+    end
+    return y
+end
+@inline function _axpy4!(α₀, α₁, α₂, α₃, x₀, x₁, x₂, x₃, y)
+    @inbounds @simd ivdep for i in eachindex(x₀, x₁, x₂, x₃, y)
+        y[i] += α₀ * x₀[i] + α₁ * x₁[i] + α₂ * x₂[i] + α₃ * x₃[i]
     end
     return y
 end

@@ -74,6 +74,32 @@ end
     @test Convolution(long)(big(x); history = big(h)) ≈ Convolution(long)(x; history = h)
 end
 
+@testitem "Convolution: lag blocks match the gather body at every edge" begin
+    using ComposableRecurrences, Random
+    # The float body adds lags in blocks of four; each kernel length, history
+    # length and start puts the block edges on different rows.
+    rng = Xoshiro(27)
+    S, T = 2, 11
+    big = v -> BigFloat.(v)
+    f32(v) = v === nothing ? nothing : Float32.(v)
+    f32(k::PerStratum) = PerStratum(Float32.(k.x))
+    for L in 1:13, m in 0:5, start in (1, 2, 5)
+        c, C = rand(rng, L), rand(rng, S, L)
+        x, X = rand(rng, T), rand(rng, S, T)
+        h, H = rand(rng, m), rand(rng, S, m)
+        hist = m == 0 ? (nothing, nothing) : (h, H)
+        for (k, u, hu) in ((c, x, hist[1]), (c, X, hist[2]), (PerStratum(C), X, hist[2]))
+            conv = Convolution(k)
+            bh = hu === nothing ? nothing : big(hu)
+            ref = conv(big(u); history = bh, start)
+            @test conv(u; history = hu, start) ≈ ref
+            y32 = Convolution(f32(k))(f32(u); history = f32(hu), start)
+            @test eltype(y32) == Float32
+            @test y32 ≈ ref rtol = 1.0e-5
+        end
+    end
+end
+
 @testitem "Convolution: time-varying kernel indexed by output" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(24)
