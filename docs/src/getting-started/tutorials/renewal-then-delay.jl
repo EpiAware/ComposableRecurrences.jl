@@ -52,7 +52,8 @@ end
 #
 # ### A measure that scales R
 #
-# A population measure that cuts transmission by a share ``c`` from day ``t_0`` to ``t_1`` scales the gain to ``R_t (1 - c\, \mathbb{1}[t_0 \le t \le t_1])``.
+# A population measure cuts transmission by a share ``c`` from day ``t_0`` to ``t_1``.
+# It scales the gain to ``R_t (1 - c\, \mathbb{1}[t_0 \le t \le t_1])``.
 # A constant control is the same measure over the whole run.
 
 c, t0, t1 = 0.3, 20, 40
@@ -213,8 +214,11 @@ end
 #
 # ### Clinical outcomes
 #
-# Each clinical transition is a delay that happens with some probability, so it is a `Convolution` with that probability as its gain.
-# Onsets ``O_t`` follow infections, admissions follow onsets with probability ``h``, and deaths follow admissions with probability ``f``:
+# Each clinical transition is a delay that happens with some probability.
+# It is a `Convolution` with that probability as its gain.
+# Onsets ``O_t`` follow infections.
+# Admissions follow onsets with probability ``h``.
+# Deaths follow admissions with probability ``f``:
 #
 # ```math
 # A_t = h \sum_{l} d^A_l O_{t-l}, \qquad D_t = f \sum_{l} d^D_l A_{t-l}.

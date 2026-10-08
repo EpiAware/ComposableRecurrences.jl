@@ -216,7 +216,8 @@ end
 # A case isolates after its incubation period and an exponential delay, gamma with shape 3 and scale 2 in total.
 # The total is gamma because the delay and incubation scales match.
 # We bin both by day and evaluate ``F_D`` at the middle of each day.
-# `p` is the share with symptoms times the test sensitivity, and `b` is one minus the transmission after isolation.
+# `p` is the share with symptoms times the test sensitivity.
+# `b` is one minus the transmission after isolation.
 # The reference file holds these parameters and its generator is in `test/usecases/references`.
 
 ref = include(
@@ -249,8 +250,10 @@ DataFrame(
 # The delay to isolation can depend on a case's state.
 # Once a household's first case is found, later cases in it are found sooner.
 # In expectation each type gets its own thinned kernel, a [`PerStratum`](@ref) kernel by infector type.
-# Type 1 is a household's first case and type 2 a later case, and `M_house` is the mean offspring matrix.
-# The next-generation matrix scales each column of `M_house` by its type's kernel sum, and its spectral radius is the reproduction number.
+# Type 1 is a household's first case and type 2 a later case.
+# `M_house` is the mean offspring matrix.
+# The next-generation matrix scales each column of `M_house` by its type's kernel sum.
+# Its spectral radius is the reproduction number.
 
 F_fast = [0.3, 0.7, 0.9, 1.0, 1.0]
 W_house = permutedims([gi_isolated gi .* (1 .- p * b .* F_fast)])
