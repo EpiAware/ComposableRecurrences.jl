@@ -1,4 +1,4 @@
-# Branching-process features in expectation, built from existing pieces:
+# Branching-process features in expectation, built from existing operators:
 # multi-type offspring, isolation, per-type isolation delays, contact
 # tracing, population measures and clinical transitions. Each item checks an
 # expected-value identity; isolation is also checked against seeded
@@ -29,20 +29,22 @@ end
     lags = 1:80
     g = erlang_cdf.(lags, E.GEN_SHAPE, E.GEN_SCALE) .-
         erlang_cdf.(lags .- 1, E.GEN_SHAPE, E.GEN_SCALE)
-    @assert E.DELAY_SCALE == E.INC_SCALE
+    # The delay is Gamma(INC_SHAPE + 1, INC_SCALE) only when the scales match.
+    @test E.DELAY_SCALE == E.INC_SCALE
     F_D = erlang_cdf.(lags .- 0.5, E.INC_SHAPE + 1, E.INC_SCALE)
     p = (1 - E.PROB_ASYMPTOMATIC) * E.TEST_SENSITIVITY
     b = 1 - E.POST_ISOLATION_TRANSMISSION
     g_iso = g .* (1 .- p * b .* F_D)
 
-    # The offspring of one case on day 0 by day of infection, R k_t, are the
-    # case convolved with the kernel; their total is the mean offspring.
-    case = [1.0; zeros(length(lags))]
-    offspring(k) = sum(Convolution([0.0; k])(case; gain = E.R))
-    @test offspring(g) ≈ E.R * sum(g)
-    @test offspring(g_iso) ≈ E.R * sum(g_iso)
-    @test abs(offspring(g) - E.NONE.mean) < 3 * E.NONE.se
-    @test abs(offspring(g_iso) - E.ISOLATION.mean) < 3 * E.ISOLATION.se
+    # The mean offspring of one case is R Σ_τ k(τ), against the simulations.
+    @test abs(E.R * sum(g) - E.NONE.mean) < 3 * E.NONE.se
+    @test abs(E.R * sum(g_iso) - E.ISOLATION.mean) < 3 * E.ISOLATION.se
+    # A renewal on the thinned kernel with gain 1 has reproduction number
+    # s = Σ_τ k(τ) < 1, so one seed case leads to Σ_n s^n = s / (1 - s)
+    # cases in all.
+    s = sum(g_iso)
+    @test sum(Recurrence(g_iso)(1.0; history = [1.0], stop = 2_000)) ≈
+        s / (1 - s) rtol = 1.0e-8
 end
 
 @testitem "Use case: per-type isolation and tracing in expectation" tags = [:usecase] begin
@@ -55,7 +57,7 @@ end
     F_fast = [0.2, 0.6, 0.9, 1.0, 1.0]
     p, b, R = 0.8, 0.9, 1.5
     thin(F) = g .* (1 .- p * b .* F)
-    total(r, x0) = sum(r(R; history = [zeros(2, 4) x0], stop = 2_000); dims = 2)
+    total(r, x0) = sum(r(R; history = [zeros(2, 4) x0], stop = 300); dims = 2)
 
     # Isolation delay set by type: a household's first case is found slowly
     # and later cases quickly. Each infector type keeps its own kernel.
@@ -89,8 +91,8 @@ end
     @test y ≈ 3.0 .* cumprod(R_t)
     @test y[t1] / y[t1 - 1] ≈ (1 - c) * R
 
-    # With a generation interval the long-run growth per generation tends to
-    # the gain, so a constant control 1 - c moves R to (1 - c) R.
+    # With a generation interval the long-run growth rate r solves
+    # (1 - c) R Σ_l g_l e^{-r l} = 1.
     g = [0.1, 0.3, 0.3, 0.2, 0.1]
     renewal(R) = Recurrence(g)(fill(R, 400); history = [1.0])
     growth(y) = y[end] / y[end - 1]

@@ -227,7 +227,8 @@ admissions = Convolution([0.3, 0.4, 0.2, 0.1])(onsets; gain = 0.1)
 deaths = Convolution([0.1, 0.2, 0.4, 0.2, 0.1])(admissions; gain = 0.25)
 round.((sum(admissions), sum(deaths)) ./ sum(infections_seeded); digits = 3)
 
-# The shares are just below ``h = 0.1`` and ``h f = 0.025``, because the outcomes of the last infections fall after the run.
+# The shares are below ``h = 0.1`` and ``h f = 0.025``.
+# Infections are still growing when the run ends, and the outcomes of the last ones fall after it.
 
 # ## Gradients
 #
