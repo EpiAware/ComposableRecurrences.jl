@@ -124,8 +124,10 @@ end
 # per-lag `axpy` body vectorises for IEEE floats and suits device arrays.
 # `_Gathered()` reads the input and history where they are and writes each
 # output once, in the public layout: for numbers that do not vectorise
-# (dual numbers, tracked reals, `BigFloat`) on CPU arrays, where each copy
-# of a wide number costs more than the arithmetic it saves.
+# (dual numbers, `BigFloat`, tracked reals inside plain arrays) on CPU
+# arrays, where each copy of a wide number costs more than the arithmetic
+# it saves. A tracked array input is not a CPU array here and keeps the
+# buffer.
 struct _Buffered end
 struct _Gathered end
 const _FixedKernel = Union{AbstractVector, PerStratum}
@@ -146,12 +148,14 @@ end
 function _convolve_public(
         ::_Gathered, ::Type{Tp}, kernel, x, gain, add, history, m, S, start, stop
     ) where {Tp}
+    Base.require_one_based_indexing(x)
+    history === nothing || Base.require_one_based_indexing(history)
     T = stop - start + 1
     out = x isa AbstractVector ? similar(x, Tp, T) : similar(x, Tp, S, T)
     cur = _current()
     ex = cur.ex isa Serial ? Serial() : cur
     _each!(
-        _gather_body!, ex, out, S, T * _nlags(kernel),
+        _gather_body!, ex, out, S, length(out) * _nlags(kernel),
         out, kernel, x, history, gain, add, m, start
     )
     return out
@@ -159,8 +163,8 @@ end
 
 # Stratum `k`'s outputs, each one dot of the kernel with its window: lags
 # up to `t - 1` read `x`, older ones the history, and lags before the
-# history read zeros. The call's checks fix every shape, so the loops read
-# without bounds checks.
+# history read zeros. The call's checks fix every shape and the caller
+# requires one-based indices, so the loops read without bounds checks.
 function _gather_body!(k, out, kernel, x, history, gain, add, m, start)
     L = _nlags(kernel)
     for j in 1:size(out, ndims(out))
@@ -336,9 +340,10 @@ end
 # One `axpy!` per lag over each stratum's contiguous series: output row `j`
 # is time `start + j - 1`, and lag `d` adds `c[d + 1]` times buffer row
 # `m + start + j - 1 - d` for every row with a defined input. IEEE floats
-# vectorise this; other numbers (dual numbers, say) gather instead, one
-# dot of the kernel with the window per output, so each output is written
-# once and its sum stays in registers.
+# vectorise this; other numbers that reach the buffer (on device arrays,
+# a tracked array input or a time-varying kernel's caller) gather instead,
+# one dot of the kernel with the window per output, so each output is
+# written once and its sum stays in registers.
 function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     T = size(y, 1)
     for d in 0:(length(c) - 1)

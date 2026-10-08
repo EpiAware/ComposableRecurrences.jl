@@ -78,7 +78,28 @@ end
     @test conv(view(big(X), :, 1:T); gain = g, add = a, history = big(H)) ≈
         conv(X; gain = g, add = a, history = H)
     b = rand(rng, T)
-    @test Convolution(c)(big(x); gain = 2.0, add = b) ≈ Convolution(c)(x; gain = 2.0, add = b)
+    @test Convolution(c)(big(x); gain = 2.0, add = b) ≈
+        Convolution(c)(x; gain = 2.0, add = b)
+    # A history longer than the kernel, an empty one, vector gain and add on
+    # strata, a 1 × T gain on one series, and an early stop.
+    conv = Convolution(c)
+    @test conv(big(X); history = big(rand(rng, S, 6))) isa AbstractMatrix{BigFloat}
+    H6 = rand(rng, S, 6)
+    @test conv(big(X); history = big(H6)) ≈ conv(X; history = H6)
+    @test conv(big(X); history = zeros(BigFloat, S, 0)) ≈ conv(X)
+    @test conv(big(X); gain = b, add = b) ≈ conv(X; gain = b, add = b)
+    @test conv(big(x); gain = reshape(b, 1, T)) ≈ conv(x; gain = reshape(b, 1, T))
+    @test conv(big(X); stop = 5) ≈ conv(X; stop = 5)
+    # A threaded run gives the serial values.
+    threaded = Base.ScopedValues.with(
+        () -> conv(big(X); history = big(H)),
+        ComposableRecurrences.EXECUTOR => ComposableRecurrences.Threaded(;
+            min_work = 0, ntasks = 2
+        )
+    )
+    @test threaded == conv(big(X); history = big(H))
+    # Offset axes are refused rather than read out of place.
+    @test_throws ArgumentError conv(view(big(vcat(0.0, x)), Base.IdentityUnitRange(2:(T + 1))))
 end
 
 @testitem "Convolution: calls without a rule gather on CPU arrays of other numbers" begin
