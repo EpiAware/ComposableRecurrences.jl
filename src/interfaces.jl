@@ -43,8 +43,11 @@ end
 _blocks_ok(piece, role, args) = true
 function _blocks_ok(m, ::Step, args)
     first(args) isa AbstractVector || return true
-    blocks(m) isa Val || return false
-    nv, ns = _val(blocks(m))
+    return _groups_ok(blocks(m), m, args)
+end
+_groups_ok(::Nothing, m, args) = false
+function _groups_ok(::Val{B}, m, args) where {B}
+    nv, ns = B
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
     G = length(v) ÷ nv
@@ -59,7 +62,6 @@ function _blocks_ok(m, ::Step, args)
             all(j -> s[(j - 1) * G + g] ≈ s′[j], 1:ns)
     end
 end
-_val(::Val{B}) where {B} = B
 
 # A modifier's state keeps `nstate(m, S)` entries through Init and Step,
 # and a pointwise modifier keeps one per stratum.
