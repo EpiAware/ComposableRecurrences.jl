@@ -513,6 +513,16 @@ end
 # The buffer rows `rows`, back in the public layout of history `h`.
 _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
+# A CPU buffer transposes in one pass, with no intermediate copy.
+function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
+    checkbounds(H, rows, :)
+    Y = similar(H, size(H, 2), length(rows))
+    o = first(rows) - 1
+    @inbounds for j in axes(Y, 2), k in axes(Y, 1)
+        Y[k, j] = H[o + j, k]
+    end
+    return Y
+end
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
@@ -897,7 +907,10 @@ _record_pressure!(::Nothing, ::Nothing, pk, xk, t, k) = nothing
     return nothing
 end
 
-# The whole run of the independent strata `ks`, time outermost.
+# The whole run of the independent strata `ks`, time outermost. Each
+# stratum's step waits on its own last values, so interleaving the strata
+# overlaps those waits; stratum outermost measured slower even though each
+# stratum's buffer column is contiguous.
 function _series_body!(
         ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, T
     )
