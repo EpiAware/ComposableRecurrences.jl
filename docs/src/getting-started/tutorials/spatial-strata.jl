@@ -210,6 +210,52 @@ end
 
 # Isolation thins the later lags most and brings the reproduction number below one.
 #
+# The mean offspring of one case is ``R \sum_\tau g(\tau) (1 - p b F_D(\tau))``.
+# We check it against the mean of seeded [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl) `BranchingProcess` simulations with `Isolation`.
+# The generation time is gamma with shape 2 and scale 3.
+# A case isolates after its incubation period and an exponential delay, gamma with shape 3 and scale 2 in total.
+# `p` is the share with symptoms times the test sensitivity, and `b` is one minus the transmission after isolation.
+# The reference file holds these parameters and its generator is in `test/usecases/references`.
+
+ref = include(
+    joinpath(
+        pkgdir(ComposableRecurrences),
+        "test", "usecases", "references", "epibranch_isolation.jl"
+    )
+)
+erlang_cdf(x, k, θ) = x <= 0 ? 0.0 : 1 - sum(exp(-x / θ) * (x / θ)^j / factorial(j) for j in 0:(k - 1))
+lags = 1:80
+g_ref = erlang_cdf.(lags, ref.GEN_SHAPE, ref.GEN_SCALE) .- erlang_cdf.(lags .- 1, ref.GEN_SHAPE, ref.GEN_SCALE)
+F_ref = erlang_cdf.(lags .- 0.5, ref.INC_SHAPE + 1, ref.INC_SCALE)
+p_ref = (1 - ref.PROB_ASYMPTOMATIC) * ref.TEST_SENSITIVITY
+b_ref = 1 - ref.POST_ISOLATION_TRANSMISSION
+g_ref_isolated = g_ref .* (1 .- p_ref * b_ref .* F_ref)
+DataFrame(
+    "Isolation" => ["No", "Yes"],
+    "ComposableRecurrences" => round.(ref.R .* [sum(g_ref), sum(g_ref_isolated)]; digits = 3),
+    "BranchingProcess" => round.([ref.NONE.mean, ref.ISOLATION.mean]; digits = 3),
+    "Standard error" => round.([ref.NONE.se, ref.ISOLATION.se]; digits = 3),
+)
+
+# Both differ from the simulation mean by less than one standard error.
+#
+# ### Isolation delay by type
+#
+# The delay to isolation can depend on a case's state.
+# Once a household's first case is found, later cases in it are found sooner.
+# In expectation each type gets its own thinned kernel, a [`PerStratum`](@ref) kernel by infector type.
+# Type 1 is a household's first case and type 2 a later case, and `M_house` is the mean offspring matrix.
+# The next-generation matrix scales each column of `M_house` by its type's kernel sum, and its spectral radius is the reproduction number.
+
+F_fast = [0.3, 0.7, 0.9, 1.0, 1.0]
+W_house = permutedims([gi_isolated gi .* (1 .- p * b .* F_fast)])
+M_house = [0.6 0.3; 0.6 0.5]
+house = Recurrence(PerStratum(W_house); coupling = M_house)(R0; history = [10.0; 0.0;;], stop = 60)
+K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
+round.((maximum(abs, eigvals(K_house)), sum(house[:, end])); digits = 3)
+
+# The reproduction number is below one, so from 10 seed cases the outbreak dies out.
+#
 # ### Contact tracing as two types
 #
 # Traced and untraced cases are two types.
