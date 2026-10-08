@@ -76,5 +76,12 @@ The `Threads` workflow runs the tests with four threads, so `Threaded` loops run
 Run `julia --threads=4 --project=test test/runtests.jl skip_quality` to do the same locally.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-After a change, rerun it with `task test-reactant`, then commit `results.tsv` and `RESULTS.md` and update `expected.jl`.
+After a change, rerun it on Julia 1.12 from the repository root:
+
+```bash
+julia +1.12 --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
+```
+
+Then commit `results.tsv` and `RESULTS.md` and update `expected.jl`.
 The main tests check that these three agree.
