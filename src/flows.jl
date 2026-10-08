@@ -330,7 +330,15 @@ function _series_cut(H)
 end
 
 # Tuple entry `i` of `x` replaced by `v`, in the tuple's eltype.
-_set(x::Tuple, i, v) = Base.setindex(x, convert(eltype(x), v), i)
+# Built with `ntuple`, which infers where `Base.setindex` with a runtime
+# index does not.
+function _set(x::Tuple, i, v)
+    w = convert(eltype(x), v)
+    return ntuple(j -> ifelse(j == i, w, x[j]), Val(length(x)))
+end
+
+# Tuple entry `i` of `x` plus `v`.
+_add(x::Tuple, i, v) = _set(x, i, x[i] + v)
 
 # What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
@@ -342,14 +350,15 @@ end
 # `y` and the arrivals `a`.
 _spread(::Tuple{}, x, L, y, a, g, t) = y, a
 function _spread(fs::Tuple, x, L, y, a, g, t)
-    f = first(fs)
-    if f.to > 0 && !(f isa Flow{<:Amount})
-        _, gH, _ = L[f.from]
-        m = x[f.from] * (_rate(f, g, t) * gH + _share(f, g, t))
-        y = _set(y, f.to, y[f.to] + m)
-        a = _set(a, f.to, a[f.to] + m)
-    end
+    y, a = _spread_one(first(fs), x, L, y, a, g, t)
     return _spread(Base.tail(fs), x, L, y, a, g, t)
+end
+_spread_one(f::Flow{<:Amount}, x, L, y, a, g, t) = (y, a)
+function _spread_one(f::Flow, x, L, y, a, g, t)
+    f.to > 0 || return (y, a)
+    _, gH, _ = L[f.from]
+    m = x[f.from] * (_rate(f, g, t) * gH + _share(f, g, t))
+    return _add(y, f.to, m), _add(a, f.to, m)
 end
 
 # The count flows in order on the compartments `y` and arrivals `a`.
@@ -364,15 +373,24 @@ function _count(f::Flow{<:Amount}, y, a, g, t)
     y = _set(y, f.from, y[f.from] - m)
     f.to > 0 || return y, a
     p = _protects(m)
-    return _set(y, f.to, y[f.to] + p), _set(a, f.to, a[f.to] + p)
+    return _add(y, f.to, p), _add(a, f.to, p)
 end
 
+# Count flows only, such as a depletion's removals: nothing moves at a
+# rate or as a share, so the counts act on `x` directly.
+const _Counts = Tuple{Vararg{Flow{<:Amount}}}
+
 # One group's step: the compartments `x` after the flows, and arrivals.
+function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
+    return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
+end
+
 function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
-    y = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
-    y, a = _spread(fs, x, L, y, ntuple(_ -> zero(first(y)), Val(N)), g, t)
+    # No name a closure captures is reassigned, or the closure would box it.
+    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     return _counts(fs, y, a, g, t)
 end
 
@@ -428,12 +446,15 @@ end
 # The cotangent of one group's compartments `x` before the flows, from
 # those of the compartments `ȳ` and arrivals `ā` after them; the flows'
 # parameter cotangents are added into their mirrors `f̄s`.
-function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳ, ā, g, t) where {N}
+function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
+    return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
+end
+function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
     y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
-    ȳ = _counts_back(fs, f̄s, y, a, ȳ, ā, g, t)
+    ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
     # The rate and share arrivals feed both the compartments and the state.
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
