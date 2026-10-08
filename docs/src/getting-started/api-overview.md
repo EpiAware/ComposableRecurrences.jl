@@ -175,7 +175,7 @@ These names are for writing a new coupling, modifier, depletion form or executor
 A model built from the package's own parts needs none of them.
 To extend the package, define a new type and add a `forward` method for it.
 Add a `pullback!` method for a hand-written gradient, and the operator's rule calls it.
-See [Adding a modifier](@ref extending).
+See [Writing new types](@ref extending).
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -191,25 +191,7 @@ See [Adding a modifier](@ref extending).
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
 | [`Executor`](@ref ComposableRecurrences.Executor), [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | the executor supertype, and the loop a new executor adds a method of | `nothing` |
 
-### Adding a coupling
-
-A coupling is any type with a `forward` method for `Pressure()`, which writes the mixed values into `q` from each series' kernel-weighted past `p`.
-This one sends a fixed share of every series to the first.
-
-```@example overview-coupling
-using ComposableRecurrences
-
-struct ToFirst
-    share::Float64
-end
-function ComposableRecurrences.forward(C::ToFirst, ::ComposableRecurrences.Pressure, q, p, t)
-    q .= (1 - C.share) .* p
-    q[1] += C.share * sum(p)
-    return nothing
-end
-
-Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop = 4)
-```
+A coupling is any type with a `forward` method for `Pressure()`; [A coupling](@ref extending-coupling) writes one with its `pullback!`.
 
 ### [Checking gradients](@id overview-gradients)
 
