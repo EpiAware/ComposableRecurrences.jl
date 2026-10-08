@@ -36,10 +36,9 @@ the outputs it read, the weights and the coupling,
 \bar C_{kj} \mathrel{+}= \sum_{l} w_l\, y_{t-l,j}\, \bar u_{t,k},
 ```
 
-with ``C = I`` without a coupling,
-
-inside the recurrence's own reverse pass, so the gradient follows the
-feedback through the outputs.
+with ``C = I`` without a coupling.
+These run inside the recurrence's own reverse pass, so the gradient
+follows the feedback through the outputs.
 
 Scope: modifier parameters of a [`Recurrence`](@ref); analytic adjoint.
 
@@ -108,9 +107,16 @@ struct Recent{W <: AbstractVector{<:Real}, C}
     end
 end
 Recent(w::AbstractVector{<:Real}; coupling = nothing) = Recent(w, coupling)
-function Recent(n::Integer; coupling = nothing)
+Recent(n::Integer; coupling = nothing) = Recent(n, coupling)
+function Recent(n::Integer, coupling)
     n >= 1 || throw(ArgumentError("Recent(n) needs n >= 1 outputs; got n = $n"))
     return Recent(fill(true, n), coupling)
+end
+
+# A short description for errors: the weights and the coupling's size.
+function _describe(x::Recent)
+    C = x.coupling === nothing ? "" : "; coupling $(join(size(x.coupling), " × "))"
+    return "Recent($(length(x.w)) weights$C)"
 end
 
 depth(x::Recent) = length(x.w)
@@ -121,7 +127,7 @@ add_param!(x̄, x::Recent, v, k, t) = _unbound(x)
 @noinline function _unbound(x::Recent)
     throw(
         ArgumentError(
-            "Recent($(_describe(x.w))) reads a recurrence's outputs, so it " *
+            "$(_describe(x)) reads a recurrence's outputs, so it " *
                 "has a value only inside a Recurrence's modifiers, held in " *
                 "immutable fields of concrete type"
         )
@@ -255,6 +261,7 @@ function _reads_across_type(::Type{T}) where {T}
     T <: Union{Number, AbstractArray, Nothing, Symbol, AbstractString} &&
         return false
     T <: Union{Type, Module} && return false
+    ismutabletype(T) && return false
     isconcretetype(T) && isstructtype(T) || return false
     return any(_reads_across_type, fieldtypes(T))
 end

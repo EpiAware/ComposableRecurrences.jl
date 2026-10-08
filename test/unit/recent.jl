@@ -250,7 +250,9 @@ end
         # Threaded, the strata no longer run on their own.
         @test CR._reads_across(r.modifiers)
         @test !CR._independent(I, g, r.modifiers)
-        y = Base.ScopedValues.with(CR.EXECUTOR => CR.Threaded()) do
+        # Split into one task per stratum, so a stratum run on its own
+        # would read the others' outputs before they are written.
+        y = Base.ScopedValues.with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = S)) do
             r(R; history = h)
         end
         @test y ≈ naive(C)
@@ -266,6 +268,11 @@ end
     using ComposableRecurrences
     const CR = ComposableRecurrences
     @test_throws "S × S matrix" Recent(3; coupling = 2.0)
+    @test Recent(3, ones(2, 2)).w == Recent(3; coupling = ones(2, 2)).w
+    # Errors describe a Recent by its sizes, not its contents.
+    @test_throws "Recent(2 weights; coupling 40 × 40)" CR.Depletion(
+        100.0; pool0 = Recent(2; coupling = ones(40, 40))
+    )
     r = Recurrence(
         [0.5]; modifiers = (CR.Add(Recent(2; coupling = ones(3, 3))),)
     )
