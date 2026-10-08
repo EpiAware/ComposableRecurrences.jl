@@ -388,6 +388,24 @@ function _capacity_drop(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Depletion that draws up to a small pool per stratum, so the pools run out
+# within the run: exact, and smooth with its softness differentiated.
+function _truncate(w, θ)
+    logh, logR, logpool = _unpack(θ, (S, L), (S, T), (S,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(exp.(logpool)), ComposableRecurrences.Truncate()
+    )
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+function _soft_truncate(w, θ)
+    logh, logR, logpool = _unpack(θ, (S, L), (S, T), (S,))
+    form = ComposableRecurrences.SoftTruncate(θ[length(θ)])
+    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)), form)
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+
 # Every float in single precision: the kernel, coupling, history and gain.
 const K0F, WSF = Float32.(K0), Float32.(WS)
 function _float32(w, θ)
@@ -532,6 +550,14 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence depletion with truncated draws", _truncate,
+        () -> _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0])),
+    ),
+    (
+        "Recurrence depletion with smoothly truncated draws", _soft_truncate,
+        () -> _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]), [0.1]),
+    ),
+    (
         "Recurrence in Float32", _float32,
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
     ),
@@ -583,6 +609,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, stock with overflow" => (:Capacity,),
     "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
+    "Recurrence depletion with truncated draws" => (:Truncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),

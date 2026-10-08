@@ -84,7 +84,8 @@ round(sum(by_recurrence .- capped))
 # The cap deletes the patients it turns away.
 # [`Capacity`](@ref ComposableRecurrences.Capacity) keeps them instead.
 # It admits each day's demand up to the free beds and routes the rest to a second series.
-# In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy, with a share `d` leaving each day.
+# In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy.
+# A share `d` of it leaves each day.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
 routing = Capacity(beds, Beds(d); pairs = [1 => 2])
@@ -105,7 +106,8 @@ end
 
 maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
-# A [`Budget`](@ref ComposableRecurrences.Budget) mode grants an allowance each period instead, such as vaccine doses per week.
+# A [`Budget`](@ref ComposableRecurrences.Budget) mode grants an allowance each period instead.
+# Vaccine doses per week are one example.
 
 # ## A ward with two linked stocks
 #

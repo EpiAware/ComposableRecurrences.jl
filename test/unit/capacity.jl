@@ -131,7 +131,10 @@ end
             θ -> CR.Capacity(
                 PerStratum(θ[1:2]), CR.Beds(θ[3]); pairs = hold, overflow = CR.Drop()
             ),
-            θ -> (; mode = :beds, cap = (p, t) -> θ[p], exit = (p, t) -> θ[3], drop = true),
+            θ -> (;
+                mode = :beds, cap = (p, t) -> θ[p], exit = (p, t) -> θ[3],
+                drop = true,
+            ),
             [6.0, 4.0, 0.2],
         ),
     )
@@ -187,9 +190,9 @@ end
         m = CR.Capacity(4.0, mode; pairs = [1], overflow = CR.Drop())
         r = Recurrence([0.0]; modifiers = (m,))
         y = r(; history = zeros(2, 1), add = demand)
-        @test y[1, :] ≈ Recurrence([0.0]; modifiers = (CR.Capacity(4.0, mode; pairs = [1 => 2]),))(;
-            history = zeros(2, 1), add = demand
-        )[1, :]
+        routed = CR.Capacity(4.0, mode; pairs = [1 => 2])
+        z = Recurrence([0.0]; modifiers = (routed,))(; history = zeros(2, 1), add = demand)
+        @test y[1, :] ≈ z[1, :]
         @test all(iszero, y[2, :])
         @test sum(y) < sum(d)
     end
@@ -198,9 +201,11 @@ end
 @testitem "Capacity: budget periods, carry over and lifetime" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    run(mode, d; kw...) = Recurrence([0.0]; modifiers = (CR.Capacity(4.0, mode; pairs = [1 => 2], kw...),))(;
-        history = zeros(2, 1), add = [d'; zeros(1, length(d))]
-    )[1, :]
+    function run(mode, d; kw...)
+        m = CR.Capacity(4.0, mode; pairs = [1 => 2], kw...)
+        add = [d'; zeros(1, length(d))]
+        return Recurrence([0.0]; modifiers = (m,))(; history = zeros(2, 1), add)[1, :]
+    end
     d = [1.0, 1.0, 1.0, 5.0, 5.0, 5.0, 0.0, 0.0, 0.0, 9.0]
     # Carry over: 1 unused in the first period, so 5 in the second; then 4
     # granted in each, all unused in the third.
@@ -228,7 +233,8 @@ end
             (CR.Beds(0.2), CR.Route(), [1 => 2, 3 => 4]),
             (CR.Budget(5), CR.Hold(), [1, 3]),
         )
-        r = Recurrence(PerStratum(G); modifiers = (CR.Capacity(5.0, mode; pairs, overflow),))
+        cap = CR.Capacity(5.0, mode; pairs, overflow)
+        r = Recurrence(PerStratum(G); modifiers = (cap,))
         whole = r(R; history = h)
         first7, st = CR.with_state(r, R; history = h, stop = 7)
         @test hcat(first7, r(R; state = st, stop = 12)) ≈ whole
@@ -308,6 +314,20 @@ end
             x -> CR.Capacity(x[1], CR.Budget(2); pairs = [2], overflow = CR.Drop()),
             [0.3], [0.6], (1, 2),
         ),
+        # A tie, demand 2 against 2 free beds: the free beds take it, as with
+        # dual numbers.
+        (
+            x -> CR.Capacity(x[2], CR.Beds(x[1]); pairs = [1 => 2], initial = x[3]),
+            [0.5, 3.0, 0.0], [2.0], (1,),
+        ),
+        # Infinite capacity with the smooth form: the softness takes nothing.
+        (
+            x -> CR.Capacity(
+                x[2], CR.Beds(x[1]); pairs = [1 => 2],
+                form = CR.SoftTruncate(x[3]), initial = x[4]
+            ),
+            [0.2, Inf, 0.1, 0.0], [2.0], (1,),
+        ),
     )
     for (build, θ, s, ts) in builds, t in ts
         c = ModifierChecks.check_pullback(
@@ -329,7 +349,26 @@ end
     @test_throws "Drop() has no overflow stratum" CR.Capacity(
         1.0, CR.Beds(); pairs = [1 => 2], overflow = CR.Drop()
     )
-    @test_throws "at most once" CR.Capacity(1.0, CR.Beds(); pairs = [1 => 2, 2 => 3])
+    @test_throws "appears once in pairs" CR.Capacity(
+        1.0, CR.Beds(); pairs = [1 => 2, 2 => 3]
+    )
+    @test_throws "appears once in pairs" CR.Capacity(
+        1.0, CR.Beds(); pairs = [1 => 2, 1 => 3]
+    )
+    # Two wards may overflow into one community stratum.
+    shared = CR.Capacity(1.0, CR.Beds(); pairs = [1 => 3, 2 => 3])
+    y = Recurrence([0.0]; modifiers = (shared,))(;
+        history = zeros(3, 1), add = [3.0 0.0; 2.0 0.0; 1.0 1.0]
+    )
+    @test y[:, 1] ≈ [1.0, 1.0, 4.0]
+    @test_throws "exit is between 0 and 1, got 1.5" CR.Beds(1.5)
+    @test_throws "exit is between 0 and 1, got -0.2" CR.Beds(PerStratum([0.1, -0.2]))
+    @test_throws "C is non-negative, got -1.0" CR.Capacity(
+        -1.0, CR.Beds(); pairs = [1 => 2]
+    )
+    @test_throws "initial is non-negative, got -3.0" CR.Capacity(
+        1.0, CR.Beds(); pairs = [1 => 2], initial = -3.0
+    )
     @test_throws "non-empty vector" CR.Capacity(1.0, CR.Beds(); pairs = Pair{Int, Int}[])
     @test_throws "start at 1, got 0" CR.Capacity(1.0, CR.Beds(); pairs = [0 => 1])
     @test_throws "Beds(exit) or Budget(period), got :stock" CR.Capacity(
@@ -339,7 +378,7 @@ end
         1.0, CR.Beds(); pairs = [1 => 2], overflow = :hold
     )
     @test_throws "between 0 and 1, got 1.5" CR.SoftTruncate(1.5)
-    @test_throws "softness is a number, got :soft" CR.SoftTruncate(:soft)
+    @test_throws MethodError CR.SoftTruncate(:soft)
     @test_throws "Truncate() or SoftTruncate(κ), got ComposableRecurrences.Hazard()" CR.Capacity(
         1.0, CR.Beds(); pairs = [1 => 2], form = CR.Hazard()
     )
@@ -362,8 +401,10 @@ end
         ones(2, 3); history = ones(2, 1)
     )
     @test CR.nstate(m, 5) == 1
-    @test CR.nstate(CR.Capacity(1.0, CR.Budget(2); pairs = [1, 2], overflow = CR.Hold()), 5) == 4
-    @test CR.nstate(CR.Capacity(1.0, CR.Budget(2); pairs = [1, 2], overflow = CR.Drop()), 5) == 2
+    queued = CR.Capacity(1.0, CR.Budget(2); pairs = [1, 2], overflow = CR.Hold())
+    dropped = CR.Capacity(1.0, CR.Budget(2); pairs = [1, 2], overflow = CR.Drop())
+    @test CR.nstate(queued, 5) == 4
+    @test CR.nstate(dropped, 5) == 2
     @test CR.param_eltype(CR.Capacity(1.0f0, CR.Beds(0.1f0); pairs = [1 => 2])) == Float32
 end
 
@@ -371,7 +412,9 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; G) = CapacityChecks
-    m = CR.Capacity(5.0, CR.Beds(0.2); pairs = [1 => 2, 3 => 4], form = CR.SoftTruncate(0.1))
+    m = CR.Capacity(
+        5.0, CR.Beds(0.2); pairs = [1 => 2, 3 => 4], form = CR.SoftTruncate(0.1)
+    )
     r = Recurrence(PerStratum(G); modifiers = (m,))
     @test CR.uses_adjoint(r, CR.Run())
     @test CR.uses_adjoint(m, CR.Step())

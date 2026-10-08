@@ -93,9 +93,8 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
-    Beds, Budget, Route, Hold, Drop, Transform,
-    Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary, seeded,
-    exponential_history,
+    Beds, Budget, Route, Hold, Drop, Transform, Hazard, Floor, Truncate,
+    SoftTruncate, Primary, Secondary, seeded, exponential_history,
     with_state, State, contributions, forward,
     pullback!, Step, Init, Pressure, Run, ispointwise, nstate, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
@@ -116,10 +115,10 @@ include("adjoints.jl")
 include("builtin_modifiers.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
+# Depletion forms that draw up to what the pool holds.
+include("truncate.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
-# Draw forms that take what is asked for, up to what is left.
-include("truncate.jl")
 # Routing demand between admitted and overflow strata under a capacity.
 include("capacity.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.

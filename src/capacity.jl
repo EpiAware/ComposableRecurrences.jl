@@ -37,6 +37,7 @@ struct Beds{E}
     exit::E
     function Beds(exit = false)
         e = exit === false ? exit : _float_param(_check_param(:exit, exit))
+        _check_unit(:exit, e)
         return new{typeof(e)}(e)
     end
 end
@@ -145,6 +146,10 @@ d = v_a + Q, \qquad v'_a = x, \qquad Q' = d - x,
 ```
 
 so the admissions to date plus the queue equal the demand to date.
+The queue starts at zero, as `initial` sets only the occupancy or
+allowance.
+A queued case is in no stratum while it waits, so it adds to no kernel;
+[`ComposableRecurrences.with_state`](@ref) returns the queue.
 
 # Examples
 ```jldoctest
@@ -307,12 +312,32 @@ function Capacity(
     )
     admitted, routes = _pairs(overflow, pairs)
     C = _float_param(_check_param(:C, C))
+    _check_nonnegative(:C, C)
     initial = _initial(initial)
+    _check_nonnegative(:initial, initial)
     P = length(admitted)
     _check_param_pairs(:C, C, P)
     _check_param_pairs(:initial, initial, P)
     _check_mode_pairs(mode, P)
     return Capacity(mode, C, admitted, routes, overflow, form, initial)
+end
+
+# Value checks on parameters given as numbers or arrays; a `Derived`
+# parameter is checked by nothing here.
+_check_unit(name, x) = _check_values(name, x, v -> 0 <= v <= 1, "between 0 and 1")
+_check_nonnegative(name, x) = _check_values(name, x, v -> v >= 0, "non-negative")
+_check_values(name, x, ok, what) = nothing
+function _check_values(name, x::Real, ok, what)
+    ok(x) || throw(ArgumentError("$name is $what, got $x"))
+    return nothing
+end
+function _check_values(name, x::Union{PerStratum, TimeVarying}, ok, what)
+    return _check_values(name, x.x, ok, what)
+end
+function _check_values(name, x::AbstractArray{<:Real}, ok, what)
+    i = findfirst(!ok, x)
+    i === nothing || throw(ArgumentError("$name is $what, got $(x[i])"))
+    return nothing
 end
 
 _initial(::Nothing) = nothing
@@ -332,10 +357,10 @@ function _pairs(overflow, pairs)
     )
     admitted = Int[_pair(overflow, x)[1] for x in pairs]
     routes = Int[_pair(overflow, x)[2] for x in pairs]
-    seen = filter(!iszero, vcat(admitted, routes))
-    allunique(seen) || throw(
+    allunique(admitted) && all(!in(admitted), routes) || throw(
         ArgumentError(
-            "each stratum appears at most once in pairs, got $(repr(pairs))"
+            "each admitted stratum appears once in pairs and is no pair's " *
+                "overflow stratum, got $(repr(pairs))"
         )
     )
     return admitted, routes
@@ -450,6 +475,12 @@ function _open_back(mode::Budget, m̄, m, B, f̄, h̄, p, t)
     return ifelse(mode.carry_over, B̄, zero(B̄))
 end
 
+# The admissions from demand `d` and free capacity `f` through the draw
+# form, and their cotangents `(d̄, f̄, κ̄)`.
+const _TruncateForm = Union{Truncate, SoftTruncate}
+_draw(form, d, f) = _soft_min(_softness(form), d, f)
+_draw_back(form, d, f, x̄) = _soft_min_back(_softness(form), d, f, x̄)
+
 # The demand of pair `p`, and where its overflow goes.
 _demand(::Union{Route, Drop}, v, s, a, p, P) = v[a]
 _demand(::Hold, v, s, a, p, P) = v[a] + s[P + p]
@@ -469,7 +500,7 @@ function forward(m::Capacity, ::Step, v, s, t)
         a = m.admitted[p]
         d = _demand(m.overflow, v, s, a, p, P)
         f, held = _open(m.mode, param(m.capacity, p, t), s[p], p, t)
-        x = _draw(m.form, d, max(f, zero(f)))
+        x = _draw(m.form, d, _pool_left(f))
         s[p] = _close(m.mode, held, x)
         v[a] = x
         _unserved!(m.overflow, v, s, m.routes[p], p, P, d - x)
@@ -505,9 +536,9 @@ function pullback!(grads, m::Capacity, ::Step, v, s, t)
         ū = _unserved_back(m.overflow, v̄, s̄, m.routes[p], p, P)
         h̄, x̄s = _close_back(m.mode, s̄[p])
         x̄ = v̄[a] - ū + x̄s
-        d̄, f̄, κ̄ = _draw_back(m.form, d, max(f, zero(f)), x̄)
-        _add_softness!(cotangent(m̄, :form), m.form, κ̄)
-        f̄ = f > 0 ? f̄ : zero(f̄)
+        d̄, f̄, κ̄ = _draw_back(m.form, d, _pool_left(f), x̄)
+        add_cotangent!(cotangent(cotangent(m̄, :form), :κ), κ̄)
+        f̄ = ifelse(f > 0, f̄, zero(f̄))
         s̄[p] = _open_back(m.mode, m̄, m, s[p], f̄, h̄, p, t)
         _demand_back!(m.overflow, v̄, s̄, a, p, P, d̄ + ū)
     end

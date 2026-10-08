@@ -174,16 +174,6 @@ true
     Arguments(; piece = Floor(), role = Step(), args = (2.0, 80.0, 100.0, 1.5)),
 ]
 
-@implements PieceInterface Truncate [
-    Arguments(; piece = Truncate(), role = Step(), args = (2.0, 1.5, 100.0, 1.0)),
-]
-
-@implements PieceInterface SoftTruncate [
-    Arguments(;
-        piece = SoftTruncate(0.1), role = Step(), args = (2.0, 1.5, 100.0, 1.0)
-    ),
-]
-
 @implements PieceInterface{(:pointwise, :nstate)} Add [
     Arguments(;
         piece = Add(TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))), role = Step(),
@@ -239,5 +229,15 @@ true
     Arguments(;
         piece = Capacity(2.0, Budget(3); pairs = [2], overflow = Drop()),
         role = Step(), args = ([5.0, 1.0, 0.5], [0.0], 1)
+    ),
+]
+
+@implements PieceInterface Truncate [
+    Arguments(; piece = Truncate(), role = Step(), args = (2.0, 1.5, 100.0, 1.0)),
+]
+
+@implements PieceInterface SoftTruncate [
+    Arguments(;
+        piece = SoftTruncate(0.1), role = Step(), args = (2.0, 1.5, 100.0, 1.0)
     ),
 ]
