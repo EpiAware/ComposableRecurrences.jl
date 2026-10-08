@@ -127,9 +127,12 @@ function _has_pullback(x, ::Pressure)
     return Core._hasmethod(sig)
 end
 _has_pullback(x, ::Step) = _has_scalar_pullback(x) || _has_vector_pullback(x)
+# A blockwise group step's `pullback!` may type its value and state as
+# tuples.
 function _has_scalar_pullback(x)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any, Any}
-    return Core._hasmethod(sig)
+    tup = Tuple{typeof(pullback!), Any, typeof(x), Step, Tuple, Tuple, Any, Any}
+    return Core._hasmethod(sig) || Core._hasmethod(tup)
 end
 function _has_vector_pullback(x)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})

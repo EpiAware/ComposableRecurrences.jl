@@ -149,3 +149,68 @@ end
     blockwise = CR.PieceInterface{(:blocks, :nstate)}
     @test Interfaces.test(blockwise, typeof(d), (obj,); show = false)
 end
+
+@testitem "Blocks: shapes, resume and mixed modifiers" setup = [BlockChecks] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    (; Move) = BlockChecks
+    # No state: two compartments swap a share each step.
+    struct Swap{A}
+        a::A
+    end
+    CR.blocks(::Swap) = Val((2, 0))
+    function CR.forward(m::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        x = m.a * (v[1] - v[2])
+        return (v[1] - x, v[2] + x), ()
+    end
+    @test CR.nstate(Swap(0.1), 4) == 0
+    swap = Recurrence([1.0]; modifiers = (Swap(0.25),))
+    y = swap(; history = [4.0, 1.0, 0.0, 2.0][:, :], stop = 1)
+    # Group 1 is entries 1 and 3, group 2 entries 2 and 4.
+    @test vec(y) ≈ [4.0 - 1.0, 1.0 + 0.25, 1.0, 2.0 - 0.25]
+    # Two values and two state entries per group, with a typed pullback.
+    struct Keep{A}
+        a::A
+    end
+    CR.blocks(::Keep) = Val((2, 2))
+    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + 1)
+    end
+    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
+        return (v̄1 * m.a + s̄1, v̄2), (v̄2 + s̄1, s̄2)
+    end
+    @test CR.uses_adjoint(Keep(0.5), CR.Step())
+    @test CR.nstate(Keep(0.5), 6) == 6
+    # Resume: a run split in two matches one run, and a wrong state length
+    # is named.
+    g = [0.5, 0.5]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6]
+    h = ones(4, 2)
+    r = Recurrence(g; modifiers = (Keep(0.9),))
+    y = r(R; history = h)
+    y1, st = CR.with_state(r, R[:, 1:3]; history = h)
+    @test hcat(y1, r(R; state = st)) ≈ y
+    bad = CR.State(st.history, (zeros(3),), st.t)
+    @test_throws "expected nstate" r(R; state = bad)
+    # Blockwise, pointwise and vector modifiers together under the rule.
+    K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
+    function loss(θ)
+        ms = (
+            CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
+            CR.Redistribute(K, 0.5),
+        )
+        return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
+    end
+    θ = [0.2, 0.4, 0.8]
+    @test CR.uses_adjoint(
+        Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Clamp(0.0, 1.0))), CR.Run()
+    )
+    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
+    # A malformed shape is named.
+    struct Odd end
+    CR.blocks(::Odd) = Val((0, 1))
+    @test_throws "got Val((0, 1))" CR.nstate(Odd(), 2)
+end

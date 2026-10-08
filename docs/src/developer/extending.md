@@ -10,6 +10,7 @@ Add a `pullback!` method for a hand-written gradient, and the operator's rule ca
 | operator call | `Run()` | `forward(op, Run(), args...; kwargs...)` returns `(y, cache)` |
 | modifier, vector step | `Step()` | `forward(m, Step(), v, s, t)` updates `v` and `s` in place |
 | modifier, pointwise step | `Step()` | `forward(m, Step(), v, s, t, k)` returns `(v′, s′)` |
+| modifier, blockwise group step | `Step()` | `forward(m, Step(), v::Tuple, s::Tuple, t, g)` returns tuples `(v′, s′)` |
 | modifier, initial state | `Init()` | `forward(m, Init(), s, history)` writes `s` |
 | depletion form | `Step()` | `forward(form, Step(), v, s, N, α)` returns `(y, s′)` |
 
@@ -36,7 +37,7 @@ Recurrence([0.5, 0.5]; modifiers = (Scale(0.9),))(2.0; history = ones(2), stop =
 
 ## A modifier with more state
 
-A modifier that keeps more than one entry per series, or reads several series together, is blockwise.
+A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
 [`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group, and the step takes and returns them as tuples.
 This one keeps a running total and a step count per series, and adds their mean to the value.
 

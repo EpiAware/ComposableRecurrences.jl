@@ -278,8 +278,8 @@ false
 ispointwise(m) = false
 
 @doc raw"""
-The blocks modifier `m` acts on, `Val((nv, ns))`, or `nothing` when it is
-not blockwise.
+The group shape of modifier `m`: `Val((nv, ns))`, its values and state
+entries per group, or `nothing` when it is not blockwise.
 
 A blockwise modifier holds ``n_v`` compartments of ``G`` groups each in its
 values and ``n_s`` in its state, compartment by compartment: with
@@ -302,6 +302,10 @@ returning the new tuples `(v′, s′)`, and optionally
 tuples, returning the input cotangents as tuples.
 The default vector [`ComposableRecurrences.Step`](@ref) loops the groups,
 and [`ComposableRecurrences.nstate`](@ref) is ``n_s G``.
+The group step reads parameters at group `g`, so a [`PerStratum`](@ref)
+parameter has ``G`` entries.
+`blocks` should follow from the type of `m`, so the group loop is
+compiled for its shape.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) is the
 case ``n_v = n_s = 1`` with a scalar step, and is not blockwise.
 The default is `nothing`.
@@ -367,14 +371,28 @@ _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 
 # The number of groups of a blockwise modifier over `S` strata.
 function _ngroups(::Val{B}, S) where {B}
-    nv = B[1]
-    rem(S, nv) == 0 || throw(
+    nv = _check_blocks(Val(B))
+    rem(S, nv) == 0 || _strata_mismatch(nv, S)
+    return S ÷ nv
+end
+@noinline function _strata_mismatch(nv, S)
+    throw(
         DimensionMismatch(
             "a blockwise modifier with $nv value compartments needs a " *
                 "multiple of $nv strata, got $S"
         )
     )
-    return S ÷ nv
+end
+
+# The value compartments of a group shape, after checking the shape.
+function _check_blocks(::Val{B}) where {B}
+    B isa Tuple{Int, Int} && B[1] >= 1 && B[2] >= 0 || throw(
+        ArgumentError(
+            "blocks(m) is Val((nv, ns)) with integers nv >= 1 and ns >= 0, " *
+                "got Val($(repr(B)))"
+        )
+    )
+    return B[1]
 end
 
 # A modifier's shape checks against `S` strata, run once per call by its
@@ -394,11 +412,11 @@ forward(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 @inline function _gather(x, ::Val{n}, G, g) where {n}
     return ntuple(i -> x[(i - 1) * G + g], Val(n))
 end
-@inline function _scatter!(x, xs::Tuple, G, g)
-    for i in eachindex(xs)
-        x[(i - 1) * G + g] = xs[i]
-    end
-    return x
+# Unrolled, so a tuple of mixed types stays type stable.
+@inline _scatter!(x, ::Tuple{}, G, g, o = 0) = x
+@inline function _scatter!(x, xs::Tuple, G, g, o = 0)
+    x[o * G + g] = first(xs)
+    return _scatter!(x, Base.tail(xs), G, g, o + 1)
 end
 
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
@@ -418,7 +436,8 @@ function _vector_step!(::Nothing, m, v, s, t)
     ispointwise(m) || throw(
         ArgumentError(
             "$(typeof(m)) implements neither forward(m, Step(), v, s, t) " *
-                "nor a pointwise forward(m, Step(), v, s, t, k)"
+                "nor a pointwise forward(m, Step(), v, s, t, k), and is " *
+                "not blockwise (see blocks)"
         )
     )
     for k in eachindex(v, s)
