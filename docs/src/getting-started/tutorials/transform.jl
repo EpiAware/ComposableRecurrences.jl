@@ -10,8 +10,9 @@
 #
 # 1. Saturate transmission as incidence rises.
 # 2. Combine the transform with `Depletion`.
-# 3. Compute the probability of extinction by generation.
-# 4. Take gradients with respect to the transform's parameters.
+# 3. Drive the response and vaccination from recent incidence with `Recent`.
+# 4. Compute the probability of extinction by generation.
+# 5. Take gradients with respect to the transform's parameters.
 #
 # ### What might I need to know before starting
 #
@@ -82,6 +83,40 @@ end
 
 @combine(groupby(runs, :order), :total = round(sum(:count)))
 
+# ## Feedback from recent incidence
+#
+# The saturating response reacts to the current day only.
+# A response to the last week's incidence is built from parts instead of a bespoke modifier.
+# [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref) maps them, and any modifier parameter takes the result:
+#
+# ```math
+# y_t = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} y_{t-l}\Big)\, R_t \sum_{l} g_l\, y_{t-l}.
+# ```
+#
+# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases (@placeholder).
+
+κr = 10.0
+response = Transform(*, Derived(exp, -κr / N * Recent(7)))
+ring = Depletion(N; removals = 0.5 * Recent(7))
+feedback = [
+    "Depletion only" => (Depletion(N),),
+    "Response to the last week" => (response, Depletion(N)),
+    "Ring vaccination" => (ring,),
+    "Both" => (response, ring),
+]
+@chain feedback begin
+    map(_) do (name, modifiers)
+        y = Recurrence(gi; modifiers)(R; history = [5.0])
+        DataFrame(day = 1:T, model = name, count = y)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :model) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Both measures cut the peak, and together they cut it further than either alone.
+# Each piece keeps its own reverse-mode rule, and gradients flow back through the outputs that `Recent` reads.
+
 # ## Extinction by generation
 #
 # A branching process dies out by generation ``n`` with probability ``q_n = G(q_{n-1})``, from ``q_0 = 0``, where ``G`` is the offspring probability generating function (@placeholder).
@@ -118,6 +153,14 @@ function total_infections(x)
     return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
 end
 ForwardDiff.gradient(total_infections, [κ, 1.5])
+
+# The same with the response to the last week, through the feedback:
+
+function total_with_response(x)
+    modifiers = (Transform(*, Derived(exp, -x[1] / N * Recent(7))), Depletion(N))
+    return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
+end
+ForwardDiff.gradient(total_with_response, [κr, 1.5])
 
 # The derivative of the probability of extinction by generation 30 with respect to ``k``:
 
