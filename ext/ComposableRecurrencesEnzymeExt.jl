@@ -11,7 +11,7 @@ using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
-using SparseArrays: SparseMatrixCSC, nonzeros
+using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
 const _IEEEFloat = Union{Float16, Float32, Float64}
 const _Inert = Union{
@@ -184,22 +184,48 @@ function EnzymeRules.reverse(
     throw(ArgumentError(_SPARSE_MSG))
 end
 
-# A route's coupled pressure, which only plain AD differentiates.
+# A route's coupled pressure `w = C z`, which only plain AD differentiates.
+# Under runtime activity a constant coupling arrives with its primal as
+# its shadow; its reverse pass is `z̄ += Cᵀ w̄`, and `w̄` is cleared because
+# the step overwrites `w`. An active one is refused.
 const _ActiveSparseMatrix = Union{
     Duplicated{<:SparseMatrixCSC}, DuplicatedNoNeed{<:SparseMatrixCSC},
     MixedDuplicated{<:SparseMatrixCSC},
 }
+_shadow(C::MixedDuplicated) = C.dval[]
+_shadow(C) = C.dval
+_check_constant(C) = _shadow(C) === C.val || throw(ArgumentError(_SPARSE_MSG))
 function EnzymeRules.augmented_primal(
         ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)}, ::Type{<:Annotation},
-        C::_ActiveSparseMatrix, args::Vararg{Annotation, N}
-    ) where {N}
-    throw(ArgumentError(_SPARSE_MSG))
+        C::_ActiveSparseMatrix, w::Annotation, z::Annotation, τ::Annotation
+    )
+    _check_constant(C)
+    _route_forward!(C.val, w.val, z.val, τ.val)
+    return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
 end
 function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)}, ::Type{<:Annotation},
-        tape, C::_ActiveSparseMatrix, args::Vararg{Annotation, N}
-    ) where {N}
-    throw(ArgumentError(_SPARSE_MSG))
+        tape, C::_ActiveSparseMatrix, w::Annotation, z::Annotation, τ::Annotation
+    )
+    _check_constant(C)
+    _sparse_transpose_back!(C.val, w, z)
+    return (nothing, nothing, nothing, nothing)
+end
+# A buffer whose shadow is its primal is constant under runtime activity.
+_active(x::Const) = false
+_active(x) = x.dval !== x.val
+function _sparse_transpose_back!(K, w, z)
+    _active(w) || return nothing
+    w̄ = w.dval
+    if _active(z)
+        z̄ = z.dval
+        rows, vals = rowvals(K), nonzeros(K)
+        for b in axes(K, 2), idx in nzrange(K, b)
+            z̄[b] += vals[idx] * w̄[rows[idx]]
+        end
+    end
+    fill!(w̄, zero(eltype(w̄)))
+    return nothing
 end
 
 end
