@@ -115,7 +115,7 @@ feedback = [
 end
 
 # Both measures cut the peak, and together they cut it further than either alone.
-# Each piece keeps its own reverse-mode rule, and gradients flow back through the outputs that `Recent` reads.
+# Each part keeps its own reverse-mode rule, and gradients flow back through the outputs that `Recent` reads.
 
 # ## Extinction by generation
 #
