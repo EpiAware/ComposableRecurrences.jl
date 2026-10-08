@@ -7,6 +7,12 @@ name: Threads
 # `unit` runs the main suite without the quality checks, which the Test
 # workflow already runs; `ad` runs the threaded-executor gradient items
 # (tag `executor`) on every backend.
+# Both jobs run on the current release and the prerelease channel. `pre`
+# resolves to the current release when no prerelease exists, and is allowed
+# to fail, as in the managed Test workflow. `ad` also runs on the compat
+# floor (1.11), which the managed Test and AD workflows do not cover.
+# `unit` cannot: the test environment holds JET and Runic, and JET for 1.11
+# needs a JuliaSyntax that Runic does not allow.
 
 on:
   push:
@@ -29,8 +35,9 @@ concurrency:
 
 jobs:
   unit:
-    name: ${{ github.job }} (Julia ${{ matrix.version }})
+    name: unit (Julia ${{ matrix.version }})
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.version == 'pre' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -49,8 +56,9 @@ jobs:
       - run: julia --project=test test/runtests.jl skip_quality
 
   ad:
-    name: ${{ github.job }} (Julia ${{ matrix.version }})
+    name: ad (Julia ${{ matrix.version }})
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.version == 'pre' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
