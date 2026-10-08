@@ -262,6 +262,9 @@ changes: arrivals enter the pool only through the removals.
 
 # Keyword Arguments
 - `heterogeneity`: the exponent `α`; `1` by default.
+  For the built-in forms the default is `true`, an exponent of exactly one
+  that is not a parameter, so their steps skip the power.
+  Pass a float to differentiate the exponent.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
   default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
@@ -345,7 +348,7 @@ struct Depletion{F, P, A, P0, R, V}
 end
 
 function Depletion(
-        N, form = Hazard(); heterogeneity = 1, pool0 = nothing,
+        N, form = Hazard(); heterogeneity = _unit_exponent(form), pool0 = nothing,
         removals = nothing, protected = nothing
     )
     N = _population(N)
@@ -405,10 +408,30 @@ end
 # its primal type: a dual exponent with zero partials makes
 # `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool.
 _exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
+_exponent(α::Bool, N) = α
 _exponent(α, N) = α
 
+# The default exponent: `true` for the built-in forms, a fixed exponent of
+# one that is not a parameter, so their steps skip the power and its
+# derivative; `1` for other forms, which may type their exponent as a float.
+_unit_exponent(form) = 1
+_unit_exponent(::Union{Hazard, Floor}) = true
+
+# The powers of the share of the pool left `r`: `r^(α - 1)` scales the
+# hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
+# exponent is a fixed integer, so each power is a branch on it, and it has
+# no cotangent, so neither has its log term.
+_share_power(r, α) = _pool_power(r, α - 1)
+_share_power(r, α::Bool) = _power_m1(r, α)
+_power_m1(r, α) = r^(α - 1)
+_power_m1(r, α::Bool) = α ? one(r) : inv(r)
+_floor_power(r, α) = r^α
+_floor_power(r, α::Bool) = α ? r : one(r)
+_times_log(α, r, c) = c * log(r)
+_times_log(::Bool, r, c) = zero(c)
+
 function forward(::Hazard, ::Step, v, s, N, α)
-    x = v / N * _pool_power(s / N, α - 1)
+    x = v / N * _share_power(s / N, α)
     return -s * expm1(-x), s * exp(-x)
 end
 
@@ -426,13 +449,13 @@ end
 function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     r = s / N
-    h = r^(α - 1)
+    h = _power_m1(r, α)
     x = v / N * h
     e = exp(-x)
     x̄ = s * e * (ȳ - s̄′)
     s̄ = -ȳ * expm1(-x) + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : x̄ * x * log(r)
+    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
@@ -440,7 +463,7 @@ const _DEPLETION_FLOOR = 1.0e-6
 
 function forward(::Floor, ::Step, v, s, N, α)
     r = s / N
-    f = max(max(r, zero(r))^α, oftype(r, _DEPLETION_FLOOR))
+    f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
     y = f * v
     return y, s - y
 end
@@ -448,12 +471,13 @@ end
 function pullback!(grads, ::Floor, ::Step, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     r = s / N
-    p = max(r, zero(r))^α
+    p = _floor_power(max(r, zero(r)), α)
     fl = oftype(p, _DEPLETION_FLOOR)
     ḡ = ȳ - s̄′
     p > fl || return ḡ * fl, s̄′, zero(ḡ), zero(ḡ)
     f̄ = ḡ * v
-    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N, -f̄ * α * p / N, f̄ * p * log(r)
+    return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N,
+        _times_log(α, r, f̄ * p)
 end
 
 ispointwise(::Depletion) = true

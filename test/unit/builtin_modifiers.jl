@@ -108,6 +108,32 @@ end
     end
 end
 
+@testitem "Depletion: the fixed default exponent matches an exponent of 1.0" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Pools above, at and below zero, with values on both sides of the
+    # hazard's switch between `expm1` and `exp`.
+    for form in (CR.Hazard(), CR.Floor()), s in (80.0, 0.0, -3.0), v in (0.5, 150.0)
+        s < 0 && form isa CR.Hazard && continue
+        @test all(
+            CR.forward(form, CR.Step(), v, s, 100.0, true) .≈
+                CR.forward(form, CR.Step(), v, s, 100.0, 1.0)
+        )
+        grads = (; piece = nothing, v = 0.7, s = -0.2)
+        fixed = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, true)
+        float = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, 1.0)
+        @test all(fixed[1:3] .≈ float[1:3])
+        @test iszero(fixed[4])
+    end
+    g = [0.3, 0.5, 0.2]
+    h = [5.0, 6.0, 7.0]
+    for form in (CR.Hazard(), CR.Floor())
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0, form),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0, form; heterogeneity = 1.0),))
+        @test fixed(fill(3.0, 12); history = h) ≈ float(fill(3.0, 12); history = h)
+    end
+end
+
 @testitem "Depletion: one population per stratum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -702,11 +728,15 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     using ForwardDiff: Dual
-    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === 1.0
+    @test CR.Depletion(Dual(100.0, 1.0); heterogeneity = 1).heterogeneity === 1.0
     @test CR.Depletion(Dual(100.0f0, 1.0f0); heterogeneity = 2).heterogeneity ===
         2.0f0
-    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0)).heterogeneity === 1.0
-    @test CR.Depletion(100.0f0).heterogeneity === 1.0f0
+    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0); heterogeneity = 1).heterogeneity ===
+        1.0
+    @test CR.Depletion(100.0f0; heterogeneity = 1).heterogeneity === 1.0f0
+    # The built-in forms default to a fixed exponent of one.
+    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === true
+    @test CR.Depletion(100.0f0, CR.Floor()).heterogeneity === true
     # A dual exponent at an empty pool takes the primal exponent, as the
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
