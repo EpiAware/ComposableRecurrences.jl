@@ -92,7 +92,9 @@ its role's conventions (outputs written into the leading arrays, inputs
 unchanged).
 The mandatory `adjoint` component checks that a `pullback!` method for the
 type and role is found by [`ComposableRecurrences.uses_adjoint`](@ref): a
-method with typed arguments is not, and needs a `uses_adjoint` method.
+method with a typed `grads` or typed arguments after the role is not, and
+needs a `uses_adjoint` method, and one with the wrong number of arguments
+fails too.
 The optional `pointwise` component checks that a modifier's vector step
 equals its scalar step on every stratum,
 

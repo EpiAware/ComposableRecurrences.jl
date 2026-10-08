@@ -60,7 +60,7 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 A pointwise step's `pullback!` returns the cotangents of the value and the state.
 `grads.v` and `grads.s` hold the output cotangents, and `grads.piece` mirrors the fields, here a `Ref` for `a` (or `nothing`).
 The rule of a `Recurrence` calls it; [Rules and plain AD](@ref adjoint-routing) says when.
-Leave the arguments after the role untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
+Leave `grads` and the arguments after the role untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
 
 ```@example extending
 function CR.pullback!(grads, m::Scale, ::CR.Step, v, s, t, k)

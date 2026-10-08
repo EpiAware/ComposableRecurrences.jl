@@ -134,8 +134,7 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
-        _check_times(:coupling, coupling, nothing)
-        _check_times(:modifiers, modifiers, nothing)
+        _check_secondary(coupling, modifiers)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
         )
@@ -145,6 +144,15 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         ) where {K, C, M <: Tuple, B}
         return new{K, C, M, B}(kernel, coupling, modifiers, rebuilds)
     end
+end
+
+# Only a kernel takes `Primary()` indexing: the coupling and modifiers are
+# walked once here, so the walk at each call checks only that they cover
+# `stop`.
+function _check_secondary(coupling, modifiers::Tuple)
+    _check_times(:coupling, coupling, nothing)
+    _check_times(:modifiers, modifiers, nothing)
+    return nothing
 end
 
 # A rebuild of a `Recurrence` from its fields recomputes `rebuilds`.
@@ -812,6 +820,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
         ArgumentError("stop ($stop) is before start ($τ0)")
     )
     _check_kernel_times(kernel, stop)
+    # The constructor has rejected `Primary()` indexing in these.
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
     T = stop - τ0 + 1

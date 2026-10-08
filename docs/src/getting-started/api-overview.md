@@ -191,15 +191,6 @@ See [Adding a modifier](@ref extending).
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
 | [`Executor`](@ref ComposableRecurrences.Executor), [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | the executor supertype, and the loop a new executor adds a method of | `nothing` |
 
-### [Checking gradients](@id overview-gradients)
-
-| Name | What it does | Returns |
-|---|---|---|
-| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its hand-written gradient, to check or time one against the other | an operator |
-| [`test_adjoint(backend, op, Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs a backend's own rule tester on an operator's hand-written gradient | a test result |
-
-[Adjoints and backends](@ref adjoints-backends) says when each backend uses the hand-written gradient.
-
 ### Adding a coupling
 
 A coupling is any type with a `forward` method for `Pressure()`, which writes the mixed values into `q` from each series' kernel-weighted past `p`.
@@ -219,3 +210,12 @@ end
 
 Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop = 4)
 ```
+
+### [Checking gradients](@id overview-gradients)
+
+| Name | What it does | Returns |
+|---|---|---|
+| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its hand-written gradient, to check or time one against the other | an operator |
+| [`test_adjoint(backend, op, Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs a backend's own rule tester on an operator's hand-written gradient | a test result |
+
+[Adjoints and backends](@ref adjoints-backends) says when each backend uses the hand-written gradient.
