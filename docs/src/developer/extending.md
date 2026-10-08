@@ -106,7 +106,7 @@ A method for a narrower type replaces the general one for that type alone, so a 
 |---|---|
 | a coupling with structure, such as low rank or banded | `forward(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
 | a modifier at one parameter form | `forward(m::MyModifier{<:PerStratum}, Step(), v, s, t, k)` |
-| a depletion form at one exponent type | `forward(form::MyForm, Step(), v, s, N, α::Bool)` |
+| a depletion form at one number type | `forward(form::MyForm, Step(), v::Float32, s::Float32, N::Float32, α::Float32)` |
 | how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
 
 A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``.
@@ -136,10 +136,10 @@ low ≈ dense
 ```
 
 The package specialises its own code the same way.
-These methods are internal, and the list says where to add one:
+These methods are internal and may change without notice; the list says where a contributor would add one:
 
 - one stratum's kernel convolution, `_kdot`, by the kernel's form (shared, per stratum, time varying with either indexing, pairwise) and by the buffer's array type;
-- independent strata, where the coupling is `I` or `Diagonal`, the kernel is not pairwise and every modifier is pointwise, run each block of strata over the whole series (`_independent`);
+- independent strata, where the coupling is `I` or `Diagonal`, the kernel is not pairwise and every modifier is pointwise, run each block of strata over the whole series (`_independent` decides, `_series_body!` runs);
 - a fixed convolution's body, `_convolve_series!`, by the buffer's number type: one vectorised `axpy` per lag for IEEE floats, one dot per output for other numbers;
 - the output's copy into the public layout, `_public`, by the buffer's array type;
 - the route of a call, the rule or plain AD, by [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) and the number types.

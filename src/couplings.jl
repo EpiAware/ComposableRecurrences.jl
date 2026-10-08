@@ -23,6 +23,7 @@ function forward(C::AbstractMatrix, ::Pressure, q, p, t)
     return nothing
 end
 
+# A dense or time-varying coupling's rows and columns against the pressures.
 function _check_pressure(C, q, p)
     axes(C, 1) == eachindex(q) && axes(C, 2) == eachindex(p) || throw(
         DimensionMismatch(
@@ -57,7 +58,8 @@ function forward(
         C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure, q, p, t
     )
     X = C.x
-    _check_pressure(view(X, :, :, t), q, p)
+    checkbounds(X, :, :, t)
+    _check_pressure(X, q, p)
     fill!(q, zero(eltype(q)))
     @inbounds for b in axes(X, 2)
         pb = p[b]
