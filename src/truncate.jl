@@ -15,7 +15,8 @@ where ``v`` is the value asked for, ``s`` the pool before the step, ``v'``
 the value drawn and ``s'`` the pool after the step.
 The population and the heterogeneity exponent are not read.
 The minimum has a kink at ``v = s`` and the floor one at ``s = 0``; the
-derivative takes the active branch, and the pool on a tie.
+derivative takes the active branch, and the value asked for on a tie.
+A NaN pool gives a NaN draw.
 [`ComposableRecurrences.SoftTruncate`](@ref) is a smooth version.
 
 # Examples
@@ -78,19 +79,32 @@ struct SoftTruncate{K <: Real}
     end
 end
 
-function forward(form::Union{Truncate, SoftTruncate}, ::Step, v, s, N, α)
-    y = _soft_min(_softness(form), v, _pool_left(s))
+function forward(::Truncate, ::Step, v, s, N, α)
+    v, s = promote(v, s)
+    y = _removal(v, s)
     return y, s - y
 end
 
-# What the pool holds, `max(s, 0)`. The arms follow primal values here and
-# in the minimum, so dual numbers take the arm the pullback takes.
+function forward(form::SoftTruncate, ::Step, v, s, N, α)
+    v, s, κ = promote(v, s, form.κ)
+    y = _soft_min(κ, v, _pool_left(s))
+    return y, s - y
+end
+
+# What the pool holds, `max(s, 0)`, on the arm of the primal value, as in
+# `_removal`.
 _pool_left(s) = ifelse(_primal_value(s) > 0, s, zero(s))
 
-# The cotangents of `(v, s, N, α)`; the form's softness takes its own.
-function pullback!(grads, form::Union{Truncate, SoftTruncate}, ::Step, v, s, N, α)
+# The cotangents of `(v, s, N, α)`; the softness takes its own.
+function pullback!(grads, ::Truncate, ::Step, v, s, N, α)
     ȳ = grads.v - grads.s
-    v̄, c̄, κ̄ = _soft_min_back(_softness(form), v, _pool_left(s), ȳ)
+    v̄, s̄ = _removal_pullback(v, s, ȳ)
+    z = zero(ȳ)
+    return v̄, grads.s + s̄, z, z
+end
+function pullback!(grads, form::SoftTruncate, ::Step, v, s, N, α)
+    ȳ = grads.v - grads.s
+    v̄, c̄, κ̄ = _soft_min_back(form.κ, v, _pool_left(s), ȳ)
     add_cotangent!(cotangent(grads.piece, :κ), κ̄)
     z = zero(ȳ)
     return v̄, grads.s + ifelse(s > 0, c̄, z), z, z
@@ -98,24 +112,26 @@ end
 _softness(::Truncate) = nothing
 _softness(form::SoftTruncate) = form.κ
 
-# The minimum of `a` and `b`, or with softness `κ` the smooth minimum
-# `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M` the smaller and
-# larger of the two; a non-positive `m` is returned as it is, and an
-# infinite `M` gives `m`. On a tie the exact minimum takes `b`.
-_takes_first(a, b) = _primal_value(a) < _primal_value(b)
-_soft_min(::Nothing, a, b) = ifelse(_takes_first(a, b), a, b)
+# The minimum of `a` and a non-negative `b`, or with softness `κ` the
+# smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M`
+# the smaller and larger of the two; a non-positive `m` is returned as it
+# is, and an infinite `M` gives `m`. The exact minimum is `_removal`, which
+# takes `a` on a tie and returns a NaN.
+_soft_min(::Nothing, a, b) = _removal(a, b)
 function _soft_min(κ, a, b)
+    a, b, κ = promote(a, b, κ)
     lo, hi = _takes_first(a, b) ? (a, b) : (b, a)
     _primal_value(lo) > 0 || return lo
     isinf(_primal_value(hi)) && return lo
     r = lo / hi
     return lo * (1 + r^inv(κ))^(-κ)
 end
+_takes_first(a, b) = _primal_value(a) <= _primal_value(b)
 
 # Its pullback: the cotangents of `a`, `b` and `κ` from that of the result.
 function _soft_min_back(::Nothing, a, b, ȳ)
-    z = zero(ȳ)
-    return _takes_first(a, b) ? (ȳ, z, z) : (z, ȳ, z)
+    ā, b̄ = _removal_pullback(a, b, ȳ)
+    return ā, b̄, zero(ȳ)
 end
 function _soft_min_back(κ, a, b, ȳ)
     z = zero(ȳ)
