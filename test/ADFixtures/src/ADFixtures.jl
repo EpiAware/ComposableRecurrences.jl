@@ -390,11 +390,13 @@ function _recent_feedback(w, θ)
 end
 
 # Ring vaccination: removals from the susceptible pool scale with the sum of
-# the last week's cases.
+# the last week's cases. The scale is read from `θ` directly: Enzyme reverse
+# finds no shadow for a scalar read from a reshaped view and passed to the
+# `Depletion` keyword constructor inside a `Derived`.
 function _recent_removals(w, θ)
-    κ, logh, logR = _unpack(θ, (1,), (S, 7), (S, T))
+    logh, logR = _unpack(view(θ, 2:length(θ)), (S, 7), (S, T))
     dep = ComposableRecurrences.Depletion(
-        PerStratum(10 .* POP); removals = κ[1] * ComposableRecurrences.Recent(7)
+        PerStratum(10 .* POP); removals = θ[1] * ComposableRecurrences.Recent(7)
     )
     r = Recurrence(G0; coupling = K0, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
