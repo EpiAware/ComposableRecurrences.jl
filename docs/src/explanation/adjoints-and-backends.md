@@ -30,7 +30,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
-The local step rebuilds a part with dual numbers in place of its float parameters; [Adding a modifier](@ref extending) lists what that needs.
+The local step rebuilds a part with dual numbers in place of its float parameters; [Gradient routes](@ref extending-routes) lists what that needs.
 The `Recurrence` constructor checks the rebuild once and stores the result.
 Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step.
 
