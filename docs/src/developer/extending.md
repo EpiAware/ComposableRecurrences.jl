@@ -55,7 +55,8 @@ So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent).
 Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
 Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).
 Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
-These accept every parameter form, so the type works with one value, `PerStratum`, `TimeVarying` or [`Derived`](@ref).
+These accept every parameter form, so the type works with one value, `PerStratum`, `TimeVarying`, [`Derived`](@ref) or [`Recent`](@ref).
+Call `add_param!` even when the parameter's mirror is `nothing`: a `Recent` parameter still sends its cotangent to the outputs it read.
 
 ## [Gradient routes](@id extending-routes)
 

@@ -22,10 +22,17 @@ end
 
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
+    (; r, H, D, S, T, τ0) = c
+    H̄ = _zeros(H, eltype(H), D + T, S)
+    # Parameters that read the outputs send their cotangents into `H̄`. The
+    # bound modifiers enter the step loop through a function barrier.
+    modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
+    return _reverse!(c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+end
+function _reverse!(c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     (; r, kernel, gain, add, h, s0, τ0, L, D, S, T, H, P, X, rec, init) = c
-    (; coupling, modifiers) = r
+    coupling = r.coupling
     Tp = eltype(H)
-    H̄ = _zeros(H, Tp, D + T, S)
     _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
@@ -62,7 +69,8 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t + D - L, τ, L)
     end
     _kernel_finish!(ḡ, kbuf)
-    _scatter_history!(h̄, H̄, h, D)
+    # An `Init` that reads the outputs adds into the history rows of `H̄`,
+    # so the history is scattered after it.
     if s0 === nothing
         foreach(modifiers, m̄s, s̄s, init) do m, m̄, s̄, s
             pullback!((; piece = m̄, s = s̄, history = h̄), m, Init(), s, h)
@@ -70,6 +78,7 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     elseif s̄0 !== nothing
         foreach((a, b) -> a === nothing || (a .+= b), s̄0, s̄s)
     end
+    _scatter_history!(h̄, H̄, h, D)
     return nothing
 end
 

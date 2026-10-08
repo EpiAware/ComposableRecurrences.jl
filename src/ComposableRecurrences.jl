@@ -89,7 +89,8 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived,
+    Recent
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
     Hazard, Floor, Primary, Secondary, seeded, exponential_history,
@@ -112,6 +113,10 @@ include("modifiers.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
+# Parameters computed from other parameters.
+include("derived.jl")
+# Parameters read from the recurrence's own recent outputs.
+include("recent.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
 # Rescaling groups of strata to exogenous totals.
@@ -130,7 +135,5 @@ include("fallbacks.jl")
 include("interfaces.jl")
 # The Transform modifier, a pointwise map with parameters.
 include("transform.jl")
-# Parameters computed from other parameters.
-include("derived.jl")
 
 end # module ComposableRecurrences
