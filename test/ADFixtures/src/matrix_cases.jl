@@ -201,6 +201,31 @@ function strata_vaccination(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
 end
 
+# Leaky vaccination whose protection wanes back to the susceptible pool at
+# a rate per stratum and time.
+function strata_waning(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    f = function (θ)
+        g, logh, logR, doses, σ, ω = _unpack(
+            θ, (L,), (S, L), (S, T), (S, T), (1,), (S, T)
+        )
+        d = CR.Depletion(
+            pop; removals = TimeVarying(PerStratum(doses)),
+            protected = CR.Protected(only(σ)),
+            flows = CR.Flow(2 => 1, TimeVarying(PerStratum(ω)))
+        )
+        r = Recurrence(g; modifiers = (d,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    # Names the loss does not use, so it does not capture them.
+    doses0 = [100.0 * (1 + _noise(t, k + 9)) for k in 1:S, t in 1:T]
+    ω0 = [0.02 * (1 + 0.5 * _noise(t, k + 13)) for k in 1:S, t in 1:T]
+    logR0 = 0.1 .+ 0.05 .* _weights(S, T)
+    return f, _flat(_gi(L), fill(log(5.0), S, L), logR0, doses0, [0.3], ω0)
+end
+
 # Wards whose suspected patients are confirmed at a rate or ruled out as a
 # share, and whose confirmed patients are discharged at a rate and
 # transferred out in counts. The compartments are the strata, suspected
@@ -486,6 +511,10 @@ const CASES = [
         strata_vaccination, [5, 50], false,
     ),
     Case(
+        "strata_waning", "leaky vaccination with waning protection",
+        strata_waning, [5, 50], false,
+    ),
+    Case(
         "ward_flows", "wards with rate, share and count flows",
         ward_flows, [1, 5, 50], false,
     ),
@@ -546,6 +575,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
     "ward_flows" => (:Flows,),
+    "strata_waning" => (:depletion_flows,),
     "transform" => (:Transform,),
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),

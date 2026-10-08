@@ -23,7 +23,8 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Protected, Floor, Add, exponential_history, with_state
+using ComposableRecurrences: Depletion, Protected, Flow, Floor, Add,
+    exponential_history, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 
@@ -125,6 +126,41 @@ end
 # Both vaccines lower the peak, which comes slightly earlier because the pool shrinks faster.
 # At the same efficacy the all-or-nothing vaccine prevents slightly more infections, because the leaky vaccine leaves every vaccinated person some risk, which adds up while the epidemic runs.
 # A delay from dose to protection is a `Convolution` of the doses before they are passed as `removals`.
+#
+# ### Waning protection
+#
+# Protection that wanes moves people from the protected pool back to the susceptible pool.
+# The depletion's `flows` move between its pools after each day's infections, with the susceptible pool ``S`` as compartment 1 and the protected pool ``V`` as compartment 2.
+# So waning at rate ``\omega`` is a [`Flow`](@ref ComposableRecurrences.Flow), `Flow(2 => 1, ω)`, which acts before the day's doses:
+#
+# ```math
+# V'_t = e^{-\omega} V_t, \qquad
+# S'_t = S_t + \big(1 - e^{-\omega}\big) V_t,
+# ```
+#
+# with ``S_t`` and ``V_t`` the pools after the day's infections.
+# Here protection lasts about 20 days on average.
+# The rate is a parameter, so it can also differ by stratum or change over time.
+
+leaky = Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e))
+waning = [
+    "Leaky" => leaky,
+    "Leaky, waning" => Depletion(
+        N; removals = TimeVarying(doses), protected = Protected(1 - e), flows = Flow(2 => 1, 1 / 20)
+    ),
+]
+@chain waning begin
+    map(_) do (name, d)
+        y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
+        DataFrame(day = 1:T, vaccine = name, count = y)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :vaccine) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Waning raises the peak a little and adds about 10% more infections over the outbreak.
+# This is because people protected early return to the susceptible pool while the epidemic runs.
 #
 # ### Checking against a stochastic simulation
 #
