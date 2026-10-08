@@ -97,6 +97,53 @@ Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 A form without a `pullback!` is differentiated locally with ForwardDiff inside the rule, in the value, the pool, the population, the exponent and its own float scalars.
 The same conditions on its constructor apply as for a pointwise modifier.
 
+## [Specialising for speed](@id specialising)
+
+Every call of an operator has one form, and the work behind it is chosen by dispatch on the types of its pieces and its numbers.
+A method for a narrower type replaces the general one for that type alone, so a faster path for one combination needs no new interface and no change to any call.
+
+| To speed up | Add a method |
+|---|---|
+| a coupling with structure, such as low rank or banded | `forward(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
+| a modifier at one parameter form | `forward(m::MyModifier{<:PerStratum}, Step(), v, s, t, k)` |
+| a depletion form at one exponent type | `forward(form::MyForm, Step(), v, s, N, α::Bool)` |
+| how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
+
+A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``.
+
+```@example extending
+struct RankOne{V}
+    u::V
+    w::V
+end
+function CR.forward(C::RankOne, ::CR.Pressure, q, p, t)
+    c = zero(eltype(q))
+    for b in eachindex(p)
+        c += C.w[b] * p[b]
+    end
+    for a in eachindex(q)
+        q[a] = C.u[a] * c
+    end
+    return nothing
+end
+
+u, w = [0.9, 0.1, 0.4], [0.5, 0.3, 0.2]
+R = fill(1.2, 3, 6)
+h = ones(3, 2)
+low = Recurrence([0.5, 0.5]; coupling = RankOne(u, w))(R; history = h)
+dense = Recurrence([0.5, 0.5]; coupling = u * w')(R; history = h)
+low ≈ dense
+```
+
+The package specialises its own pieces the same way.
+These methods are internal, and the list says where to add one:
+
+- one stratum's kernel convolution, `_kdot`, by the kernel's form (shared, per stratum, time varying with either indexing, pairwise) and by the buffer's array type;
+- independent strata, where the coupling is `I` or `Diagonal`, the kernel is not pairwise and every modifier is pointwise, run each block of strata over the whole series (`_independent`);
+- a fixed convolution's body, `_convolve_series!`, by the buffer's number type: one vectorised `axpy` per lag for IEEE floats, one dot per output for other numbers;
+- the output's copy into the public layout, `_public`, by the buffer's array type;
+- the route of a call, the rule or plain AD, by [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) and the number types.
+
 ## Checking an extension
 
 `PieceInterface` declares the roles with Interfaces.jl.
