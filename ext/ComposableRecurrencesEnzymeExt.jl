@@ -7,7 +7,8 @@ module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
     _current, _log_plain, _note_plain_type, _plain, _rebuild_flag,
-    _run_forward, _run_pullback!
+    _run_forward, _run_pullback!, _untraced, _fft_convolve!,
+    _fft_convolve_back!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -125,6 +126,47 @@ function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_current)}, ::Type{<:Const}, tape
     )
     return ()
+end
+
+# Code Enzyme traces is not run as primal code, so a convolution it traces
+# takes the direct method, which it can differentiate.
+function EnzymeRules.forward(
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
+    )
+    return EnzymeRules.needs_primal(config) ? false : nothing
+end
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
+    )
+    primal = EnzymeRules.needs_primal(config) ? false : nothing
+    return EnzymeRules.AugmentedReturn(primal, nothing, nothing)
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}, tape
+    )
+    return ()
+end
+
+# The transforms are never reached from traced code, which `_untraced`
+# sends to the direct method; their rules keep Enzyme from differentiating
+# their FFTW calls.
+const _FFTCall = Union{typeof(_fft_convolve!), typeof(_fft_convolve_back!)}
+const _FFT_TRACED = "an FFT convolution was reached from AD-traced code"
+function EnzymeRules.forward(
+        ::EnzymeRules.FwdConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ErrorException(_FFT_TRACED))
+end
+function EnzymeRules.augmented_primal(
+        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ErrorException(_FFT_TRACED))
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, tape,
+        args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ErrorException(_FFT_TRACED))
 end
 
 # The primal and shadow are typed by the return annotation, which is the

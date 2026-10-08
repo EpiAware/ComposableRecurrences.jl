@@ -7,7 +7,7 @@ module ComposableRecurrencesMooncakeExt
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _current, _log_plain, _note_plain_type, _rebuild_flag, _run_forward,
-    _run_pullback!
+    _run_pullback!, _untraced, _fft_convolve!, _fft_convolve_back!
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -103,6 +103,28 @@ function Mooncake.frule!!(::Mooncake.Dual{typeof(_current)})
 end
 function Mooncake.rrule!!(f::CoDual{typeof(_current)})
     return Mooncake.zero_fcodual(_Current(Serial())), Mooncake.NoPullback(f)
+end
+
+# Code Mooncake traces is not run as primal code, so a convolution it traces
+# takes the direct method, which it can differentiate.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_untraced)}
+function Mooncake.frule!!(::Mooncake.Dual{typeof(_untraced)})
+    return Mooncake.zero_dual(false)
+end
+function Mooncake.rrule!!(f::CoDual{typeof(_untraced)})
+    return Mooncake.zero_fcodual(false), Mooncake.NoPullback(f)
+end
+# The transforms are never reached from traced code, which `_untraced`
+# sends to the direct method; as primitives, Mooncake does not derive rules
+# through their FFTW calls.
+const _FFTCall = Union{typeof(_fft_convolve!), typeof(_fft_convolve_back!)}
+const _FFT_TRACED = "an FFT convolution was reached from AD-traced code"
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{_FFTCall, Vararg}
+function Mooncake.frule!!(::Mooncake.Dual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
+    throw(ErrorException(_FFT_TRACED))
+end
+function Mooncake.rrule!!(::CoDual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
+    throw(ErrorException(_FFT_TRACED))
 end
 
 Mooncake.@is_primitive(

@@ -1,4 +1,95 @@
 @doc raw"""
+How a [`Convolution`](@ref) computes its lag sum
+```math
+\sum_{l=0}^{L-1} k_{i,l}\, x_{t-l,i}.
+```
+[`ComposableRecurrences.Direct`](@ref) and [`ComposableRecurrences.FFTMethod`](@ref) are the methods.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+ComposableRecurrences.Direct() isa ComposableRecurrences.ConvolutionMethod
+
+# output
+
+true
+```
+"""
+abstract type ConvolutionMethod end
+
+@doc raw"""
+The lag sum of a [`Convolution`](@ref) taken term by term,
+```math
+\sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i},
+```
+at ``O(T L)`` cost for ``T`` outputs and ``L`` lags.
+It takes every kernel and number type, and is the default.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+Convolution([0.5, 0.5]; method = ComposableRecurrences.Direct())([1.0, 2.0, 4.0])
+
+# output
+
+3-element Vector{Float64}:
+ 0.5
+ 1.5
+ 3.0
+```
+"""
+struct Direct <: ConvolutionMethod end
+
+@doc raw"""
+The lag sum of a [`Convolution`](@ref) through the discrete Fourier
+transform of the zero-padded series, by overlap-add,
+```math
+\sum_{l=0}^{L-1} k_{i,l}\, x_{t-l,i}
+= \mathcal{F}^{-1}\!\left[\mathcal{F}(k_i)\, \mathcal{F}(x_i)\right]_t .
+```
+The ``n = m + t_1`` buffered inputs, ``m`` from the history and the rest up
+to the last time ``t_1``, are split into blocks of ``N - L + 1``, each
+transformed at size ``N``, the smallest 5-smooth number at least
+``\min(n + L - 1, 8L)``.
+Lags from ``n`` on reach no input and are dropped first.
+A block of the whole series is one transform.
+For a series much longer than the kernel the cost is ``O(n \log L)``
+rather than ``O(T L)``, so it pays only for long kernels; the reverse pass
+uses the same transforms.
+
+It runs once its weak dependency is loaded, as the
+[FFT extension](@ref extension-fftw) page sets out; without it, a call with
+this method is refused.
+It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
+`Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
+number type (dual numbers, say), other arrays (device or traced), and
+forward-mode or plain reverse-mode AD of the call take
+[`ComposableRecurrences.Direct`](@ref).
+It does not use the set [`ComposableRecurrences.Executor`](@ref).
+
+The error of each output is about the machine epsilon times the size of the
+inputs and kernel in its block, not times the output itself.
+So outputs far below the inputs around them lose relative accuracy, and
+small outputs of a positive kernel and inputs can come out negative; in
+`Float32` that starts about six orders of magnitude below the peak.
+A `NaN` or `Inf` input spreads to every output of its block, including
+earlier ones.
+
+# Examples
+```jldoctest
+using ComposableRecurrences, FFTW
+k = [0.1, 0.4, 0.3, 0.2]
+x = collect(1.0:6.0)
+Convolution(k; method = ComposableRecurrences.FFTMethod())(x) ≈ Convolution(k)(x)
+
+# output
+
+true
+```
+"""
+struct FFTMethod <: ConvolutionMethod end
+
+@doc raw"""
 A causal convolution whose kernel starts at lag 0: each output weights the
 current and past inputs, then is scaled by the gain and shifted by the add
 input,
@@ -51,6 +142,11 @@ The output has the layout of `x` and length `stop - start + 1`.
 # Arguments
 - `kernel`: the kernel, lag 0 first.
 
+# Keyword Arguments
+- `method`: how the lag sum is computed, a
+  [`ComposableRecurrences.ConvolutionMethod`](@ref);
+  [`ComposableRecurrences.Direct`](@ref) by default.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -71,20 +167,32 @@ Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
  1.4
 ```
 """
-struct Convolution{K} <: AbstractOperator
+struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
-    function Convolution(kernel::K) where {K}
+    "How the lag sum is computed: [`ComposableRecurrences.Direct`](@ref) or [`ComposableRecurrences.FFTMethod`](@ref)."
+    method::M
+    function Convolution(kernel::K; method = Direct()) where {K}
         kernel isa _PairwiseKernel && throw(
             ArgumentError(
                 "a Pairwise kernel is for a Recurrence, not a Convolution; " *
                     "got $(_describe(kernel))"
             )
         )
+        method isa ConvolutionMethod || throw(
+            ArgumentError(
+                "method must be a ComposableRecurrences.ConvolutionMethod, " *
+                    "Direct() or FFTMethod(); got $(repr(method))"
+            )
+        )
         _check_kernel_shape(kernel)
-        return new{K}(kernel)
+        return new{K, typeof(method)}(kernel, method)
     end
 end
+
+# A rebuild of a `Convolution` from its fields keeps its method.
+_convolution_flat(kernel, method) = Convolution(kernel; method)
+ConstructionBase.constructorof(::Type{<:Convolution}) = _convolution_flat
 
 # The call builds the positional arguments
 # `(x, gain, add, history, start, stop)` and routes them through the native
@@ -107,9 +215,9 @@ end
 # The cache keeps the lag sums `Y` before the gain, which the gain's
 # cotangent reads.
 function _run_forward(c::Convolution, x, gain, add, history, start, stop)
-    Y, X, m, stop = _conv(c, x, gain, add, history, start, stop)
+    Y, X, m, stop, fft = _conv(c, x, gain, add, history, start, stop)
     out = _finish(Y, x, gain, add, start)
-    return out, (; gain = _tape(gain), add, start, stop, X, Y, m)
+    return out, (; gain = _tape(gain), add, start, stop, X, Y, m, fft)
 end
 function _primal(c::Convolution, x, gain, add, history, start, stop)
     Y = first(_conv(c, x, gain, add, history, start, stop))
@@ -118,12 +226,44 @@ end
 
 # Checks the call, then convolves into a time-first buffer; returns the
 # output buffer of lag sums, the input buffer (history then `x`), the
-# history length and the last time.
+# history length, the last time and whether the transform ran.
 function _conv(c::Convolution, x, gain, add, history, start, stop)
     Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
-    Y, X = _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
-    return Y, X, m, stop
+    fft = _fft_path(c.method, c.kernel, Tp, x)
+    if fft
+        X = _input_buffer(Tp, x, history, m, S, stop)
+        Y = _zeros(x, Tp, stop - start + 1, S)
+        _fft_convolve!(Y, c.kernel, X, m, start)
+    else
+        Y, X = _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
+    end
+    return Y, X, m, stop, fft
 end
+
+# Whether a call takes the transform: never for `Direct()`. For
+# `FFTMethod()` the FFTW extension adds the methods that answer; without it
+# the call is refused.
+_fft_path(::Direct, kernel, ::Type, x) = false
+_fft_path(::FFTMethod, kernel, ::Type, x) = _no_fftw()
+function _no_fftw()
+    throw(
+        ArgumentError(
+            "FFTMethod() needs the FFTW package: load it with `using FFTW`"
+        )
+    )
+end
+
+# The transform's forward and reverse passes over `Float32` or `Float64`
+# buffers, added by the FFTW extension.
+_fft_convolve!(Y, kernel, X, m, start) = _no_fftw()
+_fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
+
+# Whether AD is tracing the code that calls this: `false` under forward-mode
+# AD and plain reverse-mode AD, whose extensions say so, and `true`
+# otherwise, including the forward pass of a native rule, which runs as
+# primal code. Inference must not see the constant, or it folds the branch
+# away before the AD rules replace it.
+_untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
 # buffer eltype, the strata, the history length and the last time.
@@ -310,11 +450,11 @@ function _convolve_series!(y, c, X, k, m, start)
     return y
 end
 
-# Lag `d`'s part of output rows up to `last`, from its first defined row.
-@inline function _lag_axpy!(y, c, X, k, o, d, last)
+# Lag `d`'s part of output rows up to `jlast`, from its first defined row.
+@inline function _lag_axpy!(y, c, X, k, o, d, jlast)
     j0 = max(1, d + 1 - o)
-    j0 > last && return y
-    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + last - d), k), view(y, j0:last))
+    j0 > jlast && return y
+    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + jlast - d), k), view(y, j0:jlast))
     return y
 end
 
@@ -427,7 +567,12 @@ function pullback!(grads, c::Convolution, ::Run, cache)
         _scale_back!(Ȳ, ḡ, ā, grads.y, Y, gain, start)
     end
     X̄ = zero(X)
-    _convolve_back!(X̄, cotangent(grads.piece, :kernel), c.kernel, X, Ȳ, m, start)
+    k̄ = cotangent(grads.piece, :kernel)
+    if cache.fft
+        _fft_convolve_back!(X̄, k̄, c.kernel, X, Ȳ, m, start)
+    else
+        _convolve_back!(X̄, k̄, c.kernel, X, Ȳ, m, start)
+    end
     _add_rows!(x̄, X̄, m, stop)
     _add_rows!(h̄, X̄, 0, m)
     return nothing
