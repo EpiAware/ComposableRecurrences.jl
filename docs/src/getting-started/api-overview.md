@@ -95,6 +95,7 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | vector | one kernel shared by every series | ``L`` lags |
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter per series | adds a leading `S` axis |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
+| [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
 
@@ -113,7 +114,6 @@ Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series re
 | `I`, `λI` | no mixing, or a uniform scaling | – |
 | `S × S` matrix (dense, `Diagonal`, sparse) | contact, mobility or type-to-type mixing | – |
 | [`TimeVarying(C)`](@ref TimeVarying) with `C` `S × S × T` | mixing that changes by day | – |
-| [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) with kernel `nothing` | routes that each pair a kernel with a coupling, such as community and funeral contacts | – |
 | your type | a `forward` method for [`Pressure()`](@ref ComposableRecurrences.Pressure) | – |
 
 ## [Modifiers](@id overview-modifiers)

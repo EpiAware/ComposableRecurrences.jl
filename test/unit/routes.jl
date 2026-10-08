@@ -54,7 +54,7 @@ end
         ),
     ]
     for routes in cases
-        r = Recurrence(nothing; coupling = Routes(routes...))
+        r = Recurrence(Routes(routes...))
         ref = naive_recurrence(
             (t, a, b, i) -> routes_weight(routes, t, a, b, i), h, T;
             gain = (a, t) -> R[a, t]
@@ -65,7 +65,7 @@ end
     # Primary route kernels read the column of each value's own time, so
     # the seed sits at times 1 to 5.
     routes = ((I, TimeVarying(rand(rng, 3, 5 + T), CR.Primary())), (Ks, rand(rng, 2)))
-    r = Recurrence(nothing; coupling = Routes(routes...))
+    r = Recurrence(Routes(routes...))
     Rp = hcat(ones(S, 5), R)
     y = r(Rp; history = h, start = 6)
     ref = naive_recurrence(
@@ -85,21 +85,39 @@ end
     A = [K1[i, j] * get(g1, l, 0.0) + K2[i, j] * g2[l] for i in 1:S, j in 1:S, l in 1:L]
     h = rand(rng, S, L)
     R = rand(rng, S, T)
-    routes = Recurrence(nothing; coupling = Routes((K1, g1), (K2, g2)))
+    routes = Recurrence(Routes((K1, g1), (K2, g2)))
     @test routes(R; history = h) ≈ Recurrence(Pairwise(A))(R; history = h)
 end
 
-@testitem "Routes: one route equals the kernel and its coupling" begin
+@testitem "Routes: fold into a cheaper form" begin
     using ComposableRecurrences, LinearAlgebra, SparseArrays, Random
     rng = Xoshiro(23)
     S, L, T = 3, 4, 8
     g = rand(rng, L)
     h = rand(rng, S, L)
     R = rand(rng, S, T)
+    # One route is its kernel with its coupling; unfolded, it gives the same.
     for K in (rand(rng, S, S), sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4]), 0.7I)
-        one = Recurrence(nothing; coupling = Routes((K, g)))
-        @test one(R; history = h) ≈ Recurrence(g; coupling = K)(R; history = h)
+        one = Recurrence(Routes((K, g)))
+        @test one.kernel === g
+        @test one.coupling === K
+        ref = Recurrence(g; coupling = K)(R; history = h)
+        @test one(R; history = h) ≈ ref
+        @test Recurrence(Routes((K, g)), I, ())(R; history = h) ≈ ref
     end
+    # A pairwise route keeps its form, as it takes coupling I.
+    P = Pairwise(rand(rng, S, S, L))
+    @test Recurrence(Routes((0.5I, P))).kernel isa Routes
+    # Routes on scaled identities sum into one kernel.
+    g2 = rand(rng, L + 2)
+    folded = Recurrence(Routes((0.5I, g), (I, g2)))
+    @test folded.kernel ≈ 0.5 .* vcat(g, 0.0, 0.0) .+ g2
+    @test folded(R; history = h) ≈
+        Recurrence(Routes((0.5I, g), (I, g2)), I, ())(R; history = h)
+    # Other mixes keep their routes.
+    @test Recurrence(Routes((0.5I, g), (Diagonal(rand(rng, S)), g2))).kernel isa Routes
+    @test Recurrence(Routes((0.5I, g), (I, PerStratum(rand(rng, S, 2))))).kernel isa
+        Routes
 end
 
 @testitem "Routes: modifiers, add, resume and Float32" setup = [TestModifiers] begin
@@ -116,7 +134,7 @@ end
         A[:, :, l] .+= Matrix(K) .* g[l]
     end
     pop = FlooredDepletion([50.0, 60.0, 70.0])
-    r = Recurrence(nothing; coupling = routes, modifiers = (pop,))
+    r = Recurrence(routes; modifiers = (pop,))
     ref = Recurrence(Pairwise(A); modifiers = (pop,))
     h = rand(rng, S, 4)
     R = 1 .+ rand(rng, S, T)
@@ -129,7 +147,7 @@ end
     @test r(R; history = h[:, 3:4]) ≈ ref(R; history = h[:, 3:4])
     # Float32 throughout gives a Float32 output.
     r32 = Recurrence(
-        nothing; coupling = Routes(
+        Routes(
             (Float32.(routes.couplings[1]), Float32.(routes.kernels[1])),
             (Float32.(routes.couplings[2]), Float32.(routes.kernels[2]))
         )
@@ -141,21 +159,24 @@ end
     using ComposableRecurrences, LinearAlgebra
     g = [0.5, 0.5]
     K = ones(2, 2)
-    @test_throws "needs coupling = Routes" Recurrence(nothing)
-    @test_throws "needs coupling = Routes" Recurrence(nothing; coupling = K)
-    @test_throws "must be nothing, got" Recurrence(g; coupling = Routes((K, g)))
+    R2 = Routes((K, g), (2K, g))
+    @test_throws "coupling must be I, got" Recurrence(R2; coupling = K)
+    @test_throws "coupling must be I, got" Recurrence(R2; coupling = 0.5I)
+    @test_throws "coupling must be I, got" Recurrence(R2, K, ())
+    @test_throws "Routes is a kernel" Recurrence(g; coupling = R2)
     @test_throws "at least one route" Routes()
     @test_throws "(coupling, kernel) tuple" Routes((K, g), K)
     @test_throws "(coupling, kernel) tuple" Routes((K, g, g))
-    @test_throws "cannot itself be Routes" Routes((Routes((K, g)), g))
+    @test_throws "cannot itself be Routes" Routes((K, Routes((K, g))))
+    @test_throws "Routes is a kernel" Routes((Routes((K, g)), g))
     @test_throws "Pairwise is a kernel" Routes((Pairwise(ones(2, 2, 2)), g))
     @test_throws "a kernel array is a vector" Routes((K, ones(2, 2)))
-    r = Recurrence(nothing; coupling = Routes((K, g), (ones(3, 3), g)))
+    r = Recurrence(Routes((K, g), (ones(3, 3), g)))
     @test_throws DimensionMismatch r(ones(2, 4); history = ones(2, 2))
-    r = Recurrence(nothing; coupling = Routes((I, PerStratum(ones(3, 2)))))
+    r = Recurrence(Routes((I, PerStratum(ones(3, 2)))))
     @test_throws DimensionMismatch r(ones(2, 4); history = ones(2, 2))
-    r = Recurrence(nothing; coupling = Routes((I, TimeVarying(ones(2, 3)))))
+    r = Recurrence(Routes((I, TimeVarying(ones(2, 3)))))
     @test_throws "kernel covers 3 times" r(ones(2, 4); history = ones(2, 2))
-    r = Recurrence(nothing; coupling = Routes((TimeVarying(ones(2, 2, 3)), g)))
+    r = Recurrence(Routes((TimeVarying(ones(2, 2, 3)), g)))
     @test_throws "coupling covers 3 times" r(ones(2, 4); history = ones(2, 2))
 end

@@ -34,7 +34,7 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     m̄s = _mirrors(cotangent(r̄, :modifiers), modifiers)
     s̄s = map(m -> _zeros(H, Tp, nstate(m, S)), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
-    kbuf = _kernel_buffer(ḡ, C̄, coupling, kernel, H, S, L)
+    kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
     v̄ = _zeros(H, Tp, S)
     p̄ = _zeros(H, Tp, S)
     q̄ = _zeros(H, Tp, S)
@@ -58,9 +58,10 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
                 q̄[k] = _at(gain, k, τ) * v̄[k]
             end
         end
-        _core_back!(kbuf, ḡ, C̄, coupling, kernel, p̄, q̄, P, H, H̄, t, τ, L)
+        _coupling_back!(p̄, C̄, coupling, q̄, P, H, H̄, t, τ, L)
+        _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t, τ, L)
     end
-    _kernel_finish!(ḡ, C̄, coupling, kbuf)
+    _kernel_finish!(ḡ, kbuf)
     _scatter_history!(h̄, H̄, h, L)
     if s0 === nothing
         foreach(modifiers, m̄s, s̄s, init) do m, m̄, s̄, s
@@ -129,14 +130,6 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
     return nothing
 end
 
-# The pressure's cotangent at step `t` back through the coupling and the
-# kernel, into the buffer's cotangent and their mirrors.
-function _core_back!(kbuf, ḡ, C̄, C, kernel, p̄, q̄, P, H, H̄, t, τ, L)
-    _coupling_back!(p̄, C̄, C, q̄, P, H, H̄, t, τ, L)
-    _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t, τ, L)
-    return nothing
-end
-
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
 function _coupling_back!(p̄, C̄, C::UniformScaling, q̄, P, H, H̄, t, τ, L)
@@ -163,7 +156,6 @@ end
 
 # A buffer for the kernel cotangent in the oldest-first order the forward
 # pass reads a reversed fixed kernel in, or `nothing`.
-_kernel_buffer(ḡ, C̄, C, kernel, H, S, L) = _kernel_buffer(ḡ, kernel, H, S, L)
 _kernel_buffer(ḡ, kernel, H, S, L) = nothing
 # One column per stratum, reduced after the loop, so each stratum writes only
 # its own slots.
@@ -263,7 +255,6 @@ Base.@propagate_inbounds function _add_weight!(
 end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.
-_kernel_finish!(ḡ, C̄, C, kbuf) = _kernel_finish!(ḡ, kbuf)
 _kernel_finish!(ḡ, ::Nothing) = nothing
 function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
     L = size(kbuf, 1)

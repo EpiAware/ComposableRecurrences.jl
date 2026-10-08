@@ -240,7 +240,7 @@ end
 # Some diseases spread by more than one route, each with its own timing and contacts.
 # Ebola spreads in the community while a case is ill and at the funeral after death.
 # [`Routes`](@ref) pairs each route's kernel with its own coupling.
-# The recurrence's kernel is then `nothing`.
+# The routes are the recurrence's kernel, so its coupling stays `I`.
 # This is the `Pairwise` kernel ``A_{ij,l} = \sum_r C^{(r)}_{ij} w^{(r)}_l`` held as its routes.
 # Each step costs one convolution and one coupling product per route.
 # A sparse route coupling stays sparse.
@@ -256,7 +256,7 @@ cfr = 0.5
 gi_funeral = cfr .* Convolution(funeral_days)(vcat(death, 0.0))
 K_funeral = sparse([0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.1 0.9])
 routes = Routes((K, gi), (K_funeral, gi_funeral))
-ebola = Recurrence(nothing; coupling = routes, modifiers = (depletion,))
+ebola = Recurrence(routes; modifiers = (depletion,))
 ebola_cases = ebola(0.9; history = seed, stop = T);
 
 # Each route's share of the force is not recorded, but it can be recomputed.

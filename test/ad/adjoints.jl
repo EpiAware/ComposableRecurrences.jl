@@ -144,20 +144,20 @@
             (
                 "routes: per-stratum, pairwise and Primary kernels",
                 Recurrence(
-                    nothing; coupling = Routes(
+                    Routes(
                         (0.7I, PerStratum(rand(rng, S, 2) ./ 2)),
                         (Diagonal(rand(rng, S)), Pairwise(rand(rng, S, S, L) ./ 3)),
                         (
                             TimeVarying(rand(rng, S, S, T) ./ 2),
                             TimeVarying(rand(rng, L, T), CR.Primary()),
                         ),
-                    ), modifiers = (Hazard(60.0),)
+                    ); modifiers = (Hazard(60.0),)
                 ),
                 rec(R, nothing, h; start = L + 1),
             ),
             (
                 "routes with state, sparse coupling",
-                CR._WithState(Recurrence(nothing; coupling = Routes((Ks, g), (K, g[1:2])))),
+                CR._WithState(Recurrence(Routes((Ks, g), (K, g[1:2])))),
                 rec(R, nothing, h),
             ),
             (

@@ -152,7 +152,7 @@ function strata_routes(wrap, z::Size)
         )
         Ks = SparseMatrixCSC(S, S, K2.colptr, K2.rowval, collect(v))
         r = Recurrence(
-            nothing; coupling = Routes((K1, g1), (Ks, g2)),
+            Routes((K1, g1), (Ks, g2));
             modifiers = (CR.Depletion(pop, CR.Floor()),)
         )
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))

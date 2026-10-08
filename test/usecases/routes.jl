@@ -41,7 +41,7 @@
             (β[3] .* K_funeral, funeral)
         )
         depletion = CR.Depletion(PerStratum(pop), CR.Floor())
-        return Recurrence(nothing; coupling = routes, modifiers = (depletion,))
+        return Recurrence(routes; modifiers = (depletion,))
     end
     run(β) = model(β)(R; history = seed)
 
@@ -93,7 +93,7 @@
     # Per-route incidence is recomputed after the run as each route's
     # coupling applied to a Convolution of the infections with its kernel.
     y = run(β)
-    routes = model(β).coupling
+    routes = model(β).kernel
     m = size(seed, 2)
     force = sum(zip(routes.couplings, routes.kernels)) do (K, g)
         K * Convolution(vcat(0.0, g))(hcat(seed, y))[:, (m + 1):end]

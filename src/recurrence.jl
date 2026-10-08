@@ -50,6 +50,9 @@ place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
 produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
+A [`Routes`](@ref) kernel sums routes, each a kernel with its own coupling,
+so its coupling is `I` too; the keyword constructor folds routes that have
+a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
@@ -132,7 +135,6 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
-        _check_routes(kernel, coupling)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
         )
@@ -149,8 +151,13 @@ _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, cou
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
 function Recurrence(kernel; coupling = I, modifiers = ())
-    return Recurrence(kernel, coupling, Tuple(modifiers))
+    k, C = _fold(kernel, coupling)
+    return Recurrence(k, C, Tuple(modifiers))
 end
+
+# A kernel and coupling with a cheaper equivalent form, such as routes that
+# fold into one kernel, are replaced by it.
+_fold(kernel, coupling) = (kernel, coupling)
 
 @doc raw"""
 The state [`ComposableRecurrences.with_state`](@ref) returns with an
@@ -239,9 +246,6 @@ end
 # runs once per call, so it stays out of line.
 _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
-function _check_primary_seeds(kernel, C, history, start)
-    return _check_primary_seed(kernel, history, start)
-end
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
     m = size(history, ndims(history))
     start > m || throw(
@@ -253,7 +257,7 @@ end
     return nothing
 end
 
-# A Pairwise kernel already mixes strata, so its coupling is `I`.
+# A Pairwise or Routes kernel already mixes strata, so its coupling is `I`.
 _check_pairwise_coupling(kernel, coupling) = nothing
 function _check_pairwise_coupling(::_PairwiseKernel, coupling)
     coupling isa UniformScaling && isone(coupling.λ) || throw(
@@ -268,8 +272,6 @@ end
 # The kernel shapes: a bare array is lags only, strata and time are added
 # by wrappers.
 _check_kernel_shape(k::AbstractVector) = nothing
-# A `Routes` coupling holds the kernels.
-_check_kernel_shape(::Nothing) = nothing
 _check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
 _check_kernel_shape(k::Pairwise{<:AbstractArray{<:Any, 3}}) = nothing
 _check_kernel_shape(k::TimeVarying{<:Any, <:AbstractMatrix}) = nothing
@@ -330,7 +332,6 @@ _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
-_nlags(k, C) = _nlags(k)
 
 # Kernel strata checks against `S` strata.
 _check_kernel_strata(k, S) = nothing
@@ -359,8 +360,8 @@ function _oldest_first(g::Pairwise)
 end
 _oldest_first(g) = g
 
-# The kernel as a run reads it, at buffer eltype `Tp`.
-_run_kernel(::Type{Tp}, g, C, h, S) where {Tp} = _oldest_first(g)
+# The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
+_run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
 
 # A kernel's weight on stratum `b`'s value at lag (or delay) index `i` in
 # stratum `a`, read in column `τ`. Kernels that do not mix strata read only
@@ -590,7 +591,7 @@ function _run_args(r, gain, history, state, add, start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
     h, s0, τ0 = _resume(history, state, start, gain, add)
-    _check_primary_seeds(r.kernel, r.coupling, history, start)
+    _check_primary_seed(r.kernel, history, start)
     return gain, add, h, s0, τ0
 end
 
@@ -628,7 +629,7 @@ function uses_adjoint(r::Recurrence, ::Run)
 end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
 function _type_adjoint(r::Recurrence, ::Run)
-    return _coupling_adjoint(r.coupling) !== :none &&
+    return _kernel_adjoint(r.kernel) && _coupling_adjoint(r.coupling) !== :none &&
         _all_modifiers_adjoint(r.modifiers)
 end
 _type_adjoint(w::_WithState, ::Run) = _type_adjoint(w.r, Run())
@@ -637,6 +638,9 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
         _all_modifiers_adjoint(Base.tail(ms))
 end
+
+# Whether the rule covers the kernel; routes add their couplings.
+_kernel_adjoint(kernel) = true
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
@@ -799,7 +803,7 @@ end
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     (; kernel, coupling, modifiers) = r
-    L = _nlags(kernel, coupling)
+    L = _nlags(kernel)
     S = _nstrata(h)
     _check_kernel_strata(kernel, S)
     _check_coupling(coupling, S)
@@ -964,7 +968,7 @@ function _run(
         ::Val{record}
     ) where {Tp, record}
     (; coupling, modifiers) = r
-    kernel = _run_kernel(Tp, r.kernel, coupling, h, S)
+    kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_zeros(h, Tp, L + T, S), h, L)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)

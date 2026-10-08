@@ -361,7 +361,7 @@ function _routes(w, θ)
         θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, L), (S, T)
     )
     Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
-    r = Recurrence(nothing; coupling = Routes((K, g1), (Ks, g2)))
+    r = Recurrence(Routes((K, g1), (Ks, g2)))
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
