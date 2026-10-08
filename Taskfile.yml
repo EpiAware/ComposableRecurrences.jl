@@ -68,18 +68,6 @@ tasks:
       - julia --project=test/ad test/ad/runtests.jl
       - echo "✅ AD gradient tests completed"
 
-  test-reactant:
-    desc: >-
-      Run the Reactant support matrix (Julia 1.12, isolated environment)
-      and regenerate test/reactant/RESULTS.md
-    env:
-      JULIAUP_CHANNEL: '1.12'
-    cmds:
-      - echo "🧪 Running Reactant support matrix..."
-      - julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
-      - julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
-      - echo "✅ Reactant support matrix completed"
-
   test-ad-backend:
     desc: >-
       Run AD gradient tests for a single backend tag, as the per-backend CI
