@@ -705,12 +705,14 @@ function _pressure_fits(::Val{true}, C, h)
     return _nstrata(h) + length(_param_tuple(C)) <= _LOCAL_PRESSURE
 end
 
-# The plain-AD note names the coupling, modifiers and depletion forms that
-# do not rebuild, or the coupling whose local derivative the strata outgrow.
+# The plain-AD note names the coupling, modifiers and depletion forms with
+# neither a pullback! nor a local derivative, those that do not rebuild, or
+# the coupling whose local derivative the strata outgrow. It is built only
+# when the note is first logged for a type.
 function _plain_why(r::Recurrence)
     if _istrue(r.rebuilds)
-        _type_adjoint(r, Run()) && _coupling_adjoint(r.coupling) === :local ||
-            return _ADJOINT_NOTE
+        _type_adjoint(r, Run()) || return _no_adjoint_why(r)
+        _coupling_adjoint(r.coupling) === :local || return _ADJOINT_NOTE
         return "has a coupling ($(nameof(typeof(r.coupling)))) without a " *
             "pullback! and more strata than its local derivative covers"
     end
@@ -721,6 +723,21 @@ function _plain_why(r::Recurrence)
         "local derivative cannot rebuild from its own parameters"
 end
 _plain_why(w::_WithState) = _plain_why(w.r)
+function _no_adjoint_why(r::Recurrence)
+    C = r.coupling
+    C_name = _coupling_adjoint(C) === :none ? (nameof(typeof(C)),) : ()
+    names = join(unique((C_name..., _no_adjoint(r.modifiers...)...)), ", ")
+    return "has a coupling, modifier or depletion form ($names) with no " *
+        "pullback! that the rule can use"
+end
+_no_adjoint() = ()
+function _no_adjoint(m, ms...)
+    rest = _no_adjoint(ms...)
+    _modifier_adjoint(m) === :none || return rest
+    return (_part_name(m), rest...)
+end
+_part_name(m) = nameof(typeof(m))
+_part_name(m::Depletion) = _form_adjoint(m.form) ? :Depletion : nameof(typeof(m.form))
 _not_rebuilt() = ()
 function _not_rebuilt(m, ms...)
     rest = _not_rebuilt(ms...)

@@ -435,6 +435,13 @@ end
         @test !CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{:plain}]
     end
+    # The plain-AD note names the part that sends the operator there.
+    why(; kwargs...) = CR._plain_why(Recurrence(g; kwargs...))
+    @test occursin("(Scale) with no pullback!", why(modifiers = (Scale(0.9),)))
+    @test occursin("(Mix)", why(coupling = Mix(K, [1.0, 1.0])))
+    @test occursin(
+        "(PoolDepletion)", why(modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0])))
+    )
     # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
     # overrides it.
     struct Scaled{A}
