@@ -815,7 +815,9 @@ end
         ForwardDiff.gradient(fnz, copy(K.nzval))
     # A sparse route coupling, after a dense route, is refused too.
     rr = Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, [0.3, 0.2])))
-    @test_throws ArgumentError Enzyme.gradient(mode, Enzyme.Const(f), rr)
+    @test_throws "plain Enzyme reverse AD of a sparse coupling" Enzyme.gradient(
+        mode, Enzyme.Const(f), rr
+    )
     froutes(nz) = g(
         Recurrence(
             Routes(
@@ -828,11 +830,23 @@ end
         ForwardDiff.gradient(froutes, copy(K.nzval))
     # In any route, here the ninth.
     r9 = Recurrence(Routes(ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)..., (K, [0.3, 0.2])))
-    @test_throws ArgumentError Enzyme.gradient(mode, Enzyme.Const(f), r9)
+    @test_throws "plain Enzyme reverse AD of a sparse coupling" Enzyme.gradient(
+        mode, Enzyme.Const(f), r9
+    )
     # A constant sparse route coupling is differentiated by plain AD.
     fk(gk) = sum(NoAdjoint(Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, gk))))(R; history = h))
     @test Enzyme.gradient(mode, Enzyme.Const(fk), [0.3, 0.2])[1] ≈
         ForwardDiff.gradient(fk, [0.3, 0.2])
+    # The same as the ninth route, with the gain and history active too, so
+    # the cotangent reaches the buffer through the constant coupling.
+    dense8 = ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)
+    function f9(θ)
+        gk, Rθ, hθ = θ[1:2], reshape(θ[3:17], 3, 5), reshape(θ[18:23], 3, 2)
+        r = NoAdjoint(Recurrence(Routes(dense8..., (K, gk))))
+        return sum(abs2, r(Rθ; history = hθ))
+    end
+    θ9 = [0.3; 0.2; vec(0.5 .+ 0.1 .* R); vec(h)]
+    @test Enzyme.gradient(mode, Enzyme.Const(f9), θ9)[1] ≈ ForwardDiff.gradient(f9, θ9)
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin

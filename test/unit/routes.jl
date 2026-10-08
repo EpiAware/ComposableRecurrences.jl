@@ -181,3 +181,26 @@ end
     r = Recurrence(Routes((TimeVarying(ones(2, 2, 3)), g)))
     @test_throws "coupling covers 3 times" r(ones(2, 4); history = ones(2, 2))
 end
+
+@testitem "Routes: the rule needs a pullback on every route coupling" begin
+    using ComposableRecurrences, ConstructionBase, LinearAlgebra, SparseArrays
+    CR = ComposableRecurrences
+    # A coupling with `forward` only, no `pullback!`.
+    struct Halve end
+    CR.forward(::Halve, ::CR.Pressure, q, p, t) = (q .= p ./ 2; nothing)
+    g = [0.5, 0.3]
+    K = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
+    with = Recurrence(Routes((fill(0.2, 3, 3), g), (K, g)))
+    without = Recurrence(Routes((fill(0.2, 3, 3), g), (Halve(), g), (Halve(), g)))
+    @test CR.uses_adjoint(with, CR.Run())
+    @test !CR.uses_adjoint(without, CR.Run())
+    @test CR._plain_why(without) == "has route couplings (Halve) without a pullback!"
+    @test without(ones(3, 4); history = ones(3, 2)) ≈
+        Recurrence(Routes((fill(0.2, 3, 3), g), (I, g)))(ones(3, 4); history = ones(3, 2))
+    # A rebuild from the fields skips the pairing.
+    R = with.kernel
+    R2 = ConstructionBase.constructorof(typeof(R))(R.couplings, R.kernels)
+    @test R2 isa Routes
+    @test R2.couplings === R.couplings
+    @test R2.kernels === R.kernels
+end
