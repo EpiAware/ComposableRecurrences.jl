@@ -9,8 +9,8 @@ name: Reactant
 # results.tsv (test/reactant/compare.jl), with the changed cells in the job
 # summary; the committed results are checked against expected.jl in the
 # main test suite.
-# The steps mirror `task test-reactant` but call Julia directly, so the job
-# does not depend on the managed Taskfile.
+# The steps are the commands in the header of test/reactant/runtests.jl, so
+# the job does not depend on the managed Taskfile.
 
 on:
   push:
