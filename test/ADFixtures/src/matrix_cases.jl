@@ -220,6 +220,26 @@ function zone_allocate(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .* _weights(S, T), logtot)
 end
 
+# Isolation beds: each odd stratum's cases are admitted up to its free beds
+# and transmit less; the overflow goes to the next stratum. Smoothed, with
+# a tenth of the occupancy leaving each day.
+function capacity_beds(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    P = S ÷ 2
+    pairs = [(2p - 1) => 2p for p in 1:P]
+    G = PerStratum([(isodd(k) ? 0.5 : 1.0) * g for k in 1:S, g in _gi(L)])
+    f = function (θ)
+        logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
+        beds = CR.Capacity(
+            PerStratum(exp.(logC)), CR.Stock(0.1); pairs, softness = 0.1
+        )
+        r = Recurrence(G; modifiers = (beds,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    return f, _flat(fill(log(5.0), S, L), 0.4 .+ 0.1 .* _weights(S, T), fill(log(20.0), P))
+end
+
 # A renewal whose kernel belongs to each infector's own infection time
 # (Primary indexing), seeded at times 1 to L.
 function renewal_primary(wrap, z::Size)
@@ -505,6 +525,10 @@ const CASES = [
         "transform", "per-stratum PGF iteration, Transform modifier",
         transform, [5, 50], false,
     ),
+    Case(
+        "capacity_beds", "isolation beds with overflow, Capacity modifier",
+        capacity_beds, [5, 50], false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
@@ -516,6 +540,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
     "transform" => (:Transform,),
+    "capacity_beds" => (:Capacity,),
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),
     "conv_gain" => (:contributions,),

@@ -65,6 +65,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
+| `Capacity` | 0.49 | 0.35 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |

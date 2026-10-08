@@ -340,6 +340,37 @@ function _clamp_redistribute_add(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A bed cap on stratum 1 with its overflow in stratum 2, smoothed so finite
+# differences see no kink; admitted cases transmit less. The scalars are
+# indexed from `θ`: built from `only` of a view, the modifier makes Enzyme
+# reverse fail with an `EnzymeNoShadowError` in the `Recurrence` constructor.
+const GCAP = [0.5, 1.0, 1.0] .* G0'
+function _capacity_stock(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    n = length(θ)
+    beds = ComposableRecurrences.Capacity(
+        exp(θ[n - 2]), ComposableRecurrences.Stock(θ[n - 1]);
+        pairs = [1 => 2], softness = θ[n]
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (beds,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A weekly budget per admitted stratum, carried over, with unserved demand
+# queued for the next step.
+function _capacity_budget(w, θ)
+    logh, logR, logb, init = _unpack(θ, (S, L), (S, T), (2, T), (2,))
+    doses = ComposableRecurrences.Capacity(
+        TimeVarying(PerStratum(exp.(logb))), ComposableRecurrences.Budget(4);
+        pairs = [1, 3], overflow = ComposableRecurrences.Hold(),
+        initial = PerStratum(collect(init))
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+
 # Every float in single precision: the kernel, coupling, history and gain.
 const K0F, WSF = Float32.(K0), Float32.(WS)
 function _float32(w, θ)
@@ -466,6 +497,17 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
+        "Recurrence capacity, stock with overflow", _capacity_stock,
+        () -> _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, [log(12.0)], [0.2], [0.1]),
+    ),
+    (
+        "Recurrence capacity, weekly budget with a queue", _capacity_budget,
+        () -> _flat(
+            fill(log(5.0), S, L), 0.5 .+ LOGR,
+            [log(9.0 + p + 0.5 * sin(t)) for p in 1:2, t in 1:T], [1.0, 2.0],
+        ),
+    ),
+    (
         "Recurrence in Float32", _float32,
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
     ),
@@ -514,6 +556,8 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new public name, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
+    "Recurrence capacity, stock with overflow" => (:Capacity,),
+    "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
