@@ -135,6 +135,36 @@ function strata_pairwise(wrap, z::Size)
     return f, _flat(A0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
 end
 
+# Two routes with floored depletion: dense mixing on a short kernel, and a
+# sparse ring on a kernel delayed by half its length, as community and
+# funeral transmission. The same model as `strata_pairwise` with
+# `A = K₁ ⊗ g₁ + K₂ ⊗ g₂`, held as its routes.
+function strata_routes(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    K2 = _ring(S)
+    n2 = length(nonzeros(K2))
+    L1 = cld(L, 2)
+    f = function (θ)
+        K1, g1, v, g2, logh, logR = _unpack(
+            θ, (S, S), (L1,), (n2,), (L,), (S, L), (S, T)
+        )
+        Ks = SparseMatrixCSC(S, S, K2.colptr, K2.rowval, collect(v))
+        r = Recurrence(
+            Routes((K1, g1), (Ks, g2));
+            modifiers = (CR.Depletion(pop, CR.Floor()),)
+        )
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    K0 = 0.6I(S) .+ 0.2 / S .* ones(S, S)
+    g20 = [l > L ÷ 2 ? 1.0 : 0.0 for l in 1:L]
+    return f, _flat(
+            Matrix(K0), _gi(L1), 0.2 .* nonzeros(K2), g20 ./ sum(g20), fill(log(5.0), S, L),
+            0.1 .+ 0.05 .* _weights(S, T),
+        )
+end
+
 # A ring of neighbours: self plus two either side, rows sum to one.
 function _ring(S)
     I_, J_, V_ = Int[], Int[], Float64[]
@@ -448,6 +478,10 @@ const CASES = [
         strata_pairwise, [5, 50], false,
     ),
     Case(
+        "strata_routes", "dense and sparse routes, floored depletion",
+        strata_routes, [5, 50], true,
+    ),
+    Case(
         "zones_sparse", "sparse ring coupling, floored depletion",
         zones_sparse, [50, 500], true,
     ),
@@ -514,6 +548,7 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
+    "strata_routes" => (:Routes,),
     "strata_vaccination" => (:Protected,),
     "transform" => (:Transform,),
     "renewal_primary" => (:primary_recurrence,),
