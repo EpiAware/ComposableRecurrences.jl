@@ -76,6 +76,8 @@ _slots(x̄::AbstractMatrix) = _Owned(x̄)
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
 _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
+# The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
+const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
 # A mirror as the calling task writes it.
 _own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
@@ -156,7 +158,7 @@ function _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
     )
     return nothing
 end
-function _kernels_back!(accs, kbuf, kernel::_PairwiseKernel, p̄, H, H̄, t, τ, L)
+function _kernels_back!(accs, kbuf, kernel::_ReversedPairwise, p̄, H, H̄, t, τ, L)
     _kernel_back!(kbuf, _own(first(accs).ḡ), kernel, p̄, H, H̄, t, τ, L)
     return nothing
 end
