@@ -165,6 +165,10 @@ end
     @test_throws "ntasks must be at least 0, got -1" CR.Threaded(; ntasks = -1)
     @test_throws "min_work must be at least 0, got -5" CR.Threaded(; min_work = -5)
     @test CR.Threaded(0, 0) === CR.Threaded(; min_work = 0)
+    # Loops below the default threshold run in order, whatever the threads.
+    @test CR.Threaded() === CR.Threaded(500_000, 0)
+    @test !CR._splits(CR.Threaded(; ntasks = 4), 8, 499_999)
+    @test CR._splits(CR.Threaded(; ntasks = 4), 8, 500_000)
 end
 
 @testitem "EXECUTOR: serial by default, set per block" begin
