@@ -3,6 +3,10 @@
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 
+# On device inputs `x`, every float array in `parts` must live on the device
+# too; the GPU extension checks it.
+_check_device(x, parts) = nothing
+
 # `x` on the device of `v`: host index arrays are copied to a device.
 _like(v, x) = x
 

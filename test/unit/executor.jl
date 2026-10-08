@@ -232,24 +232,33 @@ end
     g = [0.1, 0.2, 0.3, 0.2]
     R = [1.0 + 0.05 * sin(i + t) for i in 1:S, t in 1:T]
     seed = ones(S, L)
-    for r in (
-            Recurrence(g), Recurrence(PerStratum(repeat(g', S))),
-            Recurrence(g; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
+    G = repeat(g', S)
+    gd, Gd = JLArray(g), JLArray(G)
+    for (r, rd) in (
+            (Recurrence(g), Recurrence(gd)),
+            (Recurrence(PerStratum(G)), Recurrence(PerStratum(Gd))),
+            (
+                Recurrence(g; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
+                Recurrence(gd; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
+            ),
         )
-        @test Array(r(JLArray(R); history = JLArray(seed))) ≈
+        @test Array(rd(JLArray(R); history = JLArray(seed))) ≈
             r(R; history = seed)
     end
-    for c in (Convolution(g), Convolution(PerStratum(repeat(g', S))))
-        @test Array(c(JLArray(R))) ≈ c(R)
+    for (c, cd) in (
+            (Convolution(g), Convolution(gd)),
+            (Convolution(PerStratum(G)), Convolution(PerStratum(Gd))),
+        )
+        @test Array(cd(JLArray(R))) ≈ c(R)
     end
     # The device executor set explicitly, through the dynamic loop path.
     Rd, seedd = JLArray(R), JLArray(seed)
     ex = CR.Device(KernelAbstractions.get_backend(Rd))
-    r = Recurrence(g)
-    @test Array(with(() -> r(Rd; history = seedd), CR.EXECUTOR => ex)) ≈
-        r(R; history = seed)
-    c = Convolution(g)
-    @test Array(with(() -> c(Rd), CR.EXECUTOR => ex)) ≈ c(R)
+    rd = Recurrence(gd)
+    @test Array(with(() -> rd(Rd; history = seedd), CR.EXECUTOR => ex)) ≈
+        Recurrence(g)(R; history = seed)
+    cd = Convolution(gd)
+    @test Array(with(() -> cd(Rd), CR.EXECUTOR => ex)) ≈ Convolution(g)(R)
 end
 
 @testitem "Threaded: a failing chunk fails the loop after every chunk ends" begin

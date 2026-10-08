@@ -65,6 +65,12 @@
             d -> Recurrence(TimeVarying(PerStratum(d(TVPS)), Primary()))(
             d(RS); history = d(HS), start = 5
         ),
+        "Recurrence, Primary Pairwise kernel" =>
+            d -> Recurrence(TimeVarying(Pairwise(d(TVPW)), Primary()))(
+            d(RS); history = d(HS), start = 5
+        ),
+        "Recurrence, inputs as views" =>
+            d -> Recurrence(d(g0))(view(d(RS), :, 1:T); history = d(HS)),
         "Recurrence, dense coupling" =>
             d -> Recurrence(d(g0); coupling = d(K0))(d(RS); history = d(HS)),
         "Recurrence, sparse coupling" =>
@@ -133,6 +139,10 @@
             d -> Recurrence(
             d(g0); modifiers = (Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),)
         )(d(RS); history = d(HS)),
+        "Allocate, one total per group" =>
+            d -> Recurrence(
+            d(g0); modifiers = (Allocate([[1, 3], [2]], PerStratum(d([6.0, 3.0]))),)
+        )(d(RS); history = d(HS)),
         "Transform" =>
             d -> Recurrence(
             d(g0);
@@ -168,6 +178,10 @@
             d -> Recurrence(
             d(g0); modifiers = (Redistribute(d(K0 - 0.5I), TimeVarying(d(0.1 .+ 0.001 .* (1:T)))),)
         )(d(RS); history = d(HS)),
+        "Redistribute, one intensity per stratum" =>
+            d -> Recurrence(
+            d(g0); modifiers = (Redistribute(d(K0 - 0.5I), PerStratum(d([0.1, 0.2, 0.3]))),)
+        )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
             d -> Recurrence(
             d(g0); coupling = d(K0),
@@ -178,10 +192,16 @@
         )(d(RS); history = d(HS)),
     ]
 
-    # A run stopped part way and resumed from its state, with modifier states.
+    # A run stopped part way and resumed from its state, with the states of
+    # pointwise and vector-step modifiers.
     function resumed(d)
         r = Recurrence(
-            d(g0); modifiers = (Depletion(PerStratum(d(NS))), Redistribute(d(K0 - 0.5I), 0.1))
+            d(g0);
+            modifiers = (
+                Depletion(PerStratum(d(NS))), Redistribute(d(K0 - 0.5I), 0.1),
+                Depletion(60.0; removals = 0.2, protected = Protected(0.3)),
+                Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
+            )
         )
         y1, state = with_state(r, d(RS); history = d(HS), stop = 8)
         return y1, state, r(d(RS); state)
@@ -239,10 +259,55 @@ end
     end
 end
 
-@testitem "JLArrays: a host sparse coupling on device inputs is an error" begin
+@testitem "JLArrays: host parameters and ragged kernels on device inputs are errors" begin
     using ComposableRecurrences, JLArrays, SparseArrays
+    using ComposableRecurrences: Depletion, Primary
     JLArrays.allowscalar(false)
-    K = sparse([0.8 0.2; 0.1 0.9])
-    r = Recurrence([0.5, 0.5]; coupling = K)
-    @test_throws ArgumentError r(JLArray(ones(2, 5)); history = JLArray(ones(2, 2)))
+    # JLArrays run kernels on the CPU, where a host array inside a kernel
+    # works; on a GPU it does not, so the call refuses it.
+    x, h = JLArray(ones(2, 5)), JLArray(ones(2, 2))
+    g = JLArray([0.5, 0.5])
+    for r in (
+            Recurrence([0.5, 0.5]),
+            Recurrence(g; coupling = [0.8 0.2; 0.1 0.9]),
+            Recurrence(g; coupling = sparse([0.8 0.2; 0.1 0.9])),
+            Recurrence(g; modifiers = (Depletion(PerStratum([50.0, 60.0])),)),
+        )
+        @test_throws ArgumentError r(x; history = h)
+    end
+    @test_throws ArgumentError Convolution([0.5, 0.5])(x)
+    ks = [[0.5, 0.5], [1.0], [0.25, 0.75]]
+    @test_throws ArgumentError Convolution(TimeVarying(ks, Primary()))(JLArray(ones(3)))
+    @test_throws ArgumentError Recurrence(TimeVarying(ks))(
+        JLArray(ones(3)); history = JLArray(ones(2))
+    )
+end
+
+@testitem "JLArrays: wrappers and built-in modifiers adapt every array they hold" setup = [GPUCases] begin
+    using Adapt: adapt
+    using ComposableRecurrences
+    using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Protected,
+        Redistribute, Transform
+    using JLArrays
+    # Inside a kernel each wrapper and modifier must hold device arrays only:
+    # no `JLArray`, the host-side handle, is left after adapting.
+    holds_host(x::AbstractArray) = x isa JLArray
+    holds_host(x::Union{Number, Function, Nothing, Symbol}) = false
+    holds_host(x::Tuple) = any(holds_host, x)
+    holds_host(x::T) where {T} = any(i -> holds_host(getfield(x, i)), 1:fieldcount(T))
+    v, m = JLArray([1.0, 2.0, 3.0]), JLArray(ones(3, 3))
+    tv = TimeVarying(JLArray(ones(20)))
+    for x in (
+            PerStratum(v), Pairwise(JLArray(ones(3, 3, 2))), tv,
+            TimeVarying(PerStratum(JLArray(ones(3, 20)))),
+            ComposableRecurrences._oldest_first(Pairwise(JLArray(ones(3, 3, 2)))),
+            Depletion(PerStratum(v); removals = tv, protected = Protected(PerStratum(v))),
+            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
+            Transform(*, 0.8 * Derived(exp, tv)),
+        )
+        @test holds_host(x)
+        y = adapt(JLArrays.Adaptor(), x)
+        @test typeof(y).name === typeof(x).name
+        @test !holds_host(y)
+    end
 end

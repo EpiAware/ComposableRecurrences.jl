@@ -81,7 +81,7 @@ const QA_CONFIG = (
         ),
         (;
             name = :ComposableRecurrencesGPUArraysCoreExt,
-            triggers = ("GPUArraysCore", "KernelAbstractions"),
+            triggers = ("Adapt", "GPUArraysCore", "KernelAbstractions"),
             prefixes = ("ComposableRecurrences",),
         ),
         (;

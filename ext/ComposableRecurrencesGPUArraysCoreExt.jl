@@ -2,7 +2,7 @@ module ComposableRecurrencesGPUArraysCoreExt
 
 using ComposableRecurrences: ComposableRecurrences, Add, Clamp, Depletion,
     Derived, Device, Pairwise, PerStratum, Pressure, Protected, Redistribute,
-    Secondary, Serial, TimeVarying, Transform, _OldestFirstPairwise
+    Secondary, Serial, TimeVarying, Transform, _OldestFirstPairwise, _Ragged
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -16,6 +16,39 @@ ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray) = Device(get_backe
 # where `reverse` would index each entry from the host.
 function ComposableRecurrences._reverse_dim(x::AnyGPUArray, d)
     return x[ntuple(i -> i == d ? (size(x, i):-1:1) : Colon(), Val(ndims(x)))...]
+end
+
+# A call on device inputs reads its kernel, coupling and modifiers inside
+# kernels, so a float array among them must live on the device too. Integer
+# arrays, such as `Allocate`'s groups, are copied where a loop needs them.
+function ComposableRecurrences._check_device(::AnyGPUArray, parts)
+    _host_leaf(parts) && throw(
+        ArgumentError(
+            "the inputs live on a device but a kernel, coupling or modifier " *
+                "parameter is a host array; move every array a call reads " *
+                "to the device of the inputs"
+        )
+    )
+    return nothing
+end
+
+_host_leaf(::Array) = true
+_host_leaf(::Array{<:Integer}) = false
+_host_leaf(::AbstractGPUArray) = false
+_host_leaf(::Union{Number, Symbol, Nothing, Function, Type, Module}) = false
+_host_leaf(x::Tuple) = any(_host_leaf, x)
+function _host_leaf(::_Ragged)
+    throw(
+        ArgumentError(
+            "a ragged TimeVarying kernel (a vector of columns) keeps its " *
+                "column offsets on the host, so it does not run on a device; " *
+                "use a lags × time matrix"
+        )
+    )
+end
+function _host_leaf(x::T) where {T}
+    isstructtype(T) || return false
+    return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
 end
 
 # Host index arrays a loop reads, copied to the device of `v`.

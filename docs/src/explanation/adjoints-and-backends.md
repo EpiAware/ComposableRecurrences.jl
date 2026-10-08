@@ -108,17 +108,20 @@ The `Device(backend)` row was checked on JLArrays only, which run kernels on the
 
 ### [GPU arrays](@id gpu-arrays)
 
-A call on arrays that live on a GPU runs every loop over strata, series or output times as one kernel, and keeps the time loop on the host.
-So a recurrence whose strata mix pays a kernel launch per step, and a GPU pays off only with many strata or many series.
+A call on arrays that live on a GPU runs each loop over strata, series or output times as one kernel.
+Independent strata are one kernel per call, each thread stepping its stratum through time.
+Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata or many series.
 Every array the call reads must live on the same device: the inputs, the history, the kernel, the coupling and the modifiers' parameters.
+A call with device inputs and a host float array among these is an error.
 Buffers, states and outputs are allocated from the inputs, so they live there too.
 
-- Dense and time-varying couplings mix the strata with one `mul!` per step; a `Diagonal` coupling is a broadcast.
-- A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel, and other forms use the array package's own `mul!` (CUSPARSE on CUDA).
-  A host `SparseMatrixCSC` with device inputs is an error.
+- Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
+- A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
+  Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
 - Modifiers with a vector step (`Redistribute`, `Allocate` and `Depletion` with a protected pool) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
-- A ragged `TimeVarying` kernel (a vector of columns) stores its column offsets on the host, so it does not run on a GPU yet.
+  Arrays captured by the function of a `Transform` or `Derived` are not moved.
+- A ragged `TimeVarying` kernel (a vector of columns) stores its column offsets on the host, so it does not run on a device yet, and a call with device inputs is an error.
 
 [`test/unit/gpu_arrays.jl`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/unit/gpu_arrays.jl) runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
 On a machine with an NVIDIA GPU, the same checks run on CUDA arrays by hand:
