@@ -276,7 +276,7 @@ end
 end
 
 # Neither route alone sustains spread: their reproduction numbers are 0.9 and 0.45.
-# Together they do, and about four in ten people are infected in each patch.
+# Together they do, and 42% to 49% of each patch is infected.
 # The funeral force peaks a few days after the community force.
 # Its mean lag is about five days longer.
 
