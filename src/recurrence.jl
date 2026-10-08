@@ -79,6 +79,8 @@ call covers the absolute times `start:stop`:
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
+Only a kernel takes `Primary()` indexing; the constructor rejects it in
+the coupling or a modifier.
 The output is length `stop - start + 1` for a single series or `S` rows of
 it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
@@ -132,6 +134,7 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
+        _check_secondary(coupling, modifiers)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
         )
@@ -141,6 +144,15 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         ) where {K, C, M <: Tuple, B}
         return new{K, C, M, B}(kernel, coupling, modifiers, rebuilds)
     end
+end
+
+# Only a kernel takes `Primary()` indexing: the coupling and modifiers are
+# walked once here, so the walk at each call checks only that they cover
+# `stop`.
+function _check_secondary(coupling, modifiers::Tuple)
+    _check_times(:coupling, coupling, nothing)
+    _check_times(:modifiers, modifiers, nothing)
+    return nothing
 end
 
 # A rebuild of a `Recurrence` from its fields recomputes `rebuilds`.
@@ -693,12 +705,14 @@ function _pressure_fits(::Val{true}, C, h)
     return _nstrata(h) + length(_param_tuple(C)) <= _LOCAL_PRESSURE
 end
 
-# The plain-AD note names the coupling, modifiers and depletion forms that
-# do not rebuild, or the coupling whose local derivative the strata outgrow.
+# The plain-AD note names the coupling, modifiers and depletion forms with
+# neither a pullback! nor a local derivative, those that do not rebuild, or
+# the coupling whose local derivative the strata outgrow. It is built only
+# when the note is first logged for a type.
 function _plain_why(r::Recurrence)
     if _istrue(r.rebuilds)
-        _type_adjoint(r, Run()) && _coupling_adjoint(r.coupling) === :local ||
-            return _ADJOINT_NOTE
+        _type_adjoint(r, Run()) || return _no_adjoint_why(r)
+        _coupling_adjoint(r.coupling) === :local || return _ADJOINT_NOTE
         return "has a coupling ($(nameof(typeof(r.coupling)))) without a " *
             "pullback! and more strata than its local derivative covers"
     end
@@ -709,6 +723,21 @@ function _plain_why(r::Recurrence)
         "local derivative cannot rebuild from its own parameters"
 end
 _plain_why(w::_WithState) = _plain_why(w.r)
+function _no_adjoint_why(r::Recurrence)
+    C = r.coupling
+    C_name = _coupling_adjoint(C) === :none ? (nameof(typeof(C)),) : ()
+    names = join(unique((C_name..., _no_adjoint(r.modifiers...)...)), ", ")
+    return "has a coupling, modifier or depletion form ($names) with no " *
+        "pullback! that the rule can use"
+end
+_no_adjoint() = ()
+function _no_adjoint(m, ms...)
+    rest = _no_adjoint(ms...)
+    _modifier_adjoint(m) === :none || return rest
+    return (_part_name(m), rest...)
+end
+_part_name(m) = nameof(typeof(m))
+_part_name(m::Depletion) = _form_adjoint(m.form) ? :Depletion : nameof(typeof(m.form))
 _not_rebuilt() = ()
 function _not_rebuilt(m, ms...)
     rest = _not_rebuilt(ms...)
@@ -808,6 +837,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
         ArgumentError("stop ($stop) is before start ($τ0)")
     )
     _check_kernel_times(kernel, stop)
+    # The constructor has rejected `Primary()` indexing in these.
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
     T = stop - τ0 + 1
@@ -1015,57 +1045,6 @@ function _run(
             P, X, rec, init, state = State(_public(H, (T + 1):(T + L), h), states, τ0 + T),
         ) : nothing
     return Y, H, states, cache
-end
-
-@doc raw"""
-Run `r` from a seed and return the seed followed by the run.
-
-Deprecated: `seeded(r, gain; history)` is
-`r(gain; history, start = m + 1, prepend = true)`, see [`Recurrence`](@ref).
-
-With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
-returns
-
-```math
-(h_1, \dots, h_m,\ y_{m+1}, \dots, y_{t_1}),
-```
-
-where ``y_t`` for ``t > m`` is the output of `r` started at ``t_0 = m + 1``
-from history ``h``, and ``t_1`` is the last time.
-
-# Arguments
-- `r`: the [`Recurrence`](@ref).
-- `gain`: the gain, as in a call of `r`.
-
-# Keyword Arguments
-- `history`: the seed, length `m` or `S × m`.
-- `kwargs`: passed to the call of `r`, such as `add` or `stop`.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-seed = [2.0, 3.0, 4.0]
-r = Recurrence([0.3, 0.5, 0.2])
-y = r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
-round.(y; digits = 3)
-
-# output
-
-6-element Vector{Float64}:
-  2.0
-  3.0
-  4.0
-  7.75
- 10.835
- 14.266
-```
-"""
-function seeded(r::Recurrence, gain = true; history, kwargs...)
-    Base.depwarn(
-        "seeded(r, gain; history) is deprecated, use " *
-            "r(gain; history, start = m + 1, prepend = true)", :seeded
-    )
-    return r(gain; history, start = size(history, ndims(history)) + 1, prepend = true, kwargs...)
 end
 
 @doc raw"""

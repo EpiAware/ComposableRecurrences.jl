@@ -58,6 +58,30 @@ end
         Recurrence(g; coupling = [2.0 0.0; 0.0 2.0])(ones(2, 4); history = ones(2, 2))
 end
 
+@testitem "Interfaces: a pullback! the rule cannot find fails" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    struct Halving end
+    CR.ispointwise(::Halving) = true
+    CR.forward(::Halving, ::CR.Step, v, s, t, k) = (v / 2, s)
+    obj = Interfaces.Arguments(; piece = Halving(), role = CR.Step(), args = (2.0, 0.0, 1, 1))
+    @test Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
+    # A typed method is missed by `uses_adjoint`, so the rule would drop it.
+    CR.pullback!(grads, ::Halving, ::CR.Step, v::Real, s::Real, t, k) = (grads.v / 2, grads.s)
+    @test !CR.uses_adjoint(Halving(), CR.Step())
+    @test !Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
+    # Declaring it, or writing the method with untyped arguments, passes.
+    CR.uses_adjoint(::Halving, ::CR.Step) = true
+    @test Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
+    struct Third end
+    CR.ispointwise(::Third) = true
+    CR.forward(::Third, ::CR.Step, v, s, t, k) = (v / 3, s)
+    CR.pullback!(grads, ::Third, ::CR.Step, v, s, t, k) = (grads.v / 3, grads.s)
+    obj = Interfaces.Arguments(; piece = Third(), role = CR.Step(), args = (3.0, 0.0, 1, 1))
+    @test CR.uses_adjoint(Third(), CR.Step())
+    @test Interfaces.test(CR.PieceInterface, Third, (obj,); show = false)
+end
+
 @testitem "Interfaces: state length" begin
     using ComposableRecurrences, Interfaces, LinearAlgebra
     CR = ComposableRecurrences

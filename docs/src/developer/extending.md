@@ -29,6 +29,7 @@ The arguments mean the same in every role:
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward` was given, so the values before the step.
   Read them, but do not write to them.
+- Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
 - A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise) and implements the scalar step.
   Any other modifier implements the vector step and may read every stratum.
 
@@ -229,6 +230,7 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - scalars `(v, s, N, α)` for a depletion form.
+It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length.
 
 ```@example extending

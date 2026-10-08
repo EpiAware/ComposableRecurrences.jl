@@ -16,6 +16,7 @@ Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other arra
 The route is read from types, apart from the rebuild check and the strata limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
+`uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
 | Part without a `pullback!` | Route |
@@ -34,7 +35,7 @@ The local step rebuilds a part with dual numbers in place of its float parameter
 The `Recurrence` constructor checks the rebuild once and stores the result.
 Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step.
 
-Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` saying why.
+Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` naming the coupling, modifier or depletion form that caused it.
 A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs nothing.
 
 ## [Backends](@id adjoint-backends)
