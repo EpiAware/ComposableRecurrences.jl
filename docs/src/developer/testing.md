@@ -2,42 +2,20 @@
 
 This page covers the tools for checking a new modifier, coupling or depletion form, and for timing the package.
 
-## Conformance with `PieceInterface`
-
-Test a new type against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), which lists the checks and the `Arguments` form.
-
-```@example testing
-using ComposableRecurrences
-using ComposableRecurrences: PieceInterface, Step
-using Interfaces: Interfaces, Arguments
-
-struct Scale
-    a::Float64
-end
-ComposableRecurrences.ispointwise(::Scale) = true
-ComposableRecurrences.forward(m::Scale, ::Step, v, s, t, k) = (m.a * v, s)
-
-Interfaces.test(
-    PieceInterface, Scale,
-    [Arguments(; piece = Scale(0.9), role = Step(), args = ([1.0, 2.0], [0.0, 0.0], 1))]
-)
-```
+[Checking a new type](@ref extending-checks) tests a new type's `forward` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and its `pullback!` against ForwardDiff and plain AD.
 
 ## [Comparing with plain automatic differentiation](@id compare-plain-ad)
 
-[`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) gives the plain automatic differentiation gradient to compare with.
+[`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) gives the plain automatic differentiation route to compare with.
 
 ```@example testing
+using ComposableRecurrences
 using ComposableRecurrences: NoAdjoint, Depletion
 using ForwardDiff, Chairmarks
 
 r = Recurrence([0.2, 0.5, 0.3]; modifiers = (Depletion(1000.0),))
 loss(op) = R -> sum(op(R; history = fill(5.0, 3)))
 R = fill(1.4, 60)
-maximum(abs, ForwardDiff.gradient(loss(r), R) .- ForwardDiff.gradient(loss(NoAdjoint(r)), R))
-```
-
-```@example testing
 (
     operator = @b(ForwardDiff.gradient($(loss(r)), $R), seconds = 0.2).time,
     no_adjoint = @b(ForwardDiff.gradient($(loss(NoAdjoint(r))), $R), seconds = 0.2).time,
