@@ -10,13 +10,13 @@
 # ### What are we going to do in this exercise
 #
 # 1. Saturate transmission as incidence rises.
-# 2. Combine the transform with `Depletion`.
+# 2. Combine the transform with [`Depletion`](@ref ComposableRecurrences.Depletion).
 # 3. Compute the probability of extinction by generation.
 # 4. Take gradients with respect to the transform's parameters.
 #
 # ### What might I need to know before starting
 #
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay).
+# This tutorial builds on [Renewal then delay](@ref tutorial-renewal-delay).
 # No fitting is involved.
 
 # ## Packages used
@@ -129,7 +129,7 @@ ForwardDiff.gradient(total_infections, [κ, 1.5])
 ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
 
 # Mooncake and Enzyme run on the same code.
-# The `Transform` docstring gives the reverse-mode rule they use.
+# They use the rule in the [`Transform`](@ref ComposableRecurrences.Transform) docstring.
 # The [AD comparison](@ref ad-comparison) page compares the backends.
 
 # ## Learning more

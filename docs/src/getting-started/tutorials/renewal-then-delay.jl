@@ -19,7 +19,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on the [Getting started](@ref getting-started) example.
+# This tutorial builds on the [Getting started](@ref getting-started) example.
 # No fitting is involved.
 
 # ## Packages used
@@ -50,7 +50,7 @@ infections = renewal(R; history = [5.0])
     draw(_; axis = (xlabel = "Day", ylabel = "Count"))
 end
 
-# Infections grow while `R` is 1.4, fall after day 30 when it is 0.9, and grow after day 50.
+# Infections grow while `R` is 1.4, fall after day 30 at 0.9, and grow again after day 50.
 # Each change in `R` shows as a jump, because `R` scales each day's infections directly.
 #
 # ### Seeding on a growth path
@@ -78,7 +78,7 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 #
 # `Depletion(N)` draws each day's infections from a pool of `N` susceptibles.
 # The default `Hazard()` form draws ``s (1 - e^{-v/N})`` from pool ``s``.
-# So the pool never goes negative.
+# This keeps the pool from going negative.
 # The `Floor()` form draws ``\max(s / N, 10^{-6}) \, v`` instead.
 
 N = 2_000.0
@@ -110,10 +110,11 @@ end
 # The doses are capped by what remains.
 # `Protected(σ)` keeps them in a second pool with relative susceptibility ``\sigma``.
 # Each day's infections come from both pools in proportion to ``S + \sigma V``.
-# With efficacy ``e``, an all-or-nothing vaccine fully protects a share ``e`` of those dosed.
-# So ``\sigma = 0``, with ``e`` times the doses removed.
+# Let ``e`` be the efficacy.
+# An all-or-nothing vaccine fully protects a share ``e`` of the vaccinated.
+# This gives ``\sigma = 0``, with ``e`` times the doses removed.
 # A leaky vaccine reduces every vaccinated person's risk by ``e``.
-# So ``\sigma = 1 - e``, with all the doses removed.
+# This gives ``\sigma = 1 - e``, with all the doses removed.
 # Here 40 doses a day start on day 15.
 
 e = 0.7
@@ -141,15 +142,14 @@ end
 #
 # ### Checking against a stochastic simulation
 #
-# The model gives expected values.
-# So it should match the mean of many stochastic simulations.
+# The model gives expected values, so it should match the mean of many simulations.
 # We compare it with the stochastic SIR model `HomogeneousProcess` in continuous time.
 # It comes from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl).
 # Its population is 5,000 and ``R_0 = 2``.
 # The infectious period is exponential with mean 4 days.
 # Ten people are infected at the start.
 # Before the outbreak 40% of people are vaccinated with efficacy 0.7.
-# So [`Protected`](@ref ComposableRecurrences.Protected) starts with them in its pool.
+# [`Protected`](@ref ComposableRecurrences.Protected) starts with them in its pool.
 # There are no removals.
 # The SIR generation interval is then exponential with mean 4 days, binned here by day.
 # The reference column is the mean final share infected over the major outbreaks.
@@ -192,10 +192,9 @@ DataFrame(
 
 # ## Imported cases
 #
-# `add` enters before the modifiers.
-# So imported cases are drawn from the pool like local ones.
+# `add` enters before the modifiers, so imports are drawn from the pool like local cases.
 # `Add` enters where it sits in the modifier tuple.
-# So after `Depletion` the imports are added on top.
+# After `Depletion`, the imports are added on top.
 
 ι = [t <= 10 ? 3.0 : 0.0 for t in 1:T]
 before = Recurrence(gi; modifiers = (Depletion(N),))(R_high; history = [0.0], add = ι)
@@ -204,14 +203,14 @@ round.((sum(before), sum(after)))
 
 #-
 
-@chain DataFrame("day" => 1:T, "Imports in add" => before, "Imports in Add" => after) begin
+@chain DataFrame("day" => 1:T, "`add`, drawn from the pool" => before, "`Add` after `Depletion`" => after) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
 # Imports added after depletion are not drawn from the pool.
-# So more susceptibles remain and the total is larger.
+# More susceptibles remain and the total is larger.
 
 # ## Reporting delay
 #
@@ -238,7 +237,7 @@ end
 # ## Gradients
 #
 # Both operators run on dual numbers.
-# So ForwardDiff gives the gradient of the total reports with respect to each day's `R`.
+# ForwardDiff then gives the gradient of the total reports with respect to each day's `R`.
 
 total_reports(R) = sum(delay(renewal(R; history = seed, start = 6, prepend = true); gain = 0.3))
 ∂R = ForwardDiff.gradient(total_reports, R_full)
@@ -258,7 +257,7 @@ end
 # The state holds the last five infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
 # It also holds the state of any modifiers, such as a remaining pool (none here).
 # Passing it back as `state` continues the run.
-# So a forecast needs no rerun of the fitted period.
+# A forecast then needs no rerun of the fitted period.
 
 split = 50
 fitted, state = with_state(renewal, R; history = [5.0], stop = split)

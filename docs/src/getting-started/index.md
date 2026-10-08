@@ -69,13 +69,6 @@ bench = if isfile(results) # hide
 else # hide
     nothing # hide
 end # hide
-stale = bench !== nothing && try # hide
-    rev = first(bench.revision) # hide
-    !isempty(readchomp(`git -C $(pkgdir(ComposableRecurrences)) rev-list $rev..HEAD -- src`)) # hide
-catch # hide
-    false # hide
-end # hide
-stale && @warn "benchmark/results/docs.csv predates the last change to src/; rerun `task -t benchmark/Taskfile.yml matrix-docs`" # hide
 methods_order = ["ComposableRecurrences", "hand loop", "hand loop (window copies)", "accumulate"] # hide
 targets = ["primal" => "Forward run", "ForwardDiff" => "ForwardDiff", "Mooncake reverse" => "Mooncake", "Enzyme reverse" => "Enzyme"] # hide
 if bench === nothing # hide
@@ -101,14 +94,20 @@ if bench !== nothing # hide
     missing_note = isempty(failed.method) ? "" : # hide
         " No bar: " * join(unique(failed.target), ", ") * " could not differentiate " * # hide
         join(unique(failed.method), " or ") * "." # hide
-    reverse_rules = unique(@subset(bench, in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"]))).rules) # hide
+    reverse_rules = unique( # hide
+        @subset( # hide
+            bench, :block .== "naive vs package", :size .== "T200_L20_S3", # hide
+            in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"])) # hide
+        ).rules # hide
+    ) # hide
     Markdown.parse( # hide
         "The three-town model above over 200 days with a 20-day generation interval: " * # hide
             "the operators, a preallocated hand-written loop, a loop that copies its window every step, " * # hide
             "and `accumulate` over a `NamedTuple` state, for the forward run and each gradient backend; " * # hide
             "minimum times at revision `" * first(bench.revision) * "`, " * # hide
             (reverse_rules == ["true"] ? "with" : "without") * # hide
-            " the package's Mooncake and Enzyme rules loaded." * missing_note # hide
+            " the package's Mooncake and Enzyme rules loaded; " * # hide
+            "the forward run and ForwardDiff do not use them." * missing_note # hide
     ) # hide
 end # hide
 ```
