@@ -75,22 +75,29 @@ end
 
 Derived(f, args...) = Derived(f, args)
 
-param(x::Derived, k, t) = x.f(map(a -> param(a, k, t), x.args)...)
+param(x::Derived, k, t) = x.f(_params_at(x.args, k, t)...)
 
-function add_param!(x̄, x::Derived, v, k, t)
-    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
-    ā === nothing && return nothing
-    ∂ = _forward_derivative(x.f, map(a -> param(a, k, t), x.args))
-    _add_args!(ā, x.args, ∂, v, k, t)
-    return nothing
+# Unrolled over the arguments, so a nested `Derived` recurses only into
+# simpler `Derived` types and infers: a helper shared by every level would
+# meet inference's recursion limit and dispatch at run time.
+@generated function add_param!(x̄, x::Derived{F, A}, v, k, t) where {F, A}
+    calls = (
+        :(add_param!(ā[$i], x.args[$i], v * ∂[$i], k, t)) for i in 1:fieldcount(A)
+    )
+    return quote
+        ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+        ā === nothing && return nothing
+        ∂ = _forward_derivative(x.f, _params_at(x.args, k, t))
+        $(calls...)
+        return nothing
+    end
 end
 
-# Each argument's cotangent, peeled one tuple entry at a time so a nested
-# `Derived` infers without a closure.
-_add_args!(::Tuple{}, ::Tuple{}, ::Tuple{}, v, k, t) = nothing
-function _add_args!(ā::Tuple, args::Tuple, ∂::Tuple, v, k, t)
-    add_param!(first(ā), first(args), v * first(∂), k, t)
-    return _add_args!(Base.tail(ā), Base.tail(args), Base.tail(∂), v, k, t)
+# The arguments' values, read one tuple entry at a time: a `map` closure
+# over arguments of mixed types allocates on each read in the reverse pass.
+_params_at(::Tuple{}, k, t) = ()
+function _params_at(a::Tuple, k, t)
+    return (param(first(a), k, t), _params_at(Base.tail(a), k, t)...)
 end
 
 _check_param(name, x::Derived) = x
