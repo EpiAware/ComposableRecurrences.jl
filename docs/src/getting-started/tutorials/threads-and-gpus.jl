@@ -64,12 +64,13 @@ Threads.nthreads()
 #
 # Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (500 000 by default).
 # [`Threaded`](@ref ComposableRecurrences.Threaded) says which loops a model has, and so when mixing strata gain.
-# The timings below depend on the machine.
-# On a quiet 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12), four threads beat one from about 500 000 multiply-adds per loop for independent strata and pairwise kernels, and from about 200 000 for a sparse coupling.
+# The timings below depend on the machine, and are of whole calls, including serial work outside the split loops.
+# On a quiet 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12), four threads began to beat one from about 500 000 multiply-adds per loop for independent strata and pairwise kernels.
 # At two million multiply-adds, independent strata ran 1.1 to 1.2 times faster and pairwise kernels 1.4 to 1.6 times faster.
-# At 10 000 multiply-adds, threads were 1.6 to 5.5 times slower than the serial loop.
-# A convolution gained at most 1.2 times, and lost again from one million multiply-adds.
-# Under Mooncake reverse mode only the rule's forward pass is threaded, so gradients gained less, and a convolution's gradient not at all.
+# A sparse coupling gained inconsistently: 0.94 to 1.16 times between 200 000 and 500 000 multiply-adds, and up to 1.5 times at two million.
+# At 10 000 multiply-adds, threads were 1.6 to 3.8 times slower than the serial loop.
+# A convolution gained at most 1.2 times, and lost from 500 000 multiply-adds in some runs and from one million in all.
+# Under Mooncake reverse mode only the rule's forward pass is threaded, so gradients of independent strata and pairwise kernels gained at most 1.15 times, and a convolution's gradient did not gain.
 #
 # Set `min_work` to move the break-even point.
 # This model's work is `S × T × L`, two million multiply-adds, so it still splits with a higher threshold:

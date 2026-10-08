@@ -122,9 +122,10 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
-`work` counts multiply-adds; the default `min_work` of 500 000 is where
-four threads began to beat one on the recurrence loops that
-`benchmark/threshold.jl` times.
+`work` counts multiply-adds.
+The default `min_work` of 500 000 is where, on a 4-core machine, four
+threads began to beat one for independent strata and pairwise kernels
+(`benchmark/threshold.jl`).
 Independent strata are one loop per call, but strata that mix through a
 coupling, a pairwise kernel or a modifier with a vector step are one loop
 per step, so such models gain only with many strata.
