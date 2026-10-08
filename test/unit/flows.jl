@@ -115,6 +115,10 @@
             θ -> TimeVarying(PerStratum(reshape(θ, 2, 6))),
             (θ, k, t) -> reshape(θ, 2, 6)[k, t], collect(range(0.0, 0.5; length = 12)),
         ),
+        derived = (
+            θ -> θ[1] * Derived(exp, PerStratum(θ[2:3])),
+            (θ, k, t) -> θ[1] * exp(θ[1 + k]), [0.1, -0.5, 0.5],
+        ),
     )
 end
 
@@ -266,18 +270,26 @@ end
 @testitem "Flows and Linked: check their options" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    @test_throws "a flow joins two stocks, got 1 => 1" CR.Flow(1 => 1, 0.1)
+    @test_throws "two different stocks, got 1 => 1" CR.Flow(1 => 1, 0.1)
     @test_throws "got from = 0" CR.Flow(0 => 1, 0.1)
     @test_throws "got to = -1" CR.Flow(1 => -1, 0.1)
     @test_throws "given as from => to, got (1, 2)" CR.Flow((1, 2), 0.1)
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2])
     @test_throws ArgumentError CR.Flow(1 => 2, TimeVarying([0.1, 0.2], CR.Primary()))
     @test_throws "at least one Flow, got none" CR.Flows()
+    @test_throws "up to 2, got stocks = 1" CR.Flows(CR.Flow(1 => 2, 0.1); stocks = 1)
+    @test_throws "up to 2, got stocks = 1" CR.Flows((CR.Flow(1 => 2, 0.1),), 1)
+    @test_throws "at least one Flow, got none" CR.Linked(CR.Depletion(10.0), ())
     @test_throws "expected a Flow, got 0.3" CR.Flows(CR.Flow(1 => 2, 0.1), 0.3)
     @test_throws "at least one Flow, got none" CR.Linked(CR.Depletion(10.0))
     @test_throws "modifier whose stocks the flows move first" CR.Linked(
         CR.Flow(1 => 0, 0.1), CR.Flow(1 => 0, 0.1)
     )
+    # A third stock without flows is named by `stocks`.
+    flows = CR.Flows(CR.Flow(1 => 2, 0.5); stocks = 3)
+    v = [1.0, 1.0, 0.0, 0.0, 7.0, 7.0]
+    CR.forward(flows, CR.Step(), v, zeros(6), 1)
+    @test v ≈ [exp(-0.5), exp(-0.5), 1 - exp(-0.5), 1 - exp(-0.5), 7.0, 7.0]
     flows = CR.Flows(CR.Flow(1 => 2, 0.1))
     @test_throws "a multiple of 2, got 3 strata" Recurrence([1.0]; modifiers = (flows,))(
         ; history = zeros(3, 1), stop = 2

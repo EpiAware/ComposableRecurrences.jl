@@ -32,8 +32,7 @@ With vaccine efficacy ``e``, ``\sigma = 0`` with removals ``e`` times the
 doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
 A delay from dose to protection is a [`Convolution`](@ref) of the doses
-before the call, and waning back to ``u`` is a
-[`ComposableRecurrences.Linked`](@ref) flow from stock 2 to stock 1.
+before the call; [`ComposableRecurrences.Linked`](@ref) adds waning.
 The derivative through ``\min`` and ``\max`` takes the active branch.
 The depletion's state holds ``u`` for every stratum, then ``w``.
 

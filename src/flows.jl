@@ -20,9 +20,10 @@ m_f = x_i\, \frac{r_{f,t,k}}{H_i} \big(1 - e^{-H_i}\big),
 ```
 
 where ``H_i`` is the total hazard out of stock ``i`` and ``m_f`` the amount
-flow ``f`` moves, so ``\sum_f m_f = x_i (1 - e^{-H_i})`` and a non-negative
-stock stays non-negative.
-A per-step probability ``p`` is the rate ``-\log(1 - p)``.
+flow ``f`` moves, so ``\sum_f m_f = x_i (1 - e^{-H_i})``.
+With non-negative, finite rates a non-negative stock stays non-negative;
+the rates are not checked, as a dual or [`Derived`](@ref) rate cannot be.
+A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
 
 # Arguments
 - `stocks`: `from => to`, the stock the flow leaves and the one it enters,
@@ -51,15 +52,15 @@ struct Flow{R}
     rate::R
     function Flow(from::Integer, to::Integer, rate::R) where {R}
         from >= 1 || throw(
-            ArgumentError("a flow leaves a stock from 1 on, got from = $from")
+            ArgumentError("stocks are numbered from 1, got from = $from")
         )
         to >= 0 || throw(
             ArgumentError(
-                "a flow enters a stock from 1 on, or 0 to leave, got to = $to"
+                "to is a stock from 1, or 0 to leave the stocks, got to = $to"
             )
         )
         from == to && throw(
-            ArgumentError("a flow joins two stocks, got $from => $to")
+            ArgumentError("a flow joins two different stocks, got $from => $to")
         )
         return new{R}(from, to, _check_param(:rate, rate))
     end
@@ -91,8 +92,9 @@ Moves the step's values between stocks by competing
 [`ComposableRecurrences.Flow`](@ref)s.
 
 The values hold ``n`` stocks of ``S`` strata each, stock by stock: entry
-``(i - 1) S + k`` is stock ``i`` of stratum ``k``, and ``n`` is the largest
-stock a flow names.
+``(i - 1) S + k`` is stock ``i`` of stratum ``k``.
+A recurrence with ``nS`` series so has ``S`` strata here, and a
+[`PerStratum`](@ref) rate has ``S`` entries, one per stratum of a stock.
 At absolute time ``t``, with ``x_i`` stock ``i``'s value entering the
 modifier, ``H_i`` the total hazard out of it and ``m_f`` the amount flow
 ``f`` moves (see [`ComposableRecurrences.Flow`](@ref)),
@@ -114,6 +116,10 @@ day's flows.
 # Arguments
 - `flows`: one or more [`ComposableRecurrences.Flow`](@ref)s.
 
+# Keyword Arguments
+- `stocks`: the number of stocks ``n``; the largest stock a flow names by
+  default.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -133,11 +139,25 @@ round.(ward(; history = zeros(2, 1), add = admitted); digits = 3)
 struct Flows{F <: Tuple}
     "The flows, a tuple of `Flow`s."
     flows::F
-    "The number of stocks, the largest stock a flow names."
+    "The number of stocks."
     stocks::Int
+    function Flows(flows::F, stocks::Integer) where {F <: Tuple}
+        _flow_tuple(flows)
+        top = _max_stock(flows)
+        stocks >= top || throw(
+            ArgumentError(
+                "stocks must cover every stock a flow names, up to $top, " *
+                    "got stocks = $stocks"
+            )
+        )
+        return new{F}(flows, stocks)
+    end
 end
 
-Flows(fs...) = (fs = _flow_tuple(fs); Flows(fs, _max_stock(fs)))
+function Flows(fs...; stocks = nothing)
+    fs = _flow_tuple(fs)
+    return Flows(fs, stocks === nothing ? _max_stock(fs) : stocks)
+end
 
 @doc raw"""
 Moves another modifier's state between its stocks by competing
@@ -198,17 +218,18 @@ struct Linked{M, F <: Tuple}
     modifier::M
     "The flows, a tuple of `Flow`s."
     flows::F
+    function Linked(m::M, flows::F) where {M, F <: Tuple}
+        m isa Flow && throw(
+            ArgumentError(
+                "Linked takes the modifier whose stocks the flows move " *
+                    "first, got $(_describe(m))"
+            )
+        )
+        return new{M, F}(m, _flow_tuple(flows))
+    end
 end
 
-function Linked(m, fs...)
-    m isa Flow && throw(
-        ArgumentError(
-            "Linked takes the modifier whose stocks the flows move first, " *
-                "got $(_describe(m))"
-        )
-    )
-    return Linked(m, _flow_tuple(fs))
-end
+Linked(m, fs...) = Linked(m, fs)
 
 nstate(m::Linked, S) = 2 * nstate(m.modifier, S)
 
@@ -396,7 +417,7 @@ function _check_modifier_strata(m::Linked, S)
     name = nameof(typeof(m.modifier))
     nm = nstate(m.modifier, S)
     rem(nm, S) == 0 || throw(
-        ArgumentError(
+        DimensionMismatch(
             "$name keeps $nm state entries for $S strata, not a whole " *
                 "number of stocks per stratum"
         )

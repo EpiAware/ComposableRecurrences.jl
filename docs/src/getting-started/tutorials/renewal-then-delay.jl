@@ -131,7 +131,8 @@ end
 #
 # Protection that wanes moves people from the protected pool back to the susceptible pool.
 # The depletion keeps the susceptible pool ``S`` as stock 1 and the protected pool ``V`` as stock 2.
-# [`Linked`](@ref ComposableRecurrences.Linked) moves these stocks by a [`Flow`](@ref ComposableRecurrences.Flow) before each day's infections and doses, so waning at rate ``\omega`` is `Flow(2 => 1, ω)`:
+# [`Linked`](@ref ComposableRecurrences.Linked) moves these stocks by a [`Flow`](@ref ComposableRecurrences.Flow) before each day's infections and doses.
+# So waning at rate ``\omega`` is `Flow(2 => 1, ω)`:
 #
 # ```math
 # V^{*}_t = e^{-\omega} V_{t-1}, \qquad

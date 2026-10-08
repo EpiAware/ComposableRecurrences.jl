@@ -22,7 +22,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp
+using ComposableRecurrences: Clamp, Flow, Flows
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -83,7 +83,8 @@ round(sum(by_recurrence .- capped))
 # Each day some suspected patients are confirmed and move to the confirmed stock.
 # Others are ruled out and leave, and confirmed patients are discharged.
 # Confirmation and ruling out compete for the same suspected patients.
-# At confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``\delta``, with suspected stock ``U_t``, confirmed stock ``C_t`` and admissions ``A_t``,
+# Let ``U_t`` be the suspected stock, ``C_t`` the confirmed stock and ``A_t`` the admissions.
+# With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``\delta``,
 #
 # ```math
 # \begin{aligned}
@@ -93,13 +94,12 @@ round(sum(by_recurrence .- capped))
 # \end{aligned}
 # ```
 #
-# The rates are hazards, so the share leaving a stock never exceeds the stock.
+# The rates are hazards rather than daily probabilities like ``d`` above, so the share leaving a stock never exceeds the stock.
 # The two stocks are the strata of a recurrence with the unit kernel, suspected first.
 # The recurrence carries yesterday's stocks forward and adds the admissions to the suspected stock.
-# [`Flows`](@ref ComposableRecurrences.Flows) then applies the day's flows, each a [`Flow`](@ref ComposableRecurrences.Flow) from one stock to another, or to `0` to leave.
+# [`Flows`](@ref ComposableRecurrences.Flows) then applies the day's flows.
+# Each is a [`Flow`](@ref ComposableRecurrences.Flow) from one stock to another, or to `0` to leave.
 # Each rate is a parameter, so it can also be per stratum or change over time.
-
-using ComposableRecurrences: Flow, Flows
 
 ward_flows = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))
 ward = Recurrence([1.0]; modifiers = (ward_flows,))
@@ -114,7 +114,7 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# The same flows move stocks a modifier keeps in its state, through [`Linked`](@ref ComposableRecurrences.Linked); waning protection is one example.
+# [`Linked`](@ref ComposableRecurrences.Linked) moves the stocks a modifier keeps in its state in the same way, as for waning protection.
 # [Extending](@ref extending) shows how to write a modifier of your own.
 
 # ## Learning more
