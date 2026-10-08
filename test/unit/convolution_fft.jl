@@ -2,6 +2,7 @@
 
 @testitem "Convolution FFT: matches direct" begin
     using ComposableRecurrences, FFTW, Random
+    using Base.ScopedValues: with
     const CR = ComposableRecurrences
     rng = Xoshiro(41)
     # Short series take one block; long series against short kernels take
@@ -24,8 +25,24 @@
             end
         end
     end
-    # The lag-0 weight alone.
-    @test Convolution([2.0]; method = CR.FFTMethod())([1.0, 2.0]) ≈ [2.0, 4.0]
+    # The lag-0 weight alone, an empty kernel, and a kernel far longer than
+    # the series and its history.
+    fft = CR.FFTMethod()
+    @test Convolution([2.0]; method = fft)([1.0, 2.0]) ≈ [2.0, 4.0]
+    @test Convolution(Float64[]; method = fft)(rand(rng, 5)) == zeros(5)
+    long, h, x = rand(rng, 500), rand(rng, 2), rand(rng, 5)
+    @test Convolution(long; method = fft)(x; history = h) ≈
+        Convolution(long)(x; history = h)
+    # A view, a last time before the end, and the threaded executor.
+    x = rand(rng, 3, 80)
+    c = rand(rng, 9)
+    @test Convolution(c; method = fft)(view(x, 2, :)) ≈ Convolution(c)(view(x, 2, :))
+    @test Convolution(c; method = fft)(x; start = 4, stop = 60) ≈
+        Convolution(c)(x; start = 4, stop = 60)
+    y = with(CR.EXECUTOR => CR.Threaded(; min_work = 0)) do
+        Convolution(c; method = fft)(x)
+    end
+    @test y ≈ Convolution(c)(x)
 end
 
 @testitem "Convolution FFT: Float32 is kept" begin
@@ -36,6 +53,11 @@ end
     y = Convolution(k; method = CR.FFTMethod())(x)
     @test eltype(y) == Float32
     @test y ≈ Convolution(k)(x) rtol = 1.0f-5
+    K = PerStratum(rand(Float32, 2, 4))
+    X = rand(Float32, 2, 50)
+    Y = Convolution(K; method = CR.FFTMethod())(X)
+    @test eltype(Y) == Float32
+    @test Y ≈ Convolution(K)(X) rtol = 1.0f-5
 end
 
 @testitem "Convolution FFT: which calls take the transform" begin

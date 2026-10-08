@@ -10,15 +10,18 @@ using ComposableRecurrences
 
 const SUITE = BenchmarkGroup()
 
-# Every entry below sets `evals = 1, seconds = 1, gctrial = false`: one
-# evaluation per sample, for at most a second; the convolution body entries
-# at the end, each well under a microsecond, take 100. Setting `evals` marks
-# an entry as tuned, so the `tune!` pass of the history workflow skips it
-# rather than spending seconds per entry estimating an evaluation count. The pull request
-# workflow already measures with one evaluation and `seconds = 1`.
-# `gctrial = false` drops the full garbage collections before each entry: with
-# every AD backend loaded the heap is large, each collection takes seconds,
-# and the minimum time reported is not sensitive to it.
+# Every entry below sets `evals = 1, seconds = 1, gctrial = false`.
+# That is one evaluation per sample, for at most a second.
+# The convolution body entries at the end take 100 evaluations a sample,
+# since each is well under a microsecond.
+# Setting `evals` marks an entry as tuned, so the `tune!` pass of the
+# history workflow skips it rather than spending seconds per entry
+# estimating an evaluation count.
+# The pull request workflow already measures with one evaluation and
+# `seconds = 1`.
+# `gctrial = false` drops the full garbage collections before each entry.
+# With every AD backend loaded the heap is large, each collection takes
+# seconds, and the minimum time reported is not sensitive to it.
 
 # The AD gradient grid, read from the package-owned `test/ADFixtures`
 # registry: declare a scenario or a broken pair there, not here.
@@ -191,10 +194,11 @@ if isdefined(ComposableRecurrences, :FFTMethod)
             (1, 200, 32), (1, 200, 64), (1, 300, 60), (1, 2000, 32),
             (1, 2000, 100), (1, 20000, 500), (50, 200, 64),
         )
-        for (S, T, L) in sizes, (name, method) in (
-                ("Direct", ComposableRecurrences.Direct()),
-                ("FFT", ComposableRecurrences.FFTMethod()),
-            )
+        arms = (
+            ("Direct", ComposableRecurrences.Direct()),
+            ("FFT", ComposableRecurrences.FFTMethod()),
+        )
+        for (S, T, L) in sizes, (name, method) in arms
             x = S == 1 ? rand(T) : rand(S, T)
             w = rand(size(x)...)
             label = "S $S T $T L $L"

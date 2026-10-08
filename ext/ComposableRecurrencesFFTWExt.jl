@@ -5,12 +5,11 @@
 module ComposableRecurrencesFFTWExt
 
 using ComposableRecurrences: ComposableRecurrences, FFTMethod, PerStratum,
-    _nlags, _untraced, add_cotangent!, cotangent
+    _CPUArray, _nlags, _untraced, add_cotangent!, cotangent
 using FFTW: FFTW, plan_irfft, plan_rfft
 using LinearAlgebra: mul!
 
 const _FFTFloat = Union{Float32, Float64}
-const _CPUArray = Union{Array, SubArray{<:Any, <:Any, <:Array}}
 
 # A time-varying kernel, another number type or another array takes the
 # direct method; so does a call AD traces.
@@ -44,35 +43,37 @@ function _plans(::Type{Tp}, N, S) where {Tp}
     end
 end
 
-# The kernel's spectrum at size `N`, one column per stratum or one shared;
-# reversed in lag for the reverse pass.
-function _spectrum(c::AbstractVector, ::Type{Tp}, N, S, rev) where {Tp}
+# The spectrum at size `N` of the kernel's first `L` lags, one column per
+# stratum or one shared; reversed in lag for the reverse pass.
+function _spectrum(c::AbstractVector, ::Type{Tp}, N, S, L, rev) where {Tp}
     cb = zeros(Tp, N, 1)
-    L = length(c)
     for d in 1:L
         cb[d, 1] = c[rev ? L + 1 - d : d]
     end
     return first(_plans(Tp, N, 1)) * cb
 end
-function _spectrum(c::PerStratum, ::Type{Tp}, N, S, rev) where {Tp}
+function _spectrum(c::PerStratum, ::Type{Tp}, N, S, L, rev) where {Tp}
     cb = zeros(Tp, N, S)
-    L = size(c.x, 2)
     for k in 1:S, d in 1:L
         cb[d, k] = c.x[k, rev ? L + 1 - d : d]
     end
     return first(_plans(Tp, N, S)) * cb
 end
 
+# The lags that reach an input: lag `d` reads buffer row `o + j - d`, so lags
+# from the buffer's length on add nothing.
+_reach(kernel, X) = min(_nlags(kernel), size(X, 1))
+
 # Forward: `Y[j, k] = Σ_d c[d + 1] X[o + j - d, k]`, `o = m + start - 1`.
 function ComposableRecurrences._fft_convolve!(
         Y::Matrix{Tp}, kernel, X::Matrix{Tp}, m, start
     ) where {Tp <: _FFTFloat}
-    isempty(Y) && return Y
-    L = _nlags(kernel)
+    L = _reach(kernel, X)
+    (isempty(Y) || L == 0) && return Y
     N = _fftsize(size(X, 1), L)
     S = size(X, 2)
     f, b = _plans(Tp, N, S)
-    K = _spectrum(kernel, Tp, N, S, false)
+    K = _spectrum(kernel, Tp, N, S, L, false)
     _ola!(Y, f, b, K, X, m + start - 1, N, L)
     return Y
 end
@@ -80,19 +81,26 @@ end
 # Reverse: the input cotangent `X̄[r, k] += Σ_d c[d + 1] Ȳ[r - o + d, k]` is
 # the output cotangent convolved with the reversed kernel, and the kernel
 # cotangent `k̄[d + 1] += Σ_j Ȳ[j, k] X[o + j - d, k]` its correlation with
-# the inputs. Both take each block of `Ȳ` from one transform of it.
+# the inputs.
 function ComposableRecurrences._fft_convolve_back!(
         X̄::Matrix{Tp}, k̄, kernel, X::Matrix{Tp}, Ȳ::Matrix{Tp}, m, start
     ) where {Tp <: _FFTFloat}
-    isempty(Ȳ) && return nothing
-    L = _nlags(kernel)
-    n = size(X, 1)
-    N = _fftsize(n, L)
-    T, S = size(Ȳ)
-    o = m + start - 1
+    L = _reach(kernel, X)
+    (isempty(Ȳ) || L == 0) && return nothing
+    N = _fftsize(size(X, 1), L)
+    S = size(X, 2)
     f, b = _plans(Tp, N, S)
-    Kr = _spectrum(kernel, Tp, N, S, true)
+    Kr = _spectrum(kernel, Tp, N, S, L, true)
     corr = _has_cotangent(k̄, kernel)
+    _ola_back!(X̄, k̄, kernel, f, b, Kr, X, Ȳ, m + start - 1, N, L, corr)
+    return nothing
+end
+
+# Both cotangents take each block of `Ȳ` from one transform of it.
+function _ola_back!(X̄, k̄, kernel, f, b, Kr, X, Ȳ, o, N, L, corr)
+    Tp = eltype(X̄)
+    n = size(X, 1)
+    T, S = size(Ȳ)
     B = N - L + 1
     off = L - 1 - o
     buf = zeros(Tp, N, S)

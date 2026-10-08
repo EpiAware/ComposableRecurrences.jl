@@ -42,28 +42,38 @@ struct Direct <: ConvolutionMethod end
 
 @doc raw"""
 The lag sum of a [`Convolution`](@ref) through the discrete Fourier
-transform, by overlap-add,
+transform of the zero-padded series, by overlap-add,
 ```math
 \sum_{l=0}^{L-1} k_{i,l}\, x_{t-l,i}
-= \mathcal{F}^{-1}\!\left[\mathcal{F}(k_i)\, \mathcal{F}(x_i)\right]_t,
+= \mathcal{F}^{-1}\!\left[\mathcal{F}(k_i)\, \mathcal{F}(x_i)\right]_t .
 ```
-with the input split into blocks of ``N - L + 1`` times and each block
-transformed at size ``N``, where ``N`` is the smallest 5-smooth number at
-least ``\min(m + T + L - 1, 8L)`` for ``m`` history times and ``T`` times.
+The ``n = m + t_1`` buffered inputs, ``m`` from the history and the rest up
+to the last time ``t_1``, are split into blocks of ``N - L + 1``, each
+transformed at size ``N``, the smallest 5-smooth number at least
+``\min(n + L - 1, 8L)``.
+Lags from ``n`` on reach no input and are dropped first.
 A block of the whole series is one transform.
-Its cost is ``O(T \log L)`` rather than ``O(T L)``, so it pays for long
-kernels; the reverse pass uses the same transforms.
+For a series much longer than the kernel the cost is ``O(n \log L)``
+rather than ``O(T L)``, so it pays only for long kernels; the reverse pass
+uses the same transforms.
 
-It needs the FFTW package loaded.
+It runs once its weak dependency is loaded, as the
+[FFT extension](@ref extension-fftw) page sets out; without it, a call with
+this method is refused.
 It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
 number type (dual numbers, say), other arrays (device or traced), and
-forward-mode or plain reverse-mode AD of the call take [`ComposableRecurrences.Direct`](@ref).
-The error of each output is about the machine epsilon times the largest
-output in its block, not times the output itself, so tails far below the
-peak lose relative accuracy and can come out negative.
-In `Float32` that starts about six orders of magnitude below the peak.
-It runs serially whatever [`ComposableRecurrences.Executor`](@ref) is set.
+forward-mode or plain reverse-mode AD of the call take
+[`ComposableRecurrences.Direct`](@ref).
+It does not use the set [`ComposableRecurrences.Executor`](@ref).
+
+The error of each output is about the machine epsilon times the size of the
+inputs and kernel in its block, not times the output itself.
+So outputs far below the inputs around them lose relative accuracy, and
+small outputs of a positive kernel and inputs can come out negative; in
+`Float32` that starts about six orders of magnitude below the peak.
+A `NaN` or `Inf` input spreads to every output of its block, including
+earlier ones.
 
 # Examples
 ```jldoctest
@@ -440,11 +450,11 @@ function _convolve_series!(y, c, X, k, m, start)
     return y
 end
 
-# Lag `d`'s part of output rows up to `last`, from its first defined row.
-@inline function _lag_axpy!(y, c, X, k, o, d, last)
+# Lag `d`'s part of output rows up to `jlast`, from its first defined row.
+@inline function _lag_axpy!(y, c, X, k, o, d, jlast)
     j0 = max(1, d + 1 - o)
-    j0 > last && return y
-    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + last - d), k), view(y, j0:last))
+    j0 > jlast && return y
+    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + jlast - d), k), view(y, j0:jlast))
     return y
 end
 

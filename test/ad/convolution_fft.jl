@@ -83,6 +83,10 @@ end
     c = Convolution(PerStratum(rand(rng, 2, 5)); method = CR.FFTMethod())
     args = (rand(rng, 2, 40), true, nothing, rand(rng, 2, 3), 2, nothing)
     CR.test_adjoint(AutoMooncake(; config = nothing), c, CR.Run(), args...)
+    # A kernel longer than the series and its history.
+    c = Convolution(rand(rng, 60); method = CR.FFTMethod())
+    args = (rand(rng, 20), true, nothing, rand(rng, 3), 1, nothing)
+    CR.test_adjoint(AutoMooncake(; config = nothing), c, CR.Run(), args...)
 end
 
 @testitem "FFT convolution gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward] setup = [FFTAD] begin
