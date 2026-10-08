@@ -5,9 +5,9 @@
 # written back for `MixedDuplicated` ones.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, Routes, Serial, _Current, _WithState, _ad,
+using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
     _current, _log_plain, _note_plain_type, _plain, _rebuild_flag,
-    _run_forward, _run_pullback!
+    _route_forward!, _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -159,17 +159,10 @@ function EnzymeRules.reverse(
 end
 
 # Plain Enzyme reverse AD of a sparse coupling's products in a loop gives
-# wrong gradients, so `NoAdjoint` on an active sparse coupling is refused,
-# as the recurrence's coupling or as one of the first eight route couplings.
-const _SparseRoutes = Union{
-    (
-        Routes{<:Tuple{ntuple(_ -> Any, i - 1)..., SparseMatrixCSC, Vararg{Any}}}
-            for i in 1:8
-    )...,
-}
-const _SparseRec = Union{
-    Recurrence{<:Any, <:SparseMatrixCSC}, Recurrence{<:_SparseRoutes},
-}
+# wrong gradients, so `NoAdjoint` on an active sparse coupling is refused:
+# the recurrence's coupling here, and a route coupling at its own step
+# below.
+const _SparseRec = Recurrence{<:Any, <:SparseMatrixCSC}
 const _SparseOp = Union{_SparseRec, _WithState{<:_SparseRec}}
 const _ActiveSparse = Union{
     Duplicated{<:_SparseOp}, DuplicatedNoNeed{<:_SparseOp},
@@ -187,6 +180,24 @@ end
 function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_plain)}, ::Type{<:Annotation},
         tape, op::_ActiveSparse, args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ArgumentError(_SPARSE_MSG))
+end
+
+# A route's coupled pressure, which only plain AD differentiates.
+const _ActiveSparseMatrix = Union{
+    Duplicated{<:SparseMatrixCSC}, DuplicatedNoNeed{<:SparseMatrixCSC},
+    MixedDuplicated{<:SparseMatrixCSC},
+}
+function EnzymeRules.augmented_primal(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)}, ::Type{<:Annotation},
+        C::_ActiveSparseMatrix, args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ArgumentError(_SPARSE_MSG))
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)}, ::Type{<:Annotation},
+        tape, C::_ActiveSparseMatrix, args::Vararg{Annotation, N}
     ) where {N}
     throw(ArgumentError(_SPARSE_MSG))
 end

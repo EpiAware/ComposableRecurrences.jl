@@ -18,7 +18,7 @@ import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
-using LinearAlgebra: Diagonal
+using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
@@ -365,6 +365,13 @@ function _routes(w, θ)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
+# Routes on scaled identities, which fold into one summed kernel.
+function _routes_folded(w, θ)
+    λ, g1, g2, logh, logR = _unpack(θ, (2,), (L - 1,), (L,), (S, L), (S, T))
+    r = Recurrence(Routes((λ[1] * I, g1), (λ[2] * I, g2)))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
@@ -481,6 +488,10 @@ const _SCENARIOS = [
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
     ),
     (
+        "Recurrence routes folded on scaled identities", _routes_folded,
+        () -> _flat([0.7, 0.4], G0[1:(L - 1)], G0, zeros(S, L), LOGR),
+    ),
+    (
         "Recurrence routes, dense and sparse", _routes,
         () -> _flat(K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, zeros(S, L), LOGR),
     ),
@@ -533,6 +544,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
     "Recurrence routes, dense and sparse" => (:Routes,),
+    "Recurrence routes folded on scaled identities" => (:Routes,),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),

@@ -158,9 +158,9 @@ function strata_routes(wrap, z::Size)
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     K0 = 0.6I(S) .+ 0.2 / S .* ones(S, S)
-    g2 = [l > L ÷ 2 ? 1.0 : 0.0 for l in 1:L]
+    g20 = [l > L ÷ 2 ? 1.0 : 0.0 for l in 1:L]
     return f, _flat(
-            Matrix(K0), _gi(L1), 0.2 .* nonzeros(K2), g2 ./ sum(g2), fill(log(5.0), S, L),
+            Matrix(K0), _gi(L1), 0.2 .* nonzeros(K2), g20 ./ sum(g20), fill(log(5.0), S, L),
             0.1 .+ 0.05 .* _weights(S, T),
         )
 end

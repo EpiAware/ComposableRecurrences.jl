@@ -826,6 +826,13 @@ end
     )
     @test Enzyme.gradient(mode, Enzyme.Const(g), rr)[1].kernel.couplings[2].nzval ≈
         ForwardDiff.gradient(froutes, copy(K.nzval))
+    # In any route, here the ninth.
+    r9 = Recurrence(Routes(ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)..., (K, [0.3, 0.2])))
+    @test_throws ArgumentError Enzyme.gradient(mode, Enzyme.Const(f), r9)
+    # A constant sparse route coupling is differentiated by plain AD.
+    fk(gk) = sum(NoAdjoint(Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, gk))))(R; history = h))
+    @test Enzyme.gradient(mode, Enzyme.Const(fk), [0.3, 0.2])[1] ≈
+        ForwardDiff.gradient(fk, [0.3, 0.2])
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin

@@ -224,10 +224,13 @@ function _pressure_at(C::UniformScaling, k::_RouteKernels, p, q, H, t, τ, L, a)
     return p[a], C.λ * p[a]
 end
 _routes_pressure!(ex, p, z, w, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, t, τ, L) = nothing
+# One route's coupled pressure; its own function so an AD backend can
+# refuse a route coupling it differentiates wrongly.
+_route_forward!(C, w, z, τ) = forward(C, Pressure(), w, z, τ)
 function _routes_pressure!(ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, τ, L)
     Lr = first(Ls)
     _kernel_pressure!(ex, z, first(gs), H, t + L - Lr, τ, Lr)
-    forward(first(Cs), Pressure(), w, z, τ)
+    _route_forward!(first(Cs), w, z, τ)
     p .+= w
     return _routes_pressure!(
         ex, p, z, w, Base.tail(Cs), Base.tail(gs), Base.tail(Ls), H, t, τ, L
