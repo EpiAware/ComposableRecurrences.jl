@@ -443,8 +443,8 @@ end
 # `(exp(-x), expm1(-x))` from one exponential: `expm1` below `1/2`, where
 # it keeps the digits `1 - e^{-x}` would lose and `1 + expm1(-x)` loses
 # none, and `exp` above, where neither subtraction cancels. Plain floats
-# and dual numbers branch on their value; traced numbers (Reactant, a
-# compiled ReverseDiff tape) would fix or reject the branch, so take both.
+# and dual numbers branch on their value; a traced number would fix the
+# branch when its trace is recorded, or reject it, so takes both.
 _exp_neg(x) = (exp(-x), expm1(-x))
 function _exp_neg(x::Union{AbstractFloat, ForwardDiff.Dual})
     if x < 0.5
