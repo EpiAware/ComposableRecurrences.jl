@@ -61,6 +61,9 @@ A pointwise modifier acts on each stratum ``i`` separately,
   - `forward(form, Step(), v, s, N, α)` draws `v` from pool `s` for a
     depletion form, returning `(y, s′)`.
 
+[Roles](@ref extending-roles) gives the matching
+[`ComposableRecurrences.pullback!`](@ref) for each.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -80,7 +83,7 @@ The role of a modifier's initial state: `forward(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or two for a
 [`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
 by the operator at its buffer eltype) from the full history, and returns
-`nothing`.
+`nothing`; [Roles](@ref extending-roles) gives the arguments.
 
 It sets the state before the first step of the call at ``t_0``,
 
@@ -128,6 +131,8 @@ stratum ``j`` in stratum ``i``, with ``S`` strata (parallel series).
 coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
+[A coupling](@ref extending-coupling) writes one with its
+[`ComposableRecurrences.pullback!`](@ref).
 
 # Examples
 ```jldoctest
@@ -167,6 +172,7 @@ To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling.
+[Roles](@ref extending-roles) gives each role's arguments.
 
 # Arguments
 - `x`: the operator, coupling, modifier or variant.
@@ -215,6 +221,9 @@ the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.
+[Roles](@ref extending-roles) gives the signature, the `grads` fields and the
+return value for each role, and [The gradient mirror](@ref extending-mirror)
+the shape of `grads.piece`.
 An operator's native rule calls a method whose `grads` and arguments after
 the role are untyped (see [`ComposableRecurrences.uses_adjoint`](@ref)).
 Without one, [Rules and plain AD](@ref adjoint-routing) says how the object

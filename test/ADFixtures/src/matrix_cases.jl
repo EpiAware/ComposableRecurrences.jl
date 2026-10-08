@@ -717,10 +717,9 @@ end
 
 include("matrix_naive.jl")
 
-# The user-written modifier of the "Writing your own modifier" page, from
-# the repository's benchmark folder, in a single renewal: once with
-# `forward` only and once with its `pullback!`. Skipped where the file is
-# absent (a copied fixture package).
+# The user-written modifier in the repository's benchmark folder, in a
+# single renewal: once with `forward` only and once with its `pullback!`.
+# Skipped where the file is absent (a copied fixture package).
 const DOCS_MODIFIER = joinpath(
     @__DIR__, "..", "..", "..", "benchmark", "docs_modifier.jl"
 )

@@ -253,7 +253,7 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 # `developer/release-process.md`, `developer/faq.md`) are then the package's
 # own to write, at those exact paths.
 const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
-    "Adding a modifier" => "developer/extending.md",
+    "Writing new types" => "developer/extending.md",
     "Testing and benchmarking" => "developer/testing.md",
 ]
 
