@@ -23,4 +23,4 @@ ComposableRecurrences = {path = ".."}
 BenchmarkTools = "1"
 DifferentiationInterface = "0.6, 0.7"
 EpiAwarePackageTools = "0.3, 0.4"
-FFTW = "1"
+FFTW = "1.10"
