@@ -85,7 +85,8 @@ add_param!(x̄, x::Recent, v, k, t) = _unbound(x)
     throw(
         ArgumentError(
             "Recent($(_describe(x.w))) reads a recurrence's outputs, so it " *
-                "has a value only inside a Recurrence's modifiers"
+                "has a value only inside a Recurrence's modifiers, held in " *
+                "immutable fields of concrete type"
         )
     )
 end
@@ -136,9 +137,21 @@ end
 # such as from a modifier's `Init`, is an error.
 function _recent_row(b::_BoundRecent, k, t)
     i = t + b.o
-    checkbounds(b.H, i - length(b.x.w), k)
+    W = length(b.x.w)
+    i - W >= 1 && i - 1 <= size(b.H, 1) || _before_window(b, t)
     checkbounds(b.H, i - 1, k)
     return i
+end
+@noinline function _before_window(b::_BoundRecent, t)
+    W = length(b.x.w)
+    t0 = W + 1 - b.o
+    throw(
+        ArgumentError(
+            "Recent with $W weights was read at time $t, but this call keeps " *
+                "outputs only for reads from time $t0 on; a modifier's " *
+                "Init reads its parameters at time 1, so start the run at 1"
+        )
+    )
 end
 
 Base.@propagate_inbounds _add_buffer!(H̄, v, i, k) = (H̄[i, k] += v; nothing)
@@ -154,6 +167,8 @@ function _reads_outputs_type(::Type{T}) where {T}
     T <: Union{Number, AbstractArray, Nothing, Symbol, AbstractString} &&
         return false
     T <: Union{Type, Module} && return false
+    # Mutable objects are not walked, as `depth` does not walk them.
+    ismutabletype(T) && return false
     isconcretetype(T) && isstructtype(T) || return false
     return any(_reads_outputs_type, fieldtypes(T))
 end
@@ -172,7 +187,7 @@ function _bind(::Val{true}, x::Derived, H, H̄, o)
     return Derived(x.f, _bind(x.args, H, H̄, o))
 end
 function _bind(::Val{true}, x, H, H̄, o)
-    fs = ntuple(i -> _bind(getfield(x, i), H, H̄, o), Val(fieldcount(typeof(x))))
+    fs = map(f -> _bind(f, H, H̄, o), Tuple(ConstructionBase.getfields(x)))
     return constructorof(typeof(x))(fs...)
 end
 

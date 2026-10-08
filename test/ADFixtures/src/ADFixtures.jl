@@ -391,8 +391,8 @@ end
 
 # Ring vaccination: removals from the susceptible pool scale with the sum of
 # the last week's cases. The scale is read from `θ` directly: Enzyme reverse
-# finds no shadow for a scalar read from a reshaped view and passed to the
-# `Depletion` keyword constructor inside a `Derived`.
+# finds no shadow for a scalar read from a reshaped view of `θ` and passed
+# through the `Depletion` keyword constructor.
 function _recent_removals(w, θ)
     logh, logR = _unpack(view(θ, 2:length(θ)), (S, 7), (S, T))
     dep = ComposableRecurrences.Depletion(

@@ -131,7 +131,7 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | no | hand-written | `total`, one per group |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | no | yes | hand-written, with a local forward-mode derivative or `derivative` | `θ` |
 
-Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these and [`Recent`](@ref) sources, read through [`param`](@ref ComposableRecurrences.param).
+Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`.
 
 ## [Depletion forms and indexing](@id overview-variants)

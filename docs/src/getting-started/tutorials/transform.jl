@@ -115,7 +115,7 @@ feedback = [
 end
 
 # Both measures cut the peak, and together they cut it further than either alone.
-# Each part keeps its own reverse-mode rule, and gradients flow back through the outputs that `Recent` reads.
+# The reverse-mode rule sends each gradient back through the outputs that `Recent` reads, so Mooncake and Enzyme follow the feedback too.
 
 # ## Extinction by generation
 #
