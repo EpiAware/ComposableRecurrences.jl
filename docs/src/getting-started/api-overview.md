@@ -121,14 +121,14 @@ Modifiers act on ``v_t`` in tuple order, after the gain and `add`.
 So `add` enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
 `Redistribute` moves whatever it receives, including values from `add`.
 
-| Name | What it does | Recurrence | Convolution | Per series | Adjoint | Parameters |
-|---|---|---|---|---|---|---|
-| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals and an optional protected pool | yes | no | yes, or no with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `removals`, `protected` |
-| [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | no | hand-written | `ε` |
-| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | no | yes | hand-written | `b` |
-| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
-| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | no | hand-written | `total`, one per group |
-| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | no | yes | hand-written, with a local forward-mode derivative or `derivative` | `θ` |
+| Name | What it does | Recurrence | Per series | Adjoint | Parameters |
+|---|---|---|---|---|---|
+| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals and an optional protected pool | yes | yes, or no with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `removals`, `protected` |
+| [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | hand-written | `ε` |
+| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
+| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
+| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | hand-written | `total`, one per group |
+| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`.
@@ -195,6 +195,9 @@ end
 
 Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop = 4)
 ```
+
+`ToFirst` has no `pullback!`, so the operator's rule takes a local derivative of its `forward`.
+[Rules and plain AD](@ref adjoint-routing) gives the conditions.
 
 ## [Checking gradients](@id overview-gradients)
 

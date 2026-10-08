@@ -16,8 +16,8 @@ y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 
 where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
-Every operator is differentiable, and the README lists the automatic
-differentiation backends it is tested with.
+Every operator is differentiable, and the [FAQ](@ref faq) lists the
+automatic differentiation backends it is tested with.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
 A plain array holds one set of coefficients: a kernel's lag weights, a
