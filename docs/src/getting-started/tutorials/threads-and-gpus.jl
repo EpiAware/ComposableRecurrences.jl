@@ -62,8 +62,8 @@ Threads.nthreads()
 
 # ## When threads pay off
 #
-# Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work` (500 000 by default).
-# [`Threaded`](@ref ComposableRecurrences.Threaded) says which loops a model has, and so when mixing strata gain.
+# Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work, in multiply-adds, is below `min_work`.
+# [`Threaded`](@ref ComposableRecurrences.Threaded) gives the default, and says which loops a model has, and so when mixing strata gain.
 # The timings below depend on the machine, and are of whole calls, including serial work outside the split loops.
 # On a quiet 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12), four threads began to beat one from about 500 000 multiply-adds per loop for independent strata and pairwise kernels.
 # At two million multiply-adds, independent strata ran 1.1 to 1.2 times faster and pairwise kernels 1.4 to 1.6 times faster.
