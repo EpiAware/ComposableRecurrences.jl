@@ -946,9 +946,9 @@ end
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. The buffer is `D`
 # rows deep before the run, `D >= L`, and row `D + t` holds absolute time
-# `τ0 + t - 1`; the kernel reads the last `L` rows before each step. The records are the kernel convolutions
-# `P` and pressures `X` of every step (strata × steps), and each modifier's
-# input values and states.
+# `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
+# The records are the kernel convolutions `P` and pressures `X` of every
+# step (strata × steps), and each modifier's input values and states.
 #
 # Independent strata run in blocks, each block over the whole series, so a
 # threaded run splits the strata once per call rather than once per step.
