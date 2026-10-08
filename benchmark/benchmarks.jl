@@ -11,9 +11,10 @@ using ComposableRecurrences
 const SUITE = BenchmarkGroup()
 
 # Every entry below sets `evals = 1, seconds = 1, gctrial = false`: one
-# evaluation per sample, for at most a second. Setting `evals` marks an entry
-# as tuned, so the `tune!` pass of the history workflow skips it rather than
-# spending seconds per entry estimating an evaluation count. The pull request
+# evaluation per sample, for at most a second; the convolution body entries
+# at the end, each well under a microsecond, take 100. Setting `evals` marks
+# an entry as tuned, so the `tune!` pass of the history workflow skips it
+# rather than spending seconds per entry estimating an evaluation count. The pull request
 # workflow already measures with one evaluation and `seconds = 1`.
 # `gctrial = false` drops the full garbage collections before each entry: with
 # every AD backend loaded the heap is large, each collection takes seconds,
@@ -137,7 +138,6 @@ end
 # The fixed-kernel convolution body against the forms it replaced, at
 # `T = 200`, `L = 20`: BLAS `axpy!` per lag, a native loop per lag, and the
 # package's body. A Julia or BLAS upgrade that reorders them shows up here.
-# Each call is well under a microsecond, so a sample is 100 evaluations.
 using LinearAlgebra: axpy!
 
 function _bench_conv_per_lag!(axpy, y, c, X, m)

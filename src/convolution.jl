@@ -437,11 +437,11 @@ function _convolve_series!(y, c, X, k, m, start)
     return y
 end
 
-# Lag `d`'s part of output rows up to `j1`.
-@inline function _lag_axpy!(y, c, X, k, o, d, j1)
+# Lag `d`'s part of output rows up to `last`, from its first defined row.
+@inline function _lag_axpy!(y, c, X, k, o, d, last)
     j0 = max(1, d + 1 - o)
-    j0 > j1 && return y
-    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + j1 - d), k), view(y, j0:j1))
+    j0 > last && return y
+    _axpy!(c[d + 1], view(X, (o + j0 - d):(o + last - d), k), view(y, j0:last))
     return y
 end
 
