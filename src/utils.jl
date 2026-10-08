@@ -18,8 +18,8 @@ _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x
 _at(::Nothing, k, t) = false
-_at(x::AbstractVector, k, t) = x[t]
-_at(x::AbstractMatrix, k, t) = x[k, t]
+Base.@propagate_inbounds _at(x::AbstractVector, k, t) = x[t]
+Base.@propagate_inbounds _at(x::AbstractMatrix, k, t) = x[k, t]
 
 # The times a call input covers: its last axis, or `nothing` without one.
 _extent(x::AbstractArray) = size(x, ndims(x))
