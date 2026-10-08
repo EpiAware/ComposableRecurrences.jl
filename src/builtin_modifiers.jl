@@ -261,9 +261,12 @@ changes: arrivals enter the pool only through the removals.
 - `form`: the depletion form; `Hazard()` by default.
 
 # Keyword Arguments
-- `heterogeneity`: the exponent `α`; `1` by default.
-  For the built-in forms the default is `true`, an exponent of exactly one
-  that is not a parameter, so their steps skip the power.
+- `heterogeneity`: the exponent `α`.
+  The default is `true` for the built-in forms, an exponent of exactly one
+  that is not a parameter, so their steps skip the power, and `1` for other
+  forms.
+  For the built-in forms `true` and `false` stay fixed; any other integer
+  takes the population's float type.
   Pass a float to differentiate the exponent.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
   default.
@@ -362,7 +365,7 @@ function Depletion(
         )
     )
     return Depletion(
-        N, form, _exponent(heterogeneity, N), pool0, removals, protected
+        N, form, _exponent(heterogeneity, N, form), pool0, removals, protected
     )
 end
 
@@ -406,10 +409,11 @@ end
 # An integer exponent takes the population's float type, so it has a
 # cotangent and a Float32 population stays Float32. A dual population gives
 # its primal type: a dual exponent with zero partials makes
-# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool.
-_exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
-_exponent(α::Bool, N) = α
-_exponent(α, N) = α
+# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool. The built-in
+# forms keep a `Bool` exponent as a fixed one, without a cotangent.
+_exponent(α::Integer, N, form) = convert(float(_primal_type(param_eltype(N))), α)
+_exponent(α::Bool, N, ::Union{Hazard, Floor}) = α
+_exponent(α, N, form) = α
 
 # The default exponent: `true` for the built-in forms, a fixed exponent of
 # one that is not a parameter, so their steps skip the power and its
@@ -492,8 +496,8 @@ function pullback!(grads, ::Floor, ::Step, v, s, N, α)
     ḡ = ȳ - s̄′
     p > fl || return ḡ * fl, s̄′, zero(ḡ), zero(ḡ)
     f̄ = ḡ * v
-    return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N,
-        _times_log(α, r, f̄ * p)
+    ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
+    return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N, ᾱ
 end
 
 ispointwise(::Depletion) = true

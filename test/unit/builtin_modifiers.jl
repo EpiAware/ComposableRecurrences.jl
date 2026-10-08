@@ -132,6 +132,35 @@ end
         float = Recurrence(g; modifiers = (CR.Depletion(60.0, form; heterogeneity = 1.0),))
         @test fixed(fill(3.0, 12); history = h) ≈ float(fill(3.0, 12); history = h)
     end
+    # With removals and with a protected pool.
+    R = fill(3.0, 12)
+    for kw in (
+            (; removals = TimeVarying(fill(0.5, 12))),
+            (; removals = TimeVarying(fill(0.5, 12)), protected = CR.Protected(0.3)),
+        )
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0; kw...),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0; heterogeneity = 1.0, kw...),))
+        @test fixed(R; history = h) ≈ float(R; history = h)
+    end
+    # A Float32 population stays Float32.
+    r32 = Recurrence(Float32.(g); modifiers = (CR.Depletion(60.0f0),))
+    @test eltype(r32(fill(3.0f0, 12); history = Float32.(h))) == Float32
+    # A dual population differentiates as with a float exponent.
+    using ForwardDiff
+    total(N, α) = sum(
+        Recurrence(g; modifiers = (CR.Depletion(N; heterogeneity = α),))(R; history = h)
+    )
+    @test ForwardDiff.derivative(N -> total(N, true), 60.0) ≈
+        ForwardDiff.derivative(N -> total(N, 1.0), 60.0)
+    # `false` is a fixed exponent of zero for the built-in forms.
+    @test CR.Depletion(60.0; heterogeneity = false).heterogeneity === false
+    @test total(60.0, false) ≈ total(60.0, 0.0)
+    # Other forms take a `Bool` as a float, as they may type their exponent.
+    struct Float64Form end
+    CR.forward(::Float64Form, ::CR.Step, v::Float64, s::Float64, N::Float64, α::Float64) =
+        (v, s - v)
+    @test CR.Depletion(60.0, Float64Form()).heterogeneity === 1.0
+    @test CR.Depletion(60.0, Float64Form(); heterogeneity = true).heterogeneity === 1.0
 end
 
 @testitem "Depletion: one population per stratum" begin
