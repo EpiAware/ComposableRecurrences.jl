@@ -394,7 +394,7 @@ end
 function _recent_removals(w, θ)
     κ, logh, logR = _unpack(θ, (1,), (S, 7), (S, T))
     dep = ComposableRecurrences.Depletion(
-        PerStratum(POP); removals = κ[1] * ComposableRecurrences.Recent(7)
+        PerStratum(10 .* POP); removals = κ[1] * ComposableRecurrences.Recent(7)
     )
     r = Recurrence(G0; coupling = K0, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
