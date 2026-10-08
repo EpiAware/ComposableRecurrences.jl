@@ -64,6 +64,15 @@ Mooncake.@mooncake_overlay function ComposableRecurrences._axpy!(
     ) where {T <: Union{Float32, Float64}}
     return axpy!(α, x, y)
 end
+Mooncake.@mooncake_overlay function ComposableRecurrences._axpy4!(
+        α₀::T, α₁::T, α₂::T, α₃::T, x₀::StridedVector{T}, x₁::StridedVector{T},
+        x₂::StridedVector{T}, x₃::StridedVector{T}, y::StridedVector{T}
+    ) where {T <: Union{Float32, Float64}}
+    axpy!(α₀, x₀, y)
+    axpy!(α₁, x₁, y)
+    axpy!(α₂, x₂, y)
+    return axpy!(α₃, x₃, y)
+end
 
 # The plain-AD note logs only while Mooncake differentiates the call in
 # reverse mode.
