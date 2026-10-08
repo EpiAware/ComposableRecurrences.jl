@@ -1,8 +1,6 @@
-# A user-written modifier for the "Writing your own modifier" page, timed by
-# the benchmark matrix (cases `custom_modifier` and
-# `custom_modifier_pullback`) and read by the docs from
-# `benchmark/results/docs.csv`. The docs page includes this file, so the code
-# it shows is the code that was timed.
+# A user-written modifier, timed by the benchmark matrix (cases
+# `custom_modifier` and `custom_modifier_pullback`) to compare the local
+# derivative with a hand-written `pullback!`.
 #
 # Saturation caps each value smoothly at `κ`: `y = v κ / (κ + v)`. It is
 # pointwise and keeps no state. `Saturation` implements `forward` only, so
