@@ -113,6 +113,7 @@ Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series re
 | `I`, `λI` | no mixing, or a uniform scaling | – |
 | `S × S` matrix (dense, `Diagonal`, sparse) | contact, mobility or type-to-type mixing | – |
 | [`TimeVarying(C)`](@ref TimeVarying) with `C` `S × S × T` | mixing that changes by day | – |
+| [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) with kernel `nothing` | routes that each pair a kernel with a coupling, such as community and funeral contacts | – |
 | your type | a `forward` method for [`Pressure()`](@ref ComposableRecurrences.Pressure) | – |
 
 ## [Modifiers](@id overview-modifiers)

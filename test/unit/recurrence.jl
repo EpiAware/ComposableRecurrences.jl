@@ -242,7 +242,7 @@ end
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = ones(2, 2))
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2, 3)); coupling = 0.5I)
     @test_throws ArgumentError Recurrence(nothing)
-    @test_throws "got nothing" Recurrence(nothing)
+    @test_throws "needs coupling = Routes" Recurrence(nothing)
     @test_throws ["coupling must be I, got", "UniformScaling{Float64}(0.5)"] Recurrence(
         Pairwise(ones(2, 2, 3)); coupling = 0.5I
     )

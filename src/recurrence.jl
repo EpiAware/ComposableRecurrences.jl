@@ -132,6 +132,7 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
+        _check_routes(kernel, coupling)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
         )
@@ -238,6 +239,9 @@ end
 # runs once per call, so it stays out of line.
 _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
+function _check_primary_seeds(kernel, C, history, start)
+    return _check_primary_seed(kernel, history, start)
+end
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
     m = size(history, ndims(history))
     start > m || throw(
@@ -264,6 +268,8 @@ end
 # The kernel shapes: a bare array is lags only, strata and time are added
 # by wrappers.
 _check_kernel_shape(k::AbstractVector) = nothing
+# A `Routes` coupling holds the kernels.
+_check_kernel_shape(::Nothing) = nothing
 _check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
 _check_kernel_shape(k::Pairwise{<:AbstractArray{<:Any, 3}}) = nothing
 _check_kernel_shape(k::TimeVarying{<:Any, <:AbstractMatrix}) = nothing
@@ -324,6 +330,7 @@ _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
+_nlags(k, C) = _nlags(k)
 
 # Kernel strata checks against `S` strata.
 _check_kernel_strata(k, S) = nothing
@@ -351,6 +358,9 @@ function _oldest_first(g::Pairwise)
     return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
 end
 _oldest_first(g) = g
+
+# The kernel as a run reads it, at buffer eltype `Tp`.
+_run_kernel(::Type{Tp}, g, C, h, S) where {Tp} = _oldest_first(g)
 
 # A kernel's weight on stratum `b`'s value at lag (or delay) index `i` in
 # stratum `a`, read in column `τ`. Kernels that do not mix strata read only
@@ -580,7 +590,7 @@ function _run_args(r, gain, history, state, add, start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
     h, s0, τ0 = _resume(history, state, start, gain, add)
-    _check_primary_seed(r.kernel, history, start)
+    _check_primary_seeds(r.kernel, r.coupling, history, start)
     return gain, add, h, s0, τ0
 end
 
@@ -789,7 +799,7 @@ end
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     (; kernel, coupling, modifiers) = r
-    L = _nlags(kernel)
+    L = _nlags(kernel, coupling)
     S = _nstrata(h)
     _check_kernel_strata(kernel, S)
     _check_coupling(coupling, S)
@@ -954,7 +964,7 @@ function _run(
         ::Val{record}
     ) where {Tp, record}
     (; coupling, modifiers) = r
-    kernel = _oldest_first(r.kernel)
+    kernel = _run_kernel(Tp, r.kernel, coupling, h, S)
     H = _load_history!(_zeros(h, Tp, L + T, S), h, L)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
