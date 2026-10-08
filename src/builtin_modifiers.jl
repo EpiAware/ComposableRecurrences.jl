@@ -241,7 +241,10 @@ The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
-[`ComposableRecurrences.Floor`](@ref), or a new type with that method.
+[`ComposableRecurrences.Floor`](@ref),
+[`ComposableRecurrences.Truncate`](@ref),
+[`ComposableRecurrences.SoftTruncate`](@ref), or a new type with that
+method.
 [A depletion form](@ref extending-form) writes a new form, and
 [Rules and plain AD](@ref adjoint-routing) gives the gradient of one without
 a `pullback!`.
