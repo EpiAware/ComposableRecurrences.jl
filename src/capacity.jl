@@ -190,8 +190,8 @@ Recurrence([0.0]; modifiers = (doses,))(; history = [0.0], add = [1.5, 1.5])
 struct Drop end
 
 @doc raw"""
-Routes each step's demand between an admitted and an overflow stratum,
-limited by a capacity: beds, or an allowance per period.
+Admits each step's demand up to a capacity, beds or an allowance per
+period, and routes the rest to an overflow stratum.
 A stratum is one of the ``S`` parallel series computed together.
 Demand that is not admitted moves to the overflow stratum, waits in a
 queue, or is dropped.
