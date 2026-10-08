@@ -16,12 +16,13 @@
 #
 # Models, with the loop they split and its work:
 #   independent  identity coupling, whole series per stratum, S T L
-#   sparse       sparse ring coupling, one loop per step, S L
+#   sparse       sparse ring coupling, two loops per step, S L each
 #   pairwise     kernel per pair of strata, one loop per step, S² L
 #   convolution  fixed pmf over S series, one loop per call, S T L
 #
 # The rows record the minimum and median time of each executor and the load
-# average when the cell ran.
+# average when the cell ran. Times are of the whole loss, so they include
+# serial work outside the split loops.
 
 using ADTypes: AutoMooncake
 using BenchmarkTools: @benchmark
@@ -65,7 +66,7 @@ const MODELS = [
     ),
     "pairwise" => (
         MatrixCases.strata_pairwise,
-        w -> Size(; T = 50, L = 20, S = round(Int, sqrt(w / 20))),
+        w -> Size(; T = 50, L = 20, S = ceil(Int, sqrt(w / 20))),
         z -> z.S^2 * z.L,
     ),
     "convolution" => (
@@ -91,7 +92,11 @@ function parse_args(args)
     return opts
 end
 
-loadavg() = first(split(read("/proc/loadavg", String)))
+loadavg() = try
+    first(split(read("/proc/loadavg", String)))
+catch
+    "unknown"
+end
 
 function timer(f, θ, target, seconds)
     if target == "primal"
@@ -111,7 +116,11 @@ end
 function main(opts)
     target = opts["target"]
     seconds = parse(Float64, opts["seconds"])
-    names = isempty(opts["models"]) ? first.(MODELS) : split(opts["models"], ',')
+    models = isempty(opts["models"]) ? first.(MODELS) : split(opts["models"], ',')
+    for m in models
+        m in first.(MODELS) ||
+            error("unknown model $m; choose from ", join(first.(MODELS), ", "))
+    end
     nt = Threads.nthreads()
     out = isempty(opts["out"]) ? "threshold-$target-t$nt.tsv" : opts["out"]
     open(out, "w") do io
@@ -124,10 +133,10 @@ function main(opts)
                 '\t'
             )
         )
-        for (name, (loss, size, work)) in MODELS
-            name in names || continue
+        for (name, (loss, size_at, work)) in MODELS
+            name in models || continue
             for w in WORKS
-                z = size(w)
+                z = size_at(w)
                 f, θ = loss(identity, z)
                 for (exname, ex) in EXECUTORS
                     b = with(CR.EXECUTOR => ex) do
