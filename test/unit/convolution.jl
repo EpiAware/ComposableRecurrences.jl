@@ -80,7 +80,7 @@ end
     # length and start puts the block edges on different rows.
     rng = Xoshiro(27)
     S, T = 2, 11
-    big = v -> BigFloat.(v)
+    tobig = v -> BigFloat.(v)
     f32(v) = v === nothing ? nothing : Float32.(v)
     f32(k::PerStratum) = PerStratum(Float32.(k.x))
     for L in 1:13, m in 0:5, start in (1, 2, 5)
@@ -90,8 +90,8 @@ end
         hist = m == 0 ? (nothing, nothing) : (h, H)
         for (k, u, hu) in ((c, x, hist[1]), (c, X, hist[2]), (PerStratum(C), X, hist[2]))
             conv = Convolution(k)
-            bh = hu === nothing ? nothing : big(hu)
-            ref = conv(big(u); history = bh, start)
+            bh = hu === nothing ? nothing : tobig(hu)
+            ref = conv(tobig(u); history = bh, start)
             @test conv(u; history = hu, start) ≈ ref
             y32 = Convolution(f32(k))(f32(u); history = f32(hu), start)
             @test eltype(y32) == Float32
