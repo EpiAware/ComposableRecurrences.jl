@@ -408,22 +408,24 @@ end
 
 forward(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
-# The group `g` entries of `x`, compartment by compartment, as a tuple.
-@inline function _gather(x, ::Val{n}, G, g) where {n}
-    return ntuple(i -> x[(i - 1) * G + g], Val(n))
+# The group `g` entries of `x`, compartment by compartment, as a tuple, and
+# their write-back. Generated as straight-line indexing, which AD backends
+# differentiate more cheaply than a closure or a recursion over the tuple.
+@generated function _gather(x, ::Val{n}, G, g) where {n}
+    return Expr(:tuple, (:(x[$(i - 1) * G + g]) for i in 1:n)...)
 end
-# Unrolled, so a tuple of mixed types stays type stable.
-@inline _scatter!(x, ::Tuple{}, G, g, o = 0) = x
-@inline function _scatter!(x, xs::Tuple, G, g, o = 0)
-    x[o * G + g] = first(xs)
-    return _scatter!(x, Base.tail(xs), G, g, o + 1)
+@generated function _scatter!(x, xs::Tuple, G, g)
+    body = (:(x[$(i - 1) * G + g] = xs[$i]) for i in 1:fieldcount(xs))
+    return Expr(:block, body..., :(return x))
 end
 
+# The group step is inlined at the call: across a call boundary, reverse AD
+# of the returned tuples is markedly slower.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
     nv, ns = B
     G = _ngroups(Val(B), length(v))
     for g in 1:G
-        v′, s′ = forward(
+        v′, s′ = @inline forward(
             m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
         )
         _scatter!(v, v′, G, g)
@@ -463,7 +465,7 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     v̄, s̄ = grads.v, grads.s
     G = _ngroups(Val(B), length(v))
     for g in 1:G
-        v̄g, s̄g = _call_pullback!(
+        v̄g, s̄g = @inline _call_pullback!(
             (;
                 piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
                 s = _gather(s̄, Val(ns), G, g),
