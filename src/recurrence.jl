@@ -486,37 +486,37 @@ end
 _kwork(g, S, L) = L
 _kwork(g::_PairwiseKernel, S, L) = S * L
 
-# Load the last `L` values of a public-layout history into the buffer,
+# Load the last `D` values of a public-layout history into the buffer,
 # right aligned; a shorter history leaves the earlier rows zero.
-function _load_history!(H, h::AbstractVector, L)
+function _load_history!(H, h::AbstractVector, D)
     m = length(h)
-    n = min(m, L)
-    H[(L - n + 1):L, 1] .= view(h, (m - n + 1):m)
+    n = min(m, D)
+    H[(D - n + 1):D, 1] .= view(h, (m - n + 1):m)
     return H
 end
-function _load_history!(H, h::AbstractMatrix, L)
+function _load_history!(H, h::AbstractMatrix, D)
     m = size(h, 2)
-    n = min(m, L)
-    H[(L - n + 1):L, :] .= transpose(view(h, :, (m - n + 1):m))
+    n = min(m, D)
+    H[(D - n + 1):D, :] .= transpose(view(h, :, (m - n + 1):m))
     return H
 end
 
 # CPU buffers load by loop: a broadcast copy may alias its source, and
 # reverse-mode AD cannot give that branch one activity when the history is
 # constant.
-function _load_history!(H::Array, h::AbstractVector, L)
+function _load_history!(H::Array, h::AbstractVector, D)
     m = length(h)
-    n = min(m, L)
+    n = min(m, D)
     for i in 1:n
-        H[L - n + i, 1] = h[m - n + i]
+        H[D - n + i, 1] = h[m - n + i]
     end
     return H
 end
-function _load_history!(H::Array, h::AbstractMatrix, L)
+function _load_history!(H::Array, h::AbstractMatrix, D)
     m = size(h, 2)
-    n = min(m, L)
+    n = min(m, D)
     for i in 1:n, k in axes(H, 2)
-        H[L - n + i, k] = h[k, m - n + i]
+        H[D - n + i, k] = h[k, m - n + i]
     end
     return H
 end

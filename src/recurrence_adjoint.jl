@@ -282,16 +282,16 @@ end
 
 # The buffer's first `D` rows back into the last `D` history columns; the
 # zero-padded rows of a short history have no cotangent.
-_scatter_history!(::Nothing, H̄, h, L) = nothing
-function _scatter_history!(h̄::AbstractVector, H̄, h, L)
+_scatter_history!(::Nothing, H̄, h, D) = nothing
+function _scatter_history!(h̄::AbstractVector, H̄, h, D)
     m = length(h)
-    n = min(m, L)
-    view(h̄, (m - n + 1):m) .+= view(H̄, (L - n + 1):L, 1)
+    n = min(m, D)
+    view(h̄, (m - n + 1):m) .+= view(H̄, (D - n + 1):D, 1)
     return nothing
 end
-function _scatter_history!(h̄::AbstractMatrix, H̄, h, L)
+function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     m = size(h, 2)
-    n = min(m, L)
-    view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (L - n + 1):L, :))
+    n = min(m, D)
+    view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (D - n + 1):D, :))
     return nothing
 end
