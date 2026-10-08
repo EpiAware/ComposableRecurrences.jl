@@ -852,15 +852,34 @@ _tail(::Nothing) = nothing
 _tail(rec::Tuple) = Base.tail(rec)
 function _record!(rec, v, s, t, k)
     rec.V[k, t] = v
-    rec.S[k, t] = s
+    _record_state!(rec.S, s, t, k)
     return nothing
 end
+
+# A modifier's records: its input values and its states (state entries ×
+# steps), or for a modifier whose state never changes the state vector it
+# started from.
+function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
+    return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T))
+end
+function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
+    return _stateless(m) ? s : _zeros(h, Tp, length(s), T)
+end
+_record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
+_record_state!(R::AbstractVector, s, t, k) = nothing
+_record_states!(R::AbstractMatrix, s, t) = (copyto!(view(R, :, t), s); nothing)
+_record_states!(R::AbstractVector, s, t) = nothing
+# The recorded state of stratum `k` entering step `t`, and of every stratum.
+_state_at(R::AbstractMatrix, k, t) = R[k, t]
+_state_at(R::AbstractVector, k, t) = R[k]
+_states_at(R::AbstractMatrix, t) = view(R, :, t)
+_states_at(R::AbstractVector, t) = R
 
 # Run vector-level modifiers in tuple order, recording their inputs.
 _stages_rec!(::Tuple{}, ::Tuple{}, ::Tuple{}, v, τ, t) = nothing
 function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     copyto!(view(first(rec).V, :, t), v)
-    copyto!(view(first(rec).S, :, t), first(states))
+    _record_states!(first(rec).S, first(states), t)
     forward(first(ms), Step(), v, first(states), τ)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
@@ -884,27 +903,38 @@ function _independent(
 end
 
 # Stratum `k`'s value at step `t` before the modifiers, recording its kernel
-# convolution and pressure in `P` and `X` when they are not `nothing`.
-@inline function _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+# convolution and, unless the coupling is pointwise, its pressure in `pr`
+# when it is not `nothing`.
+@inline function _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
     pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
-    _record_pressure!(P, X, pk, xk, t, k)
+    _record_pressure!(pr, pk, xk, t, k)
     return _at(gain, k, τ) * xk + _at(add, k, τ)
 end
-_record_pressure!(::Nothing, ::Nothing, pk, xk, t, k) = nothing
-@inline function _record_pressure!(P, X, pk, xk, t, k)
-    P[k, t] = pk
-    X[k, t] = xk
+# The records `(; P, X)` of the kernel convolutions and the pressures. A
+# pointwise coupling's pressure is its coefficient times the convolution,
+# so it records no `X`.
+function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
+    X = C isa _PointwiseCoupling ? nothing : _zeros(h, Tp, S, T)
+    return (; P = _zeros(h, Tp, S, T), X)
+end
+_record_pressure!(::Nothing, pk, xk, t, k) = nothing
+@inline function _record_pressure!(pr, pk, xk, t, k)
+    pr.P[k, t] = pk
+    pr.X === nothing || (pr.X[k, t] = xk)
     return nothing
 end
+# Stratum `k`'s pressure at step `t` from the records.
+_pressure(C, pr, k, t) = pr.X[k, t]
+_pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * pr.P[k, t]
 
 # The whole run of the independent strata `ks`, time outermost.
 function _series_body!(
-        ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, T
+        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, T
     )
     for t in 1:T
         τ = τ0 + t - 1
         for k in ks
-            x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+            x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
             H[L + t, k] = _thread(ms, states, rec, x, τ, t, k)
         end
     end
@@ -913,24 +943,24 @@ end
 
 # Stratum `k` at step `t`, through pointwise modifiers to the buffer.
 function _step_body!(
-        k, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L
+        k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L
     )
-    x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+    x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
     H[L + t, k] = _thread(ms, states, rec, x, τ, t, k)
     return nothing
 end
 
 # Stratum `k` at step `t`, collected for the modifiers' vector Step.
-function _value_body!(k, v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L)
-    v[k] = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+function _value_body!(k, v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L)
+    v[k] = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
     return nothing
 end
 
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. Buffer row `L + t`
-# holds absolute time `τ0 + t - 1`. The records are the kernel convolutions
-# `P` and pressures `X` of every step (strata × steps), and each modifier's
-# input values and states.
+# holds absolute time `τ0 + t - 1`. The records are each step's kernel
+# convolutions and pressures `pr` (strata × steps; see
+# `_pressure_records`) and each modifier's input values and states.
 #
 # Independent strata run in blocks, each block over the whole series, so a
 # threaded run splits the strata once per call rather than once per step.
@@ -965,19 +995,14 @@ function _run(
         map(s -> _state_vector(Tp, s), s0)
     end
     init = record ? map(copy, states) : nothing
-    P = record ? _zeros(h, Tp, S, T) : nothing
-    X = record ? _zeros(h, Tp, S, T) : nothing
+    pr = record ? _pressure_records(h, Tp, coupling, S, T) : nothing
     rec = record ?
-        map(
-            m -> (; V = _zeros(h, Tp, S, T), S = _zeros(h, Tp, nstate(m, S), T)),
-            modifiers
-        ) :
-        nothing
+        map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) : nothing
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         _blocks!(
             _series_body!, ex, H, S, T * work,
-            H, P, X, gain, add, coupling, kernel, p, q, modifiers, states, rec,
+            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
             τ0, L, T
         )
     else
@@ -987,13 +1012,13 @@ function _run(
             if _all_pointwise(modifiers)
                 _each!(
                     _step_body!, ex, H, S, work,
-                    H, P, X, gain, add, coupling, kernel, p, q, modifiers, states,
+                    H, pr, gain, add, coupling, kernel, p, q, modifiers, states,
                     rec, t, τ, L
                 )
             else
                 _each!(
                     _value_body!, ex, H, S, work,
-                    v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L
+                    v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L
                 )
                 if record
                     _stages_rec!(modifiers, states, rec, v, τ, t)
@@ -1011,8 +1036,8 @@ function _run(
     # caller overwriting them after the call cannot change the gradient.
     cache = record ?
         (;
-            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, S, T, H,
-            P, X, rec, init, state = State(_public(H, (T + 1):(T + L), h), states, τ0 + T),
+            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, S, T,
+            H, pr, rec, init, state = State(_public(H, (T + 1):(T + L), h), states, τ0 + T),
         ) : nothing
     return Y, H, states, cache
 end

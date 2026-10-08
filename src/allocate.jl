@@ -159,6 +159,7 @@ function forward(m::Allocate, ::Init, s, history)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
+_stateless(::Allocate) = true
 
 function forward(m::Allocate, ::Step, v, s, t)
     ε = eps(eltype(v))

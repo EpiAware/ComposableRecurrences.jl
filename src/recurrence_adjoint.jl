@@ -20,9 +20,22 @@ function pullback!(grads, w::_WithState, ::Run, c)
     return nothing
 end
 
+# The reverse pass runs under the executor set when it runs. The default
+# is passed as the singleton `Serial()`, so the loops below hold no
+# abstractly typed executor.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
-    (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec, init) = c
+    cur = _current()
+    if cur.ex isa Serial
+        _reverse!(Serial(), c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    else
+        _reverse!(cur, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    end
+    return nothing
+end
+
+function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    (; r, kernel, gain, h, s0, τ0, L, S, T, H, pr, rec, init) = c
     (; coupling, modifiers) = r
     Tp = eltype(H)
     H̄ = _zeros(H, Tp, L + T, S)
@@ -35,32 +48,30 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     s̄s = map(m -> _zeros(H, Tp, nstate(m, S)), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
-    v̄ = _zeros(H, Tp, S)
-    p̄ = _zeros(H, Tp, S)
-    q̄ = _zeros(H, Tp, S)
-    for t in T:-1:1
-        τ = τ0 + t - 1
-        if _all_pointwise(modifiers)
-            for k in 1:S
-                v̄k = _thread_back(modifiers, m̄s, rec, s̄s, H̄[L + t, k], τ, t, k)
-                _add_slot!(ādd, v̄k, k, τ)
-                _add_slot!(ḡain, v̄k * X[k, t], k, τ)
-                q̄[k] = _at(gain, k, τ) * v̄k
-            end
-        else
-            for k in 1:S
-                v̄[k] = H̄[L + t, k]
-            end
-            _stages_back!(modifiers, m̄s, rec, s̄s, v̄, τ, t)
-            for k in 1:S
-                _add_slot!(ādd, v̄[k], k, τ)
-                _add_slot!(ḡain, v̄[k] * X[k, t], k, τ)
-                q̄[k] = _at(gain, k, τ) * v̄[k]
-            end
-        end
-        _coupling_back!(p̄, C̄, coupling, q̄, P, H, H̄, t, τ, L)
-        _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t, τ, L)
+    # The cotangents the strata add into. The matrix gain and add inputs
+    # have a slot per stratum and step, a fixed kernel's goes through
+    # `kbuf`, and the parts that run on the calling task (`_steps_back!`)
+    # are not copied.
+    ādd, ḡain = _slots(ādd), _slots(ḡain)
+    kslots = _kernel_slots(ḡ, kernel)
+    work = S * _kwork(kernel, S, L)
+    if _independent(coupling, kernel, modifiers)
+        acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
+        accs = _accumulators(ex, H, S, T * work, acc)
+        _reduce_blocks!(
+            _series_back!, accs, S,
+            H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0, L, T
+        )
+    else
+        m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
+        acc = (; ādd, ḡain, C̄ = _Owned(C̄), ḡ = kslots, m̄s = m̄v)
+        accs = _accumulators(ex, H, S, work, acc)
+        _steps_back!(
+            accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0,
+            L, S, T
+        )
     end
+    _reduce!(accs)
     _kernel_finish!(ḡ, kbuf)
     _scatter_history!(h̄, H̄, h, L)
     if s0 === nothing
@@ -69,6 +80,104 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         end
     elseif s̄0 !== nothing
         foreach((a, b) -> a === nothing || (a .+= b), s̄0, s̄s)
+    end
+    return nothing
+end
+
+_slots(x̄) = x̄
+_slots(x̄::AbstractMatrix) = _Owned(x̄)
+_kernel_slots(ḡ, kernel) = _Owned(ḡ)
+_kernel_slots(ḡ, kernel::TimeVarying) = ḡ
+_kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
+# The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
+const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
+# A mirror as the calling task writes it.
+_own(x̄) = x̄
+_own(x̄::_Owned) = x̄.x
+
+# The reverse run of the independent strata `ks`, time outermost as in
+# `_series_body!`: each stratum's step reads and writes only its own slots
+# and the block's accumulator `acc`.
+function _series_back!(
+        ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, T
+    )
+    for t in T:-1:1
+        τ = τ0 + t - 1
+        for k in ks
+            q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, L, k)
+            p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
+            _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄k, H, H̄, t, τ, L, k)
+        end
+    end
+    return nothing
+end
+
+# Stratum `k`'s output cotangent at step `t` back through the pointwise
+# modifiers, the add input and the gain; returns the pressure's cotangent.
+@inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, L, k)
+    v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, H̄[L + t, k], τ, t, k)
+    _add_slot!(acc.ādd, v̄k, k, τ)
+    _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
+    return _at(gain, k, τ) * v̄k
+end
+
+# The reverse steps of strata that mix, last first. Each step's loops over
+# strata run in blocks of the executor where each stratum writes only its
+# own slots: the pointwise modifiers and the kernel unless it is pairwise.
+function _steps_back!(
+        accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, S, T
+    )
+    acc = first(accs)
+    Tp = eltype(H)
+    v̄ = _zeros(H, Tp, S)
+    p̄ = _zeros(H, Tp, S)
+    q̄ = _zeros(H, Tp, S)
+    for t in T:-1:1
+        τ = τ0 + t - 1
+        if _all_pointwise(ms)
+            _reduce_blocks!(
+                _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄, t,
+                τ, L
+            )
+        else
+            for k in 1:S
+                v̄[k] = H̄[L + t, k]
+            end
+            _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
+            for k in 1:S
+                _add_slot!(acc.ādd, v̄[k], k, τ)
+                _add_slot!(acc.ḡain, v̄[k] * _pressure(coupling, pr, k, t), k, τ)
+                q̄[k] = _at(gain, k, τ) * v̄[k]
+            end
+        end
+        _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ)
+        _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
+    end
+    return nothing
+end
+
+function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, L)
+    for k in ks
+        q̄[k] = _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, L, k)
+    end
+    return nothing
+end
+
+# The kernel's pullback at step `t`: per stratum in blocks, or for a
+# pairwise kernel, whose strata read every stratum's window, on one block.
+function _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
+    _reduce_blocks!(
+        _kernels_body!, accs, length(p̄), kbuf, kernel, p̄, H, H̄, t, τ, L
+    )
+    return nothing
+end
+function _kernels_back!(accs, kbuf, kernel::_ReversedPairwise, p̄, H, H̄, t, τ, L)
+    _kernel_back!(kbuf, _own(first(accs).ḡ), kernel, p̄, H, H̄, t, τ, L)
+    return nothing
+end
+function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
+    for k in ks
+        _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄[k], H, H̄, t, τ, L, k)
     end
     return nothing
 end
@@ -99,6 +208,7 @@ _add_slot!(::Nothing, v, k, t) = nothing
 _add_slot!(x̄::Base.RefValue, v, k, t) = (x̄[] += v; nothing)
 _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
 _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
+_add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
 # One stratum's value cotangent back through pointwise modifiers, last
 # first, with each one's scalar step pullback; returns the cotangent of the
@@ -111,7 +221,7 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
     R, s̄ = first(rec), first(s̄s)
     v̄, s̄[k] = _step_pullback(
         (; piece = first(m̄s), v = v̄, s = s̄[k]), first(ms), R.V[k, t],
-        R.S[k, t], τ, k
+        _state_at(R.S, k, t), τ, k
     )
     return v̄
 end
@@ -125,33 +235,32 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
     R = first(rec)
     _vector_pullback!(
         (; piece = first(m̄s), v = v̄, s = first(s̄s)), first(ms),
-        view(R.V, :, t), view(R.S, :, t), τ
+        view(R.V, :, t), _states_at(R.S, t), τ
     )
     return nothing
 end
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
-function _coupling_back!(p̄, C̄, C::UniformScaling, q̄, P, H, H̄, t, τ, L)
-    λ̄ = cotangent(C̄, :λ)
+function _coupling_back!(p̄, C̄, C::_PointwiseCoupling, q̄, pr, t, τ)
     for k in eachindex(p̄)
-        p̄[k] = C.λ * q̄[k]
-        add_cotangent!(λ̄, q̄[k] * P[k, t])
+        p̄[k] = _coupling_back_at(C̄, C, q̄[k], pr, t, k)
     end
     return p̄
 end
-function _coupling_back!(p̄, C̄, C::Diagonal, q̄, P, H, H̄, t, τ, L)
-    d̄ = cotangent(C̄, :diag)
-    for k in eachindex(p̄)
-        p̄[k] = C.diag[k] * q̄[k]
-        add_cotangent!(d̄, q̄[k] * P[k, t], k)
-    end
-    return p̄
-end
-function _coupling_back!(p̄, C̄, C, q̄, P, H, H̄, t, τ, L)
+function _coupling_back!(p̄, C̄, C, q̄, pr, t, τ)
     fill!(p̄, zero(eltype(p̄)))
-    _pressure_back!(p̄, C̄, C, q̄, view(P, :, t), τ)
+    _pressure_back!(p̄, C̄, C, q̄, view(pr.P, :, t), τ)
     return p̄
+end
+
+function _coupling_back_at(C̄, C::UniformScaling, q̄k, pr, t, k)
+    add_cotangent!(cotangent(C̄, :λ), q̄k * pr.P[k, t])
+    return C.λ * q̄k
+end
+function _coupling_back_at(C̄, C::Diagonal, q̄k, pr, t, k)
+    add_cotangent!(cotangent(C̄, :diag), q̄k * pr.P[k, t], k)
+    return C.diag[k] * q̄k
 end
 
 # A buffer for the kernel cotangent in the oldest-first order the forward
@@ -169,20 +278,17 @@ function _kernel_buffer(ḡ, kernel::_OldestFirstPairwise, H, S, L)
     return cotangent(ḡ, :x) === nothing ? nothing : _zeros(H, eltype(H), L, S, S)
 end
 
-# Correlate `p̄` with the kernel into the window's cotangent, and the window
-# with `p̄` into the kernel's, in one native loop per stratum.
-function _kernel_back!(kbuf, ḡ, g::AbstractVector, p̄, H, H̄, t, τ, L)
-    for k in eachindex(p̄)
-        kb = kbuf === nothing ? nothing : view(kbuf, :, k)
-        _window_back!(kb, g, p̄[k], H, H̄, t, L, k)
-    end
+# Correlate stratum `k`'s `a` with the kernel into the window's cotangent,
+# and the window with `a` into the kernel's, in one native loop; a pairwise
+# kernel's strata read every stratum's window, so it runs over all of them.
+function _kernel_back_at!(kbuf, ḡ, g::AbstractVector, a, H, H̄, t, τ, L, k)
+    kb = kbuf === nothing ? nothing : view(kbuf, :, k)
+    _window_back!(kb, g, a, H, H̄, t, L, k)
     return nothing
 end
-function _kernel_back!(kbuf, ḡ, g::PerStratum, p̄, H, H̄, t, τ, L)
-    for k in eachindex(p̄)
-        kb = kbuf === nothing ? nothing : view(kbuf, k, :)
-        _window_back!(kb, view(g.x, k, :), p̄[k], H, H̄, t, L, k)
-    end
+function _kernel_back_at!(kbuf, ḡ, g::PerStratum, a, H, H̄, t, τ, L, k)
+    kb = kbuf === nothing ? nothing : view(kbuf, k, :)
+    _window_back!(kb, view(g.x, k, :), a, H, H̄, t, L, k)
     return nothing
 end
 function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L)
@@ -213,22 +319,27 @@ end
 # `_column(g, τ, i)`: `τ`, or `τ - i` for a `Primary()` kernel, whose lags
 # before time 1 have no column (`_lags`). Lag runs innermost, so each
 # sender's window is read in order.
-function _kernel_back!(kbuf, ḡ, g::TimeVarying, p̄, H, H̄, t, τ, L)
-    lags = _lags(g, τ, L)
+function _kernel_back!(
+        kbuf, ḡ, g::TimeVarying{<:Any, <:Pairwise}, p̄, H, H̄, t, τ, L
+    )
     for a in eachindex(p̄)
-        @inbounds pa = p̄[a]
-        for b in _senders(g, a, H), i in lags
-            j = t + L - i
-            c = _column(g, τ, i)
-            @inbounds _add_weight!(ḡ, g, pa * H[j, b], a, b, i, c)
-            @inbounds H̄[j, b] += pa * _weight(g, a, b, i, c)
-        end
+        @inbounds _tv_back!(ḡ, g, p̄[a], H, H̄, t, τ, L, a, axes(H, 2))
     end
     return nothing
 end
-_kernel_back!(kbuf, ḡ, ::Nothing, p̄, H, H̄, t, τ, L) = nothing
-_senders(g, a, H) = a:a
-_senders(g::_PairwiseKernel, a, H) = axes(H, 2)
+function _kernel_back_at!(kbuf, ḡ, g::TimeVarying, a, H, H̄, t, τ, L, k)
+    _tv_back!(ḡ, g, a, H, H̄, t, τ, L, k, k:k)
+    return nothing
+end
+function _tv_back!(ḡ, g, pa, H, H̄, t, τ, L, a, senders)
+    for b in senders, i in _lags(g, τ, L)
+        j = t + L - i
+        c = _column(g, τ, i)
+        @inbounds _add_weight!(ḡ, g, pa * H[j, b], a, b, i, c)
+        @inbounds H̄[j, b] += pa * _weight(g, a, b, i, c)
+    end
+    return nothing
+end
 
 # A weight's cotangent, as `_weight` reads it.
 Base.@propagate_inbounds function _add_weight!(
