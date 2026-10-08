@@ -146,6 +146,6 @@ end
     obj = Interfaces.Arguments(;
         piece = d, role = CR.Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     )
-    I = CR.PieceInterface{(:blocks, :nstate)}
-    @test Interfaces.test(I, typeof(d), (obj,); show = false)
+    blockwise = CR.PieceInterface{(:blocks, :nstate)}
+    @test Interfaces.test(blockwise, typeof(d), (obj,); show = false)
 end
