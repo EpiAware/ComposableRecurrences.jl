@@ -154,7 +154,12 @@ end
         ForwardDiff.derivative(N -> total(N, 1.0), 60.0)
     # `false` is a fixed exponent of zero for the built-in forms.
     @test CR.Depletion(60.0; heterogeneity = false).heterogeneity === false
-    @test total(60.0, false) ≈ total(60.0, 0.0)
+    for form in (CR.Hazard(), CR.Floor())
+        @test all(
+            CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, false) .≈
+                CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 0.0)
+        )
+    end
     # Other forms take a `Bool` as a float, as they may type their exponent.
     struct Float64Form end
     CR.forward(::Float64Form, ::CR.Step, v::Float64, s::Float64, N::Float64, α::Float64) =
