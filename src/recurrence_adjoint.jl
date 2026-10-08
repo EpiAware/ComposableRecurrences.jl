@@ -263,15 +263,9 @@ function _kernel_buffer(ḡ, kernel::_OldestFirstPairwise, H, S, L)
     return cotangent(ḡ, :x) === nothing ? nothing : _zeros(H, eltype(H), L, S, S)
 end
 
-# Correlate `p̄` with the kernel into the window's cotangent, and the window
-# with `p̄` into the kernel's, in one native loop per stratum; a pairwise
-# kernel's stratum reads every stratum's window.
-function _kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
-    for k in eachindex(p̄)
-        _kernel_back_at!(kbuf, ḡ, g, p̄[k], H, H̄, t, τ, L, k)
-    end
-    return nothing
-end
+# Correlate stratum `k`'s `a` with the kernel into the window's cotangent,
+# and the window with `a` into the kernel's, in one native loop; a pairwise
+# kernel's strata read every stratum's window, so it runs over all of them.
 function _kernel_back_at!(kbuf, ḡ, g::AbstractVector, a, H, H̄, t, τ, L, k)
     kb = kbuf === nothing ? nothing : view(kbuf, :, k)
     _window_back!(kb, g, a, H, H̄, t, L, k)
@@ -331,7 +325,6 @@ function _tv_back!(ḡ, g, pa, H, H̄, t, τ, L, a, senders)
     end
     return nothing
 end
-_kernel_back_at!(kbuf, ḡ, ::Nothing, a, H, H̄, t, τ, L, k) = nothing
 
 # A weight's cotangent, as `_weight` reads it.
 Base.@propagate_inbounds function _add_weight!(

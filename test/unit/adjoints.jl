@@ -292,6 +292,25 @@ end
     end
 end
 
+@testitem "Adjoint: Convolution reverse pass in threaded blocks" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    rng = Xoshiro(17)
+    S, D, T = 5, 4, 9
+    X = rand(rng, S, T)
+    ex = CR.Threaded(; min_work = 0, ntasks = 2)
+    with(CR.EXECUTOR => ex) do
+        for c in (
+                Convolution(rand(rng, D)), Convolution(PerStratum(rand(rng, S, D))),
+                Convolution(TimeVarying(rand(rng, D, T))),
+            )
+            splits = CR._SPLIT_BLOCKS[]
+            @test pullback_matches(c, X, true, nothing, rand(rng, S, 2), 1, nothing)
+            @test CR._SPLIT_BLOCKS[] > splits
+        end
+    end
+end
+
 @testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
     using ComposableRecurrences
     S, L, T = 3, 2, 5
@@ -314,6 +333,9 @@ end
         @test size(c.rec[2].S) == (S, T)
         @test c.rec[3].S == zeros(S)
     end
+    @test all(CR._stateless, (CR.Add(0.1), CR.Clamp(0.0, 1.0), CR.Allocate([1:3], 1.0)))
+    @test CR._stateless(CR.Transform(exp))
+    @test !CR._stateless(CR.Depletion(50.0))
     # A resumed stateless modifier reads the state it was given.
     r = Recurrence([0.4, 0.3]; modifiers = (CR.Add(0.1),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
