@@ -324,7 +324,7 @@ D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_R)\b
 
 past outputs per stratum, where ``L`` is the kernel length, ``d`` is
 `depth` and ``M_1, \dots, M_R`` are the modifiers.
-The kernel reads the last ``L`` of them, and a piece with ``d(x) > L``
+The kernel reads the last ``L`` of them, and an object with ``d(x) > L``
 can read further back.
 A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a
 resumed call reads the same past.

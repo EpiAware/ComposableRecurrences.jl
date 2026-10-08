@@ -1,5 +1,5 @@
 # A buffer deeper than the kernel: `depth` sets how many past outputs the
-# recurrence keeps. A piece that reads nothing from the deeper rows leaves
+# recurrence keeps. A modifier that reads nothing from the deeper rows leaves
 # the output unchanged; the state holds the deeper rows.
 
 @testsnippet DeepBuffer begin
@@ -74,7 +74,7 @@ end
     @test size(st.history) == (S, D)
     @test st.history ≈ hcat(h, y1)[:, (end - D + 1):end]
     @test hcat(y1, r(R; state = st)) ≈ y
-    # Without a deeper piece the state holds the kernel length.
+    # Without a deeper modifier the state holds the kernel length.
     _, st = CR.with_state(Recurrence(g), R; history = h, stop = 4)
     @test size(st.history) == (S, L)
 end
