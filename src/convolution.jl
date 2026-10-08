@@ -146,7 +146,7 @@ function _check_conv(kernel, x, gain, add, history, start, stop)
         ArgumentError("stop ($stop) is before start ($start)")
     )
     _check_kernel_times(kernel, stop)
-    _check_device(x, kernel)
+    _check_device(x, (kernel, history, gain, add))
     Tp = float(param_eltype((kernel, x, history, gain, add)))
     return Tp, S, m, stop
 end

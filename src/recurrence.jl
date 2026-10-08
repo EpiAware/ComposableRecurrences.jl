@@ -810,7 +810,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     _check_kernel_times(kernel, stop)
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
-    _check_device(h, (kernel, coupling, modifiers))
+    _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
     Tp = float(param_eltype((r, gain, add, h, s0)))
     return _run(Tp, r, gain, add, h, s0, τ0, L, S, T, record)

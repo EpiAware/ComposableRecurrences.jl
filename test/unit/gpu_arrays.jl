@@ -275,7 +275,10 @@ end
         )
         @test_throws ArgumentError r(x; history = h)
     end
+    @test_throws ArgumentError Recurrence(g)(ones(2, 5); history = h)
+    @test_throws ArgumentError Recurrence(g)(1.0; history = h, add = ones(2, 5))
     @test_throws ArgumentError Convolution([0.5, 0.5])(x)
+    @test_throws ArgumentError Convolution(g)(x; gain = ones(2, 5))
     ks = [[0.5, 0.5], [1.0], [0.25, 0.75]]
     @test_throws ArgumentError Convolution(TimeVarying(ks, Primary()))(JLArray(ones(3)))
     @test_throws ArgumentError Recurrence(TimeVarying(ks))(
@@ -310,4 +313,31 @@ end
         @test typeof(y).name === typeof(x).name
         @test !holds_host(y)
     end
+end
+
+@testitem "JLArrays: adapting an operator moves its parameters to the device" begin
+    using Adapt: adapt
+    using ComposableRecurrences
+    using ComposableRecurrences: Allocate, Depletion
+    using JLArrays
+    JLArrays.allowscalar(false)
+    g, K = [0.4, 0.3, 0.2, 0.1], [0.8 0.1 0.1; 0.2 0.7 0.1; 0.1 0.2 0.7]
+    R, H = fill(1.1, 3, 10), ones(3, 4)
+    r = Recurrence(
+        g; coupling = K,
+        modifiers = (
+            Depletion(PerStratum([60.0, 50.0, 40.0])), Allocate([1:2, 3:3], TimeVarying(fill(9.0, 10))),
+        )
+    )
+    rd = adapt(JLArray, r)
+    @test rd isa Recurrence
+    @test rd.kernel isa JLArray
+    @test rd.coupling isa JLArray
+    @test rd.modifiers[1].N.x isa JLArray
+    @test rd.modifiers[2].total.x isa JLArray
+    @test Array(rd(JLArray(R); history = JLArray(H))) ≈ r(R; history = H)
+    c = Convolution(PerStratum(repeat(g', 3)))
+    cd = adapt(JLArray, c)
+    @test cd.kernel.x isa JLArray
+    @test Array(cd(JLArray(R))) ≈ c(R)
 end

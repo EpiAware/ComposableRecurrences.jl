@@ -653,7 +653,7 @@ end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
-    S = length(v)
+    S = length(eachindex(v, s))
     _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
     _each!(_redistribute_body!, Serial(), v, S, S * S, v, s, K, ε, t)
     return nothing

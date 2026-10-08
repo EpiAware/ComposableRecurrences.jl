@@ -111,8 +111,8 @@ The `Device(backend)` row was checked on JLArrays only, which run kernels on the
 A call on arrays that live on a GPU runs each loop over strata, series or output times as one kernel.
 Independent strata are one kernel per call, each thread stepping its stratum through time.
 Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata or many series.
-Every array the call reads must live on the same device: the inputs, the history, the kernel, the coupling and the modifiers' parameters.
-A call with device inputs and a host float array among these is an error.
+Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
+A call with device inputs and a host float array among these is an error; move each array to the device first; `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r`.
 Buffers, states and outputs are allocated from the inputs, so they live there too.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.

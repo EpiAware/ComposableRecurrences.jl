@@ -339,7 +339,8 @@ function forward(m, ::Step, v, s, t)
                 "nor a pointwise forward(m, Step(), v, s, t, k)"
         )
     )
-    _each!(_pointwise_body!, Serial(), v, length(v), length(v), v, s, m, t)
+    n = length(eachindex(v, s))
+    _each!(_pointwise_body!, Serial(), v, n, n, v, s, m, t)
     return nothing
 end
 

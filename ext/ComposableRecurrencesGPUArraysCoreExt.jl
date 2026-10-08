@@ -1,8 +1,9 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Add, Clamp, Depletion,
-    Derived, Device, Pairwise, PerStratum, Pressure, Protected, Redistribute,
-    Secondary, Serial, TimeVarying, Transform, _OldestFirstPairwise, _Ragged
+using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Clamp,
+    Convolution, Depletion, Derived, Device, Pairwise, PerStratum, Pressure,
+    Protected, Recurrence, Redistribute, Secondary, Serial, TimeVarying,
+    Transform, _OldestFirstPairwise, _Ragged
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -18,15 +19,16 @@ function ComposableRecurrences._reverse_dim(x::AnyGPUArray, d)
     return x[ntuple(i -> i == d ? (size(x, i):-1:1) : Colon(), Val(ndims(x)))...]
 end
 
-# A call on device inputs reads its kernel, coupling and modifiers inside
-# kernels, so a float array among them must live on the device too. Integer
-# arrays, such as `Allocate`'s groups, are copied where a loop needs them.
+# A call on device inputs reads its kernel, coupling, modifiers, other
+# inputs and states inside kernels, so a float array among them must live on
+# the device too. Integer arrays, such as `Allocate`'s groups, are copied
+# where a loop needs them.
 function ComposableRecurrences._check_device(::AnyGPUArray, parts)
     _host_leaf(parts) && throw(
         ArgumentError(
-            "the inputs live on a device but a kernel, coupling or modifier " *
-                "parameter is a host array; move every array a call reads " *
-                "to the device of the inputs"
+            "the inputs live on a device but a kernel, coupling, modifier " *
+                "parameter, gain, add input or state is a host array; move " *
+                "every array a call reads to the device of the inputs"
         )
     )
     return nothing
@@ -90,13 +92,21 @@ end
 
 # Coefficient wrappers and built-in modifiers carry their arrays into a
 # kernel: each is rebuilt from its adapted fields, as `constructorof`
-# rebuilds it elsewhere.
+# rebuilds it elsewhere. The operators adapt the same way, so
+# `adapt(CuArray, r)` moves every parameter of `r` to a device.
 const _Adapted = Union{
     PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
-    Protected, Add, Clamp, Redistribute, Transform, Derived,
+    Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
+    Convolution,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
+end
+
+# `Allocate` keeps its groups, host index arrays that each step copies where
+# it needs them, and adapts its totals.
+function Adapt.adapt_structure(to, m::Allocate)
+    return constructorof(typeof(m))(m.strata, m.offsets, adapt(to, m.total))
 end
 
 end
