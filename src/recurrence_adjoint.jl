@@ -20,9 +20,22 @@ function pullback!(grads, w::_WithState, ::Run, c)
     return nothing
 end
 
+# The reverse pass runs under the executor set when it runs. The default
+# is passed as the singleton `Serial()`, so the loops below hold no
+# abstractly typed executor.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
-    (; r, ex, kernel, gain, h, s0, τ0, L, S, T, H, pr, rec, init) = c
+    cur = _current()
+    if cur.ex isa Serial
+        _reverse!(Serial(), c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    else
+        _reverse!(cur, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    end
+    return nothing
+end
+
+function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    (; r, kernel, gain, h, s0, τ0, L, S, T, H, pr, rec, init) = c
     (; coupling, modifiers) = r
     Tp = eltype(H)
     H̄ = _zeros(H, Tp, L + T, S)

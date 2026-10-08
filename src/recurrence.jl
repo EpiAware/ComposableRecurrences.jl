@@ -1036,7 +1036,7 @@ function _run(
     # caller overwriting them after the call cannot change the gradient.
     cache = record ?
         (;
-            r, ex, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, S, T,
+            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, S, T,
             H, pr, rec, init, state = State(_public(H, (T + 1):(T + L), h), states, τ0 + T),
         ) : nothing
     return Y, H, states, cache

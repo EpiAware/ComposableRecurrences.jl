@@ -193,12 +193,15 @@ end
 _nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
 _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
 
+# Chunk `c` of `m` contiguous chunks of `1:n`.
+_chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
+
 # Run `run(ks)` on `m` contiguous chunks of `1:n`, one task each, and wait
 # for every task, so a failing chunk cannot leave others writing after the
 # loop returns; failures are rethrown together.
 function _spawn_chunks(run::R, n, m) where {R}
     @sync for c in 1:m
-        Threads.@spawn run(((c - 1) * n ÷ m + 1):(c * n ÷ m))
+        Threads.@spawn run(_chunk(c, n, m))
     end
     return nothing
 end
@@ -419,7 +422,7 @@ const _SPLIT_BLOCKS = Threads.Atomic{Int}(0)
     Threads.atomic_add!(_SPLIT_BLOCKS, 1)
     m = length(copies) + 1
     @sync for b in 1:m
-        ks = ((b - 1) * n ÷ m + 1):(b * n ÷ m)
+        ks = _chunk(b, n, m)
         if b == 1
             Threads.@spawn body(ks, acc, args...)
         else
