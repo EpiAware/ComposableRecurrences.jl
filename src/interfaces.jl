@@ -59,7 +59,7 @@ function _nstate_ok(m, ::Step, args)
     return length(s) == n && (!ispointwise(m) || n == S)
 end
 
-# A `pullback!` method for the piece's type in a role the rule calls is
+# A `pullback!` method for the type in a role the rule calls is
 # found by `uses_adjoint`, unless the type declares its own `uses_adjoint`.
 # A method with typed arguments is missed by the folded lookup, and the
 # rule would otherwise drop it without a word.
