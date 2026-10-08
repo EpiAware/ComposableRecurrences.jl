@@ -7,7 +7,7 @@ module ComposableRecurrencesMooncakeExt
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _current, _log_plain, _note_plain_type, _rebuild_flag, _run_forward,
-    _run_pullback!
+    _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -103,6 +103,16 @@ function Mooncake.frule!!(::Mooncake.Dual{typeof(_current)})
 end
 function Mooncake.rrule!!(f::CoDual{typeof(_current)})
     return Mooncake.zero_fcodual(_Current(Serial())), Mooncake.NoPullback(f)
+end
+
+# Code Mooncake traces is not run as primal code, so a convolution it traces
+# takes the direct method, which it can differentiate.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_untraced)}
+function Mooncake.frule!!(::Mooncake.Dual{typeof(_untraced)})
+    return Mooncake.zero_dual(false)
+end
+function Mooncake.rrule!!(f::CoDual{typeof(_untraced)})
+    return Mooncake.zero_fcodual(false), Mooncake.NoPullback(f)
 end
 
 Mooncake.@is_primitive(

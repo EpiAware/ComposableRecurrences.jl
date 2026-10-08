@@ -61,7 +61,7 @@ Each table below lists one part of the package:
 | Name | What it does | Returns |
 |---|---|---|
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
-| [`Convolution(kernel)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0 | a callable `Convolution` |
+| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
 A recurrence has no lag 0, because a value cannot depend on itself in the same step.
 

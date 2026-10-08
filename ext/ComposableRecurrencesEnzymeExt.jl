@@ -7,7 +7,7 @@ module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
     _current, _log_plain, _note_plain_type, _plain, _rebuild_flag,
-    _run_forward, _run_pullback!
+    _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -123,6 +123,25 @@ function EnzymeRules.augmented_primal(
 end
 function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_current)}, ::Type{<:Const}, tape
+    )
+    return ()
+end
+
+# Code Enzyme traces is not run as primal code, so a convolution it traces
+# takes the direct method, which it can differentiate.
+function EnzymeRules.forward(
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
+    )
+    return EnzymeRules.needs_primal(config) ? false : nothing
+end
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
+    )
+    primal = EnzymeRules.needs_primal(config) ? false : nothing
+    return EnzymeRules.AugmentedReturn(primal, nothing, nothing)
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}, tape
     )
     return ()
 end
