@@ -150,7 +150,7 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# [Extending](@ref extending) lists the roles a modifier can implement.
+# [Roles](@ref extending-roles) lists the roles a modifier can implement.
 # [`pullback!`](@ref ComposableRecurrences.pullback!) adds a hand-written adjoint.
 
 # ## Learning more
