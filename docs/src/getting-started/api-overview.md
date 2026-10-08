@@ -127,11 +127,13 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | no | hand-written | `ε` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | no | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
+| [`Flows(flows...)`](@ref ComposableRecurrences.Flows) | moves the values between stocks by competing [`Flow(from => to, rate)`](@ref ComposableRecurrences.Flow)s, each stock a block of series | yes, with several series | no | no | hand-written | each flow's `rate` |
+| [`Linked(m, flows...)`](@ref ComposableRecurrences.Linked) | moves the stocks modifier `m` keeps in its state by competing flows, then runs `m` | yes | no | no | hand-written, when `m` has one | each flow's `rate`, and `m`'s |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | no | hand-written | `total`, one per group |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | no | yes | hand-written, with a local forward-mode derivative or `derivative` | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`.
+The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add` and uses `Linked` for waning, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and `Flows`.
 
 ## [Depletion forms and indexing](@id overview-variants)
 

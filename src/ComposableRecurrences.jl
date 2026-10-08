@@ -91,9 +91,9 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
 
-public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
-    Hazard, Floor, Primary, Secondary, seeded, exponential_history,
-    with_state, State, contributions, forward,
+public Depletion, Protected, Flow, Flows, Linked, Redistribute, Add, Clamp,
+    Allocate, Transform, Hazard, Floor, Primary, Secondary, seeded,
+    exponential_history, with_state, State, contributions, forward,
     pullback!, Step, Init, Pressure, Run, ispointwise, nstate, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
@@ -113,6 +113,8 @@ include("adjoints.jl")
 include("builtin_modifiers.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
+# Competing flows between linked stocks.
+include("flows.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.

@@ -287,6 +287,36 @@ function _turnover(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Waning protection: leaky vaccination into a protected pool that wanes
+# back to the susceptible pool at a rate per stratum and time.
+function _waning(w, θ)
+    logh, logR, doses, σ, ω = _unpack(θ, (S, L), (S, T), (S, T), (1,), (S, T))
+    CR = ComposableRecurrences
+    d = CR.Depletion(
+        PerStratum(POP); removals = TimeVarying(PerStratum(doses)),
+        protected = CR.Protected(only(σ))
+    )
+    m = CR.Linked(d, CR.Flow(2 => 1, TimeVarying(PerStratum(ω))))
+    r = Recurrence(G0; coupling = K0, modifiers = (m,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A ward per stratum: suspected patients are confirmed or ruled out, and
+# confirmed patients are discharged. The stocks are the strata, suspected
+# then confirmed, and admissions enter both.
+function _ward(w, θ)
+    adm, confirm, ruleout, discharge = _unpack(θ, (2S, T), (S,), (T,), (1,))
+    CR = ComposableRecurrences
+    flows = CR.Flows(
+        CR.Flow(1 => 2, PerStratum(confirm)),
+        CR.Flow(1 => 0, TimeVarying(ruleout)), CR.Flow(2 => 0, only(discharge)),
+    )
+    r = Recurrence([1.0]; modifiers = (flows,))
+    y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
+    return sum([WS; WS] .* y)
+end
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -370,6 +400,20 @@ const _SCENARIOS = [
     (
         "Recurrence vaccination into a protected pool", _vaccination,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence waning protection (Linked)", _waning,
+        () -> _flat(
+            zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3],
+            0.05 .+ 0.02 .* abs.(LOGR),
+        ),
+    ),
+    (
+        "Recurrence ward with competing flows (Flows)", _ward,
+        () -> _flat(
+            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+            0.3 .+ 0.1 .* sin.(1:T), [0.1],
+        ),
     ),
     (
         "Recurrence grouped totals (Allocate)", _allocate,
@@ -515,6 +559,8 @@ const _PROBES = Dict{Symbol, Function}(
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence waning protection (Linked)" => (:Linked,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
     # A population that varies over time came with `_population`.

@@ -201,6 +201,52 @@ function strata_vaccination(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
 end
 
+# Leaky vaccination whose protection wanes back to the susceptible pool at
+# a rate per stratum and time.
+function strata_waning(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    f = function (θ)
+        g, logh, logR, doses, σ, ω = _unpack(
+            θ, (L,), (S, L), (S, T), (S, T), (1,), (S, T)
+        )
+        d = CR.Depletion(
+            pop; removals = TimeVarying(PerStratum(doses)),
+            protected = CR.Protected(only(σ))
+        )
+        m = CR.Linked(d, CR.Flow(2 => 1, TimeVarying(PerStratum(ω))))
+        r = Recurrence(g; modifiers = (m,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    # Names the loss does not use, so it does not capture them.
+    doses0 = [100.0 * (1 + _noise(t, k + 9)) for k in 1:S, t in 1:T]
+    ω0 = [0.02 * (1 + 0.5 * _noise(t, k + 13)) for k in 1:S, t in 1:T]
+    logR0 = 0.1 .+ 0.05 .* _weights(S, T)
+    return f, _flat(_gi(L), fill(log(5.0), S, L), logR0, doses0, [0.3], ω0)
+end
+
+# Wards whose suspected patients are confirmed or ruled out and whose
+# confirmed patients are discharged, by competing flows. The stocks are the
+# strata, suspected then confirmed, and admissions enter both.
+function ward_flows(wrap, z::Size)
+    (; T, S) = z
+    W = _weights(2S, T)
+    f = function (θ)
+        adm, confirm, ruleout, discharge = _unpack(θ, (2S, T), (S,), (T,), (1,))
+        flows = CR.Flows(
+            CR.Flow(1 => 2, PerStratum(confirm)),
+            CR.Flow(1 => 0, TimeVarying(ruleout)),
+            CR.Flow(2 => 0, only(discharge)),
+        )
+        r = Recurrence([1.0]; modifiers = (flows,))
+        return sum(W .* wrap(r)(; history = zeros(2S, 1), add = adm, stop = T))
+    end
+    # A name the loss does not use, so it does not capture it.
+    adm0 = [10.0 * (1 + 0.5 * _noise(t, k + 5)) for k in 1:(2S), t in 1:T]
+    return f, _flat(adm0, fill(0.3, S), 0.3 .+ 0.1 .* _weights(T), [0.1])
+end
+
 # BVD's unmixed zone split: the zones renew from their own infections and
 # each group of zones (a province) takes its total from outside, shared by
 # the force each zone earns. Five zones per group.
@@ -460,6 +506,14 @@ const CASES = [
         strata_vaccination, [5, 50], false,
     ),
     Case(
+        "strata_waning", "leaky vaccination with waning protection",
+        strata_waning, [5, 50], false,
+    ),
+    Case(
+        "ward_flows", "wards with competing flows between two stocks",
+        ward_flows, [1, 5, 50], false,
+    ),
+    Case(
         "zone_allocate", "zones sharing exogenous group totals",
         zone_allocate, [5, 50], false,
     ),
@@ -515,6 +569,8 @@ pending_cases() = Tuple{String, String}[]
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
+    "strata_waning" => (:Linked,),
+    "ward_flows" => (:Flows,),
     "transform" => (:Transform,),
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),

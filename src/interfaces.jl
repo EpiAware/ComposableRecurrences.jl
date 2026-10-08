@@ -207,3 +207,29 @@ true
         args = (zeros(3), ones(3, 2))
     ),
 ]
+
+@implements PieceInterface{(:nstate,)} Flows [
+    Arguments(;
+        piece = Flows(Flow(1 => 2, PerStratum([0.3, 0.2])), Flow(2 => 0, 0.1)),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
+    ),
+    Arguments(;
+        piece = Flows(Flow(1 => 2, 0.3)), role = Init(),
+        args = (zeros(4), ones(4, 2))
+    ),
+]
+
+@implements PieceInterface{(:nstate,)} Linked [
+    Arguments(;
+        piece = Linked(
+            Depletion(100.0; removals = 1.0, protected = Protected(0.3)),
+            Flow(2 => 1, TimeVarying([0.1, 0.2]))
+        ),
+        role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0, 0.0, 0.0, 0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Linked(Depletion(PerStratum([100.0, 50.0])), Flow(1 => 0, 0.01)),
+        role = Init(), args = (zeros(4), ones(2, 3))
+    ),
+]

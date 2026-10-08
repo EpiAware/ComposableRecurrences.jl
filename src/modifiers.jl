@@ -291,6 +291,7 @@ passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
 This is the extension point for a modifier that holds more than one stock
 per stratum: a depletion with a protected pool keeps the unprotected pool
 then the protected pool, ``n(m, S) = 2S``.
+[`ComposableRecurrences.Linked`](@ref) moves such stocks by flows.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
 one entry per stratum, so it must have ``n(m, S) = S``.
 

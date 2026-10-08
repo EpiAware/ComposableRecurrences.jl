@@ -9,7 +9,8 @@
     for T in (
             Recurrence, Convolution, UniformScaling, Matrix{Float64},
             Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
-            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
+            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp, CR.Flows,
+            CR.Linked,
         )
         @test Interfaces.implements(CR.PieceInterface, T)
     end
