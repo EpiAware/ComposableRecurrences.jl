@@ -226,16 +226,16 @@ Its pullback returns the cotangents of `v`, `s`, `N` and `α`.
 Its `grads.piece` is the mirror of the form's own fields.
 
 ```@example extending
-struct Linear end
-CR.forward(::Linear, ::CR.Step, v, s, N, α) = (y = min(v, s); (y, s - y))
-function CR.pullback!(grads, ::Linear, ::CR.Step, v, s, N, α)
+struct Capped end
+CR.forward(::Capped, ::CR.Step, v, s, N, α) = (y = min(v, s); (y, s - y))
+function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     z = zero(ȳ)
     v <= s && return ȳ - s̄′, s̄′, z, z
     return z, ȳ, z, z
 end
 
-d = CR.Depletion(10.0, Linear())
+d = CR.Depletion(10.0, Capped())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 
