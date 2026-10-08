@@ -609,7 +609,7 @@ end
 @testitem "Variants: one path per step" begin
     using ComposableRecurrences, JET
     CR = ComposableRecurrences
-    for form in (CR.Hazard(), CR.Floor())
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
         @test m isa CR.Depletion{typeof(form)}
         # The built-in maths is the form's Step.

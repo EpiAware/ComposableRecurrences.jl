@@ -232,7 +232,7 @@ function capacity_beds(wrap, z::Size)
     f = function (θ)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
         beds = CR.Capacity(
-            PerStratum(exp.(logC)), CR.Stock(0.1); pairs, softness = 0.1
+            PerStratum(exp.(logC)), CR.Beds(0.1); pairs, form = CR.SoftTruncate(0.1)
         )
         r = Recurrence(G; modifiers = (beds,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))

@@ -24,7 +24,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp, Capacity, Stock
+using ComposableRecurrences: Clamp, Capacity, Beds
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -84,10 +84,10 @@ round(sum(by_recurrence .- capped))
 # The cap deletes the patients it turns away.
 # [`Capacity`](@ref ComposableRecurrences.Capacity) keeps them instead.
 # It admits each day's demand up to the free beds and routes the rest to a second series.
-# In the [`Stock`](@ref ComposableRecurrences.Stock) mode the state is the occupancy, with a share `d` leaving each day.
+# In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy, with a share `d` leaving each day.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
-routing = Capacity(beds, Stock(d); pairs = [1 => 2])
+routing = Capacity(beds, Beds(d); pairs = [1 => 2])
 routed = Recurrence([0.0]; modifiers = (routing,))(;
     history = zeros(2, 1), add = [admissions'; zeros(1, T)]
 )

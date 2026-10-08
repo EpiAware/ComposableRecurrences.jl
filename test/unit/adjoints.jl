@@ -249,13 +249,17 @@ end
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
-            (CR.Capacity(1.5, CR.Stock(0.3); pairs = [1 => 3], softness = 0.1),),
+            (CR.Capacity(1.5, CR.Beds(0.3); pairs = [1 => 3], form = CR.SoftTruncate(0.1)),),
             (
                 CR.Capacity(
                     PerStratum([1.2]), CR.Budget(3); pairs = [2], overflow = CR.Hold(),
                     initial = 0.5
                 ),
                 CR.Add(0.2),
+            ),
+            (
+                CR.Depletion(30.0, CR.Truncate()),
+                CR.Capacity(1.2, CR.Budget(2); pairs = [3], overflow = CR.Drop()),
             ),
         )
         r = Recurrence(g; coupling = K, modifiers = mods)
@@ -268,7 +272,7 @@ end
     # Resumed from given states.
     r = Recurrence(g; coupling = K, modifiers = (PoolDepletion([30.0, 40.0, 50.0]),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
-    beds = CR.Capacity(2.0, CR.Stock(0.2); pairs = [3 => 1], overflow = CR.Route())
+    beds = CR.Capacity(2.0, CR.Beds(0.2); pairs = [3 => 1], overflow = CR.Route())
     r = Recurrence(g; coupling = K, modifiers = (beds,))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([1.0],))...)
 end

@@ -349,8 +349,8 @@ function _capacity_stock(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
     n = length(θ)
     beds = ComposableRecurrences.Capacity(
-        exp(θ[n - 2]), ComposableRecurrences.Stock(θ[n - 1]);
-        pairs = [1 => 2], softness = θ[n]
+        exp(θ[n - 2]), ComposableRecurrences.Beds(θ[n - 1]);
+        pairs = [1 => 2], form = ComposableRecurrences.SoftTruncate(θ[n])
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (beds,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -369,6 +369,23 @@ function _capacity_budget(w, θ)
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
+end
+
+# Capped transmission from a pool drawn with the smooth truncation, and a
+# per-pair bed cap whose overflow is dropped: the softness and the beds are
+# parameters.
+function _capacity_drop(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    n = length(θ)
+    CR = ComposableRecurrences
+    pool = CR.Depletion(exp(θ[n - 3]), CR.SoftTruncate(θ[n - 2]))
+    beds = CR.Capacity(
+        PerStratum(exp.(θ[(n - 1):n])), CR.Beds(0.3); pairs = [1, 3],
+        overflow = CR.Drop(), form = CR.SoftTruncate(0.2)
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
 end
 
 # Every float in single precision: the kernel, coupling, history and gain.
@@ -508,6 +525,13 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence capacity, dropped overflow after a truncated draw",
+        _capacity_drop,
+        () -> _flat(
+            fill(log(5.0), S, L), 0.5 .+ LOGR, [log(150.0), 0.15, log(8.0), log(6.0)]
+        ),
+    ),
+    (
         "Recurrence in Float32", _float32,
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
     ),
@@ -558,6 +582,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence capacity, stock with overflow" => (:Capacity,),
     "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
+    "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),

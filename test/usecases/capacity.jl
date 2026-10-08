@@ -54,7 +54,7 @@ end
     CR = ComposableRecurrences
     (; T, R, naive, model) = CapacityUseCase
     w = range(0.5, 1.5; length = T)
-    beds(θ) = CR.Capacity(θ[2], CR.Stock(θ[3]); pairs = [1 => 2])
+    beds(θ) = CR.Capacity(θ[2], CR.Beds(θ[3]); pairs = [1 => 2])
     function admit(θ)
         return (d, O, t) -> begin
             kept = (1 - θ[3]) * O
@@ -83,7 +83,7 @@ end
     @test ForwardDiff.gradient(θ -> sum(run(R, θ)), θ)[2] < 0
 
     # A queue for the next free bed instead: cases wait in the state.
-    queued(θ) = CR.Capacity(θ[2], CR.Stock(θ[3]); pairs = [1], overflow = CR.Hold())
+    queued(θ) = CR.Capacity(θ[2], CR.Beds(θ[3]); pairs = [1], overflow = CR.Hold())
     Yq = model(R, θ[1], queued(θ))
     @test Yq ≈ naive(R, θ[1], admit(θ); hold = true)
     @test all(iszero, Yq[2, :])

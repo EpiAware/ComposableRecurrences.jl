@@ -1,10 +1,10 @@
 # Capacity: routing each step's demand between an admitted and an overflow
-# stratum, limited by a stock (beds) or by a budget refilled each period.
-# The mode and what happens to the overflow are types, so each variant is a
-# method of `_open`, `_close` and `_unserved!`.
+# stratum, limited by beds or by a budget refilled each period. The mode,
+# the draw form and what happens to the overflow are types, so each variant
+# is a method of `_open`, `_close`, `_draw` and `_unserved!`.
 
 @doc raw"""
-The stock mode of [`ComposableRecurrences.Capacity`](@ref): the capacity is
+The beds mode of [`ComposableRecurrences.Capacity`](@ref): the capacity is
 a number of places, such as beds, and the state holds their occupancy.
 
 For one pair at absolute time ``t``, with capacity ``C_t``, occupancy
@@ -25,17 +25,17 @@ where ``f`` is the free capacity and ``a \le f`` the admissions.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.Stock(0.2)
+CR.Beds(0.2)
 
 # output
 
-ComposableRecurrences.Stock{Float64}(0.2)
+ComposableRecurrences.Beds{Float64}(0.2)
 ```
 """
-struct Stock{E}
+struct Beds{E}
     "The exit fraction δ per step."
     exit::E
-    function Stock(exit = false)
+    function Beds(exit = false)
         e = exit === false ? exit : _float_param(_check_param(:exit, exit))
         return new{typeof(e)}(e)
     end
@@ -150,7 +150,7 @@ so the admissions to date plus the queue equal the demand to date.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.Capacity(2.0, CR.Stock(0.5); pairs = [1], overflow = CR.Hold()).overflow
+CR.Capacity(2.0, CR.Beds(0.5); pairs = [1], overflow = CR.Hold()).overflow
 
 # output
 
@@ -160,56 +160,77 @@ ComposableRecurrences.Hold()
 struct Hold end
 
 @doc raw"""
+Overflow handling for [`ComposableRecurrences.Capacity`](@ref): demand that
+is not admitted is removed.
+
+For one admitted stratum ``a`` with demand ``d = v_a`` and admissions ``x``,
+
+```math
+v'_a = x,
+```
+
+and ``d - x`` leaves the model.
+This is the one overflow handling that deletes values; use it when unmet
+demand has no further effect.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+doses = CR.Capacity(2.0, CR.Budget(Inf); pairs = [1], overflow = CR.Drop())
+Recurrence([0.0]; modifiers = (doses,))(; history = [0.0], add = [1.5, 1.5])
+
+# output
+
+2-element Vector{Float64}:
+ 1.5
+ 0.5
+```
+"""
+struct Drop end
+
+@doc raw"""
 Routes each step's demand between an admitted and an overflow stratum,
-limited by a capacity: a bed cap in the stock mode, or an allowance per
-period in the budget mode.
+limited by a capacity: beds, or an allowance per period.
 A stratum is one of the ``S`` parallel series computed together.
-Nothing is deleted: demand that is not admitted moves to the overflow
-stratum, or waits in a queue.
+Demand that is not admitted moves to the overflow stratum, waits in a
+queue, or is dropped.
 
 At absolute time ``t``, for each pair ``p`` with admitted stratum ``a``,
 demand ``d`` and free capacity ``f`` from the mode,
 
 ```math
-x = \min(d, f), \qquad v'_a = x,
+x = D(d, f), \qquad v'_a = x,
 ```
 
-and the overflow ``d - x`` routes to the pair's overflow stratum
-([`ComposableRecurrences.Route`](@ref)) or to a queue offered again next
-step ([`ComposableRecurrences.Hold`](@ref)).
-The mode, [`ComposableRecurrences.Stock`](@ref) or
+where ``D`` is the draw form, ``\min(d, f)`` by default.
+The overflow ``d - x`` goes to the pair's overflow stratum
+([`ComposableRecurrences.Route`](@ref)), to a queue offered again next
+step ([`ComposableRecurrences.Hold`](@ref)), or nowhere
+([`ComposableRecurrences.Drop`](@ref)).
+The mode, [`ComposableRecurrences.Beds`](@ref) or
 [`ComposableRecurrences.Budget`](@ref), gives ``f`` from its state and
 updates the state by ``x``.
-With softness ``\kappa``, the minimum is the smooth
-
-```math
-x = \Big(d^{-1/\kappa} + f^{-1/\kappa}\Big)^{-\kappa},
-\qquad 0 \le x \le \min(d, f),
-```
-
-which is ``2^{-\kappa}`` of the exact minimum at ``d = f`` and tends to it as
-the two part.
-The exact minimum has a kink at ``d = f`` and the free capacity one at
-``f = 0``; the derivative takes the active branch.
-The state holds the stock or allowance of each pair, then, with `Hold()`,
-each pair's queue.
+The state holds the occupancy or allowance of each pair, then, with
+`Hold()`, each pair's queue.
 
 # Arguments
 - `C`: the capacity of each pair, a parameter read at each pair and time:
   one value, [`PerStratum`](@ref) with one per pair, [`TimeVarying`](@ref)
   or `TimeVarying(PerStratum(C))` pairs × time.
-  In the stock mode it is the number of places, and in the budget mode the
-  grant at each period start.
-- `mode`: `Stock(exit)` or `Budget(period; carry_over)`.
+  With `Beds` it is the number of places, and with `Budget` the grant at
+  each period start.
+- `mode`: `Beds(exit)` or `Budget(period; carry_over)`.
 
 # Keyword Arguments
 - `pairs`: a vector of `a => o`, each admitted stratum `a` with its overflow
-  stratum `o`; with `Hold()`, the admitted strata alone.
+  stratum `o`; with `Hold()` or `Drop()`, the admitted strata alone.
   Every stratum appears at most once.
-- `overflow`: `Route()`, the default, or `Hold()`.
-- `softness`: `nothing` for the exact minimum, the default, or ``\kappa``
-  with ``0 < \kappa < 1`` for the smooth one.
-- `initial`: the stock or allowance before the first step, one value or
+- `overflow`: `Route()`, the default, `Hold()` or `Drop()`.
+- `form`: the draw form ``D``, [`ComposableRecurrences.Truncate`](@ref)
+  (the default) or [`ComposableRecurrences.SoftTruncate`](@ref), which
+  smooths the kinks for gradient-based samplers.
+- `initial`: the occupancy or allowance before the first step, one value or
   `PerStratum` with one per pair; `nothing`, zero, by default.
   A budget whose call starts between period starts has only this until the
   next start.
@@ -222,7 +243,7 @@ goes to the community stratum.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-beds = CR.Capacity(10.0, CR.Stock(0.1); pairs = [1 => 2])
+beds = CR.Capacity(10.0, CR.Beds(0.1); pairs = [1 => 2])
 demand = [4.0 3.0 5.0 6.0 2.0; 0.0 0.0 0.0 0.0 0.0]
 y = Recurrence([0.0]; modifiers = (beds,))(; history = zeros(2, 1), add = demand)
 round.(y; digits = 3)
@@ -251,8 +272,8 @@ y[1, :]'
  0.5  0.5  0.5  0.5  0.5  0.5  0.5  2.0  2.0  2.0  0.5  0.0  0.0  0.0
 ```
 """
-struct Capacity{M, C, O, K, I}
-    "The mode, `Stock` or `Budget`."
+struct Capacity{M, C, O, F, I}
+    "The mode, `Beds` or `Budget`."
     mode::M
     "The capacity of each pair."
     capacity::C
@@ -260,23 +281,29 @@ struct Capacity{M, C, O, K, I}
     admitted::Vector{Int}
     "The overflow stratum of each pair, `0` for none."
     routes::Vector{Int}
-    "The overflow handling, `Route()` or `Hold()`."
+    "The overflow handling, `Route()`, `Hold()` or `Drop()`."
     overflow::O
-    "The softness κ, or `nothing` for the exact minimum."
-    softness::K
-    "The stock or allowance before the first step, or `nothing` for zero."
+    "The draw form, `Truncate()` or `SoftTruncate(κ)`."
+    form::F
+    "The occupancy or allowance before the first step, or `nothing` for zero."
     initial::I
 end
 
 function Capacity(
-        C, mode; pairs, overflow = Route(), softness = nothing,
-        initial = nothing
+        C, mode; pairs, overflow = Route(), form = Truncate(), initial = nothing
     )
-    mode isa Union{Stock, Budget} || throw(
-        ArgumentError("mode is Stock(exit) or Budget(period), got $(_describe(mode))")
+    mode isa Union{Beds, Budget} || throw(
+        ArgumentError("mode is Beds(exit) or Budget(period), got $(_describe(mode))")
     )
-    overflow isa Union{Route, Hold} || throw(
-        ArgumentError("overflow is Route() or Hold(), got $(_describe(overflow))")
+    overflow isa Union{Route, Hold, Drop} || throw(
+        ArgumentError(
+            "overflow is Route(), Hold() or Drop(), got $(_describe(overflow))"
+        )
+    )
+    form isa _TruncateForm || throw(
+        ArgumentError(
+            "form is Truncate() or SoftTruncate(κ), got $(_describe(form))"
+        )
     )
     admitted, routes = _pairs(overflow, pairs)
     C = _float_param(_check_param(:C, C))
@@ -285,27 +312,14 @@ function Capacity(
     _check_param_pairs(:C, C, P)
     _check_param_pairs(:initial, initial, P)
     _check_mode_pairs(mode, P)
-    return Capacity(
-        mode, C, admitted, routes, overflow, _softness(softness), initial
-    )
+    return Capacity(mode, C, admitted, routes, overflow, form, initial)
 end
 
 _initial(::Nothing) = nothing
 _initial(x) = _float_param(_check_constant(:initial, x))
 
-_check_mode_pairs(m::Stock, P) = _check_param_pairs(:exit, m.exit, P)
+_check_mode_pairs(m::Beds, P) = _check_param_pairs(:exit, m.exit, P)
 _check_mode_pairs(::Budget, P) = nothing
-
-_softness(::Nothing) = nothing
-function _softness(κ::Real)
-    0 < κ < 1 || throw(
-        ArgumentError("softness is nothing or between 0 and 1, got $κ")
-    )
-    return float(κ)
-end
-function _softness(κ)
-    throw(ArgumentError("softness is nothing or a number, got $(_describe(κ))"))
-end
 
 # The pairs as flat index vectors: the admitted strata and their overflow
 # strata, `0` where there is none.
@@ -336,12 +350,12 @@ function _pair(::Route, x)
         )
     )
 end
-_pair(::Hold, x::Integer) = (_index(x), 0)
-function _pair(::Hold, x)
+_pair(::Union{Hold, Drop}, x::Integer) = (_index(x), 0)
+function _pair(overflow::Union{Hold, Drop}, x)
     throw(
         ArgumentError(
-            "Hold() keeps the overflow in a queue, so each entry of pairs is " *
-                "an admitted stratum, got $(repr(x))"
+            "$(nameof(typeof(overflow)))() has no overflow stratum, so each " *
+                "entry of pairs is an admitted stratum, got $(repr(x))"
         )
     )
 end
@@ -361,14 +375,14 @@ function _check_param_pairs(name, x::PerStratum, P)
 end
 
 _npairs(m::Capacity) = length(m.admitted)
-nstate(m::Capacity{<:Any, <:Any, Route}, S) = _npairs(m)
+nstate(m::Capacity, S) = _npairs(m)
 nstate(m::Capacity{<:Any, <:Any, Hold}, S) = 2 * _npairs(m)
 
 # The indices hold no parameters.
 function param_eltype(m::Capacity)
     return promote_type(
         param_eltype(m.mode), param_eltype(m.capacity),
-        param_eltype(m.softness), param_eltype(m.initial)
+        param_eltype(m.form), param_eltype(m.initial)
     )
 end
 param_eltype(::Budget) = Bool
@@ -402,7 +416,7 @@ end
 
 # The mode opens a pair's stock at time `t`: the free capacity and the
 # stock held before admission. Closing it adds or takes the admissions.
-function _open(mode::Stock, c, O, p, t)
+function _open(mode::Beds, c, O, p, t)
     kept = (1 - param(mode.exit, p, t)) * O
     return c - kept, kept
 end
@@ -410,7 +424,7 @@ function _open(mode::Budget, b, B, p, t)
     B̃ = _refills(mode.period, t) ? ifelse(mode.carry_over, B, zero(B)) + b : B
     return B̃, B̃
 end
-_close(::Stock, kept, x) = kept + x
+_close(::Beds, kept, x) = kept + x
 _close(::Budget, B̃, x) = B̃ - x
 
 _refills(period::Int, t) = rem(t - 1, period) == 0
@@ -420,9 +434,9 @@ _refills(::Nothing, t) = t == 1
 # of the admissions from that of the closed stock; `_open_back` takes those
 # of the free capacity and the held stock, adds the parameters' and returns
 # the incoming stock's.
-_close_back(::Stock, s̄′) = (s̄′, s̄′)
+_close_back(::Beds, s̄′) = (s̄′, s̄′)
 _close_back(::Budget, s̄′) = (s̄′, -s̄′)
-function _open_back(mode::Stock, m̄, m, O, f̄, h̄, p, t)
+function _open_back(mode::Beds, m̄, m, O, f̄, h̄, p, t)
     δ = param(mode.exit, p, t)
     add_param!(cotangent(m̄, :capacity), m.capacity, f̄, p, t)
     k̄ = h̄ - f̄
@@ -436,40 +450,8 @@ function _open_back(mode::Budget, m̄, m, B, f̄, h̄, p, t)
     return ifelse(mode.carry_over, B̄, zero(B̄))
 end
 
-# The admissions from demand `d` and free capacity `f`: the minimum, or the
-# smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M`
-# the smaller and larger of the two. On a tie the exact minimum takes `d`.
-_admit(::Nothing, d, f) = ifelse(d <= f, d, f)
-function _admit(κ, d, f)
-    lo, hi = minmax(d, f)
-    lo > 0 || return lo
-    r = lo / hi
-    return lo * (1 + r^inv(κ))^(-κ)
-end
-
-# Its pullback: the cotangents of `d`, `f` and `κ` from that of `x`.
-function _admit_back(::Nothing, d, f, x̄)
-    z = zero(x̄)
-    return d <= f ? (x̄, z, z) : (z, x̄, z)
-end
-function _admit_back(κ, d, f, x̄)
-    z = zero(x̄)
-    lo, hi = minmax(d, f)
-    if !(lo > 0)
-        return d <= f ? (x̄, z, z) : (z, x̄, z)
-    end
-    r = lo / hi
-    rp = r^inv(κ)
-    g = (1 + rp)^(-κ)
-    q = rp / (1 + rp)
-    l̄o = x̄ * g * (1 - q)
-    h̄i = x̄ * g * q * r
-    κ̄ = x̄ * lo * g * (q * log(r) / κ - log1p(rp))
-    return d <= f ? (l̄o, h̄i, κ̄) : (h̄i, l̄o, κ̄)
-end
-
 # The demand of pair `p`, and where its overflow goes.
-_demand(::Route, v, s, a, p, P) = v[a]
+_demand(::Union{Route, Drop}, v, s, a, p, P) = v[a]
 _demand(::Hold, v, s, a, p, P) = v[a] + s[P + p]
 function _unserved!(::Route, v, s, o, p, P, u)
     v[o] += u
@@ -479,6 +461,7 @@ function _unserved!(::Hold, v, s, o, p, P, u)
     s[P + p] = u
     return nothing
 end
+_unserved!(::Drop, v, s, o, p, P, u) = nothing
 
 function forward(m::Capacity, ::Step, v, s, t)
     P = _npairs(m)
@@ -486,7 +469,7 @@ function forward(m::Capacity, ::Step, v, s, t)
         a = m.admitted[p]
         d = _demand(m.overflow, v, s, a, p, P)
         f, held = _open(m.mode, param(m.capacity, p, t), s[p], p, t)
-        x = _admit(m.softness, d, max(f, zero(f)))
+        x = _draw(m.form, d, max(f, zero(f)))
         s[p] = _close(m.mode, held, x)
         v[a] = x
         _unserved!(m.overflow, v, s, m.routes[p], p, P, d - x)
@@ -498,7 +481,8 @@ end
 # cotangent added into the inputs.
 _unserved_back(::Route, v̄, s̄, o, p, P) = v̄[o]
 _unserved_back(::Hold, v̄, s̄, o, p, P) = s̄[P + p]
-function _demand_back!(::Route, v̄, s̄, a, p, P, d̄)
+_unserved_back(::Drop, v̄, s̄, o, p, P) = zero(eltype(v̄))
+function _demand_back!(::Union{Route, Drop}, v̄, s̄, a, p, P, d̄)
     v̄[a] = d̄
     return nothing
 end
@@ -521,8 +505,8 @@ function pullback!(grads, m::Capacity, ::Step, v, s, t)
         ū = _unserved_back(m.overflow, v̄, s̄, m.routes[p], p, P)
         h̄, x̄s = _close_back(m.mode, s̄[p])
         x̄ = v̄[a] - ū + x̄s
-        d̄, f̄, κ̄ = _admit_back(m.softness, d, max(f, zero(f)), x̄)
-        add_cotangent!(cotangent(m̄, :softness), κ̄)
+        d̄, f̄, κ̄ = _draw_back(m.form, d, max(f, zero(f)), x̄)
+        _add_softness!(cotangent(m̄, :form), m.form, κ̄)
         f̄ = f > 0 ? f̄ : zero(f̄)
         s̄[p] = _open_back(m.mode, m̄, m, s[p], f̄, h̄, p, t)
         _demand_back!(m.overflow, v̄, s̄, a, p, P, d̄ + ū)

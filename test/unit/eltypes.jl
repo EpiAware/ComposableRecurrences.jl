@@ -110,8 +110,10 @@ end
             CR.Redistribute(K, 0.1f0),
             CR.Redistribute(K, TimeVarying(PerStratum(fill(0.1f0, 2, 5)))),
             CR.Clamp(0.0f0, 5.0f0),
-            CR.Capacity(0.8f0, CR.Stock(0.1f0); pairs = [1 => 2], softness = 0.1f0),
+            CR.Capacity(0.8f0, CR.Beds(0.1f0); pairs = [1 => 2], form = CR.SoftTruncate(0.1f0)),
             CR.Capacity(0.8f0, CR.Budget(2); pairs = [2], overflow = CR.Hold()),
+            CR.Capacity(0.8f0, CR.Beds(); pairs = [1], overflow = CR.Drop()),
+            CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
@@ -123,7 +125,7 @@ end
     )
     @test (@inferred floor_depletion()) isa CR.Depletion
     beds() = ComposableRecurrences.Capacity(
-        1.0, ComposableRecurrences.Stock(0.1); pairs = [1 => 2]
+        1.0, ComposableRecurrences.Beds(0.1); pairs = [1 => 2]
     )
     @test (@inferred beds()) isa CR.Capacity
 end
