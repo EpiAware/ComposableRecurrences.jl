@@ -176,3 +176,11 @@ end
     @test r(Derived(identity, 2.0))(R; history = ones(2)) ≈ r(2.0)(R; history = ones(2))
     @test !(r(2.0)(R; history = ones(2)) ≈ r(0.0)(R; history = ones(2)))
 end
+
+@testitem "Recent: a read before the window is an error" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # Depletion's Init reads N at time 1, before a run that starts at 5.
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(100.0 + Recent(3)),))
+    @test_throws BoundsError r(fill(1.2, 8); history = ones(4), start = 5)
+end

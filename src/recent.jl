@@ -110,7 +110,7 @@ end
 
 function param(b::_BoundRecent, k, t)
     w, H = b.x.w, b.H
-    i = t + b.o
+    i = _recent_row(b, k, t)
     acc = zero(promote_type(eltype(w), eltype(H)))
     @inbounds for l in eachindex(w)
         acc += w[l] * H[i - l, k]
@@ -121,13 +121,23 @@ end
 function add_param!(x̄, b::_BoundRecent, v, k, t)
     w, H = b.x.w, b.H
     w̄ = cotangent(x̄, :w)
-    i = t + b.o
+    i = _recent_row(b, k, t)
     @inbounds for l in eachindex(w)
         add_cotangent!(w̄, v * H[i - l, k], l)
         _add_buffer!(b.H̄, v * w[l], i - l, k)
     end
     return nothing
 end
+# The buffer row of time `t`, checked once so the loops over the window
+# read without bounds checks: a read at a time before the run's window,
+# such as from a modifier's `Init`, is an error.
+function _recent_row(b::_BoundRecent, k, t)
+    i = t + b.o
+    checkbounds(b.H, i - length(b.x.w), k)
+    checkbounds(b.H, i - 1, k)
+    return i
+end
+
 Base.@propagate_inbounds _add_buffer!(H̄, v, i, k) = (H̄[i, k] += v; nothing)
 _add_buffer!(::Nothing, v, i, k) = nothing
 
