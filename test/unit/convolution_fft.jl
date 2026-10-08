@@ -124,3 +124,33 @@ end
     out = read(`$julia --startup-file=no --project=$project -e $code`, String)
     @test occursin("using FFTW", out)
 end
+
+@testitem "Convolution FFT: reverse pass matches direct" begin
+    using ComposableRecurrences, FFTW, Random
+    const CR = ComposableRecurrences
+    rng = Xoshiro(43)
+    # The transforms' reverse pass against the direct one on the same
+    # buffers, with and without a kernel cotangent.
+    for (n, L, S, m, start) in ((30, 4, 1, 0, 1), (200, 7, 2, 3, 2), (12, 40, 3, 2, 1))
+        X = rand(rng, n, S)
+        T = n - m - start + 1
+        Ȳ = rand(rng, T, S)
+        for kernel in (rand(rng, L), PerStratum(rand(rng, S, L)))
+            mirror(k::AbstractVector) = zeros(length(k))
+            mirror(k::PerStratum) = (; x = zero(k.x))
+            flat(k̄) = k̄ isa NamedTuple ? k̄.x : k̄
+            for k̄ in (mirror(kernel), nothing)
+                X̄d, X̄f = zero(X), zero(X)
+                k̄d = k̄ === nothing ? nothing : mirror(kernel)
+                CR._convolve_back!(X̄d, k̄d, kernel, X, Ȳ, m, start)
+                CR._fft_convolve_back!(X̄f, k̄, kernel, X, Ȳ, m, start)
+                @test X̄f ≈ X̄d
+                k̄ === nothing || @test flat(k̄) ≈ flat(k̄d)
+            end
+        end
+    end
+    # An empty output takes no transform.
+    X̄ = zeros(5, 1)
+    CR._fft_convolve_back!(X̄, nothing, rand(3), rand(5, 1), zeros(0, 1), 5, 1)
+    @test iszero(X̄)
+end
