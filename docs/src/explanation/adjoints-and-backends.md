@@ -22,7 +22,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
 | pointwise modifier or depletion form with a `PerStratum`, `TimeVarying` or array parameter | plain AD |
-| modifier with a vector step | plain AD |
+| modifier with a vector or blockwise step | plain AD |
 | coupling with only scalar float parameters, strata plus scalars at most 12 | rule, local ForwardDiff step |
 | the same coupling with more than 12 | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |

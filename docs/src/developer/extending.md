@@ -36,20 +36,16 @@ Recurrence([0.5, 0.5]; modifiers = (Scale(0.9),))(2.0; history = ones(2), stop =
 
 ## A modifier with more state
 
-A modifier that keeps more than one entry per series adds an [`nstate`](@ref ComposableRecurrences.nstate) method and a vector step.
+A modifier that keeps more than one entry per series, or reads several series together, is blockwise.
+[`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group, and the step takes and returns them as tuples.
 This one keeps a running total and a step count per series, and adds their mean to the value.
 
 ```@example extending
 struct AddMean end
-CR.nstate(::AddMean, S) = 2S
-function CR.forward(::AddMean, ::CR.Step, v, s, t)
-    S = length(v)
-    for k in 1:S
-        s[k] += v[k]
-        s[S + k] += 1
-        v[k] += s[k] / s[S + k]
-    end
-    return nothing
+CR.blocks(::AddMean) = Val((1, 2))
+function CR.forward(::AddMean, ::CR.Step, v::Tuple, s::Tuple, t, k)
+    total, n = s[1] + v[1], s[2] + 1
+    return (v[1] + total / n,), (total, n)
 end
 
 Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0 2.0; 3.0 1.0])
@@ -57,7 +53,7 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 
 ## A hand-written gradient
 
-A pointwise step's `pullback!` returns the cotangents of the value and the state.
+A pointwise step's `pullback!` returns the cotangents of the value and the state, and a blockwise one returns them as tuples.
 `grads.v` and `grads.s` hold the output cotangents, and `grads.piece` mirrors the fields, here a `Ref` for `a` (or `nothing`).
 The rule of a `Recurrence` calls it; [Rules and plain AD](@ref adjoint-routing) says when.
 

@@ -39,6 +39,28 @@ function _pointwise_ok(m, ::Step, args)
     return ispointwise(m) && v ≈ first.(pairs) && s ≈ last.(pairs)
 end
 
+# The vector Step of a blockwise modifier matches its group Step per group.
+_blocks_ok(piece, role, args) = true
+function _blocks_ok(m, ::Step, args)
+    first(args) isa AbstractVector || return true
+    blocks(m) isa Val || return false
+    nv, ns = _val(blocks(m))
+    v, s = float(copy(args[1])), float(copy(args[2]))
+    t = args[3]
+    G = length(v) ÷ nv
+    groups = [
+        forward(m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g)
+            for g in 1:G
+    ]
+    forward(m, Step(), v, s, t)
+    return all(1:G) do g
+        v′, s′ = groups[g]
+        all(i -> v[(i - 1) * G + g] ≈ v′[i], 1:nv) &&
+            all(j -> s[(j - 1) * G + g] ≈ s′[j], 1:ns)
+    end
+end
+_val(::Val{B}) where {B} = B
+
 # A modifier's state keeps `nstate(m, S)` entries through Init and Step,
 # and a pointwise modifier keeps one per stratum.
 _nstate_ok(piece, role, args) = true
@@ -67,6 +89,8 @@ end
     optional = (
         pointwise = "a vector Step matches the scalar Step on each stratum" =>
             a -> _pointwise_ok(a.piece, a.role, a.args),
+        blocks = "a vector Step matches the group Step on each group" =>
+            a -> _blocks_ok(a.piece, a.role, a.args),
         nstate = "Init and Step keep the state at nstate(m, S) entries" =>
             a -> _nstate_ok(a.piece, a.role, a.args),
     ),
@@ -83,6 +107,8 @@ M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
 
 where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
 time ``t`` and ``S`` the number of strata.
+The optional `blocks` component checks the same for a blockwise modifier
+([`ComposableRecurrences.blocks`](@ref)), group by group.
 The optional `nstate` component checks the state length against
 [`ComposableRecurrences.nstate`](@ref).
 
