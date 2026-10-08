@@ -472,9 +472,12 @@ function forward(m::Depletion, ::Init, s, history)
     _check_param_strata(:N, m.N, length(s))
     _check_param_strata(:pool0, m.pool0, length(s))
     _check_param_strata(:removals, m.removals, length(s))
-    for k in eachindex(s)
-        s[k] = _pool0(m, k)
-    end
+    _each!(_pool0_body!, Serial(), s, length(s), length(s), s, m)
+    return nothing
+end
+
+function _pool0_body!(k, s, m)
+    s[k] = _pool0(m, k)
     return nothing
 end
 
@@ -649,16 +652,25 @@ end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
-    for p in eachindex(v, s)
-        acc = zero(eltype(s))
-        for q in eachindex(v)
-            q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
-        end
-        s[p] = acc
+    S = length(v)
+    _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
+    _each!(_redistribute_body!, Serial(), v, S, S * S, v, s, K, ε, t)
+    return nothing
+end
+
+# Destination `p`'s arrivals from every other stratum.
+function _arrivals_body!(p, s, v, K, ε, t)
+    acc = zero(eltype(s))
+    for q in eachindex(v)
+        q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
     end
-    for p in eachindex(v, s)
-        v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
-    end
+    s[p] = acc
+    return nothing
+end
+
+# Stratum `p` after its outflow and arrivals.
+function _redistribute_body!(p, v, s, K, ε, t)
+    v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     return nothing
 end
 

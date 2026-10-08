@@ -80,17 +80,20 @@ end == y_serial
 #
 # `Device(backend)` runs the same strata loops as one GPU kernel each.
 # Calls on arrays that live on a GPU use it without being asked.
+# Every array a call reads moves to the device: the inputs, the history, the kernel, the coupling and the modifiers' parameters.
 # JLArrays.jl provides GPU-style arrays that run on the CPU, so this section runs anywhere.
 
 JLArrays.allowscalar(false)
-y_device = r(JLArray(R); history = JLArray(seed))
+r_device = Recurrence(PerStratum(JLArray(kernel.x)))
+y_device = r_device(JLArray(R); history = JLArray(seed))
 Array(y_device) ≈ y_serial
 
 # On a real GPU the code is the same, with the arrays moved to the device:
 #
 # ```julia
 # using CUDA
-# y = r(CuArray(R); history = CuArray(seed))
+# r_cuda = Recurrence(PerStratum(CuArray(kernel.x)))
+# y = r_cuda(CuArray(R); history = CuArray(seed))
 # ```
 #
 # A recurrence pays one kernel launch per step when its strata mix, so a GPU pays off only with many strata or many series.

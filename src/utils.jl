@@ -3,6 +3,13 @@
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 
+# `x` on the device of `v`: host index arrays are copied to a device.
+_like(v, x) = x
+
+# `x` reversed along axis `d`.
+_reverse_dim(x::AbstractVector, d) = reverse(x)
+_reverse_dim(x, d) = reverse(x; dims = d)
+
 # The primal value of `x`, through any nesting of `ForwardDiff.Dual`s, for
 # deciding a branch. A dual with value zero is ordered by its partials, so
 # `P > 0` on the dual can hold where the value is zero. Other numbers,

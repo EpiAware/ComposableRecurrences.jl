@@ -345,10 +345,10 @@ end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
 # the kernel with a contiguous, oldest-first window.
-_oldest_first(g::AbstractVector) = reverse(g)
-_oldest_first(g::PerStratum) = PerStratum(reverse(g.x; dims = 2))
+_oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
+_oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
 function _oldest_first(g::Pairwise)
-    return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
+    return _OldestFirstPairwise(_reverse_dim(permutedims(g.x, (3, 2, 1)), 1))
 end
 _oldest_first(g) = g
 
@@ -926,6 +926,12 @@ function _value_body!(k, v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L
     return nothing
 end
 
+# Stratum `k`'s value after the modifiers' vector Step, into buffer row `row`.
+function _store_body!(k, H, v, row)
+    H[row, k] = v[k]
+    return nothing
+end
+
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. Buffer row `L + t`
 # holds absolute time `τ0 + t - 1`. The records are the kernel convolutions
@@ -1000,9 +1006,7 @@ function _run(
                 else
                     _stages!(modifiers, states, v, τ)
                 end
-                for k in eachindex(v)
-                    H[L + t, k] = v[k]
-                end
+                _each!(_store_body!, Serial(), H, S, S, H, v, L + t)
             end
         end
     end
