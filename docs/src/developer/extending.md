@@ -99,7 +99,7 @@ The same conditions on its constructor apply as for a pointwise modifier.
 
 ## [Specialising for speed](@id specialising)
 
-Every call of an operator has one form, and the work behind it is chosen by dispatch on the types of its pieces and its numbers.
+Every call of an operator has one form, and the work behind it is chosen by dispatch on the types of its kernel, coupling, modifiers and numbers.
 A method for a narrower type replaces the general one for that type alone, so a faster path for one combination needs no new interface and no change to any call.
 
 | To speed up | Add a method |
@@ -135,7 +135,7 @@ dense = Recurrence([0.5, 0.5]; coupling = u * w')(R; history = h)
 low ≈ dense
 ```
 
-The package specialises its own pieces the same way.
+The package specialises its own code the same way.
 These methods are internal, and the list says where to add one:
 
 - one stratum's kernel convolution, `_kdot`, by the kernel's form (shared, per stratum, time varying with either indexing, pairwise) and by the buffer's array type;
