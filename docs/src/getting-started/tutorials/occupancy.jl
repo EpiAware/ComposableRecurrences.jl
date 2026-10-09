@@ -6,13 +6,13 @@
 # A stock is a recurrence.
 # When stays are independent it is also a convolution over the length of stay.
 # This tutorial builds occupancy both ways and caps it at the number of beds.
-# It then writes a modifier for a ward with two linked stocks.
+# It then moves patients between two linked compartments in a ward.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Turn admissions into occupancy with a convolution and with a recurrence.
 # 2. Cap occupancy at the number of beds with `Clamp`.
-# 3. Write a modifier for suspected and confirmed patients in one ward.
+# 3. Move suspected and confirmed patients between two compartments in one ward.
 #
 # ### What might I need to know before starting
 #
@@ -22,7 +22,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp
+using ComposableRecurrences: Clamp, Flow, Flows
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -77,39 +77,35 @@ end
 
 round(sum(by_recurrence .- capped))
 
-# ## A ward with two linked stocks
+# ## A ward with two linked compartments
 #
 # A ward holds suspected patients awaiting a test and confirmed patients.
-# Each day some suspected patients are confirmed and move to the confirmed stock.
-# Others are ruled out and leave.
-# That move couples the two stocks, so it is not a gain plus an input; it is a modifier.
-# The recurrence carries yesterday's stocks forward with the unit kernel.
-# The modifier applies the day's flows.
+# Each day some suspected patients are confirmed and move to the confirmed compartment.
+# Others are ruled out and leave, and confirmed patients are discharged.
+# Confirmation and ruling out compete for the same suspected patients.
+# Let ``U_t`` be the suspected compartment, ``C_t`` the confirmed compartment and ``A_t`` the admissions.
+# With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``\delta``,
 #
-# A modifier is a type with a [`forward`](@ref ComposableRecurrences.forward) method.
-# Its [`Step()`](@ref ComposableRecurrences.Step) method updates both stocks, `v`, in place.
+# ```math
+# \begin{aligned}
+# U^{*}_t &= U_{t-1} + A_t, \\
+# U_t &= e^{-(c + r)} U^{*}_t, \\
+# C_t &= e^{-\delta} C_{t-1} + \frac{c}{c + r} \big(1 - e^{-(c + r)}\big) U^{*}_t .
+# \end{aligned}
+# ```
+#
+# The rates are hazards, so the share leaving a compartment never exceeds what it holds.
+# The two compartments are the strata of a recurrence with the unit kernel, suspected first.
+# The recurrence carries yesterday's compartments forward and adds the admissions to the suspected one.
+# [`Flows`](@ref ComposableRecurrences.Flows) then applies the day's flows.
+# Each is a [`Flow`](@ref ComposableRecurrences.Flow) from one compartment to another, or to `0` to leave, and a bare rate is a hazard [`Rate`](@ref ComposableRecurrences.Rate).
+# Each rate is a parameter, so it can also differ by ward or change over time.
 
-const CR = ComposableRecurrences
+ward_flows = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))
+ward = Recurrence([1.0]; modifiers = (ward_flows,))
+patients = ward(; history = zeros(2, 1), add = [admissions'; zero(admissions')], stop = T)
 
-struct Ward
-    admissions::Vector{Float64}
-    confirm::Float64
-    ruleout::Float64
-    discharge::Float64
-end
-
-function CR.forward(m::Ward, ::CR.Step, v, s, t)
-    suspected, confirmed = v
-    confirmed_today = m.confirm * suspected
-    v[1] = suspected + m.admissions[t] - confirmed_today - m.ruleout * suspected
-    v[2] = confirmed + confirmed_today - m.discharge * confirmed
-    return nothing
-end
-
-ward = Recurrence([1.0]; modifiers = (Ward(admissions, 0.3, 0.4, 0.1),))
-stocks = ward(; history = zeros(2, 1), stop = T)
-
-@chain DataFrame(day = 1:T, Suspected = stocks[1, :], Confirmed = stocks[2, :]) begin
+@chain DataFrame(day = 1:T, Suspected = patients[1, :], Confirmed = patients[2, :]) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
@@ -118,8 +114,9 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# [Roles](@ref extending-roles) lists the roles a modifier can implement.
-# [`pullback!`](@ref ComposableRecurrences.pullback!) adds a hand-written adjoint.
+# A [`Linear`](@ref ComposableRecurrences.Linear) flow moves a share instead, like the daily discharge probability ``d`` at the start of this tutorial, except that the day's admissions can also leave that day.
+# An [`Amount`](@ref ComposableRecurrences.Amount) flow moves a count, capped by what the compartment holds, such as a fixed number of transfers a day.
+# Several wards are several groups: with ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
 
 # ## Learning more
 #

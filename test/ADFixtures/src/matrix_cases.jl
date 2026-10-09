@@ -201,6 +201,32 @@ function strata_vaccination(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
 end
 
+# Wards whose suspected patients are confirmed at a rate or ruled out as a
+# share, and whose confirmed patients are discharged at a rate and
+# transferred out in counts. The compartments are the strata, suspected
+# then confirmed, and admissions enter both.
+function ward_flows(wrap, z::Size)
+    (; T, S) = z
+    W = _weights(2S, T)
+    f = function (θ)
+        adm, confirm, ruleout, discharge, transfer = _unpack(
+            θ, (2S, T), (S,), (T,), (1,), (S, T)
+        )
+        flows = CR.Flows(
+            CR.Flow(1 => 2, PerStratum(confirm)),
+            CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+            CR.Flow(2 => 0, only(discharge)),
+            CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+        )
+        r = Recurrence([1.0]; modifiers = (flows,))
+        return sum(W .* wrap(r)(; history = zeros(2S, 1), add = adm, stop = T))
+    end
+    # Names the loss does not use, so it does not capture them.
+    adm0 = [10.0 * (1 + 0.5 * _noise(t, k + 5)) for k in 1:(2S), t in 1:T]
+    out0 = [2.0 * (1 + 0.5 * _noise(t, k + 7)) for k in 1:S, t in 1:T]
+    return f, _flat(adm0, fill(0.3, S), 0.2 .+ 0.05 .* _weights(T), [0.1], out0)
+end
+
 # BVD's unmixed zone split: the zones renew from their own infections and
 # each group of zones (a province) takes its total from outside, shared by
 # the force each zone earns. Five zones per group.
@@ -460,6 +486,10 @@ const CASES = [
         strata_vaccination, [5, 50], false,
     ),
     Case(
+        "ward_flows", "wards with rate, share and count flows",
+        ward_flows, [1, 5, 50], false,
+    ),
+    Case(
         "zone_allocate", "zones sharing exogenous group totals",
         zone_allocate, [5, 50], false,
     ),
@@ -515,6 +545,7 @@ pending_cases() = Tuple{String, String}[]
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
+    "ward_flows" => (:Flows,),
     "transform" => (:Transform,),
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),

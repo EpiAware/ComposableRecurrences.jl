@@ -287,6 +287,25 @@ function _turnover(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Wards in each stratum: suspected patients (compartment 1) are confirmed
+# at a rate or ruled out as a share; confirmed patients (compartment 2) are
+# discharged at a rate and transferred out in counts. Admissions enter both.
+function _ward(w, θ)
+    adm, confirm, ruleout, discharge, transfer = _unpack(
+        θ, (2S, T), (S,), (T,), (1,), (S, T)
+    )
+    CR = ComposableRecurrences
+    flows = CR.Flows(
+        CR.Flow(1 => 2, PerStratum(confirm)),
+        CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+        CR.Flow(2 => 0, only(discharge)),
+        CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+    )
+    r = Recurrence([1.0]; modifiers = (flows,))
+    y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
+    return sum([WS; WS] .* y)
+end
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -370,6 +389,13 @@ const _SCENARIOS = [
     (
         "Recurrence vaccination into a protected pool", _vaccination,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence ward with competing flows (Flows)", _ward,
+        () -> _flat(
+            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+        ),
     ),
     (
         "Recurrence grouped totals (Allocate)", _allocate,
@@ -515,6 +541,7 @@ const _PROBES = Dict{Symbol, Function}(
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
     # A population that varies over time came with `_population`.

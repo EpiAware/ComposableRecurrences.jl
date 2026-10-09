@@ -64,6 +64,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
+| `Flows` | 0.43 | 0.43 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |

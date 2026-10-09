@@ -127,11 +127,12 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | no | hand-written | `ε` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | no | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
+| [`Flows(flows...)`](@ref ComposableRecurrences.Flows) | moves values between the compartments of each group by [`Flow(from => to, kind)`](@ref ComposableRecurrences.Flow)s | yes, with groups of series | no | no, blockwise | hand-written | each flow's rate, share or count |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | no | hand-written | `total`, one per group |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | no | yes | hand-written, with a local forward-mode derivative or `derivative` | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`.
+The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and `Flows`.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
@@ -143,6 +144,7 @@ Depletion forms and time indexing are types, and you pass an instance.
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
+| [`Rate(r)`](@ref ComposableRecurrences.Rate), [`Linear(p)`](@ref ComposableRecurrences.Linear), [`Amount(a)`](@ref ComposableRecurrences.Amount) | flow kinds: a competing hazard rate (the default), a share, or a count capped by what remains | `Flow(1 => 2, Linear(p))` |
 | [`Protected(σ; pool0)`](@ref ComposableRecurrences.Protected) | a pool the depletion's removals move into, drawn from at relative susceptibility ``\sigma`` | `Depletion(N; removals, protected = Protected(σ))` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
