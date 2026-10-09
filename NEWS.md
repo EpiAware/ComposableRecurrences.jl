@@ -14,4 +14,4 @@
 - Every operator, coupling and built-in modifier runs its forward pass on GPU arrays, without scalar indexing.
   Dense and time-varying couplings use `mul!`, and device CSR couplings run one kernel per step.
   `Adapt.adapt` moves an operator's parameters to a device.
-  See [GPU arrays](https://composablerecurrences.epiaware.org/dev/explanation/adjoints-and-backends#gpu-arrays).
+  The GPU arrays section of the adjoints and backends explanation says how each part runs on a device.

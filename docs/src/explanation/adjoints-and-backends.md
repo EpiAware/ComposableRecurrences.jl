@@ -123,7 +123,7 @@ Buffers, states and outputs are allocated from the inputs, so they live there to
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
 - A ragged `TimeVarying` kernel (a vector of columns) stores its column offsets on the host, so it does not run on a device yet, and a call with device inputs is an error.
 
-[`test/unit/gpu_arrays.jl`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/unit/gpu_arrays.jl) runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
+`test/unit/gpu_arrays.jl` runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
 On a machine with an NVIDIA GPU, the same checks run on CUDA arrays by hand:
 
 ```julia
