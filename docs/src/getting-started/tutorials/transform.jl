@@ -4,18 +4,19 @@
 #
 # Some models pass each day's value through a function before it carries into the next day.
 # [`Transform`](@ref ComposableRecurrences.Transform) is the modifier that does this.
-# This tutorial uses it for a behavioural response and for a branching process, and takes gradients through it.
+# This tutorial uses it for a behavioural response and for a branching process.
+# It then takes gradients through it.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Saturate transmission as incidence rises.
-# 2. Combine the transform with `Depletion`.
+# 2. Combine the transform with [`Depletion`](@ref ComposableRecurrences.Depletion).
 # 3. Compute the probability of extinction by generation.
 # 4. Take gradients with respect to the transform's parameters.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Renewal then delay](@ref tutorial-renewal-delay) tutorial and the [modifiers](@ref overview-modifiers) section of the API overview, and uses AlgebraOfGraphics.jl and CairoMakie.jl for plotting.
+# This tutorial builds on [Renewal then delay](@ref tutorial-renewal-delay).
 # No fitting is involved.
 
 # ## Packages used
@@ -56,8 +57,10 @@ end
 
 # ## Combining with depletion
 #
-# Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), the transform lowers the force of infection, and the pool loses the infections that occur.
-# Placed after it, the pool loses the draws before the response, which are more than the infections recorded.
+# Placed before `Depletion`, the transform lowers the force of infection.
+# The pool then loses the infections that occur.
+# Placed after it, the pool loses the draws before the response.
+# These are more than the infections recorded.
 
 N = 5_000.0
 κ = 100.0
@@ -84,7 +87,9 @@ end
 
 # ## Extinction by generation
 #
-# A branching process dies out by generation ``n`` with probability ``q_n = G(q_{n-1})``, from ``q_0 = 0``, where ``G`` is the offspring probability generating function (@placeholder).
+# A branching process dies out by generation ``n`` with probability ``q_n = G(q_{n-1})``.
+# It starts from ``q_0 = 0``.
+# ``G`` is the offspring probability generating function (@placeholder).
 # For negative binomial offspring with mean ``R`` and dispersion ``k``,
 #
 # ```math
@@ -124,9 +129,10 @@ ForwardDiff.gradient(total_infections, [κ, 1.5])
 ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
 
 # Mooncake and Enzyme run on the same code.
-# The [`Transform`](@ref ComposableRecurrences.Transform) docstring gives the reverse-mode rule they use, and the [AD comparison](@ref ad-comparison) page compares the backends.
+# They use the rule in the [`Transform`](@ref ComposableRecurrences.Transform) docstring.
+# The [AD comparison](@ref ad-comparison) page compares the backends.
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier used here on the [API overview](@ref api-overview).
+# - The [API overview](@ref api-overview) lists every operator, coupling and modifier.
 # - Want the full interface? See the [Public API](@ref public-api).
