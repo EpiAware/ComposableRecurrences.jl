@@ -108,13 +108,13 @@ end
         )
     end
     for θ in (
-            [100.0, 80.0, 1.0, 0.3, 0.5, 2.0, 0.1, 0.2, 0.01, 0.02],
-            [100.0, 80.0, 1.4, 0.3, 0.5, 70.0, 0.0, 1.0e-9, 0.0, 0.05],
-        ), t in (1, 2)
+                [100.0, 80.0, 1.0, 0.3, 0.5, 2.0, 0.1, 0.2, 0.01, 0.02],
+                [100.0, 80.0, 1.4, 0.3, 0.5, 70.0, 0.0, 1.0e-9, 0.0, 0.05],
+            ), t in (1, 2)
         # The protected pool's mirror order: N, heterogeneity, the flows'
         # parameters, then σ and its pool0.
         c = check_pullback(
-            x -> protected(vcat(x[1:3], x[end - 2:end - 1], x[4:(end - 3)])),
+            x -> protected(vcat(x[1:3], x[(end - 2):(end - 1)], x[4:(end - 3)])),
             vcat(θ[1:3], θ[6:10], θ[4:5], 0.0), [3.0, 1.5],
             [60.0, 50.0, 20.0, 10.0], t
         )

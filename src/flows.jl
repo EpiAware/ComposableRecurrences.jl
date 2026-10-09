@@ -337,8 +337,9 @@ function _set(x::Tuple, i, v)
     return ntuple(j -> ifelse(j == i, w, x[j]), Val(length(x)))
 end
 
-# Tuple entry `i` of `x` plus `v`.
+# Tuple entry `i` of `x` plus `v`; arrivals of `nothing` are not kept.
 _add(x::Tuple, i, v) = _set(x, i, x[i] + v)
+_add(::Nothing, i, v) = nothing
 
 # What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
@@ -385,6 +386,9 @@ function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
     return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
 
+# The compartments after the flows, without the arrivals.
+_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
+_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))

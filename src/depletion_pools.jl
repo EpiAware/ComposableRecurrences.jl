@@ -164,7 +164,7 @@ end
 # Flows on the one pool: a pointwise step, the draw then the flows.
 function forward(m::_Flowing, ::Step, v, s, t, k)
     y, s′ = forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
-    (s″,), _ = _flow_group(m.flows, (s′,), k, t)
+    (s″,) = _flow_only(m.flows, (s′,), k, t)
     return y, s″
 end
 
@@ -241,7 +241,7 @@ function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
         m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
         param(m.N, k, t), m.heterogeneity
     )
-    pools, _ = _flow_group(m.flows, (Su, V), k, t)
+    pools = _flow_only(m.flows, (Su, V), k, t)
     return (y,), pools
 end
 

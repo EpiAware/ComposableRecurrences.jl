@@ -171,7 +171,7 @@ waning = [
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# Waning raises the peak a little and adds about 10% more infections over the outbreak.
+# Waning raises the peak a little and adds about 8% more infections over the outbreak.
 # This is because people protected early return to the susceptible pool while the epidemic runs.
 #
 # ### Checking against a stochastic simulation

@@ -307,6 +307,29 @@ round.(y; digits = 3)
   8.287
 ```
 
+Leaky vaccination, 5 doses a step, whose protection wanes at rate 0.1.
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+d = CR.Depletion(
+    1000.0; removals = 5.0, protected = CR.Protected(0.3),
+    flows = CR.Flow(2 => 1, 0.1)
+)
+y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 6); history = [5.0])
+round.(y; digits = 3)
+
+# output
+
+6-element Vector{Float64}:
+  2.996
+  6.73
+  8.846
+ 12.779
+ 18.196
+ 25.151
+```
+
 A herd of 100 with 3 births a step: `N` grows by the births, and the births
 enter the pool as negative removals.
 
