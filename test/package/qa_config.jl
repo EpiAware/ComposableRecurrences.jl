@@ -81,7 +81,12 @@ const QA_CONFIG = (
         ),
         (;
             name = :ComposableRecurrencesGPUArraysCoreExt,
-            triggers = ("GPUArraysCore", "KernelAbstractions"),
+            triggers = ("Adapt", "GPUArraysCore", "KernelAbstractions"),
+            prefixes = ("ComposableRecurrences",),
+        ),
+        (;
+            name = :ComposableRecurrencesGPUArraysExt,
+            triggers = ("GPUArrays", "GPUArraysCore", "KernelAbstractions"),
             prefixes = ("ComposableRecurrences",),
         ),
         # The Reactant extension is checked in test/reactant, whose
