@@ -428,8 +428,9 @@ end
     return Expr(:block, body..., :(return x))
 end
 
-# The group step is inlined at the call: across a call boundary, reverse AD
-# of the returned tuples is markedly slower.
+# The group step and its pullback are inlined at their calls: across a call
+# boundary, plain reverse AD of the returned tuples took about 70% longer
+# and the rule's reverse pass about 8% longer.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
     nv, ns = B
     G = _ngroups(Val(B), length(v))
@@ -474,13 +475,19 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     v̄, s̄ = grads.v, grads.s
     G = _ngroups(Val(B), length(v))
     for g in 1:G
-        v̄g, s̄g = @inline _call_pullback!(
-            (;
-                piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
-                s = _gather(s̄, Val(ns), G, g),
-            ),
-            m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
+        gg = (;
+            piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
+            s = _gather(s̄, Val(ns), G, g),
         )
+        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+        # The check folds; the group pullback itself is inlined here, as
+        # inlining `_call_pullback!` leaves its inner call a real one.
+        sig = Tuple{
+            typeof(pullback!), typeof(gg), typeof(m), Step, typeof(vg),
+            typeof(sg), typeof(t), typeof(g),
+        }
+        Core._hasmethod(sig) || _no_pullback(m, Step())
+        v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
         _scatter!(v̄, v̄g, G, g)
         _scatter!(s̄, s̄g, G, g)
     end

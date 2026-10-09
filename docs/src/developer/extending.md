@@ -248,7 +248,7 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - scalars `(v, s, N, α)` for a depletion form.
-The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length.
+The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments

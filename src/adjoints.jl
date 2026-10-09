@@ -86,8 +86,9 @@ by hand, where ``\bar o`` is the gradient of a scalar loss with respect to
 By default it is `true` when `pullback!` has a method for the type of
 `piece` and `role` whose other arguments are untyped, so writing the
 method is enough.
-A method with typed arguments is not found; declare
-`uses_adjoint(::T, role) = true` for it.
+A method with typed arguments is not found, apart from a blockwise group
+step's with `v::Tuple, s::Tuple` (see [`ComposableRecurrences.blocks`](@ref));
+declare `uses_adjoint(::T, role) = true` for any other.
 A method of `uses_adjoint` also overrides the default, for example when
 the adjoint covers only some values of a type.
 If it is `true` but no `pullback!` method fits the arguments, the reverse
