@@ -2,7 +2,7 @@
 # removals against naive loops, removals as the first count flow, the
 # pullbacks against a local Jacobian, and the checks.
 
-@testitem "Depletion flows: waning protection against a naive loop" setup = [FlowChecks] begin
+@testitem "Depletion flows: waning against a naive loop" setup = [FlowChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; flow_step, forms) = FlowChecks
