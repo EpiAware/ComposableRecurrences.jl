@@ -157,7 +157,7 @@ end
 @testitem "Depletion flows: check their options" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    @test_throws "name compartment 2, but the depletion has 1 pool" CR.Depletion(
+    @test_throws "name compartment 2, but the depletion's pools are 1 and" CR.Depletion(
         100.0; flows = CR.Flow(2 => 1, 0.1)
     )
     @test_throws "flows holds Flows, got 0.1" CR.Depletion(100.0; flows = (0.1,))
@@ -229,7 +229,7 @@ end
     )
     @inferred CR.forward(d, CR.Step(), (2.0,), (400.0, 50.0), 3, 1)
     d32 = CR.Depletion(
-        500.0f0; removals = 3.0f0, protected = CR.Protected(0.3f0),
+        500.0f0; removals = 3.0f0, protected = CR.Protected(0.3f0; pool0 = 0.0f0),
         flows = CR.Flow(2 => 1, 0.1f0), heterogeneity = 1.0f0
     )
     y32 = Recurrence(Float32.(g); modifiers = (d32,))(Float32.(R); history = Float32.(h))
