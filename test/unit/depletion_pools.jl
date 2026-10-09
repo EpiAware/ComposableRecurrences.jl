@@ -58,6 +58,7 @@
     mirror(x::AbstractFloat) = Ref(zero(x))
     mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
     mirror(::Union{Integer, Symbol, Nothing, AbstractArray}) = nothing
+    mirror(x::Tuple) = map(mirror, x)
     function mirror(x)
         names = fieldnames(typeof(x))
         return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
@@ -65,7 +66,7 @@
     flat(::Nothing) = Float64[]
     flat(x::Base.RefValue) = [x[]]
     flat(x::AbstractArray) = vec(copy(x))
-    flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
+    flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 end
 
 @testitem "Depletion pools: no removals and no protected pool is the base" begin
@@ -201,7 +202,7 @@ end
     # A dual with value zero and non-zero partials compares above zero, so
     # the step must pick its arm on the value and not divide by zero.
     P = ForwardDiff.Dual(0.0, 1.0, 0.4)
-    y, S′, V′ = CR._protected_step(CR.Hazard(), 2.0, P, 0.0, 0.3, 100.0, 1.0, 0.0)
+    y, S′, V′ = CR._protected_draw(CR.Hazard(), 2.0, P, 0.0, 0.3, 100.0, 1.0)
     @test all(isfinite, ForwardDiff.partials(S′))
     @test ForwardDiff.value(S′) == 0
     @test S′ == P - y
@@ -250,7 +251,8 @@ end
     @test s == [90.0, 45.0, 3.0, 4.0]
     m̄ = (;
         N = (; x = zeros(2)), form = nothing, heterogeneity = Ref(0.0),
-        pool0 = (; x = zeros(2)), removals = Ref(0.0),
+        pool0 = (; x = zeros(2)),
+        flows = ((; from = nothing, to = nothing, kind = (; a = Ref(0.0))),),
         protected = (; σ = Ref(0.0), pool0 = (; x = zeros(2))),
     )
     grads = (; piece = m̄, s = [1.0, 2.0, 3.0, 4.0], history = zeros(2, 2))

@@ -337,8 +337,9 @@ function _set(x::Tuple, i, v)
     return ntuple(j -> ifelse(j == i, w, x[j]), Val(length(x)))
 end
 
-# Tuple entry `i` of `x` plus `v`.
+# Tuple entry `i` of `x` plus `v`; arrivals of `nothing` are not kept.
 _add(x::Tuple, i, v) = _set(x, i, x[i] + v)
+_add(::Nothing, i, v) = nothing
 
 # What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
@@ -385,6 +386,9 @@ function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
     return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
 
+# The compartments after the flows, without the arrivals.
+_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
+_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
@@ -502,13 +506,13 @@ end
 # Each flow's parameter against the groups.
 function _check_flow_groups(fs, G)
     for f in fs
-        _check_kind_groups(f.kind, G)
+        _check_kind_groups(f.kind, G, "of Flow($(f.from) => $(f.to))")
     end
     return nothing
 end
-_check_kind_groups(k::Rate, G) = _check_param_strata(:r, k.r, G)
-_check_kind_groups(k::Linear, G) = _check_param_strata(:p, k.p, G)
-_check_kind_groups(k::Amount, G) = _check_param_strata(:a, k.a, G)
+_check_kind_groups(k::Rate, G, at) = _check_param_strata("r $at", k.r, G)
+_check_kind_groups(k::Linear, G, at) = _check_param_strata("p $at", k.p, G)
+_check_kind_groups(k::Amount, G, at) = _check_param_strata("a $at", k.a, G)
 
 function _check_modifier_strata(m::Flows, S)
     _check_flow_groups(m.flows, _ngroups(blocks(m), S))

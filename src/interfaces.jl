@@ -197,6 +197,16 @@ true
         piece = Depletion(100.0; removals = 1.0, protected = Protected(0.3)),
         role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     ),
+    Arguments(;
+        piece = Depletion(
+            100.0; protected = Protected(0.3), flows = Flow(2 => 1, 0.1)
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
+    ),
+    Arguments(;
+        piece = Depletion(100.0; flows = Flow(1 => 0, 0.01)),
+        role = Step(), args = ([2.0, 3.0], [80.0, 60.0], 2)
+    ),
 ]
 
 @implements PieceInterface Hazard [

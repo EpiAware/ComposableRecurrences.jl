@@ -111,10 +111,10 @@ include("modifiers.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
-# Depletion with removals and a protected pool.
-include("depletion_pools.jl")
 # Flows between the compartments of each group.
 include("flows.jl")
+# Depletion with flows and a protected pool.
+include("depletion_pools.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.

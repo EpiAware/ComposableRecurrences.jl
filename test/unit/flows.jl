@@ -284,5 +284,7 @@ end
     @test_throws "multiple of 2 strata, got 3" r(; history = zeros(3, 1), stop = 2)
     flows = CR.Flows(CR.Flow(1 => 2, CR.Linear(PerStratum([0.1, 0.2, 0.3]))))
     r = Recurrence([1.0]; modifiers = (flows,))
-    @test_throws "p has 3 strata, expected 2" r(; history = zeros(4, 1), stop = 2)
+    @test_throws "p of Flow(1 => 2) has 3 strata, expected 2" r(
+        ; history = zeros(4, 1), stop = 2
+    )
 end

@@ -119,10 +119,11 @@ end
     # A depletion with a protected pool steps each stratum's value and two
     # pools; its group pullback runs through the default loop.
     pmirror(m) = (;
-        N = (; x = zero(m.N.x)), heterogeneity = Ref(0.0), removals = Ref(0.0),
+        N = (; x = zero(m.N.x)), heterogeneity = Ref(0.0),
+        flows = ((; kind = (; a = Ref(0.0))),),
         protected = (; σ = (; x = zero(m.protected.σ.x)), pool0 = Ref(0.0)),
     )
-    pflat(m̄) = vcat(m̄.N.x, m̄.heterogeneity[], m̄.removals[], m̄.protected.σ.x)
+    pflat(m̄) = vcat(m̄.N.x, m̄.heterogeneity[], only(m̄.flows).kind.a[], m̄.protected.σ.x)
     build(θ) = CR.Depletion(
         PerStratum(θ[1:2]); heterogeneity = θ[3], removals = θ[4],
         protected = CR.Protected(PerStratum(θ[5:6]))

@@ -15,6 +15,7 @@
     mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
     mirror(::AbstractArray) = nothing
     mirror(::Union{Integer, Symbol, Nothing}) = nothing
+    mirror(x::Tuple) = map(mirror, x)
     function mirror(x)
         names = fieldnames(typeof(x))
         return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
@@ -24,7 +25,7 @@
     flat(::Nothing) = Float64[]
     flat(x::Base.RefValue) = [x[]]
     flat(x::AbstractArray) = vec(copy(x))
-    flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
+    flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 
     # Compare the Step's `pullback!` with the transposed Jacobian of its
     # `forward` in
@@ -368,9 +369,12 @@ end
     @test CR._removal_pullback(-2.0, 5.0, 0.7) == (0.7, 0.0)
     # With a protected pool a removal moves from the unprotected pool to the
     # protected one, and a negative removal adds to the unprotected pool only.
-    step(r) = CR._protected_step(CR.Hazard(), 0.0, 10.0, 4.0, 0.5, 20.0, 1.0, r)
-    @test step(3.0) == (0.0, 7.0, 7.0)
-    @test step(-2.0) == (0.0, 12.0, 4.0)
+    function step(r)
+        d = CR.Depletion(20.0; removals = r, protected = CR.Protected(0.5))
+        return CR.forward(d, CR.Step(), (0.0,), (10.0, 4.0), 1, 1)
+    end
+    @test step(3.0) == ((0.0,), (7.0, 7.0))
+    @test step(-2.0) == ((0.0,), (12.0, 4.0))
 end
 
 @testitem "Depletion pullback with a time-varying population" setup = [ModifierChecks] begin

@@ -1,7 +1,7 @@
-# Depletion with removals and a protected pool. Removals leave the pool
-# after each step's draw, capped by what remains. With a `Protected` pool
-# the removals move into it, and the draw takes from both pools in
-# proportion to their susceptible mass `S + σ V`.
+# Depletion with flows and a protected pool. The flows move between the
+# pools after each step's draw: removals are the first count flow, out of
+# the pool or into a `Protected` pool. With a protected pool the draw
+# takes from both pools in proportion to their susceptible mass `S + σ V`.
 
 @doc raw"""
 A protected pool for [`ComposableRecurrences.Depletion`](@ref): the
@@ -13,7 +13,8 @@ computed together, such as a place or an age group) with unprotected pool
 ``u``, protected pool ``w``, step value ``v``, population ``N``,
 heterogeneity ``\alpha`` and removals ``r_t``, the depletion form ``F``
 draws from the effective pool ``P = u + \sigma w`` and the pools lose the
-draw in proportion, then the removals move from ``u`` to ``w``:
+draw in proportion, then the removals move from ``u`` to ``w`` (with no
+other flows):
 
 ```math
 \begin{aligned}
@@ -33,6 +34,9 @@ doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
 A delay from dose to protection is a [`Convolution`](@ref) of the doses
 before the call.
+The removals are the depletion's first count flow, and its `flows` move
+between ``u`` and ``w``, such as waning protection (see
+[`ComposableRecurrences.Depletion`](@ref)).
 The derivative through ``\min`` and ``\max`` takes the active branch.
 The depletion's state holds ``u`` for every stratum, then ``w``.
 
@@ -81,19 +85,56 @@ function Protected(σ; pool0 = 0)
     return Protected{typeof(σ), typeof(pool0)}(σ, pool0)
 end
 
-const _Removing = Depletion{
-    <:Any, <:Any, <:Any, <:Any, <:Union{Real, PerStratum, TimeVarying},
-    Nothing,
+# The removals as the first count flow, into the protected pool if there is
+# one.
+_removal_flows(::Nothing, protected) = ()
+function _removal_flows(r, protected)
+    to = protected === nothing ? 0 : 2
+    return (Flow(1, to, Amount(_check_param(:removals, r))),)
+end
+
+# The `flows` keyword as a tuple of `Flow`s.
+_pool_flows(fs::Tuple) = _flows_only(fs)
+_pool_flows(fs::AbstractVector) = _flows_only(Tuple(fs))
+_pool_flows(f::Flow) = (f,)
+_pool_flows(::Nothing) = ()
+function _pool_flows(fs)
+    throw(
+        ArgumentError(
+            "flows is a Flow, or a tuple or vector of Flows, got " *
+                _describe(fs)
+        )
+    )
+end
+function _flows_only(fs)
+    for f in fs
+        f isa Flow || throw(
+            ArgumentError("flows holds Flows, got $(_describe(f))")
+        )
+    end
+    return fs
+end
+
+# The flows name the pool (1) and the protected pool (2) only.
+function _check_pool_flows(fs, protected)
+    isempty(fs) && return nothing
+    n = protected === nothing ? 1 : 2
+    top = _max_compartment(fs)
+    top <= n || throw(
+        ArgumentError(
+            "the flows name compartment $top, but the depletion's pools are " *
+                "1 and, with protected = Protected(σ), 2"
+        )
+    )
+    return nothing
+end
+
+const _Flowing = Depletion{
+    <:Any, <:Any, <:Any, <:Any, <:Tuple{Flow, Vararg{Flow}}, Nothing,
 }
 const _Protecting = Depletion{
-    <:Any, <:Any, <:Any, <:Any, <:Any, <:Protected,
+    <:Any, <:Any, <:Any, <:Any, <:Tuple, <:Protected,
 }
-
-# The removals at stratum `k` and time `t`; none without removals.
-_removals_at(r, k, t) = param(r, k, t)
-_removals_at(::Nothing, k, t) = false
-_add_removals!(r̄, r, x, k, t) = add_param!(r̄, r, x, k, t)
-_add_removals!(r̄, ::Nothing, x, k, t) = nothing
 
 # The removal from what remains after the draw, `min(r, max(s, 0))`. The
 # arms follow primal values, as in the pullback: a dual with value zero is
@@ -119,20 +160,25 @@ function _removal_pullback(r, s, m̄)
     return z, s < 0 ? z : m̄
 end
 
-# Removals only: a pointwise step on the one pool.
-function forward(m::_Removing, ::Step, v, s, t, k)
+# Flows on the one pool: a pointwise step, the draw then the flows.
+function forward(m::_Flowing, ::Step, v, s, t, k)
     y, s′ = forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
-    return y, s′ - _removal(param(m.removals, k, t), s′)
+    (s″,) = _flow_only(m.flows, (s′,), k, t)
+    return y, s″
 end
 
-function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
+function pullback!(grads, m::_Flowing, ::Step, v, s, t, k)
     m̄ = grads.piece
-    N, α, r = param(m.N, k, t), m.heterogeneity, param(m.removals, k, t)
+    N, α = param(m.N, k, t), m.heterogeneity
     _, s′ = forward(m.form, Step(), v, s, N, α)
-    r̄, s̄m = _removal_pullback(r, s′, -grads.s)
-    add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
+    s̄′ = only(
+        _flows_pullback(
+            m.flows, cotangent(m̄, :flows), (s′,), (grads.s,),
+            (zero(grads.s),), k, t
+        )
+    )
     v̄, s̄, N̄, ᾱ = _form_pullback(
-        (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s + s̄m),
+        (; piece = cotangent(m̄, :form), v = grads.v, s = s̄′),
         m.form, v, s, N, α
     )
     add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
@@ -150,7 +196,7 @@ function forward(m::_Protecting, ::Init, s, history)
     V = m.protected
     _check_param_strata(:N, m.N, S)
     _check_param_strata(:pool0, m.pool0, S)
-    _check_param_strata(:removals, m.removals, S)
+    _check_flow_groups(m.flows, S)
     _check_param_strata(:σ, V.σ, S)
     _check_param_strata(:pool0, V.pool0, S)
     for k in 1:S
@@ -171,8 +217,8 @@ function pullback!(grads, m::_Protecting, ::Init, s, history)
     return nothing
 end
 
-# One stratum's step: the draw, the pools after it and after the removal.
-function _protected_step(form, v, Su, V, σ, N, α, r)
+# One stratum's draw from both pools, and the pools after it.
+function _protected_draw(form, v, Su, V, σ, N, α)
     P = Su + σ * V
     y, _ = forward(form, Step(), v, P, N, α)
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
@@ -182,8 +228,7 @@ function _protected_step(form, v, Su, V, σ, N, α, r)
     q = y / ifelse(on, P, one(P))
     S′ = ifelse(on, Su - q * Su, Su - y)
     V′ = ifelse(on, V - q * σ * V, V)
-    mr = _removal(r, S′)
-    return y, S′ - mr, V′ + _protects(mr)
+    return y, S′, V′
 end
 
 # What a removal moves into the protected pool: a negative removal adds to
@@ -191,11 +236,12 @@ end
 _protects(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
 function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
-    y, Su, V = _protected_step(
+    y, Su, V = _protected_draw(
         m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
-        param(m.N, k, t), m.heterogeneity, _removals_at(m.removals, k, t)
+        param(m.N, k, t), m.heterogeneity
     )
-    return (y,), (Su, V)
+    pools = _flow_only(m.flows, (Su, V), k, t)
+    return (y,), pools
 end
 
 # `v` and `s` are the stratum's incoming value and pools; returns the
@@ -208,19 +254,17 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t, k)
     vk = only(v)
     Su, V = s
     σ, N = param(m.protected.σ, k, t), param(m.N, k, t)
-    r = _removals_at(m.removals, k, t)
     P = Su + σ * V
     y, _ = forward(m.form, Step(), vk, P, N, α)
-    ȳ, (S̄″, V̄″) = only(grads.v), grads.s
+    ȳ = only(grads.v)
     on = _primal_value(P) > 0
     q = on ? y / P : zero(y)
     S′ = on ? Su - q * Su : Su - y
-    mr = _removal(r, S′)
-    V̄m = ifelse(_primal_value(mr) < 0, zero(V̄″), V̄″)
-    r̄, S̄m = _removal_pullback(r, S′, V̄m - S̄″)
-    _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
-    S̄′ = S̄″ + S̄m
-    V̄′ = V̄″
+    V′ = on ? V - q * σ * V : V
+    z = zero(ȳ)
+    S̄′, V̄′ = _flows_pullback(
+        m.flows, cotangent(m̄, :flows), (S′, V′), grads.s, (z, z), k, t
+    )
     if on
         q̄ = -S̄′ * Su - V̄′ * σ * V
         S̄u = S̄′ * (1 - q)

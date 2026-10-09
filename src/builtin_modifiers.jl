@@ -228,14 +228,22 @@ For each stratum ``i`` (one of ``S`` parallel series) and absolute time
 
 ```math
 s_{t_0 - 1, i} = s_{0,i}, \qquad
-(v'_{t,i},\ s_{t,i}) = F\big(v_{t,i},\ s_{t-1,i},\ N_{t,i},\ \alpha\big),
+(v'_{t,i},\ s^{*}_{t,i}) = F\big(v_{t,i},\ s_{t-1,i},\ N_{t,i},\ \alpha\big),
+\qquad s_{t,i} = \Phi_{t,i}\big(s^{*}_{t,i}\big),
 ```
 
 where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on, ``s_{t,i}`` the pool after step ``t``, ``s_{0,i}`` the starting
 pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
-``t``, ``\alpha`` the heterogeneity exponent and ``F`` the form's
-`forward(form, Step(), v, s, N, α)`.
+``t``, ``\alpha`` the heterogeneity exponent, ``F`` the form's
+`forward(form, Step(), v, s, N, α)` and ``\Phi_{t,i}`` the `flows` after
+the draw: the compartments after the step of
+[`ComposableRecurrences.Flows`](@ref), with the pool as compartment 1 and
+a [`ComposableRecurrences.Protected`](@ref) pool as compartment 2.
+Rate and share flows act on the pools after the draw, then the count
+flows in order, the removals first, on what remains.
+Rate and share flows are not capped, so a rate out of a pool the draw has
+taken below zero moves a negative amount.
 
 The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
@@ -253,7 +261,7 @@ A population that changes over time, through births, deaths or turnover,
 is a `TimeVarying` `N`, with arrivals as negative `removals` and
 susceptible departures as positive ones.
 The step reads `N` at its own time, and the pool is not rescaled when `N`
-changes: arrivals enter the pool only through the removals.
+changes: arrivals enter the pool only through the flows.
 
 # Arguments
 - `N`: the population, a parameter read at each step's stratum and time:
@@ -266,13 +274,21 @@ changes: arrivals enter the pool only through the removals.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
   default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
-- `removals`: values taken out of the pool after each step's draw, capped
-  by what remains; a parameter (one value, `PerStratum`, `TimeVarying`,
-  `TimeVarying(PerStratum(r))` or `Derived`), or `nothing` for none.
+- `removals`: values taken out of the pool after each step's draw and its
+  rate and share flows, capped by what remains; a parameter (one value,
+  `PerStratum`, `TimeVarying`, `TimeVarying(PerStratum(r))` or `Derived`),
+  or `nothing` for none.
   A negative removal adds to the pool, without a cap.
+  It is the first count flow, `Flow(1 => 0, Amount(removals))`, or
+  `Flow(1 => 2, Amount(removals))` with a protected pool.
 - `protected`: a [`ComposableRecurrences.Protected`](@ref) pool that the
   removals move into and that is drawn from at a relative susceptibility,
   or `nothing` for none.
+- `flows`: [`ComposableRecurrences.Flow`](@ref)s between the pools after
+  each step's draw, a tuple or vector; none by default.
+  The pool is compartment 1 and a protected pool compartment 2, so
+  `Flow(2 => 1, ω)` is waning protection at rate ``\omega`` and
+  `Flow(1 => 0, μ)` removes susceptibles at rate ``\mu``.
 
 # Examples
 ```jldoctest
@@ -294,6 +310,29 @@ round.(y; digits = 3)
  11.087
  10.29
   8.287
+```
+
+Leaky vaccination, 5 doses a step, whose protection wanes at rate 0.1.
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+d = CR.Depletion(
+    1000.0; removals = 5.0, protected = CR.Protected(0.3),
+    flows = CR.Flow(2 => 1, 0.1)
+)
+y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 6); history = [5.0])
+round.(y; digits = 3)
+
+# output
+
+6-element Vector{Float64}:
+  2.996
+  6.73
+  8.846
+ 12.779
+ 18.196
+ 25.151
 ```
 
 A herd of 100 with 3 births a step: `N` grows by the births, and the births
@@ -321,7 +360,7 @@ round.(y; digits = 3)
  4.261
 ```
 """
-struct Depletion{F, P, A, P0, R, V}
+struct Depletion{F, P, A, P0, R <: Tuple, V}
     "The population, a parameter read at each step's stratum and time."
     N::P
     "The depletion form."
@@ -330,38 +369,37 @@ struct Depletion{F, P, A, P0, R, V}
     heterogeneity::A
     "The starting pool, or `nothing` for `N`."
     pool0::P0
-    "The removals, or `nothing`."
-    removals::R
+    "The flows between the pools after the draw, removals first."
+    flows::R
     "The protected pool, or `nothing`."
     protected::V
     function Depletion(
-            N::P, form::F, heterogeneity::A, pool0::P0, removals::R,
+            N::P, form::F, heterogeneity::A, pool0::P0, flows::R,
             protected::V
         ) where {P, F, A, P0, R, V}
         _check_form(form)
+        _check_pool_flows(flows, protected)
         return new{F, P, A, P0, R, V}(
-            N, form, heterogeneity, pool0, removals, protected
+            N, form, heterogeneity, pool0, flows, protected
         )
     end
 end
 
 function Depletion(
         N, form = Hazard(); heterogeneity = 1, pool0 = nothing,
-        removals = nothing, protected = nothing
+        removals = nothing, protected = nothing, flows = ()
     )
     N = _population(N)
     pool0 = pool0 === nothing ? nothing :
         _float_param(_check_constant(:pool0, pool0))
-    removals = removals === nothing ? nothing : _check_param(:removals, removals)
     protected === nothing || protected isa Protected || throw(
         ArgumentError(
             "protected must be a Protected pool or nothing, got " *
                 _describe(protected)
         )
     )
-    return Depletion(
-        N, form, _exponent(heterogeneity, N), pool0, removals, protected
-    )
+    fs = (_removal_flows(removals, protected)..., _pool_flows(flows)...)
+    return Depletion(N, form, _exponent(heterogeneity, N), pool0, fs, protected)
 end
 
 # The population: any parameter, read at each step's stratum and time.
@@ -473,7 +511,7 @@ end
 function forward(m::Depletion, ::Init, s, history)
     _check_param_strata(:N, m.N, length(s))
     _check_param_strata(:pool0, m.pool0, length(s))
-    _check_param_strata(:removals, m.removals, length(s))
+    _check_flow_groups(m.flows, length(s))
     for k in eachindex(s)
         s[k] = _pool0(m, k)
     end
