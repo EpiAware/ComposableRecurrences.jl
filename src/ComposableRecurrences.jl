@@ -96,7 +96,8 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
     Hazard, Floor, Primary, Secondary, seeded, exponential_history,
     with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, param_eltype,
+    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, depth,
+    param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
     param, add_param!

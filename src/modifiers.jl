@@ -321,6 +321,75 @@ CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 """
 nstate(m, S) = S
 
+@doc raw"""
+The number of past outputs `x` reads from a recurrence's buffer, before
+the current step.
+
+A [`Recurrence`](@ref) keeps
+
+```math
+D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_R)\big)
+```
+
+past outputs per stratum, where ``L`` is the kernel length, ``d`` is
+`depth` and ``M_1, \dots, M_R`` are the modifiers.
+The kernel reads the last ``L`` of them; the deeper rows are kept for
+objects that read further back than the kernel.
+A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a
+resumed call reads the same past.
+The default recurses by value through the fields of immutable structs,
+tuples and named tuples and takes the largest.
+Numbers, arrays, functions and mutable objects read nothing, ``d = 0``, so
+an object held inside an array or a mutable struct is not counted.
+Add a method for a type that reads the buffer.
+
+# Arguments
+- `x`: any object, such as a modifier, coupling or kernel.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+struct Window
+    w::Int
+end
+CR.depth(x::Window) = x.w
+CR.depth((Window(5), (; a = Window(9), b = 1.0))), CR.depth(CR.Clamp(0.0, 1.0))
+
+# output
+
+(9, 0)
+```
+"""
+depth(x) = _fields_depth(x)
+depth(::Union{Number, AbstractArray, Nothing, Symbol, AbstractString}) = 0
+depth(::Union{Type, Module, Function}) = 0
+
+# The largest depth over the fields of `x`, unrolled so a concrete type
+# infers, as `_fields_eltype` does. Each field's depth is checked here, so
+# a bad one is not hidden by the maximum.
+# Mutable objects are not walked, so a cycle or an undefined field cannot
+# stop a call.
+@generated function _fields_depth(x)
+    ismutabletype(x) && return 0
+    calls = (
+        :(isdefined(x, $i) ? _checked_depth(getfield(x, $i)) : 0)
+            for i in 1:fieldcount(x)
+    )
+    return :(max(0, $(calls...)))
+end
+
+function _checked_depth(x)
+    d = depth(x)
+    d isa Integer && d >= 0 || throw(
+        ArgumentError(
+            "depth($(nameof(typeof(x)))) must be a non-negative integer; " *
+                "got $(repr(d))"
+        )
+    )
+    return Int(d)::Int
+end
+
 # A modifier's shape checks against `S` strata, run once per call by its
 # `Init` and on a resumed state.
 _check_modifier_strata(m, S) = nothing
