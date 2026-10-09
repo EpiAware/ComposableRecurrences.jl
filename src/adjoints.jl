@@ -86,8 +86,9 @@ by hand, where ``\bar o`` is the gradient of a scalar loss with respect to
 By default it is `true` when `pullback!` has a method for the type of
 `piece` and `role` whose other arguments are untyped, so writing the
 method is enough.
-A method with typed arguments is not found; declare
-`uses_adjoint(::T, role) = true` for it.
+A method with typed arguments is not found, apart from a blockwise group
+step's with `v::Tuple, s::Tuple` (see [`ComposableRecurrences.blocks`](@ref));
+declare `uses_adjoint(::T, role) = true` for any other.
 A method of `uses_adjoint` also overrides the default, for example when
 the adjoint covers only some values of a type.
 If it is `true` but no `pullback!` method fits the arguments, the reverse
@@ -276,11 +277,9 @@ For a struct with fields ``\theta_1, \dots, \theta_n`` and a scalar loss
 and this returns ``\bar\theta_j`` for the field named `name`.
 
 A mirror holds a struct's cotangents for a
-[`ComposableRecurrences.pullback!`](@ref): an array to accumulate into for a
-float array, a `Ref` for a float scalar, a NamedTuple of field mirrors for
-a struct (`(; nzval)` for a sparse matrix, `(; diag)` for a `Diagonal`,
-`(; x)` for a wrapper such as [`TimeVarying`](@ref)), and `nothing` where
-there is no cotangent.
+[`ComposableRecurrences.pullback!`](@ref);
+[The gradient mirror](@ref extending-mirror) gives its entry for each field
+type.
 
 # Arguments
 - `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.

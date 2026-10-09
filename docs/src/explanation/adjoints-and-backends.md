@@ -30,7 +30,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
-The local step rebuilds a part with dual numbers in place of its float parameters; [Adding a modifier](@ref extending) lists what that needs.
+The local step rebuilds a part with dual numbers in place of its float parameters; [Gradient routes](@ref extending-routes) lists what that needs.
 The `Recurrence` constructor checks the rebuild once and stores the result.
 Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step.
 
@@ -64,7 +64,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
-| `Flows` | 0.30 | 0.19 | keep |
+| `Flows` | 0.43 | 0.43 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |

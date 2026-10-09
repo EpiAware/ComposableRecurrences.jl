@@ -8,10 +8,10 @@
 #
 # ### What are we going to do in this exercise
 #
-# 1. Run a renewal process with a changing reproduction number.
+# 1. Run a renewal process with a changing reproduction number and a measure that scales it.
 # 2. Deplete a finite susceptible pool with the hazard and floored forms.
 # 3. Add imported cases before or after depletion.
-# 4. Report infections through a delay.
+# 4. Report infections through a delay, and chain delays for clinical outcomes.
 # 5. Differentiate the reports with respect to the reproduction number.
 # 6. Forecast by continuing the renewal process from its last fitted day.
 #
@@ -50,6 +50,18 @@ end
 
 # Infections grow while `R` is 1.4, fall after day 30 when it drops to 0.9, and grow again after day 50.
 # Each change in `R` shows as a jump, because `R` scales each day's infections directly.
+#
+# ### A measure that scales R
+#
+# A population measure cuts transmission by a share ``c`` from day ``t_0`` to ``t_1``.
+# It scales the gain to ``R_t (1 - c\, \mathbb{1}[t_0 \le t \le t_1])``.
+# A constant control is the same measure over the whole run.
+
+c, t0, t1 = 0.3, 20, 40
+measure = [t0 <= t <= t1 ? 1 - c : 1.0 for t in 1:T]
+round.((sum(infections), sum(renewal(R .* measure; history = [5.0]))))
+
+# Cutting transmission for three weeks lowers the total.
 #
 # ### Seeding on a growth path
 #
@@ -235,6 +247,28 @@ end
 
 # Reports are 30% of infections, delayed and smoothed by the reporting delay.
 # The seed days appear at the start of both series.
+#
+# ### Clinical outcomes
+#
+# Each clinical transition is a delay that happens with some probability.
+# It is a `Convolution` with that probability as its gain.
+# Onsets ``O_t`` follow infections.
+# Admissions follow onsets with probability ``h``.
+# Deaths follow admissions with probability ``f``:
+#
+# ```math
+# A_t = h \sum_{l} d^A_l O_{t-l}, \qquad D_t = f \sum_{l} d^D_l A_{t-l}.
+# ```
+#
+# The chain equals one convolution of the three delays convolved together, with gain ``h f``.
+
+onsets = Convolution([0.0, 0.2, 0.5, 0.3])(infections_seeded)
+admissions = Convolution([0.3, 0.4, 0.2, 0.1])(onsets; gain = 0.1)
+deaths = Convolution([0.1, 0.2, 0.4, 0.2, 0.1])(admissions; gain = 0.25)
+round.((sum(admissions), sum(deaths)) ./ sum(infections_seeded); digits = 3)
+
+# The shares are below ``h = 0.1`` and ``h f = 0.025``.
+# Infections are still growing when the run ends, and the outcomes of the last ones fall after it.
 
 # ## Gradients
 #

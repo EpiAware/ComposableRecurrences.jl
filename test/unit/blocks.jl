@@ -147,8 +147,16 @@ end
     obj = Interfaces.Arguments(;
         piece = d, role = CR.Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     )
+    init = Interfaces.Arguments(;
+        piece = d, role = CR.Init(), args = (zeros(4), ones(2, 3))
+    )
     blockwise = CR.PieceInterface{(:blocks, :nstate)}
-    @test Interfaces.test(blockwise, typeof(d), (obj,); show = false)
+    @test Interfaces.test(blockwise, typeof(d), (obj, init); show = false)
+    # A modifier that is not blockwise passes the blocks check, so one
+    # declaration covers a type with both kinds.
+    @test CR._blocks_ok(CR.Clamp(0.0, 1.0), CR.Step(), ([1.0], [0.0], 1))
+    # A depletion is pointwise unless its pools make it blockwise.
+    @test CR.ispointwise(CR.Depletion(100.0; removals = 1.0))
 end
 
 @testitem "Blocks: shapes, resume and mixed modifiers" setup = [BlockChecks] begin
@@ -209,7 +217,9 @@ end
     @test CR.uses_adjoint(
         Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Clamp(0.0, 1.0))), CR.Run()
     )
+    n = CR._PULLBACK_CALLS[]
     @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
+    @test CR._PULLBACK_CALLS[] > n
     # A malformed shape is named.
     struct Odd end
     CR.blocks(::Odd) = Val((0, 1))

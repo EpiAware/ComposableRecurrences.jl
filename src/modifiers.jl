@@ -63,6 +63,9 @@ A pointwise modifier acts on each stratum ``i`` separately,
   - `forward(form, Step(), v, s, N, α)` draws `v` from pool `s` for a
     depletion form, returning `(y, s′)`.
 
+[Roles](@ref extending-roles) gives the matching
+[`ComposableRecurrences.pullback!`](@ref) for each.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -82,7 +85,7 @@ The role of a modifier's initial state: `forward(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or two for a
 [`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
 by the operator at its buffer eltype) from the full history, and returns
-`nothing`.
+`nothing`; [Roles](@ref extending-roles) gives the arguments.
 
 It sets the state before the first step of the call at ``t_0``,
 
@@ -130,6 +133,8 @@ stratum ``j`` in stratum ``i``, with ``S`` strata (parallel series).
 coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
+[A coupling](@ref extending-coupling) writes one with its
+[`ComposableRecurrences.pullback!`](@ref).
 
 # Examples
 ```jldoctest
@@ -169,6 +174,7 @@ To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling.
+[Roles](@ref extending-roles) gives each role's arguments.
 
 # Arguments
 - `x`: the operator, coupling, modifier or variant.
@@ -217,6 +223,9 @@ the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
 buffer `forward` updated in place is overwritten with the cotangent of its
 incoming value, and a scalar `Step` returns its input cotangents instead.
+[Roles](@ref extending-roles) gives the signature, the `grads` fields and the
+return value for each role, and [The gradient mirror](@ref extending-mirror)
+the shape of `grads.piece`.
 An operator's native rule calls a method whose `grads` and arguments after
 the role are untyped (see [`ComposableRecurrences.uses_adjoint`](@ref)).
 Without one, [Rules and plain AD](@ref adjoint-routing) says how the object
@@ -419,8 +428,9 @@ end
     return Expr(:block, body..., :(return x))
 end
 
-# The group step is inlined at the call: across a call boundary, reverse AD
-# of the returned tuples is markedly slower.
+# The group step and its pullback are inlined at their calls: across a call
+# boundary, plain reverse AD of the returned tuples took about 70% longer
+# and the rule's reverse pass about 8% longer.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
     nv, ns = B
     G = _ngroups(Val(B), length(v))
@@ -465,13 +475,19 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     v̄, s̄ = grads.v, grads.s
     G = _ngroups(Val(B), length(v))
     for g in 1:G
-        v̄g, s̄g = @inline _call_pullback!(
-            (;
-                piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
-                s = _gather(s̄, Val(ns), G, g),
-            ),
-            m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
+        gg = (;
+            piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
+            s = _gather(s̄, Val(ns), G, g),
         )
+        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+        # The check folds; the group pullback itself is inlined here, as
+        # inlining `_call_pullback!` leaves its inner call a real one.
+        sig = Tuple{
+            typeof(pullback!), typeof(gg), typeof(m), Step, typeof(vg),
+            typeof(sg), typeof(t), typeof(g),
+        }
+        Core._hasmethod(sig) || _no_pullback(m, Step())
+        v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
         _scatter!(v̄, v̄g, G, g)
         _scatter!(s̄, s̄g, G, g)
     end

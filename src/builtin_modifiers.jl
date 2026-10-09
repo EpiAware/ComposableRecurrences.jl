@@ -246,8 +246,9 @@ population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
 [`ComposableRecurrences.Floor`](@ref), or a new type with that method.
-A new form without a `pullback!` is differentiated locally with
-`ForwardDiff` in ``(v, s, N, \alpha)`` and its own float scalars.
+[A depletion form](@ref extending-form) writes a new form, and
+[Rules and plain AD](@ref adjoint-routing) gives the gradient of one without
+a `pullback!`.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -466,7 +467,8 @@ function pullback!(grads, ::Floor, ::Step, v, s, N, α)
     return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N, -f̄ * α * p / N, f̄ * p * log(r)
 end
 
-ispointwise(::Depletion) = true
+# A depletion is pointwise unless its pools make it blockwise.
+ispointwise(m::Depletion) = blocks(m) === nothing
 
 # The starting pool of stratum `k` and its cotangent slot.
 _pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = param(m.N, k, 1)
