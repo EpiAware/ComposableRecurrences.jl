@@ -143,7 +143,6 @@ end
 # With a protected pool each stratum has one value and two pools, the
 # unprotected then the protected, so the step is blockwise: the state holds
 # `S` then `V`, `2S` entries.
-ispointwise(::_Protecting) = false
 blocks(::_Protecting) = Val((1, 2))
 
 function forward(m::_Protecting, ::Init, s, history)

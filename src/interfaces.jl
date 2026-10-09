@@ -31,12 +31,12 @@ end
 # The vector Step of a pointwise modifier matches its scalar Step per stratum.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
-    first(args) isa AbstractVector || return true
+    first(args) isa AbstractVector && ispointwise(m) || return true
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
     pairs = [forward(m, Step(), v[k], s[k], t, k) for k in eachindex(v)]
     forward(m, Step(), v, s, t)
-    return ispointwise(m) && v ≈ first.(pairs) && s ≈ last.(pairs)
+    return v ≈ first.(pairs) && s ≈ last.(pairs)
 end
 
 # The vector Step of a blockwise modifier matches its group Step per group.
@@ -45,7 +45,7 @@ function _blocks_ok(m, ::Step, args)
     first(args) isa AbstractVector || return true
     return _groups_ok(blocks(m), m, args)
 end
-_groups_ok(::Nothing, m, args) = false
+_groups_ok(::Nothing, m, args) = true
 function _groups_ok(::Val{B}, m, args) where {B}
     nv, ns = B
     v, s = float(copy(args[1])), float(copy(args[2]))
@@ -100,17 +100,18 @@ end
 
 The mandatory component checks that `forward` runs and keeps to its role's
 conventions (outputs written into the leading arrays, inputs unchanged).
-The optional `pointwise` component checks that a modifier's vector step
-equals its scalar step on every stratum,
+The optional `pointwise` component checks that a pointwise modifier's
+vector step equals its scalar step on every stratum,
 
 ```math
 M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
 ```
 
 where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
-time ``t`` and ``S`` the number of strata.
+time ``t`` and ``S`` the number of strata; it passes any other modifier.
 The optional `blocks` component checks the same for a blockwise modifier
-([`ComposableRecurrences.blocks`](@ref)), group by group.
+([`ComposableRecurrences.blocks`](@ref)), group by group, and passes any
+other modifier.
 The optional `nstate` component checks the state length against
 [`ComposableRecurrences.nstate`](@ref).
 
@@ -179,7 +180,7 @@ true
     ),
 ]
 
-@implements PieceInterface{(:pointwise, :nstate)} Depletion [
+@implements PieceInterface{(:pointwise, :blocks, :nstate)} Depletion [
     Arguments(;
         piece = Depletion(PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0])),
         role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
@@ -191,6 +192,10 @@ true
     Arguments(;
         piece = Depletion(80.0; removals = TimeVarying([4.0, 6.0])),
         role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
+    ),
+    Arguments(;
+        piece = Depletion(100.0; removals = 1.0, protected = Protected(0.3)),
+        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     ),
 ]
 
