@@ -237,9 +237,13 @@ it passes on, ``s_{t,i}`` the pool after step ``t``, ``s_{0,i}`` the starting
 pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
 ``t``, ``\alpha`` the heterogeneity exponent, ``F`` the form's
 `forward(form, Step(), v, s, N, α)` and ``\Phi_{t,i}`` the `flows` after
-the draw, as in [`ComposableRecurrences.Flows`](@ref) with the pool as
-compartment 1 (and a [`ComposableRecurrences.Protected`](@ref) pool as
-compartment 2).
+the draw: the compartments after the step of
+[`ComposableRecurrences.Flows`](@ref), with the pool as compartment 1 and
+a [`ComposableRecurrences.Protected`](@ref) pool as compartment 2.
+Rate and share flows act on the pools after the draw, then the count
+flows in order, the removals first, on what remains.
+Rate and share flows are not capped, so a rate out of a pool the draw has
+taken below zero moves a negative amount.
 
 The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
@@ -270,9 +274,10 @@ changes: arrivals enter the pool only through the flows.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
   default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
-- `removals`: values taken out of the pool after each step's draw, capped
-  by what remains; a parameter (one value, `PerStratum`, `TimeVarying`,
-  `TimeVarying(PerStratum(r))` or `Derived`), or `nothing` for none.
+- `removals`: values taken out of the pool after each step's draw and its
+  rate and share flows, capped by what remains; a parameter (one value,
+  `PerStratum`, `TimeVarying`, `TimeVarying(PerStratum(r))` or `Derived`),
+  or `nothing` for none.
   A negative removal adds to the pool, without a cap.
   It is the first count flow, `Flow(1 => 0, Amount(removals))`, or
   `Flow(1 => 2, Amount(removals))` with a protected pool.
@@ -373,6 +378,7 @@ struct Depletion{F, P, A, P0, R <: Tuple, V}
             protected::V
         ) where {P, F, A, P0, R, V}
         _check_form(form)
+        _check_pool_flows(flows, protected)
         return new{F, P, A, P0, R, V}(
             N, form, heterogeneity, pool0, flows, protected
         )
@@ -393,7 +399,6 @@ function Depletion(
         )
     )
     fs = (_removal_flows(removals, protected)..., _pool_flows(flows)...)
-    _check_pool_flows(fs, protected)
     return Depletion(N, form, _exponent(heterogeneity, N), pool0, fs, protected)
 end
 

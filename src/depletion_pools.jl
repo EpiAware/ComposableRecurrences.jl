@@ -34,11 +34,9 @@ doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
 A delay from dose to protection is a [`Convolution`](@ref) of the doses
 before the call.
-The removals are the depletion's first count flow,
-`Flow(1 => 2, Amount(r))`, and its other `flows` move between the pools
-too, with ``u`` as compartment 1 and ``w`` as compartment 2; rate and
-share flows act on ``(u^{*}, w^{*})`` before the removals.
-Waning protection at rate ``\omega`` is `flows = (Flow(2 => 1, ω),)`.
+The removals are the depletion's first count flow, and its `flows` move
+between ``u`` and ``w``, such as waning protection (see
+[`ComposableRecurrences.Depletion`](@ref)).
 The derivative through ``\min`` and ``\max`` takes the active branch.
 The depletion's state holds ``u`` for every stratum, then ``w``.
 
@@ -99,6 +97,7 @@ end
 _pool_flows(fs::Tuple) = _flows_only(fs)
 _pool_flows(fs::AbstractVector) = _flows_only(Tuple(fs))
 _pool_flows(f::Flow) = (f,)
+_pool_flows(::Nothing) = ()
 function _pool_flows(fs)
     throw(
         ArgumentError(
@@ -123,8 +122,8 @@ function _check_pool_flows(fs, protected)
     top = _max_compartment(fs)
     top <= n || throw(
         ArgumentError(
-            "the flows name compartment $top, but the depletion has $n " *
-                "pool(s): the pool is 1 and a protected pool 2"
+            "the flows name compartment $top, but the depletion's pools are " *
+                "1 and, with protected = Protected(σ), 2"
         )
     )
     return nothing

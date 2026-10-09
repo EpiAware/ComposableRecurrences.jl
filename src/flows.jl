@@ -506,13 +506,13 @@ end
 # Each flow's parameter against the groups.
 function _check_flow_groups(fs, G)
     for f in fs
-        _check_kind_groups(f.kind, G)
+        _check_kind_groups(f.kind, G, "of Flow($(f.from) => $(f.to))")
     end
     return nothing
 end
-_check_kind_groups(k::Rate, G) = _check_param_strata(:r, k.r, G)
-_check_kind_groups(k::Linear, G) = _check_param_strata(:p, k.p, G)
-_check_kind_groups(k::Amount, G) = _check_param_strata(:a, k.a, G)
+_check_kind_groups(k::Rate, G, at) = _check_param_strata("r $at", k.r, G)
+_check_kind_groups(k::Linear, G, at) = _check_param_strata("p $at", k.p, G)
+_check_kind_groups(k::Amount, G, at) = _check_param_strata("a $at", k.a, G)
 
 function _check_modifier_strata(m::Flows, S)
     _check_flow_groups(m.flows, _ngroups(blocks(m), S))

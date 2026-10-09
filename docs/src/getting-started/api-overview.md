@@ -123,7 +123,7 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 
 | Name | What it does | Recurrence | Convolution | Per series | Adjoint | Parameters |
 |---|---|---|---|---|---|---|
-| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals, flows between pools and an optional protected pool | yes | no | yes, or blockwise with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `removals`, `protected`, `flows` |
+| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals, flows between pools and an optional protected pool | yes | no | yes, or blockwise with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `flows` (the removals are the first), `protected` |
 | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | no | hand-written | `ε` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | no | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | no | yes | hand-written | `lo`, `hi` |
@@ -145,7 +145,7 @@ Depletion forms and time indexing are types, and you pass an instance.
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
 | [`Rate(r)`](@ref ComposableRecurrences.Rate), [`Linear(p)`](@ref ComposableRecurrences.Linear), [`Amount(a)`](@ref ComposableRecurrences.Amount) | flow kinds: a competing hazard rate (the default), a share, or a count capped by what remains | `Flow(1 => 2, Linear(p))` |
-| [`Protected(σ; pool0)`](@ref ComposableRecurrences.Protected) | a pool the depletion's removals move into, drawn from at relative susceptibility ``\sigma`` | `Depletion(N; removals, protected = Protected(σ))` |
+| [`Protected(σ; pool0)`](@ref ComposableRecurrences.Protected) | a pool the depletion's removals move into, drawn from at relative susceptibility ``\sigma``; it wanes through the depletion's `flows` | `Depletion(N; removals, protected = Protected(σ))` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
 

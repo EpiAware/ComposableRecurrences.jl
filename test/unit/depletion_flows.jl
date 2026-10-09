@@ -167,5 +167,81 @@ end
     @test_throws ArgumentError CR.Depletion(100.0; removals = [1.0, 2.0])
     d = CR.Depletion(100.0; flows = CR.Flow(1 => 0, PerStratum([0.1, 0.2, 0.3])))
     r = Recurrence([0.5]; modifiers = (d,))
-    @test_throws "r has 3 strata, expected 2" r(ones(2, 3); history = ones(2, 1))
+    @test_throws "r of Flow(1 => 0) has 3 strata, expected 2" r(
+        ones(2, 3); history = ones(2, 1)
+    )
+end
+
+@testitem "Depletion flows: empty pools and Derived removals" setup = [FlowChecks] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    (; check_pullback) = FlowChecks
+    # A rate out of the pool, waning and negative removals (arrivals), with
+    # one stratum's pools empty so the draw comes from the pool alone.
+    build(θ) = CR.Depletion(
+        PerStratum(θ[1:2]); heterogeneity = θ[3],
+        protected = CR.Protected(θ[4]),
+        flows = (
+            CR.Flow(1 => 0, θ[5]), CR.Flow(2 => 1, θ[6]),
+            CR.Flow(1 => 2, CR.Amount(θ[7])),
+        )
+    )
+    for amount in (-3.0, 2.0), s in ([0.0, 50.0, 0.0, 10.0], [60.0, 50.0, 20.0, 10.0])
+        # Mirror order: N, heterogeneity, the flows' parameters, then σ and
+        # its pool0.
+        c = check_pullback(
+            x -> build(vcat(x[1:3], x[7], x[4:6])),
+            [100.0, 80.0, 1.0, 0.02, 0.1, amount, 0.3, 0.0], [3.0, 1.5], s, 1
+        )
+        @test c.v && c.s && c.θ
+    end
+    # Removals given as a Derived parameter, without a protected pool, are
+    # applied: they were the first count flow's count.
+    g, h, R = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0], fill(2.2, 10)
+    run(r) = Recurrence(g; modifiers = (CR.Depletion(200.0; removals = r),))(
+        R; history = h
+    )
+    @test run(2 * Derived(identity, 1.5)) ≈ run(3.0)
+    @test run(3.0) != run(0.0)
+    loss(θ) = sum(run(θ[1] * Derived(exp, θ[2])))
+    @test gradient(loss, AutoMooncake(), [2.0, 0.4]) ≈
+        ForwardDiff.gradient(loss, [2.0, 0.4])
+end
+
+@testitem "Depletion flows: resume, Float32, inference and a Derived rate" begin
+    using ComposableRecurrences, ForwardDiff, Mooncake, Test
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    g, h = [0.3, 0.5, 0.2], [5.0]
+    R = fill(2.0, 12)
+    ω = TimeVarying(collect(range(0.0, 0.2; length = 12)))
+    d = CR.Depletion(
+        500.0; removals = 3.0, protected = CR.Protected(0.3), flows = CR.Flow(2 => 1, ω)
+    )
+    r = Recurrence(g; modifiers = (d,))
+    y = r(R; history = h)
+    y1, st = CR.with_state(r, R[1:5]; history = h)
+    @test vcat(y1, r(R; state = st)) ≈ y
+    @inferred CR.Depletion(
+        500.0; removals = 3.0, protected = CR.Protected(0.3),
+        flows = (CR.Flow(2 => 1, 0.1),)
+    )
+    @inferred CR.forward(d, CR.Step(), (2.0,), (400.0, 50.0), 3, 1)
+    d32 = CR.Depletion(
+        500.0f0; removals = 3.0f0, protected = CR.Protected(0.3f0),
+        flows = CR.Flow(2 => 1, 0.1f0), heterogeneity = 1.0f0
+    )
+    y32 = Recurrence(Float32.(g); modifiers = (d32,))(Float32.(R); history = Float32.(h))
+    @test eltype(y32) == Float32
+    # A Derived waning rate through the rule.
+    function loss(θ)
+        d = CR.Depletion(
+            500.0; removals = 3.0, protected = CR.Protected(θ[1]),
+            flows = CR.Flow(2 => 1, θ[2] * Derived(exp, TimeVarying(θ[3:14])))
+        )
+        return sum(abs2, Recurrence(g; modifiers = (d,))(R; history = h))
+    end
+    θ = [0.3, 0.05, fill(0.1, 12)...]
+    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
 end
