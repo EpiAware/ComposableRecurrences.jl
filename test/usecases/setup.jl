@@ -10,4 +10,5 @@
     include(joinpath(@__DIR__, "references", "bvd.jl"))
     include(joinpath(@__DIR__, "references", "epibranch.jl"))
     include(joinpath(@__DIR__, "references", "epibranch_homogeneous.jl"))
+    include(joinpath(@__DIR__, "references", "epibranch_isolation.jl"))
 end
