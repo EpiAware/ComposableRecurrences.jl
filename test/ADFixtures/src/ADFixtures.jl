@@ -377,6 +377,31 @@ function _conv_per_stratum(w, θ)
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
 end
 
+# A pointwise modifier that passes the value through and asks for a buffer
+# `w` steps deep, deeper than the kernel. Releases before `depth` have no
+# such buffer, so the method is defined only where they do.
+struct DeepBuffer
+    w::Int
+end
+ComposableRecurrences.ispointwise(::DeepBuffer) = true
+function ComposableRecurrences.forward(
+        ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t, k
+    )
+    return v, s
+end
+if isdefined(ComposableRecurrences, :depth)
+    ComposableRecurrences.depth(m::DeepBuffer) = m.w
+end
+
+# A coupled renewal whose buffer is twice the kernel length, seeded from a
+# history as long as the buffer.
+function _deep_buffer(w, θ)
+    g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, 2L), (S, T))
+    r = Recurrence(g; coupling = K, modifiers = (DeepBuffer(2L),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
@@ -497,6 +522,10 @@ const _SCENARIOS = [
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
     ),
     (
+        "Recurrence with a buffer deeper than the kernel", _deep_buffer,
+        () -> _flat(G0, K0, fill(log(5.0), S, 2L), LOGR),
+    ),
+    (
         "Convolution per-stratum kernel with history", _conv_per_stratum,
         () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
     ),
@@ -546,6 +575,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
+    "Recurrence with a buffer deeper than the kernel" => (:depth,),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
