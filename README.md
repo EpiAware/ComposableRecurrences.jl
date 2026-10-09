@@ -17,7 +17,7 @@ Fast, composable and differentiable recurrences and causal convolutions in Julia
 
 - Recurrences and causal convolutions are usually hand-written loops, rewritten for each model; `Recurrence` and `Convolution` express them as two operators, for one series or many coupled series.
 - Extra behaviour such as coupling between series, finite pools or bounds is added by composing small couplings and modifiers, and you can extend it with your own.
-- Gradients are fast under ForwardDiff, Mooncake and Enzyme.
+- The forward run and gradients under ForwardDiff, Mooncake and Enzyme are close to or faster than a hand-written loop; see the [performance figure](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-performance).
 
 ## Getting started
 

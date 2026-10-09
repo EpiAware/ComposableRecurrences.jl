@@ -76,10 +76,10 @@ if bench === nothing # hide
 else # hide
     @chain bench begin # hide
         @subset(:block .== "naive vs package", :size .== "T200_L20_S3", :status .== "ok") # hide
-        @transform(:median_us = parse.(Float64, :median_us)) # hide
+        @transform(:min_us = parse.(Float64, :min_us)) # hide
         data(_) * mapping( # hide
             :target => renamer(targets...) => "", # hide
-            :median_us => "Median time (μs)", # hide
+            :min_us => "Minimum time (μs)", # hide
             color = :method => sorter(methods_order...) => "", # hide
             dodge = :method => sorter(methods_order...) => "", # hide
         ) * visual(BarPlot, fillto = 1) # hide
@@ -94,11 +94,20 @@ if bench !== nothing # hide
     missing_note = isempty(failed.method) ? "" : # hide
         " No bar: " * join(unique(failed.target), ", ") * " could not differentiate " * # hide
         join(unique(failed.method), " or ") * "." # hide
+    reverse_rules = unique( # hide
+        @subset( # hide
+            bench, :block .== "naive vs package", :size .== "T200_L20_S3", # hide
+            in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"])) # hide
+        ).rules # hide
+    ) # hide
     Markdown.parse( # hide
         "The three-town model above over 200 days with a 20-day generation interval: " * # hide
             "the operators, a preallocated hand-written loop, a loop that copies its window every step, " * # hide
             "and `accumulate` over a `NamedTuple` state, for the forward run and each gradient backend; " * # hide
-            "median times at revision `" * first(bench.revision) * "`." * missing_note # hide
+            "minimum times at revision `" * first(bench.revision) * "`, " * # hide
+            (reverse_rules == ["true"] ? "with" : "without") * # hide
+            " the package's Mooncake and Enzyme rules loaded; " * # hide
+            "the forward run and ForwardDiff do not use them." * missing_note # hide
     ) # hide
 end # hide
 ```
