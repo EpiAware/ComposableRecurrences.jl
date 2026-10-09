@@ -58,6 +58,8 @@ A pointwise modifier acts on each stratum ``i`` separately,
   - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
     returning `(v′, s′)`; a modifier with
     [`ComposableRecurrences.ispointwise`](@ref) implements this one.
+    A blockwise modifier ([`ComposableRecurrences.blocks`](@ref))
+    implements it for group `k`, with `v`, `s`, `v′` and `s′` tuples.
   - `forward(form, Step(), v, s, N, α)` draws `v` from pool `s` for a
     depletion form, returning `(y, s′)`.
 
@@ -285,6 +287,56 @@ false
 ispointwise(m) = false
 
 @doc raw"""
+The group shape of modifier `m`: `Val((nv, ns))`, its values and state
+entries per group, or `nothing` when it is not blockwise.
+
+A blockwise modifier holds ``n_v`` compartments of ``G`` groups each in its
+values and ``n_s`` in its state, compartment by compartment: with
+``S = n_v G`` strata, value ``(i - 1) G + g`` is compartment ``i`` of group
+``g`` and state entry ``(j - 1) G + g`` is state compartment ``j`` of group
+``g``.
+Its step factorises over groups: at absolute time ``t``, group ``g``'s new
+values and state depend only on its own,
+
+```math
+\big(v'_{1:n_v,\,g},\ s'_{1:n_s,\,g}\big) =
+M_g\big(v_{1:n_v,\,g},\ s_{1:n_s,\,g},\ t\big),
+\qquad g = 1, \dots, G .
+```
+
+A blockwise modifier implements `forward(m, Step(), v, s, t, g)` with `v`
+and `s` tuples of the group's ``n_v`` values and ``n_s`` state entries,
+returning the new tuples `(v′, s′)`, and optionally
+`pullback!(grads, m, Step(), v, s, t, g)` with `grads.v` and `grads.s`
+tuples, returning the input cotangents as tuples.
+The default vector [`ComposableRecurrences.Step`](@ref) loops the groups,
+and [`ComposableRecurrences.nstate`](@ref) is ``n_s G``.
+The group step reads parameters at group `g`, so a [`PerStratum`](@ref)
+parameter has ``G`` entries.
+`blocks` should follow from the type of `m`, so the group loop is
+compiled for its shape.
+A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) is the
+case ``n_v = n_s = 1`` with a scalar step, and is not blockwise.
+The default is `nothing`.
+
+# Arguments
+- `m`: the modifier.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+leaky = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
+
+# output
+
+(Val{(1, 2)}(), nothing)
+```
+"""
+blocks(m) = nothing
+
+@doc raw"""
 The number of state entries modifier `m` keeps for `S` strata.
 
 A stratum is one of the ``S`` parallel series computed together, such as a
@@ -298,8 +350,11 @@ The recurrence allocates each modifier's state ``s`` with
 passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
 [`ComposableRecurrences.Step`](@ref), and checks a resumed state against it.
 This is the extension point for a modifier that holds more than one stock
-per stratum: a depletion with a protected pool keeps the unprotected pool
-then the protected pool, ``n(m, S) = 2S``.
+per stratum.
+A blockwise modifier ([`ComposableRecurrences.blocks`](@ref)) keeps
+``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a depletion with a
+protected pool keeps the unprotected pool then the protected pool,
+``n(m, S) = 2S``.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
 one entry per stratum, so it must have ``n(m, S) = S``.
 
@@ -319,24 +374,82 @@ CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 (3, 6)
 ```
 """
-nstate(m, S) = S
+nstate(m, S) = _blocks_nstate(blocks(m), S)
+_blocks_nstate(::Nothing, S) = S
+_blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
+
+# The number of groups of a blockwise modifier over `S` strata.
+function _ngroups(::Val{B}, S) where {B}
+    nv = _check_blocks(Val(B))
+    rem(S, nv) == 0 || _strata_mismatch(nv, S)
+    return S ÷ nv
+end
+@noinline function _strata_mismatch(nv, S)
+    throw(
+        DimensionMismatch(
+            "a blockwise modifier with $nv value compartments needs a " *
+                "multiple of $nv strata, got $S"
+        )
+    )
+end
+
+# The value compartments of a group shape, after checking the shape.
+function _check_blocks(::Val{B}) where {B}
+    B isa Tuple{Int, Int} && B[1] >= 1 && B[2] >= 0 || throw(
+        ArgumentError(
+            "blocks(m) is Val((nv, ns)) with integers nv >= 1 and ns >= 0, " *
+                "got Val($(repr(B)))"
+        )
+    )
+    return B[1]
+end
 
 # A modifier's shape checks against `S` strata, run once per call by its
 # `Init` and on a resumed state.
 _check_modifier_strata(m, S) = nothing
 
 # Defaults: a zero initial state, and a vector step that loops the scalar
-# one for a pointwise modifier.
+# one for a pointwise modifier or the group one for a blockwise modifier.
 function forward(m, ::Init, s, history)
     fill!(s, zero(eltype(s)))
     return nothing
 end
 
-function forward(m, ::Step, v, s, t)
+forward(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
+
+# The group `g` entries of `x`, compartment by compartment, as a tuple, and
+# their write-back. Generated as straight-line indexing, which AD backends
+# differentiate more cheaply than a closure or a recursion over the tuple.
+@generated function _gather(x, ::Val{n}, G, g) where {n}
+    return Expr(:tuple, (:(x[$(i - 1) * G + g]) for i in 1:n)...)
+end
+@generated function _scatter!(x, xs::Tuple, G, g)
+    body = (:(x[$(i - 1) * G + g] = xs[$i]) for i in 1:fieldcount(xs))
+    return Expr(:block, body..., :(return x))
+end
+
+# The group step and its pullback are inlined at their calls: across a call
+# boundary, plain reverse AD of the returned tuples took about 70% longer
+# and the rule's reverse pass about 8% longer.
+function _vector_step!(::Val{B}, m, v, s, t) where {B}
+    nv, ns = B
+    G = _ngroups(Val(B), length(v))
+    for g in 1:G
+        v′, s′ = @inline forward(
+            m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
+        )
+        _scatter!(v, v′, G, g)
+        _scatter!(s, s′, G, g)
+    end
+    return nothing
+end
+
+function _vector_step!(::Nothing, m, v, s, t)
     ispointwise(m) || throw(
         ArgumentError(
             "$(typeof(m)) implements neither forward(m, Step(), v, s, t) " *
-                "nor a pointwise forward(m, Step(), v, s, t, k)"
+                "nor a pointwise forward(m, Step(), v, s, t, k), and is " *
+                "not blockwise (see blocks)"
         )
     )
     for k in eachindex(v, s)
@@ -345,13 +458,40 @@ function forward(m, ::Step, v, s, t)
     return nothing
 end
 
-# The vector step's pullback: the modifier's own, or for a pointwise
-# modifier without one the scalar pullback per stratum. Not a `pullback!`
-# method, which would count as every modifier's own.
+# The vector step's pullback: the modifier's own, or for a pointwise or
+# blockwise modifier without one the scalar or group pullback per stratum
+# or group. Not a `pullback!` method, which would count as every
+# modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
-    ispointwise(m) && !_has_vector_pullback(m) &&
-        return _strata_pullback!(grads, m, v, s, t)
+    _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
     return _call_pullback!(grads, m, Step(), v, s, t)
+end
+function _split_pullback!(::Nothing, grads, m, v, s, t)
+    ispointwise(m) && return _strata_pullback!(grads, m, v, s, t)
+    return _call_pullback!(grads, m, Step(), v, s, t)
+end
+function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
+    nv, ns = B
+    v̄, s̄ = grads.v, grads.s
+    G = _ngroups(Val(B), length(v))
+    for g in 1:G
+        gg = (;
+            piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
+            s = _gather(s̄, Val(ns), G, g),
+        )
+        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+        # The check folds; the group pullback itself is inlined here, as
+        # inlining `_call_pullback!` leaves its inner call a real one.
+        sig = Tuple{
+            typeof(pullback!), typeof(gg), typeof(m), Step, typeof(vg),
+            typeof(sg), typeof(t), typeof(g),
+        }
+        Core._hasmethod(sig) || _no_pullback(m, Step())
+        v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
+        _scatter!(v̄, v̄g, G, g)
+        _scatter!(s̄, s̄g, G, g)
+    end
+    return nothing
 end
 function _strata_pullback!(grads, m, v, s, t)
     v̄, s̄ = grads.v, grads.s

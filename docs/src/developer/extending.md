@@ -16,6 +16,7 @@ The second argument of `forward` and the third of `pullback!` is a singleton tha
 | Type | `forward` | `pullback!` | `grads` | `pullback!` returns |
 |---|---|---|---|---|
 | pointwise modifier step | `forward(m, Step(), v, s, t, k)` returns `(v′, s′)` | `pullback!(grads, m, Step(), v, s, t, k)` | `piece`; `v` and `s` hold the scalar cotangents of `v′` and `s′` | `(v̄, s̄)` |
+| blockwise modifier group step | `forward(m, Step(), v::Tuple, s::Tuple, t, g)` returns tuples `(v′, s′)` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples holding the cotangents of `v′` and `s′` | tuples `(v̄, s̄)` |
 | vector modifier step | `forward(m, Step(), v, s, t)` updates `v` and `s` in place | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` are vectors holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` | `nothing` |
 | initial state | `forward(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` | `nothing` |
 | coupling | `forward(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` | `nothing` |
@@ -30,6 +31,7 @@ The arguments mean the same in every role:
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward` was given, so the values before the step.
   Read them, but do not write to them.
 - A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise) and implements the scalar step.
+  A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) and implements the step for one group, `g`.
   Any other modifier implements the vector step and may read every stratum.
 
 `forward` must be generic in the element type of its arguments.
@@ -197,6 +199,23 @@ end
 Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.0], stop = 3)
 ```
 
+## [A blockwise step](@id extending-blockwise)
+
+A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
+[`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group, and the step takes and returns them as tuples.
+This one keeps a running total and a step count per series, and adds their mean to the value.
+
+```@example extending
+struct AddMean end
+CR.blocks(::AddMean) = Val((1, 2))
+function CR.forward(::AddMean, ::CR.Step, v::Tuple, s::Tuple, t, k)
+    total, n = s[1] + v[1], s[2] + 1
+    return (v[1] + total / n,), (total, n)
+end
+
+Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0 2.0; 3.0 1.0])
+```
+
 ## [A depletion form](@id extending-form)
 
 A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
@@ -229,7 +248,7 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - scalars `(v, s, N, α)` for a depletion form.
-The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length.
+The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments
