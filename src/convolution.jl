@@ -82,8 +82,28 @@ struct Convolution{K} <: AbstractOperator
             )
         )
         _check_kernel_shape(kernel)
+        _check_one_based(kernel)
         return new{K}(kernel)
     end
+end
+
+# The convolution loops read the kernel by lag from index 1, so a kernel
+# array with offset axes is refused. Ragged columns check their own.
+_check_one_based(kernel) = nothing
+function _check_one_based(
+        kernel::Union{
+            AbstractArray, PerStratum,
+            TimeVarying{<:Any, <:Union{AbstractArray, PerStratum}},
+        }
+    )
+    A = _array(kernel)
+    Base.has_offset_axes(A) && throw(
+        ArgumentError(
+            "a kernel indexes from 1, got $(_describe(kernel)) with axes " *
+                "$(axes(A))"
+        )
+    )
+    return nothing
 end
 
 # The call builds the positional arguments
