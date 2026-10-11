@@ -35,11 +35,11 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
 end
 
 function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
-    (; r, kernel, gain, h, s0, τ0, L, S, T, H, pr, rec, init) = c
+    (; r, kernel, gain, h, s0, τ0, L, D, S, T, H, pr, rec, init) = c
     (; coupling, modifiers) = r
     Tp = eltype(H)
-    H̄ = _zeros(H, Tp, L + T, S)
-    _seed_rows!(H̄, Ȳ, L)
+    H̄ = _zeros(H, Tp, D + T, S)
+    _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
     ḡ = cotangent(r̄, :kernel)
@@ -60,7 +60,8 @@ function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         accs = _accumulators(ex, H, S, T * work, acc)
         _reduce_blocks!(
             _series_back!, accs, S,
-            H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0, L, T
+            H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0, L,
+            D, T
         )
     else
         m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
@@ -68,12 +69,12 @@ function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         accs = _accumulators(ex, H, S, work, acc)
         _steps_back!(
             accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0,
-            L, S, T
+            L, D, S, T
         )
     end
     _reduce!(accs)
     _kernel_finish!(ḡ, kbuf)
-    _scatter_history!(h̄, H̄, h, L)
+    _scatter_history!(h̄, H̄, h, D)
     if s0 === nothing
         foreach(modifiers, m̄s, s̄s, init) do m, m̄, s̄, s
             pullback!((; piece = m̄, s = s̄, history = h̄), m, Init(), s, h)
@@ -99,14 +100,14 @@ _own(x̄::_Owned) = x̄.x
 # `_series_body!`: each stratum's step reads and writes only its own slots
 # and the block's accumulator `acc`.
 function _series_back!(
-        ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, T
+        ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
     for t in T:-1:1
         τ = τ0 + t - 1
         for k in ks
-            q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, L, k)
+            q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, D, k)
             p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
-            _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄k, H, H̄, t, τ, L, k)
+            _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄k, H, H̄, t + D - L, τ, L, k)
         end
     end
     return nothing
@@ -114,8 +115,8 @@ end
 
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, the add input and the gain; returns the pressure's cotangent.
-@inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, L, k)
-    v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, H̄[L + t, k], τ, t, k)
+@inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
+    v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, H̄[D + t, k], τ, t, k)
     _add_slot!(acc.ādd, v̄k, k, τ)
     _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
     return _at(gain, k, τ) * v̄k
@@ -125,7 +126,7 @@ end
 # strata run in blocks of the executor where each stratum writes only its
 # own slots: the pointwise modifiers and the kernel unless it is pairwise.
 function _steps_back!(
-        accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, S, T
+        accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, S, T
     )
     acc = first(accs)
     Tp = eltype(H)
@@ -137,11 +138,11 @@ function _steps_back!(
         if _all_pointwise(ms)
             _reduce_blocks!(
                 _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄, t,
-                τ, L
+                τ, D
             )
         else
             for k in 1:S
-                v̄[k] = H̄[L + t, k]
+                v̄[k] = H̄[D + t, k]
             end
             _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
             for k in 1:S
@@ -151,14 +152,14 @@ function _steps_back!(
             end
         end
         _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ)
-        _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
+        _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t + D - L, τ, L)
     end
     return nothing
 end
 
-function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, L)
+function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D)
     for k in ks
-        q̄[k] = _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, L, k)
+        q̄[k] = _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
     end
     return nothing
 end
@@ -391,18 +392,18 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractArray{<:Any, 3})
     return nothing
 end
 
-# The buffer's first `L` rows back into the last `L` history columns; the
+# The buffer's first `D` rows back into the last `D` history columns; the
 # zero-padded rows of a short history have no cotangent.
-_scatter_history!(::Nothing, H̄, h, L) = nothing
-function _scatter_history!(h̄::AbstractVector, H̄, h, L)
+_scatter_history!(::Nothing, H̄, h, D) = nothing
+function _scatter_history!(h̄::AbstractVector, H̄, h, D)
     m = length(h)
-    n = min(m, L)
-    view(h̄, (m - n + 1):m) .+= view(H̄, (L - n + 1):L, 1)
+    n = min(m, D)
+    view(h̄, (m - n + 1):m) .+= view(H̄, (D - n + 1):D, 1)
     return nothing
 end
-function _scatter_history!(h̄::AbstractMatrix, H̄, h, L)
+function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     m = size(h, 2)
-    n = min(m, L)
-    view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (L - n + 1):L, :))
+    n = min(m, D)
+    view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (D - n + 1):D, :))
     return nothing
 end
