@@ -341,3 +341,34 @@ end
     @test cd.kernel.x isa JLArray
     @test Array(cd(JLArray(R))) ≈ c(R)
 end
+
+@testitem "JLArrays: a buffer deeper than the kernel runs and resumes on the device" begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using JLArrays
+    JLArrays.allowscalar(false)
+    # Passes the value through and asks for a buffer `w` steps deep.
+    struct DeepPass
+        w::Int
+    end
+    CR.ispointwise(::DeepPass) = true
+    CR.forward(::DeepPass, ::CR.Step, v, s, t, k) = (v, s)
+    CR.depth(m::DeepPass) = m.w
+    S, L, T, D = 3, 3, 9, 7
+    g, K = [0.5, 0.3, 0.2], [0.8 0.1 0.1; 0.2 0.7 0.1; 0.1 0.2 0.7]
+    h = [1.0 + 0.1 * (k + i) for k in 1:S, i in 1:(D + 2)]
+    R = [0.9 + 0.05 * k + 0.01 * t for k in 1:S, t in 1:T]
+    for C in (nothing, K)
+        r = C === nothing ? Recurrence(g; modifiers = (DeepPass(D),)) :
+            Recurrence(g; coupling = C, modifiers = (DeepPass(D),))
+        rd = C === nothing ? Recurrence(JLArray(g); modifiers = (DeepPass(D),)) :
+            Recurrence(JLArray(g); coupling = JLArray(C), modifiers = (DeepPass(D),))
+        y = rd(JLArray(R); history = JLArray(h))
+        @test y isa JLArray
+        @test Array(y) ≈ r(R; history = h)
+        y1, st = CR.with_state(rd, JLArray(R); history = JLArray(h), stop = 4)
+        @test st.history isa JLArray
+        @test size(st.history) == (S, D)
+        @test hcat(Array(y1), Array(rd(JLArray(R); state = st))) ≈ r(R; history = h)
+    end
+end
