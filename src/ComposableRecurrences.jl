@@ -16,8 +16,10 @@ y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 
 where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
-Every operator is differentiable, and the README lists the automatic
-differentiation backends it is tested with.
+Every operator is differentiable, and the [FAQ](@ref faq) lists the
+automatic differentiation backends it is tested with.
+The [performance figure](@ref overview-performance) compares run and
+gradient times with a hand-written loop.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
 A plain array holds one set of coefficients: a kernel's lag weights, a
@@ -94,7 +96,8 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
     Hazard, Floor, Primary, Secondary, seeded, exponential_history,
     with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, param_eltype,
+    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, depth,
+    param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
     param, add_param!
