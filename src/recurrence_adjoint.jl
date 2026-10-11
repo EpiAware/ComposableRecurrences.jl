@@ -22,11 +22,11 @@ end
 
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
-    (; r, kernel, gain, add, h, s0, τ0, L, S, T, H, P, X, rec, init) = c
+    (; r, kernel, gain, add, h, s0, τ0, L, D, S, T, H, P, X, rec, init) = c
     (; coupling, modifiers) = r
     Tp = eltype(H)
-    H̄ = _zeros(H, Tp, L + T, S)
-    _seed_rows!(H̄, Ȳ, L)
+    H̄ = _zeros(H, Tp, D + T, S)
+    _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
     ḡ = cotangent(r̄, :kernel)
@@ -42,14 +42,14 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         τ = τ0 + t - 1
         if _all_pointwise(modifiers)
             for k in 1:S
-                v̄k = _thread_back(modifiers, m̄s, rec, s̄s, H̄[L + t, k], τ, t, k)
+                v̄k = _thread_back(modifiers, m̄s, rec, s̄s, H̄[D + t, k], τ, t, k)
                 _add_slot!(ādd, v̄k, k, τ)
                 _add_slot!(ḡain, v̄k * X[k, t], k, τ)
                 q̄[k] = _at(gain, k, τ) * v̄k
             end
         else
             for k in 1:S
-                v̄[k] = H̄[L + t, k]
+                v̄[k] = H̄[D + t, k]
             end
             _stages_back!(modifiers, m̄s, rec, s̄s, v̄, τ, t)
             for k in 1:S
@@ -59,10 +59,10 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
             end
         end
         _coupling_back!(p̄, C̄, coupling, q̄, P, H, H̄, t, τ, L)
-        _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t, τ, L)
+        _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t + D - L, τ, L)
     end
     _kernel_finish!(ḡ, kbuf)
-    _scatter_history!(h̄, H̄, h, L)
+    _scatter_history!(h̄, H̄, h, D)
     if s0 === nothing
         foreach(modifiers, m̄s, s̄s, init) do m, m̄, s̄, s
             pullback!((; piece = m̄, s = s̄, history = h̄), m, Init(), s, h)
@@ -280,18 +280,18 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractArray{<:Any, 3})
     return nothing
 end
 
-# The buffer's first `L` rows back into the last `L` history columns; the
+# The buffer's first `D` rows back into the last `D` history columns; the
 # zero-padded rows of a short history have no cotangent.
-_scatter_history!(::Nothing, H̄, h, L) = nothing
-function _scatter_history!(h̄::AbstractVector, H̄, h, L)
+_scatter_history!(::Nothing, H̄, h, D) = nothing
+function _scatter_history!(h̄::AbstractVector, H̄, h, D)
     m = length(h)
-    n = min(m, L)
-    view(h̄, (m - n + 1):m) .+= view(H̄, (L - n + 1):L, 1)
+    n = min(m, D)
+    view(h̄, (m - n + 1):m) .+= view(H̄, (D - n + 1):D, 1)
     return nothing
 end
-function _scatter_history!(h̄::AbstractMatrix, H̄, h, L)
+function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     m = size(h, 2)
-    n = min(m, L)
-    view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (L - n + 1):L, :))
+    n = min(m, D)
+    view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (D - n + 1):D, :))
     return nothing
 end

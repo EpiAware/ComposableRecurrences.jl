@@ -63,7 +63,8 @@ call covers the absolute times `start:stop`:
     `S × T`, read at absolute time `t`; one when left out.
   - `history`: the outputs at times `start - m` to `start - 1`, oldest
     first, length `m` for a single series or `S × m`; zeros when left out.
-    The recursion reads the last `L`, and a history shorter than `L` is
+    The recursion reads the last `L` (or more, see
+    [`ComposableRecurrences.depth`](@ref)), and a shorter history is
     zero-padded. A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) from
     [`ComposableRecurrences.with_state`](@ref), to resume from it; not with
@@ -183,7 +184,7 @@ state.t, round.(r(fill(1.1, 6); state); digits = 3)
 ```
 """
 struct State{H, M, T}
-    "The last `L` outputs, in the history's layout."
+    "The last outputs, as many as the buffer depth, in the history's layout."
     history::H
     "Each modifier's state."
     states::M
@@ -202,7 +203,8 @@ For a call over absolute times ``t_0, \dots, t_1`` it returns
 ```
 
 where ``y_t`` is the output at time ``t`` and ``\sigma_{t_1}`` the state
-after the last step (the last ``L`` outputs, each modifier's state and
+after the last step (the last ``D`` outputs, ``D`` the buffer depth of
+[`ComposableRecurrences.depth`](@ref), each modifier's state and
 ``t_1 + 1``).
 
 Takes the same arguments as calling `op`; resume with `op(...; state)`.
@@ -324,6 +326,15 @@ _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
+
+# The buffer depth: the kernel length, or deeper when a modifier, coupling
+# or kernel reads further back (see `depth`).
+function _buffer_depth(r::Recurrence, L)
+    return max(
+        L, _checked_depth(r.kernel), _checked_depth(r.coupling),
+        _checked_depth(r.modifiers)
+    )
+end
 
 # Kernel strata checks against `S` strata.
 _check_kernel_strata(k, S) = nothing
@@ -475,37 +486,37 @@ end
 _kwork(g, S, L) = L
 _kwork(g::_PairwiseKernel, S, L) = S * L
 
-# Load the last `L` values of a public-layout history into the buffer,
+# Load the last `D` values of a public-layout history into the buffer,
 # right aligned; a shorter history leaves the earlier rows zero.
-function _load_history!(H, h::AbstractVector, L)
+function _load_history!(H, h::AbstractVector, D)
     m = length(h)
-    n = min(m, L)
-    H[(L - n + 1):L, 1] .= view(h, (m - n + 1):m)
+    n = min(m, D)
+    H[(D - n + 1):D, 1] .= view(h, (m - n + 1):m)
     return H
 end
-function _load_history!(H, h::AbstractMatrix, L)
+function _load_history!(H, h::AbstractMatrix, D)
     m = size(h, 2)
-    n = min(m, L)
-    H[(L - n + 1):L, :] .= transpose(view(h, :, (m - n + 1):m))
+    n = min(m, D)
+    H[(D - n + 1):D, :] .= transpose(view(h, :, (m - n + 1):m))
     return H
 end
 
 # CPU buffers load by loop: a broadcast copy may alias its source, and
 # reverse-mode AD cannot give that branch one activity when the history is
 # constant.
-function _load_history!(H::Array, h::AbstractVector, L)
+function _load_history!(H::Array, h::AbstractVector, D)
     m = length(h)
-    n = min(m, L)
+    n = min(m, D)
     for i in 1:n
-        H[L - n + i, 1] = h[m - n + i]
+        H[D - n + i, 1] = h[m - n + i]
     end
     return H
 end
-function _load_history!(H::Array, h::AbstractMatrix, L)
+function _load_history!(H::Array, h::AbstractMatrix, D)
     m = size(h, 2)
-    n = min(m, L)
+    n = min(m, D)
     for i in 1:n, k in axes(H, 2)
-        H[L - n + i, k] = h[k, m - n + i]
+        H[D - n + i, k] = h[k, m - n + i]
     end
     return H
 end
@@ -765,8 +776,8 @@ end
 
 function _state(Y, H, states, h, τ0)
     T = size(Y, ndims(Y))
-    L = size(H, 1) - T
-    return State(_public(H, (T + 1):(T + L), h), states, τ0 + T)
+    D = size(H, 1) - T
+    return State(_public(H, (T + 1):(T + D), h), states, τ0 + T)
 end
 
 _tape(x::AbstractArray) = copy(x)
@@ -790,6 +801,7 @@ end
 function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
+    D = _buffer_depth(r, L)
     S = _nstrata(h)
     _check_kernel_strata(kernel, S)
     _check_coupling(coupling, S)
@@ -812,7 +824,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     _check_times(:modifiers, modifiers, stop)
     T = stop - τ0 + 1
     Tp = float(param_eltype((r, gain, add, h, s0)))
-    return _run(Tp, r, gain, add, h, s0, τ0, L, S, T, record)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
 end
 
 # `I` and `Diagonal` scale each stratum's own convolution, so their steps
@@ -885,8 +897,10 @@ end
 
 # Stratum `k`'s value at step `t` before the modifiers, recording its kernel
 # convolution and pressure in `P` and `X` when they are not `nothing`.
-@inline function _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
-    pk, xk = _pressure_at(coupling, kernel, p, q, H, t, τ, L, k)
+@inline function _value!(
+        P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k
+    )
+    pk, xk = _pressure_at(coupling, kernel, p, q, H, t + D - L, τ, L, k)
     _record_pressure!(P, X, pk, xk, t, k)
     return _at(gain, k, τ) * xk + _at(add, k, τ)
 end
@@ -899,13 +913,14 @@ end
 
 # The whole run of the independent strata `ks`, time outermost.
 function _series_body!(
-        ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, T
+        ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D,
+        T
     )
     for t in 1:T
         τ = τ0 + t - 1
         for k in ks
-            x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
-            H[L + t, k] = _thread(ms, states, rec, x, τ, t, k)
+            x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
+            H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
         end
     end
     return nothing
@@ -913,24 +928,27 @@ end
 
 # Stratum `k` at step `t`, through pointwise modifiers to the buffer.
 function _step_body!(
-        k, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L
+        k, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L, D
     )
-    x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
-    H[L + t, k] = _thread(ms, states, rec, x, τ, t, k)
+    x = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
+    H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
     return nothing
 end
 
 # Stratum `k` at step `t`, collected for the modifiers' vector Step.
-function _value_body!(k, v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L)
-    v[k] = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, k)
+function _value_body!(
+        k, v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, D
+    )
+    v[k] = _value!(P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
     return nothing
 end
 
 # The buffer loop: returns the output, the buffer, the final states and,
-# when recording, the cache the reverse pass reads. Buffer row `L + t`
-# holds absolute time `τ0 + t - 1`. The records are the kernel convolutions
-# `P` and pressures `X` of every step (strata × steps), and each modifier's
-# input values and states.
+# when recording, the cache the reverse pass reads. The buffer is `D`
+# rows deep before the run, `D >= L`, and row `D + t` holds absolute time
+# `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
+# The records are the kernel convolutions `P` and pressures `X` of every
+# step (strata × steps), and each modifier's input values and states.
 #
 # Independent strata run in blocks, each block over the whole series, so a
 # threaded run splits the strata once per call rather than once per step.
@@ -939,23 +957,25 @@ end
 # collected for the vector Step. Vector Steps (such as `Allocate`,
 # `Redistribute` and `Protected`) read every stratum, so they run on the
 # calling task whatever the executor.
-function _run(::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T, record::Val) where {Tp}
+function _run(
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
+    ) where {Tp}
     c = _current()
     # The default executor is passed as the singleton `Serial()`, so the loop
     # below holds no abstractly typed executor.
     if c.ex isa Serial
-        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, S, T, record)
+        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, record)
     end
-    return _run(Tp, c, r, gain, add, h, s0, τ0, L, S, T, record)
+    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, record)
 end
 
 function _run(
-        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, S, T,
-        ::Val{record}
+        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
+        T, ::Val{record}
     ) where {Tp, record}
     (; coupling, modifiers) = r
     kernel = _oldest_first(r.kernel)
-    H = _load_history!(_zeros(h, Tp, L + T, S), h, L)
+    H = _load_history!(_zeros(h, Tp, D + T, S), h, D)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
     v = _zeros(h, Tp, S)
@@ -978,22 +998,22 @@ function _run(
         _blocks!(
             _series_body!, ex, H, S, T * work,
             H, P, X, gain, add, coupling, kernel, p, q, modifiers, states, rec,
-            τ0, L, T
+            τ0, L, D, T
         )
     else
         for t in 1:T
             τ = τ0 + t - 1
-            _prepare!(ex, p, q, coupling, kernel, H, t, τ, L)
+            _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
             if _all_pointwise(modifiers)
                 _each!(
                     _step_body!, ex, H, S, work,
                     H, P, X, gain, add, coupling, kernel, p, q, modifiers, states,
-                    rec, t, τ, L
+                    rec, t, τ, L, D
                 )
             else
                 _each!(
                     _value_body!, ex, H, S, work,
-                    v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L
+                    v, P, X, gain, add, coupling, kernel, p, q, H, t, τ, L, D
                 )
                 if record
                     _stages_rec!(modifiers, states, rec, v, τ, t)
@@ -1001,18 +1021,19 @@ function _run(
                     _stages!(modifiers, states, v, τ)
                 end
                 for k in eachindex(v)
-                    H[L + t, k] = v[k]
+                    H[D + t, k] = v[k]
                 end
             end
         end
     end
-    Y = _public(H, (L + 1):(L + T), h)
+    Y = _public(H, (D + 1):(D + T), h)
     # The cache holds copies of the inputs the reverse pass reads, so a
     # caller overwriting them after the call cannot change the gradient.
     cache = record ?
         (;
-            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, S, T, H,
-            P, X, rec, init, state = State(_public(H, (T + 1):(T + L), h), states, τ0 + T),
+            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S, T,
+            H, P, X, rec, init,
+            state = State(_public(H, (T + 1):(T + D), h), states, τ0 + T),
         ) : nothing
     return Y, H, states, cache
 end
