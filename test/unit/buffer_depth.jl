@@ -153,7 +153,10 @@ end
             splits = CR._SPLIT_BLOCKS[]
             @test pullback_matches(r, recargs(R, nothing, h)...)
             @test pullback_matches(r, recargs(R, nothing, h[:, 1:1])...)
-            @test CR._SPLIT_BLOCKS[] > splits
+            # A pairwise kernel with a vector step runs every reverse step on
+            # the calling task.
+            serial = kernel isa Pairwise && m isa DeepVector
+            @test (CR._SPLIT_BLOCKS[] > splits) == !serial
         end
     end
 end
