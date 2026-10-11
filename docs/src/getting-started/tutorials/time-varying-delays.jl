@@ -140,7 +140,8 @@ end
 # ```
 #
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
-# The run starts at `start = 7` after six seed values, and `prepend = true` returns the seed with the run (see [`Recurrence`](@ref)).
+# The run starts at `start = 7` after six seed values.
+# `prepend = true` returns the seed with the run (see [`Recurrence`](@ref)).
 # The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
