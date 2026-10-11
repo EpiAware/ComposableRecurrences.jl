@@ -87,6 +87,18 @@ end
     R = rand(rng, S, T)
     routes = Recurrence(Routes((K1, g1), (K2, g2)))
     @test routes(R; history = h) ≈ Recurrence(Pairwise(A))(R; history = h)
+    # In a buffer deeper than the longest route, with the state it returns.
+    struct Deep end
+    ComposableRecurrences.ispointwise(::Deep) = true
+    ComposableRecurrences.forward(::Deep, ::ComposableRecurrences.Step, v, s, t, k) = (v, s)
+    ComposableRecurrences.depth(::Deep) = 2L
+    hd = rand(rng, S, 2L)
+    deep = Recurrence(Routes((K1, g1), (K2, g2)); modifiers = (Deep(),))
+    ref = Recurrence(Pairwise(A); modifiers = (Deep(),))
+    @test deep(R; history = hd) ≈ ref(R; history = hd)
+    y, st = ComposableRecurrences.with_state(deep, R; history = hd)
+    @test size(st.history) == (S, 2L)
+    @test st.history ≈ hcat(hd, y)[:, (end - 2L + 1):end]
 end
 
 @testitem "Routes: fold into a cheaper form" begin

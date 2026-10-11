@@ -302,6 +302,29 @@ function _transform(w, θ)
     return sum(WS .* q)
 end
 
+# A pool emptied after the first step with a differentiated heterogeneity.
+# At `α = 1` the pool power is `0^0`, whose exponent tangent is `log(0)`
+# unless the power avoids it.
+# A removal larger than the pool takes what remains, so the pool is exactly
+# empty from the second step on.
+# A pool that starts empty would not do: rule testers perturb the starting
+# pool itself, and a negative share has no real power.
+# Imports added after the depletion keep the value drawn positive, so a
+# perturbed `α < 1` gives an infinite hazard on the empty pool, not
+# `0 * Inf`.
+# The parameters are offsets from `α = 1`, a starting pool of 50 and a
+# removal of 1000, so compiled ReverseDiff tapes, recorded at zero, take the
+# branches of the scenario point.
+function _empty_pool(w, θ)
+    d = ComposableRecurrences.Depletion(
+        100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2],
+        removals = 1000 + θ[3]
+    )
+    mods = (d, ComposableRecurrences.Add(1.0))
+    y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
+    return sum(W1 .* y)
+end
+
 # A modifier parameter derived from a time-varying parameter and a scalar:
 # imports scaled by κ, and a per-stratum, time-varying multiplier.
 function _derived(w, θ)
@@ -369,6 +392,41 @@ end
 function _routes_folded(w, θ)
     λ, g1, g2, logh, logR = _unpack(θ, (2,), (L - 1,), (L,), (S, L), (S, T))
     r = Recurrence(Routes((λ[1] * I, g1), (λ[2] * I, g2)))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
+# A pointwise modifier that passes the value through and asks for a buffer
+# `w` steps deep, deeper than the kernel. Releases before `depth` have no
+# such buffer, so the method is defined only where they do.
+struct DeepBuffer
+    w::Int
+end
+ComposableRecurrences.ispointwise(::DeepBuffer) = true
+function ComposableRecurrences.forward(
+        ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t, k
+    )
+    return v, s
+end
+if isdefined(ComposableRecurrences, :depth)
+    ComposableRecurrences.depth(m::DeepBuffer) = m.w
+end
+
+# A coupled renewal whose buffer is twice the kernel length, seeded from a
+# history as long as the buffer.
+function _deep_buffer(w, θ)
+    g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, 2L), (S, T))
+    r = Recurrence(g; coupling = K, modifiers = (DeepBuffer(2L),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Dense and sparse routes in a buffer twice the longest route kernel.
+function _routes_deep(w, θ)
+    K, g1, v, g2, logh, logR = _unpack(
+        θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, 2L), (S, T)
+    )
+    Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    r = Recurrence(Routes((K, g1), (Ks, g2)); modifiers = (DeepBuffer(2L),))
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
@@ -476,6 +534,10 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence empty pool with a differentiated heterogeneity", _empty_pool,
+        () -> zeros(3),
+    ),
+    (
         "Recurrence Derived modifier parameters", _derived,
         () -> _flat(zeros(S, L), LOGR, W1 .- 1, [0.8], 0.5 .* WS),
     ),
@@ -494,6 +556,16 @@ const _SCENARIOS = [
     (
         "Recurrence routes, dense and sparse", _routes,
         () -> _flat(K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, zeros(S, L), LOGR),
+    ),
+    (
+        "Recurrence routes in a buffer deeper than the kernels", _routes_deep,
+        () -> _flat(
+            K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, fill(log(5.0), S, 2L), LOGR
+        ),
+    ),
+    (
+        "Recurrence with a buffer deeper than the kernel", _deep_buffer,
+        () -> _flat(G0, K0, fill(log(5.0), S, 2L), LOGR),
     ),
     (
         "Convolution per-stratum kernel with history", _conv_per_stratum,
@@ -541,10 +613,14 @@ const _PROBES = Dict{Symbol, Function}(
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    # Depletion removals came with `Protected`.
+    "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
     "Recurrence routes, dense and sparse" => (:Routes,),
     "Recurrence routes folded on scaled identities" => (:Routes,),
+    "Recurrence with a buffer deeper than the kernel" => (:depth,),
+    "Recurrence routes in a buffer deeper than the kernels" => (:Routes, :depth),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
@@ -701,6 +777,7 @@ function backend_skip_scenarios()
             [
                 "NoAdjoint Recurrence sparse coupling",
                 "NoAdjoint Recurrence routes, dense and sparse",
+                "NoAdjoint Recurrence routes in a buffer deeper than the kernels",
             ]
         ),
     )
