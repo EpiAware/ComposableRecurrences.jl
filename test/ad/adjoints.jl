@@ -985,6 +985,36 @@ end
     end
 end
 
+@testitem "Empty and seeded pools: forward modes match ForwardDiff" tags = [:ad, :mooncake, :mooncake_forward, :enzyme, :enzyme_forward] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncakeForward, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # Forward modes differentiate the step itself, so the pool power at an
+    # empty pool must not give the exponent a `log(0)` tangent.
+    W = collect(range(0.5, 1.5; length = 6))
+    function f(θ)
+        d = CR.Depletion(100.0; heterogeneity = θ[1], pool0 = θ[2])
+        r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
+        return sum(W .* r(fill(2.0, 6); history = [5.0]))
+    end
+    backends = (
+        AutoMooncakeForward(),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    for θ in ([1.0, 0.0], [2.0, 0.0], [1.0, 30.0], [1.5, 30.0])
+        ref = gradient(f, AutoForwardDiff(), θ)
+        @test all(isfinite, ref)
+        for backend in backends
+            @test gradient(f, backend, θ) ≈ ref
+        end
+    end
+end
+
 @testitem "Mooncake tangent layout the rule reads (canary)" tags = [:ad, :mooncake, :mooncake_reverse] begin
     import Mooncake
     using SparseArrays, LinearAlgebra
