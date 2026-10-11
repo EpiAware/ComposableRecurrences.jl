@@ -3,7 +3,8 @@ How a [`Convolution`](@ref) computes its lag sum
 ```math
 \sum_{l=0}^{L-1} k_{i,l}\, x_{t-l,i}.
 ```
-[`ComposableRecurrences.Direct`](@ref) and [`ComposableRecurrences.FFTMethod`](@ref) are the methods.
+The methods are [`ComposableRecurrences.Direct`](@ref) and
+[`ComposableRecurrences.FFTMethod`](@ref).
 
 # Examples
 ```jldoctest
@@ -54,8 +55,11 @@ transformed at size ``N``, the smallest 5-smooth number at least
 Lags from ``n`` on reach no input and are dropped first.
 A block of the whole series is one transform.
 For a series much longer than the kernel the cost is ``O(n \log L)``
-rather than ``O(T L)``, so it pays only for long kernels; the reverse pass
-uses the same transforms.
+rather than ``O(T L)``.
+It is slower than the direct method for kernels of up to about 200 lags,
+and faster for longer kernels on series of thousands of times or more;
+time both on the sizes of a model before choosing it.
+The reverse pass uses the same transforms.
 
 It runs once its weak dependency is loaded, as the
 [FFT extension](@ref extension-fftw) page sets out; without it, a call with
@@ -170,7 +174,7 @@ Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
 struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
-    "How the lag sum is computed: [`ComposableRecurrences.Direct`](@ref) or [`ComposableRecurrences.FFTMethod`](@ref)."
+    "How the lag sum is computed: `Direct()` or `FFTMethod()`."
     method::M
     function Convolution(kernel::K; method = Direct()) where {K}
         kernel isa _PairwiseKernel && throw(

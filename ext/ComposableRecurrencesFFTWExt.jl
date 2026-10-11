@@ -27,19 +27,29 @@ end
 _fftlen(n) = nextprod((2, 3, 5), max(n, 1))
 _fftsize(n, L) = min(_fftlen(n + L - 1), _fftlen(8L))
 
-const _PLANS = Dict{Tuple{DataType, Int, Int}, Any}()
-const _PLANS_LOCK = ReentrantLock()
-
 # The forward and inverse real transforms along the first axis of `N × S`
 # arrays of eltype `Tp`. They take arrays of any alignment.
+function _make_plans(::Type{Tp}, N, S) where {Tp}
+    flags = FFTW.ESTIMATE | FFTW.UNALIGNED
+    f = plan_rfft(zeros(Tp, N, S), 1; flags)
+    b = plan_irfft(zeros(Complex{Tp}, N ÷ 2 + 1, S), N, 1; flags)
+    return f, b
+end
+
+# One cache per eltype, keyed by `(N, S)` and typed by the plans it holds.
+# It keeps every pair it makes: one per transform size and strata count a
+# session meets.
+_plan_pair(::Type{Tp}) where {Tp} = Base.promote_op(_make_plans, Type{Tp}, Int, Int)
+const _PLANS32 = Dict{Tuple{Int, Int}, _plan_pair(Float32)}()
+const _PLANS64 = Dict{Tuple{Int, Int}, _plan_pair(Float64)}()
+const _PLANS_LOCK = ReentrantLock()
+_plan_cache(::Type{Float32}) = _PLANS32
+_plan_cache(::Type{Float64}) = _PLANS64
+
 function _plans(::Type{Tp}, N, S) where {Tp}
+    cache = _plan_cache(Tp)
     return lock(_PLANS_LOCK) do
-        get!(_PLANS, (Tp, N, S)) do
-            flags = FFTW.ESTIMATE | FFTW.UNALIGNED
-            f = plan_rfft(zeros(Tp, N, S), 1; flags)
-            b = plan_irfft(zeros(Complex{Tp}, N ÷ 2 + 1, S), N, 1; flags)
-            (f, b)
-        end
+        get!(() -> _make_plans(Tp, N, S), cache, (N, S))
     end
 end
 
