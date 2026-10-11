@@ -711,6 +711,13 @@ end
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
     @test CR._pool_power(0.5, Dual(2.0, 1.0)) == Dual(0.25, 0.25 * log(0.5))
+    # A plain power keeps its value at an empty pool, with a zero exponent
+    # tangent when the exponent is zero.
+    @test (@inferred CR._pool_power(0.0, 0.0)) === 1.0
+    @test (@inferred CR._pool_power(0.0f0, 1.0f0)) === 0.0f0
+    @test CR._pool_power(0.25, 0.5) === 0.5
+    @test CR._pool_power(Dual(0.0, 1.0), 0.0) === Dual(1.0, 0.0)
+    @test isnan(CR._pool_power(NaN, 0.5))
     # A NaN share or exponent stays NaN in the value and the tangent.
     @test all(isnan, ForwardDiff.partials(CR._pool_power(NaN, Dual(1.0, 1.0))))
     @test isnan(ForwardDiff.value(CR._pool_power(0.0, Dual(NaN, 1.0))))

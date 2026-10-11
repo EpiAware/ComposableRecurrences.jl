@@ -31,10 +31,10 @@ end
 # traced run allows scalar indexing. It runs serially: the executors split
 # work across threads or devices, which the traced program does itself.
 function ComposableRecurrences._run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, S, T, record::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
     ) where {Tp <: TracedRNumber}
     return @allowscalar ComposableRecurrences._run(
-        Tp, Serial(), r, gain, add, h, s0, τ0, L, S, T, record
+        Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, record
     )
 end
 
