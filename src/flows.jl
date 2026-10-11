@@ -506,13 +506,25 @@ end
 # Each flow's parameter against the groups.
 function _check_flow_groups(fs, G)
     for f in fs
-        _check_kind_groups(f.kind, G, "of Flow($(f.from) => $(f.to))")
+        _check_kind_groups(f.kind, G, f)
     end
     return nothing
 end
-_check_kind_groups(k::Rate, G, at) = _check_param_strata("r $at", k.r, G)
-_check_kind_groups(k::Linear, G, at) = _check_param_strata("p $at", k.p, G)
-_check_kind_groups(k::Amount, G, at) = _check_param_strata("a $at", k.a, G)
+_check_kind_groups(k::Rate, G, f) = _check_param_strata(_Named(:r, f), k.r, G)
+_check_kind_groups(k::Linear, G, f) = _check_param_strata(_Named(:p, f), k.p, G)
+_check_kind_groups(k::Amount, G, f) = _check_param_strata(_Named(:a, f), k.a, G)
+
+# A flow parameter's name in errors, such as `r of Flow(1 => 2)`. Printed
+# only when an error is thrown, so a check that passes builds no string.
+struct _Named
+    name::Symbol
+    from::Int
+    to::Int
+end
+_Named(name, f::Flow) = _Named(name, f.from, f.to)
+function Base.print(io::IO, n::_Named)
+    return print(io, n.name, " of Flow(", n.from, " => ", n.to, ")")
+end
 
 function _check_modifier_strata(m::Flows, S)
     _check_flow_groups(m.flows, _ngroups(blocks(m), S))

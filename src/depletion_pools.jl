@@ -240,8 +240,37 @@ function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
         m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
         param(m.N, k, t), m.heterogeneity
     )
-    pools = _flow_only(m.flows, (Su, V), k, t)
+    pools = _pool_flows_step(m.flows, (Su, V), k, t)
     return (y,), pools
+end
+
+# The flows on the stratum's pools `x = (u, w)` after the draw. Removals
+# alone, `Flow(1 => 2, Amount(r))`, take a direct path: the general count
+# path indexes the pools by the flow's compartments at run time, which
+# cost about 9% of a step.
+_pool_flows_step(fs, x, k, t) = _flow_only(fs, x, k, t)
+function _pool_flows_step(fs::Tuple{Flow{<:Amount}}, x, k, t)
+    f = only(fs)
+    f.from == 1 && f.to == 2 || return _flow_only(fs, x, k, t)
+    m = _removal(param(f.kind.a, k, t), x[1])
+    return (x[1] - m, x[2] + _protects(m))
+end
+
+# Its pullback: the cotangents of `x` from those of the pools after the
+# flows, `ȳ`, and of the arrivals, `ā`.
+function _pool_flows_back(fs, f̄s, x, ȳ, ā, k, t)
+    return _flows_pullback(fs, f̄s, x, ȳ, ā, k, t)
+end
+function _pool_flows_back(fs::Tuple{Flow{<:Amount}}, f̄s, x, ȳ, ā, k, t)
+    f = only(fs)
+    f.from == 1 && f.to == 2 ||
+        return _flows_pullback(fs, f̄s, x, ȳ, ā, k, t)
+    r = param(f.kind.a, k, t)
+    m = _removal(r, x[1])
+    w̄ = ifelse(_primal_value(m) < 0, zero(ȳ[2]), ȳ[2] + ā[2])
+    r̄, ū = _removal_pullback(r, x[1], w̄ - ȳ[1])
+    add_param!(cotangent(cotangent(_head(f̄s), :kind), :a), f.kind.a, r̄, k, t)
+    return (ȳ[1] + ū, ȳ[2])
 end
 
 # `v` and `s` are the stratum's incoming value and pools; returns the
@@ -262,7 +291,7 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t, k)
     S′ = on ? Su - q * Su : Su - y
     V′ = on ? V - q * σ * V : V
     z = zero(ȳ)
-    S̄′, V̄′ = _flows_pullback(
+    S̄′, V̄′ = _pool_flows_back(
         m.flows, cotangent(m̄, :flows), (S′, V′), grads.s, (z, z), k, t
     )
     if on

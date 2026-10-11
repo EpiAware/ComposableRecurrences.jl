@@ -120,6 +120,18 @@ end
         )
         @test c.v && c.s && c.θ
     end
+    # Removals alone take a direct path, other single counts the general
+    # one; each with a removal that is capped and one that is negative.
+    for (from, to) in (1 => 2, 1 => 0), a in (2.0, 70.0, -3.0)
+        alone(x) = CR.Depletion(
+            x[1]; heterogeneity = x[2], protected = CR.Protected(x[4]),
+            flows = CR.Flow(from => to, CR.Amount(x[3]))
+        )
+        c = check_pullback(
+            alone, [100.0, 1.0, a, 0.3, 0.0], [3.0, 1.5], [60.0, 50.0, 20.0, 10.0], 1
+        )
+        @test c.v && c.s && c.θ
+    end
     # A rate and a count out of the one pool, pointwise.
     pointwise(θ) = CR.Depletion(
         θ[1]; heterogeneity = θ[2],
