@@ -21,6 +21,10 @@ _at(::Nothing, k, t) = false
 Base.@propagate_inbounds _at(x::AbstractVector, k, t) = x[t]
 Base.@propagate_inbounds _at(x::AbstractMatrix, k, t) = x[k, t]
 
+# Inputs read without bounds checks index from 1.
+_require_one_based(x::AbstractArray) = Base.require_one_based_indexing(x)
+_require_one_based(x) = nothing
+
 # The times a call input covers: its last axis, or `nothing` without one.
 _extent(x::AbstractArray) = size(x, ndims(x))
 _extent(x) = nothing

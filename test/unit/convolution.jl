@@ -391,3 +391,13 @@ end
     @test_throws ArgumentError CR.contributions(Convolution(TimeVarying(Ct, P)), X; history = H)
     @test_throws DimensionMismatch CR.contributions(conv, X; gain = rand(rng, 3, T))
 end
+
+@testitem "Convolution: an offset gain or add is refused" begin
+    using ComposableRecurrences
+    shifted(v) = view(vcat(1000.0, v), Base.IdentityUnitRange(2:(length(v) + 1)))
+    conv = Convolution([0.5, 0.5])
+    for x in (collect(1.0:6), big.(collect(1.0:6)))
+        @test_throws ArgumentError conv(x; gain = shifted(fill(2.0, 6)))
+        @test_throws ArgumentError conv(x; add = shifted(fill(2.0, 6)))
+    end
+end
