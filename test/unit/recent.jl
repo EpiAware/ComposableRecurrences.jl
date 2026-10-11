@@ -303,3 +303,22 @@ end
         end
     end
 end
+
+@testitem "Recent: binding, rebinding and mirrors" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    H, H2, H̄ = rand(10, 2), rand(10, 2), zeros(10, 2)
+    # An unbound source has no cotangent to take either.
+    @test_throws "inside a Recurrence" CR.add_param!(nothing, Recent(2), 1.0, 1, 1)
+    # Binding a bound source moves it to the new buffer.
+    b = CR._bind(CR._bind(Recent(2), H, nothing, 3), H2, H̄, 3)
+    @test b.H === H2
+    @test b.H̄ === H̄
+    @test CR.param(b, 1, 4) ≈ H2[6, 1] + H2[5, 1]
+    # Without a mirror, arguments that read the outputs still get one
+    # `nothing` mirror each, so their cotangents reach the buffer.
+    @test CR._arg_mirrors(nothing, (1.0, Recent(2))) === (nothing, nothing)
+    @test CR._arg_mirrors(nothing, (1.0, 2.0)) === nothing
+    θ = (; a = 1.0, b = CR._bind(Recent(2), H, H̄, 3))
+    @test CR._arg_mirrors(nothing, θ) === (nothing, nothing)
+end
