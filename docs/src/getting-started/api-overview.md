@@ -99,6 +99,7 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
+| [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
 They tag one stored array and make no copies, except that kernel columns are stacked once.
@@ -134,7 +135,7 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Capacity(C, mode; pairs)`](@ref ComposableRecurrences.Capacity) | admits each step's demand up to free beds or a budget per period, and routes the rest to an overflow series, a queue or nowhere | yes, with several series | no | hand-written | `C`, `exit`, `κ`, `initial` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 
-Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
+Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`, `Capacity` and `Flows`.
 
 ## [Depletion forms and indexing](@id overview-variants)
