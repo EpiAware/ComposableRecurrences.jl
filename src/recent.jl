@@ -158,30 +158,33 @@ _float_param(x::Recent) = x
 # and the weights once per step, into the weights' mirror kept in `w̄`
 # (with no `H̄`, only into the weights). Without a coupling these are
 # `nothing`.
-struct _BoundRecent{R <: Recent, B, G, U, Z, M}
+struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
     x::R
     H::B
     H̄::G
     o::Int
     u::U
-    row::Base.RefValue{Int}
+    row::I
     z::Z
     w̄::M
     function _BoundRecent(
-            x::R, H::B, H̄::G, o, u::U, z::Z, w̄::M
-        ) where {R <: Recent, B, G, U, Z, M}
-        return new{R, B, G, U, Z, M}(x, H, H̄, o, u, Ref(0), z, w̄)
+            x::R, H::B, H̄::G, o, u::U, row::I, z::Z, w̄::M
+        ) where {R <: Recent, B, G, U, I, Z, M}
+        return new{R, B, G, U, I, Z, M}(x, H, H̄, o, u, row, z, w̄)
     end
 end
 function _BoundRecent(x::Recent, H, H̄, o)
     C = x.coupling
     _check_recent_strata(C, size(H, 2))
     return _BoundRecent(
-        x, H, H̄, o, _window_cache(C, H), _window_cache(C, H), _mirror_slot(C)
+        x, H, H̄, o, _window_cache(C, H), _row_slot(C), _window_cache(C, H),
+        _mirror_slot(C)
     )
 end
 _window_cache(::Nothing, H) = nothing
 _window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
+_row_slot(::Nothing) = nothing
+_row_slot(C) = Ref(0)
 # The weights' mirror is first seen when a read's cotangent arrives.
 _mirror_slot(::Nothing) = nothing
 _mirror_slot(C) = Ref{Any}(nothing)
