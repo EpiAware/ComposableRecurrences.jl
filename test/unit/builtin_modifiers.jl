@@ -29,14 +29,15 @@
     # Compare the Step's `pullback!` with the transposed Jacobian of its
     # `forward` in
     # `[v; s; θ]`, for a modifier `build(θ)` whose mirror flattens in the
-    # order of `θ`. Returns the parameter cotangent for further checks.
+    # order of `θ`. The state may be longer than `v`. Returns the parameter
+    # cotangent for further checks.
     function check_pullback(build, θ, v, s, t; v̄ = nothing, s̄ = nothing)
-        S = length(v)
+        S, n = length(v), length(s)
         v̄′ = v̄ === nothing ? collect(range(0.3, 1.7; length = S)) : v̄
-        s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = S)) : s̄
+        s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = n)) : s̄
         J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
-            vv, ss = x[1:S], x[(S + 1):(2S)]
-            CR.forward(build(x[(2S + 1):end]), CR.Step(), vv, ss, t)
+            vv, ss = x[1:S], x[(S + 1):(S + n)]
+            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
             return vcat(vv, ss)
         end
         expected = transpose(J) * vcat(v̄′, s̄′)
@@ -46,8 +47,8 @@
         CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
         return (;
             v = gv ≈ expected[1:S],
-            s = gs ≈ expected[(S + 1):(2S)],
-            θ = flat(m̄) ≈ expected[(2S + 1):end],
+            s = gs ≈ expected[(S + 1):(S + n)],
+            θ = flat(m̄) ≈ expected[(S + n + 1):end],
             θ̄ = flat(m̄),
         )
     end
@@ -106,6 +107,66 @@ end
         m = CR.Depletion(N, CR.Floor(); heterogeneity = α)
         @test Recurrence(g; modifiers = (m,))(R; history = h) ≈ naive(N, α)
     end
+end
+
+@testitem "Depletion: the fixed default exponent matches an exponent of 1.0" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Pools above, at and below zero, with values on both sides of the
+    # hazard's switch between `expm1` and `exp`.
+    for form in (CR.Hazard(), CR.Floor()), s in (80.0, 0.0, -3.0), v in (0.5, 150.0)
+        s < 0 && form isa CR.Hazard && continue
+        @test all(
+            CR.forward(form, CR.Step(), v, s, 100.0, true) .≈
+                CR.forward(form, CR.Step(), v, s, 100.0, 1.0)
+        )
+        grads = (; piece = nothing, v = 0.7, s = -0.2)
+        fixed = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, true)
+        float = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, 1.0)
+        @test all(fixed[1:3] .≈ float[1:3])
+        @test iszero(fixed[4])
+    end
+    g = [0.3, 0.5, 0.2]
+    h = [5.0, 6.0, 7.0]
+    for form in (CR.Hazard(), CR.Floor())
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0, form),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0, form; heterogeneity = 1.0),))
+        @test fixed(fill(3.0, 12); history = h) ≈ float(fill(3.0, 12); history = h)
+    end
+    # With removals and with a protected pool.
+    R = fill(3.0, 12)
+    for kw in (
+            (; removals = TimeVarying(fill(0.5, 12))),
+            (; removals = TimeVarying(fill(0.5, 12)), protected = CR.Protected(0.3)),
+        )
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0; kw...),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0; heterogeneity = 1.0, kw...),))
+        @test fixed(R; history = h) ≈ float(R; history = h)
+    end
+    # A Float32 population stays Float32.
+    r32 = Recurrence(Float32.(g); modifiers = (CR.Depletion(60.0f0),))
+    @test eltype(r32(fill(3.0f0, 12); history = Float32.(h))) == Float32
+    # A dual population differentiates as with a float exponent.
+    using ForwardDiff
+    total(N, α) = sum(
+        Recurrence(g; modifiers = (CR.Depletion(N; heterogeneity = α),))(R; history = h)
+    )
+    @test ForwardDiff.derivative(N -> total(N, true), 60.0) ≈
+        ForwardDiff.derivative(N -> total(N, 1.0), 60.0)
+    # `false` is a fixed exponent of zero for the built-in forms.
+    @test CR.Depletion(60.0; heterogeneity = false).heterogeneity === false
+    for form in (CR.Hazard(), CR.Floor())
+        @test all(
+            CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, false) .≈
+                CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 0.0)
+        )
+    end
+    # Other forms take a `Bool` as a float, as they may type their exponent.
+    struct Float64Form end
+    CR.forward(::Float64Form, ::CR.Step, v::Float64, s::Float64, N::Float64, α::Float64) =
+        (v, s - v)
+    @test CR.Depletion(60.0, Float64Form()).heterogeneity === 1.0
+    @test CR.Depletion(60.0, Float64Form(); heterogeneity = true).heterogeneity === 1.0
 end
 
 @testitem "Depletion: one population per stratum" begin
@@ -608,7 +669,7 @@ end
 @testitem "Variants: one path per step" begin
     using ComposableRecurrences, JET
     CR = ComposableRecurrences
-    for form in (CR.Hazard(), CR.Floor())
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
         @test m isa CR.Depletion{typeof(form)}
         # The built-in maths is the form's Step.
@@ -702,11 +763,15 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     using ForwardDiff: Dual
-    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === 1.0
+    @test CR.Depletion(Dual(100.0, 1.0); heterogeneity = 1).heterogeneity === 1.0
     @test CR.Depletion(Dual(100.0f0, 1.0f0); heterogeneity = 2).heterogeneity ===
         2.0f0
-    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0)).heterogeneity === 1.0
-    @test CR.Depletion(100.0f0).heterogeneity === 1.0f0
+    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0); heterogeneity = 1).heterogeneity ===
+        1.0
+    @test CR.Depletion(100.0f0; heterogeneity = 1).heterogeneity === 1.0f0
+    # The built-in forms default to a fixed exponent of one.
+    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === true
+    @test CR.Depletion(100.0f0, CR.Floor()).heterogeneity === true
     # A dual exponent at an empty pool takes the primal exponent, as the
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
