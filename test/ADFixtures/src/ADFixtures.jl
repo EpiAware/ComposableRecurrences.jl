@@ -836,9 +836,17 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-None: every scenario and its `NoAdjoint` twin passes on every backend.
+On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
+"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
+rule is correct and runs. Every other scenario and its `NoAdjoint` twin
+passes on every backend.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    VERSION < v"1.12" || return Dict{String, Set{String}}()
+    return Dict(
+        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
+    )
+end
 
 """
 Per-backend scenario names too unstable to run at all.
