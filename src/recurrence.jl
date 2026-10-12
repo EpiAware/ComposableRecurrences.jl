@@ -376,10 +376,10 @@ end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
 # the kernel with a contiguous, oldest-first window.
-_oldest_first(g::AbstractVector) = reverse(g)
-_oldest_first(g::PerStratum) = PerStratum(reverse(g.x; dims = 2))
+_oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
+_oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
 function _oldest_first(g::Pairwise)
-    return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
+    return _OldestFirstPairwise(_reverse_dim(permutedims(g.x, (3, 2, 1)), 1))
 end
 _oldest_first(g) = g
 
@@ -879,6 +879,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     # The constructor has rejected `Primary()` indexing in these.
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
+    _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
     Tp = float(param_eltype((r, gain, add, h, s0)))
     return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
@@ -1003,6 +1004,12 @@ function _value_body!(
     return nothing
 end
 
+# Stratum `k`'s value after the modifiers' vector Step, into buffer row `row`.
+function _store_body!(k, H, v, row)
+    H[row, k] = v[k]
+    return nothing
+end
+
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. The buffer is `D`
 # rows deep before the run, `D >= L`, and row `D + t` holds absolute time
@@ -1081,9 +1088,7 @@ function _run(
                 else
                     _stages!(modifiers, states, v, τ)
                 end
-                for k in eachindex(v)
-                    H[D + t, k] = v[k]
-                end
+                _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
             end
         end
     end
