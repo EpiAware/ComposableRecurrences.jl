@@ -33,6 +33,13 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 #
 # Each patient leaves with probability `δ` each day.
 # So the chance of still being in a bed `k` days after admission is ``(1 - \delta)^k``.
+# Occupancy is then
+#
+# ```math
+# O_t = \sum_{k=0}^{t-1} (1 - \delta)^k A_{t-k} = (1 - \delta) \, O_{t-1} + A_t,
+# ```
+#
+# where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``, with ``O_0 = 0``.
 # As a convolution, occupancy is the admissions weighted by that survival, lag 0 first.
 # As a recurrence, it is yesterday's occupancy times `1 - δ` plus today's admissions.
 # The admissions enter as `add`.
@@ -61,6 +68,12 @@ maximum(abs, by_convolution .- by_recurrence)
 # ## A bed cap
 #
 # [`Clamp`](@ref ComposableRecurrences.Clamp) bounds each day's occupancy.
+# With ``B`` beds,
+#
+# ```math
+# O_t = \min\big(\max\big((1 - \delta) \, O_{t-1} + A_t,\ 0\big),\ B\big).
+# ```
+#
 # As a modifier, the capped stock is what carries into the next day.
 # So patients turned away never occupy a bed later.
 
@@ -83,7 +96,16 @@ round(sum(by_recurrence .- capped))
 #
 # The cap deletes the patients it turns away.
 # [`Capacity`](@ref ComposableRecurrences.Capacity) keeps them instead.
-# It admits each day's demand up to the free beds and routes the rest to a second series.
+# It admits each day's demand up to the free beds and routes the rest to a second series:
+#
+# ```math
+# f_t = \max\big(B - (1 - \delta) \, O_{t-1},\ 0\big), \qquad
+# x_t = \min(A_t, f_t), \qquad
+# O_t = (1 - \delta) \, O_{t-1} + x_t,
+# ```
+#
+# where ``f_t`` is the number of free beds and ``x_t`` the admissions.
+# The second series receives the ``A_t - x_t`` patients turned away.
 # In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy.
 # A share `δ` of it leaves each day.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.

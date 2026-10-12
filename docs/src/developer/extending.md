@@ -254,7 +254,13 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 
 A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
 It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion).
-This one takes what is asked, up to the pool.
+This one takes what is asked, up to the pool:
+
+```math
+v' = \min(v, s), \qquad s' = s - v',
+```
+
+where ``v'`` is the value drawn and ``s'`` the pool after the step.
 Its pullback returns the cotangents of `v`, `s`, `N` and `α`.
 `Depletion` adds those of `N` and `α` into its own mirror.
 Its `grads.piece` is the mirror of the form's own fields.
