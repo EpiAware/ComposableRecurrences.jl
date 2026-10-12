@@ -356,7 +356,7 @@ function _reads_across_type(::Type{T}) where {T}
     T <: Recent && return !(fieldtype(T, :coupling) <: Nothing)
     T <: Union{Number, AbstractArray, Nothing, Symbol, AbstractString} &&
         return false
-    T <: Union{Type, Module} && return false
+    T <: Union{Type, Module, Function} && return false
     ismutabletype(T) && return false
     isconcretetype(T) && isstructtype(T) || return false
     return any(_reads_across_type, fieldtypes(T))
