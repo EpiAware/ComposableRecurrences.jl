@@ -276,3 +276,13 @@ true
         args = (zeros(4), ones(4, 2))
     ),
 ]
+
+@implements PieceInterface Truncate [
+    Arguments(; piece = Truncate(), role = Step(), args = (2.0, 1.5, 100.0, 1.0)),
+]
+
+@implements PieceInterface SoftTruncate [
+    Arguments(;
+        piece = SoftTruncate(0.1), role = Step(), args = (2.0, 1.5, 100.0, 1.0)
+    ),
+]
