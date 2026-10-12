@@ -12,7 +12,9 @@ name: Threads
 # Both jobs run on the current release and the prerelease channel. `pre`
 # resolves to the current release when no prerelease exists, and is allowed
 # to fail, as in the managed Test workflow. Both also run on the compat
-# floor (1.11), which the managed Test and AD workflows do not cover.
+# floor (1.11), which the managed Test and AD workflows do not cover. There
+# `ad` also runs the items tagged `compat_floor`, checks of the Enzyme rule,
+# since Enzyme differs between Julia versions.
 # On 1.11 `unit` drops Runic from the test environment first: JET for 1.11
 # needs a JuliaSyntax that Runic does not allow, and only the quality checks
 # use Runic.
@@ -79,3 +81,5 @@ jobs:
       - uses: julia-actions/cache@v3
       - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
       - run: julia --project=test/ad test/ad/runtests.jl executor allocations
+      - if: matrix.version == '1.11'
+        run: julia --project=test/ad test/ad/runtests.jl compat_floor

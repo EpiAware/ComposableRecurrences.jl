@@ -1,14 +1,15 @@
 # Enzyme reverse-mode rule for every operator with a `pullback!`: one
 # varargs `augmented_primal`/`reverse` pair on the internal entry point
-# `_ad(op, args...)`. Shadows are read into the mirrors `pullback!`
-# accumulates into; scalar cotangents are returned for `Active` arguments and
-# written back for `MixedDuplicated` ones.
+# `_ADLeaves{X}()(leaves...)`, which takes each leaf of the operator and its
+# arguments as its own annotated argument. The leaves' shadows are read into
+# the mirrors `pullback!` accumulates into, assembled along the leaves' field
+# paths; scalar cotangents are returned for `Active` leaves.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
-    _log_plain, _note_plain_type, _plain, _rebuild_flag, _route_forward!,
-    _run_forward, _run_pullback!, _untraced
+using ComposableRecurrences: Recurrence, Serial, _ADLeaves, _Current, _WithState,
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!, _is_leaf,
+    _leaf_paths, _log_plain, _note_plain_type, _plain, _rebuild_flag,
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -29,6 +30,7 @@ _ez(a::MixedDuplicated) = _ezs(a.val, a.dval[])
 # The mirror of primal `x` from its shadow `dx`.
 _ezs(x::_IEEEFloat, dx) = Ref(zero(x))
 _ezs(::_Inert, dx) = nothing
+_ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx) = nothing
 # Under runtime activity a constant array's shadow is the primal itself.
 _ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x ? nothing : dx
 function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC)
@@ -171,15 +173,35 @@ function EnzymeRules.reverse(
     throw(ErrorException(_FFT_TRACED))
 end
 
+# The mirrors of the operator and its arguments, assembled from the leaves'
+# mirrors `ms` along the leaf paths of `X`, as `_ezs` builds them. An
+# operator or argument whose leaves are all `Const` mirrors as `nothing`.
+@generated function _assemble(::Type{X}, ::Type{A}, ms::Tuple) where {X, A}
+    k = Ref(0)
+    function build(T)
+        _is_leaf(T) && return :(ms[$(k[] += 1)])
+        T === Nothing && return :nothing
+        parts = [build(fieldtype(T, i)) for i in 1:fieldcount(T)]
+        T <: Tuple && return :(($(parts...),))
+        return :(NamedTuple{$(fieldnames(T))}(($(parts...),)))
+    end
+    tops = map(fieldtypes(X)) do T
+        n = length(_leaf_paths(T))
+        consts = all(i -> fieldtype(A, k[] + i) <: Const, 1:n)
+        consts ? (k[] += n; :nothing) : build(T)
+    end
+    return :(($(tops...),))
+end
+
 # The primal and shadow are typed by the return annotation, which is the
-# inferred return type of `_ad` and may be abstract.
+# inferred return type of `_ADLeaves` and may be abstract.
 function EnzymeRules.augmented_primal(
-        config::EnzymeRules.RevConfig, ::Const{typeof(_ad)},
-        ::Type{RA}, args::Vararg{Annotation, N}
-    ) where {RA <: Annotation, N}
+        config::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}},
+        ::Type{RA}, leaves::Vararg{Annotation, N}
+    ) where {X, RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
-    y, cache = _run_forward(map(a -> a.val, args)...)
+    y, cache = _run_forward(_rebuild_leaves(X, map(a -> a.val, leaves))...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing
     R = eltype(RA)
@@ -190,16 +212,17 @@ function EnzymeRules.augmented_primal(
 end
 
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_ad)}, ::Type{<:Annotation},
-        tape, args::Vararg{Annotation, N}
-    ) where {N}
+        ::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}}, ::Type{<:Annotation},
+        tape, leaves::Vararg{Annotation, N}
+    ) where {X, N}
     cache, y, dy = tape
-    dy === nothing && return map(_ -> nothing, args)
-    ms = map(_ez, args)
+    dy === nothing && return map(_ -> nothing, leaves)
+    lms = map(_ez, leaves)
+    ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))
-    _run_pullback!(grads, first(args).val, cache)
-    foreach(_ez_writeback!, args, ms)
-    return map(_ez_ret, args, ms)
+    _run_pullback!(grads, _rebuild_leaves(X, map(a -> a.val, leaves))[1], cache)
+    foreach(_ez_writeback!, leaves, lms)
+    return map(_ez_ret, leaves, lms)
 end
 
 # Plain Enzyme reverse AD of a sparse coupling's products in a loop gives
