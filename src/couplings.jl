@@ -25,7 +25,7 @@ end
 
 # A dense or time-varying coupling's rows and columns against the pressures.
 function _check_pressure(C, q, p)
-    axes(C, 1) == eachindex(q) && axes(C, 2) == eachindex(p) || throw(
+    axes(C, 1) == axes(q, 1) && axes(C, 2) == axes(p, 1) || throw(
         DimensionMismatch(
             "coupling is $(size(C)), pressures are $(length(q)) and $(length(p))"
         )
