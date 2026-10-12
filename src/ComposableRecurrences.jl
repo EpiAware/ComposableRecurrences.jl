@@ -93,14 +93,15 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
-    Beds, Budget, Route, Hold, Drop, Transform, Hazard, Floor, Truncate,
-    SoftTruncate, Primary, Secondary, exponential_history, with_state,
-    State, contributions, forward, pullback!, Step, Init, Pressure, Run,
-    ispointwise, blocks, nstate, depth, param_eltype,
-    NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
-    add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
-    param, add_param!, ConvolutionMethod, Direct, FFTMethod
+public Depletion, Protected, Flow, Flows, Rate, Linear, Amount, Redistribute,
+    Add, Clamp, Allocate, Capacity, Beds, Budget, Route, Hold, Drop,
+    Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
+    exponential_history, with_state, State, contributions, forward,
+    pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
+    depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
+    test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
+    Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Direct,
+    FFTMethod
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -120,6 +121,9 @@ include("derived.jl")
 include("recent.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
+# Flows between the compartments of each group.
+include("flows.jl")
+
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
 # Rescaling groups of strata to exogenous totals.

@@ -67,6 +67,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
+| `Flows` | 0.43 | 0.43 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Capacity` | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
