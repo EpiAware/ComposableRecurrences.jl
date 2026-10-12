@@ -16,6 +16,7 @@ Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other arra
 The route is read from types, apart from the rebuild check and the strata limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
+`uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
 | Part without a `pullback!` | Route |
@@ -34,7 +35,7 @@ The local step rebuilds a part with dual numbers in place of its float parameter
 The `Recurrence` constructor checks the rebuild once and stores the result.
 Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step.
 
-Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` saying why.
+Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` naming the coupling, modifier or depletion form that caused it.
 A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs nothing.
 
 ## [Backends](@id adjoint-backends)
@@ -68,12 +69,15 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | core recurrence (kernel, `I` or dense coupling) | 0.44 | 0.84 | keep |
 | `Depletion`, hazard form | 0.16 | 0.31 | keep |
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
+| `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
+| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
+| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | plain AD is wrong | keep |
 | `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
 | sparse coupling | 0.75¹ | plain AD is wrong | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
@@ -82,6 +86,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | coupling without a `pullback!`, up to 12 strata and scalars | 0.64² | 0.68² | keep |
 
 ² The worst of 3 and 10 strata for a user type, at `T` 200 and `L` 20.
+
+³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.

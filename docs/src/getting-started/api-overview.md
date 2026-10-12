@@ -53,7 +53,8 @@ Each table below lists one part of the package:
 [modifiers](@ref overview-modifiers),
 [depletion forms and indexing](@ref overview-variants),
 [time-series processes](@ref overview-time-series),
-[extending](@ref overview-extending) and
+[executors](@ref overview-executors) and
+the [extension API](@ref overview-extending), which includes
 [checking gradients](@ref overview-gradients).
 
 ## [Operators](@id overview-operators)
@@ -95,10 +96,11 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | vector | one kernel shared by every series | ``L`` lags |
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter per series | adds a leading `S` axis |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
+| [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
 
-Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel, and `PerStratum(TimeVarying(G))` is the same object.
+Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
 They tag one stored array and make no copies, except that kernel columns are stacked once.
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
@@ -140,6 +142,7 @@ Depletion forms and time indexing are types, and you pass an instance.
 | Name | What it does | Example |
 |---|---|---|
 | [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N, Floor())` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | depletion forms that draw the value in full until the pool runs out, exactly or with a smooth minimum | `Depletion(N, Truncate())` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
@@ -159,8 +162,19 @@ The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutori
 
 The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each process.
 
-## [Extending](@id overview-extending)
+## [Executors](@id overview-executors)
 
+| Name | What it does | Returns |
+|---|---|---|
+| [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor operator calls use, set for a block with `with` | a scoped value |
+| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | run loops in order, across CPU threads, or as a GPU kernel | an executor |
+
+[Executors](@ref executors) gives what each supports under each AD backend.
+
+## [Extension API](@id overview-extending)
+
+These names are for writing a new coupling, modifier, depletion form or executor, and for checking its gradient.
+A model built from the package's own parts needs none of them.
 To extend the package, define a new type and add a `forward` method for it.
 Add a `pullback!` method for a hand-written gradient, and the operator's rule calls it.
 See [Writing new types](@ref extending).
@@ -170,21 +184,19 @@ See [Writing new types](@ref extending).
 | [`forward(m, role, args...)`](@ref ComposableRecurrences.forward) | the maths of a modifier, coupling or depletion form for one job | writes in place, or returns values |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; a method overrides it | `Bool` |
-| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent), [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | read a field's entry in the gradient mirror, and add to it | the entry, or `nothing` |
-| [`param(x, k, t)`](@ref ComposableRecurrences.param), [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | read a modifier parameter at stratum `k` and time `t`, and add its cotangent | the value, or `nothing` |
+| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`, found from its methods; a method overrides it | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series | `Int` |
+| [`param(x, k, t)`](@ref ComposableRecurrences.param), [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | read a parameter for series `k` at time `t`, and add to its cotangent | a value, or `nothing` |
+| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent), [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | the cotangent of a field, and an addition to it | a cotangent, or `nothing` |
 | [`depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads, to deepen the buffer past the kernel | `Int` |
 | [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the element type a type's parameters promote the buffer to | a type |
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
+| [`Executor`](@ref ComposableRecurrences.Executor), [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | the executor supertype, and the loop a new executor adds a method of | `nothing` |
 
 A coupling is any type with a `forward` method for `Pressure()`; [A coupling](@ref extending-coupling) writes one with its `pullback!`.
 
-`ToFirst` has no `pullback!`, and its `Float64` field cannot hold dual numbers, so a `Recurrence` using it takes plain AD.
-[Rules and plain AD](@ref adjoint-routing) gives the conditions.
-
-## [Checking gradients](@id overview-gradients)
+### [Checking gradients](@id overview-gradients)
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -192,13 +204,3 @@ A coupling is any type with a `forward` method for `Pressure()`; [A coupling](@r
 | [`test_adjoint(backend, op, Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs a backend's own rule tester on an operator's hand-written gradient | a test result |
 
 [Adjoints and backends](@ref adjoints-backends) says when each backend uses the hand-written gradient.
-
-## [Executors](@id overview-executors)
-
-| Name | What it does | Returns |
-|---|---|---|
-| [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor operator calls use, set for a block with `with` | a scoped value |
-| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | run loops in order, across CPU threads, or as a GPU kernel | an executor |
-| [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | runs a loop with an [`Executor`](@ref ComposableRecurrences.Executor); a new executor adds a method | `nothing` |
-
-[Executors](@ref executors) gives what each supports under each AD backend.

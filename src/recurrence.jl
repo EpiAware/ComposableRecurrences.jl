@@ -50,6 +50,9 @@ place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
 produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
+A [`Routes`](@ref) kernel sums routes, each a kernel with its own coupling,
+so its coupling is `I` too; the keyword constructor folds routes that have
+a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
@@ -80,6 +83,8 @@ call covers the absolute times `start:stop`:
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
+Only a kernel takes `Primary()` indexing; the constructor rejects it in
+the coupling or a modifier.
 The output is length `stop - start + 1` for a single series or `S` rows of
 it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
@@ -133,6 +138,7 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
+        _check_secondary(coupling, modifiers)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
         )
@@ -144,13 +150,27 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
     end
 end
 
+# Only a kernel takes `Primary()` indexing: the coupling and modifiers are
+# walked once here, so the walk at each call checks only that they cover
+# `stop`.
+function _check_secondary(coupling, modifiers::Tuple)
+    _check_times(:coupling, coupling, nothing)
+    _check_times(:modifiers, modifiers, nothing)
+    return nothing
+end
+
 # A rebuild of a `Recurrence` from its fields recomputes `rebuilds`.
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
 function Recurrence(kernel; coupling = I, modifiers = ())
-    return Recurrence(kernel, coupling, Tuple(modifiers))
+    k, C = _fold(kernel, coupling)
+    return Recurrence(k, C, Tuple(modifiers))
 end
+
+# A kernel and coupling with a cheaper equivalent form, such as routes that
+# fold into one kernel, are replaced by it.
+_fold(kernel, coupling) = (kernel, coupling)
 
 @doc raw"""
 The state [`ComposableRecurrences.with_state`](@ref) returns with an
@@ -251,7 +271,7 @@ _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
     return nothing
 end
 
-# A Pairwise kernel already mixes strata, so its coupling is `I`.
+# A Pairwise or Routes kernel already mixes strata, so its coupling is `I`.
 _check_pairwise_coupling(kernel, coupling) = nothing
 function _check_pairwise_coupling(::_PairwiseKernel, coupling)
     coupling isa UniformScaling && isone(coupling.λ) || throw(
@@ -362,6 +382,9 @@ function _oldest_first(g::Pairwise)
     return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
 end
 _oldest_first(g) = g
+
+# The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
+_run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
 
 # A kernel's weight on stratum `b`'s value at lag (or delay) index `i` in
 # stratum `a`, read in column `τ`. Kernels that do not mix strata read only
@@ -524,6 +547,16 @@ end
 # The buffer rows `rows`, back in the public layout of history `h`.
 _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
+# A CPU buffer transposes in one pass, with no intermediate copy.
+function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
+    checkbounds(H, rows, :)
+    Y = similar(H, size(H, 2), length(rows))
+    o = first(rows) - 1
+    @inbounds for j in axes(Y, 2), k in axes(Y, 1)
+        Y[k, j] = H[o + j, k]
+    end
+    return Y
+end
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
@@ -629,7 +662,7 @@ function uses_adjoint(r::Recurrence, ::Run)
 end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
 function _type_adjoint(r::Recurrence, ::Run)
-    return _coupling_adjoint(r.coupling) !== :none &&
+    return _kernel_adjoint(r.kernel) && _coupling_adjoint(r.coupling) !== :none &&
         _all_modifiers_adjoint(r.modifiers)
 end
 _type_adjoint(w::_WithState, ::Run) = _type_adjoint(w.r, Run())
@@ -638,6 +671,10 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
         _all_modifiers_adjoint(Base.tail(ms))
 end
+
+# Whether the rule covers the kernel; routes add their couplings.
+_kernel_adjoint(kernel) = true
+_plain_why_kernel(kernel) = nothing
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
@@ -704,12 +741,16 @@ function _pressure_fits(::Val{true}, C, h)
     return _nstrata(h) + length(_param_tuple(C)) <= _LOCAL_PRESSURE
 end
 
-# The plain-AD note names the coupling, modifiers and depletion forms that
-# do not rebuild, or the coupling whose local derivative the strata outgrow.
+# The plain-AD note names the coupling, modifiers and depletion forms with
+# neither a pullback! nor a local derivative, those that do not rebuild, or
+# the coupling whose local derivative the strata outgrow. It is built only
+# when the note is first logged for a type.
 function _plain_why(r::Recurrence)
+    why = _plain_why_kernel(r.kernel)
+    why === nothing || return why
     if _istrue(r.rebuilds)
-        _type_adjoint(r, Run()) && _coupling_adjoint(r.coupling) === :local ||
-            return _ADJOINT_NOTE
+        _type_adjoint(r, Run()) || return _no_adjoint_why(r)
+        _coupling_adjoint(r.coupling) === :local || return _ADJOINT_NOTE
         return "has a coupling ($(nameof(typeof(r.coupling)))) without a " *
             "pullback! and more strata than its local derivative covers"
     end
@@ -720,6 +761,21 @@ function _plain_why(r::Recurrence)
         "local derivative cannot rebuild from its own parameters"
 end
 _plain_why(w::_WithState) = _plain_why(w.r)
+function _no_adjoint_why(r::Recurrence)
+    C = r.coupling
+    C_name = _coupling_adjoint(C) === :none ? (nameof(typeof(C)),) : ()
+    names = join(unique((C_name..., _no_adjoint(r.modifiers...)...)), ", ")
+    return "has a coupling, modifier or depletion form ($names) with no " *
+        "pullback! that the rule can use"
+end
+_no_adjoint() = ()
+function _no_adjoint(m, ms...)
+    rest = _no_adjoint(ms...)
+    _modifier_adjoint(m) === :none || return rest
+    return (_part_name(m), rest...)
+end
+_part_name(m) = nameof(typeof(m))
+_part_name(m::Depletion) = _form_adjoint(m.form) ? :Depletion : nameof(typeof(m.form))
 _not_rebuilt() = ()
 function _not_rebuilt(m, ms...)
     rest = _not_rebuilt(ms...)
@@ -820,6 +876,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
         ArgumentError("stop ($stop) is before start ($τ0)")
     )
     _check_kernel_times(kernel, stop)
+    # The constructor has rejected `Primary()` indexing in these.
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
     T = stop - τ0 + 1
@@ -911,7 +968,10 @@ _record_pressure!(::Nothing, ::Nothing, pk, xk, t, k) = nothing
     return nothing
 end
 
-# The whole run of the independent strata `ks`, time outermost.
+# The whole run of the independent strata `ks`, time outermost. Each
+# stratum's step waits on its own last values, so interleaving the strata
+# overlaps those waits; stratum outermost measured slower even though each
+# stratum's buffer column is contiguous.
 function _series_body!(
         ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D,
         T
@@ -974,7 +1034,7 @@ function _run(
         T, ::Val{record}
     ) where {Tp, record}
     (; coupling, modifiers) = r
-    kernel = _oldest_first(r.kernel)
+    kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_zeros(h, Tp, D + T, S), h, D)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
@@ -1036,57 +1096,6 @@ function _run(
             state = State(_public(H, (T + 1):(T + D), h), states, τ0 + T),
         ) : nothing
     return Y, H, states, cache
-end
-
-@doc raw"""
-Run `r` from a seed and return the seed followed by the run.
-
-Deprecated: `seeded(r, gain; history)` is
-`r(gain; history, start = m + 1, prepend = true)`, see [`Recurrence`](@ref).
-
-With a seed ``h = (h_1, \dots, h_m)`` placed at times ``1, \dots, m`` it
-returns
-
-```math
-(h_1, \dots, h_m,\ y_{m+1}, \dots, y_{t_1}),
-```
-
-where ``y_t`` for ``t > m`` is the output of `r` started at ``t_0 = m + 1``
-from history ``h``, and ``t_1`` is the last time.
-
-# Arguments
-- `r`: the [`Recurrence`](@ref).
-- `gain`: the gain, as in a call of `r`.
-
-# Keyword Arguments
-- `history`: the seed, length `m` or `S × m`.
-- `kwargs`: passed to the call of `r`, such as `add` or `stop`.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-seed = [2.0, 3.0, 4.0]
-r = Recurrence([0.3, 0.5, 0.2])
-y = r([0.0, 0.0, 0.0, 2.5, 2.2, 1.8]; history = seed, start = 4, prepend = true)
-round.(y; digits = 3)
-
-# output
-
-6-element Vector{Float64}:
-  2.0
-  3.0
-  4.0
-  7.75
- 10.835
- 14.266
-```
-"""
-function seeded(r::Recurrence, gain = true; history, kwargs...)
-    Base.depwarn(
-        "seeded(r, gain; history) is deprecated, use " *
-            "r(gain; history, start = m + 1, prepend = true)", :seeded
-    )
-    return r(gain; history, start = size(history, ndims(history)) + 1, prepend = true, kwargs...)
 end
 
 @doc raw"""

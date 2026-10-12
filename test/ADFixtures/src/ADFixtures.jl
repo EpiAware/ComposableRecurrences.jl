@@ -18,7 +18,7 @@ import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
-using LinearAlgebra: Diagonal
+using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
@@ -113,6 +113,21 @@ function _renewal_strata(w, θ)
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
+
+# A differentiated heterogeneity exponent: the built-in forms' default
+# exponent is fixed, so these keep the float exponent's power and log on
+# every backend.
+function _heterogeneity(w, θ, form)
+    α, logh, logR = _unpack(θ, (1,), (S, L), (S, T))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(POP), form; heterogeneity = only(α)
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+_heterogeneity_hazard(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Hazard())
+_heterogeneity_floor(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Floor())
 
 # A scalar modifier field, a Float32 kernel and Float64 history.
 const G0F = Float32.(G0)
@@ -378,6 +393,30 @@ function _clamp_redistribute_add(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Depletion that draws up to a small pool per stratum, so the pools run out
+# within the run: exact, and smooth with its softness differentiated. The
+# parameters are offsets from `TRUNC0`, so the scenarios start at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const TRUNC0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]), [0.1])
+function _truncate(w, θ)
+    x = TRUNC0[1:length(θ)] .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(exp.(logpool)), ComposableRecurrences.Truncate()
+    )
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+function _soft_truncate(w, θ)
+    x = TRUNC0 .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    form = ComposableRecurrences.SoftTruncate(x[length(x)])
+    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)), form)
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+
 # Every float in single precision: the kernel, coupling, history and gain.
 const K0F, WSF = Float32.(K0), Float32.(WS)
 function _float32(w, θ)
@@ -390,6 +429,24 @@ end
 function _conv_per_stratum(w, θ)
     G, X, H = _unpack(θ, (S, L + 1), (S, T), (S, L))
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
+end
+
+# Two routes: a dense coupling with a short kernel, and a sparse coupling
+# with a longer one.
+function _routes(w, θ)
+    K, g1, v, g2, logh, logR = _unpack(
+        θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, L), (S, T)
+    )
+    Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    r = Recurrence(Routes((K, g1), (Ks, g2)))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
+# Routes on scaled identities, which fold into one summed kernel.
+function _routes_folded(w, θ)
+    λ, g1, g2, logh, logR = _unpack(θ, (2,), (L - 1,), (L,), (S, L), (S, T))
+    r = Recurrence(Routes((λ[1] * I, g1), (λ[2] * I, g2)))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
 # A pointwise modifier that passes the value through and asks for a buffer
@@ -417,6 +474,16 @@ function _deep_buffer(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Dense and sparse routes in a buffer twice the longest route kernel.
+function _routes_deep(w, θ)
+    K, g1, v, g2, logh, logR = _unpack(
+        θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, 2L), (S, T)
+    )
+    Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    r = Recurrence(Routes((K, g1), (Ks, g2)); modifiers = (DeepBuffer(2L),))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
 # `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
@@ -425,6 +492,14 @@ const _SCENARIOS = [
     (
         "Recurrence strata, coupling and depletion", _renewal_strata,
         () -> _flat(G0, K0, fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence depletion with a differentiated heterogeneity",
+        _heterogeneity_hazard, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence floored depletion with a differentiated heterogeneity",
+        _heterogeneity_floor, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
     ),
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
@@ -538,8 +613,30 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
+        "Recurrence depletion with truncated draws", _truncate,
+        () -> zeros(length(TRUNC0) - 1),
+    ),
+    (
+        "Recurrence depletion with smoothly truncated draws", _soft_truncate,
+        () -> zero(TRUNC0),
+    ),
+    (
         "Recurrence in Float32", _float32,
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
+    ),
+    (
+        "Recurrence routes folded on scaled identities", _routes_folded,
+        () -> _flat([0.7, 0.4], G0[1:(L - 1)], G0, zeros(S, L), LOGR),
+    ),
+    (
+        "Recurrence routes, dense and sparse", _routes,
+        () -> _flat(K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, zeros(S, L), LOGR),
+    ),
+    (
+        "Recurrence routes in a buffer deeper than the kernels", _routes_deep,
+        () -> _flat(
+            K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, fill(log(5.0), S, 2L), LOGR
+        ),
     ),
     (
         "Recurrence with a buffer deeper than the kernel", _deep_buffer,
@@ -590,12 +687,17 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new public name, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
+    "Recurrence depletion with truncated draws" => (:Truncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     # Depletion removals came with `Protected`.
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
+    "Recurrence routes, dense and sparse" => (:Routes,),
+    "Recurrence routes folded on scaled identities" => (:Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
+    "Recurrence routes in a buffer deeper than the kernels" => (:Routes, :depth),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
@@ -748,12 +850,19 @@ end
 Per-backend scenario names too unstable to run at all.
 
 Plain Enzyme reverse AD of a sparse coupling repeated over steps returns
-silently wrong gradients, so `NoAdjoint` on a sparse coupling throws on
-Enzyme reverse; the analytic rule is correct and runs.
+silently wrong gradients, so `NoAdjoint` on a sparse coupling, or a sparse
+route coupling, throws on Enzyme reverse; the analytic rule is correct and
+runs.
 """
 function backend_skip_scenarios()
     return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence sparse coupling"]),
+        "Enzyme reverse" => Set(
+            [
+                "NoAdjoint Recurrence sparse coupling",
+                "NoAdjoint Recurrence routes, dense and sparse",
+                "NoAdjoint Recurrence routes in a buffer deeper than the kernels",
+            ]
+        ),
     )
 end
 

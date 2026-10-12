@@ -279,6 +279,15 @@ end
     @test_throws "got TimeVarying(2×4 Matrix{Float64}, Secondary())" Recurrence(
         g; coupling = TimeVarying(ones(2, 4))
     )
+    # Nor a user modifier's: the constructor finds it in any field.
+    struct Shifted{B}
+        b::B
+    end
+    primary = TimeVarying(ones(4), ComposableRecurrences.Primary())
+    @test_throws "modifiers: Primary() indexing is only meaningful for a kernel" Recurrence(
+        g; modifiers = (Shifted((; b = primary)),)
+    )
+    @test Recurrence(g; modifiers = (Shifted(TimeVarying(ones(4))),)) isa Recurrence
     # Call inputs are data, never wrapped.
     @test_throws ArgumentError Recurrence(g)(TimeVarying(ones(5)); history = ones(3))
     @test_throws "got TimeVarying(5-element" Recurrence(g)(
@@ -504,15 +513,6 @@ end
     end
 end
 
-@testitem "seeded is deprecated for prepend" begin
-    using ComposableRecurrences
-    CR = ComposableRecurrences
-    r = Recurrence([0.5])
-    ϵ = collect(0.1:0.1:0.8)
-    y = @test_deprecated CR.seeded(r, 1.0; history = [1.0], add = ϵ)
-    @test y == vcat(1.0, r(1.0; history = [1.0], add = ϵ, start = 2))
-end
-
 @testitem "exponential_history" begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
@@ -573,4 +573,23 @@ end
     @test_throws "only meaningful for a kernel; got TimeVarying(" CR._check_times(
         :x, TimeVarying(ones(2, 4), CR.Primary()), 4
     )
+end
+
+@testitem "Coupling pressure: shapes are checked before the unchecked loop" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    q, p = zeros(2), [1.0, 2.0]
+    CR.forward([1.0 2.0; 3.0 4.0], CR.Pressure(), q, p, 1)
+    @test q == [5.0, 11.0]
+    @test_throws DimensionMismatch CR.forward(ones(2, 3), CR.Pressure(), q, p, 1)
+    @test_throws DimensionMismatch CR.forward(ones(3, 2), CR.Pressure(), q, p, 1)
+    C = TimeVarying(cat([1.0 0.0; 0.0 1.0], [0.0 1.0; 1.0 0.0]; dims = 3), CR.Secondary())
+    CR.forward(C, CR.Pressure(), q, p, 2)
+    @test q == [2.0, 1.0]
+    @test_throws BoundsError CR.forward(C, CR.Pressure(), q, p, 3)
+    @test_throws DimensionMismatch CR.forward(C, CR.Pressure(), zeros(3), p, 1)
+    # Pressures held in views that index by Cartesian index.
+    qv, pv = view(zeros(3, 3), [1, 2], 1), view([1.0 0.0; 2.0 0.0; 9.0 0.0], [1, 2], 1)
+    CR.forward([1.0 2.0; 3.0 4.0], CR.Pressure(), qv, pv, 1)
+    @test qv == [5.0, 11.0]
 end

@@ -18,8 +18,12 @@ _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x
 _at(::Nothing, k, t) = false
-_at(x::AbstractVector, k, t) = x[t]
-_at(x::AbstractMatrix, k, t) = x[k, t]
+Base.@propagate_inbounds _at(x::AbstractVector, k, t) = x[t]
+Base.@propagate_inbounds _at(x::AbstractMatrix, k, t) = x[k, t]
+
+# Inputs read without bounds checks index from 1.
+_require_one_based(x::AbstractArray) = Base.require_one_based_indexing(x)
+_require_one_based(x) = nothing
 
 # The times a call input covers: its last axis, or `nothing` without one.
 _extent(x::AbstractArray) = size(x, ndims(x))
@@ -101,10 +105,12 @@ end
 
 # Check every time-varying coefficient in a coupling or modifier covers
 # times up to `stop`, recursing through fields. Outside a kernel only
-# `Secondary()` indexing has a meaning.
+# `Secondary()` indexing has a meaning, which a `Recurrence` checks once at
+# construction, with `stop = nothing`.
 function _check_times(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
+_check_times(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
 function _check_times(name, x::TimeVarying, stop)
     throw(
         ArgumentError(
