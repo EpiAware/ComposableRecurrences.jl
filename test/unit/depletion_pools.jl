@@ -268,7 +268,7 @@ end
         g; modifiers = (CR.Depletion(100.0f0; removals = 1.0f0, protected = p),)
     )
     # The default starting pool is empty and takes the state's type.
-    @test CR.Protected(0.5f0).pool0 === false
+    @test CR.Protected(0.5f0).pool0 === nothing
     for p in (
             CR.Protected(0.5f0), CR.Protected(0.5f0; pool0 = 2.0f0),
             CR.Protected(PerStratum([0.5f0]); pool0 = PerStratum([2.0f0])),
