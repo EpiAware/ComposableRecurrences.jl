@@ -42,6 +42,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
+| admitted and overflow | `Capacity(C, Beds(δ); pairs = [a => o])`                 |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
 
@@ -93,11 +94,11 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived
 
-public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
-    Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
-    exponential_history, with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, depth,
-    param_eltype,
+public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
+    Beds, Budget, Route, Hold, Drop, Transform, Hazard, Floor, Truncate,
+    SoftTruncate, Primary, Secondary, exponential_history, with_state,
+    State, contributions, forward, pullback!, Step, Init, Pressure, Run,
+    ispointwise, nstate, depth, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
     param, add_param!
@@ -120,6 +121,8 @@ include("depletion_pools.jl")
 include("truncate.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
+# Routing demand between admitted and overflow strata under a capacity.
+include("capacity.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
