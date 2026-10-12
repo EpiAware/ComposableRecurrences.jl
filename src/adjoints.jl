@@ -209,15 +209,13 @@ _run_pullback!(grads, op, cache) = _call_pullback!(grads, op, Run(), cache)
 _primal(op, args...) = first(_run_forward(op, args...))
 @generated function _ad(op, args::Vararg{Any, N}) where {N}
     X = Tuple{op, args...}
-    leaves = map(p -> _path_expr(:xs, p), _leaf_paths(X))
-    return quote
-        xs = (op, args...)
-        return _ADLeaves{$X}()($(leaves...))
-    end
+    roots = (:op, (:(args[$i]) for i in 1:N)...)
+    leaves = map(p -> _path_expr(roots[first(p)], Base.tail(p)), _leaf_paths(X))
+    return :(_ADLeaves{$X}()($(leaves...)))
 end
 struct _ADLeaves{X} end
 function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
-    return _primal(_rebuild(X, leaves)...)
+    return _primal(_rebuild_leaves(X, leaves)...)
 end
 
 # The field paths to the leaves of a value of type `T`. A leaf is a float,
@@ -247,7 +245,7 @@ end
 
 # The value of type `X` with the given leaves, built field by field without
 # calling constructors.
-@generated function _rebuild(::Type{X}, leaves::Tuple) where {X}
+@generated function _rebuild_leaves(::Type{X}, leaves::Tuple) where {X}
     k = Ref(0)
     function build(T)
         _is_leaf(T) && return :(leaves[$(k[] += 1)])

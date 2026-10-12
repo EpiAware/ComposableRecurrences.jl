@@ -7,7 +7,7 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _ADLeaves, _Current, _WithState,
-    _is_leaf, _leaf_paths, _rebuild,
+    _is_leaf, _leaf_paths, _rebuild_leaves,
     _check_secondary, _current, _log_plain, _note_plain_type, _plain,
     _rebuild_flag, _route_forward!, _run_forward, _run_pullback!
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
@@ -160,7 +160,7 @@ function EnzymeRules.augmented_primal(
     ) where {X, RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
-    y, cache = _run_forward(_rebuild(X, map(a -> a.val, leaves))...)
+    y, cache = _run_forward(_rebuild_leaves(X, map(a -> a.val, leaves))...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing
     R = eltype(RA)
@@ -179,7 +179,7 @@ function EnzymeRules.reverse(
     lms = map(_ez, leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))
-    _run_pullback!(grads, _rebuild(X, map(a -> a.val, leaves))[1], cache)
+    _run_pullback!(grads, _rebuild_leaves(X, map(a -> a.val, leaves))[1], cache)
     foreach(_ez_writeback!, leaves, lms)
     return map(_ez_ret, leaves, lms)
 end

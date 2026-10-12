@@ -863,7 +863,7 @@ end
     @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
 end
 
-# Tagged `compat_floor` so the Threads workflow also runs it on Julia 1.11.
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
 @testitem "Enzyme reverse: a scalar modifier field next to an array-field modifier" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
