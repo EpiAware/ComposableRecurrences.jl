@@ -24,7 +24,7 @@ The second argument of `forward` and the third of `pullback!` is a singleton tha
 
 The arguments mean the same in every role:
 
-- `t` is the absolute time, counted from 1 as `start` and `stop` are, and `k` is the stratum.
+- `t` is the absolute time, counted from 1 as `start` and `stop` are, and `k` is the [stratum](@ref glossary-stratum).
 - `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
 - `history` is the call's `history` as given: a vector for one series, else strata × time.
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
@@ -278,7 +278,8 @@ J' * [grads.v, grads.s] ≈ [grads.piece.a[], v̄, s̄]
 ```
 
 Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
-Use Mooncake or Enzyme, since [forward mode runs the same code on both](@ref adjoint-backends), and a loss that changes with every parameter.
+Use Mooncake or Enzyme, and a loss that changes with every parameter.
+[Backends](@ref adjoint-backends) says why it must be reverse mode.
 
 ```julia
 using DifferentiationInterface, Mooncake

@@ -9,9 +9,9 @@
 #
 # ## Introduction
 #
-# A stratum is one of `S` series computed together, such as a place or an age group.
-# Strata that do not mix within a step, and the strata of a convolution, can be computed at the same time.
-# An executor sets how: `Serial()` runs them in order, `Threaded()` splits them across CPU threads, and `Device(backend)` runs them as a kernel on a GPU.
+# [Strata](@ref glossary-stratum) that do not mix within a step can be computed at the same time.
+# So can the strata of a convolution.
+# An [executor](@ref executors) sets how.
 # The executor is chosen for a block of code, so the model code does not change.
 #
 # ### What are we going to do in this exercise

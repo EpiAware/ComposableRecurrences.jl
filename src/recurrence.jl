@@ -22,9 +22,8 @@ y_t &= v^{(R)}_t,
 
 for ``t = t_0, \dots, t_1`` (`start`, `stop`), where
 
-  - ``y_{t,i}`` is the output of stratum ``i`` at time ``t``, one of ``S``
-    strata (parallel series such as places or age groups); for
-    ``t < t_0`` it is the history;
+  - ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+    at time ``t``, one of ``S`` strata; for ``t < t_0`` it is the history;
   - ``k_{i,l}(t)`` is the kernel's weight on lag ``l``, `kernel[l]`, the
     same for every ``i`` and ``t`` unless the kernel is
     [`PerStratum`](@ref) or [`TimeVarying`](@ref);
