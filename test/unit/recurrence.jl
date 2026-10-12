@@ -588,4 +588,8 @@ end
     @test q == [2.0, 1.0]
     @test_throws BoundsError CR.forward(C, CR.Pressure(), q, p, 3)
     @test_throws DimensionMismatch CR.forward(C, CR.Pressure(), zeros(3), p, 1)
+    # Pressures held in views that index by Cartesian index.
+    qv, pv = view(zeros(3, 3), [1, 2], 1), view([1.0 0.0; 2.0 0.0; 9.0 0.0], [1, 2], 1)
+    CR.forward([1.0 2.0; 3.0 4.0], CR.Pressure(), qv, pv, 1)
+    @test qv == [5.0, 11.0]
 end
