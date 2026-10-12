@@ -574,3 +574,18 @@ end
         :x, TimeVarying(ones(2, 4), CR.Primary()), 4
     )
 end
+
+@testitem "Coupling pressure: shapes are checked before the unchecked loop" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    q, p = zeros(2), [1.0, 2.0]
+    CR.forward([1.0 2.0; 3.0 4.0], CR.Pressure(), q, p, 1)
+    @test q == [5.0, 11.0]
+    @test_throws DimensionMismatch CR.forward(ones(2, 3), CR.Pressure(), q, p, 1)
+    @test_throws DimensionMismatch CR.forward(ones(3, 2), CR.Pressure(), q, p, 1)
+    C = TimeVarying(cat([1.0 0.0; 0.0 1.0], [0.0 1.0; 1.0 0.0]; dims = 3), CR.Secondary())
+    CR.forward(C, CR.Pressure(), q, p, 2)
+    @test q == [2.0, 1.0]
+    @test_throws BoundsError CR.forward(C, CR.Pressure(), q, p, 3)
+    @test_throws DimensionMismatch CR.forward(C, CR.Pressure(), zeros(3), p, 1)
+end
