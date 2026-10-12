@@ -92,7 +92,8 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
+    Recent
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
     Beds, Budget, Route, Hold, Drop, Transform, Hazard, Floor, Truncate,
@@ -115,6 +116,10 @@ include("modifiers.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
+# Parameters computed from other parameters.
+include("derived.jl")
+# Parameters read from the recurrence's own recent outputs.
+include("recent.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
 # Depletion forms that draw up to what the pool holds.
@@ -139,7 +144,5 @@ include("fallbacks.jl")
 include("interfaces.jl")
 # The Transform modifier, a pointwise map with parameters.
 include("transform.jl")
-# Parameters computed from other parameters.
-include("derived.jl")
 
 end # module ComposableRecurrences

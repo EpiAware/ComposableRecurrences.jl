@@ -67,7 +67,9 @@ A modifier's [`ComposableRecurrences.pullback!`](@ref) writes every
 parameter's cotangent through `add_param!`, with `x̄` from
 [`ComposableRecurrences.cotangent`](@ref), so it accepts every parameter
 form.
-A `nothing` mirror takes nothing.
+A `nothing` mirror takes nothing for `x` itself, but a [`Recent`](@ref)
+parameter still sends its cotangent to the outputs it read, so a pullback
+calls `add_param!` for every parameter whatever its mirror.
 
 # Arguments
 - `x̄`: the mirror of `x`.
@@ -130,7 +132,8 @@ function _check_param(name, x)
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, " *
                 "TimeVarying(PerStratum($name)) strata × time, or " *
-                "Derived(f, args...) computed from other parameters; got " *
+                "Derived(f, args...) computed from other parameters, or " *
+                "Recent(w) read from the recurrence's outputs; got " *
                 _describe(x)
         )
     )
@@ -541,11 +544,15 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
     return nothing
 end
 
-function forward(m::Depletion, ::Step, v, s, t, k)
+# A depletion with neither removals nor a protected pool. Removals of any
+# parameter form, and the protected pool, have methods of their own.
+const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
+
+function forward(m::_Depleting, ::Step, v, s, t, k)
     return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
 end
 
-function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
+function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
