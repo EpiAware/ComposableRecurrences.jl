@@ -177,3 +177,31 @@ end
     CR._fft_convolve_back!(X̄, nothing, rand(3), rand(5, 1), zeros(0, 1), 5, 1)
     @test iszero(X̄)
 end
+
+@testitem "Convolution FFT: the rule's reverse pass matches direct" begin
+    using ComposableRecurrences, FFTW, Random
+    const CR = ComposableRecurrences
+    # The rule's forward and reverse passes, driven without an AD backend:
+    # the transform's cotangents match the direct method's.
+    rng = Xoshiro(44)
+    k, x, h, ȳ = rand(rng, 6), rand(rng, 30), rand(rng, 4), rand(rng, 28)
+    function grads(method)
+        c = Convolution(k; method)
+        y, cache = CR._run_forward(c, x, 0.5, 1.0, h, 3, nothing)
+        g = (;
+            piece = (; kernel = zero(k)), y = ȳ,
+            args = (zero(x), Ref(0.0), Ref(0.0), zero(h)),
+        )
+        CR.pullback!(g, c, CR.Run(), cache)
+        return y, cache.fft, g
+    end
+    yd, fd, gd = grads(CR.Direct())
+    yf, ff, gf = grads(CR.FFTMethod())
+    @test !fd && ff
+    @test yf ≈ yd
+    @test gf.piece.kernel ≈ gd.piece.kernel
+    @test gf.args[1] ≈ gd.args[1]
+    @test gf.args[2][] ≈ gd.args[2][]
+    @test gf.args[3][] ≈ gd.args[3][]
+    @test gf.args[4] ≈ gd.args[4]
+end
