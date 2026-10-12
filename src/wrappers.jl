@@ -134,7 +134,6 @@ where ``k_{ij,l}`` = `x[i, j, l]` weights stratum ``j``'s output at lag
 ``l`` in stratum ``i``, ``y_{t-l,j}`` is that output at absolute time
 ``t - l``, and ``q_{t,i}`` replaces the coupled pressure ``C_t p_t`` of a
 [`Recurrence`](@ref).
-A stratum is one of ``S`` parallel series computed together.
 It is equivalent to [`Routes`](@ref) over all pairs, with a faster path: one route
 per pair `(i, j)`, with kernel `x[i, j, :]` and a coupling that is the unit
 matrix at `(i, j)`.

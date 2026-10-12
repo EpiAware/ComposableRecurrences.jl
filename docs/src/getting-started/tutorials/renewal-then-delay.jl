@@ -258,7 +258,7 @@ end
 # A_t = h \sum_{l} d^A_l O_{t-l}, \qquad D_t = f \sum_{l} d^D_l A_{t-l}.
 # ```
 #
-# The chain equals one convolution of the three delays convolved together, with gain ``h f``.
+# The chain is one convolution with gain ``h f``, whose kernel convolves the three delays.
 
 onsets = Convolution([0.0, 0.2, 0.5, 0.3])(infections_seeded)
 admissions = Convolution([0.3, 0.4, 0.2, 0.1])(onsets; gain = 0.1)
@@ -266,7 +266,7 @@ deaths = Convolution([0.1, 0.2, 0.4, 0.2, 0.1])(admissions; gain = 0.25)
 round.((sum(admissions), sum(deaths)) ./ sum(infections_seeded); digits = 3)
 
 # The shares are below ``h = 0.1`` and ``h f = 0.025``.
-# Infections are still growing when the run ends, and the outcomes of the last ones fall after it.
+# Infections still grow at the end, and the last ones have outcomes after the run.
 
 # ## Gradients
 #

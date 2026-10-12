@@ -8,8 +8,8 @@ y_{t,i} = g_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
 \qquad t = t_0, \dots, t_1,
 ```
 
-where ``y_{t,i}`` is the output of stratum ``i`` (one of ``S`` parallel
-series) at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
+where ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
 ``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l``, ``L`` the
 kernel length, ``g_{t,i}`` the gain and ``a_{t,i}`` the add input.
 ``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.

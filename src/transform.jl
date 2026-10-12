@@ -1,10 +1,8 @@
 @doc raw"""
 Maps each stratum's value through a function `f`, with optional
 parameters `θ`.
-A stratum is one of ``S`` parallel series computed together, such as a
-place or an age group.
 
-At time ``t``, for each stratum ``i``,
+At time ``t``, for each stratum ``i`` (see [`PerStratum`](@ref)),
 
 ```math
 v'_i = f(v_i, \theta_{t,i}), \qquad s'_i = s_i,

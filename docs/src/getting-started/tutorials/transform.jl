@@ -30,8 +30,8 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Transmission that saturates with incidence
 #
-# People may reduce their contacts when incidence is high (@placeholder).
-# One form caps each day's infections below ``\kappa``:
+# People may reduce their contacts when incidence is high.
+# A saturating form (Capasso and Serio 1978) caps daily infections below ``\kappa``:
 #
 # ```math
 # f(v, \kappa) = \frac{v}{1 + v / \kappa}.
@@ -89,8 +89,9 @@ end
 #
 # A branching process dies out by generation ``n`` with probability ``q_n = G(q_{n-1})``.
 # It starts from ``q_0 = 0``.
-# ``G`` is the offspring probability generating function (@placeholder).
-# For negative binomial offspring with mean ``R`` and dispersion ``k``,
+# ``G`` is the offspring probability generating function.
+# Offspring are negative binomial (Lloyd-Smith et al. 2005).
+# With mean ``R`` and dispersion ``k``,
 #
 # ```math
 # G(s) = \left(1 + \frac{R}{k} (1 - s)\right)^{-k}.
@@ -131,6 +132,15 @@ ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
 # Mooncake and Enzyme run on the same code.
 # They use the rule in the [`Transform`](@ref ComposableRecurrences.Transform) docstring.
 # The [AD comparison](@ref ad-comparison) page compares the backends.
+
+# ## References
+#
+# - Capasso and Serio (1978), "A generalization of the Kermack-McKendrick
+#   deterministic epidemic model", Mathematical Biosciences 42, 43-61,
+#   [10.1016/0025-5564(78)90006-8](https://doi.org/10.1016/0025-5564%2878%2990006-8)
+# - Lloyd-Smith, Schreiber, Kopp and Getz (2005), "Superspreading and the
+#   effect of individual variation on disease emergence", Nature 438, 355-359,
+#   [10.1038/nature04153](https://doi.org/10.1038/nature04153)
 
 # ## Learning more
 #
