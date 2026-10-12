@@ -163,22 +163,43 @@ end
 
 # The `i`th shadow of an argument, or `nothing` when it has none. Under
 # runtime activity an inactive argument can come as its own shadow, which
-# must neither carry a tangent nor take a cotangent.
-_shadow(::Const, i) = nothing
+# must neither carry a tangent nor take a cotangent. An `Active` kernel (an
+# immutable vector) has no shadow: its cotangent is returned instead.
+_shadow(::Union{Const, Active}, i) = nothing
 _shadow(a::Union{Duplicated, DuplicatedNoNeed}, i) = _active(a.dval, a.val)
 function _shadow(a::Union{BatchDuplicated, BatchDuplicatedNoNeed}, i)
     return _active(a.dval[i], a.val)
 end
+function _shadow(a::Annotation, i)
+    throw(
+        ArgumentError(
+            "the FFT convolution rules take a Const, Active, Duplicated or " *
+                "BatchDuplicated argument; got $(nameof(typeof(a)))"
+        )
+    )
+end
 _active(dv, v) = _aliases(dv, v) ? nothing : dv
 _aliases(dv, v) = dv === v
 _aliases(dv::PerStratum, v::PerStratum) = dv.x === v.x
+
+# The shadow returned for the output buffer `Y`: zero if it is constant.
+_out_shadow(Y::Const, w) = w == 1 ? zero(Y.val) : ntuple(_ -> zero(Y.val), w)
+_out_shadow(Y, w) = Y.dval
+
+# A mutable mirror of the kernel for its cotangent, and the cotangent of an
+# `Active` kernel rebuilt from it in the kernel's own type.
+_kernel_mirror(c::AbstractVector) = zeros(eltype(c), length(c))
+_kernel_mirror(c::PerStratum) = PerStratum(zeros(eltype(c.x), size(c.x)))
+_kernel_cotangent(c::AbstractVector, k̄) = convert(typeof(c), k̄)
+_kernel_cotangent(c::PerStratum, k̄) = PerStratum(convert(typeof(c.x), k̄.x))
 
 function EnzymeRules.forward(
         config::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
         m::Const, start::Const
     )
-    for i in 1:EnzymeRules.width(config)
+    w = EnzymeRules.width(config)
+    for i in 1:w
         dY, dk, dX = _shadow(Y, i), _shadow(kernel, i), _shadow(X, i)
         dY === nothing && continue
         dX === nothing || _fft_convolve!(dY, kernel.val, dX, m.val, start.val)
@@ -187,9 +208,9 @@ function EnzymeRules.forward(
     _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
     p, s = EnzymeRules.needs_primal(config), EnzymeRules.needs_shadow(config)
     s || return p ? Y.val : nothing
-    p || return Y.dval
-    return EnzymeRules.width(config) == 1 ? Duplicated(Y.val, Y.dval) :
-        BatchDuplicated(Y.val, Y.dval)
+    dY = _out_shadow(Y, w)
+    p || return dY
+    return w == 1 ? Duplicated(Y.val, dY) : BatchDuplicated(Y.val, dY)
 end
 
 function EnzymeRules.augmented_primal(
@@ -204,7 +225,8 @@ function EnzymeRules.augmented_primal(
     c = ow[3] ? deepcopy(kernel.val) : nothing
     tape = (c, ow[4] ? copy(X.val) : nothing)
     p = EnzymeRules.needs_primal(config) ? Y.val : nothing
-    s = EnzymeRules.needs_shadow(config) ? Y.dval : nothing
+    s = EnzymeRules.needs_shadow(config) ?
+        _out_shadow(Y, EnzymeRules.width(config)) : nothing
     return EnzymeRules.AugmentedReturn(p, s, tape)
 end
 
@@ -215,13 +237,25 @@ function EnzymeRules.reverse(
     )
     c = something(tape[1], kernel.val)
     Xv = something(tape[2], X.val)
-    for i in 1:EnzymeRules.width(config)
-        Ȳ, k̄, X̄ = _shadow(Y, i), _shadow(kernel, i), _shadow(X, i)
+    w = EnzymeRules.width(config)
+    k̄s = kernel isa Active ? ntuple(_ -> _kernel_mirror(c), w) : nothing
+    # The input cotangent of a constant input is not needed: one buffer
+    # takes it for every lane.
+    sink = nothing
+    for i in 1:w
+        Ȳ, X̄ = _shadow(Y, i), _shadow(X, i)
+        k̄ = k̄s === nothing ? _shadow(kernel, i) : k̄s[i]
         (Ȳ === nothing || (k̄ === nothing && X̄ === nothing)) && continue
-        X̄ === nothing && (X̄ = zero(Xv))
+        if X̄ === nothing
+            sink === nothing && (sink = zero(Xv))
+            X̄ = sink
+        end
         _fft_convolve_back!(X̄, k̄, c, Xv, Ȳ, m.val, start.val)
     end
-    return ntuple(_ -> nothing, 5)
+    k̄ = k̄s === nothing ? nothing :
+        w == 1 ? _kernel_cotangent(c, only(k̄s)) :
+        map(b -> _kernel_cotangent(c, b), k̄s)
+    return (nothing, k̄, nothing, nothing, nothing)
 end
 
 # The reverse pass of the transform runs inside the rules, as primal code.

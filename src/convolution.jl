@@ -68,9 +68,6 @@ It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
 number type (dual numbers, say) and other arrays (device or traced) take
 [`ComposableRecurrences.Direct`](@ref).
-Forward-mode or plain reverse-mode AD of the call takes it too, or, where
-a backend does not say it is tracing, differentiates the transform by its
-own rules.
 It does not use the set [`ComposableRecurrences.Executor`](@ref).
 
 The error of each output is about the machine epsilon times the size of the

@@ -102,33 +102,65 @@ end
     )
 end
 
-# The transform's Enzyme rules against finite differences, for each mix of
-# active kernel and input, called directly, since traced code does not
-# reach them on every Julia version.
+# The transform's Enzyme rules against finite differences, called directly,
+# since traced code does not reach them on every Julia version. They cover
+# each mix of active kernel and input, batched shadows, a constant output
+# buffer, an immutable kernel and runtime activity off and on.
 @testitem "FFT convolution: Enzyme rules of the transform" tags = [:ad, :enzyme, :enzyme_reverse, :enzyme_forward, :compat_floor] begin
     using ComposableRecurrences, Enzyme, FFTW
     using EnzymeTestUtils: test_forward, test_reverse
     using Random: Xoshiro
     const CR = ComposableRecurrences
+
+    # An immutable kernel, which Enzyme reverse mode passes as `Active`.
+    struct Lags3 <: AbstractVector{Float64}
+        t::NTuple{3, Float64}
+    end
+    Base.size(::Lags3) = (3,)
+    Base.getindex(k::Lags3, i::Int) = k.t[i]
+    Base.convert(::Type{Lags3}, v::AbstractVector) = Lags3(Tuple(v))
+
+    f = CR._fft_convolve!
     rng = Xoshiro(4)
     m, start, T, L = 3, 2, 40, 5
-    for (k, S) in ((rand(rng, L), 1), (PerStratum(rand(rng, 2, L)), 2))
+    kernels = ((rand(rng, L), 1), (PerStratum(rand(rng, 2, L)), 2))
+    for (k, S) in kernels, ra in (false, true)
         X, Y = rand(rng, m + T, S), zeros(T - start + 1, S)
-        activities = (
+        # On Julia 1.11 the harness's own forward call needs runtime
+        # activity for a struct kernel next to a constant argument.
+        fwd(consts) = ra || k isa AbstractVector || !consts
+        mixes = (
             (Duplicated, Duplicated), (Const, Duplicated), (Duplicated, Const),
         )
-        for (Tk, TX) in activities
+        for (Tk, TX) in mixes
             args = (
                 (copy(Y), Duplicated), (k, Tk), (X, TX),
                 (m, Const), (start, Const),
             )
-            for test in (test_forward, test_reverse)
-                test(
-                    CR._fft_convolve!, Duplicated, args...;
-                    runtime_activity = true
-                )
-            end
+            fwd(Const in (Tk, TX)) &&
+                test_forward(f, Duplicated, args...; runtime_activity = ra)
+            test_reverse(f, Duplicated, args...; runtime_activity = ra)
         end
+        batch = (
+            (copy(Y), BatchDuplicated), (k, BatchDuplicated),
+            (X, BatchDuplicated), (m, Const), (start, Const),
+        )
+        test_forward(f, BatchDuplicated, batch...; runtime_activity = ra)
+        test_reverse(f, BatchDuplicated, batch...; runtime_activity = ra)
+        # A constant output buffer carries no tangent. The harness cannot
+        # check the reverse pass of a constant mutated return.
+        fwd(true) && test_forward(
+            f, Const, (copy(Y), Const), (k, Duplicated), (X, Duplicated),
+            (m, Const), (start, Const); runtime_activity = ra
+        )
+    end
+    k = Lags3((0.3, 0.5, 0.2))
+    X, Y = rand(rng, m + T, 1), zeros(T - start + 1, 1)
+    for ra in (false, true), TX in (Const, Duplicated)
+        test_reverse(
+            f, Duplicated, (copy(Y), Duplicated), (k, Active), (X, TX),
+            (m, Const), (start, Const); runtime_activity = ra
+        )
     end
 end
 
