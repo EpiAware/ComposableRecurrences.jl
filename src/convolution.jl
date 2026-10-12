@@ -66,8 +66,7 @@ It runs once its weak dependency is loaded, as the
 this method is refused.
 It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
-number type (dual numbers, say), other arrays (device or traced), and
-forward-mode or plain reverse-mode AD of the call take
+number type (dual numbers, say) and other arrays (device or traced) take
 [`ComposableRecurrences.Direct`](@ref).
 It does not use the set [`ComposableRecurrences.Executor`](@ref).
 

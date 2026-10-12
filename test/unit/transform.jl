@@ -156,13 +156,16 @@ end
         pb(grads, m)
         return @allocated pb(grads, m)
     end
-    @test alloc(grads, m) == 0
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
+    @test alloc(grads, m) == 0 skip = coverage
     m = CR.Transform(nb, (; r = PerStratum([0.5f0, 0.7f0]), p = 0.4f0))
     m̄ = (;
         f = (;), θ = (; r = (; x = zeros(Float32, 2)), p = Ref(0.0f0)),
         derivative = nothing,
     )
-    @test alloc((; piece = m̄, v = 1.0f0, s = 0.0f0), m) == 0
+    @test alloc((; piece = m̄, v = 1.0f0, s = 0.0f0), m) == 0 skip = coverage
 end
 
 @testitem "Transform: a map carrying parameters is differentiated whole" begin

@@ -318,6 +318,25 @@ function _turnover(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Wards in each stratum: suspected patients (compartment 1) are confirmed
+# at a rate or ruled out as a share; confirmed patients (compartment 2) are
+# discharged at a rate and transferred out in counts. Admissions enter both.
+function _ward(w, θ)
+    adm, confirm, ruleout, discharge, transfer = _unpack(
+        θ, (2S, T), (S,), (T,), (1,), (S, T)
+    )
+    CR = ComposableRecurrences
+    flows = CR.Flows(
+        CR.Flow(1 => 2, PerStratum(confirm)),
+        CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+        CR.Flow(2 => 0, only(discharge)),
+        CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+    )
+    r = Recurrence([1.0]; modifiers = (flows,))
+    y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
+    return sum([WS; WS] .* y)
+end
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -580,7 +599,25 @@ function _routes_deep(w, θ)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
-# `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
+# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
+# EnzymeTestUtils compares the rule with finite differences taken in the
+# arguments' precision. In single precision these differ from the rule by up
+# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
+# entry with Float32 values carries `FLOAT32_RTOL`.
+const ENZYME_RTOL = 1.0e-7
+const FLOAT32_RTOL = 1.0e-3
+const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
+
+"""
+    enzyme_rtol(entry)
+
+The tolerance `test_adjoint` gives Enzyme's rule tester on the operator of
+`entry`: its optional fourth element's `enzyme_rtol`, else `ENZYME_RTOL`.
+"""
+enzyme_rtol(entry) = length(entry) > 3 ? entry[4].enzyme_rtol : ENZYME_RTOL
+
+# `(name, loss, θ0)`, with an optional fourth element of test options (see
+# `enzyme_rtol`); every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
 const _SCENARIOS = [
@@ -599,7 +636,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
-        () -> _flat([80.0], 0.3 .+ LOGR),
+        () -> _flat([80.0], 0.3 .+ LOGR), _F32,
     ),
     (
         "Recurrence array-field and scalar-field modifiers",
@@ -609,6 +646,13 @@ const _SCENARIOS = [
     (
         "Recurrence vaccination into a protected pool", _vaccination,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence ward with competing flows (Flows)", _ward,
+        () -> _flat(
+            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+        ),
     ),
     (
         "Recurrence grouped totals (Allocate)", _allocate,
@@ -730,7 +774,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence in Float32", _float32,
-        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
+        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)), _F32,
     ),
     (
         "Recurrence routes folded on scaled identities", _routes_folded,
@@ -813,6 +857,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows,),
     # Depletion removals came with `Protected`.
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),

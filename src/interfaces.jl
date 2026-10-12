@@ -263,6 +263,20 @@ true
     ),
 ]
 
+@implements PieceInterface{(:blocks, :nstate)} Flows [
+    Arguments(;
+        piece = Flows(
+            Flow(1 => 2, PerStratum([0.3, 0.2])), Flow(2 => 0, Linear(0.1)),
+            Flow(1 => 0, Amount(0.5))
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
+    ),
+    Arguments(;
+        piece = Flows(Flow(1 => 2, 0.3)), role = Init(),
+        args = (zeros(4), ones(4, 2))
+    ),
+]
+
 @implements PieceInterface{(:nstate,)} Capacity [
     Arguments(;
         piece = Capacity(
