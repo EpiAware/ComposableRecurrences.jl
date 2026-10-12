@@ -32,7 +32,9 @@ function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     ḡ = cotangent(r̄, :kernel)
     C̄ = cotangent(r̄, :coupling)
     m̄s = _mirrors(cotangent(r̄, :modifiers), modifiers)
-    s̄s = map(m -> _zeros(H, Tp, nstate(m, S)), modifiers)
+    # `eltype(H)`, not `Tp`: a closure that captures a type as a value does
+    # not infer it on Julia 1.11.
+    s̄s = map(m -> _zeros(H, eltype(H), nstate(m, S)), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
     v̄ = _zeros(H, Tp, S)
