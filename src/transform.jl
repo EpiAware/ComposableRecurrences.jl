@@ -198,12 +198,16 @@ _restructure(::Tuple, x) = x
 _restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
 
 # A `ForwardDiff.Tag` orders this dual against any outer one, so the
-# derivative also runs on dual inputs.
-function _transform_seeds(xs::Tuple{T, Vararg{T, M}}) where {T, M}
+# derivative also runs on dual inputs. The tag reaches the seeds as a static
+# parameter: a closure that captures a type as a value does not infer it on
+# Julia 1.11.
+function _transform_seeds(xs::Tuple{T, Vararg{T}}) where {T}
+    return _transform_seeds(typeof(ForwardDiff.Tag(_TransformTag(), T)), xs)
+end
+function _transform_seeds(::Type{G}, xs::Tuple{T, Vararg{T, M}}) where {G, T, M}
     N = Val(M + 1)
-    tag = typeof(ForwardDiff.Tag(_TransformTag(), T))
     return ntuple(N) do i
-        ForwardDiff.Dual{tag}(xs[i], ntuple(j -> T(i == j), N))
+        ForwardDiff.Dual{G}(xs[i], ntuple(j -> T(i == j), N))
     end
 end
 
