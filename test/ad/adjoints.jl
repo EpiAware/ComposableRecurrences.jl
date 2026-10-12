@@ -863,6 +863,43 @@ end
     @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
 end
 
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse: a scalar modifier field next to an array-field modifier" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    import Enzyme, ForwardDiff
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    # Local variables, so the losses are closures with typed fields.
+    let W = [cos(a * t) for a in 1:3, t in 1:8], h = ones(3, 2),
+            R = 1.0 .+ 0.05 .* [sin(a + t) for a in 1:3, t in 1:8],
+            pool = PerStratum([60.0, 90.0, 70.0])
+
+        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Add(b))
+        op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
+        ws(r) = CR.with_state(r, R; history = h, stop = 4)
+        # The operator built from `b` inside the loss.
+        for f in (
+                b -> sum(W .* op(b[1])(R; history = h)),
+                b -> sum(W[:, 1:4] .* ws(op(b[1]))[1]),
+            )
+            @test Enzyme.gradient(mode, Enzyme.Const(f), [0.5])[1] ≈
+                ForwardDiff.gradient(f, [0.5])
+        end
+        # The operator as the differentiated argument.
+        for f in (
+                r -> sum(W .* r(R; history = h)),
+                r -> sum(abs2, ws(r)[2].history),
+                r -> sum(W[:, 1:4] .* r(R; state = ws(r)[2])),
+            )
+            ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
+            @test ḡ.modifiers[2].b ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
+        end
+        # Fixed scalar fields with only the input active.
+        g(Rx) = sum(W .* op(0.5)(Rx; history = h))
+        @test Enzyme.gradient(mode, Enzyme.Const(g), R)[1] ≈ ForwardDiff.gradient(g, R)
+    end
+end
+
 @testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR

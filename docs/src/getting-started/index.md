@@ -6,11 +6,11 @@ Couplings link series, and modifiers add behaviour such as finite pools to each 
 Every operator is differentiable.
 Computational efficiency is a main focus; see [Performance](@ref overview-performance).
 
-## A first example
+## [Building the model](@id overview-build)
 
 Three towns share an outbreak.
-Infections follow a renewal process, a gravity coupling mixes the towns, and each town's susceptible pool is depleted.
-An intervention from day 50 lowers the reproduction number over a week, and a reporting delay turns infections into reports.
+This section builds a model of it in five steps, giving the equation and then the code at each step.
+The equations follow the [`Recurrence`](@ref), [`Depletion`](@ref ComposableRecurrences.Depletion) and [`Convolution`](@ref) docstrings.
 
 ```@example overview
 using ComposableRecurrences
@@ -19,26 +19,114 @@ using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff, Markdown
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
+nothing # hide
+```
 
+### One town
+
+Infections follow a renewal process:
+
+```math
+I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l},
+```
+
+where ``I_t`` is the number of infections on day ``t``.
+``R_t`` is the reproduction number, the gain of the [`Recurrence`](@ref).
+``g_l`` is the generation interval's weight on lag ``l``, and ``L`` is its length.
+Infections before the first day are the history.
+
+```@example overview
+gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+T = 75
+one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
+round.(one_town[1:8])
+```
+
+### Three towns and a gravity coupling
+
+Each town now has its own infections ``I_{t,i}``, and a coupling ``K`` mixes the towns:
+
+```math
+I_{t,i} = R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j},
+\qquad
+K_{ij} = 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}},
+\qquad
+G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j,
+```
+
+where ``K_{ij}`` weights town ``j`` in town ``i``.
+``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
+``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
+The gravity weight ``G_{ii}`` of a town on itself is 0.
+The towns are [strata](@ref glossary-stratum), and only town A is seeded.
+
+```@example overview
 towns = ["A", "B", "C"]
 pop = [60_000.0, 25_000.0, 10_000.0]
 dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
 gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
 K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
 
-gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
-renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
-
-T = 75
-R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
+coupled = Recurrence(gi; coupling = K)(fill(1.8, 3, T); history = seed)
+round.(coupled[:, 10])
+```
+
+### Depletion
+
+Each town's susceptible pool ``s_{t,i}`` starts at ``N_i`` and shrinks by the infections drawn from it.
+The default hazard form, with its exponent at the default of 1, draws
+
+```math
+\lambda_{t,i} = \frac{v_{t,i}}{N_i}, \qquad
+I_{t,i} = s_{t-1,i} \big(1 - e^{-\lambda_{t,i}}\big), \qquad
+s_{t,i} = s_{t-1,i} \, e^{-\lambda_{t,i}},
+```
+
+where ``v_{t,i}`` is the right-hand side of the coupled equation above.
+``\lambda_{t,i}`` is the hazard.
+[`PerStratum`](@ref) gives each town its own population.
+
+```@example overview
+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+depleted = renewal(fill(1.8, 3, T); history = seed)
+round.(vec(sum(depleted; dims = 2)))
+```
+
+Each town's total infections now stay below its population.
+
+### A reporting delay
+
+A share ``\rho`` of infections is reported, after a delay:
+
+```math
+C_{t,i} = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i},
+```
+
+where ``C_{t,i}`` is the number of reports on day ``t``.
+``w_l`` is the delay's weight on lag ``l``, and ``L_w`` is its length.
+Infections before day 1 count as zero here.
+``\rho`` is the gain of the [`Convolution`](@ref), and a delay of zero days is lag 0.
+
+```@example overview
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
+```
+
+### An intervention
+
+An intervention from day 50 lowers the reproduction number over six days:
+
+```math
+R_{t,i} = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
+```
+
+```@example overview
+R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4)
 round.(vec(sum(reports; dims = 2)))
 ```
-
-[`Recurrence`](@ref) describes `coupling` and `modifiers`; [`PerStratum`](@ref) gives each town its own population.
 
 ```@example overview
 long(x) = @chain DataFrame(permutedims(x), towns) begin

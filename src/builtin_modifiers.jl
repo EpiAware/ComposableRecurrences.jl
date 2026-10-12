@@ -226,7 +226,7 @@ struct Floor end
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
 
-For each stratum ``i`` (one of ``S`` parallel series) and absolute time
+For each stratum ``i`` (see [`PerStratum`](@ref)) and absolute time
 ``t`` from the call's first time ``t_0``,
 
 ```math
@@ -571,7 +571,7 @@ Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 v'_{t,i} = v_{t,i} + b_{t,i},
@@ -630,7 +630,7 @@ Moves a share of each stratum's values to others, conserving the total: a
 share ``\varepsilon_{t,j} K_{ij}`` of origin ``j``'s value is realised in
 destination ``i`` instead.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 \begin{aligned}
@@ -765,7 +765,7 @@ end
 @doc raw"""
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),

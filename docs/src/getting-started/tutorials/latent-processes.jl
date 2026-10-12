@@ -28,7 +28,18 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Three processes from one set of innovations
 #
-# Each process takes the innovations as `add`.
+# With innovations ``\epsilon_t``, the three processes are
+#
+# ```math
+# z^{\text{RW}}_t = z^{\text{RW}}_{t-1} + \epsilon_t, \qquad
+# z^{\text{AR}}_t = 0.6 \, z^{\text{AR}}_{t-1} + 0.3 \, z^{\text{AR}}_{t-2}
+#     + \epsilon_t, \qquad
+# z^{\text{MA}}_t = \epsilon_t + 0.8 \, \epsilon_{t-1} + 0.4 \, \epsilon_{t-2}.
+# ```
+#
+# Each recurrence takes the innovations as `add`.
+# The MA(2) process is a convolution of them.
+# ``z_t`` is each process's value on day ``t``.
 # With no gain the call runs over the length of `add`.
 # The processes are those in the [time-series table](@ref overview-time-series).
 
@@ -52,7 +63,13 @@ end
 
 # ## A time-varying AR coefficient
 #
-# A changing AR(1) coefficient can be a [`TimeVarying`](@ref) kernel, one column per day.
+# An AR(1) process with a coefficient ``\rho_t`` that changes by day is
+#
+# ```math
+# z_t = \rho_t \, z_{t-1} + \epsilon_t.
+# ```
+#
+# ``\rho_t`` can be a [`TimeVarying`](@ref) kernel, one column per day.
 # With a single lag it can also be the gain on the unit kernel.
 
 ρ = range(0.95, 0.5; length = T)
@@ -76,7 +93,14 @@ end
 
 # ## An AR(1) process as the log reproduction number
 #
-# The exponential of a latent process is a positive reproduction number.
+# The exponential of a latent process is a positive reproduction number:
+#
+# ```math
+# \log R_t = 0.95 \log R_{t-1} + \epsilon_t, \qquad I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
+# ```
+#
+# Here ``\epsilon_t`` are new draws with standard deviation 0.05.
+# ``I_t`` is the number of infections and ``g_l`` the generation interval of length ``L``.
 # An AR(1) process with a coefficient below one reverts to zero, so ``R_t`` stays near 1.
 # Twenty draws of the innovations give twenty paths of ``R_t`` and their infections.
 

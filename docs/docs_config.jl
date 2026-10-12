@@ -155,6 +155,11 @@ const LINKCHECK_IGNORE = Regex[
 const INDEX_REWRITES = Pair{String, String}[
     # The README's figure, relative to the site root.
     "](docs/src/assets/" => "](assets/",
+    # The tagline's links, as in-site references.
+    "](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/)" =>
+        "](@ref api-overview)",
+    "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/)" =>
+        "](@ref adjoints-backends)",
 ]
 
 # Whether README ```julia blocks become runnable `@example readme` blocks on
