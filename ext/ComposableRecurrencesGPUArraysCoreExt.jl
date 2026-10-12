@@ -1,9 +1,10 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Clamp,
-    Convolution, Depletion, Derived, Device, Pairwise, PerStratum, Pressure,
-    Protected, Recurrence, Redistribute, Secondary, Serial, TimeVarying,
-    Transform, _OldestFirstPairwise, _Ragged
+using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Amount,
+    Clamp, Convolution, Depletion, Derived, Device, Flow, Flows, Linear,
+    Pairwise, PerStratum, Pressure, Protected, Rate, Recurrence,
+    Redistribute, Secondary, Serial, TimeVarying, Transform,
+    _OldestFirstPairwise, _Ragged
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -97,7 +98,7 @@ end
 const _Adapted = Union{
     PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
     Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
-    Convolution,
+    Convolution, Flows, Flow, Rate, Linear, Amount,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)

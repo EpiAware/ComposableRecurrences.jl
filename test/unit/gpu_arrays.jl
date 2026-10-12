@@ -4,8 +4,9 @@
 
 @testmodule GPUCases begin
     using ComposableRecurrences
-    using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor,
-        Primary, Protected, Redistribute, Transform, contributions, with_state
+    using ComposableRecurrences: Add, Allocate, Amount, Clamp, Depletion,
+        Flow, Flows, Floor, Linear, Primary, Protected, Redistribute,
+        Transform, contributions, with_state
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -135,6 +136,17 @@
                 ),
             )
         )(d(RS); history = d(HS)),
+        "Flows, one group of three compartments with every kind" =>
+            d -> Recurrence(
+            d([1.0]);
+            modifiers = (
+                Flows(
+                    Flow(1 => 2, PerStratum(d([0.3]))), Flow(1 => 0, 0.05),
+                    Flow(2 => 3, Linear(TimeVarying(d(fill(0.1, T))))),
+                    Flow(3 => 0, Amount(0.2)),
+                ),
+            )
+        )(d(RS); history = d(HS[:, end:end])),
         "Allocate" =>
             d -> Recurrence(
             d(g0); modifiers = (Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),)
@@ -289,8 +301,8 @@ end
 @testitem "JLArrays: wrappers and built-in modifiers adapt every array they hold" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences
-    using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Protected,
-        Redistribute, Transform
+    using ComposableRecurrences: Add, Allocate, Amount, Clamp, Depletion,
+        Flow, Flows, Linear, Protected, Redistribute, Transform
     using JLArrays
     # Inside a kernel each wrapper and modifier must hold device arrays only:
     # no `JLArray`, the host-side handle, is left after adapting.
@@ -307,6 +319,10 @@ end
             Depletion(PerStratum(v); removals = tv, protected = Protected(PerStratum(v))),
             Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
             Transform(*, 0.8 * Derived(exp, tv)),
+            Flows(
+                Flow(1 => 2, PerStratum(v)), Flow(2 => 0, Linear(tv)),
+                Flow(1 => 0, Amount(tv)),
+            ),
         )
         @test holds_host(x)
         y = adapt(JLArrays.Adaptor(), x)
