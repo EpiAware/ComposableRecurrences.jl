@@ -102,7 +102,7 @@ public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
     ispointwise, nstate, depth, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
-    param, add_param!
+    param, add_param!, ConvolutionMethod, Direct, FFTMethod
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
