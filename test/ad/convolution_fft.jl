@@ -1,7 +1,10 @@
 # Gradients of an FFTMethod() convolution match ForwardDiff, which runs the
 # direct method. Under Enzyme and Mooncake reverse mode the native rule
 # runs the transform both ways; forward mode and NoAdjoint calls they trace
-# take the direct method.
+# take the direct method, or, where Enzyme does not apply the rule that
+# says it is tracing (Julia 1.11), the transform's own Enzyme rules.
+# The Enzyme items are tagged `compat_floor`, so the Threads workflow runs
+# them on Julia 1.11.
 
 @testsnippet FFTAD begin
     using ComposableRecurrences, DifferentiationInterface, FFTW, ForwardDiff
@@ -58,7 +61,7 @@ end
     test_fft_gradients(AutoReverseDiff())
 end
 
-@testitem "FFT convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse] setup = [FFTAD] begin
+@testitem "FFT convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [FFTAD] begin
     using Enzyme: Enzyme
     import EnzymeTestUtils
     using ADTypes: AutoEnzyme
@@ -89,7 +92,7 @@ end
     CR.test_adjoint(AutoMooncake(; config = nothing), c, CR.Run(), args...)
 end
 
-@testitem "FFT convolution gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward] setup = [FFTAD] begin
+@testitem "FFT convolution gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward, :compat_floor] setup = [FFTAD] begin
     using Enzyme: Enzyme
     using ADTypes: AutoEnzyme
     test_fft_gradients(
@@ -98,6 +101,36 @@ end
             function_annotation = Enzyme.Const,
         )
     )
+end
+
+# The transform's Enzyme rules against finite differences, for each mix of
+# active kernel and input. Traced code reaches them only where Enzyme runs
+# `_untraced` as it is, so they are called directly here.
+@testitem "FFT convolution: Enzyme rules of the transform" tags = [:ad, :enzyme, :enzyme_reverse, :enzyme_forward, :compat_floor] begin
+    using ComposableRecurrences, Enzyme, FFTW
+    using EnzymeTestUtils: test_forward, test_reverse
+    using Random: Xoshiro
+    const CR = ComposableRecurrences
+    rng = Xoshiro(4)
+    m, start, T, L = 3, 2, 40, 5
+    for (k, S) in ((rand(rng, L), 1), (PerStratum(rand(rng, 2, L)), 2))
+        X, Y = rand(rng, m + T, S), zeros(T - start + 1, S)
+        activities = (
+            (Duplicated, Duplicated), (Const, Duplicated), (Duplicated, Const),
+        )
+        for (Tk, TX) in activities
+            args = (
+                (copy(Y), Duplicated), (k, Tk), (X, TX),
+                (m, Const), (start, Const),
+            )
+            for test in (test_forward, test_reverse)
+                test(
+                    CR._fft_convolve!, Duplicated, args...;
+                    runtime_activity = true
+                )
+            end
+        end
+    end
 end
 
 @testitem "FFT convolution gradients: Mooncake forward" tags = [:ad, :mooncake, :mooncake_forward] setup = [FFTAD] begin

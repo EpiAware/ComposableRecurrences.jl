@@ -5,12 +5,12 @@
 # written back for `MixedDuplicated` ones.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
-    _log_plain, _note_plain_type, _plain, _rebuild_flag, _route_forward!,
-    _run_forward, _run_pullback!, _untraced
-using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
-    DuplicatedNoNeed, MixedDuplicated
+using ComposableRecurrences: PerStratum, Recurrence, Serial, _Current,
+    _WithState, _ad, _check_secondary, _current, _fft_convolve!,
+    _fft_convolve_back!, _log_plain, _note_plain_type, _plain, _rebuild_flag,
+    _route_forward!, _run_forward, _run_pullback!, _untraced
+using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
+    BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
@@ -149,24 +149,96 @@ function EnzymeRules.reverse(
     return ()
 end
 
-# The transforms are never reached from traced code, which `_untraced`
-# sends to the direct method; their rules keep Enzyme from differentiating
-# their FFTW calls.
-const _FFTCall = Union{typeof(_fft_convolve!), typeof(_fft_convolve_back!)}
-const _FFT_TRACED = "an FFT convolution was reached from AD-traced code"
+# Enzyme does not always call the `_untraced` rules: on some Julia versions
+# it runs a call that returns a `Bool` as it is. So traced code can reach
+# the transform, and these rules differentiate it without tracing its FFTW
+# calls. The lag sum `Y += c ⋆ X` is linear in the kernel `c` and in the
+# input `X`, so its tangent is `Ẏ += ċ ⋆ X + c ⋆ Ẋ` and its reverse pass is
+# the transform's own.
+
+# The `i`th shadow of an argument, or `nothing` when it has none. Under
+# runtime activity an inactive argument can come as its own shadow, which
+# must neither carry a tangent nor take a cotangent.
+_shadow(::Const, i) = nothing
+_shadow(a::Union{Duplicated, DuplicatedNoNeed}, i) = _active(a.dval, a.val)
+function _shadow(a::Union{BatchDuplicated, BatchDuplicatedNoNeed}, i)
+    return _active(a.dval[i], a.val)
+end
+_active(dv, v) = _aliases(dv, v) ? nothing : dv
+_aliases(dv, v) = dv === v
+_aliases(dv::PerStratum, v::PerStratum) = dv.x === v.x
+
 function EnzymeRules.forward(
-        ::EnzymeRules.FwdConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve!)},
+        ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
+        m::Const, start::Const
+    )
+    for i in 1:EnzymeRules.width(config)
+        dY, dk, dX = _shadow(Y, i), _shadow(kernel, i), _shadow(X, i)
+        dY === nothing && continue
+        dX === nothing || _fft_convolve!(dY, kernel.val, dX, m.val, start.val)
+        dk === nothing || _fft_convolve!(dY, dk, X.val, m.val, start.val)
+    end
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+    p, s = EnzymeRules.needs_primal(config), EnzymeRules.needs_shadow(config)
+    s || return p ? Y.val : nothing
+    p || return Y.dval
+    return EnzymeRules.width(config) == 1 ? Duplicated(Y.val, Y.dval) :
+        BatchDuplicated(Y.val, Y.dval)
+end
+
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
+        ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
+        m::Const, start::Const
+    )
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+    # The reverse pass reads the kernel and the input: keep copies if later
+    # code overwrites them.
+    ow = EnzymeRules.overwritten(config)
+    c = ow[3] ? deepcopy(kernel.val) : nothing
+    tape = (c, ow[4] ? copy(X.val) : nothing)
+    p = EnzymeRules.needs_primal(config) ? Y.val : nothing
+    s = EnzymeRules.needs_shadow(config) ? Y.dval : nothing
+    return EnzymeRules.AugmentedReturn(p, s, tape)
+end
+
+function EnzymeRules.reverse(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
+        ::Type, tape, Y::Annotation, kernel::Annotation, X::Annotation,
+        m::Const, start::Const
+    )
+    c = something(tape[1], kernel.val)
+    Xv = something(tape[2], X.val)
+    for i in 1:EnzymeRules.width(config)
+        Ȳ, k̄, X̄ = _shadow(Y, i), _shadow(kernel, i), _shadow(X, i)
+        (Ȳ === nothing || (k̄ === nothing && X̄ === nothing)) && continue
+        X̄ === nothing && (X̄ = zero(Xv))
+        _fft_convolve_back!(X̄, k̄, c, Xv, Ȳ, m.val, start.val)
+    end
+    return ntuple(_ -> nothing, 5)
+end
+
+# The reverse pass of the transform runs inside the rules, as primal code.
+# Its rules keep Enzyme from differentiating its FFTW calls if traced code
+# ever reaches it.
+const _FFT_TRACED = "the reverse pass of an FFT convolution was reached " *
+    "from AD-traced code"
+function EnzymeRules.forward(
+        ::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve_back!)}, ::Type,
+        args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
 end
 function EnzymeRules.augmented_primal(
-        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+        ::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve_back!)}, ::Type,
+        args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
 end
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, tape,
-        args::Vararg{Annotation, N}
+        ::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve_back!)}, ::Type,
+        tape, args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
 end

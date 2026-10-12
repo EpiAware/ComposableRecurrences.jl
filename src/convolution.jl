@@ -66,9 +66,11 @@ It runs once its weak dependency is loaded, as the
 this method is refused.
 It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
-number type (dual numbers, say), other arrays (device or traced), and
-forward-mode or plain reverse-mode AD of the call take
+number type (dual numbers, say) and other arrays (device or traced) take
 [`ComposableRecurrences.Direct`](@ref).
+Forward-mode or plain reverse-mode AD of the call takes it too, or, where
+a backend does not say it is tracing, differentiates the transform by its
+own rules.
 It does not use the set [`ComposableRecurrences.Executor`](@ref).
 
 The error of each output is about the machine epsilon times the size of the
@@ -374,7 +376,9 @@ _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 # AD and plain reverse-mode AD, whose extensions say so, and `true`
 # otherwise, including the forward pass of a native rule, which runs as
 # primal code. Inference must not see the constant, or it folds the branch
-# away before the AD rules replace it.
+# away before the AD rules replace it. A backend may still run it as it is
+# (one does on some Julia versions), so the transform has rules of its own
+# for traced code.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
