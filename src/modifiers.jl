@@ -45,7 +45,7 @@ A modifier ``M`` maps the step's values and its own state at absolute time
 (v', s') = M(v, s, t), \qquad v, v', s, s' \in \mathbb{R}^S,
 ```
 
-where ``v`` holds one value per stratum (one of ``S`` parallel series), ``s``
+where ``v`` holds one value per stratum (see [`PerStratum`](@ref)), ``s``
 is the modifier's state after the previous step and ``s'`` its state after
 this one.
 A pointwise modifier acts on each stratum ``i`` separately,
@@ -127,7 +127,7 @@ q_{t,i} = \sum_{j=1}^{S} C_{t,ij}\, p_{t,j},
 
 where ``p_{t,j}`` is stratum ``j``'s kernel convolution of its past values,
 ``q_{t,i}`` the pressure on stratum ``i`` and ``C_{t,ij}`` the weight of
-stratum ``j`` in stratum ``i``, with ``S`` strata (parallel series).
+stratum ``j`` in stratum ``i``, with ``S`` strata (see [`PerStratum`](@ref)).
 `λ * I` gives ``C_{t,ij} = \lambda \delta_{ij}``, a matrix `C` gives
 ``C_{t,ij}`` = `C[i, j]` at every ``t``, and a [`TimeVarying`](@ref)
 coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
@@ -256,9 +256,9 @@ function pullback! end
 @doc raw"""
 Whether modifier `m` acts on each stratum separately.
 
-A pointwise modifier's step factorises over strata (the ``S`` parallel
-series): at absolute time ``t``, stratum ``i``'s new value and state depend
-only on its own,
+A pointwise modifier's step factorises over the ``S`` strata
+(see [`PerStratum`](@ref)): at absolute time ``t``, stratum ``i``'s new
+value and state depend only on its own,
 
 ```math
 (v'_i, s'_i) = M_i(v_i, s_i, t), \qquad i = 1, \dots, S .
@@ -337,10 +337,9 @@ CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
 blocks(m) = nothing
 
 @doc raw"""
-The number of state entries modifier `m` keeps for `S` strata.
+The number of state entries modifier `m` keeps for `S` strata
+(see [`PerStratum`](@ref)).
 
-A stratum is one of the ``S`` parallel series computed together, such as a
-place or an age group.
 The recurrence allocates each modifier's state ``s`` with
 
 ```math

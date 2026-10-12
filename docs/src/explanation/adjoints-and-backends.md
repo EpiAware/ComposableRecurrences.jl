@@ -7,13 +7,13 @@ For which backend to choose, see [Choosing a backend](@ref ad-backends).
 
 Each operator call takes one of two routes:
 
-- the rule, a reverse pass written for the operator, which the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions register with those backends;
+- the rule, a reverse pass written for the operator (see the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions);
 - plain AD, where the backend differentiates the operator's forward loop.
 
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
 Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
-The route is read from types, apart from the rebuild check and the strata limit below.
+The route is read from types, apart from the rebuild check and the [strata](@ref glossary-stratum) limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
@@ -50,7 +50,7 @@ A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs no
 | Enzyme reverse | when the call takes the rule | otherwise |
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
-ReverseDiff runs in the AD tests but is not a target.
+ReverseDiff is not a [target](@ref faq-backends).
 
 ## [Which rules are kept](@id rule-policy)
 
@@ -93,8 +93,7 @@ A coupling whose cost grows with the strata squared was 1.7 to 4 times slower th
 
 ## [Checking a rule](@id adjoint-checks)
 
-[`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) sends every call of `op` to plain AD, to compare gradients and times with the rule.
-[Testing and benchmarking](@ref compare-plain-ad) shows how.
+[Testing and benchmarking](@ref compare-plain-ad) compares a rule with plain AD through [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint).
 [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator's rule.
 
 ## [Executors](@id executors)

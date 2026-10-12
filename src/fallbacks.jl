@@ -373,7 +373,7 @@ function pullback!(grads, m, ::Init, s, history)
     P = _nactive(m̄, m)
     nh = h̄ === nothing ? 0 : length(history)
     P + nh == 0 && return nothing
-    x0 = [_params(m); vec(history)]
+    x0 = P == 0 ? vec(history) : [_params(m); vec(history)]
     J = ForwardDiff.jacobian(x0) do x
         mm = P == 0 ? m : _rebuild(m, view(x, 1:P))
         hh = nh == 0 ? history : reshape(x[(P + 1):end], size(history))

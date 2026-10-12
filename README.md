@@ -9,9 +9,9 @@
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | [![cov ForwardDiff](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-forwarddiff)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-forwarddiff) | [![cov ReverseDiff](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-reversediff)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-reversediff) | [![cov ReverseDiff compiled](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-reversediff-compiled)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-reversediff-compiled) | [![cov Enzyme forward](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-enzyme-forward)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-enzyme-forward) | [![cov Enzyme reverse](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-enzyme-reverse)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-enzyme-reverse) | [![cov Mooncake reverse](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-mooncake-reverse)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-mooncake-reverse) | [![cov Mooncake forward](https://codecov.io/gh/EpiAware/ComposableRecurrences.jl/graph/badge.svg?flag=ad-mooncake-forward)](https://app.codecov.io/gh/EpiAware/ComposableRecurrences.jl?flags%5B0%5D=ad-mooncake-forward) |
 <!-- badges:end -->
-[![Reactant: experiment](https://img.shields.io/badge/Reactant-experiment-lightgrey)](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md)
+[![Reactant](https://github.com/EpiAware/ComposableRecurrences.jl/actions/workflows/reactant.yaml/badge.svg?branch=main)](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md)
 
-Fast, composable and differentiable recurrences and causal convolutions in Julia.
+Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/) and [differentiable](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/) recurrences and causal convolutions in Julia.
 
 ## Why ComposableRecurrences?
 
@@ -46,7 +46,7 @@ reports = delay(infections; gain = 0.4)
 
 ![Infections, reports and the remaining susceptible share in each town](docs/src/assets/readme-example.png)
 
-See the [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/) for the full walkthrough.
+The [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-build) builds this model up step by step, with the equation for each step.
 
 ## Related packages
 

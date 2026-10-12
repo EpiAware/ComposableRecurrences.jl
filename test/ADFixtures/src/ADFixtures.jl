@@ -138,6 +138,22 @@ function _scalar_field_mixed(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A scalar modifier field next to a modifier with an array field, under the
+# default coupling: the operator holds both floats and arrays.
+function _array_and_scalar_fields(w, θ)
+    b = θ[1]
+    logh = reshape(view(θ, 2:(1 + S * L)), S, L)
+    logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
+    mods = (
+        ComposableRecurrences.Depletion(
+            PerStratum(POP), ComposableRecurrences.Floor()
+        ),
+        ComposableRecurrences.Add(b),
+    )
+    y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # The strata split into two groups, each rescaled to a total per group and
 # day.
 const GROUPS = [1:2, 3:3]
@@ -588,7 +604,25 @@ function _routes_deep(w, θ)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
-# `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
+# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
+# EnzymeTestUtils compares the rule with finite differences taken in the
+# arguments' precision. In single precision these differ from the rule by up
+# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
+# entry with Float32 values carries `FLOAT32_RTOL`.
+const ENZYME_RTOL = 1.0e-7
+const FLOAT32_RTOL = 1.0e-3
+const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
+
+"""
+    enzyme_rtol(entry)
+
+The tolerance `test_adjoint` gives Enzyme's rule tester on the operator of
+`entry`: its optional fourth element's `enzyme_rtol`, else `ENZYME_RTOL`.
+"""
+enzyme_rtol(entry) = length(entry) > 3 ? entry[4].enzyme_rtol : ENZYME_RTOL
+
+# `(name, loss, θ0)`, with an optional fourth element of test options (see
+# `enzyme_rtol`); every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
 const _SCENARIOS = [
@@ -607,7 +641,12 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
-        () -> _flat([80.0], 0.3 .+ LOGR),
+        () -> _flat([80.0], 0.3 .+ LOGR), _F32,
+    ),
+    (
+        "Recurrence array-field and scalar-field modifiers",
+        _array_and_scalar_fields,
+        () -> _flat([0.5], fill(log(5.0), S, L), 0.3 .+ LOGR),
     ),
     (
         "Recurrence vaccination into a protected pool", _vaccination,
@@ -747,7 +786,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence in Float32", _float32,
-        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
+        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)), _F32,
     ),
     (
         "Recurrence routes folded on scaled identities", _routes_folded,
@@ -980,9 +1019,17 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-None: every scenario and its `NoAdjoint` twin passes on every backend.
+On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
+"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
+rule is correct and runs. Every other scenario and its `NoAdjoint` twin
+passes on every backend.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    VERSION < v"1.12" || return Dict{String, Set{String}}()
+    return Dict(
+        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
+    )
+end
 
 """
 Per-backend scenario names too unstable to run at all.

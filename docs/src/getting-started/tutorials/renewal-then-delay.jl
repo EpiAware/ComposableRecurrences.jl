@@ -34,8 +34,16 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A renewal process
 #
-# The generation interval is the kernel, lag 1 first.
-# The reproduction number multiplies each step, one value per day, and is called the gain.
+# Infections follow the renewal equation
+#
+# ```math
+# I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
+# ```
+#
+# ``I_t`` is the number of infections on day ``t``.
+# ``g_l`` is the generation interval's weight on lag ``l``, the kernel, lag 1 first.
+# ``L`` is its length.
+# ``R_t`` is the reproduction number, one value per day, and is called the gain.
 # The history holds the infections on the days before the first step.
 # A shorter history is padded with zeros.
 
@@ -90,9 +98,20 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 # ## Susceptible depletion
 #
 # `Depletion(N)` draws each day's infections from a pool of `N` susceptibles.
-# The default `Hazard()` form draws ``s (1 - e^{-v/N})`` from pool ``s``.
-# This keeps the pool from going negative.
-# The `Floor()` form draws ``\max(s / N, 10^{-6}) \, v`` instead.
+# The default `Hazard()` form draws
+#
+# ```math
+# I_t = s_{t-1} \big(1 - e^{-v_t / N}\big), \qquad s_t = s_{t-1} \, e^{-v_t / N}.
+# ```
+#
+# Here ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value.
+# ``s_t`` is the pool after day ``t``.
+# The pool starts at ``N`` and never goes negative.
+# The `Floor()` form draws
+#
+# ```math
+# I_t = \max\big(\max(s_{t-1} / N, 0),\ 10^{-6}\big) \, v_t, \qquad s_t = s_{t-1} - I_t.
+# ```
 
 N = 2_000.0
 R_high = fill(1.8, T)
@@ -240,6 +259,14 @@ DataFrame(
 
 # ## Imported cases
 #
+# Let ``h(\cdot)`` be the depletion draw above and ``\iota_t`` the imports on day ``t``.
+# Imports passed as `add` and as an `Add` after `Depletion` give
+#
+# ```math
+# I^{\text{before}}_t = h\Big(R_t \sum_{l} g_l I_{t-l} + \iota_t\Big), \qquad
+# I^{\text{after}}_t = h\Big(R_t \sum_{l} g_l I_{t-l}\Big) + \iota_t.
+# ```
+#
 # `add` enters before the modifiers, so imports are drawn from the pool like local cases.
 # `Add` enters where it sits in the modifier tuple.
 # After `Depletion`, the imports are added on top.
@@ -262,8 +289,15 @@ end
 
 # ## Reporting delay
 #
-# The delay is a convolution kernel, lag 0 first.
-# Ascertainment is the convolution's `gain`.
+# Reports on day ``t`` are
+#
+# ```math
+# C_t = \rho \sum_{l=0}^{L_d - 1} d_l \, I_{t-l},
+# ```
+#
+# where ``d_l`` is the delay's weight on lag ``l`` and ``L_d`` its length.
+# ``\rho`` is the ascertainment.
+# The delay is a convolution kernel, lag 0 first, and ``\rho`` is the convolution's `gain`.
 # The five seed days sit at days 1 to 5 with `start = 6`.
 # `prepend = true` returns them before the run, so the delay sees the seed too.
 
@@ -294,7 +328,7 @@ end
 # A_t = h \sum_{l} d^A_l O_{t-l}, \qquad D_t = f \sum_{l} d^D_l A_{t-l}.
 # ```
 #
-# The chain equals one convolution of the three delays convolved together, with gain ``h f``.
+# The chain is one convolution with gain ``h f``, whose kernel convolves the three delays.
 
 onsets = Convolution([0.0, 0.2, 0.5, 0.3])(infections_seeded)
 admissions = Convolution([0.3, 0.4, 0.2, 0.1])(onsets; gain = 0.1)
@@ -302,7 +336,7 @@ deaths = Convolution([0.1, 0.2, 0.4, 0.2, 0.1])(admissions; gain = 0.25)
 round.((sum(admissions), sum(deaths)) ./ sum(infections_seeded); digits = 3)
 
 # The shares are below ``h = 0.1`` and ``h f = 0.025``.
-# Infections are still growing when the run ends, and the outcomes of the last ones fall after it.
+# Infections still grow at the end, and the last ones have outcomes after the run.
 
 # ## Gradients
 #

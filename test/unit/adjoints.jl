@@ -838,10 +838,13 @@ end
         return acc
     end
     m̄ = zero_mirror(m)
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
     steps(m, m̄, 2)
-    @test (@allocated steps(m, m̄, 1000)) < 1000
+    @test (@allocated steps(m, m̄, 1000)) < 1000 skip = coverage
     steps(m, nothing, 2)
-    @test (@allocated steps(m, nothing, 1000)) < 1000
+    @test (@allocated steps(m, nothing, 1000)) < 1000 skip = coverage
     # Through a recurrence the rule matches ForwardDiff.
     r = CR.Recurrence([0.3, 0.2]; modifiers = (m,))
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)

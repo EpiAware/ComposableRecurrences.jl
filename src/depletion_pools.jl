@@ -8,11 +8,10 @@ A protected pool for [`ComposableRecurrences.Depletion`](@ref): the
 depletion's removals move into it, and it is drawn from at relative
 susceptibility ``\sigma``.
 
-At absolute time ``t``, for each stratum (one of the parallel series
-computed together, such as a place or an age group) with unprotected pool
-``u``, protected pool ``w``, step value ``v``, population ``N``,
-heterogeneity ``\alpha`` and removals ``r_t``, the depletion form ``F``
-draws from the effective pool ``P = u + \sigma w`` and the pools lose the
+At absolute time ``t``, for each stratum (see [`PerStratum`](@ref)) with
+unprotected pool ``u``, protected pool ``w``, step value ``v``, population
+``N``, heterogeneity ``\alpha`` and removals ``r_t``, the depletion form
+``F`` draws from the effective pool ``P = u + \sigma w`` and the pools lose the
 draw in proportion, then the removals move from ``u`` to ``w`` (with no
 other flows):
 

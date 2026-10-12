@@ -2,8 +2,8 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, the [strata](@ref PerStratum).
-# A stratum is a place, such as a town, or a type, such as an age group or traced cases.
+# A model can run several series side by side, the [strata](@ref glossary-stratum).
+# Here a stratum is a place, such as a town, or a type, such as traced cases.
 # A coupling mixes the series within each step.
 # A [`Pairwise`](@ref) kernel gives each pair its own generation interval.
 # [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves infections between places.
@@ -34,7 +34,16 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A gravity coupling
 #
-# A gravity coupling weights each pair of patches by population over squared distance.
+# A gravity coupling weights each pair of patches by population over squared distance:
+#
+# ```math
+# K_{ij} = 0.95 \, \delta_{ij} + 0.05 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad
+# G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \qquad G_{ii} = 0.
+# ```
+#
+# ``K_{ij}`` weights patch ``j`` in patch ``i``.
+# ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
+# ``N_j`` is the population of patch ``j`` and ``d_{ij}`` the distance between patches.
 # Most contact stays within a patch, so the gravity weights share a small part of each row.
 
 patches = ["A", "B", "C"]
@@ -56,6 +65,20 @@ end
 
 # ## Three ways to mix
 #
+# The three models differ in the pressure ``q_{t,i}`` on patch ``i``:
+#
+# ```math
+# q^{\text{fixed}}_{t,i} = \sum_{j} K_{ij} \sum_{l} g_l \, y_{t-l,j}, \qquad
+# q^{\text{pair}}_{t,i} = \sum_{j} \sum_{l} A_{ij,l} \, y_{t-l,j}, \qquad
+# q^{\text{cut}}_{t,i} = \sum_{j} K_{ij}(t) \sum_{l} g_l \, y_{t-l,j}.
+# ```
+#
+# ``y_{t,j}`` is the number of infections in patch ``j`` on day ``t``.
+# ``g_l`` is the generation interval's weight on lag ``l``.
+# ``A_{ij,l}`` is ``K_{ij} g_l`` within a patch and ``K_{ij} g^{\text{between}}_l`` between.
+# ``g^{\text{between}}_l`` is a longer interval, `gi_between` below.
+# ``K_{ij}(t)`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30.
+# Each patch's infections are its pressure times ``R``, drawn from its pool.
 # The fixed coupling applies `K` after the generation interval.
 # A `Pairwise` kernel gives each pair its own interval, longer between patches than within.
 # It weights each interval by `K`, so its coupling stays `I`.
@@ -98,7 +121,14 @@ end
 
 # ## Moving infections between patches
 #
-# Each patch sends a share `ε` of its infections to the others.
+# Each patch sends a share ``\varepsilon_{t,i}`` of its infections to the others:
+#
+# ```math
+# v'_{t,i} = \Big(1 - \varepsilon_{t,i} \sum_{j \ne i} K_{ji}\Big) v_{t,i}
+#     + \sum_{j \ne i} \varepsilon_{t,j} K_{ij} \, v_{t,j},
+# ```
+#
+# where ``v_{t,i}`` is patch ``i``'s value before the move and ``v'_{t,i}`` after it.
 # Each origin has its own share, which halves from day 40.
 # The modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute).
 # It sits before [`Depletion`](@ref ComposableRecurrences.Depletion).
@@ -133,7 +163,16 @@ maximum(abs, state.states[1] .- arrivals[:, end])
 #
 # Sometimes each patch's infections are known, from the model above or an earlier fit.
 # The question is how they split among the patch's districts.
-# [`Allocate`](@ref ComposableRecurrences.Allocate) splits them by the districts' renewals.
+# [`Allocate`](@ref ComposableRecurrences.Allocate) splits them by the districts' renewals:
+#
+# ```math
+# y_{t,i} = Y_{t,p} \, \frac{v_{t,i}}{\sum_{j \in \mathcal{G}_p} v_{t,j}},
+#     \qquad i \in \mathcal{G}_p,
+# ```
+#
+# ``\mathcal{G}_p`` holds the districts of patch ``p``.
+# ``Y_{t,p}`` is the patch's known total.
+# ``v_{t,i}`` is district ``i``'s renewal value.
 
 districts = [1:3, 4:5, 6:7]
 totals = models[1].second(1.6; history = seed, stop = T)
@@ -165,8 +204,15 @@ maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts
 #
 # ### A multi-type process
 #
-# With a unit kernel each step is one generation.
-# The mean offspring matrix `M` is the coupling.
+# With a unit kernel each step is one generation:
+#
+# ```math
+# y_n = M \, y_{n-1},
+# ```
+#
+# where ``y_n`` holds the mean cases of each type in generation ``n``.
+# The mean offspring matrix ``M`` is the coupling.
+# ``M_{ij}`` is the mean number of type ``i`` cases that one type ``j`` case causes.
 # Growth per generation converges to the spectral radius of `M`, the reproduction number.
 
 M = [1.2 0.4; 0.3 0.6]
@@ -190,8 +236,13 @@ end
 # ### Isolation as a thinned kernel
 #
 # Isolating a share `p` of cases blocks a share `b` of their later transmission.
-# `F_D(τ)` is the probability a case is isolated by lag `τ`.
-# The mean offspring at lag `τ` is then `R g(τ) (1 - p b F_D(τ))`.
+# ``F_D(\tau)`` is the probability a case is isolated by lag ``\tau``.
+# The mean offspring at lag ``\tau`` is then
+#
+# ```math
+# m(\tau) = R \, g(\tau) \big(1 - p \, b \, F_D(\tau)\big).
+# ```
+#
 # This assumes the generation interval is independent of the time to isolation.
 
 p, b = 0.8, 0.9
@@ -211,14 +262,17 @@ end
 # Isolation thins the later lags most and brings the reproduction number below one.
 #
 # Summing over lags gives the mean offspring of one case.
-# We check it against the mean of seeded [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl) `BranchingProcess` simulations with `Isolation`.
+# We check it against the mean of seeded simulations.
+# They come from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl).
+# Each is a `BranchingProcess` with `Isolation`.
 # The generation time is gamma with shape 2 and scale 3.
-# A case isolates after its incubation period and an exponential delay, gamma with shape 3 and scale 2 in total.
-# The total is gamma because the delay and incubation scales match.
+# A case isolates after its incubation period and an exponential delay.
+# This total is gamma with shape 3 and scale 2, as the two scales match.
 # We bin both by day and evaluate ``F_D`` at the middle of each day.
 # `p` is the share with symptoms times the test sensitivity.
 # `b` is one minus the transmission after isolation.
-# The reference file holds these parameters and its generator is in `test/usecases/references`.
+# The reference file holds these parameters.
+# Its generator is in `test/usecases/references`.
 
 ref = include(
     joinpath(
@@ -249,11 +303,20 @@ DataFrame(
 #
 # The delay to isolation can depend on a case's state.
 # Once a household's first case is found, later cases in it are found sooner.
-# In expectation each type gets its own thinned kernel, a [`PerStratum`](@ref) kernel by infector type.
+# In expectation each type gets its own thinned kernel.
+# This is a [`PerStratum`](@ref) kernel by infector type.
 # Type 1 is a household's first case and type 2 a later case.
 # `M_house` is the mean offspring matrix.
 # The next-generation matrix scales each column of `M_house` by its type's kernel sum.
-# Its spectral radius is the reproduction number.
+# Its spectral radius is the reproduction number:
+#
+# ```math
+# y_{t,i} = R \sum_{j} M_{ij} \sum_{l} W_{j,l} \, y_{t-l,j}, \qquad
+# K = R \, M \operatorname{diag}\Big(\sum_{l} W_{1,l},\ \sum_{l} W_{2,l}\Big).
+# ```
+#
+# ``W_{j,l}`` is type ``j``'s thinned kernel on lag ``l``, `W_house` below.
+# ``y_{t,i}`` is the mean number of type ``i`` cases on day ``t``, and ``K`` is `K_house`.
 
 F_fast = [0.3, 0.7, 0.9, 1.0, 1.0]
 W_house = permutedims([gi_isolated gi .* (1 .- p * b .* F_fast)])
@@ -263,14 +326,23 @@ house = house_model(R0; history = [10.0; 0.0;;], stop = 60)
 K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
 round.((maximum(abs, eigvals(K_house)), sum(house[:, end])); digits = 3)
 
-# The reproduction number is below one, so from 10 seed cases the mean number of cases falls towards zero.
+# The reproduction number is below one.
+# From 10 seed cases the mean number of cases falls towards zero.
 #
 # ### Contact tracing as two types
 #
 # Traced and untraced cases are two types.
 # A share `q` of each case's contacts is traced, and traced cases use the thinned kernel.
 # A `Pairwise` kernel gives each pair of types its interval.
-# Rows are the infectee type and columns the infector type.
+# Rows are the infectee type and columns the infector type:
+#
+# ```math
+# A_{1j,l} = (1 - q) \, g^{(j)}_l, \qquad A_{2j,l} = q \, g^{(j)}_l, \qquad
+# y_{t,i} = R \sum_{j} \sum_{l} A_{ij,l} \, y_{t-l,j},
+# ```
+#
+# where type 1 is untraced and type 2 traced.
+# ``g^{(1)}`` is the full kernel and ``g^{(2)}`` the thinned one.
 # This is an approximation: tracing correlates an infector's and infectee's isolation times.
 
 function traced_outbreak(q)
@@ -295,8 +367,17 @@ end
 # Some diseases spread by more than one route, each with its own timing and contacts.
 # Ebola spreads in the community while a case is ill and at the funeral after death.
 # [`Routes`](@ref) pairs each route's kernel with its own coupling.
+# The funeral route has coupling ``K^{\text{funeral}}`` and kernel ``g^{\text{funeral}}_l``:
+#
+# ```math
+# q_t = K \sum_{l} g_l \, y_{t-l}
+#     + K^{\text{funeral}} \sum_{l} g^{\text{funeral}}_l \, y_{t-l},
+# ```
+#
+# where ``y_t`` holds each patch's infections on day ``t``.
+# ``q_t`` is the pressure the gain scales.
 # The routes are the recurrence's kernel, so its coupling stays `I`.
-# Its docstring gives the maths, the cost and how it relates to `Pairwise`.
+# The `Routes` docstring gives the cost and how it relates to `Pairwise`.
 #
 # The funeral kernel is the infection-to-death delay convolved with the funeral days.
 # The fatality ratio scales it, and a [`Convolution`](@ref) builds it.
