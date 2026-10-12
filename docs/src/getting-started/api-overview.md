@@ -22,7 +22,7 @@ and a convolution computes
 y_t = g_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t .
 ```
 
-- ``y_t`` is the output and ``x_t`` the convolution input; each has one entry per series.
+- ``y_t`` is the output and ``x_t`` the convolution input; each has one entry per [series](@ref glossary-series), and the values before `start` are the `history`.
 - ``k_l`` is the [kernel](@ref overview-shapes) weight on lag ``l``.
 - ``C_t`` is the [coupling](@ref overview-couplings), which mixes the series.
 - ``g_t`` is the gain and ``a_t`` the additive input, the arguments `gain` and `add` of the [call](@ref overview-calls).
@@ -33,15 +33,19 @@ Names that are public but not exported are written unqualified below.
 Load them with `using ComposableRecurrences: Depletion, Floor, with_state`, and so on.
 For models from infectious disease epidemiology, see [Infectious disease models](@ref infectious-disease-models).
 
-## Words used on these pages
+## [Words used on these pages](@id glossary)
 
-- **Series**: one sequence of values over time, such as the infections in one region or age group.
-- **Stratum** (plural strata): one of several series run side by side, which `PerStratum` gives its own value.
-- **Kernel**: the weights applied to past values, listed from the most recent lag.
-- **Gain**: the multiplier ``g_t`` on each step, such as the reproduction number in a renewal process.
-- **History**: the values before the first step.
-- **State**: the values a later call needs to continue a series, as described under [Calls](@ref overview-calls).
-- **Pointwise**: acting on each series separately.
+### [Series](@id glossary-series)
+
+One sequence of values over time, such as the infections in one region or age group.
+
+### [Stratum](@id glossary-stratum)
+
+One of several series run side by side (plural strata); see [`PerStratum`](@ref).
+
+### [Pointwise](@id glossary-pointwise)
+
+Acting on each series separately; [`ispointwise`](@ref ComposableRecurrences.ispointwise) says whether a modifier does.
 
 ## Tables
 
@@ -64,7 +68,7 @@ the [extension API](@ref overview-extending), which includes
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
 | [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
-A recurrence has no lag 0, because a value cannot depend on itself in the same step.
+A recurrence has no lag 0; the [FAQ](@ref faq-lag-origin) says why.
 
 ## [Calls](@id overview-calls)
 
@@ -171,9 +175,9 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 | Name | What it does | Returns |
 |---|---|---|
 | [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor operator calls use, set for a block with `with` | a scoped value |
-| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | run loops in order, across CPU threads, or as a GPU kernel | an executor |
+| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | the built-in executors | an executor |
 
-[Executors](@ref executors) gives what each supports under each AD backend.
+[Executors](@ref executors) says what each does and supports under each AD backend.
 
 ## [Extension API](@id overview-extending)
 

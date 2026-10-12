@@ -2,10 +2,9 @@
 struct _Flat end
 
 @doc raw"""
-Rescales each group of strata to an exogenous total: the strata of a group
-keep their shares of the group's value and the group takes its total.
-A stratum is one of ``S`` parallel series computed together, such as a
-place or an age group.
+Rescales each group of strata (see [`PerStratum`](@ref)) to an exogenous
+total: the strata of a group keep their shares of the group's value and the
+group takes its total.
 
 At absolute time ``t``, with ``v_i`` stratum ``i``'s value after the
 earlier modifiers, ``G_p`` the strata of group ``p`` and ``T_{t,p}`` its

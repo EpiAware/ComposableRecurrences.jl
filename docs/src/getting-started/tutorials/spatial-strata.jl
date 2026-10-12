@@ -2,8 +2,8 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, the [strata](@ref PerStratum).
-# A stratum is a place, such as a town, or a type, such as an age group or traced cases.
+# A model can run several series side by side, the [strata](@ref glossary-stratum).
+# Here a stratum is a place, such as a town, or a type, such as traced cases.
 # A coupling mixes the series within each step.
 # A [`Pairwise`](@ref) kernel gives each pair its own generation interval.
 # [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves infections between places.
@@ -211,14 +211,17 @@ end
 # Isolation thins the later lags most and brings the reproduction number below one.
 #
 # Summing over lags gives the mean offspring of one case.
-# We check it against the mean of seeded [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl) `BranchingProcess` simulations with `Isolation`.
+# We check it against the mean of seeded simulations.
+# They come from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl).
+# Each is a `BranchingProcess` with `Isolation`.
 # The generation time is gamma with shape 2 and scale 3.
-# A case isolates after its incubation period and an exponential delay, gamma with shape 3 and scale 2 in total.
-# The total is gamma because the delay and incubation scales match.
+# A case isolates after its incubation period and an exponential delay.
+# This total is gamma with shape 3 and scale 2, as the two scales match.
 # We bin both by day and evaluate ``F_D`` at the middle of each day.
 # `p` is the share with symptoms times the test sensitivity.
 # `b` is one minus the transmission after isolation.
-# The reference file holds these parameters and its generator is in `test/usecases/references`.
+# The reference file holds these parameters.
+# Its generator is in `test/usecases/references`.
 
 ref = include(
     joinpath(
@@ -249,7 +252,8 @@ DataFrame(
 #
 # The delay to isolation can depend on a case's state.
 # Once a household's first case is found, later cases in it are found sooner.
-# In expectation each type gets its own thinned kernel, a [`PerStratum`](@ref) kernel by infector type.
+# In expectation each type gets its own thinned kernel.
+# This is a [`PerStratum`](@ref) kernel by infector type.
 # Type 1 is a household's first case and type 2 a later case.
 # `M_house` is the mean offspring matrix.
 # The next-generation matrix scales each column of `M_house` by its type's kernel sum.
@@ -263,7 +267,8 @@ house = house_model(R0; history = [10.0; 0.0;;], stop = 60)
 K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
 round.((maximum(abs, eigvals(K_house)), sum(house[:, end])); digits = 3)
 
-# The reproduction number is below one, so from 10 seed cases the mean number of cases falls towards zero.
+# The reproduction number is below one.
+# From 10 seed cases the mean number of cases falls towards zero.
 #
 # ### Contact tracing as two types
 #
