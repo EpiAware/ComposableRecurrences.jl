@@ -162,6 +162,34 @@ end
             (m, Const), (start, Const); runtime_activity = ra
         )
     end
+    test_reverse(
+        f, BatchDuplicated, (copy(Y), BatchDuplicated), (k, Active),
+        (X, BatchDuplicated), (m, Const), (start, Const)
+    )
+
+    # An immutable per-stratum kernel, also passed as `Active`.
+    struct Coefs2x3 <: AbstractMatrix{Float64}
+        t::NTuple{6, Float64}
+    end
+    Base.size(::Coefs2x3) = (2, 3)
+    Base.getindex(c::Coefs2x3, i::Int, j::Int) = c.t[i + 2 * (j - 1)]
+    Base.convert(::Type{Coefs2x3}, v::AbstractMatrix) = Coefs2x3(Tuple(v))
+    K = PerStratum(Coefs2x3(Tuple(rand(rng, 6))))
+    X, Y = rand(rng, m + T, 2), zeros(T - start + 1, 2)
+    for TX in (Const, Duplicated)
+        test_reverse(
+            f, Duplicated, (copy(Y), Duplicated), (K, Active), (X, TX),
+            (m, Const), (start, Const); runtime_activity = true
+        )
+    end
+
+    # A constant output buffer asked for a shadow gets zeros, and any other
+    # annotation is refused.
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    @test ext._out_shadow(Const(ones(2, 2)), 1) == zeros(2, 2)
+    @test ext._out_shadow(Const(ones(2, 2)), 2) == (zeros(2, 2), zeros(2, 2))
+    v = rand(3)
+    @test_throws ArgumentError ext._lane(MixedDuplicated(v, Ref(v)), 1)
 end
 
 @testitem "FFT convolution gradients: Mooncake forward" tags = [:ad, :mooncake, :mooncake_forward] setup = [FFTAD] begin
