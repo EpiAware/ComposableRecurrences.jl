@@ -106,7 +106,8 @@
     # with and without pullbacks, scalar gains, short seeds, `Transform`
     # forms, and the shapes of the use cases (random walk, AR(2),
     # time-varying AR, seeded renewal, patch models and strata renewals with
-    # imports, doses or a protected pool).
+    # imports, doses or a protected pool). Cases with single-precision
+    # values carry the Float32 tolerance as a fourth element.
     function extra_cases()
         rng = Xoshiro(11)
         S, L, T = 3, 3, 6
@@ -115,7 +116,7 @@
         h = 1 .+ rand(rng, S, L)
         R = 0.5 .+ rand(rng, S, T)
         Ks = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
-        f32 = (; enzyme_rtol = ADFixtures.FLOAT32_RTOL)
+        f32 = ADFixtures._F32
         cases = [
             (
                 "renewal, one series, Float32",
@@ -319,7 +320,7 @@
     function test_adjoint_case(name, backend, case; kwargs...)
         label, op, args = case
         broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
-        if label in broken
+        if label in broken || label in ADFixtures.broken_scenario_names()
             probe = @testset Probe "$label" begin
                 CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
             end
@@ -332,9 +333,10 @@
         return nothing
     end
 
-    # A testset that records whether every result in it, and in the
-    # testsets nested in it, passed or was marked broken, and reports
-    # nothing to its parent.
+    # A testset that records whether every result in it passed or was
+    # marked broken, and reports nothing to a parent of another type. A
+    # testset nested in it without a type of its own is also a `Probe`, and
+    # passes its result up.
     mutable struct Probe <: Test.AbstractTestSet
         description::String
         ok::Bool
@@ -345,7 +347,13 @@
     _passed(ts::Probe) = ts.ok
     Test.record(ts::Probe, r::Union{Test.Result, Test.AbstractTestSet}) =
         (ts.ok &= _passed(r); r)
-    Test.finish(ts::Probe) = ts
+    function Test.finish(ts::Probe)
+        if Test.get_testset_depth() > 0
+            parent = Test.get_testset()
+            parent isa Probe && Test.record(parent, ts)
+        end
+        return ts
+    end
 
     # Each registry scenario's gradient on `backend` runs the analytic
     # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
