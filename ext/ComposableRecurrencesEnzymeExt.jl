@@ -6,12 +6,13 @@
 # paths; scalar cotangents are returned for `Active` leaves.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: Recurrence, Serial, _ADLeaves, _Current, _WithState,
-    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!, _is_leaf,
-    _leaf_paths, _log_plain, _note_plain_type, _plain, _rebuild_flag,
-    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
-using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
-    DuplicatedNoNeed, MixedDuplicated
+using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
+    _Current, _WithState, _check_secondary, _current, _fft_convolve!,
+    _fft_convolve_back!, _is_leaf, _leaf_paths, _log_plain, _note_plain_type,
+    _plain, _rebuild_flag, _rebuild_leaves, _route_forward!, _run_forward,
+    _run_pullback!, _untraced
+using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
+    BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
@@ -134,6 +135,12 @@ end
 
 # Code Enzyme traces is not run as primal code, so a convolution it traces
 # takes the direct method, which it can differentiate.
+# The routes differ by Julia version. On 1.12 Enzyme calls these rules, so
+# traced code takes the direct method, the faster one for short kernels. On
+# 1.11 it runs a call that returns a `Bool` as it is, without its rule, so
+# traced code takes the transform through the rules of `_fft_convolve!`
+# below. 1.12 also skips these rules once the call has a constant argument,
+# so they are kept as they are, with no arguments.
 function EnzymeRules.forward(
         config::EnzymeRules.FwdConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
     )
@@ -151,24 +158,129 @@ function EnzymeRules.reverse(
     return ()
 end
 
-# The transforms are never reached from traced code, which `_untraced`
-# sends to the direct method; their rules keep Enzyme from differentiating
-# their FFTW calls.
-const _FFTCall = Union{typeof(_fft_convolve!), typeof(_fft_convolve_back!)}
-const _FFT_TRACED = "an FFT convolution was reached from AD-traced code"
+# Traced code that reaches the transform (see the `_untraced` rules above)
+# is differentiated by these rules, without tracing its FFTW calls. The lag
+# sum `Y += c ⋆ X` is linear in the kernel `c` and in the input `X`, so its
+# tangent is `Ẏ += ċ ⋆ X + c ⋆ Ẋ` and its reverse pass is the transform's
+# own.
+
+# The `i`th shadow of an argument, or `nothing` when it has none. Under
+# runtime activity an inactive argument can come as its own shadow, which
+# must neither carry a tangent nor take a cotangent. An `Active` kernel (an
+# immutable vector) has no shadow: its cotangent is returned instead.
+_lane(::Union{Const, Active}, i) = nothing
+_lane(a::Union{Duplicated, DuplicatedNoNeed}, i) = _live(a.dval, a.val)
+function _lane(a::Union{BatchDuplicated, BatchDuplicatedNoNeed}, i)
+    return _live(a.dval[i], a.val)
+end
+function _lane(a::Annotation, i)
+    throw(
+        ArgumentError(
+            "the FFT convolution rules take a Const, Active, Duplicated or " *
+                "BatchDuplicated argument; got $(nameof(typeof(a)))"
+        )
+    )
+end
+_live(dv, v) = _aliases(dv, v) ? nothing : dv
+_aliases(dv, v) = dv === v
+_aliases(dv::PerStratum, v::PerStratum) = dv.x === v.x
+
+# The shadow returned for the output buffer `Y`: zero if it is constant.
+_out_shadow(Y::Const, w) = w == 1 ? zero(Y.val) : ntuple(_ -> zero(Y.val), w)
+_out_shadow(Y, w) = Y.dval
+
+# A mutable mirror of the kernel for its cotangent, and the cotangent of an
+# `Active` kernel rebuilt from it in the kernel's own type.
+_kernel_mirror(c::AbstractVector) = zeros(eltype(c), length(c))
+_kernel_mirror(c::PerStratum) = PerStratum(zeros(eltype(c.x), size(c.x)))
+_kernel_cotangent(c::AbstractVector, k̄) = convert(typeof(c), k̄)
+_kernel_cotangent(c::PerStratum, k̄) = PerStratum(convert(typeof(c.x), k̄.x))
+
 function EnzymeRules.forward(
-        ::EnzymeRules.FwdConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve!)},
+        ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
+        m::Const, start::Const
+    )
+    w = EnzymeRules.width(config)
+    for i in 1:w
+        dY, dk, dX = _lane(Y, i), _lane(kernel, i), _lane(X, i)
+        dY === nothing && continue
+        dX === nothing || _fft_convolve!(dY, kernel.val, dX, m.val, start.val)
+        dk === nothing || _fft_convolve!(dY, dk, X.val, m.val, start.val)
+    end
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+    p, s = EnzymeRules.needs_primal(config), EnzymeRules.needs_shadow(config)
+    s || return p ? Y.val : nothing
+    dY = _out_shadow(Y, w)
+    p || return dY
+    return w == 1 ? Duplicated(Y.val, dY) : BatchDuplicated(Y.val, dY)
+end
+
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
+        ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
+        m::Const, start::Const
+    )
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+    # The reverse pass reads the kernel and the input: keep copies if later
+    # code overwrites them.
+    ow = EnzymeRules.overwritten(config)
+    c = ow[3] ? deepcopy(kernel.val) : nothing
+    tape = (c, ow[4] ? copy(X.val) : nothing)
+    p = EnzymeRules.needs_primal(config) ? Y.val : nothing
+    s = EnzymeRules.needs_shadow(config) ?
+        _out_shadow(Y, EnzymeRules.width(config)) : nothing
+    return EnzymeRules.AugmentedReturn(p, s, tape)
+end
+
+function EnzymeRules.reverse(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
+        ::Type, tape, Y::Annotation, kernel::Annotation, X::Annotation,
+        m::Const, start::Const
+    )
+    c = something(tape[1], kernel.val)
+    Xv = something(tape[2], X.val)
+    w = EnzymeRules.width(config)
+    k̄s = kernel isa Active ? ntuple(_ -> _kernel_mirror(c), w) : nothing
+    # The input cotangent of a constant input is not needed: one buffer
+    # takes it for every lane.
+    sink = nothing
+    for i in 1:w
+        Ȳ, X̄ = _lane(Y, i), _lane(X, i)
+        k̄ = k̄s === nothing ? _lane(kernel, i) : k̄s[i]
+        (Ȳ === nothing || (k̄ === nothing && X̄ === nothing)) && continue
+        if X̄ === nothing
+            sink === nothing && (sink = zero(Xv))
+            X̄ = sink
+        end
+        _fft_convolve_back!(X̄, k̄, c, Xv, Ȳ, m.val, start.val)
+    end
+    k̄ = k̄s === nothing ? nothing :
+        w == 1 ? _kernel_cotangent(c, only(k̄s)) :
+        map(b -> _kernel_cotangent(c, b), k̄s)
+    return (nothing, k̄, nothing, nothing, nothing)
+end
+
+# The reverse pass of the transform runs inside the rules, as primal code.
+# Its rules keep Enzyme from differentiating its FFTW calls if traced code
+# ever reaches it.
+const _FFT_TRACED = "the reverse pass of an FFT convolution was reached " *
+    "from AD-traced code"
+function EnzymeRules.forward(
+        ::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve_back!)}, ::Type,
+        args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
 end
 function EnzymeRules.augmented_primal(
-        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+        ::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve_back!)}, ::Type,
+        args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
 end
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, tape,
-        args::Vararg{Annotation, N}
+        ::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve_back!)}, ::Type,
+        tape, args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
 end
