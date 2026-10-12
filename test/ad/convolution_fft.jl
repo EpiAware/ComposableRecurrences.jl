@@ -1,7 +1,9 @@
 # Gradients of an FFTMethod() convolution match ForwardDiff, which runs the
 # direct method. Under Enzyme and Mooncake reverse mode the native rule
 # runs the transform both ways; forward mode and NoAdjoint calls they trace
-# take the direct method.
+# take the direct method or the transform's own Enzyme rules.
+# The Enzyme items are tagged `compat_floor`, so the Threads workflow runs
+# them on Julia 1.11.
 
 @testsnippet FFTAD begin
     using ComposableRecurrences, DifferentiationInterface, FFTW, ForwardDiff
@@ -58,7 +60,7 @@ end
     test_fft_gradients(AutoReverseDiff())
 end
 
-@testitem "FFT convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse] setup = [FFTAD] begin
+@testitem "FFT convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [FFTAD] begin
     using Enzyme: Enzyme
     import EnzymeTestUtils
     using ADTypes: AutoEnzyme
@@ -89,7 +91,7 @@ end
     CR.test_adjoint(AutoMooncake(; config = nothing), c, CR.Run(), args...)
 end
 
-@testitem "FFT convolution gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward] setup = [FFTAD] begin
+@testitem "FFT convolution gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward, :compat_floor] setup = [FFTAD] begin
     using Enzyme: Enzyme
     using ADTypes: AutoEnzyme
     test_fft_gradients(
@@ -98,6 +100,96 @@ end
             function_annotation = Enzyme.Const,
         )
     )
+end
+
+# The transform's Enzyme rules against finite differences, called directly,
+# since traced code does not reach them on every Julia version. They cover
+# each mix of active kernel and input, batched shadows, a constant output
+# buffer, an immutable kernel and runtime activity off and on.
+@testitem "FFT convolution: Enzyme rules of the transform" tags = [:ad, :enzyme, :enzyme_reverse, :enzyme_forward, :compat_floor] begin
+    using ComposableRecurrences, Enzyme, FFTW
+    using EnzymeTestUtils: test_forward, test_reverse
+    using Random: Xoshiro
+    const CR = ComposableRecurrences
+
+    # An immutable kernel, which Enzyme reverse mode passes as `Active`.
+    struct Lags3 <: AbstractVector{Float64}
+        t::NTuple{3, Float64}
+    end
+    Base.size(::Lags3) = (3,)
+    Base.getindex(k::Lags3, i::Int) = k.t[i]
+    Base.convert(::Type{Lags3}, v::AbstractVector) = Lags3(Tuple(v))
+
+    f = CR._fft_convolve!
+    rng = Xoshiro(4)
+    m, start, T, L = 3, 2, 40, 5
+    kernels = ((rand(rng, L), 1), (PerStratum(rand(rng, 2, L)), 2))
+    for (k, S) in kernels, ra in (false, true)
+        X, Y = rand(rng, m + T, S), zeros(T - start + 1, S)
+        # On Julia 1.11 the harness's own forward call needs runtime
+        # activity for a struct kernel next to a constant argument.
+        fwd(consts) = ra || k isa AbstractVector || !consts
+        mixes = (
+            (Duplicated, Duplicated), (Const, Duplicated), (Duplicated, Const),
+        )
+        for (Tk, TX) in mixes
+            args = (
+                (copy(Y), Duplicated), (k, Tk), (X, TX),
+                (m, Const), (start, Const),
+            )
+            fwd(Const in (Tk, TX)) &&
+                test_forward(f, Duplicated, args...; runtime_activity = ra)
+            test_reverse(f, Duplicated, args...; runtime_activity = ra)
+        end
+        batch = (
+            (copy(Y), BatchDuplicated), (k, BatchDuplicated),
+            (X, BatchDuplicated), (m, Const), (start, Const),
+        )
+        test_forward(f, BatchDuplicated, batch...; runtime_activity = ra)
+        test_reverse(f, BatchDuplicated, batch...; runtime_activity = ra)
+        # A constant output buffer carries no tangent. The harness cannot
+        # check the reverse pass of a constant mutated return.
+        fwd(true) && test_forward(
+            f, Const, (copy(Y), Const), (k, Duplicated), (X, Duplicated),
+            (m, Const), (start, Const); runtime_activity = ra
+        )
+    end
+    k = Lags3((0.3, 0.5, 0.2))
+    X, Y = rand(rng, m + T, 1), zeros(T - start + 1, 1)
+    for ra in (false, true), TX in (Const, Duplicated)
+        test_reverse(
+            f, Duplicated, (copy(Y), Duplicated), (k, Active), (X, TX),
+            (m, Const), (start, Const); runtime_activity = ra
+        )
+    end
+    test_reverse(
+        f, BatchDuplicated, (copy(Y), BatchDuplicated), (k, Active),
+        (X, BatchDuplicated), (m, Const), (start, Const)
+    )
+
+    # An immutable per-stratum kernel, also passed as `Active`.
+    struct Coefs2x3 <: AbstractMatrix{Float64}
+        t::NTuple{6, Float64}
+    end
+    Base.size(::Coefs2x3) = (2, 3)
+    Base.getindex(c::Coefs2x3, i::Int, j::Int) = c.t[i + 2 * (j - 1)]
+    Base.convert(::Type{Coefs2x3}, v::AbstractMatrix) = Coefs2x3(Tuple(v))
+    K = PerStratum(Coefs2x3(Tuple(rand(rng, 6))))
+    X, Y = rand(rng, m + T, 2), zeros(T - start + 1, 2)
+    for TX in (Const, Duplicated)
+        test_reverse(
+            f, Duplicated, (copy(Y), Duplicated), (K, Active), (X, TX),
+            (m, Const), (start, Const); runtime_activity = true
+        )
+    end
+
+    # A constant output buffer asked for a shadow gets zeros, and any other
+    # annotation is refused.
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    @test ext._out_shadow(Const(ones(2, 2)), 1) == zeros(2, 2)
+    @test ext._out_shadow(Const(ones(2, 2)), 2) == (zeros(2, 2), zeros(2, 2))
+    v = rand(3)
+    @test_throws ArgumentError ext._lane(MixedDuplicated(v, Ref(v)), 1)
 end
 
 @testitem "FFT convolution gradients: Mooncake forward" tags = [:ad, :mooncake, :mooncake_forward] setup = [FFTAD] begin
