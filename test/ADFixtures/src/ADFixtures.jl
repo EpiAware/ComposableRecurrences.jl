@@ -114,6 +114,21 @@ function _renewal_strata(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A differentiated heterogeneity exponent: the built-in forms' default
+# exponent is fixed, so these keep the float exponent's power and log on
+# every backend.
+function _heterogeneity(w, θ, form)
+    α, logh, logR = _unpack(θ, (1,), (S, L), (S, T))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(POP), form; heterogeneity = only(α)
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+_heterogeneity_hazard(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Hazard())
+_heterogeneity_floor(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Floor())
+
 # A scalar modifier field, a Float32 kernel and Float64 history.
 const G0F = Float32.(G0)
 function _scalar_field_mixed(w, θ)
@@ -363,6 +378,30 @@ function _clamp_redistribute_add(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Depletion that draws up to a small pool per stratum, so the pools run out
+# within the run: exact, and smooth with its softness differentiated. The
+# parameters are offsets from `TRUNC0`, so the scenarios start at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const TRUNC0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]), [0.1])
+function _truncate(w, θ)
+    x = TRUNC0[1:length(θ)] .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(exp.(logpool)), ComposableRecurrences.Truncate()
+    )
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+function _soft_truncate(w, θ)
+    x = TRUNC0 .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    form = ComposableRecurrences.SoftTruncate(x[length(x)])
+    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)), form)
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+
 # Every float in single precision: the kernel, coupling, history and gain.
 const K0F, WSF = Float32.(K0), Float32.(WS)
 function _float32(w, θ)
@@ -438,6 +477,14 @@ const _SCENARIOS = [
     (
         "Recurrence strata, coupling and depletion", _renewal_strata,
         () -> _flat(G0, K0, fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence depletion with a differentiated heterogeneity",
+        _heterogeneity_hazard, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence floored depletion with a differentiated heterogeneity",
+        _heterogeneity_floor, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
     ),
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
@@ -546,6 +593,14 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
+        "Recurrence depletion with truncated draws", _truncate,
+        () -> zeros(length(TRUNC0) - 1),
+    ),
+    (
+        "Recurrence depletion with smoothly truncated draws", _soft_truncate,
+        () -> zero(TRUNC0),
+    ),
+    (
         "Recurrence in Float32", _float32,
         () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
     ),
@@ -612,6 +667,8 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new public name, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
+    "Recurrence depletion with truncated draws" => (:Truncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     # Depletion removals came with `Protected`.
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
