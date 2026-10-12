@@ -67,7 +67,9 @@ A modifier's [`ComposableRecurrences.pullback!`](@ref) writes every
 parameter's cotangent through `add_param!`, with `x̄` from
 [`ComposableRecurrences.cotangent`](@ref), so it accepts every parameter
 form.
-A `nothing` mirror takes nothing.
+A `nothing` mirror takes nothing for `x` itself, but a [`Recent`](@ref)
+parameter still sends its cotangent to the outputs it read, so a pullback
+calls `add_param!` for every parameter whatever its mirror.
 
 # Arguments
 - `x̄`: the mirror of `x`.
@@ -130,7 +132,8 @@ function _check_param(name, x)
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, " *
                 "TimeVarying(PerStratum($name)) strata × time, or " *
-                "Derived(f, args...) computed from other parameters; got " *
+                "Derived(f, args...) computed from other parameters, or " *
+                "Recent(w) read from the recurrence's outputs; got " *
                 _describe(x)
         )
     )
@@ -525,9 +528,12 @@ function forward(m::Depletion, ::Init, s, history)
     _check_param_strata(:N, m.N, length(s))
     _check_param_strata(:pool0, m.pool0, length(s))
     _check_param_strata(:removals, m.removals, length(s))
-    for k in eachindex(s)
-        s[k] = _pool0(m, k)
-    end
+    _each!(_pool0_body!, Serial(), s, length(s), length(s), s, m)
+    return nothing
+end
+
+function _pool0_body!(k, s, m)
+    s[k] = _pool0(m, k)
     return nothing
 end
 
@@ -538,11 +544,15 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
     return nothing
 end
 
-function forward(m::Depletion, ::Step, v, s, t, k)
+# A depletion with neither removals nor a protected pool. Removals of any
+# parameter form, and the protected pool, have methods of their own.
+const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
+
+function forward(m::_Depleting, ::Step, v, s, t, k)
     return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
 end
 
-function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
+function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
@@ -702,16 +712,25 @@ end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
-    for p in eachindex(v, s)
-        acc = zero(eltype(s))
-        for q in eachindex(v)
-            q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
-        end
-        s[p] = acc
+    S = length(eachindex(v, s))
+    _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
+    _each!(_redistribute_body!, Serial(), v, S, S * S, v, s, K, ε, t)
+    return nothing
+end
+
+# Destination `p`'s arrivals from every other stratum.
+function _arrivals_body!(p, s, v, K, ε, t)
+    acc = zero(eltype(s))
+    for q in eachindex(v)
+        q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
     end
-    for p in eachindex(v, s)
-        v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
-    end
+    s[p] = acc
+    return nothing
+end
+
+# Stratum `p` after its outflow and arrivals.
+function _redistribute_body!(p, v, s, K, ε, t)
+    v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     return nothing
 end
 

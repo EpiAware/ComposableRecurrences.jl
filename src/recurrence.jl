@@ -347,6 +347,10 @@ _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
 
+# An operator held inside a modifier keeps its own buffer, so it does not
+# deepen this one.
+depth(::AbstractOperator) = 0
+
 # The buffer depth: the kernel length, or deeper when a modifier, coupling
 # or kernel reads further back (see `depth`).
 function _buffer_depth(r::Recurrence, L)
@@ -376,10 +380,10 @@ end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
 # the kernel with a contiguous, oldest-first window.
-_oldest_first(g::AbstractVector) = reverse(g)
-_oldest_first(g::PerStratum) = PerStratum(reverse(g.x; dims = 2))
+_oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
+_oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
 function _oldest_first(g::Pairwise)
-    return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
+    return _OldestFirstPairwise(_reverse_dim(permutedims(g.x, (3, 2, 1)), 1))
 end
 _oldest_first(g) = g
 
@@ -678,14 +682,15 @@ _plain_why_kernel(kernel) = nothing
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
-# only scalar float parameters outside functions, rebuilt with dual numbers
-# by `constructorof`), or `:none` when it cannot, which includes a
+# only scalar float parameters outside functions and no parameter read from
+# the outputs, rebuilt with dual numbers by `constructorof`), or `:none`
+# when it cannot, which includes a
 # `Derived` parameter whose map holds float fields of its own. Decided from
 # the type; whether the rebuild works is checked by value at construction.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _scalar_params(m) && return :local
+    ispointwise(m) && _scalar_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -879,6 +884,7 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     # The constructor has rejected `Primary()` indexing in these.
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
+    _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
     Tp = float(param_eltype((r, gain, add, h, s0)))
     return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
@@ -1003,6 +1009,12 @@ function _value_body!(
     return nothing
 end
 
+# Stratum `k`'s value after the modifiers' vector Step, into buffer row `row`.
+function _store_body!(k, H, v, row)
+    H[row, k] = v[k]
+    return nothing
+end
+
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. The buffer is `D`
 # rows deep before the run, `D >= L`, and row `D + t` holds absolute time
@@ -1033,9 +1045,11 @@ function _run(
         ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
         T, ::Val{record}
     ) where {Tp, record}
-    (; coupling, modifiers) = r
+    coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_zeros(h, Tp, D + T, S), h, D)
+    # Parameters that read the outputs are bound to this call's buffer.
+    modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
     v = _zeros(h, Tp, S)
@@ -1080,9 +1094,7 @@ function _run(
                 else
                     _stages!(modifiers, states, v, τ)
                 end
-                for k in eachindex(v)
-                    H[D + t, k] = v[k]
-                end
+                _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
             end
         end
     end

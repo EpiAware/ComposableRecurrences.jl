@@ -7,9 +7,9 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _ADLeaves, _Current, _WithState,
-    _is_leaf, _leaf_paths, _rebuild_leaves,
-    _check_secondary, _current, _log_plain, _note_plain_type, _plain,
-    _rebuild_flag, _route_forward!, _run_forward, _run_pullback!
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!, _is_leaf,
+    _leaf_paths, _log_plain, _note_plain_type, _plain, _rebuild_flag,
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -130,6 +130,47 @@ function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_current)}, ::Type{<:Const}, tape
     )
     return ()
+end
+
+# Code Enzyme traces is not run as primal code, so a convolution it traces
+# takes the direct method, which it can differentiate.
+function EnzymeRules.forward(
+        config::EnzymeRules.FwdConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
+    )
+    return EnzymeRules.needs_primal(config) ? false : nothing
+end
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
+    )
+    primal = EnzymeRules.needs_primal(config) ? false : nothing
+    return EnzymeRules.AugmentedReturn(primal, nothing, nothing)
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}, tape
+    )
+    return ()
+end
+
+# The transforms are never reached from traced code, which `_untraced`
+# sends to the direct method; their rules keep Enzyme from differentiating
+# their FFTW calls.
+const _FFTCall = Union{typeof(_fft_convolve!), typeof(_fft_convolve_back!)}
+const _FFT_TRACED = "an FFT convolution was reached from AD-traced code"
+function EnzymeRules.forward(
+        ::EnzymeRules.FwdConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ErrorException(_FFT_TRACED))
+end
+function EnzymeRules.augmented_primal(
+        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ErrorException(_FFT_TRACED))
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{<:_FFTCall}, ::Type, tape,
+        args::Vararg{Annotation, N}
+    ) where {N}
+    throw(ErrorException(_FFT_TRACED))
 end
 
 # The mirrors of the operator and its arguments, assembled from the leaves'

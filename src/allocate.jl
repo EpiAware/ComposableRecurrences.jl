@@ -76,6 +76,12 @@ struct Allocate{T}
     function Allocate(groups::AbstractVector, total::T) where {T}
         _check_groups(groups)
         _check_param(:total, total)
+        _reads_outputs(total) && throw(
+            ArgumentError(
+                "total is read per group, not per stratum, so it cannot " *
+                    "read the outputs; got $(_describe(total))"
+            )
+        )
         _check_group_totals(total, length(groups))
         strata = Int[k for zs in groups for k in zs]
         offsets = cumsum([0; length.(groups)])
@@ -160,18 +166,26 @@ function forward(m::Allocate, ::Init, s, history)
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
 
+# The groups are disjoint, so each is one index of the loop.
 function forward(m::Allocate, ::Step, v, s, t)
+    strata, offsets = _like(v, m.strata), _like(v, m.offsets)
+    _each!(
+        _allocate_body!, Serial(), v, _ngroups(m), length(v),
+        v, strata, offsets, m.total, t
+    )
+    return nothing
+end
+
+function _allocate_body!(p, v, strata, offsets, total, t)
     ε = eps(eltype(v))
-    for p in 1:_ngroups(m)
-        zs = _group(m, p)
-        tot = zero(eltype(v))
-        for k in zs
-            tot += v[k]
-        end
-        c = param(m.total, p, t) / max(tot, ε)
-        for k in zs
-            v[k] *= c
-        end
+    zs = view(strata, (offsets[p] + 1):offsets[p + 1])
+    tot = zero(eltype(v))
+    for k in zs
+        tot += v[k]
+    end
+    c = param(total, p, t) / max(tot, ε)
+    for k in zs
+        v[k] *= c
     end
     return nothing
 end
