@@ -155,8 +155,9 @@ _float_param(x::Recent) = x
 # (`_refresh!`, run serially before the strata read them) and `row` names
 # the buffer row they belong to. In the reverse pass each read adds the
 # cotangent of the windows into `z`, and `_flush!` sends it to the buffer
-# and the weights once per step, into the weights' mirror kept in `w̄`.
-# Without a coupling these are `nothing`.
+# and the weights once per step, into the weights' mirror kept in `w̄`
+# (with no `H̄`, only into the weights). Without a coupling these are
+# `nothing`.
 struct _BoundRecent{R <: Recent, B, G, U, Z, M}
     x::R
     H::B
@@ -166,25 +167,24 @@ struct _BoundRecent{R <: Recent, B, G, U, Z, M}
     row::Base.RefValue{Int}
     z::Z
     w̄::M
-    function _BoundRecent(x::R, H::B, H̄::G, o) where {R <: Recent, B, G}
-        _check_recent_strata(x.coupling, size(H, 2))
-        u = _window_cache(x.coupling, H)
-        z = _window_cache(x.coupling, H̄)
-        w̄ = _mirror_slot(x.coupling, H̄)
-        return new{R, B, G, typeof(u), typeof(z), typeof(w̄)}(
-            x, H, H̄, o, u, Ref(0), z, w̄
-        )
+    function _BoundRecent(
+            x::R, H::B, H̄::G, o, u::U, z::Z, w̄::M
+        ) where {R <: Recent, B, G, U, Z, M}
+        return new{R, B, G, U, Z, M}(x, H, H̄, o, u, Ref(0), z, w̄)
     end
 end
-_window_cache(C, ::Nothing) = nothing
+function _BoundRecent(x::Recent, H, H̄, o)
+    C = x.coupling
+    _check_recent_strata(C, size(H, 2))
+    return _BoundRecent(
+        x, H, H̄, o, _window_cache(C, H), _window_cache(C, H), _mirror_slot(C)
+    )
+end
 _window_cache(::Nothing, H) = nothing
-_window_cache(::Nothing, ::Nothing) = nothing
 _window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
 # The weights' mirror is first seen when a read's cotangent arrives.
-_mirror_slot(C, ::Nothing) = nothing
-_mirror_slot(::Nothing, H̄) = nothing
-_mirror_slot(::Nothing, ::Nothing) = nothing
-_mirror_slot(C, H̄) = Ref{Any}(nothing)
+_mirror_slot(::Nothing) = nothing
+_mirror_slot(C) = Ref{Any}(nothing)
 _check_recent_strata(::Nothing, S) = nothing
 function _check_recent_strata(C, S)
     size(C) == (S, S) || throw(
@@ -231,21 +231,15 @@ function _read_back!(x̄, ::Nothing, b, v, k, i)
     return _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v, i, k)
 end
 function _read_back!(x̄, C, b, v, k, i)
+    # A read at a row other than the cached one, which the recurrence does
+    # not make, first sends on the cached row's cotangents and caches row `i`.
+    b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
     C̄ = cotangent(x̄, :coupling)
-    z = b.z
-    if z !== nothing && b.row[] == i
-        u = b.u
-        b.w̄[] = cotangent(x̄, :w)
-        for j in axes(b.H, 2)
-            _add_entry!(C̄, C, v * u[j], k, j)
-            z[j] += v * C[k, j]
-        end
-    else
-        for j in axes(b.H, 2)
-            c = C[k, j]
-            _add_entry!(C̄, C, v * _recent_window(b.x.w, b.H, i, j), k, j)
-            _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v * c, i, j)
-        end
+    u, z = b.u, b.z
+    b.w̄[] = cotangent(x̄, :w)
+    for j in axes(b.H, 2)
+        _add_entry!(C̄, C, v * u[j], k, j)
+        z[j] += v * C[k, j]
     end
     return nothing
 end
@@ -265,10 +259,8 @@ end
 # Send the cotangents the reads of a step added into `z` to the buffer and
 # the weights, then clear them.
 _flush!(x) = _each_coupled(_flush_one!, x)
-_flush_one!(b::_BoundRecent) = _flush_one!(b.z, b)
-_flush_one!(::Nothing, b) = nothing
-function _flush_one!(z, b)
-    i = b.row[]
+function _flush_one!(b::_BoundRecent)
+    z, i = b.z, b.row[]
     i > 0 || return nothing
     _flush_weights!(b.w̄[], z, b.x.w, b.H, i)
     for j in eachindex(z)

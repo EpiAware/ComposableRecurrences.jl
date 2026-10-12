@@ -351,3 +351,29 @@ end
     θ = (; a = 1.0, b = CR._bind(Recent(2), H, H̄, 3))
     @test CR._arg_mirrors(nothing, θ) === (nothing, nothing)
 end
+
+@testitem "Recent: a coupled read back at a row other than the cached one" begin
+    using ComposableRecurrences, Random
+    const CR = ComposableRecurrences
+    rng = Xoshiro(41)
+    S, W, n = 3, 2, 8
+    H, w, C = rand(rng, n, S), rand(rng, W), rand(rng, S, S)
+    # Reads at the cached row `i = 5` and, without a refresh, at row 7.
+    reads = ((1.5, 2, 5), (-0.7, 3, 7), (0.4, 1, 5))
+    H̄e, w̄e, C̄e = zeros(n, S), zeros(W), zeros(S, S)
+    for (v, k, i) in reads, j in 1:S, l in 1:W
+        H̄e[i - l, j] += v * C[k, j] * w[l]
+        w̄e[l] += v * C[k, j] * H[i - l, j]
+        C̄e[k, j] += v * w[l] * H[i - l, j]
+    end
+    H̄, x̄ = zeros(n, S), (; w = zeros(W), coupling = zeros(S, S))
+    b = CR._bind(Recent(w; coupling = C), H, H̄, 0)
+    CR._refresh!((b,), 5)
+    for (v, k, i) in reads
+        CR.add_param!(x̄, b, v, k, i)
+    end
+    CR._flush!((b,))
+    @test H̄ ≈ H̄e
+    @test x̄.w ≈ w̄e
+    @test x̄.coupling ≈ C̄e
+end
