@@ -7,6 +7,7 @@
 @testsnippet AdjointCases begin
     using ADFixtures
     import DifferentiationInterface
+    using Test: Test
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using LinearAlgebra, Random, SparseArrays
@@ -82,15 +83,17 @@
         return CR.constructorof(T)(ntuple(i -> plain(getfield(x, i)), fieldcount(T))...)
     end
 
-    # `(name, op, args)` for each AD registry scenario at its starting
-    # parameters: the operator the scenario calls and its Run arguments.
+    # `(name, op, args, rtol)` for each AD registry scenario at its starting
+    # parameters: the operator the scenario calls, its Run arguments and the
+    # tolerance the entry gives Enzyme's rule tester.
     function registry_cases()
-        return map(ADFixtures._SCENARIOS) do (name, f, θ0)
+        return map(ADFixtures._SCENARIOS) do entry
+            name, f, θ0 = entry
             seen = Ref{Any}(nothing)
             f(op -> Capture(op, seen), θ0())
             seen[] === nothing && error("scenario $(repr(name)) reached no rule through `Capture`")
             op, args = seen[]
-            (name, plain(op), plain(args))
+            (name, plain(op), plain(args), ADFixtures.enzyme_rtol(entry))
         end
     end
 
@@ -112,14 +115,17 @@
         h = 1 .+ rand(rng, S, L)
         R = 0.5 .+ rand(rng, S, T)
         Ks = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
+        f32 = (; enzyme_rtol = ADFixtures.FLOAT32_RTOL)
         cases = [
             (
                 "renewal, one series, Float32",
                 Recurrence(Float32.(g)), rec(Float32.(R[1, :]), nothing, Float32.(h[1, :])),
+                f32,
             ),
             (
                 "strata, mixed eltypes, Float32 history",
                 Recurrence(Float32.(g); coupling = K), rec(R, nothing, Float32.(h)),
+                f32,
             ),
             ("sparse coupling with an add input", Recurrence(g; coupling = Ks), rec(R, copy(R), h)),
             ("scalar gain and λ I", Recurrence(g; coupling = 0.7I), rec(0.9, R, h)),
@@ -296,14 +302,50 @@
         )
     end
 
-    # Every operator `test_adjoint` checks: the registry's, then the extras.
-    adjoint_cases() = [registry_cases(); extra_cases()]
+    # Every operator `test_adjoint` checks, as `(name, op, args, rtol)`: the
+    # registry's, then the extras. An extra with single-precision values
+    # carries the Float32 tolerance as a fourth element, as a registry entry
+    # does (see `ADFixtures.enzyme_rtol`).
+    function adjoint_cases()
+        extras = map(extra_cases()) do case
+            (case[1], case[2], case[3], ADFixtures.enzyme_rtol(case))
+        end
+        return [registry_cases(); extras]
+    end
 
-    # EnzymeTestUtils checks the rule against finite differences taken in
-    # the arguments' precision. In single precision these differ from the
-    # rule by up to about 5e-4 relative (on a Float32 history with Float64
-    # gains), so cases with Float32 values compare at 1e-3.
-    const FLOAT32_RTOL = 1.0e-3
+    # Runs `test_adjoint` on `case` for the backend named `name`. A registry
+    # scenario marked broken there runs in a testset that only records
+    # whether every check passed, as one `@test_broken` while it fails.
+    function test_adjoint_case(name, backend, case; kwargs...)
+        label, op, args = case
+        broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
+        if label in broken
+            probe = @testset Probe "$label" begin
+                CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
+            end
+            probe.ok ? (@test probe.ok) : (@test_broken probe.ok)
+        else
+            @testset "$label" begin
+                CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
+            end
+        end
+        return nothing
+    end
+
+    # A testset that records whether every result in it, and in the
+    # testsets nested in it, passed or was marked broken, and reports
+    # nothing to its parent.
+    mutable struct Probe <: Test.AbstractTestSet
+        description::String
+        ok::Bool
+    end
+    Probe(description; kwargs...) = Probe(description, true)
+    _passed(r::Test.Result) = r isa Union{Test.Pass, Test.Broken}
+    _passed(ts::Test.DefaultTestSet) = all(_passed, ts.results)
+    _passed(ts::Probe) = ts.ok
+    Test.record(ts::Probe, r::Union{Test.Result, Test.AbstractTestSet}) =
+        (ts.ok &= _passed(r); r)
+    Test.finish(ts::Probe) = ts
 
     # Each registry scenario's gradient on `backend` runs the analytic
     # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
@@ -481,21 +523,17 @@ end
 @testitem "Mooncake: test_adjoint on each operator" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
-    for (name, op, args) in adjoint_cases()
-        @testset "$name" begin
-            CR.test_adjoint(AutoMooncake(; config = nothing), op, CR.Run(), args...)
-        end
+    for case in adjoint_cases()
+        test_adjoint_case("Mooncake reverse", AutoMooncake(; config = nothing), case)
     end
 end
 
 @testitem "Enzyme: test_adjoint on each operator" tags = [:ad, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
-    for (name, op, args) in adjoint_cases()
-        @testset "$name" begin
-            rtol = occursin(r"Float32|mixed", name) ? FLOAT32_RTOL : 1.0e-7
-            CR.test_adjoint(AutoEnzyme(), op, CR.Run(), args...; rtol, atol = rtol)
-        end
+    for case in adjoint_cases()
+        rtol = last(case)
+        test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
     end
 end
 
@@ -1085,7 +1123,9 @@ end
     @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end
 
-@testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse] begin
+# Tagged `allocations` so the Threads workflow, which runs without coverage,
+# runs the count.
+@testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse, :allocations] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake
@@ -1102,12 +1142,15 @@ end
     )
     delay(θ) = sum(W .* Convolution(θ[1:5])(θ[6:55]))
     backend = AutoMooncake(; config = nothing)
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
     for f in (renewal, delay)
         θ = [fill(0.2, 5); ones(50)]
         prep = prepare_gradient(f, backend, θ)
         grad = similar(θ)
         gradient!(f, grad, prep, backend, θ)
-        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300
+        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300 skip = coverage
     end
 end
 
