@@ -73,6 +73,8 @@ struct Routes{C <: Tuple, G <: Tuple}
         )
         isempty(couplings) && throw(ArgumentError("Routes needs at least one route"))
         foreach(_check_coupling_shape, couplings)
+        # Only a kernel takes `Primary()` indexing.
+        foreach(C -> _check_times(:coupling, C, nothing), couplings)
         foreach(_check_route_kernel, kernels)
         return new{C, G}(couplings, kernels)
     end

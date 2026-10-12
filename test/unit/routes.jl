@@ -182,6 +182,12 @@ end
     @test_throws "cannot itself be Routes" Routes((K, Routes((K, g))))
     @test_throws "Routes is a kernel" Routes((Routes((K, g)), g))
     @test_throws "not a Convolution" Convolution(Routes((K, g), (2K, g)))
+    # A coupling holding a Primary() coefficient is refused when built.
+    struct Holds{X}
+        x::X
+    end
+    primary = TimeVarying(ones(2, 2, 3), ComposableRecurrences.Primary())
+    @test_throws "only meaningful for a kernel" Routes((Holds(primary), g))
     @test_throws "Pairwise is a kernel" Routes((Pairwise(ones(2, 2, 2)), g))
     @test_throws "a kernel array is a vector" Routes((K, ones(2, 2)))
     r = Recurrence(Routes((K, g), (ones(3, 3), g)))
