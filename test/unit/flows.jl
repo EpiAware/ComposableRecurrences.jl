@@ -219,6 +219,25 @@ end
         c = check_pullback(chained, θ, v, zeros(4), t)
         @test c.v && c.s && c.θ
     end
+    # Counts only, the second capped; without a mirror the input
+    # cotangents are unchanged.
+    counts(θ) = CR.Flows(
+        CR.Flow(1 => 2, CR.Amount(PerStratum(θ[1:2]))),
+        CR.Flow(2 => 0, CR.Amount(θ[3]))
+    )
+    θ = [1.5, -0.5, 9.0]
+    c = check_pullback(counts, θ, v, zeros(4), 1)
+    @test c.v && c.s && c.θ
+    v̄, s̄ = [0.3, 1.1, -0.4, 0.7], zeros(4)
+    CR._vector_pullback!(
+        (; piece = nothing, v = v̄, s = s̄), counts(θ), copy(v), zeros(4), 1
+    )
+    v̄m = [0.3, 1.1, -0.4, 0.7]
+    CR._vector_pullback!(
+        (; piece = FlowChecks.mirror(counts(θ)), v = v̄m, s = zeros(4)),
+        counts(θ), copy(v), zeros(4), 1
+    )
+    @test v̄ == v̄m
 end
 
 @testitem "Flows: the share that leaves near zero hazard" begin
