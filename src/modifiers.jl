@@ -501,15 +501,19 @@ end
 # boundary, plain reverse AD of the returned tuples took about 70% longer
 # and the rule's reverse pass about 8% longer.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
-    nv, ns = B
     G = _ngroups(Val(B), length(v))
-    for g in 1:G
-        v′, s′ = @inline forward(
-            m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
-        )
-        _scatter!(v, v′, G, g)
-        _scatter!(s, s′, G, g)
-    end
+    _each!(_group_body!, Serial(), v, G, G, v, s, m, t, Val(B), G)
+    return nothing
+end
+
+# Group `g`'s step, gathered from and scattered back into `v` and `s`.
+function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
+    nv, ns = B
+    v′, s′ = @inline forward(
+        m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
+    )
+    _scatter!(v, v′, G, g)
+    _scatter!(s, s′, G, g)
     return nothing
 end
 
@@ -521,9 +525,13 @@ function _vector_step!(::Nothing, m, v, s, t)
                 "not blockwise (see blocks)"
         )
     )
-    for k in eachindex(v, s)
-        v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
-    end
+    n = length(eachindex(v, s))
+    _each!(_pointwise_body!, Serial(), v, n, n, v, s, m, t)
+    return nothing
+end
+
+function _pointwise_body!(k, v, s, m, t)
+    v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
     return nothing
 end
 

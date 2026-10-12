@@ -199,10 +199,13 @@ function forward(m::_Protecting, ::Init, s, history)
     _check_flow_groups(m.flows, S)
     _check_param_strata(:σ, V.σ, S)
     _check_param_strata(:pool0, V.pool0, S)
-    for k in 1:S
-        s[k] = _pool0(m, k)
-        s[S + k] = param(V.pool0, k, 1)
-    end
+    _each!(_pools0_body!, Serial(), s, S, S, s, m, S)
+    return nothing
+end
+
+function _pools0_body!(k, s, m, S)
+    s[k] = _pool0(m, k)
+    s[S + k] = param(m.protected.pool0, k, 1)
     return nothing
 end
 
