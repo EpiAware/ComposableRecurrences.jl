@@ -554,6 +554,30 @@ function _deep_buffer(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Transmission scaled down by recent incidence: the gain multiplier reads
+# the last `L + 2` outputs through weights that are themselves parameters.
+function _recent_feedback(w, θ)
+    g, κ, wts, logh, logR = _unpack(θ, (L,), (1,), (L + 2,), (S, L + 2), (S, T))
+    β = Derived(exp, -κ[1] * ComposableRecurrences.Recent(wts))
+    r = Recurrence(g; coupling = K0, modifiers = (ComposableRecurrences.Transform(*, β),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Ring vaccination: removals from the susceptible pool scale with the sum of
+# the last week's cases. The scale is read from `θ` directly: Enzyme reverse
+# finds no shadow for a scalar read from a reshaped view of `θ` and passed
+# through the `Depletion` keyword constructor.
+function _recent_removals(w, θ)
+    logh, logR = _unpack(view(θ, 2:length(θ)), (S, 7), (S, T))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(10 .* POP); removals = θ[1] * ComposableRecurrences.Recent(7)
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Dense and sparse routes in a buffer twice the longest route kernel.
 function _routes_deep(w, θ)
     K, g1, v, g2, logh, logR = _unpack(
@@ -744,6 +768,14 @@ const _SCENARIOS = [
         () -> _flat(G0, K0, fill(log(5.0), S, 2L), LOGR),
     ),
     (
+        "Recurrence feedback from recent outputs", _recent_feedback,
+        () -> _flat(G0, [0.05], exp.(-0.3 .* (1:(L + 2))), fill(log(5.0), S, L + 2), LOGR),
+    ),
+    (
+        "Recurrence removals from recent outputs", _recent_removals,
+        () -> _flat([0.1], fill(log(5.0), S, 7), LOGR),
+    ),
+    (
         "Convolution per-stratum kernel with history", _conv_per_stratum,
         () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
     ),
@@ -807,6 +839,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence routes, dense and sparse" => (:Routes,),
     "Recurrence routes folded on scaled identities" => (:Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
+    "Recurrence feedback from recent outputs" => (:Recent,),
+    "Recurrence removals from recent outputs" => (:Recent,),
     "Recurrence routes in a buffer deeper than the kernels" => (:Routes, :depth),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
