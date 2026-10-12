@@ -154,7 +154,8 @@ end
     @test ForwardDiff.derivative(N -> total(N, true), 60.0) ≈
         ForwardDiff.derivative(N -> total(N, 1.0), 60.0)
     # `false` is a fixed exponent of zero for the built-in forms.
-    @test CR.Depletion(60.0; heterogeneity = false).heterogeneity === false
+    @test CR.Depletion(60.0; heterogeneity = false).heterogeneity ===
+        CR._FixedExponent{false}()
     for form in (CR.Hazard(), CR.Floor())
         @test all(
             CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, false) .≈
@@ -769,9 +770,12 @@ end
     @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0); heterogeneity = 1).heterogeneity ===
         1.0
     @test CR.Depletion(100.0f0; heterogeneity = 1).heterogeneity === 1.0f0
-    # The built-in forms default to a fixed exponent of one.
-    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === true
-    @test CR.Depletion(100.0f0, CR.Floor()).heterogeneity === true
+    # The built-in forms default to a fixed exponent of one, held in the
+    # type so the modifier stores no byte for it.
+    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === CR._FixedExponent{true}()
+    @test CR.Depletion(100.0f0, CR.Floor()).heterogeneity === CR._FixedExponent{true}()
+    @test sizeof(CR._FixedExponent{true}()) == 0
+    @test CR._exponent_value(CR._FixedExponent{true}()) === true
     # A dual exponent at an empty pool takes the primal exponent, as the
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
