@@ -121,4 +121,5 @@ end
 # ## Learning more
 #
 # - See every operator, coupling and modifier on the [API overview](@ref api-overview).
+# - Want a step of your own that moves values between compartments? See [A blockwise step](@ref extending-blockwise).
 # - Want the full interface? See the [Public API](@ref public-api).
