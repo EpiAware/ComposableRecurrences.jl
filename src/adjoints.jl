@@ -87,8 +87,10 @@ By default it is `true` when `pullback!` has a method for the type of
 `piece` and `role` whose other arguments are untyped, so writing the
 method is enough.
 The lookup is read from the types, so the route costs nothing per call.
-A method with a typed `grads` or typed arguments is not found; declare
-`uses_adjoint(::T, role) = true` for it, which
+A method with a typed `grads` or typed arguments is not found, apart from a
+blockwise group step's with `v::Tuple, s::Tuple` (see
+[`ComposableRecurrences.blocks`](@ref)); declare
+`uses_adjoint(::T, role) = true` for any other, which
 [`ComposableRecurrences.PieceInterface`](@ref) checks.
 A method of `uses_adjoint` also overrides the default, for example when
 the adjoint covers only some values of a type.
@@ -129,9 +131,12 @@ function _has_pullback(x, ::Pressure)
     return Core._hasmethod(sig)
 end
 _has_pullback(x, ::Step) = _has_scalar_pullback(x) || _has_vector_pullback(x)
+# A blockwise group step's `pullback!` may type its value and state as
+# tuples.
 function _has_scalar_pullback(x)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any, Any}
-    return Core._hasmethod(sig)
+    tup = Tuple{typeof(pullback!), Any, typeof(x), Step, Tuple, Tuple, Any, Any}
+    return Core._hasmethod(sig) || Core._hasmethod(tup)
 end
 function _has_vector_pullback(x)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})
@@ -200,10 +205,62 @@ _type_adjoint(op, role) = uses_adjoint(op, role)
 _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = _call_pullback!(grads, op, Run(), cache)
 
-# The primal call. The extensions make `_ad` a rule primitive for `Mooncake`
-# and `Enzyme`; `_plain` is differentiated by the backend.
+# The primal call. The extensions make `_ad` a rule primitive for
+# `Mooncake` and `_ADLeaves` one for `Enzyme`; `_plain` is differentiated by
+# the backend. `_ad` passes `_ADLeaves` each leaf of the operator and its
+# arguments as its own argument, so `Enzyme` annotates every float and array
+# on its own and never needs a shadow for a struct that holds both;
+# `_ADLeaves` rebuilds the operator and arguments from them.
 _primal(op, args...) = first(_run_forward(op, args...))
-_ad(op, args...) = _primal(op, args...)
+@generated function _ad(op, args::Vararg{Any, N}) where {N}
+    X = Tuple{op, args...}
+    roots = (:op, (:(args[$i]) for i in 1:N)...)
+    leaves = map(p -> _path_expr(roots[first(p)], Base.tail(p)), _leaf_paths(X))
+    return :(_ADLeaves{$X}()($(leaves...)))
+end
+struct _ADLeaves{X} end
+function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
+    return _primal(_rebuild_leaves(X, leaves)...)
+end
+
+# The field paths to the leaves of a value of type `T`. A leaf is a float,
+# an array, other data without float fields, a mutable struct or a field
+# whose type is not concrete; a struct without fields has none.
+function _leaf_paths(::Type{T}) where {T}
+    _is_leaf(T) && return ((),)
+    fieldcount(T) == 0 && return ()
+    paths = Tuple[]
+    for i in 1:fieldcount(T), p in _leaf_paths(fieldtype(T, i))
+        push!(paths, (i, p...))
+    end
+    return Tuple(paths)
+end
+function _is_leaf(T)
+    T <: Union{
+        Base.IEEEFloat, AbstractArray, Integer, Symbol, AbstractString, Char,
+        Type, Module, Ptr,
+    } && return true
+    return !isconcretetype(T) || ismutabletype(T) ||
+        (fieldcount(T) == 0 && !Base.issingletontype(T))
+end
+function _path_expr(x, p)
+    isempty(p) && return x
+    return _path_expr(:(getfield($x, $(first(p)))), Base.tail(p))
+end
+
+# The value of type `X` with the given leaves, built field by field without
+# calling constructors.
+@generated function _rebuild_leaves(::Type{X}, leaves::Tuple) where {X}
+    k = Ref(0)
+    function build(T)
+        _is_leaf(T) && return :(leaves[$(k[] += 1)])
+        fieldcount(T) == 0 && return T.instance
+        parts = (build(fieldtype(T, i)) for i in 1:fieldcount(T))
+        T <: Tuple && return :(($(parts...),))
+        return Expr(:new, T, parts...)
+    end
+    return build(X)
+end
 _plain(op, args...) = _primal(op, args...)
 
 # Note that an operator is differentiated by plain AD: it has a part

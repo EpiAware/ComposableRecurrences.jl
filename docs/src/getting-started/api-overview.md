@@ -194,6 +194,7 @@ See [Writing new types](@ref extending).
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`, found from its methods; a method overrides it | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
+| [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series | `Int` |
 | [`param(x, k, t)`](@ref ComposableRecurrences.param), [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | read a parameter for series `k` at time `t`, and add to its cotangent | a value, or `nothing` |
 | [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent), [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | the cotangent of a field, and an addition to it | a cotangent, or `nothing` |
