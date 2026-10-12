@@ -91,11 +91,11 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
-    Hazard, Floor, Primary, Secondary, exponential_history,
-    with_state, State, contributions, forward,
+    Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
+    exponential_history, with_state, State, contributions, forward,
     pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
@@ -115,6 +115,8 @@ include("adjoints.jl")
 include("builtin_modifiers.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
+# Depletion forms that draw up to what the pool holds.
+include("truncate.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.
@@ -123,6 +125,8 @@ include("couplings.jl")
 include("recurrence.jl")
 # The analytic reverse pass of the recurrence.
 include("recurrence_adjoint.jl")
+# The routes kernel: a sum of (coupling, kernel) routes.
+include("routes.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")
 # Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.
