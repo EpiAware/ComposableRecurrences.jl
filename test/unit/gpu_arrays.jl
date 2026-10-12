@@ -147,6 +147,30 @@
                 ),
             )
         )(d(RS); history = d(HS[:, end:end])),
+        "Depletion with a protected pool and waning flows" =>
+            d -> Recurrence(
+            d(g0);
+            modifiers = (
+                Depletion(
+                    PerStratum(d(NS));
+                    removals = TimeVarying(PerStratum(d(fill(0.3, S, T)))),
+                    protected = Protected(PerStratum(d([0.3, 0.2, 0.1]))),
+                    flows = (
+                        Flow(2 => 1, PerStratum(d([0.05, 0.1, 0.2]))),
+                        Flow(1 => 0, Linear(0.01)),
+                    )
+                ),
+            )
+        )(d(RS); history = d(HS)),
+        "Depletion with a rate removal" =>
+            d -> Recurrence(
+            d(g0);
+            modifiers = (
+                Depletion(
+                    PerStratum(d(NS)); flows = Flow(1 => 0, PerStratum(d([0.01, 0.02, 0.03])))
+                ),
+            )
+        )(d(RS); history = d(HS)),
         "Allocate" =>
             d -> Recurrence(
             d(g0); modifiers = (Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),)
@@ -322,6 +346,10 @@ end
             Flows(
                 Flow(1 => 2, PerStratum(v)), Flow(2 => 0, Linear(tv)),
                 Flow(1 => 0, Amount(tv)),
+            ),
+            Depletion(
+                PerStratum(v); protected = Protected(0.3),
+                flows = Flow(2 => 1, PerStratum(v))
             ),
         )
         @test holds_host(x)
