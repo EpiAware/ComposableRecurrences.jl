@@ -179,6 +179,33 @@ end
     R = fill(1.5, 10)
     @test r(Derived(identity, 2.0))(R; history = ones(2)) ≈ r(2.0)(R; history = ones(2))
     @test !(r(2.0)(R; history = ones(2)) ≈ r(0.0)(R; history = ones(2)))
+    # Every parameter form takes the removal path.
+    u = collect(range(0.5, 3.0; length = 10))
+    @test r(2.0 * Derived(identity, TimeVarying(u)))(R; history = ones(2)) ≈
+        r(TimeVarying(2.0 .* u))(R; history = ones(2))
+    h = ones(2, 2)
+    R2 = fill(1.5, 2, 10)
+    rs(u) = Recurrence([0.5, 0.4]; modifiers = (CR.Depletion(PerStratum([80.0, 120.0]); removals = u),))
+    @test rs(Derived(sqrt, PerStratum([4.0, 9.0])))(R2; history = h) ≈
+        rs(PerStratum([2.0, 3.0]))(R2; history = h)
+end
+
+@testitem "Recent: unbound reverse, rebinding and plain fields" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    @test_throws "inside a Recurrence" CR.add_param!(nothing, Recent(2), 1.0, 1, 1)
+    b = CR._bind(Recent(2), zeros(4, 1), nothing, 1)
+    @test CR._bind(b, ones(4, 1), nothing, 2).H == ones(4, 1)
+    @test !CR._reads_outputs((Float64, Base))
+    @test CR._float_param(Recent(2)) isa Recent
+    @test CR.depth(CR.Depletion(Recent(3))) == 3
+    # A function is a leaf, as for `depth`: a closure's captured values are
+    # not bound.
+    f = let x = Recent(2)
+        v -> v + 0 * length(x.w)
+    end
+    @test !CR._reads_outputs(f)
+    @test CR.depth(f) == 0
 end
 
 @testitem "Recent: a read before the window is an error" begin
