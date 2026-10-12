@@ -58,6 +58,16 @@ end
 
 # ## Combining with depletion
 #
+# Let ``y_t`` be the infections on day ``t`` and ``g_l`` the generation interval.
+# With ``v_t = R \sum_{l} g_l \, y_{t-l}`` and ``h`` the depletion draw, the orders give
+#
+# ```math
+# y^{\text{before}}_t = h\big(f(v_t, \kappa)\big), \qquad
+# y^{\text{after}}_t = f\big(h(v_t), \kappa\big).
+# ```
+#
+# ``y^{\text{before}}`` is "Transform then Depletion".
+# ``y^{\text{after}}`` is "Depletion then Transform".
 # Placed before `Depletion`, the transform lowers the force of infection.
 # The pool then loses the infections that occur.
 # Placed after it, the pool loses the draws before the response.
