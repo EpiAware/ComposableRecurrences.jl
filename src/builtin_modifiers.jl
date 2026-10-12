@@ -512,7 +512,8 @@ function pullback!(grads, ::Floor, ::Step, v, s, N, α)
     return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N, ᾱ
 end
 
-ispointwise(::Depletion) = true
+# A depletion is pointwise unless its pools make it blockwise.
+ispointwise(m::Depletion) = blocks(m) === nothing
 
 # The starting pool of stratum `k` and its cotangent slot.
 _pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = param(m.N, k, 1)

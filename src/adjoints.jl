@@ -87,8 +87,10 @@ By default it is `true` when `pullback!` has a method for the type of
 `piece` and `role` whose other arguments are untyped, so writing the
 method is enough.
 The lookup is read from the types, so the route costs nothing per call.
-A method with a typed `grads` or typed arguments is not found; declare
-`uses_adjoint(::T, role) = true` for it, which
+A method with a typed `grads` or typed arguments is not found, apart from a
+blockwise group step's with `v::Tuple, s::Tuple` (see
+[`ComposableRecurrences.blocks`](@ref)); declare
+`uses_adjoint(::T, role) = true` for any other, which
 [`ComposableRecurrences.PieceInterface`](@ref) checks.
 A method of `uses_adjoint` also overrides the default, for example when
 the adjoint covers only some values of a type.
@@ -129,9 +131,12 @@ function _has_pullback(x, ::Pressure)
     return Core._hasmethod(sig)
 end
 _has_pullback(x, ::Step) = _has_scalar_pullback(x) || _has_vector_pullback(x)
+# A blockwise group step's `pullback!` may type its value and state as
+# tuples.
 function _has_scalar_pullback(x)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any, Any}
-    return Core._hasmethod(sig)
+    tup = Tuple{typeof(pullback!), Any, typeof(x), Step, Tuple, Tuple, Any, Any}
+    return Core._hasmethod(sig) || Core._hasmethod(tup)
 end
 function _has_vector_pullback(x)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})
