@@ -6,12 +6,14 @@ name: Threads
 # thread, where a split loop's tasks all share it.
 # `unit` runs the main suite without the quality checks, which the Test
 # workflow already runs; `ad` runs the threaded-executor gradient items
-# (tag `executor`) on every backend, and the items that record Julia 1.11
+# (tag `executor`) on every backend, and the items that guard Julia 1.11
 # behaviour (tag `compat_floor`).
 # Both jobs run on the current release and the prerelease channel. `pre`
 # resolves to the current release when no prerelease exists, and is allowed
 # to fail, as in the managed Test workflow. `ad` also runs on the compat
-# floor (1.11), which the managed Test and AD workflows do not cover.
+# floor (1.11), which the managed Test and AD workflows do not cover, and
+# there also runs the Enzyme reverse items (tag `enzyme_reverse`), registry
+# scenarios included, since Enzyme differs between Julia versions.
 # `unit` cannot: the test environment holds JET and Runic, and JET for 1.11
 # needs a JuliaSyntax that Runic does not allow.
 
@@ -75,3 +77,5 @@ jobs:
       - uses: julia-actions/cache@v3
       - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
       - run: julia --project=test/ad test/ad/runtests.jl executor compat_floor
+      - if: matrix.version == '1.11'
+        run: julia --project=test/ad test/ad/runtests.jl enzyme_reverse

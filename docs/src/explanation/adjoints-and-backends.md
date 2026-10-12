@@ -52,12 +52,6 @@ A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs no
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
 ReverseDiff runs in the AD tests but is not a target.
 
-On Julia 1.11, Enzyme reverse mode can drop the gradient of a scalar field.
-It happens for a scalar modifier field when another modifier holds an array.
-An example is `b` in `Add(b)` beside `Depletion(PerStratum(pool))`.
-The gradient comes back as zero on both routes, with no error.
-Use Julia 1.12 or later for Enzyme reverse mode.
-
 ## [Which rules are kept](@id rule-policy)
 
 A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme.

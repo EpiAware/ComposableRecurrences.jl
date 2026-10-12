@@ -73,14 +73,14 @@ function ComposableRecurrences.forward(
     return v′, s - v′
 end
 
-# Consecutive blocks of `θ` with the given shapes.
+# Consecutive blocks of `θ` with the given shapes. The offsets are computed
+# up front: a closure that updates a captured offset boxes it, and Enzyme
+# reverse mode on Julia 1.11 then drops gradients flowing through the blocks.
 function _unpack(θ, shapes...)
-    o = 0
-    return map(shapes) do sh
-        n = prod(sh)
-        x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        o += n
-        x
+    ns = map(prod, shapes)
+    offsets = cumsum((0, Base.front(ns)...))
+    return map(shapes, offsets, ns) do sh, o, n
+        reshape(view(θ, (o + 1):(o + n)), sh...)
     end
 end
 
@@ -139,7 +139,7 @@ function _scalar_field_mixed(w, θ)
 end
 
 # A scalar modifier field next to a modifier with an array field, under the
-# default coupling.
+# default coupling: the operator holds both floats and arrays.
 function _array_and_scalar_fields(w, θ)
     b = θ[1]
     logh, logR = _unpack(view(θ, 2:length(θ)), (S, L), (S, T))
@@ -836,15 +836,9 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-On Julia 1.11, Enzyme reverse mode returns zero for the gradient of a scalar
-modifier field next to a modifier with an array field, on both routes.
-Every other scenario and its `NoAdjoint` twin passes on every backend.
+None: every scenario and its `NoAdjoint` twin passes on every backend.
 """
-function backend_broken_scenarios()
-    VERSION < v"1.12" || return Dict{String, Set{String}}()
-    name = "Recurrence array-field and scalar-field modifiers"
-    return Dict("Enzyme reverse" => Set([name, "NoAdjoint " * name]))
-end
+backend_broken_scenarios() = Dict{String, Set{String}}()
 
 """
 Per-backend scenario names too unstable to run at all.
