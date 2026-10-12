@@ -3,6 +3,7 @@
 #
 #   task -t benchmark/Taskfile.yml matrix -- --tier=realistic
 #   task -t benchmark/Taskfile.yml matrix-report -- DIR [PREVIOUS_DIR]
+#   task -t benchmark/Taskfile.yml threshold -- --target=gradient
 version: '3'
 
 tasks:
@@ -37,3 +38,10 @@ tasks:
       - >-
         julia --startup-file=no benchmark/matrix_report.jl matrix-results/docs
         --docs=benchmark/results/docs.csv
+
+  threshold:
+    desc: "Time Serial against Threaded across loop work sizes (usage: task -t benchmark/Taskfile.yml threshold -- --target=gradient)"
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=benchmark --threads=auto benchmark/threshold.jl {{.CLI_ARGS}}

@@ -413,15 +413,36 @@ _exponent(α, N) = α
 
 function forward(::Hazard, ::Step, v, s, N, α)
     x = v / N * _pool_power(s / N, α - 1)
-    return -s * expm1(-x), s * exp(-x)
+    e, em = _exp_neg(x)
+    return -s * em, s * e
 end
 
-# `r^e` for the share of the pool left. With a dual exponent the tangent
-# at an empty pool is `log(0) * ė`; the pullback sets the exponent's
-# cotangent to zero there, so the power takes the primal exponent. A NaN
-# share keeps the dual power, so its NaN reaches the tangent. A dual
-# exponent is never traced, so a branch computes only one power.
-_pool_power(r, e) = r^e
+# `(exp(-x), expm1(-x))` from one exponential: `expm1` below `1/2`, where
+# it keeps the digits `1 - e^{-x}` would lose and `1 + expm1(-x)` loses
+# none, and `exp` above, where neither subtraction cancels. Plain floats
+# and dual numbers branch on their value; a traced number would fix the
+# branch when its trace is recorded, or reject it, so takes both.
+_exp_neg(x) = (exp(-x), expm1(-x))
+function _exp_neg(x::Union{AbstractFloat, ForwardDiff.Dual})
+    if x < 0.5
+        em = expm1(-x)
+        return 1 + em, em
+    end
+    e = exp(-x)
+    return e, e - 1
+end
+
+# `r^e` for the share of the pool left. At an empty pool the exponent's
+# tangent is `log(0) * ė`; the pullback sets the exponent's cotangent to
+# zero there, and so does the power. With `e = 0` the power is one for any
+# positive share, so an empty share is swapped for one: the value is
+# unchanged and neither tangent sees `log(0)`. `ifelse` keeps this
+# branch-free for traced shares and exponents. A NaN share is kept, so its
+# NaN reaches the tangent.
+_pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
+# With a dual exponent the power at an empty pool takes the primal
+# exponent. A dual exponent is never traced, so a branch computes only one
+# power.
 function _pool_power(r, e::ForwardDiff.Dual)
     _primal_value(r) <= 0 || return r^e
     return convert(promote_type(typeof(r), typeof(e)), r^_primal_value(e))
@@ -432,9 +453,9 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     r = s / N
     h = r^(α - 1)
     x = v / N * h
-    e = exp(-x)
+    e, em = _exp_neg(x)
     x̄ = s * e * (ȳ - s̄′)
-    s̄ = -ȳ * expm1(-x) + s̄′ * e
+    s̄ = -ȳ * em + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
     ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : x̄ * x * log(r)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ

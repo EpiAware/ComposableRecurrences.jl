@@ -72,6 +72,97 @@ end
     # A kernel longer than the series and its history.
     long = rand(rng, T + 3)
     @test Convolution(long)(big(x); history = big(h)) ≈ Convolution(long)(x; history = h)
+    # Gain and add, from a view of the input, scaled in the same pass.
+    g, a = rand(rng, S, T), rand(rng, S, T)
+    conv = Convolution(PerStratum(C))
+    @test conv(view(big(X), :, 1:T); gain = g, add = a, history = big(H)) ≈
+        conv(X; gain = g, add = a, history = H)
+    b = rand(rng, T)
+    @test Convolution(c)(big(x); gain = 2.0, add = b) ≈
+        Convolution(c)(x; gain = 2.0, add = b)
+    # A history longer than the kernel, an empty one, vector gain and add on
+    # strata, a 1 × T gain on one series, and an early stop.
+    conv = Convolution(c)
+    @test conv(big(X); history = big(rand(rng, S, 6))) isa AbstractMatrix{BigFloat}
+    H6 = rand(rng, S, 6)
+    @test conv(big(X); history = big(H6)) ≈ conv(X; history = H6)
+    @test conv(big(X); history = zeros(BigFloat, S, 0)) ≈ conv(X)
+    @test conv(big(X); gain = b, add = b) ≈ conv(X; gain = b, add = b)
+    @test conv(big(x); gain = reshape(b, 1, T)) ≈ conv(x; gain = reshape(b, 1, T))
+    @test conv(big(X); stop = 5) ≈ conv(X; stop = 5)
+    # A threaded run gives the serial values.
+    threaded = Base.ScopedValues.with(
+        () -> conv(big(X); history = big(H)),
+        ComposableRecurrences.EXECUTOR => ComposableRecurrences.Threaded(;
+            min_work = 0, ntasks = 2
+        )
+    )
+    @test threaded == conv(big(X); history = big(H))
+    # Offset axes are refused rather than read out of place.
+    shifted = view(big(vcat(0.0, x)), Base.IdentityUnitRange(2:(T + 1)))
+    @test_throws ArgumentError conv(shifted)
+end
+
+@testitem "Convolution: calls without a rule gather on CPU arrays of other numbers" begin
+    using ComposableRecurrences, ForwardDiff, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(3)
+    S, D, T = 3, 4, 9
+    x, h = rand(rng, S, T), rand(rng, S, 2)
+    g, a = rand(rng, S, T), rand(rng, S, T)
+    Dual = ForwardDiff.Dual
+    @test CR._conv_path(Float64, rand(D), x) === CR._Buffered()
+    @test CR._conv_path(Dual{Nothing, Float64, 1}, rand(D), x) === CR._Gathered()
+    @test CR._conv_path(BigFloat, PerStratum(rand(S, D)), view(x, :, 1:2)) ===
+        CR._Gathered()
+    # Time-varying kernels keep the buffer.
+    @test CR._conv_path(BigFloat, TimeVarying(rand(D, T), CR.Secondary()), x) ===
+        CR._Buffered()
+    # The gather matches the buffered values, and its derivatives match a
+    # hand-written convolution's.
+    function naive(K, u)
+        w = hcat(h, u)
+        return [
+            g[k, t] * sum(K[k, d + 1] * w[k, 2 + t - d] for d in 0:min(D - 1, t + 1)) +
+                a[k, t] for k in 1:S, t in 1:T
+        ]
+    end
+    K = rand(rng, S, D)
+    for (k, Kk) in ((K[1, :], repeat(K[1, :]', S)), (PerStratum(K), K))
+        conv = Convolution(k)
+        f(θ) = sum(abs2, conv(reshape(θ, S, T); gain = g, add = a, history = h))
+        @test ForwardDiff.gradient(f, vec(x)) ≈
+            ForwardDiff.gradient(θ -> sum(abs2, naive(Kk, reshape(θ, S, T))), vec(x))
+        y = conv(Dual.(x, 1.0); gain = g, add = a, history = h, start = 2, stop = 8)
+        @test ForwardDiff.value.(y) ≈
+            conv(x; gain = g, add = a, history = h, start = 2, stop = 8)
+    end
+end
+
+@testitem "Convolution: lag blocks match the gather body at every edge" begin
+    using ComposableRecurrences, Random
+    # The float body adds lags in blocks of four; each kernel length, history
+    # length and start puts the block edges on different rows.
+    rng = Xoshiro(27)
+    S, T = 2, 11
+    tobig = v -> BigFloat.(v)
+    f32(v) = v === nothing ? nothing : Float32.(v)
+    f32(k::PerStratum) = PerStratum(Float32.(k.x))
+    for L in 1:13, m in 0:5, start in (1, 2, 5)
+        c, C = rand(rng, L), rand(rng, S, L)
+        x, X = rand(rng, T), rand(rng, S, T)
+        h, H = rand(rng, m), rand(rng, S, m)
+        hist = m == 0 ? (nothing, nothing) : (h, H)
+        for (k, u, hu) in ((c, x, hist[1]), (c, X, hist[2]), (PerStratum(C), X, hist[2]))
+            conv = Convolution(k)
+            bh = hu === nothing ? nothing : tobig(hu)
+            ref = conv(tobig(u); history = bh, start)
+            @test conv(u; history = hu, start) ≈ ref
+            y32 = Convolution(f32(k))(f32(u); history = f32(hu), start)
+            @test eltype(y32) == Float32
+            @test y32 ≈ ref rtol = 1.0e-5
+        end
+    end
 end
 
 @testitem "Convolution: time-varying kernel indexed by output" setup = [Reference] begin
@@ -151,6 +242,32 @@ end
     ref = C.time_varying_latent_delay(collect(eachcol(P)), Y)
     c = Convolution(TimeVarying(P))
     @test c(Y)[d:end] ≈ ref
+end
+
+@testitem "Convolution: a kernel with offset axes is refused" begin
+    using ComposableRecurrences
+    # Offset axes would be read from index 1 on both the float and the
+    # gather path, so the constructor refuses them and names the kernel.
+    shifted(a) = view(a, Base.IdentityUnitRange(2:length(a)))
+    for T in (Float64, BigFloat)
+        k = shifted(T[0.0, 0.5, 0.3, 0.2])
+        @test Base.has_offset_axes(k)
+        err = try
+            Convolution(k)
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("kernel", sprint(showerror, err))
+        @test occursin("2:4", sprint(showerror, err))
+        G = view(ones(T, 2, 4), :, Base.IdentityUnitRange(2:4))
+        @test_throws ArgumentError Convolution(PerStratum(G))
+        M = view(ones(T, 3, 5), Base.IdentityUnitRange(2:3), :)
+        @test_throws ArgumentError Convolution(TimeVarying(M))
+        # A one-based view of the same kernel is accepted.
+        c = T[0.5, 0.3, 0.2]
+        @test Convolution(view(c, 1:3))(ones(T, 4)) == Convolution(c)(ones(T, 4))
+    end
 end
 
 @testitem "Convolution: argument validation" begin
@@ -299,4 +416,14 @@ end
     @test_throws MethodError CR.contributions(conv, X; add = 1.0)
     @test_throws ArgumentError CR.contributions(Convolution(TimeVarying(Ct, P)), X; history = H)
     @test_throws DimensionMismatch CR.contributions(conv, X; gain = rand(rng, 3, T))
+end
+
+@testitem "Convolution: an offset gain or add is refused" begin
+    using ComposableRecurrences
+    shifted(v) = view(vcat(1000.0, v), Base.IdentityUnitRange(2:(length(v) + 1)))
+    conv = Convolution([0.5, 0.5])
+    for x in (collect(1.0:6), big.(collect(1.0:6)))
+        @test_throws ArgumentError conv(x; gain = shifted(fill(2.0, 6)))
+        @test_throws ArgumentError conv(x; add = shifted(fill(2.0, 6)))
+    end
 end

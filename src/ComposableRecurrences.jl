@@ -16,8 +16,10 @@ y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 
 where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
-Every operator is differentiable, and the README lists the automatic
-differentiation backends it is tested with.
+Every operator is differentiable, and the [FAQ](@ref faq) lists the
+automatic differentiation backends it is tested with.
+The [performance figure](@ref overview-performance) compares run and
+gradient times with a hand-written loop.
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
 A plain array holds one set of coefficients: a kernel's lag weights, a
@@ -90,13 +92,13 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
     Beds, Budget, Route, Hold, Drop, Transform, Hazard, Floor, Truncate,
-    SoftTruncate, Primary, Secondary, seeded, exponential_history,
-    with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, param_eltype,
+    SoftTruncate, Primary, Secondary, exponential_history, with_state,
+    State, contributions, forward, pullback!, Step, Init, Pressure, Run,
+    ispointwise, nstate, depth, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
     param, add_param!
@@ -127,6 +129,8 @@ include("couplings.jl")
 include("recurrence.jl")
 # The analytic reverse pass of the recurrence.
 include("recurrence_adjoint.jl")
+# The routes kernel: a sum of (coupling, kernel) routes.
+include("routes.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")
 # Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.

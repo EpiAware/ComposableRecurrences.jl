@@ -712,6 +712,13 @@ end
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
     @test CR._pool_power(0.5, Dual(2.0, 1.0)) == Dual(0.25, 0.25 * log(0.5))
+    # A plain power keeps its value at an empty pool, with a zero exponent
+    # tangent when the exponent is zero.
+    @test (@inferred CR._pool_power(0.0, 0.0)) === 1.0
+    @test (@inferred CR._pool_power(0.0f0, 1.0f0)) === 0.0f0
+    @test CR._pool_power(0.25, 0.5) === 0.5
+    @test CR._pool_power(Dual(0.0, 1.0), 0.0) === Dual(1.0, 0.0)
+    @test isnan(CR._pool_power(NaN, 0.5))
     # A NaN share or exponent stays NaN in the value and the tangent.
     @test all(isnan, ForwardDiff.partials(CR._pool_power(NaN, Dual(1.0, 1.0))))
     @test isnan(ForwardDiff.value(CR._pool_power(0.0, Dual(NaN, 1.0))))
@@ -736,4 +743,23 @@ end
         @test ∇[1] ≈ (f(θ + [e, 0]) - f(θ - [e, 0])) / 2e atol = 1.0e-6
         @test ∇[2] ≈ (f(θ + [0, e]) - f(θ)) / e rtol = 1.0e-4 atol = 1.0e-6
     end
+end
+
+@testitem "Hazard: one exponential gives exp(-x) and expm1(-x)" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    xs = (-3.0, -1.0e-12, 0.0, 1.0e-12, 0.4999, 0.5, 0.5001, 5.0, 40.0, Inf)
+    for x in (xs..., Float32.(xs)...)
+        e, em = CR._exp_neg(x)
+        @test e ≈ exp(-x) && em ≈ expm1(-x)
+        @test typeof(e) === typeof(x) && typeof(em) === typeof(x)
+        d = ForwardDiff.Dual(x, one(x))
+        de, dem = CR._exp_neg(d)
+        @test ForwardDiff.value(de) ≈ exp(-x) && ForwardDiff.value(dem) ≈ expm1(-x)
+        @test ForwardDiff.partials(de)[1] ≈ -exp(-x)
+        @test ForwardDiff.partials(dem)[1] ≈ -exp(-x)
+    end
+    @test all(isnan, CR._exp_neg(NaN))
+    # Other numbers take both exponentials.
+    @test CR._exp_neg(big(0.25)) == (exp(-big(0.25)), expm1(-big(0.25)))
 end

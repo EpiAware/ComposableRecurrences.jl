@@ -99,8 +99,7 @@ output of stratum ``i`` at absolute time ``t - l`` and ``p_{t,i}`` the
 value passed on to the coupling.
 A [`Convolution`](@ref) kernel is read the same way from lag 0.
 As a modifier parameter it is a length-`S` vector, ``\theta_i`` = `x[i]`.
-`PerStratum(TimeVarying(x))` is the same object as
-`TimeVarying(PerStratum(x))`.
+A coefficient per stratum and per time is `TimeVarying(PerStratum(x))`.
 
 # Examples
 ```jldoctest
@@ -136,7 +135,7 @@ where ``k_{ij,l}`` = `x[i, j, l]` weights stratum ``j``'s output at lag
 ``t - l``, and ``q_{t,i}`` replaces the coupled pressure ``C_t p_t`` of a
 [`Recurrence`](@ref).
 A stratum is one of ``S`` parallel series computed together.
-It is equivalent to Routes over all pairs, with a faster path: one route
+It is equivalent to [`Routes`](@ref) over all pairs, with a faster path: one route
 per pair `(i, j)`, with kernel `x[i, j, :]` and a coupling that is the unit
 matrix at `(i, j)`.
 The kernel already mixes strata, so the coupling must be `I`.

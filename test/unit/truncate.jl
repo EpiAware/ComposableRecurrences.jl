@@ -121,3 +121,19 @@ end
     y = Recurrence([1.0]; modifiers = (d,))(fill(3.0, 6); history = [2.0])
     @test sum(y) <= 20.0 + 1.0e-9
 end
+
+@testitem "Truncate: the shared minimum matches each form" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # `_softness` and `_soft_min` give each form's draw, so a modifier that
+    # admits up to a free capacity can reuse the forms' minimum.
+    for form in (CR.Truncate(), CR.SoftTruncate(0.2)), (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0))
+        κ = CR._softness(form)
+        y = CR._soft_min(κ, v, s)
+        @test y == first(CR.forward(form, CR.Step(), v, s, 1.0, 1.0))
+        back = CR._soft_min_back(κ, v, s, 0.7)
+        @test collect(back[1:2]) ≈ 0.7 .* ForwardDiff.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
+    end
+    @test CR._softness(CR.Truncate()) === nothing
+    @test CR._softness(CR.SoftTruncate(0.3)) == 0.3
+end
