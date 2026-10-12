@@ -279,6 +279,15 @@ end
     @test_throws "got TimeVarying(2×4 Matrix{Float64}, Secondary())" Recurrence(
         g; coupling = TimeVarying(ones(2, 4))
     )
+    # Nor a user modifier's: the constructor finds it in any field.
+    struct Shifted{B}
+        b::B
+    end
+    primary = TimeVarying(ones(4), ComposableRecurrences.Primary())
+    @test_throws "modifiers: Primary() indexing is only meaningful for a kernel" Recurrence(
+        g; modifiers = (Shifted((; b = primary)),)
+    )
+    @test Recurrence(g; modifiers = (Shifted(TimeVarying(ones(4))),)) isa Recurrence
     # Call inputs are data, never wrapped.
     @test_throws ArgumentError Recurrence(g)(TimeVarying(ones(5)); history = ones(3))
     @test_throws "got TimeVarying(5-element" Recurrence(g)(
@@ -502,15 +511,6 @@ end
         @test_throws ArgumentError call()
         @test_throws "leave start out" call()
     end
-end
-
-@testitem "seeded is deprecated for prepend" begin
-    using ComposableRecurrences
-    CR = ComposableRecurrences
-    r = Recurrence([0.5])
-    ϵ = collect(0.1:0.1:0.8)
-    y = @test_deprecated CR.seeded(r, 1.0; history = [1.0], add = ϵ)
-    @test y == vcat(1.0, r(1.0; history = [1.0], add = ϵ, start = 2))
 end
 
 @testitem "exponential_history" begin
