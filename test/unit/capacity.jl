@@ -337,6 +337,30 @@ end
         @test c.s
         @test c.θ
     end
+    # Two wards overflowing into one community stratum, exact and smooth.
+    v5 = [3.0, 2.5, 0.5, 1.0, 0.7]
+    shared = (
+        (
+            x -> CR.Capacity(
+                PerStratum(x[2:3]), CR.Beds(x[1]); pairs = [1 => 5, 2 => 5],
+                initial = x[4]
+            ),
+            [0.2, 2.0, 1.5, 0.0],
+        ),
+        (
+            x -> CR.Capacity(
+                PerStratum(x[2:3]), CR.Beds(x[1]); pairs = [1 => 5, 2 => 5],
+                form = CR.SoftTruncate(x[4]), initial = x[5]
+            ),
+            [0.2, 2.0, 1.5, 0.2, 0.0],
+        ),
+    )
+    for (build, θ) in shared
+        c = ModifierChecks.check_pullback(build, θ, v5, [1.0, 0.5], 1; s̄ = [-0.2, 0.4])
+        @test c.v
+        @test c.s
+        @test c.θ
+    end
 end
 
 @testitem "Capacity: checks its arguments" begin

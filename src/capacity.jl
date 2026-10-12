@@ -538,7 +538,7 @@ function pullback!(grads, m::Capacity, ::Step, v, s, t)
         x̄ = v̄[a] - ū + x̄s
         d̄, f̄, κ̄ = _draw_back(m.form, d, _pool_left(f), x̄)
         add_cotangent!(cotangent(cotangent(m̄, :form), :κ), κ̄)
-        f̄ = ifelse(f > 0, f̄, zero(f̄))
+        f̄ = ifelse(_primal_value(f) > 0, f̄, zero(f̄))
         s̄[p] = _open_back(m.mode, m̄, m, s[p], f̄, h̄, p, t)
         _demand_back!(m.overflow, v̄, s̄, a, p, P, d̄ + ū)
     end

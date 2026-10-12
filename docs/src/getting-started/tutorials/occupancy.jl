@@ -31,17 +31,17 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Occupancy two ways
 #
-# Each patient leaves with probability `d` each day.
-# So the chance of still being in a bed `k` days after admission is ``(1 - d)^k``.
+# Each patient leaves with probability `δ` each day.
+# So the chance of still being in a bed `k` days after admission is ``(1 - \delta)^k``.
 # As a convolution, occupancy is the admissions weighted by that survival, lag 0 first.
-# As a recurrence, it is yesterday's occupancy times `1 - d` plus today's admissions.
+# As a recurrence, it is yesterday's occupancy times `1 - δ` plus today's admissions.
 # The admissions enter as `add`.
 
 T = 90
 admissions = [30 * exp(-((t - 35) / 12)^2) for t in 1:T]
-d = 0.15
-by_convolution = Convolution((1 - d) .^ (0:(T - 1)))(admissions)
-by_recurrence = Recurrence([1 - d])(; history = [0.0], add = admissions)
+δ = 0.15
+by_convolution = Convolution((1 - δ) .^ (0:(T - 1)))(admissions)
+by_recurrence = Recurrence([1 - δ])(; history = [0.0], add = admissions)
 
 @chain DataFrame(
     "day" => 1:T, "Admissions" => admissions,
@@ -54,7 +54,7 @@ by_recurrence = Recurrence([1 - d])(; history = [0.0], add = admissions)
 end
 
 # Occupancy peaks a few days after admissions at nearly six times their height.
-# This is because each patient stays about ``1 / d`` days.
+# This is because each patient stays about ``1 / \delta`` days.
 
 maximum(abs, by_convolution .- by_recurrence)
 
@@ -65,7 +65,7 @@ maximum(abs, by_convolution .- by_recurrence)
 # So patients turned away never occupy a bed later.
 
 beds = 120.0
-capped = Recurrence([1 - d]; modifiers = (Clamp(0.0, beds),))(; history = [0.0], add = admissions)
+capped = Recurrence([1 - δ]; modifiers = (Clamp(0.0, beds),))(; history = [0.0], add = admissions)
 
 @chain DataFrame(day = 1:T, Uncapped = by_recurrence, Capped = capped) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
@@ -85,14 +85,14 @@ round(sum(by_recurrence .- capped))
 # [`Capacity`](@ref ComposableRecurrences.Capacity) keeps them instead.
 # It admits each day's demand up to the free beds and routes the rest to a second series.
 # In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy.
-# A share `d` of it leaves each day.
+# A share `δ` of it leaves each day.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
-routing = Capacity(beds, Beds(d); pairs = [1 => 2])
+routing = Capacity(beds, Beds(δ); pairs = [1 => 2])
 routed = Recurrence([0.0]; modifiers = (routing,))(;
     history = zeros(2, 1), add = [admissions'; zeros(1, T)]
 )
-admitted_occupancy = Recurrence([1 - d])(; history = [0.0], add = routed[1, :])
+admitted_occupancy = Recurrence([1 - δ])(; history = [0.0], add = routed[1, :])
 
 turned = DataFrame("day" => 1:T, "Admitted" => routed[1, :], "Turned away" => routed[2, :])
 @chain turned begin
