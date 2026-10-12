@@ -341,7 +341,8 @@ function _reads_outputs_type(::Type{T}) where {T}
     T <: Union{Recent, _BoundRecent} && return true
     T <: Union{Number, AbstractArray, Nothing, Symbol, AbstractString} &&
         return false
-    T <: Union{Type, Module} && return false
+    # Types, modules and functions are leaves, as for `depth`.
+    T <: Union{Type, Module, Function} && return false
     # Mutable objects are not walked, as `depth` does not walk them.
     ismutabletype(T) && return false
     isconcretetype(T) && isstructtype(T) || return false

@@ -81,11 +81,8 @@ function Protected(σ; pool0 = 0)
     return Protected{typeof(σ), typeof(pool0)}(σ, pool0)
 end
 
-const _Removing = Depletion{
-    <:Any, <:Any, <:Any, <:Any,
-    <:Union{Real, PerStratum, TimeVarying, Derived, Recent, _BoundRecent},
-    Nothing,
-}
+# Removals of any parameter form; `_Depleting` takes `Nothing` removals.
+const _Removing = Depletion{<:Any, <:Any, <:Any, <:Any, <:Any, Nothing}
 const _Protecting = Depletion{
     <:Any, <:Any, <:Any, <:Any, <:Any, <:Protected,
 }
