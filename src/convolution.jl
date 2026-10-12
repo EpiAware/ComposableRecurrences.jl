@@ -75,9 +75,10 @@ struct Convolution{K} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
     function Convolution(kernel::K) where {K}
-        kernel isa _PairwiseKernel && throw(
+        kernel isa Union{_PairwiseKernel, Routes} && throw(
             ArgumentError(
-                "a Pairwise kernel is for a Recurrence, not a Convolution; " *
+                "a Pairwise or Routes kernel is for a Recurrence, not a " *
+                    "Convolution; " *
                     "got $(_describe(kernel))"
             )
         )
