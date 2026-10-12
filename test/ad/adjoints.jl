@@ -810,6 +810,33 @@ end
     @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
 end
 
+# Tagged `compat_floor` so the Threads workflow also runs it on Julia 1.11.
+# There Enzyme reverse mode returns zero for the scalar field on both routes;
+# `@test_broken` turns into an error once that is fixed.
+@testitem "Enzyme reverse: a scalar modifier field next to an array-field modifier" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ADFixtures
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using ComposableRecurrences: NoAdjoint
+    import Enzyme, ForwardDiff
+    name = "Recurrence array-field and scalar-field modifiers"
+    _, loss, θ0 = only(filter(s -> first(s) == name, ADFixtures._SCENARIOS))
+    backend = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Const
+    )
+    θ = θ0()
+    for w in (identity, NoAdjoint)
+        f = Base.Fix1(loss, w)
+        ok = gradient(f, backend, θ) ≈ gradient(f, AutoForwardDiff(), θ)
+        if VERSION < v"1.12"
+            @test_broken ok
+        else
+            @test ok
+        end
+    end
+end
+
 @testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR

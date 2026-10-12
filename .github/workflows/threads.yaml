@@ -6,7 +6,8 @@ name: Threads
 # thread, where a split loop's tasks all share it.
 # `unit` runs the main suite without the quality checks, which the Test
 # workflow already runs; `ad` runs the threaded-executor gradient items
-# (tag `executor`) on every backend.
+# (tag `executor`) on every backend, and the items that record Julia 1.11
+# behaviour (tag `compat_floor`).
 # Both jobs run on the current release and the prerelease channel. `pre`
 # resolves to the current release when no prerelease exists, and is allowed
 # to fail, as in the managed Test workflow. `ad` also runs on the compat
@@ -73,4 +74,4 @@ jobs:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
       - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
-      - run: julia --project=test/ad test/ad/runtests.jl executor
+      - run: julia --project=test/ad test/ad/runtests.jl executor compat_floor

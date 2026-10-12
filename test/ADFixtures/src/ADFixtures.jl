@@ -123,6 +123,21 @@ function _scalar_field_mixed(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A scalar modifier field next to a modifier with an array field, under the
+# default coupling.
+function _array_and_scalar_fields(w, θ)
+    b = θ[1]
+    logh, logR = _unpack(view(θ, 2:length(θ)), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Depletion(
+            PerStratum(POP), ComposableRecurrences.Floor()
+        ),
+        ComposableRecurrences.Add(b),
+    )
+    y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # The strata split into two groups, each rescaled to a total per group and
 # day.
 const GROUPS = [1:2, 3:3]
@@ -414,6 +429,11 @@ const _SCENARIOS = [
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
         () -> _flat([80.0], 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence array-field and scalar-field modifiers",
+        _array_and_scalar_fields,
+        () -> _flat([0.5], fill(log(5.0), S, L), 0.3 .+ LOGR),
     ),
     (
         "Recurrence vaccination into a protected pool", _vaccination,
@@ -714,9 +734,15 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-None: every scenario and its `NoAdjoint` twin passes on every backend.
+On Julia 1.11, Enzyme reverse mode returns zero for the gradient of a scalar
+modifier field next to a modifier with an array field, on both routes.
+Every other scenario and its `NoAdjoint` twin passes on every backend.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    VERSION < v"1.12" || return Dict{String, Set{String}}()
+    name = "Recurrence array-field and scalar-field modifiers"
+    return Dict("Enzyme reverse" => Set([name, "NoAdjoint " * name]))
+end
 
 """
 Per-backend scenario names too unstable to run at all.
