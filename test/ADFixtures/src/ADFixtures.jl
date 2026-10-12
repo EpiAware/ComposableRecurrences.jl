@@ -114,6 +114,21 @@ function _renewal_strata(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A differentiated heterogeneity exponent: the built-in forms' default
+# exponent is fixed, so these keep the float exponent's power and log on
+# every backend.
+function _heterogeneity(w, θ, form)
+    α, logh, logR = _unpack(θ, (1,), (S, L), (S, T))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(POP), form; heterogeneity = only(α)
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+_heterogeneity_hazard(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Hazard())
+_heterogeneity_floor(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Floor())
+
 # A scalar modifier field, a Float32 kernel and Float64 history.
 const G0F = Float32.(G0)
 function _scalar_field_mixed(w, θ)
@@ -462,6 +477,14 @@ const _SCENARIOS = [
     (
         "Recurrence strata, coupling and depletion", _renewal_strata,
         () -> _flat(G0, K0, fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence depletion with a differentiated heterogeneity",
+        _heterogeneity_hazard, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence floored depletion with a differentiated heterogeneity",
+        _heterogeneity_floor, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
     ),
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
