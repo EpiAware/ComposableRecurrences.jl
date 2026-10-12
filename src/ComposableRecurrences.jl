@@ -91,7 +91,7 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Derived,
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
 public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
@@ -129,6 +129,8 @@ include("couplings.jl")
 include("recurrence.jl")
 # The analytic reverse pass of the recurrence.
 include("recurrence_adjoint.jl")
+# The routes kernel: a sum of (coupling, kernel) routes.
+include("routes.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")
 # Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.

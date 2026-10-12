@@ -50,6 +50,9 @@ place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
 produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
+A [`Routes`](@ref) kernel sums routes, each a kernel with its own coupling,
+so its coupling is `I` too; the keyword constructor folds routes that have
+a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
@@ -161,8 +164,13 @@ _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, cou
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
 function Recurrence(kernel; coupling = I, modifiers = ())
-    return Recurrence(kernel, coupling, Tuple(modifiers))
+    k, C = _fold(kernel, coupling)
+    return Recurrence(k, C, Tuple(modifiers))
 end
+
+# A kernel and coupling with a cheaper equivalent form, such as routes that
+# fold into one kernel, are replaced by it.
+_fold(kernel, coupling) = (kernel, coupling)
 
 @doc raw"""
 The state [`ComposableRecurrences.with_state`](@ref) returns with an
@@ -263,7 +271,7 @@ _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
     return nothing
 end
 
-# A Pairwise kernel already mixes strata, so its coupling is `I`.
+# A Pairwise or Routes kernel already mixes strata, so its coupling is `I`.
 _check_pairwise_coupling(kernel, coupling) = nothing
 function _check_pairwise_coupling(::_PairwiseKernel, coupling)
     coupling isa UniformScaling && isone(coupling.λ) || throw(
@@ -378,6 +386,9 @@ function _oldest_first(g::Pairwise)
     return _OldestFirstPairwise(reverse(permutedims(g.x, (3, 2, 1)); dims = 1))
 end
 _oldest_first(g) = g
+
+# The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
+_run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
 
 # A kernel's weight on stratum `b`'s value at lag (or delay) index `i` in
 # stratum `a`, read in column `τ`. Kernels that do not mix strata read only
@@ -540,6 +551,16 @@ end
 # The buffer rows `rows`, back in the public layout of history `h`.
 _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
+# A CPU buffer transposes in one pass, with no intermediate copy.
+function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
+    checkbounds(H, rows, :)
+    Y = similar(H, size(H, 2), length(rows))
+    o = first(rows) - 1
+    @inbounds for j in axes(Y, 2), k in axes(Y, 1)
+        Y[k, j] = H[o + j, k]
+    end
+    return Y
+end
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
@@ -645,7 +666,7 @@ function uses_adjoint(r::Recurrence, ::Run)
 end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
 function _type_adjoint(r::Recurrence, ::Run)
-    return _coupling_adjoint(r.coupling) !== :none &&
+    return _kernel_adjoint(r.kernel) && _coupling_adjoint(r.coupling) !== :none &&
         _all_modifiers_adjoint(r.modifiers)
 end
 _type_adjoint(w::_WithState, ::Run) = _type_adjoint(w.r, Run())
@@ -654,6 +675,10 @@ function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
         _all_modifiers_adjoint(Base.tail(ms))
 end
+
+# Whether the rule covers the kernel; routes add their couplings.
+_kernel_adjoint(kernel) = true
+_plain_why_kernel(kernel) = nothing
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
@@ -726,6 +751,8 @@ end
 # the coupling whose local derivative the strata outgrow. It is built only
 # when the note is first logged for a type.
 function _plain_why(r::Recurrence)
+    why = _plain_why_kernel(r.kernel)
+    why === nothing || return why
     if _istrue(r.rebuilds)
         _type_adjoint(r, Run()) || return _no_adjoint_why(r)
         _coupling_adjoint(r.coupling) === :local || return _ADJOINT_NOTE
@@ -946,7 +973,10 @@ _record_pressure!(::Nothing, ::Nothing, pk, xk, t, k) = nothing
     return nothing
 end
 
-# The whole run of the independent strata `ks`, time outermost.
+# The whole run of the independent strata `ks`, time outermost. Each
+# stratum's step waits on its own last values, so interleaving the strata
+# overlaps those waits; stratum outermost measured slower even though each
+# stratum's buffer column is contiguous.
 function _series_body!(
         ks, H, P, X, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D,
         T
@@ -1009,7 +1039,7 @@ function _run(
         T, ::Val{record}
     ) where {Tp, record}
     coupling = r.coupling
-    kernel = _oldest_first(r.kernel)
+    kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_zeros(h, Tp, D + T, S), h, D)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
