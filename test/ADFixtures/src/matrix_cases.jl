@@ -424,6 +424,22 @@ function transform(wrap, z::Size)
     return f, _flat(_gi(L), fill(0.5, S), [0.2 + 0.2 * k / S for k in 1:S])
 end
 
+# Behaviour change driven by the incidence each stratum sees through a
+# contact matrix: a gain multiplier read from the last week's outputs of
+# every stratum.
+function recent_coupled(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    f = function (θ)
+        g, C, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
+        β = Derived(exp, -0.01 * CR.Recent(7; coupling = C))
+        r = Recurrence(g; modifiers = (CR.Transform(*, β),))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    C0 = fill(1.0 / S, S, S)
+    return f, _flat(_gi(L), C0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -505,6 +521,10 @@ const CASES = [
         "transform", "per-stratum PGF iteration, Transform modifier",
         transform, [5, 50], false,
     ),
+    Case(
+        "recent_coupled", "feedback from recent incidence through a contact matrix",
+        recent_coupled, [20, 50], false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
@@ -516,6 +536,8 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_vaccination" => (:Protected,),
     "transform" => (:Transform,),
+    # The coupling on `Recent` came after `Recent`.
+    "recent_coupled" => (:Recent, :_reads_across),
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),
     "conv_gain" => (:contributions,),

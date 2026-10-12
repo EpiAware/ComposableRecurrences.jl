@@ -295,6 +295,8 @@ end
         mods = (
             (CR.Transform(*, Derived(exp, -0.05 * Recent(w; coupling = C))),),
             (CR.Depletion(PerStratum([50.0, 80.0, 60.0]); removals = 0.1 * Recent(W; coupling = C)),),
+            # Init reads the population at time 1, the first step's row.
+            (CR.Depletion(100.0 + 5 * Recent(W; coupling = C)),),
         )
         for ms in mods
             r = Recurrence(g; modifiers = ms)

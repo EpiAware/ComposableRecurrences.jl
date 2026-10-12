@@ -47,6 +47,7 @@ function _reverse!(c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     q̄ = _zeros(H, Tp, S)
     for t in T:-1:1
         τ = τ0 + t - 1
+        _refresh!(modifiers, D + t)
         if _all_pointwise(modifiers)
             for k in 1:S
                 v̄k = _thread_back(modifiers, m̄s, rec, s̄s, H̄[D + t, k], τ, t, k)
@@ -67,6 +68,7 @@ function _reverse!(c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
         end
         _coupling_back!(p̄, C̄, coupling, q̄, P, H, H̄, t, τ, L)
         _kernel_back!(kbuf, ḡ, kernel, p̄, H, H̄, t + D - L, τ, L)
+        _flush!(modifiers)
     end
     _kernel_finish!(ḡ, kbuf)
     # An `Init` that reads the outputs adds into the history rows of `H̄`,
@@ -78,6 +80,7 @@ function _reverse!(c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     elseif s̄0 !== nothing
         foreach((a, b) -> a === nothing || (a .+= b), s̄0, s̄s)
     end
+    _flush!(modifiers)
     _scatter_history!(h̄, H̄, h, D)
     return nothing
 end

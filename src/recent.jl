@@ -48,7 +48,7 @@ Scope: modifier parameters of a [`Recurrence`](@ref); analytic adjoint.
 
 # Keyword Arguments
 - `coupling`: `nothing` to read each stratum's own outputs, or an `S × S`
-  matrix mixing them.
+  matrix mixing them; `Recent(w, C)` is the same as `Recent(w; coupling = C)`.
 
 # Examples
 ```jldoctest
@@ -149,16 +149,42 @@ _float_param(x::Recent) = x
 # output at absolute time `t`. In the reverse pass `H̄` is the buffer's
 # cotangent, else `nothing`. Binding checks the coupling against the
 # buffer's strata.
-struct _BoundRecent{R <: Recent, B, G}
+#
+# With a coupling, every stratum's read at a step mixes the same `S`
+# windows, so the recurrence fills them once per step into `u`
+# (`_refresh!`, run serially before the strata read them) and `row` names
+# the buffer row they belong to. In the reverse pass each read adds the
+# cotangent of the windows into `z`, and `_flush!` sends it to the buffer
+# and the weights once per step, into the weights' mirror kept in `w̄`.
+# Without a coupling these are `nothing`.
+struct _BoundRecent{R <: Recent, B, G, U, Z, M}
     x::R
     H::B
     H̄::G
     o::Int
+    u::U
+    row::Base.RefValue{Int}
+    z::Z
+    w̄::M
     function _BoundRecent(x::R, H::B, H̄::G, o) where {R <: Recent, B, G}
         _check_recent_strata(x.coupling, size(H, 2))
-        return new{R, B, G}(x, H, H̄, o)
+        u = _window_cache(x.coupling, H)
+        z = _window_cache(x.coupling, H̄)
+        w̄ = _mirror_slot(x.coupling, H̄)
+        return new{R, B, G, typeof(u), typeof(z), typeof(w̄)}(
+            x, H, H̄, o, u, Ref(0), z, w̄
+        )
     end
 end
+_window_cache(C, ::Nothing) = nothing
+_window_cache(::Nothing, H) = nothing
+_window_cache(::Nothing, ::Nothing) = nothing
+_window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
+# The weights' mirror is first seen when a read's cotangent arrives.
+_mirror_slot(C, ::Nothing) = nothing
+_mirror_slot(::Nothing, H̄) = nothing
+_mirror_slot(::Nothing, ::Nothing) = nothing
+_mirror_slot(C, H̄) = Ref{Any}(nothing)
 _check_recent_strata(::Nothing, S) = nothing
 function _check_recent_strata(C, S)
     size(C) == (S, S) || throw(
@@ -182,8 +208,16 @@ end
 _read(::Nothing, b, k, i) = _recent_window(b.x.w, b.H, i, k)
 function _read(C, b, k, i)
     acc = zero(promote_type(eltype(C), eltype(b.x.w), eltype(b.H)))
-    for j in axes(b.H, 2)
-        acc += C[k, j] * _recent_window(b.x.w, b.H, i, j)
+    if b.row[] == i
+        u = b.u
+        for j in axes(b.H, 2)
+            acc += C[k, j] * u[j]
+        end
+    else
+        # A read outside the step being run, such as from an `Init`.
+        for j in axes(b.H, 2)
+            acc += C[k, j] * _recent_window(b.x.w, b.H, i, j)
+        end
     end
     return acc
 end
@@ -198,11 +232,72 @@ function _read_back!(x̄, ::Nothing, b, v, k, i)
 end
 function _read_back!(x̄, C, b, v, k, i)
     C̄ = cotangent(x̄, :coupling)
-    for j in axes(b.H, 2)
-        c = C[k, j]
-        _add_entry!(C̄, C, v * _recent_window(b.x.w, b.H, i, j), k, j)
-        _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v * c, i, j)
+    z = b.z
+    if z !== nothing && b.row[] == i
+        u = b.u
+        b.w̄[] = cotangent(x̄, :w)
+        for j in axes(b.H, 2)
+            _add_entry!(C̄, C, v * u[j], k, j)
+            z[j] += v * C[k, j]
+        end
+    else
+        for j in axes(b.H, 2)
+            c = C[k, j]
+            _add_entry!(C̄, C, v * _recent_window(b.x.w, b.H, i, j), k, j)
+            _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v * c, i, j)
+        end
     end
+    return nothing
+end
+
+# Fill the windows of every coupled `Recent` in `x` at buffer row `i`, once
+# per step and before the strata read them.
+_refresh!(x, i) = _each_coupled(b -> _refresh_one!(b, i), x)
+function _refresh_one!(b::_BoundRecent, i)
+    u, w, H = b.u, b.x.w, b.H
+    for j in axes(H, 2)
+        u[j] = _recent_window(w, H, i, j)
+    end
+    b.row[] = i
+    return nothing
+end
+
+# Send the cotangents the reads of a step added into `z` to the buffer and
+# the weights, then clear them.
+_flush!(x) = _each_coupled(_flush_one!, x)
+_flush_one!(b::_BoundRecent) = _flush_one!(b.z, b)
+_flush_one!(::Nothing, b) = nothing
+function _flush_one!(z, b)
+    i = b.row[]
+    i > 0 || return nothing
+    _flush_weights!(b.w̄[], z, b.x.w, b.H, i)
+    for j in eachindex(z)
+        _recent_back!(nothing, b.x.w, b.H, b.H̄, z[j], i, j)
+        z[j] = zero(eltype(z))
+    end
+    return nothing
+end
+# The weights' cotangent, `w̄_l += Σ_j z_j y_{i-l,j}`; behind a function
+# barrier, as the mirror's type is known only once a read stores it.
+_flush_weights!(::Nothing, z, w, H, i) = nothing
+function _flush_weights!(w̄, z, w, H, i)
+    for j in eachindex(z), l in eachindex(w)
+        add_cotangent!(w̄, z[j] * H[i - l, j], l)
+    end
+    return nothing
+end
+
+# Apply `f` to every bound `Recent` with a coupling inside `x`, walking only
+# values whose type holds one.
+_each_coupled(f, x) = _each_coupled(Val(_reads_across(x)), f, x)
+_each_coupled(::Val{false}, f, x) = nothing
+_each_coupled(::Val{true}, f, x::_BoundRecent) = (f(x); nothing)
+function _each_coupled(::Val{true}, f, x::Union{Tuple, NamedTuple})
+    foreach(y -> _each_coupled(f, y), values(x))
+    return nothing
+end
+function _each_coupled(::Val{true}, f, x)
+    foreach(y -> _each_coupled(f, y), Tuple(ConstructionBase.getfields(x)))
     return nothing
 end
 function _recent_back!(w̄, w, H, H̄, v, i, j)

@@ -1011,6 +1011,8 @@ function _run(
     else
         for t in 1:T
             τ = τ0 + t - 1
+            # Parameters that read across strata fill their windows once.
+            _refresh!(modifiers, D + t)
             _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
             if _all_pointwise(modifiers)
                 _each!(
