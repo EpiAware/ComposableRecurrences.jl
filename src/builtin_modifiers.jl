@@ -67,7 +67,9 @@ A modifier's [`ComposableRecurrences.pullback!`](@ref) writes every
 parameter's cotangent through `add_param!`, with `x̄` from
 [`ComposableRecurrences.cotangent`](@ref), so it accepts every parameter
 form.
-A `nothing` mirror takes nothing.
+A `nothing` mirror takes nothing for `x` itself, but a [`Recent`](@ref)
+parameter still sends its cotangent to the outputs it read, so a pullback
+calls `add_param!` for every parameter whatever its mirror.
 
 # Arguments
 - `x̄`: the mirror of `x`.
@@ -130,7 +132,8 @@ function _check_param(name, x)
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, " *
                 "TimeVarying(PerStratum($name)) strata × time, or " *
-                "Derived(f, args...) computed from other parameters; got " *
+                "Derived(f, args...) computed from other parameters, or " *
+                "Recent(w) read from the recurrence's outputs; got " *
                 _describe(x)
         )
     )
@@ -223,7 +226,7 @@ struct Floor end
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
 
-For each stratum ``i`` (one of ``S`` parallel series) and absolute time
+For each stratum ``i`` (see [`PerStratum`](@ref)) and absolute time
 ``t`` from the call's first time ``t_0``,
 
 ```math
@@ -541,11 +544,15 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
     return nothing
 end
 
-function forward(m::Depletion, ::Step, v, s, t, k)
+# A depletion with neither removals nor a protected pool. Removals of any
+# parameter form, and the protected pool, have methods of their own.
+const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
+
+function forward(m::_Depleting, ::Step, v, s, t, k)
     return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
 end
 
-function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
+function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
@@ -563,7 +570,7 @@ Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 v'_{t,i} = v_{t,i} + b_{t,i},
@@ -622,7 +629,7 @@ Moves a share of each stratum's values to others, conserving the total: a
 share ``\varepsilon_{t,j} K_{ij}`` of origin ``j``'s value is realised in
 destination ``i`` instead.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 \begin{aligned}
@@ -757,7 +764,7 @@ end
 @doc raw"""
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),

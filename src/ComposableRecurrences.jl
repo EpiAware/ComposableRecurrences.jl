@@ -26,8 +26,6 @@ A plain array holds one set of coefficients: a kernel's lag weights, a
 coupling's `S × S` matrix or a modifier parameter's single value.
 [`PerStratum`](@ref) gives one set per stratum, [`Pairwise`](@ref) one per
 pair of strata and [`TimeVarying`](@ref) one per time.
-A stratum is one of `S` parallel series computed together, such as a place
-or an age group.
 Inputs, histories and outputs are strata × time arrays, or a vector for a
 single series.
 Time is absolute, counted from 1, and a call covers the times `start:stop`.
@@ -42,6 +40,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
+| admitted and overflow | `Capacity(C, Beds(δ); pairs = [a => o])`                 |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
 
@@ -91,16 +90,17 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
+    Recent
 
-public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Transform,
-    Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
-    exponential_history, with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, nstate, depth,
-    param_eltype,
+public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
+    Beds, Budget, Route, Hold, Drop, Transform, Hazard, Floor, Truncate,
+    SoftTruncate, Primary, Secondary, exponential_history, with_state,
+    State, contributions, forward, pullback!, Step, Init, Pressure, Run,
+    ispointwise, nstate, depth, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
-    param, add_param!
+    param, add_param!, ConvolutionMethod, Direct, FFTMethod
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -114,12 +114,18 @@ include("modifiers.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
+# Parameters computed from other parameters.
+include("derived.jl")
+# Parameters read from the recurrence's own recent outputs.
+include("recent.jl")
 # Depletion with removals and a protected pool.
 include("depletion_pools.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
+# Routing demand between admitted and overflow strata under a capacity.
+include("capacity.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
@@ -136,7 +142,5 @@ include("fallbacks.jl")
 include("interfaces.jl")
 # The Transform modifier, a pointwise map with parameters.
 include("transform.jl")
-# Parameters computed from other parameters.
-include("derived.jl")
 
 end # module ComposableRecurrences

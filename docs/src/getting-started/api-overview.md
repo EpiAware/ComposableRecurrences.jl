@@ -22,7 +22,7 @@ and a convolution computes
 y_t = g_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t .
 ```
 
-- ``y_t`` is the output and ``x_t`` the convolution input; each has one entry per series.
+- ``y_t`` is the output and ``x_t`` the convolution input; each has one entry per [series](@ref glossary-series), and the values before `start` are the `history`.
 - ``k_l`` is the [kernel](@ref overview-shapes) weight on lag ``l``.
 - ``C_t`` is the [coupling](@ref overview-couplings), which mixes the series.
 - ``g_t`` is the gain and ``a_t`` the additive input, the arguments `gain` and `add` of the [call](@ref overview-calls).
@@ -33,15 +33,19 @@ Names that are public but not exported are written unqualified below.
 Load them with `using ComposableRecurrences: Depletion, Floor, with_state`, and so on.
 For models from infectious disease epidemiology, see [Infectious disease models](@ref infectious-disease-models).
 
-## Words used on these pages
+## [Words used on these pages](@id glossary)
 
-- **Series**: one sequence of values over time, such as the infections in one region or age group.
-- **Stratum** (plural strata): one of several series run side by side, which `PerStratum` gives its own value.
-- **Kernel**: the weights applied to past values, listed from the most recent lag.
-- **Gain**: the multiplier ``g_t`` on each step, such as the reproduction number in a renewal process.
-- **History**: the values before the first step.
-- **State**: the values a later call needs to continue a series, as described under [Calls](@ref overview-calls).
-- **Pointwise**: acting on each series separately.
+### [Series](@id glossary-series)
+
+One sequence of values over time, such as the infections in one region or age group.
+
+### [Stratum](@id glossary-stratum)
+
+One of several series run side by side (plural strata); see [`PerStratum`](@ref).
+
+### [Pointwise](@id glossary-pointwise)
+
+Acting on each series separately; [`ispointwise`](@ref ComposableRecurrences.ispointwise) says whether a modifier does.
 
 ## Tables
 
@@ -62,9 +66,9 @@ the [extension API](@ref overview-extending), which includes
 | Name | What it does | Returns |
 |---|---|---|
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
-| [`Convolution(kernel)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0 | a callable `Convolution` |
+| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
-A recurrence has no lag 0, because a value cannot depend on itself in the same step.
+A recurrence has no lag 0; the [FAQ](@ref faq-lag-origin) says why.
 
 ## [Calls](@id overview-calls)
 
@@ -99,6 +103,7 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
+| [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
 They tag one stored array and make no copies, except that kernel columns are stacked once.
@@ -130,22 +135,25 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | hand-written | `total`, one per group |
+| [`Capacity(C, mode; pairs)`](@ref ComposableRecurrences.Capacity) | admits each step's demand up to free beds or a budget per period, and routes the rest to an overflow series, a queue or nowhere | yes, with several series | no | hand-written | `C`, `exit`, `κ`, `initial` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 
-Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))` or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
+Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
-Depletion forms and time indexing are types, and you pass an instance.
+Depletion forms, capacity modes and time indexing are types, and you pass an instance.
 
 | Name | What it does | Example |
 |---|---|---|
 | [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N, Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | depletion forms that draw the value in full until the pool runs out, exactly or with a smooth minimum | `Depletion(N, Truncate())` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly; for `Depletion` and `Capacity` | `Capacity(C, Beds(δ); pairs, form = SoftTruncate(0.1))` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
+| [`Beds(δ)`](@ref ComposableRecurrences.Beds), [`Budget(period; carry_over)`](@ref ComposableRecurrences.Budget) | capacity modes: places with occupancy and exit fraction ``\delta``, or an allowance granted each period | `Capacity(C, Beds(δ); pairs = [1 => 2])` |
+| [`Route()`](@ref ComposableRecurrences.Route), [`Hold()`](@ref ComposableRecurrences.Hold), [`Drop()`](@ref ComposableRecurrences.Drop) | capacity overflow: to the paired series at the same step, to a queue offered again next step, or removed | `Capacity(C, Beds(δ); pairs = [1], overflow = Hold())` |
 | [`Protected(σ; pool0)`](@ref ComposableRecurrences.Protected) | a pool the depletion's removals move into, drawn from at relative susceptibility ``\sigma`` | `Depletion(N; removals, protected = Protected(σ))` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
@@ -167,9 +175,9 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 | Name | What it does | Returns |
 |---|---|---|
 | [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor operator calls use, set for a block with `with` | a scoped value |
-| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | run loops in order, across CPU threads, or as a GPU kernel | an executor |
+| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | the built-in executors | an executor |
 
-[Executors](@ref executors) gives what each supports under each AD backend.
+[Executors](@ref executors) says what each does and supports under each AD backend.
 
 ## [Extension API](@id overview-extending)
 

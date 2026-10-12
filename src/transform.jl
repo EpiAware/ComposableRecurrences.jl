@@ -1,10 +1,8 @@
 @doc raw"""
 Maps each stratum's value through a function `f`, with optional
 parameters `θ`.
-A stratum is one of ``S`` parallel series computed together, such as a
-place or an age group.
 
-At time ``t``, for each stratum ``i``,
+At time ``t``, for each stratum ``i`` (see [`PerStratum`](@ref)),
 
 ```math
 v'_i = f(v_i, \theta_{t,i}), \qquad s'_i = s_i,
@@ -161,6 +159,7 @@ end
 # entry's own type.
 _add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
 function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
+    θ̄ = _arg_mirrors(θ̄, θ)
     θ̄ === nothing && return nothing
     map(values(θ̄), values(θ), values(∂θ)) do b, x, d
         add_param!(b, x, ȳ * d, k, t)

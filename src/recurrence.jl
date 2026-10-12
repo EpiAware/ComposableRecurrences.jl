@@ -22,9 +22,8 @@ y_t &= v^{(R)}_t,
 
 for ``t = t_0, \dots, t_1`` (`start`, `stop`), where
 
-  - ``y_{t,i}`` is the output of stratum ``i`` at time ``t``, one of ``S``
-    strata (parallel series such as places or age groups); for
-    ``t < t_0`` it is the history;
+  - ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+    at time ``t``, one of ``S`` strata; for ``t < t_0`` it is the history;
   - ``k_{i,l}(t)`` is the kernel's weight on lag ``l``, `kernel[l]`, the
     same for every ``i`` and ``t`` unless the kernel is
     [`PerStratum`](@ref) or [`TimeVarying`](@ref);
@@ -346,6 +345,10 @@ _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
 _nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
+
+# An operator held inside a modifier keeps its own buffer, so it does not
+# deepen this one.
+depth(::AbstractOperator) = 0
 
 # The buffer depth: the kernel length, or deeper when a modifier, coupling
 # or kernel reads further back (see `depth`).
@@ -678,14 +681,15 @@ _plain_why_kernel(kernel) = nothing
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier with
-# only scalar float parameters outside functions, rebuilt with dual numbers
-# by `constructorof`), or `:none` when it cannot, which includes a
+# only scalar float parameters outside functions and no parameter read from
+# the outputs, rebuilt with dual numbers by `constructorof`), or `:none`
+# when it cannot, which includes a
 # `Derived` parameter whose map holds float fields of its own. Decided from
 # the type; whether the rebuild works is checked by value at construction.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _scalar_params(m) && return :local
+    ispointwise(m) && _scalar_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -1040,9 +1044,11 @@ function _run(
         ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
         T, ::Val{record}
     ) where {Tp, record}
-    (; coupling, modifiers) = r
+    coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_zeros(h, Tp, D + T, S), h, D)
+    # Parameters that read the outputs are bound to this call's buffer.
+    modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
     v = _zeros(h, Tp, S)
