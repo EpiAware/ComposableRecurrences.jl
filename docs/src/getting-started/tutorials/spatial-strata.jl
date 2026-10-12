@@ -290,6 +290,51 @@ end
 
 # More tracing means fewer cases, and with 90% traced the outbreak declines.
 
+# ## Routes: community and funeral transmission
+#
+# Some diseases spread by more than one route, each with its own timing and contacts.
+# Ebola spreads in the community while a case is ill and at the funeral after death.
+# [`Routes`](@ref) pairs each route's kernel with its own coupling.
+# The routes are the recurrence's kernel, so its coupling stays `I`.
+# Its docstring gives the maths, the cost and how it relates to `Pairwise`.
+#
+# The funeral kernel is the infection-to-death delay convolved with the funeral days.
+# The fatality ratio scales it, and a [`Convolution`](@ref) builds it.
+# Funerals draw mourners from the patch and its neighbours, so their coupling is sparse.
+
+using SparseArrays
+death = [0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.3, 0.2, 0.1, 0.1]
+funeral_days = [0.6, 0.4]
+cfr = 0.5
+gi_funeral = cfr .* Convolution(funeral_days)(vcat(death, 0.0))
+K_funeral = sparse([0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.1 0.9])
+routes = Routes((K, gi), (K_funeral, gi_funeral))
+ebola = Recurrence(routes; modifiers = (depletion,))
+ebola_cases = ebola(0.9; history = seed, stop = T);
+
+# Each route's share of the force is not recorded, but it can be recomputed.
+# It is the route's coupling applied to a `Convolution` of the infections with its kernel.
+# This is the force before depletion, so the routes sum to more than the cases.
+
+function route_force(C, w)
+    y = hcat(seed, ebola_cases)
+    return 0.9 .* (C * Convolution(vcat(0.0, w))(y)[:, (size(seed, 2) + 1):end])
+end
+@chain [("Community", K, gi), ("Funeral", K_funeral, gi_funeral)] begin
+    map(_) do (name, C, w)
+        @transform(long(route_force(C, w)), :route = name)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :route, layout = :patch) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Force of infection"))
+end
+
+# Neither route alone sustains spread: their reproduction numbers are 0.9 and 0.45.
+# Together they do, and 42% to 49% of each patch is infected.
+# The funeral force peaks a few days after the community force.
+# Its mean lag is about five days longer.
+
 # ## Learning more
 #
 # - See every operator, coupling and modifier on the [API overview](@ref api-overview).

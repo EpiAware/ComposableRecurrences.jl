@@ -45,6 +45,21 @@
     @test y ≈ Convolution(c)(x)
 end
 
+@testitem "Convolution FFT: the public call takes the transform" begin
+    using ComposableRecurrences, FFTW
+    const CR = ComposableRecurrences
+    # A NaN input reaches earlier outputs of its block only through the
+    # transform, so it shows which method ran.
+    x = ones(50)
+    x[40] = NaN
+    k = fill(0.2, 5)
+    @test !any(isnan, Convolution(k)(x)[1:39])
+    @test any(isnan, Convolution(k; method = CR.FFTMethod())(x)[1:39])
+    X = ones(2, 50)
+    X[1, 40] = NaN
+    @test any(isnan, Convolution(k; method = CR.FFTMethod())(X)[1, 1:39])
+end
+
 @testitem "Convolution FFT: Float32 is kept" begin
     using ComposableRecurrences, FFTW
     const CR = ComposableRecurrences
