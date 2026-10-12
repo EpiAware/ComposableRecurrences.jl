@@ -179,6 +179,32 @@ end
     @test c(Y)[d:end] ≈ ref
 end
 
+@testitem "Convolution: a kernel with offset axes is refused" begin
+    using ComposableRecurrences
+    # Offset axes would be read from index 1 on both the float and the
+    # gather path, so the constructor refuses them and names the kernel.
+    shifted(a) = view(a, Base.IdentityUnitRange(2:length(a)))
+    for T in (Float64, BigFloat)
+        k = shifted(T[0.0, 0.5, 0.3, 0.2])
+        @test Base.has_offset_axes(k)
+        err = try
+            Convolution(k)
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("kernel", sprint(showerror, err))
+        @test occursin("2:4", sprint(showerror, err))
+        G = view(ones(T, 2, 4), :, Base.IdentityUnitRange(2:4))
+        @test_throws ArgumentError Convolution(PerStratum(G))
+        M = view(ones(T, 3, 5), Base.IdentityUnitRange(2:3), :)
+        @test_throws ArgumentError Convolution(TimeVarying(M))
+        # A one-based view of the same kernel is accepted.
+        c = T[0.5, 0.3, 0.2]
+        @test Convolution(view(c, 1:3))(ones(T, 4)) == Convolution(c)(ones(T, 4))
+    end
+end
+
 @testitem "Convolution: argument validation" begin
     using ComposableRecurrences
     err = try
