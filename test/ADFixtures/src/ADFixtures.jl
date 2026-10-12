@@ -73,14 +73,14 @@ function ComposableRecurrences.forward(
     return v′, s - v′
 end
 
-# Consecutive blocks of `θ` with the given shapes. The offsets are computed
-# up front: a closure that updates a captured offset boxes it, and Enzyme
-# reverse mode on Julia 1.11 then drops gradients flowing through the blocks.
+# Consecutive blocks of `θ` with the given shapes.
 function _unpack(θ, shapes...)
-    ns = map(prod, shapes)
-    offsets = cumsum((0, Base.front(ns)...))
-    return map(shapes, offsets, ns) do sh, o, n
-        reshape(view(θ, (o + 1):(o + n)), sh...)
+    o = 0
+    return map(shapes) do sh
+        n = prod(sh)
+        x = reshape(view(θ, (o + 1):(o + n)), sh...)
+        o += n
+        x
     end
 end
 
@@ -142,7 +142,8 @@ end
 # default coupling: the operator holds both floats and arrays.
 function _array_and_scalar_fields(w, θ)
     b = θ[1]
-    logh, logR = _unpack(view(θ, 2:length(θ)), (S, L), (S, T))
+    logh = reshape(view(θ, 2:(1 + S * L)), S, L)
+    logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
     mods = (
         ComposableRecurrences.Depletion(
             PerStratum(POP), ComposableRecurrences.Floor()
