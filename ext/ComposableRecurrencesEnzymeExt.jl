@@ -132,6 +132,12 @@ end
 
 # Code Enzyme traces is not run as primal code, so a convolution it traces
 # takes the direct method, which it can differentiate.
+# The routes differ by Julia version. On 1.12 Enzyme calls these rules, so
+# traced code takes the direct method, the faster one for short kernels. On
+# 1.11 it runs a call that returns a `Bool` as it is, without its rule, so
+# traced code takes the transform through the rules of `_fft_convolve!`
+# below. 1.12 also skips these rules once the call has a constant argument,
+# so they are kept as they are, with no arguments.
 function EnzymeRules.forward(
         config::EnzymeRules.FwdConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}
     )
@@ -149,12 +155,11 @@ function EnzymeRules.reverse(
     return ()
 end
 
-# Enzyme does not always call the `_untraced` rules: on some Julia versions
-# it runs a call that returns a `Bool` as it is. So traced code can reach
-# the transform, and these rules differentiate it without tracing its FFTW
-# calls. The lag sum `Y += c ⋆ X` is linear in the kernel `c` and in the
-# input `X`, so its tangent is `Ẏ += ċ ⋆ X + c ⋆ Ẋ` and its reverse pass is
-# the transform's own.
+# Traced code that reaches the transform (see the `_untraced` rules above)
+# is differentiated by these rules, without tracing its FFTW calls. The lag
+# sum `Y += c ⋆ X` is linear in the kernel `c` and in the input `X`, so its
+# tangent is `Ẏ += ċ ⋆ X + c ⋆ Ẋ` and its reverse pass is the transform's
+# own.
 
 # The `i`th shadow of an argument, or `nothing` when it has none. Under
 # runtime activity an inactive argument can come as its own shadow, which

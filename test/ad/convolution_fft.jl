@@ -1,8 +1,7 @@
 # Gradients of an FFTMethod() convolution match ForwardDiff, which runs the
 # direct method. Under Enzyme and Mooncake reverse mode the native rule
 # runs the transform both ways; forward mode and NoAdjoint calls they trace
-# take the direct method, or, where Enzyme does not apply the rule that
-# says it is tracing (Julia 1.11), the transform's own Enzyme rules.
+# take the direct method or the transform's own Enzyme rules.
 # The Enzyme items are tagged `compat_floor`, so the Threads workflow runs
 # them on Julia 1.11.
 
@@ -104,8 +103,8 @@ end
 end
 
 # The transform's Enzyme rules against finite differences, for each mix of
-# active kernel and input. Traced code reaches them only where Enzyme runs
-# `_untraced` as it is, so they are called directly here.
+# active kernel and input, called directly, since traced code does not
+# reach them on every Julia version.
 @testitem "FFT convolution: Enzyme rules of the transform" tags = [:ad, :enzyme, :enzyme_reverse, :enzyme_forward, :compat_floor] begin
     using ComposableRecurrences, Enzyme, FFTW
     using EnzymeTestUtils: test_forward, test_reverse

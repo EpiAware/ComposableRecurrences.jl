@@ -376,9 +376,7 @@ _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 # AD and plain reverse-mode AD, whose extensions say so, and `true`
 # otherwise, including the forward pass of a native rule, which runs as
 # primal code. Inference must not see the constant, or it folds the branch
-# away before the AD rules replace it. A backend may still run it as it is
-# (one does on some Julia versions), so the transform has rules of its own
-# for traced code.
+# away before the AD rules replace it.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
