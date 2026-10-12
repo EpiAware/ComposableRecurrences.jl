@@ -65,14 +65,16 @@ const DEFAULT_TARGETS = [
 
 # Targets not run yet, with what they wait for. CPU threaded runs are not
 # listed: every target runs under `Threaded()` with `--executor=threaded`.
+# Reactant support is measured on its own cases in test/reactant/; no worker
+# here compiles a matrix case with Reactant yet.
 const PENDING_TARGETS = [
     ("KA CPU primal", "a `--executor=device` option for `Device`"),
     ("CUDA primal", "GPU array path (#14)"),
     ("CUDA gradient", "GPU array path and rules (#14)"),
-    ("Reactant CPU primal", "test/reactant env and traced bodies"),
-    ("Reactant CPU gradient", "test/reactant env and traced bodies"),
-    ("Reactant GPU primal", "test/reactant env and traced bodies"),
-    ("Reactant GPU gradient", "test/reactant env and traced bodies"),
+    ("Reactant CPU primal", "a Reactant target in matrix.jl"),
+    ("Reactant CPU gradient", "a Reactant target in matrix.jl"),
+    ("Reactant GPU primal", "a Reactant target and a GPU runner"),
+    ("Reactant GPU gradient", "a Reactant target and a GPU runner"),
 ]
 
 # ForwardDiff costs one primal per chunk of parameters: above this many it

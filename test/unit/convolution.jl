@@ -354,7 +354,10 @@ end
         nothing, (:x => CR._extent(u), :gain => CR._extent(g), :add => CR._extent(a))
     )
     stop_allocs(u) = (stop_of(u, true, nothing); @allocated stop_of(u, true, nothing))
-    @test stop_allocs(X) == 0
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
+    @test stop_allocs(X) == 0 skip = coverage
     @test Convolution(Float32.(c))(Float32.(X); gain = 0.5f0) isa Matrix{Float32}
     @test_throws DimensionMismatch conv(X; gain = rand(rng, 2, T))
     @test_throws "gain has 2 strata, expected 3" conv(X; gain = rand(rng, 2, T))

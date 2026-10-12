@@ -6,15 +6,18 @@ name: Threads
 # thread, where a split loop's tasks all share it.
 # `unit` runs the main suite without the quality checks, which the Test
 # workflow already runs; `ad` runs the threaded-executor gradient items
-# (tag `executor`) on every backend.
+# (tag `executor`) on every backend, and the allocation counts (tag
+# `allocations`), which skip under the coverage the managed AD workflow
+# collects. Neither job here collects coverage.
 # Both jobs run on the current release and the prerelease channel. `pre`
 # resolves to the current release when no prerelease exists, and is allowed
-# to fail, as in the managed Test workflow. `ad` also runs on the compat
-# floor (1.11), which the managed Test and AD workflows do not cover, and
-# there also runs the items tagged `compat_floor`, checks of the Enzyme
-# rule, since Enzyme differs between Julia versions.
-# `unit` cannot: the test environment holds JET and Runic, and JET for 1.11
-# needs a JuliaSyntax that Runic does not allow.
+# to fail, as in the managed Test workflow. Both also run on the compat
+# floor (1.11), which the managed Test and AD workflows do not cover. There
+# `ad` also runs the items tagged `compat_floor`, checks of the Enzyme rule,
+# since Enzyme differs between Julia versions.
+# On 1.11 `unit` drops Runic from the test environment first: JET for 1.11
+# needs a JuliaSyntax that Runic does not allow, and only the quality checks
+# use Runic.
 
 on:
   push:
@@ -44,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1', 'pre']
+        version: ['1.11', '1', 'pre']
     env:
       JULIA_NUM_THREADS: '4'
     steps:
@@ -53,6 +56,8 @@ jobs:
         with:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
+      - if: matrix.version == '1.11'
+        run: sed -i '/^Runic = /d' test/Project.toml
       - run: julia --project=test -e 'using Pkg; Pkg.instantiate()'
       - run: julia --project=test -e 'println("threads = ", Threads.nthreads())'
       - run: julia --project=test test/runtests.jl skip_quality
@@ -75,6 +80,6 @@ jobs:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
       - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
-      - run: julia --project=test/ad test/ad/runtests.jl executor
+      - run: julia --project=test/ad test/ad/runtests.jl executor allocations
       - if: matrix.version == '1.11'
         run: julia --project=test/ad test/ad/runtests.jl compat_floor

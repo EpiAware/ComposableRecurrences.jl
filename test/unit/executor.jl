@@ -45,7 +45,10 @@ end
         return @allocated CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 3, L)
     end
     allocs(p, g, H, S, L)
-    @test allocs(p, g, H, S, L) == 0
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
+    @test allocs(p, g, H, S, L) == 0 skip = coverage
 end
 
 @testitem "each!: Device runs a body as a kernel on JLArrays" setup = [ExecutorBodies] begin
@@ -223,7 +226,10 @@ end
     y = zeros(4)
     blocks(y) = @allocated CR._blocks!(body!, CR._current(), y, 4, 4, y)
     blocks(y)
-    @test blocks(y) == 0
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
+    @test blocks(y) == 0 skip = coverage
     @test y == ones(4)
 end
 
