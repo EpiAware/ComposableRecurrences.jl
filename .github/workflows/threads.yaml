@@ -11,9 +11,8 @@ name: Threads
 # resolves to the current release when no prerelease exists, and is allowed
 # to fail, as in the managed Test workflow. `ad` also runs on the compat
 # floor (1.11), which the managed Test and AD workflows do not cover, and
-# there also runs the items tagged `compat_floor`: the Enzyme reverse
-# registry scenarios and checks of the Enzyme rule, since Enzyme differs
-# between Julia versions.
+# there also runs the items tagged `compat_floor`, checks of the Enzyme
+# rule, since Enzyme differs between Julia versions.
 # `unit` cannot: the test environment holds JET and Runic, and JET for 1.11
 # needs a JuliaSyntax that Runic does not allow.
 

@@ -23,8 +23,7 @@ end
     test_working_backend("Enzyme forward")
 end
 
-# Also tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse gradients (marginal)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers] begin
+@testitem "Enzyme reverse gradients (marginal)" tags = [:ad, :enzyme, :enzyme_reverse] setup = [ADHelpers] begin
     test_working_backend("Enzyme reverse")
 end
 
