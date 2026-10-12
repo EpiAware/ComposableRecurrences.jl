@@ -6,9 +6,9 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: Recurrence, Serial, _Current, _WithState, _ad,
-    _current, _log_plain, _note_plain_type, _plain, _rebuild_flag,
-    _run_forward, _run_pullback!, _untraced, _fft_convolve!,
-    _fft_convolve_back!
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
+    _log_plain, _note_plain_type, _plain, _rebuild_flag, _run_forward,
+    _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, Duplicated,
     DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -104,6 +104,8 @@ end
 # The `Recurrence` constructor's rebuild check returns a flag, and its
 # rebuild with dual numbers (which may throw) is not differentiated.
 EnzymeRules.inactive(::typeof(_rebuild_flag), args...) = nothing
+# Nor is its check that only the kernel takes `Primary()` indexing.
+EnzymeRules.inactive(::typeof(_check_secondary), args...) = nothing
 
 # The executor carries no derivative. Forward mode and plain reverse mode
 # (a `NoAdjoint` route) do not differentiate tasks or the scoped value
