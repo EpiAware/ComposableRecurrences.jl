@@ -58,7 +58,7 @@ where ``K_{ij}`` weights town ``j`` in town ``i``.
 ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 ``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
 The gravity weight ``G_{ii}`` of a town on itself is 0.
-The towns are the strata of the model, and only town A is seeded.
+The towns are [strata](@ref glossary-stratum), and only town A is seeded.
 
 ```@example overview
 towns = ["A", "B", "C"]
