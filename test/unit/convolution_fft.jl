@@ -205,3 +205,21 @@ end
     @test gf.args[3][] ≈ gd.args[3][]
     @test gf.args[4] ≈ gd.args[4]
 end
+
+@testitem "Convolution FFT: device arrays take the direct method" begin
+    using ComposableRecurrences, FFTW, JLArrays
+    const CR = ComposableRecurrences
+    JLArrays.allowscalar(false)
+    # The transform runs on CPU arrays only, so a device call runs the direct
+    # body on the device and returns a device array.
+    fft = CR.FFTMethod()
+    k, x, h = rand(6), rand(30), rand(3)
+    K, X, H = rand(2, 6), rand(2, 30), rand(2, 3)
+    @test !CR._fft_path(fft, JLArray(k), Float64, JLArray(x))
+    y = Convolution(JLArray(k); method = fft)(JLArray(x); history = JLArray(h))
+    @test y isa JLArray
+    @test Array(y) ≈ Convolution(k)(x; history = h)
+    Y = Convolution(PerStratum(JLArray(K)); method = fft)(JLArray(X); history = JLArray(H))
+    @test Y isa JLArray
+    @test Array(Y) ≈ Convolution(PerStratum(K))(X; history = H)
+end
