@@ -58,8 +58,6 @@ const MATHS_FIRST_CALLS = (
 # Sections still giving prose before their code, as `file => heading`,
 # marked broken until they gain a ```math block.
 const PENDING_MATHS_FIRST = (
-    "occupancy.jl" => "Occupancy two ways",
-    "occupancy.jl" => "A bed cap",
     "renewal-then-delay.jl" => "Vaccination",
 )
 
