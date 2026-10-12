@@ -487,6 +487,20 @@ function _float32(w, θ)
     return sum(WSF .* log.(y))
 end
 
+# Vaccination into a protected pool, every float in single precision and the
+# protected pool starting from its default.
+const POPF = Float32.(POP)
+function _protected_float32(w, θ)
+    logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(POPF); removals = TimeVarying(PerStratum(doses)),
+        protected = ComposableRecurrences.Protected(only(σ))
+    )
+    r = Recurrence(G0F; coupling = K0F, modifiers = (d,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WSF .* log.(y))
+end
+
 # A fixed kernel per stratum, with history.
 function _conv_per_stratum(w, θ)
     G, X, H = _unpack(θ, (S, L + 1), (S, T), (S, L))
@@ -617,6 +631,11 @@ const _SCENARIOS = [
     (
         "Recurrence vaccination into a protected pool", _vaccination,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence protected pool in Float32", _protected_float32,
+        () -> Float32.(_flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3])),
+        _F32,
     ),
     (
         "Recurrence grouped totals (Allocate)", _allocate,
@@ -817,6 +836,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence protected pool in Float32" => (:Protected,),
     # Depletion removals came with `Protected`.
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),

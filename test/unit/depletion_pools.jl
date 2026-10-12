@@ -260,6 +260,32 @@ end
     @test m̄.protected.pool0.x == [3.0, 4.0]
 end
 
+@testitem "Depletion pools: a single-precision model stays in single precision" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    g, R, h = Float32[0.2, 0.5, 0.3], fill(1.5f0, 1, 20), ones(Float32, 1, 3)
+    run(p) = Recurrence(
+        g; modifiers = (CR.Depletion(100.0f0; removals = 1.0f0, protected = p),)
+    )
+    # The default starting pool is empty and takes the state's type.
+    @test CR.Protected(0.5f0).pool0 === false
+    for p in (
+            CR.Protected(0.5f0), CR.Protected(0.5f0; pool0 = 2.0f0),
+            CR.Protected(PerStratum([0.5f0]); pool0 = PerStratum([2.0f0])),
+        )
+        r = run(p)
+        @test eltype(@inferred r(R; history = h)) == Float32
+        y, st = CR.with_state(r, R; history = h, stop = 10)
+        @test eltype(y) == Float32
+        @test eltype(r(R; state = st)) == Float32
+    end
+    # The empty default gives the same values as an explicit empty pool.
+    @test run(CR.Protected(0.5f0))(R; history = h) ==
+        run(CR.Protected(0.5f0; pool0 = 0.0f0))(R; history = h)
+    # A given starting pool is converted to a float as before.
+    @test CR.Protected(0.5; pool0 = 1).pool0 === 1.0
+end
+
 @testitem "Depletion pools: checks its arguments" begin
     using ComposableRecurrences
     CR = ComposableRecurrences

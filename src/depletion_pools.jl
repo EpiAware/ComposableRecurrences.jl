@@ -40,8 +40,8 @@ The depletion's state holds ``u`` for every stratum, then ``w``.
   constant over time.
 
 # Keyword Arguments
-- `pool0`: the starting protected pool, one value or `PerStratum`; `0` by
-  default.
+- `pool0`: the starting protected pool, one value or `PerStratum`; empty by
+  default, in the element type of the depletion's state.
 
 # Examples
 ```jldoctest
@@ -74,9 +74,11 @@ struct Protected{Σ, V0}
     pool0::V0
 end
 
-function Protected(σ; pool0 = 0)
+# The default `pool0 = false` is an empty pool that takes the element type of
+# the state it is written into, so it does not promote a model.
+function Protected(σ; pool0 = false)
     σ = _float_param(_check_constant(:σ, σ))
-    pool0 = _float_param(_check_constant(:pool0, pool0))
+    pool0 = pool0 === false ? false : _float_param(_check_constant(:pool0, pool0))
     return Protected{typeof(σ), typeof(pool0)}(σ, pool0)
 end
 
