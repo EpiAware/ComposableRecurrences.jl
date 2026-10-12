@@ -102,10 +102,11 @@ end
         e
     end
     @test occursin(":fft", sprint(showerror, err))
-    @test Convolution(rand(3)).method === CR.Direct()
+    @test CR._method(Convolution(rand(3))) === CR.Direct()
+    @test fieldnames(typeof(Convolution(rand(3)))) == (:kernel,)
     c = Convolution(rand(3); method = CR.FFTMethod())
     k = rand(3)
-    @test ConstructionBase.setproperties(c; kernel = k).method === CR.FFTMethod()
+    @test CR._method(ConstructionBase.setproperties(c; kernel = k)) === CR.FFTMethod()
     @test ConstructionBase.setproperties(c; kernel = k).kernel === k
 end
 

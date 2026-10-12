@@ -174,8 +174,6 @@ Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
 struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
-    "How the lag sum is computed: `Direct()` or `FFTMethod()`."
-    method::M
     function Convolution(kernel::K; method = Direct()) where {K}
         kernel isa _PairwiseKernel && throw(
             ArgumentError(
@@ -183,20 +181,30 @@ struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
                     "got $(_describe(kernel))"
             )
         )
-        method isa ConvolutionMethod || throw(
+        _is_method(method) || throw(
             ArgumentError(
                 "method must be a ComposableRecurrences.ConvolutionMethod, " *
                     "Direct() or FFTMethod(); got $(repr(method))"
             )
         )
         _check_kernel_shape(kernel)
-        return new{K, typeof(method)}(kernel, method)
+        return new{K, typeof(method)}(kernel)
     end
 end
 
-# A rebuild of a `Convolution` from its fields keeps its method.
-_convolution_flat(kernel, method) = Convolution(kernel; method)
-ConstructionBase.constructorof(::Type{<:Convolution}) = _convolution_flat
+# A method is a singleton `ConvolutionMethod`, so the type carries it.
+_is_method(m) = m isa ConvolutionMethod && Base.issingletontype(typeof(m))
+
+# The method is a type parameter rather than a field, so a convolution's
+# only field is its kernel and AD mirrors of it stay as small as before.
+_method(::Convolution{K, M}) where {K, M} = M()
+
+# A rebuild of a `Convolution` from its kernel keeps its method.
+struct _ConvolutionFlat{M} end
+(::_ConvolutionFlat{M})(kernel) where {M} = Convolution(kernel; method = M())
+function ConstructionBase.constructorof(::Type{<:Convolution{K, M}}) where {K, M}
+    return _ConvolutionFlat{M}()
+end
 
 # The call builds the positional arguments
 # `(x, gain, add, history, start, stop)` and routes them through the native
@@ -233,7 +241,7 @@ end
 # history length, the last time and whether the transform ran.
 function _conv(c::Convolution, x, gain, add, history, start, stop)
     Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
-    fft = _fft_path(c.method, c.kernel, Tp, x)
+    fft = _fft_path(_method(c), c.kernel, Tp, x)
     if fft
         X = _input_buffer(Tp, x, history, m, S, stop)
         Y = _zeros(x, Tp, stop - start + 1, S)
