@@ -46,7 +46,7 @@ reports = delay(infections; gain = 0.4)
 
 ![Infections, reports and the remaining susceptible share in each town](docs/src/assets/readme-example.png)
 
-See the [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/) for the full walkthrough.
+The [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-build) builds this model up step by step, with the equation for each step.
 
 ## Related packages
 

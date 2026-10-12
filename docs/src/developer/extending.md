@@ -72,7 +72,13 @@ Add a `ConstructionBase.constructorof` method for a type whose positional constr
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 
-This modifier smooths each series exponentially, with state ``s_t = a s_{t-1} + (1 - a) v_t`` passed on as the value.
+This modifier smooths each series exponentially:
+
+```math
+s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
+```
+
+where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
 Its state starts at the last value of the history.
 
 ```@example extending
@@ -95,8 +101,16 @@ Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))(2.0; history = [1.0, 2.0], st
 
 ## [Its pullback](@id extending-pullback)
 
-The new value and state are both ``s'``, so their cotangents add to ``\bar g = \bar v' + \bar s'``.
-Then ``\bar v = (1 - a) \bar g``, ``\bar s = a \bar g`` and ``\bar a \mathrel{+}= (s - v) \bar g``.
+The new value and state are both ``s'``, so their cotangents add:
+
+```math
+\bar g = \bar v' + \bar s', \qquad
+\bar v = (1 - a) \, \bar g, \qquad
+\bar s = a \, \bar g, \qquad
+\bar a \mathrel{+}= (s - v) \, \bar g,
+```
+
+where a bar marks a cotangent, ``\bar g`` is the summed cotangent and ``s`` is the state before the step.
 The `Init` pullback adds the state's cotangent into the last column of the history.
 
 ```@example extending
@@ -118,7 +132,12 @@ CR.pullback!(grads, Smooth(0.5), CR.Step(), 2.0, 1.0, 1, 1), grads.piece.a[]
 
 ## [A per-stratum parameter](@id extending-param)
 
-This modifier adds `b` to each value.
+This modifier adds ``b_k`` to the value of stratum ``k``:
+
+```math
+v'_{t,k} = v_{t,k} + b_k.
+```
+
 It reads `b` with `param` and adds its cotangent with `add_param!`, so `b` may be one value or `PerStratum`.
 For a `PerStratum` `b` the mirror entry is `(; x)`, and the cotangent lands in `x[k]`.
 
@@ -141,7 +160,13 @@ CR.pullback!(grads, m, CR.Step(), 2.0, 0.0, 1, 2), grads.piece.b.x
 ## [A coupling](@id extending-coupling)
 
 A coupling writes the pressure `q` on each stratum from each stratum's kernel-weighted past values `p`.
-This one sends a share of every stratum's pressure to the first.
+This one sends a share ``a`` of every stratum's pressure to the first:
+
+```math
+q_i = (1 - a) \, p_i + a \, \delta_{i1} \sum_{j=1}^{S} p_j,
+```
+
+where ``\delta_{i1}`` is 1 for the first stratum and 0 otherwise, and ``S`` is the number of strata.
 Its pullback reads `grads.q`, adds into `grads.p` and adds the cotangent of `share`.
 
 ```@example extending
@@ -169,7 +194,14 @@ Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop 
 ## [A vector step](@id extending-vector)
 
 A modifier that reads other strata implements the vector step.
-This one pulls each value towards the mean over strata by a share `a`.
+This one pulls each value towards the mean over strata by a share ``a``:
+
+```math
+v'_k = (1 - a) \, v_k + a \, \mu, \qquad \mu = \frac{1}{S} \sum_{j=1}^{S} v_j,
+```
+
+where ``S`` is the number of strata.
+
 Its pullback overwrites `grads.v` with the cotangent of the incoming values.
 The state passes through unchanged, so `grads.s` already holds its cotangent.
 

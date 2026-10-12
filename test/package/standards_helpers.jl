@@ -236,3 +236,38 @@ violations(f, sources) =
     "$label: $(join(hits, ", "))" for (label, line) in sources
         for hits in (f(line),) if !isempty(hits)
 ]
+
+# Headings of the sections of a Literate tutorial that introduce a call
+# without maths first. A section starts at each `# ##` heading (level two or
+# deeper), and a code line that uses one of `calls` for the first time on
+# the page needs a ```math block earlier in its section or in a section
+# that contains it. Headings are returned without any `[...](@id ...)`.
+function sections_missing_maths(text::AbstractString, calls)
+    seen = Set{String}()
+    flagged = String[]
+    heading = "(before the first heading)"
+    level = 1
+    maths_level = typemax(Int)
+    for line in split(text, '\n')
+        m = match(r"^# (#{2,}) (.*)$", line)
+        if m !== nothing
+            level = length(m.captures[1])
+            title = strip(m.captures[2])
+            link = match(r"^\[(.*)\]\(@id [^)]*\)$", title)
+            heading = String(link === nothing ? title : link.captures[1])
+            level <= maths_level && (maths_level = typemax(Int))
+        elseif startswith(line, "# ```math")
+            maths_level = min(maths_level, level)
+        elseif !startswith(line, "#")
+            new = filter(c -> !(c in seen) && occursin(call_regex(c), line), calls)
+            isempty(new) && continue
+            union!(seen, new)
+            maths_level <= level || heading in flagged || push!(flagged, heading)
+        end
+    end
+    return flagged
+end
+
+# A call of `name`, bare or qualified by a module, but not a longer name
+# that ends in it.
+call_regex(name) = Regex("(?<![\\w.])(?:\\w+\\.)?" * name * "\\(")
