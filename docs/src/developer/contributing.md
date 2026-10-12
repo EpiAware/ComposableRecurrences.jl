@@ -36,3 +36,11 @@ Pages follow the org's writing style: UK English, one sentence per line, short s
 Docstrings describe the maths and name no other package.
 Tutorials are Literate scripts under `docs/src/getting-started/tutorials/`, registered in `docs/docs_config.jl`.
 Navigation is generated into `docs/pages.jl`, which is not edited by hand.
+
+### Maths before code
+
+A section that introduces a model, a modifier, a coupling or a transformation gives the equation first.
+It names every symbol, then shows the code.
+Take the equation from the docstring of the part the code uses, so the two stay the same.
+A section that reuses a model defined above on the same page links to it instead.
+The standards tests check the first use of each built-in operator in the tutorials listed in `test/package/standards_config.jl`.

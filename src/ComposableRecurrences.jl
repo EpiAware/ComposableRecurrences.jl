@@ -26,8 +26,6 @@ A plain array holds one set of coefficients: a kernel's lag weights, a
 coupling's `S × S` matrix or a modifier parameter's single value.
 [`PerStratum`](@ref) gives one set per stratum, [`Pairwise`](@ref) one per
 pair of strata and [`TimeVarying`](@ref) one per time.
-A stratum is one of `S` parallel series computed together, such as a place
-or an age group.
 Inputs, histories and outputs are strata × time arrays, or a vector for a
 single series.
 Time is absolute, counted from 1, and a call covers the times `start:stop`.
@@ -102,7 +100,7 @@ public Depletion, Protected, Redistribute, Add, Clamp, Allocate, Capacity,
     ispointwise, nstate, depth, param_eltype,
     NoAdjoint, PieceInterface, uses_adjoint, test_adjoint, cotangent,
     add_cotangent!, Executor, Serial, Threaded, Device, EXECUTOR, each!,
-    param, add_param!
+    param, add_param!, ConvolutionMethod, Direct, FFTMethod
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")

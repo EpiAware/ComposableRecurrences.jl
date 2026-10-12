@@ -64,8 +64,8 @@ Call `body(k, args...)` for every `k` in `1:n` with executor `ex`:
 \operatorname{body}(k, \ldots) \quad \text{for } k = 1, \ldots, n,
 ```
 
-where each index `k` is one stratum (one of `S` series computed together,
-such as a place or age group), one series or one output time.
+where each index `k` is one stratum (see [`PerStratum`](@ref)), one series
+or one output time.
 
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
