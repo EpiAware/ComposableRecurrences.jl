@@ -153,10 +153,13 @@ function forward(m::_Protecting, ::Init, s, history)
     _check_param_strata(:removals, m.removals, S)
     _check_param_strata(:σ, V.σ, S)
     _check_param_strata(:pool0, V.pool0, S)
-    for k in 1:S
-        s[k] = _pool0(m, k)
-        s[S + k] = param(V.pool0, k, 1)
-    end
+    _each!(_pools0_body!, Serial(), s, S, S, s, m, S)
+    return nothing
+end
+
+function _pools0_body!(k, s, m, S)
+    s[k] = _pool0(m, k)
+    s[S + k] = param(m.protected.pool0, k, 1)
     return nothing
 end
 
@@ -192,14 +195,16 @@ _protects(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
 function forward(m::_Protecting, ::Step, v, s, t)
     S = length(v)
-    α = m.heterogeneity
-    for k in 1:S
-        y, s[k], s[S + k] = _protected_step(
-            m.form, v[k], s[k], s[S + k], param(m.protected.σ, k, t),
-            param(m.N, k, t), α, _removals_at(m.removals, k, t)
-        )
-        v[k] = y
-    end
+    _each!(_protected_body!, Serial(), v, S, S, v, s, m, S, t)
+    return nothing
+end
+
+function _protected_body!(k, v, s, m, S, t)
+    y, s[k], s[S + k] = _protected_step(
+        m.form, v[k], s[k], s[S + k], param(m.protected.σ, k, t),
+        param(m.N, k, t), m.heterogeneity, _removals_at(m.removals, k, t)
+    )
+    v[k] = y
     return nothing
 end
 
