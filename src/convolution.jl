@@ -79,8 +79,7 @@ A `NaN` or `Inf` input spreads to every output of its block, including
 earlier ones.
 
 # Examples
-```jldoctest
-using ComposableRecurrences, FFTW
+```jldoctest; setup = :(using ComposableRecurrences, FFTW)
 k = [0.1, 0.4, 0.3, 0.2]
 x = collect(1.0:6.0)
 Convolution(k; method = ComposableRecurrences.FFTMethod())(x) ≈ Convolution(k)(x)

@@ -26,10 +26,8 @@ The groups partition the strata; a stratum in no group is an
 The groups are stored flat, in the fields `strata` (each group's strata in
 turn) and `offsets` (where each group starts), so the analytic adjoint sees
 only integer arrays and `total`.
-`total` is a parameter over groups, not strata: one value,
-[`PerStratum`](@ref) (one per group), [`TimeVarying`](@ref) (one per time)
-or `TimeVarying(PerStratum(T))` with `T` groups × time, read at the
-absolute time.
+`total` is a [parameter](@ref ComposableRecurrences.param) over groups, not
+strata: `PerStratum` holds one value per group.
 It reads every stratum of a group, so it is not pointwise, and it has no
 state.
 It composes with the other modifiers in tuple order:
@@ -70,7 +68,7 @@ struct Allocate{T}
     strata::Vector{Int}
     "Group `p` is `strata[(offsets[p] + 1):offsets[p + 1]]`."
     offsets::Vector{Int}
-    "Each group's total: one value, `PerStratum` or `TimeVarying`."
+    "Each group's total, a parameter over groups."
     total::T
     function Allocate(groups::AbstractVector, total::T) where {T}
         _check_groups(groups)
