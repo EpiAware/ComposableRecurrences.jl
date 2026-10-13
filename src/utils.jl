@@ -31,6 +31,9 @@ _at(x::Real, k, t) = x
 _at(::Nothing, k, t) = false
 Base.@propagate_inbounds _at(x::AbstractVector, k, t) = x[t]
 Base.@propagate_inbounds _at(x::AbstractMatrix, k, t) = x[k, t]
+# The value `x` of stratum `k` at time `t` scaled by the gain and shifted by
+# the add input.
+Base.@propagate_inbounds _affine(gain, add, k, t, x) = _at(gain, k, t) * x + _at(add, k, t)
 
 # Inputs read without bounds checks index from 1.
 _require_one_based(x::AbstractArray) = Base.require_one_based_indexing(x)

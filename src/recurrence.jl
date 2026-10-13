@@ -985,7 +985,7 @@ end
 @inline function _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
     pk, xk = _pressure_at(coupling, kernel, p, q, H, t + D - L, τ, L, k)
     _record_pressure!(pr, pk, xk, t, k)
-    return _at(gain, k, τ) * xk + _at(add, k, τ)
+    return _affine(gain, add, k, τ, xk)
 end
 # The records `(; P, X)` of the kernel convolutions and the pressures. A
 # pointwise coupling's pressure is its coefficient times the convolution,
