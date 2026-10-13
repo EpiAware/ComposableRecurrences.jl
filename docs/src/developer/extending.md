@@ -237,7 +237,14 @@ Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.
 
 A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
 [`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group, and the step takes and returns them as tuples.
-This one keeps a running total and a step count per series, and adds their mean to the value.
+This one keeps a running total and a step count per series, and adds their mean to the value:
+
+```math
+a_t = a_{t-1} + v_t, \qquad n_t = n_{t-1} + 1, \qquad v'_t = v_t + \frac{a_t}{n_t},
+```
+
+where ``v_t`` is the value at step ``t`` and ``v'_t`` the value returned.
+``a_t`` is the running total and ``n_t`` the step count, the series' two state entries.
 
 ```@example extending
 struct AddMean end
