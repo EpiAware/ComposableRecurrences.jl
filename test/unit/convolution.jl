@@ -141,14 +141,16 @@ end
 
 @testitem "Convolution: lag blocks match the gather body at every edge" begin
     using ComposableRecurrences, Random
-    # The float body adds lags in blocks of four; each kernel length, history
-    # length and start puts the block edges on different rows.
+    # The float body adds lags in blocks of four, or gathers four outputs at
+    # a time for a short slice; each kernel length, history length and start
+    # puts the block edges on different rows. A late start leaves the
+    # earlier inputs and history out of the buffer.
     rng = Xoshiro(27)
     S, T = 2, 11
     tobig = v -> BigFloat.(v)
     f32(v) = v === nothing ? nothing : Float32.(v)
     f32(k::PerStratum) = PerStratum(Float32.(k.x))
-    for L in 1:13, m in 0:5, start in (1, 2, 5)
+    for L in 1:13, m in 0:5, start in (1, 2, 5, 8, 11, 12)
         c, C = rand(rng, L), rand(rng, S, L)
         x, X = rand(rng, T), rand(rng, S, T)
         h, H = rand(rng, m), rand(rng, S, m)
@@ -309,6 +311,11 @@ end
         alt = view(zeros(size(buf)), :, :)
         @test !(alt isa Array)
         @test CR._load_input!(alt, src, m, stop) == CR._load_input!(buf, src, m, stop)
+        # From time `lo`, the rows before it stay as they were.
+        alt, buf = zero(alt), zero(buf)
+        @test CR._load_input!(alt, src, m, stop, 4) ==
+            CR._load_input!(buf, src, m, stop, 4)
+        @test iszero(buf[1:(m + 3), :])
     end
 end
 

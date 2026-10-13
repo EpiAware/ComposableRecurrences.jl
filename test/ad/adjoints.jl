@@ -222,6 +222,25 @@
                 CR._Contributions(Convolution(TimeVarying([rand(rng, mod(τ, 4)) for τ in 1:T]))),
                 (R[1, :], rand(rng, T), h[1, :], 2, nothing),
             ),
+            # A late start leaves the inputs no output reads out of the
+            # buffer: all of the history, or all but its last times.
+            (
+                "delay from a start past the history",
+                Convolution(rand(rng, 3)), (R, true, nothing, h, 5, nothing),
+            ),
+            (
+                "delay with part of the history in reach",
+                Convolution(rand(rng, 3)), (R[1, :], true, nothing, h[1, :], 2, nothing),
+            ),
+            (
+                "time-varying delay indexed by input from a late start",
+                Convolution(TimeVarying(rand(rng, 3, T), CR.Primary())),
+                (R, true, nothing, nothing, 4, nothing),
+            ),
+            (
+                "lag contributions from a late start",
+                CR._Contributions(Convolution(rand(rng, 3))), (R, true, h, 5, nothing),
+            ),
         ]
         rng = Xoshiro(21)
         S, L, T = 3, 4, 8

@@ -247,9 +247,9 @@ end
 # The cache keeps the lag sums `Y` before the gain, which the gain's
 # cotangent reads.
 function _run_forward(c::Convolution, x, gain, add, history, start, stop)
-    Y, X, m, stop, fft = _conv(c, x, gain, add, history, start, stop)
+    Y, X, o, m, stop, fft = _conv(c, x, gain, add, history, start, stop)
     out = _finish(Y, x, gain, add, start)
-    return out, (; gain = _tape(gain), add, start, stop, X, Y, m, fft)
+    return out, (; gain = _tape(gain), add, start, stop, X, Y, o, m, fft)
 end
 function _primal(c::Convolution, x, gain, add, history, start, stop)
     kernel = c.kernel
@@ -283,7 +283,7 @@ end
 function _convolve_public(
         ::_Buffered, ::Type{Tp}, kernel, x, gain, add, history, m, S, start, stop
     ) where {Tp}
-    Y, _ = _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
+    Y, _, _ = _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
     return _finish(Y, x, gain, add, start)
 end
 function _convolve_public(
@@ -330,25 +330,25 @@ Base.@propagate_inbounds _set_at!(y::AbstractVector, v, k, j) = (y[j] = v; nothi
 Base.@propagate_inbounds _set_at!(y::AbstractMatrix, v, k, j) = (y[k, j] = v; nothing)
 
 # Checks the call, then convolves into a time-first buffer; returns the
-# output buffer of lag sums, the input buffer (history then `x`), the
-# history length, the last time and whether the transform ran.
+# output buffer of lag sums, the input buffer (history then `x`), its row
+# offset, the history length, the last time and whether the transform ran.
 function _conv(c::Convolution, x, gain, add, history, start, stop)
     Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
     fft = _fft_path(_method(c), c.kernel, Tp, x)
-    Y, X = if fft
+    Y, X, o = if fft
         _fft_buffers(Tp, c.kernel, x, history, m, S, start, stop)
     else
         _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
     end
-    return Y, X, m, stop, fft
+    return Y, X, o, m, stop, fft
 end
 
 # The input buffer and the lag sums by the transform.
 function _fft_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
-    X = _input_buffer(Tp, x, history, m, S, stop)
+    X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    _fft_convolve!(Y, kernel, X, m, start)
-    return Y, X
+    _fft_convolve!(Y, kernel, X, o, start)
+    return Y, X, o
 end
 
 # Whether a call takes the transform: never for `Direct()`. For
@@ -418,19 +418,31 @@ end
 function _conv_buffers(
         ::Type{Tp}, ex::Union{Serial, _Current}, kernel, x, history, m, S, start, stop
     ) where {Tp}
-    X = _input_buffer(Tp, x, history, m, S, stop)
+    X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    _convolve!(ex, Y, kernel, X, m, start)
-    return Y, X
+    _convolve!(ex, Y, kernel, X, o, start)
+    return Y, X, o
 end
 
-# The inputs at times `1 - m` to `stop`, time first: history then `x`.
-function _input_buffer(::Type{Tp}, x, history, m, S, stop) where {Tp}
-    X = _zeros(x, Tp, m + stop, S)
-    history === nothing || _load_history!(X, history, m)
-    _load_input!(X, x, m, stop)
-    return X
+# The inputs the outputs from `start` read, time first: history then `x`,
+# and the buffer's row offset `o`, so row `o + t` holds time `t`. The
+# buffer starts at the oldest lag of the first output, or at the start of
+# the history if that is later: a late `start` leaves the earlier inputs
+# out rather than copying them. Without a history and from `start = 1` the
+# offset is the history length `m`.
+function _input_buffer(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
+    lo = clamp(start - _nlags(kernel) + 1, 1 - m, stop + 1)
+    o = 1 - lo
+    X = _zeros(x, Tp, o + stop, S)
+    n = max(o, 0)
+    history === nothing || n == 0 || _load_history!(X, _last_times(history, n), n)
+    _load_input!(X, x, o, stop, lo)
+    return X, o
 end
+
+# The last `n` times of a history.
+_last_times(h::AbstractVector, n) = view(h, (length(h) - n + 1):length(h))
+_last_times(h::AbstractMatrix, n) = view(h, :, (size(h, 2) - n + 1):size(h, 2))
 
 # The output in the layout of `x`: the lag sums `Y` scaled by the gain and
 # shifted by the add input in the one pass that copies them out. With
@@ -494,26 +506,38 @@ function _check_primary_history(::TimeVarying{Primary}, history)
     )
 end
 
-function _load_input!(X, x::AbstractVector, m, stop)
-    X[(m + 1):(m + stop), 1] .= view(x, 1:stop)
+# Load the inputs at times `lo` to `stop` into buffer rows `m + lo` on.
+function _load_input!(X, x::AbstractVector, m, stop, lo = 1)
+    f = max(lo, 1)
+    X[(m + f):(m + stop), 1] .= view(x, f:stop)
     return X
 end
-function _load_input!(X, x::AbstractMatrix, m, stop)
-    X[(m + 1):(m + stop), :] .= transpose(view(x, :, 1:stop))
+function _load_input!(X, x::AbstractMatrix, m, stop, lo = 1)
+    f = max(lo, 1)
+    X[(m + f):(m + stop), :] .= transpose(view(x, :, f:stop))
     return X
 end
 
 # CPU buffers load by loop: a broadcast copy may alias its source, and
 # reverse-mode AD cannot give that branch one activity when the input is
 # constant.
-function _load_input!(X::Array, x::AbstractVector, m, stop)
-    for t in 1:stop
+# The bounds are checked once, so the loops read without bounds checks.
+function _load_input!(X::Array, x::AbstractVector, m, stop, lo = 1)
+    f = max(lo, 1)
+    f > stop && return X
+    checkbounds(X, (m + f):(m + stop), 1)
+    checkbounds(x, f:stop)
+    @inbounds for t in f:stop
         X[m + t, 1] = x[t]
     end
     return X
 end
-function _load_input!(X::Array, x::AbstractMatrix, m, stop)
-    for t in 1:stop, k in axes(X, 2)
+function _load_input!(X::Array, x::AbstractMatrix, m, stop, lo = 1)
+    f = max(lo, 1)
+    f > stop && return X
+    checkbounds(X, (m + f):(m + stop), :)
+    checkbounds(x, axes(X, 2), f:stop)
+    @inbounds for t in f:stop, k in axes(X, 2)
         X[m + t, k] = x[k, t]
     end
     return X
@@ -527,9 +551,12 @@ end
 # vectorise this; other numbers that reach the buffer (on device arrays, a
 # tracked array input or a time-varying kernel's caller) gather instead, one
 # dot of the kernel with the window per output, so each output is written
-# once and its sum stays in registers.
+# once and its sum stays in registers. A slice of at most three kernel
+# lengths of outputs (a call with a late `start`) pays more in per-lag loop
+# overhead than the passes save, so it gathers four outputs at a time.
 function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     T = length(y)
+    _short_slice(T, length(c)) && return _gather4!(y, c, X, k, m, start)
     o = m + start - 1
     nb = length(c) ÷ 4
     for b in 0:(nb - 1)
@@ -561,6 +588,42 @@ function _convolve_series!(y, c, X, k, m, start)
             acc += c[d + 1] * X[r - d, k]
         end
         y[j] = acc
+    end
+    return y
+end
+
+# Whether `n` outputs of a kernel with `L` lags gather rather than take
+# one pass per lag.
+_short_slice(n, L) = n <= 3L
+
+# Four outputs per pass over the lags, each sum in its own register; an
+# output whose window starts before the buffer, and the last outputs that
+# do not fill a group of four, take one dot each.
+function _gather4!(y, c, X, k, m, start)
+    L = length(c)
+    T = length(y)
+    j = 1
+    @inbounds while j <= T
+        r = m + start + j - 1
+        if j + 3 <= T && r >= L
+            a₀ = a₁ = a₂ = a₃ = zero(eltype(y))
+            @simd for d in 0:(L - 1)
+                cd = c[d + 1]
+                a₀ += cd * X[r - d, k]
+                a₁ += cd * X[r + 1 - d, k]
+                a₂ += cd * X[r + 2 - d, k]
+                a₃ += cd * X[r + 3 - d, k]
+            end
+            y[j], y[j + 1], y[j + 2], y[j + 3] = a₀, a₁, a₂, a₃
+            j += 4
+        else
+            acc = zero(eltype(y))
+            @simd for d in 0:(min(L, r) - 1)
+                acc += c[d + 1] * X[r - d, k]
+            end
+            y[j] = acc
+            j += 1
+        end
     end
     return y
 end
@@ -637,14 +700,14 @@ function _convolve_body!(k, Y, c::_TVPerStratum{Secondary}, X, m, start)
     return nothing
 end
 
-# Primary indexing: the input at time `σ` spreads forward through its own
-# column. There is no history, so buffer row `σ` is time `σ`.
+# Primary indexing: the input at time `σ`, buffer row `m + σ`, spreads
+# forward through its own column. There is no history, so `σ` starts at 1.
 function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
     for σ in max(1, start - D + 1):stop
         w = _wcolumn(c, k, σ)
-        @inbounds x = X[σ, k]
+        @inbounds x = X[m + σ, k]
         o = σ - start + 1
         @inbounds @simd ivdep for d in max(0, start - σ):min(length(w) - 1, stop - σ)
             Y[o + d, k] += w[d + 1] * x
@@ -658,7 +721,7 @@ function _convolve_body!(k, Y, c::_TVPerStratum{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
     for σ in max(1, start - D + 1):stop
-        x = X[σ, k]
+        x = X[m + σ, k]
         for d in max(0, start - σ):min(D - 1, stop - σ)
             Y[σ + d - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
         end
@@ -672,7 +735,7 @@ end
 # mirrors of `(x, gain, add, history, start, stop)`.
 function pullback!(grads, c::Convolution, ::Run, cache)
     _count_pullback()
-    (; gain, add, start, X, Y, m, stop) = cache
+    (; gain, add, start, X, Y, o, m, stop) = cache
     x̄, ḡ, ā, h̄ = grads.args
     T = stop - start + 1
     Ȳ = _zeros(X, eltype(X), T, size(X, 2))
@@ -684,12 +747,11 @@ function pullback!(grads, c::Convolution, ::Run, cache)
     X̄ = zero(X)
     k̄ = cotangent(grads.piece, :kernel)
     if cache.fft
-        _fft_convolve_back!(X̄, k̄, c.kernel, X, Ȳ, m, start)
+        _fft_convolve_back!(X̄, k̄, c.kernel, X, Ȳ, o, start)
     else
-        _convolve_back!(X̄, k̄, c.kernel, X, Ȳ, m, start)
+        _convolve_back!(X̄, k̄, c.kernel, X, Ȳ, o, start)
     end
-    _add_rows!(x̄, X̄, m, stop)
-    _add_rows!(h̄, X̄, 0, m)
+    _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
 end
 
@@ -708,14 +770,25 @@ end
 Base.@propagate_inbounds _ycot(ȳ::AbstractVector, k, j) = ȳ[j]
 Base.@propagate_inbounds _ycot(ȳ::AbstractMatrix, k, j) = ȳ[k, j]
 
-# Add buffer rows `o + 1` to `o + n` into the public-layout cotangent `x̄`.
-_add_rows!(::Nothing, X̄, o, n) = nothing
-function _add_rows!(x̄::AbstractVector, X̄, o, n)
-    view(x̄, 1:n) .+= view(X̄, (o + 1):(o + n), 1)
+# The cotangent of an input buffer with row offset `o` into those of `x`
+# and of a history of length `m`: the buffer holds the last `max(o, 0)`
+# times of the history and `x` from time `max(1 - o, 1)` on.
+function _add_window!(x̄, h̄, X̄, o, m, stop)
+    n = max(o, 0)
+    _add_rows!(x̄, X̄, o, max(1 - o, 1), stop)
+    _add_rows!(h̄, X̄, n - m, m - n + 1, m)
     return nothing
 end
-function _add_rows!(x̄::AbstractMatrix, X̄, o, n)
-    view(x̄, :, 1:n) .+= transpose(view(X̄, (o + 1):(o + n), :))
+
+# Add buffer rows `o + f` to `o + n` into entries `f` to `n` of the
+# public-layout cotangent `x̄`.
+_add_rows!(::Nothing, X̄, o, f, n) = nothing
+function _add_rows!(x̄::AbstractVector, X̄, o, f, n)
+    view(x̄, f:n) .+= view(X̄, (o + f):(o + n), 1)
+    return nothing
+end
+function _add_rows!(x̄::AbstractMatrix, X̄, o, f, n)
+    view(x̄, :, f:n) .+= transpose(view(X̄, (o + f):(o + n), :))
     return nothing
 end
 
@@ -784,14 +857,14 @@ function _convolve_back!(X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
         w = _wcolumn(c, k, σ)
         w̄ = _wcolumn(c̄, c, k, σ)
         o = σ - start + 1
-        @inbounds x = X[σ, k]
+        @inbounds x = X[m + σ, k]
         acc = zero(eltype(X̄))
         @inbounds @simd ivdep for d in max(0, start - σ):min(length(w) - 1, stop - σ)
             ȳ = Ȳ[o + d, k]
             _add_at!(w̄, ȳ * x, d + 1)
             acc += w[d + 1] * ȳ
         end
-        @inbounds X̄[σ, k] += acc
+        @inbounds X̄[m + σ, k] += acc
     end
     return nothing
 end
@@ -816,14 +889,14 @@ function _convolve_back!(X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
     for k in axes(Ȳ, 2), σ in max(1, start - D + 1):stop
-        x = X[σ, k]
+        x = X[m + σ, k]
         acc = zero(eltype(X̄))
         for d in max(0, start - σ):min(D - 1, stop - σ)
             ȳ = Ȳ[σ + d - start + 1, k]
             _add_weight!(c̄, c, ȳ * x, k, k, d + 1, σ)
             acc += _weight(c, k, k, d + 1, σ) * ȳ
         end
-        X̄[σ, k] += acc
+        X̄[m + σ, k] += acc
     end
     return nothing
 end
@@ -892,17 +965,17 @@ end
 function _run_forward(op::_Contributions, x, gain, history, start, stop)
     kernel = op.c.kernel
     Tp, S, m, stop = _check_conv(kernel, x, gain, nothing, history, start, stop)
-    X = _input_buffer(Tp, x, history, m, S, stop)
+    X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     T = stop - start + 1
     L = _nlags(kernel)
     C = x isa AbstractVector ? _zeros(x, Tp, L, T) : _zeros(x, Tp, S, L, T)
     cur = _current()
     if cur.ex isa Serial
-        _contribute!(Serial(), C, kernel, X, gain, m, start)
+        _contribute!(Serial(), C, kernel, X, gain, o, start)
     else
-        _contribute!(cur, C, kernel, X, gain, m, start)
+        _contribute!(cur, C, kernel, X, gain, o, start)
     end
-    return C, (; gain = _tape(gain), start, stop, X, m)
+    return C, (; gain = _tape(gain), start, stop, X, o, m)
 end
 
 # Each stratum is one index of the executor loop.
@@ -950,7 +1023,7 @@ end
 # Each term's cotangent goes to its weight, its input and the gain.
 function pullback!(grads, op::_Contributions, ::Run, cache)
     _count_pullback()
-    (; gain, start, stop, X, m) = cache
+    (; gain, start, stop, X, o, m) = cache
     x̄, ḡ, h̄ = grads.args
     kernel = op.c.kernel
     k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
@@ -961,8 +1034,8 @@ function pullback!(grads, op::_Contributions, ::Run, cache)
         t = start + j - 1
         g = _at(gain, k, t)
         acc = zero(eltype(X̄))
-        for d in 0:(min(L, m + t) - 1)
-            r = m + t - d
+        for d in 0:(min(L, o + t) - 1)
+            r = o + t - d
             @inbounds a = _cell(C̄, k, d + 1, j)
             @inbounds w = _lagweight(kernel, k, d, t)
             @inbounds x = X[r, k]
@@ -972,7 +1045,6 @@ function pullback!(grads, op::_Contributions, ::Run, cache)
         end
         _add_slot!(ḡ, acc, k, t)
     end
-    _add_rows!(x̄, X̄, m, stop)
-    _add_rows!(h̄, X̄, 0, m)
+    _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
 end
