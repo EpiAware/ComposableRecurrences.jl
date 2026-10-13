@@ -196,8 +196,15 @@ function _flow_tuple(fs)
     return fs
 end
 
-# The largest compartment the flows name.
-_max_compartment(fs) = maximum(f -> max(f.from, f.to), fs)
+# That the flows name no compartment beyond the `n` there are; `there`
+# says which those are.
+function _check_compartments(fs, n, there)
+    top = maximum(f -> max(f.from, f.to), fs)
+    top <= n || throw(
+        ArgumentError("the flows name compartment $top, but $there")
+    )
+    return nothing
+end
 
 @doc raw"""
 Moves the step's values between the compartments of each group by
@@ -265,20 +272,15 @@ struct Flows{N, F <: Tuple}
         N isa Int && N >= 1 || throw(
             ArgumentError("compartments is a positive integer, got $(repr(N))")
         )
-        top = _max_compartment(flows)
-        N >= top || throw(
-            ArgumentError(
-                "compartments must cover every compartment a flow names, up " *
-                    "to $top, got compartments = $N"
-            )
-        )
+        _check_compartments(flows, N, "compartments = $N")
         return new{N, F}(flows)
     end
 end
 
 function Flows(fs...; compartments = nothing)
     fs = _flow_tuple(fs)
-    n = compartments === nothing ? _max_compartment(fs) : compartments
+    n = compartments === nothing ? maximum(f -> max(f.from, f.to), fs) :
+        compartments
     return Flows{n isa Integer ? Int(n) : n}(fs)
 end
 ConstructionBase.constructorof(::Type{<:Flows{N}}) where {N} = Flows{N}
@@ -362,6 +364,35 @@ function _spread_one(f::Flow, x, L, y, a, g, t)
     return _add(y, f.to, m), _add(a, f.to, m)
 end
 
+# A count `r` out of a compartment holding `s`, `min(r, max(s, 0))`; it is
+# also a depletion's removal from what remains after the draw. The arms
+# follow primal values, as in the pullback: a dual with value zero is
+# ordered by its partials, so `min` and `max` on duals could take the other
+# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does; a NaN
+# in either input is returned, as `min` does; `ifelse` keeps a traced step
+# branch-free.
+function _removal(r, s)
+    r, s = promote(r, s)
+    z = zero(s)
+    c = ifelse(_primal_value(s) < 0, z, s + z)
+    return ifelse(_takes_pool(_primal_value(r), _primal_value(c)), c, r)
+end
+
+# Whether the removal is the pool `c` rather than `r`: `r` on a tie.
+_takes_pool(r, c) = (c < r) | isnan(c)
+
+# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the arm
+# `_removal` takes.
+function _removal_pullback(r, s, m̄)
+    z = zero(m̄)
+    _takes_pool(r, max(s, zero(s))) || return m̄, z
+    return z, s < 0 ? z : m̄
+end
+
+# What a count moves into the compartment it enters: a negative count adds
+# to the compartment it leaves only. The arm follows the primal value.
+_moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
+
 # The count flows in order on the compartments `y` and arrivals `a`.
 _counts(::Tuple{}, y, a, g, t) = y, a
 function _counts(fs::Tuple, y, a, g, t)
@@ -373,7 +404,7 @@ function _count(f::Flow{<:Amount}, y, a, g, t)
     m = _removal(param(f.kind.a, g, t), y[f.from])
     y = _set(y, f.from, y[f.from] - m)
     f.to > 0 || return y, a
-    p = _protects(m)
+    p = _moved_in(m)
     return _add(y, f.to, p), _add(a, f.to, p)
 end
 
@@ -386,9 +417,6 @@ function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
     return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
 
-# The compartments after the flows, without the arrivals.
-_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
-_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
@@ -397,6 +425,10 @@ function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     return _counts(fs, y, a, g, t)
 end
+
+# The compartments after the flows, without the arrivals.
+_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
+_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 
 function forward(m::Flows, ::Step, v::Tuple, s::Tuple, t, g)
     return _flow_group(m.flows, v, g, t)

@@ -243,8 +243,12 @@ pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
 the draw: the compartments after the step of
 [`ComposableRecurrences.Flows`](@ref), with the pool as compartment 1 and
 a [`ComposableRecurrences.Protected`](@ref) pool as compartment 2.
+So `Flow(2 => 1, ω)` is waning protection at rate ``\omega`` and
+`Flow(1 => 0, μ)` removes susceptibles at rate ``\mu``.
 Rate and share flows act on the pools after the draw, then the count
-flows in order, the removals first, on what remains.
+flows in order on what remains.
+The `removals` are the first count flow, `Flow(1 => 0, Amount(removals))`,
+or `Flow(1 => 2, Amount(removals))` with a protected pool.
 Rate and share flows are not capped, so a rate out of a pool the draw has
 taken below zero moves a negative amount.
 
@@ -286,21 +290,16 @@ changes: arrivals enter the pool only through the flows.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
   default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
-- `removals`: values taken out of the pool after each step's draw and its
-  rate and share flows, capped by what remains; a parameter (one value,
+- `removals`: values taken out of the pool at each step, capped by what
+  remains, as the first count flow above; a parameter (one value,
   `PerStratum`, `TimeVarying`, `TimeVarying(PerStratum(r))` or `Derived`),
   or `nothing` for none.
   A negative removal adds to the pool, without a cap.
-  It is the first count flow, `Flow(1 => 0, Amount(removals))`, or
-  `Flow(1 => 2, Amount(removals))` with a protected pool.
 - `protected`: a [`ComposableRecurrences.Protected`](@ref) pool that the
   removals move into and that is drawn from at a relative susceptibility,
   or `nothing` for none.
-- `flows`: [`ComposableRecurrences.Flow`](@ref)s between the pools after
-  each step's draw, a tuple or vector; none by default.
-  The pool is compartment 1 and a protected pool compartment 2, so
-  `Flow(2 => 1, ω)` is waning protection at rate ``\omega`` and
-  `Flow(1 => 0, μ)` removes susceptibles at rate ``\mu``.
+- `flows`: [`ComposableRecurrences.Flow`](@ref)s between the pools,
+  numbered and ordered as above; a tuple or vector, none by default.
 
 # Examples
 ```jldoctest
@@ -324,7 +323,8 @@ round.(y; digits = 3)
   8.287
 ```
 
-Leaky vaccination, 5 doses a step, whose protection wanes at rate 0.1.
+Leaky vaccination gives 5 doses a step, and the protection wanes back to
+the pool at rate 0.1.
 
 ```jldoctest
 using ComposableRecurrences

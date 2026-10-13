@@ -33,9 +33,9 @@ doses gives all-or-nothing protection, and ``\sigma = 1 - e`` with removals
 equal to the doses gives leaky protection.
 A delay from dose to protection is a [`Convolution`](@ref) of the doses
 before the call.
-The removals are the depletion's first count flow, and its `flows` move
-between ``u`` and ``w``, such as waning protection (see
-[`ComposableRecurrences.Depletion`](@ref)).
+The depletion's other `flows` move between ``u`` and ``w``, such as
+waning protection ([`ComposableRecurrences.Depletion`](@ref) gives their
+order).
 The derivative through ``\min`` and ``\max`` takes the active branch.
 The depletion's state holds ``u`` for every stratum, then ``w``.
 
@@ -101,9 +101,9 @@ function _removal_flows(r, protected)
     return (Flow(1, to, Amount(_check_param(:removals, r))),)
 end
 
-# The `flows` keyword as a tuple of `Flow`s.
-_pool_flows(fs::Tuple) = _flows_only(fs)
-_pool_flows(fs::AbstractVector) = _flows_only(Tuple(fs))
+# The `flows` keyword as a tuple of `Flow`s, possibly empty.
+_pool_flows(fs::Union{Tuple, AbstractVector}) =
+    isempty(fs) ? () : _flow_tuple(Tuple(fs))
 _pool_flows(f::Flow) = (f,)
 _pool_flows(::Nothing) = ()
 function _pool_flows(fs)
@@ -114,27 +114,14 @@ function _pool_flows(fs)
         )
     )
 end
-function _flows_only(fs)
-    for f in fs
-        f isa Flow || throw(
-            ArgumentError("flows holds Flows, got $(_describe(f))")
-        )
-    end
-    return fs
-end
 
 # The flows name the pool (1) and the protected pool (2) only.
 function _check_pool_flows(fs, protected)
     isempty(fs) && return nothing
-    n = protected === nothing ? 1 : 2
-    top = _max_compartment(fs)
-    top <= n || throw(
-        ArgumentError(
-            "the flows name compartment $top, but the depletion's pools are " *
-                "1 and, with protected = Protected(σ), 2"
-        )
+    return _check_compartments(
+        fs, protected === nothing ? 1 : 2,
+        "the depletion's pools are 1 and, with protected = Protected(σ), 2"
     )
-    return nothing
 end
 
 const _Flowing = Depletion{
@@ -143,30 +130,6 @@ const _Flowing = Depletion{
 const _Protecting = Depletion{
     <:Any, <:Any, <:Any, <:Any, <:Tuple, <:Protected,
 }
-
-# The removal from what remains after the draw, `min(r, max(s, 0))`. The
-# arms follow primal values, as in the pullback: a dual with value zero is
-# ordered by its partials, so `min` and `max` on duals could take the other
-# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does; a NaN
-# in either input is returned, as `min` does; `ifelse` keeps a traced step
-# branch-free.
-function _removal(r, s)
-    r, s = promote(r, s)
-    z = zero(s)
-    c = ifelse(_primal_value(s) < 0, z, s + z)
-    return ifelse(_takes_pool(_primal_value(r), _primal_value(c)), c, r)
-end
-
-# Whether the removal is the pool `c` rather than `r`: `r` on a tie.
-_takes_pool(r, c) = (c < r) | isnan(c)
-
-# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the arm
-# `_removal` takes.
-function _removal_pullback(r, s, m̄)
-    z = zero(m̄)
-    _takes_pool(r, max(s, zero(s))) || return m̄, z
-    return z, s < 0 ? z : m̄
-end
 
 # Flows on the one pool: a pointwise step, the draw then the flows.
 function forward(m::_Flowing, ::Step, v, s, t, k)
@@ -242,46 +205,13 @@ function _protected_draw(form, v, Su, V, σ, N, α)
     return y, S′, V′
 end
 
-# What a removal moves into the protected pool: a negative removal adds to
-# the unprotected pool only. The arm follows the primal value.
-_protects(m) = ifelse(_primal_value(m) < 0, zero(m), m)
-
 function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
     y, Su, V = _protected_draw(
         m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
         param(m.N, k, t), m.heterogeneity
     )
-    pools = _pool_flows_step(m.flows, (Su, V), k, t)
+    pools = _flow_only(m.flows, (Su, V), k, t)
     return (y,), pools
-end
-
-# The flows on the stratum's pools `x = (u, w)` after the draw. Removals
-# alone, `Flow(1 => 2, Amount(r))`, take a direct path: the general count
-# path indexes the pools by the flow's compartments at run time, which
-# cost about 9% of a step.
-_pool_flows_step(fs, x, k, t) = _flow_only(fs, x, k, t)
-function _pool_flows_step(fs::Tuple{Flow{<:Amount}}, x, k, t)
-    f = only(fs)
-    f.from == 1 && f.to == 2 || return _flow_only(fs, x, k, t)
-    m = _removal(param(f.kind.a, k, t), x[1])
-    return (x[1] - m, x[2] + _protects(m))
-end
-
-# Its pullback: the cotangents of `x` from those of the pools after the
-# flows, `ȳ`, and of the arrivals, `ā`.
-function _pool_flows_back(fs, f̄s, x, ȳ, ā, k, t)
-    return _flows_pullback(fs, f̄s, x, ȳ, ā, k, t)
-end
-function _pool_flows_back(fs::Tuple{Flow{<:Amount}}, f̄s, x, ȳ, ā, k, t)
-    f = only(fs)
-    f.from == 1 && f.to == 2 ||
-        return _flows_pullback(fs, f̄s, x, ȳ, ā, k, t)
-    r = param(f.kind.a, k, t)
-    m = _removal(r, x[1])
-    w̄ = ifelse(_primal_value(m) < 0, zero(ȳ[2]), ȳ[2] + ā[2])
-    r̄, ū = _removal_pullback(r, x[1], w̄ - ȳ[1])
-    add_param!(cotangent(cotangent(_head(f̄s), :kind), :a), f.kind.a, r̄, k, t)
-    return (ȳ[1] + ū, ȳ[2])
 end
 
 # `v` and `s` are the stratum's incoming value and pools; returns the
@@ -302,7 +232,7 @@ function pullback!(grads, m::_Protecting, ::Step, v, s, t, k)
     S′ = on ? Su - q * Su : Su - y
     V′ = on ? V - q * σ * V : V
     z = zero(ȳ)
-    S̄′, V̄′ = _pool_flows_back(
+    S̄′, V̄′ = _flows_pullback(
         m.flows, cotangent(m̄, :flows), (S′, V′), grads.s, (z, z), k, t
     )
     if on

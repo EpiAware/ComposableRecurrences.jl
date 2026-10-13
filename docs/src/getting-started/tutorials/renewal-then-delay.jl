@@ -151,10 +151,11 @@ end
 
 e = 0.7
 doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
+leaky = Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e))
 vaccines = [
     "None" => Depletion(N),
     "All-or-nothing" => Depletion(N; removals = TimeVarying(e .* doses), protected = Protected(0.0)),
-    "Leaky" => Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e)),
+    "Leaky" => leaky,
 ]
 @chain vaccines begin
     map(_) do (name, d)
@@ -185,9 +186,8 @@ end
 #
 # with ``S_t`` and ``V_t`` the pools after the day's infections.
 # Here protection lasts about 20 days on average.
-# The rate is a parameter, so it can also differ by stratum or change over time.
+# The rate can also differ by stratum or change over time, as the rates do in [Occupancy and capacity](@ref tutorial-occupancy).
 
-leaky = Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e))
 waning = [
     "Leaky" => leaky,
     "Leaky, waning" => Depletion(
@@ -204,8 +204,7 @@ waning = [
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# Waning raises the peak a little and adds about 8% more infections over the outbreak.
-# This is because people protected early return to the susceptible pool while the epidemic runs.
+# Waning raises the peak a little and adds about 8% more infections over the outbreak, because people protected early return to the susceptible pool while the epidemic runs.
 #
 # ### Checking against a stochastic simulation
 #
