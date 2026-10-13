@@ -71,6 +71,10 @@ The local step rebuilds the type with dual numbers through `ConstructionBase.con
 Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
 So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
 Integer fields, index ranges and integer arrays are structure, not parameters.
+A pointwise modifier must read a `PerStratum` or `TimeVarying` parameter through `param`, as the local step passes it the one entry a step reads.
+
+The local step of a coupling runs the coupling once per 12 strata and scalars at each step, so it is capped at 12 or 24 of them by backend.
+A coupling over more strata needs a `pullback!` to take the rule.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 
 ## [A pointwise modifier with state](@id extending-pointwise)

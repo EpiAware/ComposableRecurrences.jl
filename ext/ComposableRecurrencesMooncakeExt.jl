@@ -5,7 +5,7 @@
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
-using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
+using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad, _ad_wide,
     _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
     _log_plain, _note_plain_type, _rebuild_flag, _run_forward, _run_pullback!,
     _untraced
@@ -157,6 +157,15 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
         return (NoRData(), map((a, m) -> _rd(primal(a), m), args, ms)...)
     end
     return ydual, _ad_pullback
+end
+
+# The rule also covers a call whose local coupling derivative needs a
+# second pass, as it beats plain AD on Mooncake there.
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad_wide), Vararg}
+)
+function Mooncake.rrule!!(::CoDual{typeof(_ad_wide)}, args::Vararg{CoDual, N}) where {N}
+    return Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
 end
 
 function ComposableRecurrences.test_adjoint(
