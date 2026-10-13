@@ -36,6 +36,9 @@
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
 - Executors run the strata loops of every operator: `Serial()` (the default), `Threaded(; min_work, ntasks)` and `Device(backend)`, set for a block with `with(ComposableRecurrences.EXECUTOR => ...)` ([API overview][api]).
+- Under `Threaded()`, the reverse rules of `Recurrence` and `Convolution` split strata across tasks, as their forward passes do ([adjoints and backends][adjoints]).
+  Cotangents of parameters that several chunks of strata share are summed per chunk, so they match `Serial()` up to rounding.
+  A coupling that mixes strata, a pairwise kernel, routes, modifiers with a vector step, parameters that read across strata and a mirror entry with no copy rule run on the calling task.
 - Every operator, coupling and built-in modifier runs its forward pass on GPU arrays, without scalar indexing.
   Dense and time-varying couplings use `mul!`, and device CSR couplings run one kernel per step.
   `Adapt.adapt` moves an operator's parameters to a device.
@@ -55,6 +58,7 @@
 - `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
+- The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
 
 ### Fixed
 

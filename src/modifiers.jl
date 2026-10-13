@@ -403,6 +403,10 @@ function _check_blocks(::Val{B}) where {B}
     return B[1]
 end
 
+# Whether a modifier's Step returns its state unchanged, so the reverse pass
+# reads the state it started from instead of a record per step.
+_stateless(m) = false
+
 @doc raw"""
 The number of past outputs `x` reads from a recurrence's buffer, before
 the current step.
