@@ -685,7 +685,7 @@ case(name) = CASES[findfirst(c -> c.name == name, CASES)]
 The size tiers. `smoke` checks every case at a tiny size; `docs` is the
 getting-started model at the page's size and at T 200, L 20; `convolved`
 holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
-`realistic` spans T 200-400, L 20-60 and S 1/5/50; `large` is S = 500,
+`realistic` spans T 200-400, L 20-60 and S 1 to 50; `large` is S = 500,
 T = 2000.
 """
 const TIERS = Dict(
@@ -724,7 +724,7 @@ const TIERS = Dict(
     "realistic" => (
         cases = filter(n -> !startswith(n, "conv_"), [c.name for c in CASES]),
         sizes = [(T = 200, L = 20), (T = 400, L = 60)],
-        strata = [1, 3, 5, 50],
+        strata = [1, 3, 5, 20, 50],
     ),
     "large" => (
         cases = ["strata_independent", "zones_sparse", "delay_fixed"],
@@ -865,11 +865,15 @@ if isfile(DOCS_MODIFIER)
     append!(TIERS["docs"].cases, ["custom_modifier", "custom_modifier_pullback"])
 end
 
-# A user coupling and a user modifier with a per-stratum parameter, each
-# with a hand-written `pullback!`. The coupling's `local` arm times the
-# local derivative that runs without one, and `NoAdjoint` plain AD.
+# A user coupling and a user modifier with per-stratum parameters, each
+# with a hand-written `pullback!`: the `local` arm times the local
+# derivative that runs without one, and `NoAdjoint` plain AD.
 "A share `a` of every other stratum's pressure goes to the first."
 struct ToFirst{A}
+    a::A
+end
+"Each stratum's pressure spread to every other, decaying at rate `a`."
+struct Decay{A}
     a::A
 end
 "Saturation at a per-stratum or time-varying `κ`, read through `param`."
@@ -944,11 +948,46 @@ if supports(:_local_pressure!)
         return f, θ
     end
 
+    # A dense user coupling, without a `pullback!`: its cost grows with the
+    # strata squared, so its local derivative grows with their cube.
+    function CR.forward(C::Decay, ::CR.Pressure, q, p, t)
+        S = length(p)
+        for i in 1:S
+            acc = zero(eltype(q))
+            for j in 1:S
+                acc += exp(-C.a * abs(i - j)) * p[j]
+            end
+            q[i] = acc / S
+        end
+        return nothing
+    end
+
+    function custom_coupling_dense(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, a = _unpack(θ, (L,), (S, L), (S, T), (1,))
+            r = Recurrence(g; coupling = Decay(only(a)))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.3 + 0.05 * _noise(t, k + 9) for k in 1:S, t in 1:T], [0.5]
+        )
+        return f, θ
+    end
+
     push!(
         CASES,
         Case(
             "custom_coupling", "renewal across strata with a user coupling",
             custom_coupling, [3, 5, 50], false,
+        ),
+        Case(
+            "custom_coupling_dense",
+            "renewal across strata with a dense user coupling",
+            custom_coupling_dense, [3, 5, 20, 50], false,
         ),
         Case(
             "custom_modifier_strata",
@@ -957,10 +996,14 @@ if supports(:_local_pressure!)
         ),
     )
     REQUIRES["custom_coupling"] = (:_local_pressure!,)
+    REQUIRES["custom_coupling_dense"] = (:_local_pressure!,)
     REQUIRES["custom_modifier_strata"] = (:_local_pressure!,)
-    push!(LOCAL_CASES, "custom_coupling")
+    push!(LOCAL_CASES, "custom_coupling", "custom_modifier_strata")
     for tier in ("smoke", "realistic")
-        append!(TIERS[tier].cases, ["custom_coupling", "custom_modifier_strata"])
+        append!(
+            TIERS[tier].cases,
+            ["custom_coupling", "custom_coupling_dense", "custom_modifier_strata"]
+        )
     end
 end
 

@@ -170,7 +170,9 @@ end
 # rebuilds a modifier from its parameters stores at construction whether
 # that works (`_rebuilds`), and one whose local derivative suits only some
 # arguments says so per call (`_fits`): each is `Val(true)` when nothing
-# needs it, so the route still folds, else a `Bool` read here.
+# needs it, so the route still folds, else a `Bool` read here. A call that
+# does not fit but fits the wider limit of `_fits_wide` goes through
+# `_ad_wide`.
 # `Vararg{Any, N}` makes the routes specialise on the arguments, which they
 # pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
@@ -190,8 +192,17 @@ function _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N}
     return _plain(op, args...)
 end
 _rule(::Val{true}, op, args::Vararg{Any, N}) where {N} = _ad(op, args...)
-function _rule(rebuilds::Bool, op, args::Vararg{Any, N}) where {N}
-    rebuilds && return _ad(op, args...)
+function _rule(ok::Bool, op, args::Vararg{Any, N}) where {N}
+    ok && return _ad(op, args...)
+    _istrue(_rebuilds(op)) && _fits_wide(op, args...) && return _ad_wide(op, args...)
+    return _plain_noted(op, args...)
+end
+_fits_wide(op, args...) = false
+
+# A call within the wider limit. Its body is plain AD; a backend extension
+# may make it a rule primitive, as `_ad`.
+_ad_wide(op, args::Vararg{Any, N}) where {N} = _plain_noted(op, args...)
+function _plain_noted(op, args::Vararg{Any, N}) where {N}
     _note_plain_type(op, args...)
     return _plain(op, args...)
 end

@@ -671,16 +671,16 @@ _kernel_adjoint(kernel) = true
 _plain_why_kernel(kernel) = nothing
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
-# `pullback!`, `:local` with a local derivative (a pointwise modifier with
-# only scalar float parameters outside functions and no parameter read from
-# the outputs, rebuilt with dual numbers by `constructorof`), or `:none`
-# when it cannot, which includes a
-# `Derived` parameter whose map holds float fields of its own. Decided from
-# the type; whether the rebuild works is checked by value at construction.
+# `pullback!`, `:local` with a local derivative (a pointwise modifier whose
+# float parameters are scalars or `_EntryParam`s, outside functions, with
+# no parameter read from the outputs, rebuilt with dual numbers by
+# `constructorof`), or `:none` when it cannot, which includes a `Derived`
+# parameter whose map holds float fields of its own. Decided from the type;
+# whether the rebuild works is checked by value at construction.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _scalar_params(m) && !_reads_outputs(m) && return :local
+    ispointwise(m) && _local_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -723,17 +723,23 @@ _rebuilds(r::Recurrence) = r.rebuilds
 _rebuilds(w::_WithState) = _rebuilds(w.r)
 
 # A coupling's local derivative takes one pass of dual numbers per step
-# while the strata and its scalars fit in one (`_LOCAL_PRESSURE`); above
-# that, plain AD of the operator is faster for a coupling whose own cost
-# grows with the strata squared, so the call takes it.
-_fits(r::Recurrence, gain, add, h, args...) = _pressure_fits(r.coupling, h)
-_fits(w::_WithState, args...) = _fits(w.r, args...)
-function _pressure_fits(C, h)
-    return _pressure_fits(Val(_coupling_adjoint(C) === :local), C, h)
+# while the strata and its scalars fit in one (`_LOCAL_PRESSURE`), and the
+# call takes the rule; within two passes (`_LOCAL_PRESSURE_WIDE`) it goes
+# through `_ad_wide`, and with more it takes plain AD.
+function _fits(r::Recurrence, gain, add, h, args...)
+    return _pressure_fits(r.coupling, h, _LOCAL_PRESSURE)
 end
-_pressure_fits(::Val{false}, C, h) = Val(true)
-function _pressure_fits(::Val{true}, C, h)
-    return _nstrata(h) + length(_param_tuple(C)) <= _LOCAL_PRESSURE
+_fits(w::_WithState, args...) = _fits(w.r, args...)
+function _fits_wide(r::Recurrence, gain, add, h, args...)
+    return _istrue(_pressure_fits(r.coupling, h, _LOCAL_PRESSURE_WIDE))
+end
+_fits_wide(w::_WithState, args...) = _fits_wide(w.r, args...)
+function _pressure_fits(C, h, n)
+    return _pressure_fits(Val(_coupling_adjoint(C) === :local), C, h, n)
+end
+_pressure_fits(::Val{false}, C, h, n) = Val(true)
+function _pressure_fits(::Val{true}, C, h, n)
+    return _nstrata(h) + length(_param_tuple(C)) <= n
 end
 
 # The plain-AD note names the coupling, modifiers and depletion forms with
@@ -781,16 +787,19 @@ end
 # Whether a type holds a float array (or a field of unknown type) that a
 # local per-value derivative would have to carry, or a function with float
 # fields of its own (a closure's captured values), which the local
-# derivative does not reach. A closed function of the type, evaluated once
-# per type by a generated function so the route folds.
-@generated _scalar_params(m) = !_has_array_params(m)
-function _has_array_params(::Type{T}) where {T}
+# derivative does not reach. `_local_params` also allows array parameters
+# a step reads one entry of (`_EntryParam`). Closed functions of the type,
+# evaluated once per type by a generated function so the route folds.
+@generated _scalar_params(m) = !_has_array_params(m, false)
+@generated _local_params(m) = !_has_array_params(m, true)
+function _has_array_params(::Type{T}, entries::Bool) where {T}
+    entries && T <: _EntryParam && return false
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
     T <: Function && return _has_float(T)
     T <: Union{Real, Nothing, Symbol, AbstractString} && return false
     isconcretetype(T) || return true
     for F in fieldtypes(T)
-        _has_array_params(F) && return true
+        _has_array_params(F, entries) && return true
     end
     return false
 end

@@ -75,6 +75,12 @@ So these send the operator to plain AD: a closure that captures a float, a keywo
 Integer fields, index ranges and integer arrays are structure, not parameters.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 
+The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
+So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
+A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
+The local step of a coupling is capped by the strata it couples, at a limit set by the backend; the route table in [Rules and plain AD](@ref adjoint-routing) gives it.
+A coupling over more strata needs a `pullback!` to take the rule.
+
 ## [A pointwise modifier with state](@id extending-pointwise)
 
 This modifier smooths each series exponentially:

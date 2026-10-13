@@ -1055,26 +1055,86 @@ end
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
 end
 
-@testitem "Adjoint: a modifier with array parameters and no pullback takes plain AD" setup = [AdjointCheck] begin
+@testitem "Adjoint: local pullback over entry parameters" setup = [AdjointCheck] begin
     using ComposableRecurrences
-    # Its local step was slower than plain AD on one reverse backend, so a
-    # pointwise modifier whose parameter is a `PerStratum` or `TimeVarying`
-    # sends the operator to plain AD.
-    struct Cap{K}
+    # A pointwise modifier whose array parameters a step reads one entry of
+    # through `param`: the default `Step` pullback seeds that entry alone.
+    struct Cap{K, B}
         κ::K
+        b::B
     end
     CR.ispointwise(::Cap) = true
     function CR.forward(m::Cap, ::CR.Step, v, s, t, k)
         κ = CR.param(m.κ, k, t)
-        return v * κ / (κ + v), s
+        v′ = CR.param(m.b, k, t) * v * κ / (κ + v)
+        return v′, s + v′
     end
-    for m in (Cap(PerStratum([5.0, 6.0])), Cap(TimeVarying(fill(4.0, 8))))
-        @test CR._modifier_adjoint(m) === :none
-        r = Recurrence([0.3, 0.2]; modifiers = (m,))
-        @test !CR.uses_adjoint(r, CR.Run())
-        @test CR._rebuilds(@inferred Recurrence([0.3, 0.2], I, (m,))) === Val(true)
+    S, n = 2, 8
+    rng = Xoshiro(4)
+    for m in (
+            Cap(PerStratum([5.0, 6.0]), 1.1),
+            Cap(TimeVarying(4 .+ rand(rng, n)), PerStratum([0.9, 1.2])),
+            Cap(TimeVarying(PerStratum(4 .+ rand(rng, S, n))), 0.8),
+            Cap(2.0 * Derived(exp, TimeVarying(PerStratum(rand(rng, S, n)))), 1.0),
+        )
+        @test CR._modifier_adjoint(m) === :local
+        @test !CR._scalar_params(m)
+        @test CR._rebuild_flag(I, (m,)) === true
+        @inferred Recurrence([0.3, 0.2], I, (m,))
+        # Against ForwardDiff over every parameter entry at (k, t) = (2, 3).
+        x0 = [2.0; 1.5; CR._params(m)]
+        J = ForwardDiff.jacobian(x0) do x
+            md = CR._rebuild(m, view(x, 3:length(x)))
+            return collect(CR.forward(md, CR.Step(), x[1], x[2], 3, 2))
+        end
+        ref = transpose(J) * [0.3, 0.7]
+        m̄ = zero_mirror(m)
+        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
+        @test collect(got) ≈ ref[1:2]
+        @test mirror_vec(m̄, m) ≈ ref[3:end]
+        r = Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
+        @test pullback_matches(r, recargs(ones(S, 6), nothing, ones(S, 2))...)
     end
-    @test CR._modifier_adjoint(Cap(5.0)) === :local
+    # A step allocates nothing.
+    m = Cap(TimeVarying(PerStratum(4 .+ rand(rng, S, n))), PerStratum([0.9, 1.2]))
+    m̄ = zero_mirror(m)
+    function steps(m, m̄, k)
+        acc = 0.0
+        for i in 1:1000
+            v̄, s̄ = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0 + i, 1.0, 3, k)
+            acc += v̄ + s̄
+        end
+        return acc
+    end
+    steps(m, m̄, 1)
+    @test (@allocated steps(m, m̄, 2)) < 1000
+    # A step that reads an array parameter's field directly cannot take the
+    # scalar the local derivative passes, so the operator takes plain AD.
+    struct Direct{K}
+        κ::K
+    end
+    CR.ispointwise(::Direct) = true
+    CR.forward(m::Direct, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ.x[k]), s)
+    d = Direct(PerStratum([5.0, 6.0]))
+    @test CR._modifier_adjoint(d) === :local
+    op = Recurrence([0.3, 0.2]; modifiers = (d,))
+    @test op.rebuilds === false
+    @test !CR.uses_adjoint(op, CR.Run())
+    @test occursin("Direct", CR._plain_why(op))
+    # The check runs the step on the parameters' own entries, so a step
+    # that would throw at a zero entry keeps the local derivative.
+    struct Root{K}
+        κ::K
+    end
+    CR.ispointwise(::Root) = true
+    CR.forward(m::Root, ::CR.Step, v, s, t, k) = (v * sqrt(CR.param(m.κ, k, t) - 1), s)
+    op = Recurrence([0.3, 0.2]; modifiers = (Root(PerStratum([5.0, 6.0])),))
+    @test op.rebuilds === true
+    @test CR.uses_adjoint(op, CR.Run())
+    @test pullback_matches(op, recargs(ones(S, 6), nothing, ones(S, 2))...)
+    # An array parameter of another form, or a raw array, keeps plain AD.
+    @test CR._modifier_adjoint(Cap(PerStratum([1.0 2.0; 3.0 4.0]), 1.0)) === :none
+    @test CR._modifier_adjoint(Cap([5.0, 6.0], 1.0)) === :none
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [AdjointCheck] begin
@@ -1120,8 +1180,9 @@ end
     # Through a recurrence the rule matches ForwardDiff.
     r = Recurrence([0.3, 0.2]; coupling = C)
     @test pullback_matches(r, recargs(ones(3, 6), nothing, ones(3, 2))...; rtol = 1.0e-6)
-    # The route: the rule from the types, and plain AD once the strata and
-    # the coupling's scalars outgrow one pass.
+    # The route: the rule from the types, the wide route once the strata
+    # and the coupling's scalars outgrow one pass, and plain AD once they
+    # outgrow two.
     @test CR.uses_adjoint(r, CR.Run())
     @test CR._rebuilds(@inferred Recurrence([0.3], C, ())) === true
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
@@ -1130,10 +1191,14 @@ end
     @test CR._fits(r, args(10)...) === true
     @test CR._fits(r, args(11)...) === false
     @test CR._fits(Recurrence([0.3]), args(50)...) === Val(true)
+    @test CR._fits_wide(r, args(22)...)
+    @test !CR._fits_wide(r, args(23)...)
     @test occursin("ToFirst", CR._plain_why(r))
     @test CR._plain_why(Recurrence([0.3])) == CR._ADJOINT_NOTE
-    y = @test_logs CR.adjoint_call(r, args(11)...)
-    @test y ≈ CR._plain(r, args(11)...)
+    for S in (11, 23)
+        y = @test_logs CR.adjoint_call(r, args(S)...)
+        @test y ≈ CR._plain(r, args(S)...)
+    end
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end
     CR.forward(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
