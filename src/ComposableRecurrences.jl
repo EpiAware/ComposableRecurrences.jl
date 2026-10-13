@@ -120,10 +120,10 @@ include("builtin_modifiers.jl")
 include("derived.jl")
 # Parameters read from the recurrence's own recent outputs.
 include("recent.jl")
-# Depletion with removals and a protected pool.
-include("depletion_pools.jl")
 # Flows between the compartments of each group.
 include("flows.jl")
+# Depletion with flows and a protected pool.
+include("depletion_pools.jl")
 
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")

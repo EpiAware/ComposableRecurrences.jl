@@ -318,6 +318,23 @@ function _turnover(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Waning protection: leaky vaccination into a protected pool that wanes
+# back to the susceptible pool at a rate per stratum and time. The doses
+# and the rate are `Derived` from their logs, so the scenario also covers
+# derived removals and a derived flow rate.
+function _waning(w, θ)
+    logh, logR, logd, σ, logω = _unpack(θ, (S, L), (S, T), (S, T), (1,), (S, T))
+    CR = ComposableRecurrences
+    d = CR.Depletion(
+        PerStratum(POP); removals = Derived(exp, TimeVarying(PerStratum(logd))),
+        protected = CR.Protected(only(σ)),
+        flows = CR.Flow(2 => 1, Derived(exp, TimeVarying(PerStratum(logω))))
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Wards in each stratum: suspected patients (compartment 1) are confirmed
 # at a rate or ruled out as a share; confirmed patients (compartment 2) are
 # discharged at a rate and transferred out in counts. Admissions enter both.
@@ -662,6 +679,13 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
     (
+        "Recurrence waning protection (Depletion flows)", _waning,
+        () -> _flat(
+            zeros(S, L), 0.3 .+ LOGR, log.(1 .+ 0.5 .* abs.(LOGR)), [0.3],
+            log.(0.05 .+ 0.02 .* abs.(LOGR)),
+        ),
+    ),
+    (
         "Recurrence ward with competing flows (Flows)", _ward,
         () -> _flat(
             [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
@@ -863,6 +887,10 @@ const _PROBES = Dict{Symbol, Function}(
     :primary_recurrence => () -> _accepts(
         () -> Recurrence(TimeVarying(ones(1, 2), ComposableRecurrences.Primary()))
     ),
+    # Flows between a depletion's pools came after `Flows`.
+    :depletion_flows => () -> _accepts(
+        () -> ComposableRecurrences.Depletion(1.0; flows = ())
+    ),
 )
 
 # The features each scenario needs beyond the first release, by scenario
@@ -877,6 +905,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
     "Recurrence ward with competing flows (Flows)" => (:Flows,),
+    "Recurrence waning protection (Depletion flows)" => (:depletion_flows,),
     "Recurrence protected pool in Float32" => (:Protected,),
     # Depletion removals came with `Protected`.
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),

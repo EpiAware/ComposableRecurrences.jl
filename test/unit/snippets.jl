@@ -103,12 +103,14 @@ end
     const CR = ComposableRecurrences
 
     # A zero cotangent mirror, as the adjoint wiring builds it: an array per
-    # float array, a `Ref` per float scalar, a NamedTuple per struct and
-    # `nothing` for anything without a cotangent.
+    # float array, a `Ref` per float scalar, a tuple of mirrors per tuple
+    # field, a NamedTuple per struct and `nothing` for anything without a
+    # cotangent.
     mirror(x::AbstractFloat) = Ref(zero(x))
     mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
     mirror(::AbstractArray) = nothing
     mirror(::Union{Integer, Symbol, Nothing}) = nothing
+    mirror(x::Tuple) = map(mirror, x)
     function mirror(x)
         names = fieldnames(typeof(x))
         return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
@@ -118,7 +120,7 @@ end
     flat(::Nothing) = Float64[]
     flat(x::Base.RefValue) = [x[]]
     flat(x::AbstractArray) = vec(copy(x))
-    flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
+    flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 
     # Compare the Step's `pullback!` with the transposed Jacobian of its
     # `forward` in `[v; s; θ]`, for a modifier `build(θ)` whose mirror

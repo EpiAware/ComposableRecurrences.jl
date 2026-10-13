@@ -196,8 +196,15 @@ function _flow_tuple(fs)
     return fs
 end
 
-# The largest compartment the flows name.
-_max_compartment(fs) = maximum(f -> max(f.from, f.to), fs)
+# That the flows name no compartment beyond the `n` there are; `there`
+# says which those are.
+function _check_compartments(fs, n, there)
+    top = maximum(f -> max(f.from, f.to), fs)
+    top <= n || throw(
+        ArgumentError("the flows name compartment $top, but $there")
+    )
+    return nothing
+end
 
 @doc raw"""
 Moves the step's values between the compartments of each group by
@@ -265,20 +272,15 @@ struct Flows{N, F <: Tuple}
         N isa Int && N >= 1 || throw(
             ArgumentError("compartments is a positive integer, got $(repr(N))")
         )
-        top = _max_compartment(flows)
-        N >= top || throw(
-            ArgumentError(
-                "compartments must cover every compartment a flow names, up " *
-                    "to $top, got compartments = $N"
-            )
-        )
+        _check_compartments(flows, N, "compartments = $N")
         return new{N, F}(flows)
     end
 end
 
 function Flows(fs...; compartments = nothing)
     fs = _flow_tuple(fs)
-    n = compartments === nothing ? _max_compartment(fs) : compartments
+    n = compartments === nothing ? maximum(f -> max(f.from, f.to), fs) :
+        compartments
     return Flows{n isa Integer ? Int(n) : n}(fs)
 end
 ConstructionBase.constructorof(::Type{<:Flows{N}}) where {N} = Flows{N}
@@ -337,8 +339,16 @@ function _set(x::Tuple, i, v)
     return ntuple(j -> ifelse(j == i, w, x[j]), Val(length(x)))
 end
 
-# Tuple entry `i` of `x` plus `v`.
-_add(x::Tuple, i, v) = _set(x, i, x[i] + v)
+# Tuple entry `i` of `x` plus `v`, or `x` for an `i` it lacks; arrivals of
+# `nothing` are not kept.
+_add(x::Tuple, i, v) = ntuple(j -> ifelse(j == i, x[j] + v, x[j]), Val(length(x)))
+_add(::Nothing, i, v) = nothing
+
+# Tuple entry `i` of `x`, chosen by `ifelse` over the entries: a small tuple
+# is read where it is held, without an indexed load.
+_get(x::Tuple, i) = _get(Base.tail(x), i, 2, first(x))
+_get(::Tuple{}, i, j, v) = v
+_get(x::Tuple, i, j, v) = _get(Base.tail(x), i, j + 1, ifelse(j == i, first(x), v))
 
 # What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
@@ -361,6 +371,35 @@ function _spread_one(f::Flow, x, L, y, a, g, t)
     return _add(y, f.to, m), _add(a, f.to, m)
 end
 
+# A count `r` out of a compartment holding `s`, `min(r, max(s, 0))`; it is
+# also a depletion's removal from what remains after the draw. The arms
+# follow primal values, as in the pullback: a dual with value zero is
+# ordered by its partials, so `min` and `max` on duals could take the other
+# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does; a NaN
+# in either input is returned, as `min` does; `ifelse` keeps a traced step
+# branch-free.
+function _removal(r, s)
+    r, s = promote(r, s)
+    z = zero(s)
+    c = ifelse(_primal_value(s) < 0, z, s + z)
+    return ifelse(_takes_pool(_primal_value(r), _primal_value(c)), c, r)
+end
+
+# Whether the removal is the pool `c` rather than `r`: `r` on a tie.
+_takes_pool(r, c) = (c < r) | isnan(c)
+
+# Its cotangents `(r̄, s̄)` from the removal's cotangent `m̄`, on the arm
+# `_removal` takes.
+function _removal_pullback(r, s, m̄)
+    z = zero(m̄)
+    _takes_pool(r, max(s, zero(s))) || return m̄, z
+    return z, s < 0 ? z : m̄
+end
+
+# What a count moves into the compartment it enters: a negative count adds
+# to the compartment it leaves only. The arm follows the primal value.
+_moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
+
 # The count flows in order on the compartments `y` and arrivals `a`.
 _counts(::Tuple{}, y, a, g, t) = y, a
 function _counts(fs::Tuple, y, a, g, t)
@@ -368,12 +407,16 @@ function _counts(fs::Tuple, y, a, g, t)
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
+# One pass over the compartments, by `ifelse`: a flow out of the system
+# (`to = 0`) adds to no compartment.
 function _count(f::Flow{<:Amount}, y, a, g, t)
-    m = _removal(param(f.kind.a, g, t), y[f.from])
-    y = _set(y, f.from, y[f.from] - m)
-    f.to > 0 || return y, a
-    p = _protects(m)
-    return _add(y, f.to, p), _add(a, f.to, p)
+    i, j = f.from, f.to
+    m = _removal(param(f.kind.a, g, t), _get(y, i))
+    p = _moved_in(m)
+    y′ = ntuple(Val(length(y))) do l
+        return ifelse(l == i, y[l] - m, ifelse(l == j, y[l] + p, y[l]))
+    end
+    return y′, _add(a, j, p)
 end
 
 # Count flows only, such as a depletion's removals: nothing moves at a
@@ -393,6 +436,10 @@ function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     return _counts(fs, y, a, g, t)
 end
+
+# The compartments after the flows, without the arrivals.
+_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
+_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 
 function forward(m::Flows, ::Step, v::Tuple, s::Tuple, t, g)
     return _flow_group(m.flows, v, g, t)
@@ -502,13 +549,25 @@ end
 # Each flow's parameter against the groups.
 function _check_flow_groups(fs, G)
     for f in fs
-        _check_kind_groups(f.kind, G)
+        _check_kind_groups(f.kind, G, f)
     end
     return nothing
 end
-_check_kind_groups(k::Rate, G) = _check_param_strata(:r, k.r, G)
-_check_kind_groups(k::Linear, G) = _check_param_strata(:p, k.p, G)
-_check_kind_groups(k::Amount, G) = _check_param_strata(:a, k.a, G)
+_check_kind_groups(k::Rate, G, f) = _check_param_strata(_Named(:r, f), k.r, G)
+_check_kind_groups(k::Linear, G, f) = _check_param_strata(_Named(:p, f), k.p, G)
+_check_kind_groups(k::Amount, G, f) = _check_param_strata(_Named(:a, f), k.a, G)
+
+# A flow parameter's name in errors, such as `r of Flow(1 => 2)`. Printed
+# only when an error is thrown, so a check that passes builds no string.
+struct _Named
+    name::Symbol
+    from::Int
+    to::Int
+end
+_Named(name, f::Flow) = _Named(name, f.from, f.to)
+function Base.print(io::IO, n::_Named)
+    return print(io, n.name, " of Flow(", n.from, " => ", n.to, ")")
+end
 
 function _check_modifier_strata(m::Flows, S)
     _check_flow_groups(m.flows, _ngroups(blocks(m), S))

@@ -32,7 +32,7 @@
   `Protected`'s default `pool0` is an empty pool in the state's element type, so a `Float32` model stays `Float32`.
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
-<!-- PR #163 (Depletion flows slot and waning protection; removals as its first count flow): add its entry here if it merges before the release. -->
+- `Depletion(N; flows)` moves between the depletion's pools after each draw, such as waning protection `Flow(2 => 1, ω)` back from a `Protected` pool or a rate `Flow(1 => 0, μ)` out of the pool; the `removals` are its first count flow ([renewal then delay][renewal]).
 - `Flows(Flow(from => to, kind)...)` moves values between the compartments of each group, with `Rate`, `Linear` and `Amount` flow kinds ([occupancy and capacity][occupancy]).
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
