@@ -381,11 +381,10 @@ Base.@propagate_inbounds function _add_weight!(
     return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, b, i, τ)
 end
 Base.@propagate_inbounds function _add_weight!(
-        ḡ, g::TimeVarying{<:Any, <:_Ragged}, v, a, b, i, τ
+        ḡ, g::TimeVarying{<:Any, <:_AnyRagged}, v, a, b, i, τ
     )
-    r = _colrange(g.x, τ)
-    i <= length(r) || return nothing
-    return add_cotangent!(cotangent(cotangent(ḡ, :x), :values), v, r[i])
+    i <= length(_colview(g.x, τ)) || return nothing
+    return add_cotangent!(_column_mirror(cotangent(ḡ, :x), g.x, τ), v, i)
 end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.

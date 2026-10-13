@@ -33,6 +33,10 @@ function _mc(x::Base.ReshapedArray, dx::Mooncake.FData)
     return _reshape(_mc(parent(x), dx.data.parent), x)
 end
 _mc(x::Union{Tuple, NamedTuple}, dx::Union{Tuple, NamedTuple}) = map(_mc, x, dx)
+# A kernel's columns: each column's mirror from its own tangent. The fdata
+# of an array of arrays holds each element's full tangent.
+_mc(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector) = map(_mc, x, dx)
+_mc(x, dx::Mooncake.Tangent) = _mc(x, Mooncake.fdata(dx))
 _mc(x::Union{Tuple, NamedTuple}, ::NoFData) = map(xi -> _mc(xi, NoFData()), x)
 _mc(x, dx::Mooncake.FData) = _mc_struct(x, n -> getfield(dx.data, n))
 _mc(x, ::NoFData) = _mc_struct(x, _ -> NoFData())

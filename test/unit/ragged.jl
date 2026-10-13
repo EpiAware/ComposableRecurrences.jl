@@ -104,19 +104,42 @@ end
     using ComposableRecurrences, ConstructionBase
     CR = ComposableRecurrences
     (; KS, X, T) = RaggedChecks
+    # Columns of one concrete type are held as given, without a copy.
     tv = TimeVarying(KS, CR.Primary())
-    @test tv isa TimeVarying{CR.Primary, <:CR._Ragged}
-    @test tv.x.values == reduce(vcat, KS)
-    @test tv.x.offsets == cumsum([0; length.(KS)])
+    @test tv isa TimeVarying{CR.Primary, <:CR._Columns}
+    @test tv.x.columns === KS
     @test CR._nlags(tv) == 6
+    @test CR.param_eltype(tv) == Float64
+    @test TimeVarying([[1, 2], [3]]).x.columns == [[1, 2], [3]]
+    @test CR._nlags(TimeVarying(Vector{Float64}[])) == 0
     # A rebuild from the fields keeps the indexing and the columns.
     re = ConstructionBase.constructorof(typeof(tv))(tv.x)
-    @test re isa TimeVarying{CR.Primary} && re.x.offsets == tv.x.offsets
-    @test ConstructionBase.constructorof(typeof(tv.x))(2 .* tv.x.values, tv.x.offsets).values ==
-        2 .* tv.x.values
-    # Integer and mixed columns promote.
-    @test TimeVarying([[1, 2], [3]]).x.values == [1, 2, 3]
-    @test eltype(TimeVarying(Vector{<:Real}[[1, 2], [0.5]]).x.values) == Float64
+    @test re isa TimeVarying{CR.Primary} && re.x.columns === KS
+    # Columns may be views into one parameter vector.
+    v = reduce(vcat, KS)
+    o = cumsum([0; length.(KS)])
+    views = [view(v, (o[c] + 1):o[c + 1]) for c in eachindex(KS)]
+    @test TimeVarying(views).x isa CR._Columns
+    @test Convolution(TimeVarying(views, CR.Primary()))(X) ≈ Convolution(tv)(X)
+    shifted = view([0.0, 0.5, 0.3], Base.IdentityUnitRange(2:3))
+    @test_throws ArgumentError TimeVarying([shifted])
+
+    # Mixed columns are stacked into one vector of their promoted type.
+    st = TimeVarying(Vector{<:Real}[[1, 2], [0.5]])
+    @test st.x isa CR._Ragged
+    @test eltype(st.x.values) == Float64
+    @test st.x.values == [1.0, 2.0, 0.5] && st.x.offsets == [0, 2, 3]
+    @test Convolution(st)([1.0, 1.0]) ≈ Convolution(TimeVarying([[1.0, 2.0], [0.5]]))([1.0, 1.0])
+    # The stacked form holds the same columns.
+    flat = CR._Ragged(KS)
+    @test flat.values == v && flat.offsets == o
+    @test CR._maxlen(flat) == CR._maxlen(tv.x) == 6
+    @test [CR._colview(flat, c) for c in eachindex(KS)] == KS
+    @test Convolution(TimeVarying(flat, CR.Primary()))(X) ≈ Convolution(tv)(X)
+    @test Recurrence(TimeVarying(flat))(X; history = X[:, 1:6]) ≈
+        Recurrence(TimeVarying(KS))(X; history = X[:, 1:6])
+    @test ConstructionBase.constructorof(typeof(flat))(2 .* flat.values, flat.offsets).values ==
+        2 .* flat.values
     @test Convolution(TimeVarying([[1, 1], [2]]))([1.0, 1.0]) ≈ [1.0, 2.0]
     @test @inferred(Convolution(TimeVarying(KS))(X)) isa Matrix{Float64}
     @test @inferred(Recurrence(TimeVarying(KS))(X; history = X[:, 1:6])) isa Matrix{Float64}
@@ -134,6 +157,7 @@ end
     @test_throws ArgumentError Recurrence(tv)(1.0; history = [1.0], stop = 3)
     # Kernel slots only, and shared by every stratum.
     @test_throws "10 kernel columns of up to 6 entries" PerStratum(TimeVarying(KS))
+    @test_throws "10 kernel columns of up to 6 entries" PerStratum(TimeVarying(flat))
     @test_throws ArgumentError Pairwise(TimeVarying(KS))
     @test_throws ArgumentError CR.Add(TimeVarying(KS))
     @test_throws ArgumentError Recurrence([0.5]; coupling = TimeVarying(KS))

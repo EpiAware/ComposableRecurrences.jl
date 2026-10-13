@@ -47,7 +47,7 @@ _describe(x::AbstractArray) = summary(x)
 _describe(x::AbstractRange) = repr(x)
 _describe(x::Union{PerStratum, Pairwise}) = _wrapped(nameof(typeof(x)), x.x)
 _describe(x::TimeVarying{I}) where {I} = _wrapped(:TimeVarying, x.x, nameof(I))
-function _describe(x::_Ragged)
+function _describe(x::_AnyRagged)
     return string(_ncols(x), " kernel columns of up to ", _maxlen(x), " entries")
 end
 _wrapped(name, x) = string(name, "(", _describe(x), ")")
@@ -110,7 +110,7 @@ _check_kernel_times(k, stop) = nothing
 function _check_kernel_times(k::TimeVarying, stop)
     return _check_covers(:kernel, _extent(_array(k)), stop)
 end
-function _check_kernel_times(k::TimeVarying{<:Any, <:_Ragged}, stop)
+function _check_kernel_times(k::TimeVarying{<:Any, <:_AnyRagged}, stop)
     return _check_covers(:kernel, _ncols(k.x), stop)
 end
 
@@ -259,6 +259,15 @@ const _CPUArray = Union{
     Base.ReshapedArray{<:Any, <:Any, <:SubArray{<:Any, <:Any, <:Array}},
 }
 _zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
+
+# A kernel given as columns: host columns of one concrete type are held as
+# given. Others are stacked into one vector: columns of mixed types into
+# their promoted type, so the loops that read them infer, and device columns
+# into one device array, which a device loop reads.
+_ragged(ks) = _Ragged(ks)
+function _ragged(ks::AbstractVector{K}) where {K <: _CPUArray}
+    return isconcretetype(K) ? _Columns(ks) : _Ragged(ks)
+end
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
