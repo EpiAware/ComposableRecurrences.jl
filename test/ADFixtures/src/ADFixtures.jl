@@ -319,14 +319,16 @@ function _turnover(w, θ)
 end
 
 # Waning protection: leaky vaccination into a protected pool that wanes
-# back to the susceptible pool at a rate per stratum and time.
+# back to the susceptible pool at a rate per stratum and time. The doses
+# and the rate are `Derived` from their logs, so the scenario also covers
+# derived removals and a derived flow rate.
 function _waning(w, θ)
-    logh, logR, doses, σ, ω = _unpack(θ, (S, L), (S, T), (S, T), (1,), (S, T))
+    logh, logR, logd, σ, logω = _unpack(θ, (S, L), (S, T), (S, T), (1,), (S, T))
     CR = ComposableRecurrences
     d = CR.Depletion(
-        PerStratum(POP); removals = TimeVarying(PerStratum(doses)),
+        PerStratum(POP); removals = Derived(exp, TimeVarying(PerStratum(logd))),
         protected = CR.Protected(only(σ)),
-        flows = CR.Flow(2 => 1, TimeVarying(PerStratum(ω)))
+        flows = CR.Flow(2 => 1, Derived(exp, TimeVarying(PerStratum(logω))))
     )
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -679,8 +681,8 @@ const _SCENARIOS = [
     (
         "Recurrence waning protection (Depletion flows)", _waning,
         () -> _flat(
-            zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3],
-            0.05 .+ 0.02 .* abs.(LOGR),
+            zeros(S, L), 0.3 .+ LOGR, log.(1 .+ 0.5 .* abs.(LOGR)), [0.3],
+            log.(0.05 .+ 0.02 .* abs.(LOGR)),
         ),
     ),
     (

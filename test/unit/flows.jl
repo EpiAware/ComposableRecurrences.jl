@@ -289,7 +289,7 @@ end
     @test_throws ArgumentError CR.Amount([0.1, 0.2])
     @test_throws "at least one Flow, got none" CR.Flows()
     @test_throws "expected a Flow, got 0.3" CR.Flows(CR.Flow(1 => 2, 0.1), 0.3)
-    @test_throws "up to 2, got compartments = 1" CR.Flows(
+    @test_throws "name compartment 2, but compartments = 1" CR.Flows(
         CR.Flow(1 => 2, 0.1); compartments = 1
     )
     @test CR.blocks(CR.Flows(CR.Flow(1 => 2, 0.1); compartments = Int32(3))) == Val((3, 3))

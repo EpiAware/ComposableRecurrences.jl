@@ -1,6 +1,8 @@
 # Depletion with flows between its pools: waning protection and rate
 # removals against naive loops, removals as the first count flow, the
-# pullbacks against a local Jacobian, and the checks.
+# pullbacks against a local Jacobian, and the checks. Gradients through the
+# rules on every backend, with derived removals and a derived waning rate,
+# are in the AD registry's waning scenario.
 
 @testitem "Depletion flows: waning against a naive loop" setup = [FlowChecks] begin
     using ComposableRecurrences, ForwardDiff
@@ -35,7 +37,9 @@
         return Y[:, (L + 1):end]
     end
     W = reshape(range(0.2, 1.4; length = 12), 2, 6)
-    for (build, at, θ) in values(forms)
+    # The most general rate form and a derived one; the flows tests cover
+    # every form.
+    for (build, at, θ) in (forms.groups_time, forms.derived)
         function run(θ, R)
             d = CR.Depletion(
                 N; removals = TimeVarying(PerStratum(doses)),
@@ -65,108 +69,117 @@
     @test Recurrence(g; modifiers = (still,))(R; history = h) ≈ y
 end
 
-@testitem "Depletion flows: susceptibles leaving at a rate" setup = [FlowChecks] begin
+@testitem "Depletion flows: susceptibles leaving at a rate or in counts" begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g, h, N = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0], 500.0
     R = fill(2.2, 12)
-    function naive(R, μ)
+    # The draw, then a rate `μ` out of the pool, then the removals `r`
+    # capped by what is left.
+    function naive(R, μ, r)
         T, L = length(R), length(h)
-        Tp = promote_type(eltype(R), typeof(μ))
+        Tp = promote_type(eltype(R), typeof(μ), typeof(r))
         y, s = vcat(Tp.(h), zeros(Tp, T)), Tp(N)
         for t in 1:T
             v = R[t] * sum(g[i] * y[L + t - i] for i in eachindex(g))
             y[L + t] = s * (1 - exp(-v / N))
             s = (s - y[L + t]) * exp(-μ)
+            s -= min(r, max(s, zero(s)))
         end
         return y[(L + 1):end]
     end
     run(R, μ) = Recurrence(g; modifiers = (CR.Depletion(N; flows = CR.Flow(1 => 0, μ)),))(
         R; history = h
     )
-    @test run(R, 0.05) ≈ naive(R, 0.05)
+    @test run(R, 0.05) ≈ naive(R, 0.05, 0.0)
     @test ForwardDiff.derivative(μ -> sum(run(R, μ)), 0.05) ≈
-        ForwardDiff.derivative(μ -> sum(naive(R, μ)), 0.05)
+        ForwardDiff.derivative(μ -> sum(naive(R, μ, 0.0)), 0.05)
     @test ForwardDiff.gradient(R -> sum(run(R, 0.05)), R) ≈
-        ForwardDiff.gradient(R -> sum(naive(R, 0.05)), R)
-    @test CR.ispointwise(CR.Depletion(N; flows = CR.Flow(1 => 0, 0.05)))
+        ForwardDiff.gradient(R -> sum(naive(R, 0.05, 0.0)), R)
+    d = CR.Depletion(N; flows = CR.Flow(1 => 0, 0.05))
+    @test CR.ispointwise(d)
+    @test CR.uses_adjoint(Recurrence(g; modifiers = (d,)), CR.Run())
+    # Removals of any parameter form, a Derived one included, are the first
+    # count flow's count.
+    removed(r) = Recurrence(g; modifiers = (CR.Depletion(N; removals = r),))(
+        R; history = h
+    )
+    @test removed(3.0) ≈ naive(R, 0.0, 3.0)
+    @test removed(2 * Derived(identity, 1.5)) ≈ naive(R, 0.0, 3.0)
+    @test ForwardDiff.derivative(r -> sum(removed(r)), 3.0) ≈
+        ForwardDiff.derivative(r -> sum(naive(R, 0.0, r)), 3.0)
 end
 
 @testitem "Depletion flows: pullbacks against a local Jacobian" setup = [FlowChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; check_pullback) = FlowChecks
-    # Waning, a share leaving the protected pool and removals, per stratum.
-    function protected(θ)
-        return CR.Depletion(
-            PerStratum(θ[1:2]); heterogeneity = θ[3],
-            protected = CR.Protected(PerStratum(θ[4:5]); pool0 = θ[11]),
-            flows = (
-                CR.Flow(1 => 2, CR.Amount(θ[6])), CR.Flow(2 => 1, PerStratum(θ[7:8])),
-                CR.Flow(2 => 0, CR.Linear(TimeVarying(θ[9:10]))),
-            )
-        )
-    end
-    for θ in (
-                [100.0, 80.0, 1.0, 0.3, 0.5, 2.0, 0.1, 0.2, 0.01, 0.02],
-                [100.0, 80.0, 1.4, 0.3, 0.5, 70.0, 0.0, 1.0e-9, 0.0, 0.05],
-            ), t in (1, 2)
-        # The protected pool's mirror order: N, heterogeneity, the flows'
-        # parameters, then σ and its pool0.
-        c = check_pullback(
-            x -> protected(
-                vcat(x[1:3], x[(end - 2):(end - 1)], x[4:(end - 3)], x[end])
+    # Each builder reads its parameters in the depletion's mirror order: N,
+    # heterogeneity, the flows' parameters in order, then σ and pool0.
+    # `a` is the count each flow set carries and `α` the heterogeneity.
+    flow_sets = (
+        # Waning, a share leaving the protected pool and a count into it.
+        (
+            x -> CR.Depletion(
+                PerStratum(x[1:2]); heterogeneity = x[3],
+                flows = (
+                    CR.Flow(1 => 2, CR.Amount(x[4])),
+                    CR.Flow(2 => 1, PerStratum(x[5:6])),
+                    CR.Flow(2 => 0, CR.Linear(TimeVarying(x[7:8]))),
+                ),
+                protected = CR.Protected(PerStratum(x[9:10]); pool0 = x[11])
             ),
-            vcat(θ[1:3], θ[6:10], θ[4:5], 0.0), [3.0, 1.5],
-            [60.0, 50.0, 20.0, 10.0], t
-        )
-        @test c.v && c.s && c.θ
-    end
-    # Removals alone take a direct path, other single counts the general
-    # one; each with a removal that is capped and one that is negative.
-    for (from, to) in (1 => 2, 1 => 0), a in (2.0, 70.0, -3.0)
-        alone(x) = CR.Depletion(
-            x[1]; heterogeneity = x[2],
-            protected = CR.Protected(x[4]; pool0 = x[5]),
-            flows = CR.Flow(from => to, CR.Amount(x[3]))
-        )
-        c = check_pullback(
-            alone, [100.0, 1.0, a, 0.3, 0.0], [3.0, 1.5], [60.0, 50.0, 20.0, 10.0], 1
-        )
+            (a, α) -> [100.0, 80.0, α, a, 0.1, 1.0e-9, 0.0, 0.05, 0.3, 0.5, 0.0],
+        ),
+        # A rate out of the pool, waning and a count into the protected pool.
+        (
+            x -> CR.Depletion(
+                PerStratum(x[1:2]); heterogeneity = x[3],
+                flows = (
+                    CR.Flow(1 => 0, x[4]), CR.Flow(2 => 1, x[5]),
+                    CR.Flow(1 => 2, CR.Amount(x[6])),
+                ),
+                protected = CR.Protected(x[7]; pool0 = x[8])
+            ),
+            (a, α) -> [100.0, 80.0, α, 0.02, 0.1, a, 0.3, 0.0],
+        ),
+        # Removals alone, and a single count out of the system.
+        (
+            x -> CR.Depletion(
+                x[1]; heterogeneity = x[2], flows = CR.Flow(1 => 2, CR.Amount(x[3])),
+                protected = CR.Protected(x[4]; pool0 = x[5])
+            ),
+            (a, α) -> [100.0, α, a, 0.3, 0.0],
+        ),
+        (
+            x -> CR.Depletion(
+                x[1]; heterogeneity = x[2], flows = CR.Flow(1 => 0, CR.Amount(x[3])),
+                protected = CR.Protected(x[4]; pool0 = x[5])
+            ),
+            (a, α) -> [100.0, α, a, 0.3, 0.0],
+        ),
+    )
+    # Pools full, and one stratum's pools empty so the draw comes from the
+    # pool alone; counts that are taken whole, capped and negative. At an
+    # empty pool the exponent's derivative holds `log(0)`, so it is one
+    # there.
+    pools = (
+        ([60.0, 50.0, 20.0, 10.0], (1.0, 1.4)), ([0.0, 50.0, 0.0, 10.0], (1.0,)),
+    )
+    for (build, θ) in flow_sets, (s, αs) in pools, α in αs, a in (2.0, 70.0, -3.0)
+        c = check_pullback(build, θ(a, α), [3.0, 1.5], s, 2)
         @test c.v && c.s && c.θ
     end
     # A rate and a count out of the one pool, pointwise.
-    pointwise(θ) = CR.Depletion(
-        θ[1]; heterogeneity = θ[2],
-        flows = (CR.Flow(1 => 0, θ[3]), CR.Flow(1 => 0, CR.Amount(θ[4])))
+    pointwise(x) = CR.Depletion(
+        x[1]; heterogeneity = x[2],
+        flows = (CR.Flow(1 => 0, x[3]), CR.Flow(1 => 0, CR.Amount(x[4])))
     )
-    for θ in ([100.0, 1.0, 0.05, 2.0], [100.0, 1.2, 0.0, 70.0])
-        c = check_pullback(pointwise, θ, [3.0, 1.5], [60.0, 50.0], 1)
+    for (s, αs) in (([60.0, 50.0], (1.0, 1.2)), ([0.0, 50.0], (1.0,))), α in αs,
+            a in (2.0, 70.0, -3.0)
+        c = check_pullback(pointwise, [100.0, α, 0.05, a], [3.0, 1.5], s, 1)
         @test c.v && c.s && c.θ
     end
-end
-
-@testitem "Depletion flows: the rule matches ForwardDiff" begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
-    g, h = [0.3, 0.5, 0.2], [5.0 4.0; 3.0 2.0]
-    function loss(θ)
-        d = CR.Depletion(
-            PerStratum([1000.0, 800.0]);
-            removals = TimeVarying(PerStratum(reshape(θ[1:12], 2, 6))),
-            protected = CR.Protected(θ[13]),
-            flows = CR.Flow(2 => 1, TimeVarying(θ[14:19]))
-        )
-        r = Recurrence(g; coupling = [0.9 0.1; 0.2 0.8], modifiers = (d,))
-        return sum(abs2, r(reshape(θ[20:31], 2, 6); history = h))
-    end
-    θ = [fill(4.0, 12); 0.3; fill(0.05, 6); fill(2.0, 12)]
-    @test CR.uses_adjoint(
-        Recurrence(g; modifiers = (CR.Depletion(1.0; flows = CR.Flow(1 => 0, 0.1)),)),
-        CR.Run()
-    )
-    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
 end
 
 @testitem "Depletion flows: check their options" begin
@@ -175,7 +188,7 @@ end
     @test_throws "name compartment 2, but the depletion's pools are 1 and" CR.Depletion(
         100.0; flows = CR.Flow(2 => 1, 0.1)
     )
-    @test_throws "flows holds Flows, got 0.1" CR.Depletion(100.0; flows = (0.1,))
+    @test_throws "expected a Flow, got 0.1" CR.Depletion(100.0; flows = (0.1,))
     @test_throws "a Flow, or a tuple or vector of Flows, got 0.1" CR.Depletion(
         100.0; flows = 0.1
     )
@@ -187,46 +200,8 @@ end
     )
 end
 
-@testitem "Depletion flows: empty pools and Derived removals" setup = [FlowChecks] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
-    (; check_pullback) = FlowChecks
-    # A rate out of the pool, waning and negative removals (arrivals), with
-    # one stratum's pools empty so the draw comes from the pool alone.
-    build(θ) = CR.Depletion(
-        PerStratum(θ[1:2]); heterogeneity = θ[3],
-        protected = CR.Protected(θ[4]; pool0 = θ[8]),
-        flows = (
-            CR.Flow(1 => 0, θ[5]), CR.Flow(2 => 1, θ[6]),
-            CR.Flow(1 => 2, CR.Amount(θ[7])),
-        )
-    )
-    for amount in (-3.0, 2.0), s in ([0.0, 50.0, 0.0, 10.0], [60.0, 50.0, 20.0, 10.0])
-        # Mirror order: N, heterogeneity, the flows' parameters, then σ and
-        # its pool0.
-        c = check_pullback(
-            x -> build(vcat(x[1:3], x[7], x[4:6], x[8])),
-            [100.0, 80.0, 1.0, 0.02, 0.1, amount, 0.3, 0.0], [3.0, 1.5], s, 1
-        )
-        @test c.v && c.s && c.θ
-    end
-    # Removals given as a Derived parameter, without a protected pool, are
-    # applied: they were the first count flow's count.
-    g, h, R = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0], fill(2.2, 10)
-    run(r) = Recurrence(g; modifiers = (CR.Depletion(200.0; removals = r),))(
-        R; history = h
-    )
-    @test run(2 * Derived(identity, 1.5)) ≈ run(3.0)
-    @test run(3.0) != run(0.0)
-    loss(θ) = sum(run(θ[1] * Derived(exp, θ[2])))
-    @test gradient(loss, AutoMooncake(), [2.0, 0.4]) ≈
-        ForwardDiff.gradient(loss, [2.0, 0.4])
-end
-
-@testitem "Depletion flows: resume, Float32, inference and a Derived rate" begin
-    using ComposableRecurrences, ForwardDiff, Mooncake, Test
-    using DifferentiationInterface: gradient, AutoMooncake
+@testitem "Depletion flows: resume, Float32 and inference" begin
+    using ComposableRecurrences, Test
     CR = ComposableRecurrences
     g, h = [0.3, 0.5, 0.2], [5.0]
     R = fill(2.0, 12)
@@ -243,20 +218,13 @@ end
         flows = (CR.Flow(2 => 1, 0.1),)
     )
     @inferred CR.forward(d, CR.Step(), (2.0,), (400.0, 50.0), 3, 1)
+    # Float32 throughout gives the Float64 values in Float32.
     d32 = CR.Depletion(
         500.0f0; removals = 3.0f0, protected = CR.Protected(0.3f0),
-        flows = CR.Flow(2 => 1, 0.1f0), heterogeneity = 1.0f0
+        flows = CR.Flow(2 => 1, TimeVarying(Float32.(ω.x))),
+        heterogeneity = 1.0f0
     )
     y32 = Recurrence(Float32.(g); modifiers = (d32,))(Float32.(R); history = Float32.(h))
-    @test eltype(y32) == Float32
-    # A Derived waning rate through the rule.
-    function loss(θ)
-        d = CR.Depletion(
-            500.0; removals = 3.0, protected = CR.Protected(θ[1]),
-            flows = CR.Flow(2 => 1, θ[2] * Derived(exp, TimeVarying(θ[3:14])))
-        )
-        return sum(abs2, Recurrence(g; modifiers = (d,))(R; history = h))
-    end
-    θ = [0.3, 0.05, fill(0.1, 12)...]
-    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
+    @test y32 isa Vector{Float32}
+    @test y32 ≈ y rtol = 1.0e-5
 end
