@@ -132,6 +132,35 @@ end
     end
 end
 
+@testitem "depth: the threaded reverse pass reads the deeper buffer" setup = [AdjointCheck, DeepBuffer] begin
+    using ComposableRecurrences, LinearAlgebra, Random
+    using Base.ScopedValues: with
+    rng = Xoshiro(14)
+    S, L, T, D = 4, 3, 8, 6
+    K = rand(rng, S, S) ./ S
+    h = rand(rng, S, D + 1)
+    R = 0.5 .+ rand(rng, S, T)
+    kernels = (
+        rand(rng, L), PerStratum(rand(rng, S, L)), TimeVarying(0.3 .* rand(rng, L, T)),
+        Pairwise(0.2 .* rand(rng, S, S, L)),
+    )
+    # Pointwise modifiers with `I` take the independent path; a dense
+    # coupling or a vector step takes the per-step one.
+    with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
+        for kernel in kernels, C in (I, K), m in (Deep(D), DeepVector(D))
+            kernel isa Pairwise && C !== I && continue
+            r = Recurrence(kernel; coupling = C, modifiers = (m,))
+            splits = CR._SPLIT_BLOCKS[]
+            @test pullback_matches(r, recargs(R, nothing, h)...)
+            @test pullback_matches(r, recargs(R, nothing, h[:, 1:1])...)
+            # A pairwise kernel with a vector step runs every reverse step on
+            # the calling task.
+            serial = kernel isa Pairwise && m isa DeepVector
+            @test (CR._SPLIT_BLOCKS[] > splits) == !serial
+        end
+    end
+end
+
 @testitem "depth: a coupling or kernel can deepen the buffer" setup = [DeepBuffer] begin
     using ComposableRecurrences, LinearAlgebra
     struct DeepCoupling

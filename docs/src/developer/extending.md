@@ -54,6 +54,8 @@ So a step writes only its own stratum's slots, and never to the type's fields.
 | struct with no fields | `(;)` |
 
 The whole mirror, or any entry, is `nothing` when the backend holds it constant.
+Under [`Threaded`](@ref ComposableRecurrences.Threaded), the reverse pass gives each chunk of strata a zeroed copy of these mirrors and sums the copies after the loop.
+A mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
 So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent).
 Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
 Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).

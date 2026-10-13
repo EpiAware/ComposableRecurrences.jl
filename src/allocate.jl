@@ -162,6 +162,7 @@ function forward(m::Allocate, ::Init, s, history)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
+_stateless(::Allocate) = true
 
 # The groups are disjoint, so each is one index of the loop.
 function forward(m::Allocate, ::Step, v, s, t)
