@@ -111,13 +111,13 @@ end
         protected = CR.Protected(PerStratum(θ[5:6]))
     )
     for removals in (2.0, 70.0, -1.0), heterogeneity in (1.0, 1.4)
-        c = check_pullback(
+        pc = check_pullback(
             build, [100.0, 80.0, heterogeneity, removals, 0.3, 0.5], [3.0, 1.5],
             [60.0, 50.0, 20.0, 10.0], 1; mirror_of = pmirror, flatten = pflat
         )
-        @test c.v
-        @test c.s
-        @test c.θ
+        @test pc.v
+        @test pc.s
+        @test pc.θ
     end
 end
 
