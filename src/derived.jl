@@ -8,8 +8,8 @@ u_{t,k} = f\big(a_{1,t,k}, \dots, a_{n,t,k}\big),
 ```
 
 where ``a_{j,t,k}`` is argument ``j`` read by
-[`ComposableRecurrences.param`](@ref): one value, [`PerStratum`](@ref),
-[`TimeVarying`](@ref), `TimeVarying(PerStratum(x))` or another `Derived`.
+[`ComposableRecurrences.param`](@ref), any parameter including another
+`Derived`.
 A `Derived` goes wherever a modifier takes a parameter.
 
 The reverse pass, for the cotangent ``\bar u_{t,k}`` of the value read, is

@@ -3,9 +3,8 @@
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
 # and `nothing` for a field without a cotangent.
 #
-# A parameter is one value, `PerStratum` (one per stratum),
-# `TimeVarying` (one per time) or `TimeVarying(PerStratum(x))` (strata ×
-# time); every built-in modifier reads its parameters through `param`.
+# Every built-in modifier reads its parameters through `param`, whose
+# docstring lists the parameter forms.
 
 
 @doc raw"""
@@ -26,6 +25,7 @@ f\big(a_{1,t,k}, \dots, a_{n,t,k}\big) & \text{derived},
 \end{cases}
 ```
 
+A [`Recent`](@ref) reads the recurrence's own recent outputs instead.
 A modifier reads every parameter through `param`, and writes its cotangent
 through [`ComposableRecurrences.add_param!`](@ref), so it accepts every
 parameter form, including forms added later.
@@ -560,9 +560,7 @@ where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on and ``b_{t,i}`` the parameter read at stratum ``i`` and time
 ``t``.
 
-`b` is a parameter: one value, [`PerStratum`](@ref), [`TimeVarying`](@ref)
-(one per time, shared by every stratum) or `TimeVarying(PerStratum(B))`
-with `B` strata × time, read at the absolute time.
+`b` is a [parameter](@ref ComposableRecurrences.param).
 Alone, `Add(TimeVarying(PerStratum(B)))` gives the same values as passing
 `B` as `add`.
 The state is unused.
@@ -586,7 +584,7 @@ Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 ```
 """
 struct Add{B}
-    "The values to add: one value, `PerStratum` or `TimeVarying`."
+    "The values to add, a parameter."
     b::B
     Add(b::B) where {B} = new{B}(_check_param(:b, b))
 end
@@ -624,9 +622,8 @@ passes on, ``K_{ij}`` = `K[i, j]` the share from origin ``j`` to destination
 ``s'_i`` the arrivals, kept as the state.
 Summing ``v'_i`` over ``i`` gives ``\sum_i v_i``.
 The diagonal of `K` is not read: a stratum does not import from itself.
-The intensity `ε` belongs to the origin and is a parameter: one value,
-[`PerStratum`](@ref), [`TimeVarying`](@ref) or `TimeVarying(PerStratum(ε))`
-with `ε` strata × time, read at the absolute time.
+The intensity `ε` belongs to the origin and is a
+[parameter](@ref ComposableRecurrences.param).
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
 stratum's pool by what it realises; a modifier sees
 ``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
@@ -655,7 +652,7 @@ round.(y; digits = 3)
 struct Redistribute{K <: AbstractMatrix, E}
     "The kernel, `K[p, q]` from origin `q` to destination `p`."
     K::K
-    "The origin intensity: one value, `PerStratum` or `TimeVarying`."
+    "The origin intensity, a parameter."
     ε::E
     function Redistribute(K::M, ε::E) where {M <: AbstractMatrix, E}
         size(K, 1) == size(K, 2) || throw(
@@ -754,8 +751,7 @@ where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on, and ``\ell_{t,i} \le u_{t,i}`` the bounds `lo` and `hi` read
 at stratum ``i`` and time ``t``.
 
-`lo` and `hi` are parameters: each one value, [`PerStratum`](@ref),
-[`TimeVarying`](@ref) or `TimeVarying(PerStratum(x))`.
+`lo` and `hi` are each a [parameter](@ref ComposableRecurrences.param).
 The state is unused.
 
 # Arguments
@@ -778,9 +774,9 @@ Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop 
 ```
 """
 struct Clamp{L, H}
-    "The lower bound, one value, `PerStratum` or `TimeVarying`."
+    "The lower bound, a parameter."
     lo::L
-    "The upper bound, one value, `PerStratum` or `TimeVarying`."
+    "The upper bound, a parameter."
     hi::H
     function Clamp(lo::L, hi::H) where {L, H}
         return new{L, H}(_check_param(:lo, lo), _check_param(:hi, hi))

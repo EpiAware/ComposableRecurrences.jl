@@ -196,8 +196,8 @@ struct Drop end
 
 @doc raw"""
 Admits each step's demand up to a capacity, beds or an allowance per
-period, and routes the rest to an overflow stratum.
-A stratum is one of the ``S`` parallel series computed together.
+period, and routes the rest to an overflow
+[stratum](@ref PerStratum).
 Demand that is not admitted moves to the overflow stratum, waits in a
 queue, or is dropped.
 
@@ -220,9 +220,9 @@ The state holds the occupancy or allowance of each pair, then, with
 `Hold()`, each pair's queue.
 
 # Arguments
-- `C`: the capacity of each pair, a parameter read at each pair and time:
-  one value, [`PerStratum`](@ref) with one per pair, [`TimeVarying`](@ref)
-  or `TimeVarying(PerStratum(C))` pairs × time.
+- `C`: the capacity of each pair, a
+  [parameter](@ref ComposableRecurrences.param) read at each pair and time,
+  with `PerStratum` holding one per pair.
   With `Beds` it is the number of places, and with `Budget` the grant at
   each period start.
 - `mode`: `Beds(exit)` or `Budget(period; carry_over)`.
