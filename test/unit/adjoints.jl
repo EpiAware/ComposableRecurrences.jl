@@ -1012,6 +1012,17 @@ end
     @test op.rebuilds === false
     @test !CR.uses_adjoint(op, CR.Run())
     @test occursin("Direct", CR._plain_why(op))
+    # The check runs the step on the parameters' own entries, so a step
+    # that would throw at a zero entry keeps the local derivative.
+    struct Root{K}
+        κ::K
+    end
+    CR.ispointwise(::Root) = true
+    CR.forward(m::Root, ::CR.Step, v, s, t, k) = (v * sqrt(CR.param(m.κ, k, t) - 1), s)
+    op = Recurrence([0.3, 0.2]; modifiers = (Root(PerStratum([5.0, 6.0])),))
+    @test op.rebuilds === true
+    @test CR.uses_adjoint(op, CR.Run())
+    @test pullback_matches(op, recargs(ones(S, 6), nothing, ones(S, 2))...)
     # An array parameter of another form, or a raw array, keeps plain AD.
     @test CR._modifier_adjoint(Cap(PerStratum([1.0 2.0; 3.0 4.0]), 1.0)) === :none
     @test CR._modifier_adjoint(Cap([5.0, 6.0], 1.0)) === :none

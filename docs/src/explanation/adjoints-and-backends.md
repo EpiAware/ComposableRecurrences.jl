@@ -57,7 +57,7 @@ ReverseDiff is not a [target](@ref faq-backends).
 ## [Which rules are kept](@id rule-policy)
 
 A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme.
-The route does not depend on the backend, so a rule that wins on one backend and loses on the other runs on both, apart from one coupling step below.
+The route depends on the backend only where the route table above says so; otherwise a rule that wins on one backend and loses on the other runs on both.
 The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix](@ref testing) cases at `T` 200 and `L` 20 where one covers it, else from the small CI scenarios (marked ¹).
 
 | Rule switched on by | Mooncake reverse | Enzyme reverse | Decision |
@@ -89,10 +89,9 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 
 ³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
 
-Every rule in the table is faster than plain AD on both backends, where plain AD is right, except two local steps.
-The step of a pointwise modifier with scalar parameters is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
+Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
+That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
 On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
-The step of a coupling with 13 to 24 strata and scalars runs on Mooncake only: Enzyme differentiates it by plain AD.
 A coupling whose cost grows with the strata squared is 1.46 times slower than plain AD on Enzyme at 20 strata, hence the limit of 12 there.
 On Mooncake the same coupling is 0.83 times plain AD at 30 strata and 1.08 at 36, hence the limit of 24.
 A coupling whose cost grows with the strata alone is 0.23 times plain AD on Mooncake at 50 strata, but the limit sends it to plain AD, so give such a coupling a `pullback!`.

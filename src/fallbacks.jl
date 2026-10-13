@@ -206,8 +206,8 @@ end
 # derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
 # The `n = S + P` inputs are seeded `N` at a time, and each pass adds
 # `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored. The rule takes
-# this route while one pass covers every input (`_LOCAL_PRESSURE`), and on
-# Mooncake while two do (`_LOCAL_PRESSURE_WIDE`).
+# this route while one pass covers every input (`_LOCAL_PRESSURE`), and
+# through `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
 const _LOCAL_PRESSURE = 12
 const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple)
@@ -336,33 +336,25 @@ end
 # rebuilt by `constructorof` and its scalars must come back unchanged. A
 # keyword-only constructor, a field typed `Float64` or a constructor that
 # transforms its arguments fails, and the operator then takes plain AD.
-# Checked once, when a `Recurrence` is built, which stores the outcome.
-_round_trips(m) = _round_trips(m, _param_tuple(m))
+# A modifier with `_EntryParam`s gets a scalar in their place, so one step
+# of the rebuild must also run, on the entries at stratum 1 and time 1, as
+# the local derivative runs it: a step that indexes such a parameter's
+# array fails. Checked once, when a `Recurrence` is built, which stores the
+# outcome.
+_round_trips(m) = _round_trips(m, _param_tuple(m, (1, 1)))
 _round_trips(m, ::Tuple{}) = true
 function _round_trips(m, θ)
     T = promote_type(map(typeof, θ)...)
     θd = _seed(ForwardDiff.Tag(_round_trips, T), map(T, θ))
     return try
-        _rebuilt_tuple(m, first(_rebuild_scalar(m, θd))) === θd
+        md = first(_rebuild_scalar(m, θd))
+        _rebuilt_tuple(m, md) === θd && _steps(m, md, one(first(θd)))
     catch e
         e isa InterruptException && rethrow()
         false
     end
 end
-# Whether the step of a modifier with `_EntryParam`s reads them through
-# `param`, as the local derivative passes it a scalar in their place: one
-# step of the rebuilt modifier must run. Checked with the round trip.
-_reads_by_param(m) = _scalar_params(m) || _steps_rebuilt(m, _param_tuple(m))
-function _steps_rebuilt(m, θ)
-    T = promote_type(map(typeof, θ)...)
-    return try
-        forward(first(_rebuild_scalar(m, θ)), Step(), one(T), one(T), 1, 1)
-        true
-    catch e
-        e isa InterruptException && rethrow()
-        false
-    end
-end
+_steps(m, md, x) = _scalar_params(m) || (forward(md, Step(), x, x, 1, 1); true)
 # The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.
 _rebuilt_tuple(::Union{AbstractFloat, _EntryParam}, y) = (y,)
 _rebuilt_tuple(::_Leafless, y) = ()

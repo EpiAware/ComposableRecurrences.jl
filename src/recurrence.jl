@@ -720,7 +720,7 @@ function _rebuilt(m::Depletion)
 end
 _all_rebuild(::Tuple{}) = true
 _all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
-_rebuilds_modifier(m) = !_rebuilt(m) || (_round_trips(m) && _reads_by_param(m))
+_rebuilds_modifier(m) = !_rebuilt(m) || _round_trips(m)
 _rebuilds_modifier(m::Depletion) = !_rebuilt(m) || _round_trips(m.form)
 
 _istrue(::Val{true}) = true
@@ -732,11 +732,9 @@ _rebuilds(r::Recurrence) = r.rebuilds
 _rebuilds(w::_WithState) = _rebuilds(w.r)
 
 # A coupling's local derivative takes one pass of dual numbers per step
-# while the strata and its scalars fit in one (`_LOCAL_PRESSURE`); above
-# that, plain AD of the operator is faster on Enzyme for a coupling whose
-# own cost grows with the strata squared. On Mooncake the rule stays faster
-# up to two passes (`_LOCAL_PRESSURE_WIDE`), so such a call goes through
-# `_ad_wide`; a call with more takes plain AD.
+# while the strata and its scalars fit in one (`_LOCAL_PRESSURE`), and the
+# call takes the rule; within two passes (`_LOCAL_PRESSURE_WIDE`) it goes
+# through `_ad_wide`, and with more it takes plain AD.
 function _fits(r::Recurrence, gain, add, h, args...)
     return _pressure_fits(r.coupling, h, _LOCAL_PRESSURE)
 end

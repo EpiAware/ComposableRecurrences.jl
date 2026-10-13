@@ -655,7 +655,7 @@ case(name) = CASES[findfirst(c -> c.name == name, CASES)]
 The size tiers. `smoke` checks every case at a tiny size; `docs` is the
 getting-started model at the page's size and at T 200, L 20; `convolved`
 holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
-`realistic` spans T 200-400, L 20-60 and S 1/5/50; `large` is S = 500,
+`realistic` spans T 200-400, L 20-60 and S 1 to 50; `large` is S = 500,
 T = 2000.
 """
 const TIERS = Dict(
@@ -694,7 +694,7 @@ const TIERS = Dict(
     "realistic" => (
         cases = filter(n -> !startswith(n, "conv_"), [c.name for c in CASES]),
         sizes = [(T = 200, L = 20), (T = 400, L = 60)],
-        strata = [1, 3, 5, 50],
+        strata = [1, 3, 5, 20, 50],
     ),
     "large" => (
         cases = ["strata_independent", "zones_sparse", "delay_fixed"],
@@ -850,7 +850,7 @@ end
 struct StrataSaturation{K}
     κ::K
 end
-if supports(:_local_pressure!, :_EntryParam)
+if supports(:_local_pressure!)
     function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
         tot = sum(view(p, 2:length(p)))
         q[1] = p[1] + C.a * tot
@@ -957,7 +957,7 @@ if supports(:_local_pressure!, :_EntryParam)
         Case(
             "custom_coupling_dense",
             "renewal across strata with a dense user coupling",
-            custom_coupling_dense, [3, 5, 50], false,
+            custom_coupling_dense, [3, 5, 20, 50], false,
         ),
         Case(
             "custom_modifier_strata",
@@ -967,7 +967,7 @@ if supports(:_local_pressure!, :_EntryParam)
     )
     REQUIRES["custom_coupling"] = (:_local_pressure!,)
     REQUIRES["custom_coupling_dense"] = (:_local_pressure!,)
-    REQUIRES["custom_modifier_strata"] = (:_EntryParam,)
+    REQUIRES["custom_modifier_strata"] = (:_local_pressure!,)
     push!(LOCAL_CASES, "custom_coupling", "custom_modifier_strata")
     for tier in ("smoke", "realistic")
         append!(
