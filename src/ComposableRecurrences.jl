@@ -36,6 +36,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | causal convolution    | `Convolution(kernel)`, lag 0 first                       |
 | strata                | `PerStratum(x)`, `Pairwise(x)`                           |
 | time variation        | `TimeVarying(x, Secondary())`                            |
+| strata and time       | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))` |
 | multiplicative input  | `r(gain; ...)`                                           |
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
