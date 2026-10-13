@@ -1,6 +1,3 @@
-# Marks the constructor that takes the flat fields as they are.
-struct _Flat end
-
 @doc raw"""
 Rescales each group of strata (see [`PerStratum`](@ref)) to an exogenous
 total: the strata of a group keep their shares of the group's value and the

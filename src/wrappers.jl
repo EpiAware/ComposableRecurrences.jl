@@ -1,3 +1,6 @@
+# Marks the constructor that takes the flat fields as they are.
+struct _Flat end
+
 @doc raw"""
 The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
 read at time `t`.
@@ -249,30 +252,39 @@ end
 # A kernel's columns, of any lengths, stacked: column `τ` is
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each
 # column to its own end, so no padding is stored or visited, and the
-# integer offsets carry no cotangent. The constructor checks the offsets,
-# so a loop that reads column `τ ≤ ncols` within its range skips bounds
-# checks.
-struct _Ragged{V <: AbstractVector}
+# integer offsets carry no cotangent. The offsets live where the values
+# do, so a device loop reads them. The checked constructor validates the
+# offsets on the host, so a loop that reads column `τ ≤ ncols` within its
+# range skips bounds checks; the `_Flat` form takes the fields of a checked
+# one as they are, as `adapt` does.
+struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
-    offsets::Vector{Int}
+    offsets::O
+    function _Ragged(::_Flat, values::V, offsets::O) where {
+            V <: AbstractVector, O <: AbstractVector{Int},
+        }
+        return new{V, O}(values, offsets)
+    end
     function _Ragged(values::V, offsets::AbstractVector{<:Integer}) where {
             V <: AbstractVector,
         }
         Base.require_one_based_indexing(values, offsets)
-        ok = !isempty(offsets) && first(offsets) == 0 &&
-            last(offsets) == length(values) && issorted(offsets)
+        host = convert(Vector{Int}, offsets)
+        ok = !isempty(host) && first(host) == 0 &&
+            last(host) == length(values) && issorted(host)
         ok || throw(
             ArgumentError(
                 "ragged kernel offsets rise from 0 to the number of values " *
-                    "($(length(values))), got $(_describe(offsets))"
+                    "($(length(values))), got $(_describe(host))"
             )
         )
-        return new{V}(values, convert(Vector{Int}, offsets))
+        o = _like(values, host)
+        return new{V, typeof(o)}(values, o)
     end
 end
 
 # Stacks the columns with one `copyto!` each, which AD backends
-# differentiate as a block copy.
+# differentiate as a block copy. The values live where the columns do.
 function _Ragged(ks::AbstractVector{<:AbstractVector})
     Base.require_one_based_indexing(ks)
     offsets = Vector{Int}(undef, length(ks) + 1)
@@ -280,7 +292,9 @@ function _Ragged(ks::AbstractVector{<:AbstractVector})
     for (τ, k) in enumerate(ks)
         offsets[τ + 1] = offsets[τ] + length(k)
     end
-    values = Vector{_column_eltype(ks)}(undef, last(offsets))
+    T = _column_eltype(ks)
+    n = last(offsets)
+    values = _like(ks, Vector{T}(undef, n))
     for (τ, k) in enumerate(ks)
         copyto!(values, offsets[τ] + 1, k, firstindex(k), length(k))
     end

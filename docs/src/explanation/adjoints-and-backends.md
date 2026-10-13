@@ -107,7 +107,7 @@ A new executor is a subtype of [`Executor`](@ref ComposableRecurrences.Executor)
 |---|---|---|---|---|---|
 | `Serial()` | all operators | yes | yes | yes | yes |
 | `Threaded()` | all operators | yes, threaded | not tested | yes, serial | rule's forward and reverse passes threaded, all else serial |
-| `Device(backend)` | all operators, couplings and built-in modifiers, except a ragged `TimeVarying` kernel | dual-number inputs only | not tested | not tested | not tested |
+| `Device(backend)` | all operators, couplings and built-in modifiers | dual-number inputs only | not tested | not tested | not tested |
 
 Mooncake and Enzyme do not differentiate tasks, so code they trace runs serially whatever executor is set.
 A rule's forward pass is not traced, so it uses the set executor.
@@ -133,7 +133,8 @@ Buffers, states and outputs are allocated from the inputs, so they live there to
 - Modifiers with a vector step (`Redistribute`, `Allocate` and `Depletion` with a protected pool) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
-- A ragged `TimeVarying` kernel (a vector of columns) stores its column offsets on the host, so it does not run on a device yet, and a call with device inputs is an error.
+- A ragged `TimeVarying` kernel (a vector of columns) keeps its column offsets where its values live.
+  Columns that live on a device, or `Adapt.adapt`, put both there.
 
 `test/unit/gpu_arrays.jl` runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
 On a machine with an NVIDIA GPU, the same checks run on CUDA arrays by hand:

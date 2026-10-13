@@ -255,8 +255,7 @@ Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, operator calls on arrays that
 live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
 without being asked.
-Every array a call reads must live on the device; a ragged `TimeVarying`
-kernel does not run on a device yet.
+Every array a call reads must live on the device.
 [GPU arrays](@ref gpu-arrays) says how each part runs there.
 
 # Examples

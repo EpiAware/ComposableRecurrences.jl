@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Amount,
     Clamp, Convolution, Depletion, Derived, Device, Flow, Flows, Linear,
     Pairwise, PerStratum, Pressure, Protected, Rate, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Ragged
+    _OldestFirstPairwise, _Flat, _Ragged
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -40,23 +40,27 @@ _host_leaf(::Array{<:Integer}) = false
 _host_leaf(::AbstractGPUArray) = false
 _host_leaf(::Union{Number, Symbol, Nothing, Function, Type, Module}) = false
 _host_leaf(x::Tuple) = any(_host_leaf, x)
-function _host_leaf(::_Ragged)
-    throw(
-        ArgumentError(
-            "a ragged TimeVarying kernel (a vector of columns) keeps its " *
-                "column offsets on the host, so it does not run on a device; " *
-                "use a lags × time matrix"
-        )
-    )
-end
 function _host_leaf(x::T) where {T}
     isstructtype(T) || return false
     return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
 end
 
+# The longest column of a ragged kernel whose offsets live on a device, as
+# one reduction there.
+function ComposableRecurrences._maxlen(g::_Ragged{<:AbstractVector, <:AnyGPUArray})
+    n = length(g.offsets)
+    n <= 1 && return 0
+    o = g.offsets
+    return mapreduce(-, max, view(o, 2:n), view(o, 1:(n - 1)); init = 0)
+end
+
 # Host index arrays a loop reads, copied to the device of `v`.
 function ComposableRecurrences._like(v::AnyGPUArray, x::Array)
     return copyto!(similar(v, eltype(x), size(x)), x)
+end
+# Columns on a device stack there.
+function ComposableRecurrences._like(ks::AbstractVector{<:AnyGPUArray}, x::Array)
+    return isempty(ks) ? x : ComposableRecurrences._like(first(ks), x)
 end
 
 # Couplings on a device mix the strata with one `mul!` (or broadcast) per
@@ -102,6 +106,12 @@ const _Adapted = Union{
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
+end
+
+# A ragged kernel moves its offsets with its values, rebuilt without the
+# host check, as a kernel launch adapts it.
+function Adapt.adapt_structure(to, g::_Ragged)
+    return _Ragged(_Flat(), adapt(to, g.values), adapt(to, g.offsets))
 end
 
 # `Allocate` keeps its groups, host index arrays that each step copies where
