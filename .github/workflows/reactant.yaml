@@ -19,9 +19,11 @@ on:
     - cron: '17 4 * * 1'
   workflow_dispatch:
 
+# Every run is on main or the schedule, so none is cancelled by a later
+# one: each merge gets a result.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   reactant:
