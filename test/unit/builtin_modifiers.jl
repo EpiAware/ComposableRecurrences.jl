@@ -4,56 +4,6 @@
 # Jacobian of the Step in the step's values, state and the modifier's own
 # parameters.
 
-@testmodule ModifierChecks begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra
-    const CR = ComposableRecurrences
-
-    # A zero cotangent mirror, as the adjoint wiring builds it: an array per
-    # float array, a `Ref` per float scalar, a NamedTuple per struct and
-    # `nothing` for anything without a cotangent.
-    mirror(x::AbstractFloat) = Ref(zero(x))
-    mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
-    mirror(::AbstractArray) = nothing
-    mirror(::Union{Integer, Symbol, Nothing}) = nothing
-    function mirror(x)
-        names = fieldnames(typeof(x))
-        return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
-    end
-
-    # The mirror's float leaves in field order, flattened.
-    flat(::Nothing) = Float64[]
-    flat(x::Base.RefValue) = [x[]]
-    flat(x::AbstractArray) = vec(copy(x))
-    flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
-
-    # Compare the Step's `pullback!` with the transposed Jacobian of its
-    # `forward` in
-    # `[v; s; θ]`, for a modifier `build(θ)` whose mirror flattens in the
-    # order of `θ`. The state may be longer than `v`. Returns the parameter
-    # cotangent for further checks.
-    function check_pullback(build, θ, v, s, t; v̄ = nothing, s̄ = nothing)
-        S, n = length(v), length(s)
-        v̄′ = v̄ === nothing ? collect(range(0.3, 1.7; length = S)) : v̄
-        s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = n)) : s̄
-        J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
-            vv, ss = x[1:S], x[(S + 1):(S + n)]
-            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
-            return vcat(vv, ss)
-        end
-        expected = transpose(J) * vcat(v̄′, s̄′)
-        m = build(θ)
-        m̄ = mirror(m)
-        gv, gs = copy(v̄′), copy(s̄′)
-        CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
-        return (;
-            v = gv ≈ expected[1:S],
-            s = gs ≈ expected[(S + 1):(S + n)],
-            θ = flat(m̄) ≈ expected[(S + n + 1):end],
-            θ̄ = flat(m̄),
-        )
-    end
-end
-
 @testitem "Depletion: hazard form against a naive loop" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
