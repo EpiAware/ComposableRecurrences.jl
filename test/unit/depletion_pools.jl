@@ -33,40 +33,11 @@
         return y[(L + 1):end]
     end
 
-    # Compare a vector Step's `pullback!` with the transposed Jacobian of its
-    # `forward` in `[v; s; θ]`, where the state `s` may be longer than `v`.
-    function check_vector_pullback(build, θ, v, s, t)
-        S, n = length(v), length(s)
-        v̄ = [0.3 + 0.4k for k in 1:S]
-        s̄ = [-0.4 + 0.3k for k in 1:n]
-        J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
-            vv, ss = x[1:S], x[(S + 1):(S + n)]
-            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
-            return vcat(vv, ss)
-        end
-        expected = transpose(J) * vcat(v̄, s̄)
-        m = build(θ)
-        m̄ = mirror(m)
-        gv, gs = copy(v̄), copy(s̄)
-        CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
-        return (;
-            v = gv ≈ expected[1:S], s = gs ≈ expected[(S + 1):(S + n)],
-            θ = flat(m̄) ≈ expected[(S + n + 1):end],
-        )
+    # The output cotangents the pool steps' pullback checks seed, passed to
+    # `ModifierChecks.check_pullback`.
+    function seeds(v, s)
+        return (; v̄ = [0.3 + 0.4k for k in eachindex(v)], s̄ = [-0.4 + 0.3k for k in eachindex(s)])
     end
-
-    mirror(x::AbstractFloat) = Ref(zero(x))
-    mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
-    mirror(::Union{Integer, Symbol, Nothing, AbstractArray}) = nothing
-    mirror(x::Tuple) = map(mirror, x)
-    function mirror(x)
-        names = fieldnames(typeof(x))
-        return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
-    end
-    flat(::Nothing) = Float64[]
-    flat(x::Base.RefValue) = [x[]]
-    flat(x::AbstractArray) = vec(copy(x))
-    flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 end
 
 @testitem "Depletion pools: no removals and no protected pool is the base" begin
@@ -184,20 +155,21 @@ end
             protected = CR.Protected(PerStratum(θ[8:10]); pool0 = θ[11])
         )
         θ = [100.0, 90.0, 70.0, 1.3, 5.0, 7.0, 2.0, 0.3, 0.5, 0.0, 0.0]
-        c = PoolChecks.check_vector_pullback(build, θ, v, s, 1)
+        c = ModifierChecks.check_pullback(build, θ, v, s, 1; PoolChecks.seeds(v, s)...)
         @test c.v && c.s && c.θ
     end
     # A protected pool without removals.
     build(θ) = CR.Depletion(
         θ[1]; heterogeneity = θ[2], protected = CR.Protected(θ[3]; pool0 = θ[4])
     )
-    c = PoolChecks.check_vector_pullback(
-        build, [100.0, 1.0, 0.4, 0.0], [2.0], [70.0, 20.0], 1
+    c = ModifierChecks.check_pullback(
+        build, [100.0, 1.0, 0.4, 0.0], [2.0], [70.0, 20.0], 1;
+        PoolChecks.seeds([2.0], [70.0, 20.0])...
     )
     @test c.v && c.s && c.θ
 end
 
-@testitem "Depletion pools: an empty pool with a tangent under ForwardDiff" setup = [PoolChecks] begin
+@testitem "Depletion pools: an empty pool with a tangent under ForwardDiff" setup = [ModifierChecks, PoolChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # A dual with value zero and non-zero partials compares above zero, so
@@ -234,8 +206,9 @@ end
         θ[1], CR.Floor(); heterogeneity = θ[2],
         protected = CR.Protected(θ[3]; pool0 = θ[4])
     )
-    c = PoolChecks.check_vector_pullback(
-        build, [100.0, 1.0, 0.4, 0.0], [2.0], [0.0, 0.0], 1
+    c = ModifierChecks.check_pullback(
+        build, [100.0, 1.0, 0.4, 0.0], [2.0], [0.0, 0.0], 1;
+        PoolChecks.seeds([2.0], [0.0, 0.0])...
     )
     @test c.v && c.s && c.θ
 end
