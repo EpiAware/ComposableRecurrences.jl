@@ -76,7 +76,8 @@ Add a `ConstructionBase.constructorof` method for a type whose positional constr
 The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
 So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
 A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
-The local step of a coupling is capped by the strata it couples, at a limit that depends on the backend (see the route table in [Rules and plain AD](@ref adjoint-routing)), so a coupling over many strata needs a `pullback!` to take the rule.
+The local step of a coupling is capped by the strata it couples, at a limit set by the backend; the route table in [Rules and plain AD](@ref adjoint-routing) gives it.
+A coupling over more strata needs a `pullback!` to take the rule.
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 
