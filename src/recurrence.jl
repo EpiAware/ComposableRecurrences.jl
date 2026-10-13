@@ -1076,10 +1076,12 @@ function _run(
             τ0, L, D, T
         )
     else
+        # Parameters that read across strata fill their windows once per
+        # step; the check is made once, outside the loop.
+        across = _reads_across(modifiers)
         for t in 1:T
             τ = τ0 + t - 1
-            # Parameters that read across strata fill their windows once.
-            _refresh!(modifiers, D + t)
+            across && _refresh!(modifiers, D + t)
             _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
             if _all_pointwise(modifiers)
                 _each!(
