@@ -100,7 +100,7 @@ end
     function protected(θ)
         return CR.Depletion(
             PerStratum(θ[1:2]); heterogeneity = θ[3],
-            protected = CR.Protected(PerStratum(θ[4:5])),
+            protected = CR.Protected(PerStratum(θ[4:5]); pool0 = θ[11]),
             flows = (
                 CR.Flow(1 => 2, CR.Amount(θ[6])), CR.Flow(2 => 1, PerStratum(θ[7:8])),
                 CR.Flow(2 => 0, CR.Linear(TimeVarying(θ[9:10]))),
@@ -114,7 +114,9 @@ end
         # The protected pool's mirror order: N, heterogeneity, the flows'
         # parameters, then σ and its pool0.
         c = check_pullback(
-            x -> protected(vcat(x[1:3], x[(end - 2):(end - 1)], x[4:(end - 3)])),
+            x -> protected(
+                vcat(x[1:3], x[(end - 2):(end - 1)], x[4:(end - 3)], x[end])
+            ),
             vcat(θ[1:3], θ[6:10], θ[4:5], 0.0), [3.0, 1.5],
             [60.0, 50.0, 20.0, 10.0], t
         )
@@ -124,7 +126,8 @@ end
     # one; each with a removal that is capped and one that is negative.
     for (from, to) in (1 => 2, 1 => 0), a in (2.0, 70.0, -3.0)
         alone(x) = CR.Depletion(
-            x[1]; heterogeneity = x[2], protected = CR.Protected(x[4]),
+            x[1]; heterogeneity = x[2],
+            protected = CR.Protected(x[4]; pool0 = x[5]),
             flows = CR.Flow(from => to, CR.Amount(x[3]))
         )
         c = check_pullback(
@@ -193,7 +196,7 @@ end
     # one stratum's pools empty so the draw comes from the pool alone.
     build(θ) = CR.Depletion(
         PerStratum(θ[1:2]); heterogeneity = θ[3],
-        protected = CR.Protected(θ[4]),
+        protected = CR.Protected(θ[4]; pool0 = θ[8]),
         flows = (
             CR.Flow(1 => 0, θ[5]), CR.Flow(2 => 1, θ[6]),
             CR.Flow(1 => 2, CR.Amount(θ[7])),
@@ -203,7 +206,7 @@ end
         # Mirror order: N, heterogeneity, the flows' parameters, then σ and
         # its pool0.
         c = check_pullback(
-            x -> build(vcat(x[1:3], x[7], x[4:6])),
+            x -> build(vcat(x[1:3], x[7], x[4:6], x[8])),
             [100.0, 80.0, 1.0, 0.02, 0.1, amount, 0.3, 0.0], [3.0, 1.5], s, 1
         )
         @test c.v && c.s && c.θ
@@ -241,7 +244,7 @@ end
     )
     @inferred CR.forward(d, CR.Step(), (2.0,), (400.0, 50.0), 3, 1)
     d32 = CR.Depletion(
-        500.0f0; removals = 3.0f0, protected = CR.Protected(0.3f0; pool0 = 0.0f0),
+        500.0f0; removals = 3.0f0, protected = CR.Protected(0.3f0),
         flows = CR.Flow(2 => 1, 0.1f0), heterogeneity = 1.0f0
     )
     y32 = Recurrence(Float32.(g); modifiers = (d32,))(Float32.(R); history = Float32.(h))
