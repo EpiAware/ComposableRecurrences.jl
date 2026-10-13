@@ -423,7 +423,7 @@ _exponent(α::Bool, N, ::Union{Hazard, Floor}) = _FixedExponent{α}()
 _exponent(α, N, form) = α
 
 # A fixed `Bool` exponent held in the type, so a `Depletion` stores no byte
-# for it. Enzyme's type analysis can reject a `Bool` field stored into a
+# for it. An AD tool's type analysis can reject a `Bool` field stored into a
 # tuple of modifiers when the construction is compiled into the loss. The
 # steps read it back as the `Bool` constant `B`.
 struct _FixedExponent{B} end
