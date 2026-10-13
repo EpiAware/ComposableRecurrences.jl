@@ -110,10 +110,10 @@ end
         ForwardDiff.derivative(r -> sum(naive(R, 0.0, r)), 3.0)
 end
 
-@testitem "Depletion flows: pullbacks against a local Jacobian" setup = [FlowChecks] begin
+@testitem "Depletion flows: pullbacks against a local Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    (; check_pullback) = FlowChecks
+    (; check_pullback) = ModifierChecks
     # Each builder reads its parameters in the depletion's mirror order: N,
     # heterogeneity, the flows' parameters in order, then σ and pool0.
     # `a` is the count each flow set carries and `α` the heterogeneity.
