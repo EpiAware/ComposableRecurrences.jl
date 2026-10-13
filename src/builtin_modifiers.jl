@@ -118,14 +118,7 @@ function _check_param(
     )
     return x
 end
-function _check_param(name, x::TimeVarying{Primary})
-    throw(
-        ArgumentError(
-            "$name: Primary() indexing is only meaningful for a kernel; " *
-                "got $(_describe(x))"
-        )
-    )
-end
+_check_param(name, x::TimeVarying{Primary}) = _primary_error(name, x)
 function _check_param(name, x)
     throw(
         ArgumentError(
@@ -140,14 +133,7 @@ function _check_param(name, x)
 end
 
 # Check a parameter against `S` strata.
-_check_param_strata(name, x, S) = nothing
-_check_param_strata(name, x::TimeVarying, S) = _check_param_strata(name, x.x, S)
-function _check_param_strata(name, x::PerStratum, S)
-    size(x.x, 1) == S || throw(
-        DimensionMismatch("$name has $(size(x.x, 1)) strata, expected $S")
-    )
-    return nothing
-end
+_check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
 
 # A zero initial state, once the parameters are checked against the state's
 # strata.
@@ -397,14 +383,7 @@ end
 
 # The starting pool is per stratum, not over time.
 _check_constant(name, x) = _check_param(name, x)
-function _check_constant(name, x::TimeVarying)
-    throw(
-        ArgumentError(
-            "$name is one value or PerStratum($name); it does not vary over " *
-                "time, got $(_describe(x))"
-        )
-    )
-end
+_check_constant(name, x::TimeVarying) = _not_constant_error(name, x)
 
 _float_param(x::Real) = float(x)
 _float_param(x::PerStratum) = PerStratum(float(x.x))
@@ -419,14 +398,22 @@ end
 # `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool. The built-in
 # forms keep a `Bool` exponent as a fixed one, without a cotangent.
 _exponent(α::Integer, N, form) = convert(float(_primal_type(param_eltype(N))), α)
-_exponent(α::Bool, N, ::Union{Hazard, Floor}) = α
+_exponent(α::Bool, N, ::Union{Hazard, Floor}) = _FixedExponent{α}()
 _exponent(α, N, form) = α
 
-# The default exponent: `true` for the built-in forms, a fixed exponent of
-# one that is not a parameter, so their steps skip the power and its
-# derivative; `1` for other forms, which may type their exponent as a float.
+# A fixed `Bool` exponent held in the type, so a `Depletion` stores no byte
+# for it. An AD tool's type analysis can reject a `Bool` field stored into a
+# tuple of modifiers when the construction is compiled into the loss. The
+# steps read it back as the `Bool` constant `B`.
+struct _FixedExponent{B} end
+_exponent_value(::_FixedExponent{B}) where {B} = B
+_exponent_value(α) = α
+
+# The default exponent: a fixed exponent of one for the built-in forms, not
+# a parameter, so their steps skip the power and its derivative; `1` for
+# other forms, which may type their exponent as a float.
 _unit_exponent(form) = 1
-_unit_exponent(::Union{Hazard, Floor}) = true
+_unit_exponent(::Union{Hazard, Floor}) = _FixedExponent{true}()
 
 # The powers of the share of the pool left `r`: `r^(α - 1)` scales the
 # hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
@@ -550,14 +537,16 @@ end
 const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
 
 function forward(m::_Depleting, ::Step, v, s, t, k)
-    return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
+    return forward(
+        m.form, Step(), v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
 end
 
 function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        v, s, param(m.N, k, t), m.heterogeneity
+        v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
     )
     add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -611,6 +600,7 @@ struct Add{B}
 end
 
 ispointwise(::Add) = true
+_stateless(::Add) = true
 forward(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
 pullback!(grads, ::Add, ::Init, s, history) = nothing
 
@@ -805,6 +795,7 @@ struct Clamp{L, H}
 end
 
 ispointwise(::Clamp) = true
+_stateless(::Clamp) = true
 forward(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
 pullback!(grads, ::Clamp, ::Init, s, history) = nothing
 

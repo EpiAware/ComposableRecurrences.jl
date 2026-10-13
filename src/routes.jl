@@ -116,13 +116,10 @@ _describe(R::Routes) = string("Routes with ", length(R.kernels), " routes")
 
 _check_kernel_shape(::Routes) = nothing
 function _check_pairwise_coupling(::Routes, coupling)
-    coupling isa UniformScaling && isone(coupling.λ) || throw(
-        ArgumentError(
-            "Routes holds each route's coupling, so the Recurrence " *
-                "coupling must be I, got $(_describe(coupling))"
-        )
+    return _check_unit_coupling(
+        coupling,
+        "Routes holds each route's coupling, so the Recurrence coupling"
     )
-    return nothing
 end
 
 # The fold: one route is its kernel with its coupling, unless it is a
@@ -259,6 +256,12 @@ function _kernel_back!(kbuf, ḡ, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     )
     return nothing
 end
+# The routes share `z` and `w` and mix strata, so their pullback runs on the
+# calling task.
+function _kernels_back!(accs, kbuf, k::_RouteKernels, p̄, H, H̄, t, τ, L)
+    _kernel_back!(kbuf, _own(first(accs).ḡ), k, p̄, H, H̄, t, τ, L)
+    return nothing
+end
 _routes_back!(::Tuple{}, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L) = nothing
 function _routes_back!(kbuf::Tuple, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L)
     Lr, g = first(Ls), first(gs)
@@ -278,11 +281,4 @@ function _kernel_finish!(ḡ, kbuf::Tuple)
     return nothing
 end
 
-function _check_coupling_shape(R::Routes)
-    throw(
-        ArgumentError(
-            "Routes is a kernel: use Recurrence(Routes(...)) with coupling " *
-                "I, not coupling = $(_describe(R))"
-        )
-    )
-end
+_check_coupling_shape(R::Routes) = _kernel_as_coupling_error(R, "Routes(...)")

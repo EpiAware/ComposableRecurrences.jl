@@ -517,9 +517,10 @@ function report(dir, prevdir = nothing)
 end
 
 # The docs table: the getting-started model against code written without the
-# package, and the user modifier with and without its `pullback!`. Each row
-# is one method on one target; `ratio` is its median over the reference
-# method's (the package, or the modifier with `forward` only).
+# package, and the user modifier under plain AD and through the rule with
+# and without its `pullback!`. Each row is one method on one target; `ratio`
+# is its median over the reference method's (the package, or the modifier
+# with `forward` only).
 const DOCS_BLOCKS = [
     (
         "naive vs package", "overview", "ComposableRecurrences",
@@ -533,6 +534,7 @@ const DOCS_BLOCKS = [
     (
         "custom modifier", "custom_modifier", "forward only",
         [
+            ("custom_modifier", "NoAdjoint") => "plain AD",
             ("custom_modifier", "rule") => "forward only",
             ("custom_modifier_pullback", "rule") => "with pullback!",
         ],

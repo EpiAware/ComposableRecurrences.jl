@@ -326,8 +326,18 @@ house = house_model(R0; history = [10.0; 0.0;;], stop = 60)
 K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
 round.((maximum(abs, eigvals(K_house)), sum(house[:, end])); digits = 3)
 
+#-
+
+@chain DataFrame(
+    "day" => 1:60, "First case" => house[1, :], "Later case" => house[2, :]
+) begin
+    stack(Not(:day); variable_name = :type, value_name = :cases)
+    data(_) * mapping(:day, :cases, color = :type) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Mean cases (log scale)", yscale = log10))
+end
+
 # The reproduction number is below one.
-# From 10 seed cases the mean number of cases falls towards zero.
+# From 10 seed cases the mean number of cases of both types falls towards zero.
 #
 # ### Contact tracing as two types
 #

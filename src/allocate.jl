@@ -133,14 +133,7 @@ function _check_groups(groups)
     return nothing
 end
 
-_check_group_totals(total, P) = nothing
-_check_group_totals(total::TimeVarying, P) = _check_group_totals(total.x, P)
-function _check_group_totals(total::PerStratum, P)
-    size(total.x, 1) == P || throw(
-        DimensionMismatch("total has $(size(total.x, 1)) groups, expected $P")
-    )
-    return nothing
-end
+_check_group_totals(total, P) = _check_rows(:total, total, P, "groups")
 
 function _check_partition(m::Allocate, S)
     n = length(m.strata)
@@ -162,6 +155,7 @@ function forward(m::Allocate, ::Init, s, history)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
+_stateless(::Allocate) = true
 
 # The groups are disjoint, so each is one index of the loop.
 function forward(m::Allocate, ::Step, v, s, t)
