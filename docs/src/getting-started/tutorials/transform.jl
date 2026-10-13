@@ -100,13 +100,15 @@ end
 #
 # The saturating response reacts to the current day only.
 # A response to the last week's incidence is built from parts instead of a bespoke modifier.
-# [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref) maps them, and any modifier parameter takes the result:
+# [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref)
+# maps them, and any modifier parameter takes the result:
 #
 # ```math
 # y_t = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} y_{t-l}\Big)\, R_t \sum_{l} g_l\, y_{t-l}.
 # ```
 #
-# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases (@placeholder).
+# The same source can drive ring vaccination, removing doses from the
+# susceptible pool in proportion to recent cases (@placeholder).
 
 κr = 10.0
 response = Transform(*, Derived(exp, -κr / N * Recent(7)))
@@ -128,7 +130,8 @@ feedback = [
 end
 
 # Both measures cut the peak, and together they cut it further than either alone.
-# The reverse-mode rule sends each gradient back through the outputs that `Recent` reads, so Mooncake and Enzyme follow the feedback too.
+# The reverse-mode rule sends each gradient back through the outputs that
+# `Recent` reads, so Mooncake and Enzyme follow the feedback too.
 
 # ## Extinction by generation
 #
