@@ -339,9 +339,16 @@ function _set(x::Tuple, i, v)
     return ntuple(j -> ifelse(j == i, w, x[j]), Val(length(x)))
 end
 
-# Tuple entry `i` of `x` plus `v`; arrivals of `nothing` are not kept.
-_add(x::Tuple, i, v) = _set(x, i, x[i] + v)
+# Tuple entry `i` of `x` plus `v`, or `x` for an `i` it lacks; arrivals of
+# `nothing` are not kept.
+_add(x::Tuple, i, v) = ntuple(j -> ifelse(j == i, x[j] + v, x[j]), Val(length(x)))
 _add(::Nothing, i, v) = nothing
+
+# Tuple entry `i` of `x`, chosen by `ifelse` over the entries: a small tuple
+# is read where it is held, without an indexed load.
+_get(x::Tuple, i) = _get(Base.tail(x), i, 2, first(x))
+_get(::Tuple{}, i, j, v) = v
+_get(x::Tuple, i, j, v) = _get(Base.tail(x), i, j + 1, ifelse(j == i, first(x), v))
 
 # What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
@@ -400,12 +407,16 @@ function _counts(fs::Tuple, y, a, g, t)
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
+# One pass over the compartments, by `ifelse`: a flow out of the system
+# (`to = 0`) adds to no compartment.
 function _count(f::Flow{<:Amount}, y, a, g, t)
-    m = _removal(param(f.kind.a, g, t), y[f.from])
-    y = _set(y, f.from, y[f.from] - m)
-    f.to > 0 || return y, a
+    i, j = f.from, f.to
+    m = _removal(param(f.kind.a, g, t), _get(y, i))
     p = _moved_in(m)
-    return _add(y, f.to, p), _add(a, f.to, p)
+    y′ = ntuple(Val(length(y))) do l
+        return ifelse(l == i, y[l] - m, ifelse(l == j, y[l] + p, y[l]))
+    end
+    return y′, _add(a, j, p)
 end
 
 # Count flows only, such as a depletion's removals: nothing moves at a
