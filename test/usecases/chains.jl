@@ -12,9 +12,7 @@
     I₀, r, N = 5.0, 0.1, 1000.0
     pmf = [0.3, 0.4, 0.3]
     d = length(pmf)
-    step = C.RenewalStep(
-        C.ConstantRenewalStep(reverse(g)), (C.SusceptibleDepletion(N),)
-    )
+    step = UseCaseReferences.depleting_renewal_step(g, N)
     function ref_chain(ρ, ϵ)
         log_Rt = C.ar(ρ, init, ϵ)
         infections = C.renewal(step, g, I₀, r, exp.(log_Rt))

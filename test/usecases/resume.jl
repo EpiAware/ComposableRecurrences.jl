@@ -9,9 +9,7 @@
     I₀, r, N = 5.0, 0.1, 300.0
     Rt = [2.4, 2.3, 2.5, 2.2, 2.1, 2.0, 1.9, 2.2, 2.3, 2.1]
     T₁ = 6
-    ref_step(N) = C.RenewalStep(
-        C.ConstantRenewalStep(reverse(g)), (C.SusceptibleDepletion(N),)
-    )
+    ref_step(N) = UseCaseReferences.depleting_renewal_step(g, N)
     ref = C.renewal(ref_step(N), g, I₀, r, Rt)
     w = range(0.5, 2.0; length = length(Rt))
     θ0 = vcat(N, Rt)
