@@ -1,3 +1,6 @@
+# Marks the constructor that takes the flat fields as they are.
+struct _Flat end
+
 @doc raw"""
 The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
 read at time `t`.
@@ -249,19 +252,17 @@ end
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each
 # column to its own end, so no padding is stored or visited, and the
 # integer offsets carry no cotangent. The offsets live where the values
-# do, so a device loop reads them, and the longest column is kept so a
-# call reads its lags without visiting them. The checked constructor
-# validates the offsets on the host, so a loop that reads column
-# `τ ≤ ncols` within its range skips bounds checks; the three-field form
-# rebuilds from the fields of a checked one, as `adapt` does.
+# do, so a device loop reads them. The checked constructor validates the
+# offsets on the host, so a loop that reads column `τ ≤ ncols` within its
+# range skips bounds checks; the `_Flat` form takes the fields of a checked
+# one as they are, as `adapt` does.
 struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
     offsets::O
-    maxlen::Int
-    function _Ragged(values::V, offsets::O, maxlen::Int) where {
+    function _Ragged(::_Flat, values::V, offsets::O) where {
             V <: AbstractVector, O <: AbstractVector{Int},
         }
-        return new{V, O}(values, offsets, maxlen)
+        return new{V, O}(values, offsets)
     end
 end
 function _Ragged(values::AbstractVector, offsets::AbstractVector{<:Integer})
@@ -275,11 +276,7 @@ function _Ragged(values::AbstractVector, offsets::AbstractVector{<:Integer})
                 "($(length(values))), got $(_describe(host))"
         )
     )
-    n = 0
-    for τ in 1:(length(host) - 1)
-        n = max(n, host[τ + 1] - host[τ])
-    end
-    return _Ragged(values, _like(values, host), n)
+    return _Ragged(_Flat(), values, _like(values, host))
 end
 
 # Stacks the columns with one `copyto!` each, which AD backends
@@ -307,7 +304,13 @@ end
 
 _ncols(g::_Ragged) = length(g.offsets) - 1
 Base.@propagate_inbounds _colrange(g::_Ragged, τ) = (g.offsets[τ] + 1):g.offsets[τ + 1]
-_maxlen(g::_Ragged) = g.maxlen
+function _maxlen(g::_Ragged)
+    n = 0
+    for τ in 1:_ncols(g)
+        n = max(n, g.offsets[τ + 1] - g.offsets[τ])
+    end
+    return n
+end
 param_eltype(x::_Ragged) = param_eltype(x.values)
 
 function TimeVarying{I}(ks::AbstractVector{<:AbstractVector}) where {I}

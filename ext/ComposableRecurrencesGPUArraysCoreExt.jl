@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Amount,
     Clamp, Convolution, Depletion, Derived, Device, Flow, Flows, Linear,
     Pairwise, PerStratum, Pressure, Protected, Rate, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Ragged
+    _OldestFirstPairwise, _Flat, _Ragged
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -43,6 +43,15 @@ _host_leaf(x::Tuple) = any(_host_leaf, x)
 function _host_leaf(x::T) where {T}
     isstructtype(T) || return false
     return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
+end
+
+# The longest column of a ragged kernel whose offsets live on a device, as
+# one reduction there.
+function ComposableRecurrences._maxlen(g::_Ragged{<:AbstractVector, <:AnyGPUArray})
+    n = length(g.offsets)
+    n <= 1 && return 0
+    o = g.offsets
+    return mapreduce(-, max, view(o, 2:n), view(o, 1:(n - 1)); init = 0)
 end
 
 # Host index arrays a loop reads, copied to the device of `v`.
@@ -87,12 +96,18 @@ end
 # rebuilds it elsewhere. The operators adapt the same way, so
 # `adapt(CuArray, r)` moves every parameter of `r` to a device.
 const _Adapted = Union{
-    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, _Ragged, Depletion,
+    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
     Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
     Convolution, Flows, Flow, Rate, Linear, Amount,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
+end
+
+# A ragged kernel moves its offsets with its values, rebuilt without the
+# host check, as a kernel launch adapts it.
+function Adapt.adapt_structure(to, g::_Ragged)
+    return _Ragged(_Flat(), adapt(to, g.values), adapt(to, g.offsets))
 end
 
 # `Allocate` keeps its groups, host index arrays that each step copies where
