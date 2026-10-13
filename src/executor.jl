@@ -393,10 +393,11 @@ end
 # lines. `_reduce!` adds the copies into `acc` in block order afterwards.
 # Serial runs are one block on `acc`, so they add in the order of a loop
 # written by hand; split runs agree with them up to rounding. A `Device` or
-# another executor runs the loop as one block on the calling task.
+# another executor runs the loop as one block on the calling task, as does
+# any executor when a mirror has a leaf `_private` cannot copy.
 _accumulators(::Serial, x, n, work, acc) = (acc, ())
 function _accumulators(c::_Current, x, n, work, acc)
-    m = _nblocks(c.ex, n, work)
+    m = _copyable(acc) ? _nblocks(c.ex, n, work) : 1
     P = Base.promote_op(_private, typeof(acc))
     return acc, Vector{Union{Nothing, P}}(nothing, m - 1)
 end
@@ -468,6 +469,14 @@ function _private(x)
                 "type $(typeof(x)); use the Serial() executor"
         )
     )
+end
+# Whether `_private` copies every leaf of a mirror of type `T`.
+@generated _copyable(x) = _copyable_type(x)
+function _copyable_type(::Type{T}) where {T}
+    T <: Union{Nothing, _Owned} && return true
+    T <: Union{Base.RefValue{<:Number}, AbstractArray{<:Number}} && return true
+    T <: Union{Tuple, NamedTuple} && isconcretetype(T) || return false
+    return all(_copyable_type, fieldtypes(T))
 end
 _add_into!(::Nothing, ::Nothing) = nothing
 _add_into!(x::Base.RefValue, y::Base.RefValue) = (x[] += y[]; nothing)

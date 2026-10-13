@@ -937,6 +937,8 @@ function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
     return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T))
 end
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
+    # `s` is the cache's copy of the starting state, which nothing writes,
+    # so sharing it is safe; a stateless modifier's state never changes.
     return _stateless(m) ? s : _zeros(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)

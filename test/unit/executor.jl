@@ -153,10 +153,16 @@ end
     @test copies[1].v isa Vector
     CR._reduce!((acc, copies))
     @test parent(v) == [0.0, 1.0, 1.0, 0.0]
-    # Other executors run the loop as one block; a mirror with no copy rule
-    # is refused by name.
+    # Other executors run the loop as one block, as does a mirror with a
+    # leaf that has no copy rule, which `_private` refuses by name.
     @test CR._nblocks(CR.Serial(), 10, 10) == 1
     @test_throws "cannot copy a cotangent of type Int64" CR._private(1)
+    cur = CR._Current(CR.Threaded(; min_work = 0, ntasks = 2))
+    for leaf in (1, Ref{Any}(0.0), [[0.0]], (; a = Ref(0.0), b = :b))
+        @test !CR._copyable((; r = Ref(0.0), leaf))
+        @test isempty(CR._accumulators(cur, nothing, 4, 4, (; leaf))[2])
+    end
+    @test CR._copyable((; r = Ref(0.0), v = zeros(2), o = CR._Owned(1), z = nothing))
     # A loop too small to split runs as one block on the shared mirrors.
     small = CR._accumulators(CR._Current(CR.Threaded()), nothing, 4, 4, (; r = Ref(0.0)))
     @test isempty(small[2])

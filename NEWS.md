@@ -15,3 +15,10 @@
   Dense and time-varying couplings use `mul!`, and device CSR couplings run one kernel per step.
   `Adapt.adapt` moves an operator's parameters to a device.
   The GPU arrays section of the adjoints and backends explanation says how each part runs on a device.
+
+### Changed
+
+- Under `Threaded()`, the reverse passes of `Recurrence` and `Convolution` split strata across tasks, as their forward passes do.
+  Cotangents of parameters that several chunks of strata share are summed per chunk, so they match `Serial()` up to rounding.
+  A coupling that mixes strata, a pairwise kernel, routes, modifiers with a vector step, parameters that read across strata and a mirror entry with no copy rule run on the calling task.
+- The recording forward pass of a `Recurrence` keeps less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
