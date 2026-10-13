@@ -6,8 +6,9 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _check_secondary, _current, _log_plain, _note_plain_type, _rebuild_flag,
-    _run_forward, _run_pullback!
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
+    _log_plain, _note_plain_type, _rebuild_flag, _run_forward, _run_pullback!,
+    _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -34,9 +35,12 @@ _mc(x::Union{Tuple, NamedTuple}, dx::Union{Tuple, NamedTuple}) = map(_mc, x, dx)
 _mc(x::Union{Tuple, NamedTuple}, ::NoFData) = map(xi -> _mc(xi, NoFData()), x)
 _mc(x, dx::Mooncake.FData) = _mc_struct(x, n -> getfield(dx.data, n))
 _mc(x, ::NoFData) = _mc_struct(x, _ -> NoFData())
-function _mc_struct(x, df)
-    names = fieldnames(typeof(x))
-    return NamedTuple{names}(map(n -> _mc(getfield(x, n), df(n)), names))
+# Unrolled over the field names, so each field is read with a constant name
+# and a struct whose fields differ in type builds its mirror without boxing.
+@generated function _mc_struct(x, df)
+    names = fieldnames(x)
+    fs = [:(_mc(getfield(x, $(QuoteNode(n))), df($(QuoteNode(n))))) for n in names]
+    return :(NamedTuple{$names}(($(fs...),)))
 end
 _view(::Nothing, x) = nothing
 _view(p, x) = view(p, x.indices...)
@@ -51,10 +55,13 @@ function _rd(x, m)
 end
 _rd_nz(x::_IEEEFloat, m::Base.RefValue) = m[]
 _rd_nz(x::Union{Tuple, NamedTuple}, m) = map(_rd, x, m)
-function _rd_nz(x, m)
-    names = fieldnames(typeof(x))
-    rd = map(n -> _rd(getfield(x, n), getfield(m, n)), names)
-    return Mooncake.RData(NamedTuple{names}(rd))
+@generated function _rd_nz(x, m)
+    names = fieldnames(x)
+    fs = [
+        :(_rd(getfield(x, $(QuoteNode(n))), getfield(m, $(QuoteNode(n)))))
+            for n in names
+    ]
+    return :(Mooncake.RData(NamedTuple{$names}(($(fs...),))))
 end
 
 # Plain Mooncake AD of a convolution: BLAS `axpy!` per lag, which Mooncake
@@ -107,6 +114,28 @@ function Mooncake.frule!!(::Mooncake.Dual{typeof(_current)})
 end
 function Mooncake.rrule!!(f::CoDual{typeof(_current)})
     return Mooncake.zero_fcodual(_Current(Serial())), Mooncake.NoPullback(f)
+end
+
+# Code Mooncake traces is not run as primal code, so a convolution it traces
+# takes the direct method, which it can differentiate.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_untraced)}
+function Mooncake.frule!!(::Mooncake.Dual{typeof(_untraced)})
+    return Mooncake.zero_dual(false)
+end
+function Mooncake.rrule!!(f::CoDual{typeof(_untraced)})
+    return Mooncake.zero_fcodual(false), Mooncake.NoPullback(f)
+end
+# The transforms are never reached from traced code, which `_untraced`
+# sends to the direct method; as primitives, Mooncake does not derive rules
+# through their FFTW calls.
+const _FFTCall = Union{typeof(_fft_convolve!), typeof(_fft_convolve_back!)}
+const _FFT_TRACED = "an FFT convolution was reached from AD-traced code"
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{_FFTCall, Vararg}
+function Mooncake.frule!!(::Mooncake.Dual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
+    throw(ErrorException(_FFT_TRACED))
+end
+function Mooncake.rrule!!(::CoDual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
+    throw(ErrorException(_FFT_TRACED))
 end
 
 Mooncake.@is_primitive(

@@ -22,30 +22,36 @@ end
 
 # The reverse pass runs under the executor set when it runs. The default
 # is passed as the singleton `Serial()`, so the loops below hold no
-# abstractly typed executor.
+# abstractly typed executor. Parameters that read across strata share one
+# window cache per step, so their reverse pass runs serially.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
+    (; r, H, D, S, T, τ0) = c
+    H̄ = _zeros(H, eltype(H), D + T, S)
+    # Parameters that read the outputs send their cotangents into `H̄`. The
+    # bound modifiers enter the step loop through a function barrier.
+    modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
     cur = _current()
-    if cur.ex isa Serial
-        _reverse!(Serial(), c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    if cur.ex isa Serial || _reads_across(modifiers)
+        _reverse!(Serial(), c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     else
-        _reverse!(cur, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+        _reverse!(cur, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     end
     return nothing
 end
 
-function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     (; r, kernel, gain, h, s0, τ0, L, D, S, T, H, pr, rec, init) = c
-    (; coupling, modifiers) = r
-    Tp = eltype(H)
-    H̄ = _zeros(H, Tp, D + T, S)
+    coupling = r.coupling
     _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
     ḡ = cotangent(r̄, :kernel)
     C̄ = cotangent(r̄, :coupling)
     m̄s = _mirrors(cotangent(r̄, :modifiers), modifiers)
-    s̄s = map(m -> _zeros(H, Tp, nstate(m, S)), modifiers)
+    # `eltype(H)`, not a type bound to a local: a closure that captures a
+    # type as a value does not infer it on Julia 1.11.
+    s̄s = map(m -> _zeros(H, eltype(H), nstate(m, S)), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
     # The cotangents the strata add into. The matrix gain and add inputs
@@ -74,7 +80,8 @@ function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     end
     _reduce!(accs)
     _kernel_finish!(ḡ, kbuf)
-    _scatter_history!(h̄, H̄, h, D)
+    # An `Init` that reads the outputs adds into the history rows of `H̄`,
+    # so the history is scattered after it.
     if s0 === nothing
         foreach(modifiers, m̄s, s̄s, init) do m, m̄, s̄, s
             pullback!((; piece = m̄, s = s̄, history = h̄), m, Init(), s, h)
@@ -82,6 +89,8 @@ function _reverse!(ex, c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     elseif s̄0 !== nothing
         foreach((a, b) -> a === nothing || (a .+= b), s̄0, s̄s)
     end
+    _flush!(modifiers)
+    _scatter_history!(h̄, H̄, h, D)
     return nothing
 end
 
@@ -93,7 +102,6 @@ _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
 # The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
 const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
 # A mirror as the calling task writes it.
-_own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
 
 # The reverse run of the independent strata `ks`, time outermost as in
@@ -135,6 +143,7 @@ function _steps_back!(
     q̄ = _zeros(H, Tp, S)
     for t in T:-1:1
         τ = τ0 + t - 1
+        _refresh!(ms, D + t)
         if _all_pointwise(ms)
             _reduce_blocks!(
                 _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄, t,
@@ -153,6 +162,7 @@ function _steps_back!(
         end
         _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ)
         _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t + D - L, τ, L)
+        _flush!(ms)
     end
     return nothing
 end
@@ -165,7 +175,8 @@ function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D)
 end
 
 # The kernel's pullback at step `t`: per stratum in blocks, or for a
-# pairwise kernel, whose strata read every stratum's window, on one block.
+# pairwise kernel or routes (`routes.jl`), whose strata read every
+# stratum's window, on one block.
 function _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
     _reduce_blocks!(
         _kernels_body!, accs, length(p̄), kbuf, kernel, p̄, H, H̄, t, τ, L
@@ -290,6 +301,13 @@ end
 function _kernel_back_at!(kbuf, ḡ, g::PerStratum, a, H, H̄, t, τ, L, k)
     kb = kbuf === nothing ? nothing : view(kbuf, k, :)
     _window_back!(kb, view(g.x, k, :), a, H, H̄, t, L, k)
+    return nothing
+end
+# Every stratum's pullback, as a route's kernel runs it.
+function _kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
+    for k in eachindex(p̄)
+        _kernel_back_at!(kbuf, ḡ, g, p̄[k], H, H̄, t, τ, L, k)
+    end
     return nothing
 end
 function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L)

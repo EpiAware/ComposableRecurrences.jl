@@ -18,7 +18,7 @@ import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
-using LinearAlgebra: Diagonal
+using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
@@ -114,12 +114,43 @@ function _renewal_strata(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A differentiated heterogeneity exponent: the built-in forms' default
+# exponent is fixed, so these keep the float exponent's power and log on
+# every backend.
+function _heterogeneity(w, θ, form)
+    α, logh, logR = _unpack(θ, (1,), (S, L), (S, T))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(POP), form; heterogeneity = only(α)
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+_heterogeneity_hazard(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Hazard())
+_heterogeneity_floor(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Floor())
+
 # A scalar modifier field, a Float32 kernel and Float64 history.
 const G0F = Float32.(G0)
 function _scalar_field_mixed(w, θ)
     N, logR = θ[1], _unpack(view(θ, 2:length(θ)), (S, T))[1]
     r = Recurrence(G0F; coupling = K0, modifiers = (ScalarDepletion(N),))
     y = w(r)(exp.(logR); history = fill(5.0, S, L))
+    return sum(WS .* log.(y))
+end
+
+# A scalar modifier field next to a modifier with an array field, under the
+# default coupling: the operator holds both floats and arrays.
+function _array_and_scalar_fields(w, θ)
+    b = θ[1]
+    logh = reshape(view(θ, 2:(1 + S * L)), S, L)
+    logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
+    mods = (
+        ComposableRecurrences.Depletion(
+            PerStratum(POP), ComposableRecurrences.Floor()
+        ),
+        ComposableRecurrences.Add(b),
+    )
+    y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
 
@@ -287,6 +318,25 @@ function _turnover(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Wards in each stratum: suspected patients (compartment 1) are confirmed
+# at a rate or ruled out as a share; confirmed patients (compartment 2) are
+# discharged at a rate and transferred out in counts. Admissions enter both.
+function _ward(w, θ)
+    adm, confirm, ruleout, discharge, transfer = _unpack(
+        θ, (2S, T), (S,), (T,), (1,), (S, T)
+    )
+    CR = ComposableRecurrences
+    flows = CR.Flows(
+        CR.Flow(1 => 2, PerStratum(confirm)),
+        CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+        CR.Flow(2 => 0, only(discharge)),
+        CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+    )
+    r = Recurrence([1.0]; modifiers = (flows,))
+    y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
+    return sum([WS; WS] .* y)
+end
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -363,6 +413,91 @@ function _clamp_redistribute_add(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The capacity scenarios' parameters are offsets from a base vector, so they
+# start at zero, as `TRUNC0` below. Scalars are indexed from the sum: built
+# from `only` of a view, a `Capacity` makes Enzyme reverse fail with an
+# `EnzymeNoShadowError` in the `Recurrence` constructor.
+const GCAP = [0.5, 1.0, 1.0] .* G0'
+
+# A bed cap on stratum 1 with its overflow in stratum 2, smoothed so finite
+# differences see no kink; admitted cases transmit less.
+const CAPS0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, [log(12.0)], [0.2], [0.1])
+function _capacity_stock(w, θ)
+    x = CAPS0 .+ θ
+    logh, logR = _unpack(x, (S, L), (S, T))
+    n = length(x)
+    beds = ComposableRecurrences.Capacity(
+        exp(x[n - 2]), ComposableRecurrences.Beds(x[n - 1]);
+        pairs = [1 => 2], form = ComposableRecurrences.SoftTruncate(x[n])
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (beds,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A weekly budget per admitted stratum, carried over, with unserved demand
+# queued for the next step.
+const CAPB0 = _flat(
+    fill(log(5.0), S, L), 0.5 .+ LOGR,
+    [log(9.0 + p + 0.5 * sin(t)) for p in 1:2, t in 1:T], [1.0, 2.0],
+)
+function _capacity_budget(w, θ)
+    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (2, T), (2,))
+    doses = ComposableRecurrences.Capacity(
+        TimeVarying(PerStratum(exp.(logb))), ComposableRecurrences.Budget(4);
+        pairs = [1, 3], overflow = ComposableRecurrences.Hold(),
+        initial = PerStratum(collect(init))
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+
+# A pool that runs low, drawn with the smooth truncation, then a bed cap per
+# pair whose overflow is dropped: the pool, softness and beds are
+# parameters.
+const CAPD0 = _flat(
+    fill(log(5.0), S, L), 0.5 .+ LOGR, [log(500.0), 0.15, log(8.0), log(6.0)]
+)
+function _capacity_drop(w, θ)
+    x = CAPD0 .+ θ
+    logh, logR = _unpack(x, (S, L), (S, T))
+    n = length(x)
+    CR = ComposableRecurrences
+    pool = CR.Depletion(exp(x[n - 3]), CR.SoftTruncate(x[n - 2]))
+    beds = CR.Capacity(
+        PerStratum(exp.(x[(n - 1):n])), CR.Beds(0.3); pairs = [1, 3],
+        overflow = CR.Drop(), form = CR.SoftTruncate(0.2)
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Depletion that draws up to a small pool per stratum, so the pools run out
+# within the run: exact, and smooth with its softness differentiated. The
+# parameters are offsets from `TRUNC0`, so the scenarios start at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const TRUNC0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]), [0.1])
+function _truncate(w, θ)
+    x = TRUNC0[1:length(θ)] .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(exp.(logpool)), ComposableRecurrences.Truncate()
+    )
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+function _soft_truncate(w, θ)
+    x = TRUNC0 .+ θ
+    logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
+    form = ComposableRecurrences.SoftTruncate(x[length(x)])
+    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)), form)
+    y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* y)
+end
+
 # Every float in single precision: the kernel, coupling, history and gain.
 const K0F, WSF = Float32.(K0), Float32.(WS)
 function _float32(w, θ)
@@ -371,10 +506,42 @@ function _float32(w, θ)
     return sum(WSF .* log.(y))
 end
 
+# Vaccination into a protected pool, every float in single precision and the
+# protected pool starting from its default.
+const POPF = Float32.(POP)
+function _protected_float32(w, θ)
+    logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
+    d = ComposableRecurrences.Depletion(
+        PerStratum(POPF); removals = TimeVarying(PerStratum(doses)),
+        protected = ComposableRecurrences.Protected(only(σ))
+    )
+    r = Recurrence(G0F; coupling = K0F, modifiers = (d,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WSF .* log.(y))
+end
+
 # A fixed kernel per stratum, with history.
 function _conv_per_stratum(w, θ)
     G, X, H = _unpack(θ, (S, L + 1), (S, T), (S, L))
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
+end
+
+# Two routes: a dense coupling with a short kernel, and a sparse coupling
+# with a longer one.
+function _routes(w, θ)
+    K, g1, v, g2, logh, logR = _unpack(
+        θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, L), (S, T)
+    )
+    Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    r = Recurrence(Routes((K, g1), (Ks, g2)))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
+# Routes on scaled identities, which fold into one summed kernel.
+function _routes_folded(w, θ)
+    λ, g1, g2, logh, logR = _unpack(θ, (2,), (L - 1,), (L,), (S, L), (S, T))
+    r = Recurrence(Routes((λ[1] * I, g1), (λ[2] * I, g2)))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
 # A pointwise modifier that passes the value through and asks for a buffer
@@ -402,7 +569,69 @@ function _deep_buffer(w, θ)
     return sum(WS .* log.(y))
 end
 
-# `(name, loss, θ0)`; every scenario also runs as its `NoAdjoint` twin.
+# Transmission scaled down by recent incidence: the gain multiplier reads
+# the last `L + 2` outputs through weights that are themselves parameters.
+function _recent_feedback(w, θ)
+    g, κ, wts, logh, logR = _unpack(θ, (L,), (1,), (L + 2,), (S, L + 2), (S, T))
+    β = Derived(exp, -κ[1] * ComposableRecurrences.Recent(wts))
+    r = Recurrence(g; coupling = K0, modifiers = (ComposableRecurrences.Transform(*, β),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Ring vaccination: removals from the susceptible pool scale with the sum of
+# the last week's cases. The scale is read from `θ` directly: Enzyme reverse
+# finds no shadow for a scalar read from a reshaped view of `θ` and passed
+# through the `Depletion` keyword constructor.
+function _recent_removals(w, θ)
+    logh, logR = _unpack(view(θ, 2:length(θ)), (S, 7), (S, T))
+    dep = ComposableRecurrences.Depletion(
+        PerStratum(10 .* POP); removals = θ[1] * ComposableRecurrences.Recent(7)
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Each stratum responds to the recent incidence it sees through a contact
+# matrix that is itself a parameter.
+function _recent_coupled(w, θ)
+    C, logh, logR = _unpack(θ, (S, S), (S, 6), (S, T))
+    β = Derived(exp, -0.02 * ComposableRecurrences.Recent(6; coupling = C))
+    r = Recurrence(G0; modifiers = (ComposableRecurrences.Transform(*, β),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Dense and sparse routes in a buffer twice the longest route kernel.
+function _routes_deep(w, θ)
+    K, g1, v, g2, logh, logR = _unpack(
+        θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, 2L), (S, T)
+    )
+    Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    r = Recurrence(Routes((K, g1), (Ks, g2)); modifiers = (DeepBuffer(2L),))
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
+# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
+# EnzymeTestUtils compares the rule with finite differences taken in the
+# arguments' precision. In single precision these differ from the rule by up
+# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
+# entry with Float32 values carries `FLOAT32_RTOL`.
+const ENZYME_RTOL = 1.0e-7
+const FLOAT32_RTOL = 1.0e-3
+const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
+
+"""
+    enzyme_rtol(entry)
+
+The tolerance `test_adjoint` gives Enzyme's rule tester on the operator of
+`entry`: its optional fourth element's `enzyme_rtol`, else `ENZYME_RTOL`.
+"""
+enzyme_rtol(entry) = length(entry) > 3 ? entry[4].enzyme_rtol : ENZYME_RTOL
+
+# `(name, loss, θ0)`, with an optional fourth element of test options (see
+# `enzyme_rtol`); every scenario also runs as its `NoAdjoint` twin.
 # test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
 # and checks that its rule fires, so a scenario added here is covered there.
 const _SCENARIOS = [
@@ -412,12 +641,37 @@ const _SCENARIOS = [
         () -> _flat(G0, K0, fill(log(5.0), S, L), LOGR),
     ),
     (
+        "Recurrence depletion with a differentiated heterogeneity",
+        _heterogeneity_hazard, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence floored depletion with a differentiated heterogeneity",
+        _heterogeneity_floor, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
+    ),
+    (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
-        () -> _flat([80.0], 0.3 .+ LOGR),
+        () -> _flat([80.0], 0.3 .+ LOGR), _F32,
+    ),
+    (
+        "Recurrence array-field and scalar-field modifiers",
+        _array_and_scalar_fields,
+        () -> _flat([0.5], fill(log(5.0), S, L), 0.3 .+ LOGR),
     ),
     (
         "Recurrence vaccination into a protected pool", _vaccination,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence ward with competing flows (Flows)", _ward,
+        () -> _flat(
+            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+        ),
+    ),
+    (
+        "Recurrence protected pool in Float32", _protected_float32,
+        () -> Float32.(_flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3])),
+        _F32,
     ),
     (
         "Recurrence grouped totals (Allocate)", _allocate,
@@ -518,12 +772,58 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
+        "Recurrence capacity, stock with overflow", _capacity_stock,
+        () -> zero(CAPS0),
+    ),
+    (
+        "Recurrence capacity, weekly budget with a queue", _capacity_budget,
+        () -> zero(CAPB0),
+    ),
+    (
+        "Recurrence capacity, dropped overflow after a truncated draw",
+        _capacity_drop, () -> zero(CAPD0),
+    ),
+    (
+        "Recurrence depletion with truncated draws", _truncate,
+        () -> zeros(length(TRUNC0) - 1),
+    ),
+    (
+        "Recurrence depletion with smoothly truncated draws", _soft_truncate,
+        () -> zero(TRUNC0),
+    ),
+    (
         "Recurrence in Float32", _float32,
-        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)),
+        () -> Float32.(_flat(G0, fill(log(5.0), S, L), LOGR)), _F32,
+    ),
+    (
+        "Recurrence routes folded on scaled identities", _routes_folded,
+        () -> _flat([0.7, 0.4], G0[1:(L - 1)], G0, zeros(S, L), LOGR),
+    ),
+    (
+        "Recurrence routes, dense and sparse", _routes,
+        () -> _flat(K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, zeros(S, L), LOGR),
+    ),
+    (
+        "Recurrence routes in a buffer deeper than the kernels", _routes_deep,
+        () -> _flat(
+            K0, G0[1:(L - 1)], 0.5 .* KS.nzval, G0, fill(log(5.0), S, 2L), LOGR
+        ),
     ),
     (
         "Recurrence with a buffer deeper than the kernel", _deep_buffer,
         () -> _flat(G0, K0, fill(log(5.0), S, 2L), LOGR),
+    ),
+    (
+        "Recurrence feedback from recent outputs", _recent_feedback,
+        () -> _flat(G0, [0.05], exp.(-0.3 .* (1:(L + 2))), fill(log(5.0), S, L + 2), LOGR),
+    ),
+    (
+        "Recurrence removals from recent outputs", _recent_removals,
+        () -> _flat([0.1], fill(log(5.0), S, 7), LOGR),
+    ),
+    (
+        "Recurrence feedback from recent outputs across strata", _recent_coupled,
+        () -> _flat(K0, fill(log(5.0), S, 6), LOGR),
     ),
     (
         "Convolution per-stratum kernel with history", _conv_per_stratum,
@@ -570,12 +870,26 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new public name, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
+    "Recurrence capacity, stock with overflow" => (:Capacity,),
+    "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
+    "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
+    "Recurrence depletion with truncated draws" => (:Truncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows,),
+    "Recurrence protected pool in Float32" => (:Protected,),
     # Depletion removals came with `Protected`.
     "Recurrence empty pool with a differentiated heterogeneity" => (:Protected,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
+    "Recurrence routes, dense and sparse" => (:Routes,),
+    "Recurrence routes folded on scaled identities" => (:Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
+    "Recurrence feedback from recent outputs" => (:Recent,),
+    "Recurrence removals from recent outputs" => (:Recent,),
+    "Recurrence routes in a buffer deeper than the kernels" => (:Routes, :depth),
+    # The coupling on `Recent` came after `Recent`.
+    "Recurrence feedback from recent outputs across strata" => (:Recent, :_reads_across),
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
@@ -714,20 +1028,35 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
-None: every scenario and its `NoAdjoint` twin passes on every backend.
+On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
+"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
+rule is correct and runs. Every other scenario and its `NoAdjoint` twin
+passes on every backend.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    VERSION < v"1.12" || return Dict{String, Set{String}}()
+    return Dict(
+        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
+    )
+end
 
 """
 Per-backend scenario names too unstable to run at all.
 
 Plain Enzyme reverse AD of a sparse coupling repeated over steps returns
-silently wrong gradients, so `NoAdjoint` on a sparse coupling throws on
-Enzyme reverse; the analytic rule is correct and runs.
+silently wrong gradients, so `NoAdjoint` on a sparse coupling, or a sparse
+route coupling, throws on Enzyme reverse; the analytic rule is correct and
+runs.
 """
 function backend_skip_scenarios()
     return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence sparse coupling"]),
+        "Enzyme reverse" => Set(
+            [
+                "NoAdjoint Recurrence sparse coupling",
+                "NoAdjoint Recurrence routes, dense and sparse",
+                "NoAdjoint Recurrence routes in a buffer deeper than the kernels",
+            ]
+        ),
     )
 end
 

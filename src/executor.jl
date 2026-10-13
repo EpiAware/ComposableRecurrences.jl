@@ -64,8 +64,8 @@ Call `body(k, args...)` for every `k` in `1:n` with executor `ex`:
 \operatorname{body}(k, \ldots) \quad \text{for } k = 1, \ldots, n,
 ```
 
-where each index `k` is one stratum (one of `S` series computed together,
-such as a place or age group), one series or one output time.
+where each index `k` is one stratum (see [`PerStratum`](@ref)), one series
+or one output time.
 
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
@@ -255,8 +255,9 @@ Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, operator calls on arrays that
 live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
 without being asked.
-Parts that index arrays on the host, such as dense and sparse couplings,
-`Depletion` and modifiers with a vector step, do not run on a device yet.
+Every array a call reads must live on the device; a ragged `TimeVarying`
+kernel does not run on a device yet.
+[GPU arrays](@ref gpu-arrays) says how each part runs there.
 
 # Examples
 ```jldoctest; setup = :(using JLArrays, KernelAbstractions)

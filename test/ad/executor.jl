@@ -113,8 +113,10 @@
         return nothing
     end
 
-    # The gradient under a threaded executor is the serial gradient on the
-    # same backend, and matches the serial ForwardDiff gradient.
+    # The gradient under a threaded executor matches the serial gradient on
+    # the same backend, and the serial ForwardDiff gradient. A threaded pass
+    # may sum in another order, which moves only the last bits, so the
+    # serial gradient on the same backend is matched to a relative 1e-12.
     function test_executor_gradients(backend)
         losses, θ = executor_losses()
         for ex in (CR.Threaded(; min_work = 0), CR.Threaded(; min_work = 0, ntasks = 3))
@@ -124,7 +126,7 @@
                 g = with(CR.EXECUTOR => ex) do
                     DifferentiationInterface.gradient(loss, backend, θ)
                 end
-                @test g == gs
+                @test g ≈ gs rtol = 1.0e-12
                 @test g ≈ ref
             end
         end

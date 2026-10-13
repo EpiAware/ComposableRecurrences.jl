@@ -3,6 +3,17 @@
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 
+# On device inputs `x`, every float array in `parts` (the parameters, other
+# inputs and states) must live on the device too; the GPU extension checks it.
+_check_device(x, parts) = nothing
+
+# `x` on the device of `v`: host index arrays are copied to a device.
+_like(v, x) = x
+
+# `x` reversed along axis `d`.
+_reverse_dim(x::AbstractVector, d) = reverse(x)
+_reverse_dim(x, d) = reverse(x; dims = d)
+
 # The primal value of `x`, through any nesting of `ForwardDiff.Dual`s, for
 # deciding a branch. A dual with value zero is ordered by its partials, so
 # `P > 0` on the dual can hold where the value is zero. Other numbers,
@@ -18,8 +29,12 @@ _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x
 _at(::Nothing, k, t) = false
-_at(x::AbstractVector, k, t) = x[t]
-_at(x::AbstractMatrix, k, t) = x[k, t]
+Base.@propagate_inbounds _at(x::AbstractVector, k, t) = x[t]
+Base.@propagate_inbounds _at(x::AbstractMatrix, k, t) = x[k, t]
+
+# Inputs read without bounds checks index from 1.
+_require_one_based(x::AbstractArray) = Base.require_one_based_indexing(x)
+_require_one_based(x) = nothing
 
 # The times a call input covers: its last axis, or `nothing` without one.
 _extent(x::AbstractArray) = size(x, ndims(x))

@@ -7,6 +7,7 @@
 @testsnippet AdjointCases begin
     using ADFixtures
     import DifferentiationInterface
+    using Test: Test
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using LinearAlgebra, Random, SparseArrays
@@ -82,15 +83,17 @@
         return CR.constructorof(T)(ntuple(i -> plain(getfield(x, i)), fieldcount(T))...)
     end
 
-    # `(name, op, args)` for each AD registry scenario at its starting
-    # parameters: the operator the scenario calls and its Run arguments.
+    # `(name, op, args, rtol)` for each AD registry scenario at its starting
+    # parameters: the operator the scenario calls, its Run arguments and the
+    # tolerance the entry gives Enzyme's rule tester.
     function registry_cases()
-        return map(ADFixtures._SCENARIOS) do (name, f, θ0)
+        return map(ADFixtures._SCENARIOS) do entry
+            name, f, θ0 = entry
             seen = Ref{Any}(nothing)
             f(op -> Capture(op, seen), θ0())
             seen[] === nothing && error("scenario $(repr(name)) reached no rule through `Capture`")
             op, args = seen[]
-            (name, plain(op), plain(args))
+            (name, plain(op), plain(args), ADFixtures.enzyme_rtol(entry))
         end
     end
 
@@ -103,7 +106,8 @@
     # with and without pullbacks, scalar gains, short seeds, `Transform`
     # forms, and the shapes of the use cases (random walk, AR(2),
     # time-varying AR, seeded renewal, patch models and strata renewals with
-    # imports, doses or a protected pool).
+    # imports, doses or a protected pool). Cases with single-precision
+    # values carry the Float32 tolerance as a fourth element.
     function extra_cases()
         rng = Xoshiro(11)
         S, L, T = 3, 3, 6
@@ -112,14 +116,17 @@
         h = 1 .+ rand(rng, S, L)
         R = 0.5 .+ rand(rng, S, T)
         Ks = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
+        f32 = ADFixtures._F32
         cases = [
             (
                 "renewal, one series, Float32",
                 Recurrence(Float32.(g)), rec(Float32.(R[1, :]), nothing, Float32.(h[1, :])),
+                f32,
             ),
             (
                 "strata, mixed eltypes, Float32 history",
                 Recurrence(Float32.(g); coupling = K), rec(R, nothing, Float32.(h)),
+                f32,
             ),
             ("sparse coupling with an add input", Recurrence(g; coupling = Ks), rec(R, copy(R), h)),
             ("scalar gain and λ I", Recurrence(g; coupling = 0.7I), rec(0.9, R, h)),
@@ -140,6 +147,25 @@
                 "Primary pairwise kernel, short seed",
                 Recurrence(TimeVarying(Pairwise(rand(rng, S, S, L, T) ./ 3), CR.Primary())),
                 rec(R, nothing, h[:, 1:2]; start = 3),
+            ),
+            (
+                "routes: per-stratum, pairwise and Primary kernels",
+                Recurrence(
+                    Routes(
+                        (0.7I, PerStratum(rand(rng, S, 2) ./ 2)),
+                        (Diagonal(rand(rng, S)), Pairwise(rand(rng, S, S, L) ./ 3)),
+                        (
+                            TimeVarying(rand(rng, S, S, T) ./ 2),
+                            TimeVarying(rand(rng, L, T), CR.Primary()),
+                        ),
+                    ); modifiers = (Hazard(60.0),)
+                ),
+                rec(R, nothing, h; start = L + 1),
+            ),
+            (
+                "routes with state, sparse coupling",
+                CR._WithState(Recurrence(Routes((Ks, g), (K, g[1:2])))),
+                rec(R, nothing, h),
             ),
             (
                 "user modifiers",
@@ -277,14 +303,57 @@
         )
     end
 
-    # Every operator `test_adjoint` checks: the registry's, then the extras.
-    adjoint_cases() = [registry_cases(); extra_cases()]
+    # Every operator `test_adjoint` checks, as `(name, op, args, rtol)`: the
+    # registry's, then the extras. An extra with single-precision values
+    # carries the Float32 tolerance as a fourth element, as a registry entry
+    # does (see `ADFixtures.enzyme_rtol`).
+    function adjoint_cases()
+        extras = map(extra_cases()) do case
+            (case[1], case[2], case[3], ADFixtures.enzyme_rtol(case))
+        end
+        return [registry_cases(); extras]
+    end
 
-    # EnzymeTestUtils checks the rule against finite differences taken in
-    # the arguments' precision. In single precision these differ from the
-    # rule by up to about 5e-4 relative (on a Float32 history with Float64
-    # gains), so cases with Float32 values compare at 1e-3.
-    const FLOAT32_RTOL = 1.0e-3
+    # Runs `test_adjoint` on `case` for the backend named `name`. A registry
+    # scenario marked broken there runs in a testset that only records
+    # whether every check passed, as one `@test_broken` while it fails.
+    function test_adjoint_case(name, backend, case; kwargs...)
+        label, op, args = case
+        broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
+        if label in broken || label in ADFixtures.broken_scenario_names()
+            probe = @testset Probe "$label" begin
+                CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
+            end
+            probe.ok ? (@test probe.ok) : (@test_broken probe.ok)
+        else
+            @testset "$label" begin
+                CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
+            end
+        end
+        return nothing
+    end
+
+    # A testset that records whether every result in it passed or was
+    # marked broken, and reports nothing to a parent of another type. A
+    # testset nested in it without a type of its own is also a `Probe`, and
+    # passes its result up.
+    mutable struct Probe <: Test.AbstractTestSet
+        description::String
+        ok::Bool
+    end
+    Probe(description; kwargs...) = Probe(description, true)
+    _passed(r::Test.Result) = r isa Union{Test.Pass, Test.Broken}
+    _passed(ts::Test.DefaultTestSet) = all(_passed, ts.results)
+    _passed(ts::Probe) = ts.ok
+    Test.record(ts::Probe, r::Union{Test.Result, Test.AbstractTestSet}) =
+        (ts.ok &= _passed(r); r)
+    function Test.finish(ts::Probe)
+        if Test.get_testset_depth() > 0
+            parent = Test.get_testset()
+            parent isa Probe && Test.record(parent, ts)
+        end
+        return ts
+    end
 
     # Each registry scenario's gradient on `backend` runs the analytic
     # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
@@ -462,21 +531,17 @@ end
 @testitem "Mooncake: test_adjoint on each operator" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
-    for (name, op, args) in adjoint_cases()
-        @testset "$name" begin
-            CR.test_adjoint(AutoMooncake(; config = nothing), op, CR.Run(), args...)
-        end
+    for case in adjoint_cases()
+        test_adjoint_case("Mooncake reverse", AutoMooncake(; config = nothing), case)
     end
 end
 
 @testitem "Enzyme: test_adjoint on each operator" tags = [:ad, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
-    for (name, op, args) in adjoint_cases()
-        @testset "$name" begin
-            rtol = occursin(r"Float32|mixed", name) ? FLOAT32_RTOL : 1.0e-7
-            CR.test_adjoint(AutoEnzyme(), op, CR.Run(), args...; rtol, atol = rtol)
-        end
+    for case in adjoint_cases()
+        rtol = last(case)
+        test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
     end
 end
 
@@ -794,6 +859,40 @@ end
     )
     @test Enzyme.gradient(mode, Enzyme.Const(g), r)[1].coupling.nzval ≈
         ForwardDiff.gradient(fnz, copy(K.nzval))
+    # A sparse route coupling, after a dense route, is refused too.
+    rr = Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, [0.3, 0.2])))
+    @test_throws "plain Enzyme reverse AD of a sparse coupling" Enzyme.gradient(
+        mode, Enzyme.Const(f), rr
+    )
+    froutes(nz) = g(
+        Recurrence(
+            Routes(
+                (fill(0.2, 3, 3), [0.1]),
+                (SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz), [0.3, 0.2])
+            )
+        )
+    )
+    @test Enzyme.gradient(mode, Enzyme.Const(g), rr)[1].kernel.couplings[2].nzval ≈
+        ForwardDiff.gradient(froutes, copy(K.nzval))
+    # In any route, here the ninth.
+    r9 = Recurrence(Routes(ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)..., (K, [0.3, 0.2])))
+    @test_throws "plain Enzyme reverse AD of a sparse coupling" Enzyme.gradient(
+        mode, Enzyme.Const(f), r9
+    )
+    # A constant sparse route coupling is differentiated by plain AD.
+    fk(gk) = sum(NoAdjoint(Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, gk))))(R; history = h))
+    @test Enzyme.gradient(mode, Enzyme.Const(fk), [0.3, 0.2])[1] ≈
+        ForwardDiff.gradient(fk, [0.3, 0.2])
+    # The same as the ninth route, with the gain and history active too, so
+    # the cotangent reaches the buffer through the constant coupling.
+    dense8 = ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)
+    function f9(θ)
+        gk, Rθ, hθ = θ[1:2], reshape(θ[3:17], 3, 5), reshape(θ[18:23], 3, 2)
+        r = NoAdjoint(Recurrence(Routes(dense8..., (K, gk))))
+        return sum(abs2, r(Rθ; history = hθ))
+    end
+    θ9 = [0.3; 0.2; vec(0.5 .+ 0.1 .* R); vec(h)]
+    @test Enzyme.gradient(mode, Enzyme.Const(f9), θ9)[1] ≈ ForwardDiff.gradient(f9, θ9)
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
@@ -808,6 +907,78 @@ end
         Recurrence([0.3, 0.2]; coupling = 0.7I)
     )[1]
     @test ḡ.coupling.λ ≈ (fλ(0.7001) - fλ(0.6999)) / 0.0002 rtol = 1.0e-6
+end
+
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse: a scalar modifier field next to an array-field modifier" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    import Enzyme, ForwardDiff
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    # Local variables, so the losses are closures with typed fields.
+    let W = [cos(a * t) for a in 1:3, t in 1:8], h = ones(3, 2),
+            R = 1.0 .+ 0.05 .* [sin(a + t) for a in 1:3, t in 1:8],
+            pool = PerStratum([60.0, 90.0, 70.0])
+
+        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Add(b))
+        op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
+        ws(r) = CR.with_state(r, R; history = h, stop = 4)
+        # The operator built from `b` inside the loss.
+        for f in (
+                b -> sum(W .* op(b[1])(R; history = h)),
+                b -> sum(W[:, 1:4] .* ws(op(b[1]))[1]),
+            )
+            @test Enzyme.gradient(mode, Enzyme.Const(f), [0.5])[1] ≈
+                ForwardDiff.gradient(f, [0.5])
+        end
+        # The operator as the differentiated argument.
+        for f in (
+                r -> sum(W .* r(R; history = h)),
+                r -> sum(abs2, ws(r)[2].history),
+                r -> sum(W[:, 1:4] .* r(R; state = ws(r)[2])),
+            )
+            ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
+            @test ḡ.modifiers[2].b ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
+        end
+        # Fixed scalar fields with only the input active.
+        g(Rx) = sum(W .* op(0.5)(Rx; history = h))
+        @test Enzyme.gradient(mode, Enzyme.Const(g), R)[1] ≈ ForwardDiff.gradient(g, R)
+    end
+end
+
+@testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] begin
+    using ADFixtures
+    using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
+    using DifferentiationInterface: value_and_gradient
+    using ComposableRecurrences: NoAdjoint
+    import Enzyme, ForwardDiff, Mooncake
+    _, loss, θ0, _ = only(
+        filter(s -> first(s) == "Recurrence protected pool in Float32", ADFixtures._SCENARIOS)
+    )
+    θ = θ0()
+    @test eltype(θ) == Float32
+    backends = (
+        AutoForwardDiff(), AutoMooncake(; config = nothing),
+        AutoMooncakeForward(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    for w in (identity, NoAdjoint)
+        f = Base.Fix1(loss, w)
+        _, ref = value_and_gradient(f, AutoForwardDiff(), Float64.(θ))
+        for backend in backends
+            y, ∇ = value_and_gradient(f, backend, θ)
+            @test y isa Float32
+            @test eltype(∇) == Float32
+            @test ∇ ≈ ref rtol = 1.0e-3
+        end
+    end
 end
 
 @testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
@@ -1032,7 +1203,9 @@ end
     @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end
 
-@testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse] begin
+# Tagged `allocations` so the Threads workflow, which runs without coverage,
+# runs the count.
+@testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse, :allocations] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake
@@ -1049,12 +1222,15 @@ end
     )
     delay(θ) = sum(W .* Convolution(θ[1:5])(θ[6:55]))
     backend = AutoMooncake(; config = nothing)
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
     for f in (renewal, delay)
         θ = [fill(0.2, 5); ones(50)]
         prep = prepare_gradient(f, backend, θ)
         grad = similar(θ)
         gradient!(f, grad, prep, backend, θ)
-        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300
+        @test (@allocations gradient!(f, grad, prep, backend, θ)) < 300 skip = coverage
     end
 end
 

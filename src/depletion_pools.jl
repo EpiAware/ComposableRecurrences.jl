@@ -8,11 +8,10 @@ A protected pool for [`ComposableRecurrences.Depletion`](@ref): the
 depletion's removals move into it, and it is drawn from at relative
 susceptibility ``\sigma``.
 
-At absolute time ``t``, for each stratum (one of the parallel series
-computed together, such as a place or an age group) with unprotected pool
-``u``, protected pool ``w``, step value ``v``, population ``N``,
-heterogeneity ``\alpha`` and removals ``r_t``, the depletion form ``F``
-draws from the effective pool ``P = u + \sigma w`` and the pools lose the
+At absolute time ``t``, for each stratum (see [`PerStratum`](@ref)) with
+unprotected pool ``u``, protected pool ``w``, step value ``v``, population
+``N``, heterogeneity ``\alpha`` and removals ``r_t``, the depletion form
+``F`` draws from the effective pool ``P = u + \sigma w`` and the pools lose the
 draw in proportion, then the removals move from ``u`` to ``w``:
 
 ```math
@@ -41,8 +40,8 @@ The depletion's state holds ``u`` for every stratum, then ``w``.
   constant over time.
 
 # Keyword Arguments
-- `pool0`: the starting protected pool, one value or `PerStratum`; `0` by
-  default.
+- `pool0`: the starting protected pool, one value or `PerStratum`; empty by
+  default, in the element type of the depletion's state.
 
 # Examples
 ```jldoctest
@@ -75,16 +74,23 @@ struct Protected{Σ, V0}
     pool0::V0
 end
 
-function Protected(σ; pool0 = 0)
+# The default `pool0 = nothing` is an empty pool, written into the state as
+# zero of the state's element type, so it does not promote a model.
+function Protected(σ; pool0 = nothing)
     σ = _float_param(_check_constant(:σ, σ))
-    pool0 = _float_param(_check_constant(:pool0, pool0))
+    pool0 = pool0 === nothing ? nothing :
+        _float_param(_check_constant(:pool0, pool0))
     return Protected{typeof(σ), typeof(pool0)}(σ, pool0)
 end
 
-const _Removing = Depletion{
-    <:Any, <:Any, <:Any, <:Any, <:Union{Real, PerStratum, TimeVarying},
-    Nothing,
-}
+# The starting protected pool at stratum `k`, and its cotangent.
+_protected0(::Nothing, k) = false
+_protected0(V0, k) = param(V0, k, 1)
+_add_protected0!(V̄0, ::Nothing, x, k) = nothing
+_add_protected0!(V̄0, V0, x, k) = add_param!(V̄0, V0, x, k, 1)
+
+# Removals of any parameter form; `_Depleting` takes `Nothing` removals.
+const _Removing = Depletion{<:Any, <:Any, <:Any, <:Any, <:Any, Nothing}
 const _Protecting = Depletion{
     <:Any, <:Any, <:Any, <:Any, <:Any, <:Protected,
 }
@@ -140,10 +146,10 @@ function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     return v̄, s̄
 end
 
-# With a protected pool the state holds `S` then `V`, `2S` entries, and a
-# step reads both, so the step is vector-level.
-ispointwise(::_Protecting) = false
-nstate(::_Protecting, S) = 2S
+# With a protected pool each stratum has one value and two pools, the
+# unprotected then the protected, so the step is blockwise: the state holds
+# `S` then `V`, `2S` entries.
+blocks(::_Protecting) = Val((1, 2))
 
 function forward(m::_Protecting, ::Init, s, history)
     S = length(s) ÷ 2
@@ -153,10 +159,13 @@ function forward(m::_Protecting, ::Init, s, history)
     _check_param_strata(:removals, m.removals, S)
     _check_param_strata(:σ, V.σ, S)
     _check_param_strata(:pool0, V.pool0, S)
-    for k in 1:S
-        s[k] = _pool0(m, k)
-        s[S + k] = param(V.pool0, k, 1)
-    end
+    _each!(_pools0_body!, Serial(), s, S, S, s, m, S)
+    return nothing
+end
+
+function _pools0_body!(k, s, m, S)
+    s[k] = _pool0(m, k)
+    s[S + k] = _protected0(m.protected.pool0, k)
     return nothing
 end
 
@@ -166,7 +175,7 @@ function pullback!(grads, m::_Protecting, ::Init, s, history)
     V̄0 = cotangent(cotangent(grads.piece, :protected), :pool0)
     for k in 1:S
         _add_pool0!(grads.piece, m, s̄[k], k)
-        add_param!(V̄0, m.protected.pool0, s̄[S + k], k, 1)
+        _add_protected0!(V̄0, m.protected.pool0, s̄[S + k], k)
     end
     return nothing
 end
@@ -190,66 +199,56 @@ end
 # the unprotected pool only. The arm follows the primal value.
 _protects(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
-function forward(m::_Protecting, ::Step, v, s, t)
-    S = length(v)
-    α = m.heterogeneity
-    for k in 1:S
-        y, s[k], s[S + k] = _protected_step(
-            m.form, v[k], s[k], s[S + k], param(m.protected.σ, k, t),
-            param(m.N, k, t), α, _removals_at(m.removals, k, t)
-        )
-        v[k] = y
-    end
-    return nothing
+function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
+    y, Su, V = _protected_step(
+        m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
+        param(m.N, k, t), m.heterogeneity, _removals_at(m.removals, k, t)
+    )
+    return (y,), (Su, V)
 end
 
-# `v` and `s` are the step's incoming values; the cotangents of the output
-# and of the state after the step are overwritten by those of the inputs.
-function pullback!(grads, m::_Protecting, ::Step, v, s, t)
-    S = length(v)
-    v̄, s̄ = grads.v, grads.s
+# `v` and `s` are the stratum's incoming value and pools; returns the
+# cotangents of the inputs from those of the output and of the pools after
+# the step.
+function pullback!(grads, m::_Protecting, ::Step, v, s, t, k)
     m̄ = grads.piece
     V̄ = cotangent(m̄, :protected)
     α = m.heterogeneity
-    for k in 1:S
-        Su, V = s[k], s[S + k]
-        σ, N = param(m.protected.σ, k, t), param(m.N, k, t)
-        r = _removals_at(m.removals, k, t)
-        P = Su + σ * V
-        y, _ = forward(m.form, Step(), v[k], P, N, α)
-        ȳ, S̄″, V̄″ = v̄[k], s̄[k], s̄[S + k]
-        on = _primal_value(P) > 0
-        q = on ? y / P : zero(y)
-        S′ = on ? Su - q * Su : Su - y
-        mr = _removal(r, S′)
-        V̄m = ifelse(_primal_value(mr) < 0, zero(V̄″), V̄″)
-        r̄, S̄m = _removal_pullback(r, S′, V̄m - S̄″)
-        _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
-        S̄′ = S̄″ + S̄m
-        V̄′ = V̄″
-        if on
-            q̄ = -S̄′ * Su - V̄′ * σ * V
-            S̄u = S̄′ * (1 - q)
-            V̄v = V̄′ * (1 - q * σ)
-            σ̄ = -V̄′ * q * V
-            ȳ += q̄ / P
-            P̄ = -q̄ * q / P
-        else
-            S̄u, V̄v, σ̄ = S̄′, V̄′, zero(S̄′)
-            ȳ -= S̄′
-            P̄ = zero(S̄′)
-        end
-        v̄k, P̄f, N̄, ᾱ = _form_pullback(
-            (; piece = cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
-            v[k], P, N, α
-        )
-        P̄ += P̄f
-        add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
-        add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
-        add_param!(cotangent(V̄, :σ), m.protected.σ, σ̄ + V * P̄, k, t)
-        v̄[k] = v̄k
-        s̄[k] = S̄u + P̄
-        s̄[S + k] = V̄v + σ * P̄
+    vk = only(v)
+    Su, V = s
+    σ, N = param(m.protected.σ, k, t), param(m.N, k, t)
+    r = _removals_at(m.removals, k, t)
+    P = Su + σ * V
+    y, _ = forward(m.form, Step(), vk, P, N, α)
+    ȳ, (S̄″, V̄″) = only(grads.v), grads.s
+    on = _primal_value(P) > 0
+    q = on ? y / P : zero(y)
+    S′ = on ? Su - q * Su : Su - y
+    mr = _removal(r, S′)
+    V̄m = ifelse(_primal_value(mr) < 0, zero(V̄″), V̄″)
+    r̄, S̄m = _removal_pullback(r, S′, V̄m - S̄″)
+    _add_removals!(cotangent(m̄, :removals), m.removals, r̄, k, t)
+    S̄′ = S̄″ + S̄m
+    V̄′ = V̄″
+    if on
+        q̄ = -S̄′ * Su - V̄′ * σ * V
+        S̄u = S̄′ * (1 - q)
+        V̄v = V̄′ * (1 - q * σ)
+        σ̄ = -V̄′ * q * V
+        ȳ += q̄ / P
+        P̄ = -q̄ * q / P
+    else
+        S̄u, V̄v, σ̄ = S̄′, V̄′, zero(S̄′)
+        ȳ -= S̄′
+        P̄ = zero(S̄′)
     end
-    return nothing
+    v̄k, P̄f, N̄, ᾱ = _form_pullback(
+        (; piece = cotangent(m̄, :form), v = ȳ, s = zero(ȳ)), m.form,
+        vk, P, N, α
+    )
+    P̄ += P̄f
+    add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
+    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
+    add_param!(cotangent(V̄, :σ), m.protected.σ, σ̄ + V * P̄, k, t)
+    return (v̄k,), (S̄u + P̄, V̄v + σ * P̄)
 end

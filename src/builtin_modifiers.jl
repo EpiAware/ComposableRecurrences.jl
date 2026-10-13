@@ -67,7 +67,9 @@ A modifier's [`ComposableRecurrences.pullback!`](@ref) writes every
 parameter's cotangent through `add_param!`, with `x̄` from
 [`ComposableRecurrences.cotangent`](@ref), so it accepts every parameter
 form.
-A `nothing` mirror takes nothing.
+A `nothing` mirror takes nothing for `x` itself, but a [`Recent`](@ref)
+parameter still sends its cotangent to the outputs it read, so a pullback
+calls `add_param!` for every parameter whatever its mirror.
 
 # Arguments
 - `x̄`: the mirror of `x`.
@@ -130,7 +132,8 @@ function _check_param(name, x)
             "$name is one value, PerStratum($name) with one per stratum, " *
                 "TimeVarying($name) with one per time, " *
                 "TimeVarying(PerStratum($name)) strata × time, or " *
-                "Derived(f, args...) computed from other parameters; got " *
+                "Derived(f, args...) computed from other parameters, or " *
+                "Recent(w) read from the recurrence's outputs; got " *
                 _describe(x)
         )
     )
@@ -223,7 +226,7 @@ struct Floor end
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
 
-For each stratum ``i`` (one of ``S`` parallel series) and absolute time
+For each stratum ``i`` (see [`PerStratum`](@ref)) and absolute time
 ``t`` from the call's first time ``t_0``,
 
 ```math
@@ -241,7 +244,10 @@ The form is a variant struct that draws value `v` from pool `s` with
 population `N` and heterogeneity exponent `α` through
 `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref) (the default),
-[`ComposableRecurrences.Floor`](@ref), or a new type with that method.
+[`ComposableRecurrences.Floor`](@ref),
+[`ComposableRecurrences.Truncate`](@ref),
+[`ComposableRecurrences.SoftTruncate`](@ref), or a new type with that
+method.
 [A depletion form](@ref extending-form) writes a new form, and
 [Rules and plain AD](@ref adjoint-routing) gives the gradient of one without
 a `pullback!`.
@@ -262,7 +268,13 @@ changes: arrivals enter the pool only through the removals.
 - `form`: the depletion form; `Hazard()` by default.
 
 # Keyword Arguments
-- `heterogeneity`: the exponent `α`; `1` by default.
+- `heterogeneity`: the exponent `α`.
+  The default is `true` for the built-in forms, an exponent of exactly one
+  that is not a parameter, so their steps skip the power, and `1` for other
+  forms.
+  For the built-in forms `true` and `false` stay fixed; any other integer
+  takes the population's float type.
+  Pass a float to differentiate the exponent.
 - `pool0`: the starting pool, one value or `PerStratum`; `N` at time 1 by
   default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
@@ -346,7 +358,7 @@ struct Depletion{F, P, A, P0, R, V}
 end
 
 function Depletion(
-        N, form = Hazard(); heterogeneity = 1, pool0 = nothing,
+        N, form = Hazard(); heterogeneity = _unit_exponent(form), pool0 = nothing,
         removals = nothing, protected = nothing
     )
     N = _population(N)
@@ -360,7 +372,7 @@ function Depletion(
         )
     )
     return Depletion(
-        N, form, _exponent(heterogeneity, N), pool0, removals, protected
+        N, form, _exponent(heterogeneity, N, form), pool0, removals, protected
     )
 end
 
@@ -404,13 +416,50 @@ end
 # An integer exponent takes the population's float type, so it has a
 # cotangent and a Float32 population stays Float32. A dual population gives
 # its primal type: a dual exponent with zero partials makes
-# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool.
-_exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
-_exponent(α, N) = α
+# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool. The built-in
+# forms keep a `Bool` exponent as a fixed one, without a cotangent.
+_exponent(α::Integer, N, form) = convert(float(_primal_type(param_eltype(N))), α)
+_exponent(α::Bool, N, ::Union{Hazard, Floor}) = α
+_exponent(α, N, form) = α
+
+# The default exponent: `true` for the built-in forms, a fixed exponent of
+# one that is not a parameter, so their steps skip the power and its
+# derivative; `1` for other forms, which may type their exponent as a float.
+_unit_exponent(form) = 1
+_unit_exponent(::Union{Hazard, Floor}) = true
+
+# The powers of the share of the pool left `r`: `r^(α - 1)` scales the
+# hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
+# exponent is a fixed integer, so each power is a branch on it, and it has
+# no cotangent, so neither has its log term.
+_share_power(r, α) = _pool_power(r, α - 1)
+_share_power(r, α::Bool) = _power_m1(r, α)
+_power_m1(r, α) = r^(α - 1)
+_power_m1(r, α::Bool) = α ? one(r) : inv(r)
+_floor_power(r, α) = r^α
+_floor_power(r, α::Bool) = α ? r : one(r)
+_times_log(α, r, c) = c * log(r)
+_times_log(::Bool, r, c) = zero(c)
 
 function forward(::Hazard, ::Step, v, s, N, α)
-    x = v / N * _pool_power(s / N, α - 1)
-    return -s * expm1(-x), s * exp(-x)
+    x = v / N * _share_power(s / N, α)
+    e, em = _exp_neg(x)
+    return -s * em, s * e
+end
+
+# `(exp(-x), expm1(-x))` from one exponential: `expm1` below `1/2`, where
+# it keeps the digits `1 - e^{-x}` would lose and `1 + expm1(-x)` loses
+# none, and `exp` above, where neither subtraction cancels. Plain floats
+# and dual numbers branch on their value; a traced number would fix the
+# branch when its trace is recorded, or reject it, so takes both.
+_exp_neg(x) = (exp(-x), expm1(-x))
+function _exp_neg(x::Union{AbstractFloat, ForwardDiff.Dual})
+    if x < 0.5
+        em = expm1(-x)
+        return 1 + em, em
+    end
+    e = exp(-x)
+    return e, e - 1
 end
 
 # `r^e` for the share of the pool left. At an empty pool the exponent's
@@ -432,13 +481,13 @@ end
 function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     r = s / N
-    h = r^(α - 1)
+    h = _power_m1(r, α)
     x = v / N * h
-    e = exp(-x)
+    e, em = _exp_neg(x)
     x̄ = s * e * (ȳ - s̄′)
-    s̄ = -ȳ * expm1(-x) + s̄′ * e
+    s̄ = -ȳ * em + s̄′ * e
     α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : x̄ * x * log(r)
+    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
     return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
 end
 
@@ -446,7 +495,7 @@ const _DEPLETION_FLOOR = 1.0e-6
 
 function forward(::Floor, ::Step, v, s, N, α)
     r = s / N
-    f = max(max(r, zero(r))^α, oftype(r, _DEPLETION_FLOOR))
+    f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
     y = f * v
     return y, s - y
 end
@@ -454,15 +503,17 @@ end
 function pullback!(grads, ::Floor, ::Step, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     r = s / N
-    p = max(r, zero(r))^α
+    p = _floor_power(max(r, zero(r)), α)
     fl = oftype(p, _DEPLETION_FLOOR)
     ḡ = ȳ - s̄′
     p > fl || return ḡ * fl, s̄′, zero(ḡ), zero(ḡ)
     f̄ = ḡ * v
-    return ḡ * p, s̄′ + f̄ * α * r^(α - 1) / N, -f̄ * α * p / N, f̄ * p * log(r)
+    ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
+    return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N, ᾱ
 end
 
-ispointwise(::Depletion) = true
+# A depletion is pointwise unless its pools make it blockwise.
+ispointwise(m::Depletion) = blocks(m) === nothing
 
 # The starting pool of stratum `k` and its cotangent slot.
 _pool0(m::Depletion{<:Any, <:Any, <:Any, Nothing}, k) = param(m.N, k, 1)
@@ -478,9 +529,12 @@ function forward(m::Depletion, ::Init, s, history)
     _check_param_strata(:N, m.N, length(s))
     _check_param_strata(:pool0, m.pool0, length(s))
     _check_param_strata(:removals, m.removals, length(s))
-    for k in eachindex(s)
-        s[k] = _pool0(m, k)
-    end
+    _each!(_pool0_body!, Serial(), s, length(s), length(s), s, m)
+    return nothing
+end
+
+function _pool0_body!(k, s, m)
+    s[k] = _pool0(m, k)
     return nothing
 end
 
@@ -491,11 +545,15 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
     return nothing
 end
 
-function forward(m::Depletion, ::Step, v, s, t, k)
+# A depletion with neither removals nor a protected pool. Removals of any
+# parameter form, and the protected pool, have methods of their own.
+const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
+
+function forward(m::_Depleting, ::Step, v, s, t, k)
     return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
 end
 
-function pullback!(grads, m::Depletion, ::Step, v, s, t, k)
+function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
@@ -513,7 +571,7 @@ Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 v'_{t,i} = v_{t,i} + b_{t,i},
@@ -573,7 +631,7 @@ Moves a share of each stratum's values to others, conserving the total: a
 share ``\varepsilon_{t,j} K_{ij}`` of origin ``j``'s value is realised in
 destination ``i`` instead.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 \begin{aligned}
@@ -656,16 +714,25 @@ end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
-    for p in eachindex(v, s)
-        acc = zero(eltype(s))
-        for q in eachindex(v)
-            q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
-        end
-        s[p] = acc
+    S = length(eachindex(v, s))
+    _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
+    _each!(_redistribute_body!, Serial(), v, S, S * S, v, s, K, ε, t)
+    return nothing
+end
+
+# Destination `p`'s arrivals from every other stratum.
+function _arrivals_body!(p, s, v, K, ε, t)
+    acc = zero(eltype(s))
+    for q in eachindex(v)
+        q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
     end
-    for p in eachindex(v, s)
-        v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
-    end
+    s[p] = acc
+    return nothing
+end
+
+# Stratum `p` after its outflow and arrivals.
+function _redistribute_body!(p, v, s, K, ε, t)
+    v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     return nothing
 end
 
@@ -699,7 +766,7 @@ end
 @doc raw"""
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
-For each stratum ``i`` (one of ``S`` parallel series) at absolute time ``t``,
+For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),

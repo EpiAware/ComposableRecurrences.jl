@@ -135,6 +135,36 @@ function strata_pairwise(wrap, z::Size)
     return f, _flat(A0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
 end
 
+# Two routes with floored depletion: dense mixing on a short kernel, and a
+# sparse ring on a kernel delayed by half its length, as community and
+# funeral transmission. The same model as `strata_pairwise` with
+# `A = K₁ ⊗ g₁ + K₂ ⊗ g₂`, held as its routes.
+function strata_routes(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    pop = CR.PerStratum(fill(1.0e5, S))
+    K2 = _ring(S)
+    n2 = length(nonzeros(K2))
+    L1 = cld(L, 2)
+    f = function (θ)
+        K1, g1, v, g2, logh, logR = _unpack(
+            θ, (S, S), (L1,), (n2,), (L,), (S, L), (S, T)
+        )
+        Ks = SparseMatrixCSC(S, S, K2.colptr, K2.rowval, collect(v))
+        r = Recurrence(
+            Routes((K1, g1), (Ks, g2));
+            modifiers = (CR.Depletion(pop, CR.Floor()),)
+        )
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    K0 = 0.6I(S) .+ 0.2 / S .* ones(S, S)
+    g20 = [l > L ÷ 2 ? 1.0 : 0.0 for l in 1:L]
+    return f, _flat(
+            Matrix(K0), _gi(L1), 0.2 .* nonzeros(K2), g20 ./ sum(g20), fill(log(5.0), S, L),
+            0.1 .+ 0.05 .* _weights(S, T),
+        )
+end
+
 # A ring of neighbours: self plus two either side, rows sum to one.
 function _ring(S)
     I_, J_, V_ = Int[], Int[], Float64[]
@@ -201,6 +231,32 @@ function strata_vaccination(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), doses, [0.3])
 end
 
+# Wards whose suspected patients are confirmed at a rate or ruled out as a
+# share, and whose confirmed patients are discharged at a rate and
+# transferred out in counts. The compartments are the strata, suspected
+# then confirmed, and admissions enter both.
+function ward_flows(wrap, z::Size)
+    (; T, S) = z
+    W = _weights(2S, T)
+    f = function (θ)
+        adm, confirm, ruleout, discharge, transfer = _unpack(
+            θ, (2S, T), (S,), (T,), (1,), (S, T)
+        )
+        flows = CR.Flows(
+            CR.Flow(1 => 2, PerStratum(confirm)),
+            CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+            CR.Flow(2 => 0, only(discharge)),
+            CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+        )
+        r = Recurrence([1.0]; modifiers = (flows,))
+        return sum(W .* wrap(r)(; history = zeros(2S, 1), add = adm, stop = T))
+    end
+    # Names the loss does not use, so it does not capture them.
+    adm0 = [10.0 * (1 + 0.5 * _noise(t, k + 5)) for k in 1:(2S), t in 1:T]
+    out0 = [2.0 * (1 + 0.5 * _noise(t, k + 7)) for k in 1:S, t in 1:T]
+    return f, _flat(adm0, fill(0.3, S), 0.2 .+ 0.05 .* _weights(T), [0.1], out0)
+end
+
 # BVD's unmixed zone split: the zones renew from their own infections and
 # each group of zones (a province) takes its total from outside, shared by
 # the force each zone earns. Five zones per group.
@@ -218,6 +274,26 @@ function zone_allocate(wrap, z::Size)
     end
     logtot = [log(50.0) + 0.2 * _noise(t, p + 7) for p in 1:P, t in 1:T]
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .* _weights(S, T), logtot)
+end
+
+# Isolation beds: each odd stratum's cases are admitted up to its free beds
+# and transmit less; the overflow goes to the next stratum. Smoothed, with
+# a tenth of the occupancy leaving each day.
+function capacity_beds(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    P = S ÷ 2
+    pairs = [(2p - 1) => 2p for p in 1:P]
+    G = PerStratum([(isodd(k) ? 0.5 : 1.0) * g for k in 1:S, g in _gi(L)])
+    f = function (θ)
+        logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
+        beds = CR.Capacity(
+            PerStratum(exp.(logC)), CR.Beds(0.1); pairs, form = CR.SoftTruncate(0.1)
+        )
+        r = Recurrence(G; modifiers = (beds,))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    return f, _flat(fill(log(5.0), S, L), 0.4 .+ 0.1 .* _weights(S, T), fill(log(20.0), P))
 end
 
 # A renewal whose kernel belongs to each infector's own infection time
@@ -424,6 +500,22 @@ function transform(wrap, z::Size)
     return f, _flat(_gi(L), fill(0.5, S), [0.2 + 0.2 * k / S for k in 1:S])
 end
 
+# Behaviour change driven by the incidence each stratum sees through a
+# contact matrix: a gain multiplier read from the last week's outputs of
+# every stratum.
+function recent_coupled(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    f = function (θ)
+        g, C, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
+        β = Derived(exp, -0.01 * CR.Recent(7; coupling = C))
+        r = Recurrence(g; modifiers = (CR.Transform(*, β),))
+        return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
+    end
+    C0 = fill(1.0 / S, S, S)
+    return f, _flat(_gi(L), C0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -448,6 +540,10 @@ const CASES = [
         strata_pairwise, [5, 50], false,
     ),
     Case(
+        "strata_routes", "dense and sparse routes, floored depletion",
+        strata_routes, [5, 50], true,
+    ),
+    Case(
         "zones_sparse", "sparse ring coupling, floored depletion",
         zones_sparse, [50, 500], true,
     ),
@@ -458,6 +554,10 @@ const CASES = [
     Case(
         "strata_vaccination", "leaky vaccination into a protected pool",
         strata_vaccination, [5, 50], false,
+    ),
+    Case(
+        "ward_flows", "wards with rate, share and count flows",
+        ward_flows, [1, 5, 50], false,
     ),
     Case(
         "zone_allocate", "zones sharing exogenous group totals",
@@ -505,6 +605,14 @@ const CASES = [
         "transform", "per-stratum PGF iteration, Transform modifier",
         transform, [5, 50], false,
     ),
+    Case(
+        "capacity_beds", "isolation beds with overflow, Capacity modifier",
+        capacity_beds, [5, 50], false,
+    ),
+    Case(
+        "recent_coupled", "feedback from recent incidence through a contact matrix",
+        recent_coupled, [20, 50], false,
+    ),
 ]
 
 "Cases not yet on `main`, listed so the report shows them as pending."
@@ -514,8 +622,13 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
+    "strata_routes" => (:Routes,),
     "strata_vaccination" => (:Protected,),
+    "ward_flows" => (:Flows,),
     "transform" => (:Transform,),
+    "capacity_beds" => (:Capacity,),
+    # The coupling on `Recent` came after `Recent`.
+    "recent_coupled" => (:Recent, :_reads_across),
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),
     "conv_gain" => (:contributions,),

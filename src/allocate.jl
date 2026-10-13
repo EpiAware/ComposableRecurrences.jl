@@ -2,10 +2,9 @@
 struct _Flat end
 
 @doc raw"""
-Rescales each group of strata to an exogenous total: the strata of a group
-keep their shares of the group's value and the group takes its total.
-A stratum is one of ``S`` parallel series computed together, such as a
-place or an age group.
+Rescales each group of strata (see [`PerStratum`](@ref)) to an exogenous
+total: the strata of a group keep their shares of the group's value and the
+group takes its total.
 
 At absolute time ``t``, with ``v_i`` stratum ``i``'s value after the
 earlier modifiers, ``G_p`` the strata of group ``p`` and ``T_{t,p}`` its
@@ -76,6 +75,12 @@ struct Allocate{T}
     function Allocate(groups::AbstractVector, total::T) where {T}
         _check_groups(groups)
         _check_param(:total, total)
+        _reads_outputs(total) && throw(
+            ArgumentError(
+                "total is read per group, not per stratum, so it cannot " *
+                    "read the outputs; got $(_describe(total))"
+            )
+        )
         _check_group_totals(total, length(groups))
         strata = Int[k for zs in groups for k in zs]
         offsets = cumsum([0; length.(groups)])
@@ -161,18 +166,26 @@ end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
 _stateless(::Allocate) = true
 
+# The groups are disjoint, so each is one index of the loop.
 function forward(m::Allocate, ::Step, v, s, t)
+    strata, offsets = _like(v, m.strata), _like(v, m.offsets)
+    _each!(
+        _allocate_body!, Serial(), v, _ngroups(m), length(v),
+        v, strata, offsets, m.total, t
+    )
+    return nothing
+end
+
+function _allocate_body!(p, v, strata, offsets, total, t)
     ε = eps(eltype(v))
-    for p in 1:_ngroups(m)
-        zs = _group(m, p)
-        tot = zero(eltype(v))
-        for k in zs
-            tot += v[k]
-        end
-        c = param(m.total, p, t) / max(tot, ε)
-        for k in zs
-            v[k] *= c
-        end
+    zs = view(strata, (offsets[p] + 1):offsets[p + 1])
+    tot = zero(eltype(v))
+    for k in zs
+        tot += v[k]
+    end
+    c = param(total, p, t) / max(tot, ε)
+    for k in zs
+        v[k] *= c
     end
     return nothing
 end

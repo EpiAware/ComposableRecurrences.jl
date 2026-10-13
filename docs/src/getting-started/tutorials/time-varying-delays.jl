@@ -52,6 +52,16 @@ end
 
 # ## Reporting by report day or infection day
 #
+# Let ``P_l(\tau)`` be the weight on lag ``l`` in column ``\tau`` of `P`.
+# The two indexings give
+#
+# ```math
+# C^{\text{report}}_t = \sum_{l=0}^{L_d-1} P_l(t) \, I_{t-l}, \qquad
+# C^{\text{infection}}_t = \sum_{l=0}^{L_d-1} P_l(t-l) \, I_{t-l},
+# ```
+#
+# where ``I_t`` is the number of infections and ``C_t`` the reports on day ``t``.
+# ``L_d`` is the delay's length, `D` in the code.
 # [`Secondary()`](@ref ComposableRecurrences.Secondary) is the default.
 # With it, column `t` is a report day.
 # With [`Primary()`](@ref ComposableRecurrences.Primary) column `s` is the infection day.
@@ -104,7 +114,15 @@ end
 
 # ## A generation interval that shortens
 #
-# A recurrence kernel can change over time too, one generation interval per day.
+# A recurrence kernel can change over time too, one generation interval per day:
+#
+# ```math
+# I_t = R \sum_{l=1}^{L} g_l(t) \, I_{t-l}, \qquad
+# g(t) = \begin{cases} g^{\text{long}} & t < 30, \\ g^{\text{short}} & t \ge 30. \end{cases}
+# ```
+#
+# ``g_l(t)`` is the weight on lag ``l`` on day ``t``, and ``L`` is the interval's length.
+# ``g^{\text{long}}`` and ``g^{\text{short}}`` are `long_gi` and `short_gi` below.
 # Here isolation shortens the interval from day 30, so offspring come sooner.
 # The reproduction number is held at 1.2, so only the timing changes.
 

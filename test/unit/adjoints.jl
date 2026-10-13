@@ -249,6 +249,18 @@ end
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+            (CR.Capacity(1.5, CR.Beds(0.3); pairs = [1 => 3], form = CR.SoftTruncate(0.1)),),
+            (
+                CR.Capacity(
+                    PerStratum([1.2]), CR.Budget(3); pairs = [2], overflow = CR.Hold(),
+                    initial = 0.5
+                ),
+                CR.Add(0.2),
+            ),
+            (
+                CR.Depletion(30.0, CR.Truncate()),
+                CR.Capacity(1.2, CR.Budget(2); pairs = [3], overflow = CR.Drop()),
+            ),
         )
         r = Recurrence(g; coupling = K, modifiers = mods)
         @test pullback_matches(r, recargs(R, nothing, h)...)
@@ -260,6 +272,9 @@ end
     # Resumed from given states.
     r = Recurrence(g; coupling = K, modifiers = (PoolDepletion([30.0, 40.0, 50.0]),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
+    beds = CR.Capacity(2.0, CR.Beds(0.2); pairs = [3 => 1], overflow = CR.Route())
+    r = Recurrence(g; coupling = K, modifiers = (beds,))
+    @test pullback_matches(r, recargs(R, nothing, h; states = ([1.0],))...)
 end
 
 @testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin
@@ -288,6 +303,36 @@ end
                 @test pullback_matches(r, recargs(R, ϵ, h)...)
                 @test pullback_matches(r, recargs(R[1, :], nothing, h)...)
             end
+        end
+    end
+end
+
+@testitem "Adjoint: threaded reverse pass with outputs read and routes" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    rng = Xoshiro(18)
+    S, L, T, W = 4, 3, 9, 5
+    g = rand(rng, L) ./ 2
+    K = rand(rng, S, S) ./ 4
+    h = 1 .+ rand(rng, S, W)
+    R = 0.5 .+ rand(rng, S, T)
+    w = rand(rng, W)
+    # Each stratum reads its own outputs, so the strata split; a coupled
+    # read mixes the strata, so its reverse pass runs serially.
+    own = (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3)))
+    across = (CR.Transform(*, Derived(exp, -0.05 * Recent(w; coupling = K))),)
+    ops = (
+        (Recurrence(g; modifiers = own), true),
+        (Recurrence(g; coupling = K, modifiers = own), true),
+        (Recurrence(g; modifiers = across), false),
+        (Recurrence(Routes((K, g), (0.5I, rand(rng, 2)))), true),
+    )
+    ex = CR.Threaded(; min_work = 0, ntasks = 2)
+    with(CR.EXECUTOR => ex) do
+        for (r, splits) in ops
+            n = CR._SPLIT_BLOCKS[]
+            @test pullback_matches(r, recargs(R, nothing, h)...)
+            @test (CR._SPLIT_BLOCKS[] > n) == splits
         end
     end
 end
@@ -902,10 +947,13 @@ end
         return acc
     end
     m̄ = zero_mirror(m)
+    # Coverage instrumentation allocates, so the count is checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
     steps(m, m̄, 2)
-    @test (@allocated steps(m, m̄, 1000)) < 1000
+    @test (@allocated steps(m, m̄, 1000)) < 1000 skip = coverage
     steps(m, nothing, 2)
-    @test (@allocated steps(m, nothing, 1000)) < 1000
+    @test (@allocated steps(m, nothing, 1000)) < 1000 skip = coverage
     # Through a recurrence the rule matches ForwardDiff.
     r = CR.Recurrence([0.3, 0.2]; modifiers = (m,))
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)

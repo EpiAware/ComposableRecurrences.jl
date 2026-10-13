@@ -7,13 +7,13 @@ For which backend to choose, see [Choosing a backend](@ref ad-backends).
 
 Each operator call takes one of two routes:
 
-- the rule, a reverse pass written for the operator, which the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions register with those backends;
+- the rule, a reverse pass written for the operator (see the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions);
 - plain AD, where the backend differentiates the operator's forward loop.
 
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
 Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
-The route is read from types, apart from the rebuild check and the strata limit below.
+The route is read from types, apart from the rebuild check and the [strata](@ref glossary-stratum) limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
@@ -23,7 +23,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
 | pointwise modifier or depletion form with a `PerStratum`, `TimeVarying` or array parameter | plain AD |
-| modifier with a vector step | plain AD |
+| modifier with a vector or blockwise step | plain AD |
 | coupling with only scalar float parameters, strata plus scalars at most 12 | rule, local ForwardDiff step |
 | the same coupling with more than 12 | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
@@ -50,7 +50,7 @@ A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs no
 | Enzyme reverse | when the call takes the rule | otherwise |
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
-ReverseDiff runs in the AD tests but is not a target.
+ReverseDiff is not a [target](@ref faq-backends).
 
 ## [Which rules are kept](@id rule-policy)
 
@@ -63,12 +63,17 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | core recurrence (kernel, `I` or dense coupling) | 0.44 | 0.84 | keep |
 | `Depletion`, hazard form | 0.16 | 0.31 | keep |
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
+| `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
+| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
+| `Flows` | 0.43 | 0.43 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
+| `Capacity` | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
+| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | plain AD is wrong | keep |
 | `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
 | sparse coupling | 0.75¹ | plain AD is wrong | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
@@ -78,6 +83,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 
 ² The worst of 3 and 10 strata for a user type, at `T` 200 and `L` 20.
 
+³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
+
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
 On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
@@ -85,8 +92,7 @@ A coupling whose cost grows with the strata squared was 1.7 to 4 times slower th
 
 ## [Checking a rule](@id adjoint-checks)
 
-[`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) sends every call of `op` to plain AD, to compare gradients and times with the rule.
-[Testing and benchmarking](@ref compare-plain-ad) shows how.
+[Testing and benchmarking](@ref compare-plain-ad) compares a rule with plain AD through [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint).
 [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator's rule.
 
 ## [Executors](@id executors)
@@ -100,7 +106,7 @@ A new executor is a subtype of [`Executor`](@ref ComposableRecurrences.Executor)
 |---|---|---|---|---|---|
 | `Serial()` | all operators | yes | yes | yes | yes |
 | `Threaded()` | all operators | yes, threaded | not tested | yes, serial | rule's forward and reverse passes threaded, all else serial |
-| `Device(backend)` | convolutions; recurrences with an `I` coupling and no modifiers, `Add` or `Clamp` | not tested | not tested | not tested | not tested |
+| `Device(backend)` | all operators, couplings and built-in modifiers, except a ragged `TimeVarying` kernel | dual-number inputs only | not tested | not tested | not tested |
 
 Mooncake and Enzyme do not differentiate tasks, so code they trace runs serially whatever executor is set.
 A rule's forward pass is not traced, so it uses the set executor.
@@ -108,5 +114,39 @@ Its reverse pass splits strata with the executor set when it runs.
 Each chunk of strata adds the cotangents of parameters it shares with other chunks, such as a scalar modifier parameter, into its own copy.
 The copies are summed after the loop, so these cotangents agree with `Serial()` up to rounding.
 The cotangents of the inputs, the history and an `S × T` gain or add input match exactly.
-A coupling that mixes strata, a pairwise kernel and modifiers with a vector step run their reverse steps on the calling task.
-The `Device(backend)` row was checked on JLArrays only; the [`Device`](@ref ComposableRecurrences.Device) docstring lists what does not run on a device.
+A coupling that mixes strata, a pairwise kernel, routes, modifiers with a vector step and parameters that read across strata run their reverse steps on the calling task.
+The `Device(backend)` row was checked on JLArrays only, which run kernels on the CPU; the [`Device`](@ref ComposableRecurrences.Device) docstring says how each part runs on a device.
+
+### [GPU arrays](@id gpu-arrays)
+
+A call on arrays that live on a GPU runs each loop over strata, series or output times as one kernel.
+Independent strata are one kernel per call, each thread stepping its stratum through time.
+Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata or many series.
+Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
+A call with device inputs and a host float array among these is an error; move each array to the device first; `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r`.
+Buffers, states and outputs are allocated from the inputs, so they live there too.
+
+- Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
+- A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
+  Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
+- Modifiers with a vector step (`Redistribute`, `Allocate` and `Depletion` with a protected pool) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
+- A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
+  Arrays captured by the function of a `Transform` or `Derived` are not moved.
+- A ragged `TimeVarying` kernel (a vector of columns) stores its column offsets on the host, so it does not run on a device yet, and a call with device inputs is an error.
+
+`test/unit/gpu_arrays.jl` runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
+On a machine with an NVIDIA GPU, the same checks run on CUDA arrays by hand:
+
+```julia
+using CUDA, ComposableRecurrences
+CUDA.allowscalar(false)
+r = Recurrence(CuArray([0.4, 0.3, 0.2, 0.1]); coupling = CuArray([0.9 0.1; 0.2 0.8]))
+y = r(CuArray(fill(1.1, 2, 50)); history = CuArray(ones(2, 4)))
+Array(y) ≈ Recurrence([0.4, 0.3, 0.2, 0.1]; coupling = [0.9 0.1; 0.2 0.8])(
+    fill(1.1, 2, 50); history = ones(2, 4)
+)
+```
+
+Gradients through the package's own pullbacks do not run on device arrays yet: the reverse passes index the arrays from the host, and calls on device arrays take plain AD.
+On JLArrays no reverse-mode backend gets that far: Enzyme's KernelAbstractions rules have no JLArrays backend, and Mooncake does not differentiate the JLArray allocator.
+Dual-number inputs on device arrays give forward-mode derivatives through the device forward pass; `ForwardDiff.gradient` seeds its inputs by scalar indexing, so build the duals directly.

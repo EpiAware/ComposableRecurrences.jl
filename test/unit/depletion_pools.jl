@@ -158,7 +158,8 @@ end
     CR = ComposableRecurrences
     v = [2.0, 3.0, 1.5]
     # Removals only: a pointwise step on one pool, below and at the cap.
-    for form in (CR.Hazard(), CR.Floor()), s in ([80.0, 60.0, 40.0], [3.0, 60.0, 1.0])
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate()),
+            s in ([80.0, 60.0, 40.0], [3.0, 60.0, 1.0])
         build(θ) = CR.Depletion(
             PerStratum(θ[1:3]), form; heterogeneity = θ[4],
             removals = TimeVarying(PerStratum(reshape(θ[5:10], 3, 2)))
@@ -174,7 +175,7 @@ end
         [3.0, 60.0, 1.0, 5.0, 10.0, 2.0],
         [-4.0, 60.0, 40.0, 1.0, 10.0, 0.0],
     )
-    for form in (CR.Hazard(), CR.Floor()), s in pools
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate()), s in pools
         form isa CR.Hazard && s[1] < 0 && continue
         build(θ) = CR.Depletion(
             PerStratum(θ[1:3]), form; heterogeneity = θ[4],
@@ -257,6 +258,32 @@ end
     CR.pullback!(grads, d, CR.Init(), s, ones(2, 2))
     @test m̄.pool0.x == [1.0, 2.0]
     @test m̄.protected.pool0.x == [3.0, 4.0]
+end
+
+@testitem "Depletion pools: a single-precision model stays in single precision" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    g, R, h = Float32[0.2, 0.5, 0.3], fill(1.5f0, 1, 20), ones(Float32, 1, 3)
+    run(p) = Recurrence(
+        g; modifiers = (CR.Depletion(100.0f0; removals = 1.0f0, protected = p),)
+    )
+    # The default starting pool is empty and takes the state's type.
+    @test CR.Protected(0.5f0).pool0 === nothing
+    for p in (
+            CR.Protected(0.5f0), CR.Protected(0.5f0; pool0 = 2.0f0),
+            CR.Protected(PerStratum([0.5f0]); pool0 = PerStratum([2.0f0])),
+        )
+        r = run(p)
+        @test eltype(@inferred r(R; history = h)) == Float32
+        y, st = CR.with_state(r, R; history = h, stop = 10)
+        @test eltype(y) == Float32
+        @test eltype(r(R; state = st)) == Float32
+    end
+    # The empty default gives the same values as an explicit empty pool.
+    @test run(CR.Protected(0.5f0))(R; history = h) ==
+        run(CR.Protected(0.5f0; pool0 = 0.0f0))(R; history = h)
+    # A given starting pool is converted to a float as before.
+    @test CR.Protected(0.5; pool0 = 1).pool0 === 1.0
 end
 
 @testitem "Depletion pools: checks its arguments" begin
