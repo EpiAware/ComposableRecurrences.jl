@@ -48,8 +48,9 @@ const PACKAGE_NAME_SKIP = ("src/docstrings.jl",)
 # ```math block before that code. The threads tutorial is a draft outside
 # the build and is not listed.
 const MATHS_FIRST_TUTORIALS = (
-    "latent-processes.jl", "occupancy.jl", "renewal-then-delay.jl",
-    "spatial-strata.jl", "time-varying-delays.jl", "transform.jl",
+    "custom-modifier.jl", "latent-processes.jl", "occupancy.jl",
+    "renewal-then-delay.jl", "spatial-strata.jl", "time-varying-delays.jl",
+    "transform.jl",
 )
 const MATHS_FIRST_CALLS = (
     "Recurrence", "Convolution", "Depletion", "Redistribute", "Add", "Clamp",
@@ -57,9 +58,7 @@ const MATHS_FIRST_CALLS = (
 )
 # Sections still giving prose before their code, as `file => heading`,
 # marked broken until they gain a ```math block.
-const PENDING_MATHS_FIRST = (
-    "renewal-then-delay.jl" => "Vaccination",
-)
+const PENDING_MATHS_FIRST = ()
 
 # Markdown sources for the prose checks: the README and every page and
 # Literate tutorial under docs/src.
