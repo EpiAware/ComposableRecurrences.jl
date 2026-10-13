@@ -264,24 +264,26 @@ struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
         }
         return new{V, O}(values, offsets)
     end
-end
-function _Ragged(values::AbstractVector, offsets::AbstractVector{<:Integer})
-    Base.require_one_based_indexing(values, offsets)
-    host = convert(Vector{Int}, offsets)
-    ok = !isempty(host) && first(host) == 0 &&
-        last(host) == length(values) && issorted(host)
-    ok || throw(
-        ArgumentError(
-            "ragged kernel offsets rise from 0 to the number of values " *
-                "($(length(values))), got $(_describe(host))"
+    function _Ragged(values::V, offsets::AbstractVector{<:Integer}) where {
+            V <: AbstractVector,
+        }
+        Base.require_one_based_indexing(values, offsets)
+        host = convert(Vector{Int}, offsets)
+        ok = !isempty(host) && first(host) == 0 &&
+            last(host) == length(values) && issorted(host)
+        ok || throw(
+            ArgumentError(
+                "ragged kernel offsets rise from 0 to the number of values " *
+                    "($(length(values))), got $(_describe(host))"
+            )
         )
-    )
-    return _Ragged(_Flat(), values, _like(values, host))
+        o = _like(values, host)
+        return new{V, typeof(o)}(values, o)
+    end
 end
 
 # Stacks the columns with one `copyto!` each, which AD backends
-# differentiate as a block copy. The values live where the first column
-# does.
+# differentiate as a block copy. The values live where the columns do.
 function _Ragged(ks::AbstractVector{<:AbstractVector})
     Base.require_one_based_indexing(ks)
     offsets = Vector{Int}(undef, length(ks) + 1)
@@ -291,7 +293,7 @@ function _Ragged(ks::AbstractVector{<:AbstractVector})
     end
     T = _column_eltype(ks)
     n = last(offsets)
-    values = isempty(ks) ? Vector{T}(undef, n) : _like(first(ks), Vector{T}(undef, n))
+    values = _like(ks, Vector{T}(undef, n))
     for (τ, k) in enumerate(ks)
         copyto!(values, offsets[τ] + 1, k, firstindex(k), length(k))
     end

@@ -58,6 +58,10 @@ end
 function ComposableRecurrences._like(v::AnyGPUArray, x::Array)
     return copyto!(similar(v, eltype(x), size(x)), x)
 end
+# Columns on a device stack there.
+function ComposableRecurrences._like(ks::AbstractVector{<:AnyGPUArray}, x::Array)
+    return isempty(ks) ? x : ComposableRecurrences._like(first(ks), x)
+end
 
 # Couplings on a device mix the strata with one `mul!` (or broadcast) per
 # step. The coupling must live on the device of the pressures.
