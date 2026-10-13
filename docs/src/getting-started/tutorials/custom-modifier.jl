@@ -53,6 +53,11 @@ CR.forward(m::Saturation, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
 #
 # The modifier goes in the tuple with the package's own.
 # Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it caps the infections drawn from the pool.
+# With ``g_l`` the generation interval, ``R_t`` the reproduction number, ``f`` the saturation above and ``h`` the depletion draw,
+#
+# ```math
+# y_t = h\Big(f\big(R_t \sum_{l} g_l \, y_{t-l}, \kappa\big)\Big).
+# ```
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 T = 80
