@@ -427,21 +427,17 @@ end
 # and the buffer's row offset `o`, so row `o + t` holds time `t`. The
 # buffer starts at the oldest lag of the first output, or at the start of
 # the history if that is later: a late `start` leaves the earlier inputs
-# out rather than copying them. Without a history and from `start = 1` the
-# offset is the history length `m`.
+# out rather than copying them. From `start = 1` the offset is the history
+# length `m`, or `L - 1` if the history is longer.
 function _input_buffer(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
     lo = clamp(start - _nlags(kernel) + 1, 1 - m, stop + 1)
     o = 1 - lo
     X = _zeros(x, Tp, o + stop, S)
     n = max(o, 0)
-    history === nothing || n == 0 || _load_history!(X, _last_times(history, n), n)
+    history === nothing || _load_history!(X, history, n)
     _load_input!(X, x, o, stop, lo)
     return X, o
 end
-
-# The last `n` times of a history.
-_last_times(h::AbstractVector, n) = view(h, (length(h) - n + 1):length(h))
-_last_times(h::AbstractMatrix, n) = view(h, :, (size(h, 2) - n + 1):size(h, 2))
 
 # The output in the layout of `x`: the lag sums `Y` scaled by the gain and
 # shifted by the add input in the one pass that copies them out. With
@@ -550,9 +546,9 @@ end
 # vectorise this; other numbers that reach the buffer (on device arrays, a
 # tracked array input or a time-varying kernel's caller) gather instead, one
 # dot of the kernel with the window per output, so each output is written
-# once and its sum stays in registers. A slice of at most three kernel
-# lengths of outputs (a call with a late `start`) pays more in per-lag loop
-# overhead than the passes save, so it gathers four outputs at a time.
+# once and its sum stays in registers. Up to three kernel lengths of
+# outputs pay more in per-lag loop overhead than the passes save, so they
+# gather four outputs at a time.
 function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     T = length(y)
     _short_slice(T, length(c)) && return _gather4!(y, c, X, k, m, start)
@@ -579,16 +575,20 @@ function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     return y
 end
 function _convolve_series!(y, c, X, k, m, start)
-    L = length(c)
     for j in eachindex(y)
-        r = m + start + j - 1
-        acc = zero(eltype(y))
-        @inbounds for d in 0:(min(L, r) - 1)
-            acc += c[d + 1] * X[r - d, k]
-        end
-        y[j] = acc
+        y[j] = _lag_dot(c, X, k, m + start + j - 1)
     end
     return y
+end
+
+# The kernel `c` against stratum `k`'s window ending at buffer row `r`: lag
+# `d` reads row `r - d`, and lags past the first row read zeros.
+function _lag_dot(c, X, k, r)
+    acc = zero(eltype(X))
+    @inbounds @simd for d in 0:(min(length(c), r) - 1)
+        acc += c[d + 1] * X[r - d, k]
+    end
+    return acc
 end
 
 # Whether `n` outputs of a kernel with `L` lags gather rather than take
@@ -616,11 +616,7 @@ function _gather4!(y, c, X, k, m, start)
             y[j], y[j + 1], y[j + 2], y[j + 3] = a₀, a₁, a₂, a₃
             j += 4
         else
-            acc = zero(eltype(y))
-            @simd for d in 0:(min(L, r) - 1)
-                acc += c[d + 1] * X[r - d, k]
-            end
-            y[j] = acc
+            y[j] = _lag_dot(c, X, k, r)
             j += 1
         end
     end
@@ -677,12 +673,7 @@ end
 function _convolve_body!(k, Y, c::_TVColumns{Secondary}, X, m, start)
     for j in axes(Y, 1)
         t = start + j - 1
-        w = _wcolumn(c, k, t)
-        acc = zero(eltype(Y))
-        @inbounds @simd for d in 0:(min(length(w), m + t) - 1)
-            acc += w[d + 1] * X[m + t - d, k]
-        end
-        @inbounds Y[j, k] = acc
+        @inbounds Y[j, k] = _lag_dot(_wcolumn(c, k, t), X, k, m + t)
     end
     return nothing
 end
