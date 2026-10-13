@@ -4,6 +4,7 @@
 #   task -t benchmark/Taskfile.yml matrix -- --tier=realistic
 #   task -t benchmark/Taskfile.yml matrix-report -- DIR [PREVIOUS_DIR]
 #   task -t benchmark/Taskfile.yml threshold -- --target=gradient
+#   task -t benchmark/Taskfile.yml benchmark-methods
 version: '3'
 
 tasks:
@@ -45,3 +46,10 @@ tasks:
     cmds:
       - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
       - julia --project=benchmark --threads=auto benchmark/threshold.jl {{.CLI_ARGS}}
+
+  benchmark-methods:
+    desc: "Time Direct against FFTMethod convolutions over T, L and S (usage: task -t benchmark/Taskfile.yml benchmark-methods -- --targets=gradient)"
+    dir: '{{.TASKFILE_DIR}}/..'
+    cmds:
+      - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=benchmark --threads=1 benchmark/methods.jl {{.CLI_ARGS}}
