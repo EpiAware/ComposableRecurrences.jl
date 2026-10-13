@@ -262,8 +262,9 @@ The step reads `N` at its own time, and the pool is not rescaled when `N`
 changes: arrivals enter the pool only through the removals.
 
 # Arguments
-- `N`: the population, a [parameter](@ref ComposableRecurrences.param) read at each step's
-  stratum and time.
+- `N`: the population, a parameter read at each step's stratum and time:
+  one value, [`PerStratum`](@ref), [`TimeVarying`](@ref),
+  `TimeVarying(PerStratum(N))` or [`Derived`](@ref).
 - `form`: the depletion form; `Hazard()` by default.
 
 # Keyword Arguments
@@ -278,7 +279,8 @@ changes: arrivals enter the pool only through the removals.
   default.
   A seed drawn from the pool is `pool0 = max(N - sum(seed), 0)`.
 - `removals`: values taken out of the pool after each step's draw, capped
-  by what remains; a parameter, or `nothing` for none.
+  by what remains; a parameter (one value, `PerStratum`, `TimeVarying`,
+  `TimeVarying(PerStratum(r))` or `Derived`), or `nothing` for none.
   A negative removal adds to the pool, without a cap.
 - `protected`: a [`ComposableRecurrences.Protected`](@ref) pool that the
   removals move into and that is drawn from at a relative susceptibility,
