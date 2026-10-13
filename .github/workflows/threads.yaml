@@ -34,9 +34,11 @@ on:
   merge_group:
   workflow_dispatch:
 
+# A newer push to a pull request supersedes its run; runs on main all
+# complete, so every merge gets a result.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:
