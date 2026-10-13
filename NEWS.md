@@ -60,7 +60,9 @@
 
 - A `Convolution` kernel with offset axes is an `ArgumentError`, where before it gave wrong values.
 - ForwardDiff, Enzyme and Mooncake gradients are finite at an empty depletion or protected pool and agree with the reverse rules.
-- The Enzyme rules keep scalar cotangents on Julia 1.11, and `FFTMethod()` is correct under Enzyme on Julia 1.11.
+- On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
+  Some losses that read parameters through a boxed closure still give wrong Enzyme reverse gradients on 1.11 (#181).
+- `FFTMethod()` is correct under Enzyme on Julia 1.11.
 - Enzyme without runtime activity works for a constant input or history.
 - `param_eltype` infers through nested structs such as `Depletion`.
 
