@@ -15,7 +15,7 @@ Both are written as the quantity is usually written, so a generation interval or
 ## How do I get intermediate quantities?
 
 Operators return only their outputs.
-Recompute the rest; [`Convolution`](@ref) shows how for the value before the gain.
+Recompute the rest from the outputs, as [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) shows.
 
 ## [Which AD backends work?](@id faq-backends)
 

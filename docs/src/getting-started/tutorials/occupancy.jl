@@ -128,7 +128,8 @@ end
 
 maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
-# A [`Budget`](@ref ComposableRecurrences.Budget) mode grants an allowance each period instead.
+# A [`Budget`](@ref ComposableRecurrences.Budget) mode grants an allowance each
+# period instead.
 # Vaccine doses per week are one example.
 
 # ## A ward with two linked compartments
@@ -137,7 +138,8 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # Each day some suspected patients are confirmed and move to the confirmed compartment.
 # Others are ruled out and leave, and confirmed patients are discharged.
 # Confirmation and ruling out compete for the same suspected patients.
-# Let ``U_t`` be the suspected compartment, ``C_t`` the confirmed compartment and ``A_t`` the admissions.
+# Let ``U_t`` be the suspected compartment, ``C_t`` the confirmed compartment
+# and ``A_t`` the admissions.
 # With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``\delta``,
 #
 # ```math
@@ -150,9 +152,12 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 #
 # The rates are hazards, so the share leaving a compartment never exceeds what it holds.
 # The two compartments are the strata of a recurrence with the unit kernel, suspected first.
-# The recurrence carries yesterday's compartments forward and adds the admissions to the suspected one.
+# The recurrence carries yesterday's compartments forward and adds the
+# admissions to the suspected one.
 # [`Flows`](@ref ComposableRecurrences.Flows) then applies the day's flows.
-# Each is a [`Flow`](@ref ComposableRecurrences.Flow) from one compartment to another, or to `0` to leave, and a bare rate is a hazard [`Rate`](@ref ComposableRecurrences.Rate).
+# Each is a [`Flow`](@ref ComposableRecurrences.Flow) from one compartment to
+# another, or to `0` to leave, and a bare rate is a hazard
+# [`Rate`](@ref ComposableRecurrences.Rate).
 # Each rate is a parameter, so it can also differ by ward or change over time.
 
 ward_flows = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))
@@ -168,12 +173,17 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# A [`Linear`](@ref ComposableRecurrences.Linear) flow moves a share instead, like the daily discharge probability ``d`` at the start of this tutorial, except that the day's admissions can also leave that day.
-# An [`Amount`](@ref ComposableRecurrences.Amount) flow moves a count, capped by what the compartment holds, such as a fixed number of transfers a day.
-# Several wards are several groups: with ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
+# A [`Linear`](@ref ComposableRecurrences.Linear) flow moves a share instead,
+# like the daily discharge probability ``d`` at the start of this tutorial,
+# except that the day's admissions can also leave that day.
+# An [`Amount`](@ref ComposableRecurrences.Amount) flow moves a count, capped by
+# what the compartment holds, such as a fixed number of transfers a day.
+# Several wards are several groups: with ``G`` wards the strata are the ``G``
+# suspected compartments, then the ``G`` confirmed ones.
 
 # ## Learning more
 #
 # - See every operator, coupling and modifier on the [API overview](@ref api-overview).
-# - Want a step of your own that moves values between compartments? See [A blockwise step](@ref extending-blockwise).
+# - Want a step of your own that moves values between compartments? See
+#   [A blockwise step](@ref extending-blockwise).
 # - Want the full interface? See the [Public API](@ref public-api).

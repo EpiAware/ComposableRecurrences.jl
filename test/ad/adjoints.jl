@@ -1331,3 +1331,41 @@ end
         end
     end
 end
+
+# A loss whose parameter blocks infer lets Enzyme compile the operator's
+# construction into the loss. A fixed exponent stored as a `Bool` field of
+# `Depletion` then failed Enzyme's type analysis when the loss was compiled
+# with coverage, as CI runs it. The loss and θ are the registry's
+# vaccination scenario, unpacked without a closure.
+@testitem "Enzyme: a type-stable loss through a protected pool" tags = [:ad, :enzyme, :enzyme_forward, :enzyme_reverse] begin
+    using ComposableRecurrences, ADFixtures, ForwardDiff
+    using ADFixtures: S, L, T, G0, K0, POP, WS
+    import DifferentiationInterface as DI
+    using Enzyme
+    const CR = ComposableRecurrences
+    scen = only(
+        filter(s -> s.name == "Recurrence vaccination into a protected pool", ADFixtures.scenarios())
+    )
+    function loss(w, θ)
+        n = S * L + 2 * S * T
+        logh = reshape(view(θ, 1:(S * L)), S, L)
+        logR = reshape(view(θ, (S * L + 1):(S * L + S * T)), S, T)
+        doses = reshape(view(θ, (S * L + S * T + 1):n), S, T)
+        d = CR.Depletion(
+            PerStratum(POP); removals = TimeVarying(PerStratum(doses)),
+            protected = CR.Protected(θ[n + 1])
+        )
+        r = Recurrence(G0; coupling = K0, modifiers = (d,))
+        return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+    end
+    θ = copy(scen.x)
+    enzyme = filter(e -> startswith(e.name, "Enzyme"), ADFixtures.backends())
+    for w in (identity, CR.NoAdjoint)
+        f(θ) = loss(w, θ)
+        @test f(θ) ≈ scen.f(θ, map(c -> c.data, scen.contexts)...)
+        ref = ForwardDiff.gradient(f, θ)
+        for entry in enzyme
+            @test DI.gradient(f, entry.backend, θ) ≈ ref
+        end
+    end
+end

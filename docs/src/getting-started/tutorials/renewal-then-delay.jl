@@ -138,10 +138,22 @@ end
 # ## Vaccination
 #
 # Vaccine doses move susceptibles into a protected pool.
-# `removals` takes the doses out of the susceptible pool after each day's infections.
-# The doses are capped by what remains.
-# `Protected(σ)` keeps them in a second pool with relative susceptibility ``\sigma``.
-# Each day's infections come from both pools in proportion to ``S + \sigma V``.
+# With the hazard form, each day draws infections from both pools and then moves the doses:
+#
+# ```math
+# \begin{aligned}
+# I_t &= \big(S_{t-1} + \sigma V_{t-1}\big) \big(1 - e^{-v_t / N}\big), \\
+# m_t &= \min\big(r_t,\ S_{t-1} \, e^{-v_t / N}\big), \\
+# S_t &= S_{t-1} \, e^{-v_t / N} - m_t, \\
+# V_t &= V_{t-1} \big(1 - \sigma \big(1 - e^{-v_t / N}\big)\big) + m_t,
+# \end{aligned}
+# ```
+#
+# where ``S_t`` is the susceptible pool, ``s_t`` above, and ``V_t`` the protected pool.
+# ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the removals on day ``t`` and ``m_t`` the doses moved.
+# The doses are capped by what remains of ``S``.
+# `removals` gives ``r_t``, and `Protected(σ)` keeps the second pool.
+# The [`Protected`](@ref ComposableRecurrences.Protected) docstring gives the general form.
 # Let ``e`` be the efficacy.
 # An all-or-nothing vaccine fully protects a share ``e`` of the vaccinated.
 # This gives ``\sigma = 0``, with ``e`` times the doses removed.

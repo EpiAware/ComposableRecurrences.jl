@@ -133,14 +133,16 @@ const _Protecting = Depletion{
 
 # Flows on the one pool: a pointwise step, the draw then the flows.
 function forward(m::_Flowing, ::Step, v, s, t, k)
-    y, s′ = forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
+    y, s′ = forward(
+        m.form, Step(), v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
     (s″,) = _flow_only(m.flows, (s′,), k, t)
     return y, s″
 end
 
 function pullback!(grads, m::_Flowing, ::Step, v, s, t, k)
     m̄ = grads.piece
-    N, α = param(m.N, k, t), m.heterogeneity
+    N, α = param(m.N, k, t), _exponent_value(m.heterogeneity)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     s̄′ = only(
         _flows_pullback(
@@ -208,7 +210,7 @@ end
 function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
     y, Su, V = _protected_draw(
         m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
-        param(m.N, k, t), m.heterogeneity
+        param(m.N, k, t), _exponent_value(m.heterogeneity)
     )
     pools = _flow_only(m.flows, (Su, V), k, t)
     return (y,), pools
@@ -220,7 +222,7 @@ end
 function pullback!(grads, m::_Protecting, ::Step, v, s, t, k)
     m̄ = grads.piece
     V̄ = cotangent(m̄, :protected)
-    α = m.heterogeneity
+    α = _exponent_value(m.heterogeneity)
     vk = only(v)
     Su, V = s
     σ, N = param(m.protected.σ, k, t), param(m.N, k, t)
