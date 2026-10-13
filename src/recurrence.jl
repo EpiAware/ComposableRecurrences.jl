@@ -273,13 +273,9 @@ end
 # A Pairwise or Routes kernel already mixes strata, so its coupling is `I`.
 _check_pairwise_coupling(kernel, coupling) = nothing
 function _check_pairwise_coupling(::_PairwiseKernel, coupling)
-    coupling isa UniformScaling && isone(coupling.λ) || throw(
-        ArgumentError(
-            "a Pairwise kernel already mixes strata, so its coupling must " *
-                "be I, got $(_describe(coupling))"
-        )
+    return _check_unit_coupling(
+        coupling, "a Pairwise kernel already mixes strata, so its coupling"
     )
-    return nothing
 end
 
 # The kernel shapes: a bare array is lags only, strata and time are added
@@ -362,12 +358,7 @@ end
 # Kernel strata checks against `S` strata.
 _check_kernel_strata(k, S) = nothing
 _check_kernel_strata(k::TimeVarying, S) = _check_kernel_strata(k.x, S)
-function _check_kernel_strata(k::PerStratum, S)
-    size(k.x, 1) == S || throw(
-        DimensionMismatch("kernel has $(size(k.x, 1)) strata, expected $S")
-    )
-    return nothing
-end
+_check_kernel_strata(k::PerStratum, S) = _check_nrows(:kernel, k.x, S, "strata")
 function _check_kernel_strata(k::Pairwise, S)
     size(k.x)[1:2] == (S, S) || throw(
         DimensionMismatch(

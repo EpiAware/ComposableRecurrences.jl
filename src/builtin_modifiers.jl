@@ -118,14 +118,7 @@ function _check_param(
     )
     return x
 end
-function _check_param(name, x::TimeVarying{Primary})
-    throw(
-        ArgumentError(
-            "$name: Primary() indexing is only meaningful for a kernel; " *
-                "got $(_describe(x))"
-        )
-    )
-end
+_check_param(name, x::TimeVarying{Primary}) = _primary_error(name, x)
 function _check_param(name, x)
     throw(
         ArgumentError(
@@ -140,14 +133,7 @@ function _check_param(name, x)
 end
 
 # Check a parameter against `S` strata.
-_check_param_strata(name, x, S) = nothing
-_check_param_strata(name, x::TimeVarying, S) = _check_param_strata(name, x.x, S)
-function _check_param_strata(name, x::PerStratum, S)
-    size(x.x, 1) == S || throw(
-        DimensionMismatch("$name has $(size(x.x, 1)) strata, expected $S")
-    )
-    return nothing
-end
+_check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
 
 # A zero initial state, once the parameters are checked against the state's
 # strata.
@@ -397,14 +383,7 @@ end
 
 # The starting pool is per stratum, not over time.
 _check_constant(name, x) = _check_param(name, x)
-function _check_constant(name, x::TimeVarying)
-    throw(
-        ArgumentError(
-            "$name is one value or PerStratum($name); it does not vary over " *
-                "time, got $(_describe(x))"
-        )
-    )
-end
+_check_constant(name, x::TimeVarying) = _not_constant_error(name, x)
 
 _float_param(x::Real) = float(x)
 _float_param(x::PerStratum) = PerStratum(float(x.x))

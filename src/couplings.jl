@@ -174,11 +174,4 @@ function _check_coupling_shape(C::TimeVarying)
         )
     )
 end
-function _check_coupling_shape(C::Pairwise)
-    throw(
-        ArgumentError(
-            "Pairwise is a kernel: use Recurrence(Pairwise(A)) with " *
-                "coupling I, not coupling = $(_describe(C))"
-        )
-    )
-end
+_check_coupling_shape(C::Pairwise) = _kernel_as_coupling_error(C, "Pairwise(A)")

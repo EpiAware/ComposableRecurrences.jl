@@ -122,14 +122,7 @@ function _check_times(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
 _check_times(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
-function _check_times(name, x::TimeVarying, stop)
-    throw(
-        ArgumentError(
-            "$name: Primary() indexing is only meaningful for a kernel; " *
-                "got $(_describe(x))"
-        )
-    )
-end
+_check_times(name, x::TimeVarying, stop) = _primary_error(name, x)
 const _Leaf = Union{
     Real, AbstractArray, Nothing, Symbol, AbstractString, Type, Module,
     Function,
@@ -148,14 +141,57 @@ function _fields_times(name, x, stop, ::Val{N}) where {N}
     return _check_times(name, getfield(x, N), stop)
 end
 
-# Check a strata × time slot against `S` strata.
-_check_strata(name, x, S) = nothing
-function _check_strata(name, x::AbstractMatrix, S)
-    size(x, 1) == S || throw(
-        DimensionMismatch("$name has $(size(x, 1)) strata, expected $S")
+# Shared argument errors, each raised by more than one check.
+@noinline function _primary_error(name, x)
+    throw(
+        ArgumentError(
+            "$name: Primary() indexing is only meaningful for a kernel; " *
+                "got $(_describe(x))"
+        )
+    )
+end
+@noinline function _not_constant_error(name, x)
+    throw(
+        ArgumentError(
+            "$name is one value or PerStratum($name); it does not vary over " *
+                "time, got $(_describe(x))"
+        )
+    )
+end
+@noinline function _kernel_as_coupling_error(x, use)
+    throw(
+        ArgumentError(
+            "$(nameof(typeof(x))) is a kernel: use Recurrence($use) with " *
+                "coupling I, not coupling = $(_describe(x))"
+        )
+    )
+end
+
+# A kernel that already mixes strata needs the unit coupling `I`; `what`
+# names the coupling and why.
+function _check_unit_coupling(coupling, what)
+    coupling isa UniformScaling && isone(coupling.λ) || throw(
+        ArgumentError("$what must be I, got $(_describe(coupling))")
     )
     return nothing
 end
+
+# Check that `A` has `n` rows, each one of `what` (strata, pairs, groups).
+function _check_nrows(name, A, n, what)
+    size(A, 1) == n || throw(
+        DimensionMismatch("$name has $(size(A, 1)) $what, expected $n")
+    )
+    return nothing
+end
+
+# Check a parameter's leading axis against `n` entries of `what`.
+_check_rows(name, x, n, what) = nothing
+_check_rows(name, x::TimeVarying, n, what) = _check_rows(name, x.x, n, what)
+_check_rows(name, x::PerStratum, n, what) = _check_nrows(name, x.x, n, what)
+
+# Check a strata × time slot against `S` strata.
+_check_strata(name, x, S) = nothing
+_check_strata(name, x::AbstractMatrix, S) = _check_nrows(name, x, S, "strata")
 
 @doc raw"""
 The element type the parameters of `x` contribute to an operator's buffer.

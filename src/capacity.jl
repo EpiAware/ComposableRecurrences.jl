@@ -390,14 +390,7 @@ function _index(k)
 end
 
 # A parameter over pairs, checked against their number.
-_check_param_pairs(name, x, P) = nothing
-_check_param_pairs(name, x::TimeVarying, P) = _check_param_pairs(name, x.x, P)
-function _check_param_pairs(name, x::PerStratum, P)
-    size(x.x, 1) == P || throw(
-        DimensionMismatch("$name has $(size(x.x, 1)) pairs, expected $P")
-    )
-    return nothing
-end
+_check_param_pairs(name, x, P) = _check_rows(name, x, P, "pairs")
 
 _npairs(m::Capacity) = length(m.admitted)
 nstate(m::Capacity, S) = _npairs(m)
