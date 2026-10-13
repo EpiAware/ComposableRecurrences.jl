@@ -170,7 +170,8 @@ With the default indexing the step at time ``t`` reads ``c(t)``; a
 ```math
 \text{Secondary: } k_l(t), \qquad \text{Primary: } k_l(t - l).
 ```
-A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`.
+A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`:
+`TimeVarying` is always the outer wrapper.
 It may also be a vector of `T` columns of any lengths, `ks[τ]` being
 column ``\tau``, with zero weight past each column's end.
 The columns are stored stacked without padding, so a `Primary()` pmf
@@ -319,7 +320,8 @@ function TimeVarying(x, indexing)
     )
 end
 
-# Nesting is normalised to TimeVarying outermost.
+# `TimeVarying` is the outer wrapper, the only order the docs show; the
+# other order builds the same object so that it is not an error.
 PerStratum(x::TimeVarying{I}) where {I} = TimeVarying{I}(PerStratum(x.x))
 Pairwise(x::TimeVarying{I}) where {I} = TimeVarying{I}(Pairwise(x.x))
 PerStratum(x::TimeVarying{<:Any, <:_Ragged}) = _strata_ragged(x)
