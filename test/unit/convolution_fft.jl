@@ -165,7 +165,7 @@ end
             for k̄ in (mirror(kernel), nothing)
                 X̄d, X̄f = zero(X), zero(X)
                 k̄d = k̄ === nothing ? nothing : mirror(kernel)
-                CR._convolve_back!(X̄d, k̄d, kernel, X, Ȳ, m, start)
+                CR._convolve_back!(CR.Serial(), X̄d, k̄d, kernel, X, Ȳ, m, start)
                 CR._fft_convolve_back!(X̄f, k̄, kernel, X, Ȳ, m, start)
                 @test X̄f ≈ X̄d
                 k̄ === nothing || @test flat(k̄) ≈ flat(k̄d)
