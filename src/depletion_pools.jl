@@ -127,13 +127,16 @@ end
 
 # Removals only: a pointwise step on the one pool.
 function forward(m::_Removing, ::Step, v, s, t, k)
-    y, s′ = forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
+    y, s′ = forward(
+        m.form, Step(), v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
     return y, s′ - _removal(param(m.removals, k, t), s′)
 end
 
 function pullback!(grads, m::_Removing, ::Step, v, s, t, k)
     m̄ = grads.piece
-    N, α, r = param(m.N, k, t), m.heterogeneity, param(m.removals, k, t)
+    N, r = param(m.N, k, t), param(m.removals, k, t)
+    α = _exponent_value(m.heterogeneity)
     _, s′ = forward(m.form, Step(), v, s, N, α)
     r̄, s̄m = _removal_pullback(r, s′, -grads.s)
     add_param!(cotangent(m̄, :removals), m.removals, r̄, k, t)
@@ -202,7 +205,8 @@ _protects(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 function forward(m::_Protecting, ::Step, v::Tuple, s::Tuple, t, k)
     y, Su, V = _protected_step(
         m.form, only(v), s[1], s[2], param(m.protected.σ, k, t),
-        param(m.N, k, t), m.heterogeneity, _removals_at(m.removals, k, t)
+        param(m.N, k, t), _exponent_value(m.heterogeneity),
+        _removals_at(m.removals, k, t)
     )
     return (y,), (Su, V)
 end
@@ -213,7 +217,7 @@ end
 function pullback!(grads, m::_Protecting, ::Step, v, s, t, k)
     m̄ = grads.piece
     V̄ = cotangent(m̄, :protected)
-    α = m.heterogeneity
+    α = _exponent_value(m.heterogeneity)
     vk = only(v)
     Su, V = s
     σ, N = param(m.protected.σ, k, t), param(m.N, k, t)

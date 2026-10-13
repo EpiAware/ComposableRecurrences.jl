@@ -3,9 +3,8 @@
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
 # and `nothing` for a field without a cotangent.
 #
-# A parameter is one value, `PerStratum` (one per stratum),
-# `TimeVarying` (one per time) or `TimeVarying(PerStratum(x))` (strata ×
-# time); every built-in modifier reads its parameters through `param`.
+# Every built-in modifier reads its parameters through `param`, whose
+# docstring lists the parameter forms.
 
 
 @doc raw"""
@@ -26,6 +25,7 @@ f\big(a_{1,t,k}, \dots, a_{n,t,k}\big) & \text{derived},
 \end{cases}
 ```
 
+A [`Recent`](@ref) reads the recurrence's own recent outputs instead.
 A modifier reads every parameter through `param`, and writes its cotangent
 through [`ComposableRecurrences.add_param!`](@ref), so it accepts every
 parameter form, including forms added later.
@@ -419,14 +419,22 @@ end
 # `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool. The built-in
 # forms keep a `Bool` exponent as a fixed one, without a cotangent.
 _exponent(α::Integer, N, form) = convert(float(_primal_type(param_eltype(N))), α)
-_exponent(α::Bool, N, ::Union{Hazard, Floor}) = α
+_exponent(α::Bool, N, ::Union{Hazard, Floor}) = _FixedExponent{α}()
 _exponent(α, N, form) = α
 
-# The default exponent: `true` for the built-in forms, a fixed exponent of
-# one that is not a parameter, so their steps skip the power and its
-# derivative; `1` for other forms, which may type their exponent as a float.
+# A fixed `Bool` exponent held in the type, so a `Depletion` stores no byte
+# for it. An AD tool's type analysis can reject a `Bool` field stored into a
+# tuple of modifiers when the construction is compiled into the loss. The
+# steps read it back as the `Bool` constant `B`.
+struct _FixedExponent{B} end
+_exponent_value(::_FixedExponent{B}) where {B} = B
+_exponent_value(α) = α
+
+# The default exponent: a fixed exponent of one for the built-in forms, not
+# a parameter, so their steps skip the power and its derivative; `1` for
+# other forms, which may type their exponent as a float.
 _unit_exponent(form) = 1
-_unit_exponent(::Union{Hazard, Floor}) = true
+_unit_exponent(::Union{Hazard, Floor}) = _FixedExponent{true}()
 
 # The powers of the share of the pool left `r`: `r^(α - 1)` scales the
 # hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
@@ -550,14 +558,16 @@ end
 const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
 
 function forward(m::_Depleting, ::Step, v, s, t, k)
-    return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
+    return forward(
+        m.form, Step(), v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
 end
 
 function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        v, s, param(m.N, k, t), m.heterogeneity
+        v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
     )
     add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
@@ -581,9 +591,7 @@ where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on and ``b_{t,i}`` the parameter read at stratum ``i`` and time
 ``t``.
 
-`b` is a parameter: one value, [`PerStratum`](@ref), [`TimeVarying`](@ref)
-(one per time, shared by every stratum) or `TimeVarying(PerStratum(B))`
-with `B` strata × time, read at the absolute time.
+`b` is a [parameter](@ref ComposableRecurrences.param).
 Alone, `Add(TimeVarying(PerStratum(B)))` gives the same values as passing
 `B` as `add`.
 The state is unused.
@@ -607,7 +615,7 @@ Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 ```
 """
 struct Add{B}
-    "The values to add: one value, `PerStratum` or `TimeVarying`."
+    "The values to add, a parameter."
     b::B
     Add(b::B) where {B} = new{B}(_check_param(:b, b))
 end
@@ -645,9 +653,8 @@ passes on, ``K_{ij}`` = `K[i, j]` the share from origin ``j`` to destination
 ``s'_i`` the arrivals, kept as the state.
 Summing ``v'_i`` over ``i`` gives ``\sum_i v_i``.
 The diagonal of `K` is not read: a stratum does not import from itself.
-The intensity `ε` belongs to the origin and is a parameter: one value,
-[`PerStratum`](@ref), [`TimeVarying`](@ref) or `TimeVarying(PerStratum(ε))`
-with `ε` strata × time, read at the absolute time.
+The intensity `ε` belongs to the origin and is a
+[parameter](@ref ComposableRecurrences.param).
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
 stratum's pool by what it realises; a modifier sees
 ``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
@@ -676,7 +683,7 @@ round.(y; digits = 3)
 struct Redistribute{K <: AbstractMatrix, E}
     "The kernel, `K[p, q]` from origin `q` to destination `p`."
     K::K
-    "The origin intensity: one value, `PerStratum` or `TimeVarying`."
+    "The origin intensity, a parameter."
     ε::E
     function Redistribute(K::M, ε::E) where {M <: AbstractMatrix, E}
         size(K, 1) == size(K, 2) || throw(
@@ -775,8 +782,7 @@ where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on, and ``\ell_{t,i} \le u_{t,i}`` the bounds `lo` and `hi` read
 at stratum ``i`` and time ``t``.
 
-`lo` and `hi` are parameters: each one value, [`PerStratum`](@ref),
-[`TimeVarying`](@ref) or `TimeVarying(PerStratum(x))`.
+`lo` and `hi` are each a [parameter](@ref ComposableRecurrences.param).
 The state is unused.
 
 # Arguments
@@ -799,9 +805,9 @@ Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop 
 ```
 """
 struct Clamp{L, H}
-    "The lower bound, one value, `PerStratum` or `TimeVarying`."
+    "The lower bound, a parameter."
     lo::L
-    "The upper bound, one value, `PerStratum` or `TimeVarying`."
+    "The upper bound, a parameter."
     hi::H
     function Clamp(lo::L, hi::H) where {L, H}
         return new{L, H}(_check_param(:lo, lo), _check_param(:hi, hi))

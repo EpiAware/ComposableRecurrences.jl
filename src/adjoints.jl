@@ -366,10 +366,10 @@ Add `v` to the mirror `x̄` at index `idx`,
 so the cotangents from every use of a parameter sum.
 This is `x̄[idx...] += v` for an array, `x̄[] += v` for a `Ref` (the index
 is ignored), the same into the array of a wrapper's `(; x)` mirror, and
-nothing for `nothing`.
+nothing for `nothing` or the empty mirror `(;)` of an object with no fields.
 
 # Arguments
-- `x̄`: the mirror: an array, a `Ref`, `(; x)` or `nothing`.
+- `x̄`: the mirror: an array, a `Ref`, `(; x)`, `(;)` or `nothing`.
 - `v`: the cotangent to add.
 - `idx`: the index into an array mirror.
 
@@ -387,7 +387,7 @@ x̄
  1.5
 ```
 """
-add_cotangent!(::Nothing, v, idx...) = nothing
+add_cotangent!(::Union{Nothing, NamedTuple{()}}, v, idx...) = nothing
 add_cotangent!(x̄::Base.RefValue, v, idx...) = (x̄[] += v; nothing)
 Base.@propagate_inbounds function add_cotangent!(x̄::AbstractArray, v, idx...)
     x̄[idx...] += v

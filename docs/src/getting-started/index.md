@@ -128,17 +128,24 @@ reports = delay(infections; gain = 0.4)
 round.(vec(sum(reports; dims = 2)))
 ```
 
+The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
+
 ```@example overview
 long(x) = @chain DataFrame(permutedims(x), towns) begin
     @transform(:day = 1:T)
     stack(Not(:day); variable_name = :town, value_name = :count)
 end
-@chain ["Infections" => infections, "Reports" => reports] begin
-    map(((series, x),) -> @transform(long(x), :series = series), _)
+susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
+@chain [
+        ("Infections", "Daily count") => infections,
+        ("Reports", "Daily count") => reports,
+        ("Susceptible", "Susceptible share") => susceptible,
+    ] begin
+    map((((series, panel), x),) -> @transform(long(x), :series = series, :panel = panel), _)
     reduce(vcat, _)
-    data(_) * mapping(:day, :count, color = :series, layout = :town) *
+    data(_) * mapping(:day, :count => "", color = :series => "", row = :panel, col = :town) *
         visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Count"))
+    draw(_; axis = (xlabel = "Day",), facet = (; linkyaxes = :rowwise))
 end
 ```
 
@@ -203,6 +210,16 @@ end # hide
 ### Changing the model
 
 Switching to the floored depletion form and adding imported infections after depletion changes one line of the operator version.
+The step becomes
+
+```math
+D_{t,i} = \max\Big(\max\Big(\frac{s_{t-1,i}}{N_i}, 0\Big), 10^{-6}\Big) \, v_{t,i}, \qquad
+s_{t,i} = s_{t-1,i} - D_{t,i}, \qquad
+I_{t,i} = D_{t,i} + \iota_{t,i},
+```
+
+where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the imported infections.
+Imported infections are not drawn from the pool.
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
