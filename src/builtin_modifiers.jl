@@ -419,14 +419,22 @@ end
 # `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool. The built-in
 # forms keep a `Bool` exponent as a fixed one, without a cotangent.
 _exponent(α::Integer, N, form) = convert(float(_primal_type(param_eltype(N))), α)
-_exponent(α::Bool, N, ::Union{Hazard, Floor}) = α
+_exponent(α::Bool, N, ::Union{Hazard, Floor}) = _FixedExponent{α}()
 _exponent(α, N, form) = α
 
-# The default exponent: `true` for the built-in forms, a fixed exponent of
-# one that is not a parameter, so their steps skip the power and its
-# derivative; `1` for other forms, which may type their exponent as a float.
+# A fixed `Bool` exponent held in the type, so a `Depletion` stores no byte
+# for it. An AD tool's type analysis can reject a `Bool` field stored into a
+# tuple of modifiers when the construction is compiled into the loss. The
+# steps read it back as the `Bool` constant `B`.
+struct _FixedExponent{B} end
+_exponent_value(::_FixedExponent{B}) where {B} = B
+_exponent_value(α) = α
+
+# The default exponent: a fixed exponent of one for the built-in forms, not
+# a parameter, so their steps skip the power and its derivative; `1` for
+# other forms, which may type their exponent as a float.
 _unit_exponent(form) = 1
-_unit_exponent(::Union{Hazard, Floor}) = true
+_unit_exponent(::Union{Hazard, Floor}) = _FixedExponent{true}()
 
 # The powers of the share of the pool left `r`: `r^(α - 1)` scales the
 # hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
@@ -550,14 +558,16 @@ end
 const _Depleting = Depletion{<:Any, <:Any, <:Any, <:Any, Nothing, Nothing}
 
 function forward(m::_Depleting, ::Step, v, s, t, k)
-    return forward(m.form, Step(), v, s, param(m.N, k, t), m.heterogeneity)
+    return forward(
+        m.form, Step(), v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
 end
 
 function pullback!(grads, m::_Depleting, ::Step, v, s, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        v, s, param(m.N, k, t), m.heterogeneity
+        v, s, param(m.N, k, t), _exponent_value(m.heterogeneity)
     )
     add_param!(cotangent(m̄, :N), m.N, N̄, k, t)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
