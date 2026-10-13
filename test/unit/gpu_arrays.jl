@@ -25,6 +25,8 @@
     const TVK = repeat(g0, 1, T) .* (1 .+ 0.01 .* (1:T)')
     const TVPS = repeat(reshape(TVK, 1, L, T), S) .* (1:S) ./ S
     const TVPW = reshape(K0, S, S, 1, 1) .* reshape(TVK, 1, 1, L, T)
+    # Ragged kernel columns, one to `L` lags long.
+    const KR = [g0[1:mod1(t, L)] .* (1 + 0.01 * t) for t in 1:T]
     const NS = [60.0, 50.0, 40.0]
     const TOT = [4.0 + 0.2 * t + p for p in 1:2, t in 1:T]
 
@@ -70,6 +72,12 @@
             d -> Recurrence(TimeVarying(Pairwise(d(TVPW)), Primary()))(
             d(RS); history = d(HS), start = 5
         ),
+        "Recurrence, ragged kernel" =>
+            d -> Recurrence(TimeVarying(d.(KR)))(d(RS); history = d(HS)),
+        "Recurrence, ragged Primary kernel" =>
+            d -> Recurrence(TimeVarying(d.(KR), Primary()))(
+            d(R0); history = d(H1), start = 5
+        ),
         "Recurrence, inputs as views" =>
             d -> Recurrence(d(g0))(view(d(RS), :, 1:T); history = d(HS)),
         "Recurrence, dense coupling" =>
@@ -104,6 +112,10 @@
             d -> Convolution(TimeVarying(PerStratum(d(TVPS))))(d(RS)),
         "Convolution, TimeVarying PerStratum kernel, Primary()" =>
             d -> Convolution(TimeVarying(PerStratum(d(TVPS)), Primary()))(d(RS)),
+        "Convolution, ragged kernel, Secondary()" =>
+            d -> Convolution(TimeVarying(d.(KR)))(d(x0); history = d(HX)),
+        "Convolution, ragged kernel, Primary()" =>
+            d -> Convolution(TimeVarying(d.(KR), Primary()))(d(RS)),
         "contributions" =>
             d -> contributions(Convolution(d(g0)), d(x0)),
         "Depletion (Hazard)" =>
@@ -316,6 +328,7 @@ end
             PerStratum(v), Pairwise(JLArray(ones(3, 3, 2))), tv,
             TimeVarying(PerStratum(JLArray(ones(3, 20)))),
             ComposableRecurrences._oldest_first(Pairwise(JLArray(ones(3, 3, 2)))),
+            TimeVarying([JLArray([0.5, 0.5]), JLArray([1.0])]),
             Depletion(PerStratum(v); removals = tv, protected = Protected(PerStratum(v))),
             Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
             Transform(*, 0.8 * Derived(exp, tv)),
@@ -356,6 +369,12 @@ end
     cd = adapt(JLArray, c)
     @test cd.kernel.x isa JLArray
     @test Array(cd(JLArray(R))) ≈ c(R)
+    # A ragged kernel moves its columns and their offsets.
+    cr = Convolution(TimeVarying([g[1:mod1(t, 4)] for t in 1:10]))
+    crd = adapt(JLArray, cr)
+    @test crd.kernel.x.values isa JLArray
+    @test crd.kernel.x.offsets isa JLArray
+    @test Array(crd(JLArray(R))) ≈ cr(R)
 end
 
 @testitem "JLArrays: a buffer deeper than the kernel runs and resumes on the device" begin

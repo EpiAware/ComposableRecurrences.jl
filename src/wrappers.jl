@@ -248,30 +248,43 @@ end
 # A kernel's columns, of any lengths, stacked: column `τ` is
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each
 # column to its own end, so no padding is stored or visited, and the
-# integer offsets carry no cotangent. The constructor checks the offsets,
-# so a loop that reads column `τ ≤ ncols` within its range skips bounds
-# checks.
-struct _Ragged{V <: AbstractVector}
+# integer offsets carry no cotangent. The offsets live where the values
+# do, so a device loop reads them, and the longest column is kept so a
+# call reads its lags without visiting them. The checked constructor
+# validates the offsets on the host, so a loop that reads column
+# `τ ≤ ncols` within its range skips bounds checks; the three-field form
+# rebuilds from the fields of a checked one, as `adapt` does.
+struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
-    offsets::Vector{Int}
-    function _Ragged(values::V, offsets::AbstractVector{<:Integer}) where {
-            V <: AbstractVector,
+    offsets::O
+    maxlen::Int
+    function _Ragged(values::V, offsets::O, maxlen::Int) where {
+            V <: AbstractVector, O <: AbstractVector{Int},
         }
-        Base.require_one_based_indexing(values, offsets)
-        ok = !isempty(offsets) && first(offsets) == 0 &&
-            last(offsets) == length(values) && issorted(offsets)
-        ok || throw(
-            ArgumentError(
-                "ragged kernel offsets rise from 0 to the number of values " *
-                    "($(length(values))), got $(_describe(offsets))"
-            )
-        )
-        return new{V}(values, convert(Vector{Int}, offsets))
+        return new{V, O}(values, offsets, maxlen)
     end
+end
+function _Ragged(values::AbstractVector, offsets::AbstractVector{<:Integer})
+    Base.require_one_based_indexing(values, offsets)
+    host = convert(Vector{Int}, offsets)
+    ok = !isempty(host) && first(host) == 0 &&
+        last(host) == length(values) && issorted(host)
+    ok || throw(
+        ArgumentError(
+            "ragged kernel offsets rise from 0 to the number of values " *
+                "($(length(values))), got $(_describe(host))"
+        )
+    )
+    n = 0
+    for τ in 1:(length(host) - 1)
+        n = max(n, host[τ + 1] - host[τ])
+    end
+    return _Ragged(values, _like(values, host), n)
 end
 
 # Stacks the columns with one `copyto!` each, which AD backends
-# differentiate as a block copy.
+# differentiate as a block copy. The values live where the first column
+# does.
 function _Ragged(ks::AbstractVector{<:AbstractVector})
     Base.require_one_based_indexing(ks)
     offsets = Vector{Int}(undef, length(ks) + 1)
@@ -279,7 +292,9 @@ function _Ragged(ks::AbstractVector{<:AbstractVector})
     for (τ, k) in enumerate(ks)
         offsets[τ + 1] = offsets[τ] + length(k)
     end
-    values = Vector{_column_eltype(ks)}(undef, last(offsets))
+    T = _column_eltype(ks)
+    n = last(offsets)
+    values = isempty(ks) ? Vector{T}(undef, n) : _like(first(ks), Vector{T}(undef, n))
     for (τ, k) in enumerate(ks)
         copyto!(values, offsets[τ] + 1, k, firstindex(k), length(k))
     end
@@ -292,13 +307,7 @@ end
 
 _ncols(g::_Ragged) = length(g.offsets) - 1
 Base.@propagate_inbounds _colrange(g::_Ragged, τ) = (g.offsets[τ] + 1):g.offsets[τ + 1]
-function _maxlen(g::_Ragged)
-    n = 0
-    for τ in 1:_ncols(g)
-        n = max(n, g.offsets[τ + 1] - g.offsets[τ])
-    end
-    return n
-end
+_maxlen(g::_Ragged) = g.maxlen
 param_eltype(x::_Ragged) = param_eltype(x.values)
 
 function TimeVarying{I}(ks::AbstractVector{<:AbstractVector}) where {I}

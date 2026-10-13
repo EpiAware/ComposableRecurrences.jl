@@ -40,15 +40,6 @@ _host_leaf(::Array{<:Integer}) = false
 _host_leaf(::AbstractGPUArray) = false
 _host_leaf(::Union{Number, Symbol, Nothing, Function, Type, Module}) = false
 _host_leaf(x::Tuple) = any(_host_leaf, x)
-function _host_leaf(::_Ragged)
-    throw(
-        ArgumentError(
-            "a ragged TimeVarying kernel (a vector of columns) keeps its " *
-                "column offsets on the host, so it does not run on a device; " *
-                "use a lags × time matrix"
-        )
-    )
-end
 function _host_leaf(x::T) where {T}
     isstructtype(T) || return false
     return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
@@ -96,7 +87,7 @@ end
 # rebuilds it elsewhere. The operators adapt the same way, so
 # `adapt(CuArray, r)` moves every parameter of `r` to a device.
 const _Adapted = Union{
-    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
+    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, _Ragged, Depletion,
     Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
     Convolution, Flows, Flow, Rate, Linear, Amount,
 }
