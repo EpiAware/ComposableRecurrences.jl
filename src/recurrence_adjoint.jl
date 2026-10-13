@@ -122,7 +122,7 @@ function _series_back!(
 end
 
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
-# modifiers, the add input and the gain; returns the pressure's cotangent.
+# modifiers, then `_gain_add_back!`.
 @inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
     v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, H̄[D + t, k], τ, t, k)
     return _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
