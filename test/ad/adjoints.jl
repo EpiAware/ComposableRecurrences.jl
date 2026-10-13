@@ -946,6 +946,41 @@ end
     end
 end
 
+@testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] begin
+    using ADFixtures
+    using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
+    using DifferentiationInterface: value_and_gradient
+    using ComposableRecurrences: NoAdjoint
+    import Enzyme, ForwardDiff, Mooncake
+    _, loss, θ0, _ = only(
+        filter(s -> first(s) == "Recurrence protected pool in Float32", ADFixtures._SCENARIOS)
+    )
+    θ = θ0()
+    @test eltype(θ) == Float32
+    backends = (
+        AutoForwardDiff(), AutoMooncake(; config = nothing),
+        AutoMooncakeForward(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Forward),
+            function_annotation = Enzyme.Const
+        ),
+    )
+    for w in (identity, NoAdjoint)
+        f = Base.Fix1(loss, w)
+        _, ref = value_and_gradient(f, AutoForwardDiff(), Float64.(θ))
+        for backend in backends
+            y, ∇ = value_and_gradient(f, backend, θ)
+            @test y isa Float32
+            @test eltype(∇) == Float32
+            @test ∇ ≈ ref rtol = 1.0e-3
+        end
+    end
+end
+
 @testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
