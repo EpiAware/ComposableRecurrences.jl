@@ -239,6 +239,9 @@ const PACKAGE_TUTORIALS = [
 # Spliced in after "Benchmarks" and before "Development", in list order.
 const PACKAGE_SECTIONS = Pair{String, Any}[
     "Explanation" => [
+        "Operators" => "explanation/operators.md",
+        "Shapes and couplings" => "explanation/shapes-and-couplings.md",
+        "Modifiers" => "explanation/modifiers.md",
         "Adjoints and backends" =>
             "explanation/adjoints-and-backends.md",
     ],
