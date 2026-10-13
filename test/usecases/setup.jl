@@ -11,4 +11,13 @@
     include(joinpath(@__DIR__, "references", "epibranch.jl"))
     include(joinpath(@__DIR__, "references", "epibranch_homogeneous.jl"))
     include(joinpath(@__DIR__, "references", "epibranch_isolation.jl"))
+
+    # CTIDM's renewal step with susceptible depletion from a population `N`.
+    # The interval `g` is lag 1 first; CTIDM stores it reversed.
+    function depleting_renewal_step(g, N)
+        C = CTIDMReference
+        return C.RenewalStep(
+            C.ConstantRenewalStep(reverse(g)), (C.SusceptibleDepletion(N),)
+        )
+    end
 end

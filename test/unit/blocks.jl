@@ -3,7 +3,7 @@
 # pool is blockwise.
 
 @testmodule BlockChecks begin
-    using ComposableRecurrences, ForwardDiff
+    using ComposableRecurrences
     const CR = ComposableRecurrences
 
     # Two compartments per group: a share `a` of the first moves to the
@@ -53,27 +53,6 @@
         end
         return Y[:, (L + 1):end]
     end
-
-    # Compare the vector pullback with the transposed Jacobian of the vector
-    # step in `[v; s; θ]`, for a modifier `build(θ)` whose only parameter
-    # mirror is the array `x̄`.
-    function check_pullback(build, θ, v, s, t, mirror, flat)
-        S, n = length(v), length(s)
-        v̄′ = collect(range(0.3, 1.7; length = S))
-        s̄′ = collect(range(-0.4, 0.9; length = n))
-        J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
-            vv, ss = x[1:S], x[(S + 1):(S + n)]
-            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
-            return vcat(vv, ss)
-        end
-        expected = transpose(J) * vcat(v̄′, s̄′)
-        m = build(θ)
-        m̄ = mirror(m)
-        gv, gs = copy(v̄′), copy(s̄′)
-        CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
-        return gv ≈ expected[1:S] && gs ≈ expected[(S + 1):(S + n)] &&
-            flat(m̄) ≈ expected[(S + n + 1):end]
-    end
 end
 
 @testitem "Blocks: a user modifier against a naive loop" setup = [BlockChecks] begin
@@ -106,16 +85,20 @@ end
     @test_throws "needs a multiple of 2 strata, got 3" r(ones(3, 4); history = ones(3, 3))
 end
 
-@testitem "Blocks: group pullbacks against a local Jacobian" setup = [BlockChecks] begin
+@testitem "Blocks: group pullbacks against a local Jacobian" setup = [BlockChecks, ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    (; Move, check_pullback) = BlockChecks
+    (; Move) = BlockChecks
+    (; check_pullback) = ModifierChecks
     mirror(m) = (; a = (; x = zero(m.a.x)))
     flat(m̄) = m̄.a.x
-    @test check_pullback(
+    c = check_pullback(
         θ -> Move(PerStratum(θ)), [0.1, 0.3, 0.5], [2.0, 1.0, 3.0, 0.5, 0.2, 0.1],
-        [0.3, 0.2, 0.1], 1, mirror, flat
+        [0.3, 0.2, 0.1], 1; mirror_of = mirror, flatten = flat
     )
+    @test c.v
+    @test c.s
+    @test c.θ
     # A depletion with a protected pool steps each stratum's value and two
     # pools; its group pullback runs through the default loop.
     pmirror(m) = (;
@@ -129,10 +112,13 @@ end
         protected = CR.Protected(PerStratum(θ[5:6]))
     )
     for removals in (2.0, 70.0, -1.0), heterogeneity in (1.0, 1.4)
-        @test check_pullback(
+        pc = check_pullback(
             build, [100.0, 80.0, heterogeneity, removals, 0.3, 0.5], [3.0, 1.5],
-            [60.0, 50.0, 20.0, 10.0], 1, pmirror, pflat
+            [60.0, 50.0, 20.0, 10.0], 1; mirror_of = pmirror, flatten = pflat
         )
+        @test pc.v
+        @test pc.s
+        @test pc.θ
     end
 end
 
