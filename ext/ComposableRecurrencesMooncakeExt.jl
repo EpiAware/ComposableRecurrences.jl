@@ -5,10 +5,10 @@
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
-using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad, _ad_wide,
-    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
-    _log_plain, _note_plain_type, _rebuild_flag, _run_forward, _run_pullback!,
-    _untraced
+using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
+    _FixedExponent, _ad, _ad_wide, _check_secondary, _current, _fft_convolve!,
+    _fft_convolve_back!, _log_plain, _note_plain_type, _rebuild_flag,
+    _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -16,6 +16,7 @@ using Random: Xoshiro
 const _IEEEFloat = Union{Float16, Float32, Float64}
 const _Inert = Union{
     Nothing, Integer, Symbol, AbstractArray{<:Integer},
+    _FixedExponent,
     AbstractArray{<:AbstractArray{<:Integer}},
 }
 
