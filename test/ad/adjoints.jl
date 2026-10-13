@@ -77,10 +77,14 @@
     plain(x::Diagonal) = Diagonal(plain(x.diag))
     plain(x::AbstractArray) = x
     plain(x::Union{Tuple, NamedTuple}) = map(plain, x)
-    function plain(x)
+    # The walk does not specialise on `x`: inferring it for each nested
+    # type of a deep operator, such as a depletion's tuple of flows, took
+    # minutes on Julia 1.13.
+    function plain(@nospecialize x)
         T = typeof(x)
         isstructtype(T) && fieldcount(T) > 0 || return x
-        return CR.constructorof(T)(ntuple(i -> plain(getfield(x, i)), fieldcount(T))...)
+        fields = Any[plain(getfield(x, i)) for i in 1:fieldcount(T)]
+        return CR.constructorof(T)(fields...)
     end
 
     # `(name, op, args, rtol)` for each AD registry scenario at its starting
