@@ -135,14 +135,7 @@ add_param!(x̄, x::Recent, v, k, t) = _unbound(x)
 end
 
 _check_param(name, x::Recent) = x
-function _check_constant(name, x::Recent)
-    throw(
-        ArgumentError(
-            "$name is one value or PerStratum($name); it does not vary over " *
-                "time, got $(_describe(x))"
-        )
-    )
-end
+_check_constant(name, x::Recent) = _not_constant_error(name, x)
 _float_param(x::Recent) = x
 
 # A `Recent` bound to a call's buffer `H`, whose row `t + o` holds the
@@ -329,11 +322,12 @@ _add_buffer!(::Nothing, v, i, k) = nothing
 
 _check_param(name, x::_BoundRecent) = x
 
-# Whether a value of type `T` holds a `Recent`, from the type alone, so a
-# value without one is left as it is.
-@generated _reads_outputs(x) = _reads_outputs_type(x)
-function _reads_outputs_type(::Type{T}) where {T}
-    T <: Union{Recent, _BoundRecent} && return true
+# Whether a value of type `T` holds a value that `leaf` decides, from the
+# type alone: `leaf(T)` is `true` or `false` for a type it decides and
+# `nothing` otherwise, in which case the fields are walked.
+function _holds_type(leaf, ::Type{T}) where {T}
+    r = leaf(T)
+    r === nothing || return r
     T <: Union{Number, AbstractArray, Nothing, Symbol, AbstractString} &&
         return false
     # Types, modules and functions are leaves, as for `depth`.
@@ -341,20 +335,20 @@ function _reads_outputs_type(::Type{T}) where {T}
     # Mutable objects are not walked, as `depth` does not walk them.
     ismutabletype(T) && return false
     isconcretetype(T) && isstructtype(T) || return false
-    return any(_reads_outputs_type, fieldtypes(T))
+    return any(F -> _holds_type(leaf, F), fieldtypes(T))
 end
+
+# Whether a value of type `T` holds a `Recent`, so a value without one is
+# left as it is.
+@generated _reads_outputs(x) = _holds_type(_outputs_leaf, x)
+_outputs_leaf(::Type{T}) where {T} = T <: Union{Recent, _BoundRecent} || nothing
 
 # Whether a value of type `T` holds a `Recent` with a coupling, which reads
 # other strata's outputs, so the strata cannot run on their own.
-@generated _reads_across(x) = _reads_across_type(x)
-function _reads_across_type(::Type{T}) where {T}
-    T <: Recent && return !(fieldtype(T, :coupling) <: Nothing)
-    T <: Union{Number, AbstractArray, Nothing, Symbol, AbstractString} &&
-        return false
-    T <: Union{Type, Module, Function} && return false
-    ismutabletype(T) && return false
-    isconcretetype(T) && isstructtype(T) || return false
-    return any(_reads_across_type, fieldtypes(T))
+@generated _reads_across(x) = _holds_type(_across_leaf, x)
+function _across_leaf(::Type{T}) where {T}
+    T <: Recent || return nothing
+    return !(fieldtype(T, :coupling) <: Nothing)
 end
 
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
