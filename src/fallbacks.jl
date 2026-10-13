@@ -189,18 +189,45 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
 end
 
 # A coupling's pullback at one step: its own when it uses one, else the
-# local derivative. Adds into `p̄`.
-function _pressure_back!(p̄, C̄, C, q̄, p, t)
-    return _pressure_back!(Val(uses_adjoint(C, Pressure())), p̄, C̄, C, q̄, p, t)
+# local derivative, which takes its dual numbers from `bufs`
+# (`_pressure_buffers`). Adds into `p̄`.
+function _pressure_back!(p̄, C̄, C, q̄, p, t, bufs = nothing)
+    return _pressure_back!(Val(uses_adjoint(C, Pressure())), p̄, C̄, C, q̄, p, t, bufs)
 end
-function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t)
+function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     _call_pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
     return nothing
 end
-function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t)
-    θ = C̄ === nothing ? () : _param_tuple(C)
-    return _local_pressure!(p̄, C̄, C, q̄, p, t, θ)
+function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
+    return _local_pressure!(p̄, C̄, C, q̄, p, t, _pressure_scalars(C̄, C), bufs)
 end
+_pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
+
+# The dual-number buffers of a coupling's local derivative, made once per
+# reverse pass so a step allocates nothing: a pair of vectors for each
+# number of partials, sized on first use; `nothing` for a coupling with its
+# own pullback. A step whose dual type is not among them allocates its own.
+function _pressure_buffers(C̄, C, Tp)
+    return _pressure_buffers(Val(uses_adjoint(C, Pressure())), C̄, C, Tp)
+end
+_pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
+function _pressure_buffers(::Val{false}, C̄, C, Tp)
+    T = float(promote_type(Tp, map(typeof, _pressure_scalars(C̄, C))...))
+    pair(N) = (D -> (D[], D[]))(_pressure_dual(T, N))
+    return (pair(Val(4)), pair(Val(8)), pair(Val(_LOCAL_PRESSURE)))
+end
+function _pressure_dual(T, ::Val{N}) where {N}
+    return ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_pressure!, T)), T, N}
+end
+_dual_buffers(::Tuple{}, ::Type{D}, S) where {D} = (Vector{D}(undef, S), Vector{D}(undef, S))
+_dual_buffers(::Nothing, ::Type{D}, S) where {D} = _dual_buffers((), D, S)
+function _dual_buffers(
+        bufs::Tuple{Tuple{Vector{D}, Vector{D}}, Vararg}, ::Type{D}, S
+    ) where {D}
+    pd, qd = first(bufs)
+    return resize!(pd, S), resize!(qd, S)
+end
+_dual_buffers(bufs::Tuple, ::Type{D}, S) where {D} = _dual_buffers(Base.tail(bufs), D, S)
 
 # Default pullback of a coupling without its own: the local `ForwardDiff`
 # derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
@@ -210,19 +237,19 @@ end
 # through `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
 const _LOCAL_PRESSURE = 12
 const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
-function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple)
+function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple, bufs = nothing)
     n = length(p) + length(θ)
-    n <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ)
-    n <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ)
-    return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ)
+    n <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ, bufs)
+    n <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ, bufs)
+    return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs)
 end
 function _local_pressure!(
-        ::Val{N}, p̄, C̄, C, q̄, p, t, θ::NTuple{P, Any}
+        ::Val{N}, p̄, C̄, C, q̄, p, t, θ::NTuple{P, Any}, bufs
     ) where {N, P}
     T = float(promote_type(eltype(p), map(typeof, θ)...))
-    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_pressure!, T)), T, N}
+    D = _pressure_dual(T, Val(N))
     S = length(p)
-    pd, qd = Vector{D}(undef, S), Vector{D}(undef, S)
+    pd, qd = _dual_buffers(bufs, D, S)
     for o in 0:N:(S + P - 1)
         for i in 1:S
             @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
