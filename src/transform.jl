@@ -11,10 +11,8 @@ v'_i = f(v_i, \theta_{t,i}), \qquad s'_i = s_i,
 where ``v_i`` is the stratum's value when the modifier is reached (after
 the modifiers before it in the tuple), ``v'_i`` its value after, and
 ``s_i`` the unused state.
-``\theta_{t,i}`` is `θ` read at stratum ``i`` and absolute time ``t``, as
-every modifier parameter is: one value ``\theta``, `PerStratum(θ)` giving
-``\theta_i``, `TimeVarying(θ)` giving ``\theta_t``, or
-`TimeVarying(PerStratum(θ))` giving ``\theta_{t,i}``.
+``\theta_{t,i}`` is the [parameter](@ref ComposableRecurrences.param)
+`θ` read at stratum ``i`` and time ``t``.
 A tuple or NamedTuple of these is read entry by entry, so `f` receives a
 tuple or NamedTuple of scalars.
 Without `θ` the map is ``v'_i = f(v_i)``.
