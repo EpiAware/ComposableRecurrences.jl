@@ -40,8 +40,8 @@ The depletion's state holds ``u`` for every stratum, then ``w``.
   constant over time.
 
 # Keyword Arguments
-- `pool0`: the starting protected pool, one value or `PerStratum`; `0` by
-  default.
+- `pool0`: the starting protected pool, one value or `PerStratum`; empty by
+  default, in the element type of the depletion's state.
 
 # Examples
 ```jldoctest
@@ -74,11 +74,20 @@ struct Protected{Σ, V0}
     pool0::V0
 end
 
-function Protected(σ; pool0 = 0)
+# The default `pool0 = nothing` is an empty pool, written into the state as
+# zero of the state's element type, so it does not promote a model.
+function Protected(σ; pool0 = nothing)
     σ = _float_param(_check_constant(:σ, σ))
-    pool0 = _float_param(_check_constant(:pool0, pool0))
+    pool0 = pool0 === nothing ? nothing :
+        _float_param(_check_constant(:pool0, pool0))
     return Protected{typeof(σ), typeof(pool0)}(σ, pool0)
 end
+
+# The starting protected pool at stratum `k`, and its cotangent.
+_protected0(::Nothing, k) = false
+_protected0(V0, k) = param(V0, k, 1)
+_add_protected0!(V̄0, ::Nothing, x, k) = nothing
+_add_protected0!(V̄0, V0, x, k) = add_param!(V̄0, V0, x, k, 1)
 
 # Removals of any parameter form; `_Depleting` takes `Nothing` removals.
 const _Removing = Depletion{<:Any, <:Any, <:Any, <:Any, <:Any, Nothing}
@@ -156,7 +165,7 @@ end
 
 function _pools0_body!(k, s, m, S)
     s[k] = _pool0(m, k)
-    s[S + k] = param(m.protected.pool0, k, 1)
+    s[S + k] = _protected0(m.protected.pool0, k)
     return nothing
 end
 
@@ -166,7 +175,7 @@ function pullback!(grads, m::_Protecting, ::Init, s, history)
     V̄0 = cotangent(cotangent(grads.piece, :protected), :pool0)
     for k in 1:S
         _add_pool0!(grads.piece, m, s̄[k], k)
-        add_param!(V̄0, m.protected.pool0, s̄[S + k], k, 1)
+        _add_protected0!(V̄0, m.protected.pool0, s̄[S + k], k)
     end
     return nothing
 end
