@@ -226,6 +226,25 @@
                 CR._Contributions(Convolution(TimeVarying([rand(rng, mod(τ, 4)) for τ in 1:T]))),
                 (R[1, :], rand(rng, T), h[1, :], 2, nothing),
             ),
+            # A late start leaves the inputs no output reads out of the
+            # buffer: all of the history, or all but its last times.
+            (
+                "delay from a start past the history",
+                Convolution(rand(rng, 3)), (R, true, nothing, h, 5, nothing),
+            ),
+            (
+                "delay with part of the history in reach",
+                Convolution(rand(rng, 3)), (R[1, :], true, nothing, h[1, :], 2, nothing),
+            ),
+            (
+                "time-varying delay indexed by input from a late start",
+                Convolution(TimeVarying(rand(rng, 3, T), CR.Primary())),
+                (R, true, nothing, nothing, 4, nothing),
+            ),
+            (
+                "lag contributions from a late start",
+                CR._Contributions(Convolution(rand(rng, 3))), (R, true, h, 5, nothing),
+            ),
         ]
         rng = Xoshiro(21)
         S, L, T = 3, 4, 8
@@ -318,21 +337,30 @@
         return [registry_cases(); extras]
     end
 
-    # Runs `test_adjoint` on `case` for the backend named `name`. A registry
-    # scenario marked broken there runs in a testset that only records
-    # whether every check passed, as one `@test_broken` while it fails.
-    function test_adjoint_case(name, backend, case; kwargs...)
-        label, op, args = case
+    # Runs `check()` in a testset named `label`, for the backend named
+    # `name`. A registry scenario marked broken there runs in a testset that
+    # only records whether every check passed, as one `@test_broken` while
+    # it fails.
+    function scenario_testset(check, name, label)
         broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
         if label in broken || label in ADFixtures.broken_scenario_names()
             probe = @testset Probe "$label" begin
-                CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
+                check()
             end
             probe.ok ? (@test probe.ok) : (@test_broken probe.ok)
         else
             @testset "$label" begin
-                CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
+                check()
             end
+        end
+        return nothing
+    end
+
+    # Runs `test_adjoint` on `case` for the backend named `name`.
+    function test_adjoint_case(name, backend, case; kwargs...)
+        label, op, args = case
+        scenario_testset(name, label) do
+            CR.test_adjoint(backend, op, CR.Run(), args...; kwargs...)
         end
         return nothing
     end
@@ -362,12 +390,13 @@
     # Each registry scenario's gradient on `backend` runs the analytic
     # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
     # scenario. In one CI job the gradients reuse the code the backend's
-    # registry item compiled.
+    # registry item compiled. A scenario marked broken on the backend is
+    # recorded as broken while it fails, as in `test_adjoint_case`.
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
         for scen in ADFixtures.scenarios()
             scen.name in skip && continue
-            @testset "$(scen.name)" begin
+            scenario_testset(name, scen.name) do
                 CR._PULLBACK_CALLS[] = 0
                 DifferentiationInterface.gradient(scen.f, backend, scen.x)
                 @test (CR._PULLBACK_CALLS[] > 0) == !startswith(scen.name, "NoAdjoint")
@@ -540,7 +569,8 @@ end
     end
 end
 
-@testitem "Enzyme: test_adjoint on each operator" tags = [:ad, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme: test_adjoint on each operator" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
     for case in adjoint_cases()
@@ -555,7 +585,8 @@ end
     test_rules_fire("Mooncake reverse", AutoMooncake(; config = nothing))
 end
 
-@testitem "Enzyme reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme
     test_rules_fire(
@@ -821,7 +852,8 @@ end
     ) == [Val{:plain}]
 end
 
-@testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse, :compat_floor] setup = [UserTypes] begin
     using ADTypes: AutoMooncake, AutoEnzyme
     import Mooncake, Enzyme, EnzymeTestUtils
     using LinearAlgebra

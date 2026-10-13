@@ -125,6 +125,12 @@ end
 # modifiers, the add input and the gain; returns the pressure's cotangent.
 @inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
     v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, H̄[D + t, k], τ, t, k)
+    return _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
+end
+
+# The value's cotangent `v̄k` back through the add input and the gain;
+# returns the pressure's cotangent.
+@inline function _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
     _add_slot!(acc.ādd, v̄k, k, τ)
     _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
     return _at(gain, k, τ) * v̄k
@@ -156,9 +162,7 @@ function _steps_back!(
             end
             _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
             for k in 1:S
-                _add_slot!(acc.ādd, v̄[k], k, τ)
-                _add_slot!(acc.ḡain, v̄[k] * _pressure(coupling, pr, k, t), k, τ)
-                q̄[k] = _at(gain, k, τ) * v̄[k]
+                q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
             end
         end
         _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)

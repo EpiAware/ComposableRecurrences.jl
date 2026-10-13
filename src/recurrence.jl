@@ -1014,15 +1014,17 @@ function _series_body!(
     for t in 1:T
         τ = τ0 + t - 1
         for k in ks
-            x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
-            H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
+            _step_body!(
+                k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t,
+                τ, L, D
+            )
         end
     end
     return nothing
 end
 
 # Stratum `k` at step `t`, through pointwise modifiers to the buffer.
-function _step_body!(
+@inline function _step_body!(
         k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L, D
     )
     x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
