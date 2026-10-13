@@ -1157,6 +1157,10 @@ end
     C = ToFirst(0.3, 0.9f0, 2)
     @test CR._coupling_adjoint(C) === :local
     @test CR._param_tuple(C) == (0.3, 0.9f0)
+    function step_allocations(p̄, C̄, C, q̄, p, bufs)
+        CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
+        return @allocated CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
+    end
     # One pass of 4, 8 or 12 partials, and more than one when called
     # directly with more inputs.
     rng = Xoshiro(5)
@@ -1176,7 +1180,17 @@ end
         p̄ = zeros(S)
         CR._pressure_back!(p̄, nothing, C, q̄, p, 4)
         @test p̄ ≈ ref[1:S]
+        # With the reverse pass's buffers the step gives the same and,
+        # once they are sized, allocates nothing.
+        bufs = CR._pressure_buffers(C̄, C, Float64)
+        p̄ = fill(1.0, S)
+        C̄ = (; a = Ref(0.0), c = Ref(0.0f0), n = nothing)
+        CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
+        @test p̄ ≈ 1 .+ ref[1:S]
+        @test [C̄.a[], C̄.c[]] ≈ ref[(S + 1):end] rtol = 1.0e-6
+        @test step_allocations(p̄, C̄, C, q̄, p, bufs) == 0
     end
+    @test CR._pressure_buffers(nothing, [0.9 0.1; 0.2 0.8], Float64) === nothing
     # Through a recurrence the rule matches ForwardDiff.
     r = Recurrence([0.3, 0.2]; coupling = C)
     @test pullback_matches(r, recargs(ones(3, 6), nothing, ones(3, 2))...; rtol = 1.0e-6)

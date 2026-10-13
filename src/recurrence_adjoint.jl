@@ -141,6 +141,7 @@ function _steps_back!(
     v̄ = _zeros(H, Tp, S)
     p̄ = _zeros(H, Tp, S)
     q̄ = _zeros(H, Tp, S)
+    pbufs = _pressure_buffers(_own(acc.C̄), coupling, Tp)
     for t in T:-1:1
         τ = τ0 + t - 1
         _refresh!(ms, D + t)
@@ -160,7 +161,7 @@ function _steps_back!(
                 q̄[k] = _at(gain, k, τ) * v̄[k]
             end
         end
-        _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ)
+        _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
         _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t + D - L, τ, L)
         _flush!(ms)
     end
@@ -254,15 +255,15 @@ end
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
-function _coupling_back!(p̄, C̄, C::_PointwiseCoupling, q̄, pr, t, τ)
+function _coupling_back!(p̄, C̄, C::_PointwiseCoupling, q̄, pr, t, τ, pbufs)
     for k in eachindex(p̄)
         p̄[k] = _coupling_back_at(C̄, C, q̄[k], pr, t, k)
     end
     return p̄
 end
-function _coupling_back!(p̄, C̄, C, q̄, pr, t, τ)
+function _coupling_back!(p̄, C̄, C, q̄, pr, t, τ, pbufs)
     fill!(p̄, zero(eltype(p̄)))
-    _pressure_back!(p̄, C̄, C, q̄, view(pr.P, :, t), τ)
+    _pressure_back!(p̄, C̄, C, q̄, view(pr.P, :, t), τ, pbufs)
     return p̄
 end
 
