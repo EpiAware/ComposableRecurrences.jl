@@ -455,7 +455,7 @@ end
 function _kdot(g::Union{_TVColumns{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
     @inbounds @simd for i in _lags(g, τ, L)
-        acc += _weight(g, a, a, i, τ - i) * H[t + L - i, a]
+        acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
 end
@@ -1009,16 +1009,26 @@ _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * pr.P[k, t]
 # overlaps those waits; stratum outermost measured slower even though each
 # stratum's buffer column is contiguous.
 function _series_body!(
-        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D, T
+        ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
+        D, T
     )
-    for t in 1:T
-        τ = τ0 + t - 1
-        for k in ks
-            _step_body!(
-                k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t,
-                τ, L, D
-            )
-        end
+    _steps!(
+        _series_step!, ex, T,
+        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D
+    )
+    return nothing
+end
+
+# Step `t` of the independent strata `ks`.
+@inline function _series_step!(
+        t, ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D
+    )
+    τ = τ0 + t - 1
+    for k in ks
+        _step_body!(
+            k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ,
+            L, D
+        )
     end
     return nothing
 end
@@ -1041,6 +1051,36 @@ end
 # Stratum `k`'s value after the modifiers' vector Step, into buffer row `row`.
 function _store_body!(k, H, v, row)
     H[row, k] = v[k]
+    return nothing
+end
+
+# Step `t` of strata that read one another: the pressures, then each
+# stratum's value, through the modifiers to the buffer.
+@inline function _coupled_step!(
+        t, ex, across, H, v, pr, gain, add, coupling, kernel, p, q, modifiers,
+        states, rec, τ0, L, D, S, work
+    )
+    τ = τ0 + t - 1
+    across && _refresh!(modifiers, D + t)
+    _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
+    if _all_pointwise(modifiers)
+        _each!(
+            _step_body!, ex, H, S, work,
+            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec, t,
+            τ, L, D
+        )
+    else
+        _each!(
+            _value_body!, ex, H, S, work,
+            v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D
+        )
+        if rec === nothing
+            _stages!(modifiers, states, v, τ)
+        else
+            _stages_rec!(modifiers, states, rec, v, τ, t)
+        end
+        _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
+    end
     return nothing
 end
 
@@ -1073,8 +1113,7 @@ function _run(
 end
 
 function _run(
-        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
-        T, ::Val{record}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record}
     ) where {Tp, record}
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
@@ -1097,36 +1136,18 @@ function _run(
     if _independent(coupling, kernel, modifiers)
         _blocks!(
             _series_body!, ex, H, S, T * work,
-            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
+            ex, H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
             τ0, L, D, T
         )
     else
         # Parameters that read across strata fill their windows once per
         # step; the check is made once, outside the loop.
         across = _reads_across(modifiers)
-        for t in 1:T
-            τ = τ0 + t - 1
-            across && _refresh!(modifiers, D + t)
-            _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
-            if _all_pointwise(modifiers)
-                _each!(
-                    _step_body!, ex, H, S, work,
-                    H, pr, gain, add, coupling, kernel, p, q, modifiers, states,
-                    rec, t, τ, L, D
-                )
-            else
-                _each!(
-                    _value_body!, ex, H, S, work,
-                    v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D
-                )
-                if record
-                    _stages_rec!(modifiers, states, rec, v, τ, t)
-                else
-                    _stages!(modifiers, states, v, τ)
-                end
-                _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
-            end
-        end
+        _steps!(
+            _coupled_step!, ex, T,
+            ex, across, H, v, pr, gain, add, coupling, kernel, p, q, modifiers,
+            states, rec, τ0, L, D, S, work
+        )
     end
     Y = _public(H, (D + 1):(D + T), h)
     # The cache holds copies of the inputs the reverse pass reads, so a

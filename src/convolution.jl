@@ -420,7 +420,7 @@ function _conv_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where 
 end
 
 function _conv_buffers(
-        ::Type{Tp}, ex::Union{Serial, _Current}, kernel, x, history, m, S, start, stop
+        ::Type{Tp}, ex, kernel, x, history, m, S, start, stop
     ) where {Tp}
     X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
