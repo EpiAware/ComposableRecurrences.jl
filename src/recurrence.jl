@@ -89,10 +89,9 @@ it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
-The constructor checks the parts its types send to the local step (a
-coupling or modifier without a `pullback!`) and stores whether each
-rebuilds, in the field `rebuilds`; one that does not sends the operator's
-gradients to plain AD (see [Gradient routes](@ref extending-routes)).
+The constructor checks once whether the local step can rebuild every
+part it differentiates and stores the result in the field `rebuilds`; see
+[Rules and plain AD](@ref adjoint-routing) for the route this sets.
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
@@ -139,8 +138,15 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
         _check_secondary(coupling, modifiers)
-        rebuilds = _check_parts(kernel, coupling, modifiers)
-        return new{K, C, M, typeof(rebuilds)}(kernel, coupling, modifiers, rebuilds)
+        return Recurrence(
+            _Checked(), kernel, coupling, modifiers,
+            _check_parts(kernel, coupling, modifiers)
+        )
+    end
+    function Recurrence(
+            ::_Checked, kernel::K, coupling::C, modifiers::M, rebuilds::B
+        ) where {K, C, M <: Tuple, B}
+        return new{K, C, M, B}(kernel, coupling, modifiers, rebuilds)
     end
 end
 
@@ -662,8 +668,8 @@ function _all_modifiers_adjoint(ms::Tuple)
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel, and the names of what keeps it from
-# doing so; routes add their couplings.
+# Whether the rule covers the kernel, and why not; routes add their
+# couplings.
 _kernel_adjoint(kernel) = true
 _no_adjoint_kernel(kernel) = ()
 
@@ -692,23 +698,21 @@ end
 # send no part to the local step, so the route folds; otherwise whether
 # each part the local step rebuilds gives its scalars back
 # (`_check_rebuild`). An operator the rule does not cover, by its types or
-# by a part that does not rebuild, says so once per type.
+# by a part that does not rebuild, says why once.
 function _check_parts(kernel, C, ms::Tuple)
     if !_parts_adjoint(kernel, C, ms)
-        C_name = _coupling_adjoint(C) === :none ? (nameof(typeof(C)),) : ()
-        names = (_no_adjoint_kernel(kernel)..., C_name..., _no_adjoint(ms...)...)
-        _note_plain(kernel, C, ms, names, "without a pullback! the rule can use")
+        C_why = _coupling_adjoint(C) === :none ? (_part_why(C),) : ()
+        _note_plain((_no_adjoint_kernel(kernel)..., C_why..., _no_adjoint(ms...)...))
         return Val(true)
     end
-    return _check_rebuilds(kernel, C, ms, (_local_part(C)..., _local_parts(ms...)...))
+    return _check_rebuilds((_local_part(C)..., _local_parts(ms...)...))
 end
-_check_rebuilds(kernel, C, ms, ::Tuple{}) = Val(true)
-function _check_rebuilds(kernel, C, ms, parts::Tuple)
+_check_rebuilds(::Tuple{}) = Val(true)
+function _check_rebuilds(parts::Tuple)
     failed = filter(!_check_rebuild, parts)
     isempty(failed) && return true
     _note_plain(
-        kernel, C, ms, map(p -> nameof(typeof(p)), failed),
-        "that the local step cannot rebuild from its own parameters"
+        map(p -> "$(nameof(typeof(p))) cannot be rebuilt from its own parameters", failed)
     )
     return false
 end
@@ -727,25 +731,34 @@ function _local_modifier(m::Depletion)
     return local_form ? (f,) : ()
 end
 
-const _PLAIN_NOTED = Set{Any}()
+# Keyed on the message, so the same parts with other number types, dual
+# numbers included, log nothing more.
+const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(kernel, C, ms, names, why)
-    T = typeof((kernel, C, ms))
-    new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
+function _note_plain(whys)
+    msg = "Recurrence gradients use plain AD of the whole operator: " *
+        join(unique(whys), "; ")
+    new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
     new || return nothing
-    @info "Recurrence has a coupling, modifier or depletion form " *
-        "($(join(unique(names), ", "))) $why, so gradients of it use plain " *
-        "AD of the whole operator"
+    @info msg
     return nothing
 end
 _no_adjoint() = ()
 function _no_adjoint(m, ms...)
     rest = _no_adjoint(ms...)
     _modifier_adjoint(m) === :none || return rest
-    return (_part_name(m), rest...)
+    return (_part_why(m), rest...)
 end
-_part_name(m) = nameof(typeof(m))
-_part_name(m::Depletion) = _form_adjoint(m.form) ? :Depletion : nameof(typeof(m.form))
+# Why the rule cannot use part `m`, naming the leaf that stops it.
+function _part_why(m)
+    name = nameof(typeof(m))
+    _derived_local(m) || return "$name has a Derived map that holds floats"
+    return "$name has no pullback! the rule can use"
+end
+function _part_why(m::Depletion)
+    _form_adjoint(m.form) && return "Depletion has a Derived map that holds floats"
+    return _part_why(m.form)
+end
 
 # How many passes of dual numbers a coupling's local derivative needs per
 # step: one while the strata and its scalars fit in one (`_LOCAL_PRESSURE`),

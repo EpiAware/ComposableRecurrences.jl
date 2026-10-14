@@ -213,7 +213,7 @@ end
     @test CR.uses_adjoint(with, CR.Run())
     @test !CR.uses_adjoint(without, CR.Run())
     empty!(CR._PLAIN_NOTED)
-    @test_logs (:info, r"\(Halve\) without a pullback!") Recurrence(
+    @test_logs (:info, r"Halve has no pullback!") Recurrence(
         Routes((fill(0.2, 3, 3), g), (Halve(), g))
     )
     @test without(ones(3, 4); history = ones(3, 2)) ≈

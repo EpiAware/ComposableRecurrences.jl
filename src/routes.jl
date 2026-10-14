@@ -182,7 +182,10 @@ end
 
 # The plain-AD note names the route couplings without a pullback.
 function _no_adjoint_kernel(R::Routes)
-    return Tuple(nameof(typeof(C)) for C in R.couplings if !uses_adjoint(C, Pressure()))
+    return Tuple(
+        "$(nameof(typeof(C))) has no pullback! the rule can use"
+            for C in R.couplings if !uses_adjoint(C, Pressure())
+    )
 end
 
 # The routes as a run reads them: the couplings, each kernel oldest first

@@ -34,10 +34,11 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
 The local step rebuilds a part with dual numbers in place of its float parameters; [Gradient routes](@ref extending-routes) gives the contract that needs.
-Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step, and above 24 more than two.
+Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
-The `Recurrence` constructor logs an `@info`, once per operator type, when one of these parts sends the operator to plain AD, naming the coupling, modifier or depletion form that caused it.
-A call sent to plain AD by the strata limit of a coupling's local step, or by its float or array types, logs nothing.
+The `Recurrence` constructor logs an `@info` when one of these parts sends the operator to plain AD, naming the part and the reason.
+It logs each message once per session, whatever the number types.
+A call sent to plain AD by its number of strata, or by its float or array types, logs nothing.
 
 ## [Backends](@id adjoint-backends)
 

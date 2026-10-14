@@ -562,20 +562,32 @@ end
     # The constructor notes, once per type, the part that sends the
     # operator there.
     note(; kwargs...) = (empty!(CR._PLAIN_NOTED); Recurrence(g; kwargs...))
-    @test_logs (:info, r"\(Scale\) without a pullback!") note(modifiers = (Scale(0.9),))
+    @test_logs (:info, r"Scale has no pullback!") note(modifiers = (Scale(0.9),))
     @test_logs Recurrence(g; modifiers = (Scale(0.9),))
-    @test_logs (:info, r"\(Mix\)") note(coupling = Mix(K, [1.0, 1.0]))
-    @test_logs (:info, r"\(PoolDepletion\)") note(
+    @test_logs (:info, r"Mix has no pullback!") note(coupling = Mix(K, [1.0, 1.0]))
+    @test_logs (:info, r"PoolDepletion has no pullback!") note(
         modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0]))
     )
     @test_logs note(modifiers = (CR.Clamp(0.0, 9.0),))
+    # The note is once per message, so other number types log nothing more.
+    @test_logs Recurrence(g; modifiers = (Scale(ForwardDiff.Dual(0.9, 1.0)),))
+    # A `Derived` map that holds floats is named as the cause.
+    scaled = let c = 2.0
+        x -> c * x
+    end
+    @test_logs (:info, r"Add has a Derived map that holds floats") note(
+        modifiers = (CR.Add(Derived(scaled, 0.5)),)
+    )
+    @test_logs (:info, r"Depletion has a Derived map that holds floats") note(
+        modifiers = (CR.Depletion(Derived(scaled, 25.0)),)
+    )
     # A depletion is named by its form when the form has no adjoint.
     struct VecForm
         w::Vector{Float64}
     end
     CR.forward(f::VecForm, ::CR.Step, v, s, N, α) = (y = min(v * f.w[1], s); (y, s - y))
-    @test CR._part_name(CR.Depletion(50.0)) === :Depletion
-    @test CR._part_name(CR.Depletion(50.0, VecForm([1.0]))) === :VecForm
+    @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
+        "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
     @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
     # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
@@ -765,7 +777,7 @@ end
     end
     CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
     empty!(CR._PLAIN_NOTED)
-    op = @test_logs (:info, r"\(DoubledRate\) that the local step cannot rebuild") Recurrence(
+    op = @test_logs (:info, r"DoubledRate cannot be rebuilt") Recurrence(
         g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),)
     )
     @test !CR.uses_adjoint(op, CR.Run())

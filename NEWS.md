@@ -9,7 +9,6 @@
 - `start = nothing` is an `ArgumentError`.
   Leave `start` out for the step after the history or the state, or pass an integer; a resumed call may pass `start = state.t`.
 - Calling `pullback!` on a modifier without its own method is a `MethodError`, as the generic `Step()` methods are now internal ([extending][extending]).
-- A part whose `uses_adjoint` is `true` but which has no `pullback!` method for the call's arguments raises that call's `MethodError` in the reverse pass, not an `ArgumentError`.
 - `PieceInterface` has a mandatory `adjoint` component, which fails for a `pullback!` the rules cannot find (typed `grads` or typed arguments after the role) unless the type declares `uses_adjoint`.
 - A coupling or modifier holding `TimeVarying(x, Primary())` throws when the `Recurrence` is built, not at its first call.
 - A call on device arrays (GPU arrays, such as `CuArray` or `JLArray`) whose kernel, coupling, modifier parameters, gain or add input, or resumed state holds a host array is now an `ArgumentError`.
@@ -46,15 +45,14 @@
   A ragged `TimeVarying` kernel runs there too, with its column offsets on the device.
   The GPU arrays section of the adjoints and backends explanation says how each part runs on a device.
 - `Recurrence` and `Convolution` have native reverse rules for Mooncake and Enzyme, and `NoAdjoint(op)` runs the same call through plain AD ([adjoints and backends][adjoints]).
-- A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow, and the plain-AD note names the part that has none.
+- A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow.
+  The `Recurrence` constructor logs, once, the part that sends an operator to plain AD; a `true` `uses_adjoint` with no matching `pullback!` is a `MethodError`.
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
 - Extensions for Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 
 ### Changed
 
-- The note that an operator's gradients use plain AD of the whole operator is logged when the `Recurrence` is built, once per operator type, not at its first reverse-mode gradient ([adjoints and backends][adjoints]).
-  A coupling's local step sent to plain AD by its number of strata is not logged.
 - ConstructionBase and ForwardDiff are hard dependencies.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.

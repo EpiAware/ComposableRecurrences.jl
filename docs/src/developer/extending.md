@@ -74,11 +74,11 @@ The local step rebuilds the type with dual numbers through `ConstructionBase.con
 - read a `PerStratum` or `TimeVarying` parameter of a pointwise modifier through `param` at the step's own `k` and `t`, as `param(m.κ, k, t)`, since the local step passes the one entry the step reads.
 
 The `Recurrence` constructor checks this once, by rebuilding each such part from its own parameters.
-A part that fails sends the operator's gradients to plain AD, and the constructor logs an `@info` naming it.
+A part that fails sends the operator's gradients to plain AD, with a [logged note](@ref adjoint-routing).
 A step that reads another stratum or time of such a parameter is not caught by the check and gets the wrong entry, so it needs a `pullback!`.
 A closure that captures a float, or a float array not read through `param`, sends the operator to plain AD.
 Integer fields, index ranges and integer arrays are structure, not parameters.
-A coupling over more strata than the route table's limit for its backend needs a `pullback!` to take the rule.
+A coupling over more strata than the [route table](@ref adjoint-routing)'s limit for its backend needs a `pullback!` to take the rule.
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 
