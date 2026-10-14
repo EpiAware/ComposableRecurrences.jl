@@ -282,16 +282,17 @@ param_eltype(m::Allocate) = promote_type(param_eltype(m.total), param_eltype(m.i
 
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
-_nslots(::_AllocateImports{<:Any, <:Any, Nothing}) = 1
-_nslots(::_AllocateImports) = 2
-nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m.imports) * S
+nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
 
 function forward(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))
     fill!(s, zero(eltype(s)))
     return nothing
 end
-_nslots(m::Allocate) = m.imports === nothing ? 1 : _nslots(m.imports)
+function _nslots(m::Allocate)
+    m.imports === nothing && return 1
+    return m.imports.spill === nothing ? 1 : 2
+end
 _check_imports(::Nothing, S) = nothing
 function _check_imports(im::_AllocateImports, S)
     _check_coupling(im.pattern, S)
