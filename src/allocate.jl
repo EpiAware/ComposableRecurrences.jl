@@ -37,8 +37,9 @@ where ``M_t`` is the step of a [`ComposableRecurrences.Redistribute`](@ref)
 A group whose pattern sum is at or below ``\epsilon`` takes all of its
 total by ``u``, so ``v'_i = T_{t,p} u_i / \sigma^u_p``.
 The group sums of ``v'`` still equal the totals.
-Placing the spill before `Allocate` instead would make the pattern read the
-spilled values.
+Use `spill` only when the pattern must read the values from before the
+spill; otherwise place the `Redistribute` before `Allocate` in the modifier
+tuple.
 It is meant for non-negative values: a group sum at or below zero is
 floored to ``\epsilon``.
 The groups partition the strata; a stratum in no group is an
@@ -359,8 +360,8 @@ function forward(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     (; fraction, pattern, spill) = m.imports
     S = length(v)
     h = view(s, (length(s) - S + 1):length(s))
-    u = _spill!(spill, view(s, 1:S), h, v, t)
-    _pattern!(h, pattern, v, t)
+    u = _spill!(spill, view(s, 1:S), v, t)
+    forward(pattern, Pressure(), h, v, t)
     strata, offsets = _like(v, m.strata), _like(v, m.offsets)
     _each!(
         _import_body!, Serial(), v, _ngroups(m), length(v),
@@ -369,50 +370,15 @@ function forward(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     return nothing
 end
 
-# The pattern `h = P v`, the coupling's own product. The step's products
-# are loops rather than BLAS calls, so forward-mode AD can differentiate
-# them.
-_pattern!(h, P, v, t) = forward(P, Pressure(), h, v, t)
-
-# The spilled values `u = (1 − ε ∘ o) ∘ v + K' (ε ∘ v)`, with `K'` the
-# kernel off its diagonal and `o` its column sums; `tmp` is a scratch
-# vector. A dense kernel takes one product, any other the spill's own
-# loops.
-_spill!(::Nothing, u, tmp, v, t) = v
-function _spill!(r::Redistribute{<:Matrix}, u, tmp, v, t)
-    (; K, ε) = r
-    for q in eachindex(u, v)
-        u[q] = param(ε, q, t) * v[q]
-    end
-    forward(K, Pressure(), tmp, u, t)
-    for q in eachindex(u, v)
-        εq = param(ε, q, t)
-        u[q] = (1 - εq * _dense_outflow(K, q)) * v[q] + tmp[q] - K[q, q] * u[q]
-    end
-    return u
-end
-function _spill!(r::Redistribute, u, tmp, v, t)
+# The spilled values `u`, the spill's own step written to `u` rather than
+# to `v`.
+_spill!(::Nothing, u, v, t) = v
+function _spill!(r::Redistribute, u, v, t)
     (; K, ε) = r
     S = length(v)
-    _each!(_arrivals_body!, Serial(), v, S, S * S, u, v, K, ε, t)
-    _each!(_spilled_body!, Serial(), v, S, S * S, u, v, K, ε, t)
+    _arrivals!(u, K, ε, v, t)
+    _each!(_redistribute_body!, Serial(), v, S, S * S, u, v, u, K, ε, t)
     return u
-end
-
-# Origin `q`'s outflow from a dense kernel: the column sum, which
-# vectorises, less the diagonal.
-function _dense_outflow(K::Matrix, q)
-    acc = zero(eltype(K))
-    @inbounds @simd for r in axes(K, 1)
-        acc += K[r, q]
-    end
-    return acc - K[q, q]
-end
-
-# Stratum `p` after its outflow, with its arrivals already in `u[p]`.
-function _spilled_body!(p, u, v, K, ε, t)
-    u[p] += (1 - param(ε, p, t) * _outflow(K, p)) * v[p]
-    return nothing
 end
 
 function _import_body!(p, v, u, h, strata, offsets, total, fraction, t)
@@ -442,8 +408,8 @@ end
 
 # Per group, with `a_u = Σ ȳ_k u_k / s_u` and `a_h = Σ ȳ_k h_k / s_h`:
 # `ū_k = c_u (ȳ_k − a_u)` and `h̄_k = c_h (ȳ_k − a_h)`, then `ū` goes back
-# through the spill and `h̄` through the pattern, each one transposed
-# product. `u` and `h` are computed again from the input, once.
+# through the spill's pullback and `h̄` through the pattern's, each one
+# transposed product. `u` and `h` are computed again from the input, once.
 function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     (; fraction, pattern, spill) = m.imports
     v̄, s̄ = grads.v, grads.s
@@ -453,8 +419,8 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
     T̄, φ̄ = cotangent(grads.piece, :total), cotangent(īm, :fraction)
     buf = similar(v, 2S)
     h = view(buf, (S + 1):(2S))
-    u = _spill!(spill, view(buf, 1:S), h, v, t)
-    _pattern!(h, pattern, v, t)
+    u = _spill!(spill, view(buf, 1:S), v, t)
+    forward(pattern, Pressure(), h, v, t)
     ε = eps(eltype(v))
     for p in 1:_ngroups(m)
         zs = _group(m, p)
@@ -485,60 +451,20 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
             v̄[k] = cu * (on ? ȳk - au : ȳk)
         end
     end
-    _spill_back!(spill, cotangent(īm, :spill), v̄, s̄, buf, v, t)
-    _pattern_back!(v̄, cotangent(īm, :pattern), pattern, h̄, v, t)
+    _spill_back!(spill, cotangent(īm, :spill), v̄, s̄, v, t)
+    P̄ = cotangent(īm, :pattern)
+    pullback!((; piece = P̄, q = h̄, p = v̄), pattern, Pressure(), h̄, v, t)
     fill!(h̄, zero(eltype(h̄)))
     return nothing
 end
 
-_spill_back!(::Nothing, r̄, v̄, s̄, buf, v, t) = nothing
-# The spilled values' state cotangent joins theirs, then `ū` goes back
-# through the spill: `v̄ = (1 − ε ∘ o) ∘ ū + ε ∘ c` with `c = K'ᵀ ū`,
-# `ε̄ += v ∘ (c − o ∘ ū)` and `K̄[p, q] += ε_q v_q (ū_p − ū_q)`. A dense
-# kernel takes one transposed product, any other the spill's own pullback.
-function _spill_back!(r::Redistribute{<:Matrix}, r̄, v̄, s̄, buf, v, t)
-    (; K, ε) = r
-    S = length(v)
-    ū = view(s̄, 1:S)
-    v̄ .+= ū
-    fill!(ū, zero(eltype(ū)))
-    w, c = view(buf, 1:S), view(buf, (S + 1):(2S))
-    for q in eachindex(w, v)
-        w[q] = param(ε, q, t) * v[q]
-    end
-    mul!(c, transpose(K), v̄)
-    _spill_kernel_back!(cotangent(r̄, :K), v̄, w)
-    ε̄ = cotangent(r̄, :ε)
-    for q in eachindex(v, v̄)
-        εq = param(ε, q, t)
-        o = _dense_outflow(K, q)
-        cq = c[q] - K[q, q] * v̄[q]
-        add_param!(ε̄, ε, v[q] * (cq - o * v̄[q]), q, t)
-        v̄[q] = (1 - εq * o) * v̄[q] + εq * cq
-    end
-    return nothing
-end
-function _spill_back!(r::Redistribute, r̄, v̄, s̄, buf, v, t)
+_spill_back!(::Nothing, r̄, v̄, s̄, v, t) = nothing
+# The spilled values' state cotangent joins theirs, then the spill's own
+# pullback sends them to `v`.
+function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t)
     ū = view(s̄, 1:length(v))
     v̄ .+= ū
     fill!(ū, zero(eltype(ū)))
     pullback!((; piece = r̄, v = v̄, s = ū), r, Step(), v, ū, t)
-    return nothing
-end
-# `K̄[p, q] += w_q (ū_p − ū_q)`, which is zero on the diagonal.
-_spill_kernel_back!(::Nothing, ū, w) = nothing
-function _spill_kernel_back!(K̄, ū, w)
-    K̄ .+= (ū .- transpose(ū)) .* transpose(w)
-    return nothing
-end
-
-# `v̄ += Pᵀ h̄` and `P̄ += h̄ vᵀ`, the coupling's own pullback.
-function _pattern_back!(v̄, P̄, P::Matrix, h̄, v, t)
-    mul!(v̄, transpose(P), h̄, true, true)
-    P̄ === nothing || (P̄ .+= h̄ .* transpose(v))
-    return nothing
-end
-function _pattern_back!(v̄, P̄, P, h̄, v, t)
-    pullback!((; piece = P̄, q = h̄, p = v̄), P, Pressure(), h̄, v, t)
     return nothing
 end

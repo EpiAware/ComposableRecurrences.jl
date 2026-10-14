@@ -738,12 +738,40 @@ function _outflow(K, q)
     end
     return out
 end
+# A dense kernel's column sum vectorises, less its diagonal.
+function _outflow(K::Matrix, q)
+    out = zero(eltype(K))
+    @inbounds @simd for r in axes(K, 1)
+        out += K[r, q]
+    end
+    return out - K[q, q]
+end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
     S = length(eachindex(v, s))
+    _arrivals!(s, K, ε, v, t)
+    _each!(_redistribute_body!, Serial(), v, S, S * S, v, v, s, K, ε, t)
+    return nothing
+end
+
+# Every destination's arrivals into `s`. A dense kernel is read column by
+# column, the order it is stored in; any other a destination at a time, as
+# one index of the loop.
+function _arrivals!(s, K::Matrix, ε, v, t)
+    fill!(s, zero(eltype(s)))
+    for q in eachindex(v)
+        c = param(ε, q, t) * v[q]
+        @inbounds for p in axes(K, 1)
+            s[p] += K[p, q] * c
+        end
+        s[q] -= K[q, q] * c
+    end
+    return nothing
+end
+function _arrivals!(s, K, ε, v, t)
+    S = length(v)
     _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
-    _each!(_redistribute_body!, Serial(), v, S, S * S, v, s, K, ε, t)
     return nothing
 end
 
@@ -757,9 +785,9 @@ function _arrivals_body!(p, s, v, K, ε, t)
     return nothing
 end
 
-# Stratum `p` after its outflow and arrivals.
-function _redistribute_body!(p, v, s, K, ε, t)
-    v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
+# Stratum `p` after its outflow and arrivals, written to `out[p]`.
+function _redistribute_body!(p, out, v, s, K, ε, t)
+    out[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     return nothing
 end
 

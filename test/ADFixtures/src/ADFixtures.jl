@@ -168,16 +168,15 @@ end
 
 # The grouped totals with imports: a share of each group's total lands in
 # the pattern the other group sends, read before the first group's strata
-# spill into each other.
-const IMPORT_SPILL = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
+# spill into each other. The spill kernel is differentiated too.
 function _allocate_imports(w, θ)
-    g, logh, logR, logtot, φ, P, ε = _unpack(
-        θ, (L,), (S, L), (S, T), (2, T), (2, T), (S, S), (S,)
+    g, logh, logR, logtot, φ, P, K, ε = _unpack(
+        θ, (L,), (S, L), (S, T), (2, T), (2, T), (S, S), (S, S), (S,)
     )
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = ComposableRecurrences.Redistribute(IMPORT_SPILL, PerStratum(ε))
+        spill = ComposableRecurrences.Redistribute(K, PerStratum(ε))
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -746,7 +745,8 @@ const _SCENARIOS = [
             G0, fill(log(5.0), S, L), LOGR,
             [log(8.0 + p + t) for p in 1:2, t in 1:T],
             [0.1 + 0.05 * p + 0.01 * t for p in 1:2, t in 1:T],
-            [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0], [0.1, 0.2, 0.3],
+            [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0],
+            [0.0 0.8 0.0; 0.9 0.0 0.0; 0.1 0.2 0.0], [0.1, 0.2, 0.3],
         ),
     ),
     (
@@ -957,7 +957,8 @@ const _PROBES = Dict{Symbol, Function}(
 
 # The features each scenario needs beyond the first release, by scenario
 # name. A scenario not listed needs none. Add an entry with each scenario
-# that uses a new public name, e.g. `"..." => (:Transform,)`.
+# that uses a new feature, named by a public or internal name that came
+# with it, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence grouped totals with imports and a spill (Allocate)" =>

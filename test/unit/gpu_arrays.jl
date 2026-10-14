@@ -191,6 +191,23 @@
             d -> Recurrence(
             d(g0); modifiers = (Allocate([[1, 3], [2]], PerStratum(d([6.0, 3.0]))),)
         )(d(RS); history = d(HS)),
+        "Allocate with imports and a spill" =>
+            d -> Recurrence(
+            d(g0);
+            modifiers = (
+                Allocate(
+                    [1:2, 3:3], TimeVarying(PerStratum(d(TOT)));
+                    imports = (
+                        PerStratum(d([0.2, 0.1])),
+                        d([0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0]),
+                    ),
+                    spill = Redistribute(
+                        d([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]),
+                        PerStratum(d([0.1, 0.2, 0.3]))
+                    )
+                ),
+            )
+        )(d(RS); history = d(HS)),
         "Transform" =>
             d -> Recurrence(
             d(g0);
