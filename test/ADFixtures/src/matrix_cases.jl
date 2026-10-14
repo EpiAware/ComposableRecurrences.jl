@@ -311,19 +311,21 @@ function zone_allocate(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .* _weights(S, T), logtot)
 end
 
-# Isolation beds: each odd stratum's cases are admitted up to its free beds
-# and transmit less; the overflow goes to the next stratum. Smoothed, with
-# a tenth of the occupancy leaving each day.
+# Isolation beds: each of the first half of the strata admits its cases up
+# to its free beds, where they transmit less, and its overflow goes to its
+# partner in the second half. Smoothed, with a tenth of the occupancy
+# leaving each day before the admissions.
 function capacity_beds(wrap, z::Size)
     (; T, L, S) = z
     W = _weights(S, T)
     P = S ÷ 2
-    pairs = [(2p - 1) => 2p for p in 1:P]
-    G = PerStratum([(isodd(k) ? 0.5 : 1.0) * g for k in 1:S, g in _gi(L)])
+    G = PerStratum([(k <= P ? 0.5 : 1.0) * g for k in 1:S, g in _gi(L)])
     f = function (θ)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
-        beds = CR.Capacity(
-            PerStratum(exp.(logC)), CR.Beds(0.1); pairs, form = CR.SoftTruncate(0.1)
+        beds = CR.Pool(
+            PerStratum(exp.(logC)); stocks = (:O,), draw = CR.SoftTruncate(0.1) => :O,
+            flows_first = true, flows = CR.Flow(:O => 0, 0.1; form = CR.Share()),
+            overflow = :stratum
         )
         r = Recurrence(G; modifiers = (beds,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
@@ -645,8 +647,8 @@ const CASES = [
         transform, [5, 50], false,
     ),
     Case(
-        "capacity_beds", "isolation beds with overflow, Capacity modifier",
-        capacity_beds, [5, 50], false,
+        "capacity_beds", "isolation beds with overflow, a Pool filled up to capacity",
+        capacity_beds, [20, 50], false,
     ),
     Case(
         "recent_coupled", "feedback from recent incidence through a contact matrix",
@@ -666,7 +668,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "ward_flows" => (:Pool,),
     "strata_waning" => (:Pool,),
     "transform" => (:Transform,),
-    "capacity_beds" => (:Capacity,),
+    "capacity_beds" => (:pool_fill,),
     # The coupling on `Recent` came after `Recent`.
     "recent_coupled" => (:Recent, :_reads_across),
     "renewal_primary" => (:primary_recurrence,),

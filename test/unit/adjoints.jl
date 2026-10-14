@@ -249,17 +249,32 @@ end
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
-            (CR.Capacity(1.5, CR.Beds(0.3); pairs = [1 => 3], form = CR.SoftTruncate(0.1)),),
             (
-                CR.Capacity(
-                    PerStratum([1.2]), CR.Budget(3); pairs = [2], overflow = CR.Hold(),
-                    initial = 0.5
+                CR.Pool(
+                    1.5; stocks = (:O,), draw = CR.SoftTruncate(0.1) => :O,
+                    flows_first = true, flows = CR.Flow(:O => 0, 0.3; form = CR.Share()),
+                    overflow = :queue
+                ),
+            ),
+            (
+                CR.Pool(;
+                    stocks = (:B,), initial = PerStratum([0.5, 0.0, 1.0]),
+                    draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
+                    flows = CR.Flow(
+                        0 => :B, TimeVarying(repeat([1.2, 0.0, 0.0], T));
+                        form = CR.Truncate()
+                    )
                 ),
                 CR.Add(0.2),
             ),
             (
                 CR.Depletion(30.0, CR.Truncate()),
-                CR.Capacity(1.2, CR.Budget(2); pairs = [3], overflow = CR.Drop()),
+                CR.Pool(;
+                    stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+                    flows = CR.Flow(
+                        0 => :B, TimeVarying(repeat([1.2, 0.0], T)); form = CR.Truncate()
+                    )
+                ),
             ),
         )
         r = Recurrence(g; coupling = K, modifiers = mods)
@@ -272,9 +287,13 @@ end
     # Resumed from given states.
     r = Recurrence(g; coupling = K, modifiers = (PoolDepletion([30.0, 40.0, 50.0]),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
-    beds = CR.Capacity(2.0, CR.Beds(0.2); pairs = [3 => 1], overflow = CR.Route())
-    r = Recurrence(g; coupling = K, modifiers = (beds,))
-    @test pullback_matches(r, recargs(R, nothing, h; states = ([1.0],))...)
+    # Beds with the overflow in a second stratum, resumed.
+    beds = CR.Pool(
+        2.0; stocks = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow = :stratum
+    )
+    r = Recurrence(g; coupling = K[1:2, 1:2], modifiers = (beds,))
+    @test pullback_matches(r, recargs(R[1:2, :], nothing, h[1:2, :]; states = ([1.0],))...)
 end
 
 @testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin

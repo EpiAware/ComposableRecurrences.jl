@@ -37,13 +37,14 @@ struct Share end
 
 # The forms a flow takes: rates and shares act together, the truncated
 # forms in order after them.
+
 const _TruncateForm = Union{Truncate, SoftTruncate}
 const _FlowForm = Union{Hazard, Share, _TruncateForm}
 
 @doc raw"""
 A flow from stock `from` into stock `to` of a
-[`ComposableRecurrences.Pool`](@ref), or out of the pool with `to = 0`,
-that moves its `demand` by a form.
+[`ComposableRecurrences.Pool`](@ref), out of the pool with `to = 0` or into
+it with `from = 0`, that moves its `demand` by a form.
 
 Each step it moves an amount ``m_f`` out of stock `from` and into `to`,
 
@@ -87,13 +88,16 @@ Shares out of one stock that sum to more than ``e^{-H_i}`` leave it
 negative.
 A negative count adds ``-d_f`` to stock `from`, without a cap, and moves
 nothing into `to`.
+A flow from `0` is a count from outside the pool, which never runs out:
+it moves ``m_f = d_f`` into `to`, and a negative one moves nothing.
+Its form is `Truncate()` or `SoftTruncate(κ)`.
 The derivative through ``\min`` and ``\max`` takes the active branch.
 Rates and shares are not checked: a time-varying or [`Derived`](@ref)
 demand is only known at each step.
 
 # Arguments
 - `stocks`: `from => to`, each a stock's name or its position from 1, with
-  `to = 0` to leave the pool.
+  `to = 0` to leave the pool and `from = 0` to enter it.
 - `demand`: the rate, share or count, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
   and time, with `PerStratum` holding one per group.
@@ -125,8 +129,8 @@ struct Flow{D, F <: _FlowForm, E}
     "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `SoftTruncate(κ)`."
     form::F
     function Flow(from, to, demand::D, form::F) where {D, F}
-        _check_end(:from, from, 1)
-        _check_end(:to, to, 0)
+        _check_end(:from, from)
+        _check_end(:to, to)
         from == to && throw(
             ArgumentError(
                 "a flow joins two different stocks, got $(repr(from)) => $(repr(to))"
@@ -136,6 +140,12 @@ struct Flow{D, F <: _FlowForm, E}
             ArgumentError(
                 "a flow's form is Hazard(), Share(), Truncate() or " *
                     "SoftTruncate(κ), got $(_describe(form))"
+            )
+        )
+        from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
+            ArgumentError(
+                "a flow from outside the pool is a count, with form Truncate() " *
+                    "or SoftTruncate(κ), got $(_describe(form))"
             )
         )
         E = Union{typeof(from), typeof(to)}
@@ -164,12 +174,11 @@ function _end(x)
         )
     )
 end
-_check_end(name, x::Symbol, lo) = nothing
-function _check_end(name, x::Int, lo)
-    x >= lo || throw(
+_check_end(name, x::Symbol) = nothing
+function _check_end(name, x::Int)
+    x >= 0 || throw(
         ArgumentError(
-            lo == 1 ? "stocks are numbered from 1, got $name = $x" :
-                "$name is a stock from 1, or 0 to leave, got $name = $x"
+            "$name is a stock from 1, or 0 for outside the pool, got $name = $x"
         )
     )
     return nothing
@@ -348,13 +357,17 @@ _count(f::Flow, y, a, g, t) = y, a
 # (`to = 0`) adds to no stock.
 function _count(f::_Count, y, a, g, t)
     i, j = f.from, f.to
-    m = _moved(f.form, param(f.demand, g, t), _get(y, i))
+    m = _moved(f.form, param(f.demand, g, t), _source(y, i))
     p = _moved_in(m)
     y′ = ntuple(Val(length(y))) do l
         return ifelse(l == i, y[l] - m, ifelse(l == j, y[l] + p, y[l]))
     end
     return y′, _add(a, j, p)
 end
+
+# What stock `i` holds for a count out of it, or an unbounded stock for a
+# count from outside the pool (`i = 0`), so the count moves its demand.
+_source(y, i) = ifelse(i == 0, oftype(first(y), Inf), _get(y, i))
 
 # Count flows only, such as a depletion's removals: nothing moves at a
 # rate or as a share, so the counts act on `x` directly.
@@ -389,17 +402,21 @@ function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     return _count_back(f, _head(f̄s), y, ȳ′, ā, g, t)
 end
 _count_back(f::Flow, f̄, y, ȳ, ā, g, t) = ȳ
+# A count from outside the pool (`from = 0`) takes from no stock, so its
+# source has no cotangent.
 function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
+    i = f.from
     c = param(f.demand, g, t)
-    m = _moved(f.form, c, y[f.from])
-    m̄ = -ȳ[f.from]
+    s = _source(y, i)
+    m = _moved(f.form, c, s)
+    m̄ = ifelse(i == 0, zero(eltype(ȳ)), -_get(ȳ, i))
     if f.to > 0 && _primal_value(m) >= 0
         m̄ += ȳ[f.to] + ā[f.to]
     end
-    c̄, s̄, κ̄ = _moved_back(f.form, c, y[f.from], m̄)
+    c̄, s̄, κ̄ = _moved_back(f.form, c, s, m̄)
     add_cotangent!(cotangent(cotangent(f̄, :form), :κ), κ̄)
     add_param!(cotangent(f̄, :demand), f.demand, c̄, g, t)
-    return _set(ȳ, f.from, ȳ[f.from] + s̄)
+    return _set(ȳ, i, _get(ȳ, i) + s̄)
 end
 
 # The first flow's mirror, or `nothing` when the flows have none.

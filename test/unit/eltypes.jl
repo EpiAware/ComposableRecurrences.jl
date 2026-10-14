@@ -110,9 +110,19 @@ end
             CR.Redistribute(K, 0.1f0),
             CR.Redistribute(K, TimeVarying(PerStratum(fill(0.1f0, 2, 5)))),
             CR.Clamp(0.0f0, 5.0f0),
-            CR.Capacity(0.8f0, CR.Beds(0.1f0); pairs = [1 => 2], form = CR.SoftTruncate(0.1f0)),
-            CR.Capacity(0.8f0, CR.Budget(2); pairs = [2], overflow = CR.Hold()),
-            CR.Capacity(0.8f0, CR.Beds(); pairs = [1], overflow = CR.Drop()),
+            CR.Pool(
+                0.8f0; stocks = (:O,), draw = CR.SoftTruncate(0.1f0) => :O,
+                flows_first = true, overflow = :stratum,
+                flows = CR.Flow(:O => 0, 0.1f0; form = CR.Share())
+            ),
+            CR.Pool(;
+                stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+                flows = CR.Flow(
+                    0 => :B, TimeVarying(repeat(Float32[0.8, 0.0], 5)); form = CR.Truncate()
+                ),
+                overflow = :queue
+            ),
+            CR.Pool(0.8f0; stocks = (:O,), draw = CR.Truncate() => :O),
             CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
@@ -124,8 +134,12 @@ end
         1.0, ComposableRecurrences.Floor()
     )
     @test (@inferred floor_depletion()) isa CR.Pool
-    beds() = ComposableRecurrences.Capacity(
-        1.0, ComposableRecurrences.Beds(0.1); pairs = [1 => 2]
+    beds() = ComposableRecurrences.Pool(
+        1.0; stocks = (:O,), draw = ComposableRecurrences.Truncate() => :O,
+        flows_first = true, overflow = :stratum,
+        flows = ComposableRecurrences.Flow(
+            :O => 0, 0.1; form = ComposableRecurrences.Share()
+        )
     )
-    @test (@inferred beds()) isa CR.Capacity
+    @test (@inferred beds()) isa CR.Pool
 end

@@ -360,7 +360,7 @@ end
     CR = ComposableRecurrences
     @test_throws "two different stocks, got 1 => 1" CR.Flow(1 => 1, 0.1)
     @test_throws "two different stocks, got :S => :S" CR.Flow(:S => :S, 0.1)
-    @test_throws "got from = 0" CR.Flow(0 => 1, 0.1)
+    @test_throws "a flow from outside the pool is a count" CR.Flow(0 => 1, 0.1)
     @test_throws "got to = -1" CR.Flow(1 => -1, 0.1)
     @test_throws "given as from => to, got (1, 2)" CR.Flow((1, 2), 0.1)
     @test_throws "stock names or positions, got 1.5" CR.Flow(1.5 => 2, 0.1)

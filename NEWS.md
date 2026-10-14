@@ -32,12 +32,13 @@
 - `Pool(N; stocks, initial, draw, heterogeneity, flows)` holds stocks for each group of strata: each step's value is drawn from weighted stocks by a depletion form, then `Flow(from => to, demand; form)`s move between the stocks ([renewal then delay][renewal]).
   A second stock drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
   A stock's default start is empty, in the state's element type, so a `Float32` model stays `Float32`.
+  A draw into a stock fills it up to a capacity, such as beds, and the flows can act before the draw (`flows_first = true`), such as a share leaving the beds or a grant `Flow(0 => :B, b; form = Truncate())` into an allowance at the start of each period ([occupancy and capacity][occupancy]).
+  What the draw leaves of the demand goes to a second stratum (`overflow = :stratum`), to a queue in the state that joins the next step's demand (`overflow = :queue`), or nowhere.
   Without a draw the stocks are the step's values, and the pool moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Depletion(N; removals)` takes removals from the pool after each draw; `Depletion` is a `Pool` with one stock ([renewal then delay][renewal]).
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
-- `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
 - Executors run the strata loops of every operator: `Serial()` (the default), `Threaded(; min_work, ntasks)` and `Device(backend)`, set for a block with `with(ComposableRecurrences.EXECUTOR => ...)` ([API overview][api]).
 - Under `Threaded()`, the reverse rules of `Recurrence` and `Convolution` split strata across tasks, as their forward passes do ([adjoints and backends][adjoints]).

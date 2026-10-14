@@ -1,4 +1,4 @@
-# Capacity as routing, not deletion. Every new case is demand for a place:
+# A capacity as routing, not deletion. Every new case is demand for a place:
 # an isolation bed or a vaccinated ring. Admitted cases sit in stratum 1 and
 # transmit less; the overflow sits in stratum 2 with the full kernel, or
 # waits in a queue. Both strata seed stratum 1, so the coupling is
@@ -54,7 +54,12 @@ end
     CR = ComposableRecurrences
     (; T, R, naive, model) = CapacityUseCase
     w = range(0.5, 1.5; length = T)
-    beds(θ) = CR.Capacity(θ[2], CR.Beds(θ[3]); pairs = [1 => 2])
+    # The beds are a stock filled by the admissions up to `θ[2]`, after a
+    # share `θ[3]` leaves; the demand left goes to the second stratum.
+    beds(θ; overflow = :stratum) = CR.Pool(
+        θ[2]; stocks = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, θ[3]; form = CR.Share()), overflow
+    )
     function admit(θ)
         return (d, O, t) -> begin
             kept = (1 - θ[3]) * O
@@ -83,7 +88,7 @@ end
     @test ForwardDiff.gradient(θ -> sum(run(R, θ)), θ)[2] < 0
 
     # A queue for the next free bed instead: cases wait in the state.
-    queued(θ) = CR.Capacity(θ[2], CR.Beds(θ[3]); pairs = [1], overflow = CR.Hold())
+    queued(θ) = beds(θ; overflow = :queue)
     Yq = model(R, θ[1], queued(θ))
     @test Yq ≈ naive(R, θ[1], admit(θ); hold = true)
     @test all(iszero, Yq[2, :])
@@ -106,13 +111,20 @@ end
             (x, B - x)
         end
     end
-    e = 0.4
-    for (mode, period, carry, b) in (
-            (CR.Budget(7), 7, true, 60.0),
-            (CR.Budget(7; carry_over = false), 7, false, 60.0),
-            (CR.Budget(Inf), nothing, true, 400.0),
+    # The rings are a stock granted `b` at each period start and drawn from;
+    # without carry over a share flow empties it first.
+    function budget(b, period, carry)
+        starts = [(period === nothing ? t == 1 : (t - 1) % period == 0) for t in 1:T]
+        grant = CR.Flow(0 => :B, TimeVarying(b .* starts); form = CR.Truncate())
+        reset = CR.Flow(:B => 0, TimeVarying(float.(starts)); form = CR.Share())
+        return CR.Pool(;
+            stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+            flows = carry ? (grant,) : (reset, grant), overflow = :stratum
         )
-        rings(b) = CR.Capacity(b, mode; pairs = [1 => 2])
+    end
+    e = 0.4
+    for (period, carry, b) in ((7, true, 60.0), (7, false, 60.0), (nothing, true, 400.0))
+        rings(b) = budget(b, period, carry)
         Y = model(R, e, rings(b))
         @test Y ≈ naive(R, e, admit(b, period, carry))
         @test any(>(0), Y[2, :])
@@ -124,10 +136,6 @@ end
         @test ForwardDiff.derivative(b -> sum(model(R, e, rings(b))), b) < 0
     end
     # Carrying unused rings over never gives more cases than resetting them.
-    @test sum(model(R, e, CR.Capacity(60.0, CR.Budget(7); pairs = [1 => 2]))) <=
-        sum(
-        model(
-            R, e, CR.Capacity(60.0, CR.Budget(7; carry_over = false); pairs = [1 => 2])
-        )
-    )
+    @test sum(model(R, e, budget(60.0, 7, true))) <=
+        sum(model(R, e, budget(60.0, 7, false)))
 end

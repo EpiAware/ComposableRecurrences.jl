@@ -110,6 +110,11 @@ function pullback!(grads, form::SoftTruncate, ::Step, v, s, N, α)
     return v̄, grads.s + ifelse(s > 0, c̄, z), z, z
 end
 _softness(::Truncate) = nothing
+
+# The truncated forms read no exponent, so it is fixed at one, without a
+# cotangent.
+_unit_exponent(::Union{Truncate, SoftTruncate}) = _FixedExponent{true}()
+_exponent(α::Bool, N, ::Union{Truncate, SoftTruncate}) = _FixedExponent{α}()
 _softness(form::SoftTruncate) = form.κ
 
 # The minimum of `a` and a non-negative `b`, or with softness `κ` the

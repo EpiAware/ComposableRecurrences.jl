@@ -50,12 +50,11 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 
 | Built-in | Step reads | State holds | Place it |
 |---|---|---|---|
-| [`Pool`](@ref ComposableRecurrences.Pool), [`Depletion`](@ref ComposableRecurrences.Depletion) | one series with its stocks, or without a draw one group of stocks held in the series | each stock, stock by stock; without a draw, what flowed into each stock | after anything that should draw from the pool; without a draw, on a kernel of `[1.0]`, which carries the stocks forward |
+| [`Pool`](@ref ComposableRecurrences.Pool), [`Depletion`](@ref ComposableRecurrences.Depletion) | one series with its stocks, two with `overflow = :stratum`, or without a draw one group of stocks held in the series | each stock, stock by stock, then the queue with `overflow = :queue`; without a draw, what flowed into each stock | after anything that should draw from the pool; without a draw, on a kernel of `[1.0]`, which carries the stocks forward |
 | [`Redistribute`](@ref ComposableRecurrences.Redistribute) | every series | what each series received | before a `Depletion` that should deplete where values are realised |
 | [`Add`](@ref ComposableRecurrences.Add) | one series | nothing | where the addition should enter |
 | [`Clamp`](@ref ComposableRecurrences.Clamp) | one series | nothing | after what it bounds |
 | [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of series | nothing | after what it rescales; an `Add` after it adds to the totals |
-| [`Capacity`](@ref ComposableRecurrences.Capacity) | each admitted series and its overflow | the occupancy or allowance, then the queue with `Hold()` | after what makes the demand |
 | [`Transform`](@ref ComposableRecurrences.Transform) | one series | nothing | where the map applies |
 
 A modifier acts on a [`Recurrence`](@ref) only; a [`Convolution`](@ref) has none.
@@ -65,7 +64,7 @@ Its parameters take every form in [Slots](@ref explanation-slots).
 
 Several needs have more than one fit.
 
-- To bound values, `Clamp` cuts them and `Capacity` routes, queues or drops what is cut, so it keeps account of the excess.
+- To bound values, `Clamp` cuts them and a `Pool` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
 - To move values between series, `Redistribute` moves a share at the same step, a `Pool` without a draw moves between the stocks of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
 - To map values, `Transform` takes any function, and a [new modifier](@ref extending-pointwise) is worth writing when the map keeps state or reads other series.
 

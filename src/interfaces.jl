@@ -257,6 +257,38 @@ true
         piece = Pool(; stocks = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
         role = Init(), args = (zeros(4), ones(4, 2))
     ),
+    Arguments(;
+        piece = Pool(
+            4.0; stocks = (:O,), draw = SoftTruncate(0.1) => :O, flows_first = true,
+            flows = Flow(:O => 0, 0.2; form = Share()), overflow = :stratum
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2)
+    ),
+    Arguments(;
+        piece = Pool(;
+            stocks = (:B,), draw = :B => Truncate(), flows_first = true,
+            flows = (
+                Flow(:B => 0, TimeVarying([1.0, 0.0, 0.0]); form = Share()),
+                Flow(
+                    0 => :B, TimeVarying(PerStratum([3.0 0.0 0.0; 2.0 0.0 0.0]));
+                    form = Truncate()
+                ),
+            ),
+            overflow = :queue
+        ),
+        role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1)
+    ),
+    Arguments(;
+        piece = Pool(; stocks = (:B,), draw = :B => Truncate(), initial = 1.0),
+        role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Pool(
+            2.0; stocks = (:O,), draw = Truncate() => :O, overflow = :queue,
+            initial = 1.0
+        ),
+        role = Init(), args = (zeros(4), ones(2, 2))
+    ),
 ]
 
 @implements PieceInterface Hazard [
@@ -301,30 +333,6 @@ true
     ),
 ]
 
-
-@implements PieceInterface{(:nstate,)} Capacity [
-    Arguments(;
-        piece = Capacity(
-            4.0, Beds(0.2); pairs = [1 => 2], form = SoftTruncate(0.1)
-        ),
-        role = Step(),
-        args = ([5.0, 1.0, 0.5], [2.0], 1)
-    ),
-    Arguments(;
-        piece = Capacity(
-            PerStratum([3.0, 2.0]), Budget(7); pairs = [1, 3], overflow = Hold()
-        ),
-        role = Step(), args = ([5.0, 1.0, 0.5], [0.0, 1.0, 0.0, 2.0], 1)
-    ),
-    Arguments(;
-        piece = Capacity(4.0, Budget(Inf); pairs = [2 => 1], initial = 1.0),
-        role = Init(), args = (zeros(1), ones(3, 2))
-    ),
-    Arguments(;
-        piece = Capacity(2.0, Budget(3); pairs = [2], overflow = Drop()),
-        role = Step(), args = ([5.0, 1.0, 0.5], [0.0], 1)
-    ),
-]
 
 @implements PieceInterface Truncate [
     Arguments(; piece = Truncate(), role = Step(), args = (2.0, 1.5, 100.0, 1.0)),

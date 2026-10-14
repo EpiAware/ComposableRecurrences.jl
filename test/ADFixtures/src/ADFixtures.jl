@@ -443,38 +443,45 @@ end
 
 # The capacity scenarios' parameters are offsets from a base vector, so they
 # start at zero, as `TRUNC0` below. Scalars are indexed from the sum: built
-# from `only` of a view, a `Capacity` makes Enzyme reverse fail with an
+# from `only` of a view, a capacity pool makes Enzyme reverse fail with an
 # `EnzymeNoShadowError` in the `Recurrence` constructor.
 const GCAP = [0.5, 1.0, 1.0] .* G0'
 
 # A bed cap on stratum 1 with its overflow in stratum 2, smoothed so finite
-# differences see no kink; admitted cases transmit less.
-const CAPS0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, [log(12.0)], [0.2], [0.1])
+# differences see no kink; admitted cases transmit less. A share of the beds
+# empties before each step's admissions fill them.
+const CAPS0 = _flat(fill(log(5.0), 2, L), 0.5 .+ LOGR[1:2, :], [log(12.0)], [0.2], [0.1])
 function _capacity_stock(w, θ)
     x = CAPS0 .+ θ
-    logh, logR = _unpack(x, (S, L), (S, T))
+    logh, logR = _unpack(x, (2, L), (2, T))
     n = length(x)
-    beds = ComposableRecurrences.Capacity(
-        exp(x[n - 2]), ComposableRecurrences.Beds(x[n - 1]);
-        pairs = [1 => 2], form = ComposableRecurrences.SoftTruncate(x[n])
+    CR = ComposableRecurrences
+    beds = CR.Pool(
+        exp(x[n - 2]); stocks = (:O,), draw = CR.SoftTruncate(x[n]) => :O,
+        flows_first = true, flows = CR.Flow(:O => 0, x[n - 1]; form = CR.Share()),
+        overflow = :stratum
     )
-    r = Recurrence(PerStratum(GCAP); modifiers = (beds,))
+    r = Recurrence(PerStratum(GCAP[1:2, :]); modifiers = (beds,))
     y = w(r)(exp.(logR); history = exp.(logh))
-    return sum(WS .* log.(y))
+    return sum(WS[1:2, :] .* log.(y))
 end
 
-# A weekly budget per admitted stratum, carried over, with unserved demand
-# queued for the next step.
+# A weekly budget per stratum, carried over, with unserved demand queued for
+# the next step: the grants are a flow into each allowance at each week's
+# start.
 const CAPB0 = _flat(
     fill(log(5.0), S, L), 0.5 .+ LOGR,
-    [log(9.0 + p + 0.5 * sin(t)) for p in 1:2, t in 1:T], [1.0, 2.0],
+    [log(9.0 + p + 0.5 * sin(t)) for p in 1:S, t in 1:(L + T)], [1.0, 2.0, 0.5],
 )
+const WEEKS = [t > L && rem(t - L - 1, 4) == 0 for p in 1:S, t in 1:(L + T)]
 function _capacity_budget(w, θ)
-    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (2, T), (2,))
-    doses = ComposableRecurrences.Capacity(
-        TimeVarying(PerStratum(exp.(logb))), ComposableRecurrences.Budget(4);
-        pairs = [1, 3], overflow = ComposableRecurrences.Hold(),
-        initial = PerStratum(collect(init))
+    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
+    CR = ComposableRecurrences
+    grants = WEEKS .* exp.(logb)
+    doses = CR.Pool(;
+        stocks = (:B,), initial = PerStratum(collect(init)),
+        draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
+        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -482,20 +489,22 @@ function _capacity_budget(w, θ)
 end
 
 # A pool that runs low, drawn with the smooth truncation, then a bed cap per
-# pair whose overflow is dropped: the pool, softness and beds are
+# stratum whose overflow is dropped: the pool, softness and beds are
 # parameters.
 const CAPD0 = _flat(
-    fill(log(5.0), S, L), 0.5 .+ LOGR, [log(500.0), 0.15, log(8.0), log(6.0)]
+    fill(log(5.0), S, L), 0.5 .+ LOGR,
+    [log(500.0), 0.15, log(8.0), log(20.0), log(6.0)]
 )
 function _capacity_drop(w, θ)
     x = CAPD0 .+ θ
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = CR.Depletion(exp(x[n - 3]), CR.SoftTruncate(x[n - 2]))
-    beds = CR.Capacity(
-        PerStratum(exp.(x[(n - 1):n])), CR.Beds(0.3); pairs = [1, 3],
-        overflow = CR.Drop(), form = CR.SoftTruncate(0.2)
+    pool = CR.Depletion(exp(x[n - 4]), CR.SoftTruncate(x[n - 3]))
+    beds = CR.Pool(
+        PerStratum(exp.(x[(n - 2):n])); stocks = (:O,),
+        draw = CR.SoftTruncate(0.2) => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, 0.3; form = CR.Share())
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -898,6 +907,12 @@ const _PROBES = Dict{Symbol, Function}(
     :removals => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; removals = 1.0)
     ),
+    # A pool whose draw fills a stock up to a capacity.
+    :pool_fill => () -> _accepts(
+        () -> ComposableRecurrences.Pool(
+            1.0; stocks = (:O,), draw = ComposableRecurrences.Truncate() => :O
+        )
+    ),
 )
 
 # The features each scenario needs beyond the first release, by scenario
@@ -905,9 +920,9 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new public name, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
-    "Recurrence capacity, stock with overflow" => (:Capacity,),
-    "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
-    "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
+    "Recurrence capacity, stock with overflow" => (:pool_fill,),
+    "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
+    "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Pool,),
