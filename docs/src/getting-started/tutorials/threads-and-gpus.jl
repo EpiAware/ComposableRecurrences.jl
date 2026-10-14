@@ -25,7 +25,7 @@
 # ### What might I need to know before starting
 #
 # This tutorial builds on the
-# [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial.
+# [Spatial models](@ref tutorial-spatial-strata) tutorial.
 # Start Julia with more than one thread, for example `julia --threads=4`, to see a speed-up.
 
 # ## Packages used
