@@ -652,6 +652,69 @@ end
 # arguments' precision. In single precision these differ from the rule by up
 # to about 5e-4 relative (on a Float32 history with Float64 gains), so an
 # entry with Float32 values carries `FLOAT32_RTOL`.
+# The traces, read by a loss downstream of the output. BVD's importation is
+# the arrivals `Redistribute` keeps as its state, read with the patches'
+# infections, as BVD's joint model reads them.
+function _trace_importation(w, θ)
+    logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    CR = ComposableRecurrences
+    mods = (CR.Redistribute(K0, PerStratum(ε)), CR.Depletion(PerStratum(POP)))
+    y, tr = w(Recurrence(G0; modifiers = mods))(
+        exp.(logR); history = exp.(logh), trace = true
+    )
+    return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
+end
+
+# A protected pool's trace: its protected stock, the value drawn and the
+# overflow, one row each per stratum after the susceptible stocks.
+function _trace_pool(w, θ)
+    logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
+    d = _leaky(PerStratum(POP), TimeVarying(PerStratum(doses)), only(σ))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    M = only(tr.modifiers)
+    return sum(WS .* log.(y)) + sum(WS .* M[(S + 1):(2S), :]) +
+        sum(WS .* M[(3S + 1):(4S), :])
+end
+
+# The ward's flows, each flow's amount per stratum and step.
+function _trace_ward(w, θ)
+    adm, confirm, ruleout, discharge, transfer = _unpack(
+        θ, (2S, T), (S,), (T,), (1,), (S, T)
+    )
+    CR = ComposableRecurrences
+    flows = CR.Pool(;
+        stocks = (:suspected, :confirmed), draw = nothing, flows = (
+            CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
+            CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
+            CR.Flow(:confirmed => 0, only(discharge)),
+            CR.Flow(
+                :confirmed => 0, TimeVarying(PerStratum(transfer));
+                form = CR.Truncate()
+            ),
+        )
+    )
+    r = Recurrence([1.0]; modifiers = (flows,))
+    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
+    return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
+end
+
+# A weekly budget with a queue: the allowance, the doses given and what
+# joins the queue.
+function _trace_budget(w, θ)
+    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
+    CR = ComposableRecurrences
+    grants = WEEKS .* exp.(logb)
+    doses = CR.Pool(;
+        stocks = (:B,), initial = PerStratum(collect(init)),
+        draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
+        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
+end
+
 const ENZYME_RTOL = 1.0e-7
 const FLOAT32_RTOL = 1.0e-3
 const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
@@ -821,6 +884,25 @@ const _SCENARIOS = [
         () -> zero(CAPB0),
     ),
     (
+        "Recurrence trace of the importation (Redistribute)", _trace_importation,
+        () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
+        "Recurrence trace of a protected pool", _trace_pool,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence trace of a ward's flows", _trace_ward,
+        () -> _flat(
+            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+        ),
+    ),
+    (
+        "Recurrence trace of a weekly budget with a queue", _trace_budget,
+        () -> zero(CAPB0),
+    ),
+    (
         "Recurrence capacity, dropped overflow after a truncated draw",
         _capacity_drop, () -> zero(CAPD0),
     ),
@@ -922,6 +1004,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence capacity, stock with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
+    "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace of a protected pool" => (:Trace,),
+    "Recurrence trace of a ward's flows" => (:Trace,),
+    "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),

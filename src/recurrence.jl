@@ -58,8 +58,8 @@ struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
 Modifiers are structs with `forward` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
-Called as `r(gain = 1; history, state, add, start, stop, prepend)`, the
-call covers the absolute times `start:stop`:
+Called as `r(gain = 1; history, state, add, start, stop, prepend, trace)`,
+the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`, read at absolute time `t`; one when left out.
@@ -79,6 +79,11 @@ call covers the absolute times `start:stop`:
     time-indexed inputs (`gain`, `add`), required without one.
   - `prepend`: `false`, or `true` to return `history` followed by the
     output, covering the times `start - m` to `stop`.
+  - `trace`: `false`, or `true` to return `(y, trace)`, with
+    `trace.modifiers` holding each modifier's series per step, a
+    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix: by default its
+    state after each step ([`ComposableRecurrences.Trace`](@ref) gives the
+    built-in ones). It is differentiable as the output is.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -227,6 +232,7 @@ after the last step (the last ``D`` outputs, ``D`` the buffer depth of
 ``t_1 + 1``).
 
 Takes the same arguments as calling `op`; resume with `op(...; state)`.
+With `trace = true` it returns `((y, trace), state)`.
 
 # Arguments
 - `op`: the operator.
@@ -607,10 +613,19 @@ _join(::Nothing, y) = throw(ArgumentError("prepend = true needs a history, not n
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
+        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false,
+        trace::Bool = false
     )
     args = _run_args(r, gain, history, state, add, start)
+    return _call(Val(trace), r, route, history, prepend, args, stop)
+end
+# Without a trace, the output; with one, `(y, trace)`.
+function _call(::Val{false}, r, route, history, prepend, args, stop)
     return _prepend(prepend, history, adjoint_call(route, args..., stop))
+end
+function _call(::Val{true}, r, route, history, prepend, args, stop)
+    y, tr = adjoint_call(_reroute(route, _WithTrace(r)), args..., stop)
+    return _prepend(prepend, history, y), tr
 end
 
 function _run_args(r, gain, history, state, add, start)
@@ -624,9 +639,10 @@ end
 
 function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing
+        add = nothing, start = _start(state), stop = nothing, trace::Bool = false
     )
-    return _run_forward(r, _run_args(r, gain, history, state, add, start)..., stop)
+    op = trace ? _WithTrace(r) : r
+    return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
 end
 
 # `with_state` routes through the rules too: a recurrence whose output is
@@ -640,11 +656,21 @@ function with_state(n::NoAdjoint{<:Recurrence}, args...; kwargs...)
 end
 Base.@constprop :aggressive function _with_state(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false
+        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false,
+        trace::Bool = false
     )
     args = _run_args(r, gain, history, state, add, start)
+    return _state_call(Val(trace), r, route, history, prepend, args, stop)
+end
+# Without a trace, `(y, state)`; with one, `((y, trace), state)`.
+function _state_call(::Val{false}, r, route, history, prepend, args, stop)
     y, st = adjoint_call(_reroute(route, _WithState(r)), args..., stop)
     return _prepend(prepend, history, y), st
+end
+function _state_call(::Val{true}, r, route, history, prepend, args, stop)
+    op = _reroute(route, _WithTrace(_WithState(r)))
+    (y, st), tr = adjoint_call(op, args..., stop)
+    return (_prepend(prepend, history, y), tr), st
 end
 
 # The rule applies when the coupling and each modifier carry their adjoint

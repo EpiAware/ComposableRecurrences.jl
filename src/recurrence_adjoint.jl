@@ -19,6 +19,13 @@ function pullback!(grads, w::_WithState, ::Run, c)
     _reverse!(c, Ȳ, cotangent(grads.piece, :r), ḡain, ādd, h̄, s̄0, st̄)
     return nothing
 end
+# With a trace, its cotangent joins the records the reverse pass reads.
+function pullback!(grads, w::_WithTrace, ::Run, c)
+    ȳ, tr̄ = grads.y
+    rec = _traced_records(c.rec, cotangent(tr̄, :modifiers), c.S)
+    inner = (; piece = cotangent(grads.piece, :op), y = ȳ, args = grads.args)
+    return pullback!(inner, w.op, Run(), merge(c, (; rec)))
+end
 
 # The reverse pass runs under the executor set when it runs. The default
 # is passed as the singleton `Serial()`, so the loops below hold no
@@ -236,11 +243,11 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k
     )
     R, s̄ = first(rec), first(s̄s)
-    v̄, s̄[k] = _step_pullback(
-        (; piece = first(m̄s), v = v̄, s = s̄[k]), first(ms), R.V[k, t],
-        _state_at(R.S, k, t), τ, k
-    )
-    return v̄
+    m, m̄, vk, sk = first(ms), first(m̄s), R.V[k, t], _state_at(R.S, k, t)
+    v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
+    v̄, s̄k = _step_pullback((; piece = m̄, v = v̄, s = s̄k), m, vk, sk, τ, k)
+    s̄[k] = _trace_in(b, s̄k)
+    return _trace_in(a, v̄)
 end
 
 # Walk the step's value cotangent back through the modifiers, last first.
@@ -249,11 +256,11 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
     _stages_back!(
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t
     )
-    R = first(rec)
-    _vector_pullback!(
-        (; piece = first(m̄s), v = v̄, s = first(s̄s)), first(ms),
-        view(R.V, :, t), _states_at(R.S, t), τ
-    )
+    R, m, m̄, s̄ = first(rec), first(ms), first(m̄s), first(s̄s)
+    v, s = view(R.V, :, t), _states_at(R.S, t)
+    _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t)
+    _vector_pullback!((; piece = m̄, v = v̄, s = s̄), m, v, s, τ)
+    _trace_in!(R, v̄, s̄)
     return nothing
 end
 

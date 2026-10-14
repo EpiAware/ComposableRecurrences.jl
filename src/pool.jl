@@ -964,3 +964,99 @@ end
 # A pool uses its own pullback when its form has one or the form's local
 # derivative covers it (see `_form_pullback`).
 uses_adjoint(m::Pool, ::Step) = _form_adjoint(m.form)
+
+# Trace ---------------------------------------------------------------------
+
+# A pool's trace: with a draw, its stocks after the step, the value drawn
+# and what the draw leaves of the demand, per stratum for one stock and per
+# group otherwise; without one, the amount each flow moves, per group.
+ntrace(m::Pool, S) = _pool_ntrace(Val(_layout(m)), m, S)
+function _pool_ntrace(::Val{L}, m, S) where {L}
+    L.draw || return length(m.flows) * (S ÷ L.n)
+    B = blocks(m)
+    B === nothing && return 3S
+    return (L.n + 2) * _ngroups(B, S)
+end
+
+forward(m::_OneStock, ::Trace, v::Real, s::Real, v′, s′, t, k) = (s′, v′, v - v′)
+function pullback!(grads, m::_OneStock, ::Trace, v::Real, s::Real, t, k)
+    p̄, ȳ, ū = grads.trace
+    return ū, zero(ū), ȳ - ū, p̄
+end
+
+function forward(m::Pool, ::Trace, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+    return _pool_trace(Val(_layout(m)), m, v, s, v′, s′, t, g)
+end
+function _pool_trace(::Val{L}, m, v, s, v′, s′, t, g) where {L}
+    L.draw || return _amounts(m.flows, v, g, t)
+    x, _ = _stocks_queue(Val(L.overflow), s′, Val(L.n))
+    _, Q = _stocks_queue(Val(L.overflow), s, Val(L.n))
+    y = first(v′)
+    return (x..., y, first(v) + Q - y)
+end
+
+function pullback!(grads, m::Pool, ::Trace, v::Tuple, s::Tuple, t, g)
+    return _pool_trace_back(Val(_layout(m)), grads, m, v, s, t, g)
+end
+function _pool_trace_back(::Val{L}, grads, m, v, s, t, g) where {L}
+    L.draw || return _amounts_back(grads, m, v, s, t, g)
+    r̄ = grads.trace
+    ȳ, ū = r̄[L.n + 1], r̄[L.n + 2]
+    z = zero(ū)
+    x̄ = ntuple(i -> r̄[i], Val(L.n))
+    zx = ntuple(_ -> z, Val(L.n))
+    v̄ = ntuple(i -> i == 1 ? ū : z, Val(length(v)))
+    v̄′ = ntuple(i -> i == 1 ? ȳ - ū : z, Val(length(v)))
+    return v̄, _with_queue(Val(L.overflow), zx, ū), v̄′, _with_queue(Val(L.overflow), x̄, z)
+end
+
+# The flows' amounts back to the stocks before them, and to each flow's
+# demand and softness, through a local derivative of `_amounts` at the
+# group's stocks, demands and softnesses.
+function _amounts_back(grads, m, x::NTuple{N}, s, t, g) where {N}
+    fs, r̄ = m.flows, grads.trace
+    z0 = [x..., map(f -> param(f.demand, g, t), fs)..., _softnesses(fs)...]
+    function traced(z)
+        xs = ntuple(i -> z[i], Val(N))
+        return sum(map(*, r̄, _amounts(_rebuild_flows(fs, z, N), xs, g, t)))
+    end
+    z̄ = ForwardDiff.gradient(traced, z0)
+    _add_flows!(cotangent(grads.piece, :flows), fs, z̄, N, length(fs) + N, g, t)
+    zs = map(_ -> zero(eltype(z̄)), s)
+    return ntuple(i -> z̄[i], Val(N)), zs, map(_ -> zero(eltype(z̄)), x), zs
+end
+
+# The softness of each smooth count, in order.
+_softnesses(::Tuple{}) = ()
+_softnesses(fs::Tuple) = (_softness_of(first(fs).form)..., _softnesses(Base.tail(fs))...)
+_softness_of(form::SoftTruncate) = (form.κ,)
+_softness_of(form) = ()
+
+# The flows with their demands and softnesses read from `z`: demands from
+# entry `N + 1`, then softnesses after the demands.
+function _rebuild_flows(fs, z, N)
+    return _rebuild_flows(fs, z, N, N + length(fs))
+end
+_rebuild_flows(::Tuple{}, z, i, j) = ()
+function _rebuild_flows(fs::Tuple, z, i, j)
+    f = first(fs)
+    form, j′ = _rebuild_form(f.form, z, j)
+    head = Flow(f.from, f.to, z[i + 1], form)
+    return (head, _rebuild_flows(Base.tail(fs), z, i + 1, j′)...)
+end
+_rebuild_form(::SoftTruncate, z, j) = SoftTruncate(z[j + 1]), j + 1
+_rebuild_form(form, z, j) = form, j
+
+# Each flow's demand and softness cotangent into its mirror.
+_add_flows!(f̄s, ::Tuple{}, z̄, i, j, g, t) = nothing
+function _add_flows!(f̄s, fs::Tuple, z̄, i, j, g, t)
+    f, f̄ = first(fs), _head(f̄s)
+    add_param!(cotangent(f̄, :demand), f.demand, z̄[i + 1], g, t)
+    j′ = _add_softness!(f̄, f.form, z̄, j)
+    return _add_flows!(_tail(f̄s), Base.tail(fs), z̄, i + 1, j′, g, t)
+end
+function _add_softness!(f̄, ::SoftTruncate, z̄, j)
+    add_cotangent!(cotangent(cotangent(f̄, :form), :κ), z̄[j + 1])
+    return j + 1
+end
+_add_softness!(f̄, form, z̄, j) = j

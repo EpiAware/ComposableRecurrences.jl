@@ -170,7 +170,7 @@ end
 end
 
 @testitem "Use case: BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
     g = [0.3, 0.5, 0.2]
@@ -202,11 +202,14 @@ end
     # then each patch depletes its own pool from N_p − Σ seed (hazard form).
     # The seeds are the history and are returned first; the first output is
     # day `L + 1`, which reads R_t and ε at that day.
-    function patch(K, ε, N)
+    function patch_model(K, ε, N)
         importation = ComposableRecurrences.Redistribute(K, ε)
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
-        r = Recurrence(g; modifiers = (importation, depletion))
+        return Recurrence(g; modifiers = (importation, depletion))
+    end
+    function patch(K, ε, N)
+        r = patch_model(K, ε, N)
         return r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)
     end
     @test patch(K, TimeVarying(PerStratum(ε)), N) ≈ ref
@@ -224,21 +227,27 @@ end
     @test patch(K, PerStratum(εq), N) ≈
         B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
-    # BVD also returns the importation series, the arrivals in each patch.
-    # It is recomputed from the infections: each patch's force is its lag
-    # 1..L convolution with g (a lag-0 weight of zero shifts the kernel by a
-    # day), what it generates is R_t times that, and the arrivals are the
-    # off-diagonal K applied to each origin's ε-weighted generation. The
-    # seed days have no arrivals.
+    # BVD also returns the importation series, the arrivals in each patch:
+    # the trace of the importation, whose state is its arrivals, at each
+    # step. The seed days have no arrivals.
     function patch_importation(K, ε, N)
-        I = patch(K, TimeVarying(PerStratum(ε)), N)
-        gen = Rt .* Convolution(vcat(0.0, g))(I)
-        arrivals = (K - Diagonal(diag(K))) * (ε .* gen)
-        arrivals[:, 1:L] .= 0
-        return arrivals
+        r = patch_model(K, TimeVarying(PerStratum(ε)), N)
+        _, tr = r(Rt; history = seeds, start = size(seeds, 2) + 1, trace = true)
+        arrivals = first(tr.modifiers)
+        return hcat(zeros(eltype(arrivals), np, size(seeds, 2)), arrivals)
     end
     @test patch_importation(K, ε, N) ≈
         B.patch_infections(Rt, g, seeds, K, ε, N).importation
+    # A loss on the importation, as BVD's joint model reads it.
+    function import_loss(θ)
+        K, ε, N = unpack(θ)
+        return sum(w .* patch_importation(K, ε, N))
+    end
+    function ref_import_loss(θ)
+        K, ε, N = unpack(θ)
+        return sum(w .* B.patch_infections(Rt, g, seeds, K, ε, N).importation)
+    end
+    @test ForwardDiff.gradient(import_loss, θ0) ≈ ForwardDiff.gradient(ref_import_loss, θ0)
 end
 
 @testitem "Use case: stratified renewal with imports, depletion and mixing" tags = [:usecase] setup = [UseCaseReferences] begin

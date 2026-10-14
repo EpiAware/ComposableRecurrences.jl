@@ -99,7 +99,7 @@ public Pool, Depletion, Flow, Share, Redistribute,
     Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
+    pullback!, Step, Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
     Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Direct,
@@ -113,6 +113,8 @@ include("utils.jl")
 include("executor.jl")
 # The role interface: roles, `forward`, `pullback!` and the stage loop.
 include("modifiers.jl")
+# The trace role: what a call with `trace = true` records per modifier.
+include("trace.jl")
 # The operator supertype, `NoAdjoint` and the routing to the native rules.
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
@@ -134,6 +136,8 @@ include("allocate.jl")
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")
+# A call with its trace, built from the records after the run.
+include("trace_run.jl")
 # The analytic reverse pass of the recurrence.
 include("recurrence_adjoint.jl")
 # The routes kernel: a sum of (coupling, kernel) routes.

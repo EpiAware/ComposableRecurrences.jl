@@ -391,6 +391,29 @@ end
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
 _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 
+# The amount each flow moves at one step, in the order given, from the
+# stocks `x`: a hazard or share flow's from `x`, as the step spreads it,
+# and a count's from what remains when it acts.
+function _amounts(fs, x::NTuple{N}, g, t) where {N}
+    z = zero(first(x))
+    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
+    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y, _ = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    return _amounts_each(fs, x, L, y, g, t)
+end
+_amounts_each(::Tuple{}, x, L, y, g, t) = ()
+function _amounts_each(fs::Tuple, x, L, y, g, t)
+    m, y′ = _amount(first(fs), x, L, y, g, t)
+    return (m, _amounts_each(Base.tail(fs), x, L, y′, g, t)...)
+end
+function _amount(f::Flow, x, L, y, g, t)
+    return x[f.from] * (_rate(f, g, t) * L[f.from][2] + _share(f, g, t)), y
+end
+function _amount(f::_Count, x, L, y, g, t)
+    m = _moved(f.form, param(f.demand, g, t), _source(y, f.from))
+    return m, first(_count(f, y, nothing, g, t))
+end
+
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
 # flows; returns those before them.
