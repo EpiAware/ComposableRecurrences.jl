@@ -260,44 +260,7 @@ round.((R0 * sum(gi), R0 * sum(gi_isolated)); digits = 3)
 end
 
 # Isolation thins the later lags most and brings the reproduction number below one.
-#
-# Summing over lags gives the mean offspring of one case.
-# We check it against the mean of seeded simulations.
-# They come from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl).
-# Each is a `BranchingProcess` with `Isolation`.
-# The generation time is gamma with shape 2 and scale 3.
-# A case isolates after its incubation period and an exponential delay.
-# This total is gamma with shape 3 and scale 2, as the two scales match.
-# We bin both by day and evaluate ``F_D`` at the middle of each day.
-# `p` is the share with symptoms times the test sensitivity.
-# `b` is one minus the transmission after isolation.
-# The reference file holds these parameters.
-# Its generator is in `test/usecases/references`.
-
-ref = include(
-    joinpath(
-        pkgdir(ComposableRecurrences),
-        "test", "usecases", "references", "epibranch_isolation.jl"
-    )
-)
-erlang_cdf(x, k, θ) = x <= 0 ? 0.0 :
-    1 - sum(exp(-x / θ) * (x / θ)^j / factorial(j) for j in 0:(k - 1))
-lags = 1:80
-g_ref = erlang_cdf.(lags, ref.GEN_SHAPE, ref.GEN_SCALE) .-
-    erlang_cdf.(lags .- 1, ref.GEN_SHAPE, ref.GEN_SCALE)
-F_ref = erlang_cdf.(lags .- 0.5, ref.INC_SHAPE + 1, ref.INC_SCALE)
-p_ref = (1 - ref.PROB_ASYMPTOMATIC) * ref.TEST_SENSITIVITY
-b_ref = 1 - ref.POST_ISOLATION_TRANSMISSION
-g_ref_isolated = g_ref .* (1 .- p_ref * b_ref .* F_ref)
-offspring_ref = ref.R .* [sum(g_ref), sum(g_ref_isolated)]
-DataFrame(
-    "Isolation" => ["No", "Yes"],
-    "ComposableRecurrences" => round.(offspring_ref; digits = 3),
-    "BranchingProcess" => round.([ref.NONE.mean, ref.ISOLATION.mean]; digits = 3),
-    "Standard error" => round.([ref.NONE.se, ref.ISOLATION.se]; digits = 3),
-)
-
-# Both differ from the simulation mean by less than one standard error.
+# The mean offspring with and without isolation match seeded branching-process simulations from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl); the [isolation use case](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/usecases/expectation.jl) checks them.
 #
 # ### Isolation delay by type
 #
