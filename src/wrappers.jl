@@ -487,12 +487,7 @@ end
 function _stack_values(::Type{<:AbstractArray}, get, ps)
     sz = size(get(first(ps)))
     for p in ps
-        size(get(p)) == sz || throw(
-            DimensionMismatch(
-                "the values between change points have one size, got " *
-                    join(unique([string(size(get(q))) for q in ps]), ", ")
-            )
-        )
+        size(get(p)) == sz || _size_error(sz, size(get(p)))
     end
     return _stack(get, ps, sz)
 end
@@ -506,6 +501,13 @@ function _stack_values(::Type, get, ps)
         ArgumentError(
             "the values between change points are numbers, arrays or " *
                 "PerStratum, all of one form; got $(_describe(map(get, ps)))"
+        )
+    )
+end
+@noinline function _size_error(sz, other)
+    throw(
+        DimensionMismatch(
+            "the values between change points have one size, got $sz and $other"
         )
     )
 end
