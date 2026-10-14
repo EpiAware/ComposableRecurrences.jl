@@ -60,6 +60,7 @@
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
 - Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
+- Mooncake and Enzyme no longer differentiate the check a `Depletion` makes on its form, which cost Mooncake about 8 µs a gradient.
 
 ### Fixed
 
