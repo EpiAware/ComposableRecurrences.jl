@@ -2,8 +2,9 @@
 #
 #   julia test/reactant/compare.jl committed.tsv fresh.tsv
 #
-# Prints every (case, mode, config, backend) cell whose status changed, as a
-# Markdown table, and exits with status 1 if any did. Timings are ignored.
+# Prints every (case, mode, config, backend, steps) cell whose status
+# changed, as a Markdown table, and exits with status 1 if any did. Timings
+# are ignored.
 # A newly working cell means `expected.jl` and the committed results need
 # updating; a newly failing one is a regression.
 
@@ -12,10 +13,13 @@ function statuses(path)
     keys = split(lines[2], '\t')
     col(name) = findfirst(==(name), keys)
     idx = col.(("name", "mode", "config", "backend", "status"))
-    d = Dict{NTuple{4, String}, String}()
+    # Results from before the steps column ran at 20 steps.
+    isteps = col("steps")
+    d = Dict{NTuple{5, String}, String}()
     for l in lines[3:end]
         v = split(l, '\t')
-        d[Tuple(String.(v[collect(idx[1:4])]))] = String(v[idx[5]])
+        steps = isteps === nothing ? "20" : String(v[isteps])
+        d[(String.(v[collect(idx[1:4])])..., steps)] = String(v[idx[5]])
     end
     return d
 end
@@ -30,8 +34,8 @@ function main(committed, fresh)
         return 0
     end
     println("Reactant support changed in $(length(changed)) cells:\n")
-    println("| Case | Mode | Config | Backend | Committed | Now |")
-    println("|---|---|---|---|---|---|")
+    println("| Case | Mode | Config | Backend | T | Committed | Now |")
+    println("|---|---|---|---|---|---|---|")
     for k in changed
         println("| ", join(k, " | "), " | ", get(old, k, "missing"), " | ", get(new, k, "missing"), " |")
     end
