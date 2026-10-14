@@ -188,6 +188,25 @@ A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
 
+A coefficient that changes at a few times is given by its change points,
+`[t_1 => c_1, t_2 => c_2, ..., t_J => c_J]` with ``1 = t_1 < t_2 < \dots < t_J``:
+
+```math
+c(\tau) = c_j, \qquad t_j \le \tau < t_{j+1}, \quad t_{J+1} = \infty,
+```
+
+so the last value holds at every later time and the coefficient covers any
+`stop`.
+Each value has the form of one column: a number for a parameter, a vector
+of lag weights for a kernel (shorter ones padded with zero weights), an
+`S × S` matrix for a coupling, or a [`PerStratum`](@ref) of these.
+Only the ``J`` values are stored, stacked into one array, and a call runs
+each segment with the loops of a fixed coefficient: a `Secondary()` kernel
+switches at the change points, and a `Primary()` kernel sums one fixed
+convolution per segment of the inputs from that segment.
+Values and gradients equal those of the dense array that repeats each
+value over its segment.
+
 The indexing sets which time a kernel's column belongs to, and is held as
 a type parameter so nothing branches on it:
 
@@ -203,7 +222,8 @@ The two agree for a fixed kernel.
 
 # Arguments
 - `x`: the coefficients, time on the last axis, a [`PerStratum`](@ref)
-  of them, or a vector of kernel columns.
+  of them, a vector of kernel columns, or a vector of `start => value`
+  change points.
 - `indexing`: `Secondary()` (default) or `Primary()`.
 
 # Examples
@@ -233,6 +253,23 @@ Convolution(TimeVarying(ks, ComposableRecurrences.Primary()))(ones(3))
  1.25
  1.25
 ```
+
+A generation interval that shortens from time 6, given by its change
+points, against the dense array that repeats each kernel:
+
+```jldoctest
+using ComposableRecurrences
+long_gi, short_gi = [0.2, 0.5, 0.3], [0.6, 0.4]
+r = Recurrence(TimeVarying([1 => long_gi, 6 => short_gi]))
+y = r(1.2; history = ones(3), start = 4, stop = 8)
+G = hcat([t < 6 ? long_gi : [short_gi; 0.0] for t in 1:8]...)
+dense = Recurrence(TimeVarying(G))(1.2; history = ones(3), start = 4, stop = 8)
+y ≈ dense, round.(y; digits = 3)
+
+# output
+
+(true, [1.2, 1.248, 1.475, 1.661, 1.904])
+```
 """
 struct TimeVarying{I, A}
     "The coefficients, time on the last axis."
@@ -244,7 +281,7 @@ struct TimeVarying{I, A}
                     _describe(x)
             )
         )
-        x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged} || throw(
+        x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise} || throw(
             ArgumentError(
                 "TimeVarying wraps an array, a PerStratum, a Pairwise or a " *
                     "vector of kernel columns, got $(_describe(x))"
@@ -367,6 +404,122 @@ function TimeVarying{I}(ks::AbstractVector{<:AbstractVector}) where {I}
     return TimeVarying{I}(_ragged(ks))
 end
 
+# A coefficient that holds its value between change points: segment `j`
+# covers the times from `starts[j]` to `starts[j + 1] - 1`, the last one
+# every later time, and its value is column `j` of `x`. `x` has the form of
+# a dense coefficient (an array, or a `PerStratum` of one) with one column
+# per segment in place of one per time, so the readers of a dense
+# coefficient read it at column `_segment(p, t)`. The starts rise from 1 and
+# carry no cotangent. The `_Flat` form takes the fields of a checked one as
+# they are.
+struct _Piecewise{X, P <: AbstractVector{Int}}
+    x::X
+    starts::P
+    function _Piecewise(::_Flat, x::X, starts::P) where {X, P <: AbstractVector{Int}}
+        return new{X, P}(x, starts)
+    end
+    function _Piecewise(x::X, starts::AbstractVector{<:Integer}) where {X}
+        Base.require_one_based_indexing(starts)
+        s = convert(Vector{Int}, starts)
+        ok = !isempty(s) && first(s) == 1 && all(i -> s[i] < s[i + 1], 1:(length(s) - 1))
+        ok || throw(
+            ArgumentError(
+                "change points start at time 1 and rise, got the starts " *
+                    _describe(s)
+            )
+        )
+        n = _extent(_array(x))
+        n == length(s) || throw(
+            DimensionMismatch("$(length(s)) change points but $n values")
+        )
+        return new{X, Vector{Int}}(x, s)
+    end
+end
+
+_array(p::_Piecewise) = _array(p.x)
+param_eltype(p::_Piecewise) = param_eltype(p.x)
+
+# The segment of time `t`: the last whose start is at or before `t`, the
+# first for a time before 1. A linear scan from the last segment, as there
+# are few and a run reads them in time order.
+Base.@propagate_inbounds _segment(p::_Piecewise, t) = _segment_of(p.starts, t)
+Base.@propagate_inbounds function _segment_of(s, t)
+    j = length(s)
+    while j > 1 && s[j] > t
+        j -= 1
+    end
+    return j
+end
+
+# The values `start => value` of a coefficient given by change points,
+# stacked along a new last axis: numbers into a vector, arrays into an array
+# with one more axis, and `PerStratum` values into a `PerStratum` of that.
+# Kernels of different lengths are padded with zero weights.
+function _piecewise(ps::AbstractVector{<:Pair})
+    Base.require_one_based_indexing(ps)
+    isempty(ps) && throw(
+        ArgumentError("TimeVarying needs at least one start => value pair")
+    )
+    starts = map(_start_time, ps)
+    return _Piecewise(_stack_values(map(last, ps)), starts)
+end
+_start_time(p::Pair{<:Integer}) = first(p)
+function _start_time(p::Pair)
+    throw(
+        ArgumentError(
+            "a change point is an integer start time => value, got " * _describe(p)
+        )
+    )
+end
+_stack_values(vs::AbstractVector{<:Real}) = [float(v) for v in vs]
+function _stack_values(vs::AbstractVector{<:AbstractVector})
+    n = _maxlen(_Columns(vs))
+    _all_length(vs, n) && return reduce(hcat, vs)
+    return reduce(hcat, map(v -> _pad(v, n), vs))
+end
+# Plain loops: a traced call reads the lengths as integers.
+function _all_length(vs, n)
+    for v in vs
+        length(v) == n || return false
+    end
+    return true
+end
+_pad(v, n) = length(v) == n ? v : vcat(v, zeros(eltype(v), n - length(v)))
+function _all_size(vs, sz)
+    for v in vs
+        size(v) == sz || return false
+    end
+    return true
+end
+function _stack_values(vs::AbstractVector{<:AbstractArray})
+    sz = size(first(vs))
+    _all_size(vs, sz) || throw(
+        DimensionMismatch(
+            "the values between change points have one size, got " *
+                join(unique(map(v -> string(size(v)), vs)), ", ")
+        )
+    )
+    return reshape(reduce(hcat, map(vec, vs)), sz..., length(vs))
+end
+function _stack_values(vs::AbstractVector{<:PerStratum})
+    return PerStratum(_stack_values(map(v -> v.x, vs)))
+end
+function _stack_values(vs::AbstractVector{<:Pairwise})
+    return Pairwise(_stack_values(map(v -> v.x, vs)))
+end
+function _stack_values(vs)
+    throw(
+        ArgumentError(
+            "the values between change points are numbers, arrays or " *
+                "PerStratum, all of one form; got $(_describe(vs))"
+        )
+    )
+end
+
+function TimeVarying{I}(ps::AbstractVector{<:Pair}) where {I}
+    return TimeVarying{I}(_piecewise(ps))
+end
+
 TimeVarying(x) = TimeVarying{Secondary}(x)
 # The indexing is a type parameter with no field, so a rebuild from the
 # fields names it, or `TimeVarying(x)` would read the kernel as `Secondary()`.
@@ -387,6 +540,12 @@ PerStratum(x::TimeVarying{I}) where {I} = TimeVarying{I}(PerStratum(x.x))
 Pairwise(x::TimeVarying{I}) where {I} = TimeVarying{I}(Pairwise(x.x))
 PerStratum(x::TimeVarying{<:Any, <:_AnyRagged}) = _strata_ragged(x)
 Pairwise(x::TimeVarying{<:Any, <:_AnyRagged}) = _strata_ragged(x)
+function PerStratum(x::TimeVarying{I, <:_Piecewise}) where {I}
+    return TimeVarying{I}(_Piecewise(_Flat(), PerStratum(x.x.x), x.x.starts))
+end
+function Pairwise(x::TimeVarying{I, <:_Piecewise}) where {I}
+    return TimeVarying{I}(_Piecewise(_Flat(), Pairwise(x.x.x), x.x.starts))
+end
 function _strata_ragged(x)
     throw(
         ArgumentError(

@@ -1012,12 +1012,39 @@ function _series_body!(
         ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
         D, T
     )
-    _steps!(
-        _series_step!, ex, T,
-        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D
-    )
+    for (ts, g, _) in _kernel_runs(kernel, τ0, T)
+        _steps_in!(
+            _series_step!, ex, ts, T,
+            ks, H, pr, gain, add, coupling, g, p, q, ms, states, rec, τ0, L, D
+        )
+    end
     return nothing
 end
+
+# The runs of steps over which the kernel a step reads is fixed, each
+# `(steps, kernel, j)`: the steps (`nothing` for every step of the call),
+# the kernel they read and the run's index, by which the reverse pass reads
+# its kernel buffer. A kernel whose steps all read it is one run.
+_kernel_runs(kernel, τ0, T) = ((nothing, kernel, 1),)
+_run_steps(::Nothing, T) = 1:T
+_run_steps(ts::AbstractUnitRange, T) = ts
+_run_buffer(kbuf, kernel, j) = kbuf
+
+# `_steps!` over the steps `ts` of a call of `T` steps.
+@inline function _steps_in!(body::F, ex, ::Nothing, T, args::Vararg{Any, N}) where {F, N}
+    return _steps!(body, ex, T, args...)
+end
+@inline function _steps_in!(
+        body::F, ex, ts::AbstractUnitRange, T, args::Vararg{Any, N}
+    ) where {F, N}
+    return _steps!(_From(body, first(ts) - 1), ex, length(ts), args...)
+end
+# A step body called at step `t + o`.
+struct _From{F}
+    f::F
+    o::Int
+end
+@inline (b::_From)(t, args::Vararg{Any, N}) where {N} = b.f(t + b.o, args...)
 
 # Step `t` of the independent strata `ks`.
 @inline function _series_step!(
@@ -1143,11 +1170,13 @@ function _run(
         # Parameters that read across strata fill their windows once per
         # step; the check is made once, outside the loop.
         across = _reads_across(modifiers)
-        _steps!(
-            _coupled_step!, ex, T,
-            ex, across, H, v, pr, gain, add, coupling, kernel, p, q, modifiers,
-            states, rec, τ0, L, D, S, work
-        )
+        for (ts, g, _) in _kernel_runs(kernel, τ0, T)
+            _steps_in!(
+                _coupled_step!, ex, ts, T,
+                ex, across, H, v, pr, gain, add, coupling, g, p, q, modifiers,
+                states, rec, τ0, L, D, S, work
+            )
+        end
     end
     Y = _public(H, (D + 1):(D + T), h)
     # The cache holds copies of the inputs the reverse pass reads, so a

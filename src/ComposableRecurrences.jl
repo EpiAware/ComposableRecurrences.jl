@@ -141,6 +141,8 @@ include("recurrence_adjoint.jl")
 include("routes.jl")
 # The causal convolution operator and its reverse pass.
 include("convolution.jl")
+# `TimeVarying` coefficients given by change points.
+include("piecewise.jl")
 # Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.
 include("fallbacks.jl")
 # Interfaces.jl declaration of the role interface.

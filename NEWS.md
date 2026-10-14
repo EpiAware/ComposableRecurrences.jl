@@ -19,6 +19,7 @@
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
+- `TimeVarying([t₁ => c₁, t₂ => c₂, ...], indexing)` gives a kernel, coupling or modifier parameter by its change points, storing one value per segment and running each segment with the fixed coefficient's loops ([time-varying delays][tv]).
 - `Convolution` takes `gain` and `add`, and `ComposableRecurrences.contributions` returns the lag contributions before the sum over lags ([API overview][api]).
 - `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded; `Direct()` stays the default ([FFTW extension][fftw]).
 - `Routes((C₁, g₁), (C₂, g₂), ...)` is a `Recurrence` kernel that sums transmission routes, each with its own kernel and coupling ([API overview][api]).

@@ -1,8 +1,8 @@
 module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Executor, PerStratum, Primary,
-    Secondary, TimeVarying, _BoundRecent, _CPUArray, _Ragged, _lagweight, _nlags,
-    _steps!, _weight
+    Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Ragged,
+    _lagweight, _nlags, _seg_weights, _steps!, _weight
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
 
@@ -137,6 +137,50 @@ function ComposableRecurrences._kdot(
         acc += _weight(g, a, a, i, τ) * H[t + L - i, a]
     end
     return acc
+end
+
+# A coefficient given by change points at a traced time: its segment is the
+# count of the starts at or before that time, a traced number, by which the
+# dense values are read.
+function ComposableRecurrences._segment_of(s::AbstractVector{Int}, t::TracedRNumber)
+    j = zero(t) + 1
+    for i in 2:length(s)
+        j += ifelse(s[i] <= t, 1, 0)
+    end
+    return j
+end
+function ComposableRecurrences._segment(g::_OldestFirstPiecewise, t::TracedRNumber)
+    return ComposableRecurrences._segment_of(g.starts, t)
+end
+
+# A recurrence kernel from change points at a traced step: each lag's weight
+# is chosen from the segment of the time it reads, `τ` or with `Primary()`
+# the value's own time, with `ifelse` over the segments, so every lag runs.
+# A `Primary()` lag before time 1 reads the first segment, where it meets a
+# zero in the buffer.
+function ComposableRecurrences._kdot(
+        g::_OldestFirstPiecewise{Secondary}, H::AnyTracedRArray, t, τ::TracedRNumber, L, a
+    )
+    return _traced_kdot(g, H, t, L, a, u -> τ)
+end
+function ComposableRecurrences._kdot(
+        g::_OldestFirstPiecewise{Primary}, H::AnyTracedRArray, t, τ::TracedRNumber, L, a
+    )
+    return _traced_kdot(g, H, t, L, a, u -> τ - L - 1 + u)
+end
+function _traced_kdot(g, H, t, L, a, time)
+    acc = zero(eltype(H))
+    for u in 1:L
+        acc += _traced_weight(g, a, u, time(u)) * H[t + u - 1, a]
+    end
+    return acc
+end
+function _traced_weight(g, a, u, σ)
+    w = _seg_weights(g, a, 1)[u]
+    for j in 2:length(g.starts)
+        w = ifelse(g.starts[j] <= σ, _seg_weights(g, a, j)[u], w)
+    end
+    return w
 end
 
 # A traced time is a step of the traced loop, which reads `Recent` only at

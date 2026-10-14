@@ -110,12 +110,15 @@ _own(x̄::_Owned) = x̄.x
 function _series_back!(
         ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
-    for t in T:-1:1
-        τ = τ0 + t - 1
-        for k in ks
-            q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, D, k)
-            p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
-            _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄k, H, H̄, t + D - L, τ, L, k)
+    for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
+        kb = _run_buffer(kbuf, kernel, j)
+        for t in reverse(_run_steps(ts, T))
+            τ = τ0 + t - 1
+            for k in ks
+                q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, D, k)
+                p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
+                _kernel_back_at!(kb, acc.ḡ, g, p̄k, H, H̄, t + D - L, τ, L, k)
+            end
         end
     end
     return nothing
@@ -148,26 +151,29 @@ function _steps_back!(
     p̄ = _zeros(H, Tp, S)
     q̄ = _zeros(H, Tp, S)
     pbufs = _pressure_buffers(_own(acc.C̄), coupling, Tp)
-    for t in T:-1:1
-        τ = τ0 + t - 1
-        _refresh!(ms, D + t)
-        if _all_pointwise(ms)
-            _reduce_blocks!(
-                _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄, t,
-                τ, D
-            )
-        else
-            for k in 1:S
-                v̄[k] = H̄[D + t, k]
+    for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
+        kb = _run_buffer(kbuf, kernel, j)
+        for t in reverse(_run_steps(ts, T))
+            τ = τ0 + t - 1
+            _refresh!(ms, D + t)
+            if _all_pointwise(ms)
+                _reduce_blocks!(
+                    _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄,
+                    t, τ, D
+                )
+            else
+                for k in 1:S
+                    v̄[k] = H̄[D + t, k]
+                end
+                _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
+                for k in 1:S
+                    q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
+                end
             end
-            _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
-            for k in 1:S
-                q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
-            end
+            _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
+            _kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
+            _flush!(ms)
         end
-        _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
-        _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t + D - L, τ, L)
-        _flush!(ms)
     end
     return nothing
 end
