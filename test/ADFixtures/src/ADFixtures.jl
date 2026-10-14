@@ -74,13 +74,13 @@ function ComposableRecurrences.forward(
 end
 
 # Consecutive blocks of `θ` with the given shapes, as reshaped views.
-# Each Enzyme release up to 0.13.216 fails one way of building them:
-# - On Julia 1.11 the closure below, which captures a boxed offset, leaves
-#   every scenario uninferred, and Enzyme reverse mode then returns zero for
-#   scalar parameters held in an operator. So 1.11 takes the inferred
-#   recursion.
-# - On later versions Enzyme forward mode corrupts the heap after some
-#   thousands of calls once the views are inferred. So they keep the closure,
+# Enzyme, up to 0.13.216 at least, fails one way of building them on each
+# side of Julia 1.12:
+# - On 1.11 the closure below, which captures a boxed offset, leaves every
+#   scenario uninferred, and Enzyme reverse mode then returns zero for the
+#   scalar parameters of an operator. So 1.11 takes the inferred recursion.
+# - From 1.12 Enzyme forward mode corrupts the heap after some thousands of
+#   calls of the inferred scenarios. So these versions keep the closure,
 #   whose gradients are right there.
 @static if VERSION < v"1.12"
     _unpack(θ, shapes...) = _unpack_from(θ, 0, shapes...)
