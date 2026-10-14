@@ -324,13 +324,22 @@ struct _Columns{K <: AbstractVector{<:AbstractVector}}
     columns::K
     function _Columns(ks::K) where {K <: AbstractVector{<:AbstractVector}}
         Base.require_one_based_indexing(ks)
-        foreach(Base.require_one_based_indexing, ks)
+        for k in ks
+            Base.require_one_based_indexing(k)
+        end
         return new{K}(ks)
     end
 end
 
 _ncols(g::_Columns) = length(g.columns)
-_maxlen(g::_Columns) = maximum(length, g.columns; init = 0)
+# Plain loops, which AD backends that trace the call step through cheaply.
+function _maxlen(g::_Columns)
+    n = 0
+    for k in g.columns
+        n = max(n, length(k))
+    end
+    return n
+end
 param_eltype(g::_Columns) = eltype(eltype(g.columns))
 
 # Either form of a kernel given as columns.
