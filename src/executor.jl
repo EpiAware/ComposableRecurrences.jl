@@ -210,15 +210,16 @@ _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
 
 # The kinds of loop operators split, and the work an operator passes for a
 # loop of kind `kind` that does `w` multiply-adds on elements like those of
-# `x`: one per 64-bit word of the element type, scaled so that one
-# `min_work` is where each kind breaks even (see `Threaded`).
+# `x`, scaled so that one `min_work` is where each kind breaks even (see
+# `Threaded`). Loops split once per call count one per 64-bit word of the
+# element type; loops split every step count `w` as it is.
 struct _StepLoop end
 struct _RunLoop end
 struct _ConvLoop end
-_loop_share(::_StepLoop) = 1
-_loop_share(::_RunLoop) = 4
+_loop_share(::_RunLoop) = 8
 _loop_share(::_ConvLoop) = 16
 _words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
+_work(::_StepLoop, x, w) = w
 _work(kind, x, w) = w * _words(eltype(x)) ÷ _loop_share(kind)
 
 # Chunk `c` of `m` contiguous chunks of `1:n`.
