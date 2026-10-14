@@ -16,6 +16,8 @@ using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
+# Loaded so the default `Auto()` method can take the transform.
+import FFTW
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
 using LinearAlgebra: Diagonal, I
@@ -543,6 +545,16 @@ function _conv_per_stratum(w, θ)
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
 end
 
+# A long delay per stratum on a long series, with history: the default
+# `Auto()` method takes the transform under a native rule and the direct
+# method under its `NoAdjoint` twin.
+const LA, TA = 100, 110
+const WA = [cos(0.1 * a * t) for a in 1:2, t in 1:TA]
+function _conv_auto(w, θ)
+    G, X, H = _unpack(θ, (2, LA), (2, TA), (2, 5))
+    return sum(WA .* w(Convolution(PerStratum(G)))(X; history = H))
+end
+
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
 # with a longer one.
 function _routes(w, θ)
@@ -853,6 +865,13 @@ const _SCENARIOS = [
         "Convolution per-stratum kernel with history", _conv_per_stratum,
         () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
     ),
+    (
+        "Convolution long kernel by the automatic method", _conv_auto,
+        () -> _flat(
+            [exp(-0.05 * (l + a)) / 20 for a in 1:2, l in 1:LA],
+            [1.0 + 0.5 * sin(a + t) for a in 1:2, t in 1:TA], ones(2, 5),
+        ),
+    ),
 ]
 
 """
@@ -928,6 +947,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
+    "Convolution long kernel by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the

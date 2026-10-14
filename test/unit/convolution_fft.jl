@@ -117,7 +117,7 @@ end
         e
     end
     @test occursin(":fft", sprint(showerror, err))
-    @test CR._method(Convolution(rand(3))) === CR.Direct()
+    @test CR._method(Convolution(rand(3))) === CR.Auto()
     @test fieldnames(typeof(Convolution(rand(3)))) == (:kernel,)
     c = Convolution(rand(3); method = CR.FFTMethod())
     k = rand(3)
@@ -222,4 +222,85 @@ end
     Y = Convolution(PerStratum(JLArray(K)); method = fft)(JLArray(X); history = JLArray(H))
     @test Y isa JLArray
     @test Array(Y) ≈ Convolution(PerStratum(K))(X; history = H)
+end
+
+@testitem "Convolution Auto: which method it picks with FFTW" begin
+    using ComposableRecurrences, FFTW, ForwardDiff, JLArrays
+    const CR = ComposableRecurrences
+    auto = CR.Auto()
+    picks(kernel, Tp, x, T) = CR._fft_path(auto, kernel, Tp, x, T)
+    # The transform from 100 lags and 100 outputs, for a fixed kernel on
+    # `Float64` CPU arrays.
+    @test picks(rand(100), Float64, rand(100), 100)
+    @test picks(PerStratum(rand(2, 500)), Float64, rand(2, 2000), 2000)
+    @test picks(rand(100), Float64, view(rand(300), 1:200), 200)
+    @test !picks(rand(99), Float64, rand(200), 200)
+    @test !picks(rand(200), Float64, rand(200), 99)
+    # Other kernels, numbers and arrays take the direct method at any size.
+    @test !picks(TimeVarying(rand(100, 200)), Float64, rand(200), 200)
+    @test !picks(rand(Float32, 200), Float32, rand(Float32, 300), 300)
+    @test !picks(rand(200), BigFloat, rand(300), 300)
+    D = ForwardDiff.Dual{Nothing, Float64, 1}
+    @test !picks(rand(200), D, rand(300), 300)
+    @test !picks(JLArray(rand(200)), Float64, JLArray(rand(300)), 300)
+    # The number of outputs is the call's, not the input's length.
+    ran(c, x; kw...) = last(
+        CR._run_forward(
+            c, x, true, nothing, nothing, get(kw, :start, 1), get(kw, :stop, nothing)
+        )
+    ).fft
+    x = rand(300)
+    @test ran(Convolution(rand(100)), x)
+    @test ran(Convolution(rand(100)), x; start = 201)
+    @test !ran(Convolution(rand(100)), x; start = 202)
+    @test !ran(Convolution(rand(100)), x; stop = 99)
+    @test !ran(Convolution(rand(99)), x)
+    @test !ran(Convolution(rand(Float32, 100)), rand(Float32, 300))
+end
+
+@testitem "Convolution Auto: matches direct" begin
+    using ComposableRecurrences, FFTW, Random
+    const CR = ComposableRecurrences
+    rng = Xoshiro(45)
+    # Sizes either side of the switch, for a shared and a per-stratum
+    # kernel, with history, gain and add.
+    for (T, L) in ((99, 100), (100, 100), (150, 120), (400, 20), (2000, 500))
+        S = 2
+        g = exp.(-0.05 .* (0:(L - 1)))
+        G = rand(rng, S, L)
+        x, X = rand(rng, T), rand(rng, S, T)
+        h, H = rand(rng, 4), rand(rng, S, 4)
+        for (k, u, hu) in ((g, x, h), (g, X, H), (PerStratum(G), X, H))
+            auto = Convolution(k)
+            direct = Convolution(k; method = CR.Direct())
+            y = auto(u; history = hu, gain = 0.5, add = 1.0)
+            @test y isa typeof(direct(u; history = hu))
+            @test y ≈ direct(u; history = hu, gain = 0.5, add = 1.0)
+        end
+    end
+    # `Float32` stays exact to the direct method, as it never takes the
+    # transform.
+    k, x = rand(rng, Float32, 200), rand(rng, Float32, 300)
+    @test Convolution(k)(x) == Convolution(k; method = CR.Direct())(x)
+end
+
+@testitem "Convolution Auto: direct without FFTW" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # A fresh process that loads the package but not FFTW.
+    code = """
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    k, x = rand(200), rand(300)
+    c = Convolution(k)
+    print(
+        CR._fft_path(CR.Auto(), k, Float64, x, 300), " ",
+        last(CR._run_forward(c, x, true, nothing, nothing, 1, nothing)).fft, " ",
+        c(x) == Convolution(k; method = CR.Direct())(x)
+    )
+    """
+    julia = Base.julia_cmd()
+    project = Base.active_project()
+    out = read(`$julia --startup-file=no --project=$project -e $code`, String)
+    @test out == "false false true"
 end

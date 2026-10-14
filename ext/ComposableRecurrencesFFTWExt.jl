@@ -4,8 +4,8 @@
 # calls share no state.
 module ComposableRecurrencesFFTWExt
 
-using ComposableRecurrences: ComposableRecurrences, FFTMethod, PerStratum,
-    _CPUArray, _nlags, _untraced, add_cotangent!, cotangent
+using ComposableRecurrences: ComposableRecurrences, Auto, FFTMethod, PerStratum,
+    _CPUArray, _auto_fft, _nlags, _untraced, add_cotangent!, cotangent
 using FFTW: FFTW, plan_irfft, plan_rfft
 using LinearAlgebra: mul!
 
@@ -19,6 +19,17 @@ function ComposableRecurrences._fft_path(
         ::Type{<:_FFTFloat}, x::_CPUArray
     )
     return _untraced()
+end
+
+# `Auto()` takes the transform for a fixed kernel on `Float64` CPU arrays
+# once the kernel and the outputs are long enough. The sizes are integers,
+# so the check carries no derivative; the AD rules on `_untraced` keep
+# traced calls on the direct method.
+function ComposableRecurrences._fft_path(
+        ::Auto, kernel::Union{AbstractVector, PerStratum{<:AbstractMatrix}},
+        ::Type{Float64}, x::_CPUArray, T
+    )
+    return _auto_fft(_nlags(kernel), T) && _untraced()
 end
 
 # The transform size for `n` inputs and `L` lags: one block of the whole
