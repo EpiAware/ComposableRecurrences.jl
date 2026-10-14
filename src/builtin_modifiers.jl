@@ -233,8 +233,9 @@ So `Flow(2 => 1, ω)` is waning protection at rate ``\omega`` and
 `Flow(1 => 0, μ)` removes susceptibles at rate ``\mu``.
 Rate and share flows act on the pools after the draw, then the count
 flows in order on what remains.
-The `removals` are the first count flow, `Flow(1 => 0, Amount(removals))`,
-or `Flow(1 => 2, Amount(removals))` with a protected pool.
+The `removals` are the first count flow,
+`Flow(1 => 0, removals; form = Truncate())`, or
+`Flow(1 => 2, removals; form = Truncate())` with a protected pool.
 Rate and share flows are not capped, so a rate out of a pool the draw has
 taken below zero moves a negative amount.
 

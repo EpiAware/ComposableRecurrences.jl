@@ -345,9 +345,9 @@ function _ward(w, θ)
     CR = ComposableRecurrences
     flows = CR.Flows(
         CR.Flow(1 => 2, PerStratum(confirm)),
-        CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+        CR.Flow(1 => 0, TimeVarying(ruleout); form = CR.Share()),
         CR.Flow(2 => 0, only(discharge)),
-        CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+        CR.Flow(2 => 0, TimeVarying(PerStratum(transfer)); form = CR.Truncate()),
     )
     r = Recurrence([1.0]; modifiers = (flows,))
     y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)

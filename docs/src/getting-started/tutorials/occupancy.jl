@@ -156,8 +156,7 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # admissions to the suspected one.
 # [`Flows`](@ref ComposableRecurrences.Flows) then applies the day's flows.
 # Each is a [`Flow`](@ref ComposableRecurrences.Flow) from one compartment to
-# another, or to `0` to leave, and a bare rate is a hazard
-# [`Rate`](@ref ComposableRecurrences.Rate).
+# another, or to `0` to leave, with a hazard rate as its demand.
 # Each rate is a parameter, so it can also differ by ward or change over time.
 
 ward_flows = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))
@@ -173,11 +172,11 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# A [`Linear`](@ref ComposableRecurrences.Linear) flow moves a share instead,
-# like the daily discharge probability ``d`` at the start of this tutorial,
-# except that the day's admissions can also leave that day.
-# An [`Amount`](@ref ComposableRecurrences.Amount) flow moves a count, capped by
-# what the compartment holds, such as a fixed number of transfers a day.
+# A flow with `form = Share()` moves a share instead, like the daily
+# discharge probability `δ` at the start of this tutorial, except that the
+# day's admissions can also leave that day.
+# A flow with `form = Truncate()` moves a count, capped by what the
+# compartment holds, such as a fixed number of transfers a day.
 # Several wards are several groups: with ``G`` wards the strata are the ``G``
 # suspected compartments, then the ``G`` confirmed ones.
 

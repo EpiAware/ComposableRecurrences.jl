@@ -470,7 +470,6 @@ end
 
 # The admissions from demand `d` and free capacity `f` through the draw
 # form, and their cotangents `(d̄, f̄, κ̄)`.
-const _TruncateForm = Union{Truncate, SoftTruncate}
 _draw(form, d, f) = _soft_min(_softness(form), d, f)
 _draw_back(form, d, f, x̄) = _soft_min_back(_softness(form), d, f, x̄)
 

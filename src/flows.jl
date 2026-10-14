@@ -1,124 +1,48 @@
 # Flows between the compartments of each group. A `Flow` moves part of one
-# compartment into another, or out, each step: at a hazard rate (`Rate`,
-# the default), as a share (`Linear`) or as a count (`Amount`). The rates
-# out of one compartment compete; shares and rates act on the incoming
-# compartments together, then the counts in flow order on what remains.
+# compartment into another, or out, each step, by a form applied to its
+# demand: a competing hazard rate (`Hazard()`, the default), a share
+# (`Share()`) or a count capped by what is there (`Truncate()` or
+# `SoftTruncate(κ)`). The rates out of one compartment compete; rates and
+# shares act on the incoming compartments together, then the counts in
+# flow order on what remains.
 
 @doc raw"""
-A flow kind: a hazard rate ``r``, the default for a
-[`ComposableRecurrences.Flow`](@ref).
+The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
+moves a share ``p`` of the compartment it leaves.
 
-The rate flows out of a compartment compete, as in the
-[`ComposableRecurrences.Hazard`](@ref) depletion form: with ``H`` the sum of
-their rates, together they move
-
-```math
-x \big(1 - e^{-H}\big)
-```
-
-of the compartment's ``x``, shared in proportion to the rates
-([`ComposableRecurrences.Flows`](@ref) gives the step).
-With non-negative, finite rates a non-negative compartment stays
-non-negative.
-A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
-Rates are not checked: a time-varying or [`Derived`](@ref) rate is only
-known at each step.
-
-# Arguments
-- `r`: the rate, a [parameter](@ref ComposableRecurrences.param)
-  read at each step's group and time, with `PerStratum` holding one per
-  group.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-ComposableRecurrences.Rate(0.2)
-
-# output
-
-ComposableRecurrences.Rate{Float64}(0.2)
-```
-"""
-struct Rate{R}
-    "The hazard rate."
-    r::R
-    Rate(r::R) where {R} = new{R}(_check_param(:r, r))
-end
-
-@doc raw"""
-A flow kind: a share ``p`` of the compartment it leaves.
-
-Flow ``f`` out of compartment ``i`` moves
+Flow ``f`` out of compartment ``i``, with demand ``p_f``, moves
 
 ```math
 m_f = p_f\, x_i,
 ```
 
 with ``x_i`` the compartment before the step's flows, alongside any
-[`ComposableRecurrences.Rate`](@ref) flows.
-Shares out of one compartment that sum to more than ``e^{-H_i}`` leave it
-negative.
-
-# Arguments
-- `p`: the share, a parameter read at each step's group and time, as for
-  [`ComposableRecurrences.Rate`](@ref).
+[`ComposableRecurrences.Hazard`](@ref) flows.
+Shares out of one compartment that sum to more than ``e^{-H_i}``, with
+``H_i`` the sum of its hazard rates, leave it negative.
+`Share()` is a form for flows only, not a depletion form.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
-ComposableRecurrences.Linear(0.15)
+CR = ComposableRecurrences
+CR.Flow(1 => 0, 0.15; form = CR.Share()).form
 
 # output
 
-ComposableRecurrences.Linear{Float64}(0.15)
+ComposableRecurrences.Share()
 ```
 """
-struct Linear{P}
-    "The share."
-    p::P
-    Linear(p::P) where {P} = new{P}(_check_param(:p, p))
-end
+struct Share end
 
-@doc raw"""
-A flow kind: a count ``a``, capped by what the compartment holds.
-
-After the [`ComposableRecurrences.Rate`](@ref) and
-[`ComposableRecurrences.Linear`](@ref) flows, each count flow in turn moves
-
-```math
-m_f = \min\big(a_f,\ \max(x_i, 0)\big)
-```
-
-out of compartment ``i``, with ``x_i`` what it holds by then.
-A negative count adds ``-a_f`` to compartment ``i``, without a cap, and
-moves nothing into the compartment the flow enters.
-The derivative through ``\min`` and ``\max`` takes the active branch.
-
-# Arguments
-- `a`: the count, a parameter read at each step's group and time, as for
-  [`ComposableRecurrences.Rate`](@ref).
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-ComposableRecurrences.Amount(TimeVarying([5.0, 0.0]))
-
-# output
-
-ComposableRecurrences.Amount{TimeVarying{ComposableRecurrences.Secondary, Vector{Float64}}}(TimeVarying{ComposableRecurrences.Secondary, Vector{Float64}}([5.0, 0.0]))
-```
-"""
-struct Amount{A}
-    "The count."
-    a::A
-    Amount(a::A) where {A} = new{A}(_check_param(:a, a))
-end
-
-const _FlowKind = Union{Rate, Linear, Amount}
+# The forms a flow takes: rates and shares act together, the truncated
+# forms in order after them.
+const _TruncateForm = Union{Truncate, SoftTruncate}
+const _FlowForm = Union{Hazard, Share, _TruncateForm}
 
 @doc raw"""
 A flow from compartment `from` into compartment `to`, or out of the
-compartments with `to = 0`, for [`ComposableRecurrences.Flows`](@ref).
+compartments with `to = 0`, that moves its `demand` by a form.
 
 Each step it moves an amount ``m_f`` out of compartment `from` and into
 `to`,
@@ -128,35 +52,62 @@ x'_{\mathrm{from}} = x_{\mathrm{from}} - m_f, \qquad
 x'_{\mathrm{to}} = x_{\mathrm{to}} + m_f,
 ```
 
-with the kind setting ``m_f``: [`ComposableRecurrences.Rate`](@ref) a
-competing hazard rate, [`ComposableRecurrences.Linear`](@ref) a share or
-[`ComposableRecurrences.Amount`](@ref) a count
+with the form setting ``m_f`` from the demand ``d_f`` and the compartment
+``x`` it leaves:
+
+| form | demand | ``m_f`` |
+|:---- |:------ |:------- |
+| [`ComposableRecurrences.Hazard`](@ref) (the default) | a hazard rate | ``x\, d_f \big(1 - e^{-H}\big) / H``, with ``H`` the sum of the hazard rates out of ``x`` |
+| [`ComposableRecurrences.Share`](@ref) | a share | ``d_f\, x`` |
+| [`ComposableRecurrences.Truncate`](@ref) | a count | ``\min\big(d_f, \max(x, 0)\big)`` |
+| [`ComposableRecurrences.SoftTruncate`](@ref) | a count | a smooth ``\min\big(d_f, \max(x, 0)\big)`` |
+
+The hazard rates out of one compartment compete, as in the `Hazard`
+depletion form, so together they move ``x (1 - e^{-H})``; with
+non-negative, finite rates a non-negative compartment stays non-negative.
+A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
+Hazard and share flows act on the compartments before the step's flows,
+then each count flow, in the order given, on what remains
 ([`ComposableRecurrences.Flows`](@ref) gives the step).
-A bare parameter is a `Rate`.
+A negative count adds ``-d_f`` to compartment `from`, without a cap, and
+moves nothing into `to`.
+The derivative through ``\min`` and ``\max`` takes the active branch.
+Rates and shares are not checked: a time-varying or [`Derived`](@ref)
+demand is only known at each step.
 
 # Arguments
 - `compartments`: `from => to`, numbered from 1, with `to = 0` to leave.
-- `kind`: a `Rate`, `Linear` or `Amount`, or a parameter for a `Rate`.
+- `demand`: the rate, share or count, a
+  [parameter](@ref ComposableRecurrences.param) read at each step's group
+  and time, with `PerStratum` holding one per group.
+
+# Keyword Arguments
+- `form`: `Hazard()`, the default, `Share()`, `Truncate()` or
+  `SoftTruncate(κ)`.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.Flow(2 => 1, 0.1).kind, CR.Flow(1 => 0, CR.Amount(3.0)).to
+waning = CR.Flow(2 => 1, 0.1)
+transfers = CR.Flow(1 => 0, 3.0; form = CR.Truncate())
+waning.form, transfers.to
 
 # output
 
-(ComposableRecurrences.Rate{Float64}(0.1), 0)
+(ComposableRecurrences.Hazard(), 0)
 ```
 """
-struct Flow{K <: _FlowKind}
+struct Flow{D, F <: _FlowForm}
     "The compartment the flow leaves."
     from::Int
     "The compartment it enters, or `0` when it leaves."
     to::Int
-    "How much it moves: a `Rate`, `Linear` or `Amount`."
-    kind::K
-    function Flow(from::Integer, to::Integer, kind::K) where {K <: _FlowKind}
+    "The rate, share or count, a parameter."
+    demand::D
+    "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `SoftTruncate(κ)`."
+    form::F
+    function Flow(from::Integer, to::Integer, demand::D, form::F) where {D, F}
         from >= 1 || throw(
             ArgumentError("compartments are numbered from 1, got from = $from")
         )
@@ -170,15 +121,20 @@ struct Flow{K <: _FlowKind}
                 "a flow joins two different compartments, got $from => $to"
             )
         )
-        return new{K}(from, to, kind)
+        form isa _FlowForm || throw(
+            ArgumentError(
+                "a flow's form is Hazard(), Share(), Truncate() or " *
+                    "SoftTruncate(κ), got $(_describe(form))"
+            )
+        )
+        return new{D, F}(from, to, _check_param(:demand, demand), form)
     end
 end
 
-Flow(from::Integer, to::Integer, r) = Flow(from, to, Rate(r))
-function Flow(compartments::Pair{<:Integer, <:Integer}, kind)
-    return Flow(compartments.first, compartments.second, kind)
+function Flow(compartments::Pair{<:Integer, <:Integer}, demand; form = Hazard())
+    return Flow(compartments.first, compartments.second, demand, form)
 end
-function Flow(compartments, kind)
+function Flow(compartments, demand; form = Hazard())
     throw(
         ArgumentError(
             "a flow joins compartments given as from => to, got " *
@@ -186,6 +142,9 @@ function Flow(compartments, kind)
         )
     )
 end
+
+# A count flow, which moves its demand up to what the compartment holds.
+const _Count = Flow{<:Any, <:_TruncateForm}
 
 # The flows as a non-empty tuple of `Flow`s.
 function _flow_tuple(fs)
@@ -214,21 +173,23 @@ The values hold ``n`` compartments of ``G`` groups each, compartment by
 compartment ([`ComposableRecurrences.blocks`](@ref) is `Val((n, n))`): with
 ``S = nG`` strata, value ``(i - 1) G + g`` is compartment ``i`` of group
 ``g``, and a [`PerStratum`](@ref) parameter has ``G`` entries.
-At absolute time ``t``, for each group with compartments ``x``, rate flows
-``f`` at rates ``r_f`` and share flows at shares ``p_f``,
+At absolute time ``t``, for each group with compartments ``x``, hazard
+flows ``f`` at rates ``r_f`` and share flows at shares ``p_f``,
 
 ```math
 \begin{aligned}
-H_i &= \sum_{\mathrm{Rate}\ f \text{ out of } i} r_f, \qquad
-P_i = \sum_{\mathrm{Linear}\ f \text{ out of } i} p_f, \\
-m_f &= x_i\, r_f\, \frac{1 - e^{-H_i}}{H_i} \ \text{(Rate)}, \qquad
-m_f = x_i\, p_f \ \text{(Linear)}, \\
+H_i &= \sum_{\mathrm{Hazard}\ f \text{ out of } i} r_f, \qquad
+P_i = \sum_{\mathrm{Share}\ f \text{ out of } i} p_f, \\
+m_f &= x_i\, r_f\, \frac{1 - e^{-H_i}}{H_i} \ \text{(Hazard)}, \qquad
+m_f = x_i\, p_f \ \text{(Share)}, \\
 y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
 \end{aligned}
 ```
 
-then each [`ComposableRecurrences.Amount`](@ref) flow, in the order given,
-moves ``m_f = \min(a_f, \max(y_i, 0))`` out of compartment ``i``.
+then each count flow, with form [`ComposableRecurrences.Truncate`](@ref)
+or [`ComposableRecurrences.SoftTruncate`](@ref), in the order given, moves
+``m_f = \min(a_f, \max(y_i, 0))``, or its smooth version, out of
+compartment ``i``.
 The result is the value passed on, and the state holds what flowed into
 each compartment at the step,
 
@@ -287,10 +248,10 @@ ConstructionBase.constructorof(::Type{<:Flows{N}}) where {N} = Flows{N}
 
 blocks(::Flows{N}) where {N} = Val((N, N))
 
-# The rate, share and count of a flow, zero for another kind.
-_rate(f::Flow{<:Rate}, g, t) = param(f.kind.r, g, t)
+# The rate and share of a flow, zero for another form.
+_rate(f::Flow{<:Any, Hazard}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
-_share(f::Flow{<:Linear}, g, t) = param(f.kind.p, g, t)
+_share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
 _share(f::Flow, g, t) = false
 
 # Sum `h(f, g, t)` over the flows out of compartment `i`.
@@ -363,7 +324,7 @@ function _spread(fs::Tuple, x, L, y, a, g, t)
     y, a = _spread_one(first(fs), x, L, y, a, g, t)
     return _spread(Base.tail(fs), x, L, y, a, g, t)
 end
-_spread_one(f::Flow{<:Amount}, x, L, y, a, g, t) = (y, a)
+_spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
 function _spread_one(f::Flow, x, L, y, a, g, t)
     f.to > 0 || return (y, a)
     _, gH, _ = L[f.from]
@@ -400,6 +361,19 @@ end
 # to the compartment it leaves only. The arm follows the primal value.
 _moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
+# What a count `a` moves out of a compartment holding `s`, and the
+# cotangents `(ā, s̄, κ̄)` from that of the move; `κ̄` is the softness's.
+_moved(::Truncate, a, s) = _removal(a, s)
+_moved(form::SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
+function _moved_back(::Truncate, a, s, m̄)
+    ā, s̄ = _removal_pullback(a, s, m̄)
+    return ā, s̄, zero(m̄)
+end
+function _moved_back(form::SoftTruncate, a, s, m̄)
+    ā, c̄, κ̄ = _soft_min_back(form.κ, a, _pool_left(s), m̄)
+    return ā, ifelse(s > 0, c̄, zero(c̄)), κ̄
+end
+
 # The count flows in order on the compartments `y` and arrivals `a`.
 _counts(::Tuple{}, y, a, g, t) = y, a
 function _counts(fs::Tuple, y, a, g, t)
@@ -409,9 +383,9 @@ end
 _count(f::Flow, y, a, g, t) = y, a
 # One pass over the compartments, by `ifelse`: a flow out of the system
 # (`to = 0`) adds to no compartment.
-function _count(f::Flow{<:Amount}, y, a, g, t)
+function _count(f::_Count, y, a, g, t)
     i, j = f.from, f.to
-    m = _removal(param(f.kind.a, g, t), _get(y, i))
+    m = _moved(f.form, param(f.demand, g, t), _get(y, i))
     p = _moved_in(m)
     y′ = ntuple(Val(length(y))) do l
         return ifelse(l == i, y[l] - m, ifelse(l == j, y[l] + p, y[l]))
@@ -421,7 +395,7 @@ end
 
 # Count flows only, such as a depletion's removals: nothing moves at a
 # rate or as a share, so the counts act on `x` directly.
-const _Counts = Tuple{Vararg{Flow{<:Amount}}}
+const _Counts = Tuple{Vararg{_Count}}
 
 # One group's step: the compartments `x` after the flows, and arrivals.
 function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
@@ -456,15 +430,16 @@ function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     return _count_back(f, _head(f̄s), y, ȳ′, ā, g, t)
 end
 _count_back(f::Flow, f̄, y, ȳ, ā, g, t) = ȳ
-function _count_back(f::Flow{<:Amount}, f̄, y, ȳ, ā, g, t)
-    c = param(f.kind.a, g, t)
-    m = _removal(c, y[f.from])
+function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
+    c = param(f.demand, g, t)
+    m = _moved(f.form, c, y[f.from])
     m̄ = -ȳ[f.from]
     if f.to > 0 && _primal_value(m) >= 0
         m̄ += ȳ[f.to] + ā[f.to]
     end
-    c̄, s̄ = _removal_pullback(c, y[f.from], m̄)
-    add_param!(cotangent(cotangent(f̄, :kind), :a), f.kind.a, c̄, g, t)
+    c̄, s̄, κ̄ = _moved_back(f.form, c, y[f.from], m̄)
+    add_cotangent!(cotangent(cotangent(f̄, :form), :κ), κ̄)
+    add_param!(cotangent(f̄, :demand), f.demand, c̄, g, t)
     return _set(ȳ, f.from, ȳ[f.from] + s̄)
 end
 
@@ -506,7 +481,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _arrivals_back(fs, āt, i, g, t, zero(eltype(āt))), Val(N))
-    _kinds_back!(fs, f̄s, x, L, H, B, ȳ, āt, g, t)
+    _rates_back!(fs, f̄s, x, L, H, B, ȳ, āt, g, t)
     return ntuple(Val(N)) do i
         E, gH, P = L[i]
         (E - P) * ȳ[i] + gH * B[i] + _shares_back(fs, āt, i, g, t, zero(gH))
@@ -525,37 +500,34 @@ end
 
 # Each rate takes `x_i (g ā_to + g′ B_i - e^{-H_i} ȳ_i)` and each share
 # `x_i (ā_to - ȳ_i)`, with `ā_to = 0` for an exit.
-_kinds_back!(::Tuple{}, f̄s, x, L, H, B, ȳ, ā, g, t) = nothing
-function _kinds_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
+_rates_back!(::Tuple{}, f̄s, x, L, H, B, ȳ, ā, g, t) = nothing
+function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
     _rate_back!(first(fs), _head(f̄s), x, L, H, B, ȳ, ā, g, t)
-    return _kinds_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
+    return _rates_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
 end
-_rate_back!(f::Flow{<:Amount}, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
-function _rate_back!(f::Flow{<:Rate}, f̄, x, L, H, B, ȳ, ā, g, t)
+_rate_back!(f::_Count, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
+function _rate_back!(f::Flow{<:Any, Hazard}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = f.from
     E, gH, _ = L[i]
     āto = f.to > 0 ? ā[f.to] : zero(eltype(ā))
     r̄ = x[i] * (gH * āto + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
-    add_param!(cotangent(cotangent(f̄, :kind), :r), f.kind.r, r̄, g, t)
+    add_param!(cotangent(f̄, :demand), f.demand, r̄, g, t)
     return nothing
 end
-function _rate_back!(f::Flow{<:Linear}, f̄, x, L, H, B, ȳ, ā, g, t)
+function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = f.from
     āto = f.to > 0 ? ā[f.to] : zero(eltype(ā))
-    add_param!(cotangent(cotangent(f̄, :kind), :p), f.kind.p, x[i] * (āto - ȳ[i]), g, t)
+    add_param!(cotangent(f̄, :demand), f.demand, x[i] * (āto - ȳ[i]), g, t)
     return nothing
 end
 
 # Each flow's parameter against the groups.
 function _check_flow_groups(fs, G)
     for f in fs
-        _check_kind_groups(f.kind, G, f)
+        _check_param_strata(_Named(:demand, f), f.demand, G)
     end
     return nothing
 end
-_check_kind_groups(k::Rate, G, f) = _check_param_strata(_Named(:r, f), k.r, G)
-_check_kind_groups(k::Linear, G, f) = _check_param_strata(_Named(:p, f), k.p, G)
-_check_kind_groups(k::Amount, G, f) = _check_param_strata(_Named(:a, f), k.a, G)
 
 # A flow parameter's name in errors, such as `r of Flow(1 => 2)`. Printed
 # only when an error is thrown, so a check that passes builds no string.

@@ -1,5 +1,5 @@
 # Flows: values and ForwardDiff gradients against naive loops for each flow
-# kind, the group pullback against a local ForwardDiff Jacobian, and the
+# form, the group pullback against a local ForwardDiff Jacobian, and the
 # checks.
 
 @testmodule FlowChecks begin
@@ -92,9 +92,9 @@ end
         function run(θ, adm)
             flows = CR.Flows(
                 CR.Flow(1 => 2, build(θ[1:n])),
-                CR.Flow(1 => 0, CR.Linear(TimeVarying(θ[(n + 1):(n + 6)]))),
+                CR.Flow(1 => 0, TimeVarying(θ[(n + 1):(n + 6)]); form = CR.Share()),
                 CR.Flow(2 => 0, θ[n + 7]),
-                CR.Flow(2 => 0, CR.Amount(PerStratum(θ[(n + 8):(n + 9)]))),
+                CR.Flow(2 => 0, PerStratum(θ[(n + 8):(n + 9)]); form = CR.Truncate()),
             )
             r = Recurrence([1.0]; modifiers = (flows,))
             return r(; history = zeros(4, 1), add = [adm; zero(adm)], stop = 6)
@@ -119,7 +119,7 @@ end
     CR = ComposableRecurrences
     A = [30 * exp(-((t - 15) / 6)^2) for t in 1:40]
     d = 0.15
-    flows = CR.Flows(CR.Flow(1 => 0, CR.Linear(d)))
+    flows = CR.Flows(CR.Flow(1 => 0, d; form = CR.Share()))
     r = Recurrence([1.0]; modifiers = (flows,))
     y = r(; history = [0.0][:, :], add = A', stop = 40)
     @test vec(y) ≈ Recurrence([1 - d])(; history = [0.0], add = A) .* (1 - d)
@@ -135,8 +135,9 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     flows = CR.Flows(
-        CR.Flow(1 => 2, CR.Amount(4.0)), CR.Flow(1 => 3, CR.Amount(4.0)),
-        CR.Flow(3 => 0, CR.Amount(-1.0))
+        CR.Flow(1 => 2, 4.0; form = CR.Truncate()),
+        CR.Flow(1 => 3, 4.0; form = CR.Truncate()),
+        CR.Flow(3 => 0, -1.0; form = CR.Truncate())
     )
     v = [6.0, 0.0, 0.0]
     CR.forward(flows, CR.Step(), v, zeros(3), 1)
@@ -149,12 +150,12 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
-    # Two groups of three compartments with a cycle, exits and every kind.
+    # Two groups of three compartments with a cycle, exits and every form.
     build(θ) = CR.Flows(
-        CR.Flow(1 => 2, PerStratum(θ[1:2])), CR.Flow(1 => 0, CR.Linear(θ[3])),
+        CR.Flow(1 => 2, PerStratum(θ[1:2])), CR.Flow(1 => 0, θ[3]; form = CR.Share()),
         CR.Flow(2 => 3, TimeVarying(θ[4:5])), CR.Flow(3 => 1, θ[6]),
-        CR.Flow(2 => 0, θ[7]), CR.Flow(3 => 2, CR.Amount(PerStratum(θ[8:9]))),
-        CR.Flow(1 => 0, CR.Amount(θ[10]))
+        CR.Flow(2 => 0, θ[7]), CR.Flow(3 => 2, PerStratum(θ[8:9]); form = CR.Truncate()),
+        CR.Flow(1 => 0, θ[10]; form = CR.Truncate())
     )
     v = [4.0, 2.0, 3.0, 0.5, 1.0, 6.0]
     θs = (
@@ -169,8 +170,9 @@ end
     # followed by a count out of it whose cap binds.
     chained(θ) = CR.Flows(
         CR.Flow(1 => 2, Derived(exp, PerStratum(θ[1:2]))),
-        CR.Flow(2 => 0, CR.Linear(TimeVarying(PerStratum(reshape(θ[3:6], 2, 2))))),
-        CR.Flow(1 => 2, CR.Amount(θ[7])), CR.Flow(2 => 0, CR.Amount(θ[8]))
+        CR.Flow(2 => 0, TimeVarying(PerStratum(reshape(θ[3:6], 2, 2))); form = CR.Share()),
+        CR.Flow(1 => 2, θ[7]; form = CR.Truncate()),
+        CR.Flow(2 => 0, θ[8]; form = CR.Truncate())
     )
     v = [4.0, 2.0, 1.0, 0.5]
     # The second count's cap binds, then the first's.
@@ -182,11 +184,21 @@ end
     # Counts only: a negative count, a capped one and one that adds; without
     # a mirror the input cotangents are unchanged.
     counts(θ) = CR.Flows(
-        CR.Flow(1 => 2, CR.Amount(PerStratum(θ[1:2]))),
-        CR.Flow(2 => 0, CR.Amount(θ[3]))
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate()),
+        CR.Flow(2 => 0, θ[3]; form = CR.Truncate())
     )
     for θ in ([1.5, -0.5, 9.0], [1.5, 0.2, 50.0], [3.0, 0.5, -1.0]), t in (1, 2)
         c = check_pullback(counts, θ, v, zeros(4), t)
+        @test c.v && c.s && c.θ
+    end
+    # Smooth counts, with the softness as a parameter: one below what the
+    # compartment holds, one above it and one out of an empty compartment.
+    soft(θ) = CR.Flows(
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
+        CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5]))
+    )
+    for θ in ([1.5, 0.3, 0.1, 9.0, 0.2], [3.0, 0.5, 0.4, -1.0, 0.1]), t in (1, 2)
+        c = check_pullback(soft, θ, [4.0, 0.0, 1.0, 0.5], zeros(4), t)
         @test c.v && c.s && c.θ
     end
     θ = [1.5, -0.5, 9.0]
@@ -220,7 +232,7 @@ end
 @testitem "Flows: resume, Float32 and the adjoint route" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    flows = CR.Flows(CR.Flow(1 => 2, 0.3), CR.Flow(2 => 0, CR.Linear(0.1)))
+    flows = CR.Flows(CR.Flow(1 => 2, 0.3), CR.Flow(2 => 0, 0.1; form = CR.Share()))
     r = Recurrence([1.0]; modifiers = (flows,))
     A = [fill(3.0, 2, 10); zeros(2, 10)]
     y = r(; history = zeros(4, 1), add = A, stop = 10)
@@ -229,7 +241,7 @@ end
     @test CR.blocks(flows) == Val((2, 2))
     @test CR.nstate(flows, 6) == 6
     @test CR.uses_adjoint(r, CR.Run())
-    f32 = CR.Flows(CR.Flow(1 => 2, 0.3f0), CR.Flow(2 => 0, CR.Amount(0.5f0)))
+    f32 = CR.Flows(CR.Flow(1 => 2, 0.3f0), CR.Flow(2 => 0, 0.5f0; form = CR.Truncate()))
     y = Recurrence(Float32[1.0]; modifiers = (f32,))(
         ; history = zeros(Float32, 2, 1), add = Float32[1 1 1; 0 0 0], stop = 3
     )
@@ -244,9 +256,11 @@ end
     @test_throws "got to = -1" CR.Flow(1 => -1, 0.1)
     @test_throws "given as from => to, got (1, 2)" CR.Flow((1, 2), 0.1)
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2])
-    @test_throws ArgumentError CR.Rate(TimeVarying([0.1, 0.2], CR.Primary()))
-    @test_throws ArgumentError CR.Linear([0.1, 0.2])
-    @test_throws ArgumentError CR.Amount([0.1, 0.2])
+    @test_throws ArgumentError CR.Flow(1 => 2, TimeVarying([0.1, 0.2], CR.Primary()))
+    @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2]; form = CR.Share())
+    @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
+        1 => 2, 0.1; form = CR.Floor()
+    )
     @test_throws "at least one Flow, got none" CR.Flows()
     @test_throws "expected a Flow, got 0.3" CR.Flows(CR.Flow(1 => 2, 0.1), 0.3)
     @test_throws "name compartment 2, but compartments = 1" CR.Flows(
@@ -257,15 +271,15 @@ end
         CR.Flow(1 => 2, 0.1); compartments = 2.5
     )
     # A third compartment without flows is named by `compartments`.
-    flows = CR.Flows(CR.Flow(1 => 2, CR.Linear(0.5)); compartments = 3)
+    flows = CR.Flows(CR.Flow(1 => 2, 0.5; form = CR.Share()); compartments = 3)
     v = [1.0, 1.0, 0.0, 0.0, 7.0, 7.0]
     CR.forward(flows, CR.Step(), v, zeros(6), 1)
     @test v ≈ [0.5, 0.5, 0.5, 0.5, 7.0, 7.0]
     r = Recurrence([1.0]; modifiers = (CR.Flows(CR.Flow(1 => 2, 0.1)),))
     @test_throws "multiple of 2 strata, got 3" r(; history = zeros(3, 1), stop = 2)
-    flows = CR.Flows(CR.Flow(1 => 2, CR.Linear(PerStratum([0.1, 0.2, 0.3]))))
+    flows = CR.Flows(CR.Flow(1 => 2, PerStratum([0.1, 0.2, 0.3]); form = CR.Share()))
     r = Recurrence([1.0]; modifiers = (flows,))
-    @test_throws "p of Flow(1 => 2) has 3 strata, expected 2" r(
+    @test_throws "demand of Flow(1 => 2) has 3 strata, expected 2" r(
         ; history = zeros(4, 1), stop = 2
     )
 end
