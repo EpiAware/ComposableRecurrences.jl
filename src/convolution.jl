@@ -94,15 +94,16 @@ struct FFTMethod <: ConvolutionMethod end
 
 @doc raw"""
 The default method of a [`Convolution`](@ref).
-A call takes [`ComposableRecurrences.FFTMethod`](@ref) when it has
-
-  - a fixed kernel (a vector or [`PerStratum`](@ref)) of at least 300 lags,
-  - at least 1000 outputs,
-  - `Float64` arrays on the CPU,
-  - and the weak dependency of the [FFT extension](@ref extension-fftw)
-    loaded,
-
-and [`ComposableRecurrences.Direct`](@ref) otherwise.
+A call with a fixed kernel (a vector or [`PerStratum`](@ref)) of ``L`` lags,
+``T`` outputs and `Float64` arrays on the CPU, once the weak dependency of
+the [FFT extension](@ref extension-fftw) is loaded, takes
+```math
+\begin{cases}
+\texttt{FFTMethod()} & L \ge 300 \text{ and } T \ge 1000, \\
+\texttt{Direct()} & \text{otherwise}.
+\end{cases}
+```
+Any other call takes [`ComposableRecurrences.Direct`](@ref).
 From these sizes the transform is about as fast as the direct method, and
 1.3 to 2.3 times faster from 500 lags or 2000 outputs, forward and in reverse
 mode.
@@ -113,7 +114,7 @@ transform.
 The kernel, eltype, arrays and loaded packages are resolved by dispatch,
 and the sizes by two integer comparisons per call.
 A call that an AD tool traces, rather than runs through a native rule,
-takes the direct method, as with `FFTMethod()`.
+takes the direct method, as with [`ComposableRecurrences.FFTMethod`](@ref).
 
 # Examples
 ```jldoctest
