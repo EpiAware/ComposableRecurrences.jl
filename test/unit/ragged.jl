@@ -138,6 +138,13 @@ end
     # Without a mirror, neither form has a column to add into.
     @test CR._wcolumn(nothing, tv, 1, 2) === nothing
     @test CR._wcolumn(nothing, TimeVarying(flat), 1, 2) === nothing
+    # With one, a column's mirror is the same column of the cotangent: a
+    # view into the stacked values, or the held column's own mirror.
+    m = (; x = (; values = zeros(length(v)), offsets = nothing))
+    CR._wcolumn(m, TimeVarying(flat), 1, 4) .= 1.0
+    @test m.x.values == [o[4] < i <= o[5] ? 1.0 : 0.0 for i in eachindex(v)]
+    mc = (; x = (; columns = [zeros(length(k)) for k in KS]))
+    @test CR._wcolumn(mc, tv, 1, 4) === mc.x.columns[4]
     @test Convolution(TimeVarying(flat, CR.Primary()))(X) ≈ Convolution(tv)(X)
     @test Recurrence(TimeVarying(flat))(X; history = X[:, 1:6]) ≈
         Recurrence(TimeVarying(KS))(X; history = X[:, 1:6])
