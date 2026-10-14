@@ -17,6 +17,8 @@ The route is read from types, apart from the rebuild check and the [strata](@ref
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 It runs the step of the [API overview](@ref api-overview) backwards in time.
+That step computes ``p_t = \sum_{l} k_l \, y_{t-l}`` from the kernel ``k``, then ``v_t = g_t \odot C_t \, p_t + a_t`` from the gain ``g_t``, the coupling ``C_t`` and the `add` ``a_t``.
+The modifiers then map ``v_t`` to the output ``y_t``.
 With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` computes
 
 ```math
