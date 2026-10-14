@@ -86,3 +86,8 @@ function standards_prose_files()
     end
     return sort!(files)
 end
+
+# The unit suite's time budget: the recorded item times in
+# `test/item_times.tsv`, split across `workers` processes the way
+# `test/runtests.jl` splits them, must finish within `minutes`.
+const TEST_BUDGET = (; minutes = 15, workers = 4)

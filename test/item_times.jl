@@ -1,0 +1,32 @@
+# PACKAGE-OWNED: the recorded item times that `runtests.jl` balances its
+# workers by, and the standards tests hold to the time budget.
+
+const TIMES_FILE = joinpath(@__DIR__, "item_times.tsv")
+
+# Item names are unique across the suite, so a name keys the recorded times.
+function read_times(path = TIMES_FILE)
+    times = Dict{String, Float64}()
+    isfile(path) || return times
+    for line in eachline(path)
+        (isempty(line) || startswith(line, '#')) && continue
+        secs, name = split(line, '\t'; limit = 2)
+        times[name] = parse(Float64, secs)
+    end
+    return times
+end
+
+# Longest recorded item first onto the least loaded worker. An item with no
+# recorded time weighs as much as the median recorded item.
+function assign(names, times, n)
+    known = [times[k] for k in names if haskey(times, k)]
+    fallback = isempty(known) ? 1.0 : sort(known)[cld(length(known), 2)]
+    weight(k) = get(times, k, fallback)
+    load = zeros(n)
+    shard = Dict{String, Int}()
+    for k in sort(names; by = k -> (-weight(k), k))
+        i = argmin(load)
+        shard[k] = i
+        load[i] += weight(k)
+    end
+    return shard, load
+end
