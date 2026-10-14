@@ -131,9 +131,13 @@ const _Leaf = Union{
     Function,
 }
 _check_times(name, ::_Leaf, stop) = nothing
-function _check_times(name, x::Union{Tuple, NamedTuple}, stop)
-    foreach(v -> _check_times(name, v, stop), values(x))
-    return nothing
+# A tuple's entries are checked one by one, unrolled, so a tuple of
+# modifiers of different types infers.
+_check_times(name, x::NamedTuple, stop) = _check_times(name, values(x), stop)
+_check_times(name, ::Tuple{}, stop) = nothing
+function _check_times(name, x::Tuple, stop)
+    _check_times(name, first(x), stop)
+    return _check_times(name, Base.tail(x), stop)
 end
 function _check_times(name, x, stop)
     return _fields_times(name, x, stop, Val(fieldcount(typeof(x))))

@@ -521,12 +521,13 @@ function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     return nothing
 end
 
-# Each flow's parameter against the groups.
-function _check_flow_groups(fs, G)
-    for f in fs
-        _check_param_strata(_Named(:demand, f), f.demand, G)
-    end
-    return nothing
+# Each flow's parameter against the groups, unrolled over the tuple so each
+# flow's check is compiled for its type.
+_check_flow_groups(::Tuple{}, G) = nothing
+function _check_flow_groups(fs::Tuple, G)
+    f = first(fs)
+    _check_param_strata(_Named(:demand, f), f.demand, G)
+    return _check_flow_groups(Base.tail(fs), G)
 end
 
 # A flow parameter's name in errors, such as `r of Flow(1 => 2)`. Printed
