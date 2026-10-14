@@ -150,6 +150,11 @@ function ComposableRecurrences._stack(get, ps, sz, ::AnyTracedRArray)
     return reshape(reduce(hcat, cols), sz..., length(ps))
 end
 
+# Traced numbers between change points stack into one traced vector.
+function ComposableRecurrences._stack_values(::Type{<:TracedRNumber}, get, ps)
+    return Reactant.aos_to_soa([float(get(p)) for p in ps])
+end
+
 # A coefficient given by change points at a traced time: its segment is the
 # count of the starts at or before that time, a traced number, by which the
 # dense values are read.
