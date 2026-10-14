@@ -806,15 +806,12 @@ end
 # The movement of a kernel `K` and an intensity `E` (origins × time), read
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
 # with `o` the column sums of `K`. Its columns sum to one by construction.
-struct _Movement{T, KT <: AbstractMatrix, ET <: AbstractMatrix, OT <: AbstractVector} <:
-    AbstractArray{T, 3}
+# It is a struct of its arrays, not an array, so the rules read its
+# cotangent field by field.
+struct _Movement{KT <: AbstractMatrix, ET <: AbstractMatrix, OT <: AbstractVector}
     K::KT
     E::ET
     o::OT
-    function _Movement(K::KT, E::ET, o::OT) where {KT, ET, OT}
-        T = promote_type(eltype(K), eltype(E), eltype(o))
-        return new{T, KT, ET, OT}(K, E, o)
-    end
 end
 function _Movement(K::AbstractMatrix, E::AbstractMatrix)
     size(K, 1) == size(K, 2) == size(E, 1) || throw(
@@ -825,10 +822,15 @@ function _Movement(K::AbstractMatrix, E::AbstractMatrix)
     return _Movement(K, E, vec(sum(K; dims = 1)))
 end
 Base.size(m::_Movement) = (size(m.K, 1), size(m.K, 2), size(m.E, 2))
-Base.@propagate_inbounds function Base.getindex(m::_Movement, p::Int, q::Int, t::Int)
+Base.size(m::_Movement, d::Integer) = size(m)[d]
+function Base.getindex(m::_Movement, p::Integer, q::Integer, t::Integer)
     e = m.E[q, t]
     return (p == q) * (1 - e * m.o[q]) + m.K[p, q] * e
 end
+_over_time(::_Movement) = true
+_array(m::_Movement) = m
+_extent(m::_Movement) = size(m.E, 2)
+_check_coupling_shape(::TimeVarying{Secondary, <:_Movement}) = nothing
 _check_columns(::_Movement, leak) = nothing
 
 # The step reads `M_t v = (1 − E_t ∘ o) ∘ v + K (E_t ∘ v)`.
@@ -850,17 +852,11 @@ function forward(C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t)
 end
 
 # With `c = Kᵀ q̄`: `p̄ += E_t ∘ c + (1 − E_t ∘ o) ∘ q̄`, `K̄ += q̄ (E_t ∘ p)ᵀ`,
-# `Ē_t += p ∘ (c − o ∘ q̄)` and `ō −= E_t ∘ p ∘ q̄`. A mirror held as a dense
-# array takes the generic loop.
+# `Ē_t += p ∘ (c − o ∘ q̄)` and `ō −= E_t ∘ p ∘ q̄`.
 function pullback!(
         grads, C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t
     )
     X̄ = cotangent(grads.piece, :x)
-    X̄ isa Array && return invoke(
-        pullback!,
-        Tuple{Any, TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, Pressure, Any, Any, Any},
-        grads, C, Pressure(), q, p, t
-    )
     q̄, p̄ = grads.q, grads.p
     (; K, E, o) = C.x
     K̄, Ē, ō = cotangent(X̄, :K), cotangent(X̄, :E), cotangent(X̄, :o)
@@ -880,7 +876,6 @@ end
 
 # Entry `(a, b)` at `t` of the mirror of a movement's array.
 _add_movement_entry!(::Nothing, X, x, a, b, t) = nothing
-_add_movement_entry!(X̄::Array, X::_Movement, x, a, b, t) = add_cotangent!(X̄, x, a, b, t)
 function _add_movement_entry!(X̄, X::_Movement, x, a, b, t)
     e = X.E[b, t]
     add_cotangent!(cotangent(X̄, :K), x * e, a, b)

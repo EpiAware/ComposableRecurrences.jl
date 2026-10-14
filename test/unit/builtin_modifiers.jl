@@ -245,10 +245,11 @@ end
     # Read from the kernel and the intensity, it equals the dense matrix of
     # each time's intensity, and its columns sum to one.
     @test size(M.x) == (3, 3, 2)
+    slice(t) = [M.x[p, q, t] for p in 1:3, q in 1:3]
     for t in 1:2
-        @test M.x[:, :, t] ≈ CR.movement(K, E[:, t])
+        @test slice(t) ≈ CR.movement(K, E[:, t])
+        @test vec(sum(slice(t); dims = 1)) ≈ ones(3)
     end
-    @test all(sum(M.x; dims = 1) .≈ 1)
     v, s̄0, v̄0 = [4.0, 2.0, 1.0], [0.3, -0.2, 0.5], [0.7, 0.1, -0.4]
     # The step and its pullback in the kernel and the intensity, against a
     # local Jacobian of the step built from them.
@@ -270,16 +271,10 @@ end
         K̄ = x̄.K .+ permutedims(x̄.o)
         @test vcat(vec(K̄), vec(x̄.E), grads.v) ≈ expected
         @test grads.s == zeros(3)
-        # A mirror held as a dense array takes the generic loop, and gives
-        # the dense matrix's cotangent.
-        dense = (; M = (; x = zeros(3, 3, 2)))
-        gd = (; piece = dense, v = copy(v̄0), s = copy(s̄0))
-        CR.pullback!(gd, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
-        md = (; M = zeros(3, 3))
-        gm = (; piece = md, v = copy(v̄0), s = copy(s̄0))
-        CR.pullback!(gm, CR.Redistribute(M.x[:, :, t]), CR.Step(), v, zeros(3), 1)
-        @test gd.v ≈ gm.v
-        @test dense.M.x[:, :, t] ≈ md.M
+        # The value's cotangent matches the dense matrix of that time's.
+        gm = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gm, CR.Redistribute(slice(t)), CR.Step(), v, zeros(3), 1)
+        @test grads.v ≈ gm.v
     end
     # Its columns sum to one by construction, so Init does not check them.
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))

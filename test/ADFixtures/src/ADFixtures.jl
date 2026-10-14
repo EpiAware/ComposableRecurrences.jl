@@ -204,6 +204,18 @@ function _dense_matrices(w, θ)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
+# Movement between strata from a kernel and an intensity per origin and
+# time, both reshaped from θ, before a depletion.
+function _movement_time_varying(w, θ)
+    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
+        ComposableRecurrences.Depletion(PerStratum(POP)),
+    )
+    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Imports by a pattern that varies over time, one fraction and no spill.
 function _allocate_imports_time_varying(w, θ)
     g, logh, logR, φ, P = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, S, T))
@@ -772,6 +784,15 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence Redistribute of a time-varying movement",
+        _movement_time_varying,
+        () -> _flat(
+            G0, [0.0 0.5 0.2; 0.6 0.0 0.3; 0.4 0.5 0.0],
+            [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence dense coupling, Redistribute and imports as Matrix",
         _dense_matrices,
         () -> _flat(
@@ -1028,6 +1049,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:_AllocateImports,),
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
+    "Recurrence Redistribute of a time-varying movement" => (:movement,),
     "Recurrence capacity, stock with overflow" => (:Capacity,),
     "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
