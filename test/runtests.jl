@@ -26,7 +26,7 @@
 # The selected items are split across worker processes, balanced by the
 # times recorded in `item_times.tsv`, and each worker's output is printed
 # once it finishes. `CR_TEST_WORKERS` sets the number of workers; the
-# default is one per core, at most four, and one per 3 GiB of memory.
+# default is one per core, at most four, and one per 2 GiB of memory.
 # `record_times` writes the measured item times back to `item_times.tsv`.
 # The run warns when its wall time exceeds the budget the standards tests
 # hold the recorded times to (`TEST_BUDGET` in `item_times.jl`).
@@ -95,7 +95,7 @@ end
 
 function nworkers()
     haskey(ENV, "CR_TEST_WORKERS") && return parse(Int, ENV["CR_TEST_WORKERS"])
-    by_memory = Int(Sys.total_memory() ÷ (3 * 2^30))
+    by_memory = Int(Sys.total_memory() ÷ 2^31)
     return clamp(min(Sys.CPU_THREADS, by_memory), 1, 4)
 end
 
@@ -105,10 +105,13 @@ function run_parallel(args, n)
     cmd = Base.julia_cmd()
     project = Base.active_project()
     threads = Threads.threadpoolsize()
+    # A worker peaks near 2 GiB; the hint makes each collect before the
+    # workers together fill the memory.
+    heap = Sys.total_memory() ÷ (n + 1)
     start = time()
     tasks = map(1:n) do i
         log, out = joinpath(dir, "worker$i.log"), joinpath(dir, "worker$i.tsv")
-        worker = `$cmd --project=$project --threads=$threads $(@__FILE__) $args worker=$i/$n out=$out`
+        worker = `$cmd --project=$project --threads=$threads --heap-size-hint=$heap $(@__FILE__) $args worker=$i/$n out=$out`
         Threads.@spawn begin
             p = run(pipeline(ignorestatus(worker); stdout = log, stderr = log))
             t = round((time() - start) / 60; digits = 1)
