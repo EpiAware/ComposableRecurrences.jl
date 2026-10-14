@@ -1001,7 +1001,12 @@ if isfile(BVD_HANDRULE)
         ]
         I_bar = [20.0 * (1.2 + _noise(t, p + 20)) for p in 1:P, t in 1:T]
         force_pre = [10.0 * exp(-0.1 * t) for p in 1:P, t in 1:T]
-        return (; I_bar, g = _gi(L), force_pre, within, between, groups, patch_of)
+        # The pre-grid force of each zone's patch, as the rule arm reads it.
+        zone_pre = force_pre[patch_of, :]
+        return (;
+            I_bar, g = _gi(L), force_pre, zone_pre, within, between, groups,
+            patch_of,
+        )
     end
     function _bvd_zones(run)
         return function (wrap, z::Size)
@@ -1025,7 +1030,7 @@ if isfile(BVD_HANDRULE)
     function _bvd_zones_rule(wrap, δ, w0, ε, φ, ow, d)
         S = size(δ, 2)
         gain = exp.(permutedims(δ))
-        add = gain .* w0 .* d.force_pre[d.patch_of, :]
+        add = gain .* w0 .* d.zone_pre
         split = CR.Allocate(
             d.groups, TimeVarying(PerStratum(d.I_bar));
             imports = (TimeVarying(PerStratum(φ)), d.between .* permutedims(ow)),

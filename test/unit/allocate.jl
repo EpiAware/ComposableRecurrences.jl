@@ -329,6 +329,31 @@ end
     end
 end
 
+@testitem "Allocate: sparse imports match dense ones" setup = [AllocateChecks] begin
+    using ComposableRecurrences, SparseArrays
+    CR = ComposableRecurrences
+    (; g, R, h, groups, TT, P0, K0) = AllocateChecks
+    εs = PerStratum([0.1, 0.2, 0.15, 0.05, 0.3])
+    split(P, K) = CR.Allocate(
+        groups, TimeVarying(PerStratum(TT));
+        imports = (0.2, P), spill = CR.Redistribute(K, εs)
+    )
+    dense, sparse_ = split(P0, K0), split(sparse(P0), sparse(K0))
+    run(m) = Recurrence(g; modifiers = (m,))(R; history = h)
+    @test run(sparse_) ≈ run(dense)
+    # The generic step and pullback against the dense ones.
+    v = [0.8, 1.3, 0.4, 2.0, 0.9]
+    s̄ = collect(range(-0.4, 0.9; length = 10))
+    out = map((dense, sparse_)) do m
+        vv, ss = copy(v), zeros(10)
+        CR.forward(m, CR.Step(), vv, ss, 3)
+        grads = (; piece = nothing, v = collect(range(0.3, 1.7; length = 5)), s = copy(s̄))
+        CR.pullback!(grads, m, CR.Step(), v, zeros(10), 3)
+        return vv, ss, grads.v, grads.s
+    end
+    @test all(map(≈, out[1], out[2]))
+end
+
 @testitem "Allocate: checks its imports" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
