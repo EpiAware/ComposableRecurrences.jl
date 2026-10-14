@@ -87,8 +87,58 @@ end
 function pullback!(grads, C::AbstractMatrix, ::Pressure, q, p, t)
     q̄, p̄, C̄ = grads.q, grads.p, grads.piece
     for b in axes(C, 2)
-        p̄[b] += _column_dot(C, q̄, b)
-        _add_column!(C̄, C, q̄, p[b], false, b)
+        acc = zero(eltype(p̄))
+        for a in axes(C, 1)
+            acc += C[a, b] * q̄[a]
+            add_cotangent!(C̄, q̄[a] * p[b], a, b)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+# A dense matrix with a dense or absent mirror: the same fused loop, its
+# sizes checked once so it runs without bounds checks.
+function pullback!(grads, C::Matrix, ::Pressure, q, p, t)
+    q̄, p̄ = grads.q, grads.p
+    C̄ = _array_mirror(grads.piece)
+    C̄ isa _DenseMirror || return _dense_coupling_back!(p̄, C̄, C, q̄, p)
+    _check_dense(C̄, C)
+    axes(q̄, 1) == axes(C, 1) && axes(p̄, 1) == axes(p, 1) == axes(C, 2) || throw(
+        DimensionMismatch("coupling is $(size(C)), pressures are $(length(p))")
+    )
+    _dense_coupling_back!(p̄, C̄, C, q̄, p)
+    return nothing
+end
+function _dense_coupling_back!(p̄, C̄, C, q̄, p)
+    for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        for a in axes(C, 1)
+            acc += C[a, b] * q̄[a]
+            add_cotangent!(C̄, q̄[a] * p[b], a, b)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+function _dense_coupling_back!(p̄, C̄::Matrix, C::Matrix, q̄, p)
+    @inbounds for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        pb = p[b]
+        @simd for a in axes(C, 1)
+            acc += C[a, b] * q̄[a]
+            C̄[a, b] += q̄[a] * pb
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+function _dense_coupling_back!(p̄, ::Union{Nothing, NamedTuple{()}}, C::Matrix, q̄, p)
+    @inbounds for b in axes(C, 2)
+        acc = zero(eltype(p̄))
+        @simd for a in axes(C, 1)
+            acc += C[a, b] * q̄[a]
+        end
+        p̄[b] += acc
     end
     return nothing
 end

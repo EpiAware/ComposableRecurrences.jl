@@ -182,6 +182,22 @@ function _allocate_imports(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Dense matrices held as `Matrix`, as `collect` gives them, so the dense
+# pullbacks of the coupling, `Redistribute` and the import pattern run.
+function _dense_matrices(w, θ)
+    g, C, logh, logR, logtot, P, K, ε = _unpack(
+        θ, (L,), (S, S), (S, L), (S, T), (2, T), (S, S), (S, S), (S,)
+    )
+    split = ComposableRecurrences.Allocate(
+        GROUPS, TimeVarying(PerStratum(exp.(logtot)));
+        imports = (0.2, collect(P)),
+        spill = ComposableRecurrences.Redistribute(collect(K), PerStratum(ε))
+    )
+    mods = (ComposableRecurrences.Redistribute(collect(K), 0.1), split)
+    r = Recurrence(g; coupling = collect(C), modifiers = mods)
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
 # Imports by a pattern that varies over time, one fraction and no spill.
 function _allocate_imports_time_varying(w, θ)
     g, logh, logR, φ, P = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, S, T))
@@ -750,6 +766,16 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence dense coupling, Redistribute and imports as Matrix",
+        _dense_matrices,
+        () -> _flat(
+            G0, K0, fill(log(5.0), S, L), LOGR,
+            [log(8.0 + p + t) for p in 1:2, t in 1:T],
+            [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0],
+            [0.0 0.8 0.0; 0.9 0.0 0.0; 0.1 0.2 0.0], [0.1, 0.2, 0.3],
+        ),
+    ),
+    (
         "Recurrence grouped totals with time-varying imports (Allocate)",
         _allocate_imports_time_varying,
         () -> _flat(
@@ -964,6 +990,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals with imports and a spill (Allocate)" =>
         (:_AllocateImports,),
     "Recurrence grouped totals with time-varying imports (Allocate)" =>
+        (:_AllocateImports,),
+    "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence capacity, stock with overflow" => (:Capacity,),
     "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
