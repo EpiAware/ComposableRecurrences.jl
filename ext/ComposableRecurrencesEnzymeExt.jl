@@ -33,6 +33,10 @@ _ezs(::_Inert, dx) = nothing
 _ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx) = nothing
 # Under runtime activity a constant array's shadow is the primal itself.
 _ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x ? nothing : dx
+# A kernel's columns: each column's mirror from its own shadow.
+function _ezs(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
+    return dx === x ? nothing : map(_ezs, x, dx)
+end
 function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC)
     return (; nzval = _ezs(nonzeros(x), nonzeros(dx)))
 end
