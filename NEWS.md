@@ -58,6 +58,8 @@
 - `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
+- `Threaded()` counts each loop's work by its kind and element type, so one `min_work` sets where each kind breaks even: independent strata split from four times `min_work`, a fixed-kernel convolution from sixteen times, and dual numbers count one multiply-add per word.
+  With the default `min_work` of 500 000, strata that mix through a sparse or dense coupling run in order at the sizes usually fitted.
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
 
 ### Fixed

@@ -180,6 +180,30 @@ end
     @test CR._splits(CR.Threaded(; ntasks = 4), 8, 500_000)
 end
 
+@testitem "Threaded: loop work is counted per kind and element type" begin
+    using ComposableRecurrences, ForwardDiff
+    const CR = ComposableRecurrences
+    x = zeros(2)
+    # Loops split every step count in full, loops split once per call as
+    # a quarter and convolutions with a fixed kernel as a sixteenth.
+    @test CR._work(CR._StepLoop(), x, 1600) == 1600
+    @test CR._work(CR._RunLoop(), x, 1600) == 400
+    @test CR._work(CR._ConvLoop(), x, 1600) == 100
+    # Each 64-bit word of the element type counts once.
+    @test CR._work(CR._StepLoop(), zeros(Float32, 2), 1600) == 1600
+    d = ForwardDiff.Dual(1.0, ntuple(_ -> 0.0, 8)...)
+    @test CR._work(CR._StepLoop(), [d], 1600) == 9 * 1600
+    @test CR._work(CR._StepLoop(), Any[1.0], 1600) == 1600
+    @inferred CR._work(CR._RunLoop(), [d], 1600)
+    # One threshold sets where each kind splits.
+    ex = CR.Threaded(; ntasks = 4)
+    @test CR._splits(ex, 8, CR._work(CR._StepLoop(), x, 500_000))
+    @test !CR._splits(ex, 8, CR._work(CR._RunLoop(), x, 1_999_999))
+    @test CR._splits(ex, 8, CR._work(CR._RunLoop(), x, 2_000_000))
+    @test !CR._splits(ex, 8, CR._work(CR._ConvLoop(), x, 7_999_999))
+    @test CR._splits(ex, 8, CR._work(CR._ConvLoop(), x, 8_000_000))
+end
+
 @testitem "EXECUTOR: serial by default, set per block" begin
     using ComposableRecurrences
     using Base.ScopedValues: with

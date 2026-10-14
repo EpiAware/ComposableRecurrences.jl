@@ -122,13 +122,28 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
-`work` counts multiply-adds.
-The default `min_work` of 500 000 is where, on a 4-core machine, four
-threads began to beat one for independent strata and pairwise kernels
-(`benchmark/threshold.jl`).
-Independent strata are one loop per call, but strata that mix through a
-coupling, a pairwise kernel or a modifier with a vector step are one loop
-per step, so such models gain only with many strata.
+`work` counts multiply-adds of 64-bit floats: an operator counts one per
+word of its element type, so a dual number with 8 partials counts 9.
+Operators split three kinds of loop, and count the work of each kind so
+that one `min_work` sets where each of them breaks even:
+
+- strata that mix through a coupling, a pairwise kernel or a modifier with
+  a vector step: one loop per step, counted in full;
+- independent strata, each over the whole series: one loop per call,
+  counted as a quarter, so it splits from four times `min_work`;
+- a convolution with a fixed kernel and its lag contributions: one loop per
+  call of vector multiply-adds, counted as a sixteenth; a convolution that
+  forms each output as one dot, such as one with a time-varying kernel,
+  counts as independent strata do.
+
+The default `min_work` of 500 000 is where, on a shared 4-core machine,
+four threads began to beat one for each kind, on the primal pass and with
+dual numbers (`benchmark/threshold.jl`).
+Reverse passes broke even there and gained less than the primal as the
+work grew, and a convolution's primal gained little at any size measured.
+Strata that mix reach it only with a pairwise kernel over a few hundred
+strata, or a coupling over tens of thousands, so with a sparse or dense
+coupling at the sizes usually fitted they do not split.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
 A reverse pass sums some parameter cotangents per chunk, so those agree
@@ -192,6 +207,19 @@ end
 # whether it splits one of cost `work`.
 _nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
 _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
+
+# The kinds of loop operators split, and the work an operator passes for a
+# loop of kind `kind` that does `w` multiply-adds on elements like those of
+# `x`: one per 64-bit word of the element type, scaled so that one
+# `min_work` is where each kind breaks even (see `Threaded`).
+struct _StepLoop end
+struct _RunLoop end
+struct _ConvLoop end
+_loop_share(::_StepLoop) = 1
+_loop_share(::_RunLoop) = 4
+_loop_share(::_ConvLoop) = 16
+_words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
+_work(kind, x, w) = w * _words(eltype(x)) ÷ _loop_share(kind)
 
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)

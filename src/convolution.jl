@@ -295,7 +295,8 @@ function _convolve_public(
     cur = _current()
     ex = cur.ex isa Serial ? Serial() : cur
     _each!(
-        _gather_body!, ex, out, S, length(out) * _nlags(kernel),
+        _gather_body!, ex, out, S,
+        _work(_RunLoop(), out, length(out) * _nlags(kernel)),
         out, kernel, x, history, gain, add, m, start
     )
     return out
@@ -659,7 +660,7 @@ end
 # multiply-add per output row and lag.
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
-    work = length(Y) * _nlags(c)
+    work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
     _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
     return Y
 end
@@ -794,7 +795,9 @@ end
 # cotangent into its own accumulator.
 function _convolve_back!(ex, X̄, c̄, c, X, Ȳ, m, start)
     S = size(Ȳ, 2)
-    accs = _accumulators(ex, X̄, S, length(Ȳ) * _nlags(c), (; c̄))
+    accs = _accumulators(
+        ex, X̄, S, _work(_ConvLoop(), X̄, length(Ȳ) * _nlags(c)), (; c̄)
+    )
     _reduce_blocks!(_convolve_back_body!, accs, S, X̄, c, X, Ȳ, m, start)
     _reduce!(accs)
     return nothing
@@ -992,7 +995,8 @@ end
 
 # Each stratum is one index of the executor loop.
 function _contribute!(ex, C, kernel, X, gain, m, start)
-    _each!(_contributions_body!, ex, C, size(X, 2), length(C), C, kernel, X, gain, m, start)
+    work = _work(_ConvLoop(), C, length(C))
+    _each!(_contributions_body!, ex, C, size(X, 2), work, C, kernel, X, gain, m, start)
     return C
 end
 

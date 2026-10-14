@@ -4,8 +4,9 @@
 #     This tutorial is a draft and is not in the docs build yet: it is not
 #     listed in `docs/docs_config.jl`, and the docs environment does not have
 #     JLArrays.jl or KernelAbstractions.jl.
-#     Before it is listed it needs speed-up results from 8 to 16 threads on a
-#     dedicated machine (`benchmark/threshold.jl`), with the hardware stated.
+#     Its timings come from a shared 4-core machine; before it is listed it
+#     needs speed-ups from 8 to 16 threads on a dedicated machine
+#     (`benchmark/threshold.jl`), with the hardware stated.
 #
 # ## Introduction
 #
@@ -68,31 +69,55 @@ Threads.nthreads()
 #
 # Starting and joining the tasks costs tens of microseconds, so `Threaded()`
 # runs a loop in order when its work, in multiply-adds, is below `min_work`.
-# [`Threaded`](@ref ComposableRecurrences.Threaded) gives the default, and says
-# which loops a model has, and so when mixing strata gain.
-# The timings below depend on the machine, and are of whole calls, including
-# serial work outside the split loops.
-# On a quiet 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12), four
-# threads began to beat one from about 500 000 multiply-adds per loop for
-# independent strata and pairwise kernels.
-# At two million multiply-adds, independent strata ran 1.1 to 1.2 times faster
-# and pairwise kernels 1.4 to 1.6 times faster.
-# A sparse coupling gained inconsistently: 0.94 to 1.16 times between 200 000
-# and 500 000 multiply-adds, and up to 1.5 times at two million.
-# At 10 000 multiply-adds, threads were 1.6 to 3.8 times slower than the serial loop.
-# A convolution gained at most 1.2 times, and lost from 500 000 multiply-adds in
-# some runs and from one million in all.
-# Under Mooncake reverse mode only the rule's forward pass is threaded, so
-# gradients of independent strata and pairwise kernels gained at most 1.15
-# times, and a convolution's gradient did not gain.
+# [`Threaded`](@ref ComposableRecurrences.Threaded) gives the default and how
+# each kind of loop counts its work.
+# Independent strata are one loop per call and split from two million
+# multiply-adds.
+# Strata that mix are one loop per step, so a coupling over a few hundred
+# strata stays below the threshold and runs in order.
+#
+# The timings below are of whole losses, including the serial work outside
+# the split loops, with four threads against one on a shared 4-core virtual
+# machine (Intel Xeon at 2.1 GHz, Julia 1.12, load about 2).
+# Each range is the spread over three rounds that alternate the executors.
+# ForwardDiff is one pushforward of 8 tangents.
+#
+# | Model | Work | Primal | Mooncake reverse | Enzyme reverse | ForwardDiff |
+# |---|---|---|---|---|---|
+# | independent strata | 10 000 | 0.52–0.89 | 0.58–0.76 | 0.52–0.88 | 0.93–1.00 |
+# | independent strata | 500 000 | 0.94–1.02 | 0.99–1.14 | 0.98–1.04 | 1.15–1.44 |
+# | independent strata | 2 million | 1.03–1.07 | 1.04–1.16 | 1.11–1.26 | 1.71–1.82 |
+# | independent strata | 16 million | 1.46–1.70 | 1.34–1.93 | 1.54–1.63 | |
+# | pairwise kernel | 10 000 | 0.21–0.22 | 0.29–0.33 | 0.25–0.33 | 0.93–1.09 |
+# | pairwise kernel | 500 000 | 1.24–1.36 | 0.91–1.03 | 0.90–0.95 | 1.31–1.72 |
+# | pairwise kernel | 2 million | 1.39–1.69 | 1.03–1.15 | 0.93–1.00 | 2.33–2.72 |
+# | sparse coupling | 10 000 | 0.29–0.31 | 0.49–0.53 | 0.41–0.43 | 0.56–0.76 |
+# | sparse coupling | 500 000 | 0.91–1.12 | 0.99–1.10 | 0.99–1.22 | 1.23–1.48 |
+# | sparse coupling | 2 million | 0.83–1.22 | 1.18–2.31 | 1.13–1.93 | 1.15–1.74 |
+# | convolution | 10 000 | 0.46–0.67 | 0.58–0.64 | 0.58–0.66 | 0.53–0.82 |
+# | convolution | 2 million | 0.81–0.85 | 1.00–1.06 | 0.87–0.94 | 1.64–1.71 |
+# | convolution | 8 million | 0.82–1.13 | 1.07–1.17 | 1.13–1.15 | |
+#
+# The work is that of the loop the executor splits: `S × T × L` for
+# independent strata and a convolution, `S² × L` per step for a pairwise
+# kernel and `S × L` per step for a sparse coupling.
+# Below a few hundred thousand multiply-adds threads lose on every backend.
+# ForwardDiff gains from about ten times less work than the other passes,
+# because each multiply-add of a dual number with 8 partials is 9 of a float.
+# A convolution with a fixed kernel vectorises well and so gains only from
+# about 8 million multiply-adds, and little on the primal.
+# Much of a recurrence's call is serial: allocating its buffer and output
+# and, in these losses, the transforms of its inputs and outputs.
 #
 # Set `min_work` to move the break-even point.
-# This model's work is `S × T × L`, two million multiply-adds, so it still
-# splits with a higher threshold:
+# This model's work is `S × T × L`, two million multiply-adds, so it splits
+# under the default threshold but not under one twice as high:
 
 with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
     r(R; history = seed)
 end == y_serial
+
+# The result is the same either way; only the time differs.
 
 # ## GPU arrays
 #
