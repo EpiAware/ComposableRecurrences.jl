@@ -200,6 +200,16 @@ end
     s = zeros(6)
     CR.forward(spilled, CR.Step(), v, s, 1)
     @test s ≈ [1.4, 2.6, 2.0, 1.5, 0.5, 0.0]
+    # The step and its pullback infer.
+    m̄ = (;
+        total = Ref(0.0),
+        imports = (; fraction = Ref(0.0), pattern = zero(P), spill = (; K = zero(K), ε = Ref(0.0))),
+    )
+    @inferred CR.forward(spilled, CR.Step(), copy(v), zeros(6), 1)
+    grads = (; piece = m̄, v = ones(3), s = ones(6))
+    @inferred CR.pullback!(grads, spilled, CR.Step(), v, zeros(6), 1)
+    r = Recurrence([0.5, 0.5]; modifiers = (spilled,))
+    @inferred r(ones(3, 4); history = ones(3, 2))
 end
 
 @testitem "Allocate: a group whose sum is below the floor" setup = [AllocateChecks] begin
