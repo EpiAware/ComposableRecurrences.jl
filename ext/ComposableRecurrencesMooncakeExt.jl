@@ -6,8 +6,9 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
-    _FixedExponent, _ad, _ad_wide, _check_parts, _check_secondary, _current,
-    _fft_convolve!, _fft_convolve_back!, _run_forward, _run_pullback!, _untraced
+    _FixedExponent, _ad, _ad_wide, _check_form, _check_parts,
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
+    _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -95,6 +96,10 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,
 }
+# Nor is the `Depletion` constructor's check that its form has a step: its
+# method lookups carry no derivative, and traced they cost more than the
+# rest of a short run's gradient.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and
