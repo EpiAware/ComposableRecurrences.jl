@@ -16,6 +16,26 @@ Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other arra
 The route is read from types, apart from the rebuild check and the [strata](@ref glossary-stratum) limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
+It runs the step of the [API overview](@ref api-overview) backwards in time.
+That step computes ``p_t = \sum_{l} k_l \, y_{t-l}`` from the kernel ``k``, then ``v_t = g_t \odot C_t \, p_t + a_t`` from the gain ``g_t``, the coupling ``C_t`` and the `add` ``a_t``.
+The modifiers then map ``v_t`` to the output ``y_t``.
+With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` computes
+
+```math
+\begin{aligned}
+\big(\bar v_t,\ \bar s_{t-1}\big) &= M^{*}_t\big(\bar y_t,\ \bar s_t\big), \\
+\bar g_t &= \bar v_t \odot C_t \, p_t, \qquad \bar a_t = \bar v_t, \\
+\bar p_t &= C_t^{\top} \big(g_t \odot \bar v_t\big), \qquad
+\bar C_t = \big(g_t \odot \bar v_t\big) \, p_t^{\top}, \\
+\bar y_{t-l} &\mathrel{+}= k_l \, \bar p_t, \qquad
+\bar k_l \mathrel{+}= \bar p_t^{\top} y_{t-l}, \qquad l = 1, \dots, L,
+\end{aligned}
+```
+
+where ``s_t`` is the modifiers' state and ``M^{*}_t`` their `pullback!` methods in reverse tuple order.
+``\bar y_t`` holds the cotangent of the output plus what later steps added to it.
+The coupling's `pullback!` for [`Pressure()`](@ref ComposableRecurrences.Pressure) gives ``\bar p_t`` and ``\bar C_t``.
+The last line is for a kernel shared by every series.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
