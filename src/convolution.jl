@@ -871,27 +871,10 @@ function _strata_back!(ks, X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
     return nothing
 end
 
-# A per-stratum kernel in Primary indexing accumulates each input's
-# cotangent along its own column.
-function _strata_back!(ks, X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
-    D = _nlags(c)
-    stop = start + size(Ȳ, 1) - 1
-    for k in ks, σ in max(1, start - D + 1):stop
-        x = X[m + σ, k]
-        acc = zero(eltype(X̄))
-        for d in max(0, start - σ):min(D - 1, stop - σ)
-            ȳ = Ȳ[σ + d - start + 1, k]
-            _add_weight!(c̄, c, ȳ * x, k, k, d + 1, σ)
-            acc += _weight(c, k, k, d + 1, σ) * ȳ
-        end
-        X̄[m + σ, k] += acc
-    end
-    return nothing
-end
-
-# Other time-varying kernels' reverse pass (per stratum, Secondary), the
-# transpose of the generic forward body: each output cotangent adds to the
-# weights it read, through `_add_lagweight!`, and to the inputs.
+# Other time-varying kernels' reverse pass (per stratum, in either
+# indexing), the transpose of the generic forward body: each output
+# cotangent adds to the weights it read, through `_add_lagweight!`, and to
+# the inputs.
 function _strata_back!(ks, X̄, c̄, c::TimeVarying, X, Ȳ, m, start)
     L = _nlags(c)
     for k in ks, j in axes(Ȳ, 1)
