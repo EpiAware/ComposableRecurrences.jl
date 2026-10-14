@@ -107,14 +107,21 @@ Any other call takes [`ComposableRecurrences.Direct`](@ref).
 From these sizes the transform is about as fast as the direct method, and
 1.3 to 2.3 times faster from 500 lags or 2000 outputs, forward and in reverse
 mode.
-Below them the direct method is faster, up to 2 times, and it keeps the
-accuracy of small outputs that the transform loses.
+Below them the direct method is faster, up to 2 times.
 So most models take the direct method, and `Float32` models never take the
 transform.
 The kernel, eltype, arrays and loaded packages are resolved by dispatch,
 and the sizes by two integer comparisons per call.
-A call that an AD tool traces, rather than runs through a native rule,
-takes the direct method, as with [`ComposableRecurrences.FFTMethod`](@ref).
+
+From these sizes the outputs carry the transform's error, which
+[`ComposableRecurrences.FFTMethod`](@ref) sets out: it scales with the
+inputs and kernel in each output's block, not with the output itself.
+So the relative error of an output is about ``10^{-16}`` times the ratio
+of the largest values around it to the output: about ``10^{-4}`` on a
+series spanning 12 orders of magnitude and ``10^{-2}`` at 14.
+On a series spanning more than about 16 orders, the smallest outputs lose
+all accuracy and can come out negative, so their `log` is `NaN`.
+Pass `method = ComposableRecurrences.Direct()` for such a series.
 
 # Examples
 ```jldoctest

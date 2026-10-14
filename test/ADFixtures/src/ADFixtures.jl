@@ -555,8 +555,10 @@ function _conv_per_stratum(w, θ)
 end
 
 # A long delay on a long series, with history: the default `Auto()`
-# method takes the transform under a native rule and the direct method
-# under its `NoAdjoint` twin.
+# method takes the transform under a native rule. Its `NoAdjoint` twin
+# takes the method a traced call gets, which depends on the backend and
+# the Julia version: the direct method, or the transform through its own
+# Enzyme rules on Julia 1.11.
 const LA, TA = 300, 1000
 const WA = [cos(0.1 * t) for t in 1:TA]
 function _conv_auto(w, θ)

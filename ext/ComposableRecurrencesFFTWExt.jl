@@ -23,8 +23,8 @@ end
 
 # `Auto()` takes the transform for a fixed kernel on `Float64` CPU arrays
 # once the kernel and the outputs are long enough. The sizes are integers,
-# so the check carries no derivative; the AD rules on `_untraced` keep
-# traced calls on the direct method.
+# so the check carries no derivative; traced calls take the method that
+# `_untraced` gives them, as for `FFTMethod()`.
 function ComposableRecurrences._fft_path(
         ::Auto, kernel::Union{AbstractVector, PerStratum{<:AbstractMatrix}},
         ::Type{Float64}, x::_CPUArray, T
