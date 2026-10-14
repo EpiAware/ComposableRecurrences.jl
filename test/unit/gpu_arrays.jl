@@ -244,7 +244,7 @@
             modifiers = (
                 Redistribute(
                     TimeVarying(
-                        d(movement(K0 - 0.5I, repeat(0.1 .+ 0.001 .* (1:T)', 3)).x)
+                        d(cat((movement(K0 - 0.5I, 0.1 + 0.001 * t) for t in 1:T)...; dims = 3))
                     )
                 ),
             )
