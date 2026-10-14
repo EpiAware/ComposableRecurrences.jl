@@ -143,17 +143,19 @@ function _has_vector_pullback(x)
 end
 
 # The entry point: the rule when the operator uses its adjoint and every
-# float leaf is IEEE, else plain AD, both read from the types. A coupling's
-# local derivative suits only some strata, so the call reads how many
-# passes it needs (`_fit`): `:one` takes the rule, `:wide` takes
+# float leaf is IEEE, else plain AD, both read from the types
+# (`_type_adjoint`). A `Recurrence` whose local step does not rebuild a part,
+# or whose coupling's local step needs more passes than the rule takes,
+# says so per call (`_fit`): `:one` takes the rule, `:wide` takes
 # `_ad_wide` and `:none` plain AD. `_fit` is the constant `:one` for every
 # other operator, so the route folds. `Vararg{Any, N}` makes the routes
 # specialise on the arguments.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 function _route_val(op, args...)
-    return Val(uses_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
+    return Val(_type_adjoint(op) && _gate(op, args...) ? :rule : :plain)
 end
+_type_adjoint(op) = uses_adjoint(op, Run())
 _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _plain(op, args...)
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     fit = _fit(op, args...)

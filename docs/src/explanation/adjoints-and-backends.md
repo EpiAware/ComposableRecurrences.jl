@@ -13,7 +13,7 @@ Each operator call takes one of two routes:
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
 Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
-The route is read from types, apart from the [strata](@ref glossary-stratum) limit below.
+The route is read from types, apart from the rebuild check and the [strata](@ref glossary-stratum) limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
@@ -29,6 +29,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | the same coupling with 13 to 24 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 24 | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
+| part that the local step cannot rebuild from its parameters | plain AD |
 
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
@@ -36,7 +37,7 @@ The local step rebuilds a part with dual numbers in place of its float parameter
 Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step, and above 24 more than two.
 
 The `Recurrence` constructor logs an `@info`, once per operator type, when one of these parts sends the operator to plain AD, naming the coupling, modifier or depletion form that caused it.
-A call sent to plain AD by its float or array types logs nothing.
+A call sent to plain AD by the strata limit of a coupling's local step, or by its float or array types, logs nothing.
 
 ## [Backends](@id adjoint-backends)
 

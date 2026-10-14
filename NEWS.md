@@ -9,6 +9,7 @@
 - `start = nothing` is an `ArgumentError`.
   Leave `start` out for the step after the history or the state, or pass an integer; a resumed call may pass `start = state.t`.
 - Calling `pullback!` on a modifier without its own method is a `MethodError`, as the generic `Step()` methods are now internal ([extending][extending]).
+- A part whose `uses_adjoint` is `true` but which has no `pullback!` method for the call's arguments raises that call's `MethodError` in the reverse pass, not an `ArgumentError`.
 - `PieceInterface` has a mandatory `adjoint` component, which fails for a `pullback!` the rules cannot find (typed `grads` or typed arguments after the role) unless the type declares `uses_adjoint`.
 - A coupling or modifier holding `TimeVarying(x, Primary())` throws when the `Recurrence` is built, not at its first call.
 - A call on device arrays (GPU arrays, such as `CuArray` or `JLArray`) whose kernel, coupling, modifier parameters, gain or add input, or resumed state holds a host array is now an `ArgumentError`.
@@ -52,6 +53,8 @@
 
 ### Changed
 
+- The note that an operator's gradients use plain AD of the whole operator is logged when the `Recurrence` is built, once per operator type, not at its first reverse-mode gradient ([adjoints and backends][adjoints]).
+  A coupling's local step sent to plain AD by its number of strata is not logged.
 - ConstructionBase and ForwardDiff are hard dependencies.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.

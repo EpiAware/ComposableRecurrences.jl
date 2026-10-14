@@ -652,8 +652,8 @@ end
     # The default pullback rebuilds a scalar modifier with dual numbers by
     # `constructorof`. A keyword-only constructor or a field typed `Float64`
     # cannot take them, and a constructor that transforms its argument does
-    # not give it back; the `Recurrence` constructor finds each, once, and
-    # throws.
+    # not give it back. The `Recurrence` constructor checks this once, by
+    # value, and stores the outcome; the route from the types is the rule.
     struct ScaleKw
         a::Float64
         ScaleKw(; a) = new(a)
@@ -673,39 +673,65 @@ end
         @eval CR.ispointwise(::$M) = true
         @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
     end
-    for m in (ScaleKw(; a = 0.5), ScaleF(0.5), Doubled(0.5))
+    for (m, rule) in (
+            (ScaleKw(; a = 0.5), false), (ScaleF(0.5), false),
+            (Doubled(0.5), false), (Kept(0.5), true),
+        )
+        empty!(CR._PLAIN_NOTED)
+        op = rule ? Recurrence(g; modifiers = (m,)) :
+            @test_logs (:info, Regex(string(nameof(typeof(m))))) Recurrence(g; modifiers = (m,))
         @test CR._modifier_adjoint(m) === :local
-        err = @test_throws ArgumentError Recurrence(g; modifiers = (m,))
-        @test occursin(string(nameof(typeof(m))), sprint(showerror, err.value))
+        @test CR._check_rebuild(m) == rule
+        @test op.rebuilds === rule
+        @test CR.uses_adjoint(op, CR.Run()) == rule
+        @test val(op) == [Val{:rule}]
+        @test CR._fit(op, args...) === (rule ? :one : :none)
+        # The check runs at construction, which stays type stable.
+        @inferred Recurrence(g, I, (m,))
     end
+    # A modifier that does not rebuild is sent to plain AD, and the call
+    # logs nothing.
+    op = Recurrence(g; modifiers = (Doubled(0.5),))
+    y = @test_logs CR.adjoint_call(op, args...)
+    @test y == CR._plain(op, args...)
     # Without the check the local derivative of `Doubled` would be wrong,
     # not missing: its rebuild doubles the dual number it is given, so the
     # cotangent of its field `a` comes back twice the true `v`.
     m̄ = (; a = Ref(0.0))
     CR._step_pullback((; piece = m̄, v = 1.0, s = 0.0), Doubled(0.5), 2.0, 0.0, 1, 1)
     @test m̄.a[] ≈ 4.0
-    # A constructor that keeps its argument passes, and the check runs at
-    # construction, which stays type stable.
-    op = @inferred Recurrence(g, I, (Kept(0.5),))
-    @test CR.uses_adjoint(op, CR.Run())
-    @test val(op) == [Val{:rule}]
-    @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
+    # Without a part to check, the outcome is read off the types.
+    for ms in ((), (CR.Depletion(50.0), CR.Clamp(0.0, 9.0)), (CR.Add(1.0),))
+        @test (@inferred Recurrence(g, I, ms)).rebuilds === Val(true)
+    end
     # A rebuild through `constructorof` checks again.
-    @test_throws ArgumentError ConstructionBase.setproperties(op; modifiers = (Doubled(0.5),))
+    op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
+    @test op.rebuilds === true
+    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
+    @test op.rebuilds === Val(true)
+    @test pullback_matches(
+        Recurrence(g; modifiers = (Kept(0.5),)),
+        recargs(ones(2, 4), nothing, ones(2, 2))...
+    )
     # A field of abstract type is not differentiated locally.
     struct Loose
         a::Any
     end
     CR.ispointwise(::Loose) = true
     @test CR._modifier_adjoint(Loose(0.5)) === :none
-    # An interrupt in the constructor is not swallowed.
+    @test CR._check_rebuild(Loose(1))
+    # A constructor that throws is taken as not rebuilding, but an interrupt
+    # is not swallowed.
+    struct Strict{T}
+        a::T
+        Strict(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(ArgumentError("no"))
+    end
     struct Halt{T}
         a::T
         Halt(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(InterruptException())
     end
-    CR.ispointwise(::Halt) = true
-    CR.forward(m::Halt, ::CR.Step, v, s, t, k) = (m.a * v, s)
-    @test_throws InterruptException Recurrence(g; modifiers = (Halt(0.5),))
+    @test CR._check_rebuild(Strict(0.5)) === false
+    @test_throws InterruptException CR._check_rebuild(Halt(0.5))
 
     # A depletion form without a pullback takes the rule through the local
     # derivative of its step in `(v, s, N, α)` and its own float scalars.
@@ -732,16 +758,18 @@ end
         @test val(op) == [Val{:rule}]
         @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
     end
-    # A form whose constructor transforms its argument is found too.
+    # A form whose constructor transforms its argument is found by value.
     struct DoubledRate{T}
         c::T
         DoubledRate(c::T) where {T} = new{T}(2c)
     end
     CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
-    err = @test_throws ArgumentError Recurrence(
+    empty!(CR._PLAIN_NOTED)
+    op = @test_logs (:info, r"\(DoubledRate\) that the local step cannot rebuild") Recurrence(
         g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),)
     )
-    @test occursin("DoubledRate", sprint(showerror, err.value))
+    @test !CR.uses_adjoint(op, CR.Run())
+    @test op.rebuilds === false
     @test CR.uses_adjoint(Recurrence(g; modifiers = (CR.Depletion(50.0, f),)), CR.Run())
 
     # Dual numbers and BigFloat take the plain path.
@@ -1085,7 +1113,7 @@ end
     steps(m, m̄, 1)
     @test (@allocated steps(m, m̄, 2)) < 1000
     # A step that reads an array parameter's field directly cannot take the
-    # scalar the local derivative passes, so the constructor throws.
+    # scalar the local derivative passes, so the operator takes plain AD.
     struct Direct{K}
         κ::K
     end
@@ -1093,8 +1121,9 @@ end
     CR.forward(m::Direct, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ.x[k]), s)
     d = Direct(PerStratum([5.0, 6.0]))
     @test CR._modifier_adjoint(d) === :local
-    err = @test_throws ArgumentError Recurrence([0.3, 0.2]; modifiers = (d,))
-    @test occursin("Direct", sprint(showerror, err.value))
+    op = Recurrence([0.3, 0.2]; modifiers = (d,))
+    @test op.rebuilds === false
+    @test !CR.uses_adjoint(op, CR.Run())
     # The check runs the step on the parameters' own entries, so a step
     # that would throw at a zero entry keeps the local derivative.
     struct Root{K}
@@ -1103,6 +1132,7 @@ end
     CR.ispointwise(::Root) = true
     CR.forward(m::Root, ::CR.Step, v, s, t, k) = (v * sqrt(CR.param(m.κ, k, t) - 1), s)
     op = Recurrence([0.3, 0.2]; modifiers = (Root(PerStratum([5.0, 6.0])),))
+    @test op.rebuilds === true
     @test CR.uses_adjoint(op, CR.Run())
     @test pullback_matches(op, recargs(ones(S, 6), nothing, ones(S, 2))...)
     # An array parameter of another form, or a raw array, keeps plain AD.
@@ -1170,7 +1200,7 @@ end
     # The route: the rule from the types, the wide route once the strata
     # and the coupling's scalars outgrow one pass, and plain AD once they
     # outgrow two.
-    @test CR.uses_adjoint(@inferred(Recurrence([0.3], C, ())), CR.Run())
+    @test (@inferred Recurrence([0.3], C, ())).rebuilds === true
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
     @test val(r, 3) == [Val{:rule}]
@@ -1179,25 +1209,26 @@ end
     @test CR._fit(r, args(22)...) === :wide
     @test CR._fit(r, args(23)...) === :none
     @test CR._fit(Recurrence([0.3]), args(50)...) === :one
-    for S in (11, 23)
+    for S in (11, 23, 24)
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end
     CR.forward(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
-    @test CR.uses_adjoint(Recurrence([0.3], Swap(), ()), CR.Run())
+    @test Recurrence([0.3], Swap(), ()).rebuilds === Val(true)
     @test pullback_matches(
         Recurrence([0.3, 0.2]; coupling = Swap()), args(3)...
     )
-    # A coupling whose constructor changes its argument throws.
+    # A coupling whose constructor changes its argument takes plain AD.
     struct Halved{A}
         a::A
         Halved(a::A) where {A} = new{A}(a / 2)
     end
     CR.forward(C::Halved, ::CR.Pressure, q, p, t) = (q .= C.a .* p; nothing)
-    err = @test_throws ArgumentError Recurrence([0.3]; coupling = Halved(0.5))
-    @test occursin("Halved", sprint(showerror, err.value))
+    op = Recurrence([0.3]; coupling = Halved(0.5))
+    @test op.rebuilds === false
+    @test CR._fit(op, args(3)...) === :none
 end
 
 @testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin

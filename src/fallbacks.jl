@@ -358,39 +358,27 @@ function _rebuild_scalar(x, θ)
     return constructorof(typeof(x))(ys...), θ
 end
 
-# The local derivative's contract, checked once when a `Recurrence` is
-# built: `x` rebuilt by `constructorof` from its float scalars, each
-# seeded as a dual number with its own partial, must give them back
-# unchanged. A keyword-only constructor, a field typed `Float64` or a
-# constructor that transforms its arguments breaks it, and would give no
-# gradient or a wrong one, so it throws. A modifier with `_EntryParam`s gets
-# a scalar in their place, so one step of the rebuild must also run, on the
-# entries at stratum 1 and time 1: a step that indexes such a parameter's
-# array breaks it too.
+# Whether the local step's rebuild of `x` from its float scalars gives them
+# back: each is seeded as a dual number with its own partial, `x` is
+# rebuilt by `constructorof` and its scalars must come back unchanged. A
+# keyword-only constructor, a field typed `Float64` or a constructor that
+# transforms its arguments fails; the last would give a wrong gradient. A
+# modifier with `_EntryParam`s gets a scalar in their place, so one step of
+# the rebuild must also run, on the entries at stratum 1 and time 1: a step
+# that indexes such a parameter's array fails. Checked once, when a
+# `Recurrence` is built.
 _check_rebuild(x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
 _check_rebuild(x, ::Tuple{}) = true
 function _check_rebuild(x, θ)
     T = promote_type(map(typeof, θ)...)
     θd = _seed(ForwardDiff.Tag(_check_rebuild, T), map(T, θ))
-    ok, err = try
+    return try
         xd = first(_rebuild_scalar(x, θd))
-        _rebuilt_tuple(x, xd) === θd && _steps(x, xd, one(first(θd))), nothing
+        _rebuilt_tuple(x, xd) === θd && _steps(x, xd, one(first(θd)))
     catch e
         e isa InterruptException && rethrow()
-        false, e
+        false
     end
-    ok && return true
-    why = err === nothing ? "did not give its parameters back" :
-        "threw $(sprint(showerror, err))"
-    throw(
-        ArgumentError(
-            "$(nameof(typeof(x))) has no pullback!, so its gradient rebuilds it " *
-                "with dual numbers through ConstructionBase.constructorof, which " *
-                "$why. Give its float fields type parameters and a positional " *
-                "constructor that keeps its arguments, read PerStratum and " *
-                "TimeVarying parameters through param, or write a pullback!"
-        )
-    )
 end
 _steps(m, md, x) = _scalar_params(m) || (forward(md, Step(), x, x, 1, 1); true)
 # The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.

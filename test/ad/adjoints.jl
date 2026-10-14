@@ -757,7 +757,8 @@ end
     # Scalar modifiers the default pullback cannot rebuild with dual numbers
     # by `constructorof`: a keyword-only constructor, a field typed
     # `Float64`, and a constructor that transforms its argument. The
-    # `Recurrence` constructor finds each by value and throws.
+    # `Recurrence` constructor finds each by value, so `uses_adjoint` is
+    # false for them.
     struct ScaleKw
         a::Float64
         ScaleKw(; a) = new(a)
@@ -796,13 +797,14 @@ end
         (θ -> Pick(1:2:3, θ), true, true),
         (θ -> Pick([1:1, 3:3], θ), true, true),
         (θ -> Pick([1, 3], θ), true, true),
+        (θ -> ScaleKw(; a = θ), false, false),
+        (θ -> ScaleF(θ), false, false),
+        (θ -> Doubled(θ), false, false),
         (θ -> CR.Depletion(100 * θ, Linear()), true, true),
         (θ -> CR.Depletion(100.0, LinearRate(θ); heterogeneity = 1.1), true, true),
         (θ -> CR.Depletion(100.0, Linear(); removals = θ), true, true),
+        (θ -> CR.Depletion(100.0, DoubledRate(θ)), false, false),
     )
-    for m in (ScaleKw(; a = 0.8), ScaleF(0.8), Doubled(0.8), CR.Depletion(100.0, DoubledRate(0.8)))
-        @test_throws ArgumentError Recurrence([0.3]; modifiers = (m,))
-    end
     for (m, adj, fires) in cases, w in (identity, NoAdjoint)
         @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
         f(θ) = run(w, m(θ[1]), θ[2])
@@ -1274,18 +1276,18 @@ end
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
     import Enzyme, Mooncake
-    # Pointwise modifiers with a raw array field, which the rule does not
-    # differentiate, so the operator takes plain AD; one type per backend,
-    # as the note is logged once per operator type.
-    struct ScaleM{A}
-        a::A
+    # Pointwise modifiers whose float field is typed `Float64`, so the
+    # local step cannot rebuild them and the operator takes plain AD; one
+    # type per backend, as the note is logged once per operator type.
+    struct ScaleM
+        a::Float64
     end
-    struct ScaleE{A}
-        a::A
+    struct ScaleE
+        a::Float64
     end
     for M in (ScaleM, ScaleE)
         @eval CR.ispointwise(::$M) = true
-        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a[1] * v, s)
+        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
     end
     for (M, backend) in (
             (ScaleM, AutoMooncake(; config = nothing)),
@@ -1297,7 +1299,7 @@ end
                 ),
             ),
         )
-        f(θ) = sum(Recurrence([0.3, 0.2]; modifiers = (M([0.9]),))(θ; history = ones(2)))
+        f(θ) = sum(Recurrence([0.3, 0.2]; modifiers = (M(0.9),))(θ; history = ones(2)))
         θ = ones(4)
         # Built inside the differentiated loss, the operator notes the plain
         # path once.
@@ -1353,12 +1355,12 @@ end
         return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
     end
     # Blend's local step fires up to 11 strata (with its one scalar), and
-    # on Mooncake up to 23. `fires` holds the Mooncake and the Enzyme
-    # outcome.
+    # on Mooncake up to 23; Direct sends the operator to plain AD at any
+    # size. `fires` holds the Mooncake and the Enzyme outcome.
     cases = (
         (loss_param, 3, (true, true)), (loss_param, 11, (true, true)),
         (loss_param, 12, (true, false)), (loss_param, 23, (true, false)),
-        (loss_param, 24, (false, false)),
+        (loss_param, 24, (false, false)), (loss, 3, (false, false)),
     )
     for (L, S, fires) in cases
         θ = [0.4; fill(5.0, S)]
@@ -1372,9 +1374,6 @@ end
             end
         end
     end
-    # Direct cannot take the scalar the local step passes, so building it
-    # throws.
-    @test_throws ArgumentError loss(identity, [0.4; fill(5.0, 3)], 3)
 end
 
 # A loss whose parameter blocks infer lets Enzyme compile the operator's

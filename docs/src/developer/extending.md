@@ -65,24 +65,20 @@ Call `add_param!` for every parameter, even with a `nothing` mirror; [`add_param
 
 ## [Gradient routes](@id extending-routes)
 
-[Rules and plain AD](@ref adjoint-routing) says which route a type gives its operator.
+[Rules and plain AD](@ref adjoint-routing) says which route a type gives its operator; this section gives what the local step needs from a type without a `pullback!`.
 
-Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
+The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order, so the type must:
 
-A type has a `pullback!` and takes the rule, or it does not and its operator takes plain AD.
-The exception is the local step: a pointwise modifier, depletion form or coupling without a `pullback!` whose float parameters are scalars is differentiated inside the rule with ForwardDiff.
-The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order, so the type must meet this contract:
+- give each float field a type parameter, as `struct Smooth{A}; a::A; end`, so it can hold a dual number;
+- have a positional constructor that keeps its arguments as given, or a `ConstructionBase.constructorof` method that rebuilds it from its fields in order;
+- read a `PerStratum` or `TimeVarying` parameter of a pointwise modifier through `param` at the step's own `k` and `t`, as `param(m.κ, k, t)`, since the local step passes the one entry the step reads.
 
-- each float field has a type parameter, so it can hold a dual number;
-- the positional constructor keeps its arguments as given, or a `ConstructionBase.constructorof` method rebuilds the type from its fields in order;
-- a `PerStratum` or `TimeVarying` parameter of a pointwise modifier is read through `param` at the step's own `k` and `t`, as `param(m.κ, k, t)`, since the local step passes the one entry the step reads.
-
-The `Recurrence` constructor checks the contract once, by rebuilding each such part from its own parameters, and throws an `ArgumentError` naming the part if it fails.
+The `Recurrence` constructor checks this once, by rebuilding each such part from its own parameters.
+A part that fails sends the operator's gradients to plain AD, and the constructor logs an `@info` naming it.
 A step that reads another stratum or time of such a parameter is not caught by the check and gets the wrong entry, so it needs a `pullback!`.
-A closure that captures a float, or a float array that is not read through `param`, sends the operator to plain AD.
+A closure that captures a float, or a float array not read through `param`, sends the operator to plain AD.
 Integer fields, index ranges and integer arrays are structure, not parameters.
-The local step of a coupling is capped by the strata it couples, at a limit set by the backend; the route table in [Rules and plain AD](@ref adjoint-routing) gives it.
-A coupling over more strata needs a `pullback!` to take the rule.
+A coupling over more strata than the route table's limit for its backend needs a `pullback!` to take the rule.
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 
