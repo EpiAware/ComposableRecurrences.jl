@@ -982,6 +982,36 @@ end
     end
 end
 
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse on Julia 1.11 warns once of lost scalar gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    using Logging: Warn
+    import Enzyme
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    let R = fill(1.1, 4), h = ones(2)
+        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b),))
+        msg = (:warn, r"On Julia 1\.11, Enzyme reverse mode can return a zero")
+        grad(f, x) = Enzyme.gradient(mode, Enzyme.Const(f), x)[1]
+        # The rule, plain AD of a `NoAdjoint`, and a scalar field that is not
+        # differentiated.
+        for (f, x, warns) in (
+                (b -> sum(op(b[1])(R; history = h)), [0.5], true),
+                (b -> sum(NoAdjoint(op(b[1]))(R; history = h)), [0.5], true),
+                (x -> sum(op(0.5)(x; history = h)), R, false),
+            )
+            ext._SCALAR_LOSS_WARNED[] = false
+            if warns && VERSION < v"1.12"
+                @test_logs msg min_level = Warn grad(f, x)
+            else
+                @test_logs min_level = Warn grad(f, x)
+            end
+            @test_logs min_level = Warn grad(f, x)
+        end
+    end
+end
+
 @testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] begin
     using ADFixtures
     using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme

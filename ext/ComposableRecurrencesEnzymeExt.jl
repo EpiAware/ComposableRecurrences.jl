@@ -83,6 +83,36 @@ function _addback1(dx::T, m) where {T}
     return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), T, fs, length(fs))::T
 end
 
+# On Julia 1.11, Enzyme reverse mode with runtime activity drops the
+# cotangent of a float held in an immutable value next to an array once that
+# value passes through a call it cannot infer (for example a closure that
+# captures a boxed variable), so the gradient of the float is zero. That
+# call is in the caller's code, out of sight of these rules, so they warn
+# once whenever the operator has an active scalar float.
+const _SCALAR_LOSS_MSG = "On Julia 1.11, Enzyme reverse mode can return a " *
+    "zero gradient for a scalar float field of an operator when the code " *
+    "that builds the operator is not type-stable. Keep that code " *
+    "type-stable (check it with `@code_warntype`), or use Julia 1.12 or later."
+const _SCALAR_LOSS_WARNED = Threads.Atomic{Bool}(false)
+function _warn_scalar_loss(active::Bool)
+    active && !Threads.atomic_xchg!(_SCALAR_LOSS_WARNED, true) &&
+        @warn _SCALAR_LOSS_MSG
+    return nothing
+end
+# A scalar leaf of the rule's entry point.
+_active_float(::Active{<:_IEEEFloat}) = true
+_active_float(a::MixedDuplicated) = _holds_float(typeof(a.val))
+_active_float(a) = false
+# Whether a value of type `T` holds a float outside any array.
+_holds_float(::Type{<:_IEEEFloat}) = true
+function _holds_float(::Type{T}) where {T}
+    isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
+    return any(_holds_float, fieldtypes(T))
+end
+# A plain-AD operator whose shadow can take a cotangent.
+_active_operator(::Union{Const, Active}) = false
+_active_operator(op) = _holds_float(typeof(op.val))
+
 # The plain-AD note logs only while Enzyme differentiates the call in
 # reverse mode.
 function EnzymeRules.forward(
@@ -96,6 +126,7 @@ function EnzymeRules.augmented_primal(
         op::Annotation, args::Vararg{Annotation, N}
     ) where {N}
     _log_plain(op.val)
+    VERSION < v"1.12" && _warn_scalar_loss(_active_operator(op))
     return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
 end
 function EnzymeRules.reverse(
@@ -313,6 +344,7 @@ function EnzymeRules.augmented_primal(
     ) where {X, RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
+    VERSION < v"1.12" && _warn_scalar_loss(any(_active_float, leaves))
     y, cache = _run_forward(_rebuild_leaves(X, map(a -> a.val, leaves))...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing
