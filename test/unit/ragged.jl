@@ -135,6 +135,9 @@ end
     @test flat.values == v && flat.offsets == o
     @test CR._maxlen(flat) == CR._maxlen(tv.x) == 6
     @test [CR._colview(flat, c) for c in eachindex(KS)] == KS
+    # Without a mirror, neither form has a column to add into.
+    @test CR._wcolumn(nothing, tv, 1, 2) === nothing
+    @test CR._wcolumn(nothing, TimeVarying(flat), 1, 2) === nothing
     @test Convolution(TimeVarying(flat, CR.Primary()))(X) ≈ Convolution(tv)(X)
     @test Recurrence(TimeVarying(flat))(X; history = X[:, 1:6]) ≈
         Recurrence(TimeVarying(KS))(X; history = X[:, 1:6])

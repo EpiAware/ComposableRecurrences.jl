@@ -267,10 +267,11 @@ _zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
 # given. Others are stacked into one vector: columns of mixed types into
 # their promoted type, so the loops that read them infer, and device columns
 # into one device array, which a device loop reads.
-_ragged(ks) = _Ragged(ks)
-function _ragged(ks::AbstractVector{K}) where {K <: _CPUArray}
-    return isconcretetype(K) ? _Columns(ks) : _Ragged(ks)
+function _ragged(ks::AbstractVector{K}) where {K}
+    return _ragged(Val(isconcretetype(K) && K <: _CPUArray), ks)
 end
+_ragged(::Val{true}, ks) = _Columns(ks)
+_ragged(::Val{false}, ks) = _Ragged(ks)
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)

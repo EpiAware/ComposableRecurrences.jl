@@ -176,9 +176,14 @@ With the default indexing the step at time ``t`` reads ``c(t)``; a
 A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`:
 `TimeVarying` is always the outer wrapper.
 It may also be a vector of `T` columns of any lengths, `ks[τ]` being
-column ``\tau``, with zero weight past each column's end.
-The columns are stored stacked without padding, so a `Primary()` pmf
-truncated at the horizon stores and visits only its entries.
+column ``\tau``, with zero weight past each column's end, so a `Primary()`
+pmf truncated at the horizon visits only its entries.
+Like an array, the columns are held as given, not copied: host columns of
+one concrete type, vectors or views, are read where they are, so changing
+one after building the kernel changes the kernel.
+Columns of mixed types, columns of tracked numbers and columns on a device
+are stacked into one vector instead, as is a kernel that `adapt` moves to a
+device.
 A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
@@ -340,6 +345,8 @@ function _maxlen(g::_Columns)
     end
     return n
 end
+# The column eltype as a constant: promoting over the columns infers only
+# a union of types.
 param_eltype(g::_Columns) = eltype(eltype(g.columns))
 
 # Either form of a kernel given as columns.

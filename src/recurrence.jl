@@ -407,8 +407,8 @@ end
 # lags × time.
 const _TVMatrix{I} = TimeVarying{I, <:AbstractMatrix}
 const _TVPerStratum{I} = TimeVarying{I, <:PerStratum}
-# Kernels read column by column, each column contiguous: lags × time, or
-# ragged columns, whose lengths may differ.
+# Kernels read column by column: lags × time, or ragged columns, whose
+# lengths may differ and which may be strided views.
 const _TVColumns{I} = TimeVarying{I, <:Union{AbstractMatrix, _AnyRagged}}
 
 # Column `τ` of a column kernel, and the same view of its mirror `ḡ`, or
