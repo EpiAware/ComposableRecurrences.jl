@@ -415,10 +415,11 @@ end
 # it the call is refused. `Auto()` takes the direct method unless that
 # extension adds a method for the kernel, eltype and arrays, which then
 # checks the sizes.
-_fft_path(method, kernel, ::Type{Tp}, x, T) where {Tp} = _fft_path(method, kernel, Tp, x)
+function _fft_path(method, kernel, ::Type{Tp}, x, T) where {Tp}
+    return !(method isa Auto) && _fft_path(method, kernel, Tp, x)
+end
 _fft_path(::Direct, kernel, ::Type, x) = false
 _fft_path(::FFTMethod, kernel, ::Type, x) = _no_fftw()
-_fft_path(::Auto, kernel, ::Type, x) = false
 function _no_fftw()
     throw(
         ArgumentError(

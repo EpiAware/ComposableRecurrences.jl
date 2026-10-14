@@ -133,6 +133,7 @@ end
     @test_throws ArgumentError CR._fft_convolve!(Y, [1.0], X, 2, 1)
     @test_throws ArgumentError CR._fft_convolve_back!(X, nothing, [1.0], X, Y, 2, 1)
     @test_throws ArgumentError CR._fft_path(CR.FFTMethod(), [1.0], Float64, nothing)
+    @test_throws ArgumentError CR._fft_convolve_terms!(Y, (([1.0], X),), 2, 1)
     # A fresh process that loads the package but not FFTW.
     code = """
     using ComposableRecurrences
