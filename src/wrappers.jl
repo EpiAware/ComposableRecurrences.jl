@@ -460,8 +460,8 @@ function _piecewise(ps::AbstractVector{<:Pair})
     isempty(ps) && throw(
         ArgumentError("TimeVarying needs at least one start => value pair")
     )
-    starts = map(_start_time, ps)
-    return _Piecewise(_stack_values(map(last, ps)), starts)
+    starts = [_start_time(p) for p in ps]
+    return _Piecewise(_stack_values(_value_type(eltype(ps)), last, ps), starts)
 end
 _start_time(p::Pair{<:Integer}) = first(p)
 function _start_time(p::Pair)
@@ -471,49 +471,66 @@ function _start_time(p::Pair)
         )
     )
 end
-_stack_values(vs::AbstractVector{<:Real}) = [float(v) for v in vs]
-_stack_values(vs::AbstractVector{<:AbstractVector}) = _stack(vs, (_maxlen(_Columns(vs)),))
-function _stack_values(vs::AbstractVector{<:AbstractArray})
-    sz = size(first(vs))
-    _all_size(vs, sz) || throw(
-        DimensionMismatch(
-            "the values between change points have one size, got " *
-                join(unique(map(v -> string(size(v)), vs)), ", ")
+_value_type(::Type{<:Pair{<:Any, V}}) where {V} = V
+
+# The values `get(p)` of the pairs `ps`, of type `V`, read from the pairs
+# where they are: a vector of the values would be a copy of each that
+# reverse-mode AD cannot always type.
+_stack_values(::Type{<:Real}, get, ps) = [float(get(p)) for p in ps]
+function _stack_values(::Type{<:AbstractVector}, get, ps)
+    n = 0
+    for p in ps
+        n = max(n, length(get(p)))
+    end
+    return _stack(get, ps, (n,))
+end
+function _stack_values(::Type{<:AbstractArray}, get, ps)
+    sz = size(get(first(ps)))
+    for p in ps
+        size(get(p)) == sz || throw(
+            DimensionMismatch(
+                "the values between change points have one size, got " *
+                    join(unique([string(size(get(q))) for q in ps]), ", ")
+            )
+        )
+    end
+    return _stack(get, ps, sz)
+end
+function _stack_values(::Type{V}, get, ps) where {V <: Union{PerStratum, Pairwise}}
+    x = _stack_values(_field_type(V), p -> get(p).x, ps)
+    return constructorof(V)(x)
+end
+_field_type(::Type{V}) where {V} = isconcretetype(V) ? fieldtype(V, :x) : Any
+function _stack_values(::Type, get, ps)
+    throw(
+        ArgumentError(
+            "the values between change points are numbers, arrays or " *
+                "PerStratum, all of one form; got $(_describe(map(get, ps)))"
         )
     )
-    return _stack(vs, sz)
-end
-function _all_size(vs, sz)
-    for v in vs
-        size(v) == sz || return false
-    end
-    return true
 end
 # Each value copied into its slice of one zeroed array, where its type and
 # device are, as `_Ragged` stacks columns: AD backends differentiate the
 # copies as block copies. A shorter vector leaves zeros after its entries.
-function _stack(vs, sz)
-    T = _column_eltype(vs)
-    A = _like(vs, zeros(T, sz..., length(vs)))
+_stack(get, ps, sz) = _stack(get, ps, sz, get(first(ps)))
+function _stack(get, ps, sz, v1)
+    T = _values_eltype(get, ps)
+    A = _zeros(v1, T, sz..., length(ps))
     n = prod(sz)
-    for (j, v) in enumerate(vs)
+    for (j, p) in enumerate(ps)
+        v = get(p)
         copyto!(A, (j - 1) * n + 1, v, firstindex(v), length(v))
     end
     return A
 end
-function _stack_values(vs::AbstractVector{<:PerStratum})
-    return PerStratum(_stack_values(map(v -> v.x, vs)))
-end
-function _stack_values(vs::AbstractVector{<:Pairwise})
-    return Pairwise(_stack_values(map(v -> v.x, vs)))
-end
-function _stack_values(vs)
-    throw(
-        ArgumentError(
-            "the values between change points are numbers, arrays or " *
-                "PerStratum, all of one form; got $(_describe(vs))"
-        )
-    )
+function _values_eltype(get, ps)
+    V = Base.promote_op(get, eltype(ps))
+    isconcretetype(V) && return eltype(V)
+    T = Bool
+    for p in ps
+        T = promote_type(T, eltype(get(p)))
+    end
+    return T
 end
 
 function TimeVarying{I}(ps::AbstractVector{<:Pair}) where {I}

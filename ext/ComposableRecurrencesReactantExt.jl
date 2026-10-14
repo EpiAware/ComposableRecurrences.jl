@@ -141,14 +141,13 @@ end
 
 # Traced values between change points stack by concatenation, which the
 # compiled program holds as one array.
-function ComposableRecurrences._stack(vs::AbstractVector{<:AnyTracedRArray}, sz)
-    z = zero(unwrapped_eltype(eltype(first(vs))))
-    cols = map(vs) do v
-        w = vec(v)
+function ComposableRecurrences._stack(get, ps, sz, ::AnyTracedRArray)
+    cols = map(ps) do p
+        w = vec(get(p))
         n = prod(sz) - length(w)
-        n == 0 ? w : vcat(w, Reactant.Ops.fill(z, (n,)))
+        n == 0 ? w : vcat(w, Reactant.Ops.fill(zero(unwrapped_eltype(eltype(w))), (n,)))
     end
-    return reshape(reduce(hcat, cols), sz..., length(vs))
+    return reshape(reduce(hcat, cols), sz..., length(ps))
 end
 
 # A coefficient given by change points at a traced time: its segment is the
