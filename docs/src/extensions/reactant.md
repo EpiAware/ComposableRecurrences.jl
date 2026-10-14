@@ -12,6 +12,7 @@ f(R) = r(R; history = [1.0, 1.0])
 y = (Reactant.@compile f(R))(R)
 ```
 
-A traced call runs serially whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
-The step loops are unrolled when traced, so compile time grows with the number of steps and [strata](@ref glossary-stratum).
+A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
+The time loop compiles to one loop whose body is a step, so compile time does not grow with the number of steps.
+The [strata](@ref glossary-stratum) loops within a step are written out, so the program grows with the number of strata.
 [`test/reactant/RESULTS.md`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) lists the cases checked.
