@@ -36,7 +36,7 @@
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
 - `delay_masses(d, lags)` returns a delay's masses on lags `0` to `lags - 1`, and packages that own delay types add methods for them.
-  With Distributions loaded, `Convolution`, `Recurrence`, `PerStratum`, `TimeVarying`, `Pairwise` and `Routes` take delay distributions with a `lags` keyword ([delay distributions][delays]).
+  With Distributions loaded, `Recurrence(kernel; lags)` and `Convolution(kernel; lags)` take a kernel of delay distributions, alone or in `PerStratum`, `Pairwise`, `TimeVarying` or `Routes`, from each operator's own lag origin ([delay distributions][delays]).
 - Executors run the strata loops of every operator: `Serial()` (the default), `Threaded(; min_work, ntasks)` and `Device(backend)`, set for a block with `with(ComposableRecurrences.EXECUTOR => ...)` ([API overview][api]).
 - Under `Threaded()`, the reverse rules of `Recurrence` and `Convolution` split strata across tasks, as their forward passes do ([adjoints and backends][adjoints]).
   Cotangents of parameters that several chunks of strata share are summed per chunk, so they match `Serial()` up to rounding.

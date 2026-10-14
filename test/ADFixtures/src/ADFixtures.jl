@@ -883,8 +883,8 @@ end
 function _generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
-    d = NegativeBinomial(exp(only(logr)), p)
-    r = Recurrence(d; lags = L + 1, coupling = K0)
+    ds = [NegativeBinomial(a * exp(only(logr)), p) for a in (1.0, 1.5, 2.0)]
+    r = Recurrence(PerStratum(ds); lags = L + 1, coupling = K0)
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -896,7 +896,7 @@ push!(
         () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
     ),
     (
-        "Recurrence negative binomial generation interval", _generation_distribution,
+        "Recurrence negative binomial generation interval per stratum", _generation_distribution,
         () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
     ),
 )
@@ -1049,7 +1049,7 @@ push!(
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
-_REQUIRES["Recurrence negative binomial generation interval"] = (:delay_masses,)
+_REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
 _requires(name) = get(_REQUIRES, name, ())
 
