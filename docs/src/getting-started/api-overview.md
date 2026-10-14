@@ -106,7 +106,7 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
-They tag one stored array and make no copies, except that kernel columns are stacked once.
+They tag one stored array and make no copies; kernel columns are held as given, with the exceptions listed under [`TimeVarying`](@ref).
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
