@@ -374,10 +374,10 @@ _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 # primal code. Inference must not see the constant, or it folds the branch
 # away before the AD rules replace it.
 # Dispatch on the method, kernel and eltype cannot make this choice: code
-# that Mooncake or Enzyme traces reaches `_fft_path` with the same `Float64`
-# arrays as a primal call, so only a call these rules replace can tell them
-# apart. Forward-mode `Dual` eltypes already take the direct method by
-# dispatch.
+# that a reverse-mode AD tool traces reaches `_fft_path` with the same
+# `Float64` arrays as a primal call, so only a call these rules replace can
+# tell them apart. Forward-mode dual eltypes already take the direct method
+# by dispatch.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
