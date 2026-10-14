@@ -122,28 +122,34 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
-`work` counts multiply-adds of 64-bit floats: an operator counts one per
-word of its element type, so a dual number with 8 partials counts 9.
+`work` counts multiply-adds.
 Operators split three kinds of loop, and count the work of each kind so
 that one `min_work` sets where each of them breaks even:
 
 - strata that mix through a coupling, a pairwise kernel or a modifier with
   a vector step: one loop per step, counted in full;
 - independent strata, each over the whole series: one loop per call,
-  counted as a quarter, so it splits from four times `min_work`;
+  counted as an eighth, so it splits from eight times `min_work`;
 - a convolution with a fixed kernel and its lag contributions: one loop per
   call of vector multiply-adds, counted as a sixteenth; a convolution that
   forms each output as one dot, such as one with a time-varying kernel,
   counts as independent strata do.
 
-The default `min_work` of 500 000 is where, on a shared 4-core machine,
-four threads began to beat one for each kind, on the primal pass and with
-dual numbers (`benchmark/threshold.jl`).
-Reverse passes broke even there and gained less than the primal as the
-work grew, and a convolution's primal gained little at any size measured.
-Strata that mix reach it only with a pairwise kernel over a few hundred
-strata, or a coupling over tens of thousands, so with a sparse or dense
-coupling at the sizes usually fitted they do not split.
+In the loops split once per call, a multiply-add counts once per 64-bit
+word of the element type, so a dual number with 8 partials counts 9.
+An element type that is not a bits type, such as `BigFloat` or a tracked
+real, counts as one word, as do the floats of an AD backend that carries
+its tangents or shadows beside the arrays rather than in them.
+Loops split every step count each multiply-add once whatever the type.
+
+The default `min_work` of 500 000 comes from whole-loss timings with four
+threads against one on a shared 4-core machine (`benchmark/threshold.jl`).
+At its threshold, each kind ran 0.9 to 1.4 times as fast on the primal
+and in reverse mode, and 1.1 to 3 times as fast with dual numbers; the
+exception was the convolution primal, at 0.8 to 1.1 times.
+Strata that mix reach the threshold only with a pairwise kernel over a few
+hundred strata, or a coupling over tens of thousands, so with a sparse or
+dense coupling at the sizes usually fitted they do not split.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
 A reverse pass sums some parameter cotangents per chunk, so those agree
