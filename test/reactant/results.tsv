@@ -1,4 +1,4 @@
-# elapsed_s	7755.969742516
+# elapsed_s	9782.573255376
 status	relerr	compile_s	run_us	plain_us	error	frame	message	name	mode	config	backend	steps	wall
 works	0.0e+00	25.6	5.0	0.0				control	forward	extension	cpu	20	44.09417390823364
 works	0.0e+00	32.0	5.5	0.5				control	reverse	extension	cpu	20	51.05901479721069
@@ -108,3 +108,27 @@ works	1.7e-15	49.3	15.4	45.3				mod_flows	forward	extension	cpu	400	71.083847045
 works	3.1e-15	50.8	656.6	35341.5				mod_flows	reverse	extension	cpu	400	73.10490107536316
 works	9.3e-16	55.4	33.6	1106.0				mod_recent	forward	extension	cpu	400	77.09107184410095
 works	1.7e-15	59.5	3029.7	89038.2				mod_recent	reverse	extension	cpu	400	83.09784698486328
+works	0.0e+00	63.1	15.2	1.7				rec_cp_kernel	forward	extension	cpu	20	88.16957712173462
+works	3.4e-16	64.5	27.0	13.5				rec_cp_kernel	reverse	extension	cpu	20	89.10166192054749
+works	1.7e-16	60.0	7.7	1.3				rec_cp_primary	forward	extension	cpu	20	81.09300088882446
+works	1.9e-16	68.6	21.9	12.3				rec_cp_primary	reverse	extension	cpu	20	92.15299201011658
+works	2.2e-16	60.2	14.3	1.8				rec_cp_coupling	forward	extension	cpu	20	83.09651184082031
+works	3.9e-16	65.0	197.0	74.2				rec_cp_coupling	reverse	extension	cpu	20	88.13520383834839
+works	1.3e-16	57.8	8.7	1.0				conv_cp_primary	forward	extension	cpu	20	82.09282302856445
+works	1.9e-16	60.3	35.7	22.0				conv_cp_primary	reverse	extension	cpu	20	83.09583592414856
+works	1.3e-16	56.9	11.6	0.6				conv_cp_secondary	forward	extension	cpu	20	79.08972692489624
+works	6.1e-18	59.3	11.3	21.7				conv_cp_secondary	reverse	extension	cpu	20	80.09172201156616
+works	2.2e-16	60.5	8.2	0.9				mod_add_cp	forward	extension	cpu	20	83.09406614303589
+works	1.9e-16	60.7	79.5	11.1				mod_add_cp	reverse	extension	cpu	20	85.09589099884033
+works	0.0e+00	60.7	17.8	10.2				rec_cp_kernel	forward	extension	cpu	400	83.09345293045044
+works	1.2e-15	67.3	473.2	4027.5				rec_cp_kernel	reverse	extension	cpu	400	92.11134505271912
+works	9.1e-17	64.9	14.9	9.4				rec_cp_primary	forward	extension	cpu	400	90.12434196472168
+works	1.1e-15	62.8	2218.7	5376.5				rec_cp_primary	reverse	extension	cpu	400	87.1193950176239
+works	1.5e-15	60.8	23.5	45.9				rec_cp_coupling	forward	extension	cpu	400	86.09899997711182
+works	1.3e-15	61.5	3218.3	19016.4				rec_cp_coupling	reverse	extension	cpu	400	86.098140001297
+works	2.4e-16	56.4	13.3	4.7				conv_cp_primary	forward	extension	cpu	400	79.13215398788452
+works	3.6e-16	59.0	674.6	2773.3				conv_cp_primary	reverse	extension	cpu	400	83.09166693687439
+works	2.4e-16	55.8	54.6	4.2				conv_cp_secondary	forward	extension	cpu	400	77.08647894859314
+works	3.5e-19	60.4	80.5	3975.6				conv_cp_secondary	reverse	extension	cpu	400	84.09988379478455
+works	4.6e-15	57.7	13.1	7.0				mod_add_cp	forward	extension	cpu	400	81.09264588356018
+works	3.7e-15	58.5	583.1	3644.9				mod_add_cp	reverse	extension	cpu	400	81.09054589271545
