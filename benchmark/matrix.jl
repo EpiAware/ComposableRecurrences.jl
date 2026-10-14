@@ -169,6 +169,9 @@ end
 # Why a cell is not run, or `nothing` to run it.
 function skip_reason(c, target, arm, θ, rules)
     target == "primal" && arm in ("NoAdjoint", "local") && return "same as rule arm"
+    # The hand rules are Mooncake reverse rules: every other target runs the
+    # same code as the `loop` arm.
+    target != "Mooncake reverse" && arm == "handrule" && return "same as loop arm"
     if startswith(target, "ForwardDiff")
         arm in ("NoAdjoint", "local") && return "rules do not apply to dual numbers"
         length(θ) > FD_MAX && return "over $FD_MAX parameters"
