@@ -313,7 +313,13 @@ function takeaway(bench, ratio_table)
         "On $(where(level)) the package is slower by 10% or less on one of the two measures, " *
             "which is within the run's noise."
     )
-    push!(said, "The ratios above are of minimum times at revision `$(first(bench.revision))`.")
+    revs = unique(bench.revision)
+    push!(
+        said,
+        "The ratios above are of minimum times at " *
+            (length(revs) == 1 ? "revision " : "revisions ") *
+            join("`" .* revs .* "`", " and ") * "."
+    )
     return Markdown.parse(join(said, " "))
 end
 have_bench && takeaway(bench, ratio_table)
