@@ -224,7 +224,7 @@ end
         B.patch_infections(Rt, g, seeds, K, 0.05, N).infections
     # One intensity per origin, the same every day.
     εq = [0.05, 0.1, 0.02]
-    @test patch(K, PerStratum(εq), N) ≈
+    @test patch(K, εq, N) ≈
         B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
     # BVD also returns the importation series, the arrivals in each patch.

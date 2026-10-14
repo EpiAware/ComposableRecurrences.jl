@@ -25,15 +25,17 @@
         end
         return nothing
     end
-    # `ū_q = (1 − ε_q) v̄_q + ε_q c_q` and `ε̄_q += u_q (c_q − v̄_q)`, with
-    # `c_q = Σ_{p ≠ q} K[p, q] v̄_p`.
+    # `ū_q = (1 − ε_q) v̄_q + ε_q c_q`, `ε̄_q += u_q (c_q − v̄_q)` and
+    # `K̄[p, q] += ε_q u_q v̄_p`, with `c_q = Σ_{p ≠ q} K[p, q] v̄_p`.
     function CR.pullback!(grads, m::Spill, ::CR.Step, v, s, t)
         v̄′ = copy(grads.v)
-        ε̄ = CR.cotangent(grads.piece, :ε)
+        ε̄, K̄ = CR.cotangent(grads.piece, :ε), CR.cotangent(grads.piece, :K)
         for q in eachindex(v)
             c = zero(eltype(v̄′))
             for p in eachindex(v)
-                p == q || (c += m.K[p, q] * v̄′[p])
+                p == q && continue
+                c += m.K[p, q] * v̄′[p]
+                CR.add_cotangent!(K̄, CR.param(m.ε, q, t) * v[q] * v̄′[p], p, q)
             end
             εq = CR.param(m.ε, q, t)
             CR.add_param!(ε̄, m.ε, v[q] * (c - v̄′[q]), q, t)
