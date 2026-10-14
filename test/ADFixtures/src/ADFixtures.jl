@@ -18,6 +18,7 @@ import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
+using Distributions: NegativeBinomial, Poisson
 using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
@@ -871,6 +872,35 @@ const _SCENARIOS = [
     ),
 ]
 
+# Delays given as distributions: the gradient reaches each distribution's
+# parameters through its masses on lags `0:L`.
+function _delay_distribution(w, θ)
+    logλ, w0, ϵ = _unpack(θ, (1,), (L,), (T,))
+    c = Convolution(Poisson(exp(only(logλ))); lags = L + 1)
+    return sum(W1 .* w(c)(ϵ; history = w0))
+end
+
+function _generation_distribution(w, θ)
+    logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
+    p = 1 / (1 + exp(-only(logitp)))
+    ds = [NegativeBinomial(a * exp(only(logr)), p) for a in (1.0, 1.5, 2.0)]
+    r = Recurrence(PerStratum(ds); lags = L + 1, coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Convolution Poisson delay distribution", _delay_distribution,
+        () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Recurrence negative binomial generation interval per stratum", _generation_distribution,
+        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
+    ),
+)
+
 """
     supports(features...)
 
@@ -1018,6 +1048,8 @@ push!(
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+_REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+_REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
 _requires(name) = get(_REQUIRES, name, ())
 
