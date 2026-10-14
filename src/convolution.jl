@@ -699,11 +699,11 @@ function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
     end
     return nothing
 end
-# Other time-varying kernels (per stratum, in either indexing): one dot per
-# output time `t` of the window with the weights `_lagweight` reads, from
-# the column `_lagcolumn` picks for the indexing. The column bodies above
-# measured faster for column kernels, this for per-stratum ones.
-function _convolve_body!(k, Y, c::TimeVarying, X, m, start)
+# A per-stratum kernel, in either indexing: one dot per output time `t` of
+# the window with the weights `_lagweight` reads, from the column
+# `_lagcolumn` picks for the indexing. The column bodies above measured
+# faster for column kernels, this for per-stratum ones.
+function _convolve_body!(k, Y, c::_TVPerStratum, X, m, start)
     L = _nlags(c)
     for j in axes(Y, 1)
         t = start + j - 1
@@ -871,11 +871,10 @@ function _strata_back!(ks, X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
     return nothing
 end
 
-# Other time-varying kernels' reverse pass (per stratum, in either
-# indexing), the transpose of the generic forward body: each output
-# cotangent adds to the weights it read, through `_add_lagweight!`, and to
-# the inputs.
-function _strata_back!(ks, X̄, c̄, c::TimeVarying, X, Ȳ, m, start)
+# A per-stratum kernel's reverse pass, in either indexing, the transpose
+# of its forward body: each output cotangent adds to the weights it read,
+# through `_add_lagweight!`, and to the inputs.
+function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     L = _nlags(c)
     for k in ks, j in axes(Ȳ, 1)
         t = start + j - 1
