@@ -118,34 +118,40 @@ function _check_kernel_times(k::TimeVarying{<:Any, <:_Ragged}, stop)
 end
 
 # Check every time-varying coefficient in a coupling or modifier covers
-# times up to `stop`, recursing through fields. Outside a kernel only
+# times up to `stop`, walking their fields. Outside a kernel only
 # `Secondary()` indexing has a meaning, which a `Recurrence` checks once at
 # construction, with `stop = nothing`.
-function _check_times(name, x::TimeVarying{Secondary}, stop)
+function _check_leaf(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
-_check_times(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
-_check_times(name, x::TimeVarying, stop) = _primary_error(name, x)
+_check_leaf(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
+_check_leaf(name, x::TimeVarying, stop) = _primary_error(name, x)
 const _Leaf = Union{
     Real, AbstractArray, Nothing, Symbol, AbstractString, Type, Module,
     Function,
 }
-_check_times(name, ::_Leaf, stop) = nothing
-# A tuple's entries are checked one by one, unrolled, so a tuple of
-# modifiers of different types infers.
-_check_times(name, x::NamedTuple, stop) = _check_times(name, values(x), stop)
-_check_times(name, ::Tuple{}, stop) = nothing
-function _check_times(name, x::Tuple, stop)
-    _check_times(name, first(x), stop)
-    return _check_times(name, Base.tail(x), stop)
+# The walk is unrolled from the type of `x`, so that it runs no recursion
+# and no inference at run time, whatever the nesting; a field of abstract
+# type is walked by dispatch on its value.
+@generated function _check_times(name, x, stop)
+    body = Expr(:block)
+    _times_walk!(body.args, x, :x, 0)
+    push!(body.args, :(return nothing))
+    return body
 end
-function _check_times(name, x, stop)
-    return _fields_times(name, x, stop, Val(fieldcount(typeof(x))))
-end
-_fields_times(name, x, stop, ::Val{0}) = nothing
-function _fields_times(name, x, stop, ::Val{N}) where {N}
-    _fields_times(name, x, stop, Val(N - 1))
-    return _check_times(name, getfield(x, N), stop)
+function _times_walk!(out, T, ex, depth)
+    if T <: TimeVarying
+        push!(out, :(_check_leaf(name, $ex, stop)))
+    elseif T <: _Leaf
+        return out
+    elseif !isconcretetype(T) || depth > 32
+        push!(out, :(_check_times(name, $ex, stop)))
+    else
+        for i in 1:fieldcount(T)
+            _times_walk!(out, fieldtype(T, i), :(getfield($ex, $i)), depth + 1)
+        end
+    end
+    return out
 end
 
 # Shared argument errors, each raised by more than one check.
