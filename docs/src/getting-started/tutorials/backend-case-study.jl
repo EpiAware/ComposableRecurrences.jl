@@ -292,8 +292,10 @@ function takeaway(bench, ratio_table)
         "At 11 patches the package takes $(join(s11.min_ratio, " and ")) times the time of the hand rules, " *
             "with `Redistribute` and `Depletion` differentiated by the package's own rules."
     )
+    ## A cell counts as slower only when the minimum and the median both
+    ## exceed the hand rules by more than 10%, as in the benchmark report.
     where(t) = join(t.case .* " at " .* t.size, ", ")
-    slower = @subset(mooncake, :min_ratio .> 1, :median_ratio .> 1)
+    slower = @subset(mooncake, :min_ratio .> 1.1, :median_ratio .> 1.1)
     isempty(slower.case) ||
         push!(said, "It is slower than the hand rules on $(where(slower)).")
     split = @subset(mooncake, (:min_ratio .> 1) .!= (:median_ratio .> 1))
@@ -301,6 +303,15 @@ function takeaway(bench, ratio_table)
         said,
         "On $(where(split)) the minimum and the median fall on opposite sides of the hand rules, " *
             "so the run does not settle which is faster there."
+    )
+    level = @subset(
+        mooncake, :min_ratio .> 1, :median_ratio .> 1,
+        (:min_ratio .<= 1.1) .| (:median_ratio .<= 1.1)
+    )
+    isempty(level.case) || push!(
+        said,
+        "On $(where(level)) the package is slower by 10% or less on one of the two measures, " *
+            "which is within the run's noise."
     )
     push!(said, "The ratios above are of minimum times at revision `$(first(bench.revision))`.")
     return Markdown.parse(join(said, " "))
