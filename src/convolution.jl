@@ -373,6 +373,11 @@ _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 # otherwise, including the forward pass of a native rule, which runs as
 # primal code. Inference must not see the constant, or it folds the branch
 # away before the AD rules replace it.
+# Dispatch on the method, kernel and eltype cannot make this choice: code
+# that a reverse-mode AD tool traces reaches `_fft_path` with the same
+# `Float64` arrays as a primal call, so only a call these rules replace can
+# tell them apart. Forward-mode dual eltypes already take the direct method
+# by dispatch.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
@@ -670,8 +675,9 @@ function _convolve_body!(k, Y, c::PerStratum, X, m, start)
 end
 
 # Secondary indexing: output time `t` reads its own column, one dot with
-# the window per output. A column kernel's column is contiguous and
-# vectorises; a per-stratum column is strided, so it is read entry by entry.
+# the window per output. A column kernel's column is read as a vector,
+# which vectorises when it is contiguous; a per-stratum column is strided,
+# so it is read entry by entry.
 function _convolve_body!(k, Y, c::_TVColumns{Secondary}, X, m, start)
     for j in axes(Y, 1)
         t = start + j - 1
