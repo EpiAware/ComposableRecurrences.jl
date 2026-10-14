@@ -65,11 +65,11 @@ delay = let w = [exp(-l / 6) for l in 0:(D - 1)]
     w ./ sum(w)
 end
 N = [2.0e4 + 4.0e3 * p for p in 1:S]
-# Importation falls with the distance between patches on a line.
+## Importation falls with the distance between patches on a line.
 K = [p == q ? 0.0 : 0.1 / abs(p - q) for p in 1:S, q in 1:S]
 ε = [0.02 + 0.01 * sin((t + 9 * p) / 15) for p in 1:S, t in 1:T]
 R = [1.6 - 0.6 * t / T + 0.1 * cos(p) for p in 1:S, t in 1:T]
-# The outbreak is seeded in patch 1, with a few cases elsewhere.
+## The outbreak is seeded in patch 1, with a few cases elsewhere.
 seeds = [p == 1 ? 1.0 : 0.02 for p in 1:S, l in 1:L]
 inputs = (; gi, delay, K, seeds);
 
@@ -220,7 +220,7 @@ if !have_bench
     md"The benchmark results are not available in this build."
 else
     @chain bench begin
-        # The hand rules are Mooncake rules: under Enzyme that arm is the loop.
+        ## The hand rules are Mooncake rules: under Enzyme that arm is the loop.
         @subset(.!((:target .== "Enzyme reverse") .& (:method .== "hand rules")))
         @transform(:case = getindex.(Ref(Dict(blocks)), :block) .* ", " .* sizelabel.(:size))
         data(_) * mapping(
