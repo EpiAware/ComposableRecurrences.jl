@@ -231,12 +231,12 @@ the draw: the compartments after the step of
 a [`ComposableRecurrences.Protected`](@ref) pool as compartment 2.
 So `Flow(2 => 1, ω)` is waning protection at rate ``\omega`` and
 `Flow(1 => 0, μ)` removes susceptibles at rate ``\mu``.
-Rate and share flows act on the pools after the draw, then the count
+Hazard and share flows act on the pools after the draw, then the count
 flows in order on what remains.
 The `removals` are the first count flow,
 `Flow(1 => 0, removals; form = Truncate())`, or
 `Flow(1 => 2, removals; form = Truncate())` with a protected pool.
-Rate and share flows are not capped, so a rate out of a pool the draw has
+Hazard and share flows are not capped, so a rate out of a pool the draw has
 taken below zero moves a negative amount.
 
 The form is a variant struct that draws value `v` from pool `s` with

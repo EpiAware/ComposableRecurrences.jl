@@ -88,15 +88,19 @@ end
         2.9955044966270243, 6.652927267489164, 8.596099981869761, 12.120707723783651,
         16.73655431043126, 22.273150166745683, 29.044080713035257, 36.44220649764632,
     ] rtol = 1.0e-12
+    # The pool is small enough that the draw binds from the seventh step.
     d = CR.Depletion(
-        1000.0, CR.Truncate(); removals = 3.0, protected = CR.Protected(0.2),
+        100.0, CR.Truncate(); removals = 3.0, protected = CR.Protected(0.2),
         flows = (
             CR.Flow(2 => 1, 0.05; form = CR.Share()),
             CR.Flow(2 => 0, 1.0; form = CR.Truncate()),
         )
     )
-    y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 8); history = [5.0])
+    r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
+    y, st = CR.with_state(r, fill(2.0, 8); history = [5.0])
     @test y ≈ [
-        3.0, 6.8, 9.08, 13.448, 19.8688, 29.00128, 42.648768, 62.5380608,
+        3.0, 6.8, 9.08, 13.448, 19.8688, 29.00128, 5.902108198293716,
+        1.179962360341256,
     ] rtol = 1.0e-12
+    @test st.states[1] ≈ [0.0, 3.7198494413650236] rtol = 1.0e-12
 end

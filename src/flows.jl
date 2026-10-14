@@ -66,6 +66,9 @@ The hazard rates out of one compartment compete, as in the `Hazard`
 depletion form, so together they move ``x (1 - e^{-H})``; with
 non-negative, finite rates a non-negative compartment stays non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
+A `Hazard()` flow's demand is the rate itself, with no population and no
+heterogeneity, where a `Hazard()` depletion draws the value divided by
+its population `N`.
 Hazard and share flows act on the compartments before the step's flows,
 then each count flow, in the order given, on what remains
 ([`ComposableRecurrences.Flows`](@ref) gives the step).
@@ -248,7 +251,7 @@ ConstructionBase.constructorof(::Type{<:Flows{N}}) where {N} = Flows{N}
 
 blocks(::Flows{N}) where {N} = Val((N, N))
 
-# The rate and share of a flow, zero for another form.
+# The hazard rate and share of a flow, zero for another form.
 _rate(f::Flow{<:Any, Hazard}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
 _share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
@@ -317,7 +320,7 @@ function _leaves(fs, i, g, t, z)
     return E, gH, _out(_share, fs, i, g, t, z)
 end
 
-# Add each rate and share flow's amount into the compartment it enters, in
+# Add each hazard and share flow's amount into the compartment it enters, in
 # `y` and the arrivals `a`.
 _spread(::Tuple{}, x, L, y, a, g, t) = y, a
 function _spread(fs::Tuple, x, L, y, a, g, t)
@@ -477,7 +480,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
-    # The rate and share arrivals feed both the compartments and the state.
+    # The hazard and share arrivals feed both the compartments and the state.
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _arrivals_back(fs, āt, i, g, t, zero(eltype(āt))), Val(N))
@@ -530,8 +533,9 @@ function _check_flow_groups(fs::Tuple, G)
     return _check_flow_groups(Base.tail(fs), G)
 end
 
-# A flow parameter's name in errors, such as `r of Flow(1 => 2)`. Printed
-# only when an error is thrown, so a check that passes builds no string.
+# A flow parameter's name in errors, such as `demand of Flow(1 => 2)`.
+# Printed only when an error is thrown, so a check that passes builds no
+# string.
 struct _Named
     name::Symbol
     from::Int

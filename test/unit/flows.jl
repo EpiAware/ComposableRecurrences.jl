@@ -146,6 +146,75 @@ end
     @test v == [0.0, 4.0, 3.0]
 end
 
+@testitem "Flows: a smooth count against a naive loop" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
+    function run(θ)
+        flows = CR.Flows(
+            CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
+            CR.Flow(2 => 0, 0.2; form = CR.Share()),
+        )
+        r = Recurrence([1.0]; modifiers = (flows,))
+        return r(; history = zeros(2, 1), add = [adm'; zero(adm')], stop = 6)
+    end
+    # The share acts first, then the count moves the smooth minimum of its
+    # demand `a` and what compartment 1 holds.
+    function ref(θ)
+        a, κ = θ
+        x = zeros(eltype(θ), 2)
+        Y = zeros(eltype(θ), 2, 6)
+        for t in 1:6
+            x[1] += adm[t]
+            x[2] -= 0.2 * x[2]
+            m = (a^(-1 / κ) + x[1]^(-1 / κ))^(-κ)
+            x[1] -= m
+            x[2] += m
+            Y[:, t] = x
+        end
+        return Y
+    end
+    θ = [2.0, 0.3]
+    @test run(θ) ≈ ref(θ)
+    @test ForwardDiff.gradient(θ -> sum(run(θ)), θ) ≈
+        ForwardDiff.gradient(θ -> sum(ref(θ)), θ)
+end
+
+@testitem "Flows: the time checks infer and allocate nothing, after a gradient too" begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    function flows(θ)
+        return CR.Flows(
+            CR.Flow(1 => 2, PerStratum(θ[1:2])),
+            CR.Flow(1 => 0, TimeVarying(θ[3:8]); form = CR.Share()),
+            CR.Flow(2 => 0, θ[9]),
+            CR.Flow(
+                2 => 0, TimeVarying(PerStratum(reshape(θ[10:21], 2, 6)));
+                form = CR.Truncate()
+            ),
+        )
+    end
+    θ = vcat([0.3, 0.2], fill(0.1, 6), 0.1, fill(0.5, 12))
+    mods = (flows(θ), CR.Clamp(0.0, 1.0e6))
+    checked(m) = ComposableRecurrences._check_times(:modifiers, m, 6)
+    check_allocs(m) = (checked(m); @allocated checked(m))
+    @test (@inferred checked(mods)) === nothing
+    # Coverage instrumentation allocates, so counts are checked only
+    # without it.
+    coverage = Base.JLOptions().code_coverage != 0
+    @test check_allocs(mods) == 0 skip = coverage
+    adm = [fill(10.0, 2, 6); zeros(2, 6)]
+    call(m) = Recurrence([1.0]; modifiers = m)(; history = zeros(4, 1), add = adm)
+    call_allocs(m) = (call(m); @allocated call(m))
+    before = call_allocs(mods)
+    loss(θ) = sum(call((flows(θ), CR.Clamp(0.0, 1.0e6))))
+    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
+    # A gradient does not leave the checks to run inference on each call.
+    @test check_allocs(mods) == 0 skip = coverage
+    @test call_allocs(mods) <= before skip = coverage
+end
+
 @testitem "Flows: pullback against a local Jacobian" setup = [FlowChecks, ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences

@@ -74,7 +74,7 @@ struct Routes{C <: Tuple, G <: Tuple}
         isempty(couplings) && throw(ArgumentError("Routes needs at least one route"))
         foreach(_check_coupling_shape, couplings)
         # Only a kernel takes `Primary()` indexing.
-        foreach(C -> _check_times(:coupling, C, nothing), couplings)
+        _check_times(:coupling, couplings, nothing)
         foreach(_check_route_kernel, kernels)
         return new{C, G}(couplings, kernels)
     end
@@ -161,7 +161,7 @@ function _check_kernel_strata(R::Routes, S)
 end
 
 function _check_kernel_times(R::Routes, stop)
-    foreach(C -> _check_times(:coupling, C, stop), R.couplings)
+    _check_times(:coupling, R.couplings, stop)
     foreach(g -> _check_kernel_times(g, stop), R.kernels)
     return nothing
 end
