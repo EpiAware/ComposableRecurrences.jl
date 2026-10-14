@@ -444,7 +444,7 @@ _exponent(α, N, form) = α
 # tuple of modifiers when the construction is compiled into the loss. The
 # steps read it back as the `Bool` constant `B`.
 # A float exponent with an `isone` branch in the steps was measured in its
-# place: the reverse passes were up to 12% slower and allocated more, as
+# place: the reverse passes were up to 16% slower and allocated more, as
 # they still take the exponent's `log` term, so the fixed form stays.
 struct _FixedExponent{B} end
 _exponent_value(::_FixedExponent{B}) where {B} = B
