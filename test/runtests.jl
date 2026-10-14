@@ -19,17 +19,14 @@
 # `:usecase_pending` items need API that has not landed yet, so only
 # `usecase_only` runs them; drop the tag once they pass.
 #
-# Quality items check the source, not the platform, so in CI they run in one
-# cell of the Test matrix: Linux on a released Julia. Elsewhere in CI the
-# default run skips them; `quality_only` and local runs keep them.
-#
 # The selected items are split across worker processes, balanced by the
-# times recorded in `item_times.tsv`, and each worker's output is printed
-# once it finishes. `CR_TEST_WORKERS` sets the number of workers; the
-# default is one per core, at most four, and one per 2 GiB of memory.
-# `record_times` writes the measured item times back to `item_times.tsv`.
-# The run warns when its wall time exceeds the budget the standards tests
-# hold the recorded times to (`TEST_BUDGET` in `item_times.jl`).
+# times recorded in `item_times.tsv`; each line of a worker's output is
+# printed as it comes, prefixed with the worker. `CR_TEST_WORKERS` sets the
+# number of workers; the default is one per core, at most four, and one per
+# 2.5 GiB of memory. `record_times` writes the measured item times to
+# `item_times.tsv`, keeping those of items the run did not select. The run
+# warns when its wall time exceeds the budget the standards tests hold the
+# recorded times to (`TEST_BUDGET` in `item_times.jl`).
 
 using TestItemRunner
 
@@ -38,16 +35,11 @@ const PKG_DIR = dirname(TEST_DIR)
 
 include(joinpath(TEST_DIR, "item_times.jl"))
 
-function in_quality_cell()
-    get(ENV, "CI", "false") == "true" || return true
-    return Sys.islinux() && isempty(VERSION.prerelease)
-end
-
 function mode_filter(args)
     "quality_only" in args && return ti -> :quality in ti.tags
     "readme_only" in args && return ti -> :readme in ti.tags
     "usecase_only" in args && return ti -> :usecase in ti.tags
-    quality = !("skip_quality" in args) && in_quality_cell()
+    quality = !("skip_quality" in args)
     return ti -> (quality || !(:quality in ti.tags)) && !(:ad in ti.tags) &&
         !(:usecase_pending in ti.tags)
 end
@@ -70,7 +62,10 @@ end
 function run_worker(args, i, n, out)
     keep = mode_filter(args)
     names = String[]
-    TestItemRunner.run_tests(PKG_DIR; filter = ti -> (keep(ti) && push!(names, ti.name); false))
+    # Discovery only: no item runs, and the empty summary is not printed.
+    redirect_stdout(devnull) do
+        TestItemRunner.run_tests(PKG_DIR; filter = ti -> (keep(ti) && push!(names, ti.name); false))
+    end
     shard, _ = assign(names, read_times(), n)
     mine = Set(k for k in names if shard[k] == i)
     root = Ref{Any}(nothing)
@@ -95,7 +90,7 @@ end
 
 function nworkers()
     haskey(ENV, "CR_TEST_WORKERS") && return parse(Int, ENV["CR_TEST_WORKERS"])
-    by_memory = Int(Sys.total_memory() ÷ 2^31)
+    by_memory = Int(Sys.total_memory() * 2 ÷ (5 * 2^30))
     return clamp(min(Sys.CPU_THREADS, by_memory), 1, 4)
 end
 
@@ -105,18 +100,24 @@ function run_parallel(args, n)
     cmd = Base.julia_cmd()
     project = Base.active_project()
     threads = Threads.threadpoolsize()
-    # A worker peaks near 2 GiB; the hint makes each collect before the
+    # A worker peaks above 2 GiB; the hint makes each collect before the
     # workers together fill the memory.
     heap = Sys.total_memory() ÷ (n + 1)
     start = time()
+    printing = ReentrantLock()
     tasks = map(1:n) do i
-        log, out = joinpath(dir, "worker$i.log"), joinpath(dir, "worker$i.tsv")
+        out = joinpath(dir, "worker$i.tsv")
         worker = `$cmd --project=$project --threads=$threads --heap-size-hint=$heap $(@__FILE__) $args worker=$i/$n out=$out`
         Threads.@spawn begin
-            p = run(pipeline(ignorestatus(worker); stdout = log, stderr = log))
+            pipe = Pipe()
+            p = run(pipeline(ignorestatus(worker); stdout = pipe, stderr = pipe); wait = false)
+            close(pipe.in)
+            for line in eachline(pipe)
+                @lock printing println("[w$i] ", line)
+            end
+            wait(p)
             t = round((time() - start) / 60; digits = 1)
-            println("──── worker $i of $n: $(success(p) ? "passed" : "FAILED") after $t min ────")
-            print(read(log, String))
+            @lock printing println("──── worker $i of $n: $(success(p) ? "passed" : "FAILED") after $t min ────")
             (success(p), out)
         end
     end
@@ -139,9 +140,8 @@ function run_parallel(args, n)
     end
     passed = all(first, results)
     if "record_times" in args
-        # A failed worker may not have reached all its items; keep the
-        # recorded times of any it missed.
-        passed || (times = merge(read_times(), times))
+        # Keep the recorded times of items this run did not reach.
+        times = merge(read_times(), times)
         open(TIMES_FILE, "w") do io
             println(io, "# seconds\titem, written by `test/runtests.jl record_times`")
             for (k, t) in sort!(collect(times); by = first)
@@ -164,6 +164,8 @@ let args = filter(a -> !startswith(a, "worker=") && !startswith(a, "out="), ARGS
     elseif nworkers() > 1
         run_parallel(args, nworkers())
     else
+        @warn "Running the tests in one process: the items are not split, " *
+            "`record_times` records nothing and the time budget is not checked."
         TestItemRunner.run_tests(PKG_DIR; filter = mode_filter(args))
     end
 end

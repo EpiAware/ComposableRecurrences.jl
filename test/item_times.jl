@@ -19,6 +19,22 @@ function read_times(path = TIMES_FILE)
     return times
 end
 
+# The names of the items the default run selects, read from the test files:
+# every `@testitem` under `test/` but the AD and pending use-case ones.
+function default_items(dir = @__DIR__)
+    names = String[]
+    for (root, _, files) in walkdir(dir), file in files
+        endswith(file, ".jl") || continue
+        for line in eachline(joinpath(root, file))
+            m = match(r"^@testitem \"([^\"]+)\"(.*)$", line)
+            m === nothing && continue
+            occursin(r":(ad|usecase_pending)\b", m.captures[2]) && continue
+            push!(names, m.captures[1])
+        end
+    end
+    return names
+end
+
 # Longest recorded item first onto the least loaded worker. An item with no
 # recorded time weighs as much as the median recorded item.
 function assign(names, times, n)
