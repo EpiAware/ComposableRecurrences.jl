@@ -73,16 +73,18 @@ It does not use the set [`ComposableRecurrences.Executor`](@ref).
 
 The transform's error in each sum is about the machine epsilon times the
 size of the inputs and kernel in its block, not times the sum itself.
-So each sum, of the outputs and of the reverse pass, is checked against a
-bound ``\epsilon_b`` on that error,
+So each sum is checked against an estimate ``\epsilon_b`` of that error,
 ```math
 \epsilon_b = \tfrac{1}{2} \log_2(N)\, \epsilon\, \lVert a_b \rVert_2\, \lVert k \rVert_2,
 ```
 summed over the blocks ``a_b`` that reach it, with ``\epsilon`` the machine
-epsilon.
-A sum whose bound exceeds ``10^{-10}`` of it (``10^{-4}`` in `Float32`) is
-taken directly instead, and once such sums would cost more than a quarter of
-the direct method, the whole pass takes the direct method.
+epsilon; measured errors stay below about half of it.
+The check is on each output after the gain and add input, on each input
+cotangent with what it already holds, and on each kernel cotangent, summed
+over the strata when they share the kernel.
+A value whose estimate exceeds ``10^{-10}`` of it (``10^{-4}`` in `Float32`)
+has its sum taken directly instead, and once such sums would cost more than
+a quarter of the direct method, the whole pass takes the direct method.
 So the outputs and gradients match the direct method to that relative
 accuracy, and they cannot come out negative from a positive kernel and
 inputs.
@@ -116,19 +118,17 @@ the [FFT extension](@ref extension-fftw) is loaded, takes
 \end{cases}
 ```
 Any other call takes [`ComposableRecurrences.Direct`](@ref).
-From these sizes the transform is faster than the direct method, by 1.1 to
-2.3 times, forward and in reverse mode.
+From these sizes the transform is faster than the direct method on typical
+series, forward and in reverse mode: by 1.02 to 1.14 times at 300 lags and
+1000 outputs, and 1.5 to 2.1 times at 500 lags and 2000 outputs.
 Below them the direct method is faster, up to 2 times.
 So most models take the direct method, and `Float32` models never take the
 transform.
 The kernel, eltype, arrays and loaded packages are resolved by dispatch,
 and the sizes by two integer comparisons per call.
 
-The outputs and gradients match the direct method to a relative
-``10^{-10}``, by the check that [`ComposableRecurrences.FFTMethod`](@ref)
-sets out.
-On a series spanning many orders of magnitude that check falls back to the
-direct method, at up to about twice its cost.
+Its accuracy, and its cost on a series spanning many orders of magnitude,
+are those of [`ComposableRecurrences.FFTMethod`](@ref).
 
 # Examples
 ```jldoctest
@@ -311,7 +311,7 @@ function _primal(c::Convolution, x, gain, add, history, start, stop)
     kernel = c.kernel
     Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
     if _fft_path(_method(c), kernel, Tp, x, stop - start + 1)
-        Y = first(_fft_buffers(Tp, kernel, x, history, m, S, start, stop))
+        Y = first(_fft_buffers(Tp, kernel, x, history, m, S, start, stop, gain, add))
         return _finish(Y, x, gain, add, start)
     end
     path = _conv_path(Tp, kernel, x)
@@ -392,18 +392,21 @@ function _conv(c::Convolution, x, gain, add, history, start, stop)
     Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
     fft = _fft_path(_method(c), c.kernel, Tp, x, stop - start + 1)
     Y, X, o = if fft
-        _fft_buffers(Tp, c.kernel, x, history, m, S, start, stop)
+        _fft_buffers(Tp, c.kernel, x, history, m, S, start, stop, gain, add)
     else
         _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
     end
     return Y, X, o, m, stop, fft
 end
 
-# The input buffer and the lag sums by the transform.
-function _fft_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
+# The input buffer and the lag sums by the transform, checked on the output
+# they give with the gain and add input.
+function _fft_buffers(
+        ::Type{Tp}, kernel, x, history, m, S, start, stop, gain, add
+    ) where {Tp}
     X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    _fft_convolve!(Y, kernel, X, o, start)
+    _fft_convolve!(Y, kernel, X, o, start, gain, add)
     return Y, X, o
 end
 
@@ -425,8 +428,10 @@ function _no_fftw()
 end
 
 # The transform's forward and reverse passes over `Float32` or `Float64`
-# buffers, added by the FFTW extension.
-_fft_convolve!(Y, kernel, X, m, start) = _no_fftw()
+# buffers, added by the FFTW extension. `_fft_convolve_terms!` adds the sum
+# of several lag sums `((kernel, X), ...)`, checked as one.
+_fft_convolve!(Y, kernel, X, m, start, gain = true, add = nothing) = _no_fftw()
+_fft_convolve_terms!(Y, terms, m, start) = _no_fftw()
 _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 
 # Whether AD is tracing the code that calls this: `false` under forward-mode

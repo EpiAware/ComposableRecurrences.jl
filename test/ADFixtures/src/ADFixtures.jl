@@ -575,6 +575,14 @@ function _conv_auto_wide(w, θ)
     return sum(WA .* log.(w(Convolution(g))(x)))
 end
 
+# The same delay on an epidemic curve: a few early outputs are taken
+# directly, one by one, and the rest by the transform.
+const XE = [10 * exp(0.01 * t) * (1 + 0.2 * sin(t / 7)) for t in 1:TA]
+function _conv_auto_epidemic(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* w(Convolution(g))(x))
+end
+
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
 # with a longer one.
 function _routes(w, θ)
@@ -903,6 +911,10 @@ const _SCENARIOS = [
         "Convolution wide-range series by the automatic method", _conv_auto_wide,
         () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XW),
     ),
+    (
+        "Convolution epidemic curve by the automatic method", _conv_auto_epidemic,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XE),
+    ),
 ]
 
 """
@@ -982,6 +994,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution lag contributions" => (:contributions,),
     "Convolution long kernel by the automatic method" => (:Auto,),
     "Convolution wide-range series by the automatic method" => (:Auto,),
+    "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the

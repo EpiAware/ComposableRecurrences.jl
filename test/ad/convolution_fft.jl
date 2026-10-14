@@ -154,6 +154,15 @@ end
             (m, Const), (start, Const); runtime_activity = ra
         )
     end
+    # The gain and add inputs only choose which sums are taken directly.
+    k, X, Y = rand(rng, L), rand(rng, m + T, 1), zeros(T - start + 1, 1)
+    gain, add = rand(rng, 1, T), rand(rng, 1, T)
+    extras = (
+        (copy(Y), Duplicated), (k, Duplicated), (X, Duplicated), (m, Const),
+        (start, Const), (gain, Const), (add, Const),
+    )
+    test_forward(f, Duplicated, extras...)
+    test_reverse(f, Duplicated, extras...)
     k = Lags3((0.3, 0.5, 0.2))
     X, Y = rand(rng, m + T, 1), zeros(T - start + 1, 1)
     for ra in (false, true), TX in (Const, Duplicated)
@@ -221,6 +230,17 @@ end
             for method in (CR.Auto(), CR.FFTMethod())
                 @test within(DifferentiationInterface.gradient(loss(method), backend, θ), ref)
             end
+        end
+        # Two strata sharing a kernel, whose kernel gradients nearly cancel.
+        X = permutedims(
+            hcat([10.0^(4t / T) for t in 1:T], [10.0^(4t / T) * (1 + 0.3 * sin(t)) for t in 1:T])
+        )
+        Wt = permutedims(hcat(w, -0.999 .* w))
+        k0 = g ./ sum(g)
+        lossk(method) = k -> sum(Wt .* log.(Convolution(k; method)(X)))
+        ref = DifferentiationInterface.gradient(lossk(CR.Direct()), backend, k0)
+        for method in (CR.Auto(), CR.FFTMethod())
+            @test within(DifferentiationInterface.gradient(lossk(method), backend, k0), ref)
         end
         return nothing
     end

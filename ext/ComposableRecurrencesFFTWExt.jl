@@ -5,8 +5,8 @@
 module ComposableRecurrencesFFTWExt
 
 using ComposableRecurrences: ComposableRecurrences, Auto, FFTMethod, PerStratum,
-    Serial, _CPUArray, _auto_fft, _convolve!, _convolve_back!, _nlags, _untraced,
-    add_cotangent!, cotangent
+    Serial, _CPUArray, _affine, _auto_fft, _convolve!, _convolve_back!, _nlags,
+    _untraced, add_cotangent!, cotangent
 using FFTW: FFTW, plan_irfft, plan_rfft
 using LinearAlgebra: mul!
 
@@ -86,12 +86,13 @@ end
 # from the buffer's length on add nothing.
 _reach(kernel, X) = min(_nlags(kernel), size(X, 1))
 
-# Each sum is checked against a bound on the transform's rounding error,
-# and the sums the bound cannot give to `_rtol` relative accuracy are taken
-# directly: one by one when they are few, or by the direct method's body
-# once they would cost more than a quarter of it. Each output of a block's
-# transform has an error of at most about `eps‖a‖₂‖c‖₂` for the block `a`
-# and kernel `c`; `_gamma` allows four times that and more.
+# Each sum is checked against an estimate of the transform's rounding
+# error, and the sums the estimate cannot give to `_rtol` relative accuracy
+# are taken directly: one by one when they are few, or by the direct
+# method's body once they would cost more than a quarter of it. Each output
+# of a block's transform has an error of about `eps‖a‖₂‖c‖₂` for the block
+# `a` and kernel `c`; `_gamma` scales that into the estimate, which measured
+# errors stayed below 0.56 of, even on inputs searched to raise them.
 _rtol(::Type{Float64}) = 1.0e-10
 _rtol(::Type{Float32}) = 1.0f-4
 _gamma(::Type{Tp}, N) where {Tp} = Tp(log2(N) / 2) * eps(Tp)
@@ -123,47 +124,86 @@ function _norm(a)
     return s * sqrt(acc)
 end
 
-# Whether the sum `z` with error bound `e` misses the relative accuracy;
+# Whether a value `v` with error estimate `e` misses the relative accuracy;
 # `false` for a `NaN`, which then stays.
-_inexact(z, e, rtol) = e > rtol * abs(z)
-_ninexact(Z, E, rtol) = count(i -> @inbounds(_inexact(Z[i], E[i], rtol)), eachindex(Z, E))
+_inexact(v, e, rtol) = e > rtol * abs(v)
 
-# Forward: `Y[j, k] += Σ_d c[d + 1] X[o + j - d, k]`, `o = m + start - 1`.
+# Stratum `k`'s lag sum at output row `j` taken directly:
+# `Σ_d c[d + 1] X[o + j - d, k]` over the lags that reach an input.
+function _direct_sum(c, X, k, j, o, L)
+    acc = zero(eltype(X))
+    @inbounds @simd for d in max(0, o + j - size(X, 1)):min(L - 1, o + j - 1)
+        acc += _weight(c, k, d) * X[o + j - d, k]
+    end
+    return acc
+end
+
+# Forward: `Y[j, k] += Σ_d c[d + 1] X[o + j - d, k]`, `o = m + start - 1`,
+# checked on the output `gain * Y + add` at time `start + j - 1`.
 function ComposableRecurrences._fft_convolve!(
-        Y::Matrix{Tp}, kernel, X::Matrix{Tp}, m, start
+        Y::Matrix{Tp}, kernel, X::Matrix{Tp}, m, start, gain = true, add = nothing
     ) where {Tp <: _FFTFloat}
-    L = _reach(kernel, X)
-    (isempty(Y) || L == 0) && return Y
-    N = _fftsize(size(X, 1), L)
-    n, S = size(X)
-    f, b = _plans(Tp, N, S)
-    K = _spectrum(kernel, Tp, N, S, L, false)
-    o = m + start - 1
+    return _fft_terms!(Y, ((kernel, X),), m, start, gain, add)
+end
+
+# The sum of several lag sums `Σᵢ cᵢ ⋆ Xᵢ` over inputs of one size, checked
+# as one: the tangent of a lag sum in both the kernel and the input.
+function ComposableRecurrences._fft_convolve_terms!(
+        Y::Matrix{Tp}, terms::Tuple, m, start
+    ) where {Tp <: _FFTFloat}
+    return _fft_terms!(Y, terms, m, start, true, nothing)
+end
+
+function _fft_terms!(Y::Matrix{Tp}, terms, m, start, gain, add) where {Tp}
+    isempty(Y) && return Y
     Z, E = zeros(Tp, size(Y)), zeros(Tp, size(Y))
-    cn = Tp[_knorm(kernel, k, L) for k in 1:S]
-    _ola!(Z, E, f, b, K, cn, X, o, N, L)
+    foreach(t -> _fft_term!(Z, E, t[1], t[2], m, start), terms)
     rtol = _rtol(Tp)
-    if 4 * _ninexact(Z, E, rtol) > length(Z)
+    o = m + start - 1
+    Ls = map(t -> _reach(t[1], t[2]), terms)
+    flagged = 0
+    @inbounds for k in axes(Z, 2), j in axes(Z, 1)
+        t = start + j - 1
+        v = _affine(gain, add, k, t, Y[j, k] + Z[j, k])
+        flagged += _inexact(v, abs(_affine(gain, nothing, k, t, E[j, k])), rtol)
+    end
+    if 4 * flagged > length(Z)
         fill!(Z, zero(Tp))
-        _convolve!(Serial(), Z, kernel, X, m, start)
-    else
-        @inbounds for k in 1:S, j in axes(Z, 1)
-            _inexact(Z[j, k], E[j, k], rtol) || continue
-            acc = zero(Tp)
-            @simd for d in max(0, o + j - n):min(L - 1, o + j - 1)
-                acc += _weight(kernel, k, d) * X[o + j - d, k]
-            end
-            Z[j, k] = acc
+        foreach(t -> _convolve!(Serial(), Z, t[1], t[2], m, start), terms)
+    elseif flagged > 0
+        @inbounds for k in axes(Z, 2), j in axes(Z, 1)
+            t = start + j - 1
+            v = _affine(gain, add, k, t, Y[j, k] + Z[j, k])
+            _inexact(v, abs(_affine(gain, nothing, k, t, E[j, k])), rtol) || continue
+            Z[j, k] = sum(
+                i -> _direct_sum(terms[i][1], terms[i][2], k, j, o, Ls[i]),
+                eachindex(terms)
+            )
         end
     end
     Y .+= Z
     return Y
 end
 
+# One lag sum's transform added to `Z`, and its error estimate to `E`.
+function _fft_term!(Z::Matrix{Tp}, E, kernel, X, m, start) where {Tp}
+    L = _reach(kernel, X)
+    L == 0 && return nothing
+    N = _fftsize(size(X, 1), L)
+    S = size(X, 2)
+    f, b = _plans(Tp, N, S)
+    K = _spectrum(kernel, Tp, N, S, L, false)
+    cn = Tp[_knorm(kernel, k, L) for k in 1:S]
+    _ola!(Z, E, f, b, K, cn, X, m + start - 1, N, L)
+    return nothing
+end
+
 # Reverse: the input cotangent `X̄[r, k] += Σ_d c[d + 1] Ȳ[r - o + d, k]` is
 # the output cotangent convolved with the reversed kernel, and the kernel
 # cotangent `k̄[d + 1] += Σ_j Ȳ[j, k] X[o + j - d, k]` its correlation with
-# the inputs. Both are checked as the forward sums are.
+# the inputs. Each is checked as the forward sums are: the input cotangent
+# with what `X̄` already holds, and a kernel shared by the strata on its sum
+# over them.
 function ComposableRecurrences._fft_convolve_back!(
         X̄::Matrix{Tp}, k̄, kernel, X::Matrix{Tp}, Ȳ::Matrix{Tp}, m, start
     ) where {Tp <: _FFTFloat}
@@ -181,14 +221,14 @@ function ComposableRecurrences._fft_convolve_back!(
     cn = Tp[_knorm(kernel, k, L) for k in 1:S]
     _ola_back!(W, EW, C, EC, cn, f, b, Kr, X, Ȳ, o, N, L, corr)
     rtol = _rtol(Tp)
-    nW = _ninexact(W, EW, rtol)
-    nC = corr ? _ninexact(C, EC, rtol) : 0
-    if 4 * (nW * L + nC * T) > T * L * S
+    nW = count(i -> @inbounds(_inexact(X̄[i] + W[i], EW[i], rtol)), eachindex(W))
+    nC = corr ? _kernel_inexact!(C, EC, kernel, rtol) : 0
+    if 4 * (nW * L + nC * T) > (corr ? 2 : 1) * T * L * S
         _convolve_back!(Serial(), X̄, k̄, kernel, X, Ȳ, m, start)
         return nothing
     end
     @inbounds for k in 1:S, r in 1:n
-        _inexact(W[r, k], EW[r, k], rtol) || continue
+        _inexact(X̄[r, k] + W[r, k], EW[r, k], rtol) || continue
         acc = zero(Tp)
         @simd for d in max(0, o + 1 - r):min(L - 1, o + T - r)
             acc += _weight(kernel, k, d) * Ȳ[r - o + d, k]
@@ -198,7 +238,7 @@ function ComposableRecurrences._fft_convolve_back!(
     X̄ .+= W
     corr || return nothing
     @inbounds for k in 1:S, d in 0:(L - 1)
-        _inexact(C[d + 1, k], EC[d + 1, k], rtol) || continue
+        iszero(EC[d + 1, k]) && continue
         acc = zero(Tp)
         @simd for j in max(1, 1 + d - o):min(T, n + d - o)
             acc += Ȳ[j, k] * X[o + j - d, k]
@@ -207,6 +247,35 @@ function ComposableRecurrences._fft_convolve_back!(
     end
     _add_kernel_cotangent!(k̄, kernel, C, L)
     return nothing
+end
+
+# Marks the kernel cotangent sums to take directly by leaving their error
+# estimate in `EC` and zeroing the rest; returns how many there are. A
+# per-stratum kernel checks each sum. A shared kernel's cotangent is the
+# sum over the strata, so a lag whose sum misses the accuracy takes every
+# stratum directly.
+function _kernel_inexact!(C, EC, ::PerStratum, rtol)
+    n = 0
+    @inbounds for i in eachindex(C, EC)
+        if _inexact(C[i], EC[i], rtol)
+            n += 1
+        else
+            EC[i] = 0
+        end
+    end
+    return n
+end
+function _kernel_inexact!(C, EC, ::AbstractVector, rtol)
+    n = 0
+    @inbounds for d in axes(C, 1)
+        tot = sum(view(C, d, :))
+        if _inexact(tot, sum(view(EC, d, :)), rtol)
+            n += size(C, 2)
+        else
+            view(EC, d, :) .= 0
+        end
+    end
+    return n
 end
 
 # Both cotangents take each block of `Ȳ` from one transform of it, into `W`

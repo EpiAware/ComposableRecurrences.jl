@@ -317,15 +317,49 @@ end
     wide(span, dir) = dir(10.0 .^ range(-span, 0; length = TW))
     # An epidemic curve: a few early outputs are below the bound.
     epidemic(k) = [10 * exp(0.01t) * (1 + 0.2 * sin(t / 7 + k)) for t in 1:TW]
-    # How many forward sums of `x` miss the accuracy.
-    function ninexact(g, x)
+    # The forward transform of `x` without the check, and how many of its
+    # sums miss the accuracy.
+    function forward_raw(g, x)
         n, L = length(x), length(g)
         N = EXT._fftsize(n, L)
         f, b = EXT._plans(Float64, N, 1)
         K = EXT._spectrum(g, Float64, N, 1, L, false)
         Z, E = zeros(n, 1), zeros(n, 1)
         EXT._ola!(Z, E, f, b, K, [EXT._knorm(g, 1, L)], reshape(x, n, 1), 0, N, L)
-        return EXT._ninexact(Z, E, 1.0e-10)
+        return vec(Z), count(i -> EXT._inexact(Z[i], E[i], 1.0e-10), eachindex(Z))
+    end
+    ninexact(g, x) = last(forward_raw(g, x))
+    # The reverse transforms without the check, from time 1 with no history:
+    # the input and kernel cotangents, how many sums of each miss, and
+    # whether the pass takes the direct body.
+    function reverse_raw(c, X, Ȳ)
+        n, S = size(X)
+        T = size(Ȳ, 1)
+        L = EXT._reach(c, X)
+        N = EXT._fftsize(n, L)
+        f, b = EXT._plans(Float64, N, S)
+        Kr = EXT._spectrum(c, Float64, N, S, L, true)
+        W, EW = zeros(n, S), zeros(n, S)
+        C, EC = zeros(L, S), zeros(L, S)
+        cn = [EXT._knorm(c, k, L) for k in 1:S]
+        EXT._ola_back!(W, EW, C, EC, cn, f, b, Kr, X, Ȳ, 0, N, L, true)
+        nW = count(i -> EXT._inexact(W[i], EW[i], 1.0e-10), eachindex(W))
+        k̄ = c isa PerStratum ? copy(C) : vec(sum(C; dims = 2))
+        nC = EXT._kernel_inexact!(C, EC, c, 1.0e-10)
+        return (; X̄ = W, k̄, nW, nC, direct = 4 * (nW * L + nC * T) > 2 * T * L * S)
+    end
+    # The direct reverse pass from time 1 with no history.
+    function reverse_direct(c, X, Ȳ)
+        X̄ = zero(X)
+        k̄ = c isa PerStratum ? (; x = zero(c.x)) : zeros(length(c))
+        CR._convolve_back!(CR.Serial(), X̄, k̄, c, X, Ȳ, 0, 1)
+        return X̄, c isa PerStratum ? permutedims(k̄.x) : k̄
+    end
+    function reverse_fft(c, X, Ȳ)
+        X̄ = zero(X)
+        k̄ = c isa PerStratum ? (; x = zero(c.x)) : zeros(length(c))
+        CR._fft_convolve_back!(X̄, k̄, c, X, Ȳ, 0, 1)
+        return X̄, c isa PerStratum ? permutedims(k̄.x) : k̄
     end
 end
 
@@ -367,4 +401,83 @@ end
         @test within(X̄f, X̄d)
         @test within(k̄f, k̄d)
     end
+end
+
+@testitem "Convolution FFT: inexact sums are recomputed one by one" setup = [WideRange] begin
+    using Random: Xoshiro
+    # A short kernel over ones with a stretch of tiny values: the outputs in
+    # the stretch miss the accuracy, too few to take the direct body.
+    g = [0.1, 0.4, 0.3, 0.15, 0.05]
+    x = ones(TW)
+    x[400:450] .= 1.0e-12
+    yd = Convolution(g; method = CR.Direct())(x)
+    raw, n = forward_raw(g, x)
+    @test 0 < n < TW ÷ 4
+    @test !within(raw, yd)
+    @test within(Convolution(g; method = CR.FFTMethod())(x), yd)
+    # The input cotangent from an output cotangent with the same stretch.
+    X = reshape(1.0 .+ sin.(1:TW) .^ 2, TW, 1)
+    Ȳ = ones(TW, 1)
+    Ȳ[400:450] .= 1.0e-12
+    r = reverse_raw(g, X, Ȳ)
+    X̄d, k̄d = reverse_direct(g, X, Ȳ)
+    @test r.nW > 0 && r.nC == 0 && !r.direct
+    @test !within(r.X̄, X̄d)
+    X̄f, k̄f = reverse_fft(g, X, Ȳ)
+    @test within(X̄f, X̄d)
+    @test within(k̄f, k̄d)
+    # Small integers and a kernel of powers of two, so the direct sums are
+    # exact: where they cancel to zero, in the kernel cotangent of lag 0 and
+    # in some input cotangents, the transform leaves rounding.
+    h = [0.5, 0.25, 0.125, 0.0625, 0.0625]
+    rng = Xoshiro(1)
+    X = reshape(Float64.(rand(rng, 1:3, TW)), TW, 1)
+    X[1] = 1
+    Ȳ = reshape(Float64.(rand(rng, -5:5, TW)), TW, 1)
+    Ȳ[1] -= sum(Ȳ .* X)
+    r = reverse_raw(h, X, Ȳ)
+    X̄d, k̄d = reverse_direct(h, X, Ȳ)
+    @test k̄d[1] == 0
+    @test r.nW > 0 && r.nC == 1 && !r.direct
+    @test !within(r.X̄, X̄d)
+    @test !within(r.k̄, k̄d)
+    X̄f, k̄f = reverse_fft(h, X, Ȳ)
+    @test within(X̄f, X̄d)
+    @test within(k̄f, k̄d)
+end
+
+@testitem "Convolution FFT: the output with gain and add is checked" setup = [WideRange] begin
+    # An add input cancelling the lag sums of a 6-order series to 1e-4.
+    x = [10.0^(6t / TW) for t in 1:TW]
+    yd = Convolution(GW; method = CR.Direct())(x)
+    a = -(1 - 1.0e-4) .* yd
+    for gain in (true, 2.0)
+        od = Convolution(GW; method = CR.Direct())(x; gain, add = gain .* a)
+        @test within(Convolution(GW)(x; gain, add = gain .* a), od)
+    end
+end
+
+@testitem "Convolution FFT: a shared kernel's cotangent is checked over the strata" setup = [WideRange] begin
+    # Two strata whose kernel cotangents nearly cancel, as near the optimum
+    # of a stratified likelihood with a shared delay.
+    X = hcat([10.0^(4t / TW) for t in 1:TW], [10.0^(4t / TW) * (1 + 0.3 * sin(t)) for t in 1:TW])
+    Y = similar(X)
+    for k in 1:2
+        Y[:, k] = Convolution(GW; method = CR.Direct())(X[:, k])
+    end
+    w = 1.5 .+ sin.(1:TW)
+    Ȳ = hcat(w, -0.999 .* w) ./ Y
+    r = reverse_raw(GW, X, Ȳ)
+    X̄d, k̄d = reverse_direct(GW, X, Ȳ)
+    @test r.nC > 0
+    @test !within(r.k̄, k̄d)
+    X̄f, k̄f = reverse_fft(GW, X, Ȳ)
+    @test within(X̄f, X̄d)
+    @test within(k̄f, k̄d)
+    # Per stratum, each cotangent is checked on its own.
+    G = PerStratum(permutedims(hcat(GW, GW)))
+    X̄d, k̄d = reverse_direct(G, X, Ȳ)
+    X̄f, k̄f = reverse_fft(G, X, Ȳ)
+    @test within(X̄f, X̄d)
+    @test within(k̄f, k̄d)
 end
