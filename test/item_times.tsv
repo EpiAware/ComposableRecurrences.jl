@@ -298,7 +298,9 @@
 24.7	depth: a deeper buffer leaves the output unchanged
 0.6	depth: an invalid depth names the value
 0.1	depth: default walk and recursion
-602.5	depth: the reverse pass reads the deeper buffer
+200.8	depth: the reverse pass reads the deeper buffer, fixed kernels
+200.8	depth: the reverse pass reads the deeper buffer, time-varying kernels
+200.8	depth: the reverse pass reads the deeper buffer, ragged and Primary kernels
 1.9	depth: the state holds the deeper buffer and resumes
 139.1	depth: the threaded reverse pass reads the deeper buffer
 0.1	depth: the walk skips mutable and undefined fields

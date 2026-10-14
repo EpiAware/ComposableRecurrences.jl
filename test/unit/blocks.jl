@@ -147,7 +147,6 @@ end
 
 @testitem "Blocks: shapes, resume and mixed modifiers" setup = [AdjointCheck, BlockChecks] begin
     using ComposableRecurrences
-    CR = ComposableRecurrences
     (; Move) = BlockChecks
     # No state: two compartments swap a share each step.
     struct Swap{A}

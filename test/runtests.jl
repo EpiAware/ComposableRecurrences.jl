@@ -65,18 +65,29 @@ function item_times!(out, ts, names)
     return out
 end
 
-# A worker runs the items assigned to it and writes their times to `out`.
+# A worker runs the items assigned to it and writes their times to `out`,
+# whether or not they pass.
 function run_worker(args, i, n, out)
     keep = mode_filter(args)
     names = String[]
     TestItemRunner.run_tests(PKG_DIR; filter = ti -> (keep(ti) && push!(names, ti.name); false))
     shard, _ = assign(names, read_times(), n)
     mine = Set(k for k in names if shard[k] == i)
-    ts = TestItemRunner.run_tests(PKG_DIR; filter = ti -> ti.name in mine)
-    times = item_times!(Dict{String, Float64}(), ts, mine)
-    open(out, "w") do io
-        for (k, t) in times
-            println(io, round(t; digits = 2), '\t', k)
+    root = Ref{Any}(nothing)
+    function testset(name; kw...)
+        ts = TestItemRunner.Test.DefaultTestSet(name; kw...)
+        root[] === nothing && (root[] = ts)
+        return ts
+    end
+    try
+        TestItemRunner.run_tests(PKG_DIR; filter = ti -> ti.name in mine, testset)
+    finally
+        times = root[] === nothing ? Dict{String, Float64}() :
+            item_times!(Dict{String, Float64}(), root[], mine)
+        open(out, "w") do io
+            for (k, t) in times
+                println(io, round(t; digits = 2), '\t', k)
+            end
         end
     end
     return nothing
@@ -123,7 +134,11 @@ function run_parallel(args, n)
             round(wall; digits = 1), " min on $n workers"
         )
     end
+    passed = all(first, results)
     if "record_times" in args
+        # A failed worker may not have reached all its items; keep the
+        # recorded times of any it missed.
+        passed || (times = merge(read_times(), times))
         open(TIMES_FILE, "w") do io
             println(io, "# seconds\titem, written by `test/runtests.jl record_times`")
             for (k, t) in sort!(collect(times); by = first)
@@ -133,7 +148,7 @@ function run_parallel(args, n)
     end
     wall > budget && @warn "The test run took $(round(wall; digits = 1)) min, " *
         "over the $budget min budget."
-    all(first, results) || error("a test worker failed; see its output above")
+    passed || error("a test worker failed; see its output above")
     return nothing
 end
 
