@@ -559,18 +559,18 @@ end
         @test !CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{:plain}]
     end
-    # The constructor notes, once per type, the part that sends the
+    # The constructor notes, once per message, the part that sends the
     # operator there.
     note(; kwargs...) = (empty!(CR._PLAIN_NOTED); Recurrence(g; kwargs...))
     @test_logs (:info, r"Scale has no pullback!") note(modifiers = (Scale(0.9),))
     @test_logs Recurrence(g; modifiers = (Scale(0.9),))
+    # The note is once per message, so other number types log nothing more.
+    @test_logs Recurrence(g; modifiers = (Scale(ForwardDiff.Dual(0.9, 1.0)),))
     @test_logs (:info, r"Mix has no pullback!") note(coupling = Mix(K, [1.0, 1.0]))
     @test_logs (:info, r"PoolDepletion has no pullback!") note(
         modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0]))
     )
     @test_logs note(modifiers = (CR.Clamp(0.0, 9.0),))
-    # The note is once per message, so other number types log nothing more.
-    @test_logs Recurrence(g; modifiers = (Scale(ForwardDiff.Dual(0.9, 1.0)),))
     # A `Derived` map that holds floats is named as the cause.
     scaled = let c = 2.0
         x -> c * x
