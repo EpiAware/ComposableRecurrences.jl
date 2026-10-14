@@ -369,8 +369,9 @@ function forward(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     return nothing
 end
 
-# The pattern `h = P v`, the coupling's own product.
-_pattern!(h, P::Matrix, v, t) = (mul!(h, P, v); nothing)
+# The pattern `h = P v`, the coupling's own product. The step's products
+# are loops rather than BLAS calls, so forward-mode AD can differentiate
+# them.
 _pattern!(h, P, v, t) = forward(P, Pressure(), h, v, t)
 
 # The spilled values `u = (1 − ε ∘ o) ∘ v + K' (ε ∘ v)`, with `K'` the
@@ -383,7 +384,7 @@ function _spill!(r::Redistribute{<:Matrix}, u, tmp, v, t)
     for q in eachindex(u, v)
         u[q] = param(ε, q, t) * v[q]
     end
-    mul!(tmp, K, u)
+    forward(K, Pressure(), tmp, u, t)
     for q in eachindex(u, v)
         εq = param(ε, q, t)
         u[q] = (1 - εq * _dense_outflow(K, q)) * v[q] + tmp[q] - K[q, q] * u[q]
