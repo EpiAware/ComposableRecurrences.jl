@@ -92,21 +92,32 @@ end
 # value passes through a call it cannot infer (for example a closure that
 # captures a boxed variable), so the gradient of the float is zero. That
 # call is in the caller's code, out of sight of these rules, so they warn
-# once whenever the operator has an active scalar float.
+# once per operator type whenever the operator has an active scalar float.
+# The annotations fix whether a scalar is active, so each annotation type is
+# checked once and later calls only look it up.
 const _SCALAR_LOSS_MSG = "On Julia 1.11, Enzyme reverse mode can return a " *
     "zero gradient for a scalar float field of an operator when the code " *
     "that builds the operator is not type-stable. Keep that code " *
     "type-stable (check it with `@code_warntype`), or use Julia 1.12 or later."
-const _SCALAR_LOSS_WARNED = Threads.Atomic{Bool}(false)
-function _warn_scalar_loss(active::Bool)
-    active && !Threads.atomic_xchg!(_SCALAR_LOSS_WARNED, true) &&
-        @warn _SCALAR_LOSS_MSG
+const _SCALAR_LOSS_CHECKED = Set{Any}()
+const _SCALAR_LOSS_WARNED = Set{Any}()
+const _SCALAR_LOSS_LOCK = ReentrantLock()
+function _warn_scalar_loss(::Type{T}, annotations, active::F) where {T, F}
+    A = typeof(annotations)
+    @lock _SCALAR_LOSS_LOCK (A in _SCALAR_LOSS_CHECKED) && return nothing
+    warn = active(annotations)
+    new = @lock _SCALAR_LOSS_LOCK begin
+        push!(_SCALAR_LOSS_CHECKED, A)
+        warn && !(T in _SCALAR_LOSS_WARNED) && (push!(_SCALAR_LOSS_WARNED, T); true)
+    end
+    new === true && @warn "$(nameof(T)): $(_SCALAR_LOSS_MSG)"
     return nothing
 end
 # A scalar leaf of the rule's entry point.
 _active_float(::Active{<:_IEEEFloat}) = true
 _active_float(a::MixedDuplicated) = _holds_float(typeof(a.val))
 _active_float(a) = false
+_any_active_float(leaves) = any(_active_float, leaves)
 # Whether a value of type `T` holds a float outside any array.
 _holds_float(::Type{<:_IEEEFloat}) = true
 function _holds_float(::Type{T}) where {T}
@@ -130,7 +141,7 @@ function EnzymeRules.augmented_primal(
         op::Annotation, args::Vararg{Annotation, N}
     ) where {N}
     _log_plain(op.val)
-    VERSION < v"1.12" && _warn_scalar_loss(_active_operator(op))
+    VERSION < v"1.12" && _warn_scalar_loss(typeof(op.val), op, _active_operator)
     return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
 end
 function EnzymeRules.reverse(
@@ -348,7 +359,8 @@ function EnzymeRules.augmented_primal(
     ) where {X, RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
-    VERSION < v"1.12" && _warn_scalar_loss(any(_active_float, leaves))
+    VERSION < v"1.12" &&
+        _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
     y, cache = _run_forward(_rebuild_leaves(X, map(a -> a.val, leaves))...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing

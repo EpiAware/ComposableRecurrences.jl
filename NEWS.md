@@ -60,14 +60,15 @@
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
 - Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
+- On Julia 1.11, the Enzyme extension warns once per operator type when Enzyme reverse mode differentiates an operator with an active scalar field.
+  Enzyme on 1.11 returns a zero gradient for such a field when the operator is built by code it cannot infer, such as a closure over a boxed variable, and the extension cannot detect that case (#181).
+  Use Julia 1.12 or later, or build operators in type-stable code.
 
 ### Fixed
 
 - A `Convolution` kernel with offset axes is an `ArgumentError`, where before it gave wrong values.
 - ForwardDiff, Enzyme and Mooncake gradients are finite at an empty depletion or protected pool and agree with the reverse rules.
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
-  On 1.11, Enzyme itself still drops the gradient of such a field when the operator is built by code it cannot infer, such as a closure over a boxed variable (#181).
-  The Enzyme extension now warns once on 1.11 when it differentiates an operator with an active scalar field in reverse mode.
 - `FFTMethod()` is correct under Enzyme on Julia 1.11.
 - Enzyme without runtime activity works for a constant input or history.
 - `param_eltype` infers through nested structs such as `Depletion`.
