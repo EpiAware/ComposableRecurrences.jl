@@ -37,6 +37,14 @@ So a new wrapper or parameter form works with every modifier that reads through 
 
 The coupling mixes the series after the kernel and before the gain.
 It has no lag of its own: it mixes each series' kernel-weighted past at the current step.
+For ``S`` series, before the modifiers, a step computes
+
+```math
+v_{t,i} = g_{t,i} \sum_{j=1}^{S} C_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},
+```
+
+where ``y_{t,j}`` is series ``j`` on day ``t`` and ``k_{j,l}`` its kernel weight on lag ``l``.
+``C_{ij}`` is the coupling's weight of series ``j`` in series ``i``, and ``g_{t,i}`` and ``a_{t,i}`` the gain and `add` of series ``i``.
 
 This order sets what a per-series coefficient means.
 
@@ -45,32 +53,45 @@ This order sets what a per-series coefficient means.
 - A row of the coupling is the series receiving, and a column the series sending.
 
 So a sender's transmissibility goes in the kernel or the columns of the coupling, and a receiver's susceptibility in the gain or the rows.
+Scaling ``k_{j,l}`` by a transmissibility ``\sigma_j`` gives the same step as scaling ``C_{ij}`` by ``\sigma_j``.
 
 ```@example shapes
-g = [0.4, 0.4, 0.2]
+k = [0.4, 0.4, 0.2]
 C = [0.8 0.3; 0.2 0.7]
-R = fill(1.1, 2, 8)
+gain = fill(1.1, 2, 8)
 h = ones(2, 3)
 σ = [1.0, 0.5]                  # transmissibility of each sender
-by_kernel = Recurrence(PerStratum(σ .* g'); coupling = C)(R; history = h)
-by_columns = Recurrence(g; coupling = C .* σ')(R; history = h)
+by_kernel = Recurrence(PerStratum(σ .* k'); coupling = C)(gain; history = h)
+by_columns = Recurrence(k; coupling = C .* σ')(gain; history = h)
 by_kernel ≈ by_columns
 ```
 
 ## [Coupling or pairwise kernel](@id explanation-pairwise)
 
 A coupling with a shared kernel assumes every pair of series has the same lag shape, scaled by the coupling.
-A [`Pairwise`](@ref) kernel gives each pair its own lag shape, so it does the coupling's job and the coupling stays `I`.
-When every pair shares the shape, the two give the same values, and the coupling is cheaper.
+A [`Pairwise`](@ref) kernel gives each pair its own lag shape, so it does the coupling's job and the coupling stays `I`:
+
+```math
+v_{t,i} = g_{t,i} \sum_{j=1}^{S} \sum_{l=1}^{L} A_{ij,l} \, y_{t-l,j} + a_{t,i},
+```
+
+where ``A_{ij,l}`` weights series ``j`` in series ``i`` at lag ``l``.
+When every pair shares the shape, ``A_{ij,l} = C_{ij} k_l``, the two give the same values, and the coupling is cheaper.
 
 ```@example shapes
-A = reshape(C, 2, 2, 1) .* reshape(g, 1, 1, :)
-pairwise = Recurrence(Pairwise(A))(R; history = h)
-coupled = Recurrence(g; coupling = C)(R; history = h)
+A = reshape(C, 2, 2, 1) .* reshape(k, 1, 1, :)
+pairwise = Recurrence(Pairwise(A))(gain; history = h)
+coupled = Recurrence(k; coupling = C)(gain; history = h)
 pairwise ≈ coupled
 ```
 
 [`Routes`](@ref) sits between the two: a sum of a few kernels, each with its own coupling, such as household and community contacts with different generation intervals.
+With routes ``r``, each a coupling ``C^{(r)}`` and a kernel ``k^{(r)}``,
+
+```math
+v_{t,i} = g_{t,i} \sum_{r} \sum_{j=1}^{S} C^{(r)}_{ij} \sum_{l=1}^{L} k^{(r)}_l \, y_{t-l,j} + a_{t,i}.
+```
+
 Use a coupling when one lag shape fits, `Routes` for a few shapes, and `Pairwise` when the shape differs by pair.
 
 ## [Your own coupling](@id explanation-own-coupling)

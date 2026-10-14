@@ -230,6 +230,13 @@ end
 # [`Protected`](@ref ComposableRecurrences.Protected) starts with them in its pool.
 # There are no removals.
 # The SIR generation interval is then exponential with mean 4 days, binned here by day.
+#
+# ```math
+# g_l = \frac{e^{-(l-1)/D} - e^{-l/D}}{\sum_{m=1}^{120} \big(e^{-(m-1)/D} - e^{-m/D}\big)},
+# \qquad l = 1, \dots, 120,
+# ```
+#
+# where ``D`` is the mean infectious period.
 # The reference column is the mean final share infected over the major outbreaks.
 # It comes from 200 seeded simulations per vaccine.
 # It is read from the file that also holds its parameters.
