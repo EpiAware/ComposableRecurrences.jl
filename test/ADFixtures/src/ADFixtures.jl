@@ -904,7 +904,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
-    "Recurrence ward with competing flows (Flows)" => (:Flows,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows, :Share),
     "Recurrence waning protection (Depletion flows)" => (:depletion_flows,),
     "Recurrence protected pool in Float32" => (:Protected,),
     # Depletion removals came with `Protected`.
