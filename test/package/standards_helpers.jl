@@ -237,36 +237,67 @@ violations(f, sources) =
         for hits in (f(line),) if !isempty(hits)
 ]
 
-# Headings of the sections of a Literate tutorial that introduce a call
+# Headings of the sections of a Literate tutorial that introduce a model
 # without maths first. A section starts at each `# ##` heading (level two or
-# deeper), and a code line that uses one of `calls` for the first time on
-# the page needs a ```math block earlier in its section or in a section
-# that contains it. Headings are returned without any `[...](@id ...)`.
+# deeper) and runs to the next one. A section whose code uses one of `calls`
+# introduces a model, and needs its own ```math block before that code.
+# Headings are returned without any `[...](@id ...)`.
 function sections_missing_maths(text::AbstractString, calls)
-    seen = Set{String}()
     flagged = String[]
     heading = "(before the first heading)"
-    level = 1
-    maths_level = typemax(Int)
+    maths = false
     for line in split(text, '\n')
-        m = match(r"^# (#{2,}) (.*)$", line)
+        m = match(r"^# #{2,} (.*)$", line)
         if m !== nothing
-            level = length(m.captures[1])
-            title = strip(m.captures[2])
+            title = strip(m.captures[1])
             link = match(r"^\[(.*)\]\(@id [^)]*\)$", title)
             heading = String(link === nothing ? title : link.captures[1])
-            level <= maths_level && (maths_level = typemax(Int))
+            maths = false
         elseif startswith(line, "# ```math")
-            maths_level = min(maths_level, level)
+            maths = true
         elseif !startswith(line, "#")
-            new = filter(c -> !(c in seen) && occursin(call_regex(c), line), calls)
-            isempty(new) && continue
-            union!(seen, new)
-            maths_level <= level || heading in flagged || push!(flagged, heading)
+            any(c -> occursin(call_regex(c), line), calls) || continue
+            maths || heading in flagged || push!(flagged, heading)
         end
     end
     return flagged
 end
+
+# A Markdown page in the Literate form `sections_missing_maths` reads: the
+# lines of its ```julia and ```@example blocks as code, every other line as
+# a `# ` comment.
+function markdown_as_literate(text::AbstractString)
+    out = String[]
+    code = false
+    fence = false
+    for line in split(text, '\n')
+        s = strip(line)
+        if !fence && (startswith(s, "```julia") || startswith(s, "```@example"))
+            code = true
+            fence = true
+            push!(out, "# " * line)
+        elseif fence && s == "```"
+            code = false
+            fence = false
+            push!(out, "# " * line)
+        elseif code
+            push!(out, startswith(line, "#") ? "" : String(line))
+        else
+            startswith(s, "```") && (fence = !fence)
+            push!(out, "# " * line)
+        end
+    end
+    return join(out, '\n')
+end
+
+maths_first_text(file) = endswith(file, ".md") ?
+    markdown_as_literate(read(file, String)) : read(file, String)
+
+# Code lines of the ```julia blocks of a Markdown text.
+julia_block_lines(text::AbstractString) = [
+    String(l) for m in eachmatch(r"^```julia\n(.*?)^```"ms, text)
+        for l in split(m.captures[1], '\n') if !isempty(strip(l))
+]
 
 # A call of `name`, bare or qualified by a module, but not a longer name
 # that ends in it.

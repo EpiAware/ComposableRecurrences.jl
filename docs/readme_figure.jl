@@ -1,10 +1,11 @@
 # Renders docs/src/assets/readme-example.png from the README's Getting
-# started example. Run with `task -t docs/Taskfile.yml readme-figure`.
+# started example, its ```julia blocks run as one script. Run with
+# `task -t docs/Taskfile.yml readme-figure`.
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 root = dirname(@__DIR__)
 readme = read(joinpath(root, "README.md"), String)
-example = only(match(r"```julia\n(.*?)```"s, readme).captures)
+example = join(only(m.captures) for m in eachmatch(r"```julia\n(.*?)```"s, readme))
 include_string(Main, example)
 
 towns = ["A", "B", "C"]
