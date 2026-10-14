@@ -803,12 +803,10 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     for q in eachindex(v, v̄)
         εq = param(ε, q, t)
         out = _outflow(K, q)
-        acc = zero(eltype(v̄))
-        for p in eachindex(v)
-            p == q && continue
-            acc += s̄[p] * K[p, q]
-            _add_entry!(K̄, K, εq * v[q] * (s̄[p] - v̄[q]), p, q)
-        end
+        acc = _column_dot(K, s̄, q) - K[q, q] * s̄[q]
+        # `K̄[p, q] += c (s̄_p − v̄_q)` off the diagonal.
+        c = εq * v[q]
+        _add_column!(K̄, K, s̄, c, -c * v̄[q], q, q)
         add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
         v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
     end

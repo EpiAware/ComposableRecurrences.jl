@@ -425,6 +425,62 @@ function _add_entry!(K̄, K::Diagonal, v, p, q)
     return nothing
 end
 
+# Column `b` of the matrix products the dense pullbacks take: `Σ_a C[a, b]
+# x[a]`, and adding `c x[a] + d` to column `b` of the mirror `C̄`, apart
+# from row `skip`. A dense
+# matrix with an array mirror is read and written without bounds checks,
+# so the loops vectorise; any other goes entry by entry through
+# `_add_entry!`.
+function _column_dot(C, x, b)
+    acc = zero(promote_type(eltype(C), eltype(x)))
+    for a in axes(C, 1)
+        acc += C[a, b] * x[a]
+    end
+    return acc
+end
+function _column_dot(C::Matrix, x, b)
+    _check_column(C, x, b)
+    acc = zero(promote_type(eltype(C), eltype(x)))
+    @inbounds @simd for a in axes(C, 1)
+        acc += C[a, b] * x[a]
+    end
+    return acc
+end
+function _add_column!(C̄, C, x, c, d, b, skip = 0)
+    return _add_column_to!(_array_mirror(C̄), C, x, c, d, b, skip)
+end
+function _add_column_to!(C̄, C, x, c, d, b, skip)
+    for a in axes(C, 1)
+        a == skip || _add_entry!(C̄, C, c * x[a] + d, a, b)
+    end
+    return nothing
+end
+_add_column_to!(::Union{Nothing, NamedTuple{()}}, C, x, c, d, b, skip) = nothing
+function _add_column_to!(C̄::Matrix, C::Matrix, x, c, d, b, skip)
+    size(C̄) == size(C) || throw(
+        DimensionMismatch("mirror is $(size(C̄)), matrix is $(size(C))")
+    )
+    _check_column(C, x, b)
+    rows = axes(C, 1)
+    lo, hi = skip in rows ? (skip - 1, skip + 1) : (last(rows), last(rows) + 1)
+    @inbounds @simd for a in first(rows):lo
+        C̄[a, b] += c * x[a] + d
+    end
+    @inbounds @simd for a in hi:last(rows)
+        C̄[a, b] += c * x[a] + d
+    end
+    return nothing
+end
+_array_mirror(C̄) = C̄
+_array_mirror(C̄::NamedTuple{(:x,)}) = C̄.x
+function _check_column(C, x, b)
+    checkbounds(C, :, b)
+    axes(x, 1) == axes(C, 1) || throw(
+        DimensionMismatch("matrix is $(size(C)), vector is $(length(x))")
+    )
+    return nothing
+end
+
 @doc raw"""
 Test the analytic adjoint of `piece` in `role` on the primal arguments
 `args` with the AD `backend`'s own rule tester.

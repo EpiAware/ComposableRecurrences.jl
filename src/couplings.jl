@@ -87,12 +87,8 @@ end
 function pullback!(grads, C::AbstractMatrix, ::Pressure, q, p, t)
     q̄, p̄, C̄ = grads.q, grads.p, grads.piece
     for b in axes(C, 2)
-        acc = zero(eltype(p̄))
-        for a in axes(C, 1)
-            acc += C[a, b] * q̄[a]
-            add_cotangent!(C̄, q̄[a] * p[b], a, b)
-        end
-        p̄[b] += acc
+        p̄[b] += _column_dot(C, q̄, b)
+        _add_column!(C̄, C, q̄, p[b], false, b)
     end
     return nothing
 end
