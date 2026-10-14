@@ -106,14 +106,13 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
-They tag one stored array and make no copies, except that kernel columns are stacked once.
+They tag one stored array and make no copies; kernel columns are held as given, with the exceptions listed under [`TimeVarying`](@ref).
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
 ## [Couplings](@id overview-couplings)
 
-A coupling mixes the series after the kernel and before the gain.
-Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series receiving and a column the series sending.
+[Where the coupling acts](@ref explanation-coupling) gives where a coupling mixes the series, and what a row and a column of ``C`` mean.
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -124,8 +123,8 @@ Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series re
 
 ## [Modifiers](@id overview-modifiers)
 
-Modifiers act on ``v_t`` in tuple order, after the gain and `add`.
-So `add` enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
+[Order](@ref explanation-modifier-order) gives the order modifiers act in, with each modifier's state.
+The `add` input enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
 `Redistribute` moves whatever it receives, including values from `add`.
 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |

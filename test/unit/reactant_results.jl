@@ -17,7 +17,10 @@
     keys = Symbol.(split(lines[2], '\t'))
     rows = map(lines[3:end]) do l
         v = split(l, '\t')
-        Dict(k => (i <= length(v) ? String(v[i]) : "") for (i, k) in enumerate(keys))
+        d = Dict(k => (i <= length(v) ? String(v[i]) : "") for (i, k) in enumerate(keys))
+        # Results from before the steps column ran at 20 steps.
+        haskey(d, :steps) || (d[:steps] = "20")
+        d
     end
     @test !isempty(rows)
     for r in rows
@@ -26,10 +29,16 @@
         r[:status] == "skipped" && continue
         @test (r[:status] == "works") == get(expected, key, false)
     end
-    # Every case has a row for each mode and config run on the CPU.
+    # Every case has a row for each mode, config and number of steps run on
+    # the CPU.
     configs = unique(r[:config] for r in rows)
-    for n in names, m in ("forward", "reverse"), c in configs
-        @test any(r -> (r[:name], r[:mode], r[:config], r[:backend]) == (n, m, c, "cpu"), rows)
+    steps = unique(r[:steps] for r in rows)
+    for n in names, m in ("forward", "reverse"), c in configs, T in steps
+        @test any(
+            r -> (r[:name], r[:mode], r[:config], r[:backend], r[:steps]) ==
+                (n, m, c, "cpu", T),
+            rows
+        )
     end
     # RESULTS.md is generated from the same run.
     md = read(joinpath(dir, "RESULTS.md"), String)

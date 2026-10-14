@@ -1443,3 +1443,24 @@ end
         end
     end
 end
+
+@testitem "Enzyme reverse: a constant ragged kernel takes no mirror" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
+    import DifferentiationInterface as DI
+    CR = ComposableRecurrences
+    # Columns held as given and closed over: under runtime activity their
+    # shadow is the columns themselves, so the rule reads no kernel mirror
+    # and only the input's gradient is formed.
+    ks = [[0.5, 0.2], [0.3], [0.4, 0.1, 0.1], [0.6]]
+    W = [0.5 + 0.1 * t for t in 1:4]
+    x = [1.0, 2.0, 0.5, 1.5]
+    b = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
+    )
+    for I in (CR.Secondary(), CR.Primary())
+        f(x) = sum(W .* Convolution(TimeVarying(ks, I))(x))
+        CR._PULLBACK_CALLS[] = 0
+        @test DI.gradient(f, b, x) ≈ ForwardDiff.gradient(f, x)
+        @test CR._PULLBACK_CALLS[] > 0
+    end
+end
