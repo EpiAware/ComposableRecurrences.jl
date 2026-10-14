@@ -848,7 +848,10 @@ function _group_pullback(::Val{true}, ::Val{L}, grads, m, v, s, t, g) where {L}
     x, Q = _stocks_queue(Val(L.overflow), s, Val(L.n))
     d = first(v) + Q
     x1 = L.flows_first ? _flow_only(m.flows, x, g, t) : x
-    y, x2 = _take(Val(L.fill), m, d, x1, t, g)
+    # The draw again, only where its pullback reads it: the stocks after it
+    # for flows that follow it, the value for a draw from several stocks.
+    retake = !L.flows_first || (!L.fill && L.n > 1)
+    y, x2 = _retake(Val(retake), Val(L.fill), m, d, x1, t, g)
     # The cotangent of what the draw leaves, `d - y`, and of the stocks
     # after the step.
     ū, x̄3 = _left_back(Val(L.overflow), grads.v, grads.s, Val(L.n))
@@ -860,6 +863,11 @@ function _group_pullback(::Val{true}, ::Val{L}, grads, m, v, s, t, g) where {L}
     d̄ += ū
     return _in_values(Val(L.overflow), d̄, ū), _with_queue(Val(L.overflow), x̄, d̄)
 end
+
+# Without the draw, the stocks before it stand in for those after it, which
+# the pullback does not read then, so both arms have the stocks' type.
+_retake(::Val{true}, fill, m, d, x, t, g) = _take(fill, m, d, x, t, g)
+_retake(::Val{false}, fill, m, d, x, t, g) = nothing, x
 
 # The cotangent of the overflow and of the stocks after the step, from the
 # cotangents of the group's values and state.
