@@ -20,7 +20,9 @@ y_t = R_t \sum_{l=1}^{L} g_l \, y_{t-l} = R_t \sum_{l=0}^{L} \tilde g_l \, y_{t-
 ```
 
 where ``y_t`` is the output on day ``t`` and ``\tilde g`` is the convolution kernel `vcat(0, g)`.
-The [FAQ](@ref faq-lag-origin) says why the two kernels start at different lags.
+A recurrence's value cannot depend on itself in the same step, so its first weight is on the previous value.
+A convolution can weight today's input, as a reporting delay of zero days does.
+Both are written as the quantity is usually written, so a generation interval or a delay goes in unchanged.
 
 ```@example operators
 g = [0.2, 0.5, 0.3]

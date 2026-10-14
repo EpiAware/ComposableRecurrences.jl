@@ -73,6 +73,32 @@ const MATHS_FIRST_REUSE = (
 # marked broken until they gain a ```math block.
 const PENDING_MATHS_FIRST = ()
 
+# Concepts with one home: `anchor => (page, phrases)`. The page holds the
+# anchor and every phrase, and no other README, docs page or tutorial uses
+# a phrase. Other pages link to the anchor rather than explain it again.
+const ONE_HOME = (
+    "explanation-lag-origin" => (
+        "docs/src/explanation/operators.md",
+        ("cannot depend on itself in the same step",),
+    ),
+    "adjoint-routing" => (
+        "docs/src/explanation/adjoints-and-backends.md",
+        ("local ForwardDiff step", "ConstructionBase.constructorof"),
+    ),
+    "adjoint-backends" => (
+        "docs/src/explanation/adjoints-and-backends.md",
+        ("which is not a target",),
+    ),
+    "extension-reactant" => (
+        "docs/src/extensions/reactant.md",
+        ("Reactant.@compile", "Reactant.to_rarray"),
+    ),
+    "tutorial-imports" => (
+        "docs/src/getting-started/tutorials/renewal-then-delay.jl",
+        ("drawn from the pool like local cases",),
+    ),
+)
+
 # Markdown sources for the prose checks: the README and every page and
 # Literate tutorial under docs/src.
 function standards_prose_files()
