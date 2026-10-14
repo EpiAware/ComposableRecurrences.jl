@@ -6,46 +6,6 @@
     using ComposableRecurrences, ForwardDiff
     const CR = ComposableRecurrences
 
-    # A zero cotangent mirror, as the adjoint wiring builds it, with a tuple
-    # of mirrors for a tuple field.
-    mirror(x::AbstractFloat) = Ref(zero(x))
-    mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
-    mirror(::AbstractArray) = nothing
-    mirror(::Union{Integer, Symbol, Nothing}) = nothing
-    mirror(x::Tuple) = map(mirror, x)
-    function mirror(x)
-        names = fieldnames(typeof(x))
-        return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
-    end
-    flat(::Nothing) = Float64[]
-    flat(x::Base.RefValue) = [x[]]
-    flat(x::AbstractArray) = vec(copy(x))
-    flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
-
-    # Compare the vector pullback with the transposed Jacobian of the
-    # vector step in `[v; s; θ]`, for a modifier `build(θ)` whose mirror
-    # flattens in the order of `θ`.
-    function check_pullback(build, θ, v, s, t)
-        S, n = length(v), length(s)
-        v̄′ = collect(range(0.3, 1.7; length = S))
-        s̄′ = collect(range(-0.4, 0.9; length = n))
-        J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
-            vv, ss = x[1:S], x[(S + 1):(S + n)]
-            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
-            return vcat(vv, ss)
-        end
-        expected = transpose(J) * vcat(v̄′, s̄′)
-        m = build(θ)
-        m̄ = mirror(m)
-        gv, gs = copy(v̄′), copy(s̄′)
-        CR._vector_pullback!((; piece = m̄, v = gv, s = gs), m, copy(v), copy(s), t)
-        return (;
-            v = gv ≈ expected[1:S],
-            s = gs ≈ expected[(S + 1):(S + n)],
-            θ = flat(m̄) ≈ expected[(S + n + 1):end],
-        )
-    end
-
     # One step of flows on compartments `x`: `rates` and `shares` map
     # `(from, to)` to a value and act together, then `counts` in order.
     function flow_step(x, rates, shares, counts)
@@ -185,10 +145,10 @@ end
     @test v == [0.0, 4.0, 3.0]
 end
 
-@testitem "Flows: pullback against a local Jacobian" setup = [FlowChecks] begin
+@testitem "Flows: pullback against a local Jacobian" setup = [FlowChecks, ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    (; check_pullback) = FlowChecks
+    (; check_pullback) = ModifierChecks
     # Two groups of three compartments with a cycle, exits and every kind.
     build(θ) = CR.Flows(
         CR.Flow(1 => 2, PerStratum(θ[1:2])), CR.Flow(1 => 0, CR.Linear(θ[3])),
@@ -236,7 +196,7 @@ end
     )
     v̄m = [0.3, 1.1, -0.4, 0.7]
     CR._vector_pullback!(
-        (; piece = FlowChecks.mirror(counts(θ)), v = v̄m, s = zeros(4)),
+        (; piece = ModifierChecks.mirror(counts(θ)), v = v̄m, s = zeros(4)),
         counts(θ), copy(v), zeros(4), 1
     )
     @test v̄ == v̄m

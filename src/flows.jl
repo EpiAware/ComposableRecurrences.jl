@@ -25,9 +25,9 @@ Rates are not checked: a time-varying or [`Derived`](@ref) rate is only
 known at each step.
 
 # Arguments
-- `r`: the rate, a parameter read at each step's group and time: one
-  value, [`PerStratum`](@ref) (one per group), [`TimeVarying`](@ref),
-  `TimeVarying(PerStratum(r))` or [`Derived`](@ref).
+- `r`: the rate, a [parameter](@ref ComposableRecurrences.param)
+  read at each step's group and time, with `PerStratum` holding one per
+  group.
 
 # Examples
 ```jldoctest

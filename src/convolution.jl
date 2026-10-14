@@ -314,7 +314,7 @@ function _gather_body!(k, out, kernel, x, history, gain, add, m, start)
             acc += _lagweight(kernel, k, d, t) * _at(x, k, t - d)
         end
         acc = _add_history(acc, kernel, history, k, t, L, m)
-        @inbounds _set_at!(out, _at(gain, k, t) * acc + _at(add, k, t), k, j)
+        @inbounds _set_at!(out, _affine(gain, add, k, t, acc), k, j)
     end
     return nothing
 end
@@ -452,7 +452,7 @@ function _scaled_public(Y::Array, x::AbstractVector, gain, add, start)
     out = similar(Y, size(Y, 1))
     @inbounds for j in eachindex(out)
         t = start + j - 1
-        out[j] = _at(gain, 1, t) * Y[j, 1] + _at(add, 1, t)
+        out[j] = _affine(gain, add, 1, t, Y[j, 1])
     end
     return out
 end
@@ -460,7 +460,7 @@ function _scaled_public(Y::Array, x::AbstractMatrix, gain, add, start)
     out = similar(Y, size(Y, 2), size(Y, 1))
     @inbounds for j in axes(Y, 1), k in axes(Y, 2)
         t = start + j - 1
-        out[k, j] = _at(gain, k, t) * Y[j, k] + _at(add, k, t)
+        out[k, j] = _affine(gain, add, k, t, Y[j, k])
     end
     return out
 end
@@ -582,8 +582,10 @@ function _convolve_series!(y, c, X, k, m, start)
 end
 
 # The kernel `c` against stratum `k`'s window ending at buffer row `r`: lag
-# `d` reads row `r - d`, and lags past the first row read zeros.
-function _lag_dot(c, X, k, r)
+# `d` reads row `r - d`, and lags past the first row read zeros. Inlined,
+# so plain reverse-mode AD differentiates the loop in its caller rather
+# than through one call per output.
+@inline function _lag_dot(c, X, k, r)
     acc = zero(eltype(X))
     @inbounds @simd for d in 0:(min(length(c), r) - 1)
         acc += c[d + 1] * X[r - d, k]
@@ -753,15 +755,13 @@ end
 function _scale_back!(Ȳ, ḡ, ā, ȳ, Y, gain, start)
     for j in axes(Ȳ, 1), k in axes(Ȳ, 2)
         t = start + j - 1
-        @inbounds a = _ycot(ȳ, k, j)
+        @inbounds a = _at(ȳ, k, j)
         _add_slot!(ā, a, k, t)
         @inbounds _add_slot!(ḡ, a * Y[j, k], k, t)
         @inbounds Ȳ[j, k] = _at(gain, k, t) * a
     end
     return nothing
 end
-Base.@propagate_inbounds _ycot(ȳ::AbstractVector, k, j) = ȳ[j]
-Base.@propagate_inbounds _ycot(ȳ::AbstractMatrix, k, j) = ȳ[k, j]
 
 # The cotangent of an input buffer with row offset `o` into those of `x`
 # and of a history of length `m`: the buffer holds the last `max(o, 0)`
