@@ -95,7 +95,7 @@ blockwise group step's with `v::Tuple, s::Tuple` (see
 A method of `uses_adjoint` also overrides the default, for example when
 the adjoint covers only some values of a type.
 If it is `true` but no `pullback!` method fits the arguments, the reverse
-pass throws an `ArgumentError`.
+pass throws a `MethodError`.
 An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
 has one.
 A [`Recurrence`](@ref) does when its coupling and modifiers allow it;
@@ -142,86 +142,45 @@ function _has_vector_pullback(x)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})
 end
 
-# `pullback!` for an object that uses its adjoint, with a clear error when it
-# declares one but has no method for these arguments. The check is on the
-# types, so it folds.
-function _call_pullback!(grads, x, role, args...)
-    sig = Tuple{
-        typeof(pullback!), typeof(grads), typeof(x), typeof(role),
-        map(typeof, args)...,
-    }
-    Core._hasmethod(sig) || _no_pullback(x, role)
-    return pullback!(grads, x, role, args...)
-end
-@noinline function _no_pullback(x, role)
-    R = nameof(typeof(role))
-    throw(
-        ArgumentError(
-            "$(nameof(typeof(x))) uses its adjoint in $R() (uses_adjoint is " *
-                "true) but has no pullback! method for $R() and these " *
-                "arguments; add one or declare uses_adjoint(x, $R()) = false"
-        )
-    )
-end
-
 # The entry point: the rule when the operator uses its adjoint and every
-# float leaf is IEEE, else plain AD. Both decisions are made from the
-# types, so the route is static. An operator whose local derivative
-# rebuilds a modifier from its parameters stores at construction whether
-# that works (`_rebuilds`), and one whose local derivative suits only some
-# arguments says so per call (`_fits`): each is `Val(true)` when nothing
-# needs it, so the route still folds, else a `Bool` read here. A call that
-# does not fit but fits the wider limit of `_fits_wide` goes through
-# `_ad_wide`.
-# `Vararg{Any, N}` makes the routes specialise on the arguments, which they
-# pass to two calls.
+# float leaf is IEEE, else plain AD, both read from the types. A coupling's
+# local derivative suits only some strata, so the call reads how many
+# passes it needs (`_fit`): `:one` takes the rule, `:wide` takes
+# `_ad_wide` and `:none` plain AD. `_fit` is the constant `:one` for every
+# other operator, so the route folds. `Vararg{Any, N}` makes the routes
+# specialise on the arguments.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
 function _route_val(op, args...)
-    return Val(_type_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
+    return Val(uses_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
+_route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _plain(op, args...)
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
-    return _rule(_both(_rebuilds(op), _fits(op, args...)), op, args...)
-end
-_fits(op, args...) = Val(true)
-_both(::Val{true}, b) = b
-_both(a::Bool, ::Val{true}) = a
-_both(a::Bool, b::Bool) = a && b
-function _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N}
-    _note_plain(op, args...)
+    fit = _fit(op, args...)
+    fit === :one && return _ad(op, args...)
+    fit === :wide && return _ad_wide(op, args...)
     return _plain(op, args...)
 end
-_rule(::Val{true}, op, args::Vararg{Any, N}) where {N} = _ad(op, args...)
-function _rule(ok::Bool, op, args::Vararg{Any, N}) where {N}
-    ok && return _ad(op, args...)
-    _istrue(_rebuilds(op)) && _fits_wide(op, args...) && return _ad_wide(op, args...)
-    return _plain_noted(op, args...)
-end
-_fits_wide(op, args...) = false
+_fit(op, args...) = :one
 
 # A call within the wider limit. Its body is plain AD; a backend extension
 # may make it a rule primitive, as `_ad`.
-_ad_wide(op, args::Vararg{Any, N}) where {N} = _plain_noted(op, args...)
-function _plain_noted(op, args::Vararg{Any, N}) where {N}
-    _note_plain_type(op, args...)
-    return _plain(op, args...)
-end
-
-# Whether an operator uses its adjoint from its type alone; an operator
-# that also stores a value check adds a method.
-_type_adjoint(op, role) = uses_adjoint(op, role)
+_ad_wide(op, args::Vararg{Any, N}) where {N} = _plain(op, args...)
 
 # The positional Run of an operator and its pullback. Operators with a
 # keyword `forward` on `Run()` add methods for their positional form.
 _run_forward(op, args...) = forward(op, Run(), args...)
-_run_pullback!(grads, op, cache) = _call_pullback!(grads, op, Run(), cache)
+_run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
 # The primal call. The extensions make `_ad` a rule primitive for
 # `Mooncake` and `_ADLeaves` one for `Enzyme`; `_plain` is differentiated by
 # the backend. `_ad` passes `_ADLeaves` each leaf of the operator and its
 # arguments as its own argument, so `Enzyme` annotates every float and array
 # on its own and never needs a shadow for a struct that holds both;
-# `_ADLeaves` rebuilds the operator and arguments from them.
+# `_ADLeaves` rebuilds the operator and arguments from them. It exists for
+# `Enzyme` on Julia 1.11: there, an operator holding both an array and an
+# active scalar was annotated `MixedDuplicated`, and the scalar's cotangent
+# written back by the rule did not reach the caller, a silent zero.
 _primal(op, args...) = first(_run_forward(op, args...))
 @generated function _ad(op, args::Vararg{Any, N}) where {N}
     X = Tuple{op, args...}
@@ -273,33 +232,6 @@ end
     return build(X)
 end
 _plain(op, args...) = _primal(op, args...)
-
-# Note that an operator is differentiated by plain AD: it has a part
-# without an adjoint, or a modifier the default pullback cannot rebuild
-# from its parameters. The primal `_note_plain_type` does nothing, so a
-# call that is not differentiated logs nothing; the extensions' reverse
-# rules for it log, once per operator type. It takes the operator and its
-# arguments so that a backend sees an active argument and runs the rule,
-# and `donotdelete` keeps the call, which has no effect of its own.
-function _note_plain(op, args...)
-    uses_adjoint(op, Run()) && return nothing
-    return _note_plain_type(op, args...)
-end
-@noinline _note_plain_type(op, args...) = (Base.donotdelete(op, args...); nothing)
-const _PLAIN_NOTED = Set{Any}()
-const _PLAIN_LOCK = ReentrantLock()
-function _log_plain(op)
-    T = typeof(op)
-    new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
-    new && @info "$(nameof(T)) $(_plain_why(op)), so gradients of it use " *
-        "plain AD of the whole operator"
-    return nothing
-end
-
-# Why an operator takes plain AD; operators that store a failed rebuild
-# check name the modifiers it failed for.
-const _ADJOINT_NOTE = "has a coupling or modifier without an analytic adjoint"
-_plain_why(op) = _ADJOINT_NOTE
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; dual numbers, BigFloat and other

@@ -212,7 +212,10 @@ end
     without = Recurrence(Routes((fill(0.2, 3, 3), g), (Halve(), g), (Halve(), g)))
     @test CR.uses_adjoint(with, CR.Run())
     @test !CR.uses_adjoint(without, CR.Run())
-    @test CR._plain_why(without) == "has route couplings (Halve) without a pullback!"
+    empty!(CR._PLAIN_NOTED)
+    @test_logs (:info, r"\(Halve\) without a pullback!") Recurrence(
+        Routes((fill(0.2, 3, 3), g), (Halve(), g))
+    )
     @test without(ones(3, 4); history = ones(3, 2)) ≈
         Recurrence(Routes((fill(0.2, 3, 3), g), (I, g)))(ones(3, 4); history = ones(3, 2))
     # A rebuild from the fields skips the pairing.

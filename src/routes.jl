@@ -181,10 +181,8 @@ function _all_pressure_pullbacks(Cs::Tuple)
 end
 
 # The plain-AD note names the route couplings without a pullback.
-function _plain_why_kernel(R::Routes)
-    names = [nameof(typeof(C)) for C in R.couplings if !uses_adjoint(C, Pressure())]
-    isempty(names) && return nothing
-    return "has route couplings ($(join(unique(names), ", "))) without a pullback!"
+function _no_adjoint_kernel(R::Routes)
+    return Tuple(nameof(typeof(C)) for C in R.couplings if !uses_adjoint(C, Pressure()))
 end
 
 # The routes as a run reads them: the couplings, each kernel oldest first

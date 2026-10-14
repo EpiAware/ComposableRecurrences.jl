@@ -6,9 +6,8 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
-    _FixedExponent, _ad, _ad_wide, _check_secondary, _current, _fft_convolve!,
-    _fft_convolve_back!, _log_plain, _note_plain_type, _rebuild_flag,
-    _run_forward, _run_pullback!, _untraced
+    _FixedExponent, _ad, _ad_wide, _check_parts, _check_secondary, _current,
+    _fft_convolve!, _fft_convolve_back!, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -82,23 +81,11 @@ Mooncake.@mooncake_overlay function ComposableRecurrences._axpy4!(
     return axpy!(α₃, x₃, y)
 end
 
-# The plain-AD note logs only while Mooncake differentiates the call in
-# reverse mode.
-Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Vararg}
-function Mooncake.frule!!(
-        ::Mooncake.Dual{typeof(_note_plain_type)}, args::Vararg{Mooncake.Dual, N}
-    ) where {N}
-    return Mooncake.zero_dual(nothing)
-end
-function Mooncake.rrule!!(
-        f::CoDual{typeof(_note_plain_type)}, op::CoDual, args::Vararg{CoDual, N}
-    ) where {N}
-    _log_plain(primal(op))
-    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, op, args...)
-end
-# The `Recurrence` constructor's rebuild check returns a flag, and its
-# rebuild with dual numbers (which may throw) is not differentiated.
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuild_flag), Any, Tuple}
+# The `Recurrence` constructor's checks of its parts, which rebuild them
+# with dual numbers and may log, are not differentiated.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_check_parts), Any, Any, Tuple,
+}
 # Nor is its check that only the kernel takes `Primary()` indexing.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,

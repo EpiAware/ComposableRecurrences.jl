@@ -89,9 +89,9 @@ it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
-The constructor sets the field `rebuilds`, whether the local derivative
-can rebuild the coupling and modifiers that use it (see
-[Rules and plain AD](@ref adjoint-routing)).
+The constructor checks that a coupling or modifier without a `pullback!`
+can be differentiated locally, and throws if not (see
+[Gradient routes](@ref extending-routes)).
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
@@ -122,15 +122,13 @@ y ≈ hcat(y1, y2)
 true
 ```
 """
-struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
+struct Recurrence{K, C, M <: Tuple} <: AbstractOperator
     "The kernel, lag 1 first."
     kernel::K
     "How the strata's kernel convolutions mix."
     coupling::C
     "The modifiers, applied in order after the core of each step."
     modifiers::M
-    "Whether the local derivative rebuilds the coupling and modifiers that use it."
-    rebuilds::B
     function Recurrence(kernel::K, coupling::C, modifiers::M) where {
             K, C, M <: Tuple,
         }
@@ -138,14 +136,8 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
         _check_secondary(coupling, modifiers)
-        return Recurrence(
-            _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
-        )
-    end
-    function Recurrence(
-            ::_Checked, kernel::K, coupling::C, modifiers::M, rebuilds::B
-        ) where {K, C, M <: Tuple, B}
-        return new{K, C, M, B}(kernel, coupling, modifiers, rebuilds)
+        _check_parts(kernel, coupling, modifiers)
+        return new{K, C, M}(kernel, coupling, modifiers)
     end
 end
 
@@ -157,10 +149,6 @@ function _check_secondary(coupling, modifiers::Tuple)
     _check_times(:modifiers, modifiers, nothing)
     return nothing
 end
-
-# A rebuild of a `Recurrence` from its fields recomputes `rebuilds`.
-_recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
-ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
 function Recurrence(kernel; coupling = I, modifiers = ())
     k, C = _fold(kernel, coupling)
@@ -647,36 +635,33 @@ Base.@constprop :aggressive function _with_state(
     return _prepend(prepend, history, y), st
 end
 
-# The rule applies when the coupling and each modifier carry their adjoint
-# or are differentiated locally (`_type_adjoint`, read off the types, which
-# routes the call), and the local derivative rebuilds each one that uses it
-# (`rebuilds`, found at construction).
+# The rule applies when the kernel, the coupling and each modifier carry
+# their adjoint or are differentiated locally, read off the types.
 function uses_adjoint(r::Recurrence, ::Run)
-    return _type_adjoint(r, Run()) && _istrue(r.rebuilds)
+    return _parts_adjoint(r.kernel, r.coupling, r.modifiers)
 end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
-function _type_adjoint(r::Recurrence, ::Run)
-    return _kernel_adjoint(r.kernel) && _coupling_adjoint(r.coupling) !== :none &&
-        _all_modifiers_adjoint(r.modifiers)
+function _parts_adjoint(kernel, C, ms)
+    return _kernel_adjoint(kernel) && _coupling_adjoint(C) !== :none &&
+        _all_modifiers_adjoint(ms)
 end
-_type_adjoint(w::_WithState, ::Run) = _type_adjoint(w.r, Run())
 _all_modifiers_adjoint(::Tuple{}) = true
 function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel; routes add their couplings.
+# Whether the rule covers the kernel, and the names of what keeps it from
+# doing so; routes add their couplings.
 _kernel_adjoint(kernel) = true
-_plain_why_kernel(kernel) = nothing
+_no_adjoint_kernel(kernel) = ()
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier whose
 # float parameters are scalars or `_EntryParam`s, outside functions, with
 # no parameter read from the outputs, rebuilt with dual numbers by
 # `constructorof`), or `:none` when it cannot, which includes a `Derived`
-# parameter whose map holds float fields of its own. Decided from the type;
-# whether the rebuild works is checked by value at construction.
+# parameter whose map holds float fields of its own.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
@@ -692,82 +677,34 @@ function _coupling_adjoint(C)
     return :none
 end
 
-# The `rebuilds` field: `Val(true)` when neither the coupling nor a modifier
-# is rebuilt by the local derivative, which the types show, so the route
-# folds; otherwise the outcome of the value check (`_round_trips`) for each
-# one that is, and for the form of a depletion without its own pullback.
-function _rebuild_flag(C, ms::Tuple)
-    _coupling_rebuilt(C) || _any_rebuilt(ms) || return Val(true)
-    return _rebuilds_coupling(C) && _all_rebuild(ms)
+# At construction, each coupling, modifier and depletion form the rule
+# differentiates locally must rebuild from its float scalars
+# (`_check_rebuild`), and an operator the rule does not cover says so once
+# per type. Which parts are checked is read off the types.
+function _check_parts(kernel, C, ms::Tuple)
+    _coupling_adjoint(C) === :local && _check_rebuild(C)
+    foreach(_check_local, ms)
+    _parts_adjoint(kernel, C, ms) || _note_plain(kernel, C, ms)
+    return nothing
 end
-_coupling_rebuilt(C) = _coupling_adjoint(C) === :local && _param_tuple(C) !== ()
-_rebuilds_coupling(C) = !_coupling_rebuilt(C) || _round_trips(C)
-_any_rebuilt(::Tuple{}) = false
-_any_rebuilt(ms::Tuple) = _rebuilt(first(ms)) || _any_rebuilt(Base.tail(ms))
-_rebuilt(m) = _modifier_adjoint(m) === :local && _param_tuple(m) !== ()
-function _rebuilt(m::Depletion)
-    return !uses_adjoint(m.form, Step()) && _scalar_params(m.form) &&
-        _param_tuple(m.form) !== ()
-end
-_all_rebuild(::Tuple{}) = true
-_all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
-_rebuilds_modifier(m) = !_rebuilt(m) || _round_trips(m)
-_rebuilds_modifier(m::Depletion) = !_rebuilt(m) || _round_trips(m.form)
-
-_istrue(::Val{true}) = true
-_istrue(b::Bool) = b
-
-# Whether the local derivative rebuilds the operator's coupling and modifiers.
-_rebuilds(op) = Val(true)
-_rebuilds(r::Recurrence) = r.rebuilds
-_rebuilds(w::_WithState) = _rebuilds(w.r)
-
-# A coupling's local derivative takes one pass of dual numbers per step
-# while the strata and its scalars fit in one (`_LOCAL_PRESSURE`), and the
-# call takes the rule; within two passes (`_LOCAL_PRESSURE_WIDE`) it goes
-# through `_ad_wide`, and with more it takes plain AD.
-function _fits(r::Recurrence, gain, add, h, args...)
-    return _pressure_fits(r.coupling, h, _LOCAL_PRESSURE)
-end
-_fits(w::_WithState, args...) = _fits(w.r, args...)
-function _fits_wide(r::Recurrence, gain, add, h, args...)
-    return _istrue(_pressure_fits(r.coupling, h, _LOCAL_PRESSURE_WIDE))
-end
-_fits_wide(w::_WithState, args...) = _fits_wide(w.r, args...)
-function _pressure_fits(C, h, n)
-    return _pressure_fits(Val(_coupling_adjoint(C) === :local), C, h, n)
-end
-_pressure_fits(::Val{false}, C, h, n) = Val(true)
-function _pressure_fits(::Val{true}, C, h, n)
-    return _nstrata(h) + length(_param_tuple(C)) <= n
+_check_local(m) = (_modifier_adjoint(m) === :local && _check_rebuild(m); nothing)
+function _check_local(m::Depletion)
+    uses_adjoint(m.form, Step()) || !_scalar_params(m.form) || _check_rebuild(m.form)
+    return nothing
 end
 
-# The plain-AD note names the coupling, modifiers and depletion forms with
-# neither a pullback! nor a local derivative, those that do not rebuild, or
-# the coupling whose local derivative the strata outgrow. It is built only
-# when the note is first logged for a type.
-function _plain_why(r::Recurrence)
-    why = _plain_why_kernel(r.kernel)
-    why === nothing || return why
-    if _istrue(r.rebuilds)
-        _type_adjoint(r, Run()) || return _no_adjoint_why(r)
-        _coupling_adjoint(r.coupling) === :local || return _ADJOINT_NOTE
-        return "has a coupling ($(nameof(typeof(r.coupling)))) without a " *
-            "pullback! and more strata than its local derivative covers"
-    end
-    C = r.coupling
-    C_name = _rebuilds_coupling(C) ? () : (nameof(typeof(C)),)
-    names = join(unique((C_name..., _not_rebuilt(r.modifiers...)...)), ", ")
-    return "has a coupling, modifier or depletion form ($names) that the " *
-        "local derivative cannot rebuild from its own parameters"
-end
-_plain_why(w::_WithState) = _plain_why(w.r)
-function _no_adjoint_why(r::Recurrence)
-    C = r.coupling
+const _PLAIN_NOTED = Set{Any}()
+const _PLAIN_LOCK = ReentrantLock()
+function _note_plain(kernel, C, ms)
+    T = typeof((kernel, C, ms))
+    new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
+    new || return nothing
     C_name = _coupling_adjoint(C) === :none ? (nameof(typeof(C)),) : ()
-    names = join(unique((C_name..., _no_adjoint(r.modifiers...)...)), ", ")
-    return "has a coupling, modifier or depletion form ($names) with no " *
-        "pullback! that the rule can use"
+    names = unique((_no_adjoint_kernel(kernel)..., C_name..., _no_adjoint(ms...)...))
+    @info "Recurrence has a coupling, modifier or depletion form " *
+        "($(join(names, ", "))) without a pullback! the rule can use, so " *
+        "gradients of it use plain AD of the whole operator"
+    return nothing
 end
 _no_adjoint() = ()
 function _no_adjoint(m, ms...)
@@ -777,11 +714,20 @@ function _no_adjoint(m, ms...)
 end
 _part_name(m) = nameof(typeof(m))
 _part_name(m::Depletion) = _form_adjoint(m.form) ? :Depletion : nameof(typeof(m.form))
-_not_rebuilt() = ()
-function _not_rebuilt(m, ms...)
-    rest = _not_rebuilt(ms...)
-    _rebuilds_modifier(m) && return rest
-    return (nameof(typeof(m isa Depletion ? m.form : m)), rest...)
+
+# How many passes of dual numbers a coupling's local derivative needs per
+# step: one while the strata and its scalars fit in one (`_LOCAL_PRESSURE`),
+# and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
+# `_ad_wide`; with more it takes plain AD.
+function _fit(r::Recurrence, gain, add, h, args...)
+    return _fit(Val(_coupling_adjoint(r.coupling) === :local), r.coupling, h)
+end
+_fit(w::_WithState, args...) = _fit(w.r, args...)
+_fit(::Val{false}, C, h) = :one
+function _fit(::Val{true}, C, h)
+    n = _nstrata(h) + length(_param_tuple(C))
+    n <= _LOCAL_PRESSURE && return :one
+    return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
 
 # Whether a type holds a float array (or a field of unknown type) that a

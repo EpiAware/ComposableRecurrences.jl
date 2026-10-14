@@ -545,11 +545,11 @@ end
 # modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
-    return _call_pullback!(grads, m, Step(), v, s, t)
+    return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
     ispointwise(m) && return _strata_pullback!(grads, m, v, s, t)
-    return _call_pullback!(grads, m, Step(), v, s, t)
+    return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     nv, ns = B
@@ -561,13 +561,6 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
             s = _gather(s̄, Val(ns), G, g),
         )
         vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        # The check folds; the group pullback itself is inlined here, as
-        # inlining `_call_pullback!` leaves its inner call a real one.
-        sig = Tuple{
-            typeof(pullback!), typeof(gg), typeof(m), Step, typeof(vg),
-            typeof(sg), typeof(t), typeof(g),
-        }
-        Core._hasmethod(sig) || _no_pullback(m, Step())
         v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
         _scatter!(v̄, v̄g, G, g)
         _scatter!(s̄, s̄g, G, g)

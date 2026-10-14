@@ -7,10 +7,9 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
-    _Current, _WithState, _check_secondary, _current, _fft_convolve!,
-    _fft_convolve_back!, _is_leaf, _leaf_paths, _log_plain, _note_plain_type,
-    _plain, _rebuild_flag, _rebuild_leaves, _route_forward!, _run_forward,
-    _run_pullback!, _untraced
+    _Current, _WithState, _check_parts, _check_secondary, _current,
+    _fft_convolve!, _fft_convolve_back!, _is_leaf, _leaf_paths, _plain,
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -83,30 +82,9 @@ function _addback1(dx::T, m) where {T}
     return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), T, fs, length(fs))::T
 end
 
-# The plain-AD note logs only while Enzyme differentiates the call in
-# reverse mode.
-function EnzymeRules.forward(
-        ::EnzymeRules.FwdConfig, ::Const{typeof(_note_plain_type)}, ::Type,
-        args::Vararg{Annotation, N}
-    ) where {N}
-    return nothing
-end
-function EnzymeRules.augmented_primal(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_note_plain_type)}, ::Type,
-        op::Annotation, args::Vararg{Annotation, N}
-    ) where {N}
-    _log_plain(op.val)
-    return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
-end
-function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_note_plain_type)}, ::Type,
-        tape, op::Annotation, args::Vararg{Annotation, N}
-    ) where {N}
-    return map(a -> a isa Active ? Enzyme.make_zero(a.val) : nothing, (op, args...))
-end
-# The `Recurrence` constructor's rebuild check returns a flag, and its
-# rebuild with dual numbers (which may throw) is not differentiated.
-EnzymeRules.inactive(::typeof(_rebuild_flag), args...) = nothing
+# The `Recurrence` constructor's checks of its parts, which rebuild them
+# with dual numbers and may log, are not differentiated.
+EnzymeRules.inactive(::typeof(_check_parts), args...) = nothing
 # Nor is its check that only the kernel takes `Primary()` indexing.
 EnzymeRules.inactive(::typeof(_check_secondary), args...) = nothing
 

@@ -134,7 +134,7 @@ const _EntryParam = Union{
 # else the local derivative.
 function _step_pullback(grads, m, v, s, t, k)
     uses_adjoint(m, Step()) || return _local_pullback(grads, m, v, s, t, k)
-    return _call_pullback!(grads, m, Step(), v, s, t, k)
+    return pullback!(grads, m, Step(), v, s, t, k)
 end
 
 # Default scalar pullback of a pointwise modifier without its own: a local
@@ -195,7 +195,7 @@ function _pressure_back!(p̄, C̄, C, q̄, p, t, bufs = nothing)
     return _pressure_back!(Val(uses_adjoint(C, Pressure())), p̄, C̄, C, q̄, p, t, bufs)
 end
 function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
-    _call_pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
+    pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
     return nothing
 end
 function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
@@ -287,7 +287,7 @@ function _form_pullback(grads, form, v, s, N, α)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
 end
 function _form_pullback(::Val{true}, grads, form, v, s, N, α)
-    return _call_pullback!(grads, form, Step(), v, s, N, α)
+    return pullback!(grads, form, Step(), v, s, N, α)
 end
 function _form_pullback(::Val{false}, grads, form, v, s, N, α)
     x = (v, s, N, α, _param_tuple(form)...)
@@ -358,28 +358,39 @@ function _rebuild_scalar(x, θ)
     return constructorof(typeof(x))(ys...), θ
 end
 
-# Whether the local derivative's rebuild of `m` from its float scalars gives
-# them back: each is seeded as a dual number with its own partial, `m` is
-# rebuilt by `constructorof` and its scalars must come back unchanged. A
-# keyword-only constructor, a field typed `Float64` or a constructor that
-# transforms its arguments fails, and the operator then takes plain AD.
-# A modifier with `_EntryParam`s gets a scalar in their place, so one step
-# of the rebuild must also run, on the entries at stratum 1 and time 1, as
-# the local derivative runs it: a step that indexes such a parameter's
-# array fails. Checked once, when a `Recurrence` is built, which stores the
-# outcome.
-_round_trips(m) = _round_trips(m, _param_tuple(m, (1, 1)))
-_round_trips(m, ::Tuple{}) = true
-function _round_trips(m, θ)
+# The local derivative's contract, checked once when a `Recurrence` is
+# built: `x` rebuilt by `constructorof` from its float scalars, each
+# seeded as a dual number with its own partial, must give them back
+# unchanged. A keyword-only constructor, a field typed `Float64` or a
+# constructor that transforms its arguments breaks it, and would give no
+# gradient or a wrong one, so it throws. A modifier with `_EntryParam`s gets
+# a scalar in their place, so one step of the rebuild must also run, on the
+# entries at stratum 1 and time 1: a step that indexes such a parameter's
+# array breaks it too.
+_check_rebuild(x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
+_check_rebuild(x, ::Tuple{}) = true
+function _check_rebuild(x, θ)
     T = promote_type(map(typeof, θ)...)
-    θd = _seed(ForwardDiff.Tag(_round_trips, T), map(T, θ))
-    return try
-        md = first(_rebuild_scalar(m, θd))
-        _rebuilt_tuple(m, md) === θd && _steps(m, md, one(first(θd)))
+    θd = _seed(ForwardDiff.Tag(_check_rebuild, T), map(T, θ))
+    ok, err = try
+        xd = first(_rebuild_scalar(x, θd))
+        _rebuilt_tuple(x, xd) === θd && _steps(x, xd, one(first(θd))), nothing
     catch e
         e isa InterruptException && rethrow()
-        false
+        false, e
     end
+    ok && return true
+    why = err === nothing ? "did not give its parameters back" :
+        "threw $(sprint(showerror, err))"
+    throw(
+        ArgumentError(
+            "$(nameof(typeof(x))) has no pullback!, so its gradient rebuilds it " *
+                "with dual numbers through ConstructionBase.constructorof, which " *
+                "$why. Give its float fields type parameters and a positional " *
+                "constructor that keeps its arguments, read PerStratum and " *
+                "TimeVarying parameters through param, or write a pullback!"
+        )
+    )
 end
 _steps(m, md, x) = _scalar_params(m) || (forward(md, Step(), x, x, 1, 1); true)
 # The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.
