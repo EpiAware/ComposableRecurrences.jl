@@ -674,55 +674,18 @@ function _convolve_body!(k, Y, c::PerStratum, X, m, start)
     return nothing
 end
 
-# Secondary indexing: output time `t` reads its own column, one dot with
-# the window per output. A column kernel's column is read as a vector,
-# which vectorises when it is contiguous; a per-stratum column is strided,
-# so it is read entry by entry.
-function _convolve_body!(k, Y, c::_TVColumns{Secondary}, X, m, start)
-    for j in axes(Y, 1)
-        t = start + j - 1
-        @inbounds Y[j, k] = _lag_dot(_wcolumn(c, k, t), X, k, m + t)
-    end
-    return nothing
-end
-function _convolve_body!(k, Y, c::_TVPerStratum{Secondary}, X, m, start)
-    D = _nlags(c)
+# A time-varying kernel: one dot per output time `t` of the window with the
+# weights `_lagweight` reads, from the column `_lagcolumn` picks for the
+# kernel's indexing. Weights past a ragged column's end read zero.
+function _convolve_body!(k, Y, c::TimeVarying, X, m, start)
+    L = _nlags(c)
     for j in axes(Y, 1)
         t = start + j - 1
         acc = zero(eltype(Y))
-        @inbounds for d in 0:(min(D, m + t) - 1)
-            acc += _weight(c, k, k, d + 1, t) * X[m + t - d, k]
+        @inbounds for d in 0:(min(L, m + t) - 1)
+            acc += _lagweight(c, k, d, t) * X[m + t - d, k]
         end
         @inbounds Y[j, k] = acc
-    end
-    return nothing
-end
-
-# Primary indexing: the input at time `σ`, buffer row `m + σ`, spreads
-# forward through its own column. There is no history, so `σ` starts at 1.
-function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
-    D = _nlags(c)
-    stop = start + size(Y, 1) - 1
-    for σ in max(1, start - D + 1):stop
-        w = _wcolumn(c, k, σ)
-        @inbounds x = X[m + σ, k]
-        o = σ - start + 1
-        @inbounds @simd ivdep for d in max(0, start - σ):min(length(w) - 1, stop - σ)
-            Y[o + d, k] += w[d + 1] * x
-        end
-    end
-    return nothing
-end
-# A strided per-stratum column is faster read with bounds checks left in,
-# which keep the compiler from a gather.
-function _convolve_body!(k, Y, c::_TVPerStratum{Primary}, X, m, start)
-    D = _nlags(c)
-    stop = start + size(Y, 1) - 1
-    for σ in max(1, start - D + 1):stop
-        x = X[m + σ, k]
-        for d in max(0, start - σ):min(D - 1, stop - σ)
-            Y[σ + d - start + 1, k] += _weight(c, k, k, d + 1, σ) * x
-        end
     end
     return nothing
 end
@@ -845,71 +808,19 @@ function _strata_back!(ks, X̄, c̄, c::PerStratum, X, Ȳ, m, start)
     return nothing
 end
 
-# A column kernel's cotangent is added through the column mirror
-# `_wcolumn(c̄, c, k, τ)`, `nothing` when the kernel is constant. The
-# mirror, the inputs and their cotangent are distinct arrays (`ivdep`).
-function _strata_back!(ks, X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
+# A time-varying kernel's reverse pass, the transpose of its forward
+# body: each output cotangent adds to the weights it read, through
+# `_add_lagweight!`, and to the inputs.
+function _strata_back!(ks, X̄, c̄, c::TimeVarying, X, Ȳ, m, start)
+    L = _nlags(c)
     for k in ks, j in axes(Ȳ, 1)
         t = start + j - 1
-        w = _wcolumn(c, k, t)
-        w̄ = _wcolumn(c̄, c, k, t)
         @inbounds a = Ȳ[j, k]
-        @inbounds @simd ivdep for d in 0:(min(length(w), m + t) - 1)
+        @inbounds for d in 0:(min(L, m + t) - 1)
             r = m + t - d
-            _add_at!(w̄, a * X[r, k], d + 1)
-            X̄[r, k] += w[d + 1] * a
+            _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
+            X̄[r, k] += _lagweight(c, k, d, t) * a
         end
-    end
-    return nothing
-end
-
-function _strata_back!(ks, X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
-    D = _nlags(c)
-    stop = start + size(Ȳ, 1) - 1
-    for k in ks, σ in max(1, start - D + 1):stop
-        w = _wcolumn(c, k, σ)
-        w̄ = _wcolumn(c̄, c, k, σ)
-        o = σ - start + 1
-        @inbounds x = X[m + σ, k]
-        acc = zero(eltype(X̄))
-        @inbounds @simd ivdep for d in max(0, start - σ):min(length(w) - 1, stop - σ)
-            ȳ = Ȳ[o + d, k]
-            _add_at!(w̄, ȳ * x, d + 1)
-            acc += w[d + 1] * ȳ
-        end
-        @inbounds X̄[m + σ, k] += acc
-    end
-    return nothing
-end
-
-# A per-stratum kernel reads and adds each weight through `_weight` and
-# `_add_weight!`.
-function _strata_back!(ks, X̄, c̄, c::_TVPerStratum{Secondary}, X, Ȳ, m, start)
-    D = _nlags(c)
-    for k in ks, j in axes(Ȳ, 1)
-        t = start + j - 1
-        a = Ȳ[j, k]
-        for d in 0:(min(D, m + t) - 1)
-            r = m + t - d
-            _add_weight!(c̄, c, a * X[r, k], k, k, d + 1, t)
-            X̄[r, k] += _weight(c, k, k, d + 1, t) * a
-        end
-    end
-    return nothing
-end
-
-function _strata_back!(ks, X̄, c̄, c::_TVPerStratum{Primary}, X, Ȳ, m, start)
-    D = _nlags(c)
-    stop = start + size(Ȳ, 1) - 1
-    for k in ks, σ in max(1, start - D + 1):stop
-        x = X[m + σ, k]
-        acc = zero(eltype(X̄))
-        for d in max(0, start - σ):min(D - 1, stop - σ)
-            ȳ = Ȳ[σ + d - start + 1, k]
-            _add_weight!(c̄, c, ȳ * x, k, k, d + 1, σ)
-            acc += _weight(c, k, k, d + 1, σ) * ȳ
-        end
-        X̄[m + σ, k] += acc
     end
     return nothing
 end
