@@ -195,7 +195,7 @@ end
     function loss(θ)
         ms = (
             CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
-            CR.Redistribute(K, 0.5),
+            CR.Redistribute(CR.movement(K, 0.5)),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end

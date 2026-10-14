@@ -3,6 +3,46 @@
 # replaced by the series it read; gradients through the outputs against
 # ForwardDiff.
 
+@testmodule RecentSpill begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # A share `ε` of each stratum's value moves to the others through `K`:
+    # a vector step whose parameter `ε` may read the outputs.
+    struct Spill{K, E}
+        K::K
+        ε::E
+    end
+    CR.forward(::Spill, ::CR.Init, s, history) = (fill!(s, zero(eltype(s))); nothing)
+    CR.pullback!(grads, ::Spill, ::CR.Init, s, history) = nothing
+    function CR.forward(m::Spill, ::CR.Step, v, s, t)
+        u = copy(v)
+        for p in eachindex(v)
+            acc = (1 - CR.param(m.ε, p, t)) * u[p]
+            for q in eachindex(u)
+                q == p || (acc += CR.param(m.ε, q, t) * m.K[p, q] * u[q])
+            end
+            v[p] = acc
+        end
+        return nothing
+    end
+    # `ū_q = (1 − ε_q) v̄_q + ε_q c_q` and `ε̄_q += u_q (c_q − v̄_q)`, with
+    # `c_q = Σ_{p ≠ q} K[p, q] v̄_p`.
+    function CR.pullback!(grads, m::Spill, ::CR.Step, v, s, t)
+        v̄′ = copy(grads.v)
+        ε̄ = CR.cotangent(grads.piece, :ε)
+        for q in eachindex(v)
+            c = zero(eltype(v̄′))
+            for p in eachindex(v)
+                p == q || (c += m.K[p, q] * v̄′[p])
+            end
+            εq = CR.param(m.ε, q, t)
+            CR.add_param!(ε̄, m.ε, v[q] * (c - v̄′[q]), q, t)
+            grads.v[q] = (1 - εq) * v̄′[q] + εq * c
+        end
+        return nothing
+    end
+end
+
 @testitem "Recent: construction, depth and errors" begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
@@ -83,7 +123,7 @@ end
     @test r(R; history = h2) ≈ y[:, (W + 1):end]
 end
 
-@testitem "Recent: any modifier parameter reads the outputs it would see" begin
+@testitem "Recent: any modifier parameter reads the outputs it would see" setup = [RecentSpill] begin
     using ComposableRecurrences, LinearAlgebra, Random
     const CR = ComposableRecurrences
     rng = Xoshiro(22)
@@ -105,7 +145,10 @@ end
         ),
         (u -> CR.Add(u), x -> -0.05 * x, u -> -0.05 * u),
         (u -> CR.Clamp(0.0, u), x -> 2.0 + x, u -> 2.0 + u),
-        (u -> CR.Redistribute(K, u), x -> Derived(tanh, 0.01 * x), u -> tanh(0.01 * u)),
+        (
+            u -> RecentSpill.Spill(K, u), x -> Derived(tanh, 0.01 * x),
+            u -> tanh(0.01 * u),
+        ),
     )
     for (build, src, f) in cases, C in (I, K)
         w = rand(rng, W)
@@ -130,7 +173,7 @@ end
     @test hcat(y1, r(R; state = st)) ≈ y
 end
 
-@testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck] begin
+@testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck, RecentSpill] begin
     using ComposableRecurrences, LinearAlgebra, Random
     rng = Xoshiro(23)
     S, L, T, W = 2, 3, 10, 5
@@ -144,7 +187,7 @@ end
         (CR.Transform(*, Derived(exp, -0.05 * Recent(W))),),
         (CR.Depletion(PerStratum([50.0, 80.0]); removals = 0.2 * Recent(w)),),
         (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3))),
-        (CR.Redistribute(K, Derived(tanh, 0.1 * Recent(w))),),
+        (RecentSpill.Spill(K, Derived(tanh, 0.1 * Recent(w))),),
     )
     for ms in mods, C in (I, K)
         r = Recurrence(g; coupling = C, modifiers = ms)

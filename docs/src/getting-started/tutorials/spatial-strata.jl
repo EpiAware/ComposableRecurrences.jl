@@ -26,7 +26,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, Allocate, with_state
+using ComposableRecurrences: Depletion, Redistribute, Allocate, movement, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 
@@ -121,21 +121,25 @@ end
 
 # ## Moving infections between patches
 #
-# Each patch sends a share ``\varepsilon_{t,i}`` of its infections to the others:
+# A movement matrix ``M_t`` moves infections between patches after they occur:
 #
 # ```math
-# v'_{t,i} = \Big(1 - \varepsilon_{t,i} \sum_{j \ne i} K_{ji}\Big) v_{t,i}
-#     + \sum_{j \ne i} \varepsilon_{t,j} K_{ij} \, v_{t,j},
+# v'_{t,i} = \sum_j M_{t,ij} \, v_{t,j},
 # ```
 #
 # where ``v_{t,i}`` is patch ``i``'s value before the move and ``v'_{t,i}`` after it.
-# Each origin has its own share, which halves from day 40.
-# The modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute).
+# ``M_{t,ij}`` is the share of patch ``j``'s infections realised in patch ``i``.
+# Each column sums to one, so no infections are lost.
+# The modifier is [`Redistribute(M)`](@ref ComposableRecurrences.Redistribute).
 # It sits before [`Depletion`](@ref ComposableRecurrences.Depletion).
 # Each pool is then depleted by what its patch receives.
+#
+# Here each patch sends a share ``\varepsilon_{t,j}`` of its infections to the others, in proportion to ``K``.
+# Each origin has its own share, which halves from day 40.
+# [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds ``M_t`` from them, one matrix per day.
 
 ε = [t < 40 ? e : e / 2 for e in [0.05, 0.03, 0.02], t in 1:T]
-patch = Recurrence(gi; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε))), depletion))
+patch = Recurrence(gi; modifiers = (Redistribute(movement(K, ε)), depletion))
 infections, state = with_state(patch, 1.6; history = seed, stop = T);
 
 # The importation series is not recorded, but it can be recomputed from the infections.

@@ -184,7 +184,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
 |---|---|---|---|---|---|
 | [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals, flows between pools and an optional protected pool | yes | yes, or blockwise with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `flows` (the removals are the first), `protected` |
-| [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | hand-written | `ε` |
+| [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | hand-written | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
 | [`Flows(flows...)`](@ref ComposableRecurrences.Flows) | moves values between the compartments of each group by [`Flow(from => to, kind)`](@ref ComposableRecurrences.Flow)s | yes, with groups of series | no, blockwise | hand-written | each flow's rate, share or count |

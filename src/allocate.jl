@@ -31,8 +31,9 @@ v'_i &= T_{t,p} \Big((1 - \phi_{t,p}) \frac{u_i}{\sigma^u_p}
 \end{aligned}
 ```
 
-where ``M_t`` is the step of a [`ComposableRecurrences.Redistribute`](@ref)
-(the identity without `spill`) and ``P_t`` a
+where ``M_t`` is the movement matrix of a
+[`ComposableRecurrences.Redistribute`](@ref) (the identity without `spill`)
+and ``P_t`` a
 [coupling](@ref explanation-coupling).
 A group whose pattern sum is at or below ``\epsilon`` takes all of its
 total by ``u``, so ``v'_i = T_{t,p} u_i / \sigma^u_p``.
@@ -75,8 +76,8 @@ With `imports`, ``a^u_p`` and ``a^h_p`` are the same sums over ``u`` and
 \end{aligned}
 ```
 
-then ``\bar v = M_t^\top \bar u + P_t^\top \bar h``, the spill's and the
-coupling's own pullbacks, so the step costs two transposed products.
+then ``\bar v = M_t^\top \bar u + P_t^\top \bar h``, two transposed
+products.
 
 # Arguments
 - `groups`: a vector of index ranges or vectors, one per group,
@@ -116,7 +117,7 @@ other; the second group imports nothing:
 using ComposableRecurrences
 CR = ComposableRecurrences
 P = [0.0 0.0 0.2; 0.0 0.0 0.8; 0.0 0.0 0.0]
-within = CR.Redistribute([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], 0.1)
+within = CR.Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
 split = CR.Allocate(
     [1:2, 3:3], PerStratum([10.0, 2.0]);
     imports = (PerStratum([0.2, 0.0]), P), spill = within
@@ -189,7 +190,7 @@ function _imports(::Nothing, spill, P)
     spill === nothing || throw(
         ArgumentError(
             "spill needs imports; without them use " *
-                "(Redistribute(K, ε), Allocate(groups, total)), got spill = " *
+                "(Redistribute(M), Allocate(groups, total)), got spill = " *
                 _describe(spill)
         )
     )
@@ -370,14 +371,11 @@ function forward(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     return nothing
 end
 
-# The spilled values `u`, the spill's own step written to `u` rather than
-# to `v`.
+# The spilled values `u = M v`, the spill's product written to `u` rather
+# than to `v`.
 _spill!(::Nothing, u, v, t) = v
 function _spill!(r::Redistribute, u, v, t)
-    (; K, ε) = r
-    S = length(v)
-    _arrivals!(u, K, ε, v, t)
-    _each!(_redistribute_body!, Serial(), v, S, S * S, u, v, u, K, ε, t)
+    forward(r.M, Pressure(), u, v, t)
     return u
 end
 
@@ -459,12 +457,14 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
 end
 
 _spill_back!(::Nothing, r̄, v̄, s̄, v, t) = nothing
-# The spilled values' state cotangent joins theirs, then the spill's own
-# pullback sends them to `v`.
+# The spilled values' state cotangent joins theirs, then they go back
+# through the spill's product: `v̄ = Mᵀ ū` and `M̄ += ū vᵀ`.
 function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t)
     ū = view(s̄, 1:length(v))
-    v̄ .+= ū
+    ū .+= v̄
+    fill!(v̄, zero(eltype(v̄)))
+    M̄ = cotangent(r̄, :M)
+    pullback!((; piece = M̄, q = ū, p = v̄), r.M, Pressure(), ū, v, t)
     fill!(ū, zero(eltype(ū)))
-    pullback!((; piece = r̄, v = v̄, s = ū), r, Step(), v, ū, t)
     return nothing
 end

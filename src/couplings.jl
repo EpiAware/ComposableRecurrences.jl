@@ -187,6 +187,62 @@ function pullback!(
     return nothing
 end
 
+# A time-varying dense array with a dense or absent mirror: the same fused
+# loop over its slice at `t`, without bounds checks.
+function pullback!(
+        grads, C::TimeVarying{Secondary, <:Array{<:Any, 3}}, ::Pressure, q, p, t
+    )
+    q̄, p̄ = grads.q, grads.p
+    X = C.x
+    X̄ = _array_mirror(cotangent(grads.piece, :x))
+    X̄ isa Union{Array{<:Any, 3}, Nothing, NamedTuple{()}} ||
+        return _tv_coupling_back!(p̄, X̄, X, q̄, p, t)
+    X̄ isa Array && size(X̄) != size(X) && throw(
+        DimensionMismatch("mirror is $(size(X̄)), coupling is $(size(X))")
+    )
+    checkbounds(X, :, :, t)
+    axes(q̄, 1) == axes(X, 1) && axes(p̄, 1) == axes(p, 1) == axes(X, 2) || throw(
+        DimensionMismatch("coupling is $(size(X)), pressures are $(length(p))")
+    )
+    _tv_coupling_back!(p̄, X̄, X, q̄, p, t)
+    return nothing
+end
+function _tv_coupling_back!(p̄, X̄, X, q̄, p, t)
+    for b in axes(X, 2)
+        acc = zero(eltype(p̄))
+        for a in axes(X, 1)
+            acc += X[a, b, t] * q̄[a]
+            add_cotangent!(X̄, q̄[a] * p[b], a, b, t)
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+function _tv_coupling_back!(p̄, X̄::Array{<:Any, 3}, X::Array{<:Any, 3}, q̄, p, t)
+    @inbounds for b in axes(X, 2)
+        acc = zero(eltype(p̄))
+        pb = p[b]
+        @simd for a in axes(X, 1)
+            acc += X[a, b, t] * q̄[a]
+            X̄[a, b, t] += q̄[a] * pb
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+function _tv_coupling_back!(
+        p̄, ::Union{Nothing, NamedTuple{()}}, X::Array{<:Any, 3}, q̄, p, t
+    )
+    @inbounds for b in axes(X, 2)
+        acc = zero(eltype(p̄))
+        @simd for a in axes(X, 1)
+            acc += X[a, b, t] * q̄[a]
+        end
+        p̄[b] += acc
+    end
+    return nothing
+end
+
 # Coupling shape checks against `S` strata.
 _check_coupling(C, S) = nothing
 function _check_coupling(C::AbstractMatrix, S)

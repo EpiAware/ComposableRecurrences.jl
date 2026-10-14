@@ -4,6 +4,9 @@
 
 ### Breaking
 
+- `Redistribute(M; leak = false)` takes one movement matrix whose columns sum to one, fixed or `TimeVarying`, in place of a kernel `K` and an intensity `ε` ([spatial and multi-type models][spatial]).
+  To migrate, write `Redistribute(movement(K, ε))`; `movement` takes `ε` as one value, a vector over origins, or an origins × time matrix.
+
 - `seeded` is removed.
   Use `r(gain; history, start = m + 1, prepend = true)`, which places the seed at times `1:m` and returns it before the run ([renewal then delay][renewal]).
 - `start = nothing` is an `ArgumentError`.
@@ -58,7 +61,7 @@
 - ConstructionBase and ForwardDiff are hard dependencies.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.
-- `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
+- `Redistribute` checks its matrix against the strata, and its columns, once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
 - Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).

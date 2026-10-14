@@ -177,7 +177,7 @@ function _allocate_imports(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = ComposableRecurrences.Redistribute(K, PerStratum(ε))
+        spill = ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε))
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -192,9 +192,14 @@ function _dense_matrices(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (0.2, collect(P)),
-        spill = ComposableRecurrences.Redistribute(collect(K), PerStratum(ε))
+        spill = ComposableRecurrences.Redistribute(
+            ComposableRecurrences.movement(collect(K), ε)
+        )
     )
-    mods = (ComposableRecurrences.Redistribute(collect(K), 0.1), split)
+    mods = (
+        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(collect(K), 0.1)),
+        split,
+    )
     r = Recurrence(g; coupling = collect(C), modifiers = mods)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
@@ -474,7 +479,7 @@ function _clamp_redistribute_add(w, θ)
         CRA0 .+ θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T)
     )
     mods = (
-        ComposableRecurrences.Redistribute(K, PerStratum(ε)),
+        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
         ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
         ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
     )

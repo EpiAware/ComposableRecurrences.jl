@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Depletion, Protected, Flow, Flows, Rate, Linear, Amount, Redistribute,
+public Depletion, Protected, Flow, Flows, Rate, Linear, Amount, Redistribute, movement,
     Add, Clamp, Allocate, Capacity, Beds, Budget, Route, Hold, Drop,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,

@@ -208,7 +208,7 @@ end
         Recurrence(g; modifiers = (CR.Depletion(1.0e3; pool0 = 1.0e3),)),
         Recurrence(g; coupling = K),
         Recurrence(Pairwise(rand(rng, S, S, L) ./ (2 * S * L))),
-        Recurrence(g; modifiers = (CR.Redistribute(K, 0.1),)),
+        Recurrence(g; modifiers = (CR.Redistribute(CR.movement(K, 0.1)),)),
         # Vector steps that read every stratum run serially between the
         # threaded strata loops.
         Recurrence(

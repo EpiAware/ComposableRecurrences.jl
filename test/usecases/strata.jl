@@ -198,21 +198,24 @@ end
     ∇ref = ForwardDiff.gradient(ref_loss, θ0)
 
     # Each patch generates R_{p,t} Σ_i g_i I_{p,t-i}; a share ε_{q,t} K_{pq}
-    # of what origin q generates is realised in p instead (Redistribute),
+    # of what origin q generates is realised in p instead (Redistribute of
+    # the movement matrix of K and ε),
     # then each patch depletes its own pool from N_p − Σ seed (hazard form).
     # The seeds are the history and are returned first; the first output is
     # day `L + 1`, which reads R_t and ε at that day.
     function patch(K, ε, N)
-        importation = ComposableRecurrences.Redistribute(K, ε)
+        importation = ComposableRecurrences.Redistribute(
+            ComposableRecurrences.movement(K, ε)
+        )
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
         r = Recurrence(g; modifiers = (importation, depletion))
         return r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)
     end
-    @test patch(K, TimeVarying(PerStratum(ε)), N) ≈ ref
+    @test patch(K, ε, N) ≈ ref
     function loss(θ)
         K, ε, N = unpack(θ)
-        return sum(w .* patch(K, TimeVarying(PerStratum(ε)), N))
+        return sum(w .* patch(K, ε, N))
     end
     @test ForwardDiff.gradient(loss, θ0) ≈ ∇ref
 
@@ -231,7 +234,7 @@ end
     # off-diagonal K applied to each origin's ε-weighted generation. The
     # seed days have no arrivals.
     function patch_importation(K, ε, N)
-        I = patch(K, TimeVarying(PerStratum(ε)), N)
+        I = patch(K, ε, N)
         gen = Rt .* Convolution(vcat(0.0, g))(I)
         arrivals = (K - Diagonal(diag(K))) * (ε .* gen)
         arrivals[:, 1:L] .= 0

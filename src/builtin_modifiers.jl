@@ -655,42 +655,54 @@ end
 # Redistribute ------------------------------------------------------------
 
 @doc raw"""
-Moves a share of each stratum's values to others, conserving the total: a
-share ``\varepsilon_{t,j} K_{ij}`` of origin ``j``'s value is realised in
-destination ``i`` instead.
+Moves a share of each stratum's value to others through a movement matrix
+whose columns sum to one, so the total is conserved.
 
 For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
 
 ```math
 \begin{aligned}
-s'_i &= \sum_{j \ne i} \varepsilon_{t,j} K_{ij}\, v_j, \\
-v'_i &= \Big(1 - \varepsilon_{t,i} \sum_{j \ne i} K_{ji}\Big) v_i + s'_i,
+s'_i &= \sum_{j \ne i} M_{t,ij}\, v_j, \\
+v'_i &= M_{t,ii}\, v_i + s'_i = \sum_j M_{t,ij}\, v_j,
 \end{aligned}
 ```
 
 where ``v_i`` is the value entering the modifier, ``v'_i`` the value it
-passes on, ``K_{ij}`` = `K[i, j]` the share from origin ``j`` to destination
-``i``, ``\varepsilon_{t,j}`` origin ``j``'s intensity at time ``t`` and
-``s'_i`` the arrivals, kept as the state.
-Summing ``v'_i`` over ``i`` gives ``\sum_i v_i``.
-The diagonal of `K` is not read: a stratum does not import from itself.
-The intensity `ε` belongs to the origin and is a
-[parameter](@ref ComposableRecurrences.param).
+passes on, ``M_{t,ij}`` = `M[i, j]` the share of origin ``j``'s value that
+is realised in destination ``i`` and ``s'_i`` the arrivals, kept as the
+state.
+The columns of ``M`` sum to one, so summing ``v'_i`` over ``i`` gives
+``\sum_i v_i``; this is checked at `Init` to within the square root of the
+machine epsilon.
+With `leak = true` a column may sum to less than one, for a share lost on
+the way.
+`M` is an `S × S` matrix, or `TimeVarying` of an `S × S × T` array for
+movement that changes over time; its entries are its parameters, and a
+gradient with respect to anything they are built from, such as an
+intensity, flows through that construction
+([`ComposableRecurrences.movement`](@ref) builds one from a kernel and an
+intensity).
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
 stratum's pool by what it realises; a modifier sees
 ``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
 input, so the `add` values move too.
+The step is the coupling product ``M_t v``, and its reverse pass the
+transposed product, ``\bar v = M_t^\top \bar v'`` and
+``\bar M_t \mathrel{+}= \bar v' v^\top``.
 
 # Arguments
-- `K`: the `S × S` kernel, `K[p, q]` from origin `q` to destination `p`.
-- `ε`: the origin intensity.
+- `M`: the movement matrix, `M[p, q]` the share of origin `q` realised in
+  destination `p`.
+
+# Keyword Arguments
+- `leak`: allow columns summing to less than one. Defaults to `false`.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-K = [0.0 0.3; 0.2 0.0]
-r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
+M = CR.movement([0.0 0.3; 0.2 0.0], 0.1)
+r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
 y = r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
 round.(y; digits = 3)
 
@@ -701,171 +713,161 @@ round.(y; digits = 3)
  0.024  0.04  0.067  0.095  0.131
 ```
 """
-struct Redistribute{K <: AbstractMatrix, E}
-    "The kernel, `K[p, q]` from origin `q` to destination `p`."
-    K::K
-    "The origin intensity, a parameter."
-    ε::E
-    function Redistribute(K::M, ε::E) where {M <: AbstractMatrix, E}
-        size(K, 1) == size(K, 2) || throw(
-            DimensionMismatch("K is $(size(K)), expected a square matrix")
-        )
-        return new{M, E}(K, _check_param(:ε, ε))
+struct Redistribute{L, A}
+    "The movement matrix, `M[p, q]` from origin `q` to destination `p`."
+    M::A
+    function Redistribute{L}(M::A) where {L, A}
+        L isa Bool || throw(ArgumentError("leak is true or false, got $(repr(L))"))
+        _check_movement_shape(M)
+        return new{L, A}(M)
     end
 end
+Redistribute(M; leak::Bool = false) = Redistribute{leak}(M)
+function Redistribute(K, ε)
+    throw(
+        ArgumentError(
+            "Redistribute takes one movement matrix; for a kernel K and an " *
+                "intensity ε use Redistribute(movement(K, ε))"
+        )
+    )
+end
+ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
 
-# The kernel is checked against the strata once, here and on a resumed
-# state, not on every step.
+function _check_movement_shape(M::AbstractMatrix)
+    size(M, 1) == size(M, 2) || throw(
+        DimensionMismatch("M is $(size(M)), expected a square matrix")
+    )
+    return nothing
+end
+function _check_movement_shape(M::TimeVarying)
+    _check_coupling_shape(M)
+    size(M.x, 1) == size(M.x, 2) || throw(
+        DimensionMismatch("M is $(size(M.x)), expected S × S × T")
+    )
+    return nothing
+end
+function _check_movement_shape(M)
+    throw(
+        ArgumentError(
+            "M is an S × S matrix or TimeVarying of an S × S × T array, got " *
+                _describe(M)
+        )
+    )
+end
+
+@doc raw"""
+The movement matrix of a kernel ``K`` and an origin intensity
+``\varepsilon``: a share ``\varepsilon_q K_{pq}`` of origin ``q``'s value is
+realised in ``p \ne q``, and the rest stays,
+
+```math
+M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\varepsilon),
+\qquad o_q = \sum_p K_{pq},
+```
+
+so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
+diagonal of ``K``, and every column of ``M`` sums to one.
+`ε` is one value, a vector over origins, or an origins × time matrix, which
+gives `TimeVarying` of an `S × S × T` array.
+It is a plain function of `K` and `ε`, so AD differentiates through it.
+
+# Arguments
+- `K`: the `S × S` kernel, `K[p, q]` the weight from origin `q` to `p`.
+- `ε`: the origin intensity.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.movement([0.0 0.3; 0.2 0.0], [0.1, 0.5])
+
+# output
+
+2×2 Matrix{Float64}:
+ 0.98  0.15
+ 0.02  0.85
+```
+"""
+movement(K::AbstractMatrix, ε::Union{Real, AbstractVector}) = _movement(K, _origins(ε))
+function movement(K::AbstractMatrix, ε::AbstractMatrix)
+    return TimeVarying(_movement(K, reshape(ε, 1, size(ε)...)))
+end
+_origins(ε::Real) = ε
+_origins(ε::AbstractVector) = permutedims(ε)
+function _movement(K, E)
+    size(K, 1) == size(K, 2) || throw(
+        DimensionMismatch("K is $(size(K)), expected a square matrix")
+    )
+    o = sum(K; dims = 1)
+    return (axes(K, 1) .== permutedims(axes(K, 2))) .* (1 .- o .* E) .+ K .* E
+end
+
+# The matrix is checked against the strata, and its columns, once, here
+# and on a resumed state, not on every step.
 function forward(m::Redistribute, ::Init, s, history)
     _check_modifier_strata(m, length(s))
-    return _zero_state!(s, :ε => m.ε)
+    fill!(s, zero(eltype(s)))
+    return nothing
 end
-function _check_modifier_strata(m::Redistribute, S)
-    size(m.K, 1) == S || throw(
-        DimensionMismatch(
-            "Redistribute K is $(size(m.K)), expected ($S, $S) for $S strata"
+function _check_modifier_strata(m::Redistribute{L}, S) where {L}
+    _check_coupling(m.M, S)
+    _check_columns(_movement_array(m.M), L)
+    return nothing
+end
+_movement_array(M::AbstractMatrix) = M
+_movement_array(M::TimeVarying) = M.x
+function _check_columns(A, leak)
+    tol = sqrt(eps(float(_primal_type(eltype(A)))))
+    sums = sum(A; dims = 1)
+    ok = leak ? all(<=(1 + tol), sums) : all(x -> abs(x - 1) <= tol, sums)
+    ok || throw(
+        ArgumentError(
+            "every column of M must sum to " * (leak ? "at most one" : "one") *
+                (leak ? "" : " (or pass leak = true for columns that lose a share)") *
+                "; the column sums range over $(extrema(sums))"
         )
     )
     return nothing
 end
 pullback!(grads, ::Redistribute, ::Init, s, history) = nothing
 
-# Origin `q`'s total share sent away, Σ_{r ≠ q} K[r, q].
-function _outflow(K, q)
-    out = zero(eltype(K))
-    for r in axes(K, 1)
-        r == q || (out += K[r, q])
-    end
-    return out
-end
-# A dense kernel's column sum vectorises, less its diagonal.
-function _outflow(K::Matrix, q)
-    checkbounds(K, axes(K, 1), q)
-    out = zero(eltype(K))
-    @inbounds @simd for r in axes(K, 1)
-        out += K[r, q]
-    end
-    return out - K[q, q]
-end
-
+# The product `s = M v`, then each stratum keeps its own share and the
+# arrivals are what the others sent.
 function forward(m::Redistribute, ::Step, v, s, t)
-    (; K, ε) = m
+    forward(m.M, Pressure(), s, v, t)
     S = length(eachindex(v, s))
-    _arrivals!(s, K, ε, v, t)
-    _each!(_redistribute_body!, Serial(), v, S, S * S, v, v, s, K, ε, t)
+    _each!(_redistribute_body!, Serial(), v, S, S, v, s, m.M, t)
     return nothing
 end
+function _redistribute_body!(p, v, s, M, t)
+    kept = _diag_at(M, p, t) * v[p]
+    v[p] = s[p]
+    s[p] -= kept
+    return nothing
+end
+_diag_at(M::AbstractMatrix, p, t) = M[p, p]
+_diag_at(M::TimeVarying, p, t) = M.x[p, p, t]
 
-# Every destination's arrivals into `s`. A dense kernel is read column by
-# column, the order it is stored in; any other a destination at a time, as
-# one index of the loop.
-function _arrivals!(s, K::Matrix, ε, v, t)
-    axes(s, 1) == axes(v, 1) == axes(K, 1) == axes(K, 2) || throw(
-        DimensionMismatch(
-            "Redistribute K is $(size(K)), expected ($(length(v)), $(length(v)))"
-        )
-    )
-    fill!(s, zero(eltype(s)))
-    for q in eachindex(v)
-        c = param(ε, q, t) * v[q]
-        @inbounds for p in axes(K, 1)
-            s[p] += K[p, q] * c
-        end
-        s[q] -= K[q, q] * c
-    end
-    return nothing
-end
-function _arrivals!(s, K, ε, v, t)
-    S = length(v)
-    _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
-    return nothing
-end
-
-# Destination `p`'s arrivals from every other stratum.
-function _arrivals_body!(p, s, v, K, ε, t)
-    acc = zero(eltype(s))
-    for q in eachindex(v)
-        q == p || (acc += param(ε, q, t) * K[p, q] * v[q])
-    end
-    s[p] = acc
-    return nothing
-end
-
-# Stratum `p` after its outflow and arrivals, written to `out[p]`.
-function _redistribute_body!(p, out, v, s, K, ε, t)
-    out[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
-    return nothing
-end
-
-# The arrivals `s′` feed both outputs, so their cotangent is `s̄′ + v̄′`;
-# the incoming state is not read.
+# `v′ = M v` and `s′ = M v − diag(M) ∘ v`, so with `q̄ = v̄′ + s̄′` the
+# input's cotangent is `Mᵀ q̄ − diag(M) ∘ s̄′` and the matrix's
+# `q̄ vᵀ − diag(s̄′ ∘ v)`: the coupling's own transposed product, started
+# from the diagonal term.
 function pullback!(grads, m::Redistribute, ::Step, v, s, t)
-    (; K, ε) = m
+    M = m.M
     v̄, s̄ = grads.v, grads.s
-    K̄, ε̄ = cotangent(grads.piece, :K), cotangent(grads.piece, :ε)
-    for p in eachindex(v̄, s̄)
-        s̄[p] += v̄[p]
+    M̄ = cotangent(grads.piece, :M)
+    for p in eachindex(v, v̄, s̄)
+        s̄p = s̄[p]
+        s̄[p] = v̄[p] + s̄p
+        v̄[p] = -_diag_at(M, p, t) * s̄p
+        _add_diag!(M̄, M, -s̄p * v[p], p, t)
     end
-    _redistribute_back!(_kernel_mirror(K̄, K), K, ε, ε̄, v, v̄, s̄, t)
+    pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
     fill!(s̄, zero(eltype(s̄)))
     return nothing
 end
-
-# A dense kernel whose mirror is dense or absent runs without bounds
-# checks once the sizes are checked; any other goes entry by entry.
-_kernel_mirror(K̄, K) = K̄
-function _kernel_mirror(K̄, K::Matrix)
-    K̄′ = _array_mirror(K̄)
-    K̄′ isa _DenseMirror || return K̄
-    _check_dense(K̄′, K)
-    return K̄′
-end
-
-# Per origin `q`, with `a_q = Σ_{p ≠ q} K[p, q] s̄_p`: `K̄[p, q] +=
-# ε_q v_q (s̄_p − v̄_q)` off the diagonal, `ε̄_q += v_q (a_q − o_q v̄_q)` and
-# `v̄_q ← (1 − ε_q o_q) v̄_q + ε_q a_q`.
-function _redistribute_back!(K̄, K, ε, ε̄, v, v̄, s̄, t)
-    for q in eachindex(v, v̄)
-        εq = param(ε, q, t)
-        out = _outflow(K, q)
-        acc = zero(eltype(v̄))
-        for p in eachindex(v)
-            p == q && continue
-            acc += s̄[p] * K[p, q]
-            _add_entry!(K̄, K, εq * v[q] * (s̄[p] - v̄[q]), p, q)
-        end
-        add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
-        v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
-    end
-    return nothing
-end
-function _redistribute_back!(K̄::_DenseMirror, K::Matrix, ε, ε̄, v, v̄, s̄, t)
-    axes(s̄, 1) == axes(v̄, 1) == axes(v, 1) == axes(K, 1) || throw(
-        DimensionMismatch("kernel is $(size(K)), values are $(length(v))")
-    )
-    @inbounds for q in eachindex(v, v̄)
-        εq = param(ε, q, t)
-        out = _outflow(K, q)
-        c = εq * v[q]
-        acc = _redistribute_column!(K̄, K, s̄, c, v̄[q], q)
-        add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
-        v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
-    end
-    return nothing
-end
-# Column `q` off the diagonal, in the two ranges either side of it.
-Base.@propagate_inbounds function _redistribute_column!(K̄, K, s̄, c, v̄q, q)
-    acc = zero(eltype(s̄))
-    for rows in (firstindex(s̄):(q - 1), (q + 1):lastindex(s̄))
-        @simd for p in rows
-            acc += s̄[p] * K[p, q]
-            _dense_add!(K̄, c * (s̄[p] - v̄q), p, q)
-        end
-    end
-    return acc
-end
-Base.@propagate_inbounds _dense_add!(K̄::Matrix, x, p, q) = (K̄[p, q] += x; nothing)
-_dense_add!(::Union{Nothing, NamedTuple{()}}, x, p, q) = nothing
+_add_diag!(M̄, M::AbstractMatrix, x, p, t) = _add_entry!(M̄, M, x, p, p)
+_add_diag!(M̄, M::TimeVarying, x, p, t) = add_cotangent!(cotangent(M̄, :x), x, p, p, t)
 
 # Clamp -------------------------------------------------------------------
 
