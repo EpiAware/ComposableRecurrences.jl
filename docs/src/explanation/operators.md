@@ -19,8 +19,10 @@ y_t = g_t \sum_{l=1}^{L} k_l \, y_{t-l} = g_t \sum_{l=0}^{L} \tilde k_l \, y_{t-
 \qquad \tilde k = (0, k_1, \dots, k_L),
 ```
 
-where ``y_t`` is the output on day ``t``, ``k_l`` the kernel weight on lag ``l``, and ``\tilde k`` the convolution kernel `vcat(0, k)`.
-The [FAQ](@ref faq-lag-origin) says why the two kernels start at different lags.
+where ``y_t`` is the output on day ``t``, ``k_l`` the kernel weight on lag ``l``, and ``	ilde k`` the convolution kernel `vcat(0, k)`.
+A recurrence's value cannot depend on itself in the same step, so its first weight is on the previous value.
+A convolution can weight today's input, as a reporting delay of zero days does.
+Both are written as the quantity is usually written, so a generation interval or a delay goes in unchanged.
 
 ```@example operators
 k = [0.2, 0.5, 0.3]
@@ -119,4 +121,3 @@ reports ≈ delay(joined)[(length(seed) + 1):end]
 ```
 
 Pass the seed as history when the reports should cover the run only, and prepend it when they should cover the seed days too.
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial builds a full model this way.

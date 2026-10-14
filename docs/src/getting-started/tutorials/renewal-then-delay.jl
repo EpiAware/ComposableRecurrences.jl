@@ -2,19 +2,16 @@
 #
 # ## Introduction
 #
-# A renewal process makes each day's infections from the recent past.
-# The generation interval weights the past days, and the reproduction number scales the sum.
-# A reporting delay then spreads those infections over the days they are reported.
-# This tutorial builds both from `Recurrence` and `Convolution`.
-# It adds susceptible depletion and imported cases, takes a gradient and makes a forecast.
+# [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
+# This tutorial covers what it leaves out: seeding, depletion forms, vaccination, imports, clinical outcomes and forecasts.
 #
 # ### What are we going to do in this exercise
 #
-# 1. Run a renewal process with a changing reproduction number and a measure that scales it.
+# 1. Seed a renewal process on a growth path.
 # 2. Deplete a finite susceptible pool with the hazard and floored forms.
-# 3. Add imported cases before or after depletion.
-# 4. Report infections through a delay, and chain delays for clinical outcomes.
-# 5. Differentiate the reports with respect to the reproduction number.
+# 3. Vaccinate with all-or-nothing, leaky and waning protection.
+# 4. Add imported cases before or after depletion.
+# 5. Chain delays for clinical outcomes.
 # 6. Forecast by continuing the renewal process from its last fitted day.
 #
 # ### What might I need to know before starting
@@ -34,18 +31,11 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A renewal process
 #
-# Infections follow the renewal equation
+# The renewal process is the one in [Getting started](@ref overview-build), with a reproduction number that changes on days 30 and 50:
 #
 # ```math
 # I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
 # ```
-#
-# ``I_t`` is the number of infections on day ``t``.
-# ``g_l`` is the generation interval's weight on lag ``l``, the kernel, lag 1 first.
-# ``L`` is its length.
-# ``R_t`` is the reproduction number, one value per day, and is called the gain.
-# The history holds the infections on the days before the first step.
-# A shorter history is padded with zeros.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 renewal = Recurrence(gi)
@@ -53,27 +43,6 @@ T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 infections = renewal(R; history = [5.0])
 
-@chain DataFrame(day = 1:T, Infections = infections) begin
-    stack(Not(:day); variable_name = :series, value_name = :count)
-    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Count"))
-end
-
-# Infections grow while `R` is 1.4, fall after day 30 at 0.9, and grow again after day 50.
-# Each change in `R` shows as a jump, because `R` scales each day's infections directly.
-#
-# ### A measure that scales R
-#
-# A population measure cuts transmission by a share ``c`` from day ``t_0`` to ``t_1``.
-# It scales the gain to ``R_t (1 - c\, \mathbb{1}[t_0 \le t \le t_1])``.
-# A constant control is the same measure over the whole run.
-
-c, t0, t1 = 0.3, 20, 40
-measure = [t0 <= t <= t1 ? 1 - c : 1.0 for t in 1:T]
-round.((sum(infections), sum(renewal(R .* measure; history = [5.0]))))
-
-# Cutting transmission for three weeks lowers the total.
-#
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
@@ -115,24 +84,22 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 N = 2_000.0
 R_high = fill(1.8, T)
-forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N, Floor())]
-@chain forms begin
-    map(_) do (name, d)
-        y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
-        DataFrame(
-            "day" => 1:T, "form" => name,
-            "Infections" => y, "Susceptible pool" => N .- cumsum(y)
-        )
-    end
+run_with(d) = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
+plot_infections(runs) = @chain runs begin
+    map(((name, d),) -> DataFrame(day = 1:T, model = name, count = run_with(d)), _)
     reduce(vcat, _)
-    stack(Not([:day, :form]); variable_name = :quantity, value_name = :count)
-    data(_) * mapping(:day, :count, color = :form, layout = :quantity) *
-        visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Count"), facet = (; linkyaxes = :none))
+    data(_) * mapping(:day, :count, color = :model => "") * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
+forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N, Floor())]
+plot_infections(forms)
+
+#-
+
+round.(N .- [sum(run_with(d)) for (_, d) in forms])
 
 # Both forms end the outbreak as the pool empties.
-# The hazard form draws slightly less at the peak and leaves more susceptibles.
+# The hazard form draws slightly less at the peak and leaves more susceptibles, as the remaining pools show.
 # This is because ``1 - e^{-x}`` is below ``x``.
 
 # ## Vaccination
@@ -169,15 +136,7 @@ vaccines = [
     "All-or-nothing" => Depletion(N; removals = TimeVarying(e .* doses), protected = Protected(0.0)),
     "Leaky" => leaky,
 ]
-@chain vaccines begin
-    map(_) do (name, d)
-        y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
-        DataFrame(day = 1:T, vaccine = name, count = y)
-    end
-    reduce(vcat, _)
-    data(_) * mapping(:day, :count, color = :vaccine) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
-end
+plot_infections(vaccines)
 
 # Both vaccines lower the peak.
 # The peak comes slightly earlier, because the pool shrinks faster.
@@ -198,84 +157,17 @@ end
 #
 # with ``S_t`` and ``V_t`` the pools after the day's infections.
 # Here protection lasts about 20 days on average.
-# The rate can also differ by stratum or change over time, as the rates do in [Occupancy and capacity](@ref tutorial-occupancy).
 
-waning = [
-    "Leaky" => leaky,
-    "Leaky, waning" => Depletion(
-        N; removals = TimeVarying(doses), protected = Protected(1 - e), flows = Flow(2 => 1, 1 / 20)
-    ),
-]
-@chain waning begin
-    map(_) do (name, d)
-        y = Recurrence(gi; modifiers = (d,))(R_high; history = [5.0])
-        DataFrame(day = 1:T, vaccine = name, count = y)
-    end
-    reduce(vcat, _)
-    data(_) * mapping(:day, :count, color = :vaccine) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
-end
+waning = Depletion(
+    N; removals = TimeVarying(doses), protected = Protected(1 - e), flows = Flow(2 => 1, 1 / 20)
+)
+plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # Waning raises the peak a little and adds about 8% more infections over the outbreak, because people protected early return to the susceptible pool while the epidemic runs.
 #
-# ### Checking against a stochastic simulation
-#
-# The model gives expected values, so it should match the mean of many simulations.
-# We compare it with the stochastic SIR model `HomogeneousProcess` in continuous time.
-# It comes from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl).
-# Its population is 5,000 and ``R_0 = 2``.
-# The infectious period is exponential with mean 4 days.
-# Ten people are infected at the start.
-# Before the outbreak 40% of people are vaccinated with efficacy 0.7.
-# [`Protected`](@ref ComposableRecurrences.Protected) starts with them in its pool.
-# There are no removals.
-# The SIR generation interval is then exponential with mean 4 days, binned here by day.
-#
-# ```math
-# g_l = \frac{e^{-(l-1)/D} - e^{-l/D}}{\sum_{m=1}^{120} \big(e^{-(m-1)/D} - e^{-m/D}\big)},
-# \qquad l = 1, \dots, 120,
-# ```
-#
-# where ``D`` is the mean infectious period.
-# The reference column is the mean final share infected over the major outbreaks.
-# It comes from 200 seeded simulations per vaccine.
-# It is read from the file that also holds its parameters.
-# The file and its generator are in `test/usecases/references`.
+# The final sizes of these vaccines match seeded stochastic SIR simulations from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl); the [vaccination use case](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/usecases/vaccination.jl) checks them.
 
-ref = include(
-    joinpath(
-        pkgdir(ComposableRecurrences),
-        "test", "usecases", "references", "epibranch_homogeneous.jl"
-    )
-)
-N_sir, n0, D = float(ref.N), ref.N_INITIAL, ref.INFECTIOUS_PERIOD
-gi_sir = [exp(-(i - 1) / D) - exp(-i / D) for i in 1:120]
-gi_sir ./= sum(gi_sir)
-vaccinated = ref.COVERAGE * (N_sir - n0)
-function final_share(σ, protected0)
-    d = Depletion(
-        N_sir; pool0 = N_sir - n0 - protected0,
-        protected = Protected(σ; pool0 = protected0)
-    )
-    y = Recurrence(gi_sir; modifiers = (d,))(fill(ref.R0, 400); history = [float(n0)])
-    return round((n0 + sum(y)) / N_sir; digits = 3)
-end
-DataFrame(
-    "Vaccine" => ["None", "All-or-nothing", "Leaky"],
-    "ComposableRecurrences" => [
-        final_share(1.0, 0.0), final_share(0.0, ref.EFFICACY * vaccinated),
-        final_share(1 - ref.EFFICACY, vaccinated),
-    ],
-    "HomogeneousProcess" => [
-        round(arm.total.mean; digits = 3)
-            for arm in (ref.NONE, ref.ALL_OR_NOTHING, ref.LEAKY)
-    ],
-)
-
-# Each difference is within about one standard error of the simulation mean.
-# The standard error is about 0.002.
-
-# ## Imported cases
+# ## [Imported cases](@id tutorial-imports)
 #
 # Let ``h(\cdot)`` be the depletion draw above and ``\iota_t`` the imports on day ``t``.
 # Imports passed as `add` and as an `Add` after `Depletion` give
@@ -305,39 +197,10 @@ end
 # Imports added after depletion are not drawn from the pool.
 # More susceptibles remain and the total is larger.
 
-# ## Reporting delay
+# ## Clinical outcomes
 #
-# Reports on day ``t`` are
-#
-# ```math
-# C_t = \rho \sum_{l=0}^{L_d - 1} d_l \, I_{t-l},
-# ```
-#
-# where ``d_l`` is the delay's weight on lag ``l`` and ``L_d`` its length.
-# ``\rho`` is the ascertainment.
-# The delay is a convolution kernel, lag 0 first, and ``\rho`` is the convolution's `gain`.
-# The five seed days sit at days 1 to 5 with `start = 6`.
-# `prepend = true` returns them before the run, so the delay sees the seed too.
-
-delay = Convolution([0.1, 0.3, 0.3, 0.2, 0.1])
-seed = fill(5.0, 5)
-R_full = vcat(fill(1.0, 5), R)
-infections_seeded = renewal(R_full; history = seed, start = 6, prepend = true)
-reports = delay(infections_seeded; gain = 0.3)
-days = 1:length(reports)
-@chain DataFrame(day = days, Infections = infections_seeded, Reports = reports) begin
-    stack(Not(:day); variable_name = :series, value_name = :count)
-    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Count"))
-end
-
-# Reports are 30% of infections, delayed and smoothed by the reporting delay.
-# The seed days appear at the start of both series.
-#
-# ### Clinical outcomes
-#
-# Each clinical transition is a delay that happens with some probability.
-# It is a `Convolution` with that probability as its gain.
+# A reporting delay is a `Convolution` with the ascertainment as its gain, as in [Getting started](@ref overview-build).
+# Each clinical transition is the same: a delay that happens with some probability.
 # Onsets ``O_t`` follow infections.
 # Admissions follow onsets with probability ``h``.
 # Deaths follow admissions with probability ``f``:
@@ -348,29 +211,13 @@ end
 #
 # The chain is one convolution with gain ``h f``, whose kernel convolves the three delays.
 
-onsets = Convolution([0.0, 0.2, 0.5, 0.3])(infections_seeded)
+onsets = Convolution([0.0, 0.2, 0.5, 0.3])(infections)
 admissions = Convolution([0.3, 0.4, 0.2, 0.1])(onsets; gain = 0.1)
 deaths = Convolution([0.1, 0.2, 0.4, 0.2, 0.1])(admissions; gain = 0.25)
-round.((sum(admissions), sum(deaths)) ./ sum(infections_seeded); digits = 3)
+round.((sum(admissions), sum(deaths)) ./ sum(infections); digits = 3)
 
 # The shares are below ``h = 0.1`` and ``h f = 0.025``.
 # Infections still grow at the end, and the last ones have outcomes after the run.
-
-# ## Gradients
-#
-# Both operators run on dual numbers.
-# ForwardDiff then gives the gradient of the total reports with respect to each day's `R`.
-
-total_reports(R) = sum(delay(renewal(R; history = seed, start = 6, prepend = true); gain = 0.3))
-∂R = ForwardDiff.gradient(total_reports, R_full)
-@chain DataFrame(day = days, sensitivity = ∂R) begin
-    data(_) * mapping(:day, :sensitivity) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "∂ total reports / ∂R"))
-end
-
-# The seed days have zero sensitivity, because the renewal does not run on them.
-# Later days matter less.
-# The infections they add have less time to grow and be reported.
 
 # ## Forecasting by continuing a run
 #

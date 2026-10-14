@@ -91,10 +91,7 @@ ForwardDiff.derivative(loss, 100.0)
 
 CR.uses_adjoint(Saturation(100.0), CR.Step())
 
-# Without one, the rule still runs.
-# The modifier is pointwise with a single float parameter, so the rule takes its derivative at each step with a local ForwardDiff step.
-# [Rules and plain AD](@ref adjoint-routing) gives the parts that send the whole operator to plain AD instead.
-# So the operator keeps its rule even though the modifier has none.
+# Without one, the rule still runs: [Rules and plain AD](@ref adjoint-routing) gives the route for a pointwise modifier with a float parameter.
 
 CR.uses_adjoint(model(100.0), CR.Run())
 
