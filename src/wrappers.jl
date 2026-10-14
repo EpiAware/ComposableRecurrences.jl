@@ -472,26 +472,7 @@ function _start_time(p::Pair)
     )
 end
 _stack_values(vs::AbstractVector{<:Real}) = [float(v) for v in vs]
-function _stack_values(vs::AbstractVector{<:AbstractVector})
-    n = _maxlen(_Columns(vs))
-    _all_length(vs, n) && return reduce(hcat, vs)
-    return reduce(hcat, map(v -> _pad(v, n), vs))
-end
-# Plain loops: a traced call reads the lengths as integers.
-function _all_length(vs, n)
-    for v in vs
-        length(v) == n || return false
-    end
-    return true
-end
-# A new vector either way, so the stack infers one type.
-_pad(v, n) = vcat(v, zeros(eltype(v), n - length(v)))
-function _all_size(vs, sz)
-    for v in vs
-        size(v) == sz || return false
-    end
-    return true
-end
+_stack_values(vs::AbstractVector{<:AbstractVector}) = _stack(vs, (_maxlen(_Columns(vs)),))
 function _stack_values(vs::AbstractVector{<:AbstractArray})
     sz = size(first(vs))
     _all_size(vs, sz) || throw(
@@ -500,7 +481,25 @@ function _stack_values(vs::AbstractVector{<:AbstractArray})
                 join(unique(map(v -> string(size(v)), vs)), ", ")
         )
     )
-    return reshape(reduce(hcat, map(vec, vs)), sz..., length(vs))
+    return _stack(vs, sz)
+end
+function _all_size(vs, sz)
+    for v in vs
+        size(v) == sz || return false
+    end
+    return true
+end
+# Each value copied into its slice of one zeroed array, where its type and
+# device are, as `_Ragged` stacks columns: AD backends differentiate the
+# copies as block copies. A shorter vector leaves zeros after its entries.
+function _stack(vs, sz)
+    T = _column_eltype(vs)
+    A = _like(vs, zeros(T, sz..., length(vs)))
+    n = prod(sz)
+    for (j, v) in enumerate(vs)
+        copyto!(A, (j - 1) * n + 1, v, firstindex(v), length(v))
+    end
+    return A
 end
 function _stack_values(vs::AbstractVector{<:PerStratum})
     return PerStratum(_stack_values(map(v -> v.x, vs)))

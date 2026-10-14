@@ -260,8 +260,11 @@ function conv_cp_secondary(θ)
     return Convolution(cp_kernel(θ, L))(θ[(3L + 1):end]; history = HX)
 end
 
+# The values are read as sums of one entry, as a traced scalar is not
+# indexed outside the package's loops.
 function mod_add_cp(θ)
-    b = TimeVarying([1 => θ[L + T + 1], CP2 => θ[L + T + 2]])
+    at(i) = sum(view(θ, i:i))
+    b = TimeVarying([1 => at(L + T + 1), CP2 => at(L + T + 2)])
     r = Recurrence(θ[1:L]; modifiers = (Add(b),))
     return r(θ[(L + 1):(L + T)]; history = H1)
 end

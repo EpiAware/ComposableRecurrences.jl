@@ -1,8 +1,8 @@
 module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Executor, PerStratum, Primary,
-    Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Ragged,
-    _lagweight, _nlags, _seg_weights, _steps!, _weight
+    Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
+    _Ragged, _array, _lagweight, _nlags, _seg_weights, _steps!, _weight
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
 
@@ -139,6 +139,18 @@ function ComposableRecurrences._kdot(
     return acc
 end
 
+# Traced values between change points stack by concatenation, which the
+# compiled program holds as one array.
+function ComposableRecurrences._stack(vs::AbstractVector{<:AnyTracedRArray}, sz)
+    z = zero(unwrapped_eltype(eltype(first(vs))))
+    cols = map(vs) do v
+        w = vec(v)
+        n = prod(sz) - length(w)
+        n == 0 ? w : vcat(w, Reactant.Ops.fill(z, (n,)))
+    end
+    return reshape(reduce(hcat, cols), sz..., length(vs))
+end
+
 # A coefficient given by change points at a traced time: its segment is the
 # count of the starts at or before that time, a traced number, by which the
 # dense values are read.
@@ -152,6 +164,20 @@ end
 function ComposableRecurrences._segment(g::_OldestFirstPiecewise, t::TracedRNumber)
     return ComposableRecurrences._segment_of(g.starts, t)
 end
+
+# A kernel weight from change points at a traced time, read at its linear
+# index in the values: an index pair whose last entry is traced does not
+# read the entry asked for.
+function ComposableRecurrences._weight(
+        g::TimeVarying{<:Any, <:_Piecewise}, a, b, i, τ::TracedRNumber
+    )
+    A = _array(g)
+    n = prod(size(A)[1:(end - 1)])
+    j = ComposableRecurrences._segment_of(g.x.starts, τ)
+    return vec(_traced(A))[_lead_index(g.x.x, a, i) + (j - 1) * n]
+end
+_lead_index(::AbstractMatrix, a, i) = i
+_lead_index(x::PerStratum, a, i) = a + (i - 1) * size(x.x, 1)
 
 # A recurrence kernel from change points at a traced step: each lag's weight
 # is chosen from the segment of the time it reads, `τ` or with `Primary()`
