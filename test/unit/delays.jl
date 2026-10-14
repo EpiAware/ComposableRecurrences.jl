@@ -218,3 +218,29 @@ end
         @test g != 0
     end
 end
+
+@testitem "Routes: arrays alone take the core method with Distributions loaded" setup = [DelayCases] begin
+    using SparseArrays
+    # With the extension loaded every `Recurrence(::Routes)` passes through
+    # its method; for routes of arrays it adds nothing.
+    routes = Routes(
+        ([0.9 0.1; 0.1 0.9], [0.5, 0.3]), (sparse([0.0 0.4; 0.4 0.0]), [0.1, 0.2, 0.3])
+    )
+    folded = Routes((0.5I, [0.5, 0.3]), (0.2I, [0.1, 0.2]))
+    core(R; kwargs...) = invoke(Recurrence, Tuple{Any}, R; kwargs...)
+    R = fill(1.2, 2, 6)
+    h = ones(2, 3)
+    for rs in (routes, folded)
+        r = @inferred Recurrence(rs)
+        c = core(rs)
+        @test typeof(r) == typeof(c)
+        @test r(R; history = h) == c(R; history = h)
+        @test typeof(@inferred Recurrence(rs; coupling = I)) == typeof(c)
+        Recurrence(rs)
+        core(rs)
+        @test (@allocated Recurrence(rs)) == (@allocated core(rs))
+    end
+    ext = Base.get_extension(CR, :ComposableRecurrencesDistributionsExt)
+    @test !(@inferred ext._has_delay(routes))
+    @test @inferred ext._has_delay(Routes((I, Poisson(1.0)), (I, [0.1])))
+end

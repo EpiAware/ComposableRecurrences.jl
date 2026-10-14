@@ -115,7 +115,10 @@ end
 
 # Routes may mix array and delay kernels, so every `Routes` takes this
 # method; without `lags` it is the method for arrays.
-_has_delay(R::Routes) = any(g -> g isa _Delay, R.kernels)
+# Read from the type, so the branch on it folds for routes of arrays.
+function _has_delay(::Routes{C, G}) where {C, G}
+    return any(g -> g <: _Delay, fieldtypes(G))
+end
 function ComposableRecurrences.Recurrence(R::Routes; lags = nothing, kwargs...)
     if lags === nothing
         _has_delay(R) && throw(
