@@ -43,20 +43,34 @@ const OTHER_PACKAGES = (
 # the tooling they configure.
 const PACKAGE_NAME_SKIP = ("src/docstrings.jl",)
 
-# Literate tutorials whose sections give the maths before the code: a
-# section whose code first uses one of `MATHS_FIRST_CALLS` on the page has a
-# ```math block before that code. The threads tutorial is a draft outside
-# the build and is not listed.
-const MATHS_FIRST_TUTORIALS = (
-    "backend-case-study.jl", "custom-modifier.jl", "latent-processes.jl", "occupancy.jl",
-    "renewal-then-delay.jl", "spatial-strata.jl", "time-varying-delays.jl",
-    "transform.jl",
+# Pages whose sections give the maths before the code, relative to the
+# package root: a section whose code uses one of `MATHS_FIRST_CALLS`
+# introduces a model, and has a ```math block before that code. Markdown
+# pages are read from their ```julia and ```@example blocks. The threads
+# tutorial is a draft outside the build and is not listed.
+const MATHS_FIRST_PAGES = (
+    "README.md",
+    "docs/src/getting-started/index.md",
+    "docs/src/getting-started/tutorials/backend-case-study.jl",
+    "docs/src/getting-started/tutorials/custom-modifier.jl",
+    "docs/src/getting-started/tutorials/latent-processes.jl",
+    "docs/src/getting-started/tutorials/occupancy.jl",
+    "docs/src/getting-started/tutorials/renewal-then-delay.jl",
+    "docs/src/getting-started/tutorials/spatial-strata.jl",
+    "docs/src/getting-started/tutorials/time-varying-delays.jl",
+    "docs/src/getting-started/tutorials/transform.jl",
 )
 const MATHS_FIRST_CALLS = (
     "Recurrence", "Convolution", "Depletion", "Redistribute", "Add", "Clamp",
     "Allocate", "Transform", "Routes", "Pairwise", "Protected",
 )
-# Sections still giving prose before their code, as `file => heading`,
+# Sections that only reuse a model introduced earlier on the page, as
+# `page => heading`, so need no equation of their own.
+const MATHS_FIRST_REUSE = (
+    # Rebuilds the saturation and feedback models to differentiate them.
+    "docs/src/getting-started/tutorials/transform.jl" => "Gradients",
+)
+# Sections still giving prose before their code, as `page => heading`,
 # marked broken until they gain a ```math block.
 const PENDING_MATHS_FIRST = ()
 
