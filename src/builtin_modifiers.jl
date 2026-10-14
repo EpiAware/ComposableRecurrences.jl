@@ -767,9 +767,12 @@ M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\vareps
 
 so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
 diagonal of ``K``, and every column of ``M`` sums to one.
-`ε` is one value, a vector over origins, or an origins × time matrix, which
-gives `TimeVarying` of an `S × S × T` array.
-It is a plain function of `K` and `ε`, so AD differentiates through it.
+`ε` is one value or a vector over origins, which gives a matrix, or an
+origins × time matrix, which gives `TimeVarying` of an `S × S × T` array.
+The array is held as ``K``, ``\varepsilon`` and the column sums ``o`` and
+read from them, so a step costs one product with ``K`` and its reverse pass
+gives the cotangents of ``K`` and ``\varepsilon`` without storing a matrix
+per time.
 
 # Arguments
 - `K`: the `S × S` kernel, `K[p, q]` the weight from origin `q` to `p`.
@@ -789,9 +792,7 @@ CR.movement([0.0 0.3; 0.2 0.0], [0.1, 0.5])
 ```
 """
 movement(K::AbstractMatrix, ε::Union{Real, AbstractVector}) = _movement(K, _origins(ε))
-function movement(K::AbstractMatrix, ε::AbstractMatrix)
-    return TimeVarying(_movement(K, reshape(ε, 1, size(ε)...)))
-end
+movement(K::AbstractMatrix, ε::AbstractMatrix) = TimeVarying(_Movement(K, ε))
 _origins(ε::Real) = ε
 _origins(ε::AbstractVector) = permutedims(ε)
 function _movement(K, E)
@@ -800,6 +801,92 @@ function _movement(K, E)
     )
     o = sum(K; dims = 1)
     return (axes(K, 1) .== permutedims(axes(K, 2))) .* (1 .- o .* E) .+ K .* E
+end
+
+# The movement of a kernel `K` and an intensity `E` (origins × time), read
+# entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
+# with `o` the column sums of `K`. Its columns sum to one by construction.
+struct _Movement{T, KT <: AbstractMatrix, ET <: AbstractMatrix, OT <: AbstractVector} <:
+    AbstractArray{T, 3}
+    K::KT
+    E::ET
+    o::OT
+    function _Movement(K::KT, E::ET, o::OT) where {KT, ET, OT}
+        T = promote_type(eltype(K), eltype(E), eltype(o))
+        return new{T, KT, ET, OT}(K, E, o)
+    end
+end
+function _Movement(K::AbstractMatrix, E::AbstractMatrix)
+    size(K, 1) == size(K, 2) == size(E, 1) || throw(
+        DimensionMismatch(
+            "K is $(size(K)) and ε is $(size(E)); expected S × S and S × T"
+        )
+    )
+    return _Movement(K, E, vec(sum(K; dims = 1)))
+end
+Base.size(m::_Movement) = (size(m.K, 1), size(m.K, 2), size(m.E, 2))
+Base.@propagate_inbounds function Base.getindex(m::_Movement, p::Int, q::Int, t::Int)
+    e = m.E[q, t]
+    return (p == q) * (1 - e * m.o[q]) + m.K[p, q] * e
+end
+_check_columns(::_Movement, leak) = nothing
+
+# The step reads `M_t v = (1 − E_t ∘ o) ∘ v + K (E_t ∘ v)`.
+function forward(C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t)
+    (; K, E, o) = C.x
+    checkbounds(E, :, t)
+    _check_pressure(K, q, p)
+    fill!(q, zero(eltype(q)))
+    for b in axes(K, 2)
+        w = E[b, t] * p[b]
+        for a in axes(K, 1)
+            q[a] += K[a, b] * w
+        end
+    end
+    for a in eachindex(q, p)
+        q[a] += (1 - E[a, t] * o[a]) * p[a]
+    end
+    return nothing
+end
+
+# With `c = Kᵀ q̄`: `p̄ += E_t ∘ c + (1 − E_t ∘ o) ∘ q̄`, `K̄ += q̄ (E_t ∘ p)ᵀ`,
+# `Ē_t += p ∘ (c − o ∘ q̄)` and `ō −= E_t ∘ p ∘ q̄`. A mirror held as a dense
+# array takes the generic loop.
+function pullback!(
+        grads, C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t
+    )
+    X̄ = cotangent(grads.piece, :x)
+    X̄ isa Array && return invoke(
+        pullback!,
+        Tuple{Any, TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, Pressure, Any, Any, Any},
+        grads, C, Pressure(), q, p, t
+    )
+    q̄, p̄ = grads.q, grads.p
+    (; K, E, o) = C.x
+    K̄, Ē, ō = cotangent(X̄, :K), cotangent(X̄, :E), cotangent(X̄, :o)
+    for b in axes(K, 2)
+        c = zero(eltype(p̄))
+        w = E[b, t] * p[b]
+        for a in axes(K, 1)
+            c += K[a, b] * q̄[a]
+            add_cotangent!(K̄, q̄[a] * w, a, b)
+        end
+        p̄[b] += E[b, t] * c + (1 - E[b, t] * o[b]) * q̄[b]
+        add_cotangent!(Ē, p[b] * (c - o[b] * q̄[b]), b, t)
+        add_cotangent!(ō, -w * q̄[b], b)
+    end
+    return nothing
+end
+
+# Entry `(a, b)` at `t` of the mirror of a movement's array.
+_add_movement_entry!(::Nothing, X, x, a, b, t) = nothing
+_add_movement_entry!(X̄::Array, X::_Movement, x, a, b, t) = add_cotangent!(X̄, x, a, b, t)
+function _add_movement_entry!(X̄, X::_Movement, x, a, b, t)
+    e = X.E[b, t]
+    add_cotangent!(cotangent(X̄, :K), x * e, a, b)
+    add_cotangent!(cotangent(X̄, :E), x * (X.K[a, b] - (a == b) * X.o[b]), b, t)
+    a == b && add_cotangent!(cotangent(X̄, :o), -x * e, b)
+    return nothing
 end
 
 # The matrix is checked against the strata, and its columns, once, here
@@ -868,6 +955,9 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
 end
 _add_diag!(M̄, M::AbstractMatrix, x, p, t) = _add_entry!(M̄, M, x, p, p)
 _add_diag!(M̄, M::TimeVarying, x, p, t) = add_cotangent!(cotangent(M̄, :x), x, p, p, t)
+function _add_diag!(M̄, M::TimeVarying{<:Any, <:_Movement}, x, p, t)
+    return _add_movement_entry!(cotangent(M̄, :x), M.x, x, p, p, t)
+end
 
 # Clamp -------------------------------------------------------------------
 

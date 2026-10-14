@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Amount,
     Clamp, Convolution, Depletion, Derived, Device, Flow, Flows, Linear,
     Pairwise, PerStratum, Pressure, Protected, Rate, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports
+    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports, _Movement
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -102,7 +102,7 @@ end
 const _Adapted = Union{
     PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
     Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
-    _AllocateImports,
+    _AllocateImports, _Movement,
     Convolution, Flows, Flow, Rate, Linear, Amount,
 }
 function Adapt.adapt_structure(to, x::_Adapted)

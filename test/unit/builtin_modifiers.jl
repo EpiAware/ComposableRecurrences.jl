@@ -236,6 +236,57 @@ end
     @test s ≈ M * v .- diag(M) .* v
 end
 
+@testitem "Redistribute: a movement that varies over time" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    K = [0.0 0.3 0.1; 0.2 0.5 0.5; 0.4 0.2 0.0]
+    E = [0.1 0.2; 0.3 0.05; 0.15 0.25]
+    M = CR.movement(K, E)
+    # Read from the kernel and the intensity, it equals the dense matrix of
+    # each time's intensity, and its columns sum to one.
+    @test size(M.x) == (3, 3, 2)
+    for t in 1:2
+        @test M.x[:, :, t] ≈ CR.movement(K, E[:, t])
+    end
+    @test all(sum(M.x; dims = 1) .≈ 1)
+    v, s̄0, v̄0 = [4.0, 2.0, 1.0], [0.3, -0.2, 0.5], [0.7, 0.1, -0.4]
+    # The step and its pullback in the kernel and the intensity, against a
+    # local Jacobian of the step built from them.
+    function step(x, t)
+        Kx, Ex, vx = reshape(x[1:9], 3, 3), reshape(x[10:15], 3, 2), x[16:18]
+        vv, ss = copy(vx), zeros(eltype(x), 3)
+        CR.forward(CR.Redistribute(CR.movement(Kx, Ex)), CR.Step(), vv, ss, t)
+        return vcat(vv, ss)
+    end
+    for t in 1:2
+        x = vcat(vec(K), vec(E), v)
+        J = ForwardDiff.jacobian(y -> step(y, t), x)
+        expected = transpose(J) * vcat(v̄0, s̄0)
+        m̄ = (; M = (; x = (; K = zeros(3, 3), E = zeros(3, 2), o = zeros(3))))
+        grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(grads, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
+        x̄ = m̄.M.x
+        # `o` is the column sums of `K`, so its cotangent reaches `K`.
+        K̄ = x̄.K .+ permutedims(x̄.o)
+        @test vcat(vec(K̄), vec(x̄.E), grads.v) ≈ expected
+        @test grads.s == zeros(3)
+        # A mirror held as a dense array takes the generic loop, and gives
+        # the dense matrix's cotangent.
+        dense = (; M = (; x = zeros(3, 3, 2)))
+        gd = (; piece = dense, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gd, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
+        md = (; M = zeros(3, 3))
+        gm = (; piece = md, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gm, CR.Redistribute(M.x[:, :, t]), CR.Step(), v, zeros(3), 1)
+        @test gd.v ≈ gm.v
+        @test dense.M.x[:, :, t] ≈ md.M
+    end
+    # Its columns sum to one by construction, so Init does not check them.
+    r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
+    @test size(r(ones(3, 2); history = ones(3, 1))) == (3, 2)
+    @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
+end
+
 @testitem "Redistribute: checks its matrix" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
