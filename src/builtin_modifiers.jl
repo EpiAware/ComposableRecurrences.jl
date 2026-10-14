@@ -823,6 +823,7 @@ function _Movement(K::AbstractMatrix, E::AbstractMatrix)
 end
 Base.size(m::_Movement) = (size(m.K, 1), size(m.K, 2), size(m.E, 2))
 Base.size(m::_Movement, d::Integer) = size(m)[d]
+Base.ndims(::_Movement) = 3
 function Base.getindex(m::_Movement, p::Integer, q::Integer, t::Integer)
     e = m.E[q, t]
     return (p == q) * (1 - e * m.o[q]) + m.K[p, q] * e
@@ -875,7 +876,7 @@ function pullback!(
 end
 
 # Entry `(a, b)` at `t` of the mirror of a movement's array.
-_add_movement_entry!(::Nothing, X, x, a, b, t) = nothing
+_add_movement_entry!(::Nothing, X::_Movement, x, a, b, t) = nothing
 function _add_movement_entry!(X̄, X::_Movement, x, a, b, t)
     e = X.E[b, t]
     add_cotangent!(cotangent(X̄, :K), x * e, a, b)

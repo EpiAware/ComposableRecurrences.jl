@@ -278,7 +278,7 @@ end
     end
     # Its columns sum to one by construction, so Init does not check them.
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
-    @test size(r(ones(3, 2); history = ones(3, 1))) == (3, 2)
+    @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
     @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
 end
 
