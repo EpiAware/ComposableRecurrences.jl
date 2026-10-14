@@ -3,6 +3,10 @@
 
 const TIMES_FILE = joinpath(@__DIR__, "item_times.tsv")
 
+# The suite's time budget: the recorded item times, split across `workers`
+# processes the way `runtests.jl` splits them, finish within `minutes`.
+const TEST_BUDGET = (; minutes = 15, workers = 4)
+
 # Item names are unique across the suite, so a name keys the recorded times.
 function read_times(path = TIMES_FILE)
     times = Dict{String, Float64}()

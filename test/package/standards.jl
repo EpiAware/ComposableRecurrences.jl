@@ -172,7 +172,6 @@ end
 end
 
 @testitem "Standards: recorded item times fit the time budget" tags = [:quality] begin
-    include(joinpath(@__DIR__, "standards_config.jl"))
     include(joinpath(@__DIR__, "..", "item_times.jl"))
     times = read_times()
     @test !isempty(times)

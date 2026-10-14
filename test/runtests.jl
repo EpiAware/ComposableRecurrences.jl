@@ -29,7 +29,7 @@
 # default is one per core, at most four, and one per 3 GiB of memory.
 # `record_times` writes the measured item times back to `item_times.tsv`.
 # The run warns when its wall time exceeds the budget the standards tests
-# hold the recorded times to (`test/package/standards_config.jl`).
+# hold the recorded times to (`TEST_BUDGET` in `item_times.jl`).
 
 using TestItemRunner
 
@@ -89,9 +89,7 @@ function nworkers()
 end
 
 function run_parallel(args, n)
-    config = Module()
-    Base.include(config, joinpath(TEST_DIR, "package", "standards_config.jl"))
-    budget = config.TEST_BUDGET.minutes
+    budget = TEST_BUDGET.minutes
     dir = mktempdir()
     cmd = Base.julia_cmd()
     project = Base.active_project()
