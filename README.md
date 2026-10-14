@@ -60,7 +60,7 @@ K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; di
 
 ### Depletion
 
-Each town's pool $s_{t,i}$ starts at $N_i$, and the coupled sum $v_{t,i}$ draws from it:
+Each town's pool $s_{t,i}$ starts at $N_i$, and $v_{t,i}$, the right-hand side of the coupled equation, draws from it:
 
 ```math
 \lambda_{t,i} = \frac{v_{t,i}}{N_i}, \qquad

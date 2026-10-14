@@ -84,6 +84,8 @@ end
 
 @testitem "Standards: maths before code" tags = [:quality] begin
     include(joinpath(@__DIR__, "standards_helpers.jl"))
+    @test issubset(first.(MATHS_FIRST_REUSE), MATHS_FIRST_PAGES)
+    @test issubset(first.(PENDING_MATHS_FIRST), MATHS_FIRST_PAGES)
     for page in MATHS_FIRST_PAGES
         text = maths_first_text(joinpath(STANDARDS_ROOT, page))
         found = sections_missing_maths(text, MATHS_FIRST_CALLS)
@@ -115,7 +117,10 @@ end
         String
     )
     lines = Set(strip.(split(page, '\n')))
-    code = strip.(julia_block_lines(readme))
+    # Closing lines such as `end` or `)` match anywhere, so are not checked.
+    code = filter(
+        l -> !occursin(r"^(end|[)\]},]+)$", l), strip.(julia_block_lines(readme))
+    )
     @test !isempty(code)
     @test filter(!in(lines), code) == String[]
 end

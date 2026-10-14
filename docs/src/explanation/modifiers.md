@@ -34,14 +34,14 @@ With the cap ``c(v) = \min(\max(v, 0), 8)`` and the hazard form of a pool ``s_t`
 The [`Hazard`](@ref ComposableRecurrences.Hazard) and [`Floor`](@ref ComposableRecurrences.Floor) docstrings give the depletion forms.
 
 ```@example modifiers
-g = [0.3, 0.4, 0.3]
-R = fill(2.5, 15)
+k = [0.3, 0.4, 0.3]
+gain = fill(2.5, 15)
 seed = [1.0, 2.0, 3.0]
 pool(N) = Depletion(N; pool0 = N - sum(seed))
-cap_first = Recurrence(g; modifiers = (Clamp(0.0, 8.0), pool(100.0)))
-cap_last = Recurrence(g; modifiers = (pool(100.0), Clamp(0.0, 8.0)))
-round.(cap_first(R; history = seed)[end-2:end]; digits = 2),
-round.(cap_last(R; history = seed)[end-2:end]; digits = 2)
+cap_first = Recurrence(k; modifiers = (Clamp(0.0, 8.0), pool(100.0)))
+cap_last = Recurrence(k; modifiers = (pool(100.0), Clamp(0.0, 8.0)))
+round.(cap_first(gain; history = seed)[end-2:end]; digits = 2),
+round.(cap_last(gain; history = seed)[end-2:end]; digits = 2)
 ```
 
 [Imported cases](@ref tutorial-imports) shows the same choice for imports, through `add` or [`Add`](@ref ComposableRecurrences.Add).
@@ -53,8 +53,8 @@ The state starts from the call's history through the modifier's `Init`, or at ze
 It is carried in the [`State`](@ref ComposableRecurrences.State) a call returns, so a resumed call carries on with it, as [History and state](@ref explanation-history-state) shows.
 
 ```@example modifiers
-r = Recurrence(g; modifiers = (pool(100.0),))
-y, state = with_state(r, R; history = seed)
+r = Recurrence(k; modifiers = (pool(100.0),))
+y, state = with_state(r, gain; history = seed)
 state.states
 ```
 
