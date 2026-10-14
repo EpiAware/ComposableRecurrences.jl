@@ -545,14 +545,14 @@ function _conv_per_stratum(w, θ)
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
 end
 
-# A long delay per stratum on a long series, with history: the default
-# `Auto()` method takes the transform under a native rule and the direct
-# method under its `NoAdjoint` twin.
-const LA, TA = 100, 110
-const WA = [cos(0.1 * a * t) for a in 1:2, t in 1:TA]
+# A long delay on a long series, with history: the default `Auto()`
+# method takes the transform under a native rule and the direct method
+# under its `NoAdjoint` twin.
+const LA, TA = 300, 1000
+const WA = [cos(0.1 * t) for t in 1:TA]
 function _conv_auto(w, θ)
-    G, X, H = _unpack(θ, (2, LA), (2, TA), (2, 5))
-    return sum(WA .* w(Convolution(PerStratum(G)))(X; history = H))
+    g, x, h = _unpack(θ, (LA,), (TA,), (5,))
+    return sum(WA .* w(Convolution(g))(x; history = h))
 end
 
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
@@ -868,8 +868,8 @@ const _SCENARIOS = [
     (
         "Convolution long kernel by the automatic method", _conv_auto,
         () -> _flat(
-            [exp(-0.05 * (l + a)) / 20 for a in 1:2, l in 1:LA],
-            [1.0 + 0.5 * sin(a + t) for a in 1:2, t in 1:TA], ones(2, 5),
+            [exp(-0.05 * l) / 20 for l in 1:LA], [1.0 + 0.5 * sin(t) for t in 1:TA],
+            ones(5),
         ),
     ),
 ]

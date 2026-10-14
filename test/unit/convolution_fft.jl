@@ -229,33 +229,31 @@ end
     const CR = ComposableRecurrences
     auto = CR.Auto()
     picks(kernel, Tp, x, T) = CR._fft_path(auto, kernel, Tp, x, T)
-    # The transform from 100 lags and 100 outputs, for a fixed kernel on
+    # The transform from 300 lags and 1000 outputs, for a fixed kernel on
     # `Float64` CPU arrays.
-    @test picks(rand(100), Float64, rand(100), 100)
+    @test picks(rand(300), Float64, rand(1000), 1000)
     @test picks(PerStratum(rand(2, 500)), Float64, rand(2, 2000), 2000)
-    @test picks(rand(100), Float64, view(rand(300), 1:200), 200)
-    @test !picks(rand(99), Float64, rand(200), 200)
-    @test !picks(rand(200), Float64, rand(200), 99)
+    @test picks(rand(300), Float64, view(rand(1200), 1:1000), 1000)
+    @test !picks(rand(299), Float64, rand(2000), 2000)
+    @test !picks(rand(500), Float64, rand(2000), 999)
     # Other kernels, numbers and arrays take the direct method at any size.
-    @test !picks(TimeVarying(rand(100, 200)), Float64, rand(200), 200)
-    @test !picks(rand(Float32, 200), Float32, rand(Float32, 300), 300)
-    @test !picks(rand(200), BigFloat, rand(300), 300)
+    @test !picks(TimeVarying(rand(300, 1000)), Float64, rand(1000), 1000)
+    @test !picks(rand(Float32, 500), Float32, rand(Float32, 2000), 2000)
+    @test !picks(rand(500), BigFloat, rand(2000), 2000)
     D = ForwardDiff.Dual{Nothing, Float64, 1}
-    @test !picks(rand(200), D, rand(300), 300)
-    @test !picks(JLArray(rand(200)), Float64, JLArray(rand(300)), 300)
+    @test !picks(rand(500), D, rand(2000), 2000)
+    @test !picks(JLArray(rand(500)), Float64, JLArray(rand(2000)), 2000)
     # The number of outputs is the call's, not the input's length.
-    ran(c, x; kw...) = last(
-        CR._run_forward(
-            c, x, true, nothing, nothing, get(kw, :start, 1), get(kw, :stop, nothing)
-        )
+    ran(c, x; start = 1, stop = nothing) = last(
+        CR._run_forward(c, x, true, nothing, nothing, start, stop)
     ).fft
-    x = rand(300)
-    @test ran(Convolution(rand(100)), x)
-    @test ran(Convolution(rand(100)), x; start = 201)
-    @test !ran(Convolution(rand(100)), x; start = 202)
-    @test !ran(Convolution(rand(100)), x; stop = 99)
-    @test !ran(Convolution(rand(99)), x)
-    @test !ran(Convolution(rand(Float32, 100)), rand(Float32, 300))
+    x = rand(1200)
+    @test ran(Convolution(rand(300)), x)
+    @test ran(Convolution(rand(300)), x; start = 201)
+    @test !ran(Convolution(rand(300)), x; start = 202)
+    @test !ran(Convolution(rand(300)), x; stop = 999)
+    @test !ran(Convolution(rand(299)), x)
+    @test !ran(Convolution(rand(Float32, 300)), rand(Float32, 1200))
 end
 
 @testitem "Convolution Auto: matches direct" begin
@@ -264,7 +262,7 @@ end
     rng = Xoshiro(45)
     # Sizes either side of the switch, for a shared and a per-stratum
     # kernel, with history, gain and add.
-    for (T, L) in ((99, 100), (100, 100), (150, 120), (400, 20), (2000, 500))
+    for (T, L) in ((999, 300), (1000, 300), (1500, 400), (400, 20), (2000, 500))
         S = 2
         g = exp.(-0.05 .* (0:(L - 1)))
         G = rand(rng, S, L)
@@ -278,9 +276,9 @@ end
             @test y ≈ direct(u; history = hu, gain = 0.5, add = 1.0)
         end
     end
-    # `Float32` stays exact to the direct method, as it never takes the
+    # `Float32` matches the direct method exactly, as it never takes the
     # transform.
-    k, x = rand(rng, Float32, 200), rand(rng, Float32, 300)
+    k, x = rand(rng, Float32, 500), rand(rng, Float32, 2000)
     @test Convolution(k)(x) == Convolution(k; method = CR.Direct())(x)
 end
 
@@ -291,10 +289,10 @@ end
     code = """
     using ComposableRecurrences
     const CR = ComposableRecurrences
-    k, x = rand(200), rand(300)
+    k, x = rand(500), rand(2000)
     c = Convolution(k)
     print(
-        CR._fft_path(CR.Auto(), k, Float64, x, 300), " ",
+        CR._fft_path(CR.Auto(), k, Float64, x, 2000), " ",
         last(CR._run_forward(c, x, true, nothing, nothing, 1, nothing)).fft, " ",
         c(x) == Convolution(k; method = CR.Direct())(x)
     )

@@ -57,9 +57,9 @@ Lags from ``n`` on reach no input and are dropped first.
 A block of the whole series is one transform.
 For a series much longer than the kernel the cost is ``O(n \log L)``
 rather than ``O(T L)``.
-It is slower than the direct method for kernels of up to about 200 lags,
-and faster for longer kernels on series of thousands of times or more;
-time both on the sizes of a model before choosing it.
+[`ComposableRecurrences.Auto`](@ref) gives the sizes from which it is
+faster than the direct method; time both on the sizes of a model before
+choosing it.
 The reverse pass uses the same transforms.
 
 It runs once its weak dependency is loaded, as the
@@ -96,15 +96,18 @@ struct FFTMethod <: ConvolutionMethod end
 The default method of a [`Convolution`](@ref).
 A call takes [`ComposableRecurrences.FFTMethod`](@ref) when it has
 
-  - a fixed kernel (a vector or [`PerStratum`](@ref)) of at least 100 lags,
-  - at least 100 outputs,
+  - a fixed kernel (a vector or [`PerStratum`](@ref)) of at least 300 lags,
+  - at least 1000 outputs,
   - `Float64` arrays on the CPU,
   - and the weak dependency of the [FFT extension](@ref extension-fftw)
     loaded,
 
 and [`ComposableRecurrences.Direct`](@ref) otherwise.
-Below these sizes the direct method is about as fast or faster, and it keeps
-the accuracy of small outputs that the transform loses.
+From these sizes the transform is about as fast as the direct method, and
+1.3 to 2.3 times faster from 500 lags or 2000 outputs, forward and in reverse
+mode.
+Below them the direct method is faster, up to 2 times, and it keeps the
+accuracy of small outputs that the transform loses.
 So most models take the direct method, and `Float32` models never take the
 transform.
 The kernel, eltype, arrays and loaded packages are resolved by dispatch,
@@ -126,8 +129,8 @@ true
 struct Auto <: ConvolutionMethod end
 
 # The sizes from which `Auto()` takes the transform.
-const _AUTO_MIN_LAGS = 100
-const _AUTO_MIN_TIMES = 100
+const _AUTO_MIN_LAGS = 300
+const _AUTO_MIN_TIMES = 1000
 _auto_fft(L, T) = L >= _AUTO_MIN_LAGS && T >= _AUTO_MIN_TIMES
 
 @doc raw"""
