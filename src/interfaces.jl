@@ -202,7 +202,7 @@ true
     ),
 ]
 
-@implements PieceInterface{(:pointwise, :blocks, :nstate)} Depletion [
+@implements PieceInterface{(:pointwise, :blocks, :nstate)} Pool [
     Arguments(;
         piece = Depletion(PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0])),
         role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
@@ -216,18 +216,46 @@ true
         role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
     ),
     Arguments(;
-        piece = Depletion(100.0; removals = 1.0, protected = Protected(0.3)),
-        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
-    ),
-    Arguments(;
-        piece = Depletion(
-            100.0; protected = Protected(0.3), flows = Flow(2 => 1, 0.1)
+        piece = Pool(
+            100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+            flows = Flow(:S => :V, 1.0; form = Truncate())
         ),
         role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     ),
     Arguments(;
-        piece = Depletion(100.0; flows = Flow(1 => 0, 0.01)),
-        role = Step(), args = ([2.0, 3.0], [80.0, 60.0], 2)
+        piece = Pool(
+            100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+            initial = (nothing, 4.0), flows = Flow(:V => :S, 0.1)
+        ),
+        role = Init(), args = (zeros(4), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Pool(
+            PerStratum([100.0, 50.0]); stocks = (:S, :V, :R),
+            draw = (:V => PerStratum([0.5, 0.2]), :S => 1) => Floor(),
+            flows = (Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share()))
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2)
+    ),
+    Arguments(;
+        piece = Depletion(100.0, Truncate()), role = Step(),
+        args = ([2.0, 3.0], [80.0, 1.0], 2)
+    ),
+    Arguments(;
+        piece = Pool(;
+            stocks = 2, draw = nothing,
+            flows = (
+                Flow(1 => 2, PerStratum([0.3, 0.2])),
+                Flow(2 => 0, 0.1; form = Share()),
+                Flow(1 => 0, 0.5; form = Truncate()),
+                Flow(2 => 0, 0.2; form = SoftTruncate(0.1)),
+            )
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
+    ),
+    Arguments(;
+        piece = Pool(; stocks = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
+        role = Init(), args = (zeros(4), ones(4, 2))
     ),
 ]
 
@@ -273,21 +301,6 @@ true
     ),
 ]
 
-@implements PieceInterface{(:blocks, :nstate)} Flows [
-    Arguments(;
-        piece = Flows(
-            Flow(1 => 2, PerStratum([0.3, 0.2])),
-            Flow(2 => 0, 0.1; form = Share()),
-            Flow(1 => 0, 0.5; form = Truncate()),
-            Flow(2 => 0, 0.2; form = SoftTruncate(0.1))
-        ),
-        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
-    ),
-    Arguments(;
-        piece = Flows(Flow(1 => 2, 0.3)), role = Init(),
-        args = (zeros(4), ones(4, 2))
-    ),
-]
 
 @implements PieceInterface{(:nstate,)} Capacity [
     Arguments(;

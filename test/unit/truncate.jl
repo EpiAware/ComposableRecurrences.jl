@@ -114,9 +114,9 @@ end
         @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
     end
     # A protected pool draws through the form too.
-    d = CR.Depletion(
-        20.0, CR.Truncate(); removals = TimeVarying(fill(2.0, 6)),
-        protected = CR.Protected(0.5)
+    d = CR.Pool(
+        20.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Truncate(),
+        flows = (CR.Flow(1 => 2, TimeVarying(fill(2.0, 6)); form = CR.Truncate()),)
     )
     y = Recurrence([1.0]; modifiers = (d,))(fill(3.0, 6); history = [2.0])
     @test sum(y) <= 20.0 + 1.0e-9

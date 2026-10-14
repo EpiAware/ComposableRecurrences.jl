@@ -213,9 +213,11 @@ end
         # threaded strata loops.
         Recurrence(
             g; modifiers = (
-                CR.Depletion(
-                    1.0e3; removals = TimeVarying(fill(2.0, T)),
-                    protected = CR.Protected(0.3),
+                CR.Pool(
+                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    flows = (
+                        CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
+                    )
                 ),
             )
         ),
@@ -227,9 +229,11 @@ end
         # Both in one call: a protected pool, then grouped totals.
         Recurrence(
             g; modifiers = (
-                CR.Depletion(
-                    1.0e3; removals = TimeVarying(fill(2.0, T)),
-                    protected = CR.Protected(0.3),
+                CR.Pool(
+                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    flows = (
+                        CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
+                    )
                 ),
                 CR.Allocate([1:3, 4:7], TimeVarying(PerStratum(fill(5.0, 2, T)))),
             )

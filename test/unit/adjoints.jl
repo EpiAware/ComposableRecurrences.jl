@@ -402,9 +402,10 @@ end
             CR.Depletion(TimeVarying(N[1, :]), CR.Floor(); pool0 = 30.0),
             CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
             CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
-            CR.Depletion(
-                TimeVarying(PerStratum(N)); removals = births,
-                protected = CR.Protected(0.3; pool0 = 5.0)
+            CR.Pool(
+                TimeVarying(PerStratum(N)); stocks = (:S, :V), initial = (nothing, 5.0),
+                draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                flows = (CR.Flow(1 => 2, births; form = CR.Truncate()),)
             ),
         )
         r = Recurrence(g; coupling = K, modifiers = (d,))
@@ -571,7 +572,7 @@ end
         w::Vector{Float64}
     end
     CR.forward(f::VecForm, ::CR.Step, v, s, N, α) = (y = min(v * f.w[1], s); (y, s - y))
-    @test CR._part_name(CR.Depletion(50.0)) === :Depletion
+    @test CR._part_name(CR.Depletion(50.0)) === :Pool
     @test CR._part_name(CR.Depletion(50.0, VecForm([1.0]))) === :VecForm
     # Roles the rule does not call pass the adjoint check.
     @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())

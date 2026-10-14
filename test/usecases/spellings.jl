@@ -3,17 +3,18 @@
 # before the change. The models are the docstring examples, so these
 # items keep their numbers whatever the doctests round to.
 
-@testitem "Use case: hazard-rate flows give the values of the Rate kind" tags = [:usecase] begin
+@testitem "Use case: a pool without a draw gives the values of Flows with Rate kinds" tags = [:usecase] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     # Was `Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))`,
     # each a `Rate`; a bare demand is still a hazard rate.
-    flows = CR.Flows(
-        CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.4), CR.Flow(2 => 0, 0.1)
+    ward = CR.Pool(;
+        stocks = (:U, :C), draw = nothing,
+        flows = (CR.Flow(:U => :C, 0.3), CR.Flow(:U => 0, 0.4), CR.Flow(:C => 0, 0.1))
     )
-    ward = Recurrence([1.0]; modifiers = (flows,))
+    r = Recurrence([1.0]; modifiers = (ward,))
     admitted = [fill(10.0, 1, 4); zeros(1, 4)]
-    y, st = CR.with_state(ward; history = zeros(2, 1), add = admitted)
+    y, st = CR.with_state(r; history = zeros(2, 1), add = admitted)
     @test y[1, :] ≈ [
         4.965853037914095, 7.431822677330159, 8.65638695985998, 9.264487586112159,
     ] rtol = 1.0e-12
@@ -26,22 +27,24 @@ end
 @testitem "Use case: share and count flows give the values of the Linear and Amount kinds" tags = [:usecase] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
-    # Was `Flow(1 => 0, Linear(TimeVarying(fill(0.1, 6))))` and
+    # Was `Flows` with `Flow(1 => 0, Linear(TimeVarying(fill(0.1, 6))))` and
     # `Flow(2 => 0, Amount(TimeVarying(PerStratum(fill(0.5, 2, 6)))))`.
-    flows = CR.Flows(
-        CR.Flow(1 => 2, PerStratum([0.3, 0.2])),
-        CR.Flow(1 => 0, TimeVarying(fill(0.1, 6)); form = CR.Share()),
-        CR.Flow(2 => 0, 0.1),
-        CR.Flow(
-            2 => 0, TimeVarying(PerStratum(fill(0.5, 2, 6)));
-            form = CR.Truncate()
-        ),
+    ward = CR.Pool(;
+        stocks = 2, draw = nothing, flows = (
+            CR.Flow(1 => 2, PerStratum([0.3, 0.2])),
+            CR.Flow(1 => 0, TimeVarying(fill(0.1, 6)); form = CR.Share()),
+            CR.Flow(2 => 0, 0.1),
+            CR.Flow(
+                2 => 0, TimeVarying(PerStratum(fill(0.5, 2, 6)));
+                form = CR.Truncate()
+            ),
+        )
     )
     adm = [
         10.0 8.0 6.0 4.0 2.0 1.0; 5.0 5.0 5.0 5.0 5.0 5.0;
         0.0 0.0 0.0 0.0 0.0 0.0; 1.0 0.0 0.0 0.0 0.0 0.0
     ]
-    r = Recurrence([1.0]; modifiers = (flows,))
+    r = Recurrence([1.0]; modifiers = (ward,))
     y = r(; history = zeros(4, 1), add = adm)
     expected = [
         [
@@ -65,35 +68,43 @@ end
         @test y[k, :] ≈ expected[k] rtol = 1.0e-12
     end
     # Was `Flow(1 => 0, Linear(θ[2]))` and `Flow(2 => 0, Amount(θ[4]))`.
-    function ward(θ)
-        fl = CR.Flows(
-            CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-            CR.Flow(2 => 0, θ[3]), CR.Flow(2 => 0, θ[4]; form = CR.Truncate())
+    function run(θ)
+        fl = CR.Pool(;
+            stocks = 2, draw = nothing, flows = (
+                CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+                CR.Flow(2 => 0, θ[3]), CR.Flow(2 => 0, θ[4]; form = CR.Truncate()),
+            )
         )
         r = Recurrence([1.0]; modifiers = (fl,))
         return r(; history = zeros(2, 1), add = [fill(10.0, 1, 8); zeros(1, 8)])
     end
-    @test ForwardDiff.gradient(θ -> sum(ward(θ)), [0.3, 0.1, 0.1, 0.5]) ≈ [
+    @test ForwardDiff.gradient(θ -> sum(run(θ)), [0.3, 0.1, 0.1, 0.5]) ≈ [
         2.8407073275040133, -568.1334926059575, -229.0565344570363,
         -29.04541828738811,
     ] rtol = 1.0e-10
-    # The depletion's flows: was `Flow(1 => 0, Linear(0.002))`, and
-    # `Flow(2 => 1, Linear(0.05))` with `Flow(2 => 0, Amount(1.0))`.
-    d = CR.Depletion(
-        1000.0; removals = 3.0,
-        flows = (CR.Flow(1 => 0, 0.01), CR.Flow(1 => 0, 0.002; form = CR.Share()))
+    # Was `Depletion(1000.0; removals = 3.0, flows = (Flow(1 => 0, 0.01),
+    # Flow(1 => 0, Linear(0.002))))`.
+    d = CR.Pool(
+        1000.0; flows = (
+            CR.Flow(:S => 0, 3.0; form = CR.Truncate()), CR.Flow(:S => 0, 0.01),
+            CR.Flow(:S => 0, 0.002; form = CR.Share()),
+        )
     )
     y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 8); history = [5.0])
     @test y ≈ [
         2.9955044966270243, 6.652927267489164, 8.596099981869761, 12.120707723783651,
         16.73655431043126, 22.273150166745683, 29.044080713035257, 36.44220649764632,
     ] rtol = 1.0e-12
-    # The pool is small enough that the draw binds from the seventh step.
-    d = CR.Depletion(
-        100.0, CR.Truncate(); removals = 3.0, protected = CR.Protected(0.2),
+    # Was `Depletion(100.0, Truncate(); removals = 3.0, protected =
+    # Protected(0.2), flows = (Flow(2 => 1, Linear(0.05)),
+    # Flow(2 => 0, Amount(1.0))))`. The pool is small enough that the draw
+    # binds from the seventh step.
+    d = CR.Pool(
+        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.2) => CR.Truncate(),
         flows = (
-            CR.Flow(2 => 1, 0.05; form = CR.Share()),
-            CR.Flow(2 => 0, 1.0; form = CR.Truncate()),
+            CR.Flow(:S => :V, 3.0; form = CR.Truncate()),
+            CR.Flow(:V => :S, 0.05; form = CR.Share()),
+            CR.Flow(:V => 0, 1.0; form = CR.Truncate()),
         )
     )
     r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
@@ -103,4 +114,58 @@ end
         1.179962360341256,
     ] rtol = 1.0e-12
     @test st.states[1] ≈ [0.0, 3.7198494413650236] rtol = 1.0e-12
+end
+
+@testitem "Use case: a pool with two stocks gives the values of Depletion with Protected" tags = [:usecase] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    leaky(N, σ, doses, flows...; initial = nothing, form = CR.Hazard()) = CR.Pool(
+        N; stocks = (:S, :V), initial, draw = (:S => 1, :V => σ) => form,
+        flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
+    )
+    g = [0.3, 0.5, 0.2]
+    # Was `Depletion(1000.0; removals = TimeVarying(fill(5.0, 10)),
+    # protected = Protected(0.3))`.
+    d = leaky(1000.0, 0.3, TimeVarying(fill(5.0, 10)))
+    y = Recurrence(g; modifiers = (d,))(fill(2.0, 10); history = [5.0])
+    @test y ≈ [
+        2.9955044966270243, 6.730251097454152, 8.842623960309435,
+        12.765026691442971, 18.150172258587972, 25.032849274164587,
+        33.976490148497284, 44.51742666556528, 55.963852173872965,
+        66.66759063907847,
+    ] rtol = 1.0e-12
+    # Was `Depletion(1000.0; removals = 5.0, protected = Protected(0.3),
+    # flows = Flow(2 => 1, 0.1))`.
+    d = leaky(1000.0, 0.3, 5.0, CR.Flow(:V => :S, 0.1))
+    y, st = CR.with_state(Recurrence(g; modifiers = (d,)), fill(2.0, 6); history = [5.0])
+    @test y ≈ [
+        2.9955044966270243, 6.730251097454152, 8.845613154354453,
+        12.779376124126909, 18.196111201531917, 25.150708995762596,
+    ] rtol = 1.0e-12
+    @test st.states[1] ≈ [901.8895137406164, 23.412921189526504] rtol = 1.0e-12
+    # Was `Depletion(PerStratum([500.0, 800.0]), Floor(); removals =
+    # PerStratum([4.0, 6.0]), protected = Protected(PerStratum([0.0, 0.5]);
+    # pool0 = PerStratum([50.0, 100.0])))`.
+    d = leaky(
+        PerStratum([500.0, 800.0]), PerStratum([0.0, 0.5]), PerStratum([4.0, 6.0]);
+        initial = (nothing, PerStratum([50.0, 100.0])), form = CR.Floor()
+    )
+    y = Recurrence(g; modifiers = (d,))(fill(2.0, 2, 8); history = [5.0 4.0; 3.0 2.0])
+    @test y[1, :] ≈ [
+        7.4, 10.201968, 14.346916826072372, 19.85657326997257, 26.226989305617774,
+        33.22787079960978, 39.46945926738032, 43.3074457989293,
+    ] rtol = 1.0e-12
+    @test y[2, :] ≈ [
+        4.4625, 6.1909819726562505, 9.35493462131601, 13.956343856909744,
+        20.335677749008322, 29.249469028420837, 40.83435968982367, 54.88064661859447,
+    ] rtol = 1.0e-12
+    # Was `Depletion(1000.0; removals = TimeVarying(fill(θ[1], 10)),
+    # protected = Protected(θ[2]), flows = Flow(2 => 1, θ[3]))`.
+    function run(θ)
+        d = leaky(1000.0, θ[2], TimeVarying(fill(θ[1], 10)), CR.Flow(:V => :S, θ[3]))
+        return Recurrence(g; modifiers = (d,))(fill(2.0, 10); history = [5.0])
+    end
+    @test ForwardDiff.gradient(θ -> sum(run(θ)), [5.0, 0.3, 0.1]) ≈ [
+        -2.6050995531441092, 19.321408591358114, 27.16492339422564,
+    ] rtol = 1.0e-10
 end

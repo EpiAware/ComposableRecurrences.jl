@@ -1,24 +1,24 @@
-# Flows between the compartments of each group. A `Flow` moves part of one
-# compartment into another, or out, each step, by a form applied to its
+# Flows between the stocks of a pool. A `Flow` moves part of one stock
+# into another, or out, each step, by a form applied to its
 # demand: a competing hazard rate (`Hazard()`, the default), a share
 # (`Share()`) or a count capped by what is there (`Truncate()` or
-# `SoftTruncate(κ)`). The rates out of one compartment compete; rates and
-# shares act on the incoming compartments together, then the counts in
+# `SoftTruncate(κ)`). The rates out of one stock compete; rates and
+# shares act on the incoming stocks together, then the counts in
 # flow order on what remains.
 
 @doc raw"""
 The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
-moves a share ``p`` of the compartment it leaves.
+moves a share ``p`` of the stock it leaves.
 
-Flow ``f`` out of compartment ``i``, with demand ``p_f``, moves
+Flow ``f`` out of stock ``i``, with demand ``p_f``, moves
 
 ```math
 m_f = p_f\, x_i,
 ```
 
-with ``x_i`` the compartment before the step's flows, alongside any
+with ``x_i`` the stock before the step's flows, alongside any
 [`ComposableRecurrences.Hazard`](@ref) flows.
-Shares out of one compartment that sum to more than ``e^{-H_i}``, with
+Shares out of one stock that sum to more than ``e^{-H_i}``, with
 ``H_i`` the sum of its hazard rates, leave it negative.
 `Share()` is a form for flows only, not a depletion form.
 
@@ -41,19 +41,19 @@ const _TruncateForm = Union{Truncate, SoftTruncate}
 const _FlowForm = Union{Hazard, Share, _TruncateForm}
 
 @doc raw"""
-A flow from compartment `from` into compartment `to`, or out of the
-compartments with `to = 0`, that moves its `demand` by a form.
+A flow from stock `from` into stock `to` of a
+[`ComposableRecurrences.Pool`](@ref), or out of the pool with `to = 0`,
+that moves its `demand` by a form.
 
-Each step it moves an amount ``m_f`` out of compartment `from` and into
-`to`,
+Each step it moves an amount ``m_f`` out of stock `from` and into `to`,
 
 ```math
 x'_{\mathrm{from}} = x_{\mathrm{from}} - m_f, \qquad
 x'_{\mathrm{to}} = x_{\mathrm{to}} + m_f,
 ```
 
-with the form setting ``m_f`` from the demand ``d_f`` and the compartment
-``x`` it leaves:
+with the form setting ``m_f`` from the demand ``d_f`` and the stock ``x``
+it leaves:
 
 | form | demand | ``m_f`` |
 |:---- |:------ |:------- |
@@ -62,24 +62,38 @@ with the form setting ``m_f`` from the demand ``d_f`` and the compartment
 | [`ComposableRecurrences.Truncate`](@ref) | a count | ``\min\big(d_f, \max(x, 0)\big)`` |
 | [`ComposableRecurrences.SoftTruncate`](@ref) | a count | a smooth ``\min\big(d_f, \max(x, 0)\big)`` |
 
-The hazard rates out of one compartment compete, as in the `Hazard`
-depletion form, so together they move ``x (1 - e^{-H})``; with
-non-negative, finite rates a non-negative compartment stays non-negative.
+The hazard rates out of one stock compete, as in the `Hazard` depletion
+form, so together they move ``x (1 - e^{-H})``; with non-negative, finite
+rates a non-negative stock stays non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
 A `Hazard()` flow's demand is the rate itself, with no population and no
 heterogeneity, where a `Hazard()` depletion draws the value divided by
 its population `N`.
-Hazard and share flows act on the compartments before the step's flows,
-then each count flow, in the order given, on what remains
-([`ComposableRecurrences.Flows`](@ref) gives the step).
-A negative count adds ``-d_f`` to compartment `from`, without a cap, and
-moves nothing into `to`.
+For each group at absolute time ``t``, with stocks ``x``, hazard flows
+``f`` at rates ``r_f`` and share flows at shares ``p_f``, these act
+together on the stocks before the step's flows,
+
+```math
+\begin{aligned}
+H_i &= \sum_{\mathrm{Hazard}\ f \text{ out of } i} r_f, \qquad
+P_i = \sum_{\mathrm{Share}\ f \text{ out of } i} p_f, \\
+y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
+\end{aligned}
+```
+
+then each count flow, in the order given, moves its ``m_f`` out of what
+remains in ``y``.
+Shares out of one stock that sum to more than ``e^{-H_i}`` leave it
+negative.
+A negative count adds ``-d_f`` to stock `from`, without a cap, and moves
+nothing into `to`.
 The derivative through ``\min`` and ``\max`` takes the active branch.
 Rates and shares are not checked: a time-varying or [`Derived`](@ref)
 demand is only known at each step.
 
 # Arguments
-- `compartments`: `from => to`, numbered from 1, with `to = 0` to leave.
+- `stocks`: `from => to`, each a stock's name or its position from 1, with
+  `to = 0` to leave the pool.
 - `demand`: the rate, share or count, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
   and time, with `PerStratum` holding one per group.
@@ -92,7 +106,7 @@ demand is only known at each step.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-waning = CR.Flow(2 => 1, 0.1)
+waning = CR.Flow(:V => :S, 0.1)
 transfers = CR.Flow(1 => 0, 3.0; form = CR.Truncate())
 waning.form, transfers.to
 
@@ -101,27 +115,21 @@ waning.form, transfers.to
 (ComposableRecurrences.Hazard(), 0)
 ```
 """
-struct Flow{D, F <: _FlowForm}
-    "The compartment the flow leaves."
-    from::Int
-    "The compartment it enters, or `0` when it leaves."
-    to::Int
+struct Flow{D, F <: _FlowForm, E}
+    "The stock the flow leaves, by name or position."
+    from::E
+    "The stock it enters, by name or position, or `0` when it leaves."
+    to::E
     "The rate, share or count, a parameter."
     demand::D
     "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `SoftTruncate(κ)`."
     form::F
-    function Flow(from::Integer, to::Integer, demand::D, form::F) where {D, F}
-        from >= 1 || throw(
-            ArgumentError("compartments are numbered from 1, got from = $from")
-        )
-        to >= 0 || throw(
-            ArgumentError(
-                "to is a compartment from 1, or 0 to leave, got to = $to"
-            )
-        )
+    function Flow(from, to, demand::D, form::F) where {D, F}
+        _check_end(:from, from, 1)
+        _check_end(:to, to, 0)
         from == to && throw(
             ArgumentError(
-                "a flow joins two different compartments, got $from => $to"
+                "a flow joins two different stocks, got $(repr(from)) => $(repr(to))"
             )
         )
         form isa _FlowForm || throw(
@@ -130,23 +138,64 @@ struct Flow{D, F <: _FlowForm}
                     "SoftTruncate(κ), got $(_describe(form))"
             )
         )
-        return new{D, F}(from, to, _check_param(:demand, demand), form)
+        E = Union{typeof(from), typeof(to)}
+        return new{D, F, E}(from, to, _check_param(:demand, demand), form)
     end
 end
 
-function Flow(compartments::Pair{<:Integer, <:Integer}, demand; form = Hazard())
-    return Flow(compartments.first, compartments.second, demand, form)
+function Flow(stocks::Pair, demand; form = Hazard())
+    return Flow(_end(stocks.first), _end(stocks.second), demand, form)
 end
-function Flow(compartments, demand; form = Hazard())
+function Flow(stocks, demand; form = Hazard())
     throw(
         ArgumentError(
-            "a flow joins compartments given as from => to, got " *
-                _describe(compartments)
+            "a flow joins stocks given as from => to, got " * _describe(stocks)
         )
     )
 end
 
-# A count flow, which moves its demand up to what the compartment holds.
+# A flow's end: a stock's name, or its position from 1, with `0` outside.
+_end(x::Symbol) = x
+_end(x::Integer) = Int(x)
+function _end(x)
+    throw(
+        ArgumentError(
+            "a flow's ends are stock names or positions, got " * _describe(x)
+        )
+    )
+end
+_check_end(name, x::Symbol, lo) = nothing
+function _check_end(name, x::Int, lo)
+    x >= lo || throw(
+        ArgumentError(
+            lo == 1 ? "stocks are numbered from 1, got $name = $x" :
+                "$name is a stock from 1, or 0 to leave, got $name = $x"
+        )
+    )
+    return nothing
+end
+
+# The flow with its ends as positions among the stocks `names`.
+function _placed(f::Flow, names)
+    return Flow(_place(f.from, names, f), _place(f.to, names, f), f.demand, f.form)
+end
+_place(x::Int, names, f) = x == 0 ? 0 : _placed_stock(x, names, f)
+_place(x::Symbol, names, f) = _placed_stock(x, names, f)
+function _placed_stock(x, names, f)
+    i = _position(x, names)
+    i == 0 && _unknown_stock(x, names, f)
+    return i
+end
+@noinline function _unknown_stock(x, names, f)
+    throw(
+        ArgumentError(
+            "Flow($(repr(f.from)) => $(repr(f.to))) names stock $(repr(x)), " *
+                "but the stocks are $(repr(names))"
+        )
+    )
+end
+
+# A count flow, which moves its demand up to what the stock holds.
 const _Count = Flow{<:Any, <:_TruncateForm}
 
 # The flows as a non-empty tuple of `Flow`s.
@@ -158,106 +207,13 @@ function _flow_tuple(fs)
     return fs
 end
 
-# That the flows name no compartment beyond the `n` there are; `there`
-# says which those are.
-function _check_compartments(fs, n, there)
-    top = maximum(f -> max(f.from, f.to), fs)
-    top <= n || throw(
-        ArgumentError("the flows name compartment $top, but $there")
-    )
-    return nothing
-end
-
-@doc raw"""
-Moves the step's values between the compartments of each group by
-[`ComposableRecurrences.Flow`](@ref)s.
-
-The values hold ``n`` compartments of ``G`` groups each, compartment by
-compartment ([`ComposableRecurrences.blocks`](@ref) is `Val((n, n))`): with
-``S = nG`` strata, value ``(i - 1) G + g`` is compartment ``i`` of group
-``g``, and a [`PerStratum`](@ref) parameter has ``G`` entries.
-At absolute time ``t``, for each group with compartments ``x``, hazard
-flows ``f`` at rates ``r_f`` and share flows at shares ``p_f``,
-
-```math
-\begin{aligned}
-H_i &= \sum_{\mathrm{Hazard}\ f \text{ out of } i} r_f, \qquad
-P_i = \sum_{\mathrm{Share}\ f \text{ out of } i} p_f, \\
-m_f &= x_i\, r_f\, \frac{1 - e^{-H_i}}{H_i} \ \text{(Hazard)}, \qquad
-m_f = x_i\, p_f \ \text{(Share)}, \\
-y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
-\end{aligned}
-```
-
-then each count flow, with form [`ComposableRecurrences.Truncate`](@ref)
-or [`ComposableRecurrences.SoftTruncate`](@ref), in the order given, moves
-``m_f = \min(a_f, \max(y_i, 0))``, or its smooth version, out of
-compartment ``i``.
-The result is the value passed on, and the state holds what flowed into
-each compartment at the step,
-
-```math
-s'_j = \sum_{f \text{ into } j} m_f,
-```
-
-where a negative count adds nothing.
-On a [`Recurrence`](@ref) with kernel `[1.0]`, the core carries the
-previous step's compartments forward and the modifier applies the step's
-flows.
-
-# Arguments
-- `flows`: one or more [`ComposableRecurrences.Flow`](@ref)s.
-
-# Keyword Arguments
-- `compartments`: the number of compartments ``n``; the largest a flow
-  names by default.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-flows = CR.Flows(CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.4), CR.Flow(2 => 0, 0.1))
-ward = Recurrence([1.0]; modifiers = (flows,))
-admitted = [fill(10.0, 1, 4); zeros(1, 4)]
-round.(ward(; history = zeros(2, 1), add = admitted); digits = 3)
-
-# output
-
-2×4 Matrix{Float64}:
- 4.966  7.432  8.656   9.264
- 2.157  5.181  8.449  11.67
-```
-"""
-struct Flows{N, F <: Tuple}
-    "The flows, a tuple of `Flow`s."
-    flows::F
-    function Flows{N}(flows::F) where {N, F <: Tuple}
-        _flow_tuple(flows)
-        N isa Int && N >= 1 || throw(
-            ArgumentError("compartments is a positive integer, got $(repr(N))")
-        )
-        _check_compartments(flows, N, "compartments = $N")
-        return new{N, F}(flows)
-    end
-end
-
-function Flows(fs...; compartments = nothing)
-    fs = _flow_tuple(fs)
-    n = compartments === nothing ? maximum(f -> max(f.from, f.to), fs) :
-        compartments
-    return Flows{n isa Integer ? Int(n) : n}(fs)
-end
-ConstructionBase.constructorof(::Type{<:Flows{N}}) where {N} = Flows{N}
-
-blocks(::Flows{N}) where {N} = Val((N, N))
-
 # The hazard rate and share of a flow, zero for another form.
 _rate(f::Flow{<:Any, Hazard}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
 _share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
 _share(f::Flow, g, t) = false
 
-# Sum `h(f, g, t)` over the flows out of compartment `i`.
+# Sum `h(f, g, t)` over the flows out of stock `i`.
 _out(h, ::Tuple{}, i, g, t, z) = z
 function _out(h, fs::Tuple, i, g, t, z)
     f = first(fs)
@@ -314,13 +270,13 @@ _get(x::Tuple, i) = _get(Base.tail(x), i, 2, first(x))
 _get(::Tuple{}, i, j, v) = v
 _get(x::Tuple, i, j, v) = _get(Base.tail(x), i, j + 1, ifelse(j == i, first(x), v))
 
-# What moves out of compartment `i` per unit held, `(e^{-H}, g(H), P)`.
+# What moves out of stock `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
 
-# Add each hazard and share flow's amount into the compartment it enters, in
+# Add each hazard and share flow's amount into the stock it enters, in
 # `y` and the arrivals `a`.
 _spread(::Tuple{}, x, L, y, a, g, t) = y, a
 function _spread(fs::Tuple, x, L, y, a, g, t)
@@ -335,7 +291,7 @@ function _spread_one(f::Flow, x, L, y, a, g, t)
     return _add(y, f.to, m), _add(a, f.to, m)
 end
 
-# A count `r` out of a compartment holding `s`, `min(r, max(s, 0))`; it is
+# A count `r` out of a stock holding `s`, `min(r, max(s, 0))`; it is
 # also a depletion's removal from what remains after the draw. The arms
 # follow primal values, as in the pullback: a dual with value zero is
 # ordered by its partials, so `min` and `max` on duals could take the other
@@ -360,11 +316,11 @@ function _removal_pullback(r, s, m̄)
     return z, s < 0 ? z : m̄
 end
 
-# What a count moves into the compartment it enters: a negative count adds
-# to the compartment it leaves only. The arm follows the primal value.
+# What a count moves into the stock it enters: a negative count adds
+# to the stock it leaves only. The arm follows the primal value.
 _moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
-# What a count `a` moves out of a compartment holding `s`, and the
+# What a count `a` moves out of a stock holding `s`, and the
 # cotangents `(ā, s̄, κ̄)` from that of the move; `κ̄` is the softness's.
 _moved(::Truncate, a, s) = _removal(a, s)
 _moved(form::SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
@@ -377,15 +333,15 @@ function _moved_back(form::SoftTruncate, a, s, m̄)
     return ā, ifelse(s > 0, c̄, zero(c̄)), κ̄
 end
 
-# The count flows in order on the compartments `y` and arrivals `a`.
+# The count flows in order on the stocks `y` and arrivals `a`.
 _counts(::Tuple{}, y, a, g, t) = y, a
 function _counts(fs::Tuple, y, a, g, t)
     y, a = _count(first(fs), y, a, g, t)
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
-# One pass over the compartments, by `ifelse`: a flow out of the system
-# (`to = 0`) adds to no compartment.
+# One pass over the stocks, by `ifelse`: a flow out of the system
+# (`to = 0`) adds to no stock.
 function _count(f::_Count, y, a, g, t)
     i, j = f.from, f.to
     m = _moved(f.form, param(f.demand, g, t), _get(y, i))
@@ -400,7 +356,7 @@ end
 # rate or as a share, so the counts act on `x` directly.
 const _Counts = Tuple{Vararg{_Count}}
 
-# One group's step: the compartments `x` after the flows, and arrivals.
+# One group's step: the stocks `x` after the flows, and arrivals.
 function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
     return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
@@ -414,13 +370,9 @@ function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     return _counts(fs, y, a, g, t)
 end
 
-# The compartments after the flows, without the arrivals.
+# The stocks after the flows, without the arrivals.
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
 _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
-
-function forward(m::Flows, ::Step, v::Tuple, s::Tuple, t, g)
-    return _flow_group(m.flows, v, g, t)
-end
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
@@ -450,7 +402,7 @@ end
 _head(::Nothing) = nothing
 _head(x̄::Tuple) = first(x̄)
 
-# `Σ_f r_f ā_to(f)` over the rate flows out of compartment `i`, exits
+# `Σ_f r_f ā_to(f)` over the rate flows out of stock `i`, exits
 # adding nothing.
 _arrivals_back(::Tuple{}, ā, i, g, t, B) = B
 function _arrivals_back(fs::Tuple, ā, i, g, t, B)
@@ -461,15 +413,8 @@ function _arrivals_back(fs::Tuple, ā, i, g, t, B)
     return _arrivals_back(Base.tail(fs), ā, i, g, t, B)
 end
 
-function pullback!(grads, m::Flows{N}, ::Step, v, s, t, g) where {N}
-    x̄ = _flows_pullback(
-        m.flows, cotangent(grads.piece, :flows), v, grads.v, grads.s, g, t
-    )
-    return x̄, ntuple(_ -> zero(eltype(x̄)), Val(N))
-end
-
-# The cotangent of one group's compartments `x` before the flows, from
-# those of the compartments `ȳ` and arrivals `ā` after them; the flows'
+# The cotangent of one group's stocks `x` before the flows, from
+# those of the stocks `ȳ` and arrivals `ā` after them; the flows'
 # parameter cotangents are added into their mirrors `f̄s`.
 function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
@@ -480,7 +425,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
-    # The hazard and share arrivals feed both the compartments and the state.
+    # The hazard and share arrivals feed both the stocks and the state.
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _arrivals_back(fs, āt, i, g, t, zero(eltype(āt))), Val(N))
@@ -491,7 +436,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     end
 end
 
-# `Σ_f p_f ā_to(f)` over the share flows out of compartment `i`.
+# `Σ_f p_f ā_to(f)` over the share flows out of stock `i`.
 _shares_back(::Tuple{}, ā, i, g, t, z) = z
 function _shares_back(fs::Tuple, ā, i, g, t, z)
     f = first(fs)
@@ -545,15 +490,3 @@ _Named(name, f::Flow) = _Named(name, f.from, f.to)
 function Base.print(io::IO, n::_Named)
     return print(io, n.name, " of Flow(", n.from, " => ", n.to, ")")
 end
-
-function _check_modifier_strata(m::Flows, S)
-    _check_flow_groups(m.flows, _ngroups(blocks(m), S))
-    return nothing
-end
-
-function forward(m::Flows, ::Init, s, history)
-    _check_modifier_strata(m, length(s))
-    fill!(s, zero(eltype(s)))
-    return nothing
-end
-pullback!(grads, ::Flows, ::Init, s, history) = nothing

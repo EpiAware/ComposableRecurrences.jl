@@ -5,8 +5,8 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Primary,
-    Protected, Redistribute, Step, Transform, with_state
+using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
+    Hazard, Pool, Primary, Redistribute, Step, Transform, Truncate, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -152,13 +152,16 @@ function mod_depletion_removals(θ)
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
 
-# `σ` is a constant: `Protected` takes one value or `PerStratum`, and a
+# `σ` is a constant: a draw weight is one value or `PerStratum`, and a
 # traced scalar is not a `Real`.
 const σ0 = 0.3
 
 function mod_depletion_protected(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
-    d = Depletion(N0; removals = rm, protected = Protected(σ0))
+    d = Pool(
+        N0; stocks = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
+        flows = (Flow(1 => 2, rm; form = Truncate()),)
+    )
     r = Recurrence(θ[1:L]; modifiers = (d,))
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
@@ -282,7 +285,7 @@ const CASES = [
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),
     Case(
-        "mod_depletion_protected", "Recurrence with Depletion (Protected)",
+        "mod_depletion_protected", "Recurrence with a protected Pool stock",
         mod_depletion_protected,
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),

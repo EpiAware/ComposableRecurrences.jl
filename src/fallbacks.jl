@@ -275,6 +275,7 @@ _with_scalars(C, θ) = first(_rebuild_scalar(C, θ))
 # pool, the population, the exponent and the form's float scalars as one
 # tuple of dual numbers. Returns the cotangents of `(v, s, N, α)`.
 _form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
+_form_adjoint(::Nothing) = true
 function _form_pullback(grads, form, v, s, N, α)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
 end

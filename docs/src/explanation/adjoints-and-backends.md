@@ -67,10 +67,10 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
 | `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
-| `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
+| `Pool` with two stocks and a count flow | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.26 | 0.32 | keep |
-| `Flows` | 0.43 | 0.43 | keep |
-| `Depletion` with `Protected` and waning `flows` | 0.40 | 0.32 | keep |
+| `Pool` without a draw | 0.43 | 0.43 | keep |
+| `Pool` with two stocks and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Capacity` | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
@@ -136,7 +136,7 @@ Buffers, states and outputs are allocated from the inputs, so they live there to
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
   Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
-- Modifiers with a vector step (`Redistribute`, `Allocate` and `Depletion` with a protected pool) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
+- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Pool` with several stocks or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
 - A ragged `TimeVarying` kernel (a vector of columns) keeps its column offsets where its values live.

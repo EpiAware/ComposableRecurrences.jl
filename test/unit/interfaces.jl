@@ -8,8 +8,8 @@
     @test Interfaces.test(ComposableRecurrences; show = false)
     for T in (
             Recurrence, Convolution, UniformScaling, Matrix{Float64},
-            Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
-            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp, CR.Flows,
+            Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Pool,
+            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
             CR.Capacity, CR.Truncate, CR.SoftTruncate,
         )
         @test Interfaces.implements(CR.PieceInterface, T)
@@ -87,14 +87,17 @@ end
     using ComposableRecurrences, Interfaces, LinearAlgebra
     CR = ComposableRecurrences
     # A protected pool keeps two entries per stratum.
-    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    d = CR.Pool(
+        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+    )
     objs = (
         Interfaces.Arguments(; piece = d, role = CR.Init(), args = (zeros(4), ones(2, 3))),
         Interfaces.Arguments(;
             piece = d, role = CR.Step(), args = ([1.0, 2.0], [90.0, 80.0, 5.0, 6.0], 1)
         ),
     )
-    @test Interfaces.test(CR.PieceInterface{(:nstate,)}, CR.Depletion, objs; show = false)
+    @test Interfaces.test(CR.PieceInterface{(:nstate,)}, CR.Pool, objs; show = false)
     # A pointwise modifier that claims more than one entry per stratum fails.
     struct DoubleState end
     CR.ispointwise(::DoubleState) = true

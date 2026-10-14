@@ -705,14 +705,16 @@ _rebuilds_coupling(C) = !_coupling_rebuilt(C) || _round_trips(C)
 _any_rebuilt(::Tuple{}) = false
 _any_rebuilt(ms::Tuple) = _rebuilt(first(ms)) || _any_rebuilt(Base.tail(ms))
 _rebuilt(m) = _modifier_adjoint(m) === :local && _param_tuple(m) !== ()
-function _rebuilt(m::Depletion)
-    return !uses_adjoint(m.form, Step()) && _scalar_params(m.form) &&
-        _param_tuple(m.form) !== ()
+_rebuilt(m::Pool) = _rebuilt_form(m.form)
+_rebuilt_form(::Nothing) = false
+function _rebuilt_form(form)
+    return !uses_adjoint(form, Step()) && _scalar_params(form) &&
+        _param_tuple(form) !== ()
 end
 _all_rebuild(::Tuple{}) = true
 _all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
 _rebuilds_modifier(m) = !_rebuilt(m) || _round_trips(m)
-_rebuilds_modifier(m::Depletion) = !_rebuilt(m) || _round_trips(m.form)
+_rebuilds_modifier(m::Pool) = !_rebuilt(m) || _round_trips(m.form)
 
 _istrue(::Val{true}) = true
 _istrue(b::Bool) = b
@@ -776,12 +778,12 @@ function _no_adjoint(m, ms...)
     return (_part_name(m), rest...)
 end
 _part_name(m) = nameof(typeof(m))
-_part_name(m::Depletion) = _form_adjoint(m.form) ? :Depletion : nameof(typeof(m.form))
+_part_name(m::Pool) = _form_adjoint(m.form) ? :Pool : nameof(typeof(m.form))
 _not_rebuilt() = ()
 function _not_rebuilt(m, ms...)
     rest = _not_rebuilt(ms...)
     _rebuilds_modifier(m) && return rest
-    return (nameof(typeof(m isa Depletion ? m.form : m)), rest...)
+    return (nameof(typeof(m isa Pool ? m.form : m)), rest...)
 end
 
 # Parameter forms a step reads one entry of through `param`, at stratum `k`
@@ -1066,8 +1068,8 @@ end
 # Otherwise each step is a loop over strata: with pointwise modifiers each
 # stratum's value goes straight to the buffer, else the step's values are
 # collected for the vector Step. Vector Steps (such as `Allocate` and
-# `Redistribute`) read every stratum, and blockwise ones (such as
-# `Protected`) loop their groups, so they run on the calling task whatever
+# `Redistribute`) read every stratum, and blockwise ones (such as a `Pool`
+# with more than one stock) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val

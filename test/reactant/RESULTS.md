@@ -33,7 +33,7 @@ Total run time 49.8 min, one subprocess per cell, timeout 300 s.
 | Recurrence with Depletion (Hazard) | works (38.7 s / 13.2 µs) | works (44.5 s / 141.6 µs) | not run | not run |
 | Recurrence with Depletion (Floor) | works (38.2 s / 11.5 µs) | works (43.7 s / 123.9 µs) | not run | not run |
 | Recurrence with Depletion (removals) | works (39.0 s / 50.3 µs) | works (44.4 s / 129.4 µs) | not run | not run |
-| Recurrence with Depletion (Protected) | works (41.5 s / 13.0 µs) | works (52.1 s / 359.4 µs) | not run | not run |
+| Recurrence with a protected Pool stock | works (41.5 s / 13.0 µs) | works (52.1 s / 359.4 µs) | not run | not run |
 | Recurrence with Allocate | works (39.3 s / 29.5 µs) | works (53.8 s / 261.9 µs) | not run | not run |
 | Recurrence with Transform (TimeVarying θ) | works (38.7 s / 11.8 µs) | works (42.6 s / 69.4 µs) | not run | not run |
 | Recurrence with Add (TimeVarying) | works (40.7 s / 17.3 µs) | works (41.9 s / 22.0 µs) | not run | not run |
@@ -117,7 +117,7 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 A fifth shim, allocating buffers with `zeros` when the history is a plain `Array`, is no longer needed: the package allocates CPU buffers that way.
-The protected pool's step (`_protected_step`, `src/depletion_pools.jl`) picks its arm with `ifelse` rather than `if`, since `if` refuses a traced `Bool`; this lives in the package, not the extension.
+The step of a pool with several stocks (`_draw_stocks`, `src/pool.jl`) picks its arm with `ifelse` rather than `if`, since `if` refuses a traced `Bool`; this lives in the package, not the extension.
 
 Two things to keep in mind when reading compile times.
 The package's plain `for` loops are unrolled when traced, so compile time and program size grow with `T × S`; moving the step loop to `@trace for` would stop that.

@@ -41,6 +41,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
+| stocks and flows      | `Pool(N; stocks, draw, flows)`, `Flow(from => to, d)`    |
 | admitted and overflow | `Capacity(C, Beds(δ); pairs = [a => o])`                 |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
@@ -94,7 +95,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Depletion, Protected, Flow, Flows, Share, Redistribute,
+public Pool, Depletion, Flow, Share, Redistribute,
     Add, Clamp, Allocate, Capacity, Beds, Budget, Route, Hold, Drop,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,
@@ -122,10 +123,10 @@ include("derived.jl")
 include("recent.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
-# Flows between the compartments of each group.
+# Flows between the stocks of a pool.
 include("flows.jl")
-# Depletion with flows and a protected pool.
-include("depletion_pools.jl")
+# Pools: stocks drawn from by a depletion form and moved by flows.
+include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")

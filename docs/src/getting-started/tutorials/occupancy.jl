@@ -24,7 +24,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp, Capacity, Beds, Flow, Flows
+using ComposableRecurrences: Clamp, Capacity, Beds, Flow, Pool
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -154,12 +154,19 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # The two compartments are the strata of a recurrence with the unit kernel, suspected first.
 # The recurrence carries yesterday's compartments forward and adds the
 # admissions to the suspected one.
-# [`Flows`](@ref ComposableRecurrences.Flows) then applies the day's flows.
-# Each is a [`Flow`](@ref ComposableRecurrences.Flow) from one compartment to
+# A [`Pool`](@ref ComposableRecurrences.Pool) without a draw then applies the day's flows.
+# Its stocks are the compartments, held in the strata.
+# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one stock to
 # another, or to `0` to leave, with a hazard rate as its demand.
 # Each rate is a parameter, so it can also differ by ward or change over time.
 
-ward_flows = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))
+ward_flows = Pool(;
+    stocks = (:suspected, :confirmed), draw = nothing,
+    flows = (
+        Flow(:suspected => :confirmed, 0.3), Flow(:suspected => 0, 0.4),
+        Flow(:confirmed => 0, 0.1),
+    )
+)
 ward = Recurrence([1.0]; modifiers = (ward_flows,))
 patients = ward(; history = zeros(2, 1), add = [admissions'; zero(admissions')], stop = T)
 

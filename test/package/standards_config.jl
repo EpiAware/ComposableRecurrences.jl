@@ -54,7 +54,7 @@ const MATHS_FIRST_TUTORIALS = (
 )
 const MATHS_FIRST_CALLS = (
     "Recurrence", "Convolution", "Depletion", "Redistribute", "Add", "Clamp",
-    "Allocate", "Transform", "Routes", "Pairwise", "Protected",
+    "Allocate", "Transform", "Routes", "Pairwise", "Pool",
 )
 # Sections still giving prose before their code, as `file => heading`,
 # marked broken until they gain a ```math block.

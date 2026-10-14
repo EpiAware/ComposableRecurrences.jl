@@ -354,7 +354,10 @@ end
 @testitem "Recurrence: a resumed state has nstate entries per modifier" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    d = CR.Pool(
+        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+    )
     @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
     @test CR.nstate(d, 2) == 4
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
@@ -370,7 +373,7 @@ end
         e
     end
     @test err isa ArgumentError
-    @test occursin("modifier 2 (Depletion)", err.msg)
+    @test occursin("modifier 2 (Pool)", err.msg)
     @test occursin("length 2", err.msg)
     @test occursin("nstate(m, 2) = 4", err.msg)
     bad = CR.State(state.history, (state.states[1][1:1], state.states[2]), state.t)
