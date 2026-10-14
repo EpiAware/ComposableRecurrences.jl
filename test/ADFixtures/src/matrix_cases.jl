@@ -484,19 +484,20 @@ end
 # segments' kernels, lags × segments, then the inputs.
 _cp_starts(T, k) = [1 + (j - 1) * (T ÷ k) for j in 1:k]
 _cp_values(L, k) = [g * (1 + 0.1 * _noise(j, 11)) for g in _gi(L), j in 1:k]
-function _cp_kernel(K, starts, T, indexing)
+# `cols[t]` is the segment of time `t`, found once outside the loss.
+_cp_cols(starts, T) = [count(<=(t), starts) for t in 1:T]
+function _cp_kernel(K, starts, cols, indexing)
     return TimeVarying([starts[j] => K[:, j] for j in eachindex(starts)], indexing)
 end
-function _dense_kernel(K, starts, T, indexing)
-    return TimeVarying(K[:, [findlast(<=(t), starts) for t in 1:T]], indexing)
-end
+_dense_kernel(K, starts, cols, indexing) = TimeVarying(K[:, cols], indexing)
 function _conv_cp(wrap, z::Size, indexing, k, kernel)
     (; T, L) = z
     _, x, w = _conv_inputs(T, L)
     starts = _cp_starts(T, k)
+    cols = _cp_cols(starts, T)
     f = function (θ)
         K = reshape(θ[1:(L * k)], L, k)
-        c = Convolution(kernel(K, starts, T, indexing))
+        c = Convolution(kernel(K, starts, cols, indexing))
         return sum(w .* wrap(c)(θ[(L * k + 1):end]))
     end
     return f, vcat(vec(_cp_values(L, k)), x)
@@ -509,9 +510,10 @@ function _renewal_cp(wrap, z::Size, indexing, k, kernel)
     W = _weights(T)
     starts = _cp_starts(T, k)
     t0 = _cp_start(indexing, L)
+    cols = _cp_cols(starts, T)
     f = function (θ)
         K, logh, logR = _unpack(θ, (L, k), (L,), (T,))
-        r = wrap(Recurrence(kernel(K, starts, T, indexing)))
+        r = wrap(Recurrence(kernel(K, starts, cols, indexing)))
         y = r(exp.(logR); history = exp.(logh), start = t0)
         return sum(W[t0:end] .* log.(y))
     end
