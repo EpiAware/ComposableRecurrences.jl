@@ -112,8 +112,7 @@ The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses 
 
 ## [Couplings](@id overview-couplings)
 
-A coupling mixes the series after the kernel and before the gain.
-[Where the coupling acts](@ref explanation-coupling) gives the step for several series, and what a row and a column of ``C`` mean.
+[Where the coupling acts](@ref explanation-coupling) gives where a coupling mixes the series, and what a row and a column of ``C`` mean.
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -124,8 +123,8 @@ A coupling mixes the series after the kernel and before the gain.
 
 ## [Modifiers](@id overview-modifiers)
 
-Modifiers act on ``v_t`` in tuple order, after the gain and `add`; [Order](@ref explanation-modifier-order) gives the step with each modifier's state.
-So `add` enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
+[Order](@ref explanation-modifier-order) gives the order modifiers act in, with each modifier's state.
+The `add` input enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
 `Redistribute` moves whatever it receives, including values from `add`.
 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
