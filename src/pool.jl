@@ -533,6 +533,19 @@ end
 _entry(::Nothing, ::Val) = nothing
 _entry(x̄::Tuple, ::Val{i}) where {i} = x̄[i]
 
+# Every stock's value before the first step at group `k`, and their
+# cotangents from the state cotangent `s̄` of `G` groups, unrolled over the
+# stocks so each reads its own entry of `initial` without a closure.
+@generated function _initials(m::Pool{L}, k) where {L}
+    return Expr(:tuple, (:(_initial(m, $(Val(i)), k)) for i in 1:L.n)...)
+end
+@generated function _add_initials!(m̄, m::Pool{L}, s̄, G, k) where {L}
+    calls = (
+        :(_add_initial!(m̄, m, $(Val(i)), s̄[$(i - 1) * G + k], k)) for i in 1:L.n
+    )
+    return Expr(:block, calls..., :(return nothing))
+end
+
 function forward(m::Pool, ::Init, s, history)
     n = _nstocks(m)
     G = length(s) ÷ n
@@ -546,7 +559,7 @@ function forward(m::Pool, ::Init, s, history)
 end
 
 function _initial_body!(k, s, m, G)
-    _scatter!(s, ntuple(i -> _initial(m, Val(i), k), Val(_nstocks(m))), G, k)
+    _scatter!(s, _initials(m, k), G, k)
     return nothing
 end
 
@@ -556,9 +569,7 @@ function pullback!(grads, m::Pool, ::Init, s, history)
     G = length(s) ÷ n
     s̄ = grads.s
     for k in 1:G
-        ntuple(Val(n)) do i
-            _add_initial!(grads.piece, m, Val(i), s̄[(i - 1) * G + k], k)
-        end
+        _add_initials!(grads.piece, m, s̄, G, k)
     end
     return nothing
 end
@@ -626,9 +637,12 @@ function _group_step(::Val{true}, m, v, s, t, g)
     return (y,), _flow_only(m.flows, x, g, t)
 end
 
-# The weights at group `g` and time `t`, and the weighted stocks
-# `Σ w_i x_i`, summed in order.
-_weights_at(m, ::Val{n}, g, t) where {n} = ntuple(i -> param(m.weights[i], g, t), Val(n))
+# The weights at group `g` and time `t`, promoted to one type so a step
+# indexes them without a union, and the weighted stocks `Σ w_i x_i`, summed
+# in order. A fixed weight of one promotes to an exact one.
+function _weights_at(m, ::Val{n}, g, t) where {n}
+    return promote(ntuple(i -> param(m.weights[i], g, t), Val(n))...)
+end
 _weighted(w::Tuple{Any}, x::Tuple{Any}) = first(w) * first(x)
 function _weighted(w::Tuple, x::Tuple)
     return _weighted_sum(Base.tail(w), Base.tail(x), first(w) * first(x))

@@ -275,6 +275,10 @@ function _leaves(fs, i, g, t, z)
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
+# Without a hazard flow nothing leaves at a rate, so `e^{-0}` and `g(0)` are
+# one, exactly as `_leave` gives them, without the exponentials.
+const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _TruncateForm}}}}
+_leaves(fs::_NoHazard, i, g, t, z) = one(z), one(z), _out(_share, fs, i, g, t, z)
 
 # Add each hazard and share flow's amount into the stock it enters, in
 # `y` and the arrivals `a`.
