@@ -484,7 +484,8 @@ function _all_length(vs, n)
     end
     return true
 end
-_pad(v, n) = length(v) == n ? v : vcat(v, zeros(eltype(v), n - length(v)))
+# A new vector either way, so the stack infers one type.
+_pad(v, n) = vcat(v, zeros(eltype(v), n - length(v)))
 function _all_size(vs, sz)
     for v in vs
         size(v) == sz || return false
