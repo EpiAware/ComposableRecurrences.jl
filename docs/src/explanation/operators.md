@@ -119,4 +119,3 @@ reports ≈ delay(joined)[(length(seed) + 1):end]
 ```
 
 Pass the seed as history when the reports should cover the run only, and prepend it when they should cover the seed days too.
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial builds a full model this way.
