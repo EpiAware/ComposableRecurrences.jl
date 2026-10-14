@@ -6,16 +6,16 @@ This table maps common model parts to the code that builds them, with the tutori
 
 | Model part | Maths | Code | Tutorial |
 |---|---|---|---|
-| Renewal process | ``I_t = R_t \sum_{l=1}^{L} w_l I_{t-l}`` | [`Recurrence(w)`](@ref Recurrence), called as `r(R; history)` | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Renewal process | ``I_t = R_t \sum_{l=1}^{L} w_l I_{t-l}`` | [`Recurrence(w)`](@ref Recurrence), called as `r(R; history)` | [Getting started](@ref overview-build) |
 | Susceptible depletion | ``I_t = S_{t-1} \big(1 - e^{-v_t / N}\big)``, ``S_t = S_{t-1} - I_t`` | [`Depletion(N)`](@ref ComposableRecurrences.Depletion), or `Depletion(N, Floor())` | [Renewal then delay](@ref tutorial-renewal-delay) |
 | A stock of doses or places used up in full | ``x_t = \min(v_t, s_{t-1})``, ``s_t = s_{t-1} - x_t`` | [`Depletion(b, Truncate())`](@ref ComposableRecurrences.Truncate), or `SoftTruncate(κ)` for a smooth minimum | – |
 | All-or-nothing vaccination, efficacy ``e``, doses ``d_t`` | a share ``e`` of doses leaves ``S``: ``S_t \mathrel{-}= \min(e\, d_t, S_t)`` | [`Depletion(N; removals = TimeVarying(e .* d), protected = Protected(0))`](@ref ComposableRecurrences.Protected) | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Leaky vaccination, efficacy ``e``, doses ``d_t`` | infections from ``S + (1 - e) V``, doses move from ``S`` to ``V`` | [`Depletion(N; removals = TimeVarying(d), protected = Protected(1 - e))`](@ref ComposableRecurrences.Protected) | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Waning protection at rate ``\omega`` | ``V_t \mapsto e^{-\omega} V_t``, ``S_t \mapsto S_t + (1 - e^{-\omega}) V_t`` after each day's infections, before the day's doses | [`Depletion(N; removals = TimeVarying(d), protected = Protected(σ), flows = Flow(2 => 1, ω))`](@ref ComposableRecurrences.Depletion) | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Births ``b_t`` into a changing population ``N_t`` | ``S_t \mathrel{+}= b_t``, the hazard divides by ``N_t`` | [`Depletion(TimeVarying(N); removals = TimeVarying(-b))`](@ref ComposableRecurrences.Depletion) | the [`Depletion`](@ref ComposableRecurrences.Depletion) example |
-| Population control, or a measure from ``t_0`` to ``t_1``, cutting transmission by ``c`` | ``R_t \big(1 - c\, \mathbb{1}[t_0 \le t \le t_1]\big)`` | the gain `R .* measure` | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Population control, or a measure from ``t_0`` to ``t_1``, cutting transmission by ``c`` | ``R_t \big(1 - c\, \mathbb{1}[t_0 \le t \le t_1]\big)`` | the gain `R .* measure` | [Getting started](@ref overview-build) |
 | Imported cases ``\iota_t`` | ``v_t = R_t \sum_l w_l I_{t-l} + \iota_t`` | `add = ι`, or [`Add(TimeVarying(ι))`](@ref ComposableRecurrences.Add) after depletion | [Renewal then delay](@ref tutorial-renewal-delay) |
-| Reporting delay ``d_l`` | ``C_t = \sum_{l=0}^{L-1} d_l I_{t-l}`` | [`Convolution(d)`](@ref Convolution) | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Reporting delay ``d_l`` | ``C_t = \sum_{l=0}^{L-1} d_l I_{t-l}`` | [`Convolution(d)`](@ref Convolution) | [Getting started](@ref overview-build) |
 | Clinical transitions, each with probability ``h`` | ``A_t = h \sum_l d_l O_{t-l}``, one `Convolution` per transition | `Convolution(d)(O; gain = h)`, chained | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Log reproduction number as a latent process | ``\log R_t = \rho \log R_{t-1} + \epsilon_t`` | `Recurrence([ρ])(; history, add = ϵ)` | [Latent processes driving R_t](@ref tutorial-latent-rt) |
 | Delay that changes over time | ``C_t = \sum_l d_l(t) I_{t-l}`` or ``\sum_l d_l(t - l) I_{t-l}`` | [`Convolution(TimeVarying(D))`](@ref TimeVarying), or `TimeVarying(D, Primary())` | [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) |
@@ -37,7 +37,7 @@ This table maps common model parts to the code that builds them, with the tutori
 | Isolation beds with overflow | ``x_t = \min\big(d_t, \max(C - (1 - \delta) O_{t-1}, 0)\big)`` of demand ``d_t`` admitted, ``d_t - x_t`` left in the community | [`Capacity(C, Beds(δ); pairs = [1 => 2])`](@ref ComposableRecurrences.Capacity) | [Occupancy and capacity](@ref tutorial-occupancy) |
 | Ring vaccination with a weekly budget | ``x_t = \min(d_t, B_t)``, with ``B_t`` refilled by ``b`` each week | [`Capacity(b, Budget(7); pairs = [1 => 2])`](@ref ComposableRecurrences.Capacity) | [Occupancy and capacity](@ref tutorial-occupancy) |
 | Forecast after a fit | continue ``I_t`` from the fitted days | [`with_state`](@ref ComposableRecurrences.with_state), then `r(R; state)` | [Renewal then delay](@ref tutorial-renewal-delay) |
-| Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | [`r(R; history, prepend = true)`](@ref Recurrence) | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | [`r(R; history, prepend = true)`](@ref Recurrence) | [What a call returns](@ref explanation-returns) |
 | Seed on an exponential growth path | ``h_l = I_0 e^{r (l - L)}``, with ``r`` matching ``R`` | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | [Renewal then delay](@ref tutorial-renewal-delay) |
 
 Random walks, autoregressions and moving averages are listed with the [time-series processes](@ref overview-time-series) on the [API overview](@ref api-overview).

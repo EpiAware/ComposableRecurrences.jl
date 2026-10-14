@@ -53,6 +53,7 @@ Each table below lists one part of the package:
 [operators](@ref overview-operators),
 [calls](@ref overview-calls),
 [shapes](@ref overview-shapes),
+[delay distributions](@ref overview-delays),
 [couplings](@ref overview-couplings),
 [modifiers](@ref overview-modifiers),
 [depletion forms and indexing](@ref overview-variants),
@@ -110,10 +111,62 @@ They tag one stored array and make no copies; kernel columns are held as given, 
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
+## [Delay distributions](@id overview-delays)
+
+A kernel can hold delay distributions, and the operator turns them into masses when it is built with the number of lags `lags`.
+[`delay_masses(d, lags)`](@ref ComposableRecurrences.delay_masses) gives the masses on lags `0` to `lags - 1`:
+
+```math
+k_l = P(D = l), \qquad l = 0, \dots, L - 1,
+```
+
+where ``D`` is the delay in whole steps and ``L`` = `lags`.
+`lags` counts from lag 0 for both operators, and each operator keeps the masses from its own [lag origin](@ref faq-lag-origin): a convolution from ``k_0`` and a recurrence from ``k_1``.
+So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
+The masses are not renormalised after this cut, as the `delay_masses` docstring says, so a recurrence kernel sums to ``\sum_{l=1}^{L-1} k_l``, which scales the gain.
+Loading Distributions adds `delay_masses` for any discrete distribution, and a package that owns a delay type adds a method for it.
+
+| Kernel | Holds |
+|---|---|
+| `d` | one distribution |
+| `PerStratum(ds)` | a vector of distributions, one per series |
+| `Pairwise(D)` | a matrix of distributions, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
+| `TimeVarying(ds, indexing)` | a vector of distributions, one per time, or `PerStratum` or `Pairwise` of them with time last |
+| `Routes((C₁, d₁), (C₂, g₂))` | distributions or arrays as route kernels; `Recurrence` only |
+
+`Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any of these.
+`lags` has no default, since where a delay is cut is a modelling choice.
+A continuous distribution is an error until it is discretised, for example by interval censoring.
+Gradients reach the distributions' parameters through their masses.
+
+```jldoctest
+using ComposableRecurrences, Distributions
+delay = Convolution(Poisson(1.5); lags = 4)
+generation = Recurrence(Poisson(1.5); lags = 4)
+length(delay.kernel), length(generation.kernel)
+
+# output
+
+(4, 3)
+```
+
+```jldoctest
+using ComposableRecurrences, Distributions
+delay = Convolution(Poisson(1.5); lags = 4)
+round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
+
+# output
+
+4-element Vector{Float64}:
+  2.231
+  7.81
+ 18.129
+ 37.514
+```
+
 ## [Couplings](@id overview-couplings)
 
-A coupling mixes the series after the kernel and before the gain.
-Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series receiving and a column the series sending.
+[Where the coupling acts](@ref explanation-coupling) gives where a coupling mixes the series, and what a row and a column of ``C`` mean.
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -124,8 +177,8 @@ Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series re
 
 ## [Modifiers](@id overview-modifiers)
 
-Modifiers act on ``v_t`` in tuple order, after the gain and `add`.
-So `add` enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
+[Order](@ref explanation-modifier-order) gives the order modifiers act in, with each modifier's state.
+The `add` input enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
 `Redistribute` moves whatever it receives, including values from `add`.
 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
