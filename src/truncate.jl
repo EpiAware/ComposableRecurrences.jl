@@ -117,14 +117,17 @@ _softness(form::SoftTruncate) = form.κ
 # the smaller and larger of the two; a non-positive `m` is returned as it
 # is, and an infinite `M` gives `m`. The exact minimum is `_removal`, which
 # takes `a` on a tie and returns a NaN.
+# The arms are picked with `ifelse`, so a traced value picks them too; the
+# smooth arm sees the ratio 1 where it is not taken, so it makes no NaN
+# that a derivative would carry.
 _soft_min(::Nothing, a, b) = _removal(a, b)
 function _soft_min(κ, a, b)
     a, b, κ = promote(a, b, κ)
-    lo, hi = _takes_first(a, b) ? (a, b) : (b, a)
-    _primal_value(lo) > 0 || return lo
-    isinf(_primal_value(hi)) && return lo
-    r = lo / hi
-    return lo * (1 + r^inv(κ))^(-κ)
+    takes_a = _takes_first(a, b)
+    lo, hi = ifelse(takes_a, a, b), ifelse(takes_a, b, a)
+    smooth = (_primal_value(lo) > 0) & !isinf(_primal_value(hi))
+    r = ifelse(smooth, lo / ifelse(smooth, hi, one(hi)), one(lo))
+    return ifelse(smooth, lo * (1 + r^inv(κ))^(-κ), lo)
 end
 _takes_first(a, b) = _primal_value(a) <= _primal_value(b)
 

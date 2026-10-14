@@ -8,20 +8,37 @@ Each method below was found by tracing the cases here one failure at a time, fir
    Reactant overlays that `mapreduce` as a traced reduction over types, and it fails with a `MethodError` in `unwrapped_eltype`.
    Without it every case fails before any loop runs.
    The method returns `eltype(x)`, which also covers reshapes and views of traced arrays.
-2. Scalar indexing.
-   The step loops read and write one entry at a time, which Reactant refuses outside `@allowscalar`.
-   The extension adds a `_run` method for a traced eltype that runs the serial loop under `@allowscalar`, and a `_conv_buffers` method that does the same for `Convolution`, so a caller does not wrap the call.
-   The executors are not used for a traced run: the traced program is compiled as a whole.
-3. The kernel window product (`_kdot`).
-   With a traced buffer the window product of a vector kernel is one broadcast product and sum, rather than `L` scalar reads.
-4. Traced `reverse` mutates its argument (`_oldest_first`).
+2. A traced executor and a traced time loop.
+   A call whose buffer eltype is traced runs `_run` (and `_conv_buffers` for `Convolution`) with the extension's `Traced` executor, under `@allowscalar`, so a caller does not wrap the call.
+   The package writes its time loop once, as `_steps!(body, ex, T, args...)`.
+   For `Traced` it is `@trace track_numbers = false for t in 1:T`, which compiles to one `stablehlo.while` whose body is the step.
+   `track_numbers = false` keeps the integers the step closes over, such as the number of lags, as constants rather than loop-carried values.
+   The strata loops inside a step are written out in order, so the program grows with the strata but not with the steps.
+3. Traced buffers.
+   `_zeros` at a traced eltype gives a traced array, which the loop carries and updates in place, rather than a Julia array of traced numbers.
+4. Windows at a traced step.
+   Reactant does not slice with a range whose start is traced, so the kernel window (`_kdot`), a `Recent` window (`_recent_window`) and the column of a lags × time kernel (`_wcolumn`) are each one `dynamic_slice`.
+   The buffer is already `D` rows deep before the first step, so every window has a fixed length.
+   A kernel or parameter that is not traced is read at the traced step as a constant of the program.
+5. Lags that depend on the step (`_lags`, `_column`, `_weight`).
+   A `Primary()` kernel reads lags up to `τ - 1` and a ragged column has its own length, but a traced step needs a fixed number of lags.
+   At a traced step every lag runs: a `Primary()` lag before time 1 reads the first column and meets a zero in the buffer, as a seed sits at times from 1, and a ragged weight past its column's end is zero.
+6. `Recent` at a traced step (`_recent_row`, `_cached`, `_cache_row!`).
+   Inside the traced loop `Recent` is read only at the step's own buffer row, which the buffer depth covers, so the read skips its bounds check.
+   With a coupling the loop fills that row's windows before the strata read them, so the read takes them without comparing rows.
+7. A traced convolution (`_convolve!`).
+   Each output time is a step of the traced loop.
+   The input buffer gains `D - 1` zero rows on top, so every lag reads inside it, and a `Primary()` kernel's column before time 1 is read clamped to the first, where it meets a zero input.
+8. Traced `reverse` mutates its argument (`_oldest_first`).
    Reactant's traced `reverse(g)` also reverses `g` in place.
    One call is right, but a second call with the same kernel, as when resuming from a returned state, would read it the wrong way round.
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
-A fifth shim, allocating buffers with `zeros` when the history is a plain `Array`, is no longer needed: the package allocates CPU buffers that way.
-The protected pool's step (`_protected_step`, `src/depletion_pools.jl`) picks its arm with `ifelse` rather than `if`, since `if` refuses a traced `Bool`; this lives in the package, not the extension.
+Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
+This lives in the package: the protected pool's draw (`_protected_draw`), a `Budget`'s refill (`_open`) and the soft minimum of `SoftTruncate` (`_soft_min`).
 
-Two things to keep in mind when reading compile times.
-The package's plain `for` loops are unrolled when traced, so compile time and program size grow with `T × S`; moving the step loop to `@trace for` would stop that.
+Things to keep in mind when reading the tables.
+The control row's compile time is Reactant's fixed first-compile cost; the rest of a cell's compile time does not grow with `T`.
 Custom adjoints through the `pullback!` seam are not used under Reactant: Enzyme-MLIR differentiates the traced primal.
+From 100 steps the custom pointwise modifier's floor meets a value exactly at it (`max(v, 1.0)` with `v == 1.0`), where ForwardDiff and Enzyme take different sides of the kink, so that reverse cell does not match at `T = 400`; both gradients are valid.
+A `Recent` read without a coupling, with a window longer than the kernel, runs about ten times slower than plain Julia per step on CPU.

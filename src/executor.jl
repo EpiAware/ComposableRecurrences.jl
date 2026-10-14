@@ -328,6 +328,17 @@ end
     return nothing
 end
 
+# The time loop: `body(t, args...)` for `t` in `1:n`, in order, each step
+# reading the steps before it. Every executor runs it as written; one that
+# compiles the whole call, such as a traced one, may compile it as a single
+# loop whose body is the step.
+@inline function _steps!(body::F, ex, n, args::Vararg{Any, N}) where {F, N}
+    for t in 1:n
+        @inline body(t, args...)
+    end
+    return nothing
+end
+
 # `body(ks, args...)` over blocks `ks` of `1:n` that together cover it once:
 # one block for `Serial`, one per chunk for `Threaded` and one per index
 # otherwise. A body that loops over time inside its block keeps the serial
