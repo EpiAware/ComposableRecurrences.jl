@@ -21,6 +21,9 @@ const T₁ = 8  # steps in the first call of the resume case
 
 const g0 = [0.4, 0.3, 0.2, 0.1]
 const R0 = collect(range(0.9, 1.2; length = T))
+# The same span at the midpoints of `T` steps, which never meets 1 exactly,
+# so a floor at 1 is not met exactly at a step and the gradient is defined.
+const RM0 = 0.9 .+ 0.3 .* ((1:T) .- 0.5) ./ T
 const RS0 = [0.9 + 0.1 * k + 0.01 * t for k in 1:S, t in 1:T]
 const H1 = [1.0, 2.0, 1.5, 1.0]
 const HS = [1.0 + 0.5 * k + 0.1 * i for k in 1:S, i in 1:L]
@@ -276,7 +279,7 @@ const CASES = [
     ),
     Case(
         "rec_pointwise_modifier", "Recurrence, custom pointwise modifier",
-        rec_pointwise_modifier, vcat(g0, R0), W1
+        rec_pointwise_modifier, vcat(g0, RM0), W1
     ),
     Case(
         "rec_apply_modifier", "Recurrence, custom all-strata modifier",

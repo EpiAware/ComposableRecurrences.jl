@@ -35,10 +35,10 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
-This lives in the package: the protected pool's draw (`_protected_draw`), a `Budget`'s refill (`_open`) and the soft minimum of `SoftTruncate` (`_soft_min`).
+This lives in the package for the protected pool's draw (`_protected_draw`) and a `Budget`'s refill (`_open`).
+The soft minimum of `SoftTruncate` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
 
 Things to keep in mind when reading the tables.
 The control row's compile time is Reactant's fixed first-compile cost; the rest of a cell's compile time does not grow with `T`.
 Custom adjoints through the `pullback!` seam are not used under Reactant: Enzyme-MLIR differentiates the traced primal.
-From 100 steps the custom pointwise modifier's floor meets a value exactly at it (`max(v, 1.0)` with `v == 1.0`), where ForwardDiff and Enzyme take different sides of the kink, so that reverse cell does not match at `T = 400`; both gradients are valid.
 A `Recent` read without a coupling, with a window longer than the kernel, runs about ten times slower than plain Julia per step on CPU.

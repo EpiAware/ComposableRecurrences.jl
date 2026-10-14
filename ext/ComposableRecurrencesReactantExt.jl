@@ -149,6 +149,27 @@ end
 ComposableRecurrences._cached(b::_BoundRecent, i::TracedRNumber) = true
 ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
 
+# The soft minimum of `SoftTruncate` with a traced value picks its arms
+# with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees
+# the ratio 1, so it makes no NaN that a derivative would carry.
+const _MaybeTraced = Union{Real, TracedRNumber}
+function ComposableRecurrences._soft_min(
+        κ::_MaybeTraced, a::TracedRNumber, b::_MaybeTraced
+    )
+    return _traced_soft_min(κ, a, b)
+end
+function ComposableRecurrences._soft_min(κ::_MaybeTraced, a::Real, b::TracedRNumber)
+    return _traced_soft_min(κ, a, b)
+end
+function _traced_soft_min(κ, a, b)
+    a, b, κ = promote(a, b, κ)
+    takes_a = a <= b
+    lo, hi = ifelse(takes_a, a, b), ifelse(takes_a, b, a)
+    smooth = (lo > 0) & !isinf(hi)
+    r = ifelse(smooth, lo / ifelse(smooth, hi, one(hi)), one(lo))
+    return ifelse(smooth, lo * (1 + r^inv(κ))^(-κ), lo)
+end
+
 # The step and convolution loops read and write one entry at a time, so a
 # traced run allows scalar indexing. The traced executor runs it: the
 # threads and devices of the other executors are the compiled program's

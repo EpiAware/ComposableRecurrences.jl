@@ -218,7 +218,7 @@ write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
             for r in results
                 (r.config, r.backend) == (config, backend) || continue
                 @testset "$(r.name) $(r.mode) T = $(r.steps)" begin
-                    key = (r.name, r.mode, config, backend, parse(Int, r.steps))
+                    key = (r.name, r.mode, config, backend)
                     if r.status == "skipped"
                         @test_skip r.status == "works"
                     elseif get(EXPECTED, key, false)

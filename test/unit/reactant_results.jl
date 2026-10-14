@@ -24,7 +24,7 @@
     end
     @test !isempty(rows)
     for r in rows
-        key = (r[:name], r[:mode], r[:config], r[:backend], parse(Int, r[:steps]))
+        key = (r[:name], r[:mode], r[:config], r[:backend])
         @test r[:name] in names
         r[:status] == "skipped" && continue
         @test (r[:status] == "works") == get(expected, key, false)
