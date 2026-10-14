@@ -53,6 +53,7 @@ Each table below lists one part of the package:
 [operators](@ref overview-operators),
 [calls](@ref overview-calls),
 [shapes](@ref overview-shapes),
+[delay distributions](@ref overview-delays),
 [couplings](@ref overview-couplings),
 [modifiers](@ref overview-modifiers),
 [depletion forms and indexing](@ref overview-variants),
@@ -109,6 +110,47 @@ Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
 They tag one stored array and make no copies; kernel columns are held as given, with the exceptions listed under [`TimeVarying`](@ref).
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
+
+## [Delay distributions](@id overview-delays)
+
+A kernel can be a delay distribution, given with the number of lags `lags` to keep.
+[`delay_masses(d, lags)`](@ref ComposableRecurrences.delay_masses) returns its masses on lags `0` to `lags - 1`, lag 0 first:
+
+```math
+k_l = P(D = l), \qquad l = 0, \dots, L - 1,
+```
+
+where ``D`` is the delay in whole steps and ``L`` = `lags`.
+A recurrence has no lag 0, so its kernel is ``k_1, \dots, k_{L-1}``.
+Loading Distributions adds a method for any discrete distribution and the constructors below.
+A package that owns a delay type adds a `delay_masses` method for it, and these constructors then take that type too.
+
+| Constructor | Kernel |
+|---|---|
+| `Convolution(d; lags, method)` | ``k_0, \dots, k_{L-1}`` |
+| `Recurrence(d; lags, coupling, modifiers)` | ``k_1, \dots, k_{L-1}`` |
+| `PerStratum(ds; lags, lag0 = true)` | one row per distribution in `ds`, without lag 0 when `lag0 = false` |
+| `TimeVarying(ds, indexing; lags, lag0 = true)` | one column per distribution in `ds`, without lag 0 when `lag0 = false` |
+| `Pairwise(D; lags)` | `D[i, j]` is series `j`'s delay in series `i`, from lag 1 |
+| `Routes((C₁, d₁), (C₂, d₂); lags)` | one route per distribution, from lag 1 |
+
+`lags` has no default, since where a delay is cut is a modelling choice.
+A continuous distribution is an error until it is discretised, for example by interval censoring.
+Gradients reach the distribution's parameters through its masses.
+
+```jldoctest
+using ComposableRecurrences, Distributions
+delay = Convolution(Poisson(1.5); lags = 4)
+round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
+
+# output
+
+4-element Vector{Float64}:
+  2.231
+  7.81
+ 18.129
+ 37.514
+```
 
 ## [Couplings](@id overview-couplings)
 
