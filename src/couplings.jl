@@ -97,27 +97,20 @@ function pullback!(grads, C::AbstractMatrix, ::Pressure, q, p, t)
     return nothing
 end
 # A dense matrix with a dense or absent mirror: the same fused loop, its
-# sizes checked once so it runs without bounds checks.
+# sizes checked once so it runs without bounds checks. Any other mirror
+# takes the method above.
 function pullback!(grads, C::Matrix, ::Pressure, q, p, t)
     q̄, p̄ = grads.q, grads.p
     C̄ = _array_mirror(grads.piece)
-    C̄ isa _DenseMirror || return _dense_coupling_back!(p̄, C̄, C, q̄, p)
+    C̄ isa _DenseMirror || return invoke(
+        pullback!, Tuple{Any, AbstractMatrix, Pressure, Any, Any, Any},
+        grads, C, Pressure(), q, p, t
+    )
     _check_dense(C̄, C)
     axes(q̄, 1) == axes(C, 1) && axes(p̄, 1) == axes(p, 1) == axes(C, 2) || throw(
         DimensionMismatch("coupling is $(size(C)), pressures are $(length(p))")
     )
     _dense_coupling_back!(p̄, C̄, C, q̄, p)
-    return nothing
-end
-function _dense_coupling_back!(p̄, C̄, C, q̄, p)
-    for b in axes(C, 2)
-        acc = zero(eltype(p̄))
-        for a in axes(C, 1)
-            acc += C[a, b] * q̄[a]
-            add_cotangent!(C̄, q̄[a] * p[b], a, b)
-        end
-        p̄[b] += acc
-    end
     return nothing
 end
 function _dense_coupling_back!(p̄, C̄::Matrix, C::Matrix, q̄, p)
