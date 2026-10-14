@@ -71,12 +71,24 @@ number type (dual numbers, say) and other arrays (device or traced) take
 [`ComposableRecurrences.Direct`](@ref).
 It does not use the set [`ComposableRecurrences.Executor`](@ref).
 
-The error of each output is about the machine epsilon times the size of the
-inputs and kernel in its block, not times the output itself.
-So outputs far below the inputs around them lose relative accuracy, and
-small outputs of a positive kernel and inputs can come out negative; in
-`Float32` that starts about six orders of magnitude below the peak.
-A `NaN` or `Inf` input spreads to every output of its block, including
+The transform's error in each sum is about the machine epsilon times the
+size of the inputs and kernel in its block, not times the sum itself.
+So each sum, of the outputs and of the reverse pass, is checked against a
+bound ``\epsilon_b`` on that error,
+```math
+\epsilon_b = \tfrac{1}{2} \log_2(N)\, \epsilon\, \lVert a_b \rVert_2\, \lVert k \rVert_2,
+```
+summed over the blocks ``a_b`` that reach it, with ``\epsilon`` the machine
+epsilon.
+A sum whose bound exceeds ``10^{-10}`` of it (``10^{-4}`` in `Float32`) is
+taken directly instead, and once such sums would cost more than a quarter of
+the direct method, the whole pass takes the direct method.
+So the outputs and gradients match the direct method to that relative
+accuracy, and they cannot come out negative from a positive kernel and
+inputs.
+A series spanning many orders of magnitude, such as a long exponential
+growth, then costs up to both methods together.
+A `NaN` or `Inf` input can spread to every output of its block, including
 earlier ones.
 
 # Examples
@@ -104,24 +116,19 @@ the [FFT extension](@ref extension-fftw) is loaded, takes
 \end{cases}
 ```
 Any other call takes [`ComposableRecurrences.Direct`](@ref).
-From these sizes the transform is about as fast as the direct method, and
-1.3 to 2.3 times faster from 500 lags or 2000 outputs, forward and in reverse
-mode.
+From these sizes the transform is faster than the direct method, by 1.1 to
+2.3 times, forward and in reverse mode.
 Below them the direct method is faster, up to 2 times.
 So most models take the direct method, and `Float32` models never take the
 transform.
 The kernel, eltype, arrays and loaded packages are resolved by dispatch,
 and the sizes by two integer comparisons per call.
 
-From these sizes the outputs carry the transform's error, which
-[`ComposableRecurrences.FFTMethod`](@ref) sets out: it scales with the
-inputs and kernel in each output's block, not with the output itself.
-So the relative error of an output is about ``10^{-16}`` times the ratio
-of the largest values around it to the output: about ``10^{-4}`` on a
-series spanning 12 orders of magnitude and ``10^{-2}`` at 14.
-On a series spanning more than about 16 orders, the smallest outputs lose
-all accuracy and can come out negative, so their `log` is `NaN`.
-Pass `method = ComposableRecurrences.Direct()` for such a series.
+The outputs and gradients match the direct method to a relative
+``10^{-10}``, by the check that [`ComposableRecurrences.FFTMethod`](@ref)
+sets out.
+On a series spanning many orders of magnitude that check falls back to the
+direct method, at up to about twice its cost.
 
 # Examples
 ```jldoctest

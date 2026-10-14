@@ -566,6 +566,15 @@ function _conv_auto(w, θ)
     return sum(WA .* w(Convolution(g))(x; history = h))
 end
 
+# The same delay on a series spanning 22 orders of magnitude, under a log:
+# the default method takes the direct sums the transform cannot give to a
+# relative 1e-10.
+const XW = 10.0 .^ range(-22, 0; length = TA)
+function _conv_auto_wide(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* log.(w(Convolution(g))(x)))
+end
+
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
 # with a longer one.
 function _routes(w, θ)
@@ -890,6 +899,10 @@ const _SCENARIOS = [
             ones(5),
         ),
     ),
+    (
+        "Convolution wide-range series by the automatic method", _conv_auto_wide,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XW),
+    ),
 ]
 
 """
@@ -968,6 +981,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
     "Convolution long kernel by the automatic method" => (:Auto,),
+    "Convolution wide-range series by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the

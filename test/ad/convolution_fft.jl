@@ -197,3 +197,52 @@ end
     using ADTypes: AutoMooncakeForward
     test_fft_gradients(AutoMooncakeForward())
 end
+
+# A log-likelihood over a series spanning 22 orders of magnitude: the
+# default method and the transform match the direct method's gradient to a
+# relative 1e-10 under the native rules.
+@testsnippet WideAD begin
+    using ComposableRecurrences, DifferentiationInterface, FFTW, ForwardDiff
+    using ADTypes: AutoForwardDiff
+    const CR = ComposableRecurrences
+    function test_wide_gradients(backend)
+        T, L = 1000, 300
+        g = exp.(-0.05 .* (0:(L - 1)))
+        w = 1.5 .+ sin.(1:T)
+        within(a, b) = all(i -> abs(a[i] - b[i]) <= 1.0e-10 * abs(b[i]), eachindex(a, b))
+        for x in (10.0 .^ range(-22, 0; length = T), 10.0 .^ range(0, -22; length = T))
+            θ = vcat(g ./ sum(g), x)
+            loss(method) = θ -> sum(
+                w .* log.(Convolution(θ[1:L]; method)(view(θ, (L + 1):(L + T))))
+            )
+            ref = DifferentiationInterface.gradient(loss(CR.Direct()), backend, θ)
+            fd = DifferentiationInterface.gradient(loss(CR.Direct()), AutoForwardDiff(), θ)
+            @test isapprox(ref, fd; rtol = 1.0e-10)
+            for method in (CR.Auto(), CR.FFTMethod())
+                @test within(DifferentiationInterface.gradient(loss(method), backend, θ), ref)
+            end
+        end
+        return nothing
+    end
+end
+
+@testitem "Wide-range convolution gradients: ForwardDiff" tags = [:ad, :forwarddiff] setup = [WideAD] begin
+    test_wide_gradients(AutoForwardDiff())
+end
+
+@testitem "Wide-range convolution gradients: Mooncake reverse" tags = [:ad, :mooncake, :mooncake_reverse] setup = [WideAD] begin
+    using Mooncake: Mooncake
+    using ADTypes: AutoMooncake
+    test_wide_gradients(AutoMooncake(; config = nothing))
+end
+
+@testitem "Wide-range convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [WideAD] begin
+    using Enzyme: Enzyme
+    using ADTypes: AutoEnzyme
+    test_wide_gradients(
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const,
+        )
+    )
+end

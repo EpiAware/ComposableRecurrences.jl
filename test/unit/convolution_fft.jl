@@ -302,3 +302,69 @@ end
     out = read(`$julia --startup-file=no --project=$project -e $code`, String)
     @test out == "false false true"
 end
+
+@testsnippet WideRange begin
+    using ComposableRecurrences, FFTW
+    const CR = ComposableRecurrences
+    const EXT = Base.get_extension(CR, :ComposableRecurrencesFFTWExt)
+    # Each value within a relative 1e-10 of the direct one.
+    within(a, b) = all(i -> abs(a[i] - b[i]) <= 1.0e-10 * abs(b[i]), eachindex(a, b))
+    const TW, LW = 1000, 300
+    const GW = let g = exp.(-0.05 .* (0:(LW - 1)))
+        g ./ sum(g)
+    end
+    # A geometric series spanning `span` orders of magnitude.
+    wide(span, dir) = dir(10.0 .^ range(-span, 0; length = TW))
+    # An epidemic curve: a few early outputs are below the bound.
+    epidemic(k) = [10 * exp(0.01t) * (1 + 0.2 * sin(t / 7 + k)) for t in 1:TW]
+    # How many forward sums of `x` miss the accuracy.
+    function ninexact(g, x)
+        n, L = length(x), length(g)
+        N = EXT._fftsize(n, L)
+        f, b = EXT._plans(Float64, N, 1)
+        K = EXT._spectrum(g, Float64, N, 1, L, false)
+        Z, E = zeros(n, 1), zeros(n, 1)
+        EXT._ola!(Z, E, f, b, K, [EXT._knorm(g, 1, L)], reshape(x, n, 1), 0, N, L)
+        return EXT._ninexact(Z, E, 1.0e-10)
+    end
+end
+
+@testitem "Convolution FFT: wide-range series match direct" setup = [WideRange] begin
+    # Series spanning 12 to 22 orders of magnitude take the direct body.
+    for span in (12, 16, 22), dir in (identity, reverse)
+        x = wide(span, dir)
+        @test 4 * ninexact(GW, x) > TW
+        yd = Convolution(GW; method = CR.Direct())(x)
+        for method in (CR.Auto(), CR.FFTMethod())
+            y = Convolution(GW; method)(x)
+            @test within(y, yd)
+            @test all(>(0), y)
+        end
+    end
+    # An epidemic curve recomputes its few inexact outputs one by one, per
+    # stratum and with history.
+    @test 0 < ninexact(GW, epidemic(1)) < TW ÷ 4
+    X = permutedims(hcat(epidemic(1), epidemic(2)))
+    H = ones(2, 5)
+    G = PerStratum(permutedims(hcat(GW, reverse(GW))))
+    for k in (GW, G)
+        yd = Convolution(k; method = CR.Direct())(X; history = H)
+        @test within(Convolution(k)(X; history = H), yd)
+    end
+end
+
+@testitem "Convolution FFT: wide-range reverse pass matches direct" setup = [WideRange] begin
+    # The cotangent of `log(y)` spans the same orders as the series, so both
+    # cotangents take the direct body or recompute their inexact sums.
+    for x in (wide(22, identity), wide(22, reverse), epidemic(1))
+        X = reshape(x, TW, 1)
+        y = Convolution(GW; method = CR.Direct())(x)
+        Ȳ = reshape((1.5 .+ sin.(1:TW)) ./ y, TW, 1)
+        X̄d, X̄f = zeros(TW, 1), zeros(TW, 1)
+        k̄d, k̄f = zeros(LW), zeros(LW)
+        CR._convolve_back!(CR.Serial(), X̄d, k̄d, GW, X, Ȳ, 0, 1)
+        CR._fft_convolve_back!(X̄f, k̄f, GW, X, Ȳ, 0, 1)
+        @test within(X̄f, X̄d)
+        @test within(k̄f, k̄d)
+    end
+end
