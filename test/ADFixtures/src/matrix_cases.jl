@@ -865,6 +865,142 @@ if isfile(DOCS_MODIFIER)
     append!(TIERS["docs"].cases, ["custom_modifier", "custom_modifier_pullback"])
 end
 
+# The BVDOutbreakSize renewal, patch and delay kernels at that backend's
+# sizes (1 and 11 patches), against hand loops in its style: `loop` without
+# rules, and `handrule` with the hand-written Mooncake rules the backend
+# keeps while the package's derivation is slower. Realistic tier only.
+# Skipped where the file is absent (a copied fixture package).
+const BVD_HANDRULE = joinpath(
+    @__DIR__, "..", "..", "..", "benchmark", "bvd_handrule.jl"
+)
+if isfile(BVD_HANDRULE)
+    include(BVD_HANDRULE)
+    using .BVDHandRule: BVDHandRule as BVD
+
+    # Seeded renewal with hazard depletion, growing at first.
+    function _bvd_renewal(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            N = 1.0e5
+            f = function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                return sum(W .* log.(run(wrap, g, exp.(logh), exp.(logR), N)))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), L), [0.2 + 0.1 * _noise(t, 10) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    function _bvd_renewal_rule(wrap, g, seed, R, N)
+        d = CR.Depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
+        return wrap(Recurrence(g; modifiers = (d,)))(R; history = seed)
+    end
+    # The hand loops read `R` on the seed days too, and return them first.
+    function _bvd_renewal_hand(kernel)
+        return function (wrap, g, seed, R, N)
+            L = length(seed)
+            y = kernel(vcat(zeros(eltype(R), L), R), collect(g), seed, N)
+            return y[(L + 1):end]
+        end
+    end
+
+    # Patches with importation by redistribution at a per-origin, per-day
+    # intensity, then seeded hazard depletion per patch.
+    function _bvd_patches(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            N = fill(1.0e5, S)
+            f = function (θ)
+                g, K, logh, logR, ε = _unpack(
+                    θ, (L,), (S, S), (S, L), (S, T), (S, T)
+                )
+                y = run(wrap, g, K, exp.(logh), exp.(logR), ε, N)
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), 0.05 .* (ones(S, S) .- I(S)), fill(log(5.0), S, L),
+                [0.2 + 0.1 * _noise(t, k + 11) for k in 1:S, t in 1:T],
+                [0.3 + 0.1 * _noise(t, k + 12) for k in 1:S, t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    # `X` after `L` days of zeros, written out so Enzyme has no `hcat` of a
+    # view to analyse.
+    function _pad_days(X, L)
+        S, T = size(X)
+        Y = zeros(eltype(X), S, L + T)
+        for t in 1:T, k in 1:S
+            Y[k, L + t] = X[k, t]
+        end
+        return Y
+    end
+    function _bvd_patches_rule(wrap, g, K, seeds, R, ε, N)
+        pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+        mods = (
+            CR.Redistribute(K, TimeVarying(PerStratum(ε))),
+            CR.Depletion(CR.PerStratum(N); pool0),
+        )
+        return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
+    end
+    function _bvd_patches_hand(kernel)
+        return function (wrap, g, K, seeds, R, ε, N)
+            L = size(seeds, 2)
+            y = kernel(
+                _pad_days(R, L), collect(g), seeds, collect(K), _pad_days(ε, L),
+                N
+            )
+            return y[:, (L + 1):end]
+        end
+    end
+
+    # A reporting delay over `L` lags, lag 0 first, on a positive series.
+    function _bvd_delay(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                d, x = _unpack(θ, (L,), (T,))
+                return sum(W .* run(wrap, d, x))
+            end
+            return f, _flat(_gi(L), [50.0 + 40.0 * _noise(t, 13) for t in 1:T])
+        end
+    end
+    _bvd_delay_rule(wrap, d, x) = wrap(Convolution(d))(x)
+    function _bvd_delay_hand(kernel)
+        return (wrap, d, x) -> kernel(collect(x), collect(d))
+    end
+
+    for (name, description, loss, rule, hand, kernels, strata) in (
+            (
+                "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
+                _bvd_renewal, _bvd_renewal_rule, _bvd_renewal_hand,
+                (BVD.renewal_loop, BVD.renewal_infections), [1],
+            ),
+            (
+                "bvd_patches", "BVD patch_infections: redistribution, depletion",
+                _bvd_patches, _bvd_patches_rule, _bvd_patches_hand,
+                (BVD.patch_loop, BVD.patch_infections), [1, 11],
+            ),
+            (
+                "bvd_delay", "BVD convolve_delay: lag-0-first reporting delay",
+                _bvd_delay, _bvd_delay_rule, _bvd_delay_hand,
+                (BVD.delay_loop, BVD.convolve_delay), [1],
+            ),
+        )
+        push!(CASES, Case(name, description, loss(rule), strata, false))
+        BASELINES[name] = [
+            "loop" => z -> loss(hand(kernels[1]))(identity, z),
+            "handrule" => z -> loss(hand(kernels[2]))(identity, z),
+        ]
+        push!(TIERS["realistic"].cases, name)
+    end
+    push!(TIERS["realistic"].strata, 11)
+end
+
 # A user coupling and a user modifier with per-stratum parameters, each
 # with a hand-written `pullback!`: the `local` arm times the local
 # derivative that runs without one, and `NoAdjoint` plain AD.
