@@ -757,8 +757,7 @@ end
     # Scalar modifiers the default pullback cannot rebuild with dual numbers
     # by `constructorof`: a keyword-only constructor, a field typed
     # `Float64`, and a constructor that transforms its argument. The
-    # `Recurrence` constructor finds each by value, so `uses_adjoint` is
-    # false for them.
+    # `Recurrence` constructor finds each by value and throws.
     struct ScaleKw
         a::Float64
         ScaleKw(; a) = new(a)
@@ -797,14 +796,13 @@ end
         (θ -> Pick(1:2:3, θ), true, true),
         (θ -> Pick([1:1, 3:3], θ), true, true),
         (θ -> Pick([1, 3], θ), true, true),
-        (θ -> ScaleKw(; a = θ), false, false),
-        (θ -> ScaleF(θ), false, false),
-        (θ -> Doubled(θ), false, false),
         (θ -> CR.Depletion(100 * θ, Linear()), true, true),
         (θ -> CR.Depletion(100.0, LinearRate(θ); heterogeneity = 1.1), true, true),
         (θ -> CR.Depletion(100.0, Linear(); removals = θ), true, true),
-        (θ -> CR.Depletion(100.0, DoubledRate(θ)), false, false),
     )
+    for m in (ScaleKw(; a = 0.8), ScaleF(0.8), Doubled(0.8), CR.Depletion(100.0, DoubledRate(0.8)))
+        @test_throws ArgumentError Recurrence([0.3]; modifiers = (m,))
+    end
     for (m, adj, fires) in cases, w in (identity, NoAdjoint)
         @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
         f(θ) = run(w, m(θ[1]), θ[2])
