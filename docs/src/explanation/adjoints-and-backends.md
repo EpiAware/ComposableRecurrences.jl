@@ -53,12 +53,28 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
-The local step rebuilds a part with dual numbers in place of its float parameters; [Gradient routes](@ref extending-routes) gives the contract that needs.
+The local step rebuilds a part with dual numbers in place of its float parameters; [What the local step needs](@ref adjoint-local-step) lists the conditions.
+The `Recurrence` constructor checks the rebuild once and stores the result.
 Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
 The `Recurrence` constructor logs an `@info` when one of these parts sends the operator to plain AD, naming the part and the reason.
 It logs each message once per session, whatever the number types.
 A call sent to plain AD by its number of strata, or by its float or array types, logs nothing.
+
+### [What the local step needs](@id adjoint-local-step)
+
+Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
+
+The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
+Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
+So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
+Integer fields, index ranges and integer arrays are structure, not parameters.
+Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
+
+The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
+So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
+A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
+A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
 
 ## [Backends](@id adjoint-backends)
 
@@ -72,7 +88,9 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 | Enzyme reverse | when the call takes the rule | otherwise |
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
-ReverseDiff is not a [target](@ref faq-backends).
+The targets are ForwardDiff, Mooncake and Enzyme.
+The AD tests also run ReverseDiff, which is not a target, so the README shows coverage badges for it.
+The [AD comparison](@ref ad-comparison) page compares the gradient times.
 
 ## [Which rules are kept](@id rule-policy)
 

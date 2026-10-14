@@ -2,4 +2,17 @@
 
 `ComposableRecurrencesReactantExt` is loaded automatically when Reactant is available alongside ComposableRecurrences.
 
-It lets operator calls on traced arrays compile with `Reactant.@compile`; see [Does it run under Reactant?](@ref faq-reactant).
+Operator calls on traced arrays compile with `Reactant.@compile`, and so do Enzyme gradients of them:
+
+```julia
+using ComposableRecurrences, Reactant
+r = Recurrence([0.5, 0.3])
+R = Reactant.to_rarray(fill(1.1, 50))
+f(R) = r(R; history = [1.0, 1.0])
+y = (Reactant.@compile f(R))(R)
+```
+
+A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
+The time loop compiles to one loop whose body is a step, so compile time does not grow with the number of steps.
+The [strata](@ref glossary-stratum) loops within a step are written out, so the program grows with the number of strata.
+[`test/reactant/RESULTS.md`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) lists the cases checked.
