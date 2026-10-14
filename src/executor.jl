@@ -222,11 +222,10 @@ _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
 struct _StepLoop end
 struct _RunLoop end
 struct _ConvLoop end
-_loop_share(::_RunLoop) = 8
-_loop_share(::_ConvLoop) = 16
 _words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
 _work(::_StepLoop, x, w) = w
-_work(kind, x, w) = w * _words(eltype(x)) ÷ _loop_share(kind)
+_work(::_RunLoop, x, w) = w * _words(eltype(x)) ÷ 8
+_work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
