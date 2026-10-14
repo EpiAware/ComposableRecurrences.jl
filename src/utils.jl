@@ -132,13 +132,8 @@ const _Leaf = Union{
 }
 # The walk is unrolled from the type of `x`, so that it runs no recursion
 # and no inference at run time, whatever the nesting; a field of abstract
-# type is walked by dispatch on its value.
-@generated function _check_times(name, x, stop)
-    body = Expr(:block)
-    _times_walk!(body.args, x, :x, 0)
-    push!(body.args, :(return nothing))
-    return body
-end
+# type is walked by dispatch on its value. The generator's helper is
+# defined first, as a generator sees only the methods defined before it.
 function _times_walk!(out, T, ex, depth)
     if T <: TimeVarying
         push!(out, :(_check_leaf(name, $ex, stop)))
@@ -152,6 +147,12 @@ function _times_walk!(out, T, ex, depth)
         end
     end
     return out
+end
+@generated function _check_times(name, x, stop)
+    body = Expr(:block)
+    _times_walk!(body.args, x, :x, 0)
+    push!(body.args, :(return nothing))
+    return body
 end
 
 # Shared argument errors, each raised by more than one check.

@@ -115,7 +115,6 @@ _float_param(x::Derived) = x
 # Whether every `Derived` inside a value of type `T` has a map without float
 # fields of its own, so its local derivative covers every parameter. A
 # closed function of the type, evaluated once per type so the route folds.
-@generated _derived_local(x) = _derived_local_type(x)
 function _derived_local_type(::Type{T}) where {T}
     T <: Derived &&
         return _fieldfree_type(fieldtype(T, :f)) && _derived_local_type(fieldtype(T, :args))
@@ -131,6 +130,8 @@ function _fieldfree_type(::Type{T}) where {T}
     isconcretetype(T) && isstructtype(T) || return false
     return all(_fieldfree_type, fieldtypes(T))
 end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _derived_local(x) = _derived_local_type(x)
 
 # Arithmetic with a `Derived` on either side lowers to `Derived`; the other
 # side is any parameter.

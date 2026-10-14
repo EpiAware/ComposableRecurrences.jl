@@ -340,16 +340,18 @@ end
 
 # Whether a value of type `T` holds a `Recent`, so a value without one is
 # left as it is.
-@generated _reads_outputs(x) = _holds_type(_outputs_leaf, x)
 _outputs_leaf(::Type{T}) where {T} = T <: Union{Recent, _BoundRecent} || nothing
+# After its helpers: a generator sees only the methods defined before it.
+@generated _reads_outputs(x) = _holds_type(_outputs_leaf, x)
 
 # Whether a value of type `T` holds a `Recent` with a coupling, which reads
 # other strata's outputs, so the strata cannot run on their own.
-@generated _reads_across(x) = _holds_type(_across_leaf, x)
 function _across_leaf(::Type{T}) where {T}
     T <: Recent || return nothing
     return !(fieldtype(T, :coupling) <: Nothing)
 end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _reads_across(x) = _holds_type(_across_leaf, x)
 
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
 # rebuilding only the values that hold one.
