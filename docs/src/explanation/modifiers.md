@@ -11,8 +11,27 @@ using ComposableRecurrences: Depletion, Clamp, Add, with_state
 ## [Order](@id explanation-modifier-order)
 
 The modifiers of a [`Recurrence`](@ref) act on each step's value in tuple order, after the gain and `add`.
+With modifiers ``M_1, \dots, M_R``, each with its own state ``s^{(n)}``, a step computes
+
+```math
+u^{(0)}_t = v_t, \qquad
+\big(u^{(n)}_t,\ s^{(n)}_t\big) = M_n\big(u^{(n-1)}_t,\ s^{(n)}_{t-1}\big), \qquad
+y_t = u^{(R)}_t,
+```
+
+where ``v_t`` is the value after the gain and `add`, ``u^{(n)}_t`` the value modifier ``n`` passes on, and ``y_t`` the output.
 Each sees the value the one before it passed on, so the order is part of the model.
 A cap applied before depletion draws the capped value from the pool, and a cap applied after it only limits what is reported.
+With the cap ``c(v) = \min(\max(v, 0), 8)`` and the hazard form of a pool ``s_t`` of ``N``, the two orders give
+
+```math
+\begin{aligned}
+\text{cap first:} \quad & y_t = s_{t-1} \big(1 - e^{-c(v_t)/N}\big), & s_t &= s_{t-1} \, e^{-c(v_t)/N}, \\
+\text{cap last:} \quad & y_t = c\big(s_{t-1} \big(1 - e^{-v_t/N}\big)\big), & s_t &= s_{t-1} \, e^{-v_t/N}.
+\end{aligned}
+```
+
+The [`Hazard`](@ref ComposableRecurrences.Hazard) and [`Floor`](@ref ComposableRecurrences.Floor) docstrings give the depletion forms.
 
 ```@example modifiers
 g = [0.3, 0.4, 0.3]
@@ -29,7 +48,7 @@ The [Renewal then delay](@ref tutorial-renewal-delay) tutorial shows the same ch
 
 ## [State](@id explanation-modifier-state)
 
-Each modifier keeps its own state from step to step, such as the remaining pool of a [`Depletion`](@ref ComposableRecurrences.Depletion).
+Each modifier keeps its own state ``s^{(n)}_t`` from step to step, such as the remaining pool of a [`Depletion`](@ref ComposableRecurrences.Depletion).
 The state starts from the call's history through the modifier's `Init`, or at zero.
 It is carried in the [`State`](@ref ComposableRecurrences.State) a call returns, so a resumed call carries on with it, as [History and state](@ref explanation-history-state) shows.
 

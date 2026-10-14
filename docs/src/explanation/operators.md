@@ -2,7 +2,7 @@
 
 This page explains how the two operators handle time.
 It covers the lag origin, the time base, history and state, seeding, and what a call returns.
-The [API overview](@ref api-overview) gives the maths and the calls, and [`Recurrence`](@ref) and [`Convolution`](@ref) give every argument.
+The [API overview](@ref api-overview) gives the full step and the calls, and [`Recurrence`](@ref) and [`Convolution`](@ref) give every argument.
 
 ```@example operators
 using ComposableRecurrences
@@ -12,7 +12,14 @@ using ComposableRecurrences: with_state, exponential_history, Depletion
 ## [A recurrence is a convolution of its own outputs](@id explanation-lag-origin)
 
 A recurrence reads its own past outputs, and a convolution reads an input series.
-So a recurrence with kernel ``g`` is a convolution of its outputs with ``g`` shifted by one lag, times the gain.
+So a recurrence with kernel ``g`` is a convolution of its outputs with ``g`` shifted by one lag, times the gain ``R_t``:
+
+```math
+y_t = R_t \sum_{l=1}^{L} g_l \, y_{t-l} = R_t \sum_{l=0}^{L} \tilde g_l \, y_{t-l},
+\qquad \tilde g = (0, g_1, \dots, g_L),
+```
+
+where ``y_t`` is the output on day ``t`` and ``\tilde g`` is the convolution kernel `vcat(0, g)`.
 The [FAQ](@ref faq-lag-origin) says why the two kernels start at different lags.
 
 ```@example operators
@@ -33,6 +40,11 @@ Every time-indexed input is read at absolute time ``t``, counted from 1.
 This holds for `gain`, `add`, a convolution's `x` and every [`TimeVarying`](@ref) kernel, coupling or parameter.
 `start` and `stop` choose which times are computed, not how the inputs are read.
 So a call from `start = 4` reads `R[4]` at its first step, and the output has `stop - start + 1` entries.
+With ``h_{t}`` the history value at time ``t``, that first step is
+
+```math
+y_4 = R_4 \sum_{l=1}^{3} g_l \, h_{4-l}.
+```
 
 ```@example operators
 R = collect(range(1.5, 0.8; length = 10))
