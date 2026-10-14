@@ -8,7 +8,7 @@ using ComposableRecurrences: ComposableRecurrences, Auto, FFTMethod, PerStratum,
     Serial, _CPUArray, _auto_fft, _convolve!, _convolve_back!, _nlags, _untraced,
     add_cotangent!, cotangent
 using FFTW: FFTW, plan_irfft, plan_rfft
-using LinearAlgebra: mul!, norm
+using LinearAlgebra: mul!
 
 const _FFTFloat = Union{Float32, Float64}
 
@@ -106,6 +106,21 @@ function _knorm(c, k, L)
         acc += abs2(_weight(c, k, d))
     end
     return sqrt(acc)
+end
+
+# The 2-norm of a block, by plain loops rather than a library call, scaled
+# by its largest value so that it neither overflows nor underflows.
+function _norm(a)
+    s = zero(eltype(a))
+    @inbounds for i in eachindex(a)
+        s = max(s, abs(a[i]))
+    end
+    (iszero(s) || !isfinite(s)) && return s
+    acc = zero(eltype(a))
+    @inbounds @simd for i in eachindex(a)
+        acc += abs2(a[i] / s)
+    end
+    return s * sqrt(acc)
 end
 
 # Whether the sum `z` with error bound `e` misses the relative accuracy;
@@ -220,7 +235,7 @@ function _ola_back!(W, EW, C, EC, cn, f, b, Kr, X, Ȳ, o, N, L, corr)
             mul!(buf, b, work)
             @views W[lo:hi, :] .+= buf[(lo + off - s + 1):(hi + off - s + 1), :]
             for k in 1:S
-                @views EW[lo:hi, k] .+= γ * norm(Ȳ[s:e, k]) * cn[k]
+                @views EW[lo:hi, k] .+= γ * _norm(Ȳ[s:e, k]) * cn[k]
             end
         end
         # The same rows against input rows `o + s - L + 1` to `o + e`, whose
@@ -235,8 +250,8 @@ function _ola_back!(W, EW, C, EC, cn, f, b, Kr, X, Ȳ, o, N, L, corr)
             work .*= conj.(spec)
             mul!(buf, b, work)
             for k in 1:S
-                @views EC[:, k] .+= γ * norm(Ȳ[s:e, k]) *
-                    norm(X[(r0 + q0):(r0 + max(q0 - 1, q1)), k])
+                @views EC[:, k] .+= γ * _norm(Ȳ[s:e, k]) *
+                    _norm(X[(r0 + q0):(r0 + max(q0 - 1, q1)), k])
                 for d in 0:(L - 1)
                     @inbounds C[d + 1, k] += buf[L - d, k]
                 end
@@ -274,7 +289,7 @@ function _ola!(Z, E, f, b, K, cn, A, off, N, L)
             mul!(buf, b, spec)
             @views Z[lo:hi, :] .+= buf[(lo + off - s + 1):(hi + off - s + 1), :]
             for k in axes(A, 2)
-                @views E[lo:hi, k] .+= γ * norm(A[s:e, k]) * cn[k]
+                @views E[lo:hi, k] .+= γ * _norm(A[s:e, k]) * cn[k]
             end
         end
         s = e + 1
