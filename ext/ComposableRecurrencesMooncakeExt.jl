@@ -6,9 +6,9 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
-    _FixedExponent, _ad, _ad_wide, _check_secondary, _current, _fft_convolve!,
-    _fft_convolve_back!, _log_plain, _note_plain_type, _rebuild_flag,
-    _run_forward, _run_pullback!, _untraced
+    _FixedExponent, _ad, _ad_wide, _check_form, _check_secondary, _current,
+    _fft_convolve!, _fft_convolve_back!, _log_plain, _note_plain_type,
+    _rebuild_flag, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -33,6 +33,11 @@ function _mc(x::Base.ReshapedArray, dx::Mooncake.FData)
     return _reshape(_mc(parent(x), dx.data.parent), x)
 end
 _mc(x::Union{Tuple, NamedTuple}, dx::Union{Tuple, NamedTuple}) = map(_mc, x, dx)
+# A kernel's columns: each column's mirror from its own tangent. The fdata
+# of an array of arrays holds each element's full tangent, which for a view
+# is read as its fdata.
+_mc(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector) = map(_mc, x, dx)
+_mc(x::SubArray{<:_IEEEFloat}, dx::Mooncake.Tangent) = _mc(x, Mooncake.fdata(dx))
 _mc(x::Union{Tuple, NamedTuple}, ::NoFData) = map(xi -> _mc(xi, NoFData()), x)
 _mc(x, dx::Mooncake.FData) = _mc_struct(x, n -> getfield(dx.data, n))
 _mc(x, ::NoFData) = _mc_struct(x, _ -> NoFData())
@@ -103,6 +108,10 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuild_flag), Any, 
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,
 }
+# Nor is the `Depletion` constructor's check that its form has a step: its
+# method lookups carry no derivative, and traced they cost more than the
+# rest of a short run's gradient.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and

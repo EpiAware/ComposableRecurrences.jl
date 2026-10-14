@@ -176,9 +176,14 @@ With the default indexing the step at time ``t`` reads ``c(t)``; a
 A kernel is `L × T`, or `TimeVarying(PerStratum(G))` with `G` `S × L × T`:
 `TimeVarying` is always the outer wrapper.
 It may also be a vector of `T` columns of any lengths, `ks[τ]` being
-column ``\tau``, with zero weight past each column's end.
-The columns are stored stacked without padding, so a `Primary()` pmf
-truncated at the horizon stores and visits only its entries.
+column ``\tau``, with zero weight past each column's end, so a `Primary()`
+pmf truncated at the horizon visits only its entries.
+Like an array, the columns are held as given, not copied: host columns of
+one concrete type, vectors or views, are read where they are, so changing
+one after building the kernel changes the kernel.
+Columns of mixed types, columns of tracked numbers and columns on a device
+are stacked into one vector instead, as is a kernel that `adapt` moves to a
+device.
 A [`Recurrence`](@ref) coupling is `S × S × T`.
 A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
@@ -239,7 +244,7 @@ struct TimeVarying{I, A}
                     _describe(x)
             )
         )
-        x isa Union{AbstractArray, PerStratum, Pairwise, _Ragged} || throw(
+        x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged} || throw(
             ArgumentError(
                 "TimeVarying wraps an array, a PerStratum, a Pairwise or a " *
                     "vector of kernel columns, got $(_describe(x))"
@@ -316,8 +321,50 @@ function _maxlen(g::_Ragged)
 end
 param_eltype(x::_Ragged) = param_eltype(x.values)
 
+# A kernel's columns as the caller gave them, lag first: column `τ` is
+# `columns[τ]`. Holding them rather than stacking them saves a copy of every
+# weight on each call that builds the kernel, as a loss differentiating the
+# weights does. Each column's mirror is the column's own cotangent.
+struct _Columns{K <: AbstractVector{<:AbstractVector}}
+    columns::K
+    function _Columns(ks::K) where {K <: AbstractVector{<:AbstractVector}}
+        Base.require_one_based_indexing(ks)
+        for k in ks
+            Base.require_one_based_indexing(k)
+        end
+        return new{K}(ks)
+    end
+end
+
+_ncols(g::_Columns) = length(g.columns)
+# Plain loops, which AD backends that trace the call step through cheaply.
+function _maxlen(g::_Columns)
+    n = 0
+    for k in g.columns
+        n = max(n, length(k))
+    end
+    return n
+end
+# The column eltype as a constant: promoting over the columns infers only
+# a union of types.
+param_eltype(g::_Columns) = eltype(eltype(g.columns))
+
+# Either form of a kernel given as columns.
+const _AnyRagged = Union{_Ragged, _Columns}
+
+# Column `τ` of a column-form kernel, and the same column of the mirror `m`
+# of its storage, or `nothing` without one.
+Base.@propagate_inbounds _colview(g::_Ragged, τ) = view(g.values, _colrange(g, τ))
+Base.@propagate_inbounds _colview(g::_Columns, τ) = g.columns[τ]
+function _column_mirror(m, g::_Ragged, τ)
+    return _mirror_view(cotangent(m, :values), _colrange(g, τ))
+end
+_column_mirror(m, g::_Columns, τ) = _mirror_at(cotangent(m, :columns), τ)
+_mirror_at(::Nothing, τ) = nothing
+_mirror_at(m, τ) = m[τ]
+
 function TimeVarying{I}(ks::AbstractVector{<:AbstractVector}) where {I}
-    return TimeVarying{I}(_Ragged(ks))
+    return TimeVarying{I}(_ragged(ks))
 end
 
 TimeVarying(x) = TimeVarying{Secondary}(x)
@@ -338,8 +385,8 @@ end
 # other order builds the same object so that it is not an error.
 PerStratum(x::TimeVarying{I}) where {I} = TimeVarying{I}(PerStratum(x.x))
 Pairwise(x::TimeVarying{I}) where {I} = TimeVarying{I}(Pairwise(x.x))
-PerStratum(x::TimeVarying{<:Any, <:_Ragged}) = _strata_ragged(x)
-Pairwise(x::TimeVarying{<:Any, <:_Ragged}) = _strata_ragged(x)
+PerStratum(x::TimeVarying{<:Any, <:_AnyRagged}) = _strata_ragged(x)
+Pairwise(x::TimeVarying{<:Any, <:_AnyRagged}) = _strata_ragged(x)
 function _strata_ragged(x)
     throw(
         ArgumentError(

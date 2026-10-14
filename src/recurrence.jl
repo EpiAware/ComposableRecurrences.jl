@@ -284,7 +284,7 @@ _check_kernel_shape(k::AbstractVector) = nothing
 _check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
 _check_kernel_shape(k::Pairwise{<:AbstractArray{<:Any, 3}}) = nothing
 _check_kernel_shape(k::TimeVarying{<:Any, <:AbstractMatrix}) = nothing
-_check_kernel_shape(k::TimeVarying{<:Any, <:_Ragged}) = nothing
+_check_kernel_shape(k::TimeVarying{<:Any, <:_AnyRagged}) = nothing
 function _check_kernel_shape(
         k::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}
     )
@@ -340,7 +340,7 @@ end
 _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
-_nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
+_nlags(k::TimeVarying{<:Any, <:_AnyRagged}) = _maxlen(k.x)
 
 # An operator held inside a modifier keeps its own buffer, so it does not
 # deepen this one.
@@ -397,27 +397,27 @@ Base.@propagate_inbounds function _weight(
 end
 # Past a ragged column's end the weight is zero.
 Base.@propagate_inbounds function _weight(
-        g::TimeVarying{<:Any, <:_Ragged}, a, b, i, τ
+        g::TimeVarying{<:Any, <:_AnyRagged}, a, b, i, τ
     )
-    r = _colrange(g.x, τ)
-    return i <= length(r) ? g.x.values[r[i]] : zero(eltype(g.x.values))
+    w = _colview(g.x, τ)
+    return i <= length(w) ? w[i] : zero(eltype(w))
 end
 
 # Time-varying kernels that do not mix strata: lags × time, and strata ×
 # lags × time.
 const _TVMatrix{I} = TimeVarying{I, <:AbstractMatrix}
 const _TVPerStratum{I} = TimeVarying{I, <:PerStratum}
-# Kernels read column by column, each column contiguous: lags × time, or
-# ragged columns, whose lengths may differ.
-const _TVColumns{I} = TimeVarying{I, <:Union{AbstractMatrix, _Ragged}}
+# Kernels read column by column: lags × time, or ragged columns, whose
+# lengths may differ and which may be strided views.
+const _TVColumns{I} = TimeVarying{I, <:Union{AbstractMatrix, _AnyRagged}}
 
 # Column `τ` of a column kernel, and the same view of its mirror `ḡ`, or
 # `nothing` without one. A loop over a column stops at its length.
 _wcolumn(g::_TVMatrix, a, τ) = view(g.x, :, τ)
 _wcolumn(ḡ, ::_TVMatrix, a, τ) = _mirror_view(cotangent(ḡ, :x), :, τ)
-_wcolumn(g::TimeVarying{<:Any, <:_Ragged}, a, τ) = view(g.x.values, _colrange(g.x, τ))
-function _wcolumn(ḡ, g::TimeVarying{<:Any, <:_Ragged}, a, τ)
-    return _mirror_view(cotangent(cotangent(ḡ, :x), :values), _colrange(g.x, τ))
+_wcolumn(g::TimeVarying{<:Any, <:_AnyRagged}, a, τ) = _colview(g.x, τ)
+function _wcolumn(ḡ, g::TimeVarying{<:Any, <:_AnyRagged}, a, τ)
+    return _column_mirror(cotangent(ḡ, :x), g.x, τ)
 end
 _mirror_view(::Nothing, I...) = nothing
 _mirror_view(x, I...) = view(x, I...)
@@ -455,7 +455,7 @@ end
 function _kdot(g::Union{_TVColumns{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
     @inbounds @simd for i in _lags(g, τ, L)
-        acc += _weight(g, a, a, i, τ - i) * H[t + L - i, a]
+        acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
 end
@@ -485,7 +485,7 @@ _column(g, τ, i) = τ
 _column(::TimeVarying{Primary}, τ, i) = τ - i
 _lags(g, τ, L) = 1:L
 _lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
-_lags(g::TimeVarying{Secondary, <:_Ragged}, τ, L) = 1:length(_colrange(g.x, τ))
+_lags(g::TimeVarying{Secondary, <:_AnyRagged}, τ, L) = 1:length(_colview(g.x, τ))
 
 # Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
 function _pressure_body!(k, p, g, H, t, τ, L)
@@ -1018,16 +1018,26 @@ _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * pr.P[k, t]
 # overlaps those waits; stratum outermost measured slower even though each
 # stratum's buffer column is contiguous.
 function _series_body!(
-        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D, T
+        ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
+        D, T
     )
-    for t in 1:T
-        τ = τ0 + t - 1
-        for k in ks
-            _step_body!(
-                k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t,
-                τ, L, D
-            )
-        end
+    _steps!(
+        _series_step!, ex, T,
+        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D
+    )
+    return nothing
+end
+
+# Step `t` of the independent strata `ks`.
+@inline function _series_step!(
+        t, ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D
+    )
+    τ = τ0 + t - 1
+    for k in ks
+        _step_body!(
+            k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ,
+            L, D
+        )
     end
     return nothing
 end
@@ -1050,6 +1060,36 @@ end
 # Stratum `k`'s value after the modifiers' vector Step, into buffer row `row`.
 function _store_body!(k, H, v, row)
     H[row, k] = v[k]
+    return nothing
+end
+
+# Step `t` of strata that read one another: the pressures, then each
+# stratum's value, through the modifiers to the buffer.
+@inline function _coupled_step!(
+        t, ex, across, H, v, pr, gain, add, coupling, kernel, p, q, modifiers,
+        states, rec, τ0, L, D, S, work
+    )
+    τ = τ0 + t - 1
+    across && _refresh!(modifiers, D + t)
+    _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
+    if _all_pointwise(modifiers)
+        _each!(
+            _step_body!, ex, H, S, work,
+            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec, t,
+            τ, L, D
+        )
+    else
+        _each!(
+            _value_body!, ex, H, S, work,
+            v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D
+        )
+        if rec === nothing
+            _stages!(modifiers, states, v, τ)
+        else
+            _stages_rec!(modifiers, states, rec, v, τ, t)
+        end
+        _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
+    end
     return nothing
 end
 
@@ -1082,8 +1122,7 @@ function _run(
 end
 
 function _run(
-        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
-        T, ::Val{record}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record}
     ) where {Tp, record}
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
@@ -1106,36 +1145,18 @@ function _run(
     if _independent(coupling, kernel, modifiers)
         _blocks!(
             _series_body!, ex, H, S, T * work,
-            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
+            ex, H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
             τ0, L, D, T
         )
     else
         # Parameters that read across strata fill their windows once per
         # step; the check is made once, outside the loop.
         across = _reads_across(modifiers)
-        for t in 1:T
-            τ = τ0 + t - 1
-            across && _refresh!(modifiers, D + t)
-            _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
-            if _all_pointwise(modifiers)
-                _each!(
-                    _step_body!, ex, H, S, work,
-                    H, pr, gain, add, coupling, kernel, p, q, modifiers, states,
-                    rec, t, τ, L, D
-                )
-            else
-                _each!(
-                    _value_body!, ex, H, S, work,
-                    v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D
-                )
-                if record
-                    _stages_rec!(modifiers, states, rec, v, τ, t)
-                else
-                    _stages!(modifiers, states, v, τ)
-                end
-                _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
-            end
-        end
+        _steps!(
+            _coupled_step!, ex, T,
+            ex, across, H, v, pr, gain, add, coupling, kernel, p, q, modifiers,
+            states, rec, τ0, L, D, S, work
+        )
     end
     Y = _public(H, (D + 1):(D + T), h)
     # The cache holds copies of the inputs the reverse pass reads, so a

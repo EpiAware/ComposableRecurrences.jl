@@ -119,7 +119,7 @@ Array(y_device) ≈ y_serial
 # pays off only with many strata or many series.
 # On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the
 # arrays from the host, so use `Device(backend)` there.
-# To compile a model with Reactant.jl instead, see the [FAQ](@ref faq-reactant).
+# To compile a model with Reactant.jl instead, see the [Reactant extension](@ref extension-reactant).
 
 # ## What each executor supports
 #

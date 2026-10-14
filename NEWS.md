@@ -36,6 +36,8 @@
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
+- `delay_masses(d, lags)` returns a delay's masses on lags `0` to `lags - 1`, and packages that own delay types add methods for them.
+  With Distributions loaded, `Recurrence(kernel; lags)` and `Convolution(kernel; lags)` take a kernel of delay distributions, alone or in `PerStratum`, `Pairwise`, `TimeVarying` or `Routes`, from each operator's own lag origin ([delay distributions][delays]).
 - Executors run the strata loops of every operator: `Serial()` (the default), `Threaded(; min_work, ntasks)` and `Device(backend)`, set for a block with `with(ComposableRecurrences.EXECUTOR => ...)` ([API overview][api]).
 - Under `Threaded()`, the reverse rules of `Recurrence` and `Convolution` split strata across tasks, as their forward passes do ([adjoints and backends][adjoints]).
   Cotangents of parameters that several chunks of strata share are summed per chunk, so they match `Serial()` up to rounding.
@@ -49,7 +51,7 @@
 - A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow, and the plain-AD note names the part that has none.
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
-- Extensions for Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
+- Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 
 ### Changed
 
@@ -59,7 +61,9 @@
 - `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
+- Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
+- Mooncake and Enzyme no longer differentiate the check a `Depletion` makes on its form, which cost Mooncake about 8 µs a gradient.
 
 ### Fixed
 
@@ -72,6 +76,7 @@
 - `param_eltype` infers through nested structs such as `Depletion`.
 
 [api]: https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/
+[delays]: https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/#overview-delays
 [renewal]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/renewal-then-delay/
 [tv]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/time-varying-delays/
 [spatial]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/spatial-strata/
@@ -81,3 +86,4 @@
 [extending]: https://composablerecurrences.epiaware.org/stable/developer/extending/
 [extensions]: https://composablerecurrences.epiaware.org/stable/extensions/enzyme/
 [fftw]: https://composablerecurrences.epiaware.org/stable/extensions/fftw/
+[reactant]: https://composablerecurrences.epiaware.org/stable/extensions/reactant/

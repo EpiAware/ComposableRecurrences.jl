@@ -18,6 +18,7 @@ import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
+using Distributions: NegativeBinomial, Poisson
 using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
@@ -279,6 +280,15 @@ function _delay_ragged(w, θ)
     v, X = _unpack(θ, (sum(NS_HORIZON),), (S, T))
     kernel = TimeVarying(_columns(v, NS_HORIZON), ComposableRecurrences.Primary())
     return sum(WS .* w(Convolution(kernel))(X))
+end
+
+# The same columns as views into the parameters, read by output time with
+# a history: a kernel held as the caller's columns, without a copy.
+function _delay_ragged_views(w, θ)
+    v, X, H = _unpack(θ, (sum(NS_HORIZON),), (S, T), (S, 2))
+    o = cumsum([0; NS_HORIZON])
+    kernel = TimeVarying([view(v, (o[τ] + 1):o[τ + 1]) for τ in 1:T])
+    return sum(WS .* w(Convolution(kernel))(X; history = H))
 end
 
 # Each infector keeps the kernel of its own infection time, of a length
@@ -757,6 +767,13 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Convolution ragged kernel of views into the parameters", _delay_ragged_views,
+        () -> _flat(
+            [0.2 + 0.1 * sin(τ + i) for τ in 1:T for i in 1:NS_HORIZON[τ]], 1 .+ LOGR,
+            ones(S, 2),
+        ),
+    ),
+    (
         "Convolution with gain and add", _conv_gain,
         () -> _flat(G0, LOGR, W1, 1 .+ LOGR, ones(S, 2)),
     ),
@@ -855,6 +872,35 @@ const _SCENARIOS = [
     ),
 ]
 
+# Delays given as distributions: the gradient reaches each distribution's
+# parameters through its masses on lags `0:L`.
+function _delay_distribution(w, θ)
+    logλ, w0, ϵ = _unpack(θ, (1,), (L,), (T,))
+    c = Convolution(Poisson(exp(only(logλ))); lags = L + 1)
+    return sum(W1 .* w(c)(ϵ; history = w0))
+end
+
+function _generation_distribution(w, θ)
+    logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
+    p = 1 / (1 + exp(-only(logitp)))
+    ds = [NegativeBinomial(a * exp(only(logr)), p) for a in (1.0, 1.5, 2.0)]
+    r = Recurrence(PerStratum(ds); lags = L + 1, coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Convolution Poisson delay distribution", _delay_distribution,
+        () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Recurrence negative binomial generation interval per stratum", _generation_distribution,
+        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
+    ),
+)
+
 """
     supports(features...)
 
@@ -922,9 +968,11 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
-    # Kernels as vectors of columns are stored as `_Ragged`.
+    # Kernels as vectors of columns came with `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
+    # Columns held as given came after the stacked form.
+    "Convolution ragged kernel of views into the parameters" => (:_Columns,),
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
@@ -1000,6 +1048,8 @@ push!(
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+_REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+_REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
 _requires(name) = get(_REQUIRES, name, ())
 
