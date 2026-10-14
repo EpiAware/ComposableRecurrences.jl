@@ -517,8 +517,9 @@ function report(dir, prevdir = nothing)
 end
 
 # The docs table: the getting-started model against code written without the
-# package, and the user modifier under plain AD and through the rule with
-# and without its `pullback!`. Each row is one method on one target; `ratio`
+# package, the user modifier under plain AD and through the rule with and
+# without its `pullback!`, and the case study's backend kernels against
+# their hand loops with and without hand-written rules. Each row is one method on one target; `ratio`
 # is its median over the reference method's (the package, or the modifier
 # with `forward` only).
 const DOCS_BLOCKS = [
@@ -537,6 +538,33 @@ const DOCS_BLOCKS = [
             ("custom_modifier", "NoAdjoint") => "plain AD",
             ("custom_modifier", "rule") => "forward only",
             ("custom_modifier_pullback", "rule") => "with pullback!",
+        ],
+    ),
+    (
+        "backend renewal", "bvd_renewal", "ComposableRecurrences",
+        [
+            ("bvd_renewal", "rule") => "ComposableRecurrences",
+            ("bvd_renewal", "NoAdjoint") => "plain AD",
+            ("bvd_renewal", "loop") => "hand loop",
+            ("bvd_renewal", "handrule") => "hand rules",
+        ],
+    ),
+    (
+        "backend patches", "bvd_patches", "ComposableRecurrences",
+        [
+            ("bvd_patches", "rule") => "ComposableRecurrences",
+            ("bvd_patches", "NoAdjoint") => "plain AD",
+            ("bvd_patches", "loop") => "hand loop",
+            ("bvd_patches", "handrule") => "hand rules",
+        ],
+    ),
+    (
+        "backend delay", "bvd_delay", "ComposableRecurrences",
+        [
+            ("bvd_delay", "rule") => "ComposableRecurrences",
+            ("bvd_delay", "NoAdjoint") => "plain AD",
+            ("bvd_delay", "loop") => "hand loop",
+            ("bvd_delay", "handrule") => "hand rules",
         ],
     ),
 ]

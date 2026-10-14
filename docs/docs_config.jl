@@ -22,6 +22,7 @@ const HEAVY_TUTORIALS = [
     "occupancy.jl",
     "transform.jl",
     "custom-modifier.jl",
+    "backend-case-study.jl",
 ]
 
 # Where tutorial `.jl` sources and rendered `.md` pages live, relative to
@@ -46,6 +47,9 @@ const TUTORIAL_STUBS = [
         "# [Transforms inside a recurrence](@id tutorial-transform)",
     "custom-modifier.md" =>
         "# [Writing your own modifier](@id tutorial-custom-modifier)",
+    "backend-case-study.md" =>
+        "# [Case study: a backend model](@id tutorial-backend-case-study)\n\n" *
+        "## [Porting from a hand-written loop](@id porting-hand-loops)",
 ]
 
 # Heavy tutorials that always render from their `TUTORIAL_STUBS` heading and
@@ -235,6 +239,8 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/transform.md",
     "Writing your own modifier" =>
         "getting-started/tutorials/custom-modifier.md",
+    "Case study: a backend model" =>
+        "getting-started/tutorials/backend-case-study.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
