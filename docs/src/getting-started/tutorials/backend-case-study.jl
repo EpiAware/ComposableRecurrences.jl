@@ -207,7 +207,10 @@ bench = if isfile(results)
             in.(:block, Ref(first.(blocks))), :status .== "ok",
             in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"]))
         )
-        @transform(:min_us = parse.(Float64, :min_us))
+        @transform(
+            :min_us = parse.(Float64, :min_us),
+            :median_us = parse.(Float64, :median_us)
+        )
     end
 else
     nothing
@@ -239,63 +242,70 @@ end
 
 # The comparison that matters for each backend is the package against the fastest hand-written option.
 # On Mooncake that is the loop with its rules, and on Enzyme the loop itself.
+# The table gives the package's time over that option's, for the minimum and for the median times.
 # A ratio below one means the package is faster.
 
-ratio_table = if have_bench
-    @chain bench begin
+function ratio_to(bench, target, method)
+    pkg = @subset(bench, :target .== target, :method .== "ComposableRecurrences")
+    ref = @subset(bench, :target .== target, :method .== method)
+    both = innerjoin(
+        pkg, ref; on = [:block, :size, :target], renamecols = "" => "_ref"
+    )
+    return @chain both begin
         @transform(
-            :arm = ifelse.(
-                :method .== "ComposableRecurrences", "package",
-                ifelse.(
-                    (:target .== "Mooncake reverse") .& (:method .== "hand rules"),
-                    "hand", ifelse.(
-                        (:target .== "Enzyme reverse") .& (:method .== "hand loop"),
-                        "hand", "other"
-                    )
-                )
-            )
+            :case = getindex.(Ref(Dict(blocks)), :block),
+            :size = sizelabel.(:size),
+            :min_ratio = round.(:min_us ./ :min_us_ref; digits = 2),
+            :median_ratio = round.(:median_us ./ :median_us_ref; digits = 2)
         )
-        @subset(:arm .!= "other")
-        unstack([:block, :size, :target], :arm, :min_us)
-        @transform(:ratio = round.(:package ./ :hand; digits = 2))
-        @transform(:case = getindex.(Ref(Dict(blocks)), :block))
-        @select(:case, :size, :target, :package, :hand, :ratio)
+        @select(:case, :size, :target, :min_ratio, :median_ratio)
     end
+end
+ratio_table = if have_bench
+    vcat(
+        ratio_to(bench, "Mooncake reverse", "hand rules"),
+        ratio_to(bench, "Enzyme reverse", "hand loop")
+    )
 end
 
 # The takeaway, computed from the same results:
 
-if have_bench
-    function span(target)
-        r = @subset(ratio_table, :target .== target).ratio
-        return minimum(r), maximum(r)
-    end
-    elo, ehi = span("Enzyme reverse")
-    mlo, mhi = span("Mooncake reverse")
-    slower = @subset(ratio_table, :target .== "Mooncake reverse", :ratio .> 1)
-    s11 = @subset(
-        ratio_table, :case .== "Patches", endswith.(:size, "S11"),
-        :target .== "Mooncake reverse"
-    )
-    unruled = @chain bench begin
-        @subset(:target .== "Mooncake reverse")
-        unstack([:block, :size], :method, :min_us)
-    end
-    llo, lhi = extrema(unruled[!, "ComposableRecurrences"] ./ unruled[!, "hand loop"])
-    Markdown.parse(
-        "On Enzyme the package takes $(elo) to $(ehi) times the time of the hand loop. " *
-            "On Mooncake it takes $(mlo) to $(mhi) times the time of the hand rules, " *
-            "and $(round(llo; digits = 2)) to $(round(lhi; digits = 2)) times the time of the loop without them. " *
-            "At 11 patches it takes $(join(s11.ratio, " and ")) times their time, " *
-            "with `Redistribute` and `Depletion` differentiated by the package's own rules. " *
-            (
-            isempty(slower.case) ? "" :
-                "It is slower than the hand rules on " *
-                join(unique(slower.case .* " at " .* sizelabel.(slower.size)), ", ") * ". "
-        ) *
-            "These are minimum times at revision `$(first(bench.revision))`."
-    )
+function span(t, target)
+    r = t[t.target .== target, :min_ratio]
+    return isempty(r) ? nothing : "$(minimum(r)) to $(maximum(r))"
 end
+function takeaway(bench, ratio_table)
+    said = String[]
+    mooncake = @subset(ratio_table, :target .== "Mooncake reverse")
+    e = span(ratio_table, "Enzyme reverse")
+    e === nothing ||
+        push!(said, "On Enzyme the package takes $e times the time of the hand loop.")
+    m = span(ratio_table, "Mooncake reverse")
+    m === nothing ||
+        push!(said, "On Mooncake it takes $m times the time of the hand rules.")
+    l = span(ratio_to(bench, "Mooncake reverse", "hand loop"), "Mooncake reverse")
+    l === nothing ||
+        push!(said, "Against the loop without its rules, the package takes $l times its time.")
+    s11 = @subset(mooncake, :case .== "Patches", endswith.(:size, "S11"))
+    isempty(s11.case) || push!(
+        said,
+        "At 11 patches the package takes $(join(s11.min_ratio, " and ")) times the time of the hand rules, " *
+            "with `Redistribute` and `Depletion` differentiated by the package's own rules."
+    )
+    where(t) = join(t.case .* " at " .* t.size, ", ")
+    slower = @subset(mooncake, :min_ratio .> 1, :median_ratio .> 1)
+    isempty(slower.case) ||
+        push!(said, "It is slower than the hand rules on $(where(slower)).")
+    split = @subset(mooncake, (:min_ratio .> 1) .!= (:median_ratio .> 1))
+    isempty(split.case) || push!(
+        said,
+        "On $(where(split)) the minimum and the median fall on opposite sides of the hand rules, " *
+            "so the run does not settle which is faster there."
+    )
+    push!(said, "The ratios above are of minimum times at revision `$(first(bench.revision))`.")
+    return Markdown.parse(join(said, " "))
+end
+have_bench && takeaway(bench, ratio_table)
 
 # A hand-written rule earns its place only where it is faster than the package.
 #
@@ -311,7 +321,7 @@ end
 # | Loop | Package | Test |
 # |:--|:--|:--|
 # | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pool0 = max(N - sum(seed), 0)),))`, called as `r(Rt; history = seed, start = length(seed) + 1, prepend = true)` | `BVD renewal_infections` |
-# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε))), Depletion(PerStratum(N); pool0)))`, called as for the renewal | `BVD patch model` |
+# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(K, TimeVarying(PerStratum(ε))), Depletion(PerStratum(N); pool0)))`, with `pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)` | `BVD patch model` |
 # | `convolve_delay(x, delay)` | `Convolution(delay)(x)` | `BVD convolve_delay` |
 #
 # `ComposableTuringIDModels` writes each step for an `accumulate_scan`:
@@ -326,7 +336,7 @@ end
 #
 # Four conventions differ between the loops and the package:
 #
-# - A kernel is lag 1 first for a `Recurrence` and lag 0 first for a `Convolution`; `ComposableTuringIDModels` stores the generation interval reversed.
+# - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as the [FAQ](@ref faq-lag-origin) explains.
 # - `BVDOutbreakSize` reads `Rt` on the seed days and returns them first: `start` skips them and `prepend` returns them.
 # - `ComposableTuringIDModels` seeds on a growth path: [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives the same window.
 # - `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.

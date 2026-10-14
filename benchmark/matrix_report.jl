@@ -519,9 +519,9 @@ end
 # The docs table: the getting-started model against code written without the
 # package, the user modifier under plain AD and through the rule with and
 # without its `pullback!`, and the case study's backend kernels against
-# their hand loops with and without hand-written rules. Each row is one method on one target; `ratio`
-# is its median over the reference method's (the package, or the modifier
-# with `forward` only).
+# their hand loops with and without hand-written rules. Each row is one
+# method on one target; `ratio` is its median over the reference method's
+# (the package, or the modifier with `forward` only).
 const DOCS_BLOCKS = [
     (
         "naive vs package", "overview", "ComposableRecurrences",
