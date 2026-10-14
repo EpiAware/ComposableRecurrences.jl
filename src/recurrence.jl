@@ -735,9 +735,11 @@ end
 # numbers included, log nothing more.
 const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(whys)
-    msg = "Recurrence gradients use plain AD of the whole operator: " *
+function _note_plain(whys::Tuple)
+    msg = string(
+        "Recurrence gradients use plain AD of the whole operator: ",
         join(unique(whys), "; ")
+    )
     new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
     new || return nothing
     @info msg
