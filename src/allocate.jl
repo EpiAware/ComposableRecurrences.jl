@@ -298,7 +298,6 @@ function _check_imports(im::_AllocateImports, S)
     _check_coupling(im.pattern, S)
     im.spill === nothing && return nothing
     _check_modifier_strata(im.spill, S)
-    _check_param_strata(:ε, im.spill.ε, S)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
