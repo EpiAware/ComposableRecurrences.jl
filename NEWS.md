@@ -60,6 +60,7 @@
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
 - `Threaded()` counts each loop's work by its kind and element type, so one `min_work` sets where each kind breaks even: independent strata split from four times `min_work`, a fixed-kernel convolution from sixteen times, and dual numbers count one multiply-add per word.
   With the default `min_work` of 500 000, strata that mix through a sparse or dense coupling run in order at the sizes usually fitted.
+- Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
 
 ### Fixed
@@ -82,3 +83,4 @@
 [extending]: https://composablerecurrences.epiaware.org/stable/developer/extending/
 [extensions]: https://composablerecurrences.epiaware.org/stable/extensions/enzyme/
 [fftw]: https://composablerecurrences.epiaware.org/stable/extensions/fftw/
+[reactant]: https://composablerecurrences.epiaware.org/stable/extensions/reactant/

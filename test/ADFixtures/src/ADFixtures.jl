@@ -281,6 +281,15 @@ function _delay_ragged(w, θ)
     return sum(WS .* w(Convolution(kernel))(X))
 end
 
+# The same columns as views into the parameters, read by output time with
+# a history: a kernel held as the caller's columns, without a copy.
+function _delay_ragged_views(w, θ)
+    v, X, H = _unpack(θ, (sum(NS_HORIZON),), (S, T), (S, 2))
+    o = cumsum([0; NS_HORIZON])
+    kernel = TimeVarying([view(v, (o[τ] + 1):o[τ + 1]) for τ in 1:T])
+    return sum(WS .* w(Convolution(kernel))(X; history = H))
+end
+
 # Each infector keeps the kernel of its own infection time, of a length
 # that varies with that time; times with an empty column do not transmit.
 const NS_CYCLE = [mod(τ, L + 1) for τ in 1:T]
@@ -757,6 +766,13 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Convolution ragged kernel of views into the parameters", _delay_ragged_views,
+        () -> _flat(
+            [0.2 + 0.1 * sin(τ + i) for τ in 1:T for i in 1:NS_HORIZON[τ]], 1 .+ LOGR,
+            ones(S, 2),
+        ),
+    ),
+    (
         "Convolution with gain and add", _conv_gain,
         () -> _flat(G0, LOGR, W1, 1 .+ LOGR, ones(S, 2)),
     ),
@@ -922,9 +938,11 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
-    # Kernels as vectors of columns are stored as `_Ragged`.
+    # Kernels as vectors of columns came with `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
+    # Columns held as given came after the stacked form.
+    "Convolution ragged kernel of views into the parameters" => (:_Columns,),
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),

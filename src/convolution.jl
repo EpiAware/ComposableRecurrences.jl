@@ -421,7 +421,7 @@ function _conv_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where 
 end
 
 function _conv_buffers(
-        ::Type{Tp}, ex::Union{Serial, _Current}, kernel, x, history, m, S, start, stop
+        ::Type{Tp}, ex, kernel, x, history, m, S, start, stop
     ) where {Tp}
     X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
@@ -676,8 +676,9 @@ function _convolve_body!(k, Y, c::PerStratum, X, m, start)
 end
 
 # Secondary indexing: output time `t` reads its own column, one dot with
-# the window per output. A column kernel's column is contiguous and
-# vectorises; a per-stratum column is strided, so it is read entry by entry.
+# the window per output. A column kernel's column is read as a vector,
+# which vectorises when it is contiguous; a per-stratum column is strided,
+# so it is read entry by entry.
 function _convolve_body!(k, Y, c::_TVColumns{Secondary}, X, m, start)
     for j in axes(Y, 1)
         t = start + j - 1
