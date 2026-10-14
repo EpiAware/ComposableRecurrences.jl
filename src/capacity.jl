@@ -438,8 +438,9 @@ function _open(mode::Beds, c, O, p, t)
     kept = (1 - param(mode.exit, p, t)) * O
     return c - kept, kept
 end
+# `ifelse` rather than `if`, so a traced step time picks the arm too.
 function _open(mode::Budget, b, B, p, t)
-    B̃ = _refills(mode.period, t) ? ifelse(mode.carry_over, B, zero(B)) + b : B
+    B̃ = ifelse(_refills(mode.period, t), ifelse(mode.carry_over, B, zero(B)) + b, B)
     return B̃, B̃
 end
 _close(::Beds, kept, x) = kept + x
