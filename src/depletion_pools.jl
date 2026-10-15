@@ -98,7 +98,7 @@ _add_protected0!(V̄0, V0, x, k) = add_param!(V̄0, V0, x, k, 1)
 _removal_flows(::Nothing, protected) = ()
 function _removal_flows(r, protected)
     to = protected === nothing ? 0 : 2
-    return (Flow(1, to, Amount(_check_param(:removals, r))),)
+    return (Flow(1, to, _check_param(:removals, r), Truncate()),)
 end
 
 # The `flows` keyword as a tuple of `Flow`s, possibly empty.

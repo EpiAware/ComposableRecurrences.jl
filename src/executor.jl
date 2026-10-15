@@ -515,13 +515,14 @@ function _private(x)
     )
 end
 # Whether `_private` copies every leaf of a mirror of type `T`.
-@generated _copyable(x) = _copyable_type(x)
 function _copyable_type(::Type{T}) where {T}
     T <: Union{Nothing, _Owned} && return true
     T <: Union{Base.RefValue{<:Number}, AbstractArray{<:Number}} && return true
     T <: Union{Tuple, NamedTuple} && isconcretetype(T) || return false
     return all(_copyable_type, fieldtypes(T))
 end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _copyable(x) = _copyable_type(x)
 _add_into!(::Nothing, ::Nothing) = nothing
 _add_into!(x::Base.RefValue, y::Base.RefValue) = (x[] += y[]; nothing)
 _add_into!(x::AbstractArray, y::AbstractArray) = (x .+= y; nothing)

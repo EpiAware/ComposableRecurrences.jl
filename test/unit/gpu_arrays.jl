@@ -4,8 +4,8 @@
 
 @testmodule GPUCases begin
     using ComposableRecurrences
-    using ComposableRecurrences: Add, Allocate, Amount, Clamp, Depletion,
-        Flow, Flows, Floor, Linear, Primary, Protected, Redistribute,
+    using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
+        Flow, Flows, Floor, Primary, Protected, Redistribute, Share, Truncate,
         Transform, contributions, with_state
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
@@ -148,14 +148,14 @@
                 ),
             )
         )(d(RS); history = d(HS)),
-        "Flows, one group of three compartments with every kind" =>
+        "Flows, one group of three compartments with every form" =>
             d -> Recurrence(
             d([1.0]);
             modifiers = (
                 Flows(
                     Flow(1 => 2, PerStratum(d([0.3]))), Flow(1 => 0, 0.05),
-                    Flow(2 => 3, Linear(TimeVarying(d(fill(0.1, T))))),
-                    Flow(3 => 0, Amount(0.2)),
+                    Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
+                    Flow(3 => 0, 0.2; form = Truncate()),
                 ),
             )
         )(d(RS); history = d(HS[:, end:end])),
@@ -169,7 +169,7 @@
                     protected = Protected(PerStratum(d([0.3, 0.2, 0.1]))),
                     flows = (
                         Flow(2 => 1, PerStratum(d([0.05, 0.1, 0.2]))),
-                        Flow(1 => 0, Linear(0.01)),
+                        Flow(1 => 0, 0.01; form = Share()),
                     )
                 ),
             )
@@ -337,8 +337,8 @@ end
 @testitem "JLArrays: wrappers and built-in modifiers adapt every array they hold" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences
-    using ComposableRecurrences: Add, Allocate, Amount, Clamp, Depletion,
-        Flow, Flows, Linear, Protected, Redistribute, Transform
+    using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
+        Flow, Flows, Protected, Redistribute, Share, Transform, Truncate
     using JLArrays
     # Inside a kernel each wrapper and modifier must hold device arrays only:
     # no `JLArray`, the host-side handle, is left after adapting.
@@ -357,8 +357,8 @@ end
             Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
             Transform(*, 0.8 * Derived(exp, tv)),
             Flows(
-                Flow(1 => 2, PerStratum(v)), Flow(2 => 0, Linear(tv)),
-                Flow(1 => 0, Amount(tv)),
+                Flow(1 => 2, PerStratum(v)), Flow(2 => 0, tv; form = Share()),
+                Flow(1 => 0, tv; form = Truncate()),
             ),
             Depletion(
                 PerStratum(v); protected = Protected(0.3),

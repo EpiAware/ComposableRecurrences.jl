@@ -1,8 +1,8 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Amount,
-    Clamp, Convolution, Depletion, Derived, Device, Flow, Flows, Linear,
-    Pairwise, PerStratum, Pressure, Protected, Rate, Recurrence,
+using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
+    Clamp, Convolution, Depletion, Derived, Device, Flow, Flows,
+    Pairwise, PerStratum, Pressure, Protected, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
     _OldestFirstPairwise, _Flat, _Ragged, _Columns
 using Adapt: Adapt, adapt
@@ -102,7 +102,7 @@ end
 const _Adapted = Union{
     PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
     Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
-    Convolution, Flows, Flow, Rate, Linear, Amount,
+    Convolution, Flows, Flow,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)

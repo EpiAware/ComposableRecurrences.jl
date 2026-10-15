@@ -375,9 +375,9 @@ function _ward(w, θ)
     CR = ComposableRecurrences
     flows = CR.Flows(
         CR.Flow(1 => 2, PerStratum(confirm)),
-        CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+        CR.Flow(1 => 0, TimeVarying(ruleout); form = CR.Share()),
         CR.Flow(2 => 0, only(discharge)),
-        CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+        CR.Flow(2 => 0, TimeVarying(PerStratum(transfer)); form = CR.Truncate()),
     )
     r = Recurrence([1.0]; modifiers = (flows,))
     y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
@@ -1014,7 +1014,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
-    "Recurrence ward with competing flows (Flows)" => (:Flows,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows, :Share),
     "Recurrence waning protection (Depletion flows)" => (:depletion_flows,),
     "Recurrence protected pool in Float32" => (:Protected,),
     # Depletion removals came with `Protected`.
