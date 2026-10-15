@@ -189,3 +189,15 @@ end
     @test sections_missing_maths(nested, calls) == ["B"]
     @test sections_missing_maths("# ## [A](@id a)\nAdd(1)\n", calls) == ["A"]
 end
+
+@testitem "Standards: recorded item times fit the time budget" tags = [:quality] begin
+    include(joinpath(@__DIR__, "..", "item_times.jl"))
+    times = read_times()
+    names = default_items()
+    @test !isempty(times)
+    @test length(names) > 300
+    # An item with no recorded time weighs as much as the median one.
+    _, load = assign(names, times, TEST_BUDGET.workers)
+    # Re-record with `julia --project=test test/runtests.jl record_times`.
+    @test maximum(load) / 60 <= TEST_BUDGET.minutes
+end
