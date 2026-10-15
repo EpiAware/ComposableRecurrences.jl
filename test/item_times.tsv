@@ -1,114 +1,121 @@
 # seconds	item, written by `test/runtests.jl record_times`
-0.8	Add after depletion is not depleted
-2.6	Add pullback matches the local Jacobian
-4.5	Add: scalar, per stratum and time-varying
-15.9	Adjoint: Convolution
-9.7	Adjoint: Convolution gain and add
-12.4	Adjoint: Convolution reverse pass in threaded blocks
-25.2	Adjoint: Depletion with a population that varies over time
-0.5	Adjoint: NoAdjoint takes the plain path
-5.2	Adjoint: Recurrence cache keeps only what the reverse pass reads
-27.2	Adjoint: Recurrence couplings and kernels
-71.2	Adjoint: Recurrence modifiers
-6.4	Adjoint: Recurrence returning its state
-55.1	Adjoint: Recurrence reverse pass in threaded blocks
-12.2	Adjoint: Recurrence time-varying slots at absolute time
-4.2	Adjoint: Recurrence with mixed eltypes
-14.3	Adjoint: Recurrence, single series
-2.7	Adjoint: a declared adjoint without a pullback! throws
+1.1	Add after depletion is not depleted
+3.0	Add pullback matches the local Jacobian
+4.8	Add: scalar, per stratum and time-varying
+21.6	Adjoint: Convolution
+7.3	Adjoint: Convolution gain and add
+8.1	Adjoint: Convolution reverse pass in threaded blocks
+19.3	Adjoint: Depletion with a population that varies over time
+1.4	Adjoint: NoAdjoint takes the plain path
+5.7	Adjoint: Recurrence cache keeps only what the reverse pass reads
+33.0	Adjoint: Recurrence couplings and kernels
+68.8	Adjoint: Recurrence modifiers
+6.2	Adjoint: Recurrence returning its state
+47.2	Adjoint: Recurrence reverse pass in threaded blocks
+6.8	Adjoint: Recurrence time-varying slots at absolute time
+4.8	Adjoint: Recurrence with mixed eltypes
+13.9	Adjoint: Recurrence, single series
+2.5	Adjoint: a declared adjoint without a pullback! throws
 2.2	Adjoint: a plain primal call logs nothing
-4.7	Adjoint: buffers follow the input's array type
-78.7	Adjoint: coefficients from change points
-21.5	Adjoint: contributions
-0.4	Adjoint: cotangent helpers
-1.7	Adjoint: coupling pullbacks called directly
-12.6	Adjoint: local coupling pullback
-25.8	Adjoint: local pullback over entry parameters
-11.6	Adjoint: local pullback over structured and nested parameters
-9.8	Adjoint: ragged time-varying kernels
-31.8	Adjoint: routing by uses_adjoint
-4.6	Adjoint: scalar-parameter local pullback
-4.5	Adjoint: the default Init pullback skips a zero state cotangent
-1.0	Adjoint: the plain-AD note logs at construction only
-23.6	Adjoint: threaded reverse pass with outputs read and routes
-0.4	Adjoint: user operators declare their adjoint
-1.6	Allocate: Float32 stays Float32
-0.5	Allocate: a group whose sum is below the floor
-2.5	Allocate: checks its groups and totals
-6.0	Allocate: pullback against a local Jacobian
-24.7	Allocate: values and gradients against a naive loop
-1.4	Block accumulators: one per chunk, summed afterwards
-1.4	Blocks: a protected pool is blockwise
-11.2	Blocks: a user modifier against a naive loop
-2.8	Blocks: group pullbacks against a local Jacobian
-8.6	Blocks: shapes, resume and mixed modifiers
+4.8	Adjoint: buffers follow the input's array type
+73.1	Adjoint: coefficients from change points
+24.4	Adjoint: contributions
+0.3	Adjoint: cotangent helpers
+1.4	Adjoint: coupling pullbacks called directly
+1.4	Adjoint: dense coupling pullback with every mirror
+12.8	Adjoint: local coupling pullback
+24.6	Adjoint: local pullback over entry parameters
+11.3	Adjoint: local pullback over structured and nested parameters
+11.5	Adjoint: ragged time-varying kernels
+27.9	Adjoint: routing by uses_adjoint
+4.7	Adjoint: scalar-parameter local pullback
+4.2	Adjoint: the default Init pullback skips a zero state cotangent
+2.3	Adjoint: the plain-AD note logs at construction only
+20.9	Adjoint: threaded reverse pass with outputs read and routes
+0.8	Adjoint: user operators declare their adjoint
+2.9	Allocate: Float32 stays Float32
+0.2	Allocate: a group whose sum is below the floor
+2.4	Allocate: checks its groups and totals
+4.3	Allocate: checks its imports
+94.6	Allocate: imports against a naive loop
+3.4	Allocate: imports keep the plain split's type and state
+1.6	Allocate: imports keep the totals near an empty pattern
+26.1	Allocate: imports pullback against a local Jacobian
+5.6	Allocate: pullback against a local Jacobian
+2.4	Allocate: sparse imports match dense ones
+22.7	Allocate: values and gradients against a naive loop
+1.5	Block accumulators: one per chunk, summed afterwards
+1.0	Blocks: a protected pool is blockwise
+9.3	Blocks: a user modifier against a naive loop
+3.2	Blocks: group pullbacks against a local Jacobian
+10.4	Blocks: shapes, resume and mixed modifiers
 0.0	Built-in modifiers implement the piece interface
-3.4	Built-in modifiers: ForwardDiff through a recurrence
-4.9	Built-in modifiers: a Recurrence infers its return type
-0.5	CTIDM: delay as a convolution
-1.4	CTIDM: random walk and AR
-0.4	CTIDM: renewal
-2.5	CTIDM: renewal with mixing and depletion
-4.2	Capacity: budget periods, carry over and lifetime
-1.8	Capacity: checks its arguments
-1.5	Capacity: infinite capacity is the identity
-10.9	Capacity: pullback against a local Jacobian
-4.2	Capacity: resuming from the state matches one call
-6.3	Capacity: route conserves each step, hold across steps
+2.9	Built-in modifiers: ForwardDiff through a recurrence
+5.5	Built-in modifiers: a Recurrence infers its return type
+0.4	CTIDM: delay as a convolution
+1.2	CTIDM: random walk and AR
+0.9	CTIDM: renewal
+2.9	CTIDM: renewal with mixing and depletion
+3.7	Capacity: budget periods, carry over and lifetime
+1.6	Capacity: checks its arguments
+4.6	Capacity: infinite capacity is the identity
+10.3	Capacity: pullback against a local Jacobian
+2.3	Capacity: resuming from the state matches one call
+3.3	Capacity: route conserves each step, hold across steps
 0.1	Capacity: the recurrence uses its adjoint
 0.1	Capacity: the smooth minimum
-44.2	Capacity: values and gradients against a naive loop
-14.0	Change points: Convolution equals the dense kernel
-38.8	Change points: Recurrence equals the dense kernel
-2.7	Change points: construction and checks
-10.4	Change points: couplings and parameters equal the dense form
-0.8	Change points: in-order reverse sums equal the @simd ones
-2.2	Change points: one segment, a change after stop, a change every step
-2.1	Clamp pullback matches the local Jacobian
+42.9	Capacity: values and gradients against a naive loop
+15.7	Change points: Convolution equals the dense kernel
+38.0	Change points: Recurrence equals the dense kernel
+2.1	Change points: construction and checks
+10.5	Change points: couplings and parameters equal the dense form
+0.2	Change points: in-order reverse sums equal the @simd ones
+4.7	Change points: one segment, a change after stop, a change every step
+2.2	Clamp pullback matches the local Jacobian
 1.8	Clamp: bounds, scalar and per stratum
-2.9	Convolution Auto: direct without FFTW
-3.1	Convolution Auto: matches direct
-3.2	Convolution Auto: which method it picks with FFTW
-2.4	Convolution FFT: Float32 is kept
-1.6	Convolution FFT: a shared kernel's cotangent is checked over the strata
-7.8	Convolution FFT: device arrays take the direct method
-2.2	Convolution FFT: inexact sums are recomputed one by one
-3.0	Convolution FFT: matches direct
-2.2	Convolution FFT: refused without FFTW
-3.9	Convolution FFT: reverse pass matches direct
+2.6	Convolution Auto: direct without FFTW
+1.9	Convolution Auto: matches direct
+0.2	Convolution Auto: which method it picks with FFTW
+3.4	Convolution FFT: Float32 is kept
+1.0	Convolution FFT: a shared kernel's cotangent is checked over the strata
+6.8	Convolution FFT: device arrays take the direct method
+1.0	Convolution FFT: inexact sums are recomputed one by one
+5.4	Convolution FFT: matches direct
+2.1	Convolution FFT: refused without FFTW
+0.6	Convolution FFT: reverse pass matches direct
 1.0	Convolution FFT: the output with gain and add is checked
-2.2	Convolution FFT: the public call takes the transform
-3.0	Convolution FFT: the rule's reverse pass matches direct
-2.6	Convolution FFT: which calls take the transform
-0.8	Convolution FFT: wide-range reverse pass matches direct
-1.0	Convolution FFT: wide-range series match direct
-2.1	Convolution: a delay distribution from lag 0
-2.0	Convolution: a kernel with offset axes is refused
-0.7	Convolution: an offset gain or add is refused
-0.8	Convolution: argument validation
-4.3	Convolution: calls without a rule gather on CPU arrays of other numbers
-13.0	Convolution: contributions
-0.5	Convolution: fixed kernel
-10.3	Convolution: gain and add
-1.3	Convolution: history
-0.6	Convolution: input loads the same into any buffer
-4.2	Convolution: lag blocks match the gather body at every edge
+1.5	Convolution FFT: the public call takes the transform
+2.7	Convolution FFT: the rule's reverse pass matches direct
+2.5	Convolution FFT: which calls take the transform
+0.6	Convolution FFT: wide-range reverse pass matches direct
+1.5	Convolution FFT: wide-range series match direct
+0.3	Convolution: a delay distribution from lag 0
+2.4	Convolution: a kernel with offset axes is refused
+0.6	Convolution: an offset gain or add is refused
+1.3	Convolution: argument validation
+2.5	Convolution: calls without a rule gather on CPU arrays of other numbers
+12.6	Convolution: contributions
+0.7	Convolution: fixed kernel
+15.1	Convolution: gain and add
+0.6	Convolution: history
+0.7	Convolution: input loads the same into any buffer
+4.1	Convolution: lag blocks match the gather body at every edge
 0.1	Convolution: method validation and rebuild
-5.4	Convolution: other number types take the gather body
-1.9	Convolution: output indexing matches CTIDM's time-varying delay
-1.0	Convolution: per-stratum kernel
-2.6	Convolution: time-varying kernel indexed by input
-1.4	Convolution: time-varying kernel indexed by output
-0.5	Coupling pressure: shapes are checked before the unchecked loop
+4.2	Convolution: other number types take the gather body
+1.0	Convolution: output indexing matches CTIDM's time-varying delay
+0.3	Convolution: per-stratum kernel
+2.0	Convolution: time-varying kernel indexed by input
+2.0	Convolution: time-varying kernel indexed by output
+0.1	Coupling pressure: shapes are checked before the unchecked loop
 0.1	Delay distributions: a bare array needs a wrapper
-2.9	Delay distributions: gradients reach the parameters
-0.2	Delay distributions: lags is checked
+2.7	Delay distributions: gradients reach the parameters
+0.9	Delay distributions: lags is checked
 1.9	Depletion flows: check their options
 10.5	Depletion flows: pullbacks against a local Jacobian
 5.8	Depletion flows: resume, Float32 and inference
 11.3	Depletion flows: susceptibles leaving at a rate or in counts
 25.0	Depletion flows: waning against a naive loop
-2.2	Depletion init pullback matches ForwardDiff
+2.1	Depletion init pullback matches ForwardDiff
 7.6	Depletion pools: a single-precision model stays in single precision
 6.1	Depletion pools: an empty pool with a tangent under ForwardDiff
 4.6	Depletion pools: checks its arguments
@@ -122,27 +129,27 @@
 0.2	Depletion pools: the initial state and its pullback
 1.4	Depletion pools: the removal picks its arm as its pullback does
 9.0	Depletion pools: values and gradients against the maths
-4.6	Depletion pullback matches the local Jacobian
-3.7	Depletion pullback with a time-varying population
-4.8	Depletion: Derived removals are removed
-9.5	Depletion: a dual population keeps an integer heterogeneity plain
-5.3	Depletion: a population that varies over time
-1.0	Depletion: floor form against a naive loop
-2.3	Depletion: hazard form against a naive loop
-2.9	Depletion: negative removals add to the pool
-1.6	Depletion: one population per stratum
-10.3	Depletion: the fixed default exponent matches an exponent of 1.0
-0.7	Derived: add_param! against ForwardDiff
-2.0	Derived: arithmetic lowers to Derived
-2.3	Derived: construction and checks
+4.2	Depletion pullback matches the local Jacobian
+4.1	Depletion pullback with a time-varying population
+4.3	Depletion: Derived removals are removed
+9.1	Depletion: a dual population keeps an integer heterogeneity plain
+6.3	Depletion: a population that varies over time
+0.9	Depletion: floor form against a naive loop
+1.8	Depletion: hazard form against a naive loop
+2.6	Depletion: negative removals add to the pool
+1.2	Depletion: one population per stratum
+9.6	Depletion: the fixed default exponent matches an exponent of 1.0
+0.6	Derived: add_param! against ForwardDiff
+1.8	Derived: arithmetic lowers to Derived
+2.2	Derived: construction and checks
 5.2	Derived: values against a naive loop
 0.0	Device: arrays on a device select it
-30.2	Docstring examples run
+26.4	Docstring examples run
 0.0	EXECUTOR: serial by default, set per block
-6.8	Eltypes: Float32 in, Float32 out
-22.8	Eltypes: ForwardDiff gradients through every slot
-9.2	Eltypes: built-in modifiers keep Float32
-0.2	Error messages describe wrapped values by size and type
+7.6	Eltypes: Float32 in, Float32 out
+26.4	Eltypes: ForwardDiff gradients through every slot
+10.3	Eltypes: built-in modifiers keep Float32
+0.1	Error messages describe wrapped values by size and type
 3.5	Flows: a share flow is the occupancy recurrence
 3.8	Flows: check their options
 0.3	Flows: counts are capped and act in order
@@ -152,232 +159,232 @@
 51.0	Flows: wards against a naive loop
 0.3	Hazard: one exponential gives exp(-x) and expm1(-x)
 0.5	Interfaces: a pullback! the rule cannot find fails
-12.6	Interfaces: package pieces
-0.6	Interfaces: state length
-2.2	Interfaces: user pieces
-3.4	JLArrays: a buffer deeper than the kernel runs and resumes on the device
-3.6	JLArrays: a run resumed from a device state matches the CPU
-11.0	JLArrays: adapting an operator moves its parameters to the device
-4.1	JLArrays: coefficients from change points refuse a device
-18.9	JLArrays: dual numbers carry tangents through the device forward pass
-64.2	JLArrays: every operator, coupling and modifier runs forward on the device
-8.3	JLArrays: host parameters and ragged kernels on device inputs are errors
-5.7	JLArrays: wrappers and built-in modifiers adapt every array they hold
-27.0	Loading: recurrences run without precompiled modules
-0.0	NoAdjoint forwards to the operator
-4.8	Operators: GPU arrays run their strata loops on the device
-0.9	Operators: the default executor keeps calls type stable
-13.9	Operators: threaded calls match serial calls exactly
-1.0	Pairwise: a delay distribution per pair
-2.5	PerStratum: a delay distribution per stratum
-1.5	Pool flows: check their options
-8.3	Pool flows: pullbacks against a local Jacobian
-3.6	Pool flows: resume, Float32 and inference
-7.9	Pool flows: susceptibles leaving at a rate or in counts
-16.3	Pool flows: waning against a naive loop
-2.5	Pool without a draw: a share flow is the occupancy recurrence
-2.9	Pool without a draw: a smooth count against a naive loop
-2.7	Pool without a draw: check their options
+12.3	Interfaces: package pieces
+1.0	Interfaces: state length
+3.0	Interfaces: user pieces
+2.8	JLArrays: a buffer deeper than the kernel runs and resumes on the device
+9.1	JLArrays: a run resumed from a device state matches the CPU
+9.2	JLArrays: adapting an operator moves its parameters to the device
+3.6	JLArrays: coefficients from change points refuse a device
+19.6	JLArrays: dual numbers carry tangents through the device forward pass
+72.7	JLArrays: every operator, coupling and modifier runs forward on the device
+5.7	JLArrays: host parameters and ragged kernels on device inputs are errors
+5.8	JLArrays: wrappers and built-in modifiers adapt every array they hold
+23.2	Loading: recurrences run without precompiled modules
+0.5	NoAdjoint forwards to the operator
+9.4	Operators: GPU arrays run their strata loops on the device
+0.6	Operators: the default executor keeps calls type stable
+15.7	Operators: threaded calls match serial calls exactly
+1.4	Pairwise: a delay distribution per pair
+2.4	PerStratum: a delay distribution per stratum
+1.2	Pool flows: check their options
+7.2	Pool flows: pullbacks against a local Jacobian
+5.9	Pool flows: resume, Float32 and inference
+7.4	Pool flows: susceptibles leaving at a rate or in counts
+17.6	Pool flows: waning against a naive loop
+2.4	Pool without a draw: a share flow is the occupancy recurrence
+3.8	Pool without a draw: a smooth count against a naive loop
+2.9	Pool without a draw: check their options
 0.2	Pool without a draw: counts are capped and act in order
-6.8	Pool without a draw: pullback against a local Jacobian
-2.6	Pool without a draw: resume, Float32 and the adjoint route
-0.1	Pool without a draw: the share that leaves near zero hazard
-51.6	Pool without a draw: the time checks infer and allocate nothing, after a gradient too
-34.3	Pool without a draw: wards against a naive loop
-7.1	Pool: a single-precision model stays in single precision
-6.1	Pool: an empty pool with a tangent under ForwardDiff
-3.7	Pool: checks its arguments
-2.5	Pool: conservation and final-size ordering
-0.2	Pool: declare their adjoint
-2.4	Pool: full susceptibility undoes the protection
-1.6	Pool: no removals and no protected pool is the base
-8.2	Pool: pullbacks against a local Jacobian
-10.4	Pool: removals at an empty pool, reverse against ForwardDiff
-42.1	Pool: the Recurrence reverse pass
-0.3	Pool: the initial state and its pullback
-1.1	Pool: the removal picks its arm as its pullback does
-5.5	Pool: values and gradients against the maths
-0.8	Primary Recurrence: a cohort's onward weight is its column sum
-2.2	Primary Recurrence: a fixed kernel reads the same either way
+6.4	Pool without a draw: pullback against a local Jacobian
+2.7	Pool without a draw: resume, Float32 and the adjoint route
+0.2	Pool without a draw: the share that leaves near zero hazard
+46.0	Pool without a draw: the time checks infer and allocate nothing, after a gradient too
+35.7	Pool without a draw: wards against a naive loop
+7.2	Pool: a single-precision model stays in single precision
+4.7	Pool: an empty pool with a tangent under ForwardDiff
+3.1	Pool: checks its arguments
+2.8	Pool: conservation and final-size ordering
+0.3	Pool: declare their adjoint
+3.2	Pool: full susceptibility undoes the protection
+1.9	Pool: no removals and no protected pool is the base
+7.8	Pool: pullbacks against a local Jacobian
+11.5	Pool: removals at an empty pool, reverse against ForwardDiff
+41.6	Pool: the Recurrence reverse pass
+0.4	Pool: the initial state and its pullback
+1.9	Pool: the removal picks its arm as its pullback does
+6.6	Pool: values and gradients against the maths
+1.7	Primary Recurrence: a cohort's onward weight is its column sum
+0.0	Primary Recurrence: a fixed kernel reads the same either way
 0.2	Primary Recurrence: a rebuild from fields keeps the indexing
-2.3	Primary Recurrence: a resumed call equals one long call
+1.6	Primary Recurrence: a resumed call equals one long call
 0.9	Primary Recurrence: a seed sits at times from 1
-31.9	Primary Recurrence: equals the reindexed Secondary kernel
-9.9	Quality: Aqua
-5.5	Quality: ExplicitImports
-2.8	Quality: README sections
+27.6	Primary Recurrence: equals the reindexed Secondary kernel
+8.5	Quality: Aqua
+6.1	Quality: ExplicitImports
+1.1	Quality: README sections
 1.7	Quality: docstring format
-49.7	Quality: doctest
-2.4	Quality: extension ambiguities
-12.1	Quality: formatting
-1.5	Quality: import centralisation
-0.2	Quality: linting (JET)
-3.5	Ragged kernel: Convolution equals a hand loop and the padded kernel
-9.1	Ragged kernel: Recurrence equals a hand loop and the padded kernel
-10.9	Ragged kernel: gradients equal the padded kernel's
-7.2	Ragged kernel: storage and validation
-3.6	Reactant: committed results match expected.jl
+49.0	Quality: doctest
+4.6	Quality: extension ambiguities
+5.9	Quality: formatting
+0.3	Quality: import centralisation
+0.1	Quality: linting (JET)
+2.3	Ragged kernel: Convolution equals a hand loop and the padded kernel
+11.6	Ragged kernel: Recurrence equals a hand loop and the padded kernel
+9.9	Ragged kernel: gradients equal the padded kernel's
+5.2	Ragged kernel: storage and validation
+3.3	Reactant: committed results match expected.jl
 0.1	Recent: a coupled read back at a row other than the cached one
-6.4	Recent: a coupling against a naive loop
-0.8	Recent: a modifier without its own pullback takes plain AD
-1.0	Recent: a read before the window is an error
-22.0	Recent: an Init that reads the outputs sends its cotangent to the history
-13.2	Recent: any modifier parameter reads the outputs it would see
+5.7	Recent: a coupling against a naive loop
+0.7	Recent: a modifier without its own pullback takes plain AD
+1.1	Recent: a read before the window is an error
+23.9	Recent: an Init that reads the outputs sends its cotangent to the history
+11.5	Recent: any modifier parameter reads the outputs it would see
 0.3	Recent: arithmetic builds Derived
-4.0	Recent: behaviour feedback against a naive loop
-0.4	Recent: binding infers
-0.4	Recent: binding, rebinding and mirrors
-0.2	Recent: construction, depth and errors
-0.7	Recent: coupling errors name the value
-66.6	Recent: reverse pass through a coupling
-82.9	Recent: reverse pass through the outputs
-1.1	Recent: the state resumes with the deeper past
+3.8	Recent: behaviour feedback against a naive loop
+0.5	Recent: binding infers
+0.1	Recent: binding, rebinding and mirrors
+0.7	Recent: construction, depth and errors
+1.0	Recent: coupling errors name the value
+69.4	Recent: reverse pass through a coupling
+84.7	Recent: reverse pass through the outputs
+2.0	Recent: the state resumes with the deeper past
 0.1	Recent: unbound reverse, rebinding and plain fields
 0.2	Recurrence: a Pairwise kernel must be strata × strata × lags
-1.7	Recurrence: a delay distribution from lag 1
-2.1	Recurrence: a resumed state has nstate entries per modifier
+0.4	Recurrence: a delay distribution from lag 1
+1.8	Recurrence: a resumed state has nstate entries per modifier
 4.3	Recurrence: absolute time and start
-3.4	Recurrence: argument validation
-1.2	Recurrence: fixed kernel, single series
-0.8	Recurrence: gain defaults to one
-0.9	Recurrence: history loads the same into any buffer
-1.0	Recurrence: history longer than the kernel
-0.8	Recurrence: history shorter than the kernel is zero-padded
-2.0	Recurrence: identity, scaled identity and no coupling
-1.1	Recurrence: modifier state carries across steps
+2.8	Recurrence: argument validation
+1.1	Recurrence: fixed kernel, single series
+1.0	Recurrence: gain defaults to one
+0.5	Recurrence: history loads the same into any buffer
+0.9	Recurrence: history longer than the kernel
+0.7	Recurrence: history shorter than the kernel is zero-padded
+1.4	Recurrence: identity, scaled identity and no coupling
+0.7	Recurrence: modifier state carries across steps
 1.2	Recurrence: modifiers thread in tuple order
-1.3	Recurrence: pairwise kernel
-1.2	Recurrence: per-stratum kernel with Diagonal coupling
-1.1	Recurrence: resume from the returned state
-0.4	Recurrence: sparse coupling
-1.3	Recurrence: strata with dense coupling
-0.3	Recurrence: time-varying coupling
-1.1	Recurrence: time-varying kernels
-3.4	Redistribute pullback matches the local Jacobian
-2.5	Redistribute: conserving, against a naive loop
-1.9	Routes: argument validation
-2.0	Routes: arrays alone take the core method with Distributions loaded
-1.4	Routes: delay distributions on routes
-1.8	Routes: equal the Pairwise kernel of their sum
-6.9	Routes: equal the naive loop for each kernel
-4.3	Routes: fold into a cheaper form
-3.6	Routes: modifiers, add, resume and Float32
-2.1	Routes: the rule needs a pullback on every route coupling
-1.3	Standards: README and page prose
-0.7	Standards: README code is from the getting started page
+2.7	Recurrence: pairwise kernel
+0.9	Recurrence: per-stratum kernel with Diagonal coupling
+2.4	Recurrence: resume from the returned state
+0.3	Recurrence: sparse coupling
+0.9	Recurrence: strata with dense coupling
+0.7	Recurrence: time-varying coupling
+2.0	Recurrence: time-varying kernels
+3.9	Redistribute pullback matches the local Jacobian
+2.6	Redistribute: conserving, against a naive loop
+2.7	Routes: argument validation
+1.8	Routes: arrays alone take the core method with Distributions loaded
+1.5	Routes: delay distributions on routes
+1.2	Routes: equal the Pairwise kernel of their sum
+6.6	Routes: equal the naive loop for each kernel
+3.6	Routes: fold into a cheaper form
+3.8	Routes: modifiers, add, resume and Float32
+2.2	Routes: the rule needs a pullback on every route coupling
+0.8	Standards: README and page prose
+0.8	Standards: README code is from the getting started page
 0.4	Standards: docstring examples
 1.3	Standards: docstring maths
-0.6	Standards: maths before code
-2.2	Standards: no other package names
-0.6	Standards: one home per concept
-1.2	Standards: one sentence per line
-0.8	Standards: recorded item times fit the time budget
-1.6	Standards: the checks detect violations
-1.5	Standards: wording
-0.4	Threaded: a failing chunk fails the loop after every chunk ends
+0.9	Standards: maths before code
+1.7	Standards: no other package names
+0.3	Standards: one home per concept
+1.4	Standards: one sentence per line
+0.5	Standards: recorded item times fit the time budget
+1.1	Standards: the checks detect violations
+2.0	Standards: wording
+0.6	Threaded: a failing chunk fails the loop after every chunk ends
 0.0	Threaded: chunks run in parallel on several threads
-0.9	Threaded: loop work is counted per kind and element type
-0.0	Threaded: options are checked when it is built
-1.4	TimeVarying: a delay distribution per stratum and time
-2.0	TimeVarying: a delay distribution per time
+0.2	Threaded: loop work is counted per kind and element type
+0.2	Threaded: options are checked when it is built
+1.2	TimeVarying: a delay distribution per stratum and time
+1.1	TimeVarying: a delay distribution per time
 0.0	Transform implements the role interface
-4.0	Transform pullback matches the local Jacobian
-1.2	Transform: Float32 and no allocation in the pullback
-2.4	Transform: ForwardDiff through a recurrence
+4.1	Transform pullback matches the local Jacobian
+1.1	Transform: Float32 and no allocation in the pullback
+2.2	Transform: ForwardDiff through a recurrence
 2.2	Transform: a map carrying parameters is differentiated whole
-8.1	Transform: a map of each value against a naive loop
-1.3	Transform: a supplied derivative replaces the local one
-0.9	Transform: argument validation
+7.3	Transform: a map of each value against a naive loop
+1.6	Transform: a supplied derivative replaces the local one
+0.3	Transform: argument validation
 0.2	Transform: local derivative helpers called directly
-3.4	Transform: per-stratum parameters
+3.9	Transform: per-stratum parameters
 0.1	Transform: pullback edge cases and refusals
 0.4	Transform: the local derivative runs on an outer dual
-0.5	Transform: the rule covers it unless the map has float fields
-1.5	Truncate: checks and the rule
-0.7	Truncate: pullback against a local Jacobian
+0.4	Transform: the rule covers it unless the map has float fields
+1.2	Truncate: checks and the rule
+0.8	Truncate: pullback against a local Jacobian
 0.4	Truncate: the shared minimum matches each form
-0.2	Truncate: the smooth minimum
-6.4	Truncate: values and gradients against a naive loop
-5.3	Use case: AR → exp → renewal → delay
-2.4	Use case: AR(p)
-9.2	Use case: ARIMA (differenced ARMA)
-3.5	Use case: BVD abscond-thinned discharge flows
-5.3	Use case: BVD accumulate_occupancy (user modifier)
-2.3	Use case: BVD convolve_delay
+0.1	Truncate: the smooth minimum
+6.5	Truncate: values and gradients against a naive loop
+5.7	Use case: AR → exp → renewal → delay
+2.8	Use case: AR(p)
+7.8	Use case: ARIMA (differenced ARMA)
+3.9	Use case: BVD abscond-thinned discharge flows
+4.5	Use case: BVD accumulate_occupancy (user modifier)
+1.8	Use case: BVD convolve_delay
 1.4	Use case: BVD convolve_pmf
-9.4	Use case: BVD deviation knots (stratified AR(1))
-6.0	Use case: BVD onset reporting delay CDF
-6.1	Use case: BVD patch model
-3.0	Use case: BVD renewal → delay
-4.2	Use case: BVD renewal_infections
-3.2	Use case: BVD two-clock confirmed stock
-6.9	Use case: BVD zone share renewal
-2.3	Use case: MA(1) with a coefficient path
-4.4	Use case: MA(q)
-3.7	Use case: a pool with two stocks gives the values of Depletion with Protected
-0.2	Use case: a pool without a draw gives the values of Flows with Rate kinds
-8.6	Use case: all-or-nothing and leaky vaccination
-1.7	Use case: chain-length likelihood from PGF iteration
-0.3	Use case: clinical transitions as chained convolutions
-9.0	Use case: community, household and funeral routes
-2.8	Use case: containment and extinction at convergence
-4.4	Use case: exponential growth rate
-2.7	Use case: fixed reporting delay (LatentDelay)
-7.3	Use case: gravity coupling with depletion
-4.6	Use case: herd turnover with births and sales
-4.4	Use case: imports added after depletion
+9.1	Use case: BVD deviation knots (stratified AR(1))
+6.9	Use case: BVD onset reporting delay CDF
+5.3	Use case: BVD patch model
+2.7	Use case: BVD renewal → delay
+1.9	Use case: BVD renewal_infections
+2.6	Use case: BVD two-clock confirmed stock
+6.3	Use case: BVD zone share renewal
+2.0	Use case: MA(1) with a coefficient path
+5.4	Use case: MA(q)
+3.8	Use case: a pool with two stocks gives the values of Depletion with Protected
+0.9	Use case: a pool without a draw gives the values of Flows with Rate kinds
+7.8	Use case: all-or-nothing and leaky vaccination
+2.2	Use case: chain-length likelihood from PGF iteration
+0.4	Use case: clinical transitions as chained convolutions
+8.4	Use case: community, household and funeral routes
+2.5	Use case: containment and extinction at convergence
+4.5	Use case: exponential growth rate
+1.6	Use case: fixed reporting delay (LatentDelay)
+6.6	Use case: gravity coupling with depletion
+5.4	Use case: herd turnover with births and sales
+4.2	Use case: imports added after depletion
 0.9	Use case: isolation as a thinned kernel
-10.2	Use case: isolation beds with overflow to the community
+10.1	Use case: isolation beds with overflow to the community
 0.8	Use case: multi-type extinction
-1.5	Use case: multi-type growth is the spectral radius
-5.7	Use case: per-pair generation intervals
-5.1	Use case: per-stratum generation intervals
-2.1	Use case: per-type isolation and tracing in expectation
-0.7	Use case: population measures as a gain
-2.0	Use case: random walk
-3.2	Use case: renewal
-7.6	Use case: renewal with imported cases
-3.4	Use case: renewal with susceptible depletion
-8.1	Use case: resume a depleting renewal
-4.2	Use case: resume an AR(p) forecast
-6.4	Use case: resume the BVD patch model
-11.3	Use case: ring vaccination under a weekly budget
-2.5	Use case: scheduled isolation as a cohort kernel
-5.7	Use case: share and count flows give the values of the Linear and Amount kinds
-4.4	Use case: strata with a mixing matrix
-5.5	Use case: strata with identity mixing
-9.5	Use case: stratified renewal with imports, depletion and mixing
-5.2	Use case: time-varying AR(1)
-4.2	Use case: time-varying mixing
-3.1	Use case: time-varying reporting delay
-0.4	Use case: vaccination against a seeded HomogeneousProcess
-3.9	Use case: window aggregation
-6.0	Variants: a user depletion form, with and without a pullback
-1.2	Variants: one path per step
-1.6	Variants: the form slot takes a form struct
-4.4	Wrapper nesting is normalised
-0.9	delay_masses: a continuous distribution must be discretised
-1.4	delay_masses: a discrete distribution, lag 0 first
-0.0	delay_masses: a method of the wrong length is caught
+1.0	Use case: multi-type growth is the spectral radius
+5.0	Use case: per-pair generation intervals
+4.8	Use case: per-stratum generation intervals
+1.8	Use case: per-type isolation and tracing in expectation
+0.8	Use case: population measures as a gain
+1.8	Use case: random walk
+3.0	Use case: renewal
+6.2	Use case: renewal with imported cases
+4.1	Use case: renewal with susceptible depletion
+5.2	Use case: resume a depleting renewal
+4.1	Use case: resume an AR(p) forecast
+7.0	Use case: resume the BVD patch model
+11.6	Use case: ring vaccination under a weekly budget
+3.4	Use case: scheduled isolation as a cohort kernel
+5.0	Use case: share and count flows give the values of the Linear and Amount kinds
+4.9	Use case: strata with a mixing matrix
+5.3	Use case: strata with identity mixing
+8.9	Use case: stratified renewal with imports, depletion and mixing
+6.1	Use case: time-varying AR(1)
+3.5	Use case: time-varying mixing
+3.0	Use case: time-varying reporting delay
+1.0	Use case: vaccination against a seeded HomogeneousProcess
+4.6	Use case: window aggregation
+6.6	Variants: a user depletion form, with and without a pullback
+0.2	Variants: one path per step
+1.9	Variants: the form slot takes a form struct
+3.8	Wrapper nesting is normalised
+0.8	delay_masses: a continuous distribution must be discretised
+0.4	delay_masses: a discrete distribution, lag 0 first
+0.7	delay_masses: a method of the wrong length is caught
 0.0	delay_masses: a vector is returned as it is
 0.4	depth: a coupling or kernel can deepen the buffer
-1.1	depth: a deep call infers
-21.3	depth: a deeper buffer leaves the output unchanged
+1.0	depth: a deep call infers
+19.7	depth: a deeper buffer leaves the output unchanged
 0.3	depth: an invalid depth names the value
 0.1	depth: default walk and recursion
-104.9	depth: the reverse pass reads the deeper buffer, fixed kernels
-128.0	depth: the reverse pass reads the deeper buffer, ragged and Primary kernels
-96.2	depth: the reverse pass reads the deeper buffer, time-varying kernels
+97.2	depth: the reverse pass reads the deeper buffer, fixed kernels
+127.7	depth: the reverse pass reads the deeper buffer, ragged and Primary kernels
+89.2	depth: the reverse pass reads the deeper buffer, time-varying kernels
 2.2	depth: the state holds the deeper buffer and resumes
-58.8	depth: the threaded reverse pass reads the deeper buffer
+66.0	depth: the threaded reverse pass reads the deeper buffer
 0.1	depth: the walk skips mutable and undefined fields
 4.2	each!: Device runs a body as a kernel on JLArrays
-0.2	each!: chunks cover every index once
-0.2	each!: serial allocates nothing
+0.1	each!: chunks cover every index once
+0.1	each!: serial allocates nothing
 0.2	each!: serial runs every index in order
 0.2	each!: threaded matches serial
-0.9	exponential_history
-0.1	param_eltype infers through nested structs
+0.8	exponential_history
+0.0	param_eltype infers through nested structs
 0.1	param_eltype recurses through fields
-6.6	prepend returns the history then the run
+8.5	prepend returns the history then the run
 0.3	start = nothing names the default to use
