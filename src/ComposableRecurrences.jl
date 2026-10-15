@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Depletion, Protected, Flow, Flows, Rate, Linear, Amount, Redistribute,
+public Depletion, Protected, Flow, Flows, Share, Redistribute,
     Add, Clamp, Allocate, Capacity, Beds, Budget, Route, Hold, Drop,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,
@@ -120,13 +120,13 @@ include("builtin_modifiers.jl")
 include("derived.jl")
 # Parameters read from the recurrence's own recent outputs.
 include("recent.jl")
+# Depletion forms that draw up to what the pool holds.
+include("truncate.jl")
 # Flows between the compartments of each group.
 include("flows.jl")
 # Depletion with flows and a protected pool.
 include("depletion_pools.jl")
 
-# Depletion forms that draw up to what the pool holds.
-include("truncate.jl")
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
 # Routing demand between admitted and overflow strata under a capacity.

@@ -787,14 +787,22 @@ function _not_rebuilt(m, ms...)
     return (nameof(typeof(m isa Depletion ? m.form : m)), rest...)
 end
 
+# Parameter forms a step reads one entry of through `param`, at stratum `k`
+# and time `t`: the local derivative seeds only that entry, as a scalar.
+const _EntryParam = Union{
+    PerStratum{<:AbstractVector{<:AbstractFloat}},
+    TimeVarying{<:Any, <:AbstractVector{<:AbstractFloat}},
+    TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix{<:AbstractFloat}}},
+    TimeVarying{<:Any, <:_Piecewise{<:AbstractVector{<:AbstractFloat}}},
+    TimeVarying{<:Any, <:_Piecewise{<:PerStratum{<:AbstractMatrix{<:AbstractFloat}}}},
+}
+
 # Whether a type holds a float array (or a field of unknown type) that a
 # local per-value derivative would have to carry, or a function with float
 # fields of its own (a closure's captured values), which the local
 # derivative does not reach. `_local_params` also allows array parameters
 # a step reads one entry of (`_EntryParam`). Closed functions of the type,
 # evaluated once per type by a generated function so the route folds.
-@generated _scalar_params(m) = !_has_array_params(m, false)
-@generated _local_params(m) = !_has_array_params(m, true)
 function _has_array_params(::Type{T}, entries::Bool) where {T}
     entries && T <: _EntryParam && return false
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
@@ -819,6 +827,9 @@ function _has_float(::Type{T}) where {T}
     end
     return false
 end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _scalar_params(m) = !_has_array_params(m, false)
+@generated _local_params(m) = !_has_array_params(m, true)
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including the state to resume from.

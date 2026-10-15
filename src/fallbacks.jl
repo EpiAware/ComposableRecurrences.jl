@@ -122,16 +122,6 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 
-# Parameter forms a step reads one entry of through `param`, at stratum `k`
-# and time `t`: the local derivative seeds only that entry, as a scalar.
-const _EntryParam = Union{
-    PerStratum{<:AbstractVector{<:AbstractFloat}},
-    TimeVarying{<:Any, <:AbstractVector{<:AbstractFloat}},
-    TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix{<:AbstractFloat}}},
-    TimeVarying{<:Any, <:_Piecewise{<:AbstractVector{<:AbstractFloat}}},
-    TimeVarying{<:Any, <:_Piecewise{<:PerStratum{<:AbstractMatrix{<:AbstractFloat}}}},
-}
-
 # A pointwise modifier's scalar step pullback: its own when it uses one,
 # else the local derivative.
 function _step_pullback(grads, m, v, s, t, k)

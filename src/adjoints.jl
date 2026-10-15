@@ -176,7 +176,12 @@ end
 # `Vararg{Any, N}` makes the routes specialise on the arguments, which they
 # pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
-adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
+# A `NoAdjoint` call is noted with the wrapper, which logs nothing, so a
+# backend's rule for the note still sees the operator.
+function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
+    _note_plain_type(n, args...)
+    return _plain(n.op, args...)
+end
 function _route_val(op, args...)
     return Val(_type_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
@@ -223,12 +228,6 @@ _run_pullback!(grads, op, cache) = _call_pullback!(grads, op, Run(), cache)
 # on its own and never needs a shadow for a struct that holds both;
 # `_ADLeaves` rebuilds the operator and arguments from them.
 _primal(op, args...) = first(_run_forward(op, args...))
-@generated function _ad(op, args::Vararg{Any, N}) where {N}
-    X = Tuple{op, args...}
-    roots = (:op, (:(args[$i]) for i in 1:N)...)
-    leaves = map(p -> _path_expr(roots[first(p)], Base.tail(p)), _leaf_paths(X))
-    return :(_ADLeaves{$X}()($(leaves...)))
-end
 struct _ADLeaves{X} end
 function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
     return _primal(_rebuild_leaves(X, leaves)...)
@@ -257,6 +256,13 @@ end
 function _path_expr(x, p)
     isempty(p) && return x
     return _path_expr(:(getfield($x, $(first(p)))), Base.tail(p))
+end
+# After its helpers: a generator sees only the methods defined before it.
+@generated function _ad(op, args::Vararg{Any, N}) where {N}
+    X = Tuple{op, args...}
+    roots = (:op, (:(args[$i]) for i in 1:N)...)
+    leaves = map(p -> _path_expr(roots[first(p)], Base.tail(p)), _leaf_paths(X))
+    return :(_ADLeaves{$X}()($(leaves...)))
 end
 
 # The value of type `X` with the given leaves, built field by field without
@@ -288,6 +294,7 @@ end
 @noinline _note_plain_type(op, args...) = (Base.donotdelete(op, args...); nothing)
 const _PLAIN_NOTED = Set{Any}()
 const _PLAIN_LOCK = ReentrantLock()
+_log_plain(::NoAdjoint) = nothing
 function _log_plain(op)
     T = typeof(op)
     new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
@@ -310,7 +317,6 @@ _plain_why(op) = _ADJOINT_NOTE
 # constant-fold the recursion, and an unfolded gate costs a dynamic dispatch
 # on every call under `Mooncake`.
 const _IEEEFloat = Union{Float16, Float32, Float64}
-@generated _gate(xs...) = all(_ok, xs)
 function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true
     T <: Union{Integer, Nothing, Symbol} && return true
@@ -327,6 +333,8 @@ function _ok(::Type{T}) where {T}
     end
     return true
 end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _gate(xs...) = all(_ok, xs)
 
 @doc raw"""
 The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`

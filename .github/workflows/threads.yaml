@@ -13,9 +13,10 @@ name: Threads
 # resolves to the current release when no prerelease exists, and is allowed
 # to fail, as in the managed Test workflow. Both also run on the compat
 # floor (1.11), which the managed Test and AD workflows do not cover. There
-# `ad` also runs the items tagged `compat_floor`: `test_adjoint` and the
-# rule-fires check on every registry operator under Enzyme reverse, and
-# checks of the Enzyme rule, since Enzyme differs between Julia versions.
+# `ad` also runs the items tagged `compat_floor`: the registry gradients,
+# `test_adjoint` and the rule-fires check on every registry operator under
+# Enzyme reverse, and checks of the Enzyme rule, since Enzyme differs
+# between Julia versions.
 # On 1.11 `unit` drops Runic from the test environment first: JET for 1.11
 # needs a JuliaSyntax that Runic does not allow, and only the quality checks
 # use Runic.

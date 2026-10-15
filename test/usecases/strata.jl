@@ -1,7 +1,7 @@
-# Stratified renewal processes: CTIDM's mixing matrix, gravity coupling,
-# per-stratum and per-pair generation intervals and per-stratum imports, and
-# BVD's patch model with importation and hazard depletion and its AR(1)
-# deviation knots.
+# Stratified renewal processes: CTIDM's mixing matrix, identity mixing,
+# gravity coupling, per-stratum and per-pair generation intervals and
+# per-stratum imports, and BVD's patch model with importation and hazard
+# depletion and its AR(1) deviation knots.
 #
 # Arrays are strata × time; the history is strata × time, oldest first.
 
@@ -33,6 +33,51 @@
     end
     @test mixed(K, Rt) ≈ ref
     @test ForwardDiff.gradient(θ -> sum(w .* mixed(unpack(θ)...)), θ0) ≈ ∇ref
+end
+
+@testitem "Use case: strata with identity mixing" tags = [:usecase] setup = [UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    C = UseCaseReferences.CTIDMReference
+
+    g = [0.2, 0.5, 0.3]
+    I₀, r = [5.0, 2.0, 1.0], 0.1
+    N = [400.0, 150.0, 250.0]
+    Rt = [
+        1.2 1.3 1.1 1.0 0.9 1.1 1.2 1.0
+        1.5 1.4 1.3 1.2 1.1 1.0 0.9 0.8
+        0.9 1.0 1.1 1.2 1.3 1.4 1.3 1.2
+    ]
+    S, T = size(Rt)
+    function ref_renewal(N, Rt)
+        step = C.RenewalStep(
+            C.ConstantRenewalStep(reverse(g), I), (C.SusceptibleDepletion(N),)
+        )
+        return C.renewal(step, g, I₀, r, Rt)
+    end
+    ref = ref_renewal(N, Rt)
+    w = reshape(range(0.5, 2.0; length = S * T), S, T)
+    unpack(θ) = (θ[1:S], reshape(θ[(S + 1):end], S, T))
+    θ0 = vcat(N, vec(Rt))
+    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_renewal(unpack(θ)...)), θ0)
+
+    # `UniformScaling` mixing leaves each stratum on its own window: the
+    # coupling is `I`, the default, and each stratum depletes its own pool.
+    window = ComposableRecurrences.exponential_history(I₀, r, length(g))
+    function independent(N, Rt)
+        depletion = ComposableRecurrences.Depletion(
+            PerStratum(N), ComposableRecurrences.Floor()
+        )
+        renewal = Recurrence(g; coupling = I, modifiers = (depletion,))
+        return renewal(Rt; history = window)
+    end
+    @test independent(N, Rt) ≈ ref
+    @test ForwardDiff.gradient(θ -> sum(w .* independent(unpack(θ)...)), θ0) ≈
+        ∇ref
+    # Each row is the single-series renewal of that stratum.
+    for k in 1:S
+        step = UseCaseReferences.depleting_renewal_step(g, N[k])
+        @test ref[k, :] ≈ C.renewal(step, g, I₀[k], r, Rt[k, :])
+    end
 end
 
 @testitem "Use case: gravity coupling with depletion" tags = [:usecase] setup = [UseCaseReferences] begin
