@@ -376,7 +376,12 @@ end
     @test_throws "overflow is nothing, :queue or :stratum, got :hold" fill_into(
         :O; overflow = :hold
     )
+    @test_throws "overflow is nothing, :queue or :stratum, got 2" fill_into(
+        :O; overflow = 2
+    )
     @test_throws "the draw names pool :X, but the pools are (:O,)" fill_into(:X)
+    # A truncated draw reads no exponent; `true` and `false` stay fixed.
+    @test fill_into(:O; heterogeneity = false).heterogeneity isa CR._FixedExponent{false}
     @test_throws "a draw into a pool fills it up to N, so give N" CR.Pool(;
         pools = (:O,), draw = CR.Truncate() => :O
     )
