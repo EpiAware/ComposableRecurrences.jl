@@ -191,9 +191,16 @@ function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     return nothing
 end
 function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
+    if _array_seeds(C̄, C)
+        b = bufs isa _ArrayPressure ? bufs : _array_pressure(C, eltype(p))
+        return _local_pressure!(p̄, C̄, C, q̄, p, t, b)
+    end
     return _local_pressure!(p̄, C̄, C, q̄, p, t, _pressure_scalars(C̄, C), bufs)
 end
 _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
+# Whether the local step seeds a coupling's float arrays as well as its
+# scalars: only when the coupling is differentiated and holds any.
+_array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)
 
 # The dual-number buffers of a coupling's local derivative, made once per
 # reverse pass so a step allocates nothing: a pair of vectors for each
@@ -204,6 +211,7 @@ function _pressure_buffers(C̄, C, Tp)
 end
 _pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
 function _pressure_buffers(::Val{false}, C̄, C, Tp)
+    _array_seeds(C̄, C) && return _array_pressure(C, Tp)
     T = float(promote_type(Tp, map(typeof, _pressure_scalars(C̄, C))...))
     pair(N) = (D -> (D[], D[]))(_pressure_dual(T, N))
     return (pair(Val(4)), pair(Val(8)), pair(Val(12)), pair(Val(_LOCAL_PRESSURE)))
@@ -271,6 +279,93 @@ _picks(ā, o, ::Val{P}) where {P} = ntuple(j -> _pick(ā, o + j), Val(P))
 _pick(ā, i) = 1 <= i <= length(ā) ? ā[i] : zero(eltype(ā))
 _with_scalars(C, ::Tuple{}) = C
 _with_scalars(C, θ) = first(_rebuild_scalar(C, θ))
+
+# The local derivative of a coupling with float arrays among its parameters:
+# every scalar and array entry is seeded alongside the strata, in the order
+# `_params` reads them, through a rebuild whose arrays are views of one
+# vector of dual numbers, so each pass reseeds them in place. The buffers
+# hold the parameters, their cotangent for one step, and the dual vectors
+# of the strata, the pressures and the parameters for each width.
+struct _ArrayPressure{T, L}
+    θ::Vector{T}
+    ḡ::Vector{T}
+    lanes::L
+end
+function _array_pressure(C, Tp)
+    T = float(promote_type(Tp, param_eltype(C)))
+    θ = Vector{T}(_params(C))
+    lane(N) = (D -> (D[], D[], Vector{D}(undef, length(θ))))(_pressure_dual(T, N))
+    lanes = (lane(Val(4)), lane(Val(8)), lane(Val(12)), lane(Val(_LOCAL_PRESSURE)))
+    return _ArrayPressure(θ, zero(θ), lanes)
+end
+function _local_pressure!(p̄, C̄, C, q̄, p, t, b::_ArrayPressure)
+    n = length(p) + length(b.θ)
+    n <= 4 && return _array_pressure!(Val(4), b.lanes[1], b, p̄, C̄, C, q̄, p, t)
+    n <= 8 && return _array_pressure!(Val(8), b.lanes[2], b, p̄, C̄, C, q̄, p, t)
+    n <= 12 && return _array_pressure!(Val(12), b.lanes[3], b, p̄, C̄, C, q̄, p, t)
+    return _array_pressure!(Val(_LOCAL_PRESSURE), b.lanes[4], b, p̄, C̄, C, q̄, p, t)
+end
+function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
+    pd, qd, θd = lane
+    D = eltype(θd)
+    T = eltype(b.θ)
+    S, P = length(p), length(b.θ)
+    resize!(pd, S)
+    resize!(qd, S)
+    fill!(b.ḡ, zero(T))
+    for o in 0:N:(S + P - 1)
+        for i in 1:S
+            @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
+        end
+        for j in 1:P
+            @inbounds θd[j] = D(b.θ[j], _unit(T, S + j - o, Val(N)))
+        end
+        forward(_rebuild_views(C, θd), Pressure(), qd, pd, t)
+        ā = zero(ForwardDiff.Partials{N, T})
+        for i in 1:S
+            @inbounds ā += q̄[i] * ForwardDiff.partials(qd[i])
+        end
+        for j in 1:min(N, S - o)
+            p̄[o + j] += ā[j]
+        end
+        for j in max(1, o + 1 - S):min(P, o + N - S)
+            @inbounds b.ḡ[j] += ā[S + j - o]
+        end
+    end
+    _addparams!(C̄, C, b.ḡ, 0)
+    return nothing
+end
+
+# `_rebuild` with each float array a view of `θ` rather than a copy, so a
+# change to `θ` reaches the rebuilt object. A sparse matrix is copied, as
+# its nonzeros must be a `Vector`.
+_rebuild_views(x, θ) = first(_rebuild_views(x, θ, 0))
+_rebuild_views(::AbstractFloat, θ, o) = (θ[o + 1], o + 1)
+function _rebuild_views(x::AbstractArray{<:AbstractFloat}, θ, o)
+    n = length(x)
+    return reshape(view(θ, (o + 1):(o + n)), size(x)), o + n
+end
+_rebuild_views(x::SparseMatrixCSC{<:AbstractFloat}, θ, o) = _rebuild(x, θ, o)
+function _rebuild_views(x::Diagonal{<:AbstractFloat}, θ, o)
+    d, o = _rebuild_views(x.diag, θ, o)
+    return Diagonal(d), o
+end
+_rebuild_views(x::_Leafless, θ, o) = (x, o)
+_rebuild_views(::Tuple{}, θ, o) = ((), o)
+function _rebuild_views(x::Tuple, θ, o)
+    a, o = _rebuild_views(first(x), θ, o)
+    b, o = _rebuild_views(Base.tail(x), θ, o)
+    return (a, b...), o
+end
+function _rebuild_views(x::NamedTuple{N}, θ, o) where {N}
+    y, o = _rebuild_views(Tuple(x), θ, o)
+    return NamedTuple{N}(y), o
+end
+function _rebuild_views(x, θ, o)
+    isstructtype(typeof(x)) || return x, o
+    fs, o = _rebuild_views(ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x)))), θ, o)
+    return constructorof(typeof(x))(fs...), o
+end
 
 # The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the
@@ -362,7 +457,11 @@ end
 # the rebuild must also run, on the entries at stratum 1 and time 1: a step
 # that indexes such a parameter's array fails. Checked once, when a
 # `Recurrence` is built, for each part with float scalars.
-_check_rebuild(x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
+function _check_rebuild(x)
+    scalar = _scalar_params(x) || (ispointwise(x) && _local_params(x))
+    return _check_rebuild(Val(scalar), x)
+end
+_check_rebuild(::Val{true}, x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
 function _check_rebuild(x, θ)
     T = promote_type(map(typeof, θ)...)
     θd = _seed(ForwardDiff.Tag(_check_rebuild, T), map(T, θ))
@@ -375,6 +474,53 @@ function _check_rebuild(x, θ)
     end
 end
 _steps(m, md, x) = _scalar_params(m) || (forward(md, Step(), x, x, 1, 1); true)
+# A part with float arrays among its parameters, rebuilt as the local step
+# does (`_rebuild_views`) from a vector of dual numbers, each with its own
+# partial: the parameters read back must be those dual numbers.
+function _check_rebuild(::Val{false}, x)
+    θ = _params(x)
+    T = eltype(θ)
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_rebuild, T)), T, 1}
+    θd = [D(θ[j], ForwardDiff.Partials((T(j),))) for j in eachindex(θ)]
+    return try
+        back = similar(θd)
+        _rebuilt_params!(back, x, _rebuild_views(x, θd), 0) == length(θd) &&
+            all(j -> back[j] === θd[j], eachindex(θd))
+    catch e
+        e isa InterruptException && rethrow()
+        false
+    end
+end
+# Write the leaves of `y`, a rebuild of `x`, where `_getparams!` reads `x`'s
+# parameters, into `θ` after offset `o`; return the new offset.
+_rebuilt_params!(θ, ::AbstractFloat, y, o) = (θ[o + 1] = y; o + 1)
+function _rebuilt_params!(θ, x::AbstractArray{<:AbstractFloat}, y, o)
+    size(y) == size(x) || return -1
+    for (i, yi) in enumerate(y)
+        θ[o + i] = yi
+    end
+    return o + length(x)
+end
+function _rebuilt_params!(θ, x::SparseMatrixCSC{<:AbstractFloat}, y, o)
+    return _rebuilt_params!(θ, nonzeros(x), nonzeros(y), o)
+end
+_rebuilt_params!(θ, x::Diagonal{<:AbstractFloat}, y, o) = _rebuilt_params!(θ, x.diag, y.diag, o)
+_rebuilt_params!(θ, ::_Leafless, y, o) = o
+function _rebuilt_params!(θ, x::Union{Tuple, NamedTuple}, y, o)
+    for (xi, yi) in zip(values(x), values(y))
+        o < 0 && return o
+        o = _rebuilt_params!(θ, xi, yi, o)
+    end
+    return o
+end
+function _rebuilt_params!(θ, x, y, o)
+    isstructtype(typeof(x)) || return o
+    for i in 1:fieldcount(typeof(x))
+        o < 0 && return o
+        o = _rebuilt_params!(θ, getfield(x, i), getfield(y, i), o)
+    end
+    return o
+end
 # The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.
 _rebuilt_tuple(::Union{AbstractFloat, _EntryParam}, y) = (y,)
 _rebuilt_tuple(::_Leafless, y) = ()

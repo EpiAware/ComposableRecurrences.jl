@@ -693,7 +693,7 @@ end
 # parameters are all scalars.
 function _coupling_adjoint(C)
     uses_adjoint(C, Pressure()) && return :pullback
-    _derived_local(C) && _scalar_params(C) && return :local
+    _derived_local(C) && _array_params(C) && return :local
     return :none
 end
 
@@ -721,7 +721,7 @@ function _check_rebuilds(parts::Tuple)
 end
 # The coupling, modifiers and depletion forms the local step rebuilds.
 function _local_part(C)
-    return _coupling_adjoint(C) === :local && _param_tuple(C) !== () ? (C,) : ()
+    return _coupling_adjoint(C) === :local && _nparams(C) > 0 ? (C,) : ()
 end
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
@@ -773,11 +773,14 @@ end
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
     _coupling_adjoint(r.coupling) === :local || return :one
-    n = _nstrata(h) + length(_param_tuple(r.coupling))
+    n = _nstrata(h) + _ninputs(r.coupling)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
+# The parameters a coupling's local step seeds: its float scalars, folded
+# from the type, or every scalar and array entry.
+_ninputs(C) = _scalar_params(C) ? length(_param_tuple(C)) : _nparams(C)
 
 # Parameter forms a step reads one entry of through `param`, at stratum `k`
 # and time `t`: the local derivative seeds only that entry, as a scalar.
@@ -819,9 +822,28 @@ function _has_float(::Type{T}) where {T}
     end
     return false
 end
+# Whether a type holds a parameter the local step cannot seed: an array
+# whose entries are not concrete floats (an array of arrays, say) or of
+# unknown type, a field of unknown type, or a function with float fields.
+# Float arrays, the entries of which a coupling's local step seeds, are
+# allowed, as are arrays of integers, which hold no parameters.
+function _has_opaque_params(::Type{T}) where {T}
+    if T <: AbstractArray
+        E = eltype(T)
+        return !(isconcretetype(E) && E <: Union{AbstractFloat, Integer, Bool})
+    end
+    T <: Function && return _has_float(T)
+    T <: Union{Real, Nothing, Symbol, AbstractString} && return false
+    isconcretetype(T) || return true
+    for F in fieldtypes(T)
+        _has_opaque_params(F) && return true
+    end
+    return false
+end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _scalar_params(m) = !_has_array_params(m, false)
 @generated _local_params(m) = !_has_array_params(m, true)
+@generated _array_params(m) = !_has_opaque_params(m)
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including the state to resume from.
