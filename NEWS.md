@@ -22,7 +22,8 @@
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
 - `Convolution` takes `gain` and `add`, and `ComposableRecurrences.contributions` returns the lag contributions before the sum over lags ([API overview][api]).
-- `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded; `Direct()` stays the default ([FFTW extension][fftw]).
+- `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded, with outputs and gradients that match `Direct()` to a relative 1e-10 (1e-4 in `Float32`) ([FFTW extension][fftw]).
+  The default method, `Auto()`, takes it only for long `Float64` kernels and series, and otherwise takes `Direct()`.
 - `Routes((C₁, g₁), (C₂, g₂), ...)` is a `Recurrence` kernel that sums transmission routes, each with its own kernel and coupling ([API overview][api]).
 - `Derived(f, args...)` is a modifier parameter computed from other parameters, with arithmetic on a `Derived` building another ([API overview][api]).
 - `Recent(w)` is a modifier parameter read from the recurrence's own last outputs, and `Recent(w; coupling = C)` reads them across strata through a matrix ([API overview][api]).
@@ -39,6 +40,8 @@
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
+- `delay_masses(d, lags)` returns a delay's masses on lags `0` to `lags - 1`, and packages that own delay types add methods for them.
+  With Distributions loaded, `Recurrence(kernel; lags)` and `Convolution(kernel; lags)` take a kernel of delay distributions, alone or in `PerStratum`, `Pairwise`, `TimeVarying` or `Routes`, from each operator's own lag origin ([delay distributions][delays]).
 - Executors run the strata loops of every operator: `Serial()` (the default), `Threaded(; min_work, ntasks)` and `Device(backend)`, set for a block with `with(ComposableRecurrences.EXECUTOR => ...)` ([API overview][api]).
 - Under `Threaded()`, the reverse rules of `Recurrence` and `Convolution` split strata across tasks, as their forward passes do ([adjoints and backends][adjoints]).
   Cotangents of parameters that several chunks of strata share are summed per chunk, so they match `Serial()` up to rounding.
@@ -52,7 +55,7 @@
 - A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow, and the plain-AD note names the part that has none.
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
-- Extensions for Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
+- Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 
 ### Changed
 
@@ -62,19 +65,26 @@
 - `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
+- `Threaded()` counts each loop's work by its kind, so one `min_work` sets where each kind breaks even: independent strata split from eight times `min_work` and a fixed-kernel convolution from sixteen times, and in these loops a dual number with 8 partials counts 9 multiply-adds.
+  With the default `min_work` of 500 000, strata that mix through a sparse or dense coupling run in order at the sizes usually fitted.
+- Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
+- Mooncake and Enzyme no longer differentiate the check a `Depletion` makes on its form, which cost Mooncake about 8 µs a gradient.
+- On Julia 1.11, the Enzyme extension warns once per operator type when Enzyme reverse mode differentiates an operator with an active scalar field.
+  Enzyme on 1.11 returns a zero gradient for such a field when the operator is built by code it cannot infer, such as a closure over a boxed variable, and the extension cannot detect that case (#181).
+  Use Julia 1.12 or later, or build operators in type-stable code.
 
 ### Fixed
 
 - A `Convolution` kernel with offset axes is an `ArgumentError`, where before it gave wrong values.
 - ForwardDiff, Enzyme and Mooncake gradients are finite at an empty depletion or protected pool and agree with the reverse rules.
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
-  Some losses that read parameters through a boxed closure still give wrong Enzyme reverse gradients on 1.11 (#181).
 - `FFTMethod()` is correct under Enzyme on Julia 1.11.
 - Enzyme without runtime activity works for a constant input or history.
 - `param_eltype` infers through nested structs such as `Depletion`.
 
 [api]: https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/
+[delays]: https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/#overview-delays
 [renewal]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/renewal-then-delay/
 [tv]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/time-varying-delays/
 [spatial]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/spatial-strata/
@@ -84,3 +94,4 @@
 [extending]: https://composablerecurrences.epiaware.org/stable/developer/extending/
 [extensions]: https://composablerecurrences.epiaware.org/stable/extensions/enzyme/
 [fftw]: https://composablerecurrences.epiaware.org/stable/extensions/fftw/
+[reactant]: https://composablerecurrences.epiaware.org/stable/extensions/reactant/

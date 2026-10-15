@@ -16,6 +16,11 @@ O' = (1 - \delta_t)\, O + a,
 ```
 
 where ``f`` is the free capacity and ``a \le f`` the admissions.
+A fixed exit fraction is a geometric length of stay, with survival
+``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
+admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
+indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
+[`ComposableRecurrences.Clamp`](@ref) or `Capacity`.
 
 # Arguments
 - `exit`: the fraction ``\delta`` of the occupancy that leaves each step, a
@@ -438,8 +443,9 @@ function _open(mode::Beds, c, O, p, t)
     kept = (1 - param(mode.exit, p, t)) * O
     return c - kept, kept
 end
+# `ifelse` rather than `if`, so a traced step time picks the arm too.
 function _open(mode::Budget, b, B, p, t)
-    B̃ = _refills(mode.period, t) ? ifelse(mode.carry_over, B, zero(B)) + b : B
+    B̃ = ifelse(_refills(mode.period, t), ifelse(mode.carry_over, B, zero(B)) + b, B)
     return B̃, B̃
 end
 _close(::Beds, kept, x) = kept + x

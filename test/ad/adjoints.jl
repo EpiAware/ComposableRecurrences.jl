@@ -985,6 +985,64 @@ end
     end
 end
 
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse on Julia 1.11 warns once per operator type of lost scalar gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    using Logging: Warn
+    import Enzyme
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    empty!(ext._SCALAR_LOSS_CHECKED)
+    empty!(ext._SCALAR_LOSS_WARNED)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    let R = fill(1.1, 4), h = ones(2)
+        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b),))
+        op2(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b), CR.Add(b)))
+        msg = (:warn, r"On Julia 1\.11, Enzyme reverse mode can return a zero")
+        grad(f, x) = Enzyme.gradient(mode, Enzyme.Const(f), x)[1]
+        # The rule, plain AD of a `NoAdjoint`, a scalar field that is not
+        # differentiated, and a second operator type after the first warned.
+        for (f, x, warns) in (
+                (b -> sum(op(b[1])(R; history = h)), [0.5], true),
+                (b -> sum(NoAdjoint(op(b[1]))(R; history = h)), [0.5], true),
+                (x -> sum(op(0.5)(x; history = h)), R, false),
+                (b -> sum(op2(b[1])(R; history = h)), [0.5], true),
+            )
+            if warns && VERSION < v"1.12"
+                @test_logs msg min_level = Warn grad(f, x)
+            else
+                @test_logs min_level = Warn grad(f, x)
+            end
+            @test_logs min_level = Warn grad(f, x)
+        end
+    end
+end
+
+# Enzyme reverse mode on Julia 1.11 loses the gradient of a scalar field of
+# an operator built by a call it cannot infer, here a `NoAdjoint` called
+# through a global that is not constant. The rules cannot see that call, so
+# this pins the loss until Enzyme fixes it. Tagged `compat_floor`, so the
+# Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse on Julia 1.11 loses scalar gradients through uninferred construction" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    import Enzyme, ForwardDiff
+    wrap = NoAdjoint
+    W = [cos(a * t) for a in 1:3, t in 1:12]
+    h = ones(3, 4)
+    R = exp.(0.3 .+ [0.1 * sin(a + t) for a in 1:3, t in 1:12])
+    g = exp.(-0.4 .* (1:4)) ./ sum(exp.(-0.4 .* (1:4)))
+    f(θ) = sum(W .* log.(wrap(Recurrence(g; modifiers = (CR.Depletion(θ[1]),)))(R; history = h)))
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    ḡ = Enzyme.gradient(mode, Enzyme.Const(f), [80.0])[1]
+    ref = ForwardDiff.gradient(f, [80.0])
+    if VERSION < v"1.12"
+        @test_broken ḡ ≈ ref
+    else
+        @test ḡ ≈ ref
+    end
+end
+
 @testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] begin
     using ADFixtures
     using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
@@ -1421,4 +1479,78 @@ end
             @test DI.gradient(f, entry.backend, θ) ≈ ref
         end
     end
+end
+
+@testitem "Enzyme reverse: a constant ragged kernel takes no mirror" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
+    import DifferentiationInterface as DI
+    CR = ComposableRecurrences
+    # Columns held as given and closed over: under runtime activity their
+    # shadow is the columns themselves, so the rule reads no kernel mirror
+    # and only the input's gradient is formed.
+    ks = [[0.5, 0.2], [0.3], [0.4, 0.1, 0.1], [0.6]]
+    W = [0.5 + 0.1 * t for t in 1:4]
+    x = [1.0, 2.0, 0.5, 1.5]
+    b = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
+    )
+    for I in (CR.Secondary(), CR.Primary())
+        f(x) = sum(W .* Convolution(TimeVarying(ks, I))(x))
+        CR._PULLBACK_CALLS[] = 0
+        @test DI.gradient(f, b, x) ≈ ForwardDiff.gradient(f, x)
+        @test CR._PULLBACK_CALLS[] > 0
+    end
+end
+
+@testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake
+    using DifferentiationInterface: gradient
+    import ForwardDiff, Mooncake
+    # Two compartments per group: a share `a` of the first moves to the
+    # second, and the state keeps what moved.
+    struct Move{A}
+        a::A
+    end
+    CR.blocks(::Move) = Val((2, 1))
+    function CR.forward(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        x = CR.param(m.a, g, t) * v[1]
+        return (v[1] - x, v[2] + x), (x,)
+    end
+    function CR.pullback!(grads, m::Move, ::CR.Step, v, s, t, g)
+        (v̄1, v̄2), (s̄,) = grads.v, grads.s
+        a = CR.param(m.a, g, t)
+        c = v̄2 + s̄ - v̄1
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, c * v[1], g, t)
+        return (v̄1 + a * c, v̄2), (zero(s̄),)
+    end
+    # Two values and two state entries per group, with a typed pullback.
+    struct Keep{A}
+        a::A
+    end
+    CR.blocks(::Keep) = Val((2, 2))
+    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + 1)
+    end
+    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
+        return (v̄1 * m.a + s̄1, v̄2), (v̄2 + s̄1, s̄2)
+    end
+    g = [0.5, 0.5]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6]
+    h = ones(4, 2)
+    K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
+    function loss(θ)
+        ms = (
+            CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
+            CR.Redistribute(K, 0.5),
+        )
+        return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
+    end
+    θ = [0.2, 0.4, 0.8]
+    n = CR._PULLBACK_CALLS[]
+    @test gradient(loss, AutoMooncake(; config = nothing), θ) ≈ ForwardDiff.gradient(loss, θ)
+    @test CR._PULLBACK_CALLS[] > n
 end

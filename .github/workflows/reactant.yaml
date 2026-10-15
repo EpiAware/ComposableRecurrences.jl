@@ -28,7 +28,7 @@ concurrency:
 jobs:
   reactant:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     env:
       REACTANT_BACKENDS: cpu
     steps:

@@ -5,20 +5,25 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
-    Hazard, Pool, Primary, Redistribute, Step, Transform, Truncate, with_state
+using ComposableRecurrences: Add, Allocate, Budget, Capacity, Clamp, Depletion,
+    Floor, Flow, Hazard, Hold, Pool, Primary, Redistribute, SoftTruncate, Step,
+    Transform, Truncate, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
 
-# Small sizes: the package's plain `for` loops are unrolled when traced.
-const T = 20  # steps
+# Steps default to 20; `REACTANT_T` sets them, to measure how compile and
+# run time grow with the length of a run.
+const T = parse(Int, get(ENV, "REACTANT_T", "20"))  # steps
 const L = 4   # lags (recurrence) or delays (convolution)
 const S = 3   # strata
 const T₁ = 8  # steps in the first call of the resume case
 
 const g0 = [0.4, 0.3, 0.2, 0.1]
 const R0 = collect(range(0.9, 1.2; length = T))
+# The same span at the midpoints of `T` steps, which never meets 1 exactly,
+# so a floor at 1 is not met exactly at a step and the gradient is defined.
+const RM0 = 0.9 .+ 0.3 .* ((1:T) .- 0.5) ./ T
 const RS0 = [0.9 + 0.1 * k + 0.01 * t for k in 1:S, t in 1:T]
 const H1 = [1.0, 2.0, 1.5, 1.0]
 const HS = [1.0 + 0.5 * k + 0.1 * i for k in 1:S, i in 1:L]
@@ -203,6 +208,33 @@ function mod_redistribute(θ)
     return r(R; history = HS)
 end
 
+# A weekly budget for stratum 1 whose unmet demand waits in a queue, with
+# the smooth draw, so the step time picks the budget's refills.
+function mod_capacity(θ)
+    c = Capacity(
+        5.0, Budget(7); pairs = [1], overflow = Hold(), form = SoftTruncate(0.5)
+    )
+    r = Recurrence(g0; modifiers = (c,))
+    return r(reshape(θ, S, T); history = HS)
+end
+
+# Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
+function mod_flows(θ)
+    fs = Pool(;
+        stocks = 3, draw = nothing,
+        flows = (Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
+    )
+    r = Recurrence(g0; modifiers = (fs,))
+    return r(reshape(θ, S, T); history = HS)
+end
+
+# Transmission falls with the last week's incidence, mixed across strata.
+function mod_recent(θ)
+    β = Derived(exp, -0.05 * Recent(7; coupling = K0))
+    r = Recurrence(g0; modifiers = (Transform(*, β),))
+    return r(reshape(θ, S, T); history = HS)
+end
+
 tv_kernel(n) = vec(repeat(g0, 1, n) .* (1 .+ 0.01 .* (1:n)'))
 
 const CASES = [
@@ -253,7 +285,7 @@ const CASES = [
     ),
     Case(
         "rec_pointwise_modifier", "Recurrence, custom pointwise modifier",
-        rec_pointwise_modifier, vcat(g0, R0), W1
+        rec_pointwise_modifier, vcat(g0, RM0), W1
     ),
     Case(
         "rec_apply_modifier", "Recurrence, custom all-strata modifier",
@@ -308,6 +340,17 @@ const CASES = [
     Case(
         "mod_redistribute", "Recurrence with Redistribute",
         mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
+    ),
+    Case(
+        "mod_capacity", "Recurrence with Capacity (Budget, Hold)",
+        mod_capacity, vec(RS0), WS
+    ),
+    Case(
+        "mod_flows", "Recurrence with a Pool of flows", mod_flows, vec(RS0), WS
+    ),
+    Case(
+        "mod_recent", "Recurrence with Recent (coupled)", mod_recent,
+        vec(RS0), WS
     ),
 ]
 

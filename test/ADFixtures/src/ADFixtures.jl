@@ -16,8 +16,11 @@ using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
+# Loaded so the default `Auto()` method can take the transform.
+import FFTW
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
+using Distributions: NegativeBinomial, Poisson
 using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
@@ -73,14 +76,32 @@ function ComposableRecurrences.forward(
     return v′, s - v′
 end
 
-# Consecutive blocks of `θ` with the given shapes.
-function _unpack(θ, shapes...)
-    o = 0
-    return map(shapes) do sh
+# Consecutive blocks of `θ` with the given shapes, as reshaped views.
+# Enzyme, up to 0.13.216 at least, fails one way of building them on each
+# side of Julia 1.12:
+# - On 1.11 the closure below, which captures a boxed offset, leaves every
+#   scenario uninferred, and Enzyme reverse mode then returns zero for the
+#   scalar parameters of an operator. So 1.11 takes the inferred recursion.
+# - From 1.12 Enzyme forward mode corrupts the heap after some thousands of
+#   calls of the inferred scenarios. So these versions keep the closure,
+#   whose gradients are right there.
+@static if VERSION < v"1.12"
+    _unpack(θ, shapes...) = _unpack_from(θ, 0, shapes...)
+    _unpack_from(θ, o) = ()
+    function _unpack_from(θ, o, sh, rest...)
         n = prod(sh)
         x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        o += n
-        x
+        return (x, _unpack_from(θ, o + n, rest...)...)
+    end
+else
+    function _unpack(θ, shapes...)
+        o = 0
+        return map(shapes) do sh
+            n = prod(sh)
+            x = reshape(view(θ, (o + 1):(o + n)), sh...)
+            o += n
+            x
+        end
     end
 end
 
@@ -279,6 +300,15 @@ function _delay_ragged(w, θ)
     v, X = _unpack(θ, (sum(NS_HORIZON),), (S, T))
     kernel = TimeVarying(_columns(v, NS_HORIZON), ComposableRecurrences.Primary())
     return sum(WS .* w(Convolution(kernel))(X))
+end
+
+# The same columns as views into the parameters, read by output time with
+# a history: a kernel held as the caller's columns, without a copy.
+function _delay_ragged_views(w, θ)
+    v, X, H = _unpack(θ, (sum(NS_HORIZON),), (S, T), (S, 2))
+    o = cumsum([0; NS_HORIZON])
+    kernel = TimeVarying([view(v, (o[τ] + 1):o[τ + 1]) for τ in 1:T])
+    return sum(WS .* w(Convolution(kernel))(X; history = H))
 end
 
 # Each infector keeps the kernel of its own infection time, of a length
@@ -551,6 +581,35 @@ function _conv_per_stratum(w, θ)
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
 end
 
+# A long delay on a long series, with history: the default `Auto()`
+# method takes the transform under a native rule. Its `NoAdjoint` twin
+# takes the method a traced call gets, which depends on the backend and
+# the Julia version: the direct method, or the transform through its own
+# Enzyme rules on Julia 1.11.
+const LA, TA = 300, 1000
+const WA = [cos(0.1 * t) for t in 1:TA]
+function _conv_auto(w, θ)
+    g, x, h = _unpack(θ, (LA,), (TA,), (5,))
+    return sum(WA .* w(Convolution(g))(x; history = h))
+end
+
+# The same delay on a series spanning 22 orders of magnitude, under a log:
+# the default method takes the direct sums the transform cannot give to a
+# relative 1e-10.
+const XW = 10.0 .^ range(-22, 0; length = TA)
+function _conv_auto_wide(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* log.(w(Convolution(g))(x)))
+end
+
+# The same delay on an epidemic curve: a few early outputs are taken
+# directly, one by one, and the rest by the transform.
+const XE = [10 * exp(0.01 * t) * (1 + 0.2 * sin(t / 7)) for t in 1:TA]
+function _conv_auto_epidemic(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* w(Convolution(g))(x))
+end
+
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
 # with a longer one.
 function _routes(w, θ)
@@ -765,6 +824,13 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Convolution ragged kernel of views into the parameters", _delay_ragged_views,
+        () -> _flat(
+            [0.2 + 0.1 * sin(τ + i) for τ in 1:T for i in 1:NS_HORIZON[τ]], 1 .+ LOGR,
+            ones(S, 2),
+        ),
+    ),
+    (
         "Convolution with gain and add", _conv_gain,
         () -> _flat(G0, LOGR, W1, 1 .+ LOGR, ones(S, 2)),
     ),
@@ -861,7 +927,51 @@ const _SCENARIOS = [
         "Convolution per-stratum kernel with history", _conv_per_stratum,
         () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
     ),
+    (
+        "Convolution long kernel by the automatic method", _conv_auto,
+        () -> _flat(
+            [exp(-0.05 * l) / 20 for l in 1:LA], [1.0 + 0.5 * sin(t) for t in 1:TA],
+            ones(5),
+        ),
+    ),
+    (
+        "Convolution wide-range series by the automatic method", _conv_auto_wide,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XW),
+    ),
+    (
+        "Convolution epidemic curve by the automatic method", _conv_auto_epidemic,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XE),
+    ),
 ]
+
+# Delays given as distributions: the gradient reaches each distribution's
+# parameters through its masses on lags `0:L`.
+function _delay_distribution(w, θ)
+    logλ, w0, ϵ = _unpack(θ, (1,), (L,), (T,))
+    c = Convolution(Poisson(exp(only(logλ))); lags = L + 1)
+    return sum(W1 .* w(c)(ϵ; history = w0))
+end
+
+function _generation_distribution(w, θ)
+    logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
+    p = 1 / (1 + exp(-only(logitp)))
+    ds = [NegativeBinomial(a * exp(only(logr)), p) for a in (1.0, 1.5, 2.0)]
+    r = Recurrence(PerStratum(ds); lags = L + 1, coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Convolution Poisson delay distribution", _delay_distribution,
+        () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Recurrence negative binomial generation interval per stratum", _generation_distribution,
+        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
+    ),
+)
 
 """
     supports(features...)
@@ -928,12 +1038,17 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
-    # Kernels as vectors of columns are stored as `_Ragged`.
+    # Kernels as vectors of columns came with `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
+    # Columns held as given came after the stacked form.
+    "Convolution ragged kernel of views into the parameters" => (:_Columns,),
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
+    "Convolution long kernel by the automatic method" => (:Auto,),
+    "Convolution wide-range series by the automatic method" => (:Auto,),
+    "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
@@ -1006,6 +1121,8 @@ push!(
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+_REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+_REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
 _requires(name) = get(_REQUIRES, name, ())
 

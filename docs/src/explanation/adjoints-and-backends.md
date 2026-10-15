@@ -16,6 +16,26 @@ Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other arra
 The route is read from types, apart from the rebuild check and the [strata](@ref glossary-stratum) limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
+It runs the step of the [API overview](@ref api-overview) backwards in time.
+That step computes ``p_t = \sum_{l} k_l \, y_{t-l}`` from the kernel ``k``, then ``v_t = g_t \odot C_t \, p_t + a_t`` from the gain ``g_t``, the coupling ``C_t`` and the `add` ``a_t``.
+The modifiers then map ``v_t`` to the output ``y_t``.
+With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` computes
+
+```math
+\begin{aligned}
+\big(\bar v_t,\ \bar s_{t-1}\big) &= M^{*}_t\big(\bar y_t,\ \bar s_t\big), \\
+\bar g_t &= \bar v_t \odot C_t \, p_t, \qquad \bar a_t = \bar v_t, \\
+\bar p_t &= C_t^{\top} \big(g_t \odot \bar v_t\big), \qquad
+\bar C_t = \big(g_t \odot \bar v_t\big) \, p_t^{\top}, \\
+\bar y_{t-l} &\mathrel{+}= k_l \, \bar p_t, \qquad
+\bar k_l \mathrel{+}= \bar p_t^{\top} y_{t-l}, \qquad l = 1, \dots, L,
+\end{aligned}
+```
+
+where ``s_t`` is the modifiers' state and ``M^{*}_t`` their `pullback!` methods in reverse tuple order.
+``\bar y_t`` holds the cotangent of the output plus what later steps added to it.
+The coupling's `pullback!` for [`Pressure()`](@ref ComposableRecurrences.Pressure) gives ``\bar p_t`` and ``\bar C_t``.
+The last line is for a kernel shared by every series.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
@@ -33,12 +53,27 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
-The local step rebuilds a part with dual numbers in place of its float parameters; [Gradient routes](@ref extending-routes) lists what that needs.
+The local step rebuilds a part with dual numbers in place of its float parameters; [What the local step needs](@ref adjoint-local-step) lists the conditions.
 The `Recurrence` constructor checks the rebuild once and stores the result.
 Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step, and above 24 more than two.
 
 Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` naming the coupling, modifier or depletion form that caused it.
 A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs nothing.
+
+### [What the local step needs](@id adjoint-local-step)
+
+Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
+
+The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
+Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
+So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
+Integer fields, index ranges and integer arrays are structure, not parameters.
+Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
+
+The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
+So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
+A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
+A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
 
 ## [Backends](@id adjoint-backends)
 
@@ -52,7 +87,9 @@ A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs no
 | Enzyme reverse | when the call takes the rule | otherwise |
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
-ReverseDiff is not a [target](@ref faq-backends).
+The targets are ForwardDiff, Mooncake and Enzyme.
+The AD tests also run ReverseDiff, which is not a target, so the README shows coverage badges for it.
+The [AD comparison](@ref ad-comparison) page compares the gradient times.
 
 ## [Which rules are kept](@id rule-policy)
 

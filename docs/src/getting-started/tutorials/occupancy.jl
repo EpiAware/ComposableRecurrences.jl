@@ -2,19 +2,19 @@
 #
 # ## Introduction
 #
-# Bed occupancy is a stock: yesterday's patients who stay, plus today's admissions.
-# A stock is a recurrence.
-# When stays are independent it is also a convolution over the length of stay.
-# This tutorial builds occupancy both ways and caps it at the number of beds.
+# Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
+# When the stay is geometric it is also a recurrence: yesterday's patients who stay, plus today's admissions.
+# This tutorial builds occupancy both ways, compares a stay that is not geometric, and caps occupancy at the number of beds.
 # It then routes the patients turned away to a second series.
 # Last, it moves patients between two linked compartments in a ward.
 #
 # ### What are we going to do in this exercise
 #
-# 1. Turn admissions into occupancy with a convolution and with a recurrence.
-# 2. Cap occupancy at the number of beds with `Clamp`.
-# 3. Admit up to the free beds with `Capacity` and keep the rest.
-# 4. Move suspected and confirmed patients between two compartments in one ward.
+# 1. Turn admissions into occupancy with a convolution and, for a geometric stay, a recurrence.
+# 2. Compare a log-normal stay with the same mean.
+# 3. Cap occupancy at the number of beds with `Clamp`.
+# 4. Admit up to the free beds with `Capacity` and keep the rest.
+# 5. Move suspected and confirmed patients between two compartments in one ward.
 #
 # ### What might I need to know before starting
 #
@@ -26,23 +26,28 @@
 using ComposableRecurrences
 using ComposableRecurrences: Clamp, Capacity, Beds, Flow, Pool
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
+using SpecialFunctions: erfc
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Occupancy two ways
 #
-# Each patient leaves with probability `δ` each day.
-# So the chance of still being in a bed `k` days after admission is ``(1 - \delta)^k``.
-# Occupancy is then
+# For any length-of-stay distribution, occupancy is the admissions weighted by the probability of still being in a bed:
 #
 # ```math
-# O_t = \sum_{k=0}^{t-1} (1 - \delta)^k A_{t-k} = (1 - \delta) \, O_{t-1} + A_t,
+# O_t = \sum_{k \ge 0} S_k \, A_{t-k}, \qquad S_k = \Pr(\text{stay} > k),
 # ```
 #
-# where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``, with ``O_0 = 0``.
-# As a convolution, occupancy is the admissions weighted by that survival, lag 0 first.
-# As a recurrence, it is yesterday's occupancy times `1 - δ` plus today's admissions.
-# The admissions enter as `add`.
+# where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``, and ``S_k`` the survival, lag 0 first.
+# This is `Convolution(S)(admissions)`.
+# A geometric stay, in which each patient leaves with probability ``\delta`` each day, has ``S_k = (1 - \delta)^k``.
+# Only then, because the geometric distribution is memoryless, does the sum collapse to a recurrence of order one:
+#
+# ```math
+# O_t = (1 - \delta) \, O_{t-1} + A_t, \qquad O_0 = 0.
+# ```
+#
+# As a recurrence, occupancy is yesterday's occupancy times `1 - δ` plus today's admissions, which enter as `add`.
 
 T = 90
 admissions = [30 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -64,6 +69,52 @@ end
 # This is because each patient stays about ``1 / \delta`` days.
 
 maximum(abs, by_convolution .- by_recurrence)
+
+# ## A stay that is not geometric
+#
+# Real stays are rarely geometric: the chance of leaving changes with the time already spent in bed, and a few patients stay much longer.
+# A log-normal stay with log-mean ``\mu`` and log-standard deviation ``\sigma``, discretised by day, has
+#
+# ```math
+# p_k = F(k + 1) - F(k), \qquad S_k = 1 - \sum_{j=0}^{k} p_j, \qquad
+# F(x) = \tfrac{1}{2} \operatorname{erfc}\Big(-\frac{\log x - \mu}{\sigma \sqrt{2}}\Big),
+# ```
+#
+# where ``p_k`` is the probability of a stay of ``k`` whole days and ``F`` the log-normal distribution function.
+# The survival is `1 .- cumsum(pmf)`, lag 0 first.
+# Here ``\sigma = 1.2``, and ``\mu`` is chosen so that the mean days in bed, ``\sum_k S_k``, match the geometric stay's ``1 / \delta``.
+
+σ = 1.2
+function survival(μ)
+    F(x) = x <= 0 ? 0.0 : erfc(-(log(x) - μ) / (σ * sqrt(2))) / 2
+    pmf = [F(k + 1) - F(k) for k in 0:(T - 1)]
+    return 1 .- cumsum(pmf)
+end
+function matched_mu(target; lo = 0.0, hi = 3.0)
+    for _ in 1:50  # bisect on μ until the mean days in bed match
+        mid = (lo + hi) / 2
+        sum(survival(mid)) < target ? (lo = mid) : (hi = mid)
+    end
+    return lo
+end
+S = survival(matched_mu(1 / δ))
+by_lognormal = Convolution(S)(admissions)
+round.((sum(S), 1 / δ); digits = 2)
+
+#-
+
+@chain DataFrame(
+    "day" => 1:T, "Admissions" => admissions,
+    "Geometric stay" => by_convolution, "Log-normal stay" => by_lognormal
+) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
+end
+
+# The log-normal stay gives a lower, later peak and a longer tail.
+# For the same mean, more patients leave within two days and more stay beyond two weeks than with the geometric stay.
+# The rest of this tutorial uses the geometric stay, as the `Beds` mode and the hazard flows do.
 
 # ## A bed cap
 #
@@ -179,11 +230,11 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# A flow with `form = Share()` moves a share instead, like the daily
-# discharge probability `δ` at the start of this tutorial, except that the
-# day's admissions can also leave that day.
-# A flow with `form = Truncate()` moves a count, capped by what the
-# compartment holds, such as a fixed number of transfers a day.
+# A flow with `form = Share()` moves a share instead,
+# like the daily discharge probability ``\delta`` at the start of this tutorial,
+# except that the day's admissions can also leave that day.
+# A flow with `form = Truncate()` moves a count, capped by
+# what the compartment holds, such as a fixed number of transfers a day.
 # Several wards are several groups: with ``G`` wards the strata are the ``G``
 # suspected compartments, then the ``G`` confirmed ones.
 
