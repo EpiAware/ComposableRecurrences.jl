@@ -190,7 +190,8 @@ end
 # dual number with a partial of its own. The reads are recorded, and each
 # one's cotangent goes to its entry. The first pass has room for
 # `_READ_WIDTHS[1]` reads; a step that reads more runs once more with room
-# for all of them, up to the last width, and above that takes the Jacobian.
+# for all of them, and one that reads more than the last width runs once
+# per that many reads.
 function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     x = (v, s, _param_tuple(m, (k, t))...)
     T = float(promote_type(map(typeof, x)..., param_eltype(m)))
@@ -199,68 +200,73 @@ end
 # `x` holds the value and the state, then the scalars.
 function _read_pullback(m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T}}, t, k) where {T}
     R = first(_READ_WIDTHS)
-    v′, s′, reads = _read_step(m, x, t, k, Val(R))
+    v′, s′, reads = _read_step(m, x, t, k, Val(R), 0)
     reads.n > R && return _read_wider(m, m̄, v̄, s̄, x, t, k, reads.n)
-    return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads)
+    return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads, true)
 end
 # A step that read `n` entries, more than the first pass holds: once more
-# with the smallest room that holds them, else the Jacobian.
+# with the smallest room that holds them, else in passes of the widest.
 function _read_wider(m, m̄, v̄, s̄, x, t, k, n)
-    n <= _READ_WIDTHS[2] && return _read_once(m, m̄, v̄, s̄, x, t, k, Val(_READ_WIDTHS[2]))
-    n <= _READ_WIDTHS[3] && return _read_once(m, m̄, v̄, s̄, x, t, k, Val(_READ_WIDTHS[3]))
-    n <= _READ_WIDTHS[4] && return _read_once(m, m̄, v̄, s̄, x, t, k, Val(_READ_WIDTHS[4]))
-    return _read_jacobian(m, m̄, v̄, s̄, x, t, k)
+    _, R2, R3, R = _READ_WIDTHS
+    n <= R2 && return _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R2), 0)
+    n <= R3 && return _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R3), 0)
+    a, b = _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R), 0)
+    for lo in R:R:(n - 1)
+        _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R), lo)
+    end
+    return a, b
 end
-function _read_once(m, m̄, v̄, s̄, x, t, k, ::Val{R}) where {R}
-    v′, s′, reads = _read_step(m, x, t, k, Val(R))
-    reads.n > R && return _read_jacobian(m, m̄, v̄, s̄, x, t, k)
-    return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads)
+# One pass seeding reads `lo + 1` to `lo + R`. The first pass also gives
+# the value's, the state's and the scalars' cotangents.
+function _read_pass(m, m̄, v̄, s̄, x, t, k, ::Val{R}, lo) where {R}
+    v′, s′, reads = _read_step(m, x, t, k, Val(R), lo)
+    return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads, lo == 0)
 end
-function _read_jacobian(m, m̄, v̄, s̄, x::Tuple{T, Vararg{T}}, t, k) where {T}
-    Rt = typeof(v̄ * one(T) + s̄ * one(T))
-    a, b = _jacobian_pullback(m, m̄, v̄, s̄, x[1], x[2], t, k)
-    return convert(Rt, a)::Rt, convert(Rt, b)::Rt
-end
-# One dual step with room for `R` reads: the value, the state and the
-# scalars take the first partials, the reads the next `R`.
-function _read_step(m, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{R}) where {T, N, R}
-    return _read_step(m, x, t, k, Val(R), Val(N + 2 + R))
+# One dual step with room for `R` reads after the first `lo`: the value,
+# the state and the scalars take the first partials, the reads the next
+# `R`.
+function _read_step(m, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{R}, lo) where {T, N, R}
+    return _read_step(m, x, t, k, Val(R), Val(N + 2 + R), lo)
 end
 function _read_step(
-        m, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{R}, ::Val{W}
+        m, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{R}, ::Val{W}, lo
     ) where {T, N, R, W}
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_read_pullback, T)), T, W}
     xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(N + 2))
-    reads = _Reads{R}()
+    reads = _Reads{R}(lo)
     md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, N + 2), 1))
     v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
     return v′, s′, reads
 end
-# The cotangents of one dual step: the value's and the state's are
-# returned, the scalars' and the reads' added to the mirror.
+# The cotangents of one dual step: the reads' are added to the mirror and,
+# when `first`, the scalars' too; the value's and the state's are
+# returned.
 function _read_grads(
-        m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k, v′::D, s′, reads
+        m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k, v′::D, s′, reads, first
     ) where {T, N, D}
-    M = N + 2
+    M, R = N + 2, length(reads.leaf)
     g = _vjp(v′, s′, v̄, s̄, ntuple(_ -> nothing, Val(ForwardDiff.npartials(D))))
-    _add_scalar!(m̄, m, ntuple(i -> g[2 + i], Val(N)), (k, t))
-    for j in 1:reads.n
+    first && _add_scalar!(m̄, m, ntuple(i -> g[2 + i], Val(N)), (k, t))
+    for j in 1:min(reads.n - reads.lo, R)
         _add_read!(m̄, m, reads.leaf[j], reads.index[j], g[M + j], 1)
     end
     return g[1], g[2]
 end
 
 # The reads of a modifier's float arrays in one dual step, with room for
-# `R`: for each, the array (its position among them, `_rebuild_reads`'s
-# leaf) and the linear index read. `n` counts every read, so `n > R` marks
-# a step that read more than the partials hold.
+# `R` after the first `lo`: for each, the array (its position among them,
+# `_rebuild_reads`'s leaf) and the linear index read. `n` counts every
+# read, so `n > lo + R` marks a step that read more than the partials hold.
 const _READ_WIDTHS = (4, 8, 12, 24)
 mutable struct _Reads{R}
     n::Int
+    lo::Int
     leaf::NTuple{R, Int}
     index::NTuple{R, Int}
 end
-_Reads{R}() where {R} = _Reads{R}(0, ntuple(_ -> 0, Val(R)), ntuple(_ -> 0, Val(R)))
+function _Reads{R}(lo = 0) where {R}
+    return _Reads{R}(0, lo, ntuple(_ -> 0, Val(R)), ntuple(_ -> 0, Val(R)))
+end
 
 # The dual type of a read step, its record and the partials before the
 # reads' (the value's, the state's and the scalars').
@@ -271,7 +277,8 @@ end
 _ReadSeed{D}(reads::_Reads{R}, slot0) where {D, R} = _ReadSeed{D, R}(reads, slot0)
 
 # A modifier's float array inside its read step: each entry read is a dual
-# number of type `D` with the next read partial set, and is recorded.
+# number of type `D`, with the next read partial set when the read is
+# among those the pass seeds, and is recorded.
 struct _ReadArray{D, N, A <: AbstractArray, R} <: AbstractArray{D, N}
     x::A
     leaf::Int
@@ -290,9 +297,9 @@ Base.@propagate_inbounds function Base.getindex(
     T = ForwardDiff.valtype(D)
     v = T(a.x[i])
     r = a.seed.reads
-    j = r.n + 1
-    r.n = j
-    j > R && return D(v)
+    r.n += 1
+    j = r.n - r.lo
+    (j < 1 || j > R) && return D(v)
     r.leaf = Base.setindex(r.leaf, a.leaf, j)
     r.index = Base.setindex(r.index, i, j)
     return D(v, _unit(T, a.seed.slot0 + j, Val(ForwardDiff.npartials(D))))
@@ -371,6 +378,8 @@ function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
 end
 function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
     if _array_seeds(C̄, C)
+        # The reverse pass makes the buffers once (`_pressure_buffers`); a
+        # direct call without them makes its own.
         b = bufs isa _ArrayPressure ? bufs : _array_pressure(C, eltype(p))
         return _local_pressure!(p̄, C̄, C, q̄, p, t, b)
     end
