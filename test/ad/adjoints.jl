@@ -388,18 +388,21 @@
     end
 
     # Each registry scenario's gradient on `backend` runs the analytic
-    # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
+    # reverse pass, and no `NoAdjoint` twin's does, nor a scenario that
+    # takes plain AD on the backend by design. The counter is reset per
     # scenario. In one CI job the gradients reuse the code the backend's
     # registry item compiled. A scenario marked broken on the backend is
     # recorded as broken while it fails, as in `test_adjoint_case`.
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
+        plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
         for scen in ADFixtures.scenarios()
             scen.name in skip && continue
+            rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
             scenario_testset(name, scen.name) do
                 CR._PULLBACK_CALLS[] = 0
                 DifferentiationInterface.gradient(scen.f, backend, scen.x)
-                @test (CR._PULLBACK_CALLS[] > 0) == !startswith(scen.name, "NoAdjoint")
+                @test (CR._PULLBACK_CALLS[] > 0) == rule
             end
         end
         return nothing
