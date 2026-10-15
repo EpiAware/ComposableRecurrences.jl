@@ -8,7 +8,7 @@ using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
     _FixedExponent, _ad, _ad_wide, _check_form, _check_parts,
     _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
-    _run_forward, _run_pullback!, _untraced
+    _plain_hook, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -100,6 +100,18 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
 # method lookups carry no derivative, and traced they cost more than the
 # rest of a short run's gradient.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
+# The plain-AD hook carries no derivative.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_plain_hook), Vararg}
+function Mooncake.frule!!(
+        ::Mooncake.Dual{typeof(_plain_hook)}, args::Vararg{Mooncake.Dual, N}
+    ) where {N}
+    return Mooncake.zero_dual(nothing)
+end
+function Mooncake.rrule!!(
+        f::CoDual{typeof(_plain_hook)}, args::Vararg{CoDual, N}
+    ) where {N}
+    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, args...)
+end
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and
