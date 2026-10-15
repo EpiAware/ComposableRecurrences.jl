@@ -1215,10 +1215,10 @@ end
         CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
         return @allocated CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
     end
-    # One pass of 4, 8 or 12 partials, and more than one when called
-    # directly with more inputs.
+    # One pass of 4, 8, 12 or 24 partials, and more than one when called
+    # directly with more inputs, the last pass partly filled.
     rng = Xoshiro(5)
-    for S in (2, 6, 10, 30)
+    for S in (2, 6, 10, 20, 23, 60)
         p, q̄ = randn(rng, S), randn(rng, S)
         function pressure(x)
             q = zeros(eltype(x), S)
@@ -1255,14 +1255,14 @@ end
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
     @test val(r, 3) == [Val{:rule}]
-    @test CR._fit(r, args(10)...) === :one
-    @test CR._fit(r, args(11)...) === :wide
-    @test CR._fit(r, args(22)...) === :wide
-    @test CR._fit(r, args(23)...) === :none
+    @test CR._fit(r, args(22)...) === :one
+    @test CR._fit(r, args(23)...) === :wide
+    @test CR._fit(r, args(46)...) === :wide
+    @test CR._fit(r, args(47)...) === :none
     # Without a local step the route is the rule, as for any other operator.
     @test CR._fit(Recurrence([0.3]), args(50)...) === :one
     @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
-    for S in (11, 23, 24)
+    for S in (23, 46, 47)
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end

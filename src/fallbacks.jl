@@ -206,7 +206,7 @@ _pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
 function _pressure_buffers(::Val{false}, C̄, C, Tp)
     T = float(promote_type(Tp, map(typeof, _pressure_scalars(C̄, C))...))
     pair(N) = (D -> (D[], D[]))(_pressure_dual(T, N))
-    return (pair(Val(4)), pair(Val(8)), pair(Val(_LOCAL_PRESSURE)))
+    return (pair(Val(4)), pair(Val(8)), pair(Val(12)), pair(Val(_LOCAL_PRESSURE)))
 end
 function _pressure_dual(T, ::Val{N}) where {N}
     return ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_pressure!, T)), T, N}
@@ -224,15 +224,17 @@ _dual_buffers(bufs::Tuple, ::Type{D}, S) where {D} = _dual_buffers(Base.tail(buf
 # Default pullback of a coupling without its own: the local `ForwardDiff`
 # derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
 # The `n = S + P` inputs are seeded `N` at a time, and each pass adds
-# `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored. The rule takes
-# this route while one pass covers every input (`_LOCAL_PRESSURE`), and
-# through `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
-const _LOCAL_PRESSURE = 12
+# `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored; `N` is the smallest
+# of 4, 8, 12 and 24 that covers them. The rule takes this route while one
+# pass covers every input (`_LOCAL_PRESSURE`), and through `_ad_wide` while
+# two do (`_LOCAL_PRESSURE_WIDE`).
+const _LOCAL_PRESSURE = 24
 const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple, bufs = nothing)
     n = length(p) + length(θ)
     n <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ, bufs)
     n <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ, bufs)
+    n <= 12 && return _local_pressure!(Val(12), p̄, C̄, C, q̄, p, t, θ, bufs)
     return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs)
 end
 function _local_pressure!(
