@@ -6,12 +6,15 @@
 # Random walks, AR and MA processes are recurrences or convolutions of innovations.
 # This tutorial builds each from the same innovations.
 # It then uses one as the log reproduction number of a renewal process.
+# Last, it lets transmission respond to incidence through [`Transform`](@ref ComposableRecurrences.Transform) and [`Recent`](@ref).
 #
 # ### What are we going to do in this exercise
 #
 # 1. Build a random walk, an AR(2) and an MA(2) process from the same innovations.
 # 2. Show that a time-varying AR coefficient can be a kernel or a multiplier.
 # 3. Drive a renewal process with the exponential of an AR(1) process.
+# 4. Saturate transmission as incidence rises, and take its gradient.
+# 5. Drive a response and vaccination from recent incidence.
 #
 # ### What might I need to know before starting
 #
@@ -21,7 +24,9 @@
 # ## Packages used
 
 using ComposableRecurrences
+using ComposableRecurrences: Transform, Depletion
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
+using ForwardDiff
 using Random
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -124,6 +129,91 @@ end
 
 # ``R_t`` stays between about 0.6 and 1.8 in every draw.
 # Small differences in ``R_t`` compound, so some outbreaks die out and others grow large.
+
+# ## Transmission that saturates with incidence
+#
+# People may reduce their contacts when incidence is high.
+# A saturating form (Capasso and Serio 1978) caps daily infections below ``\kappa``:
+#
+# ```math
+# f(v, \kappa) = \frac{v}{1 + v / \kappa},
+# ```
+#
+# where ``v`` is the renewal value ``R \sum_{l} g_l I_{t-l}``.
+# With a constant ``R > 1`` infections settle at ``\kappa (R - 1) / R``.
+
+gi = [0.1, 0.3, 0.3, 0.2, 0.1]
+R = fill(1.5, T)
+saturate(v, κ) = v / (1 + v / κ)
+
+@chain [100.0, 300.0] begin
+    map(_) do κ
+        y = Recurrence(gi; modifiers = (Transform(saturate, κ),))(R; history = [5.0])
+        DataFrame(day = 1:T, series = "κ = $(Int(κ))", count = y)
+    end
+    reduce(vcat, _)
+    vcat(_, DataFrame(day = 1:T, series = "No response", count = Recurrence(gi)(R; history = [5.0])))
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections (log scale)", yscale = log10))
+end
+
+# The gradient of the total infections with respect to ``\kappa`` and a constant ``R``:
+
+function total_infections(x)
+    modifiers = (Transform(saturate, x[1]),)
+    return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
+end
+ForwardDiff.gradient(total_infections, [100.0, 1.5])
+
+# ## Feedback from recent incidence
+#
+# The saturating response reacts to the current day only.
+# A response to the last week's incidence is built from parts instead of a bespoke modifier.
+# [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref) maps them, and any modifier parameter takes the result.
+# The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it:
+#
+# ```math
+# v'_t = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} y_{t-l}\Big)\, R_t \sum_{l} g_l\, y_{t-l},
+# ```
+#
+# where ``y_t`` is the infections drawn on day ``t`` and ``v'_t`` the value the depletion draws them from.
+# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases (@placeholder).
+
+N = 5_000.0
+κr = 10.0
+response = Transform(*, Derived(exp, -κr / N * Recent(7)))
+ring = Depletion(N; removals = 0.5 * Recent(7))
+feedback = [
+    "Depletion only" => (Depletion(N),),
+    "Response to the last week" => (response, Depletion(N)),
+    "Ring vaccination" => (ring,),
+    "Both" => (response, ring),
+]
+@chain feedback begin
+    map(_) do (name, modifiers)
+        y = Recurrence(gi; modifiers)(R; history = [5.0])
+        DataFrame(day = 1:T, model = name, count = y)
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :count, color = :model) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Both measures cut the peak, and together they cut it further than either alone.
+# The reverse-mode rule sends each gradient back through the outputs that `Recent` reads, so Mooncake and Enzyme follow the feedback too.
+# ForwardDiff gives the gradient of the total infections with respect to the response strength and ``R``:
+
+function total_with_response(x)
+    modifiers = (Transform(*, Derived(exp, -x[1] / N * Recent(7))), Depletion(N))
+    return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
+end
+ForwardDiff.gradient(total_with_response, [κr, 1.5])
+
+# ## References
+#
+# - Capasso and Serio (1978), "A generalization of the Kermack-McKendrick
+#   deterministic epidemic model", Mathematical Biosciences 42, 43-61,
+#   [10.1016/0025-5564(78)90006-8](https://doi.org/10.1016/0025-5564%2878%2990006-8)
 
 # ## Learning more
 #

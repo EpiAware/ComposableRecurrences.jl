@@ -1434,3 +1434,56 @@ end
         @test CR._PULLBACK_CALLS[] > 0
     end
 end
+
+@testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake
+    using DifferentiationInterface: gradient
+    import ForwardDiff, Mooncake
+    # Two compartments per group: a share `a` of the first moves to the
+    # second, and the state keeps what moved.
+    struct Move{A}
+        a::A
+    end
+    CR.blocks(::Move) = Val((2, 1))
+    function CR.forward(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        x = CR.param(m.a, g, t) * v[1]
+        return (v[1] - x, v[2] + x), (x,)
+    end
+    function CR.pullback!(grads, m::Move, ::CR.Step, v, s, t, g)
+        (v̄1, v̄2), (s̄,) = grads.v, grads.s
+        a = CR.param(m.a, g, t)
+        c = v̄2 + s̄ - v̄1
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, c * v[1], g, t)
+        return (v̄1 + a * c, v̄2), (zero(s̄),)
+    end
+    # Two values and two state entries per group, with a typed pullback.
+    struct Keep{A}
+        a::A
+    end
+    CR.blocks(::Keep) = Val((2, 2))
+    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + 1)
+    end
+    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
+        return (v̄1 * m.a + s̄1, v̄2), (v̄2 + s̄1, s̄2)
+    end
+    g = [0.5, 0.5]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6]
+    h = ones(4, 2)
+    K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
+    function loss(θ)
+        ms = (
+            CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
+            CR.Redistribute(K, 0.5),
+        )
+        return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
+    end
+    θ = [0.2, 0.4, 0.8]
+    n = CR._PULLBACK_CALLS[]
+    @test gradient(loss, AutoMooncake(; config = nothing), θ) ≈ ForwardDiff.gradient(loss, θ)
+    @test CR._PULLBACK_CALLS[] > n
+end
