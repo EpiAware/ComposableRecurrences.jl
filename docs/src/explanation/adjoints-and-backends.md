@@ -131,11 +131,17 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
+| pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | plain AD | keep on Mooncake |
+| coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 
 ² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
 The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
 
 ³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
+
+⁴ The worst within the route's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_vector` and `custom_coupling_matrix` cases.
+The modifier was timed at 1, 5 and 20 strata, the coupling at 2 to 5.
+On Enzyme the modifier's local step was 1.6 to 1.7 times plain AD at 1 and 5 strata, so it takes plain AD there.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
