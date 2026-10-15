@@ -683,7 +683,8 @@ case(name) = CASES[findfirst(c -> c.name == name, CASES)]
 
 """
 The size tiers. `smoke` checks every case at a tiny size; `docs` is the
-getting-started model at the page's size and at T 200, L 20; `convolved`
+getting-started model at the page's size and at T 200, L 20, with the
+backend kernels of the case study at their own sizes; `convolved`
 holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
 `realistic` spans T 200-400, L 20-60 and S 1 to 50; `large` is S = 500,
 T = 2000.
@@ -706,6 +707,7 @@ const TIERS = Dict(
         cases = ["overview"],
         sizes = [(T = 100, L = 6), (T = 200, L = 20)],
         strata = [1, 3],
+        bycase = Dict{String, Vector{@NamedTuple{T::Int, L::Int}}}(),
     ),
     "convolved" => (
         cases = [
@@ -997,8 +999,12 @@ if isfile(BVD_HANDRULE)
             "handrule" => z -> loss(hand(kernels[2]))(identity, z),
         ]
         push!(TIERS["realistic"].cases, name)
+        # The docs case study reads these at the backend's sizes.
+        push!(TIERS["docs"].cases, name)
+        TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
     push!(TIERS["realistic"].strata, 11)
+    push!(TIERS["docs"].strata, 11)
 end
 
 # A user coupling and a user modifier with per-stratum parameters, each
