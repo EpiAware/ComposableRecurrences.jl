@@ -37,13 +37,13 @@ const TUTORIAL_STUBS = [
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
     "spatial-strata.md" =>
-        "# [Spatial and multi-type models](@id tutorial-spatial-strata)",
+        "# [Spatial models](@id tutorial-spatial-strata)",
     "time-varying-delays.md" =>
         "# [Time-varying delays and kernels](@id tutorial-time-varying-kernels)",
     "occupancy.md" =>
         "# [Occupancy and capacity](@id tutorial-occupancy)",
     "transform.md" =>
-        "# [Transforms inside a recurrence](@id tutorial-transform)",
+        "# [Branching processes](@id tutorial-branching)",
     "custom-modifier.md" =>
         "# [Writing your own modifier](@id tutorial-custom-modifier)",
 ]
@@ -225,16 +225,14 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
         "getting-started/tutorials/latent-processes.md",
-    "Spatial and multi-type models" =>
+    "Spatial models" =>
         "getting-started/tutorials/spatial-strata.md",
     "Time-varying delays and kernels" =>
         "getting-started/tutorials/time-varying-delays.md",
     "Occupancy and capacity" =>
         "getting-started/tutorials/occupancy.md",
-    "Transforms inside a recurrence" =>
+    "Branching processes" =>
         "getting-started/tutorials/transform.md",
-    "Writing your own modifier" =>
-        "getting-started/tutorials/custom-modifier.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
