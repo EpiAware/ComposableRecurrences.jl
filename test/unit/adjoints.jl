@@ -237,6 +237,11 @@ end
     K = rand(rng, S, S) ./ 2
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
+    # Import patterns: dense and sparse, and one that varies over time.
+    prng = Xoshiro(7)
+    P = rand(prng, S, S)
+    PT = 0.5 .+ rand(prng, S, S, T)
+    spill = CR.Redistribute(rand(prng, S, S) ./ 2, PerStratum([0.3, 0.2, 0.1]))
     for mods in (
             (PoolDepletion([30.0, 40.0, 50.0]),),
             (Hazard(45.0),),
@@ -249,6 +254,17 @@ end
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+            (CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, P), spill),),
+            (
+                CR.Allocate(
+                    [[1, 3], [2]], PerStratum([4.0, 2.0]);
+                    imports = (PerStratum([0.2, 0.4]), sparse(P)), spill
+                ),
+            ),
+            (
+                CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, TimeVarying(PT))),
+                CR.Add(0.2),
+            ),
             (CR.Capacity(1.5, CR.Beds(0.3); pairs = [1 => 3], form = CR.SoftTruncate(0.1)),),
             (
                 CR.Capacity(
