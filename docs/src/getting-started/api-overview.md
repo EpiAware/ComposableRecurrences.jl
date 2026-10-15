@@ -188,7 +188,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
 | [`Flows(flows...)`](@ref ComposableRecurrences.Flows) | moves values between the compartments of each group by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s | yes, with groups of series | no, blockwise | hand-written | each flow's rate, share or count |
-| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | hand-written | `total`, one per group |
+| [`Allocate(groups, total; imports, spill)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share, with a fraction placed by an import pattern | yes, with several series | no | hand-written | `total` and `fraction`, one per group; `pattern` |
 | [`Capacity(C, mode; pairs)`](@ref ComposableRecurrences.Capacity) | admits each step's demand up to free beds or a budget per period, and routes the rest to an overflow series, a queue or nowhere | yes, with several series | no | hand-written | `C`, `exit`, `κ`, `initial` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 

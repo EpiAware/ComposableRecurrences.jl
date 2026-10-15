@@ -29,6 +29,7 @@
 - A `Recurrence` keeps as many past outputs as its kernel, coupling or modifiers read, given by the public `depth` trait.
 - `Transform(f, θ; derivative)` maps each value through `f(v, θ)` with parameters ([Transform tutorial][transform]).
 - `Allocate(groups, total)` rescales groups of strata to exogenous totals ([spatial and multi-type models][spatial]).
+  `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
 - `Depletion(N; removals, protected)` takes removals from the pool and, with `Protected(σ; pool0)`, keeps them in a second pool for all-or-nothing or leaky protection ([renewal then delay][renewal]).
   `Protected`'s default `pool0` is an empty pool in the state's element type, so a `Float32` model stays `Float32`.
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.

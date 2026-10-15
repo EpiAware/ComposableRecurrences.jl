@@ -376,6 +376,19 @@ function _add_entry!(K̄, K::Diagonal, v, p, q)
     return nothing
 end
 
+# A dense matrix whose mirror is a dense array or absent: the pullbacks'
+# loops over it run without bounds checks once the sizes are checked, so
+# they vectorise.
+const _DenseMirror = Union{Matrix, Nothing, NamedTuple{()}}
+function _check_dense(C̄, C)
+    C̄ isa Matrix && size(C̄) != size(C) && throw(
+        DimensionMismatch("mirror is $(size(C̄)), matrix is $(size(C))")
+    )
+    return nothing
+end
+_array_mirror(C̄) = C̄
+_array_mirror(C̄::NamedTuple{(:x,)}) = C̄.x
+
 @doc raw"""
 Test the analytic adjoint of `piece` in `role` on the primal arguments
 `args` with the AD `backend`'s own rule tester.
