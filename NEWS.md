@@ -21,6 +21,7 @@
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
+- `TimeVarying([t₁ => c₁, t₂ => c₂, ...], indexing)` gives a kernel, coupling or modifier parameter by its change points, storing one value per segment; a `Secondary()` kernel switches between fixed-kernel loops at the change points, and a `Primary()` convolution sums one fixed convolution per segment ([time-varying delays][tv]).
 - `Convolution` takes `gain` and `add`, and `ComposableRecurrences.contributions` returns the lag contributions before the sum over lags ([API overview][api]).
 - `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded, with outputs and gradients that match `Direct()` to a relative 1e-10 (1e-4 in `Float32`) ([FFTW extension][fftw]).
   The default method, `Auto()`, takes it only for long `Float64` kernels and series, and otherwise takes `Direct()`.
@@ -52,7 +53,8 @@
   A ragged `TimeVarying` kernel runs there too, with its column offsets on the device.
   The GPU arrays section of the adjoints and backends explanation says how each part runs on a device.
 - `Recurrence` and `Convolution` have native reverse rules for Mooncake and Enzyme, and `NoAdjoint(op)` runs the same call through plain AD ([adjoints and backends][adjoints]).
-- A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow, and the plain-AD note names the part that has none.
+- A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow.
+  The `Recurrence` constructor logs, once, the part that sends an operator to plain AD; a `true` `uses_adjoint` with no matching `pullback!` is a `MethodError`.
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
 - Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).

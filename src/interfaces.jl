@@ -200,6 +200,10 @@ true
         piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
         role = Pressure(), args = (zeros(2), [1.0, 2.0], 2)
     ),
+    Arguments(;
+        piece = TimeVarying([1 => [1.0 3.0; 2.0 4.0], 2 => [5.0 7.0; 6.0 8.0]]),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
+    ),
 ]
 
 @implements PieceInterface{(:pointwise, :blocks, :nstate)} Pool [

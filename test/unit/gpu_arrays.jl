@@ -342,6 +342,34 @@ end
     )
 end
 
+@testitem "JLArrays: coefficients from change points refuse a device" begin
+    using ComposableRecurrences, JLArrays, Adapt
+    using ComposableRecurrences: Add, Primary
+    JLArrays.allowscalar(false)
+    x, h = JLArray(ones(2, 6)), JLArray(ones(2, 2))
+    g1, g2 = JLArray([0.5, 0.5]), JLArray([0.3, 0.7])
+    msg(f) = try
+        f()
+        ""
+    catch e
+        e isa ArgumentError ? e.msg : rethrow()
+    end
+    # Device values stack on the device, and the call refuses them.
+    for I in (ComposableRecurrences.Secondary(), Primary())
+        k = TimeVarying([1 => g1, 4 => g2], I)
+        @test occursin("change points", msg(() -> Convolution(k)(JLArray(ones(6)))))
+        @test occursin("change points", msg(() -> Recurrence(k)(x; history = h, start = 3)))
+    end
+    C = TimeVarying([1 => JLArray([0.9 0.1; 0.2 0.8]), 3 => JLArray([1.0 0.0; 0.0 1.0])])
+    @test occursin("change points", msg(() -> Recurrence(g1; coupling = C)(x; history = h)))
+    m = Add(TimeVarying([1 => 0.1, 3 => 0.2]))
+    r = Recurrence(g1; modifiers = (m,))
+    @test occursin("change points", msg(() -> r(x; history = h)))
+    # `adapt` refuses them too.
+    r = Recurrence(TimeVarying([1 => [0.5, 0.5], 4 => [0.3, 0.7]]))
+    @test occursin("change points", msg(() -> adapt(JLArray, r)))
+end
+
 @testitem "JLArrays: wrappers and built-in modifiers adapt every array they hold" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences
