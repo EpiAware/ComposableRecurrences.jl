@@ -335,10 +335,10 @@ end
 function _floats_in(::Type{T}) where {T}
     T <: AbstractFloat && return true
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
-    T <: Union{Real, Nothing, Symbol, AbstractString, Function, Type, Module} && return false
-    # A field of abstract type may hold a float; the rebuild then goes by
-    # value.
+    # A field of abstract type (`Real`, a `Union`, or none) may hold a
+    # float; the rebuild then goes by value.
     isconcretetype(T) || return true
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function, Type, Module} && return false
     isstructtype(T) || return false
     return any(_floats_in, fieldtypes(T))
 end

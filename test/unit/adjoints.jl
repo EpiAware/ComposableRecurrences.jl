@@ -1153,6 +1153,26 @@ end
     grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
     CR.pullback!(grads, Start(2.0), CR.Init(), zeros(2), ones(2, 2))
     @test grads.piece.s0[] == 2.0
+    # The same for a field typed `Real`. A field typed `Union{Nothing,
+    # Float64}` cannot hold the dual number, so the rebuild throws rather
+    # than dropping the cotangent.
+    struct StartReal
+        s0::Real
+    end
+    struct StartUnion
+        s0::Union{Nothing, Float64}
+    end
+    for M in (StartReal, StartUnion)
+        @eval CR.ispointwise(::$M) = true
+        @eval CR.forward(m::$M, ::CR.Init, s, h) = (s .= m.s0; nothing)
+    end
+    grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
+    CR.pullback!(grads, StartReal(2.0), CR.Init(), zeros(2), ones(2, 2))
+    @test grads.piece.s0[] == 2.0
+    grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
+    @test_throws MethodError CR.pullback!(
+        grads, StartUnion(2.0), CR.Init(), zeros(2), ones(2, 2)
+    )
 end
 
 @testitem "Adjoint: local pullback over entry parameters" setup = [AdjointCheck] begin
