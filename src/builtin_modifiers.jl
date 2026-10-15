@@ -696,7 +696,8 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
   destination `p`.
 
 # Keyword Arguments
-- `leak`: allow columns summing to less than one. Defaults to `false`.
+- `leak`: `false` (the default), or `true` to allow columns summing to less
+  than one.
 
 # Examples
 ```jldoctest
