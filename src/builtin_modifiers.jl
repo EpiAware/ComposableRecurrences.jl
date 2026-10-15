@@ -805,28 +805,34 @@ end
 
 # The movement of a kernel `K` and an intensity `E` (origins × time), read
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
-# with `o` the column sums of `K`. Its columns sum to one by construction.
-# It is a struct of its arrays, not an array, so the rules read its
-# cotangent field by field.
-struct _Movement{KT <: AbstractMatrix, ET <: AbstractMatrix, OT <: AbstractVector}
+# with `o` the column sums of `K`, summed where they are read. Its columns
+# sum to one by construction. It is a struct of its arrays, not an array, so
+# the rules read its cotangent field by field.
+struct _Movement{KT <: AbstractMatrix, ET <: AbstractMatrix}
     K::KT
     E::ET
-    o::OT
-end
-function _Movement(K::AbstractMatrix, E::AbstractMatrix)
-    size(K, 1) == size(K, 2) == size(E, 1) || throw(
-        DimensionMismatch(
-            "K is $(size(K)) and ε is $(size(E)); expected S × S and S × T"
+    function _Movement(K::KT, E::ET) where {KT <: AbstractMatrix, ET <: AbstractMatrix}
+        size(K, 1) == size(K, 2) == size(E, 1) || throw(
+            DimensionMismatch(
+                "K is $(size(K)) and ε is $(size(E)); expected S × S and S × T"
+            )
         )
-    )
-    return _Movement(K, E, vec(sum(K; dims = 1)))
+        return new{KT, ET}(K, E)
+    end
 end
 Base.size(m::_Movement) = (size(m.K, 1), size(m.K, 2), size(m.E, 2))
 Base.size(m::_Movement, d::Integer) = size(m)[d]
 Base.ndims(::_Movement) = 3
+function _colsum(K, b)
+    o = zero(eltype(K))
+    for a in axes(K, 1)
+        o += K[a, b]
+    end
+    return o
+end
 function Base.getindex(m::_Movement, p::Integer, q::Integer, t::Integer)
     e = m.E[q, t]
-    return (p == q) * (1 - e * m.o[q]) + m.K[p, q] * e
+    return (p == q) * (1 - e * _colsum(m.K, q)) + m.K[p, q] * e
 end
 _over_time(::_Movement) = true
 _array(m::_Movement) = m
@@ -839,54 +845,88 @@ _check_columns(::_Movement, leak) = nothing
 _stays(M) = false
 _stays(M::TimeVarying{<:Any, <:_Movement}) = size(M.x.K, 1) == 1
 
-# The step reads `M_t v = (1 − E_t ∘ o) ∘ v + K (E_t ∘ v)`.
+# The step reads `M_t v = (1 − E_t ∘ o) ∘ v + K (E_t ∘ v)`, with each
+# column's sum taken as the column is read.
 function forward(C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t)
-    (; K, E, o) = C.x
+    (; K, E) = C.x
     checkbounds(E, :, t)
     _check_pressure(K, q, p)
     fill!(q, zero(eltype(q)))
     for b in axes(K, 2)
         w = E[b, t] * p[b]
+        o = zero(eltype(K))
         for a in axes(K, 1)
             q[a] += K[a, b] * w
+            o += K[a, b]
         end
-    end
-    for a in eachindex(q, p)
-        q[a] += (1 - E[a, t] * o[a]) * p[a]
+        q[b] += (1 - E[b, t] * o) * p[b]
     end
     return nothing
 end
 
-# With `c = Kᵀ q̄`: `p̄ += E_t ∘ c + (1 − E_t ∘ o) ∘ q̄`, `K̄ += q̄ (E_t ∘ p)ᵀ`,
-# `Ē_t += p ∘ (c − o ∘ q̄)` and `ō −= E_t ∘ p ∘ q̄`.
+# With `c = Kᵀ q̄`: `p̄ += E_t ∘ c + (1 − E_t ∘ o) ∘ q̄` and
+# `Ē_t += p ∘ (c − o ∘ q̄)`; `K̄[a, b] += w_b (q̄_a − q̄_b)` with
+# `w = E_t ∘ p`, the second term through the column sum.
 function pullback!(
         grads, C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t
     )
     X̄ = cotangent(grads.piece, :x)
     q̄, p̄ = grads.q, grads.p
-    (; K, E, o) = C.x
-    K̄, Ē, ō = cotangent(X̄, :K), cotangent(X̄, :E), cotangent(X̄, :o)
+    (; K, E) = C.x
+    K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
     for b in axes(K, 2)
         c = zero(eltype(p̄))
+        o = zero(eltype(K))
         w = E[b, t] * p[b]
         for a in axes(K, 1)
             c += K[a, b] * q̄[a]
-            add_cotangent!(K̄, q̄[a] * w, a, b)
+            o += K[a, b]
+            add_cotangent!(K̄, w * (q̄[a] - q̄[b]), a, b)
         end
-        p̄[b] += E[b, t] * c + (1 - E[b, t] * o[b]) * q̄[b]
-        add_cotangent!(Ē, p[b] * (c - o[b] * q̄[b]), b, t)
-        add_cotangent!(ō, -w * q̄[b], b)
+        p̄[b] += E[b, t] * c + (1 - E[b, t] * o) * q̄[b]
+        add_cotangent!(Ē, p[b] * (c - o * q̄[b]), b, t)
     end
     return nothing
 end
 
-# Entry `(a, b)` at `t` of the mirror of a movement's array.
+# Entry `(a, b)` at `t` of the mirror of a movement's array: through `K`,
+# `E` and, on the diagonal, the column sum of `K`.
 _add_movement_entry!(::Nothing, X::_Movement, x, a, b, t) = nothing
 function _add_movement_entry!(X̄, X::_Movement, x, a, b, t)
     e = X.E[b, t]
-    add_cotangent!(cotangent(X̄, :K), x * e, a, b)
-    add_cotangent!(cotangent(X̄, :E), x * (X.K[a, b] - (a == b) * X.o[b]), b, t)
-    a == b && add_cotangent!(cotangent(X̄, :o), -x * e, b)
+    K̄ = cotangent(X̄, :K)
+    add_cotangent!(K̄, x * e, a, b)
+    add_cotangent!(cotangent(X̄, :E), x * (X.K[a, b] - (a == b) * _colsum(X.K, b)), b, t)
+    if a == b
+        for r in axes(X.K, 1)
+            add_cotangent!(K̄, -x * e, r, b)
+        end
+    end
+    return nothing
+end
+
+# Redistribute over a movement of a kernel and an intensity in one pass:
+# column `b` adds `K[:, b] w_b` to the arrivals, finds its sum, and sets
+# `v[b]` to its own share `M_bb v_b`; the arrivals then join.
+function forward(m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}}, ::Step, v, s, t)
+    _stays(m.M) && return (fill!(s, zero(eltype(s))); nothing)
+    (; K, E) = m.M.x
+    checkbounds(E, :, t)
+    _check_pressure(K, s, v)
+    fill!(s, zero(eltype(s)))
+    for b in axes(K, 2)
+        w = E[b, t] * v[b]
+        o = zero(eltype(K))
+        for a in axes(K, 1)
+            s[a] += K[a, b] * w
+            o += K[a, b]
+        end
+        s[b] -= K[b, b] * w
+        v[b] = (1 - E[b, t] * o) * v[b] + K[b, b] * w
+    end
+    for a in eachindex(v, s)
+        v[a] += s[a]
+    end
     return nothing
 end
 

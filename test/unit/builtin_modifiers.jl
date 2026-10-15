@@ -263,13 +263,11 @@ end
         x = vcat(vec(K), vec(E), v)
         J = ForwardDiff.jacobian(y -> step(y, t), x)
         expected = transpose(J) * vcat(v̄0, s̄0)
-        m̄ = (; M = (; x = (; K = zeros(3, 3), E = zeros(3, 2), o = zeros(3))))
+        m̄ = (; M = (; x = (; K = zeros(3, 3), E = zeros(3, 2))))
         grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0))
         CR.pullback!(grads, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
         x̄ = m̄.M.x
-        # `o` is the column sums of `K`, so its cotangent reaches `K`.
-        K̄ = x̄.K .+ permutedims(x̄.o)
-        @test vcat(vec(K̄), vec(x̄.E), grads.v) ≈ expected
+        @test vcat(vec(x̄.K), vec(x̄.E), grads.v) ≈ expected
         @test grads.s == zeros(3)
         # The value's cotangent matches the dense matrix of that time's.
         gm = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
@@ -286,7 +284,7 @@ end
     x, s = [2.0], [5.0]
     CR.forward(one, CR.Step(), x, s, 2)
     @test x == [2.0] && s == [0.0]
-    m̄ = (; M = (; x = (; K = zeros(1, 1), E = zeros(1, 2), o = zeros(1))))
+    m̄ = (; M = (; x = (; K = zeros(1, 1), E = zeros(1, 2))))
     g1 = (; piece = m̄, v = [0.7], s = [0.3])
     CR.pullback!(g1, one, CR.Step(), [2.0], zeros(1), 2)
     @test g1.v == [0.7] && g1.s == [0.0]
