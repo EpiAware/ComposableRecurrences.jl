@@ -291,19 +291,21 @@ function _leaves(fs, i, g, t, z)
     return E, gH, _out(_share, fs, i, g, t, z)
 end
 # Without a hazard flow nothing leaves at a rate, so `e^{-0}` and `g(0)` are
-# one, exactly as `_leave` gives them, without the exponentials.
+# one, exactly as `_leave` gives them, without the exponentials. The shares
+# are summed in their own type, not the pools': under a dual number that
+# would make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _TruncateForm}}}}
-_leaves(fs::_NoHazard, i, g, t, z) = one(z), one(z), _out(_share, fs, i, g, t, z)
+_leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false)
 
 # Add each hazard and share flow's amount into the pool it enters, in
 # `y` and the arrivals `a`.
 _spread(::Tuple{}, x, L, y, a, g, t) = y, a
-function _spread(fs::Tuple, x, L, y, a, g, t)
+@inline function _spread(fs::Tuple, x, L, y, a, g, t)
     y, a = _spread_one(first(fs), x, L, y, a, g, t)
     return _spread(Base.tail(fs), x, L, y, a, g, t)
 end
 _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
-function _spread_one(f::Flow, x, L, y, a, g, t)
+@inline function _spread_one(f::Flow, x, L, y, a, g, t)
     f.to > 0 || return (y, a)
     _, gH, _ = L[f.from]
     m = x[f.from] * (_rate(f, g, t) * gH + _share(f, g, t))
@@ -384,18 +386,21 @@ function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
     return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
 
-function _flow_group(fs, x::NTuple{N}, g, t) where {N}
+# Inlined, with the spread of the rates and shares, so that a step on dual
+# numbers passes no tuple of them through a call, which cost a filling
+# pool's step about 40% under ForwardDiff.
+@inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
-    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     return _counts(fs, y, a, g, t)
 end
 
 # The pools after the flows, without the arrivals.
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
-_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
+@inline _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
@@ -449,7 +454,7 @@ end
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
-    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
     # The hazard and share arrivals feed both the pools and the state.
