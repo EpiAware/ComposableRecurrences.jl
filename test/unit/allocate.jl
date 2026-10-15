@@ -59,10 +59,9 @@
             for (p, zs) in enumerate(groups)
                 su = max(sum(u[zs]), floor_)
                 sh = sum(hh[zs])
+                mh = max(sh, floor_)
                 Tt, φ = total(p, t), fraction(p, t)
-                v[zs] .= sh > floor_ ?
-                    Tt .* ((1 - φ) .* u[zs] ./ su .+ φ .* hh[zs] ./ sh) :
-                    Tt .* u[zs] ./ su
+                v[zs] .= Tt .* ((1 - φ * sh / mh) .* u[zs] ./ su .+ φ .* hh[zs] ./ mh)
             end
             Y[:, L + t] .= v
         end
