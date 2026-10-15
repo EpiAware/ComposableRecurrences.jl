@@ -316,6 +316,21 @@ end
             fill(1.1, 2, 3); history = ones(2, 1)
         )
     end
+    @test_throws "draw is pool => form" CR.Pool(100.0; draw = CR.Hazard())
+    @test_throws "the draw names pool :X, but the pools are (:S,)" CR.Pool(
+        100.0; draw = :X => CR.Hazard()
+    )
+    @test_throws "not a Pool layout" CR.Pool{(n = 1, draw = false, first = 1)}(
+        nothing, nothing, nothing, (nothing,), nothing, ()
+    )
+    # A weight of zero is fixed, as one is; another integer is a float.
+    weight(w) = last(two(w).weights)
+    @test weight(0) isa CR._Fixed{false}
+    @test weight(2) === 2.0
+    # One starting value for one pool, and no flows.
+    p = CR.Pool(100.0; initial = 80.0, flows = nothing)
+    @test p.initial == (80.0,)
+    @test p.flows == ()
 end
 
 @testitem "Pool: declare their adjoint" begin
@@ -333,6 +348,10 @@ end
         @test CR.uses_adjoint(d, CR.Step())
         @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
     end
+    # Without a draw there is no form for the rule to rebuild.
+    ward = CR.Pool(; pools = 2, draw = nothing, flows = CR.Flow(1 => 2, 0.3))
+    @test CR.uses_adjoint(ward, CR.Step())
+    @test CR._local_modifier(ward) == ()
 end
 
 @testitem "Pool: the Recurrence reverse pass" setup = [AdjointCheck] begin
@@ -365,6 +384,8 @@ end
             70.0; pools = (:S, :V), initial = (0.0, nothing),
             draw = (:S => 1, :V => 0.4) => CR.Floor()
         ),
+        # Without a population: a truncated draw reads none.
+        CR.Pool(; draw = :S => CR.SoftTruncate(0.5), initial = PerStratum([30.0, 40.0])),
     )
     for m in mods
         r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))

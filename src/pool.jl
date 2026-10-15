@@ -646,7 +646,6 @@ end
 function _weights_at(m, ::Val{n}, g, t) where {n}
     return promote(ntuple(i -> param(m.weights[i], g, t), Val(n))...)
 end
-_weighted(w::Tuple{Any}, x::Tuple{Any}) = first(w) * first(x)
 function _weighted(w::Tuple, x::Tuple)
     return _weighted_sum(Base.tail(w), Base.tail(x), first(w) * first(x))
 end
