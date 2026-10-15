@@ -1114,6 +1114,80 @@ if isfile(BVD_HANDRULE)
         return (wrap, d, x) -> kernel(collect(x), collect(d))
     end
 
+    # The mixed zone split: the zones renew from their own infections, and
+    # each patch's known infections go to its zones by their force after a
+    # within-patch spill, and by an import pattern read before it. At 64
+    # zones the patches are the backend's seven provinces.
+    function _zone_groups(S)
+        sizes = S == 64 ? [28, 17, 7, 7, 3, 1, 1] :
+            diff(round.(Int, range(0, S; length = cld(S, 3) + 1)))
+        edges = cumsum([0; sizes])
+        return [(edges[p] + 1):edges[p + 1] for p in eachindex(sizes)]
+    end
+    function _zone_data(z::Size)
+        (; T, L, S) = z
+        groups = _zone_groups(S)
+        P = length(groups)
+        patch_of = [p for p in 1:P for _ in groups[p]]
+        # Each zone spills evenly to the other zones of its patch.
+        within = [
+            i != j && patch_of[i] == patch_of[j] ?
+                1.0 / (length(groups[patch_of[j]]) - 1) : 0.0
+                for i in 1:S, j in 1:S
+        ]
+        between = [
+            patch_of[i] != patch_of[j] ? 0.1 * (1.5 + _noise(i, j)) : 0.0
+                for i in 1:S, j in 1:S
+        ]
+        I_bar = [20.0 * (1.2 + _noise(t, p + 20)) for p in 1:P, t in 1:T]
+        force_pre = [10.0 * exp(-0.1 * t) for p in 1:P, t in 1:T]
+        # The pre-grid force of each zone's patch, as the rule arm reads it.
+        zone_pre = force_pre[patch_of, :]
+        return (;
+            I_bar, g = _gi(L), force_pre, zone_pre, within, between, groups,
+            patch_of,
+        )
+    end
+    function _bvd_zones(run)
+        return function (wrap, z::Size)
+            (; T, S) = z
+            d = _zone_data(z)
+            P = length(d.groups)
+            W = _weights(T, S)
+            f = function (θ)
+                δ, w0, ε, φ, ow = _unpack(θ, (T, S), (S,), (S,), (P, T), (S,))
+                return sum(W .* log.(run(wrap, δ, w0, ε, φ, ow, d)))
+            end
+            θ = _flat(
+                [0.1 * _noise(t, k + 21) for t in 1:T, k in 1:S],
+                [0.5 + 0.2 * _noise(k, 22) for k in 1:S], fill(0.1, S),
+                [0.1 + 0.05 * _noise(t, p + 23) for p in 1:P, t in 1:T],
+                [1.0 + 0.2 * _noise(k, 24) for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    function _bvd_zones_rule(wrap, δ, w0, ε, φ, ow, d)
+        S = size(δ, 2)
+        gain = exp.(permutedims(δ))
+        add = gain .* w0 .* d.zone_pre
+        split = CR.Allocate(
+            d.groups, TimeVarying(PerStratum(d.I_bar));
+            imports = (TimeVarying(PerStratum(φ)), d.between .* permutedims(ow)),
+            spill = CR.Redistribute(d.within, PerStratum(ε))
+        )
+        r = Recurrence(d.g; modifiers = (split,))
+        return permutedims(wrap(r)(gain; history = zeros(S, 1), add))
+    end
+    function _bvd_zones_hand(kernel)
+        return function (wrap, δ, w0, ε, φ, ow, d)
+            return kernel(
+                collect(δ), collect(w0), collect(ε), collect(φ), collect(ow),
+                d.I_bar, d.g, d.force_pre, d.within, d.between, d.groups
+            )
+        end
+    end
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1130,6 +1204,11 @@ if isfile(BVD_HANDRULE)
                 _bvd_delay, _bvd_delay_rule, _bvd_delay_hand,
                 (BVD.delay_loop, BVD.convolve_delay), [1],
             ),
+            (
+                "bvd_zones", "BVD zone_share_renewal: split with imports and a spill",
+                _bvd_zones, _bvd_zones_rule, _bvd_zones_hand,
+                (BVD.zone_loop, BVD.zone_infections), [5, 64],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1141,8 +1220,9 @@ if isfile(BVD_HANDRULE)
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
-    push!(TIERS["realistic"].strata, 11)
+    push!(TIERS["realistic"].strata, 11, 64)
     push!(TIERS["docs"].strata, 11)
+    REQUIRES["bvd_zones"] = (:_AllocateImports,)
 end
 
 # A user coupling and a user modifier with per-stratum parameters, each

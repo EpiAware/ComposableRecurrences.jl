@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
     Clamp, Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool,
     Pressure, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _Piecewise
+    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports, _Piecewise
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -116,7 +116,8 @@ end
 # `adapt(CuArray, r)` moves every parameter of `r` to a device.
 const _Adapted = Union{
     PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Pool, Add,
-    Clamp, Redistribute, Transform, Derived, Recurrence, Convolution, Flow,
+    Clamp, Redistribute, Transform, Derived, Recurrence, _AllocateImports,
+    Convolution, Flow,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
@@ -132,9 +133,11 @@ Adapt.adapt_structure(to, g::_Columns) = adapt(to, _Ragged(g.columns))
 Adapt.adapt_structure(to, ::_Piecewise) = throw(ArgumentError(_PIECEWISE_DEVICE))
 
 # `Allocate` keeps its groups, host index arrays that each step copies where
-# it needs them, and adapts its totals.
+# it needs them, and adapts its totals and imports.
 function Adapt.adapt_structure(to, m::Allocate)
-    return constructorof(typeof(m))(m.strata, m.offsets, adapt(to, m.total))
+    return constructorof(typeof(m))(
+        m.strata, m.offsets, adapt(to, m.total), adapt(to, m.imports)
+    )
 end
 
 end

@@ -1,8 +1,8 @@
 # BVD's zone share renewal: the health zones of each patch renew from their
 # own past infections, and each day the patch's infections are split among
 # its zones in proportion to that force. The unmixed split is `Allocate`;
-# the mixed split also reads the force before a within-patch spill, so it
-# is a user modifier on the zones' renewal.
+# the mixed split is `Allocate` with imports, whose pattern reads the force
+# before a within-patch spill.
 #
 # The zones are the strata; time is the grid day `j`, absolute day
 # `t0 + j - 1`.
@@ -68,32 +68,17 @@
 
     # Mixed, a share `ε_q` of zone q's force spills within its patch, the
     # patch's imported share lands in the pattern the other patches' zones
-    # send, and the rest is split by the spilled force. The between pattern
-    # reads the force before the spill, so both live in one modifier.
-    struct AllocateMixed{I, P, M, E}
-        I_bar::I
-        patch_ranges::P
-        t0::Int
-        mix::M
-        ε::E
-    end
-    function ComposableRecurrences.forward(
-            m::AllocateMixed, ::ComposableRecurrences.Step, v, s, t
+    # send, weighted by each origin, and the rest is split by the spilled
+    # force. The within block's columns sum to one, so the spill is a
+    # `Redistribute`.
+    pattern = mix.between .* permutedims(mix.origin_weight)
+    fraction = TimeVarying(PerStratum(mix.import_fraction[:, t0:n]))
+    function mixed_split(ε)
+        return CR.Allocate(
+            patch_ranges, TimeVarying(PerStratum(I_bar[:, t0:n]));
+            imports = (fraction, pattern),
+            spill = CR.Redistribute(mix.within, PerStratum(ε))
         )
-        floor_ = eps(eltype(v))
-        day = m.t0 + t - 1
-        u = copy(v)
-        V = (1 .- m.ε) .* u .+ m.mix.within * (m.ε .* u)
-        h = m.mix.between * (m.mix.origin_weight .* u)
-        for (p, zs) in enumerate(m.patch_ranges)
-            Ip = m.I_bar[p, day]
-            Mp = m.mix.import_fraction[p, day] * Ip
-            sv = max(sum(view(V, zs)), floor_)
-            sh = sum(view(h, zs))
-            share = sh > floor_ ? view(h, zs) ./ sh : view(V, zs) ./ sv
-            v[zs] .= (Ip - Mp) / sv .* view(V, zs) .+ Mp .* share
-        end
-        return nothing
     end
 
     # u_z = e^{δ_z} (Σ_s g_s I_z(t - s) + w0_z Λ^pre_p(t)): the deviation is
@@ -101,8 +86,7 @@
     function zones(δ, w0, ε; mixed)
         gain = exp.(permutedims(δ))
         add = gain .* w0 .* force_pre[patch_of_zone, t0:n]
-        split = mixed ? AllocateMixed(I_bar, patch_ranges, t0, mix, ε) :
-            unmixed
+        split = mixed ? mixed_split(ε) : unmixed
         r = Recurrence(g; modifiers = (split,))
         return permutedims(r(gain; history = zeros(nz, 1), add))
     end
