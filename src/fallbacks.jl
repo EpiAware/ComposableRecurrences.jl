@@ -195,10 +195,14 @@ function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     T = float(promote_type(map(typeof, x)..., param_eltype(m)))
     return _read_pullback(m, m̄, v̄, s̄, map(T, x), t, k)
 end
-function _read_pullback(m, m̄, v̄, s̄, x::NTuple{M, T}, t, k) where {M, T}
-    return _read_pullback(m, m̄, v̄, s̄, x, t, k, Val(M + _READS))
+# `x` holds the value and the state, then the scalars.
+function _read_pullback(m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k) where {T, N}
+    return _read_pullback(m, m̄, v̄, s̄, x, t, k, Val(N + 2 + _READS))
 end
-function _read_pullback(m, m̄, v̄, s̄, x::NTuple{M, T}, t, k, ::Val{W}) where {M, T, W}
+function _read_pullback(
+        m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{W}
+    ) where {T, N, W}
+    M = N + 2
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_read_pullback, T)), T, W}
     xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(M))
     reads = _Reads()
