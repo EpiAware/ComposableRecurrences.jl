@@ -136,8 +136,10 @@ end
 # shared with a closure (which would box it and allocate on every step).
 function _local_pullback(grads, m, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
-    m̄ === nothing || !_local_params(m) ||
-        return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
+    if m̄ !== nothing
+        _local_params(m) && return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
+        _array_params(m) && return _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
+    end
     _nactive(m̄, m) == 0 && return _value_pullback(m, v̄, s̄, v, s, t, k)
     return _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
 end
@@ -178,6 +180,123 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
     _add_scalar!(m̄, m, Base.tail(Base.tail(g)), (k, t))
     return g[1], g[2]
+end
+
+# The same derivative for a modifier with other float arrays, read entry by
+# entry (`m.a[t]`): the value, the state and the scalars are seeded as
+# before, and each array is wrapped so that each entry the step reads is a
+# dual number with a partial of its own, up to `_READS` of them. The reads
+# are recorded, and each one's cotangent goes to its entry. A step that
+# reads more takes the Jacobian instead.
+function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
+    x = (v, s, _param_tuple(m, (k, t))...)
+    T = float(promote_type(map(typeof, x)..., param_eltype(m)))
+    return _read_pullback(m, m̄, v̄, s̄, map(T, x), t, k)
+end
+function _read_pullback(m, m̄, v̄, s̄, x::NTuple{M, T}, t, k) where {M, T}
+    W = M + _READS
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_read_pullback, T)), T, W}
+    xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(M))
+    reads = _Reads()
+    md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, M), 1))
+    v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
+    reads.n > _READS && return _jacobian_pullback(m, m̄, v̄, s̄, x[1], x[2], t, k)
+    g = _vjp(v′, s′, v̄, s̄, ntuple(_ -> nothing, Val(W)))
+    _add_scalar!(m̄, m, ntuple(i -> g[2 + i], Val(M - 2)), (k, t))
+    for j in 1:reads.n
+        _add_read!(m̄, m, reads.leaf[j], reads.index[j], g[M + j], 1)
+    end
+    return g[1], g[2]
+end
+
+# The reads of a modifier's float arrays in one dual step: for each, the
+# array (its position among them, `_rebuild_reads`'s leaf) and the linear
+# index read. `n` counts every read, so `n > _READS` marks a step that read
+# more than the partials hold.
+const _READS = 4
+mutable struct _Reads
+    n::Int
+    leaf::NTuple{_READS, Int}
+    index::NTuple{_READS, Int}
+end
+_Reads() = _Reads(0, ntuple(_ -> 0, Val(_READS)), ntuple(_ -> 0, Val(_READS)))
+
+# The dual type of a read step, its record and the partials before the
+# reads' (the value's, the state's and the scalars').
+struct _ReadSeed{D}
+    reads::_Reads
+    slot0::Int
+end
+
+# A modifier's float array inside its read step: each entry read is a dual
+# number of type `D` with the next read partial set, and is recorded.
+struct _ReadArray{D, N, A <: AbstractArray} <: AbstractArray{D, N}
+    x::A
+    leaf::Int
+    seed::_ReadSeed{D}
+end
+function _ReadArray(x::AbstractArray{<:Any, N}, leaf, seed::_ReadSeed{D}) where {D, N}
+    return _ReadArray{D, N, typeof(x)}(x, leaf, seed)
+end
+Base.size(a::_ReadArray) = size(a.x)
+Base.IndexStyle(::Type{<:_ReadArray}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(a::_ReadArray{D}, i::Int) where {D}
+    T = ForwardDiff.valtype(D)
+    v = T(a.x[i])
+    r = a.seed.reads
+    j = r.n + 1
+    r.n = j
+    j > _READS && return D(v)
+    r.leaf = Base.setindex(r.leaf, a.leaf, j)
+    r.index = Base.setindex(r.index, i, j)
+    return D(v, _unit(T, a.seed.slot0 + j, Val(ForwardDiff.npartials(D))))
+end
+
+# `x` with its float scalars, entry parameters included, taken from `θ` and
+# each other float array wrapped as a `_ReadArray`, numbered from leaf `l`
+# in field order; returns the object, the rest of `θ` and the next leaf.
+_rebuild_reads(::Union{AbstractFloat, _EntryParam}, θ, w, l) = (first(θ), Base.tail(θ), l)
+function _rebuild_reads(x::AbstractArray{<:AbstractFloat}, θ, w, l)
+    return _ReadArray(x, l, w), θ, l + 1
+end
+_rebuild_reads(x::_Leafless, θ, w, l) = (x, θ, l)
+_rebuild_reads(::Tuple{}, θ, w, l) = ((), θ, l)
+function _rebuild_reads(x::Tuple, θ, w, l)
+    a, θ, l = _rebuild_reads(first(x), θ, w, l)
+    b, θ, l = _rebuild_reads(Base.tail(x), θ, w, l)
+    return (a, b...), θ, l
+end
+function _rebuild_reads(x::NamedTuple{N}, θ, w, l) where {N}
+    y, θ, l = _rebuild_reads(Tuple(x), θ, w, l)
+    return NamedTuple{N}(y), θ, l
+end
+function _rebuild_reads(x, θ, w, l)
+    (isstructtype(typeof(x)) && _nparams(x) > 0) || return x, θ, l
+    fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
+    ys, θ, l = _rebuild_reads(fs, θ, w, l)
+    return constructorof(typeof(x))(ys...), θ, l
+end
+
+# Add `g` at linear index `i` of the mirror of float array `leaf` of `x`, in
+# `_rebuild_reads`'s numbering from `l`; returns the next leaf.
+_add_read!(x̄, ::Union{AbstractFloat, _EntryParam}, leaf, i, g, l) = l
+function _add_read!(x̄, ::AbstractArray{<:AbstractFloat}, leaf, i, g, l)
+    l == leaf && add_cotangent!(x̄, g, i)
+    return l + 1
+end
+_add_read!(x̄, ::_Leafless, leaf, i, g, l) = l
+function _add_read!(x̄, x::Union{Tuple, NamedTuple}, leaf, i, g, l)
+    for j in 1:length(x)
+        l = _add_read!(x̄ === nothing ? nothing : x̄[j], x[j], leaf, i, g, l)
+    end
+    return l
+end
+function _add_read!(x̄, x, leaf, i, g, l)
+    (isstructtype(typeof(x)) && _nparams(x) > 0) || return l
+    for n in fieldnames(typeof(x))
+        l = _add_read!(_field_mirror(x̄, n), getfield(x, n), leaf, i, g, l)
+    end
+    return l
 end
 
 # A coupling's pullback at one step: its own when it uses one, else the
@@ -458,8 +577,9 @@ end
 # that indexes such a parameter's array fails. Checked once, when a
 # `Recurrence` is built, for each part with float scalars.
 function _check_rebuild(x)
-    scalar = _scalar_params(x) || (ispointwise(x) && _local_params(x))
-    return _check_rebuild(Val(scalar), x)
+    _scalar_params(x) || (ispointwise(x) && _local_params(x)) ||
+        return ispointwise(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
+    return _check_rebuild(Val(true), x)
 end
 _check_rebuild(::Val{true}, x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
 function _check_rebuild(x, θ)
@@ -491,6 +611,37 @@ function _check_rebuild(::Val{false}, x)
         false
     end
 end
+# A pointwise modifier with other float arrays, rebuilt as its read step
+# does: the scalars must come back unchanged, each array must stay its
+# `_ReadArray`, and one step must run on the rebuild.
+function _check_reads(x)
+    θ = _param_tuple(x, (1, 1))
+    T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
+    M = length(θ) + 2
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_reads, T)), T, M + _READS}
+    θd = ntuple(i -> D(T(θ[i]), _unit(T, i + 2, Val(M + _READS))), length(θ))
+    return try
+        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(_Reads(), M), 1))
+        _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd) &&
+            (forward(xd, Step(), one(D), one(D), 1, 1); true)
+    catch e
+        e isa InterruptException && rethrow()
+        false
+    end
+end
+# Whether each float array of `x` (outside entry parameters) is a
+# `_ReadArray` of itself in `y`.
+_reads_kept(::Union{AbstractFloat, _EntryParam}, y) = true
+_reads_kept(x::AbstractArray{<:AbstractFloat}, y) = y isa _ReadArray && y.x === x
+_reads_kept(::_Leafless, y) = true
+function _reads_kept(x::Union{Tuple, NamedTuple}, y)
+    return all(map(_reads_kept, values(x), values(y)))
+end
+function _reads_kept(x, y)
+    isstructtype(typeof(x)) || return true
+    return all(i -> _reads_kept(getfield(x, i), getfield(y, i)), 1:fieldcount(typeof(x)))
+end
+
 # Write the leaves of `y`, a rebuild of `x`, where `_getparams!` reads `x`'s
 # parameters, into `θ` after offset `o`; return the new offset.
 _rebuilt_params!(θ, ::AbstractFloat, y, o) = (θ[o + 1] = y; o + 1)

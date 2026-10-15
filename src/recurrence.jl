@@ -685,7 +685,7 @@ _no_adjoint_kernel(kernel) = ()
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _local_params(m) && !_reads_outputs(m) && return :local
+    ispointwise(m) && _array_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -726,7 +726,7 @@ end
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
-    return _modifier_adjoint(m) === :local && _param_tuple(m) !== () ? (m,) : ()
+    return _modifier_adjoint(m) === :local && _nparams(m) > 0 ? (m,) : ()
 end
 function _local_modifier(m::Depletion)
     f = m.form
@@ -823,15 +823,13 @@ function _has_float(::Type{T}) where {T}
     return false
 end
 # Whether a type holds a parameter the local step cannot seed: an array
-# whose entries are not concrete floats (an array of arrays, say) or of
-# unknown type, a field of unknown type, or a function with float fields.
-# Float arrays, the entries of which a coupling's local step seeds, are
-# allowed, as are arrays of integers, which hold no parameters.
+# whose entries are not numbers of a concrete type (an array of arrays,
+# say), a field of unknown type, or a function with float fields. Float
+# arrays, whose entries the local step seeds, are allowed, as are arrays of
+# other numbers (integers, or the dual numbers of a forward-mode call),
+# which hold no parameters it seeds.
 function _has_opaque_params(::Type{T}) where {T}
-    if T <: AbstractArray
-        E = eltype(T)
-        return !(isconcretetype(E) && E <: Union{AbstractFloat, Integer, Bool})
-    end
+    T <: AbstractArray && return !(isconcretetype(eltype(T)) && eltype(T) <: Real)
     T <: Function && return _has_float(T)
     T <: Union{Real, Nothing, Symbol, AbstractString} && return false
     isconcretetype(T) || return true
