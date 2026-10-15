@@ -45,9 +45,9 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
 | pointwise modifier or depletion form with another array parameter | plain AD |
 | modifier with a vector or blockwise step | plain AD |
-| coupling with only scalar float parameters, strata plus scalars at most 12 | rule, local ForwardDiff step |
-| the same coupling with 13 to 24 | rule on Mooncake, plain AD on Enzyme |
-| the same coupling with more than 24 | plain AD |
+| coupling with only scalar float parameters, strata plus scalars at most 24 | rule, local ForwardDiff step |
+| the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
+| the same coupling with more than 48 | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
@@ -122,18 +122,20 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Convolution` | 0.48 | 0.64 | keep |
 | pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep, slower on Enzyme |
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
-| coupling without a `pullback!`, up to 12 strata and scalars | 0.50² | 0.78² | keep |
-| coupling without a `pullback!`, 13 to 24 strata and scalars | 0.64² | 1.46² | keep on Mooncake |
+| coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
+| coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 
-² The worst of 3, 5, 10, 20, 23 and 50 strata within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
+² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
+The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
 
 ³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
 On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
-A coupling whose cost grows with the strata squared is 1.46 times slower than plain AD on Enzyme at 20 strata, hence the limit of 12 there.
-On Mooncake the same coupling is 0.83 times plain AD at 30 strata and 1.08 at 36, hence the limit of 24.
+The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
+On Enzyme it is 0.96 times plain AD at 23 strata, one pass, and 1.58 at 26, two passes.
+On Mooncake it is 0.77 at 44 strata, two passes, and 1.08 at 50, three.
 A coupling whose cost grows with the strata alone is 0.23 times plain AD on Mooncake at 50 strata, but the limit sends it to plain AD, so give such a coupling a `pullback!`.
 
 ## [Checking a rule](@id adjoint-checks)

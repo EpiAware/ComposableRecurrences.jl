@@ -25,7 +25,8 @@ using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
-    backend_broken_scenarios, backend_skip_scenarios, FlooredDepletion,
+    backend_broken_scenarios, backend_plain_scenarios, backend_skip_scenarios,
+    FlooredDepletion,
     supports, unsupported_scenarios
 
 # ForwardDiff reference gradient for a scenario function.
@@ -1296,6 +1297,17 @@ function _strata_modifier(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The same coupling across 30 strata: its local derivative takes two passes
+# of dual numbers, a rule on Mooncake and plain AD on Enzyme.
+const SW = 30
+const WSW = [cos(0.3 * a + 0.1 * t) for a in 1:SW, t in 1:T]
+function _user_coupling_wide(w, θ)
+    logh, logR, a = _unpack(θ, (SW, L), (SW, T), (1,))
+    r = Recurrence(G0; coupling = ShareFirst(only(a)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WSW .* log.(y))
+end
+
 # The same modifier with its scale from change points: the local derivative
 # reads one entry of it per step.
 function _strata_modifier_piecewise(w, θ)
@@ -1317,6 +1329,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
     (
+        "Recurrence user coupling across 30 strata", _user_coupling_wide,
+        () -> _flat(zeros(SW, L), [0.1 * sin(a + t) for a in 1:SW, t in 1:T], [0.3]),
+    ),
+    (
         "Recurrence modifier without a pullback, parameter from change points",
         _strata_modifier_piecewise,
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], [1.2, 0.8]),
@@ -1325,6 +1341,7 @@ push!(
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
+_REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
 let name = "Recurrence modifier without a pullback, parameter from change points"
     _REQUIRES[name] = (:_Piecewise,)
@@ -1445,6 +1462,15 @@ function backend_skip_scenarios()
             ]
         ),
     )
+end
+
+"""
+Per-backend scenario names whose call takes plain AD by design, so the
+analytic reverse pass does not run: a coupling's local derivative in two
+passes of dual numbers is a rule on Mooncake only.
+"""
+function backend_plain_scenarios()
+    return Dict("Enzyme reverse" => Set(["Recurrence user coupling across 30 strata"]))
 end
 
 # The benchmark matrix cases at realistic sizes (see benchmark/matrix.jl).

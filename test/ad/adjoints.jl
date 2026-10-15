@@ -390,18 +390,21 @@
     end
 
     # Each registry scenario's gradient on `backend` runs the analytic
-    # reverse pass, and no `NoAdjoint` twin's does. The counter is reset per
+    # reverse pass, and no `NoAdjoint` twin's does, nor a scenario that
+    # takes plain AD on the backend by design. The counter is reset per
     # scenario. In one CI job the gradients reuse the code the backend's
     # registry item compiled. A scenario marked broken on the backend is
     # recorded as broken while it fails, as in `test_adjoint_case`.
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
+        plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
         for scen in ADFixtures.scenarios()
             scen.name in skip && continue
+            rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
             scenario_testset(name, scen.name) do
                 CR._PULLBACK_CALLS[] = 0
                 DifferentiationInterface.gradient(scen.f, backend, scen.x)
-                @test (CR._PULLBACK_CALLS[] > 0) == !startswith(scen.name, "NoAdjoint")
+                @test (CR._PULLBACK_CALLS[] > 0) == rule
             end
         end
         return nothing
@@ -1415,13 +1418,13 @@ end
         r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Plain(PerStratum(θ[2:(S + 1)])),))
         return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
     end
-    # Blend's local step fires up to 11 strata (with its one scalar), and
-    # on Mooncake up to 23; Direct sends the operator to plain AD at any
+    # Blend's local step fires up to 23 strata (with its one scalar), and
+    # on Mooncake up to 47; Direct sends the operator to plain AD at any
     # size. `fires` holds the Mooncake and the Enzyme outcome.
     cases = (
-        (loss_param, 3, (true, true)), (loss_param, 11, (true, true)),
-        (loss_param, 12, (true, false)), (loss_param, 23, (true, false)),
-        (loss_param, 24, (false, false)), (loss, 3, (false, false)),
+        (loss_param, 3, (true, true)), (loss_param, 23, (true, true)),
+        (loss_param, 24, (true, false)), (loss_param, 47, (true, false)),
+        (loss_param, 48, (false, false)), (loss, 3, (false, false)),
     )
     for (L, S, fires) in cases
         θ = [0.4; fill(5.0, S)]

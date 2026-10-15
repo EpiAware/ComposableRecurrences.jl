@@ -170,10 +170,10 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
 end
 
 # The rule also covers a call whose local coupling derivative needs a
-# second pass of dual numbers (13 to 24 strata and scalars). It beats plain
-# AD there on Mooncake, 0.62 of its time for a dense coupling at 23 strata,
-# but not on Enzyme, 1.46 at 20, so only this extension makes `_ad_wide` a
-# rule primitive.
+# second pass of dual numbers (25 to 48 strata and scalars). It beats plain
+# AD there on Mooncake, at most 0.81 of its time for a dense coupling, but
+# not on Enzyme, 1.58 at 26 strata, so only this extension makes `_ad_wide`
+# a rule primitive.
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad_wide), Vararg}
 )

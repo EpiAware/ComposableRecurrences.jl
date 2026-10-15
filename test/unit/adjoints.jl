@@ -237,6 +237,15 @@ end
     K = rand(rng, S, S) ./ 2
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
+    # Import patterns: dense and sparse, and one that varies over time. The
+    # spill kernel has a nonzero diagonal, which the movement leaves out.
+    prng = Xoshiro(7)
+    P = rand(prng, S, S)
+    PT = 0.5 .+ rand(prng, S, S, T)
+    Ks = rand(prng, S, S) ./ 2 + 0.3I
+    Ms = CR.movement(Ks, [0.3, 0.2, 0.1])
+    spill = CR.Redistribute(Ms)
+    sparse_spill = CR.Redistribute(sparse(Ms))
     for mods in (
             (PoolDepletion([30.0, 40.0, 50.0]),),
             (Hazard(45.0),),
@@ -249,6 +258,22 @@ end
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+            (CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, P), spill),),
+            (
+                CR.Allocate(
+                    [[1, 3], [2]], 4.0; imports = (0.3, P), spill = sparse_spill
+                ),
+            ),
+            (
+                CR.Allocate(
+                    [[1, 3], [2]], PerStratum([4.0, 2.0]);
+                    imports = (PerStratum([0.2, 0.4]), sparse(P)), spill
+                ),
+            ),
+            (
+                CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, TimeVarying(PT))),
+                CR.Add(0.2),
+            ),
             (CR.Capacity(1.5, CR.Beds(0.3); pairs = [1 => 3], form = CR.SoftTruncate(0.1)),),
             (
                 CR.Capacity(
@@ -275,6 +300,72 @@ end
     beds = CR.Capacity(2.0, CR.Beds(0.2); pairs = [3 => 1], overflow = CR.Route())
     r = Recurrence(g; coupling = K, modifiers = (beds,))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([1.0],))...)
+end
+
+@testitem "Adjoint: Allocate imports read the record and batch the same" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    rng = Xoshiro(21)
+    S, L, T = 5, 3, 9
+    groups = [1:2, 3:5]
+    P = rand(rng, S, S)
+    K = rand(rng, S, S) ./ 2 + 0.2I
+    M = CR.movement(K, fill(0.2, S))
+    imports = (PerStratum([0.3, 0.5]), P)
+    m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(M))
+    # One step: the pullback given the state after the step, and given a
+    # per-pass buffer finished by `_finish_pass!`, matches the one that
+    # computes everything again.
+    v = 0.5 .+ rand(rng, S)
+    s = zeros(2S)
+    after = copy(s)
+    CR.forward(m, CR.Step(), copy(v), after, 3)
+    v̄0, s̄0 = randn(rng, S), randn(rng, 2S)
+    function step_back(extra)
+        m̄ = zero_mirror(m)
+        grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0), extra(m̄)...)
+        CR.pullback!(grads, m, CR.Step(), v, s, 3)
+        b = get(grads, :buffer, nothing)
+        b === nothing || CR._finish_pass!(m̄, m, (; V = reshape(v, :, 1)), b, 3)
+        return vcat(grads.v, grads.s, mirror_vec(m̄, m))
+    end
+    plain = step_back(m̄ -> (;))
+    @test step_back(m̄ -> (; after, pass = nothing)) ≈ plain rtol = 1.0e-12
+    batched = step_back() do m̄
+        b = @inferred CR._pass_buffer(v, Float64, m, m̄, S, 1)
+        @test b.hb isa Matrix && b.vc isa Matrix
+        return (; after, pass = CR._column(b, 1), buffer = b)
+    end
+    @test batched ≈ plain rtol = 1.0e-12
+    # A pattern mirror of the wrong size throws.
+    m̄ = zero_mirror(m)
+    bad = merge(m̄, (; imports = merge(m̄.imports, (; pattern = zeros(S, S + 1)))))
+    @test_throws DimensionMismatch CR._pass_buffer(v, Float64, m, bad, S, 1)
+    # Over a whole pass, threaded blocks give the same cotangents as serial.
+    g = rand(rng, L) ./ 2
+    h = 1 .+ rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    for spill in (CR.Redistribute(M), nothing)
+        r = Recurrence(
+            g; coupling = rand(rng, S, S) ./ 4,
+            modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Add(0.1))
+        )
+        xs = (r, recargs(R, nothing, h)...)
+        function cotangents()
+            y, cache = CR._run_forward(xs...)
+            ms = zero_mirror(xs)
+            ȳ = randlike(Xoshiro(3), y)
+            CR._run_pullback!((; piece = first(ms), y = ȳ, args = Base.tail(ms)), r, cache)
+            return mirror_vec(ms, xs)
+        end
+        serial = with(cotangents, CR.EXECUTOR => CR.Serial())
+        for ex in (CR.Threaded(; min_work = 0, ntasks = 2), CR.Threaded(; min_work = 0))
+            @test with(cotangents, CR.EXECUTOR => ex) == serial
+        end
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
 end
 
 @testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin
@@ -1215,10 +1306,10 @@ end
         CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
         return @allocated CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
     end
-    # One pass of 4, 8 or 12 partials, and more than one when called
-    # directly with more inputs.
+    # One pass of 4, 8, 12 or 24 partials, and more than one when called
+    # directly with more inputs, the last pass partly filled.
     rng = Xoshiro(5)
-    for S in (2, 6, 10, 30)
+    for S in (2, 6, 10, 20, 23, 60)
         p, q̄ = randn(rng, S), randn(rng, S)
         function pressure(x)
             q = zeros(eltype(x), S)
@@ -1255,14 +1346,14 @@ end
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
     @test val(r, 3) == [Val{:rule}]
-    @test CR._fit(r, args(10)...) === :one
-    @test CR._fit(r, args(11)...) === :wide
-    @test CR._fit(r, args(22)...) === :wide
-    @test CR._fit(r, args(23)...) === :none
+    @test CR._fit(r, args(22)...) === :one
+    @test CR._fit(r, args(23)...) === :wide
+    @test CR._fit(r, args(46)...) === :wide
+    @test CR._fit(r, args(47)...) === :none
     # Without a local step the route is the rule, as for any other operator.
     @test CR._fit(Recurrence([0.3]), args(50)...) === :one
     @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
-    for S in (11, 23, 24)
+    for S in (23, 46, 47)
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end

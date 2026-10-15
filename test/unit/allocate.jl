@@ -409,7 +409,7 @@ end
     @test_throws ArgumentError CR.Allocate(
         gs, 1.0; imports = (0.1, TimeVarying(ones(3)))
     )
-    # The pattern, the spill's kernel and its intensity against the strata.
+    # The pattern and the spill's movement, fixed or over time, against the strata.
     for split in (
             CR.Allocate(gs, 1.0; imports = (0.1, ones(2, 2))),
             CR.Allocate(
