@@ -176,7 +176,12 @@ end
 # `Vararg{Any, N}` makes the routes specialise on the arguments, which they
 # pass to two calls.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
-adjoint_call(n::NoAdjoint, args...) = _plain(n.op, args...)
+# A `NoAdjoint` call is noted with the wrapper, which logs nothing, so a
+# backend's rule for the note still sees the operator.
+function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
+    _note_plain_type(n, args...)
+    return _plain(n.op, args...)
+end
 function _route_val(op, args...)
     return Val(_type_adjoint(op, Run()) && _gate(op, args...) ? :rule : :plain)
 end
@@ -288,6 +293,7 @@ end
 @noinline _note_plain_type(op, args...) = (Base.donotdelete(op, args...); nothing)
 const _PLAIN_NOTED = Set{Any}()
 const _PLAIN_LOCK = ReentrantLock()
+_log_plain(::NoAdjoint) = nothing
 function _log_plain(op)
     T = typeof(op)
     new = @lock _PLAIN_LOCK (T in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, T); true))
