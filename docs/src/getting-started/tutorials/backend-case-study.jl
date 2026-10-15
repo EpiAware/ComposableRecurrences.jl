@@ -18,7 +18,7 @@
 #
 # ### What might I need to know before starting
 #
-# This page builds on [Renewal then delay](@ref tutorial-renewal-delay) and [Spatial and multi-type models](@ref tutorial-spatial-strata).
+# This page builds on [Renewal then delay](@ref tutorial-renewal-delay) and [Spatial models](@ref tutorial-spatial-strata).
 # [Adjoints and backends](@ref adjoints-backends) explains the routes a gradient can take.
 # No fitting is involved.
 
@@ -54,7 +54,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 #
 # ``N_p`` is patch ``p``'s population, and its pool starts at ``s_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
 # [Renewal then delay](@ref tutorial-renewal-delay) builds the renewal, the depletion and the delay one at a time.
-# [Spatial and multi-type models](@ref tutorial-spatial-strata) builds the importation.
+# [Spatial models](@ref tutorial-spatial-strata) builds the importation.
 # Here they are one model, at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
 
 S, T, L, D = 11, 200, 20, 30

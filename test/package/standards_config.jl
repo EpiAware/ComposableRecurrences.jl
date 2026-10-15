@@ -51,8 +51,8 @@ const PACKAGE_NAME_SKIP = ("src/docstrings.jl",)
 const MATHS_FIRST_PAGES = (
     "README.md",
     "docs/src/getting-started/index.md",
+    "docs/src/developer/extending.md",
     "docs/src/getting-started/tutorials/backend-case-study.jl",
-    "docs/src/getting-started/tutorials/custom-modifier.jl",
     "docs/src/getting-started/tutorials/latent-processes.jl",
     "docs/src/getting-started/tutorials/occupancy.jl",
     "docs/src/getting-started/tutorials/renewal-then-delay.jl",
@@ -67,12 +67,38 @@ const MATHS_FIRST_CALLS = (
 # Sections that only reuse a model introduced earlier on the page, as
 # `page => heading`, so need no equation of their own.
 const MATHS_FIRST_REUSE = (
-    # Rebuilds the saturation and feedback models to differentiate them.
-    "docs/src/getting-started/tutorials/transform.jl" => "Gradients",
+    # Runs the smoothing modifier through the operator to check its rule.
+    "docs/src/developer/extending.md" => "Checking a new type",
 )
 # Sections still giving prose before their code, as `page => heading`,
 # marked broken until they gain a ```math block.
 const PENDING_MATHS_FIRST = ()
+
+# Concepts with one home: `anchor => (page, phrases)`. The page holds the
+# anchor and every phrase, and no other README, docs page or tutorial uses
+# a phrase. Other pages link to the anchor rather than explain it again.
+const ONE_HOME = (
+    "explanation-lag-origin" => (
+        "docs/src/explanation/operators.md",
+        ("cannot depend on itself in the same step",),
+    ),
+    "adjoint-routing" => (
+        "docs/src/explanation/adjoints-and-backends.md",
+        ("local ForwardDiff step", "ConstructionBase.constructorof"),
+    ),
+    "adjoint-backends" => (
+        "docs/src/explanation/adjoints-and-backends.md",
+        ("which is not a target",),
+    ),
+    "extension-reactant" => (
+        "docs/src/extensions/reactant.md",
+        ("Reactant.@compile", "Reactant.to_rarray"),
+    ),
+    "tutorial-imports" => (
+        "docs/src/getting-started/tutorials/renewal-then-delay.jl",
+        ("drawn from the pool like local cases",),
+    ),
+)
 
 # Markdown sources for the prose checks: the README and every page and
 # Literate tutorial under docs/src.
