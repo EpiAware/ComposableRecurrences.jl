@@ -627,12 +627,15 @@ function pullback!(grads, m::_Flowing, ::Step, v::Number, s::Number, t, k)
 end
 
 # A group's step: the draw from its weighted stocks then the flows, or the
-# flows on its values.
+# flows on its values. The step, its pullback and their helpers are
+# inlined, as their calls are (see `_vector_step!`): the call-site inline
+# reaches only the first method, and across the inner call the rule's
+# reverse pass took about 45% longer per group.
 function forward(m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
     return _group_step(Val(_draws(m)), m, v, s, t, g)
 end
-_group_step(::Val{false}, m, v, s, t, g) = _flow_group(m.flows, v, g, t)
-function _group_step(::Val{true}, m, v, s, t, g)
+@inline _group_step(::Val{false}, m, v, s, t, g) = _flow_group(m.flows, v, g, t)
+@inline function _group_step(::Val{true}, m, v, s, t, g)
     y, x = _draw_stocks(m, only(v), s, t, g)
     return (y,), _flow_only(m.flows, x, g, t)
 end
@@ -653,7 +656,7 @@ function _weighted_sum(w::Tuple, x::Tuple, P)
 end
 
 # One group's draw from its stocks `x`, and the stocks after it.
-function _draw_stocks(m, v, x::NTuple{n}, t, g) where {n}
+@inline function _draw_stocks(m, v, x::NTuple{n}, t, g) where {n}
     w = _weights_at(m, Val(n), g, t)
     P = _weighted(w, x)
     y, _ = forward(
@@ -674,7 +677,7 @@ end
 function pullback!(grads, m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
     return _group_pullback(Val(_draws(m)), grads, m, v, s, t, g)
 end
-function _group_pullback(::Val{false}, grads, m, v, s::NTuple{n}, t, g) where {n}
+@inline function _group_pullback(::Val{false}, grads, m, v, s::NTuple{n}, t, g) where {n}
     x̄ = _flows_pullback(
         m.flows, cotangent(grads.piece, :flows), v, grads.v, grads.s, g, t
     )
@@ -684,7 +687,7 @@ end
 # `v` and `x` are the group's incoming value and stocks; returns the
 # cotangents of the inputs from those of the output and of the stocks after
 # the step.
-function _group_pullback(::Val{true}, grads, m, v, x::NTuple{n}, t, g) where {n}
+@inline function _group_pullback(::Val{true}, grads, m, v, x::NTuple{n}, t, g) where {n}
     m̄ = grads.piece
     α = _exponent_value(m.heterogeneity)
     vk, N = only(v), _pop(m.N, g, t)
@@ -721,7 +724,7 @@ end
 # weighted stocks from those of the stocks after the draw `x̄′`: each stock
 # lost the share `q = y / P` of its weighted stock, or with `P <= 0` the
 # first stock drawn lost `y`.
-function _shares_back(on, x̄′, w, x, q, P, ȳ, d, z, ::Val{n}) where {n}
+@inline function _shares_back(on, x̄′, w, x, q, P, ȳ, d, z, ::Val{n}) where {n}
     on || return x̄′, ntuple(_ -> z, Val(n)), ȳ - x̄′[d], z
     q̄ = _weighted_back(x̄′, w, x)
     x̄ = ntuple(i -> x̄′[i] * (1 - q * w[i]), Val(n))
