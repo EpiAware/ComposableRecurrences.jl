@@ -55,10 +55,11 @@ A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain
 
 The local step rebuilds a part with dual numbers in place of its float parameters; [What the local step needs](@ref adjoint-local-step) lists the conditions.
 The `Recurrence` constructor checks the rebuild once and stores the result.
-Above 12 strata and scalars the local step of a coupling needs more than one pass of dual numbers per step, and above 24 more than two.
+Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
-Under Mooncake or Enzyme reverse mode, the first call of each operator type that one of these parts sends to plain AD logs an `@info` naming the coupling, modifier or depletion form that caused it.
-A `NoAdjoint` call, or one sent to plain AD by its float or array types, logs nothing.
+The `Recurrence` constructor logs an `@info` when one of these parts sends the operator to plain AD, naming the part and the reason.
+It logs each message once per session, whatever the number types.
+A call sent to plain AD by its number of strata, or by its float or array types, logs nothing.
 
 ### [What the local step needs](@id adjoint-local-step)
 
