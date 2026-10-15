@@ -280,14 +280,25 @@ end
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
     @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
     @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
-    # The parameter forms the kernel-and-intensity Redistribute took read as
-    # the vector and the matrix they hold; one that reads the outputs throws.
+    # The parameter forms the kernel-and-intensity Redistribute took: a
+    # PerStratum vector and strata × time matrix read as what they hold, and
+    # any other parameter at each origin and time.
+    entries(X) = [X.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2]
     @test CR.movement(K, PerStratum(E[:, 1])) == CR.movement(K, E[:, 1])
-    W = CR.movement(K, TimeVarying(PerStratum(E)))
-    @test [W.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2] ==
-        [M.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2]
-    @test_throws "reads the outputs" CR.movement(K, CR.Derived(exp, PerStratum(E[:, 1])))
-    @test_throws "reads the outputs" CR.movement(K, CR.Recent(1))
+    @test entries(CR.movement(K, TimeVarying(PerStratum(E)))) == entries(M)
+    D = CR.movement(K, Derived(exp, TimeVarying(PerStratum(log.(E)))))
+    @test entries(D) ≈ entries(M)
+    @test entries(CR.movement(K, TimeVarying([0.1, 0.2]))) ≈
+        entries(CR.movement(K, [0.1 0.2; 0.1 0.2; 0.1 0.2]))
+    @test_throws "ε is one value" CR.movement(K, "fast")
+    @test_throws "S × S kernel matrix" CR.movement([0.1, 0.2], 0.1)
+    # A parameter's strata are checked when the run starts.
+    r3 = Recurrence([0.5]; modifiers = (CR.Redistribute(CR.movement(K, D.x.E)),))
+    @test size(r3(ones(3, 2); history = ones(3, 1))) == (3, 2)
+    short = CR.Redistribute(CR.movement(K, Derived(exp, PerStratum([0.0, 0.0]))))
+    @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (short,))(
+        ones(3, 2); history = ones(3, 1)
+    )
     # With one stratum nothing moves: the value passes on, the arrivals are
     # zero, and the kernel and intensity get no gradient.
     one = CR.Redistribute(CR.movement(fill(0.4, 1, 1), [0.2 0.3]))

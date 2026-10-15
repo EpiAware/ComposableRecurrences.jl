@@ -151,6 +151,11 @@ end
             u -> RecentSpill.Spill(K, u), x -> Derived(tanh, 0.01 * x),
             u -> tanh(0.01 * u),
         ),
+        # Movement whose intensity reads the outputs.
+        (
+            u -> CR.Redistribute(CR.movement(K, u)), x -> Derived(tanh, 0.01 * x),
+            u -> tanh(0.01 * u),
+        ),
     )
     for (build, src, f) in cases, C in (I, K)
         w = rand(rng, W)
@@ -190,6 +195,7 @@ end
         (CR.Depletion(PerStratum([50.0, 80.0]); removals = 0.2 * Recent(w)),),
         (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3))),
         (RecentSpill.Spill(K, Derived(tanh, 0.1 * Recent(w))),),
+        (CR.Redistribute(CR.movement(K, Derived(tanh, 0.1 * Recent(w)))),),
     )
     for ms in mods, C in (I, K)
         r = Recurrence(g; coupling = C, modifiers = ms)

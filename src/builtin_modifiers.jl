@@ -773,9 +773,10 @@ diagonal of ``K``, and every column of ``M`` sums to one.
 origins × time matrix, which gives `TimeVarying` of an `S × S × T` array.
 `PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
 the matrix they hold.
-An intensity that reads the outputs, such as one built with `Derived` or
-[`Recent`](@ref), has no fixed movement matrix, so it is an
-`ArgumentError`; it needs its own vector modifier.
+Any other [parameter](@ref ComposableRecurrences.param), such as
+`TimeVarying(ε)` over time or one built with `Derived` or
+[`Recent`](@ref) that reads the outputs, gives a movement read at each step
+as ``M_t`` above with ``\varepsilon_{t,q}`` that parameter at origin ``q``.
 The array is held as ``K``, ``\varepsilon`` and the column sums ``o`` and
 read from them, so a step costs one product with ``K`` and its reverse pass
 gives the cotangents of ``K`` and ``\varepsilon`` without storing a matrix
@@ -804,15 +805,10 @@ movement(K::AbstractMatrix, ε::PerStratum{<:AbstractVector}) = movement(K, ε.x
 function movement(K::AbstractMatrix, ε::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}})
     return movement(K, ε.x.x)
 end
+movement(K::AbstractMatrix, ε) = TimeVarying(_Movement(K, _check_param(:ε, ε)))
 function movement(K, ε)
     throw(
-        ArgumentError(
-            "movement takes a kernel matrix and ε as one value, a vector over " *
-                "origins, an origins × time matrix, or PerStratum or " *
-                "TimeVarying(PerStratum) of these, got $(_describe(K)) and " *
-                "$(_describe(ε)); an intensity that reads the outputs needs " *
-                "its own vector modifier"
-        )
+        ArgumentError("movement takes an S × S kernel matrix, got $(_describe(K))")
     )
 end
 _origins(ε::Real) = ε
@@ -830,19 +826,39 @@ end
 # with `o` the column sums of `K`, summed where they are read. Its columns
 # sum to one by construction. It is a struct of its arrays, not an array, so
 # the rules read its cotangent field by field.
-struct _Movement{KT <: AbstractMatrix, ET <: AbstractMatrix}
+struct _Movement{KT <: AbstractMatrix, ET}
     K::KT
     E::ET
-    function _Movement(K::KT, E::ET) where {KT <: AbstractMatrix, ET <: AbstractMatrix}
-        size(K, 1) == size(K, 2) == size(E, 1) || throw(
-            DimensionMismatch(
-                "K is $(size(K)) and ε is $(size(E)); expected S × S and S × T"
-            )
-        )
+    function _Movement(K::KT, E::ET) where {KT <: AbstractMatrix, ET}
+        _check_movement_sizes(K, E)
         return new{KT, ET}(K, E)
     end
 end
-Base.size(m::_Movement) = (size(m.K, 1), size(m.K, 2), size(m.E, 2))
+# The intensity is an origins × time matrix, or a parameter read at each
+# origin and time (its strata are checked where the run's are known).
+@noinline function _check_movement_sizes(K, E::AbstractMatrix)
+    size(K, 1) == size(K, 2) == size(E, 1) || throw(
+        DimensionMismatch(
+            "K is $(size(K)) and ε is $(size(E)); expected S × S and S × T"
+        )
+    )
+    return nothing
+end
+@noinline function _check_movement_sizes(K, E)
+    size(K, 1) == size(K, 2) || throw(
+        DimensionMismatch("K is $(size(K)), expected a square matrix")
+    )
+    return nothing
+end
+_intensity(E::AbstractMatrix, q, t) = E[q, t]
+_intensity(E, q, t) = param(E, q, t)
+_add_intensity!(Ē, E::AbstractMatrix, x, q, t) = add_cotangent!(Ē, x, q, t)
+_add_intensity!(Ē, E, x, q, t) = add_param!(Ē, E, x, q, t)
+_check_time(E::AbstractMatrix, t) = checkbounds(E, :, t)
+_check_time(E, t) = nothing
+_ntimes(E::AbstractMatrix) = size(E, 2)
+_ntimes(E) = 1
+Base.size(m::_Movement) = (size(m.K, 1), size(m.K, 2), _ntimes(m.E))
 Base.size(m::_Movement, d::Integer) = size(m)[d]
 Base.ndims(::_Movement) = 3
 function _colsum(K, b)
@@ -853,12 +869,21 @@ function _colsum(K, b)
     return o
 end
 function Base.getindex(m::_Movement, p::Integer, q::Integer, t::Integer)
-    e = m.E[q, t]
+    e = _intensity(m.E, q, t)
     return (p == q) * (1 - e * _colsum(m.K, q)) + m.K[p, q] * e
 end
 _over_time(::_Movement) = true
 _array(m::_Movement) = m
-_extent(m::_Movement) = size(m.E, 2)
+_extent(m::_Movement{<:AbstractMatrix, <:AbstractMatrix}) = size(m.E, 2)
+_extent(m::_Movement) = nothing
+# A movement covers the times its intensity does: an origins × time matrix
+# its columns, a parameter whatever its own time-varying parts cover.
+function _check_leaf(name, x::TimeVarying{Secondary, <:_Movement}, stop)
+    E = x.x.E
+    E isa AbstractMatrix && return _check_covers(name, size(E, 2), stop)
+    return _check_times(name, E, stop)
+end
+_check_leaf(name, ::TimeVarying{Secondary, <:_Movement}, ::Nothing) = nothing
 _check_coupling_shape(::TimeVarying{Secondary, <:_Movement}) = nothing
 _check_columns(::_Movement, leak) = nothing
 # With one stratum a movement of a kernel and an intensity is the identity
@@ -871,17 +896,18 @@ _stays(M::TimeVarying{<:Any, <:_Movement}) = size(M.x.K, 1) == 1
 # column's sum taken as the column is read.
 function forward(C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t)
     (; K, E) = C.x
-    checkbounds(E, :, t)
+    _check_time(E, t)
     _check_pressure(K, q, p)
     fill!(q, zero(eltype(q)))
     for b in axes(K, 2)
-        w = E[b, t] * p[b]
+        e = _intensity(E, b, t)
+        w = e * p[b]
         o = zero(eltype(K))
         for a in axes(K, 1)
             q[a] += K[a, b] * w
             o += K[a, b]
         end
-        q[b] += (1 - E[b, t] * o) * p[b]
+        q[b] += (1 - e * o) * p[b]
     end
     return nothing
 end
@@ -899,14 +925,15 @@ function pullback!(
     for b in axes(K, 2)
         c = zero(eltype(p̄))
         o = zero(eltype(K))
-        w = E[b, t] * p[b]
+        e = _intensity(E, b, t)
+        w = e * p[b]
         for a in axes(K, 1)
             c += K[a, b] * q̄[a]
             o += K[a, b]
             add_cotangent!(K̄, w * (q̄[a] - q̄[b]), a, b)
         end
-        p̄[b] += E[b, t] * c + (1 - E[b, t] * o) * q̄[b]
-        add_cotangent!(Ē, p[b] * (c - o * q̄[b]), b, t)
+        p̄[b] += e * c + (1 - e * o) * q̄[b]
+        _add_intensity!(Ē, E, p[b] * (c - o * q̄[b]), b, t)
     end
     return nothing
 end
@@ -915,10 +942,12 @@ end
 # `E` and, on the diagonal, the column sum of `K`.
 _add_movement_entry!(::Nothing, X::_Movement, x, a, b, t) = nothing
 function _add_movement_entry!(X̄, X::_Movement, x, a, b, t)
-    e = X.E[b, t]
+    e = _intensity(X.E, b, t)
     K̄ = cotangent(X̄, :K)
     add_cotangent!(K̄, x * e, a, b)
-    add_cotangent!(cotangent(X̄, :E), x * (X.K[a, b] - (a == b) * _colsum(X.K, b)), b, t)
+    _add_intensity!(
+        cotangent(X̄, :E), X.E, x * (X.K[a, b] - (a == b) * _colsum(X.K, b)), b, t
+    )
     if a == b
         for r in axes(X.K, 1)
             add_cotangent!(K̄, -x * e, r, b)
@@ -933,18 +962,19 @@ end
 function forward(m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}}, ::Step, v, s, t)
     _stays(m.M) && return (fill!(s, zero(eltype(s))); nothing)
     (; K, E) = m.M.x
-    checkbounds(E, :, t)
+    _check_time(E, t)
     _check_pressure(K, s, v)
     fill!(s, zero(eltype(s)))
     for b in axes(K, 2)
-        w = E[b, t] * v[b]
+        e = _intensity(E, b, t)
+        w = e * v[b]
         o = zero(eltype(K))
         for a in axes(K, 1)
             s[a] += K[a, b] * w
             o += K[a, b]
         end
         s[b] -= K[b, b] * w
-        v[b] = (1 - E[b, t] * o) * v[b] + K[b, b] * w
+        v[b] = (1 - e * o) * v[b] + K[b, b] * w
     end
     for a in eachindex(v, s)
         v[a] += s[a]
@@ -962,22 +992,51 @@ end
 function _check_modifier_strata(m::Redistribute{L}, S) where {L}
     _check_coupling(m.M, S)
     _check_columns(_movement_array(m.M), L)
+    _check_intensity_strata(m.M, S)
+    return nothing
+end
+_check_intensity_strata(M, S) = nothing
+function _check_intensity_strata(M::TimeVarying{<:Any, <:_Movement}, S)
+    E = M.x.E
+    E isa AbstractMatrix || _check_param_strata(:ε, E, S)
     return nothing
 end
 _movement_array(M::AbstractMatrix) = M
 _movement_array(M::TimeVarying) = M.x
 function _check_columns(A, leak)
     tol = sqrt(eps(float(_primal_type(eltype(A)))))
-    sums = sum(A; dims = 1)
-    ok = leak ? all(<=(1 + tol), sums) : all(x -> abs(x - 1) <= tol, sums)
-    ok || throw(
+    lo, hi = _column_sum_range(A)
+    ok = leak ? hi <= 1 + tol : (abs(lo - 1) <= tol && abs(hi - 1) <= tol)
+    ok || _columns_error(leak, lo, hi)
+    return nothing
+end
+# The smallest and largest column sums over every column (and time): one
+# pass over a host array, a reduction elsewhere.
+_column_sum_range(A) = extrema(sum(A; dims = 1))
+function _column_sum_range(A::Array)
+    cs = CartesianIndices(Base.tail(axes(A)))
+    lo = hi = _column_sum(A, first(cs))
+    for c in cs
+        o = _column_sum(A, c)
+        lo, hi = min(lo, o), max(hi, o)
+    end
+    return lo, hi
+end
+function _column_sum(A, c)
+    o = zero(eltype(A))
+    for a in axes(A, 1)
+        o += A[a, c]
+    end
+    return o
+end
+@noinline function _columns_error(leak, lo, hi)
+    throw(
         ArgumentError(
             "every column of M must sum to " * (leak ? "at most one" : "one") *
                 (leak ? "" : " (or pass leak = true for columns that lose a share)") *
-                "; the column sums range over $(extrema(sums))"
+                "; the column sums range over $((lo, hi))"
         )
     )
-    return nothing
 end
 pullback!(grads, ::Redistribute, ::Init, s, history) = nothing
 
@@ -1011,8 +1070,13 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     for p in eachindex(v, v̄, s̄)
         s̄p = s̄[p]
         s̄[p] = v̄[p] + s̄p
-        v̄[p] = -_diag_at(M, p, t) * s̄p
-        iszero(s̄p) || _add_diag!(M̄, M, -s̄p * v[p], p, t)
+        # The diagonal is read only when the state's cotangent asks for it.
+        if iszero(s̄p)
+            v̄[p] = zero(eltype(v̄))
+        else
+            v̄[p] = -_diag_at(M, p, t) * s̄p
+            _add_diag!(M̄, M, -s̄p * v[p], p, t)
+        end
     end
     pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
     fill!(s̄, zero(eltype(s̄)))
