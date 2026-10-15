@@ -714,10 +714,14 @@ _check_rebuilds(::Tuple{}) = Val(true)
 function _check_rebuilds(parts::Tuple)
     failed = filter(!_check_rebuild, parts)
     isempty(failed) && return true
-    _note_plain(
-        map(p -> "$(nameof(typeof(p))) cannot be rebuilt from its own parameters", failed)
-    )
+    _note_plain(map(_rebuild_why, failed))
     return false
+end
+function _rebuild_why(p)
+    name = nameof(typeof(p))
+    _reads_too_many(p) &&
+        return "$name reads more than $_READ_CAP entries of its arrays in a step"
+    return "$name cannot be rebuilt from its own parameters"
 end
 # The coupling, modifiers and depletion forms the local step rebuilds.
 function _local_part(C)

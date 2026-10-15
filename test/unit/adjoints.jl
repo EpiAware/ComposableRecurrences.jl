@@ -1312,7 +1312,7 @@ end
     for m in (
             ByT(a), ByKT(0.8 .+ 0.2 .* rand(rng, S, T)), Two(a), Every(a),
             Scaled(a, 1.3), Entry(a, PerStratum([0.9, 1.1])),
-            (Firsts(along, n) for n in (4, 5, 8, 9, 12, 13, 24, 25))...,
+            (Firsts(along, n) for n in (4, 5, 8, 9, 12, 13, 24))...,
             Pair2(a, [1.1, 0.9]), Nest((; w = a, inner = Inner([1.1, 0.9]))),
             ByT(Float32.(a)),
         )
@@ -1343,16 +1343,36 @@ end
     @inferred CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
     @test (@allocated CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)) < 400
     # A step that reads more than four entries runs once more with room for
-    # them all, up to 24, rather than taking the Jacobian in every entry.
+    # 8 or 12, and past 12 in passes of 12, rather than taking the Jacobian
+    # in every entry.
     function step_bytes(m)
         m̄ = zero_mirror(m)
         CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
         return @allocated CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
     end
     for n in (5, 9, 13, 24)
-        @test step_bytes(Firsts(along, n)) < 8000
+        @test step_bytes(Firsts(along, n)) < 2000
     end
-    @test step_bytes(Firsts(along, 25)) > step_bytes(Firsts(along, 24))
+    # A modifier whose step reads more than 24 entries takes plain AD, as
+    # it is faster there, and the constructor says why. A step of it run
+    # directly still matches ForwardDiff.
+    for n in (25, 30)
+        m = Firsts(along, n)
+        @test CR._modifier_adjoint(m) === :local
+        op = (empty!(CR._PLAIN_NOTED); @test_logs (:info, r"reads more than 24") Recurrence([0.3, 0.2]; modifiers = (m,)))
+        @test op.rebuilds === false
+        @test !CR.uses_adjoint(op, CR.Run())
+        x0 = [2.0; 1.5; CR._params(m)]
+        J = ForwardDiff.jacobian(x0) do x
+            md = CR._rebuild(m, view(x, 3:length(x)))
+            return collect(CR.forward(md, CR.Step(), x[1], x[2], 3, 2))
+        end
+        ref = transpose(J) * [0.3, 0.7]
+        m̄ = zero_mirror(m)
+        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
+        @test collect(got) ≈ ref[1:2]
+        @test mirror_vec(m̄, m) ≈ ref[3:end]
+    end
     # A constructor that changes its array, a step that needs the array's
     # own type, and an array of arrays keep plain AD.
     struct Halved{A} <: Reader
@@ -1423,6 +1443,23 @@ end
     @test pullback_matches(r, args(3)...)
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :wide
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(7, 7))), args(7)...) === :none
+    # A coupling whose arrays sit in a named tuple and a tuple, beside a
+    # scalar and an integer.
+    struct NTMix{N, P}
+        nt::N
+        tp::P
+    end
+    function CR.forward(C::NTMix, ::CR.Pressure, q, p, t)
+        mul!(q, C.nt.M, p)
+        q .= C.nt.a .* q .+ C.tp[1] .* p ./ C.nt.n
+        return nothing
+    end
+    C = NTMix((; M = 0.5 .* rand(rng, 3, 3), a = 0.9, n = 2), ([0.1, 0.2, 0.3], 1))
+    @test CR._coupling_adjoint(C) === :local
+    r = Recurrence([0.3, 0.2]; coupling = C)
+    @test r.rebuilds === true
+    @test CR._fit(r, args(3)...) === :one
+    @test pullback_matches(r, args(3)...)
     # At the limits: 24 inputs in one pass, 48 in two.
     struct WMix{W}
         w::W

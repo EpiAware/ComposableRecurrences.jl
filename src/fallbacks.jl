@@ -207,9 +207,8 @@ end
 # A step that read `n` entries, more than the first pass holds: once more
 # with the smallest room that holds them, else in passes of the widest.
 function _read_wider(m, m̄, v̄, s̄, x, t, k, n)
-    _, R2, R3, R = _READ_WIDTHS
+    _, R2, R = _READ_WIDTHS
     n <= R2 && return _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R2), 0)
-    n <= R3 && return _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R3), 0)
     a, b = _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R), 0)
     for lo in R:R:(n - 1)
         _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R), lo)
@@ -257,7 +256,8 @@ end
 # `R` after the first `lo`: for each, the array (its position among them,
 # `_rebuild_reads`'s leaf) and the linear index read. `n` counts every
 # read, so `n > lo + R` marks a step that read more than the partials hold.
-const _READ_WIDTHS = (4, 8, 12, 24)
+const _READ_WIDTHS = (4, 8, 12)
+const _READ_CAP = 2 * last(_READ_WIDTHS)
 mutable struct _Reads{R}
     n::Int
     lo::Int
@@ -360,10 +360,14 @@ function _add_read!(x̄, x::Union{Tuple, NamedTuple}, leaf, i, g, l)
 end
 function _add_read!(x̄, x, leaf, i, g, l)
     _holds_floats(x) || return l
-    for n in fieldnames(typeof(x))
-        l = _add_read!(_field_mirror(x̄, n), getfield(x, n), leaf, i, g, l)
-    end
-    return l
+    return _add_reads!(x̄, x, Val(fieldnames(typeof(x))), leaf, i, g, l)
+end
+# Field by field, unrolled over the names so each field's type is known.
+_add_reads!(x̄, x, ::Val{()}, leaf, i, g, l) = l
+function _add_reads!(x̄, x, ::Val{N}, leaf, i, g, l) where {N}
+    n = first(N)
+    l = _add_read!(_field_mirror(x̄, n), getfield(x, n), leaf, i, g, l)
+    return _add_reads!(x̄, x, Val(Base.tail(N)), leaf, i, g, l)
 end
 
 # A coupling's pullback at one step: its own when it uses one, else the
@@ -676,22 +680,34 @@ function _check_rebuild(::Val{false}, x)
 end
 # A pointwise modifier with other float arrays, rebuilt as its read step
 # does: the scalars must come back unchanged, each array must stay its
-# `_ReadArray`, and one step must run on the rebuild.
-function _check_reads(x)
+# `_ReadArray`, and one step must run on the rebuild, reading at most
+# `_READ_CAP` entries; above that plain AD is faster.
+_check_reads(x) = 0 <= _probe_reads(x) <= _READ_CAP
+# The entries one read step of `x` reads at stratum 1 and time 1, or -1 if
+# the rebuild fails.
+function _probe_reads(x)
     θ = _param_tuple(x, (1, 1))
     T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
     M = length(θ) + 2
     R = first(_READ_WIDTHS)
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_reads, T)), T, M + R}
     θd = ntuple(i -> D(T(θ[i]), _unit(T, i + 2, Val(M + R))), length(θ))
+    reads = _Reads{R}()
     return try
-        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(_Reads{R}(), M), 1))
-        _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd) &&
-            (forward(xd, Step(), one(D), one(D), 1, 1); true)
+        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(reads, M), 1))
+        _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd) || return -1
+        forward(xd, Step(), one(D), one(D), 1, 1)
+        reads.n
     catch e
         e isa InterruptException && rethrow()
-        false
+        -1
     end
+end
+# Whether a part's read step reads more than `_READ_CAP` entries, as the
+# reason it takes plain AD.
+function _reads_too_many(x)
+    (_scalar_params(x) || !ispointwise(x) || _local_params(x)) && return false
+    return _probe_reads(x) > _READ_CAP
 end
 # Whether each float array of `x` (outside entry parameters) is a
 # `_ReadArray` of itself in `y`.

@@ -43,7 +43,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
-| pointwise modifier with other float arrays, or views of them, that its step indexes | rule on Mooncake, plain AD on Enzyme |
+| pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule on Mooncake, plain AD on Enzyme |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
 | modifier with a vector or blockwise step | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
@@ -80,8 +80,10 @@ A coupling over more strata than the route table allows needs a `pullback!` to t
 
 The local step of a pointwise modifier seeds the entries of its other float arrays that a step reads, as `m.a[t]`, and records which they are.
 Up to four reads take one pass of dual numbers.
-A step that reads more runs once more with room for 8, 12 or 24 reads.
-A step that reads more than 24 takes a Jacobian in every entry, which can be slower than plain AD, so such a step needs a `pullback!`.
+A step that reads more runs once more with room for 8 or 12, and past 12 in passes of 12.
+The `Recurrence` constructor runs one step at the first stratum and time and counts its reads.
+Above 24 the local step is slower than plain AD, so such a modifier takes plain AD, and the constructor says so.
+A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 
