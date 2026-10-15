@@ -1140,6 +1140,21 @@ end
     @test pullback_matches(r, recargs(1.1, nothing, [1.0, 2.0]; stop = 6)...)
 end
 
+@testitem "Adjoint: the local step rebuilds floats in fields of abstract type" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # A field without a type parameter may hold a float; the rebuild then
+    # reads it by value, so its cotangent is not lost.
+    struct Start
+        s0
+    end
+    CR.ispointwise(::Start) = true
+    CR.forward(m::Start, ::CR.Init, s, h) = (s .= m.s0; nothing)
+    @test CR._rebuild(Start(1.5), [9.0]) == Start(9.0)
+    grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
+    CR.pullback!(grads, Start(2.0), CR.Init(), zeros(2), ones(2, 2))
+    @test grads.piece.s0[] == 2.0
+end
+
 @testitem "Adjoint: local pullback over entry parameters" setup = [AdjointCheck] begin
     using ComposableRecurrences
     # A pointwise modifier whose array parameters a step reads one entry of
@@ -1263,13 +1278,43 @@ end
         b::B
     end
     CR.forward(m::Entry, ::CR.Step, v, s, t, k) = (CR.param(m.b, k, t) * v * m.a[t], s)
+    # The first `n` entries, so each width of the read step and the
+    # Jacobian beyond them are reached.
+    struct Firsts{A} <: Reader
+        a::A
+        n::Int
+    end
+    function CR.forward(m::Firsts, ::CR.Step, v, s, t, k)
+        acc = zero(v)
+        for i in 1:m.n
+            acc += m.a[i]
+        end
+        return v * acc / m.n, s
+    end
+    # Two arrays, and arrays inside a named tuple and an inner struct.
+    struct Pair2{A, B} <: Reader
+        a::A
+        b::B
+    end
+    CR.forward(m::Pair2, ::CR.Step, v, s, t, k) = (v * m.a[t] + m.b[k], s)
+    struct Inner{C}
+        c::C
+    end
+    struct Nest{N} <: Reader
+        nt::N
+    end
+    CR.forward(m::Nest, ::CR.Step, v, s, t, k) = (v * m.nt.w[t] * m.nt.inner.c[k], s)
     S, T = 2, 6
     rng = Xoshiro(6)
     a = 0.8 .+ 0.2 .* rand(rng, T)
+    along = 0.5 .+ rand(rng, 30)
     args = recargs(ones(S, T), nothing, ones(S, 2))
     for m in (
             ByT(a), ByKT(0.8 .+ 0.2 .* rand(rng, S, T)), Two(a), Every(a),
             Scaled(a, 1.3), Entry(a, PerStratum([0.9, 1.1])),
+            (Firsts(along, n) for n in (4, 5, 8, 9, 12, 13, 24, 25))...,
+            Pair2(a, [1.1, 0.9]), Nest((; w = a, inner = Inner([1.1, 0.9]))),
+            ByT(Float32.(a)),
         )
         @test CR._modifier_adjoint(m) === :local
         @test !CR._local_params(m)
@@ -1289,13 +1334,25 @@ end
         m̄ = zero_mirror(m)
         got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
         @test collect(got) ≈ ref[1:2]
-        @test mirror_vec(m̄, m) ≈ ref[3:end]
+        # A Float32 array keeps Float32 cotangents.
+        @test mirror_vec(m̄, m) ≈ ref[3:end] rtol = 1.0e-6
     end
     # The step infers and allocates only its record of the reads.
     m = ByT(a)
     m̄ = zero_mirror(m)
     @inferred CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
     @test (@allocated CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)) < 400
+    # A step that reads more than four entries runs once more with room for
+    # them all, up to 24, rather than taking the Jacobian in every entry.
+    function step_bytes(m)
+        m̄ = zero_mirror(m)
+        CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
+        return @allocated CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
+    end
+    for n in (5, 9, 13, 24)
+        @test step_bytes(Firsts(along, n)) < 8000
+    end
+    @test step_bytes(Firsts(along, 25)) > step_bytes(Firsts(along, 24))
     # A constructor that changes its array, a step that needs the array's
     # own type, and an array of arrays keep plain AD.
     struct Halved{A} <: Reader
@@ -1366,6 +1423,14 @@ end
     @test pullback_matches(r, args(3)...)
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :wide
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(7, 7))), args(7)...) === :none
+    # At the limits: 24 inputs in one pass, 48 in two.
+    struct WMix{W}
+        w::W
+    end
+    CR.forward(C::WMix, ::CR.Pressure, q, p, t) = (q .= (sum(C.w) / length(C.w)) .* p; nothing)
+    for (P, fit) in ((22, :one), (23, :wide), (46, :wide), (47, :none))
+        @test CR._fit(Recurrence([0.3]; coupling = WMix(rand(P))), args(2)...) === fit
+    end
     # A constructor that changes its matrix keeps plain AD.
     struct HalvedMix{M}
         M::M

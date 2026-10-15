@@ -771,9 +771,8 @@ end
 # `_ad_wide`; with more it takes plain AD.
 # A part the local step cannot rebuild sends every call to plain AD.
 # A pointwise modifier whose local step records its reads of float arrays
-# (`_read_pullback`) takes the wider route too: that step beats plain AD
-# only on the backend where `_ad_wide` is a rule, and is 1.6 to 1.7 times
-# plain AD on the other at 1 and 5 strata.
+# (`_read_pullback`) takes the wider route too, as that step beats plain AD
+# only where `_ad_wide` is a rule (see the adjoints page).
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
     fit = _coupling_fit(r.coupling, h)

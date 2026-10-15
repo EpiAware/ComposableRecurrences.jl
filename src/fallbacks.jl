@@ -187,78 +187,112 @@ end
 # The same derivative for a modifier with other float arrays, read entry by
 # entry (`m.a[t]`): the value, the state and the scalars are seeded as
 # before, and each array is wrapped so that each entry the step reads is a
-# dual number with a partial of its own, up to `_READS` of them. The reads
-# are recorded, and each one's cotangent goes to its entry. A step that
-# reads more takes the Jacobian instead.
+# dual number with a partial of its own. The reads are recorded, and each
+# one's cotangent goes to its entry. The first pass has room for
+# `_READ_WIDTHS[1]` reads; a step that reads more runs once more with room
+# for all of them, up to the last width, and above that takes the Jacobian.
 function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     x = (v, s, _param_tuple(m, (k, t))...)
     T = float(promote_type(map(typeof, x)..., param_eltype(m)))
     return _read_pullback(m, m̄, v̄, s̄, map(T, x), t, k)
 end
 # `x` holds the value and the state, then the scalars.
-function _read_pullback(m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k) where {T, N}
-    return _read_pullback(m, m̄, v̄, s̄, x, t, k, Val(N + 2 + _READS))
+function _read_pullback(m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T}}, t, k) where {T}
+    R = first(_READ_WIDTHS)
+    v′, s′, reads = _read_step(m, x, t, k, Val(R))
+    reads.n > R && return _read_wider(m, m̄, v̄, s̄, x, t, k, reads.n)
+    return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads)
 end
-function _read_pullback(
-        m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{W}
-    ) where {T, N, W}
-    M = N + 2
+# A step that read `n` entries, more than the first pass holds: once more
+# with the smallest room that holds them, else the Jacobian.
+function _read_wider(m, m̄, v̄, s̄, x, t, k, n)
+    n <= _READ_WIDTHS[2] && return _read_once(m, m̄, v̄, s̄, x, t, k, Val(_READ_WIDTHS[2]))
+    n <= _READ_WIDTHS[3] && return _read_once(m, m̄, v̄, s̄, x, t, k, Val(_READ_WIDTHS[3]))
+    n <= _READ_WIDTHS[4] && return _read_once(m, m̄, v̄, s̄, x, t, k, Val(_READ_WIDTHS[4]))
+    return _read_jacobian(m, m̄, v̄, s̄, x, t, k)
+end
+function _read_once(m, m̄, v̄, s̄, x, t, k, ::Val{R}) where {R}
+    v′, s′, reads = _read_step(m, x, t, k, Val(R))
+    reads.n > R && return _read_jacobian(m, m̄, v̄, s̄, x, t, k)
+    return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads)
+end
+function _read_jacobian(m, m̄, v̄, s̄, x::Tuple{T, Vararg{T}}, t, k) where {T}
+    Rt = typeof(v̄ * one(T) + s̄ * one(T))
+    a, b = _jacobian_pullback(m, m̄, v̄, s̄, x[1], x[2], t, k)
+    return convert(Rt, a)::Rt, convert(Rt, b)::Rt
+end
+# One dual step with room for `R` reads: the value, the state and the
+# scalars take the first partials, the reads the next `R`.
+function _read_step(m, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{R}) where {T, N, R}
+    return _read_step(m, x, t, k, Val(R), Val(N + 2 + R))
+end
+function _read_step(
+        m, x::Tuple{T, T, Vararg{T, N}}, t, k, ::Val{R}, ::Val{W}
+    ) where {T, N, R, W}
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_read_pullback, T)), T, W}
-    xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(M))
-    reads = _Reads()
-    md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, M), 1))
+    xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(N + 2))
+    reads = _Reads{R}()
+    md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, N + 2), 1))
     v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
-    if reads.n > _READS
-        R = typeof(v̄ * one(T) + s̄ * one(T))
-        a, b = _jacobian_pullback(m, m̄, v̄, s̄, x[1], x[2], t, k)
-        return convert(R, a)::R, convert(R, b)::R
-    end
-    g = _vjp(v′, s′, v̄, s̄, ntuple(_ -> nothing, Val(W)))
-    _add_scalar!(m̄, m, ntuple(i -> g[2 + i], Val(M - 2)), (k, t))
+    return v′, s′, reads
+end
+# The cotangents of one dual step: the value's and the state's are
+# returned, the scalars' and the reads' added to the mirror.
+function _read_grads(
+        m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T, N}}, t, k, v′::D, s′, reads
+    ) where {T, N, D}
+    M = N + 2
+    g = _vjp(v′, s′, v̄, s̄, ntuple(_ -> nothing, Val(ForwardDiff.npartials(D))))
+    _add_scalar!(m̄, m, ntuple(i -> g[2 + i], Val(N)), (k, t))
     for j in 1:reads.n
         _add_read!(m̄, m, reads.leaf[j], reads.index[j], g[M + j], 1)
     end
     return g[1], g[2]
 end
 
-# The reads of a modifier's float arrays in one dual step: for each, the
-# array (its position among them, `_rebuild_reads`'s leaf) and the linear
-# index read. `n` counts every read, so `n > _READS` marks a step that read
-# more than the partials hold.
-const _READS = 4
-mutable struct _Reads
+# The reads of a modifier's float arrays in one dual step, with room for
+# `R`: for each, the array (its position among them, `_rebuild_reads`'s
+# leaf) and the linear index read. `n` counts every read, so `n > R` marks
+# a step that read more than the partials hold.
+const _READ_WIDTHS = (4, 8, 12, 24)
+mutable struct _Reads{R}
     n::Int
-    leaf::NTuple{_READS, Int}
-    index::NTuple{_READS, Int}
+    leaf::NTuple{R, Int}
+    index::NTuple{R, Int}
 end
-_Reads() = _Reads(0, ntuple(_ -> 0, Val(_READS)), ntuple(_ -> 0, Val(_READS)))
+_Reads{R}() where {R} = _Reads{R}(0, ntuple(_ -> 0, Val(R)), ntuple(_ -> 0, Val(R)))
 
 # The dual type of a read step, its record and the partials before the
 # reads' (the value's, the state's and the scalars').
-struct _ReadSeed{D}
-    reads::_Reads
+struct _ReadSeed{D, R}
+    reads::_Reads{R}
     slot0::Int
 end
+_ReadSeed{D}(reads::_Reads{R}, slot0) where {D, R} = _ReadSeed{D, R}(reads, slot0)
 
 # A modifier's float array inside its read step: each entry read is a dual
 # number of type `D` with the next read partial set, and is recorded.
-struct _ReadArray{D, N, A <: AbstractArray} <: AbstractArray{D, N}
+struct _ReadArray{D, N, A <: AbstractArray, R} <: AbstractArray{D, N}
     x::A
     leaf::Int
-    seed::_ReadSeed{D}
+    seed::_ReadSeed{D, R}
 end
-function _ReadArray(x::AbstractArray{<:Any, N}, leaf, seed::_ReadSeed{D}) where {D, N}
-    return _ReadArray{D, N, typeof(x)}(x, leaf, seed)
+function _ReadArray(
+        x::AbstractArray{<:Any, N}, leaf, seed::_ReadSeed{D, R}
+    ) where {D, N, R}
+    return _ReadArray{D, N, typeof(x), R}(x, leaf, seed)
 end
 Base.size(a::_ReadArray) = size(a.x)
 Base.IndexStyle(::Type{<:_ReadArray}) = IndexLinear()
-Base.@propagate_inbounds function Base.getindex(a::_ReadArray{D}, i::Int) where {D}
+Base.@propagate_inbounds function Base.getindex(
+        a::_ReadArray{D, N, A, R}, i::Int
+    ) where {D, N, A, R}
     T = ForwardDiff.valtype(D)
     v = T(a.x[i])
     r = a.seed.reads
     j = r.n + 1
     r.n = j
-    j > _READS && return D(v)
+    j > R && return D(v)
     r.leaf = Base.setindex(r.leaf, a.leaf, j)
     r.index = Base.setindex(r.index, i, j)
     return D(v, _unit(T, a.seed.slot0 + j, Val(ForwardDiff.npartials(D))))
@@ -289,12 +323,15 @@ function _rebuild_reads(x, θ, w, l)
     return constructorof(typeof(x))(ys...), θ, l
 end
 
-# Whether a struct holds a float scalar or float array anywhere in its
+# Whether a struct may hold a float scalar or float array anywhere in its
 # fields, from its type alone, so a rebuild that skips one infers.
 function _floats_in(::Type{T}) where {T}
     T <: AbstractFloat && return true
-    T <: AbstractArray && return eltype(T) <: AbstractFloat
+    T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
     T <: Union{Real, Nothing, Symbol, AbstractString, Function, Type, Module} && return false
+    # A field of abstract type may hold a float; the rebuild then goes by
+    # value.
+    isconcretetype(T) || return true
     isstructtype(T) || return false
     return any(_floats_in, fieldtypes(T))
 end
@@ -635,10 +672,11 @@ function _check_reads(x)
     θ = _param_tuple(x, (1, 1))
     T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
     M = length(θ) + 2
-    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_reads, T)), T, M + _READS}
-    θd = ntuple(i -> D(T(θ[i]), _unit(T, i + 2, Val(M + _READS))), length(θ))
+    R = first(_READ_WIDTHS)
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_reads, T)), T, M + R}
+    θd = ntuple(i -> D(T(θ[i]), _unit(T, i + 2, Val(M + R))), length(θ))
     return try
-        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(_Reads(), M), 1))
+        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(_Reads{R}(), M), 1))
         _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd) &&
             (forward(xd, Step(), one(D), one(D), 1, 1); true)
     catch e
