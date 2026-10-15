@@ -296,9 +296,12 @@ _ragged(::Val{false}, ks) = _Ragged(ks)
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
 
-# Value checks on parameters given as numbers or arrays; a `Derived`
-# parameter is checked by nothing here.
-_check_unit(name, x) = _check_values(name, x, v -> 0 <= v <= 1, "between 0 and 1")
+# Value checks on parameters given as numbers or arrays, on their primal
+# values (a dual number at a bound is not ordered by its value alone); a
+# `Derived` parameter is checked by nothing here.
+function _check_unit(name, x)
+    return _check_values(name, x, v -> 0 <= _primal_value(v) <= 1, "between 0 and 1")
+end
 _check_values(name, x, ok, what) = nothing
 function _check_values(name, x::Real, ok, what)
     ok(x) || throw(ArgumentError("$name is $what, got $x"))
