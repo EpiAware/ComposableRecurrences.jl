@@ -44,7 +44,7 @@ round.(cap_first(gain; history = seed)[end-2:end]; digits = 2),
 round.(cap_last(gain; history = seed)[end-2:end]; digits = 2)
 ```
 
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial shows the same choice for imports, through `add` or [`Add`](@ref ComposableRecurrences.Add).
+[Imported cases](@ref tutorial-imports) shows the same choice for imports, through `add` or [`Add`](@ref ComposableRecurrences.Add).
 
 ## [State](@id explanation-modifier-state)
 

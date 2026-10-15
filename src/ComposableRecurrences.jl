@@ -16,8 +16,8 @@ y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 
 where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
-Every operator is differentiable, and the [FAQ](@ref faq) lists the
-automatic differentiation backends it is tested with.
+Every operator is differentiable, and [Backends](@ref adjoint-backends)
+lists the automatic differentiation backends it is tested with.
 The [performance figure](@ref overview-performance) compares run and
 gradient times with a hand-written loop.
 
@@ -101,8 +101,8 @@ public Depletion, Protected, Flow, Flows, Rate, Linear, Amount, Redistribute, mo
     pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
-    Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Direct,
-    FFTMethod, delay_masses
+    Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Auto,
+    Direct, FFTMethod, delay_masses
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")

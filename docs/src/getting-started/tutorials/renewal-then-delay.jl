@@ -167,7 +167,7 @@ plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 #
 # The final sizes of these vaccines match seeded stochastic SIR simulations from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl); the [vaccination use case](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/usecases/vaccination.jl) checks them.
 
-# ## Imported cases
+# ## [Imported cases](@id tutorial-imports)
 #
 # Let ``h(\cdot)`` be the depletion draw above and ``\iota_t`` the imports on day ``t``.
 # Imports passed as `add` and as an `Add` after `Depletion` give

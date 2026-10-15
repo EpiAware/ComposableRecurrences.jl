@@ -23,7 +23,8 @@
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
 - `Convolution` takes `gain` and `add`, and `ComposableRecurrences.contributions` returns the lag contributions before the sum over lags ([API overview][api]).
-- `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded; `Direct()` stays the default ([FFTW extension][fftw]).
+- `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded, with outputs and gradients that match `Direct()` to a relative 1e-10 (1e-4 in `Float32`) ([FFTW extension][fftw]).
+  The default method, `Auto()`, takes it only for long `Float64` kernels and series, and otherwise takes `Direct()`.
 - `Routes((C₁, g₁), (C₂, g₂), ...)` is a `Recurrence` kernel that sums transmission routes, each with its own kernel and coupling ([API overview][api]).
 - `Derived(f, args...)` is a modifier parameter computed from other parameters, with arithmetic on a `Derived` building another ([API overview][api]).
 - `Recent(w)` is a modifier parameter read from the recurrence's own last outputs, and `Recent(w; coupling = C)` reads them across strata through a matrix ([API overview][api]).
@@ -64,8 +65,11 @@
 - `Redistribute` checks its matrix against the strata, and its columns, once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
+- `Threaded()` counts each loop's work by its kind, so one `min_work` sets where each kind breaks even: independent strata split from eight times `min_work` and a fixed-kernel convolution from sixteen times, and in these loops a dual number with 8 partials counts 9 multiply-adds.
+  With the default `min_work` of 500 000, strata that mix through a sparse or dense coupling run in order at the sizes usually fitted.
 - Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
+- Mooncake and Enzyme no longer differentiate the check a `Depletion` makes on its form, which cost Mooncake about 8 µs a gradient.
 
 ### Fixed
 

@@ -16,6 +16,11 @@ O' = (1 - \delta_t)\, O + a,
 ```
 
 where ``f`` is the free capacity and ``a \le f`` the admissions.
+A fixed exit fraction is a geometric length of stay, with survival
+``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
+admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
+indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
+[`ComposableRecurrences.Clamp`](@ref) or `Capacity`.
 
 # Arguments
 - `exit`: the fraction ``\delta`` of the occupancy that leaves each step, a
