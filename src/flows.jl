@@ -388,7 +388,7 @@ end
 
 # Inlined, with the spread of the rates and shares, so that a step on dual
 # numbers passes no tuple of them through a call, which cost a filling
-# pool's step about 40% under ForwardDiff.
+# pool's step about 40% in forward mode.
 @inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
