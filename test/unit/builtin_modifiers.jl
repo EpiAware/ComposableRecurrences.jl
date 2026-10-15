@@ -276,6 +276,20 @@ end
         CR.pullback!(gm, CR.Redistribute(slice(t)), CR.Step(), v, zeros(3), 1)
         @test grads.v ≈ gm.v
     end
+    # As a coupling on its own, as a spill reads it, it is the slice's
+    # product, and with no mirror the pullback still gives the input's
+    # cotangent.
+    @test ndims(M.x) == 3
+    for t in 1:2
+        q = zeros(3)
+        CR.forward(M, CR.Pressure(), q, v, t)
+        @test q ≈ slice(t) * v
+        g0 = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(g0, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
+        gd = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gd, CR.Redistribute(slice(t)), CR.Step(), v, zeros(3), 1)
+        @test g0.v ≈ gd.v
+    end
     # Its columns sum to one by construction, so Init does not check them.
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
     @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)

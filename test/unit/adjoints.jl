@@ -1158,6 +1158,40 @@ end
     )
 end
 
+@testitem "Adjoint: time-varying dense coupling pullback with every mirror" setup = [AdjointCheck] begin
+    # A dense 3-array read at time `t` takes its fast loop for a 3-array
+    # mirror, a wrapped one or none, and the generic loop for any other
+    # mirror; all agree with the slice's transposed product.
+    rng = Xoshiro(5)
+    X, p, q̄ = randn(rng, 3, 3, 4), randn(rng, 3), randn(rng, 3)
+    C, t = TimeVarying(X), 2
+    p̄ref = transpose(X[:, :, t]) * q̄
+    X̄ref = q̄ * transpose(p)
+    for (m̄, read) in (
+            ((; x = zeros(3, 3, 4)), m -> m.x),
+            ((; x = (; x = zeros(3, 3, 4))), m -> m.x.x),
+            ((; x = view(zeros(3, 3, 4), :, :, :)), m -> m.x),
+            ((; x = nothing), nothing), (nothing, nothing),
+        )
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, t)
+        @test p̄ ≈ p̄ref
+        read === nothing || @test read(m̄)[:, :, t] ≈ X̄ref
+        read === nothing || @test iszero(read(m̄)[:, :, 1])
+    end
+    # Mismatched sizes are an error, not a read past the end.
+    @test_throws DimensionMismatch CR.pullback!(
+        (; piece = (; x = zeros(2, 2, 4)), q = q̄, p = zeros(3)), C, CR.Pressure(),
+        nothing, p, t
+    )
+    @test_throws DimensionMismatch CR.pullback!(
+        (; piece = nothing, q = q̄, p = zeros(2)), C, CR.Pressure(), nothing, p, t
+    )
+    @test_throws BoundsError CR.pullback!(
+        (; piece = nothing, q = q̄, p = zeros(3)), C, CR.Pressure(), nothing, p, 5
+    )
+end
+
 @testitem "Adjoint: local pullback over structured and nested parameters" setup = [AdjointCheck] begin
     # A pointwise modifier with array parameters takes the local Jacobian:
     # a Diagonal, a sparse matrix, a named tuple and a tuple holding an
