@@ -63,6 +63,7 @@
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
 - Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
+- The reverse rule of `Allocate` with imports reads its spilled values and pattern from a record of each step instead of computing them again, and a dense pattern or spill kernel takes its cotangent in one matrix product after the last step.
 
 ### Fixed
 

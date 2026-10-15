@@ -407,10 +407,15 @@ function _import_weights(T, φ, su, sh, ε)
     return T / max(su, ε), zero(T / max(sh, ε))
 end
 
+# The step keeps `u` and `h` in its state, so the reverse pass records the
+# state after each step and the pullback reads them there.
+_keeps_after(::Allocate{<:Any, <:_AllocateImports}) = true
+
 # Per group, with `a_u = Σ ȳ_k u_k / s_u` and `a_h = Σ ȳ_k h_k / s_h`:
 # `ū_k = c_u (ȳ_k − a_u)` and `h̄_k = c_h (ȳ_k − a_h)`, then `ū` goes back
 # through the spill's pullback and `h̄` through the pattern's, each one
-# transposed product. `u` and `h` are computed again from the input, once.
+# transposed product. `u` and `h` are read from the state after the step
+# when the reverse pass recorded it, else computed again from the input.
 function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     (; fraction, pattern, spill) = m.imports
     v̄, s̄ = grads.v, grads.s
@@ -418,10 +423,8 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
     h̄ = view(s̄, (length(s̄) - S + 1):length(s̄))
     īm = cotangent(grads.piece, :imports)
     T̄, φ̄ = cotangent(grads.piece, :total), cotangent(īm, :fraction)
-    buf = similar(v, 2S)
-    h = view(buf, (S + 1):(2S))
-    u = _spill!(spill, view(buf, 1:S), v, t)
-    forward(pattern, Pressure(), h, v, t)
+    u, h = _spilled_and_pattern(_after(grads), spill, pattern, v, t)
+    pass = _pass(grads)
     ε = eps(eltype(v))
     for p in 1:_ngroups(m)
         zs = _group(m, p)
@@ -452,20 +455,122 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
             v̄[k] = cu * (on ? ȳk - au : ȳk)
         end
     end
-    _spill_back!(spill, cotangent(īm, :spill), v̄, s̄, v, t)
-    P̄ = cotangent(īm, :pattern)
-    pullback!((; piece = P̄, q = h̄, p = v̄), pattern, Pressure(), h̄, v, t)
+    _spill_back!(spill, cotangent(īm, :spill), v̄, s̄, v, t, _field(pass, :vc), pass)
+    _pattern_back!(pattern, cotangent(īm, :pattern), h̄, v̄, v, t, _field(pass, :hb))
     fill!(h̄, zero(eltype(h̄)))
     return nothing
 end
 
-_spill_back!(::Nothing, r̄, v̄, s̄, v, t) = nothing
+# The spilled values `u` and the pattern `h` of a step: read from the state
+# after the step, or computed again from its input `v`.
+function _spilled_and_pattern(::Nothing, spill, pattern, v, t)
+    S = length(v)
+    buf = similar(v, 2S)
+    h = view(buf, (S + 1):(2S))
+    u = _spill!(spill, view(buf, 1:S), v, t)
+    forward(pattern, Pressure(), h, v, t)
+    return u, h
+end
+function _spilled_and_pattern(after, spill, pattern, v, t)
+    S = length(v)
+    u = spill === nothing ? v : view(after, 1:S)
+    return u, view(after, (length(after) - S + 1):length(after))
+end
+
+_after(grads) = hasfield(typeof(grads), :after) ? grads.after : nothing
+_pass(grads) = hasfield(typeof(grads), :pass) ? grads.pass : nothing
+_field(::Nothing, name) = nothing
+_field(x::NamedTuple, name) = getfield(x, name)
+
+# The pattern's pullback: its cotangent `h̄` to the input's, `v̄ += Pᵀ h̄`,
+# and to the pattern. With a column `hb` of the per-pass buffer, the
+# pattern's cotangent is left to `_finish_pass!`, one product for every step.
+function _pattern_back!(P, P̄, h̄, v̄, v, t, ::Nothing)
+    pullback!((; piece = P̄, q = h̄, p = v̄), P, Pressure(), h̄, v, t)
+    return nothing
+end
+function _pattern_back!(P::Matrix, P̄, h̄, v̄, v, t, hb::AbstractVector)
+    copyto!(hb, h̄)
+    mul!(v̄, transpose(P), h̄, true, true)
+    return nothing
+end
+
+# Batching asks for a dense pattern or spill kernel whose mirror is a dense
+# matrix: the buffer keeps each step's `h̄` (`hb`) and each step's input
+# cotangent to the spill (`vc`), with a scratch vector for the spill's `Kᵀ v̄`.
+function _pass_buffer(H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T) where {Tp}
+    (; pattern, spill) = m.imports
+    īm = cotangent(m̄, :imports)
+    hb = _batches(pattern, cotangent(īm, :pattern)) ? _zeros(H, Tp, S, T) : nothing
+    vc, acc = if spill isa Redistribute &&
+            _batches(spill.K, cotangent(cotangent(īm, :spill), :K))
+        _zeros(H, Tp, S, T), _zeros(H, Tp, S)
+    else
+        nothing, nothing
+    end
+    hb === nothing && vc === nothing && return nothing
+    return (; hb, vc, acc)
+end
+_batches(P, P̄) = false
+_batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix && size(_array_mirror(P̄)) == size(P)
+
+# After the last step: the pattern's cotangent `P̄ += H̄ Vᵀ`, with `H̄` each
+# step's `h̄` and `V` each step's input; the spill kernel's
+# `K̄[p, q] += Σ_t w_qt (c_pt − c_qt)` off the diagonal, with `w = ε ∘ v` and
+# `c` each step's input cotangent to the spill.
+function _finish_pass!(m̄, m::Allocate{<:Any, <:_AllocateImports}, R, b::NamedTuple, τ0)
+    (; pattern, spill) = m.imports
+    īm = cotangent(m̄, :imports)
+    if b.hb !== nothing
+        P̄ = _array_mirror(cotangent(īm, :pattern))
+        mul!(P̄, b.hb, transpose(R.V), true, true)
+    end
+    if b.vc !== nothing
+        K̄ = _array_mirror(cotangent(cotangent(īm, :spill), :K))
+        W = similar(R.V)
+        c = similar(b.acc)
+        fill!(c, zero(eltype(c)))
+        for t in axes(W, 2), q in axes(W, 1)
+            W[q, t] = param(spill.ε, q, τ0 + t - 1) * R.V[q, t]
+            c[q] += W[q, t] * b.vc[q, t]
+        end
+        mul!(K̄, b.vc, transpose(W), true, true)
+        for q in axes(K̄, 2), p in axes(K̄, 1)
+            K̄[p, q] -= c[q]
+        end
+    end
+    return nothing
+end
+
+_spill_back!(::Nothing, r̄, v̄, s̄, v, t, vc, pass) = nothing
 # The spilled values' state cotangent joins theirs, then the spill's own
 # pullback sends them to `v`.
-function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t)
+function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, ::Nothing, pass)
     ū = view(s̄, 1:length(v))
     v̄ .+= ū
     fill!(ū, zero(eltype(ū)))
     pullback!((; piece = r̄, v = v̄, s = ū), r, Step(), v, ū, t)
+    return nothing
+end
+# The same with the kernel's cotangent left to `_finish_pass!`: the step
+# keeps its input cotangent `c` in the column `vc`, and with
+# `a = Kᵀ c − diag(K) ∘ c` it adds `ε̄_q += v_q (a_q − o_q c_q)` and sets
+# `v̄_q = (1 − ε_q o_q) c_q + ε_q a_q`, as `_redistribute_back!` does.
+function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, vc, pass)
+    (; K, ε) = r
+    ū = view(s̄, 1:length(v))
+    v̄ .+= ū
+    fill!(ū, zero(eltype(ū)))
+    copyto!(vc, v̄)
+    a = pass.acc
+    mul!(a, transpose(K), v̄)
+    ε̄ = cotangent(r̄, :ε)
+    for q in eachindex(v, v̄)
+        εq = param(ε, q, t)
+        out = _outflow(K, q)
+        aq = a[q] - K[q, q] * v̄[q]
+        add_param!(ε̄, ε, v[q] * (aq - v̄[q] * out), q, t)
+        v̄[q] = v̄[q] * (1 - εq * out) + εq * aq
+    end
     return nothing
 end

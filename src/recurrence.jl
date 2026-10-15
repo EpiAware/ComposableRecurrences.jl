@@ -930,12 +930,18 @@ function _record!(rec, v, s, t, k)
     return nothing
 end
 
-# A modifier's records: its input values and its states (state entries ×
-# steps), or for a modifier whose state never changes the state vector it
-# started from.
+# A modifier's records: its input values, its states entering each step
+# (state entries × steps, or for a modifier whose state never changes the
+# state vector it started from) and, for a vector modifier that asks with
+# `_keeps_after`, its states after each step (`A`, else `nothing`).
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
-    return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T))
+    A = _keeps_after(m) ? _zeros(h, Tp, length(s), T) : nothing
+    return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
 end
+# Whether a vector modifier's pullback reads its state after each step,
+# such as values its step computes and keeps in the state, so the forward
+# pass records them and the pullback need not compute them again.
+_keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
@@ -945,6 +951,7 @@ _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
 _record_states!(R::AbstractMatrix, s, t) = (copyto!(view(R, :, t), s); nothing)
 _record_states!(R::AbstractVector, s, t) = nothing
+_record_states!(::Nothing, s, t) = nothing
 # The recorded state of stratum `k` entering step `t`, and of every stratum.
 _state_at(R::AbstractMatrix, k, t) = R[k, t]
 _state_at(R::AbstractVector, k, t) = R[k]
@@ -957,6 +964,7 @@ function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     copyto!(view(first(rec).V, :, t), v)
     _record_states!(first(rec).S, first(states), t)
     forward(first(ms), Step(), v, first(states), τ)
+    _record_states!(first(rec).A, first(states), t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
 

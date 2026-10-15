@@ -73,10 +73,16 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
         m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
         acc = (; ādd, ḡain, C̄ = _Owned(C̄), ḡ = kslots, m̄s = m̄v)
         accs = _accumulators(ex, H, S, work, acc)
+        # The per-pass buffers of vector modifiers that ask for one, which
+        # their step pullbacks fill a column of and `_finish_pass!` reads.
+        bufs = map((m, m̄) -> _pass_buffer(H, eltype(H), m, m̄, S, T), modifiers, m̄s)
         _steps_back!(
-            accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0,
-            L, D, S, T
+            accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, modifiers,
+            H, τ0, L, D, S, T
         )
+        foreach(modifiers, m̄s, rec, bufs) do m, m̄, R, b
+            _finish_pass!(m̄, m, R, b, τ0)
+        end
     end
     _reduce!(accs)
     _kernel_finish!(ḡ, kbuf)
@@ -140,7 +146,8 @@ end
 # strata run in blocks of the executor where each stratum writes only its
 # own slots: the pointwise modifiers and the kernel unless it is pairwise.
 function _steps_back!(
-        accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, S, T
+        accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, ms, H, τ0, L,
+        D, S, T
     )
     acc = first(accs)
     Tp = eltype(H)
@@ -160,7 +167,7 @@ function _steps_back!(
             for k in 1:S
                 v̄[k] = H̄[D + t, k]
             end
-            _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
+            _stages_back!(ms, _own(acc.m̄s), rec, s̄s, bufs, v̄, τ, t)
             for k in 1:S
                 q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
             end
@@ -244,18 +251,37 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
 end
 
 # Walk the step's value cotangent back through the modifiers, last first.
-_stages_back!(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t) = nothing
-function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
+# A modifier that keeps its state after each step (`_keeps_after`) also
+# finds it in `grads.after`, and one with a per-pass buffer finds its column
+# for this step in `grads.pass`.
+_stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t) = nothing
+function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     _stages_back!(
-        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t
+        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s),
+        Base.tail(bufs), v̄, τ, t
     )
     R = first(rec)
     _vector_pullback!(
-        (; piece = first(m̄s), v = v̄, s = first(s̄s)), first(ms),
+        _step_grads(first(m̄s), v̄, first(s̄s), R.A, first(bufs), t), first(ms),
         view(R.V, :, t), _states_at(R.S, t), τ
     )
     return nothing
 end
+_step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
+function _step_grads(m̄, v̄, s̄, A, b, t)
+    return (; piece = m̄, v = v̄, s = s̄, after = _column(A, t), pass = _column(b, t))
+end
+_column(::Nothing, t) = nothing
+_column(A::AbstractMatrix, t) = view(A, :, t)
+_column(b::NamedTuple, t) = map(B -> _column(B, t), b)
+_column(x::AbstractVector, t) = x
+
+# A modifier's per-pass buffer: `nothing`, or a named tuple of arrays whose
+# matrices (entries × steps) its step pullback writes a column of; vectors
+# are scratch shared by every step. `_finish_pass!` then reads it once,
+# after the last step, to add the cotangents its steps left for it.
+_pass_buffer(H, ::Type, m, m̄, S, T) = nothing
+_finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
