@@ -53,6 +53,9 @@ _describe(x::TimeVarying{I}) where {I} = _wrapped(:TimeVarying, x.x, nameof(I))
 function _describe(x::_AnyRagged)
     return string(_ncols(x), " kernel columns of up to ", _maxlen(x), " entries")
 end
+function _describe(x::_Piecewise)
+    return string(_describe(x.x), " from the change points ", repr(x.starts))
+end
 _wrapped(name, x) = string(name, "(", _describe(x), ")")
 _wrapped(name, x, i) = string(name, "(", _describe(x), ", ", i, "())")
 
@@ -116,6 +119,8 @@ end
 function _check_kernel_times(k::TimeVarying{<:Any, <:_AnyRagged}, stop)
     return _check_covers(:kernel, _ncols(k.x), stop)
 end
+# The last value between change points holds for every later time.
+_check_kernel_times(k::TimeVarying{<:Any, <:_Piecewise}, stop) = nothing
 
 # Check every time-varying coefficient in a coupling or modifier covers
 # times up to `stop`, walking their fields. Outside a kernel only
@@ -126,6 +131,9 @@ function _check_leaf(name, x::TimeVarying{Secondary}, stop)
 end
 _check_leaf(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
 _check_leaf(name, x::TimeVarying, stop) = _primary_error(name, x)
+# The last value between change points holds for every later time.
+_check_leaf(name, ::TimeVarying{Secondary, <:_Piecewise}, stop) = nothing
+_check_leaf(name, ::TimeVarying{Secondary, <:_Piecewise}, ::Nothing) = nothing
 const _Leaf = Union{
     Real, AbstractArray, Nothing, Symbol, AbstractString, Type, Module,
     Function,
@@ -201,6 +209,7 @@ end
 # Check a parameter's leading axis against `n` entries of `what`.
 _check_rows(name, x, n, what) = nothing
 _check_rows(name, x::TimeVarying, n, what) = _check_rows(name, x.x, n, what)
+_check_rows(name, x::_Piecewise, n, what) = _check_rows(name, x.x, n, what)
 _check_rows(name, x::PerStratum, n, what) = _check_nrows(name, x.x, n, what)
 
 # Check a strata × time slot against `S` strata.
