@@ -282,7 +282,7 @@ struct TimeVarying{I, A}
                     _describe(x)
             )
         )
-        x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise} || throw(
+        _over_time(x) || throw(
             ArgumentError(
                 "TimeVarying wraps an array, a PerStratum, a Pairwise, a " *
                     "vector of kernel columns or a vector of start => value " *
@@ -292,6 +292,11 @@ struct TimeVarying{I, A}
         return new{I, A}(x)
     end
 end
+
+# What `TimeVarying` can wrap: an array, a `PerStratum`, a `Pairwise`,
+# kernel columns or change points, and a movement read from its kernel and
+# intensity.
+_over_time(x) = x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise}
 
 # A kernel's columns, of any lengths, stacked: column `τ` is
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each

@@ -272,7 +272,7 @@
                     "patch model",
                     Recurrence(
                         g; modifiers = (
-                            CR.Redistribute(K, 0.4),
+                            CR.Redistribute(CR.movement(K, 0.4)),
                             CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
                         )
                     ),
@@ -292,7 +292,9 @@
                 (
                     "patch model, sparse kernel",
                     Recurrence(
-                        g; modifiers = (CR.Redistribute(sparse(K), PerStratum([0.4, 0.3, 0.2])),)
+                        g; modifiers = (
+                            CR.Redistribute(sparse(CR.movement(K, [0.4, 0.3, 0.2]))),
+                        )
                     ),
                     rec(R, nothing, h),
                 ),
@@ -1078,25 +1080,26 @@ end
     end
 end
 
-@testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Sparse Redistribute matrix through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     using SparseArrays
     import Enzyme, ForwardDiff, Mooncake
-    K = sparse([0.0 0.2 0.0; 0.1 0.0 0.3; 0.2 0.0 0.0])
+    # Columns summing to one, with the diagonal stored.
+    M = sparse([0.8 0.2 0.0; 0.1 0.8 0.3; 0.1 0.0 0.7])
     h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
     W = cos.(reshape(1:18, 3, 6))
     function f(θ)
-        Kθ = SparseMatrixCSC(3, 3, K.colptr, K.rowval, θ[1:4])
+        Mθ = SparseMatrixCSC(3, 3, M.colptr, M.rowval, θ)
         r = Recurrence(
             [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
-            modifiers = (CR.Redistribute(Kθ, θ[5]), CR.Depletion(PerStratum(fill(40.0, 3))))
+            modifiers = (CR.Redistribute(Mθ), CR.Depletion(PerStratum(fill(40.0, 3))))
         )
         return sum(W .* r(R; history = h))
     end
-    θ = [K.nzval; 0.4]
+    θ = copy(M.nzval)
     ref = gradient(f, AutoForwardDiff(), θ)
     for backend in (
             AutoMooncake(; config = nothing),
@@ -1539,7 +1542,7 @@ end
     function loss(θ)
         ms = (
             CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
-            CR.Redistribute(K, 0.5),
+            CR.Redistribute(CR.movement(K, 0.5)),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end

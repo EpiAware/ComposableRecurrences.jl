@@ -146,7 +146,7 @@ end
     for (build, at, θ) in values(fractions), (P, Pt) in patterns,
             spilled in (false, true)
         function run(θ, R, ε)
-            spill = spilled ? CR.Redistribute(K0, PerStratum(ε)) : nothing
+            spill = spilled ? CR.Redistribute(CR.movement(K0, ε)) : nothing
             m = CR.Allocate(groups, total; imports = (build(θ), P), spill)
             return Recurrence(g; modifiers = (m,))(R; history = h)
         end
@@ -188,7 +188,7 @@ end
     @test !CR._stateless(imported)
     @test CR.nstate(imported, 3) == 3
     spilled = CR.Allocate(
-        [1:2, 3:3], 1.0; imports = (0.1, P), spill = CR.Redistribute(K, 0.2)
+        [1:2, 3:3], 1.0; imports = (0.1, P), spill = CR.Redistribute(CR.movement(K, 0.2))
     )
     @test CR.nstate(spilled, 3) == 6
     @test CR.param_eltype(
@@ -235,7 +235,7 @@ end
         P[1:2, 3] .= c
         m = CR.Allocate(
             [1:2, 3:3], PerStratum(tot); imports = (PerStratum(φ), P),
-            spill = CR.Redistribute(K, 0.2)
+            spill = CR.Redistribute(CR.movement(K, 0.2))
         )
         y = copy(v)
         CR.forward(m, CR.Step(), y, zeros(eltype(x), 6), 1)
@@ -293,46 +293,45 @@ end
     εs = [0.1, 0.2, 0.15, 0.05, 0.3]
     PT = cat((P0 .* (1 + 0.1 * t) for t in 1:8)...; dims = 3)
     θ0 = [4.0, 2.0, 1.0, 0.1, 0.3, 0.2]
-    # θ is the total, the fraction, the pattern, then the spill's kernel and
-    # intensity, the order of the mirror's fields.
+    M0 = CR.movement(K0, εs)
+    # θ is the total, the fraction, the pattern, then the spill's movement
+    # matrix, the order of the mirror's fields.
     for spilled in (false, true), P in (P0, PT), t in (1, 5)
         function build(x)
-            shapes = ((3,), (3,), size(P), (spilled ? ((5, 5), (5,)) : ())...)
+            shapes = ((3,), (3,), size(P), (spilled ? ((5, 5),) : ())...)
             tot, fr, Px, spill... = take(x, shapes...)
             Px = ndims(Px) == 3 ? TimeVarying(Px) : Px
             return CR.Allocate(
                 groups, PerStratum(tot); imports = (PerStratum(fr), Px),
-                spill = spilled ?
-                    CR.Redistribute(spill[1], PerStratum(spill[2])) : nothing
+                spill = spilled ? CR.Redistribute(only(spill)) : nothing
             )
         end
-        θ = vcat(θ0, vec(P), spilled ? vcat(vec(K0), εs) : Float64[])
+        θ = vcat(θ0, vec(P), spilled ? vec(M0) : Float64[])
         s = zeros(spilled ? 10 : 5)
         c = ModifierChecks.check_pullback(build, θ, v, s, t)
         @test c.v
         @test c.s
         @test c.θ
     end
-    # Every kind of total and fraction, with a spill whose kernel and
-    # pattern are held fixed.
+    # Every kind of total and fraction, with a spill and a pattern held
+    # fixed.
     function fixed_mirror(m)
         m̄ = ModifierChecks.mirror(m)
-        spill = merge(m̄.imports.spill, (; K = nothing))
         return merge(
-            m̄, (; imports = merge(m̄.imports, (; pattern = nothing, spill)))
+            m̄, (; imports = merge(m̄.imports, (; pattern = nothing, spill = nothing)))
         )
     end
     for (bt, _, θt) in values(totals), (bf, _, θf) in values(fractions),
             t in (1, 5)
         function build(x)
-            tot, fr, ε = take(x, size(θt), size(θf), (5,))
+            tot, fr = take(x, size(θt), size(θf))
             return CR.Allocate(
                 groups, bt(tot); imports = (bf(fr), P0),
-                spill = CR.Redistribute(K0, PerStratum(ε))
+                spill = CR.Redistribute(M0)
             )
         end
         c = ModifierChecks.check_pullback(
-            build, vcat(θt, θf, εs), v, zeros(10), t; mirror_of = fixed_mirror
+            build, vcat(θt, θf), v, zeros(10), t; mirror_of = fixed_mirror
         )
         @test c.v
         @test c.s
@@ -361,12 +360,12 @@ end
     using ComposableRecurrences, SparseArrays
     CR = ComposableRecurrences
     (; g, R, h, groups, TT, P0, K0) = AllocateChecks
-    εs = PerStratum([0.1, 0.2, 0.15, 0.05, 0.3])
-    split(P, K) = CR.Allocate(
+    M0 = CR.movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
+    split(P, M) = CR.Allocate(
         groups, TimeVarying(PerStratum(TT));
-        imports = (0.2, P), spill = CR.Redistribute(K, εs)
+        imports = (0.2, P), spill = CR.Redistribute(M)
     )
-    dense, sparse_ = split(P0, K0), split(sparse(P0), sparse(K0))
+    dense, sparse_ = split(P0, M0), split(sparse(P0), sparse(M0))
     run(m) = Recurrence(g; modifiers = (m,))(R; history = h)
     @test run(sparse_) ≈ run(dense)
     # The generic step and pullback against the dense ones.
@@ -389,7 +388,7 @@ end
     K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
     gs = [1:2, 3:3]
     @test_throws "spill needs imports" CR.Allocate(
-        gs, 1.0; spill = CR.Redistribute(K, 0.1)
+        gs, 1.0; spill = CR.Redistribute(CR.movement(K, 0.1))
     )
     @test_throws "imports is (fraction, pattern)" CR.Allocate(
         gs, 1.0; imports = P
@@ -410,15 +409,15 @@ end
     @test_throws ArgumentError CR.Allocate(
         gs, 1.0; imports = (0.1, TimeVarying(ones(3)))
     )
-    # The pattern, the spill's kernel and its intensity against the strata.
+    # The pattern and the spill's movement, fixed or over time, against the strata.
     for split in (
             CR.Allocate(gs, 1.0; imports = (0.1, ones(2, 2))),
             CR.Allocate(
-                gs, 1.0; imports = (0.1, P), spill = CR.Redistribute(ones(2, 2), 0.1)
+                gs, 1.0; imports = (0.1, P), spill = CR.Redistribute(fill(0.5, 2, 2))
             ),
             CR.Allocate(
                 gs, 1.0; imports = (0.1, P),
-                spill = CR.Redistribute(K, PerStratum([0.1, 0.2]))
+                spill = CR.Redistribute(TimeVarying(fill(0.5, 2, 2, 4)))
             ),
         )
         r = Recurrence([0.5]; modifiers = (split,))
@@ -464,7 +463,7 @@ end
     P = Float32[0.0 0.5; 0.5 0.0]
     m = CR.Allocate(
         [1:1, 2:2], 3.0f0; imports = (0.2f0, P),
-        spill = CR.Redistribute(P, 0.1f0)
+        spill = CR.Redistribute(CR.movement(P, 0.1f0))
     )
     y = Recurrence(Float32[0.5, 0.5]; modifiers = (m,))(
         ones(Float32, 2, 4); history = ones(Float32, 2, 2)

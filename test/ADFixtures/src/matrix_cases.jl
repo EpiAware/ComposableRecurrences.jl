@@ -202,7 +202,7 @@ function bvd_patch(wrap, z::Size)
         seeds = exp.(logh)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
-            CR.Redistribute(K, only(ε)),
+            CR.Redistribute(CR.movement(K, only(ε))),
             CR.Depletion(CR.PerStratum(N); pool0),
         )
         y = wrap(Recurrence(g; modifiers = mods))(exp.(logR); history = seeds)
@@ -1071,7 +1071,7 @@ if isfile(BVD_HANDRULE)
     function _bvd_patches_rule(wrap, g, K, seeds, R, ε, N)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
-            CR.Redistribute(K, TimeVarying(PerStratum(ε))),
+            CR.Redistribute(CR.movement(K, ε)),
             CR.Depletion(CR.PerStratum(N); pool0),
         )
         return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
@@ -1164,7 +1164,7 @@ if isfile(BVD_HANDRULE)
         split = CR.Allocate(
             d.groups, TimeVarying(PerStratum(d.I_bar));
             imports = (TimeVarying(PerStratum(φ)), d.between .* permutedims(ow)),
-            spill = CR.Redistribute(d.within, PerStratum(ε))
+            spill = CR.Redistribute(CR.movement(d.within, ε))
         )
         r = Recurrence(d.g; modifiers = (split,))
         return permutedims(wrap(r)(gain; history = zeros(S, 1), add))

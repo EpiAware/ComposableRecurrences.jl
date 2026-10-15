@@ -107,8 +107,8 @@ end
             CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
             CR.Depletion(100.0f0; pool0 = 97.0f0, heterogeneity = 1.5f0),
             CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
-            CR.Redistribute(K, 0.1f0),
-            CR.Redistribute(K, TimeVarying(PerStratum(fill(0.1f0, 2, 5)))),
+            CR.Redistribute(CR.movement(K, 0.1f0)),
+            CR.Redistribute(CR.movement(K, fill(0.1f0, 2, 5))),
             CR.Clamp(0.0f0, 5.0f0),
             CR.Capacity(0.8f0, CR.Beds(0.1f0); pairs = [1 => 2], form = CR.SoftTruncate(0.1f0)),
             CR.Capacity(0.8f0, CR.Budget(2); pairs = [2], overflow = CR.Hold()),
@@ -117,8 +117,9 @@ end
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
-    # A plain matrix intensity must be wrapped as time-varying.
-    @test_throws ArgumentError CR.Redistribute(K, fill(0.1f0, 2, 5))
+    # The movement of a Float32 kernel stays Float32.
+    @test eltype(CR.movement(K, 0.1f0)) == Float32
+    @test CR.param_eltype(CR.movement(K, fill(0.1f0, 2, 5))) == Float32
     # The constructor infers with a form struct.
     floor_depletion() = ComposableRecurrences.Depletion(
         1.0, ComposableRecurrences.Floor()

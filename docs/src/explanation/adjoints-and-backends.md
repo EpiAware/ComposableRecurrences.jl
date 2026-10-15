@@ -106,7 +106,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
 | `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with removals and `Protected` | 0.28 | 0.40 | keep |
-| `Redistribute` | 0.26 | 0.32 | keep |
+| `Redistribute` | 0.07 | 0.35 | keep |
 | `Flows` | 0.43 | 0.43 | keep |
 | `Depletion` with `Protected` and waning `flows` | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |

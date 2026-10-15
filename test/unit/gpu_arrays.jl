@@ -6,7 +6,7 @@
     using ComposableRecurrences
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Flows, Floor, Primary, Protected, Redistribute, Share, Truncate,
-        Transform, contributions, with_state
+        Transform, contributions, movement, with_state
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -202,8 +202,7 @@
                         d([0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0]),
                     ),
                     spill = Redistribute(
-                        d([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]),
-                        PerStratum(d([0.1, 0.2, 0.3]))
+                        d(movement([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], [0.1, 0.2, 0.3]))
                     )
                 ),
             )
@@ -241,11 +240,18 @@
         )(d(RS); history = d(HS)),
         "Redistribute" =>
             d -> Recurrence(
-            d(g0); modifiers = (Redistribute(d(K0 - 0.5I), TimeVarying(d(0.1 .+ 0.001 .* (1:T)))),)
+            d(g0);
+            modifiers = (
+                Redistribute(
+                    TimeVarying(
+                        d(cat((movement(K0 - 0.5I, 0.1 + 0.001 * t) for t in 1:T)...; dims = 3))
+                    )
+                ),
+            )
         )(d(RS); history = d(HS)),
         "Redistribute, one intensity per stratum" =>
             d -> Recurrence(
-            d(g0); modifiers = (Redistribute(d(K0 - 0.5I), PerStratum(d([0.1, 0.2, 0.3]))),)
+            d(g0); modifiers = (Redistribute(d(movement(K0 - 0.5I, [0.1, 0.2, 0.3]))),)
         )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
             d -> Recurrence(
@@ -263,7 +269,7 @@
         r = Recurrence(
             d(g0);
             modifiers = (
-                Depletion(PerStratum(d(NS))), Redistribute(d(K0 - 0.5I), 0.1),
+                Depletion(PerStratum(d(NS))), Redistribute(d(movement(K0 - 0.5I, 0.1))),
                 Depletion(60.0; removals = 0.2, protected = Protected(0.3)),
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
             )
@@ -399,7 +405,7 @@ end
             ComposableRecurrences._oldest_first(Pairwise(JLArray(ones(3, 3, 2)))),
             TimeVarying([JLArray([0.5, 0.5]), JLArray([1.0])]),
             Depletion(PerStratum(v); removals = tv, protected = Protected(PerStratum(v))),
-            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
+            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m),
             Transform(*, 0.8 * Derived(exp, tv)),
             Flows(
                 Flow(1 => 2, PerStratum(v)), Flow(2 => 0, tv; form = Share()),
