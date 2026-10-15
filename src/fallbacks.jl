@@ -366,9 +366,8 @@ end
 # modifier with `_EntryParam`s gets a scalar in their place, so one step of
 # the rebuild must also run, on the entries at stratum 1 and time 1: a step
 # that indexes such a parameter's array fails. Checked once, when a
-# `Recurrence` is built.
+# `Recurrence` is built, for each part with float scalars.
 _check_rebuild(x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
-_check_rebuild(x, ::Tuple{}) = true
 function _check_rebuild(x, θ)
     T = promote_type(map(typeof, θ)...)
     θd = _seed(ForwardDiff.Tag(_check_rebuild, T), map(T, θ))

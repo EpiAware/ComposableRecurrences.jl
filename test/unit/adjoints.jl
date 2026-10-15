@@ -621,6 +621,21 @@ end
     CR.uses_adjoint(::Typed, ::CR.Step) = true
     @test CR._modifier_adjoint(Typed(0.5)) === :pullback
     @test pullback_matches(rt, recargs(ones(2, 4), nothing, ones(2, 2))...)
+    # The same for a vector step whose typed `pullback!` the method lookup
+    # misses: the declared adjoint calls it.
+    struct TypedVec{A}
+        a::A
+    end
+    CR.forward(m::TypedVec, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    function CR.pullback!(grads, m::TypedVec, ::CR.Step, v::AbstractVector, s, t)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), sum(grads.v .* v))
+        grads.v .*= m.a
+        return nothing
+    end
+    @test CR._modifier_adjoint(TypedVec(0.5)) === :none
+    CR.uses_adjoint(::TypedVec, ::CR.Step) = true
+    rv = Recurrence(g; modifiers = (TypedVec(0.5),))
+    @test pullback_matches(rv, recargs(ones(2, 4), nothing, ones(2, 2))...)
 
     # A function stored in a pointwise modifier with no pullback: a plain
     # function or a callable singleton keeps the rule, a closure that
@@ -731,7 +746,6 @@ end
     end
     CR.ispointwise(::Loose) = true
     @test CR._modifier_adjoint(Loose(0.5)) === :none
-    @test CR._check_rebuild(Loose(1))
     # A constructor that throws is taken as not rebuilding, but an interrupt
     # is not swallowed.
     struct Strict{T}
@@ -1221,6 +1235,9 @@ end
     @test CR._fit(r, args(22)...) === :wide
     @test CR._fit(r, args(23)...) === :none
     @test CR._fit(Recurrence([0.3]), args(50)...) === :one
+    # Without a local step the route is the rule, as for any other operator.
+    @test CR._fit(Val(false), nothing, ones(50, 2)) === :one
+    @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
     for S in (11, 23, 24)
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
