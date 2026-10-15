@@ -155,24 +155,24 @@ adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 # tells it apart from the operator's own plain call.
 function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
     _plain_hook(n, args...)
-    return _primal(n.op, args...)
+    return _plain(n.op, args...)
 end
 function _route_val(op, args...)
     return Val(_type_adjoint(op) && _gate(op, args...) ? :rule : :plain)
 end
 _type_adjoint(op) = uses_adjoint(op, Run())
-_route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _plain(op, args...)
+_route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     fit = _fit(op, args...)
     fit === :one && return _ad(op, args...)
     fit === :wide && return _ad_wide(op, args...)
-    return _plain(op, args...)
+    return _hooked_plain(op, args...)
 end
 _fit(op, args...) = :one
 
 # A call within the wider limit. Its body is plain AD; a backend extension
 # may make it a rule primitive, as `_ad`.
-_ad_wide(op, args::Vararg{Any, N}) where {N} = _plain(op, args...)
+_ad_wide(op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
 
 # The positional Run of an operator and its pullback. Operators with a
 # keyword `forward` on `Run()` add methods for their positional form.
@@ -238,16 +238,17 @@ end
     end
     return build(X)
 end
-function _plain(op, args::Vararg{Any, N}) where {N}
-    _plain_hook(op, args...)
-    return _primal(op, args...)
-end
-# A call the backend differentiates by plain AD passes through this hook,
-# which does nothing; the Enzyme extension's reverse rule for it warns of a
-# gradient Enzyme can lose on Julia 1.11. It takes the operator and its
+_plain(op, args...) = _primal(op, args...)
+# A call the backend differentiates by plain AD first passes through this
+# hook, which does nothing; the Enzyme extension's reverse rule for it warns
+# of a gradient Enzyme can lose on Julia 1.11. It takes the operator and its
 # arguments so that the backend sees their activity, and `donotdelete`
 # keeps the call.
 @noinline _plain_hook(op, args...) = (Base.donotdelete(op, args...); nothing)
+function _hooked_plain(op, args::Vararg{Any, N}) where {N}
+    _plain_hook(op, args...)
+    return _plain(op, args...)
+end
 
 # Rules apply when every float leaf is IEEE (Float16/32/64) and every array
 # is one whose tangent the wiring can read; dual numbers, BigFloat and other
