@@ -789,7 +789,7 @@ function _coupling_fit(C, h)
 end
 function _any_reads(ms::Tuple)
     return any(ms) do m
-        _modifier_adjoint(m) === :local && !_local_params(m) && _read_params(m)
+        _modifier_adjoint(m) === :local && !_local_params(m)
     end
 end
 # The parameters a coupling's local step seeds: its float scalars, folded
@@ -859,19 +859,19 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _scalar_params(m) = !_has_array_params(m, false)
 @generated _local_params(m) = !_has_array_params(m, true)
-@generated _array_params(m) = !_has_opaque_params(m)
-# Whether a type holds a float array other than a plain `Array`, outside
-# entry parameters: a `Diagonal` or a sparse matrix, say, whose fields a
-# step may read, so a pointwise modifier holding one takes the Jacobian
-# rather than recording its reads (`_read_params`).
+# Whether a type holds a float array that is not strided, outside entry
+# parameters: a `Diagonal` or a sparse matrix, say, whose fields a step may
+# read rather than its entries.
 function _has_structured_floats(::Type{T}) where {T}
     T <: _EntryParam && return false
-    T <: AbstractArray && return eltype(T) <: AbstractFloat && !(T <: Array)
+    T <: AbstractArray && return eltype(T) <: AbstractFloat && !(T <: StridedArray)
     T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
     isconcretetype(T) || return false
     return any(_has_structured_floats, fieldtypes(T))
 end
-@generated function _read_params(m)
+# Whether the local step can seed every float of a part: its scalars and
+# the entries of its strided float arrays.
+@generated function _array_params(m)
     return !_has_opaque_params(m) && !_has_structured_floats(m)
 end
 

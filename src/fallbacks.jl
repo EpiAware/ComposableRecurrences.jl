@@ -138,7 +138,7 @@ function _local_pullback(grads, m, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
     if m̄ !== nothing
         _local_params(m) && return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
-        _read_params(m) && return _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
+        _array_params(m) && return _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     end
     _nactive(m̄, m) == 0 && return _value_pullback(m, v̄, s̄, v, s, t, k)
     return _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
@@ -475,18 +475,12 @@ function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
 end
 
 # `_rebuild` with each float array a view of `θ` rather than a copy, so a
-# change to `θ` reaches the rebuilt object. A sparse matrix is copied, as
-# its nonzeros must be a `Vector`.
+# change to `θ` reaches the rebuilt object.
 _rebuild_views(x, θ) = first(_rebuild_views(x, θ, 0))
 _rebuild_views(::AbstractFloat, θ, o) = (θ[o + 1], o + 1)
 function _rebuild_views(x::AbstractArray{<:AbstractFloat}, θ, o)
     n = length(x)
     return reshape(view(θ, (o + 1):(o + n)), size(x)), o + n
-end
-_rebuild_views(x::SparseMatrixCSC{<:AbstractFloat}, θ, o) = _rebuild(x, θ, o)
-function _rebuild_views(x::Diagonal{<:AbstractFloat}, θ, o)
-    d, o = _rebuild_views(x.diag, θ, o)
-    return Diagonal(d), o
 end
 _rebuild_views(x::_Leafless, θ, o) = (x, o)
 _rebuild_views(::Tuple{}, θ, o) = ((), o)
@@ -597,8 +591,7 @@ end
 # `Recurrence` is built, for each part with float scalars.
 function _check_rebuild(x)
     _scalar_params(x) || (ispointwise(x) && _local_params(x)) ||
-        return ispointwise(x) && _read_params(x) ? _check_reads(x) :
-        _check_rebuild(Val(false), x)
+        return ispointwise(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
     return _check_rebuild(Val(true), x)
 end
 _check_rebuild(::Val{true}, x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
@@ -672,10 +665,6 @@ function _rebuilt_params!(θ, x::AbstractArray{<:AbstractFloat}, y, o)
     end
     return o + length(x)
 end
-function _rebuilt_params!(θ, x::SparseMatrixCSC{<:AbstractFloat}, y, o)
-    return _rebuilt_params!(θ, nonzeros(x), nonzeros(y), o)
-end
-_rebuilt_params!(θ, x::Diagonal{<:AbstractFloat}, y, o) = _rebuilt_params!(θ, x.diag, y.diag, o)
 _rebuilt_params!(θ, ::_Leafless, y, o) = o
 function _rebuilt_params!(θ, x::Union{Tuple, NamedTuple}, y, o)
     for (xi, yi) in zip(values(x), values(y))

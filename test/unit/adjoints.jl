@@ -1094,9 +1094,11 @@ end
 end
 
 @testitem "Adjoint: local pullback over structured and nested parameters" setup = [AdjointCheck] begin
-    # A pointwise modifier with array parameters takes the local Jacobian:
-    # a Diagonal, a sparse matrix, a named tuple and a tuple holding an
-    # array, read back in the order the parameters are collected.
+    # The local Jacobian of a pointwise modifier with array parameters: a
+    # Diagonal, a sparse matrix, a named tuple and a tuple holding an array,
+    # read back in the order the parameters are collected. A step may read
+    # the fields of a Diagonal or a sparse matrix, so the operator takes
+    # plain AD.
     struct Mixed{D, M, N, P}
         D::D
         K::M
@@ -1113,6 +1115,7 @@ end
         (0.1, [0.01, 0.02])
     )
     @test !CR._scalar_params(m)
+    @test CR._modifier_adjoint(m) === :none
     r = CR.Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.1 0.9], modifiers = (m,))
     @test pullback_matches(r, recargs(1.1, nothing, ones(2, 2); stop = 6)...)
     # Without a mirror only the value and state cotangents come back.
@@ -1314,7 +1317,8 @@ end
 
 @testitem "Adjoint: local pullback of a coupling holding arrays" setup = [AdjointCheck] begin
     using ComposableRecurrences
-    using LinearAlgebra: mul!
+    using LinearAlgebra: Diagonal, mul!
+    using SparseArrays: sparse
     # A user coupling holding a matrix, and one with a scalar beside it,
     # without a pullback: the local step seeds every entry.
     struct Mix{M}
@@ -1369,6 +1373,12 @@ end
     end
     CR.forward(C::HalvedMix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
     @test Recurrence([0.3]; coupling = HalvedMix(rand(3, 3))).rebuilds === false
+    # A Diagonal or a sparse matrix, whose fields a step may read, keeps
+    # plain AD, as do views and reshapes of an array the step seeds.
+    @test CR._coupling_adjoint(Mix(Diagonal(rand(3)))) === :none
+    @test CR._coupling_adjoint(Mix(sparse(rand(3, 3)))) === :none
+    @test CR._coupling_adjoint(Mix(view(rand(4, 3), 1:3, :))) === :local
+    @test CR._coupling_adjoint(Mix(reshape(view(rand(9), 1:9), 3, 3))) === :local
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [AdjointCheck] begin
