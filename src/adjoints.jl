@@ -240,10 +240,10 @@ end
 end
 _plain(op, args...) = _primal(op, args...)
 # A call the backend differentiates by plain AD first passes through this
-# hook, which does nothing; the Enzyme extension's reverse rule for it warns
-# of a gradient Enzyme can lose on Julia 1.11. It takes the operator and its
-# arguments so that the backend sees their activity, and `donotdelete`
-# keeps the call.
+# hook, which does nothing; the `Enzyme` extension's reverse rule for it
+# warns of a gradient `Enzyme` can lose on Julia 1.11. It takes the operator
+# and its arguments so that the backend sees their activity, and
+# `donotdelete` keeps the call.
 @noinline _plain_hook(op, args...) = (Base.donotdelete(op, args...); nothing)
 function _hooked_plain(op, args::Vararg{Any, N}) where {N}
     _plain_hook(op, args...)
