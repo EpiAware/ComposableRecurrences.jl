@@ -295,3 +295,20 @@ _ragged(::Val{false}, ks) = _Ragged(ks)
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
+
+# Value checks on parameters given as numbers or arrays; a `Derived`
+# parameter is checked by nothing here.
+_check_unit(name, x) = _check_values(name, x, v -> 0 <= v <= 1, "between 0 and 1")
+_check_values(name, x, ok, what) = nothing
+function _check_values(name, x::Real, ok, what)
+    ok(x) || throw(ArgumentError("$name is $what, got $x"))
+    return nothing
+end
+function _check_values(name, x::Union{PerStratum, TimeVarying}, ok, what)
+    return _check_values(name, x.x, ok, what)
+end
+function _check_values(name, x::AbstractArray{<:Real}, ok, what)
+    i = findfirst(!ok, x)
+    i === nothing || throw(ArgumentError("$name is $what, got $(x[i])"))
+    return nothing
+end

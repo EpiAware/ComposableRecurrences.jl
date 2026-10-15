@@ -367,6 +367,13 @@ end
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2])
     @test_throws ArgumentError CR.Flow(1 => 2, TimeVarying([0.1, 0.2], CR.Primary()))
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2]; form = CR.Share())
+    @test_throws "demand is between 0 and 1, got 1.5" CR.Flow(
+        1 => 2, 1.5; form = CR.Share()
+    )
+    @test_throws "demand is between 0 and 1, got -0.1" CR.Flow(
+        1 => 0, PerStratum([0.2, -0.1]); form = CR.Share()
+    )
+    @test CR.Flow(1 => 2, 1.5).demand == 1.5
     @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )

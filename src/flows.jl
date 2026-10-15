@@ -87,7 +87,8 @@ y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
 
 then each count flow, in the order given, moves its ``m_f`` out of what
 remains in ``y``.
-Shares out of one stock that sum to more than ``e^{-H_i}`` leave it
+Each share is between 0 and 1, checked where it is a number or array;
+shares out of one stock that sum to more than ``e^{-H_i}`` leave it
 negative.
 A negative count adds ``-d_f`` to stock `from`, without a cap, and moves
 nothing into `to`.
@@ -152,7 +153,10 @@ struct Flow{D, F <: _FlowForm, E}
             )
         )
         E = Union{typeof(from), typeof(to)}
-        return new{D, F, E}(from, to, _check_param(:demand, demand), form)
+        d = _check_param(:demand, demand)
+        # A share is a fraction of the stock it leaves.
+        form isa Share && _check_unit(:demand, d)
+        return new{D, F, E}(from, to, d, form)
     end
 end
 
