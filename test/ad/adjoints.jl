@@ -272,7 +272,7 @@
                     "patch model",
                     Recurrence(
                         g; modifiers = (
-                            CR.Redistribute(CR.movement(K, 0.4)),
+                            ADFixtures._leaky(CR.movement(K, 0.4)),
                             CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
                         )
                     ),
@@ -293,7 +293,7 @@
                     "patch model, sparse kernel",
                     Recurrence(
                         g; modifiers = (
-                            CR.Redistribute(sparse(CR.movement(K, [0.4, 0.3, 0.2]))),
+                            ADFixtures._leaky(sparse(CR.movement(K, [0.4, 0.3, 0.2]))),
                         )
                     ),
                     rec(R, nothing, h),
