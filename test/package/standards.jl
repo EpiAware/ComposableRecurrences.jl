@@ -1,10 +1,11 @@
 # PACKAGE-OWNED: documentation standards. Every public docstring states its
 # maths and carries a runnable example; prose avoids filler words and the
 # word "piece"; docstrings and src comments do not name other packages; and
-# Markdown prose keeps one sentence per line; on listed pages each section
-# that introduces a model gives its maths before the code, and the README
-# code is taken from the getting started page. The README and docs pages also go through the
-# shared `test_readme_prose` (banned words, sentence length).
+# Markdown prose keeps one sentence per line. On listed pages each section
+# that introduces a model gives its maths before the code, the README code
+# is taken from the getting started page, and each concept in `ONE_HOME` is
+# explained on its home page only. The README and docs pages also go
+# through the shared `test_readme_prose` (banned words, sentence length).
 # Inputs live in `standards_config.jl`.
 
 @testitem "Standards: docstring maths" tags = [:quality] begin
@@ -124,6 +125,24 @@ end
     @test filter(!in(lines), code) == String[]
 end
 
+@testitem "Standards: one home per concept" tags = [:quality] begin
+    include(joinpath(@__DIR__, "standards_helpers.jl"))
+    texts = Dict(
+        replace(relpath_root(f), '\\' => '/') => read(f, String)
+            for f in standards_prose_files()
+    )
+    for (anchor, (home, phrases)) in ONE_HOME
+        @testset "$anchor" begin
+            @test occursin("(@id $anchor)", texts[home])
+            for phrase in phrases
+                @test occursin(phrase, texts[home])
+                @test [f for (f, t) in texts if f != home && occursin(phrase, t)] ==
+                    String[]
+            end
+        end
+    end
+end
+
 @testitem "Standards: the checks detect violations" tags = [:quality] begin
     using ComposableRecurrences
     include(joinpath(@__DIR__, "standards_helpers.jl"))
@@ -169,4 +188,16 @@ end
     nested = "# ## A\n# ```math\n# ```\n# ### B\nRecurrence(k)\n"
     @test sections_missing_maths(nested, calls) == ["B"]
     @test sections_missing_maths("# ## [A](@id a)\nAdd(1)\n", calls) == ["A"]
+end
+
+@testitem "Standards: recorded item times fit the time budget" tags = [:quality] begin
+    include(joinpath(@__DIR__, "..", "item_times.jl"))
+    times = read_times()
+    names = default_items()
+    @test !isempty(times)
+    @test length(names) > 300
+    # An item with no recorded time weighs as much as the median one.
+    _, load = assign(names, times, TEST_BUDGET.workers)
+    # Re-record with `julia --project=test test/runtests.jl record_times`.
+    @test maximum(load) / 60 <= TEST_BUDGET.minutes
 end

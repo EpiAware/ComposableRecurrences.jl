@@ -21,6 +21,9 @@ of the compartment's ``x``, shared in proportion to the rates
 With non-negative, finite rates a non-negative compartment stays
 non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
+A constant rate out of a compartment is a geometric stay in it; for
+another stay, convolve the inflow with its survival, as
+[Occupancy and capacity](@ref tutorial-occupancy) does.
 Rates are not checked: a time-varying or [`Derived`](@ref) rate is only
 known at each step.
 
