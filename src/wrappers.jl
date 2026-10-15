@@ -477,19 +477,19 @@ _value_type(::Type{<:Pair{<:Any, V}}) where {V} = V
 # where they are: a vector of the values would be a copy of each that
 # reverse-mode AD cannot always type.
 _stack_values(::Type{<:Real}, get, ps) = [float(get(p)) for p in ps]
-function _stack_values(::Type{<:AbstractVector}, get, ps)
+function _stack_values(::Type{V}, get, ps) where {V <: AbstractVector}
     n = 0
     for p in ps
         n = max(n, length(get(p)))
     end
-    return _stack(get, ps, (n,))
+    return _stack(V, get, ps, (n,))
 end
-function _stack_values(::Type{<:AbstractArray}, get, ps)
+function _stack_values(::Type{V}, get, ps) where {V <: AbstractArray}
     sz = size(get(first(ps)))
     for p in ps
         size(get(p)) == sz || _size_error(sz, size(get(p)))
     end
-    return _stack(get, ps, sz)
+    return _stack(V, get, ps, sz)
 end
 function _stack_values(::Type{V}, get, ps) where {V <: Union{PerStratum, Pairwise}}
     x = _stack_values(_field_type(V), p -> get(p).x, ps)
@@ -514,9 +514,11 @@ end
 # Each value copied into its slice of one zeroed array, where its type and
 # device are, as `_Ragged` stacks columns: AD backends differentiate the
 # copies as block copies. A shorter vector leaves zeros after its entries.
-_stack(get, ps, sz) = _stack(get, ps, sz, get(first(ps)))
-function _stack(get, ps, sz, v1)
-    T = _values_eltype(get, ps)
+# The eltype comes from the values' type `V`, read off the pairs' type, so
+# no inference runs at call time.
+_stack(::Type{V}, get, ps, sz) where {V} = _stack(V, get, ps, sz, get(first(ps)))
+function _stack(::Type{V}, get, ps, sz, v1) where {V}
+    T = _values_eltype(V, get, ps)
     A = _zeros(v1, T, sz..., length(ps))
     n = prod(sz)
     for (j, p) in enumerate(ps)
@@ -525,9 +527,9 @@ function _stack(get, ps, sz, v1)
     end
     return A
 end
-function _values_eltype(get, ps)
-    V = Base.promote_op(get, eltype(ps))
-    isconcretetype(V) && return eltype(V)
+_values_eltype(::Type{V}, get, ps) where {V} = _values_eltype(Val(isconcretetype(V)), V, get, ps)
+_values_eltype(::Val{true}, ::Type{V}, get, ps) where {V} = eltype(V)
+function _values_eltype(::Val{false}, ::Type{V}, get, ps) where {V}
     T = Bool
     for p in ps
         T = promote_type(T, eltype(get(p)))

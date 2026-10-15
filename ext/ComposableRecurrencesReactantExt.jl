@@ -141,7 +141,7 @@ end
 
 # Traced values between change points stack by concatenation, which the
 # compiled program holds as one array.
-function ComposableRecurrences._stack(get, ps, sz, ::AnyTracedRArray)
+function ComposableRecurrences._stack(::Type, get, ps, sz, ::AnyTracedRArray)
     cols = map(ps) do p
         w = vec(get(p))
         n = prod(sz) - length(w)
