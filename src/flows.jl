@@ -37,7 +37,6 @@ struct Share end
 
 # The forms a flow takes: rates and shares act together, the truncated
 # forms in order after them.
-
 const _TruncateForm = Union{Truncate, SoftTruncate}
 const _FlowForm = Union{Hazard, Share, _TruncateForm}
 
@@ -87,8 +86,9 @@ y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
 
 then each count flow, in the order given, moves its ``m_f`` out of what
 remains in ``y``.
-Each share is between 0 and 1, checked where it is a number or array;
-shares out of one pool that sum to more than ``e^{-H_i}`` leave it
+Each share is between 0 and 1, checked unless it is a [`Derived`](@ref),
+which is only known at each step.
+Shares out of one pool that sum to more than ``e^{-H_i}`` leave it
 negative.
 A negative count adds ``-d_f`` to pool `from`, without a cap, and moves
 nothing into `to`.
@@ -96,8 +96,7 @@ A flow from `0` is a count from outside the `Pool`, which never runs out:
 it moves ``m_f = d_f`` into `to`, and a negative one moves nothing.
 Its form is `Truncate()` or `SoftTruncate(κ)`.
 The derivative through ``\min`` and ``\max`` takes the active branch.
-Rates and shares are not checked: a time-varying or [`Derived`](@ref)
-demand is only known at each step.
+Rates are not checked.
 
 # Arguments
 - `pools`: `from => to`, each a pool's name or its position from 1, with

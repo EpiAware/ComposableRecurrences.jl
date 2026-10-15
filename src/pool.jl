@@ -32,6 +32,8 @@ When ``P \le 0`` the draw comes from the first pool the draw names alone.
 A draw into pool ``f`` (`draw = form => pool`) fills it instead, up to
 ``N_t``: ``(v', \cdot) = F(v, N_t - x_f, N_t, \alpha)`` and
 ``x^{*}_f = x_f + v'``, as admissions fill beds.
+Its form is `Truncate()` or `SoftTruncate(κ)`, and its capacity ``N_t`` and
+the starting pools are not negative.
 The flows act on the pools after the draw, or before it with
 `flows_first = true`, as when patients leave before the day's admissions
 or an allowance is granted at the start of a period.
@@ -60,6 +62,14 @@ Any other is blockwise ([`ComposableRecurrences.blocks`](@ref)): each group
 has one value, or two with `overflow = :stratum`, value ``(j - 1) G + g``
 being value ``j`` of group ``g`` for ``G`` groups, and the state holds
 pool 1 of every group, then pool 2, and so on, then the queue.
+A `Pool` covers every stratum, so a stratum without a cap takes an
+infinite `N`.
+With `overflow = :stratum` group ``g`` overflows into stratum ``G + g``, so
+another pairing permutes the strata.
+For groups that share one overflow stratum, a
+[`ComposableRecurrences.Redistribute`](@ref) after the `Pool`, with
+``\varepsilon = 1`` on the other overflow strata and `K` sending each to the
+shared one, moves their values into it.
 
 Without a draw (`draw = nothing`) the pools are the step's values: the
 values hold ``n`` pools of ``G`` groups each, pool by pool
@@ -76,9 +86,9 @@ negative count adds nothing.
 | leaky vaccination, efficacy ``e`` | `(:S, :V)` | `(:S => 1, :V => 1 - e) => Hazard()` | `Flow(:S => :V, doses; form = Truncate())` |
 | all-or-nothing vaccination | `(:S, :V)` | `(:S => 1, :V => 0) => Hazard()` | `Flow(:S => :V, e * doses; form = Truncate())` |
 | waning protection | `(:S, :V)` | as above | add `Flow(:V => :S, ω)` |
-| beds that a share ``\delta`` leaves each step | `(:O,)` | `Truncate() => :O`, with `N` the beds | `Flow(:O => 0, δ; form = Share())`, first |
-| an allowance granted ``b_t`` at each period start | `(:B,)` | `:B => Truncate()` | `Flow(0 => :B, TimeVarying(b); form = Truncate())`, first |
-| the same without carry over | `(:B,)` | `:B => Truncate()` | `Flow(:B => 0, starts; form = Share())` before the grant, first |
+| beds that a share ``\delta`` leaves each step | `(:O,)` | `Truncate() => :O`, with `N` the beds | `Flow(:O => 0, δ; form = Share())`, with `flows_first = true` |
+| an allowance granted ``b_t`` at each period start | `(:B,)` | `:B => Truncate()` | `Flow(0 => :B, TimeVarying(b); form = Truncate())`, with `flows_first = true` |
+| the same without carry over | `(:B,)` | `:B => Truncate()` | `Flow(:B => 0, starts; form = Share())` before the grant, with `flows_first = true` |
 
 Here `starts` is a `TimeVarying` share of one at each period start and
 zero otherwise, and a lifetime allowance is an `initial` pool alone.
@@ -305,8 +315,29 @@ end
         n, draw = form !== nothing, first, fill, flows_first,
         overflow = _overflow(overflow),
     )
+    fill && _check_fill(form, N, initial)
     return Pool{L}(N, form, α, _initials(initial, n, form), weights, fs)
 end
+
+# A draw into a pool takes what is asked for up to the free capacity, which
+# like the pool's start is not negative.
+function _check_fill(form, N, initial)
+    _check_fill_form(form)
+    _check_nonnegative(:N, N)
+    _check_each_nonnegative(:initial, initial)
+    return nothing
+end
+_check_fill_form(::_TruncateForm) = nothing
+@noinline function _check_fill_form(form)
+    throw(
+        ArgumentError(
+            "a draw into a pool is Truncate() or SoftTruncate(κ), got " *
+                _describe(form)
+        )
+    )
+end
+_check_each_nonnegative(name, x) = _check_nonnegative(name, x)
+_check_each_nonnegative(name, xs::Tuple) = foreach(x -> _check_nonnegative(name, x), xs)
 
 # Where the value the draw leaves goes.
 _overflow(::Nothing) = :none
@@ -573,10 +604,10 @@ function Depletion(
         N, form = Hazard(); heterogeneity = nothing, pool0 = nothing,
         removals = nothing
     )
-    N = _population(N)
-    α = _exponent(something(heterogeneity, _unit_exponent(form)), N, form)
     flows = removals === nothing ? () :
         (Flow(1, 0, _check_param(:removals, removals), Truncate()),)
+    N = _population(N)
+    α = _exponent(something(heterogeneity, _unit_exponent(form)), N, form)
     # Built without the names, as the one-pool layout needs no lookup.
     return Depletion(N, form, α, (_initial_param(pool0),), (_Fixed{true}(),), flows)
 end

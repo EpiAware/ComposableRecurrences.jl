@@ -369,6 +369,22 @@ end
     end
 end
 
+@testitem "Pool capacity: two wards share one overflow stratum" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Wards 1 and 2 overflow into strata 3 and 4, and the Redistribute moves
+    # all of stratum 4 into stratum 3, as two pairs `1 => 3, 2 => 3` did.
+    beds = CR.Pool(1.0; pools = (:O,), draw = CR.Truncate() => :O, overflow = :stratum)
+    K = zeros(4, 4)
+    K[3, 4] = 1.0
+    shared = CR.Redistribute(K, PerStratum([0.0, 0.0, 0.0, 1.0]))
+    y = Recurrence([0.0]; modifiers = (beds, shared))(;
+        history = zeros(4, 1), add = [3.0 0.0; 2.0 0.0; 1.0 1.0; 0.0 0.0]
+    )
+    @test y[1:3, 1] ≈ [1.0, 1.0, 4.0]
+    @test all(iszero, y[4, :])
+end
+
 @testitem "Pool capacity: checks its arguments" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -380,6 +396,16 @@ end
         :O; overflow = 2
     )
     @test_throws "the draw names pool :X, but the pools are (:O,)" fill_into(:X)
+    # A draw into a pool is truncated, from a capacity and start that are
+    # not negative.
+    @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Pool(
+        1.0; pools = (:O,), draw = CR.Hazard() => :O
+    )
+    @test_throws "N is non-negative, got -1.0" CR.Pool(
+        PerStratum([1.0, -1.0]); pools = (:O,), draw = CR.Truncate() => :O
+    )
+    @test_throws "initial is non-negative, got -2.0" fill_into(:O; initial = -2.0)
+    @test fill_into(:O; initial = 0.5).initial == (0.5,)
     # A truncated draw reads no exponent; `true` and `false` stay fixed.
     @test fill_into(:O; heterogeneity = false).heterogeneity isa CR._FixedExponent{false}
     @test_throws "a draw into a pool fills it up to N, so give N" CR.Pool(;

@@ -302,6 +302,9 @@ _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
 function _check_unit(name, x)
     return _check_values(name, x, v -> 0 <= _primal_value(v) <= 1, "between 0 and 1")
 end
+function _check_nonnegative(name, x)
+    return _check_values(name, x, v -> _primal_value(v) >= 0, "non-negative")
+end
 _check_values(name, x, ok, what) = nothing
 function _check_values(name, x::Real, ok, what)
     ok(x) || throw(ArgumentError("$name is $what, got $x"))
