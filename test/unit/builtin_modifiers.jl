@@ -142,6 +142,8 @@ end
     @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(
         1.0; pool0 = TimeVarying(N)
     )
+    # A share is a form for flows only.
+    @test_throws "Share() is not a depletion form" CR.Depletion(80.0, CR.Share())
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
     @test size(y) == (2, 6)

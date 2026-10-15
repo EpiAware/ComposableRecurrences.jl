@@ -76,14 +76,32 @@ function ComposableRecurrences.forward(
     return v′, s - v′
 end
 
-# Consecutive blocks of `θ` with the given shapes.
-function _unpack(θ, shapes...)
-    o = 0
-    return map(shapes) do sh
+# Consecutive blocks of `θ` with the given shapes, as reshaped views.
+# Enzyme, up to 0.13.216 at least, fails one way of building them on each
+# side of Julia 1.12:
+# - On 1.11 the closure below, which captures a boxed offset, leaves every
+#   scenario uninferred, and Enzyme reverse mode then returns zero for the
+#   scalar parameters of an operator. So 1.11 takes the inferred recursion.
+# - From 1.12 Enzyme forward mode corrupts the heap after some thousands of
+#   calls of the inferred scenarios. So these versions keep the closure,
+#   whose gradients are right there.
+@static if VERSION < v"1.12"
+    _unpack(θ, shapes...) = _unpack_from(θ, 0, shapes...)
+    _unpack_from(θ, o) = ()
+    function _unpack_from(θ, o, sh, rest...)
         n = prod(sh)
         x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        o += n
-        x
+        return (x, _unpack_from(θ, o + n, rest...)...)
+    end
+else
+    function _unpack(θ, shapes...)
+        o = 0
+        return map(shapes) do sh
+            n = prod(sh)
+            x = reshape(view(θ, (o + 1):(o + n)), sh...)
+            o += n
+            x
+        end
     end
 end
 
@@ -399,9 +417,9 @@ function _ward(w, θ)
     CR = ComposableRecurrences
     flows = CR.Flows(
         CR.Flow(1 => 2, PerStratum(confirm)),
-        CR.Flow(1 => 0, CR.Linear(TimeVarying(ruleout))),
+        CR.Flow(1 => 0, TimeVarying(ruleout); form = CR.Share()),
         CR.Flow(2 => 0, only(discharge)),
-        CR.Flow(2 => 0, CR.Amount(TimeVarying(PerStratum(transfer)))),
+        CR.Flow(2 => 0, TimeVarying(PerStratum(transfer)); form = CR.Truncate()),
     )
     r = Recurrence([1.0]; modifiers = (flows,))
     y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
@@ -1075,7 +1093,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Protected,),
-    "Recurrence ward with competing flows (Flows)" => (:Flows,),
+    "Recurrence ward with competing flows (Flows)" => (:Flows, :Share),
     "Recurrence waning protection (Depletion flows)" => (:depletion_flows,),
     "Recurrence protected pool in Float32" => (:Protected,),
     # Depletion removals came with `Protected`.

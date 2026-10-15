@@ -284,8 +284,10 @@ true
 @implements PieceInterface{(:blocks, :nstate)} Flows [
     Arguments(;
         piece = Flows(
-            Flow(1 => 2, PerStratum([0.3, 0.2])), Flow(2 => 0, Linear(0.1)),
-            Flow(1 => 0, Amount(0.5))
+            Flow(1 => 2, PerStratum([0.3, 0.2])),
+            Flow(2 => 0, 0.1; form = Share()),
+            Flow(1 => 0, 0.5; form = Truncate()),
+            Flow(2 => 0, 0.2; form = SoftTruncate(0.1))
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
