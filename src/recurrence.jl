@@ -945,8 +945,7 @@ function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
     return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
 end
 # Whether a vector modifier's pullback reads its state after each step,
-# such as values its step computes and keeps in the state, so the forward
-# pass records them and the pullback need not compute them again.
+# so the forward pass records it (see `_pass_buffer`).
 _keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,

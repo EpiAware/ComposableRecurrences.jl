@@ -256,10 +256,9 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
     return v̄
 end
 
-# Walk the step's value cotangent back through the modifiers, last first.
-# A modifier that keeps its state after each step (`_keeps_after`) also
-# finds it in `grads.after`, and one with a per-pass buffer finds its column
-# for this step in `grads.pass`.
+# Walk the step's value cotangent back through the modifiers, last first,
+# with `grads.after` and `grads.pass` for a modifier that asks for them (see
+# `_pass_buffer`).
 _stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t) = nothing
 function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     _stages_back!(
@@ -282,10 +281,22 @@ _column(A::AbstractMatrix, t) = view(A, :, t)
 _column(b::NamedTuple, t) = map(B -> _column(B, t), b)
 _column(x::AbstractVector, t) = x
 
-# A modifier's per-pass buffer: `nothing`, or a named tuple of arrays whose
-# matrices (entries × steps) its step pullback writes a column of; vectors
-# are scratch shared by every step. `_finish_pass!` then reads it once,
-# after the last step, to add the cotangents its steps left for it.
+# What the reverse pass of a `Recurrence` keeps for a vector modifier:
+#
+# - `_keeps_after(m)` true: the forward pass records the modifier's state
+#   after each step (`R.A`, entries × steps), and its step pullback finds
+#   that step's column in `grads.after`.
+# - `_pass_buffer(H, Tp, m, m̄, S, T)`: `nothing`, or a named tuple of arrays
+#   whose matrices (entries × steps) the step pullback writes a column of,
+#   found in `grads.pass`; vectors are scratch shared by every step.
+#   `_finish_pass!(m̄, m, R, b, τ0)` then reads it once, after the last step,
+#   to add the cotangents the steps left for it.
+#
+# `grads` carries `after` and `pass` only when the modifier asks for one of
+# them, so other pullbacks see the usual fields. Without them a pullback
+# must give the same cotangents by its per-step path. They reach only a modifier's own vector
+# `pullback!`: a blockwise modifier split into groups gets neither, so one
+# that asks must have its own vector pullback.
 _pass_buffer(H, ::Type, m, m̄, S, T) = nothing
 _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 

@@ -415,7 +415,8 @@ function _import_weights(T, φ, su, sh, ε)
 end
 
 # The step keeps `u` and `h` in its state, so the reverse pass records the
-# state after each step and the pullback reads them there.
+# state after each step and the pullback reads them there (see
+# `_pass_buffer` for the contract).
 _keeps_after(::Allocate{<:Any, <:_AllocateImports}) = true
 
 # Per group, with `a_u = Σ ȳ_k u_k / s_u` and `a_h = Σ ȳ_k h_k / s_h`:
@@ -505,13 +506,16 @@ end
 # Batching asks for a dense pattern or spill kernel whose mirror is a dense
 # matrix: the buffer keeps each step's `h̄` (`hb`) and each step's input
 # cotangent to the spill (`vc`), with a scratch vector for the spill's `Kᵀ v̄`.
+# Whether it batches depends on the types only, so the buffer's type is
+# inferred; a mirror of the wrong size throws.
 function _pass_buffer(H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T) where {Tp}
     (; pattern, spill) = m.imports
     īm = cotangent(m̄, :imports)
-    hb = _batches(pattern, cotangent(īm, :pattern)) ? _zeros(H, Tp, S, T) : nothing
-    vc, acc = if spill isa Redistribute &&
-            _batches(spill.K, cotangent(cotangent(īm, :spill), :K))
-        _zeros(H, Tp, S, T), _zeros(H, Tp, S)
+    P̄ = cotangent(īm, :pattern)
+    hb = _batches(pattern, P̄) ? _batch_columns(H, Tp, pattern, P̄, S, T) : nothing
+    vc, acc = if _batches_spill(spill, cotangent(īm, :spill))
+        K̄ = cotangent(cotangent(īm, :spill), :K)
+        _batch_columns(H, Tp, spill.K, K̄, S, T), _zeros(H, Tp, S)
     else
         nothing, nothing
     end
@@ -519,7 +523,13 @@ function _pass_buffer(H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄
     return (; hb, vc, acc)
 end
 _batches(P, P̄) = false
-_batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix && size(_array_mirror(P̄)) == size(P)
+_batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix
+_batches_spill(spill, r̄) = false
+_batches_spill(r::Redistribute, r̄) = _batches(r.K, cotangent(r̄, :K))
+function _batch_columns(H, ::Type{Tp}, P, P̄, S, T) where {Tp}
+    _check_dense(_array_mirror(P̄), P)
+    return _zeros(H, Tp, S, T)
+end
 
 # After the last step: the pattern's cotangent `P̄ += H̄ Vᵀ`, with `H̄` each
 # step's `h̄` and `V` each step's input; the spill kernel's
@@ -565,14 +575,16 @@ end
 # `v̄_q = (1 − ε_q o_q) c_q + ε_q a_q`, as `_redistribute_back!` does.
 function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, vc, pass)
     (; K, ε) = r
+    a = pass.acc
+    axes(v̄, 1) == axes(v, 1) == axes(K, 1) == axes(K, 2) == axes(a, 1) ||
+        throw(DimensionMismatch("kernel is $(size(K)), values are $(length(v))"))
     ū = view(s̄, 1:length(v))
     v̄ .+= ū
     fill!(ū, zero(eltype(ū)))
     copyto!(vc, v̄)
-    a = pass.acc
     mul!(a, transpose(K), v̄)
     ε̄ = cotangent(r̄, :ε)
-    for q in eachindex(v, v̄)
+    @inbounds for q in eachindex(v, v̄)
         εq = param(ε, q, t)
         out = _outflow(K, q)
         aq = a[q] - K[q, q] * v̄[q]
