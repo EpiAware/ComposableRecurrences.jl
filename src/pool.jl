@@ -700,13 +700,13 @@ end
 # One stock and no flows: the form's step.
 const _Depleting = _OneStock{<:Any, <:Any, <:Any, <:Any, <:Any, Tuple{}}
 
-function forward(m::_Depleting, ::Step, v::Real, s::Real, t, k)
+function forward(m::_Depleting, ::Step, v::Number, s::Number, t, k)
     return forward(
         m.form, Step(), v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
     )
 end
 
-function pullback!(grads, m::_Depleting, ::Step, v::Real, s::Real, t, k)
+function pullback!(grads, m::_Depleting, ::Step, v::Number, s::Number, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
@@ -722,7 +722,7 @@ const _Flowing = _OneStock{
     <:Any, <:Any, <:Any, <:Any, <:Any, <:Tuple{Flow, Vararg{Flow}},
 }
 
-function forward(m::_Flowing, ::Step, v::Real, s::Real, t, k)
+function forward(m::_Flowing, ::Step, v::Number, s::Number, t, k)
     y, s′ = forward(
         m.form, Step(), v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
     )
@@ -730,7 +730,7 @@ function forward(m::_Flowing, ::Step, v::Real, s::Real, t, k)
     return y, s″
 end
 
-function pullback!(grads, m::_Flowing, ::Step, v::Real, s::Real, t, k)
+function pullback!(grads, m::_Flowing, ::Step, v::Number, s::Number, t, k)
     m̄ = grads.piece
     N, α = _pop(m.N, k, t), _exponent_value(m.heterogeneity)
     _, s′ = forward(m.form, Step(), v, s, N, α)
