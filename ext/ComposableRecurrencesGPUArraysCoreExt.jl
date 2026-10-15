@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
     Clamp, Convolution, Depletion, Derived, Device, Flow, Flows,
     Pairwise, PerStratum, Pressure, Protected, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports
+    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports, _Piecewise
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -25,6 +25,7 @@ end
 # the device too. Integer arrays, such as `Allocate`'s groups, are copied
 # where a loop needs them.
 function ComposableRecurrences._check_device(::AnyGPUArray, parts)
+    _piecewise_leaf(parts) && throw(ArgumentError(_PIECEWISE_DEVICE))
     _host_leaf(parts) && throw(
         ArgumentError(
             "the inputs live on a device but a kernel, coupling, modifier " *
@@ -43,6 +44,20 @@ _host_leaf(x::Tuple) = any(_host_leaf, x)
 function _host_leaf(x::T) where {T}
     isstructtype(T) || return false
     return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
+end
+
+# A coefficient given by change points reads its segments on the host, so a
+# device call refuses it, as `adapt` does.
+const _PIECEWISE_DEVICE = "a TimeVarying given by change points runs on the " *
+    "host; on a device, pass the dense TimeVarying array that repeats each " *
+    "value over its segment"
+_piecewise_leaf(::_Piecewise) = true
+const _NoPiecewise = Union{AbstractArray, Number, Symbol, Nothing, Function, Type, Module}
+_piecewise_leaf(::_NoPiecewise) = false
+_piecewise_leaf(x::Tuple) = any(_piecewise_leaf, x)
+function _piecewise_leaf(x::T) where {T}
+    isstructtype(T) || return false
+    return any(i -> _piecewise_leaf(getfield(x, i)), 1:fieldcount(T))
 end
 
 # The longest column of a ragged kernel whose offsets live on a device, as
@@ -116,6 +131,7 @@ function Adapt.adapt_structure(to, g::_Ragged)
 end
 # Columns held as given are stacked first: a device loop reads one array.
 Adapt.adapt_structure(to, g::_Columns) = adapt(to, _Ragged(g.columns))
+Adapt.adapt_structure(to, ::_Piecewise) = throw(ArgumentError(_PIECEWISE_DEVICE))
 
 # `Allocate` keeps its groups, host index arrays that each step copies where
 # it needs them, and adapts its totals and imports.

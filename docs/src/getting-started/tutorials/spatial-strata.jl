@@ -76,6 +76,7 @@ end
 # ``K_{ij}(t)`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30.
 # A `Pairwise` kernel weights each interval by `K`, so its coupling stays `I`.
 # A [`TimeVarying`](@ref) coupling gives ``K_{ij}(t)``.
+# It changes once, so it is given by its change points.
 # Each model depletes every patch's pool and starts from ten infections a day in patch A.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
@@ -85,14 +86,14 @@ for a in 1:S, b in 1:S
     A[a, b, :] = K[a, b] .* (a == b ? vcat(gi, 0.0) : gi_between)
 end
 K_travel(cut) = Diagonal(diag(K)) + (1 - cut) * (K - Diagonal(diag(K)))
-Kt = cat([K_travel(t < 30 ? 0.0 : 0.8) for t in 1:T]...; dims = 3)
+Kt = TimeVarying([1 => K_travel(0.0), 30 => K_travel(0.8)])
 
 depletion = Depletion(PerStratum(pop))
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 models = [
     "Fixed coupling" => Recurrence(gi; coupling = K, modifiers = (depletion,)),
     "Per-pair intervals" => Recurrence(Pairwise(A); modifiers = (depletion,)),
-    "Travel cut on day 30" => Recurrence(gi; coupling = TimeVarying(Kt), modifiers = (depletion,)),
+    "Travel cut on day 30" => Recurrence(gi; coupling = Kt, modifiers = (depletion,)),
 ]
 long(y) = @chain DataFrame(permutedims(y), patches) begin
     @transform(:day = 1:size(y, 2))

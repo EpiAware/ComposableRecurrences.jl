@@ -477,6 +477,59 @@ function conv_primary_ragged(wrap, z::Size)
     return f, θ0
 end
 
+# Kernels from change points (`tv_piecewise_*`): `k` segments of equal
+# length, each with its own kernel, against the dense `TimeVarying` that
+# repeats each segment's kernel over its times (`tv_dense_*`, five segments)
+# and the fixed kernel (`conv_fixed`, `renewal`). The parameters are the
+# segments' kernels, lags × segments, then the inputs.
+_cp_starts(T, k) = [1 + (j - 1) * (T ÷ k) for j in 1:k]
+_cp_values(L, k) = [g * (1 + 0.1 * _noise(j, 11)) for g in _gi(L), j in 1:k]
+# `cols[t]` is the segment of time `t`, found once outside the loss.
+_cp_cols(starts, T) = [count(<=(t), starts) for t in 1:T]
+function _cp_kernel(K, starts, cols, indexing)
+    return TimeVarying([starts[j] => K[:, j] for j in eachindex(starts)], indexing)
+end
+_dense_kernel(K, starts, cols, indexing) = TimeVarying(K[:, cols], indexing)
+function _conv_cp(wrap, z::Size, indexing, k, kernel)
+    (; T, L) = z
+    _, x, w = _conv_inputs(T, L)
+    starts = _cp_starts(T, k)
+    cols = _cp_cols(starts, T)
+    f = function (θ)
+        K = reshape(θ[1:(L * k)], L, k)
+        c = Convolution(kernel(K, starts, cols, indexing))
+        return sum(w .* wrap(c)(θ[(L * k + 1):end]))
+    end
+    return f, vcat(vec(_cp_values(L, k)), x)
+end
+# A `Primary()` renewal is seeded at times 1 to L, as `renewal_primary` is.
+_cp_start(::CR.Secondary, L) = 1
+_cp_start(::CR.Primary, L) = L + 1
+function _renewal_cp(wrap, z::Size, indexing, k, kernel)
+    (; T, L) = z
+    W = _weights(T)
+    starts = _cp_starts(T, k)
+    t0 = _cp_start(indexing, L)
+    cols = _cp_cols(starts, T)
+    f = function (θ)
+        K, logh, logR = _unpack(θ, (L, k), (L,), (T,))
+        r = wrap(Recurrence(kernel(K, starts, cols, indexing)))
+        y = r(exp.(logR); history = exp.(logh), start = t0)
+        return sum(W[t0:end] .* log.(y))
+    end
+    θ = _flat(_cp_values(L, k), fill(log(10.0), L), [0.05 * _noise(t, 2) for t in 1:T])
+    return f, θ
+end
+for (name, op) in (("", _conv_cp), ("renewal_", _renewal_cp)),
+        (ix, indexing) in (("secondary", CR.Secondary()), ("primary", CR.Primary()))
+    for k in (2, 5)
+        @eval $(Symbol("tv_piecewise_", name, ix, "_k", k))(wrap, z::Size) =
+            $op(wrap, z, $indexing, $k, _cp_kernel)
+    end
+    @eval $(Symbol("tv_dense_", name, ix))(wrap, z::Size) =
+        $op(wrap, z, $indexing, 5, _dense_kernel)
+end
+
 # A reported delay: a fixed pmf, an ascertainment per output time and a
 # baseline added after the delay.
 function conv_gain(wrap, z::Size)
@@ -631,6 +684,59 @@ const CASES = [
         triangle, [1], false,
     ),
     Case(
+        "tv_piecewise_secondary_k2", "pmf per output time from 2 change points",
+        tv_piecewise_secondary_k2, [1], false,
+    ),
+    Case(
+        "tv_piecewise_secondary_k5", "pmf per output time from 5 change points",
+        tv_piecewise_secondary_k5, [1], false,
+    ),
+    Case(
+        "tv_piecewise_primary_k2", "pmf per input time from 2 change points",
+        tv_piecewise_primary_k2, [1], false,
+    ),
+    Case(
+        "tv_piecewise_primary_k5", "pmf per input time from 5 change points",
+        tv_piecewise_primary_k5, [1], false,
+    ),
+    Case(
+        "tv_dense_secondary", "pmf per output time, 5 segments as L × T",
+        tv_dense_secondary, [1], false,
+    ),
+    Case(
+        "tv_dense_primary", "pmf per input time, 5 segments as L × T",
+        tv_dense_primary, [1], false,
+    ),
+    Case(
+        "tv_piecewise_renewal_secondary_k2",
+        "renewal, kernel per time from 2 change points",
+        tv_piecewise_renewal_secondary_k2, [1], false,
+    ),
+    Case(
+        "tv_piecewise_renewal_secondary_k5",
+        "renewal, kernel per time from 5 change points",
+        tv_piecewise_renewal_secondary_k5, [1], false,
+    ),
+    Case(
+        "tv_piecewise_renewal_primary_k2",
+        "renewal, kernel per infection time from 2 change points",
+        tv_piecewise_renewal_primary_k2, [1], false,
+    ),
+    Case(
+        "tv_piecewise_renewal_primary_k5",
+        "renewal, kernel per infection time from 5 change points",
+        tv_piecewise_renewal_primary_k5, [1], false,
+    ),
+    Case(
+        "tv_dense_renewal_secondary", "renewal, kernel per time, 5 segments as L × T",
+        tv_dense_renewal_secondary, [1], false,
+    ),
+    Case(
+        "tv_dense_renewal_primary",
+        "renewal, kernel per infection time, 5 segments as L × T",
+        tv_dense_renewal_primary, [1], false,
+    ),
+    Case(
         "transform", "per-stratum PGF iteration, Transform modifier",
         transform, [5, 50], false,
     ),
@@ -664,6 +770,18 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "conv_gain" => (:contributions,),
     "triangle" => (:contributions,),
 )
+# Kernels from change points came with `_Piecewise`.
+const PIECEWISE_CASES = [
+    "tv_piecewise_$(op)$(ix)_k$(k)" for op in ("", "renewal_"),
+        ix in ("secondary", "primary") for k in (2, 5)
+]
+const DENSE_CASES = [
+    "tv_dense_$(op)$(ix)" for op in ("", "renewal_") for ix in ("secondary", "primary")
+]
+foreach(n -> REQUIRES[n] = (:_Piecewise,), PIECEWISE_CASES)
+const PIECEWISE_SIZES = [
+    (T = 200, L = 20), (T = 400, L = 20), (T = 200, L = 60), (T = 400, L = 60),
+]
 
 """
     available(c::Case, arm = "rule")
@@ -698,7 +816,8 @@ const TIERS = Dict(
     "ci" => (
         cases = [
             "overview", "renewal", "strata_mixing", "bvd_patch", "delay_fixed",
-            "conv_fixed",
+            "conv_fixed", "tv_piecewise_secondary_k5", "tv_piecewise_primary_k5",
+            "tv_piecewise_renewal_secondary_k5", "tv_piecewise_renewal_primary_k5",
         ],
         sizes = [(T = 200, L = 20)],
         strata = [1, 3, 5],
@@ -712,7 +831,8 @@ const TIERS = Dict(
     "convolved" => (
         cases = [
             "conv_fixed", "conv_masked", "conv_primary", "conv_secondary",
-            "conv_primary_ragged", "conv_gain", "triangle",
+            "conv_primary_ragged", "conv_gain", "triangle", "renewal",
+            PIECEWISE_CASES..., DENSE_CASES...,
         ],
         sizes = [(T = 400, L = 60), (T = 100, L = 10)],
         strata = [1],
@@ -721,10 +841,18 @@ const TIERS = Dict(
             "conv_primary_ragged" => [(T = 400, L = 60)],
             "triangle" => [(T = 400, L = 60)],
             "conv_secondary" => [(T = 100, L = 10)],
+            # The change-point cases and the kernels they compare with.
+            (
+                n => PIECEWISE_SIZES
+                    for n in ["renewal", PIECEWISE_CASES..., DENSE_CASES...]
+            )...,
+            "conv_fixed" => [PIECEWISE_SIZES; (T = 100, L = 10)],
         ),
     ),
     "realistic" => (
-        cases = filter(n -> !startswith(n, "conv_"), [c.name for c in CASES]),
+        cases = filter(
+            n -> !startswith(n, "conv_") && !startswith(n, "tv_"), [c.name for c in CASES]
+        ),
         sizes = [(T = 200, L = 20), (T = 400, L = 60)],
         strata = [1, 3, 5, 20, 50],
     ),
