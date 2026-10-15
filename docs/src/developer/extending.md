@@ -63,23 +63,7 @@ Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 These accept every parameter form, including [`Derived`](@ref) and [`Recent`](@ref).
 Call `add_param!` for every parameter, even with a `nothing` mirror; [`add_param!`](@ref ComposableRecurrences.add_param!) says why.
 
-## [Gradient routes](@id extending-routes)
-
-[Rules and plain AD](@ref adjoint-routing) says which route a type gives its operator.
-
-Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
-
-The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
-Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
-So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
-Integer fields, index ranges and integer arrays are structure, not parameters.
-Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
-
-The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
-So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
-A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
-The local step of a coupling is capped by the strata it couples, at a limit set by the backend; the route table in [Rules and plain AD](@ref adjoint-routing) gives it.
-A coupling over more strata needs a `pullback!` to take the rule.
+A type without a `pullback!` still takes the rule when the local step can rebuild it; [What the local step needs](@ref adjoint-local-step) gives the conditions.
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 

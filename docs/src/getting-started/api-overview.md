@@ -69,7 +69,7 @@ the [extension API](@ref overview-extending), which includes
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
 | [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
-A recurrence has no lag 0; the [FAQ](@ref faq-lag-origin) says why.
+A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) says why.
 
 ## [Calls](@id overview-calls)
 
@@ -178,7 +178,7 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
 ## [Modifiers](@id overview-modifiers)
 
 [Order](@ref explanation-modifier-order) gives the order modifiers act in, with each modifier's state.
-The `add` input enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
+The `add` input enters before every modifier, and `Add` enters where it sits in the tuple; [Imported cases](@ref tutorial-imports) compares the two for imports.
 `Redistribute` moves whatever it receives, including values from `add`.
 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
@@ -193,7 +193,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`, `Capacity` and `Flows`.
+The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`, `Capacity` and `Flows`.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
@@ -247,7 +247,7 @@ See [Writing new types](@ref extending).
 | [`forward(m, role, args...)`](@ref ComposableRecurrences.forward) | the maths of a modifier, coupling or depletion form for one job | writes in place, or returns values |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`, found from its methods; a method overrides it | `Bool` |
+| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series | `Int` |
