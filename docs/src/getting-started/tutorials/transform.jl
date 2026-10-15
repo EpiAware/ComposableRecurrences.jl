@@ -1,137 +1,168 @@
-# # [Transforms inside a recurrence](@id tutorial-transform)
+# # [Branching processes](@id tutorial-branching)
 #
 # ## Introduction
 #
-# Some models pass each day's value through a function before it carries into the next day.
-# [`Transform`](@ref ComposableRecurrences.Transform) is the modifier that does this.
-# This tutorial uses it for a behavioural response and for a branching process.
-# It then takes gradients through it.
+# A branching process follows the offspring of each case.
+# Its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
+# This tutorial computes mean cases with types, isolation and contact tracing, and the probability of extinction by generation.
+# These are expectations of branching processes, not simulated chains.
 #
 # ### What are we going to do in this exercise
 #
-# 1. Saturate transmission as incidence rises.
-# 2. Combine the transform with [`Depletion`](@ref ComposableRecurrences.Depletion).
-# 3. Drive the response and vaccination from recent incidence with [`Recent`](@ref).
-# 4. Compute the probability of extinction by generation.
-# 5. Take gradients with respect to the transform's parameters.
+# 1. Grow a multi-type process one generation per step.
+# 2. Thin the generation interval for isolation, with a delay that depends on the type.
+# 3. Treat traced and untraced cases as two types.
+# 4. Compute the probability of extinction by generation, and its derivative.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on [Renewal then delay](@ref tutorial-renewal-delay).
+# This tutorial builds on [Getting started](@ref getting-started) and uses couplings and [`Pairwise`](@ref) kernels from [Shapes and couplings](@ref explanation-shapes-couplings).
 # No fitting is involved.
 
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Transform, Depletion
+using ComposableRecurrences: Transform
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
+using LinearAlgebra
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
-# ## Transmission that saturates with incidence
-#
-# People may reduce their contacts when incidence is high.
-# A saturating form (Capasso and Serio 1978) caps daily infections below ``\kappa``:
-#
-# ```math
-# f(v, \kappa) = \frac{v}{1 + v / \kappa}.
-# ```
-#
-# With a constant ``R > 1`` infections settle at ``\kappa (R - 1) / R``.
-
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
-T = 100
-R = fill(1.5, T)
-saturate(v, κ) = v / (1 + v / κ)
 
-@chain [100.0, 300.0] begin
-    map(_) do κ
-        y = Recurrence(gi; modifiers = (Transform(saturate, κ),))(R; history = [5.0])
-        DataFrame(day = 1:T, series = "κ = $(Int(κ))", count = y)
-    end
-    reduce(vcat, _)
-    vcat(_, DataFrame(day = 1:T, series = "No response", count = Recurrence(gi)(R; history = [5.0])))
-    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Infections (log scale)", yscale = log10))
-end
-
-# ## Combining with depletion
+# ## A multi-type process
 #
-# Let ``y_t`` be the infections on day ``t`` and ``g_l`` the generation interval.
-# With ``v_t = R \sum_{l} g_l \, y_{t-l}`` and ``h`` the depletion draw, the orders give
+# With a unit kernel each step is one generation:
 #
 # ```math
-# y^{\text{before}}_t = h\big(f(v_t, \kappa)\big), \qquad
-# y^{\text{after}}_t = f\big(h(v_t), \kappa\big).
+# y_n = M \, y_{n-1},
 # ```
 #
-# ``y^{\text{before}}`` is "Transform then Depletion".
-# ``y^{\text{after}}`` is "Depletion then Transform".
-# Placed before `Depletion`, the transform lowers the force of infection.
-# The pool then loses the infections that occur.
-# Placed after it, the pool loses the draws before the response.
-# These are more than the infections recorded.
+# where ``y_n`` holds the mean cases of each type in generation ``n``.
+# The mean offspring matrix ``M`` is the coupling.
+# ``M_{ij}`` is the mean number of type ``i`` cases that one type ``j`` case causes.
+# Growth per generation converges to the spectral radius of `M`, the reproduction number.
 
-N = 5_000.0
-κ = 100.0
-orders = [
-    "Transform then Depletion" => (Transform(saturate, κ), Depletion(N)),
-    "Depletion then Transform" => (Depletion(N), Transform(saturate, κ)),
-    "Depletion only" => (Depletion(N),),
-]
-runs = @chain orders begin
-    map(_) do (name, modifiers)
-        y = Recurrence(gi; modifiers)(R; history = [5.0])
-        DataFrame(day = 1:T, order = name, count = y)
-    end
-    reduce(vcat, _)
-end
-@chain runs begin
-    data(_) * mapping(:day, :count, color = :order) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
-end
+M = [1.2 0.4; 0.3 0.6]
+by_generation = Recurrence([1.0]; coupling = M)(1.0; history = [1.0; 0.0;;], stop = 30)
+growth = norm(by_generation[:, end]) / norm(by_generation[:, end - 1])
+round.((growth, maximum(abs, eigvals(M))); digits = 4)
 
 #-
 
-@combine(groupby(runs, :order), :total = round(sum(:count)))
-
-# ## Feedback from recent incidence
-#
-# The saturating response reacts to the current day only.
-# A response to the last week's incidence is built from parts instead of a bespoke modifier.
-# [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref)
-# maps them, and any modifier parameter takes the result:
-#
-# ```math
-# y_t = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} y_{t-l}\Big)\, R_t \sum_{l} g_l\, y_{t-l}.
-# ```
-#
-# The same source can drive ring vaccination, removing doses from the
-# susceptible pool in proportion to recent cases (@placeholder).
-
-κr = 10.0
-response = Transform(*, Derived(exp, -κr / N * Recent(7)))
-ring = Depletion(N; removals = 0.5 * Recent(7))
-feedback = [
-    "Depletion only" => (Depletion(N),),
-    "Response to the last week" => (response, Depletion(N)),
-    "Ring vaccination" => (ring,),
-    "Both" => (response, ring),
-]
-@chain feedback begin
-    map(_) do (name, modifiers)
-        y = Recurrence(gi; modifiers)(R; history = [5.0])
-        DataFrame(day = 1:T, model = name, count = y)
-    end
-    reduce(vcat, _)
-    data(_) * mapping(:day, :count, color = :model) * visual(Lines, linewidth = 2)
-    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+@chain DataFrame(
+    "generation" => 0:30, "Type 1" => [1.0; by_generation[1, :]], "Type 2" => [0.0; by_generation[2, :]]
+) begin
+    stack(Not(:generation); variable_name = :type, value_name = :cases)
+    @subset(:cases .> 0)
+    data(_) * mapping(:generation, :cases, color = :type) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Generation", ylabel = "Mean cases (log scale)", yscale = log10))
 end
 
-# Both measures cut the peak, and together they cut it further than either alone.
-# The reverse-mode rule sends each gradient back through the outputs that
-# `Recent` reads, so Mooncake and Enzyme follow the feedback too.
+# After a few generations both types grow at the same rate, in a fixed ratio.
+
+# ## Isolation as a thinned kernel
+#
+# Isolating a share `p` of cases blocks a share `b` of their later transmission.
+# ``F_D(\tau)`` is the probability a case is isolated by lag ``\tau``.
+# The mean offspring at lag ``\tau`` is then
+#
+# ```math
+# m(\tau) = R \, g(\tau) \big(1 - p \, b \, F_D(\tau)\big).
+# ```
+#
+# This assumes the generation interval is independent of the time to isolation.
+
+p, b = 0.8, 0.9
+F_D = [0.1, 0.4, 0.7, 0.9, 1.0]
+gi_isolated = gi .* (1 .- p * b .* F_D)
+R0 = 1.6
+round.((R0 * sum(gi), R0 * sum(gi_isolated)); digits = 3)
+
+#-
+
+@chain DataFrame("lag" => eachindex(gi), "No isolation" => gi, "Isolation" => gi_isolated) begin
+    stack(Not(:lag); variable_name = :kernel, value_name = :weight)
+    data(_) * mapping(:lag, :weight, color = :kernel, dodge = :kernel) * visual(BarPlot)
+    draw(_; axis = (xlabel = "Lag (days)", ylabel = "Generation interval weight"))
+end
+
+# Isolation thins the later lags most and brings the reproduction number below one.
+# The mean offspring with and without isolation match seeded branching-process simulations from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl); the [isolation use case](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/usecases/expectation.jl) checks them.
+#
+# ## Isolation delay by type
+#
+# The delay to isolation can depend on a case's state.
+# Once a household's first case is found, later cases in it are found sooner.
+# In expectation each type gets its own thinned kernel.
+# This is a [`PerStratum`](@ref) kernel by infector type.
+# Type 1 is a household's first case and type 2 a later case.
+# `M_house` is the mean offspring matrix.
+# The next-generation matrix scales each column of `M_house` by its type's kernel sum.
+# Its spectral radius is the reproduction number:
+#
+# ```math
+# y_{t,i} = R \sum_{j} M_{ij} \sum_{l} W_{j,l} \, y_{t-l,j}, \qquad
+# K = R \, M \operatorname{diag}\Big(\sum_{l} W_{1,l},\ \sum_{l} W_{2,l}\Big).
+# ```
+#
+# ``W_{j,l}`` is type ``j``'s thinned kernel on lag ``l``, `W_house` below.
+# ``y_{t,i}`` is the mean number of type ``i`` cases on day ``t``, and ``K`` is `K_house`.
+
+F_fast = [0.3, 0.7, 0.9, 1.0, 1.0]
+W_house = permutedims([gi_isolated gi .* (1 .- p * b .* F_fast)])
+M_house = [0.6 0.3; 0.6 0.5]
+house_model = Recurrence(PerStratum(W_house); coupling = M_house)
+house = house_model(R0; history = [10.0; 0.0;;], stop = 60)
+K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
+round.((maximum(abs, eigvals(K_house)), sum(house[:, end])); digits = 3)
+
+#-
+
+@chain DataFrame(
+    "day" => 1:60, "First case" => house[1, :], "Later case" => house[2, :]
+) begin
+    stack(Not(:day); variable_name = :type, value_name = :cases)
+    data(_) * mapping(:day, :cases, color = :type) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Mean cases (log scale)", yscale = log10))
+end
+
+# The reproduction number is below one.
+# From 10 seed cases the mean number of cases of both types falls towards zero.
+#
+# ## Contact tracing as two types
+#
+# Traced and untraced cases are two types.
+# A share `q` of each case's contacts is traced, and traced cases use the thinned kernel.
+# A `Pairwise` kernel gives each pair of types its interval.
+# Rows are the infectee type and columns the infector type:
+#
+# ```math
+# A_{1j,l} = (1 - q) \, g^{(j)}_l, \qquad A_{2j,l} = q \, g^{(j)}_l, \qquad
+# y_{t,i} = R \sum_{j} \sum_{l} A_{ij,l} \, y_{t-l,j},
+# ```
+#
+# where type 1 is untraced and type 2 traced.
+# ``g^{(1)}`` is the full kernel and ``g^{(2)}`` the thinned one.
+# This is an approximation: tracing correlates an infector's and infectee's isolation times.
+
+function traced_outbreak(q)
+    A_trace = zeros(2, 2, length(gi))
+    for (col, g) in enumerate([gi, gi_isolated])
+        A_trace[1, col, :] = (1 - q) .* g
+        A_trace[2, col, :] = q .* g
+    end
+    return Recurrence(Pairwise(A_trace))(R0; history = [10.0; 0.0;;], stop = 60)
+end
+@chain [0.0, 0.5, 0.9] begin
+    map(q -> DataFrame(day = 1:60, q = string(q), cases = vec(sum(traced_outbreak(q); dims = 1))), _)
+    reduce(vcat, _)
+    data(_) * mapping(:day, :cases, color = :q => "Traced share") * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Cases (log scale)", yscale = log10))
+end
+
+# More tracing means fewer cases, and with 90% traced the outbreak declines.
 
 # ## Extinction by generation
 #
@@ -163,37 +194,12 @@ end
 
 # Smaller ``k`` concentrates offspring in fewer cases, so chains die out more often.
 
-# ## Gradients
-#
-# The gradient of the total infections with respect to ``\kappa`` and a constant ``R``:
-
-function total_infections(x)
-    modifiers = (Transform(saturate, x[1]), Depletion(N))
-    return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
-end
-ForwardDiff.gradient(total_infections, [κ, 1.5])
-
-# The same with the response to the last week, through the feedback:
-
-function total_with_response(x)
-    modifiers = (Transform(*, Derived(exp, -x[1] / N * Recent(7))), Depletion(N))
-    return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
-end
-ForwardDiff.gradient(total_with_response, [κr, 1.5])
-
-# The derivative of the probability of extinction by generation 30 with respect to ``k``:
+# The derivative of the probability of extinction by generation 30 with respect to ``k`` comes from the same call:
 
 ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
 
-# Mooncake and Enzyme run on the same code.
-# They use the rule in the [`Transform`](@ref ComposableRecurrences.Transform) docstring.
-# The [AD comparison](@ref ad-comparison) page compares the backends.
-
 # ## References
 #
-# - Capasso and Serio (1978), "A generalization of the Kermack-McKendrick
-#   deterministic epidemic model", Mathematical Biosciences 42, 43-61,
-#   [10.1016/0025-5564(78)90006-8](https://doi.org/10.1016/0025-5564%2878%2990006-8)
 # - Lloyd-Smith, Schreiber, Kopp and Getz (2005), "Superspreading and the
 #   effect of individual variation on disease emergence", Nature 438, 355-359,
 #   [10.1038/nature04153](https://doi.org/10.1038/nature04153)

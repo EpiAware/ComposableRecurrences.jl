@@ -51,7 +51,7 @@ const PACKAGE_NAME_SKIP = ("src/docstrings.jl",)
 const MATHS_FIRST_PAGES = (
     "README.md",
     "docs/src/getting-started/index.md",
-    "docs/src/getting-started/tutorials/custom-modifier.jl",
+    "docs/src/developer/extending.md",
     "docs/src/getting-started/tutorials/latent-processes.jl",
     "docs/src/getting-started/tutorials/occupancy.jl",
     "docs/src/getting-started/tutorials/renewal-then-delay.jl",
@@ -66,8 +66,8 @@ const MATHS_FIRST_CALLS = (
 # Sections that only reuse a model introduced earlier on the page, as
 # `page => heading`, so need no equation of their own.
 const MATHS_FIRST_REUSE = (
-    # Rebuilds the saturation and feedback models to differentiate them.
-    "docs/src/getting-started/tutorials/transform.jl" => "Gradients",
+    # Runs the smoothing modifier through the operator to check its rule.
+    "docs/src/developer/extending.md" => "Checking a new type",
 )
 # Sections still giving prose before their code, as `page => heading`,
 # marked broken until they gain a ```math block.
