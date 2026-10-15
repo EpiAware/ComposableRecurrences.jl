@@ -154,6 +154,15 @@ end
             (m, Const), (start, Const); runtime_activity = ra
         )
     end
+    # The gain and add inputs only choose which sums are taken directly.
+    k, X, Y = rand(rng, L), rand(rng, m + T, 1), zeros(T - start + 1, 1)
+    gain, add = rand(rng, 1, T), rand(rng, 1, T)
+    extras = (
+        (copy(Y), Duplicated), (k, Duplicated), (X, Duplicated), (m, Const),
+        (start, Const), (gain, Const), (add, Const),
+    )
+    test_forward(f, Duplicated, extras...)
+    test_reverse(f, Duplicated, extras...)
     k = Lags3((0.3, 0.5, 0.2))
     X, Y = rand(rng, m + T, 1), zeros(T - start + 1, 1)
     for ra in (false, true), TX in (Const, Duplicated)
@@ -196,4 +205,64 @@ end
     using Mooncake: Mooncake
     using ADTypes: AutoMooncakeForward
     test_fft_gradients(AutoMooncakeForward())
+end
+
+# A log-likelihood over a series spanning 22 orders of magnitude: the
+# default method and the transform match the direct method's gradient to a
+# relative 1e-10 under the native rules.
+@testsnippet WideAD begin
+    using ComposableRecurrences, DifferentiationInterface, FFTW, ForwardDiff
+    using ADTypes: AutoForwardDiff
+    const CR = ComposableRecurrences
+    function test_wide_gradients(backend)
+        T, L = 1000, 300
+        g = exp.(-0.05 .* (0:(L - 1)))
+        w = 1.5 .+ sin.(1:T)
+        within(a, b) = all(i -> abs(a[i] - b[i]) <= 1.0e-10 * abs(b[i]), eachindex(a, b))
+        for x in (10.0 .^ range(-22, 0; length = T), 10.0 .^ range(0, -22; length = T))
+            θ = vcat(g ./ sum(g), x)
+            loss(method) = θ -> sum(
+                w .* log.(Convolution(θ[1:L]; method)(view(θ, (L + 1):(L + T))))
+            )
+            ref = DifferentiationInterface.gradient(loss(CR.Direct()), backend, θ)
+            fd = DifferentiationInterface.gradient(loss(CR.Direct()), AutoForwardDiff(), θ)
+            @test isapprox(ref, fd; rtol = 1.0e-10)
+            for method in (CR.Auto(), CR.FFTMethod())
+                @test within(DifferentiationInterface.gradient(loss(method), backend, θ), ref)
+            end
+        end
+        # Two strata sharing a kernel, whose kernel gradients nearly cancel.
+        X = permutedims(
+            hcat([10.0^(4t / T) for t in 1:T], [10.0^(4t / T) * (1 + 0.3 * sin(t)) for t in 1:T])
+        )
+        Wt = permutedims(hcat(w, -0.999 .* w))
+        k0 = g ./ sum(g)
+        lossk(method) = k -> sum(Wt .* log.(Convolution(k; method)(X)))
+        ref = DifferentiationInterface.gradient(lossk(CR.Direct()), backend, k0)
+        for method in (CR.Auto(), CR.FFTMethod())
+            @test within(DifferentiationInterface.gradient(lossk(method), backend, k0), ref)
+        end
+        return nothing
+    end
+end
+
+@testitem "Wide-range convolution gradients: ForwardDiff" tags = [:ad, :forwarddiff] setup = [WideAD] begin
+    test_wide_gradients(AutoForwardDiff())
+end
+
+@testitem "Wide-range convolution gradients: Mooncake reverse" tags = [:ad, :mooncake, :mooncake_reverse] setup = [WideAD] begin
+    using Mooncake: Mooncake
+    using ADTypes: AutoMooncake
+    test_wide_gradients(AutoMooncake(; config = nothing))
+end
+
+@testitem "Wide-range convolution gradients: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [WideAD] begin
+    using Enzyme: Enzyme
+    using ADTypes: AutoEnzyme
+    test_wide_gradients(
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const,
+        )
+    )
 end

@@ -3,7 +3,8 @@ How a [`Convolution`](@ref) computes its lag sum
 ```math
 \sum_{l=0}^{L-1} k_{i,l}\, x_{t-l,i}.
 ```
-The methods are [`ComposableRecurrences.Direct`](@ref) and
+The methods are [`ComposableRecurrences.Auto`](@ref) (the default),
+[`ComposableRecurrences.Direct`](@ref) and
 [`ComposableRecurrences.FFTMethod`](@ref).
 
 # Examples
@@ -24,7 +25,7 @@ The lag sum of a [`Convolution`](@ref) taken term by term,
 \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i},
 ```
 at ``O(T L)`` cost for ``T`` outputs and ``L`` lags.
-It takes every kernel and number type, and is the default.
+It takes every kernel and number type.
 
 # Examples
 ```jldoctest
@@ -56,9 +57,9 @@ Lags from ``n`` on reach no input and are dropped first.
 A block of the whole series is one transform.
 For a series much longer than the kernel the cost is ``O(n \log L)``
 rather than ``O(T L)``.
-It is slower than the direct method for kernels of up to about 200 lags,
-and faster for longer kernels on series of thousands of times or more;
-time both on the sizes of a model before choosing it.
+[`ComposableRecurrences.Auto`](@ref) gives the sizes from which it is
+faster than the direct method; time both on the sizes of a model before
+choosing it.
 The reverse pass uses the same transforms.
 
 It runs once its weak dependency is loaded, as the
@@ -70,12 +71,26 @@ number type (dual numbers, say) and other arrays (device or traced) take
 [`ComposableRecurrences.Direct`](@ref).
 It does not use the set [`ComposableRecurrences.Executor`](@ref).
 
-The error of each output is about the machine epsilon times the size of the
-inputs and kernel in its block, not times the output itself.
-So outputs far below the inputs around them lose relative accuracy, and
-small outputs of a positive kernel and inputs can come out negative; in
-`Float32` that starts about six orders of magnitude below the peak.
-A `NaN` or `Inf` input spreads to every output of its block, including
+The transform's error in each sum is about the machine epsilon times the
+size of the inputs and kernel in its block, not times the sum itself.
+So each sum is checked against an estimate ``\epsilon_b`` of that error,
+```math
+\epsilon_b = \tfrac{1}{2} \log_2(N)\, \epsilon\, \lVert a_b \rVert_2\, \lVert k \rVert_2,
+```
+summed over the blocks ``a_b`` that reach it, with ``\epsilon`` the machine
+epsilon; measured errors stay below about half of it.
+The check is on each output after the gain and add input, on each input
+cotangent with what it already holds, and on each kernel cotangent, summed
+over the strata when they share the kernel.
+A value whose estimate exceeds ``10^{-10}`` of it (``10^{-4}`` in `Float32`)
+has its sum taken directly instead, and once such sums would cost more than
+a quarter of the direct method, the whole pass takes the direct method.
+So the outputs and gradients match the direct method to that relative
+accuracy, and they cannot come out negative from a positive kernel and
+inputs.
+A series spanning many orders of magnitude, such as a long exponential
+growth, then costs up to both methods together.
+A `NaN` or `Inf` input can spread to every output of its block, including
 earlier ones.
 
 # Examples
@@ -90,6 +105,48 @@ true
 ```
 """
 struct FFTMethod <: ConvolutionMethod end
+
+@doc raw"""
+The default method of a [`Convolution`](@ref).
+A call with a fixed kernel (a vector or [`PerStratum`](@ref)) of ``L`` lags,
+``T`` outputs and `Float64` arrays on the CPU, once the weak dependency of
+the [FFT extension](@ref extension-fftw) is loaded, takes
+```math
+\begin{cases}
+\texttt{FFTMethod()} & L \ge 300 \text{ and } T \ge 1000, \\
+\texttt{Direct()} & \text{otherwise}.
+\end{cases}
+```
+Any other call takes [`ComposableRecurrences.Direct`](@ref).
+From these sizes the transform is faster than the direct method on typical
+series, forward and in reverse mode: by 1.02 to 1.14 times at 300 lags and
+1000 outputs, and 1.5 to 2.1 times at 500 lags and 2000 outputs.
+Below them the direct method is faster, up to 2 times.
+So most models take the direct method, and `Float32` models never take the
+transform.
+The kernel, eltype, arrays and loaded packages are resolved by dispatch,
+and the sizes by two integer comparisons per call.
+
+Its accuracy, and its cost on a series spanning many orders of magnitude,
+are those of [`ComposableRecurrences.FFTMethod`](@ref).
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+k, x = [0.5, 0.5], [1.0, 2.0, 4.0]
+Convolution(k)(x) == Convolution(k; method = ComposableRecurrences.Direct())(x)
+
+# output
+
+true
+```
+"""
+struct Auto <: ConvolutionMethod end
+
+# The sizes from which `Auto()` takes the transform.
+const _AUTO_MIN_LAGS = 300
+const _AUTO_MIN_TIMES = 1000
+_auto_fft(L, T) = L >= _AUTO_MIN_LAGS && T >= _AUTO_MIN_TIMES
 
 @doc raw"""
 A causal convolution whose kernel starts at lag 0: each output weights the
@@ -147,7 +204,7 @@ The output has the layout of `x` and length `stop - start + 1`.
 # Keyword Arguments
 - `method`: how the lag sum is computed, a
   [`ComposableRecurrences.ConvolutionMethod`](@ref);
-  [`ComposableRecurrences.Direct`](@ref) by default.
+  [`ComposableRecurrences.Auto`](@ref) by default.
 
 # Examples
 ```jldoctest
@@ -172,7 +229,7 @@ Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
 struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
-    function Convolution(kernel::K; method = Direct()) where {K}
+    function Convolution(kernel::K; method = Auto()) where {K}
         kernel isa Union{_PairwiseKernel, Routes} && throw(
             ArgumentError(
                 "a Pairwise or Routes kernel is for a Recurrence, not a " *
@@ -183,7 +240,7 @@ struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
         _is_method(method) || throw(
             ArgumentError(
                 "method must be a ComposableRecurrences.ConvolutionMethod, " *
-                    "Direct() or FFTMethod(); got $(repr(method))"
+                    "Auto(), Direct() or FFTMethod(); got $(repr(method))"
             )
         )
         _check_kernel_shape(kernel)
@@ -253,8 +310,8 @@ end
 function _primal(c::Convolution, x, gain, add, history, start, stop)
     kernel = c.kernel
     Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
-    if _fft_path(_method(c), kernel, Tp, x)
-        Y = first(_fft_buffers(Tp, kernel, x, history, m, S, start, stop))
+    if _fft_path(_method(c), kernel, Tp, x, stop - start + 1)
+        Y = first(_fft_buffers(Tp, kernel, x, history, m, S, start, stop, gain, add))
         return _finish(Y, x, gain, add, start)
     end
     path = _conv_path(Tp, kernel, x)
@@ -334,26 +391,34 @@ Base.@propagate_inbounds _set_at!(y::AbstractMatrix, v, k, j) = (y[k, j] = v; no
 # offset, the history length, the last time and whether the transform ran.
 function _conv(c::Convolution, x, gain, add, history, start, stop)
     Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
-    fft = _fft_path(_method(c), c.kernel, Tp, x)
+    fft = _fft_path(_method(c), c.kernel, Tp, x, stop - start + 1)
     Y, X, o = if fft
-        _fft_buffers(Tp, c.kernel, x, history, m, S, start, stop)
+        _fft_buffers(Tp, c.kernel, x, history, m, S, start, stop, gain, add)
     else
         _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
     end
     return Y, X, o, m, stop, fft
 end
 
-# The input buffer and the lag sums by the transform.
-function _fft_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
+# The input buffer and the lag sums by the transform, checked on the output
+# they give with the gain and add input.
+function _fft_buffers(
+        ::Type{Tp}, kernel, x, history, m, S, start, stop, gain, add
+    ) where {Tp}
     X, o = _input_buffer(Tp, kernel, x, history, m, S, start, stop)
     Y = _zeros(x, Tp, stop - start + 1, S)
-    _fft_convolve!(Y, kernel, X, o, start)
+    _fft_convolve!(Y, kernel, X, o, start, gain, add)
     return Y, X, o
 end
 
-# Whether a call takes the transform: never for `Direct()`. For
-# `FFTMethod()` the FFTW extension adds the methods that answer; without it
-# the call is refused.
+# Whether a call of `T` outputs takes the transform: never for `Direct()`.
+# For `FFTMethod()` the FFT extension adds the methods that answer; without
+# it the call is refused. `Auto()` takes the direct method unless that
+# extension adds a method for the kernel, eltype and arrays, which then
+# checks the sizes.
+function _fft_path(method, kernel, ::Type{Tp}, x, T) where {Tp}
+    return !(method isa Auto) && _fft_path(method, kernel, Tp, x)
+end
 _fft_path(::Direct, kernel, ::Type, x) = false
 _fft_path(::FFTMethod, kernel, ::Type, x) = _no_fftw()
 function _no_fftw()
@@ -365,8 +430,10 @@ function _no_fftw()
 end
 
 # The transform's forward and reverse passes over `Float32` or `Float64`
-# buffers, added by the FFTW extension.
-_fft_convolve!(Y, kernel, X, m, start) = _no_fftw()
+# buffers, added by the FFTW extension. `_fft_convolve_terms!` adds the sum
+# of several lag sums `((kernel, X), ...)`, checked as one.
+_fft_convolve!(Y, kernel, X, m, start, gain = true, add = nothing) = _no_fftw()
+_fft_convolve_terms!(Y, terms, m, start) = _no_fftw()
 _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 
 # Whether AD is tracing the code that calls this: `false` under forward-mode

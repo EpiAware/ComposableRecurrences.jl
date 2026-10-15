@@ -8,9 +8,9 @@ module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
     _Current, _WithState, _check_form, _check_secondary, _current,
-    _fft_convolve!, _fft_convolve_back!, _is_leaf, _leaf_paths, _log_plain,
-    _note_plain_type, _plain, _rebuild_flag, _rebuild_leaves, _route_forward!,
-    _run_forward, _run_pullback!, _untraced
+    _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!, _is_leaf,
+    _leaf_paths, _log_plain, _note_plain_type, _plain, _rebuild_flag,
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -202,19 +202,32 @@ _kernel_mirror(c::PerStratum) = PerStratum(zeros(eltype(c.x), size(c.x)))
 _kernel_cotangent(c::AbstractVector, k̄) = convert(typeof(c), k̄)
 _kernel_cotangent(c::PerStratum, k̄) = PerStratum(convert(typeof(c.x), k̄.x))
 
+# The tangent of a lag sum `c ⋆ X` is `ċ ⋆ X + c ⋆ Ẋ`: its nonzero terms,
+# taken and checked as one sum.
+_tangent_terms(c, dX, dk, X) = ((c, dX), (dk, X))
+_tangent_terms(c, ::Nothing, dk, X) = ((dk, X),)
+_tangent_terms(c, dX, ::Nothing, X) = ((c, dX),)
+_tangent_terms(c, ::Nothing, ::Nothing, X) = ()
+
+# The trailing gain and add inputs only choose which sums the transform
+# takes directly; the lag sums do not depend on them.
+_vals(extra) = map(a -> a.val, extra)
+_no_cotangent(a::Active) = zero(a.val)
+_no_cotangent(a) = nothing
+
 function EnzymeRules.forward(
         config::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
-        m::Const, start::Const
-    )
+        m::Const, start::Const, extra::Vararg{Annotation, N}
+    ) where {N}
     w = EnzymeRules.width(config)
     for i in 1:w
         dY, dk, dX = _lane(Y, i), _lane(kernel, i), _lane(X, i)
         dY === nothing && continue
-        dX === nothing || _fft_convolve!(dY, kernel.val, dX, m.val, start.val)
-        dk === nothing || _fft_convolve!(dY, dk, X.val, m.val, start.val)
+        terms = _tangent_terms(kernel.val, dX, dk, X.val)
+        isempty(terms) || _fft_convolve_terms!(dY, terms, m.val, start.val)
     end
-    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val, _vals(extra)...)
     p, s = EnzymeRules.needs_primal(config), EnzymeRules.needs_shadow(config)
     s || return p ? Y.val : nothing
     dY = _out_shadow(Y, w)
@@ -225,9 +238,9 @@ end
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
-        m::Const, start::Const
-    )
-    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+        m::Const, start::Const, extra::Vararg{Annotation, N}
+    ) where {N}
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val, _vals(extra)...)
     # The reverse pass reads the kernel and the input: keep copies if later
     # code overwrites them.
     ow = EnzymeRules.overwritten(config)
@@ -242,8 +255,8 @@ end
 function EnzymeRules.reverse(
         config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, tape, Y::Annotation, kernel::Annotation, X::Annotation,
-        m::Const, start::Const
-    )
+        m::Const, start::Const, extra::Vararg{Annotation, N}
+    ) where {N}
     c = something(tape[1], kernel.val)
     Xv = something(tape[2], X.val)
     w = EnzymeRules.width(config)
@@ -264,7 +277,7 @@ function EnzymeRules.reverse(
     k̄ = k̄s === nothing ? nothing :
         w == 1 ? _kernel_cotangent(c, only(k̄s)) :
         map(b -> _kernel_cotangent(c, b), k̄s)
-    return (nothing, k̄, nothing, nothing, nothing)
+    return (nothing, k̄, nothing, nothing, nothing, map(_no_cotangent, extra)...)
 end
 
 # The reverse pass of the transform runs inside the rules, as primal code.
