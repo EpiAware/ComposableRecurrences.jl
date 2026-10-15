@@ -237,6 +237,14 @@ end
     K = rand(rng, S, S) ./ 2
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
+    # Import patterns: dense and sparse, and one that varies over time. The
+    # spill kernel has a nonzero diagonal, which the spill leaves out.
+    prng = Xoshiro(7)
+    P = rand(prng, S, S)
+    PT = 0.5 .+ rand(prng, S, S, T)
+    Ks = rand(prng, S, S) ./ 2 + 0.3I
+    spill = CR.Redistribute(Ks, PerStratum([0.3, 0.2, 0.1]))
+    sparse_spill = CR.Redistribute(sparse(Ks), PerStratum([0.3, 0.2, 0.1]))
     for mods in (
             (PoolDepletion([30.0, 40.0, 50.0]),),
             (Hazard(45.0),),
@@ -249,6 +257,22 @@ end
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+            (CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, P), spill),),
+            (
+                CR.Allocate(
+                    [[1, 3], [2]], 4.0; imports = (0.3, P), spill = sparse_spill
+                ),
+            ),
+            (
+                CR.Allocate(
+                    [[1, 3], [2]], PerStratum([4.0, 2.0]);
+                    imports = (PerStratum([0.2, 0.4]), sparse(P)), spill
+                ),
+            ),
+            (
+                CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, TimeVarying(PT))),
+                CR.Add(0.2),
+            ),
             (
                 CR.Pool(
                     1.5; pools = (:O,), draw = CR.SoftTruncate(0.1) => :O,
@@ -294,6 +318,72 @@ end
     )
     r = Recurrence(g; coupling = K[1:2, 1:2], modifiers = (beds,))
     @test pullback_matches(r, recargs(R[1:2, :], nothing, h[1:2, :]; states = ([1.0],))...)
+end
+
+@testitem "Adjoint: Allocate imports read the record and batch the same" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    rng = Xoshiro(21)
+    S, L, T = 5, 3, 9
+    groups = [1:2, 3:5]
+    P = rand(rng, S, S)
+    K = rand(rng, S, S) ./ 2 + 0.2I
+    ε = PerStratum(fill(0.2, S))
+    imports = (PerStratum([0.3, 0.5]), P)
+    m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(K, ε))
+    # One step: the pullback given the state after the step, and given a
+    # per-pass buffer finished by `_finish_pass!`, matches the one that
+    # computes everything again.
+    v = 0.5 .+ rand(rng, S)
+    s = zeros(2S)
+    after = copy(s)
+    CR.forward(m, CR.Step(), copy(v), after, 3)
+    v̄0, s̄0 = randn(rng, S), randn(rng, 2S)
+    function step_back(extra)
+        m̄ = zero_mirror(m)
+        grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0), extra(m̄)...)
+        CR.pullback!(grads, m, CR.Step(), v, s, 3)
+        b = get(grads, :buffer, nothing)
+        b === nothing || CR._finish_pass!(m̄, m, (; V = reshape(v, :, 1)), b, 3)
+        return vcat(grads.v, grads.s, mirror_vec(m̄, m))
+    end
+    plain = step_back(m̄ -> (;))
+    @test step_back(m̄ -> (; after, pass = nothing)) ≈ plain rtol = 1.0e-12
+    batched = step_back() do m̄
+        b = @inferred CR._pass_buffer(v, Float64, m, m̄, S, 1)
+        @test b.hb isa Matrix && b.vc isa Matrix
+        return (; after, pass = CR._column(b, 1), buffer = b)
+    end
+    @test batched ≈ plain rtol = 1.0e-12
+    # A pattern mirror of the wrong size throws.
+    m̄ = zero_mirror(m)
+    bad = merge(m̄, (; imports = merge(m̄.imports, (; pattern = zeros(S, S + 1)))))
+    @test_throws DimensionMismatch CR._pass_buffer(v, Float64, m, bad, S, 1)
+    # Over a whole pass, threaded blocks give the same cotangents as serial.
+    g = rand(rng, L) ./ 2
+    h = 1 .+ rand(rng, S, L)
+    R = 0.5 .+ rand(rng, S, T)
+    for spill in (CR.Redistribute(K, ε), nothing)
+        r = Recurrence(
+            g; coupling = rand(rng, S, S) ./ 4,
+            modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Add(0.1))
+        )
+        xs = (r, recargs(R, nothing, h)...)
+        function cotangents()
+            y, cache = CR._run_forward(xs...)
+            ms = zero_mirror(xs)
+            ȳ = randlike(Xoshiro(3), y)
+            CR._run_pullback!((; piece = first(ms), y = ȳ, args = Base.tail(ms)), r, cache)
+            return mirror_vec(ms, xs)
+        end
+        serial = with(cotangents, CR.EXECUTOR => CR.Serial())
+        for ex in (CR.Threaded(; min_work = 0, ntasks = 2), CR.Threaded(; min_work = 0))
+            @test with(cotangents, CR.EXECUTOR => ex) == serial
+        end
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
 end
 
 @testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin

@@ -84,7 +84,7 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling
+using LinearAlgebra: Diagonal, I, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
