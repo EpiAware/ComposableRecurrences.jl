@@ -771,6 +771,11 @@ so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
 diagonal of ``K``, and every column of ``M`` sums to one.
 `ε` is one value or a vector over origins, which gives a matrix, or an
 origins × time matrix, which gives `TimeVarying` of an `S × S × T` array.
+`PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
+the matrix they hold.
+An intensity that reads the outputs, such as one built with `Derived` or
+[`Recent`](@ref), has no fixed movement matrix, so it is an
+`ArgumentError`; it needs its own vector modifier.
 The array is held as ``K``, ``\varepsilon`` and the column sums ``o`` and
 read from them, so a step costs one product with ``K`` and its reverse pass
 gives the cotangents of ``K`` and ``\varepsilon`` without storing a matrix
@@ -795,6 +800,21 @@ CR.movement([0.0 0.3; 0.2 0.0], [0.1, 0.5])
 """
 movement(K::AbstractMatrix, ε::Union{Real, AbstractVector}) = _movement(K, _origins(ε))
 movement(K::AbstractMatrix, ε::AbstractMatrix) = TimeVarying(_Movement(K, ε))
+movement(K::AbstractMatrix, ε::PerStratum{<:AbstractVector}) = movement(K, ε.x)
+function movement(K::AbstractMatrix, ε::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}})
+    return movement(K, ε.x.x)
+end
+function movement(K, ε)
+    throw(
+        ArgumentError(
+            "movement takes a kernel matrix and ε as one value, a vector over " *
+                "origins, an origins × time matrix, or PerStratum or " *
+                "TimeVarying(PerStratum) of these, got $(_describe(K)) and " *
+                "$(_describe(ε)); an intensity that reads the outputs needs " *
+                "its own vector modifier"
+        )
+    )
+end
 _origins(ε::Real) = ε
 _origins(ε::AbstractVector) = permutedims(ε)
 function _movement(K, E)

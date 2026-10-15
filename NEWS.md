@@ -5,7 +5,8 @@
 ### Breaking
 
 - `Redistribute(M; leak = false)` takes one movement matrix whose columns sum to one, fixed or `TimeVarying`, in place of a kernel `K` and an intensity `ε` ([spatial and multi-type models][spatial]).
-  To migrate, write `Redistribute(movement(K, ε))`; `movement` takes `ε` as one value, a vector over origins, or an origins × time matrix.
+  To migrate, write `Redistribute(movement(K, ε))`; `movement` takes `ε` as one value, a vector over origins, an origins × time matrix, or `PerStratum` or `TimeVarying(PerStratum)` of these.
+- An intensity that reads the outputs, built with `Derived` or `Recent`, can no longer drive `Redistribute`, as a movement matrix is fixed by its parameters; such a model needs its own vector modifier ([extending][extending]).
 
 - `seeded` is removed.
   Use `r(gain; history, start = m + 1, prepend = true)`, which places the seed at times `1:m` and returns it before the run ([renewal then delay][renewal]).

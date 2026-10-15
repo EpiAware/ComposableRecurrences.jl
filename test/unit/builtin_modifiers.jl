@@ -280,6 +280,14 @@ end
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
     @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
     @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
+    # The parameter forms the kernel-and-intensity Redistribute took read as
+    # the vector and the matrix they hold; one that reads the outputs throws.
+    @test CR.movement(K, PerStratum(E[:, 1])) == CR.movement(K, E[:, 1])
+    W = CR.movement(K, TimeVarying(PerStratum(E)))
+    @test [W.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2] ==
+        [M.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2]
+    @test_throws "reads the outputs" CR.movement(K, CR.Derived(exp, PerStratum(E[:, 1])))
+    @test_throws "reads the outputs" CR.movement(K, CR.Recent(1))
     # With one stratum nothing moves: the value passes on, the arrivals are
     # zero, and the kernel and intensity get no gradient.
     one = CR.Redistribute(CR.movement(fill(0.4, 1, 1), [0.2 0.3]))
