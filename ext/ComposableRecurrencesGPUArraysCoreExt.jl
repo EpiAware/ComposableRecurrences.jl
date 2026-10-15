@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
     Clamp, Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool,
     Pressure, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Flat, _Ragged
+    _OldestFirstPairwise, _Flat, _Ragged, _Columns
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
@@ -112,6 +112,8 @@ end
 function Adapt.adapt_structure(to, g::_Ragged)
     return _Ragged(_Flat(), adapt(to, g.values), adapt(to, g.offsets))
 end
+# Columns held as given are stacked first: a device loop reads one array.
+Adapt.adapt_structure(to, g::_Columns) = adapt(to, _Ragged(g.columns))
 
 # `Allocate` keeps its groups, host index arrays that each step copies where
 # it needs them, and adapts its totals.

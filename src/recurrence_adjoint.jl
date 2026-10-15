@@ -63,7 +63,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
-        accs = _accumulators(ex, H, S, T * work, acc)
+        accs = _accumulators(ex, H, S, _work(_RunLoop(), H, T * work), acc)
         _reduce_blocks!(
             _series_back!, accs, S,
             H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0, L,
@@ -72,7 +72,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     else
         m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
         acc = (; ādd, ḡain, C̄ = _Owned(C̄), ḡ = kslots, m̄s = m̄v)
-        accs = _accumulators(ex, H, S, work, acc)
+        accs = _accumulators(ex, H, S, _work(_StepLoop(), H, work), acc)
         _steps_back!(
             accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0,
             L, D, S, T
@@ -382,11 +382,10 @@ Base.@propagate_inbounds function _add_weight!(
     return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, b, i, τ)
 end
 Base.@propagate_inbounds function _add_weight!(
-        ḡ, g::TimeVarying{<:Any, <:_Ragged}, v, a, b, i, τ
+        ḡ, g::TimeVarying{<:Any, <:_AnyRagged}, v, a, b, i, τ
     )
-    r = _colrange(g.x, τ)
-    i <= length(r) || return nothing
-    return add_cotangent!(cotangent(cotangent(ḡ, :x), :values), v, r[i])
+    i <= length(_colview(g.x, τ)) || return nothing
+    return add_cotangent!(_column_mirror(cotangent(ḡ, :x), g.x, τ), v, i)
 end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.

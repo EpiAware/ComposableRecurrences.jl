@@ -84,6 +84,11 @@ Here `starts` is a `TimeVarying` share of one at each period start and
 zero otherwise, and a lifetime allowance is an `initial` stock alone.
 A delay from dose to protection is a [`Convolution`](@ref) of the doses
 before the call.
+A share ``\delta`` leaving the beds is a geometric length of stay, with
+survival ``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
+admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
+indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
+[`ComposableRecurrences.Clamp`](@ref) or a pool that fills a stock.
 A pool holds the fields `N`, `form`, `heterogeneity`, `initial`, `weights`
 (each stock's weight in the draw, fixed at zero for a stock it does not
 name) and `flows`, with each flow's stocks as positions.

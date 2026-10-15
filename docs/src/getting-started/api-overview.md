@@ -53,6 +53,7 @@ Each table below lists one part of the package:
 [operators](@ref overview-operators),
 [calls](@ref overview-calls),
 [shapes](@ref overview-shapes),
+[delay distributions](@ref overview-delays),
 [couplings](@ref overview-couplings),
 [modifiers](@ref overview-modifiers),
 [depletion forms and indexing](@ref overview-variants),
@@ -66,9 +67,9 @@ the [extension API](@ref overview-extending), which includes
 | Name | What it does | Returns |
 |---|---|---|
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
-| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
+| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Auto()`](@ref ComposableRecurrences.Auto) (the default), [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
-A recurrence has no lag 0; the [FAQ](@ref faq-lag-origin) says why.
+A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) says why.
 
 ## [Calls](@id overview-calls)
 
@@ -106,14 +107,66 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
-They tag one stored array and make no copies, except that kernel columns are stacked once.
+They tag one stored array and make no copies; kernel columns are held as given, with the exceptions listed under [`TimeVarying`](@ref).
 A bare vector where a single value is expected is an error that names the wrapper to use.
-The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
+The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
+
+## [Delay distributions](@id overview-delays)
+
+A kernel can hold delay distributions, and the operator turns them into masses when it is built with the number of lags `lags`.
+[`delay_masses(d, lags)`](@ref ComposableRecurrences.delay_masses) gives the masses on lags `0` to `lags - 1`:
+
+```math
+k_l = P(D = l), \qquad l = 0, \dots, L - 1,
+```
+
+where ``D`` is the delay in whole steps and ``L`` = `lags`.
+`lags` counts from lag 0 for both operators, and each operator keeps the masses from its own [lag origin](@ref faq-lag-origin): a convolution from ``k_0`` and a recurrence from ``k_1``.
+So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
+The masses are not renormalised after this cut, as the `delay_masses` docstring says, so a recurrence kernel sums to ``\sum_{l=1}^{L-1} k_l``, which scales the gain.
+Loading Distributions adds `delay_masses` for any discrete distribution, and a package that owns a delay type adds a method for it.
+
+| Kernel | Holds |
+|---|---|
+| `d` | one distribution |
+| `PerStratum(ds)` | a vector of distributions, one per series |
+| `Pairwise(D)` | a matrix of distributions, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
+| `TimeVarying(ds, indexing)` | a vector of distributions, one per time, or `PerStratum` or `Pairwise` of them with time last |
+| `Routes((C₁, d₁), (C₂, g₂))` | distributions or arrays as route kernels; `Recurrence` only |
+
+`Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any of these.
+`lags` has no default, since where a delay is cut is a modelling choice.
+A continuous distribution is an error until it is discretised, for example by interval censoring.
+Gradients reach the distributions' parameters through their masses.
+
+```jldoctest
+using ComposableRecurrences, Distributions
+delay = Convolution(Poisson(1.5); lags = 4)
+generation = Recurrence(Poisson(1.5); lags = 4)
+length(delay.kernel), length(generation.kernel)
+
+# output
+
+(4, 3)
+```
+
+```jldoctest
+using ComposableRecurrences, Distributions
+delay = Convolution(Poisson(1.5); lags = 4)
+round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
+
+# output
+
+4-element Vector{Float64}:
+  2.231
+  7.81
+ 18.129
+ 37.514
+```
 
 ## [Couplings](@id overview-couplings)
 
-A coupling mixes the series after the kernel and before the gain.
-Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series receiving and a column the series sending.
+[Where the coupling acts](@ref explanation-coupling) gives where a coupling mixes the series, and what a row and a column of ``C`` mean.
 
 | Name | What it does | Returns |
 |---|---|---|
@@ -124,8 +177,8 @@ Entry ``C_{ij}`` weights series ``j`` in series ``i``, so a row is the series re
 
 ## [Modifiers](@id overview-modifiers)
 
-Modifiers act on ``v_t`` in tuple order, after the gain and `add`.
-So `add` enters before every modifier, and `Add` enters where it sits in the tuple: imports passed as `add` are drawn from a `Depletion` pool, and imports in an `Add` after it are not.
+[Order](@ref explanation-modifier-order) gives the order modifiers act in, with each modifier's state.
+The `add` input enters before every modifier, and `Add` enters where it sits in the tuple; [Imported cases](@ref tutorial-imports) compares the two for imports.
 `Redistribute` moves whatever it receives, including values from `add`.
 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
@@ -139,7 +192,7 @@ So `add` enters before every modifier, and `Add` enters where it sits in the tup
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial compares `add` with `Add`, and the [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and a `Pool` as a capacity and without a draw.
+The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and a `Pool` as a capacity and without a draw.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
@@ -190,7 +243,7 @@ See [Writing new types](@ref extending).
 | [`forward(m, role, args...)`](@ref ComposableRecurrences.forward) | the maths of a modifier, coupling or depletion form for one job | writes in place, or returns values |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`, found from its methods; a method overrides it | `Bool` |
+| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series | `Int` |
