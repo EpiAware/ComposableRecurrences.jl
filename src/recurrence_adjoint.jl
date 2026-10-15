@@ -63,7 +63,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
-        accs = _accumulators(ex, H, S, T * work, acc)
+        accs = _accumulators(ex, H, S, _work(_RunLoop(), H, T * work), acc)
         _reduce_blocks!(
             _series_back!, accs, S,
             H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0, L,
@@ -72,7 +72,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     else
         m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
         acc = (; ādd, ḡain, C̄ = _Owned(C̄), ḡ = kslots, m̄s = m̄v)
-        accs = _accumulators(ex, H, S, work, acc)
+        accs = _accumulators(ex, H, S, _work(_StepLoop(), H, work), acc)
         # The per-pass buffers of vector modifiers that ask for one, which
         # their step pullbacks fill a column of and `_finish_pass!` reads.
         bufs = map((m, m̄) -> _pass_buffer(H, eltype(H), m, m̄, S, T), modifiers, m̄s)

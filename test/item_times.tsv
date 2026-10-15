@@ -1,0 +1,332 @@
+# seconds	item, written by `test/runtests.jl record_times`
+0.4	Add after depletion is not depleted
+4.1	Add pullback matches the local Jacobian
+3.8	Add: scalar, per stratum and time-varying
+24.3	Adjoint: Convolution
+9.5	Adjoint: Convolution gain and add
+13.3	Adjoint: Convolution reverse pass in threaded blocks
+29.7	Adjoint: Depletion with a population that varies over time
+2.4	Adjoint: NoAdjoint takes the plain path
+7.9	Adjoint: Recurrence cache keeps only what the reverse pass reads
+43.0	Adjoint: Recurrence couplings and kernels
+93.1	Adjoint: Recurrence modifiers
+7.5	Adjoint: Recurrence returning its state
+69.1	Adjoint: Recurrence reverse pass in threaded blocks
+12.0	Adjoint: Recurrence time-varying slots at absolute time
+5.4	Adjoint: Recurrence with mixed eltypes
+21.4	Adjoint: Recurrence, single series
+5.7	Adjoint: a declared adjoint without a pullback! throws
+2.3	Adjoint: a plain primal call logs nothing
+6.4	Adjoint: buffers follow the input's array type
+32.8	Adjoint: contributions
+0.7	Adjoint: cotangent helpers
+2.7	Adjoint: coupling pullbacks called directly
+15.3	Adjoint: local coupling pullback
+38.3	Adjoint: local pullback over entry parameters
+17.2	Adjoint: local pullback over structured and nested parameters
+12.8	Adjoint: ragged time-varying kernels
+34.7	Adjoint: routing by uses_adjoint
+7.5	Adjoint: scalar-parameter local pullback
+6.6	Adjoint: the default Init pullback skips a zero state cotangent
+38.9	Adjoint: threaded reverse pass with outputs read and routes
+1.1	Adjoint: user operators declare their adjoint
+2.3	Allocate: Float32 stays Float32
+1.0	Allocate: a group whose sum is below the floor
+0.5	Allocate: checks its groups and totals
+5.9	Allocate: pullback against a local Jacobian
+30.0	Allocate: values and gradients against a naive loop
+2.5	Block accumulators: one per chunk, summed afterwards
+1.7	Blocks: a protected pool is blockwise
+12.2	Blocks: a user modifier against a naive loop
+3.7	Blocks: group pullbacks against a local Jacobian
+11.5	Blocks: shapes, resume and mixed modifiers
+0.0	Built-in modifiers implement the piece interface
+4.2	Built-in modifiers: ForwardDiff through a recurrence
+5.2	Built-in modifiers: a Recurrence infers its return type
+0.3	CTIDM: delay as a convolution
+1.4	CTIDM: random walk and AR
+0.6	CTIDM: renewal
+4.0	CTIDM: renewal with mixing and depletion
+2.6	Capacity: budget periods, carry over and lifetime
+2.3	Capacity: checks its arguments
+5.2	Capacity: infinite capacity is the identity
+15.2	Capacity: pullback against a local Jacobian
+2.6	Capacity: resuming from the state matches one call
+4.9	Capacity: route conserves each step, hold across steps
+0.1	Capacity: the recurrence uses its adjoint
+0.2	Capacity: the smooth minimum
+56.3	Capacity: values and gradients against a naive loop
+3.1	Clamp pullback matches the local Jacobian
+1.8	Clamp: bounds, scalar and per stratum
+3.4	Convolution FFT: Float32 is kept
+10.2	Convolution FFT: device arrays take the direct method
+5.4	Convolution FFT: matches direct
+2.2	Convolution FFT: refused without FFTW
+4.0	Convolution FFT: reverse pass matches direct
+1.7	Convolution FFT: the public call takes the transform
+0.4	Convolution FFT: the rule's reverse pass matches direct
+2.1	Convolution FFT: which calls take the transform
+0.2	Convolution: a delay distribution from lag 0
+2.4	Convolution: a kernel with offset axes is refused
+0.9	Convolution: an offset gain or add is refused
+1.2	Convolution: argument validation
+4.0	Convolution: calls without a rule gather on CPU arrays of other numbers
+16.0	Convolution: contributions
+0.7	Convolution: fixed kernel
+14.4	Convolution: gain and add
+1.3	Convolution: history
+0.8	Convolution: input loads the same into any buffer
+7.5	Convolution: lag blocks match the gather body at every edge
+0.1	Convolution: method validation and rebuild
+5.4	Convolution: other number types take the gather body
+1.4	Convolution: output indexing matches CTIDM's time-varying delay
+0.8	Convolution: per-stratum kernel
+2.5	Convolution: time-varying kernel indexed by input
+2.6	Convolution: time-varying kernel indexed by output
+0.6	Coupling pressure: shapes are checked before the unchecked loop
+0.1	Delay distributions: a bare array needs a wrapper
+3.0	Delay distributions: gradients reach the parameters
+0.2	Delay distributions: lags is checked
+1.9	Depletion flows: check their options
+10.5	Depletion flows: pullbacks against a local Jacobian
+5.8	Depletion flows: resume, Float32 and inference
+11.3	Depletion flows: susceptibles leaving at a rate or in counts
+25.0	Depletion flows: waning against a naive loop
+3.1	Depletion init pullback matches ForwardDiff
+7.6	Depletion pools: a single-precision model stays in single precision
+6.1	Depletion pools: an empty pool with a tangent under ForwardDiff
+4.6	Depletion pools: checks its arguments
+1.4	Depletion pools: conservation and final-size ordering
+0.2	Depletion pools: declare their adjoint
+3.8	Depletion pools: full susceptibility undoes the protection
+1.0	Depletion pools: no removals and no protected pool is the base
+9.3	Depletion pools: pullbacks against a local Jacobian
+14.8	Depletion pools: removals at an empty pool, reverse against ForwardDiff
+54.2	Depletion pools: the Recurrence reverse pass
+0.2	Depletion pools: the initial state and its pullback
+1.4	Depletion pools: the removal picks its arm as its pullback does
+9.0	Depletion pools: values and gradients against the maths
+4.9	Depletion pullback matches the local Jacobian
+4.9	Depletion pullback with a time-varying population
+9.7	Depletion: Derived removals are removed
+10.6	Depletion: a dual population keeps an integer heterogeneity plain
+7.2	Depletion: a population that varies over time
+1.5	Depletion: floor form against a naive loop
+3.0	Depletion: hazard form against a naive loop
+5.8	Depletion: negative removals add to the pool
+2.0	Depletion: one population per stratum
+12.7	Depletion: the fixed default exponent matches an exponent of 1.0
+0.9	Derived: add_param! against ForwardDiff
+2.9	Derived: arithmetic lowers to Derived
+4.0	Derived: construction and checks
+8.7	Derived: values against a naive loop
+0.0	Device: arrays on a device select it
+44.4	Docstring examples run
+0.5	EXECUTOR: serial by default, set per block
+10.8	Eltypes: Float32 in, Float32 out
+33.0	Eltypes: ForwardDiff gradients through every slot
+11.4	Eltypes: built-in modifiers keep Float32
+0.3	Error messages describe wrapped values by size and type
+3.5	Flows: a share flow is the occupancy recurrence
+3.8	Flows: check their options
+0.3	Flows: counts are capped and act in order
+7.6	Flows: pullback against a local Jacobian
+5.0	Flows: resume, Float32 and the adjoint route
+0.2	Flows: the share that leaves near zero hazard
+51.0	Flows: wards against a naive loop
+0.4	Hazard: one exponential gives exp(-x) and expm1(-x)
+1.0	Interfaces: a pullback! the rule cannot find fails
+14.6	Interfaces: package pieces
+1.1	Interfaces: state length
+2.4	Interfaces: user pieces
+7.7	JLArrays: a buffer deeper than the kernel runs and resumes on the device
+15.0	JLArrays: a run resumed from a device state matches the CPU
+13.3	JLArrays: adapting an operator moves its parameters to the device
+30.3	JLArrays: dual numbers carry tangents through the device forward pass
+80.4	JLArrays: every operator, coupling and modifier runs forward on the device
+5.2	JLArrays: host parameters and ragged kernels on device inputs are errors
+5.0	JLArrays: wrappers and built-in modifiers adapt every array they hold
+0.7	NoAdjoint forwards to the operator
+12.1	Operators: GPU arrays run their strata loops on the device
+1.1	Operators: the default executor keeps calls type stable
+17.7	Operators: threaded calls match serial calls exactly
+2.0	Pairwise: a delay distribution per pair
+0.8	PerStratum: a delay distribution per stratum
+1.3	Primary Recurrence: a cohort's onward weight is its column sum
+0.0	Primary Recurrence: a fixed kernel reads the same either way
+0.2	Primary Recurrence: a rebuild from fields keeps the indexing
+2.6	Primary Recurrence: a resumed call equals one long call
+0.5	Primary Recurrence: a seed sits at times from 1
+36.9	Primary Recurrence: equals the reindexed Secondary kernel
+10.9	Quality: Aqua
+10.4	Quality: ExplicitImports
+1.4	Quality: README sections
+3.4	Quality: docstring format
+64.1	Quality: doctest
+5.3	Quality: extension ambiguities
+7.0	Quality: formatting
+3.3	Quality: import centralisation
+23.5	Quality: linting (JET)
+6.0	Ragged kernel: Convolution equals a hand loop and the padded kernel
+12.3	Ragged kernel: Recurrence equals a hand loop and the padded kernel
+13.0	Ragged kernel: gradients equal the padded kernel's
+8.3	Ragged kernel: storage and validation
+3.8	Reactant: committed results match expected.jl
+0.5	Recent: a coupled read back at a row other than the cached one
+11.2	Recent: a coupling against a naive loop
+1.2	Recent: a modifier without its own pullback takes plain AD
+2.0	Recent: a read before the window is an error
+30.5	Recent: an Init that reads the outputs sends its cotangent to the history
+17.3	Recent: any modifier parameter reads the outputs it would see
+0.4	Recent: arithmetic builds Derived
+4.4	Recent: behaviour feedback against a naive loop
+1.8	Recent: binding infers
+0.2	Recent: binding, rebinding and mirrors
+0.6	Recent: construction, depth and errors
+1.3	Recent: coupling errors name the value
+110.4	Recent: reverse pass through a coupling
+130.5	Recent: reverse pass through the outputs
+1.2	Recent: the state resumes with the deeper past
+0.1	Recent: unbound reverse, rebinding and plain fields
+0.0	Recurrence: a Pairwise kernel must be strata × strata × lags
+0.5	Recurrence: a delay distribution from lag 1
+2.2	Recurrence: a resumed state has nstate entries per modifier
+3.2	Recurrence: absolute time and start
+2.4	Recurrence: argument validation
+1.5	Recurrence: fixed kernel, single series
+0.0	Recurrence: gain defaults to one
+0.7	Recurrence: history loads the same into any buffer
+2.0	Recurrence: history longer than the kernel
+0.6	Recurrence: history shorter than the kernel is zero-padded
+2.3	Recurrence: identity, scaled identity and no coupling
+1.2	Recurrence: modifier state carries across steps
+2.1	Recurrence: modifiers thread in tuple order
+2.8	Recurrence: pairwise kernel
+0.6	Recurrence: per-stratum kernel with Diagonal coupling
+2.3	Recurrence: resume from the returned state
+1.2	Recurrence: sparse coupling
+1.7	Recurrence: strata with dense coupling
+1.7	Recurrence: time-varying coupling
+2.8	Recurrence: time-varying kernels
+5.0	Redistribute pullback matches the local Jacobian
+2.3	Redistribute: conserving, against a naive loop
+2.7	Routes: argument validation
+1.7	Routes: arrays alone take the core method with Distributions loaded
+4.0	Routes: delay distributions on routes
+4.6	Routes: equal the Pairwise kernel of their sum
+9.1	Routes: equal the naive loop for each kernel
+7.4	Routes: fold into a cheaper form
+5.1	Routes: modifiers, add, resume and Float32
+2.4	Routes: the rule needs a pullback on every route coupling
+1.0	Standards: README and page prose
+0.8	Standards: README code is from the getting started page
+1.4	Standards: docstring examples
+1.2	Standards: docstring maths
+1.8	Standards: maths before code
+4.1	Standards: no other package names
+0.8	Standards: one sentence per line
+0.6	Standards: recorded item times fit the time budget
+2.4	Standards: the checks detect violations
+3.1	Standards: wording
+0.8	Threaded: a failing chunk fails the loop after every chunk ends
+0.1	Threaded: chunks run in parallel on several threads
+0.1	Threaded: options are checked when it is built
+1.8	TimeVarying: a delay distribution per stratum and time
+1.0	TimeVarying: a delay distribution per time
+0.0	Transform implements the role interface
+7.0	Transform pullback matches the local Jacobian
+2.0	Transform: Float32 and no allocation in the pullback
+3.4	Transform: ForwardDiff through a recurrence
+2.2	Transform: a map carrying parameters is differentiated whole
+7.2	Transform: a map of each value against a naive loop
+2.3	Transform: a supplied derivative replaces the local one
+1.5	Transform: argument validation
+0.3	Transform: local derivative helpers called directly
+6.1	Transform: per-stratum parameters
+0.1	Transform: pullback edge cases and refusals
+0.5	Transform: the local derivative runs on an outer dual
+1.5	Transform: the rule covers it unless the map has float fields
+1.8	Truncate: checks and the rule
+1.5	Truncate: pullback against a local Jacobian
+0.5	Truncate: the shared minimum matches each form
+0.2	Truncate: the smooth minimum
+9.3	Truncate: values and gradients against a naive loop
+6.5	Use case: AR → exp → renewal → delay
+3.1	Use case: AR(p)
+7.6	Use case: ARIMA (differenced ARMA)
+6.4	Use case: BVD abscond-thinned discharge flows
+6.5	Use case: BVD accumulate_occupancy (user modifier)
+3.6	Use case: BVD convolve_delay
+1.8	Use case: BVD convolve_pmf
+11.5	Use case: BVD deviation knots (stratified AR(1))
+8.1	Use case: BVD onset reporting delay CDF
+10.3	Use case: BVD patch model
+3.4	Use case: BVD renewal → delay
+4.7	Use case: BVD renewal_infections
+4.2	Use case: BVD two-clock confirmed stock
+10.2	Use case: BVD zone share renewal
+3.0	Use case: MA(1) with a coefficient path
+4.3	Use case: MA(q)
+10.7	Use case: all-or-nothing and leaky vaccination
+2.8	Use case: chain-length likelihood from PGF iteration
+0.3	Use case: clinical transitions as chained convolutions
+15.3	Use case: community, household and funeral routes
+4.4	Use case: containment and extinction at convergence
+5.4	Use case: exponential growth rate
+2.1	Use case: fixed reporting delay (LatentDelay)
+9.0	Use case: gravity coupling with depletion
+9.0	Use case: herd turnover with births and sales
+5.5	Use case: imports added after depletion
+1.3	Use case: isolation as a thinned kernel
+14.4	Use case: isolation beds with overflow to the community
+1.3	Use case: multi-type extinction
+1.6	Use case: multi-type growth is the spectral radius
+8.0	Use case: per-pair generation intervals
+5.8	Use case: per-stratum generation intervals
+2.8	Use case: per-type isolation and tracing in expectation
+0.5	Use case: population measures as a gain
+2.7	Use case: random walk
+3.9	Use case: renewal
+7.2	Use case: renewal with imported cases
+3.4	Use case: renewal with susceptible depletion
+8.0	Use case: resume a depleting renewal
+4.1	Use case: resume an AR(p) forecast
+8.7	Use case: resume the BVD patch model
+18.8	Use case: ring vaccination under a weekly budget
+3.0	Use case: scheduled isolation as a cohort kernel
+6.3	Use case: strata with a mixing matrix
+15.7	Use case: stratified renewal with imports, depletion and mixing
+6.5	Use case: time-varying AR(1)
+5.2	Use case: time-varying mixing
+4.9	Use case: time-varying reporting delay
+2.2	Use case: vaccination against a seeded HomogeneousProcess
+5.8	Use case: window aggregation
+7.6	Variants: a user depletion form, with and without a pullback
+12.3	Variants: one path per step
+1.6	Variants: the form slot takes a form struct
+5.8	Wrapper nesting is normalised
+0.9	delay_masses: a continuous distribution must be discretised
+1.5	delay_masses: a discrete distribution, lag 0 first
+0.0	delay_masses: a method of the wrong length is caught
+0.0	delay_masses: a vector is returned as it is
+0.6	depth: a coupling or kernel can deepen the buffer
+1.9	depth: a deep call infers
+22.4	depth: a deeper buffer leaves the output unchanged
+0.5	depth: an invalid depth names the value
+0.9	depth: default walk and recursion
+144.8	depth: the reverse pass reads the deeper buffer, fixed kernels
+159.8	depth: the reverse pass reads the deeper buffer, ragged and Primary kernels
+120.7	depth: the reverse pass reads the deeper buffer, time-varying kernels
+2.1	depth: the state holds the deeper buffer and resumes
+77.3	depth: the threaded reverse pass reads the deeper buffer
+0.1	depth: the walk skips mutable and undefined fields
+2.6	each!: Device runs a body as a kernel on JLArrays
+0.2	each!: chunks cover every index once
+0.1	each!: serial allocates nothing
+0.3	each!: serial runs every index in order
+0.2	each!: threaded matches serial
+1.9	exponential_history
+0.0	param_eltype infers through nested structs
+0.1	param_eltype recurses through fields
+10.1	prepend returns the history then the run
+0.2	start = nothing names the default to use
