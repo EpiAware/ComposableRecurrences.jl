@@ -67,7 +67,7 @@ the [extension API](@ref overview-extending), which includes
 | Name | What it does | Returns |
 |---|---|---|
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
-| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
+| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Auto()`](@ref ComposableRecurrences.Auto) (the default), [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
 A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) says why.
 
@@ -109,7 +109,7 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
 They tag one stored array and make no copies, apart from the exceptions listed under [`TimeVarying`](@ref).
 A bare vector where a single value is expected is an error that names the wrapper to use.
-The [Spatial and multi-type models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
+The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
 ## [Delay distributions](@id overview-delays)
 

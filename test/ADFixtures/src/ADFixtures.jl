@@ -16,6 +16,8 @@ using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
+# Loaded so the default `Auto()` method can take the transform.
+import FFTW
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
 using Distributions: NegativeBinomial, Poisson
@@ -609,6 +611,35 @@ function _piecewise_parameter(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A long delay on a long series, with history: the default `Auto()`
+# method takes the transform under a native rule. Its `NoAdjoint` twin
+# takes the method a traced call gets, which depends on the backend and
+# the Julia version: the direct method, or the transform through its own
+# Enzyme rules on Julia 1.11.
+const LA, TA = 300, 1000
+const WA = [cos(0.1 * t) for t in 1:TA]
+function _conv_auto(w, θ)
+    g, x, h = _unpack(θ, (LA,), (TA,), (5,))
+    return sum(WA .* w(Convolution(g))(x; history = h))
+end
+
+# The same delay on a series spanning 22 orders of magnitude, under a log:
+# the default method takes the direct sums the transform cannot give to a
+# relative 1e-10.
+const XW = 10.0 .^ range(-22, 0; length = TA)
+function _conv_auto_wide(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* log.(w(Convolution(g))(x)))
+end
+
+# The same delay on an epidemic curve: a few early outputs are taken
+# directly, one by one, and the rest by the transform.
+const XE = [10 * exp(0.01 * t) * (1 + 0.2 * sin(t / 7)) for t in 1:TA]
+function _conv_auto_epidemic(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* w(Convolution(g))(x))
+end
+
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
 # with a longer one.
 function _routes(w, θ)
@@ -953,6 +984,21 @@ const _SCENARIOS = [
         "Recurrence parameters from change points", _piecewise_parameter,
         () -> _flat([0.3, 0.1], [0.1, 0.2, 0.3], [0.4, 0.2, 0.1], zeros(S, L), LOGR),
     ),
+    (
+        "Convolution long kernel by the automatic method", _conv_auto,
+        () -> _flat(
+            [exp(-0.05 * l) / 20 for l in 1:LA], [1.0 + 0.5 * sin(t) for t in 1:TA],
+            ones(5),
+        ),
+    ),
+    (
+        "Convolution wide-range series by the automatic method", _conv_auto_wide,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XW),
+    ),
+    (
+        "Convolution epidemic curve by the automatic method", _conv_auto_epidemic,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XE),
+    ),
 ]
 
 # Delays given as distributions: the gradient reaches each distribution's
@@ -1059,6 +1105,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
+    "Convolution long kernel by the automatic method" => (:Auto,),
+    "Convolution wide-range series by the automatic method" => (:Auto,),
+    "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the

@@ -495,7 +495,10 @@ end
 
 function _kernel_pressure!(ex, p, g, H, t, τ, L)
     S = length(p)
-    _each!(_pressure_body!, ex, H, S, S * _kwork(g, S, L), p, g, H, t, τ, L)
+    _each!(
+        _pressure_body!, ex, H, S, _work(_StepLoop(), H, S * _kwork(g, S, L)),
+        p, g, H, t, τ, L
+    )
     return p
 end
 
@@ -1162,7 +1165,7 @@ function _run(
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         _blocks!(
-            _series_body!, ex, H, S, T * work,
+            _series_body!, ex, H, S, _work(_RunLoop(), H, T * work),
             ex, H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
             τ0, L, D, T
         )
@@ -1174,7 +1177,7 @@ function _run(
             _steps_in!(
                 _coupled_step!, ex, ts, T,
                 ex, across, H, v, pr, gain, add, coupling, g, p, q, modifiers,
-                states, rec, τ0, L, D, S, work
+                states, rec, τ0, L, D, S, _work(_StepLoop(), H, work)
             )
         end
     end

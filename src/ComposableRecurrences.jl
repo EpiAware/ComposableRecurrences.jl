@@ -101,8 +101,8 @@ public Depletion, Protected, Flow, Flows, Rate, Linear, Amount, Redistribute,
     pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
-    Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Direct,
-    FFTMethod, delay_masses
+    Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Auto,
+    Direct, FFTMethod, delay_masses
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
