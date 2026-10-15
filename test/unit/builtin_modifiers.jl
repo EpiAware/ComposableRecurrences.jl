@@ -280,6 +280,17 @@ end
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
     @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
     @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
+    # With one stratum nothing moves: the value passes on, the arrivals are
+    # zero, and the kernel and intensity get no gradient.
+    one = CR.Redistribute(CR.movement(fill(0.4, 1, 1), [0.2 0.3]))
+    x, s = [2.0], [5.0]
+    CR.forward(one, CR.Step(), x, s, 2)
+    @test x == [2.0] && s == [0.0]
+    m̄ = (; M = (; x = (; K = zeros(1, 1), E = zeros(1, 2), o = zeros(1))))
+    g1 = (; piece = m̄, v = [0.7], s = [0.3])
+    CR.pullback!(g1, one, CR.Step(), [2.0], zeros(1), 2)
+    @test g1.v == [0.7] && g1.s == [0.0]
+    @test all(iszero, m̄.M.x.K) && all(iszero, m̄.M.x.E)
 end
 
 @testitem "Redistribute: checks its matrix" begin

@@ -833,6 +833,11 @@ _array(m::_Movement) = m
 _extent(m::_Movement) = size(m.E, 2)
 _check_coupling_shape(::TimeVarying{Secondary, <:_Movement}) = nothing
 _check_columns(::_Movement, leak) = nothing
+# With one stratum a movement of a kernel and an intensity is the identity
+# whatever their values (`1 − ε o + K ε` with `o = K`), so nothing moves and
+# neither has a gradient: the step passes the value on with no arrivals.
+_stays(M) = false
+_stays(M::TimeVarying{<:Any, <:_Movement}) = size(M.x.K, 1) == 1
 
 # The step reads `M_t v = (1 − E_t ∘ o) ∘ v + K (E_t ∘ v)`.
 function forward(C::TimeVarying{Secondary, <:_Movement}, ::Pressure, q, p, t)
@@ -917,6 +922,7 @@ pullback!(grads, ::Redistribute, ::Init, s, history) = nothing
 # The product `s = M v`, then each stratum keeps its own share and the
 # arrivals are what the others sent.
 function forward(m::Redistribute, ::Step, v, s, t)
+    _stays(m.M) && return (fill!(s, zero(eltype(s))); nothing)
     forward(m.M, Pressure(), s, v, t)
     S = length(eachindex(v, s))
     _each!(_redistribute_body!, Serial(), v, S, S, v, s, m.M, t)
@@ -938,6 +944,7 @@ _diag_at(M::TimeVarying, p, t) = M.x[p, p, t]
 function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     M = m.M
     v̄, s̄ = grads.v, grads.s
+    _stays(M) && return (fill!(s̄, zero(eltype(s̄))); nothing)
     M̄ = cotangent(grads.piece, :M)
     for p in eachindex(v, v̄, s̄)
         s̄p = s̄[p]
