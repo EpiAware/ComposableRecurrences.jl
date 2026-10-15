@@ -124,14 +124,17 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 
-² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases: of 3, 5, 10, 20, 23 and 50 strata for the modifier, and of 5, 13, 20, 23, 26, 30, 36, 40 and 44 strata for the couplings.
+² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
+The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
 
 ³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
 On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
-The limits sit at the crossover of a coupling whose cost grows with the strata squared, with 24 inputs per pass: on Enzyme it is 0.96 times plain AD at 23 strata (one pass) and 1.58 at 26 (two), and on Mooncake 0.77 at 44 (two passes) and 1.08 at 50 (three).
+The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
+On Enzyme it is 0.96 times plain AD at 23 strata, one pass, and 1.58 at 26, two passes.
+On Mooncake it is 0.77 at 44 strata, two passes, and 1.08 at 50, three.
 A coupling whose cost grows with the strata alone is 0.23 times plain AD on Mooncake at 50 strata, but the limit sends it to plain AD, so give such a coupling a `pullback!`.
 
 ## [Checking a rule](@id adjoint-checks)
