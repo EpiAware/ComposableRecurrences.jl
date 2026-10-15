@@ -6,8 +6,8 @@ module ReactantCases
 
 using ComposableRecurrences
 using ComposableRecurrences: Add, Allocate, Budget, Capacity, Clamp, Depletion,
-    Floor, Flow, Flows, Hold, Primary, Protected, Redistribute, SoftTruncate, Step,
-    Transform, with_state
+    Floor, Flow, Flows, Hold, Primary, Protected, Redistribute, Secondary,
+    SoftTruncate, Step, Transform, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -231,6 +231,44 @@ end
 
 tv_kernel(n) = vec(repeat(g0, 1, n) .* (1 .+ 0.01 .* (1:n)'))
 
+# Kernels, a coupling and a parameter given by change points, with traced
+# values; the second and third segments start a third and two thirds of the
+# way through the run.
+const CP2, CP3 = max(2, T ÷ 3), max(3, 2T ÷ 3)
+cp_kernel(θ, n, I = Secondary()) = TimeVarying(
+    [1 => θ[1:n], CP2 => θ[(n + 1):(2n)], CP3 => θ[(2n + 1):(3n)]], I
+)
+cp_values(v) = vcat(v, 0.8 .* v, 0.6 .* v)
+
+rec_cp_kernel(θ) = Recurrence(cp_kernel(θ, L))(θ[(3L + 1):end]; history = H1)
+
+function rec_cp_primary(θ)
+    r = Recurrence(cp_kernel(θ, L, Primary()))
+    return r(θ[(3L + 1):end]; history = H1, start = L + 1)
+end
+
+function rec_cp_coupling(θ)
+    C1 = reshape(θ[1:(S * S)], S, S)
+    C2 = reshape(θ[(S * S + 1):(2S * S)], S, S)
+    R = reshape(θ[(2S * S + 1):end], S, T)
+    return Recurrence(g0; coupling = TimeVarying([1 => C1, CP2 => C2]))(R; history = HS)
+end
+
+conv_cp_primary(θ) = Convolution(cp_kernel(θ, L, Primary()))(θ[(3L + 1):end])
+
+function conv_cp_secondary(θ)
+    return Convolution(cp_kernel(θ, L))(θ[(3L + 1):end]; history = HX)
+end
+
+# The values are read as sums of one entry, as a traced scalar is not
+# indexed outside the package's loops.
+function mod_add_cp(θ)
+    at(i) = sum(view(θ, i:i))
+    b = TimeVarying([1 => at(L + T + 1), CP2 => at(L + T + 2)])
+    r = Recurrence(θ[1:L]; modifiers = (Add(b),))
+    return r(θ[(L + 1):(L + T)]; history = H1)
+end
+
 const CASES = [
     Case(
         "control", "harness control: 2θ, no package code", control,
@@ -343,6 +381,30 @@ const CASES = [
     Case(
         "mod_recent", "Recurrence with Recent (coupled)", mod_recent,
         vec(RS0), WS
+    ),
+    Case(
+        "rec_cp_kernel", "Recurrence, kernel from change points",
+        rec_cp_kernel, vcat(cp_values(g0), R0), W1
+    ),
+    Case(
+        "rec_cp_primary", "Recurrence, Primary() kernel from change points",
+        rec_cp_primary, vcat(cp_values(g0), R0), W1[(L + 1):end]
+    ),
+    Case(
+        "rec_cp_coupling", "Recurrence, coupling from change points",
+        rec_cp_coupling, vcat(vec(K0), vec(0.5 .* K0), vec(RS0)), WS
+    ),
+    Case(
+        "conv_cp_primary", "Convolution, Primary() kernel from change points",
+        conv_cp_primary, vcat(cp_values(d0), x0), W1
+    ),
+    Case(
+        "conv_cp_secondary", "Convolution, Secondary() kernel from change points",
+        conv_cp_secondary, vcat(cp_values(d0), x0), W1
+    ),
+    Case(
+        "mod_add_cp", "Recurrence with Add (change points)", mod_add_cp,
+        vcat(g0, R0, [0.1, -0.05]), W1
     ),
 ]
 

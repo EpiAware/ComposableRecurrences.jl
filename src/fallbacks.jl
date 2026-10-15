@@ -329,6 +329,7 @@ _entry(x, at::Tuple) = param(x, at...)
 _entry(x::PerStratum, ::Nothing) = zero(eltype(x.x))
 _entry(x::TimeVarying{<:Any, <:AbstractVector}, ::Nothing) = zero(eltype(x.x))
 _entry(x::TimeVarying{<:Any, <:PerStratum}, ::Nothing) = zero(eltype(x.x.x))
+_entry(x::TimeVarying{<:Any, <:_Piecewise}, ::Nothing) = zero(eltype(_array(x)))
 
 # `_rebuild` and `_addparams!` for the tuple of scalars: each consumes the
 # leading entries of `θ` or `g` and returns the rest, so the recursion over

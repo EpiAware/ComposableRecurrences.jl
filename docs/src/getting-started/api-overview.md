@@ -102,12 +102,12 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter per series | adds a leading `S` axis |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
 | [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
-| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths |
+| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths, or of `start => value` change points |
 | [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
 | [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
-They tag one stored array and make no copies; kernel columns are held as given, with the exceptions listed under [`TimeVarying`](@ref).
+They tag one stored array and make no copies, apart from the exceptions listed under [`TimeVarying`](@ref).
 A bare vector where a single value is expected is an error that names the wrapper to use.
 The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
@@ -188,7 +188,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
 | [`Flows(flows...)`](@ref ComposableRecurrences.Flows) | moves values between the compartments of each group by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s | yes, with groups of series | no, blockwise | hand-written | each flow's rate, share or count |
-| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share | yes, with several series | no | hand-written | `total`, one per group |
+| [`Allocate(groups, total; imports, spill)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share, with a fraction placed by an import pattern | yes, with several series | no | hand-written | `total` and `fraction`, one per group; `pattern` |
 | [`Capacity(C, mode; pairs)`](@ref ComposableRecurrences.Capacity) | admits each step's demand up to free beds or a budget per period, and routes the rest to an overflow series, a queue or nowhere | yes, with several series | no | hand-written | `C`, `exit`, `κ`, `initial` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 

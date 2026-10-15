@@ -200,6 +200,10 @@ true
         piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
         role = Pressure(), args = (zeros(2), [1.0, 2.0], 2)
     ),
+    Arguments(;
+        piece = TimeVarying([1 => [1.0 3.0; 2.0 4.0], 2 => [5.0 7.0; 6.0 8.0]]),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
+    ),
 ]
 
 @implements PieceInterface{(:pointwise, :blocks, :nstate)} Depletion [
@@ -270,6 +274,14 @@ true
     Arguments(;
         piece = Allocate([1:2, 3:3], 1.0), role = Init(),
         args = (zeros(3), ones(3, 2))
+    ),
+    Arguments(;
+        piece = Allocate(
+            [1:2, 3:3], PerStratum([4.0, 1.0]);
+            imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
+            spill = Redistribute([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], 0.1)
+        ),
+        role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
     ),
 ]
 

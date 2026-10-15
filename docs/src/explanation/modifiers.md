@@ -74,7 +74,7 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 | [`Add`](@ref ComposableRecurrences.Add) | one series | nothing | where the addition should enter |
 | [`Clamp`](@ref ComposableRecurrences.Clamp) | one series | nothing | after what it bounds |
 | [`Flows`](@ref ComposableRecurrences.Flows) | one group of compartments | what flowed into each compartment | on a kernel of `[1.0]`, which carries the compartments forward |
-| [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of series | nothing | after what it rescales; an `Add` after it adds to the totals |
+| [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of series, or every series with `imports` | nothing, or the import pattern after the spilled values | after what it rescales; an `Add` after it adds to the totals; a spill whose pattern reads the values before it goes in its `spill` |
 | [`Capacity`](@ref ComposableRecurrences.Capacity) | each admitted series and its overflow | the occupancy or allowance, then the queue with `Hold()` | after what makes the demand |
 | [`Transform`](@ref ComposableRecurrences.Transform) | one series | nothing | where the map applies |
 

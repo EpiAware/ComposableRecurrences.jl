@@ -739,12 +739,46 @@ function _outflow(K, q)
     end
     return out
 end
+# A dense kernel's column sum vectorises, less its diagonal.
+function _outflow(K::Matrix, q)
+    checkbounds(K, axes(K, 1), q)
+    out = zero(eltype(K))
+    @inbounds @simd for r in axes(K, 1)
+        out += K[r, q]
+    end
+    return out - K[q, q]
+end
 
 function forward(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
     S = length(eachindex(v, s))
+    _arrivals!(s, K, ε, v, t)
+    _each!(_redistribute_body!, Serial(), v, S, S * S, v, v, s, K, ε, t)
+    return nothing
+end
+
+# Every destination's arrivals into `s`. A dense kernel is read column by
+# column, the order it is stored in; any other a destination at a time, as
+# one index of the loop.
+function _arrivals!(s, K::Matrix, ε, v, t)
+    axes(s, 1) == axes(v, 1) == axes(K, 1) == axes(K, 2) || throw(
+        DimensionMismatch(
+            "Redistribute K is $(size(K)), expected ($(length(v)), $(length(v)))"
+        )
+    )
+    fill!(s, zero(eltype(s)))
+    for q in eachindex(v)
+        c = param(ε, q, t) * v[q]
+        @inbounds for p in axes(K, 1)
+            s[p] += K[p, q] * c
+        end
+        s[q] -= K[q, q] * c
+    end
+    return nothing
+end
+function _arrivals!(s, K, ε, v, t)
+    S = length(v)
     _each!(_arrivals_body!, Serial(), v, S, S * S, s, v, K, ε, t)
-    _each!(_redistribute_body!, Serial(), v, S, S * S, v, s, K, ε, t)
     return nothing
 end
 
@@ -758,9 +792,9 @@ function _arrivals_body!(p, s, v, K, ε, t)
     return nothing
 end
 
-# Stratum `p` after its outflow and arrivals.
-function _redistribute_body!(p, v, s, K, ε, t)
-    v[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
+# Stratum `p` after its outflow and arrivals, written to `out[p]`.
+function _redistribute_body!(p, out, v, s, K, ε, t)
+    out[p] = (1 - param(ε, p, t) * _outflow(K, p)) * v[p] + s[p]
     return nothing
 end
 
@@ -773,6 +807,25 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     for p in eachindex(v̄, s̄)
         s̄[p] += v̄[p]
     end
+    _redistribute_back!(_kernel_mirror(K̄, K), K, ε, ε̄, v, v̄, s̄, t)
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+
+# A dense kernel whose mirror is dense or absent runs without bounds
+# checks once the sizes are checked; any other goes entry by entry.
+_kernel_mirror(K̄, K) = K̄
+function _kernel_mirror(K̄, K::Matrix)
+    K̄′ = _array_mirror(K̄)
+    K̄′ isa _DenseMirror || return K̄
+    _check_dense(K̄′, K)
+    return K̄′
+end
+
+# Per origin `q`, with `a_q = Σ_{p ≠ q} K[p, q] s̄_p`: `K̄[p, q] +=
+# ε_q v_q (s̄_p − v̄_q)` off the diagonal, `ε̄_q += v_q (a_q − o_q v̄_q)` and
+# `v̄_q ← (1 − ε_q o_q) v̄_q + ε_q a_q`.
+function _redistribute_back!(K̄, K, ε, ε̄, v, v̄, s̄, t)
     for q in eachindex(v, v̄)
         εq = param(ε, q, t)
         out = _outflow(K, q)
@@ -785,9 +838,35 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
         add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
         v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
     end
-    fill!(s̄, zero(eltype(s̄)))
     return nothing
 end
+function _redistribute_back!(K̄::_DenseMirror, K::Matrix, ε, ε̄, v, v̄, s̄, t)
+    axes(s̄, 1) == axes(v̄, 1) == axes(v, 1) == axes(K, 1) || throw(
+        DimensionMismatch("kernel is $(size(K)), values are $(length(v))")
+    )
+    @inbounds for q in eachindex(v, v̄)
+        εq = param(ε, q, t)
+        out = _outflow(K, q)
+        c = εq * v[q]
+        acc = _redistribute_column!(K̄, K, s̄, c, v̄[q], q)
+        add_param!(ε̄, ε, v[q] * (acc - v̄[q] * out), q, t)
+        v̄[q] = v̄[q] * (1 - εq * out) + εq * acc
+    end
+    return nothing
+end
+# Column `q` off the diagonal, in the two ranges either side of it.
+Base.@propagate_inbounds function _redistribute_column!(K̄, K, s̄, c, v̄q, q)
+    acc = zero(eltype(s̄))
+    for rows in (firstindex(s̄):(q - 1), (q + 1):lastindex(s̄))
+        @simd for p in rows
+            acc += s̄[p] * K[p, q]
+            _dense_add!(K̄, c * (s̄[p] - v̄q), p, q)
+        end
+    end
+    return acc
+end
+Base.@propagate_inbounds _dense_add!(K̄::Matrix, x, p, q) = (K̄[p, q] += x; nothing)
+_dense_add!(::Union{Nothing, NamedTuple{()}}, x, p, q) = nothing
 
 # Clamp -------------------------------------------------------------------
 

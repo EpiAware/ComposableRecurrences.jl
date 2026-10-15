@@ -19,6 +19,7 @@
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
+- `TimeVarying([t₁ => c₁, t₂ => c₂, ...], indexing)` gives a kernel, coupling or modifier parameter by its change points, storing one value per segment; a `Secondary()` kernel switches between fixed-kernel loops at the change points, and a `Primary()` convolution sums one fixed convolution per segment ([time-varying delays][tv]).
 - `Convolution` takes `gain` and `add`, and `ComposableRecurrences.contributions` returns the lag contributions before the sum over lags ([API overview][api]).
 - `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded, with outputs and gradients that match `Direct()` to a relative 1e-10 (1e-4 in `Float32`) ([FFTW extension][fftw]).
   The default method, `Auto()`, takes it only for long `Float64` kernels and series, and otherwise takes `Direct()`.
@@ -28,6 +29,7 @@
 - A `Recurrence` keeps as many past outputs as its kernel, coupling or modifiers read, given by the public `depth` trait.
 - `Transform(f, θ; derivative)` maps each value through `f(v, θ)` with parameters ([Transform tutorial][transform]).
 - `Allocate(groups, total)` rescales groups of strata to exogenous totals ([spatial and multi-type models][spatial]).
+  `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
 - `Depletion(N; removals, protected)` takes removals from the pool and, with `Protected(σ; pool0)`, keeps them in a second pool for all-or-nothing or leaky protection ([renewal then delay][renewal]).
   `Protected`'s default `pool0` is an empty pool in the state's element type, so a `Float32` model stays `Float32`.
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
