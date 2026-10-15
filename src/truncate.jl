@@ -86,8 +86,8 @@ function forward(::Truncate, ::Step, v, s, N, α)
 end
 
 # The softness goes to the smooth minimum in its own type: promoted with the
-# value and pool to a dual number first, the step took about 20% longer
-# under ForwardDiff.
+# value and pool to a dual number first, the step took about 20% longer in
+# forward mode.
 function forward(form::SoftTruncate, ::Step, v, s, N, α)
     v, s = promote(v, s)
     y = _soft_min(form.κ, v, _pool_left(s))
