@@ -125,12 +125,13 @@ end
 # ``g^{\text{long}}`` and ``g^{\text{short}}`` are `long_gi` and `short_gi` below.
 # Here isolation shortens the interval from day 30, so offspring come sooner.
 # The reproduction number is held at 1.2, so only the timing changes.
+# The kernel changes once, so it is given by its change points, each start day paired with the interval from that day.
 
 long_gi = [0.05, 0.15, 0.25, 0.25, 0.2, 0.1]
-short_gi = [0.3, 0.4, 0.2, 0.1, 0.0, 0.0]
-G = hcat([t < 30 ? long_gi : short_gi for t in 1:T]...)
+short_gi = [0.3, 0.4, 0.2, 0.1]
 fixed = Recurrence(long_gi)(1.2; history = fill(10.0, 6), stop = T)
-shortened = Recurrence(TimeVarying(G))(1.2; history = fill(10.0, 6), stop = T)
+G = TimeVarying([1 => long_gi, 30 => short_gi])
+shortened = Recurrence(G)(1.2; history = fill(10.0, 6), stop = T)
 @chain DataFrame(
     "day" => 1:T, "Fixed interval" => fixed, "Interval shortens on day 30" => shortened
 ) begin

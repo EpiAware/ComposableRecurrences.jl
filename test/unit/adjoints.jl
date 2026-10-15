@@ -559,20 +559,35 @@ end
         @test !CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{:plain}]
     end
-    # The plain-AD note names the part that sends the operator there.
-    why(; kwargs...) = CR._plain_why(Recurrence(g; kwargs...))
-    @test occursin("(Scale) with no pullback!", why(modifiers = (Scale(0.9),)))
-    @test occursin("(Mix)", why(coupling = Mix(K, [1.0, 1.0])))
-    @test occursin(
-        "(PoolDepletion)", why(modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0])))
+    # The constructor notes, once per message, the part that sends the
+    # operator there.
+    note(; kwargs...) = (empty!(CR._PLAIN_NOTED); Recurrence(g; kwargs...))
+    @test_logs (:info, r"Scale has no pullback!") note(modifiers = (Scale(0.9),))
+    @test_logs Recurrence(g; modifiers = (Scale(0.9),))
+    # The note is once per message, so other number types log nothing more.
+    @test_logs Recurrence(g; modifiers = (Scale(ForwardDiff.Dual(0.9, 1.0)),))
+    @test_logs (:info, r"Mix has no pullback!") note(coupling = Mix(K, [1.0, 1.0]))
+    @test_logs (:info, r"PoolDepletion has no pullback!") note(
+        modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0]))
+    )
+    @test_logs note(modifiers = (CR.Clamp(0.0, 9.0),))
+    # A `Derived` map that holds floats is named as the cause.
+    scaled = let c = 2.0
+        x -> c * x
+    end
+    @test_logs (:info, r"Add has a Derived map that holds floats") note(
+        modifiers = (CR.Add(Derived(scaled, 0.5)),)
+    )
+    @test_logs (:info, r"Depletion has a Derived map that holds floats") note(
+        modifiers = (CR.Depletion(Derived(scaled, 25.0)),)
     )
     # A depletion is named by its form when the form has no adjoint.
     struct VecForm
         w::Vector{Float64}
     end
     CR.forward(f::VecForm, ::CR.Step, v, s, N, α) = (y = min(v * f.w[1], s); (y, s - y))
-    @test CR._part_name(CR.Depletion(50.0)) === :Depletion
-    @test CR._part_name(CR.Depletion(50.0, VecForm([1.0]))) === :VecForm
+    @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
+        "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
     @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
     # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
@@ -606,6 +621,21 @@ end
     CR.uses_adjoint(::Typed, ::CR.Step) = true
     @test CR._modifier_adjoint(Typed(0.5)) === :pullback
     @test pullback_matches(rt, recargs(ones(2, 4), nothing, ones(2, 2))...)
+    # The same for a vector step whose typed `pullback!` the method lookup
+    # misses: the declared adjoint calls it.
+    struct TypedVec{A}
+        a::A
+    end
+    CR.forward(m::TypedVec, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    function CR.pullback!(grads, m::TypedVec, ::CR.Step, v::AbstractVector, s, t)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), sum(grads.v .* v))
+        grads.v .*= m.a
+        return nothing
+    end
+    @test CR._modifier_adjoint(TypedVec(0.5)) === :none
+    CR.uses_adjoint(::TypedVec, ::CR.Step) = true
+    rv = Recurrence(g; modifiers = (TypedVec(0.5),))
+    @test pullback_matches(rv, recargs(ones(2, 4), nothing, ones(2, 2))...)
 
     # A function stored in a pointwise modifier with no pullback: a plain
     # function or a callable singleton keeps the rule, a closure that
@@ -674,40 +704,48 @@ end
             (ScaleKw(; a = 0.5), false), (ScaleF(0.5), false),
             (Doubled(0.5), false), (Kept(0.5), true),
         )
-        op = Recurrence(g; modifiers = (m,))
+        empty!(CR._PLAIN_NOTED)
+        op = rule ? Recurrence(g; modifiers = (m,)) :
+            @test_logs (:info, Regex(string(nameof(typeof(m))))) Recurrence(g; modifiers = (m,))
         @test CR._modifier_adjoint(m) === :local
-        @test CR._round_trips(m) == rule
-        @test CR._rebuilds(op) === rule
+        @test CR._check_rebuild(m) == rule
+        @test op.rebuilds === rule
         @test CR.uses_adjoint(op, CR.Run()) == rule
         @test val(op) == [Val{:rule}]
-        rule || @test occursin(string(nameof(typeof(m))), CR._plain_why(op))
+        @test CR._fit(op, args...) === (rule ? :one : :none)
         # The check runs at construction, which stays type stable.
         @inferred Recurrence(g, I, (m,))
     end
-    # A modifier that does not rebuild is sent to plain AD, and the primal
-    # call logs nothing.
+    # A modifier that does not rebuild is sent to plain AD, and the call
+    # logs nothing.
     op = Recurrence(g; modifiers = (Doubled(0.5),))
     y = @test_logs CR.adjoint_call(op, args...)
     @test y == CR._plain(op, args...)
+    # Without the check the local derivative of `Doubled` would be wrong,
+    # not missing: its rebuild doubles the dual number it is given, so the
+    # cotangent of its field `a` comes back twice the true `v`.
+    m̄ = (; a = Ref(0.0))
+    CR._step_pullback((; piece = m̄, v = 1.0, s = 0.0), Doubled(0.5), 2.0, 0.0, 1, 1)
+    @test m̄.a[] ≈ 4.0
+    # Without a part to check, the outcome is read off the types.
+    for ms in ((), (CR.Depletion(50.0), CR.Clamp(0.0, 9.0)), (CR.Add(1.0),))
+        @test (@inferred Recurrence(g, I, ms)).rebuilds === Val(true)
+    end
+    # A rebuild through `constructorof` checks again.
+    op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
+    @test op.rebuilds === true
+    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
+    @test op.rebuilds === Val(true)
+    @test pullback_matches(
+        Recurrence(g; modifiers = (Kept(0.5),)),
+        recargs(ones(2, 4), nothing, ones(2, 2))...
+    )
     # A field of abstract type is not differentiated locally.
     struct Loose
         a::Any
     end
     CR.ispointwise(::Loose) = true
     @test CR._modifier_adjoint(Loose(0.5)) === :none
-    # Without a modifier to check, the outcome is read off the types.
-    for ms in ((), (CR.Depletion(50.0), CR.Clamp(0.0, 9.0)), (CR.Add(1.0),))
-        @test CR._rebuilds(@inferred Recurrence(g, I, ms)) === Val(true)
-    end
-    @test CR._rebuilds(Convolution([0.5, 0.5])) === Val(true)
-    @test CR._round_trips(Loose(1))
-    @test CR._plain_why(Recurrence(g)) == CR._ADJOINT_NOTE
-    @test occursin("Doubled", CR._plain_why(CR._WithState(op)))
-    # A rebuild through `constructorof` recomputes the check.
-    op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
-    @test CR._rebuilds(op) === true
-    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
-    @test CR._rebuilds(op) === Val(true)
     # A constructor that throws is taken as not rebuilding, but an interrupt
     # is not swallowed.
     struct Strict{T}
@@ -718,12 +756,8 @@ end
         a::T
         Halt(a::T) where {T} = a isa AbstractFloat ? new{T}(a) : throw(InterruptException())
     end
-    @test CR._round_trips(Strict(0.5)) === false
-    @test_throws InterruptException CR._round_trips(Halt(0.5))
-    @test pullback_matches(
-        Recurrence(g; modifiers = (Kept(0.5),)),
-        recargs(ones(2, 4), nothing, ones(2, 2))...
-    )
+    @test CR._check_rebuild(Strict(0.5)) === false
+    @test_throws InterruptException CR._check_rebuild(Halt(0.5))
 
     # A depletion form without a pullback takes the rule through the local
     # derivative of its step in `(v, s, N, α)` and its own float scalars.
@@ -756,10 +790,12 @@ end
         DoubledRate(c::T) where {T} = new{T}(2c)
     end
     CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
-    op = Recurrence(g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),))
+    empty!(CR._PLAIN_NOTED)
+    op = @test_logs (:info, r"DoubledRate cannot be rebuilt") Recurrence(
+        g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),)
+    )
     @test !CR.uses_adjoint(op, CR.Run())
-    @test CR._rebuilds(op) === false
-    @test occursin("DoubledRate", CR._plain_why(op))
+    @test op.rebuilds === false
     @test CR.uses_adjoint(Recurrence(g; modifiers = (CR.Depletion(50.0, f),)), CR.Run())
 
     # Dual numbers and BigFloat take the plain path.
@@ -786,8 +822,8 @@ end
 
 @testitem "Adjoint: a declared adjoint without a pullback! throws" setup = [AdjointCheck] begin
     using ComposableRecurrences
-    # Declared for a role with no `pullback!` method: the reverse pass names
-    # the piece and the role.
+    # Declared for a role with no `pullback!` method: the reverse pass
+    # throws the `MethodError` of the missing method.
     struct Halved end
     CR.ispointwise(::Halved) = true
     CR.forward(::Halved, ::CR.Step, v, s, t, k) = (v / 2, s)
@@ -795,28 +831,23 @@ end
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     r = Recurrence([0.3, 0.2]; modifiers = (Halved(),))
     @test Base.return_types(CR._route_val, typeof.((r, args...))) == [Val{:rule}]
-    @test_throws "Halved uses its adjoint in Step()" pullback_matches(r, args...)
+    @test_throws MethodError pullback_matches(r, args...)
     struct Thrice <: CR.AbstractOperator end
     CR.forward(::Thrice, ::CR.Run, x) = (3 .* x, nothing)
     CR.uses_adjoint(::Thrice, ::CR.Run) = true
     grads = (; piece = nothing, y = ones(2), args = (zeros(2),))
-    @test_throws "Thrice uses its adjoint in Run()" CR._run_pullback!(grads, Thrice(), nothing)
+    @test_throws MethodError CR._run_pullback!(grads, Thrice(), nothing)
 end
 
-@testitem "Adjoint: a plain primal call logs nothing" setup = [AdjointModifiers] begin
+@testitem "Adjoint: the plain-AD note logs at construction only" setup = [AdjointModifiers] begin
     using ComposableRecurrences
-    # A modifier without an adjoint, and one whose float field is typed
-    # `Float64`: the plain path is taken, but only differentiation logs it.
-    struct ScaleF
-        a::Float64
-    end
-    CR.ispointwise(::ScaleF) = true
-    CR.forward(m::ScaleF, ::CR.Step, v, s, t, k) = (m.a * v, s)
-    for m in (Scale(0.9), ScaleF(0.9))
-        r = Recurrence([0.2, 0.3]; modifiers = (m,))
-        @test_logs r(ones(4); history = ones(2))
-        @test_logs CR.with_state(r, ones(4); history = ones(2))
-    end
+    # A modifier without an adjoint: the constructor notes the plain path
+    # once per type, and calls log nothing.
+    empty!(CR._PLAIN_NOTED)
+    r = @test_logs (:info, r"Scale") Recurrence([0.2, 0.3]; modifiers = (Scale(0.9),))
+    @test_logs Recurrence([0.2, 0.3]; modifiers = (Scale(0.5),))
+    @test_logs r(ones(4); history = ones(2))
+    @test_logs CR.with_state(r, ones(4); history = ones(2))
 end
 
 @testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
@@ -1104,8 +1135,7 @@ end
         )
         @test CR._modifier_adjoint(m) === :local
         @test !CR._scalar_params(m)
-        @test CR._rebuild_flag(I, (m,)) === true
-        @inferred Recurrence([0.3, 0.2], I, (m,))
+        @test CR.uses_adjoint(@inferred(Recurrence([0.3, 0.2], I, (m,))), CR.Run())
         # Against ForwardDiff over every parameter entry at (k, t) = (2, 3).
         x0 = [2.0; 1.5; CR._params(m)]
         J = ForwardDiff.jacobian(x0) do x
@@ -1145,7 +1175,6 @@ end
     op = Recurrence([0.3, 0.2]; modifiers = (d,))
     @test op.rebuilds === false
     @test !CR.uses_adjoint(op, CR.Run())
-    @test occursin("Direct", CR._plain_why(op))
     # The check runs the step on the parameters' own entries, so a step
     # that would throw at a zero entry keeps the local derivative.
     struct Root{K}
@@ -1222,26 +1251,25 @@ end
     # The route: the rule from the types, the wide route once the strata
     # and the coupling's scalars outgrow one pass, and plain AD once they
     # outgrow two.
-    @test CR.uses_adjoint(r, CR.Run())
-    @test CR._rebuilds(@inferred Recurrence([0.3], C, ())) === true
+    @test (@inferred Recurrence([0.3], C, ())).rebuilds === true
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
     @test val(r, 3) == [Val{:rule}]
-    @test CR._fits(r, args(10)...) === true
-    @test CR._fits(r, args(11)...) === false
-    @test CR._fits(Recurrence([0.3]), args(50)...) === Val(true)
-    @test CR._fits_wide(r, args(22)...)
-    @test !CR._fits_wide(r, args(23)...)
-    @test occursin("ToFirst", CR._plain_why(r))
-    @test CR._plain_why(Recurrence([0.3])) == CR._ADJOINT_NOTE
-    for S in (11, 23)
+    @test CR._fit(r, args(10)...) === :one
+    @test CR._fit(r, args(11)...) === :wide
+    @test CR._fit(r, args(22)...) === :wide
+    @test CR._fit(r, args(23)...) === :none
+    # Without a local step the route is the rule, as for any other operator.
+    @test CR._fit(Recurrence([0.3]), args(50)...) === :one
+    @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
+    for S in (11, 23, 24)
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end
     CR.forward(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
-    @test CR._rebuilds(Recurrence([0.3], Swap(), ())) === Val(true)
+    @test Recurrence([0.3], Swap(), ()).rebuilds === Val(true)
     @test pullback_matches(
         Recurrence([0.3, 0.2]; coupling = Swap()), args(3)...
     )
@@ -1253,7 +1281,7 @@ end
     CR.forward(C::Halved, ::CR.Pressure, q, p, t) = (q .= C.a .* p; nothing)
     op = Recurrence([0.3]; coupling = Halved(0.5))
     @test op.rebuilds === false
-    @test occursin("Halved", CR._plain_why(op))
+    @test CR._fit(op, args(3)...) === :none
 end
 
 @testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin

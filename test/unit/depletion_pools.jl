@@ -226,7 +226,7 @@ end
     m̄ = (;
         N = (; x = zeros(2)), form = nothing, heterogeneity = Ref(0.0),
         pool0 = (; x = zeros(2)),
-        flows = ((; from = nothing, to = nothing, kind = (; a = Ref(0.0))),),
+        flows = ((; from = nothing, to = nothing, demand = Ref(0.0), form = nothing),),
         protected = (; σ = Ref(0.0), pool0 = (; x = zeros(2))),
     )
     grads = (; piece = m̄, s = [1.0, 2.0, 3.0, 4.0], history = zeros(2, 2))

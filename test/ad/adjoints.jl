@@ -984,6 +984,64 @@ end
     end
 end
 
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse on Julia 1.11 warns once per operator type of lost scalar gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    using Logging: Warn
+    import Enzyme
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    empty!(ext._SCALAR_LOSS_CHECKED)
+    empty!(ext._SCALAR_LOSS_WARNED)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    let R = fill(1.1, 4), h = ones(2)
+        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b),))
+        op2(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b), CR.Add(b)))
+        msg = (:warn, r"On Julia 1\.11, Enzyme reverse mode can return a zero")
+        grad(f, x) = Enzyme.gradient(mode, Enzyme.Const(f), x)[1]
+        # The rule, plain AD of a `NoAdjoint`, a scalar field that is not
+        # differentiated, and a second operator type after the first warned.
+        for (f, x, warns) in (
+                (b -> sum(op(b[1])(R; history = h)), [0.5], true),
+                (b -> sum(NoAdjoint(op(b[1]))(R; history = h)), [0.5], true),
+                (x -> sum(op(0.5)(x; history = h)), R, false),
+                (b -> sum(op2(b[1])(R; history = h)), [0.5], true),
+            )
+            if warns && VERSION < v"1.12"
+                @test_logs msg min_level = Warn grad(f, x)
+            else
+                @test_logs min_level = Warn grad(f, x)
+            end
+            @test_logs min_level = Warn grad(f, x)
+        end
+    end
+end
+
+# Enzyme reverse mode on Julia 1.11 loses the gradient of a scalar field of
+# an operator built by a call it cannot infer, here a `NoAdjoint` called
+# through a global that is not constant. The rules cannot see that call, so
+# this pins the loss until Enzyme fixes it. Tagged `compat_floor`, so the
+# Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse on Julia 1.11 loses scalar gradients through uninferred construction" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
+    import Enzyme, ForwardDiff
+    wrap = NoAdjoint
+    W = [cos(a * t) for a in 1:3, t in 1:12]
+    h = ones(3, 4)
+    R = exp.(0.3 .+ [0.1 * sin(a + t) for a in 1:3, t in 1:12])
+    g = exp.(-0.4 .* (1:4)) ./ sum(exp.(-0.4 .* (1:4)))
+    f(θ) = sum(W .* log.(wrap(Recurrence(g; modifiers = (CR.Depletion(θ[1]),)))(R; history = h)))
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    ḡ = Enzyme.gradient(mode, Enzyme.Const(f), [80.0])[1]
+    ref = ForwardDiff.gradient(f, [80.0])
+    if VERSION < v"1.12"
+        @test_broken ḡ ≈ ref
+    else
+        @test ḡ ≈ ref
+    end
+end
+
 @testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] begin
     using ADFixtures
     using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
@@ -1273,15 +1331,15 @@ end
     end
 end
 
-@testitem "Plain-AD note logs once under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Plain-AD note logs once at construction under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
     import Enzyme, Mooncake
     # Pointwise modifiers whose float field is typed `Float64`, so the
-    # operator takes plain AD; one type per backend, as the note is logged
-    # once per operator type.
+    # local step cannot rebuild them and the operator takes plain AD; one
+    # type per backend, as the note is logged once per operator type.
     struct ScaleM
         a::Float64
     end
@@ -1304,8 +1362,8 @@ end
         )
         f(θ) = sum(Recurrence([0.3, 0.2]; modifiers = (M(0.9),))(θ; history = ones(2)))
         θ = ones(4)
-        # The primal call logs nothing; the first gradient logs once.
-        @test_logs f(θ)
+        # Built inside the differentiated loss, the operator notes the plain
+        # path once.
         empty!(CR._PLAIN_NOTED)
         g = @test_logs (:info, r"plain AD of the whole operator") match_mode = :any gradient(f, backend, θ)
         @test all(isfinite, g)

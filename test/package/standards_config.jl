@@ -52,6 +52,7 @@ const MATHS_FIRST_PAGES = (
     "README.md",
     "docs/src/getting-started/index.md",
     "docs/src/developer/extending.md",
+    "docs/src/getting-started/tutorials/backend-case-study.jl",
     "docs/src/getting-started/tutorials/latent-processes.jl",
     "docs/src/getting-started/tutorials/occupancy.jl",
     "docs/src/getting-started/tutorials/renewal-then-delay.jl",

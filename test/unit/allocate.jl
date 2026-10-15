@@ -59,10 +59,9 @@
             for (p, zs) in enumerate(groups)
                 su = max(sum(u[zs]), floor_)
                 sh = sum(hh[zs])
+                mh = max(sh, floor_)
                 Tt, φ = total(p, t), fraction(p, t)
-                v[zs] .= sh > floor_ ?
-                    Tt .* ((1 - φ) .* u[zs] ./ su .+ φ .* hh[zs] ./ sh) :
-                    Tt .* u[zs] ./ su
+                v[zs] .= Tt .* ((1 - φ * sh / mh) .* u[zs] ./ su .+ φ .* hh[zs] ./ mh)
             end
             Y[:, L + t] .= v
         end
@@ -222,6 +221,35 @@ end
     v = [1.0e-20, 3.0e-20, 1.0]
     CR.forward(m, CR.Step(), v, zeros(3), 1)
     @test v ≈ [4.0e-20, 12.0e-20, 2.0] ./ [eps(), eps(), 1.0]
+end
+
+@testitem "Allocate: imports keep the totals near an empty pattern" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
+    # The first group imports `c v_3` into each of its strata, so its pattern
+    # sums to `2 c v_3`; the second group's pattern is empty.
+    function step(x)
+        tot, φ, v, c = x[1:2], x[3:4], x[5:7], x[8]
+        P = zeros(eltype(x), 3, 3)
+        P[1:2, 3] .= c
+        m = CR.Allocate(
+            [1:2, 3:3], PerStratum(tot); imports = (PerStratum(φ), P),
+            spill = CR.Redistribute(CR.movement(K, 0.2))
+        )
+        y = copy(v)
+        CR.forward(m, CR.Step(), y, zeros(eltype(x), 6), 1)
+        return y
+    end
+    tot, φ, v = [4.0, 2.0], [0.3, 0.5], [1.0, 3.0, 2.0]
+    for sh in (0.0, eps() / 2, 2 * eps())
+        y = step(vcat(tot, φ, v, sh / (2 * v[3])))
+        @test sum(y[1:2]) ≈ tot[1]
+        @test y[3] ≈ tot[2]
+    end
+    W = [1.0, -2.0, 0.5]
+    g = ForwardDiff.gradient(x -> sum(W .* step(x)), vcat(tot, φ, v, 0.0))
+    @test all(isfinite, g)
 end
 
 @testitem "Allocate: pullback against a local Jacobian" setup = [ModifierChecks, AllocateChecks] begin

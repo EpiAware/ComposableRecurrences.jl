@@ -142,6 +142,8 @@ end
     @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(
         1.0; pool0 = TimeVarying(N)
     )
+    # A share is a form for flows only.
+    @test_throws "Share() is not a depletion form" CR.Depletion(80.0, CR.Share())
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
     @test size(y) == (2, 6)
@@ -691,7 +693,7 @@ end
 end
 
 @testitem "Variants: one path per step" begin
-    using ComposableRecurrences, JET
+    using ComposableRecurrences
     CR = ComposableRecurrences
     for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
@@ -700,9 +702,9 @@ end
         @test CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1) ==
             CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 1.0)
         # A step compiles to one path: no dispatch on the form at run time.
+        # Its check for runtime dispatch runs with JET, in test/jet.
         @test (@inferred CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)) isa
             Tuple{Float64, Float64}
-        JET.@test_opt CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
     @test (@inferred default_depletion()) isa CR.Depletion{CR.Hazard}

@@ -74,7 +74,7 @@ struct Routes{C <: Tuple, G <: Tuple}
         isempty(couplings) && throw(ArgumentError("Routes needs at least one route"))
         foreach(_check_coupling_shape, couplings)
         # Only a kernel takes `Primary()` indexing.
-        foreach(C -> _check_times(:coupling, C, nothing), couplings)
+        _check_times(:coupling, couplings, nothing)
         foreach(_check_route_kernel, kernels)
         return new{C, G}(couplings, kernels)
     end
@@ -161,7 +161,7 @@ function _check_kernel_strata(R::Routes, S)
 end
 
 function _check_kernel_times(R::Routes, stop)
-    foreach(C -> _check_times(:coupling, C, stop), R.couplings)
+    _check_times(:coupling, R.couplings, stop)
     foreach(g -> _check_kernel_times(g, stop), R.kernels)
     return nothing
 end
@@ -181,10 +181,11 @@ function _all_pressure_pullbacks(Cs::Tuple)
 end
 
 # The plain-AD note names the route couplings without a pullback.
-function _plain_why_kernel(R::Routes)
-    names = [nameof(typeof(C)) for C in R.couplings if !uses_adjoint(C, Pressure())]
-    isempty(names) && return nothing
-    return "has route couplings ($(join(unique(names), ", "))) without a pullback!"
+function _no_adjoint_kernel(R::Routes)
+    return Tuple(
+        "$(nameof(typeof(C))) has no pullback! the rule can use"
+            for C in R.couplings if !uses_adjoint(C, Pressure())
+    )
 end
 
 # The routes as a run reads them: the couplings, each kernel oldest first

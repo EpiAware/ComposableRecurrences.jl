@@ -59,7 +59,8 @@
     removals = TimeVarying(PerStratum(doses))
     d = CR.Depletion(N; removals, protected = CR.Protected(σ))
     explicit = CR.Depletion(
-        N; protected = CR.Protected(σ), flows = [CR.Flow(1 => 2, CR.Amount(removals))]
+        N; protected = CR.Protected(σ),
+        flows = [CR.Flow(1 => 2, removals; form = CR.Truncate())]
     )
     still = CR.Depletion(
         N; removals, protected = CR.Protected(σ), flows = CR.Flow(2 => 1, 0.0)
@@ -123,9 +124,9 @@ end
             x -> CR.Depletion(
                 PerStratum(x[1:2]); heterogeneity = x[3],
                 flows = (
-                    CR.Flow(1 => 2, CR.Amount(x[4])),
+                    CR.Flow(1 => 2, x[4]; form = CR.Truncate()),
                     CR.Flow(2 => 1, PerStratum(x[5:6])),
-                    CR.Flow(2 => 0, CR.Linear(TimeVarying(x[7:8]))),
+                    CR.Flow(2 => 0, TimeVarying(x[7:8]); form = CR.Share()),
                 ),
                 protected = CR.Protected(PerStratum(x[9:10]); pool0 = x[11])
             ),
@@ -137,7 +138,7 @@ end
                 PerStratum(x[1:2]); heterogeneity = x[3],
                 flows = (
                     CR.Flow(1 => 0, x[4]), CR.Flow(2 => 1, x[5]),
-                    CR.Flow(1 => 2, CR.Amount(x[6])),
+                    CR.Flow(1 => 2, x[6]; form = CR.Truncate()),
                 ),
                 protected = CR.Protected(x[7]; pool0 = x[8])
             ),
@@ -146,14 +147,16 @@ end
         # Removals alone, and a single count out of the system.
         (
             x -> CR.Depletion(
-                x[1]; heterogeneity = x[2], flows = CR.Flow(1 => 2, CR.Amount(x[3])),
+                x[1]; heterogeneity = x[2],
+                flows = CR.Flow(1 => 2, x[3]; form = CR.Truncate()),
                 protected = CR.Protected(x[4]; pool0 = x[5])
             ),
             (a, α) -> [100.0, α, a, 0.3, 0.0],
         ),
         (
             x -> CR.Depletion(
-                x[1]; heterogeneity = x[2], flows = CR.Flow(1 => 0, CR.Amount(x[3])),
+                x[1]; heterogeneity = x[2],
+                flows = CR.Flow(1 => 0, x[3]; form = CR.Truncate()),
                 protected = CR.Protected(x[4]; pool0 = x[5])
             ),
             (a, α) -> [100.0, α, a, 0.3, 0.0],
@@ -173,7 +176,7 @@ end
     # A rate and a count out of the one pool, pointwise.
     pointwise(x) = CR.Depletion(
         x[1]; heterogeneity = x[2],
-        flows = (CR.Flow(1 => 0, x[3]), CR.Flow(1 => 0, CR.Amount(x[4])))
+        flows = (CR.Flow(1 => 0, x[3]), CR.Flow(1 => 0, x[4]; form = CR.Truncate()))
     )
     for (s, αs) in (([60.0, 50.0], (1.0, 1.2)), ([0.0, 50.0], (1.0,))), α in αs,
             a in (2.0, 70.0, -3.0)
@@ -195,7 +198,7 @@ end
     @test_throws ArgumentError CR.Depletion(100.0; removals = [1.0, 2.0])
     d = CR.Depletion(100.0; flows = CR.Flow(1 => 0, PerStratum([0.1, 0.2, 0.3])))
     r = Recurrence([0.5]; modifiers = (d,))
-    @test_throws "r of Flow(1 => 0) has 3 strata, expected 2" r(
+    @test_throws "demand of Flow(1 => 0) has 3 strata, expected 2" r(
         ones(2, 3); history = ones(2, 1)
     )
 end
