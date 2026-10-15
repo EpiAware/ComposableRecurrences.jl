@@ -203,9 +203,17 @@ function _kdot(g::_OldestFirstPiecewise{Primary}, H, t, τ, L, a)
     end
     return acc
 end
-function _span_dot(w, H, t, lo, hi, a)
+function _span_dot(w, H::AbstractMatrix{<:_IEEEFloat}, t, lo, hi, a)
     acc = zero(promote_type(eltype(w), eltype(H)))
     @inbounds @simd for i in lo:hi
+        acc += w[i] * H[t + i - 1, a]
+    end
+    return acc
+end
+# Other numbers, such as dual numbers, sum in order: `@simd` slows them.
+function _span_dot(w, H, t, lo, hi, a)
+    acc = zero(promote_type(eltype(w), eltype(H)))
+    @inbounds for i in lo:hi
         acc += w[i] * H[t + i - 1, a]
     end
     return acc
@@ -314,6 +322,23 @@ function _segments_each!(y, c, X, k, m, start)
     end
     return y
 end
+# The weights `w[d + 1]` against stratum `k`'s inputs at buffer rows `r - d`,
+# for the lags `lo:hi`; other numbers than IEEE floats sum in order, as
+# `@simd` slows them.
+function _tail_dot(w, X::AbstractMatrix{<:_IEEEFloat}, k, r, lo, hi)
+    acc = zero(promote_type(eltype(w), eltype(X)))
+    @inbounds @simd for d in lo:hi
+        acc += w[d + 1] * X[r - d, k]
+    end
+    return acc
+end
+function _tail_dot(w, X, k, r, lo, hi)
+    acc = zero(promote_type(eltype(w), eltype(X)))
+    @inbounds for d in lo:hi
+        acc += w[d + 1] * X[r - d, k]
+    end
+    return acc
+end
 # Lag `d`'s part of output rows `lo:hi` with weight `cd`, from the first row
 # with a defined input.
 @inline function _span_axpy!(y, cd, X, k, o, d, lo, hi)
@@ -362,11 +387,7 @@ function _convolve_body!(k, Y, c::_TVPiecewise{Primary}, X, m, start)
         a > b && continue
         w = _conv_weights(c, k, j)
         for t in max(b + 1, start):min(b + D - 1, stop)
-            acc = zero(eltype(Y))
-            @inbounds @simd for d in (t - b):min(D - 1, t - a)
-                acc += w[d + 1] * X[m + t - d, k]
-            end
-            @inbounds Y[t - start + 1, k] += acc
+            @inbounds Y[t - start + 1, k] += _tail_dot(w, X, k, m + t, t - b, min(D - 1, t - a))
         end
     end
     return nothing
