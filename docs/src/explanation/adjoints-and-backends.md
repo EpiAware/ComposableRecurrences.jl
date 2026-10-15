@@ -43,11 +43,13 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
-| pointwise modifier or depletion form with another array parameter | plain AD |
+| pointwise modifier with other float arrays, or views of them, that its step indexes | rule on Mooncake, plain AD on Enzyme |
+| pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
 | modifier with a vector or blockwise step | plain AD |
-| coupling with only scalar float parameters, strata plus scalars at most 24 | rule, local ForwardDiff step |
+| coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
+| coupling with a `Diagonal`, sparse or other structured float array | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
@@ -75,6 +77,11 @@ The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` pa
 So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
 A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
 A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
+
+The local step of a pointwise modifier seeds the entries of its other float arrays that a step reads, as `m.a[t]`, and records which they are.
+A step that reads more than four entries takes a Jacobian in every entry instead, which is slower.
+The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
+A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 
 ## [Backends](@id adjoint-backends)
 
