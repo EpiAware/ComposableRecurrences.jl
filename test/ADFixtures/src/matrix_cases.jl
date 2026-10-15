@@ -216,7 +216,7 @@ end
 # `V`, with the doses moving `S` into `V` and any further `flows`.
 function _leaky(N, doses, σ, flows...)
     return CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -273,7 +273,7 @@ function ward_flows(wrap, z::Size)
             θ, (2S, T), (S,), (T,), (1,), (S, T)
         )
         flows = CR.Pool(;
-            stocks = (:suspected, :confirmed), draw = nothing, flows = (
+            pools = (:suspected, :confirmed), draw = nothing, flows = (
                 CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
                 CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
                 CR.Flow(:confirmed => 0, only(discharge)),

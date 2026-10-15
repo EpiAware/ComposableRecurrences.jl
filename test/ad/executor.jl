@@ -31,7 +31,7 @@
         rv = Recurrence(
             g; modifiers = (
                 CR.Pool(
-                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                     flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
                 ),
             )
@@ -41,7 +41,7 @@
         rva = Recurrence(
             g; modifiers = (
                 CR.Pool(
-                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                     flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
                 ),
                 CR.Allocate([1:3, 4:6], totals),

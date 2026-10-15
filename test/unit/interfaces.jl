@@ -88,7 +88,7 @@ end
     CR = ComposableRecurrences
     # A protected pool keeps two entries per stratum.
     d = CR.Pool(
-        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
     objs = (

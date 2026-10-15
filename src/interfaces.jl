@@ -221,21 +221,21 @@ true
     ),
     Arguments(;
         piece = Pool(
-            100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+            100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
             flows = Flow(:S => :V, 1.0; form = Truncate())
         ),
         role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     ),
     Arguments(;
         piece = Pool(
-            100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+            100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
             initial = (nothing, 4.0), flows = Flow(:V => :S, 0.1)
         ),
         role = Init(), args = (zeros(4), ones(2, 3))
     ),
     Arguments(;
         piece = Pool(
-            PerStratum([100.0, 50.0]); stocks = (:S, :V, :R),
+            PerStratum([100.0, 50.0]); pools = (:S, :V, :R),
             draw = (:V => PerStratum([0.5, 0.2]), :S => 1) => Floor(),
             flows = (Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share()))
         ),
@@ -247,7 +247,7 @@ true
     ),
     Arguments(;
         piece = Pool(;
-            stocks = 2, draw = nothing,
+            pools = 2, draw = nothing,
             flows = (
                 Flow(1 => 2, PerStratum([0.3, 0.2])),
                 Flow(2 => 0, 0.1; form = Share()),
@@ -258,7 +258,7 @@ true
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
     Arguments(;
-        piece = Pool(; stocks = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
+        piece = Pool(; pools = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
         role = Init(), args = (zeros(4), ones(4, 2))
     ),
 ]

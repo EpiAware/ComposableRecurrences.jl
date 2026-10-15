@@ -11,13 +11,13 @@
     r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(100.0; removals),))
     r(fill(2.0, 6); history = [5.0])
     ward = CR.Pool(;
-        stocks = (:U, :C), draw = nothing, flows = (
+        pools = (:U, :C), draw = nothing, flows = (
             CR.Flow(:U => :C, Derived(exp, -1.0)),
             CR.Flow(:C => 0, TimeVarying(fill(0.1, 4)); form = CR.Share()),
         )
     )
     leaky = CR.Pool(
-        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         flows = CR.Flow(:S => :V, 1.0; form = CR.Truncate())
     )
     Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 6); history = [5.0])

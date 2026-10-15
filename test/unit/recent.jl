@@ -228,7 +228,7 @@ end
         (CR.Depletion(100.0 + 10 * Recent(3)),),
         (
             CR.Pool(
-                100.0 + 10 * Recent(3); stocks = (:S, :V),
+                100.0 + 10 * Recent(3); pools = (:S, :V),
                 draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                 flows = (CR.Flow(1 => 2, 0.1 * Recent(2); form = CR.Truncate()),)
             ),

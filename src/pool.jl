@@ -1,23 +1,23 @@
-# A pool holds stocks for each group of strata: the step's value is drawn
+# A `Pool` holds pools for each group of strata: the step's value is drawn
 # from them by a depletion form, then flows move between them. Without a
-# draw the stocks are the step's values, carried by the recurrence, and the
-# flows move them. `Depletion(N)` is a pool with one stock.
+# draw the pools are the step's values, carried by the recurrence, and the
+# flows move them. `Depletion(N)` is a `Pool` with one pool.
 #
-# The layout `L` is a named tuple in the type: the number of stocks `n`,
-# whether the pool draws (`draw`) and the stock the draw takes from when
-# the weighted stocks are empty (`first`). Each layout has methods of its
-# own: one stock is a pointwise step, more are blockwise.
+# The layout `L` is a named tuple in the type: the number of pools `n`,
+# whether it draws (`draw`) and the pool the draw takes from when
+# the weighted pools are empty (`first`). Each layout has methods of its
+# own: one pool is a pointwise step, more are blockwise.
 
 @doc raw"""
-A stock-and-flow modifier: each group of strata holds stocks, the step's
+A modifier of pools and flows: each group of strata holds pools, the step's
 value is drawn from them by a depletion form, and
 [`ComposableRecurrences.Flow`](@ref)s move between them.
 
-With a draw, each stratum is a group with ``n`` stocks
+With a draw, each stratum is a group with ``n`` pools
 ``x_1, \dots, x_n``.
 At absolute time ``t``, for a group with value ``v``, population ``N_t``
-and heterogeneity ``\alpha``, the form ``F`` draws from the weighted stocks
-``P``, and each stock loses the draw in proportion to its weight:
+and heterogeneity ``\alpha``, the form ``F`` draws from the weighted pools
+``P``, and each pool loses the draw in proportion to its weight:
 
 ```math
 \begin{aligned}
@@ -26,10 +26,10 @@ x^{*}_i &= x_i - v' \frac{w_i x_i}{P}, \qquad x' = \Phi_t(x^{*}),
 \end{aligned}
 ```
 
-where ``w_i`` is stock ``i``'s weight in the draw (zero for a stock the
+where ``w_i`` is pool ``i``'s weight in the draw (zero for a pool the
 draw does not name), ``v'`` the value passed on and ``\Phi_t`` the flows.
-When ``P \le 0`` the draw comes from the first stock the draw names alone.
-The flows act on the stocks after the draw: hazard and share flows
+When ``P \le 0`` the draw comes from the first pool the draw names alone.
+The flows act on the pools after the draw: hazard and share flows
 together, then the count flows in order ([`ComposableRecurrences.Flow`](@ref)
 gives each form).
 The form is a variant struct with `forward(form, Step(), v, s, N, α)`:
@@ -42,50 +42,50 @@ method ([A depletion form](@ref extending-form)).
 The draw's `Hazard()` takes its hazard from the value over the population,
 ``v / N_t``, where a `Hazard()` flow's demand is the rate itself, without
 ``N`` or ``\alpha``.
-With one stock the step is pointwise and the state is the stock; with more
+With one pool the step is pointwise and the state is the pool; with more
 it is blockwise ([`ComposableRecurrences.blocks`](@ref) is `Val((1, n))`)
-and the state holds stock 1 of every stratum, then stock 2, and so on.
+and the state holds pool 1 of every stratum, then pool 2, and so on.
 
-Without a draw (`draw = nothing`) the stocks are the step's values: the
-values hold ``n`` stocks of ``G`` groups each, stock by stock
-(`blocks` is `Val((n, n))`), so value ``(i - 1) G + g`` is stock ``i`` of
+Without a draw (`draw = nothing`) the pools are the step's values: the
+values hold ``n`` pools of ``G`` groups each, pool by pool
+(`blocks` is `Val((n, n))`), so value ``(i - 1) G + g`` is pool ``i`` of
 group ``g``.
 On a [`Recurrence`](@ref) with kernel `[1.0]` the core carries the
-previous step's stocks forward, and the pool applies the step's flows,
+previous step's pools forward, and the `Pool` applies the step's flows,
 ``v' = \Phi_t(v)``.
-The state then holds what flowed into each stock at the step, where a
+The state then holds what flowed into each pool at the step, where a
 negative count adds nothing.
 
-Leaky vaccination with efficacy ``e`` is a second stock ``V`` drawn at
+Leaky vaccination with efficacy ``e`` is a second pool ``V`` drawn at
 weight ``1 - e``, with the doses a count `Flow(:S => :V, doses; form =
 Truncate())`; all-or-nothing protection is weight zero with ``e`` times the
 doses.
 Waning protection is a hazard `Flow(:V => :S, ω)`, and a delay from dose to
 protection is a [`Convolution`](@ref) of the doses before the call.
-[`ComposableRecurrences.Depletion`](@ref) is a pool with one stock.
-A pool holds the fields `N`, `form`, `heterogeneity`, `initial`, `weights`
-(each stock's weight in the draw, fixed at zero for a stock it does not
-name) and `flows`, with each flow's stocks as positions.
+[`ComposableRecurrences.Depletion`](@ref) is a `Pool` with one pool.
+A `Pool` holds the fields `N`, `form`, `heterogeneity`, `initial`, `weights`
+(each pool's weight in the draw, fixed at zero for a pool it does not
+name) and `flows`, with each flow's pools as positions.
 
 # Arguments
 - `N`: the population the form reads, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
-  and time; `nothing` for a pool without a draw, or whose form does not
+  and time; `nothing` for a `Pool` without a draw, or whose form does not
   read it.
 
 # Keyword Arguments
-- `stocks`: the stock names, a tuple of symbols, or the number of stocks;
+- `pools`: the pool names, a tuple of symbols, or the number of pools;
   `(:S,)` by default.
-  A flow names a stock by its name or position.
-- `initial`: each stock's value before the first step, one value or
+  A flow names a pool by its name or position.
+- `initial`: each pool's value before the first step, one value or
   [`PerStratum`](@ref) each, or `nothing` for the default: `N` at time 1
-  for the first stock the draw names when `N` is given, and zero
+  for the first pool the draw names when `N` is given, and zero
   otherwise.
-  One value stands for a pool with one stock.
-  A pool without a draw takes its stocks from the history instead.
-- `draw`: `stock => form` to draw from one stock, `(stock => w, ...) =>
-  form` to draw from weighted stocks, or `nothing` for no draw;
-  `first(stocks) => Hazard()` by default.
+  One value stands for a `Pool` with one pool.
+  A `Pool` without a draw takes its pools from the history instead.
+- `draw`: `pool => form` to draw from one pool, `(pool => w, ...) =>
+  form` to draw from weighted pools, or `nothing` for no draw;
+  `first(pools) => Hazard()` by default.
   A weight is one value or `PerStratum`, constant over time; a weight of
   `1` is fixed, not a parameter.
 - `heterogeneity`: the exponent `α`; `true` by default for the built-in
@@ -99,14 +99,14 @@ name) and `flows`, with each flow's stocks as positions.
 
 # Examples
 
-Leaky vaccination: 5 doses a step move susceptibles into a stock drawn at
+Leaky vaccination: 5 doses a step move susceptibles into a pool drawn at
 a third of the rate, and the protection wanes back at rate 0.1.
 
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 leaky = CR.Pool(
-    1000.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+    1000.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
     flows = (CR.Flow(:S => :V, 5.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
 )
 y = Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 6); history = [5.0])
@@ -130,7 +130,7 @@ confirmed patients are discharged, each at a hazard rate.
 using ComposableRecurrences
 CR = ComposableRecurrences
 ward = CR.Pool(;
-    stocks = (:suspected, :confirmed), draw = nothing,
+    pools = (:suspected, :confirmed), draw = nothing,
     flows = (
         CR.Flow(:suspected => :confirmed, 0.3), CR.Flow(:suspected => 0, 0.4),
         CR.Flow(:confirmed => 0, 0.1),
@@ -154,58 +154,58 @@ struct Pool{L, P, F, A, I, W, R}
     form::F
     "The heterogeneity exponent α, or `nothing` without a draw."
     heterogeneity::A
-    "Each stock's starting value, `nothing` for its default."
+    "Each pool's starting value, `nothing` for its default."
     initial::I
-    "Each stock's weight in the draw, or `nothing` without a draw."
+    "Each pool's weight in the draw, or `nothing` without a draw."
     weights::W
-    "The flows between the stocks, by position."
+    "The flows between the pools, by position."
     flows::R
     function Pool{L}(
             N::P, form::F, heterogeneity::A, initial::I, weights::W, flows::R
         ) where {L, P, F, A, I, W, R}
         _check_layout(Val(L))
         form === nothing || _check_form(form)
-        _check_stocks(flows, L.n)
+        _check_pools(flows, L.n)
         return new{L, P, F, A, I, W, R}(N, form, heterogeneity, initial, weights, flows)
     end
 end
 ConstructionBase.constructorof(::Type{<:Pool{L}}) where {L} = Pool{L}
 
-# That the flows name no stock beyond the `n` there are; the message is
+# That the flows name no pool beyond the `n` there are; the message is
 # built only when one does.
-_check_stocks(::Tuple{}, n) = nothing
-function _check_stocks(fs::Tuple, n)
+_check_pools(::Tuple{}, n) = nothing
+function _check_pools(fs::Tuple, n)
     f = first(fs)
-    max(f.from, f.to) <= n || _too_many_stocks(f, n)
-    return _check_stocks(Base.tail(fs), n)
+    max(f.from, f.to) <= n || _too_many_pools(f, n)
+    return _check_pools(Base.tail(fs), n)
 end
-@noinline function _too_many_stocks(f, n)
+@noinline function _too_many_pools(f, n)
     throw(
         ArgumentError(
-            "the flows name stock $(max(f.from, f.to)), but there are $n stocks"
+            "the flows name pool $(max(f.from, f.to)), but there are $n pools"
         )
     )
 end
 
-# Whether `L` is a pool layout, decided from the type alone, so a pool
+# Whether `L` is a pool layout, decided from the type alone, so a `Pool`
 # built inside a differentiated function runs no check.
 @generated function _check_layout(::Val{L}) where {L}
     ok = L isa NamedTuple{(:n, :draw, :first), Tuple{Int, Bool, Int}} &&
         L.n >= 1 && 0 <= L.first <= L.n && (L.first >= 1) == L.draw
     ok && return :(nothing)
-    msg = "not a pool layout: $(repr(L))"
+    msg = "not a Pool layout: $(repr(L))"
     return :(throw(ArgumentError($msg)))
 end
 
-# Inlined, so that the stock names are constants where it is called and the
+# Inlined, so that the pool names are constants where it is called and the
 # lookups on them fold, and so that a differentiated function that builds a
 # pool holds no call returning it.
 @inline function Pool(
-        N = nothing; stocks = (:S,), initial = nothing,
-        draw = _first_stock(stocks) => Hazard(), heterogeneity = nothing,
+        N = nothing; pools = (:S,), initial = nothing,
+        draw = _first_pool(pools) => Hazard(), heterogeneity = nothing,
         flows = ()
     )
-    names = _stock_names(stocks)
+    names = _pool_names(pools)
     n = length(names)
     N = N === nothing ? nothing : _population(N)
     form, weights, first = _draw_spec(draw, names)
@@ -221,25 +221,25 @@ end
     return Pool{L}(N, form, α, _initials(initial, n, form), weights, fs)
 end
 
-# The stock names, or positions for a number of stocks.
-_stock_names(n::Integer) = n >= 1 ? ntuple(identity, Int(n)) : _bad_stocks(n)
-function _stock_names(names::Union{Tuple, AbstractVector})
-    isempty(names) && _bad_stocks(names)
-    all(x -> x isa Symbol, names) && _distinct(Tuple(names)) || _bad_stocks(names)
+# The pool names, or positions for a number of pools.
+_pool_names(n::Integer) = n >= 1 ? ntuple(identity, Int(n)) : _bad_pools(n)
+function _pool_names(names::Union{Tuple, AbstractVector})
+    isempty(names) && _bad_pools(names)
+    all(x -> x isa Symbol, names) && _distinct(Tuple(names)) || _bad_pools(names)
     return Tuple(names)
 end
-_stock_names(names) = _bad_stocks(names)
-@noinline function _bad_stocks(names)
+_pool_names(names) = _bad_pools(names)
+@noinline function _bad_pools(names)
     throw(
         ArgumentError(
-            "stocks is a tuple of distinct names or a number of stocks, got " *
+            "pools is a tuple of distinct names or a number of pools, got " *
                 _describe(names)
         )
     )
 end
 
-# Lookups on the stock names, which are constants where a pool is built,
-# so that they fold when it is compiled: a pool built inside a
+# Lookups on the pool names, which are constants where a `Pool` is built,
+# so that they fold when it is compiled: a `Pool` built inside a
 # differentiated function then runs none of them.
 Base.@assume_effects :foldable _distinct(xs::Tuple) = allunique(xs)
 Base.@assume_effects :foldable function _index_of(i, places::Tuple)
@@ -254,9 +254,9 @@ Base.@assume_effects :foldable function _position(x::Symbol, names::Tuple)
     return i === nothing ? 0 : i
 end
 
-_first_stock(stocks) = first(_stock_names(stocks))
+_first_pool(pools) = first(_pool_names(pools))
 
-# The draw as its form, each stock's weight and the first stock it names.
+# The draw as its form, each pool's weight and the first pool it names.
 _draw_spec(::Nothing, names) = (nothing, nothing, 0)
 function _draw_spec(draw::Pair, names)
     spec = draw.first isa Union{Tuple, AbstractVector} ? Tuple(draw.first) :
@@ -277,13 +277,13 @@ _draw_spec(draw, names) = _bad_draw(draw)
 @noinline function _bad_draw(draw)
     throw(
         ArgumentError(
-            "draw is stock => form, (stock => weight, ...) => form with " *
-                "distinct stocks, or nothing; got " * _describe(draw)
+            "draw is pool => form, (pool => weight, ...) => form with " *
+                "distinct pools, or nothing; got " * _describe(draw)
         )
     )
 end
 
-# The position of a stock the draw names.
+# The position of a pool the draw names.
 function _drawn_place(x, names)
     i = _position(x, names)
     return i == 0 ? _unknown_drawn(x, names) : i
@@ -291,7 +291,7 @@ end
 @noinline function _unknown_drawn(x, names)
     throw(
         ArgumentError(
-            "the draw names stock $(repr(x)), but the stocks are $(repr(names))"
+            "the draw names pool $(repr(x)), but the pools are $(repr(names))"
         )
     )
 end
@@ -306,7 +306,7 @@ end
 _weight(w) = _float_param(_check_constant(:weight, w))
 
 # A fixed weight, held in the type: an AD tool's type analysis can reject a
-# `Bool` field when a pool is built inside the differentiated function.
+# `Bool` field when a `Pool` is built inside the differentiated function.
 struct _Fixed{B} end
 param(::_Fixed{B}, k, t) where {B} = B
 add_param!(x̄, ::_Fixed, v, k, t) = nothing
@@ -315,22 +315,22 @@ _no_heterogeneity(::Nothing) = nothing
 function _no_heterogeneity(α)
     throw(
         ArgumentError(
-            "heterogeneity is an exponent of the draw, and the pool has none"
+            "heterogeneity is an exponent of the draw, and the Pool has none"
         )
     )
 end
 
-# The starting stocks: `nothing` for each default, or one value or
+# The starting pools: `nothing` for each default, or one value or
 # `PerStratum` each.
 _initials(::Nothing, n, form) = ntuple(_ -> nothing, n)
 _initials(x, n, form) = _initials((x,), n, form)
 function _initials(xs::Union{Tuple, AbstractVector}, n, form)
     length(xs) == n || throw(
-        ArgumentError("initial has one entry per stock, $n, got $(length(xs))")
+        ArgumentError("initial has one entry per pool, $n, got $(length(xs))")
     )
     form === nothing && any(!isnothing, xs) && throw(
         ArgumentError(
-            "a pool without a draw holds its stocks in the step's values, " *
+            "a Pool without a draw holds its pools in the step's values, " *
                 "so the history gives their start, not initial"
         )
     )
@@ -353,14 +353,14 @@ function _pool_flows(fs)
     )
 end
 
-# A pool with one stock and a draw, as `Depletion` builds it.
-const _OneStock = Pool{(n = 1, draw = true, first = 1)}
+# A `Pool` with one pool and a draw, as `Depletion` builds it.
+const _OnePool = Pool{(n = 1, draw = true, first = 1)}
 
 @doc raw"""
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
 
-`Depletion` is the [`ComposableRecurrences.Pool`](@ref) with one stock and
+`Depletion` is the [`ComposableRecurrences.Pool`](@ref) with one pool and
 a draw, and `Depletion(N, form; heterogeneity, pool0, removals)` builds
 
 ```julia
@@ -385,7 +385,7 @@ pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
 A negative removal adds to the pool without a cap.
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
-Its fields are a pool's: the starting pool is `initial[1]`, and its
+Its fields are a `Pool`'s: the starting pool is `initial[1]`, and its
 `weights` hold a fixed weight of one.
 [Rules and plain AD](@ref adjoint-routing) gives the gradient of a form
 without a `pullback!`.
@@ -456,7 +456,7 @@ round.(y; digits = 3)
  4.261
 ```
 """
-const Depletion = _OneStock
+const Depletion = _OnePool
 
 function Depletion(
         N, form = Hazard(); heterogeneity = nothing, pool0 = nothing,
@@ -466,11 +466,11 @@ function Depletion(
         (Flow(1, 0, _check_param(:removals, removals), Truncate()),)
     N = _population(N)
     α = _exponent(something(heterogeneity, _unit_exponent(form)), N, form)
-    # Built without the names, as the one-stock layout needs no lookup.
+    # Built without the names, as the one-pool layout needs no lookup.
     return Depletion(N, form, α, (_initial_param(pool0),), (_Fixed{true}(),), flows)
 end
 
-# The population a form reads, one where the pool has none.
+# The population a form reads, one where the `Pool` has none.
 _pop(N, k, t) = param(N, k, t)
 _pop(::Nothing, k, t) = true
 _add_pop!(N̄, N, x, k, t) = add_param!(N̄, N, x, k, t)
@@ -478,9 +478,9 @@ _add_pop!(N̄, ::Nothing, x, k, t) = nothing
 
 _layout(::Pool{L}) where {L} = L
 _draws(m::Pool) = _layout(m).draw
-_nstocks(m::Pool) = _layout(m).n
+_npools(m::Pool) = _layout(m).n
 
-# One stock with a draw is a pointwise step; more stocks, or none drawn, a
+# One pool with a draw is a pointwise step; more pools, or none drawn, a
 # blockwise one.
 blocks(m::Pool) = _pool_blocks(Val(_layout(m)))
 function _pool_blocks(::Val{L}) where {L}
@@ -511,7 +511,7 @@ function _check_each_strata(name, xs::Tuple, G)
     return _check_each_strata(name, Base.tail(xs), G)
 end
 
-# Stock `i`'s value before the first step at group `k`, and its cotangent.
+# Pool `i`'s value before the first step at group `k`, and its cotangent.
 function _initial(m::Pool, ::Val{i}, k) where {i}
     return _initial(m.initial[i], m, Val(i == _layout(m).first), k)
 end
@@ -533,9 +533,9 @@ end
 _entry(::Nothing, ::Val) = nothing
 _entry(x̄::Tuple, ::Val{i}) where {i} = x̄[i]
 
-# Every stock's value before the first step at group `k`, and their
+# Every pool's value before the first step at group `k`, and their
 # cotangents from the state cotangent `s̄` of `G` groups, unrolled over the
-# stocks so each reads its own entry of `initial` without a closure.
+# pools so each reads its own entry of `initial` without a closure.
 @generated function _initials(m::Pool{L}, k) where {L}
     return Expr(:tuple, (:(_initial(m, $(Val(i)), k)) for i in 1:L.n)...)
 end
@@ -547,7 +547,7 @@ end
 end
 
 function forward(m::Pool, ::Init, s, history)
-    n = _nstocks(m)
+    n = _npools(m)
     G = length(s) ÷ n
     _check_modifier_strata(m, _draws(m) ? G : length(s))
     if _draws(m)
@@ -565,7 +565,7 @@ end
 
 function pullback!(grads, m::Pool, ::Init, s, history)
     _draws(m) || return nothing
-    n = _nstocks(m)
+    n = _npools(m)
     G = length(s) ÷ n
     s̄ = grads.s
     for k in 1:G
@@ -574,8 +574,8 @@ function pullback!(grads, m::Pool, ::Init, s, history)
     return nothing
 end
 
-# One stock and no flows: the form's step.
-const _Depleting = _OneStock{<:Any, <:Any, <:Any, <:Any, <:Any, Tuple{}}
+# One pool and no flows: the form's step.
+const _Depleting = _OnePool{<:Any, <:Any, <:Any, <:Any, <:Any, Tuple{}}
 
 function forward(m::_Depleting, ::Step, v::Number, s::Number, t, k)
     return forward(
@@ -594,8 +594,8 @@ function pullback!(grads, m::_Depleting, ::Step, v::Number, s::Number, t, k)
     return v̄, s̄
 end
 
-# One stock with flows: the draw, then the flows on the stock.
-const _Flowing = _OneStock{
+# One pool with flows: the draw, then the flows on the pool.
+const _Flowing = _OnePool{
     <:Any, <:Any, <:Any, <:Any, <:Any, <:Tuple{Flow, Vararg{Flow}},
 }
 
@@ -626,7 +626,7 @@ function pullback!(grads, m::_Flowing, ::Step, v::Number, s::Number, t, k)
     return v̄, s̄
 end
 
-# A group's step: the draw from its weighted stocks then the flows, or the
+# A group's step: the draw from its weighted pools then the flows, or the
 # flows on its values. The step, its pullback and their helpers are
 # inlined, as their calls are (see `_vector_step!`): the call-site inline
 # reaches only the first method, and across the inner call the rule's
@@ -636,12 +636,12 @@ function forward(m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
 end
 @inline _group_step(::Val{false}, m, v, s, t, g) = _flow_group(m.flows, v, g, t)
 @inline function _group_step(::Val{true}, m, v, s, t, g)
-    y, x = _draw_stocks(m, only(v), s, t, g)
+    y, x = _draw_pools(m, only(v), s, t, g)
     return (y,), _flow_only(m.flows, x, g, t)
 end
 
 # The weights at group `g` and time `t`, promoted to one type so a step
-# indexes them without a union, and the weighted stocks `Σ w_i x_i`, summed
+# indexes them without a union, and the weighted pools `Σ w_i x_i`, summed
 # in order. A fixed weight of one promotes to an exact one.
 function _weights_at(m, ::Val{n}, g, t) where {n}
     return promote(ntuple(i -> param(m.weights[i], g, t), Val(n))...)
@@ -655,8 +655,8 @@ function _weighted_sum(w::Tuple, x::Tuple, P)
     return _weighted_sum(Base.tail(w), Base.tail(x), P + first(w) * first(x))
 end
 
-# One group's draw from its stocks `x`, and the stocks after it.
-@inline function _draw_stocks(m, v, x::NTuple{n}, t, g) where {n}
+# One group's draw from its pools `x`, and the pools after it.
+@inline function _draw_pools(m, v, x::NTuple{n}, t, g) where {n}
     w = _weights_at(m, Val(n), g, t)
     P = _weighted(w, x)
     y, _ = forward(
@@ -684,8 +684,8 @@ end
     return x̄, ntuple(_ -> zero(eltype(x̄)), Val(n))
 end
 
-# `v` and `x` are the group's incoming value and stocks; returns the
-# cotangents of the inputs from those of the output and of the stocks after
+# `v` and `x` are the group's incoming value and pools; returns the
+# cotangents of the inputs from those of the output and of the pools after
 # the step.
 @inline function _group_pullback(::Val{true}, grads, m, v, x::NTuple{n}, t, g) where {n}
     m̄ = grads.piece
@@ -720,10 +720,10 @@ end
     return (v̄k,), ntuple(i -> x̄[i] + w[i] * P̄, Val(n))
 end
 
-# The cotangents of the stocks, the weights, the value drawn and the
-# weighted stocks from those of the stocks after the draw `x̄′`: each stock
-# lost the share `q = y / P` of its weighted stock, or with `P <= 0` the
-# first stock drawn lost `y`.
+# The cotangents of the pools, the weights, the value drawn and the
+# weighted pools from those of the pools after the draw `x̄′`: each pool
+# lost the share `q = y / P` of its weighted pool, or with `P <= 0` the
+# first pool drawn lost `y`.
 @inline function _shares_back(on, x̄′, w, x, q, P, ȳ, d, z, ::Val{n}) where {n}
     on || return x̄′, ntuple(_ -> z, Val(n)), ȳ - x̄′[d], z
     q̄ = _weighted_back(x̄′, w, x)
@@ -750,6 +750,6 @@ function _add_weights!(w̄s, ws::Tuple, vals, g, t)
     return _add_weights!(_tail(w̄s), Base.tail(ws), Base.tail(vals), g, t)
 end
 
-# A pool uses its own pullback when its form has one or the form's local
+# A `Pool` uses its own pullback when its form has one or the form's local
 # derivative covers it (see `_form_pullback`).
 uses_adjoint(m::Pool, ::Step) = _form_adjoint(m.form)

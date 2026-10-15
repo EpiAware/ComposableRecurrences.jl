@@ -403,7 +403,7 @@ end
             CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
             CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
             CR.Pool(
-                TimeVarying(PerStratum(N)); stocks = (:S, :V), initial = (nothing, 5.0),
+                TimeVarying(PerStratum(N)); pools = (:S, :V), initial = (nothing, 5.0),
                 draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                 flows = (CR.Flow(1 => 2, births; form = CR.Truncate()),)
             ),

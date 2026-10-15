@@ -125,7 +125,7 @@ end
 # O_t = \min\big(\max\big((1 - \delta) \, O_{t-1} + A_t,\ 0\big),\ B\big).
 # ```
 #
-# As a modifier, the capped stock is what carries into the next day.
+# As a modifier, the cap applies before occupancy carries over to the next day.
 # So patients turned away never occupy a bed later.
 
 beds = 120.0
@@ -206,13 +206,13 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # The recurrence carries yesterday's compartments forward and adds the
 # admissions to the suspected one.
 # A [`Pool`](@ref ComposableRecurrences.Pool) without a draw then applies the day's flows.
-# Its stocks are the compartments, held in the strata.
-# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one stock to
+# Its pools are the compartments, held in the strata.
+# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to
 # another, or to `0` to leave, with a hazard rate as its demand.
 # Each rate is a parameter, so it can also differ by ward or change over time.
 
 ward_flows = Pool(;
-    stocks = (:suspected, :confirmed), draw = nothing,
+    pools = (:suspected, :confirmed), draw = nothing,
     flows = (
         Flow(:suspected => :confirmed, 0.3), Flow(:suspected => 0, 0.4),
         Flow(:confirmed => 0, 0.1),

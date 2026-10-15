@@ -1,4 +1,4 @@
-# A pool with flows between its stocks: waning protection and rate
+# A `Pool` with flows between its pools: waning protection and rate
 # removals against naive loops, removals as the first count flow, the
 # pullbacks against a local Jacobian, and the checks. Gradients through the
 # rules on every backend, with derived removals and a derived waning rate,
@@ -42,7 +42,7 @@
     for (build, at, θ) in (forms.groups_time, forms.derived)
         function run(θ, R)
             d = CR.Pool(
-                N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+                N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
                 flows = (
                     CR.Flow(1 => 2, TimeVarying(PerStratum(doses)); form = CR.Truncate()),
                     CR.Flow(2 => 1, build(θ)),
@@ -61,15 +61,15 @@
     # without flows.
     removals = TimeVarying(PerStratum(doses))
     d = CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, removals; form = CR.Truncate()),)
     )
     explicit = CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, removals; form = CR.Truncate()),)
     )
     still = CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, removals; form = CR.Truncate()), CR.Flow(2 => 1, 0.0))
     )
     y = Recurrence(g; modifiers = (d,))(R; history = h)
@@ -123,14 +123,14 @@ end
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
     # Each builder reads its parameters in the pool's mirror order: N,
-    # heterogeneity, the protected stock's start, its weight, then the flows'
+    # heterogeneity, the protected pool's start, its weight, then the flows'
     # parameters in order. `a` is the count each flow set carries and `α`
     # the heterogeneity.
     flow_sets = (
         # Waning, a share leaving the protected pool and a count into it.
         (
             x -> CR.Pool(
-                PerStratum(x[1:2]); stocks = (:S, :V), initial = (nothing, x[4]),
+                PerStratum(x[1:2]); pools = (:S, :V), initial = (nothing, x[4]),
                 draw = (:S => 1, :V => PerStratum(x[5:6])) => CR.Hazard(),
                 heterogeneity = x[3],
                 flows = (
@@ -144,7 +144,7 @@ end
         # A rate out of the pool, waning and a count into the protected pool.
         (
             x -> CR.Pool(
-                PerStratum(x[1:2]); stocks = (:S, :V), initial = (nothing, x[4]),
+                PerStratum(x[1:2]); pools = (:S, :V), initial = (nothing, x[4]),
                 draw = (:S => 1, :V => x[5]) => CR.Hazard(), heterogeneity = x[3],
                 flows = (
                     CR.Flow(1 => 0, x[6]),
@@ -157,7 +157,7 @@ end
         # Removals alone, and a single count out of the system.
         (
             x -> CR.Pool(
-                x[1]; stocks = (:S, :V), initial = (nothing, x[3]),
+                x[1]; pools = (:S, :V), initial = (nothing, x[3]),
                 draw = (:S => 1, :V => x[4]) => CR.Hazard(), heterogeneity = x[2],
                 flows = (CR.Flow(1 => 2, x[5]; form = CR.Truncate()),)
             ),
@@ -165,7 +165,7 @@ end
         ),
         (
             x -> CR.Pool(
-                x[1]; stocks = (:S, :V), initial = (nothing, x[3]),
+                x[1]; pools = (:S, :V), initial = (nothing, x[3]),
                 draw = (:S => 1, :V => x[4]) => CR.Hazard(), heterogeneity = x[2],
                 flows = (CR.Flow(1 => 0, x[5]; form = CR.Truncate()),)
             ),
@@ -198,7 +198,7 @@ end
 @testitem "Pool flows: check their options" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    @test_throws "Flow(2 => 1) names stock 2, but the stocks are (:S,)" CR.Pool(
+    @test_throws "Flow(2 => 1) names pool 2, but the pools are (:S,)" CR.Pool(
         100.0; flows = CR.Flow(2 => 1, 0.1)
     )
     @test_throws "expected a Flow, got 0.1" CR.Pool(100.0; flows = (0.1,))
@@ -223,16 +223,16 @@ end
     R = fill(2.0, 12)
     ω = TimeVarying(collect(range(0.0, 0.2; length = 12)))
     d = CR.Pool(
-        500.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        500.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, 3.0; form = CR.Truncate()), CR.Flow(2 => 1, ω))
     )
     r = Recurrence(g; modifiers = (d,))
     y = r(R; history = h)
     y1, st = CR.with_state(r, R[1:5]; history = h)
     @test vcat(y1, r(R; state = st)) ≈ y
-    # Inside a function the stock names are constants, so the pool infers.
+    # Inside a function the pool names are constants, so the `Pool` infers.
     build() = ComposableRecurrences.Pool(
-        500.0; stocks = (:S, :V),
+        500.0; pools = (:S, :V),
         draw = (:S => 1, :V => 0.3) => ComposableRecurrences.Hazard(),
         flows = ComposableRecurrences.Flow(:V => :S, 0.1)
     )
@@ -240,7 +240,7 @@ end
     @inferred CR.forward(d, CR.Step(), (2.0,), (400.0, 50.0), 3, 1)
     # Float32 throughout gives the Float64 values in Float32.
     d32 = CR.Pool(
-        500.0f0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3f0) => CR.Hazard(),
+        500.0f0; pools = (:S, :V), draw = (:S => 1, :V => 0.3f0) => CR.Hazard(),
         heterogeneity = 1.0f0,
         flows = (
             CR.Flow(1 => 2, 3.0f0; form = CR.Truncate()),

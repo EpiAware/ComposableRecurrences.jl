@@ -16,8 +16,8 @@
     const R = [2.0 + 0.3 * cos(t / 6) for t in 1:T]
     const C = [1.0 1.0; 0.0 0.0]
 
-    # The two strata written out: `admit(d, stock, t)` returns the
-    # admissions and the new stock, and the queue holds the overflow when
+    # The two strata written out: `admit(d, pool, t)` returns the
+    # admissions and the new pool, and the queue holds the overflow when
     # `hold`.
     function naive(R, e, admit; hold = false)
         L = length(g)
@@ -25,12 +25,12 @@
         Tp = promote_type(eltype(R), typeof(e), typeof(admit(1.0, 0.0, 1)[1]))
         Y = zeros(Tp, 2, L + T)
         Y[:, 1:L] .= seed
-        stock, queue = zero(Tp), zero(Tp)
+        pool, queue = zero(Tp), zero(Tp)
         for t in 1:T
             p1 = (1 - e) * sum(g[i] * Y[1, L + t - i] for i in 1:L)
             p2 = sum(g[i] * Y[2, L + t - i] for i in 1:L)
             d = R[t] * (p1 + p2) + queue
-            x, stock = admit(d, stock, t)
+            x, pool = admit(d, pool, t)
             Y[1, L + t] = x
             if hold
                 queue = d - x

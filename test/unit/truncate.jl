@@ -115,7 +115,7 @@ end
     end
     # A protected pool draws through the form too.
     d = CR.Pool(
-        20.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Truncate(),
+        20.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Truncate(),
         flows = (CR.Flow(1 => 2, TimeVarying(fill(2.0, 6)); form = CR.Truncate()),)
     )
     y = Recurrence([1.0]; modifiers = (d,))(fill(3.0, 6); history = [2.0])

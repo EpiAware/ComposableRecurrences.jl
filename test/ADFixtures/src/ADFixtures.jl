@@ -369,7 +369,7 @@ end
 function _leaky(N, doses, σ, flows...)
     CR = ComposableRecurrences
     return CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -423,7 +423,7 @@ function _ward(w, θ)
     )
     CR = ComposableRecurrences
     flows = CR.Pool(;
-        stocks = (:suspected, :confirmed), draw = nothing, flows = (
+        pools = (:suspected, :confirmed), draw = nothing, flows = (
             CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
             CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
             CR.Flow(:confirmed => 0, only(discharge)),
@@ -523,7 +523,7 @@ const GCAP = [0.5, 1.0, 1.0] .* G0'
 # A bed cap on stratum 1 with its overflow in stratum 2, smoothed so finite
 # differences see no kink; admitted cases transmit less.
 const CAPS0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, [log(12.0)], [0.2], [0.1])
-function _capacity_stock(w, θ)
+function _capacity_beds(w, θ)
     x = CAPS0 .+ θ
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
@@ -999,7 +999,7 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
-        "Recurrence capacity, stock with overflow", _capacity_stock,
+        "Recurrence capacity, beds with overflow", _capacity_beds,
         () -> zero(CAPS0),
     ),
     (
@@ -1178,7 +1178,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:_AllocateImports,),
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
-    "Recurrence capacity, stock with overflow" => (:Capacity,),
+    "Recurrence capacity, beds with overflow" => (:Capacity,),
     "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
     "Recurrence depletion with truncated draws" => (:Truncate,),

@@ -314,7 +314,7 @@
                         g; coupling = 0.3 .* rand(rng, S, S),
                         modifiers = (
                             CR.Pool(
-                                PerStratum(fill(80.0, S)); stocks = (:S, :V),
+                                PerStratum(fill(80.0, S)); pools = (:S, :V),
                                 initial = (pool(80.0, h), 1.0),
                                 draw = (:S => 1, :V => PerStratum([0.2, 0.3, 0.4])) => CR.Hazard(),
                                 flows = (
@@ -1191,7 +1191,7 @@ end
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
         d = CR.Pool(
-            100.0; stocks = (:S, :V), initial = (θ[1], θ[3]),
+            100.0; pools = (:S, :V), initial = (θ[1], θ[3]),
             draw = (:S => 1, :V => θ[2]) => CR.Hazard()
         )
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
@@ -1226,7 +1226,7 @@ end
     # pool stays at zero with a tangent from `σ`, a tie in the removal.
     by_removals(θ) = total(
         CR.Pool(
-            100.0; stocks = (:S, :V), initial = (θ[1], nothing),
+            100.0; pools = (:S, :V), initial = (θ[1], nothing),
             draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, TimeVarying(fill(θ[2], 6)); form = CR.Truncate()),)
         )
@@ -1236,7 +1236,7 @@ end
     by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pool0 = θ[2]))
     by_protected(θ) = total(
         CR.Pool(
-            θ[1]; stocks = (:S, :V), initial = (θ[2], nothing),
+            θ[1]; pools = (:S, :V), initial = (θ[2], nothing),
             draw = (:S => 1, :V => θ[3]) => CR.Hazard()
         )
     )
@@ -1465,7 +1465,7 @@ end
         logR = reshape(view(θ, (S * L + 1):(S * L + S * T)), S, T)
         doses = reshape(view(θ, (S * L + S * T + 1):n), S, T)
         d = CR.Pool(
-            PerStratum(POP); stocks = (:S, :V),
+            PerStratum(POP); pools = (:S, :V),
             draw = (:S => 1, :V => θ[n + 1]) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, TimeVarying(PerStratum(doses)); form = CR.Truncate()),)
         )
