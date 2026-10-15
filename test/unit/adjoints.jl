@@ -1062,6 +1062,31 @@ end
     end
 end
 
+@testitem "Adjoint: dense coupling pullback with every mirror" setup = [AdjointCheck] begin
+    # A dense matrix takes its fast loop for a matrix mirror, a wrapped one
+    # or none, and the generic loop for any other mirror; all agree.
+    rng = Xoshiro(4)
+    C, p, q̄ = randn(rng, 3, 3), randn(rng, 3), randn(rng, 3)
+    p̄ref = transpose(C) * q̄
+    C̄ref = q̄ * transpose(p)
+    for (m̄, read) in (
+            (zeros(3, 3), identity), ((; x = zeros(3, 3)), m -> m.x),
+            (view(zeros(3, 3), :, :), identity), (nothing, nothing),
+        )
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, 1)
+        @test p̄ ≈ p̄ref
+        read === nothing || @test read(m̄) ≈ C̄ref
+    end
+    # Mismatched sizes are an error, not a read past the end.
+    @test_throws DimensionMismatch CR.pullback!(
+        (; piece = zeros(2, 2), q = q̄, p = zeros(3)), C, CR.Pressure(), nothing, p, 1
+    )
+    @test_throws DimensionMismatch CR.pullback!(
+        (; piece = nothing, q = q̄, p = zeros(2)), C, CR.Pressure(), nothing, p, 1
+    )
+end
+
 @testitem "Adjoint: local pullback over structured and nested parameters" setup = [AdjointCheck] begin
     # A pointwise modifier with array parameters takes the local Jacobian:
     # a Diagonal, a sparse matrix, a named tuple and a tuple holding an
@@ -1210,10 +1235,10 @@ end
         CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
         return @allocated CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
     end
-    # One pass of 4, 8 or 12 partials, and more than one when called
-    # directly with more inputs.
+    # One pass of 4, 8, 12 or 24 partials, and more than one when called
+    # directly with more inputs, the last pass partly filled.
     rng = Xoshiro(5)
-    for S in (2, 6, 10, 30)
+    for S in (2, 6, 10, 20, 23, 60)
         p, q̄ = randn(rng, S), randn(rng, S)
         function pressure(x)
             q = zeros(eltype(x), S)
@@ -1250,14 +1275,14 @@ end
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
     @test val(r, 3) == [Val{:rule}]
-    @test CR._fit(r, args(10)...) === :one
-    @test CR._fit(r, args(11)...) === :wide
-    @test CR._fit(r, args(22)...) === :wide
-    @test CR._fit(r, args(23)...) === :none
+    @test CR._fit(r, args(22)...) === :one
+    @test CR._fit(r, args(23)...) === :wide
+    @test CR._fit(r, args(46)...) === :wide
+    @test CR._fit(r, args(47)...) === :none
     # Without a local step the route is the rule, as for any other operator.
     @test CR._fit(Recurrence([0.3]), args(50)...) === :one
     @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
-    for S in (11, 23, 24)
+    for S in (23, 46, 47)
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end

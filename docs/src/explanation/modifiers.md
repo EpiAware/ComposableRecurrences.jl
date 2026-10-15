@@ -73,7 +73,7 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 | [`Redistribute`](@ref ComposableRecurrences.Redistribute) | every series | what each series received | before a `Depletion` that should deplete where values are realised |
 | [`Add`](@ref ComposableRecurrences.Add) | one series | nothing | where the addition should enter |
 | [`Clamp`](@ref ComposableRecurrences.Clamp) | one series | nothing | after what it bounds |
-| [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of series | nothing | after what it rescales; an `Add` after it adds to the totals |
+| [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of series, or every series with `imports` | nothing, or the import pattern after the spilled values | after what it rescales; an `Add` after it adds to the totals; a spill whose pattern reads the values before it goes in its `spill` |
 | [`Transform`](@ref ComposableRecurrences.Transform) | one series | nothing | where the map applies |
 
 A modifier acts on a [`Recurrence`](@ref) only; a [`Convolution`](@ref) has none.

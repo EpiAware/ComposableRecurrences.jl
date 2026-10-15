@@ -1,6 +1,6 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
-# backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`
-# and `bvd_delay`) against the package's operators.
+# backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
+# `bvd_delay` and `bvd_zones`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -14,10 +14,10 @@ module BVDHandRule
 
 import Mooncake
 using Mooncake: CoDual, NoRData, primal, tangent
-using LinearAlgebra: axpy!, dot
+using LinearAlgebra: axpy!, dot, mul!
 
-export renewal_loop, patch_loop, delay_loop, renewal_infections,
-    patch_infections, convolve_delay
+export renewal_loop, patch_loop, delay_loop, zone_loop, renewal_infections,
+    patch_infections, convolve_delay, zone_infections
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -172,6 +172,93 @@ function delay_loop(x::AbstractVector, delay::AbstractVector)
     return y
 end
 
+@doc raw"""
+    zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+
+The mixed zone share renewal, from day 1. Each zone's own force is
+``u_{z,t} = e^{δ_{t,z}} (w0_z Λ^{pre}_{p,t} + \sum_s g_s I_{z,t-s})``; a share
+``ε_z`` of it spills within its patch, ``v = (1 - ε) ∘ u + W (ε ∘ u)``, and
+the import pattern ``h = B (ow ∘ u)`` reads it before the spill. Patch `p`'s
+infections ``Ī_{p,t}`` go a share ``1 - φ_{p,t}`` by `v` and ``φ_{p,t}`` by
+`h` (by `v` where `h` sums to the floor or less). `δ` is days × zones and
+`φ`, `I_bar` and `force_pre` patches × days. Returns the infections, days ×
+zones.
+"""
+function zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+    return _zone_state(
+        δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups
+    ).infections
+end
+
+# `zone_loop` keeping each zone's own force `u`, the spilled force `v`, the
+# import pattern `h` and per patch and day the unfloored sums of `v` and `h`.
+function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+    nd, nz = size(δ)
+    np = length(groups)
+    Tp = promote_type(
+        eltype(δ), eltype(w0), eltype(ε), eltype(φ), eltype(ow),
+        eltype(I_bar), eltype(g), eltype(force_pre), eltype(within),
+        eltype(between)
+    )
+    I = zeros(Tp, nd, nz)
+    U = zeros(Tp, nd, nz)
+    V = zeros(Tp, nd, nz)
+    H = zeros(Tp, nd, nz)
+    patch_total = zeros(Tp, np, nd)
+    share_total = zeros(Tp, np, nd)
+    u = zeros(Tp, nz)
+    eu = zeros(Tp, nz)
+    wu = zeros(Tp, nz)
+    spill = zeros(Tp, nz)
+    h = zeros(Tp, nz)
+    L = length(g)
+    floor_ = eps(Tp)
+    @inbounds for j in 1:nd
+        smax = min(L, j - 1)
+        for p in eachindex(groups)
+            fp = force_pre[p, j]
+            for z in groups[p]
+                acc = w0[z] * fp
+                for s in 1:smax
+                    acc = muladd(g[s], I[j - s, z], acc)
+                end
+                u[z] = exp(δ[j, z]) * acc
+                U[j, z] = u[z]
+            end
+        end
+        for z in 1:nz
+            eu[z] = ε[z] * u[z]
+            wu[z] = ow[z] * u[z]
+        end
+        mul!(spill, within, eu)
+        mul!(h, between, wu)
+        for z in 1:nz
+            V[j, z] = (one(Tp) - ε[z]) * u[z] + spill[z]
+            H[j, z] = h[z]
+        end
+        for p in eachindex(groups)
+            zs = groups[p]
+            Ip = I_bar[p, j]
+            Mp = φ[p, j] * Ip
+            sv = zero(Tp)
+            sh = zero(Tp)
+            for z in zs
+                sv += V[j, z]
+                sh += H[j, z]
+            end
+            patch_total[p, j] = sv
+            share_total[p, j] = sh
+            sv = max(sv, floor_)
+            cp = (Ip - Mp) / sv
+            for z in zs
+                share_h = sh > floor_ ? H[j, z] / sh : V[j, z] / sv
+                I[j, z] = cp * V[j, z] + Mp * share_h
+            end
+        end
+    end
+    return (; infections = I, u = U, v = V, h = H, patch_total, share_total)
+end
+
 # ---- the same loops with hand-written Mooncake rules ------------------------
 
 "`renewal_loop` with a hand-written Mooncake rule."
@@ -182,6 +269,11 @@ patch_infections(Rt, g, seeds, K, ε, N) = patch_loop(Rt, g, seeds, K, ε, N)
 
 "`delay_loop` with a hand-written Mooncake rule."
 convolve_delay(x, delay) = delay_loop(x, delay)
+
+"`zone_loop` with a hand-written Mooncake rule."
+function zone_infections(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+    return zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+end
 
 const _Vec = Vector{Float64}
 const _Mat = Matrix{Float64}
@@ -345,6 +437,134 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), NoRData()
     end
     return CoDual(y, ȳ), convolve_delay_pb
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{
+        typeof(zone_infections), _Mat, _Vec, _Vec, _Mat, _Vec, _Mat, _Vec, _Mat,
+        _Mat, _Mat, Vector{UnitRange{Int}},
+    }
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(zone_infections)}, δ::CoDual{_Mat}, w0::CoDual{_Vec},
+        ε::CoDual{_Vec}, φ::CoDual{_Mat}, ow::CoDual{_Vec}, I_bar::CoDual{_Mat},
+        g::CoDual{_Vec}, force_pre::CoDual{_Mat}, within::CoDual{_Mat},
+        between::CoDual{_Mat}, groups::CoDual{Vector{UnitRange{Int}}}
+    )
+    duals = (δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between)
+    args = (map(primal, duals)..., primal(groups))
+    st = _zone_state(args...)
+    Ī = zero(st.infections)
+    function zone_infections_pb(::NoRData)
+        _zone_back!(map(tangent, duals), copy(Ī), st, args...)
+        return ntuple(_ -> NoRData(), 12)
+    end
+    return CoDual(st.infections, Ī), zone_infections_pb
+end
+
+# The reverse of `zone_loop`, the backend's rule with the cotangents of its
+# other outputs (shares, forces and imports) left out, from the last day
+# back. Per patch, `I = c_p v + M_p h / Σh` with both sums pooling over the
+# patch; the spill and the pattern each transpose into `ū` with one
+# product a day, and their own cotangents are one outer product after the
+# walk.
+function _zone_back!(
+        bars, acc, st, δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between,
+        groups
+    )
+    δ̄, w̄0, ε̄, φ̄, ōw, Ī_bar, ḡ, f̄_pre, W̄, B̄ = bars
+    nd, nz = size(δ)
+    L = length(g)
+    floor_ = eps(Float64)
+    E = exp.(δ)
+    ū = zeros(nz)
+    v̄ = zeros(nz)
+    h̄ = zeros(nz)
+    ēu = zeros(nz)
+    w̄u = zeros(nz)
+    V̄ = zeros(nd, nz)
+    H̄ = zeros(nd, nz)
+    @inbounds for j in nd:-1:1
+        fill!(ū, 0.0)
+        fill!(v̄, 0.0)
+        fill!(h̄, 0.0)
+        for p in eachindex(groups)
+            zs = groups[p]
+            Ip = I_bar[p, j]
+            frac = φ[p, j]
+            Mp = frac * Ip
+            raw = st.patch_total[p, j]
+            sv = max(raw, floor_)
+            sh = st.share_total[p, j]
+            cp = (Ip - Mp) / sv
+            c̄p = 0.0
+            M̄p = 0.0
+            s̄v = 0.0
+            s̄h = 0.0
+            for z in zs
+                Īz = acc[j, z]
+                c̄p += Īz * st.v[j, z]
+                v̄[z] += Īz * cp
+                if sh > floor_
+                    M̄p += Īz * st.h[j, z] / sh
+                    h̄[z] += Īz * Mp / sh
+                    s̄h -= Īz * Mp * st.h[j, z] / (sh * sh)
+                else
+                    M̄p += Īz * st.v[j, z] / sv
+                    v̄[z] += Īz * Mp / sv
+                    s̄v -= Īz * Mp * st.v[j, z] / (sv * sv)
+                end
+            end
+            Ī_bar[p, j] += c̄p / sv
+            M̄p -= c̄p / sv
+            s̄v -= c̄p * (Ip - Mp) / (sv * sv)
+            Ī_bar[p, j] += M̄p * frac
+            φ̄[p, j] += M̄p * Ip
+            if raw > floor_
+                for z in zs
+                    v̄[z] += s̄v
+                end
+            end
+            for z in zs
+                h̄[z] += s̄h
+            end
+        end
+        for z in 1:nz
+            ε̄[z] -= v̄[z] * st.u[j, z]
+            ū[z] += v̄[z] * (1.0 - ε[z])
+            V̄[j, z] = v̄[z]
+            H̄[j, z] = h̄[z]
+        end
+        mul!(ēu, transpose(within), v̄)
+        mul!(w̄u, transpose(between), h̄)
+        for z in 1:nz
+            uz = st.u[j, z]
+            ε̄[z] += ēu[z] * uz
+            ū[z] += ēu[z] * ε[z]
+            ōw[z] += w̄u[z] * uz
+            ū[z] += w̄u[z] * ow[z]
+        end
+        smax = min(L, j - 1)
+        for p in eachindex(groups)
+            fp = force_pre[p, j]
+            pre = 0.0
+            for z in groups[p]
+                Λ̄ = ū[z] * E[j, z]
+                δ̄[j, z] += ū[z] * st.u[j, z]
+                w̄0[z] += Λ̄ * fp
+                pre += Λ̄ * w0[z]
+                for s in 1:smax
+                    acc[j - s, z] += Λ̄ * g[s]
+                    ḡ[s] += Λ̄ * st.infections[j - s, z]
+                end
+            end
+            f̄_pre[p, j] += pre
+        end
+    end
+    mul!(W̄, transpose(V̄), st.u .* transpose(ε), 1.0, 1.0)
+    mul!(B̄, transpose(H̄), st.u .* transpose(ow), 1.0, 1.0)
+    return nothing
 end
 
 end # module BVDHandRule

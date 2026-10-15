@@ -335,6 +335,14 @@ true
         piece = Allocate([1:2, 3:3], 1.0), role = Init(),
         args = (zeros(3), ones(3, 2))
     ),
+    Arguments(;
+        piece = Allocate(
+            [1:2, 3:3], PerStratum([4.0, 1.0]);
+            imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
+            spill = Redistribute([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], 0.1)
+        ),
+        role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
+    ),
 ]
 
 
