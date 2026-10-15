@@ -1412,6 +1412,48 @@ end
     @test CR._modifier_adjoint(ByT([a, a])) === :none
 end
 
+@testitem "Adjoint: the read and array steps' helpers, called directly" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using LinearAlgebra: mul!
+    # Each helper's contract on its own: the read step against ForwardDiff,
+    # the rebuilds of named tuples, the cotangent of one read, the check
+    # that each array stays read, and the coupling step with its buffers.
+    struct ByTime{A}
+        a::A
+    end
+    CR.ispointwise(::ByTime) = true
+    CR.forward(m::ByTime, ::CR.Step, v, s, t, k) = (v * m.a[t], s + v)
+    a = [0.9, 1.1, 1.3]
+    m̄ = (; a = zeros(3))
+    @test collect(CR._read_pullback(ByTime(a), m̄, 0.3, 0.7, 2.0, 1.0, 2, 1)) ≈
+        [0.3 * a[2] + 0.7, 0.7]
+    @test m̄.a ≈ [0.0, 0.6, 0.0]
+    @test CR._rebuild_reads((; b = 1.0, n = 2), (5.0,), nothing, 1) ==
+        ((; b = 5.0, n = 2), (), 1)
+    y, o = CR._rebuild_views((; b = 1.0, x = [1.0, 2.0]), [5.0, 6.0, 7.0], 0)
+    @test y.b == 5.0
+    @test y.x == [6.0, 7.0]
+    @test o == 3
+    x̄ = zeros(2)
+    @test CR._add_read!(x̄, [1.0, 2.0], 1, 2, 0.5, 1) == 2
+    @test x̄ == [0.0, 0.5]
+    @test CR._add_read!((x̄,), ([1.0, 2.0],), 2, 1, 0.5, 1) == 2
+    @test x̄ == [0.0, 0.5]
+    @test CR._reads_kept(1.0, 2.0)
+    @test CR._reads_kept(:a, :a)
+    @test CR._reads_kept((1.0, :a), (2.0, :a))
+    @test !CR._array_params(CR.Transform(exp))
+    struct Mix{M}
+        M::M
+    end
+    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
+    C, p, q̄ = Mix([0.5 0.1; 0.2 0.4]), [1.0, 2.0], [0.3, 0.7]
+    p̄, C̄ = zeros(2), (; M = zeros(2, 2))
+    CR._local_pressure!(p̄, C̄, C, q̄, p, 1, CR._array_pressure(C, Float64))
+    @test p̄ ≈ transpose(C.M) * q̄
+    @test C̄.M ≈ q̄ * transpose(p)
+end
+
 @testitem "Adjoint: local pullback of a coupling holding arrays" setup = [AdjointCheck] begin
     using ComposableRecurrences
     using LinearAlgebra: Diagonal, mul!
