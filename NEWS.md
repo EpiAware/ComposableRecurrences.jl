@@ -19,6 +19,7 @@
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
+- `TimeVarying([t₁ => c₁, t₂ => c₂, ...], indexing)` gives a kernel, coupling or modifier parameter by its change points, storing one value per segment; a `Secondary()` kernel switches between fixed-kernel loops at the change points, and a `Primary()` convolution sums one fixed convolution per segment ([time-varying delays][tv]).
 - `Convolution` takes `gain` and `add`, and `ComposableRecurrences.contributions` returns the lag contributions before the sum over lags ([API overview][api]).
 - `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded, with outputs and gradients that match `Direct()` to a relative 1e-10 (1e-4 in `Float32`) ([FFTW extension][fftw]).
   The default method, `Auto()`, takes it only for long `Float64` kernels and series, and otherwise takes `Direct()`.
@@ -34,7 +35,8 @@
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
 - `Depletion(N; flows)` moves between the depletion's pools after each draw, such as waning protection `Flow(2 => 1, ω)` back from a `Protected` pool or a rate `Flow(1 => 0, μ)` out of the pool; the `removals` are its first count flow ([renewal then delay][renewal]).
-- `Flows(Flow(from => to, kind)...)` moves values between the compartments of each group, with `Rate`, `Linear` and `Amount` flow kinds ([occupancy and capacity][occupancy]).
+- `Flows(Flow(from => to, demand; form)...)` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
+  A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
 - `delay_masses(d, lags)` returns a delay's masses on lags `0` to `lags - 1`, and packages that own delay types add methods for them.
@@ -49,7 +51,8 @@
   A ragged `TimeVarying` kernel runs there too, with its column offsets on the device.
   The GPU arrays section of the adjoints and backends explanation says how each part runs on a device.
 - `Recurrence` and `Convolution` have native reverse rules for Mooncake and Enzyme, and `NoAdjoint(op)` runs the same call through plain AD ([adjoints and backends][adjoints]).
-- A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow, and the plain-AD note names the part that has none.
+- A coupling or pointwise modifier without a `pullback!` keeps the rules through a local ForwardDiff derivative when its parameters allow.
+  The `Recurrence` constructor logs, once, the part that sends an operator to plain AD; a `true` `uses_adjoint` with no matching `pullback!` is a `MethodError`.
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
 - Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
@@ -68,13 +71,15 @@
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
 - The reverse rule of `Allocate` with imports reads its spilled values and pattern from a record of each step instead of computing them again, and a dense pattern or spill kernel takes its cotangent in one matrix product after the last step.
 - Mooncake and Enzyme no longer differentiate the check a `Depletion` makes on its form, which cost Mooncake about 8 µs a gradient.
+- On Julia 1.11, the Enzyme extension warns once per operator type when Enzyme reverse mode differentiates an operator with an active scalar field.
+  Enzyme on 1.11 returns a zero gradient for such a field when the operator is built by code it cannot infer, such as a closure over a boxed variable, and the extension cannot detect that case (#181).
+  Use Julia 1.12 or later, or build operators in type-stable code.
 
 ### Fixed
 
 - A `Convolution` kernel with offset axes is an `ArgumentError`, where before it gave wrong values.
 - ForwardDiff, Enzyme and Mooncake gradients are finite at an empty depletion or protected pool and agree with the reverse rules.
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
-  Some losses that read parameters through a boxed closure still give wrong Enzyme reverse gradients on 1.11 (#181).
 - `FFTMethod()` is correct under Enzyme on Julia 1.11.
 - Enzyme without runtime activity works for a constant input or history.
 - `param_eltype` infers through nested structs such as `Depletion`.

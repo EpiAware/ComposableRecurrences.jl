@@ -4,6 +4,9 @@
 #   julia +1.12 --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
 #   julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 #
+# Reactant is capped at 0.2.292: 0.2.293 hangs in MLIR's ConcatViewCSE pass
+# compiling the flows case.
+#
 # Each case, mode, configuration, backend and number of steps runs in its
 # own subprocess with a timeout, so one hang does not stall the rest.
 # Results go to RESULTS.md beside this file. `@test` covers the entries

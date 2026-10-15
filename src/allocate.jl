@@ -25,8 +25,9 @@ the import pattern ``h = P_t v``, read before the spill:
 ```math
 \begin{aligned}
 \sigma^u_p &= \max\Big(\sum_{j \in G_p} u_j,\ \epsilon\Big), \qquad
-\sigma^h_p = \sum_{j \in G_p} h_j, \\
-v'_i &= T_{t,p} \Big((1 - \phi_{t,p}) \frac{u_i}{\sigma^u_p}
+\sigma^h_p = \max\Big(\sum_{j \in G_p} h_j,\ \epsilon\Big), \qquad
+r_p = \frac{1}{\sigma^h_p} \sum_{j \in G_p} h_j, \\
+v'_i &= T_{t,p} \Big((1 - \phi_{t,p} r_p) \frac{u_i}{\sigma^u_p}
     + \phi_{t,p} \frac{h_i}{\sigma^h_p}\Big), \quad i \in G_p,
 \end{aligned}
 ```
@@ -34,9 +35,13 @@ v'_i &= T_{t,p} \Big((1 - \phi_{t,p}) \frac{u_i}{\sigma^u_p}
 where ``M_t`` is the step of a [`ComposableRecurrences.Redistribute`](@ref)
 (the identity without `spill`) and ``P_t`` a
 [coupling](@ref explanation-coupling).
-A group whose pattern sum is at or below ``\epsilon`` takes all of its
-total by ``u``, so ``v'_i = T_{t,p} u_i / \sigma^u_p``.
+``r_p`` is one once the pattern sum reaches ``\epsilon``.
+Below that, the pattern places the share ``\phi_{t,p} r_p`` of the total, so
+the split changes continuously, and a group whose pattern sums to zero
+takes all of its total by ``u``.
 The group sums of ``v'`` still equal the totals.
+The split has no branch on the values, so a tape recorded at one input
+holds at another.
 Use `spill` only when the pattern must read the values from before the
 spill; otherwise place the `Redistribute` before `Allocate` in the modifier
 tuple.
@@ -68,12 +73,15 @@ With `imports`, ``a^u_p`` and ``a^h_p`` are the same sums over ``u`` and
 
 ```math
 \begin{aligned}
-\bar T_{t,p} &\mathrel{+}= (1 - \phi_{t,p})\, a^u_p + \phi_{t,p}\, a^h_p, \qquad
-\bar\phi_{t,p} \mathrel{+}= T_{t,p} (a^h_p - a^u_p), \\
-\bar u_i &= \frac{T_{t,p} (1 - \phi_{t,p})}{\sigma^u_p} (\bar v'_i - a^u_p), \qquad
+\bar T_{t,p} &\mathrel{+}= (1 - \phi_{t,p} r_p)\, a^u_p + \phi_{t,p}\, a^h_p, \qquad
+\bar\phi_{t,p} \mathrel{+}= T_{t,p} (a^h_p - r_p a^u_p), \\
+\bar u_i &= \frac{T_{t,p} (1 - \phi_{t,p} r_p)}{\sigma^u_p} (\bar v'_i - a^u_p), \qquad
 \bar h_i = \frac{T_{t,p}\, \phi_{t,p}}{\sigma^h_p} (\bar v'_i - a^h_p),
 \end{aligned}
 ```
+
+where ``a^h_p`` is replaced by ``a^u_p`` in ``\bar h_i`` while the pattern
+sum is below ``\epsilon``,
 
 then ``\bar v = M_t^\top \bar u + P_t^\top \bar h``, the spill's and the
 coupling's own pullbacks, so the step costs two transposed products.
@@ -398,13 +406,12 @@ function _import_body!(p, v, u, h, strata, offsets, total, fraction, t)
     return nothing
 end
 
-# The weights of `u` and `h` in a group's output; a pattern summing to the
-# floor or less gives all of the total to `u`.
+# The weights of `u` and `h` in a group's output. A pattern summing to less
+# than the floor places the share `φ r` of the total, with `r = sh / ε`, and
+# the rest goes by `u`; the weights have no branch on the values.
 function _import_weights(T, φ, su, sh, ε)
-    if sh > ε
-        return T * (1 - φ) / max(su, ε), T * φ / sh
-    end
-    return T / max(su, ε), zero(T / max(sh, ε))
+    mh = max(sh, ε)
+    return T * (1 - φ * sh / mh) / max(su, ε), T * φ / mh
 end
 
 # The step keeps `u` and `h` in its state, so the reverse pass records the
@@ -440,18 +447,18 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
         end
         T, φ = param(m.total, p, t), param(fraction, p, t)
         cu, ch = _import_weights(T, φ, su, sh, ε)
+        mh = max(sh, ε)
+        r = sh / mh
         au /= max(su, ε)
-        if sh > ε
-            ah /= sh
-            add_param!(T̄, m.total, (1 - φ) * au + φ * ah, p, t)
-            add_param!(φ̄, fraction, T * (ah - au), p, t)
-        else
-            add_param!(T̄, m.total, au, p, t)
-        end
+        ah /= mh
+        add_param!(T̄, m.total, (1 - φ * r) * au + φ * ah, p, t)
+        add_param!(φ̄, fraction, T * (ah - r * au), p, t)
         on = su >= ε
+        # Below the floor `h` moves the share through `r`, not through `mh`.
+        bh = sh > ε ? ah : au
         for k in zs
             ȳk = v̄[k]
-            h̄[k] += ch * (ȳk - ah)
+            h̄[k] += ch * (ȳk - bh)
             v̄[k] = cu * (on ? ȳk - au : ȳk)
         end
     end

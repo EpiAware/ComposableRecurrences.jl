@@ -53,6 +53,9 @@ _describe(x::TimeVarying{I}) where {I} = _wrapped(:TimeVarying, x.x, nameof(I))
 function _describe(x::_AnyRagged)
     return string(_ncols(x), " kernel columns of up to ", _maxlen(x), " entries")
 end
+function _describe(x::_Piecewise)
+    return string(_describe(x.x), " from the change points ", repr(x.starts))
+end
 _wrapped(name, x) = string(name, "(", _describe(x), ")")
 _wrapped(name, x, i) = string(name, "(", _describe(x), ", ", i, "())")
 
@@ -116,32 +119,48 @@ end
 function _check_kernel_times(k::TimeVarying{<:Any, <:_AnyRagged}, stop)
     return _check_covers(:kernel, _ncols(k.x), stop)
 end
+# The last value between change points holds for every later time.
+_check_kernel_times(k::TimeVarying{<:Any, <:_Piecewise}, stop) = nothing
 
 # Check every time-varying coefficient in a coupling or modifier covers
-# times up to `stop`, recursing through fields. Outside a kernel only
+# times up to `stop`, walking their fields. Outside a kernel only
 # `Secondary()` indexing has a meaning, which a `Recurrence` checks once at
 # construction, with `stop = nothing`.
-function _check_times(name, x::TimeVarying{Secondary}, stop)
+function _check_leaf(name, x::TimeVarying{Secondary}, stop)
     return _check_covers(name, _extent(_array(x)), stop)
 end
-_check_times(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
-_check_times(name, x::TimeVarying, stop) = _primary_error(name, x)
+_check_leaf(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
+_check_leaf(name, x::TimeVarying, stop) = _primary_error(name, x)
+# The last value between change points holds for every later time.
+_check_leaf(name, ::TimeVarying{Secondary, <:_Piecewise}, stop) = nothing
+_check_leaf(name, ::TimeVarying{Secondary, <:_Piecewise}, ::Nothing) = nothing
 const _Leaf = Union{
     Real, AbstractArray, Nothing, Symbol, AbstractString, Type, Module,
     Function,
 }
-_check_times(name, ::_Leaf, stop) = nothing
-function _check_times(name, x::Union{Tuple, NamedTuple}, stop)
-    foreach(v -> _check_times(name, v, stop), values(x))
-    return nothing
+# The walk is unrolled from the type of `x`, so that it runs no recursion
+# and no inference at run time, whatever the nesting; a field of abstract
+# type is walked by dispatch on its value. The generator's helper is
+# defined first, as a generator sees only the methods defined before it.
+function _times_walk!(out, T, ex, depth)
+    if T <: TimeVarying
+        push!(out, :(_check_leaf(name, $ex, stop)))
+    elseif T <: _Leaf
+        return out
+    elseif !isconcretetype(T) || depth > 32
+        push!(out, :(_check_times(name, $ex, stop)))
+    else
+        for i in 1:fieldcount(T)
+            _times_walk!(out, fieldtype(T, i), :(getfield($ex, $i)), depth + 1)
+        end
+    end
+    return out
 end
-function _check_times(name, x, stop)
-    return _fields_times(name, x, stop, Val(fieldcount(typeof(x))))
-end
-_fields_times(name, x, stop, ::Val{0}) = nothing
-function _fields_times(name, x, stop, ::Val{N}) where {N}
-    _fields_times(name, x, stop, Val(N - 1))
-    return _check_times(name, getfield(x, N), stop)
+@generated function _check_times(name, x, stop)
+    body = Expr(:block)
+    _times_walk!(body.args, x, :x, 0)
+    push!(body.args, :(return nothing))
+    return body
 end
 
 # Shared argument errors, each raised by more than one check.
@@ -190,6 +209,7 @@ end
 # Check a parameter's leading axis against `n` entries of `what`.
 _check_rows(name, x, n, what) = nothing
 _check_rows(name, x::TimeVarying, n, what) = _check_rows(name, x.x, n, what)
+_check_rows(name, x::_Piecewise, n, what) = _check_rows(name, x.x, n, what)
 _check_rows(name, x::PerStratum, n, what) = _check_nrows(name, x.x, n, what)
 
 # Check a strata × time slot against `S` strata.

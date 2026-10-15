@@ -200,6 +200,10 @@ true
         piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
         role = Pressure(), args = (zeros(2), [1.0, 2.0], 2)
     ),
+    Arguments(;
+        piece = TimeVarying([1 => [1.0 3.0; 2.0 4.0], 2 => [5.0 7.0; 6.0 8.0]]),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
+    ),
 ]
 
 @implements PieceInterface{(:pointwise, :blocks, :nstate)} Depletion [
@@ -284,8 +288,10 @@ true
 @implements PieceInterface{(:blocks, :nstate)} Flows [
     Arguments(;
         piece = Flows(
-            Flow(1 => 2, PerStratum([0.3, 0.2])), Flow(2 => 0, Linear(0.1)),
-            Flow(1 => 0, Amount(0.5))
+            Flow(1 => 2, PerStratum([0.3, 0.2])),
+            Flow(2 => 0, 0.1; form = Share()),
+            Flow(1 => 0, 0.5; form = Truncate()),
+            Flow(2 => 0, 0.2; form = SoftTruncate(0.1))
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
