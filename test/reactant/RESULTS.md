@@ -31,17 +31,17 @@ Total run time 163.0 min, one subprocess per cell, timeout 300 s.
 | Convolution, fixed kernel | works (44.5 s / 7.0 µs) | works (46.0 s / 40.6 µs) | works (48.6 s / 10.9 µs) | works (51.9 s / 79.3 µs) |
 | Convolution, TimeVarying kernel, Primary() | works (45.4 s / 9.3 µs) | works (47.2 s / 14.3 µs) | works (49.6 s / 85.9 µs) | works (51.9 s / 470.9 µs) |
 | Convolution, TimeVarying kernel, Secondary() | works (46.4 s / 6.9 µs) | works (47.2 s / 39.0 µs) | works (51.1 s / 8.1 µs) | works (54.5 s / 68.9 µs) |
-| Recurrence with Depletion (Hazard) | works (41.3 s / 5.4 µs) | works (41.9 s / 21.0 µs) | works (43.6 s / 93.5 µs) | works (43.7 s / 2231.3 µs) |
-| Recurrence with Depletion (Floor) | works (40.8 s / 7.4 µs) | works (43.3 s / 14.0 µs) | works (44.6 s / 164.4 µs) | works (44.3 s / 2183.8 µs) |
-| Recurrence with Depletion (removals) | works (43.4 s / 7.5 µs) | works (44.2 s / 22.2 µs) | works (45.6 s / 220.3 µs) | works (48.8 s / 2096.6 µs) |
-| Recurrence with a protected Pool stock | works (46.1 s / 9.4 µs) | works (45.0 s / 28.1 µs) | works (48.0 s / 222.5 µs) | works (44.5 s / 2541.2 µs) |
+| Recurrence with Depletion (Hazard) | works (47.1 s / 8.1 µs) | works (46.4 s / 34.9 µs) | works (46.9 s / 123.5 µs) | works (47.6 s / 1970.2 µs) |
+| Recurrence with Depletion (Floor) | works (44.2 s / 5.3 µs) | works (46.5 s / 14.9 µs) | works (45.9 s / 198.9 µs) | works (49.0 s / 2135.0 µs) |
+| Recurrence with Depletion (removals) | works (48.5 s / 8.4 µs) | works (47.4 s / 18.4 µs) | works (48.6 s / 233.6 µs) | works (48.7 s / 2211.8 µs) |
+| Recurrence with a protected Pool stock | works (49.5 s / 11.1 µs) | works (49.6 s / 18.8 µs) | works (50.1 s / 207.5 µs) | works (51.7 s / 3406.3 µs) |
 | Recurrence with Allocate | works (51.3 s / 8.4 µs) | works (54.1 s / 18.5 µs) | works (54.2 s / 109.2 µs) | works (55.3 s / 1488.3 µs) |
 | Recurrence with Transform (TimeVarying θ) | works (50.3 s / 13.3 µs) | works (53.4 s / 17.8 µs) | works (54.9 s / 202.2 µs) | works (52.6 s / 1387.4 µs) |
 | Recurrence with Add (TimeVarying) | works (52.5 s / 6.8 µs) | works (51.1 s / 15.4 µs) | works (55.1 s / 33.4 µs) | works (54.6 s / 991.3 µs) |
 | Recurrence with Clamp | works (49.6 s / 9.3 µs) | works (50.6 s / 15.1 µs) | works (53.8 s / 42.0 µs) | works (54.6 s / 622.2 µs) |
 | Recurrence with Redistribute | works (49.2 s / 16.4 µs) | works (51.2 s / 24.6 µs) | works (51.8 s / 85.3 µs) | works (52.7 s / 981.4 µs) |
-| Recurrence with a budget Pool and a queue | works (41.9 s / 7.2 µs) | works (40.8 s / 23.1 µs) | works (44.7 s / 358.4 µs) | works (44.8 s / 4854.3 µs) |
-| Recurrence with a Pool of flows | works (39.5 s / 8.9 µs) | works (40.3 s / 25.9 µs) | works (42.4 s / 26.5 µs) | works (42.8 s / 652.0 µs) |
+| Recurrence with Capacity (Budget, Hold) | works (48.0 s / 9.6 µs) | works (47.8 s / 29.5 µs) | works (51.5 s / 194.6 µs) | works (53.8 s / 2478.2 µs) |
+| Recurrence with a Pool of flows | works (44.2 s / 6.3 µs) | works (43.2 s / 12.1 µs) | works (46.7 s / 53.0 µs) | works (46.5 s / 725.2 µs) |
 | Recurrence with Recent (coupled) | works (55.2 s / 10.8 µs) | works (55.4 s / 33.6 µs) | works (57.9 s / 271.9 µs) | works (59.5 s / 3029.7 µs) |
 | Recurrence, kernel from change points | works (63.1 s / 15.2 µs) | works (60.7 s / 17.8 µs) | works (64.5 s / 27.0 µs) | works (67.3 s / 473.2 µs) |
 | Recurrence, Primary() kernel from change points | works (60.0 s / 7.7 µs) | works (64.9 s / 14.9 µs) | works (68.6 s / 21.9 µs) | works (62.8 s / 2218.7 µs) |
@@ -86,22 +86,22 @@ Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), 
 | conv_tv_primary | reverse | extension | cpu | 20 | works | 3.7e-17 | 49.6 | 85.9 | 90.8 |  |  |
 | conv_tv_secondary | forward | extension | cpu | 20 | works | 1.3e-16 | 46.4 | 6.9 | 0.3 |  |  |
 | conv_tv_secondary | reverse | extension | cpu | 20 | works | 7.4e-17 | 51.1 | 8.1 | 52.5 |  |  |
-| mod_depletion | forward | extension | cpu | 20 | works | 4.5e-16 | 41.3 | 5.4 | 0.8 |  |  |
-| mod_depletion | reverse | extension | cpu | 20 | works | 7.7e-16 | 43.6 | 93.5 | 8.1 |  |  |
-| mod_depletion | forward | extension | cpu | 400 | works | 1.8e-16 | 41.9 | 21.0 | 16.6 |  |  |
-| mod_depletion | reverse | extension | cpu | 400 | works | 7.0e-16 | 43.7 | 2231.3 | 2485.9 |  |  |
-| mod_depletion_floor | forward | extension | cpu | 20 | works | 1.4e-16 | 40.8 | 7.4 | 0.8 |  |  |
-| mod_depletion_floor | reverse | extension | cpu | 20 | works | 9.5e-16 | 44.6 | 164.4 | 8.1 |  |  |
-| mod_depletion_floor | forward | extension | cpu | 400 | works | 1.1e-17 | 43.3 | 14.0 | 7.8 |  |  |
-| mod_depletion_floor | reverse | extension | cpu | 400 | works | 1.1e-15 | 44.3 | 2183.8 | 2069.8 |  |  |
-| mod_depletion_removals | forward | extension | cpu | 20 | works | 3.5e-16 | 43.4 | 7.5 | 0.7 |  |  |
-| mod_depletion_removals | reverse | extension | cpu | 20 | works | 2.9e-16 | 45.6 | 220.3 | 29.2 |  |  |
-| mod_depletion_removals | forward | extension | cpu | 400 | works | 2.0e-16 | 44.2 | 22.2 | 16.2 |  |  |
-| mod_depletion_removals | reverse | extension | cpu | 400 | works | 5.0e-16 | 48.8 | 2096.6 | 8170.1 |  |  |
-| mod_depletion_protected | forward | extension | cpu | 20 | works | 5.0e-16 | 46.1 | 9.4 | 0.8 |  |  |
-| mod_depletion_protected | reverse | extension | cpu | 20 | works | 9.9e-16 | 48.0 | 222.5 | 29.1 |  |  |
-| mod_depletion_protected | forward | extension | cpu | 400 | works | 2.9e-16 | 45.0 | 28.1 | 25.2 |  |  |
-| mod_depletion_protected | reverse | extension | cpu | 400 | works | 5.9e-16 | 44.5 | 2541.2 | 6353.5 |  |  |
+| mod_depletion | forward | extension | cpu | 20 | works | 4.5e-16 | 47.1 | 8.1 | 1.0 |  |  |
+| mod_depletion | reverse | extension | cpu | 20 | works | 7.7e-16 | 46.9 | 123.5 | 9.8 |  |  |
+| mod_depletion | forward | extension | cpu | 400 | works | 1.8e-16 | 46.4 | 34.9 | 12.5 |  |  |
+| mod_depletion | reverse | extension | cpu | 400 | works | 7.0e-16 | 47.6 | 1970.2 | 4026.1 |  |  |
+| mod_depletion_floor | forward | extension | cpu | 20 | works | 1.4e-16 | 44.2 | 5.3 | 0.7 |  |  |
+| mod_depletion_floor | reverse | extension | cpu | 20 | works | 9.5e-16 | 45.9 | 198.9 | 11.0 |  |  |
+| mod_depletion_floor | forward | extension | cpu | 400 | works | 1.1e-17 | 46.5 | 14.9 | 6.0 |  |  |
+| mod_depletion_floor | reverse | extension | cpu | 400 | works | 1.1e-15 | 49.0 | 2135.0 | 3610.5 |  |  |
+| mod_depletion_removals | forward | extension | cpu | 20 | works | 3.5e-16 | 48.5 | 8.4 | 1.1 |  |  |
+| mod_depletion_removals | reverse | extension | cpu | 20 | works | 2.9e-16 | 48.6 | 233.6 | 26.0 |  |  |
+| mod_depletion_removals | forward | extension | cpu | 400 | works | 2.0e-16 | 47.4 | 18.4 | 16.4 |  |  |
+| mod_depletion_removals | reverse | extension | cpu | 400 | works | 5.0e-16 | 48.7 | 2211.8 | 5674.1 |  |  |
+| mod_depletion_protected | forward | extension | cpu | 20 | works | 5.0e-16 | 49.5 | 11.1 | 0.9 |  |  |
+| mod_depletion_protected | reverse | extension | cpu | 20 | works | 9.9e-16 | 50.1 | 207.5 | 22.9 |  |  |
+| mod_depletion_protected | forward | extension | cpu | 400 | works | 2.9e-16 | 49.6 | 18.8 | 16.2 |  |  |
+| mod_depletion_protected | reverse | extension | cpu | 400 | works | 5.9e-16 | 51.7 | 3406.3 | 10632.8 |  |  |
 | mod_allocate | forward | extension | cpu | 20 | works | 1.3e-16 | 51.3 | 8.4 | 1.8 |  |  |
 | mod_allocate | reverse | extension | cpu | 20 | works | 1.8e-15 | 54.2 | 109.2 | 83.1 |  |  |
 | mod_transform | forward | extension | cpu | 20 | works | 0.0e+00 | 50.3 | 13.3 | 0.5 |  |  |
@@ -112,14 +112,12 @@ Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), 
 | mod_clamp | reverse | extension | cpu | 20 | works | 2.2e-16 | 53.8 | 42.0 | 7.4 |  |  |
 | mod_redistribute | forward | extension | cpu | 20 | works | 3.1e-16 | 49.2 | 16.4 | 1.9 |  |  |
 | mod_redistribute | reverse | extension | cpu | 20 | works | 8.0e-16 | 51.8 | 85.3 | 53.5 |  |  |
-| mod_capacity | forward | extension | cpu | 20 | works | 1.0e-16 | 41.9 | 7.2 | 2.1 |  |  |
-| mod_capacity | reverse | extension | cpu | 20 | works | 5.0e-16 | 44.7 | 358.4 | 57.6 |  |  |
-| mod_capacity | forward | extension | cpu | 400 | works | 1.8e-16 | 40.8 | 23.1 | 24.6 |  |  |
-| mod_capacity | reverse | extension | cpu | 400 | works | 2.3e-16 | 44.8 | 4854.3 | 15089.9 |  |  |
-| mod_flows | forward | extension | cpu | 20 | works | 9.6e-17 | 39.5 | 8.9 | 3.2 |  |  |
-| mod_flows | reverse | extension | cpu | 20 | works | 3.3e-16 | 42.4 | 26.5 | 71.5 |  |  |
-| mod_flows | forward | extension | cpu | 400 | works | 1.7e-15 | 40.3 | 25.9 | 38.7 |  |  |
-| mod_flows | reverse | extension | cpu | 400 | works | 3.1e-15 | 42.8 | 652.0 | 23665.1 |  |  |
+| mod_capacity | forward | extension | cpu | 20 | works | 8.9e-18 | 48.0 | 9.6 | 2.1 |  |  |
+| mod_capacity | reverse | extension | cpu | 20 | works | 5.0e-16 | 51.5 | 194.6 | 39.5 |  |  |
+| mod_flows | forward | extension | cpu | 20 | works | 9.6e-17 | 44.2 | 6.3 | 2.3 |  |  |
+| mod_flows | reverse | extension | cpu | 20 | works | 3.3e-16 | 46.7 | 53.0 | 75.4 |  |  |
+| mod_flows | forward | extension | cpu | 400 | works | 1.7e-15 | 43.2 | 12.1 | 39.4 |  |  |
+| mod_flows | reverse | extension | cpu | 400 | works | 3.1e-15 | 46.5 | 725.2 | 28386.3 |  |  |
 | mod_recent | forward | extension | cpu | 20 | works | 2.2e-16 | 55.2 | 10.8 | 35.6 |  |  |
 | mod_recent | reverse | extension | cpu | 20 | works | 6.1e-16 | 57.9 | 271.9 | 188.0 |  |  |
 | control | forward | extension | cpu | 400 | works | 0.0e+00 | 26.2 | 6.0 | 0.1 |  |  |
@@ -162,6 +160,8 @@ Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), 
 | mod_clamp | reverse | extension | cpu | 400 | works | 3.6e-16 | 54.6 | 622.2 | 2587.2 |  |  |
 | mod_redistribute | forward | extension | cpu | 400 | works | 3.7e-16 | 51.2 | 24.6 | 23.3 |  |  |
 | mod_redistribute | reverse | extension | cpu | 400 | works | 5.8e-16 | 52.7 | 981.4 | 17397.9 |  |  |
+| mod_capacity | forward | extension | cpu | 400 | works | 2.6e-128 | 47.8 | 29.5 | 21.0 |  |  |
+| mod_capacity | reverse | extension | cpu | 400 | works | 2.7e-15 | 53.8 | 2478.2 | 13739.5 |  |  |
 | mod_recent | forward | extension | cpu | 400 | works | 9.3e-16 | 55.4 | 33.6 | 1106.0 |  |  |
 | mod_recent | reverse | extension | cpu | 400 | works | 1.7e-15 | 59.5 | 3029.7 | 89038.2 |  |  |
 | rec_cp_kernel | forward | extension | cpu | 20 | works | 0.0e+00 | 63.1 | 15.2 | 1.7 |  |  |
@@ -226,7 +226,7 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
-This lives in the package for the draw of a pool with several stocks (`_draw_stocks`, `src/pool.jl`).
+This lives in the package for the draw of a pool with several stocks (`_draw_stocks`, `src/pool.jl`) and a `Budget`'s refill (`_open`).
 The soft minimum of `SoftTruncate` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
 
 Things to keep in mind when reading the tables.
