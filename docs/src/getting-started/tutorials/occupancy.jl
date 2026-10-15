@@ -125,7 +125,7 @@ end
 # O_t = \min\big(\max\big((1 - \delta) \, O_{t-1} + A_t,\ 0\big),\ B\big).
 # ```
 #
-# As a modifier, the capped stock is what carries into the next day.
+# As a modifier, the cap applies before occupancy carries over to the next day.
 # So patients turned away never occupy a bed later.
 
 beds = 120.0
@@ -157,14 +157,14 @@ round(sum(by_recurrence .- capped))
 #
 # where ``f_t`` is the number of free beds and ``x_t`` the admissions.
 # The second series receives the ``A_t - x_t`` patients turned away.
-# The pool's one stock `:O` is the occupancy, and its state.
+# The `Pool`'s one pool `:O` is the occupancy, and its state.
 # The draw `Truncate() => :O` fills it with the admissions, up to `beds`.
 # A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as `flows_first = true`.
 # `overflow = :stratum` sends what is turned away to the second series.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
 routing = Pool(
-    beds; stocks = (:O,), draw = Truncate() => :O, flows_first = true,
+    beds; pools = (:O,), draw = Truncate() => :O, flows_first = true,
     flows = Flow(:O => 0, δ; form = Share()), overflow = :stratum
 )
 routed = Recurrence([0.0]; modifiers = (routing,))(;
@@ -184,9 +184,9 @@ end
 
 maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
-# An allowance granted each period works the same way, with a stock drawn from rather than filled.
-# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the stock `:B`.
-# The [`Pool`](@ref ComposableRecurrences.Pool) docstring gives it and the other stock-and-flow models.
+# An allowance granted each period works the same way, with a pool drawn from rather than filled.
+# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B`.
+# The [`Pool`](@ref ComposableRecurrences.Pool) docstring gives it and the other models of pools and flows.
 
 # ## A ward with two linked compartments
 #
@@ -211,13 +211,13 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # The recurrence carries yesterday's compartments forward and adds the
 # admissions to the suspected one.
 # A [`Pool`](@ref ComposableRecurrences.Pool) without a draw then applies the day's flows.
-# Its stocks are the compartments, held in the strata.
-# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one stock to
+# Its pools are the compartments, held in the strata.
+# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to
 # another, or to `0` to leave, with a hazard rate as its demand.
 # Each rate is a parameter, so it can also differ by ward or change over time.
 
 ward_flows = Pool(;
-    stocks = (:suspected, :confirmed), draw = nothing,
+    pools = (:suspected, :confirmed), draw = nothing,
     flows = (
         Flow(:suspected => :confirmed, 0.3), Flow(:suspected => 0, 0.4),
         Flow(:confirmed => 0, 0.1),

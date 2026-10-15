@@ -34,7 +34,7 @@ Total run time 163.0 min, one subprocess per cell, timeout 300 s.
 | Recurrence with Depletion (Hazard) | works (48.1 s / 11.5 µs) | works (48.6 s / 23.0 µs) | works (49.0 s / 98.6 µs) | works (49.6 s / 2557.4 µs) |
 | Recurrence with Depletion (Floor) | works (47.4 s / 9.1 µs) | works (45.8 s / 15.3 µs) | works (51.7 s / 215.1 µs) | works (47.7 s / 1860.3 µs) |
 | Recurrence with Depletion (removals) | works (50.6 s / 8.3 µs) | works (49.8 s / 21.1 µs) | works (52.6 s / 171.6 µs) | works (49.0 s / 2589.5 µs) |
-| Recurrence with a protected Pool stock | works (52.7 s / 7.7 µs) | works (50.4 s / 20.9 µs) | works (50.9 s / 247.5 µs) | works (50.4 s / 2092.6 µs) |
+| Recurrence with a protected pool | works (52.7 s / 7.7 µs) | works (50.4 s / 20.9 µs) | works (50.9 s / 247.5 µs) | works (50.4 s / 2092.6 µs) |
 | Recurrence with Allocate | works (51.3 s / 8.4 µs) | works (54.1 s / 18.5 µs) | works (54.2 s / 109.2 µs) | works (55.3 s / 1488.3 µs) |
 | Recurrence with Transform (TimeVarying θ) | works (50.3 s / 13.3 µs) | works (53.4 s / 17.8 µs) | works (54.9 s / 202.2 µs) | works (52.6 s / 1387.4 µs) |
 | Recurrence with Add (TimeVarying) | works (52.5 s / 6.8 µs) | works (51.1 s / 15.4 µs) | works (55.1 s / 33.4 µs) | works (54.6 s / 991.3 µs) |
@@ -226,7 +226,7 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
-This lives in the package for the draw of a pool with several stocks (`_draw_stocks`, `src/pool.jl`).
+This lives in the package for the draw of a `Pool` with several pools (`_draw_pools`, `src/pool.jl`).
 The soft minimum of `SoftTruncate` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
 
 Things to keep in mind when reading the tables.

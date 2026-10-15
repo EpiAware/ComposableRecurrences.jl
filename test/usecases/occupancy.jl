@@ -1,8 +1,8 @@
-# BVD's bed occupancy balance. Four coupled stocks carry forward one day:
+# BVD's bed occupancy balance. Four coupled pools carry forward one day:
 # case and non-case occupancy, confirmed cases in care and suspects. The
 # balance has clamps and ratio splits that are not `gain ⊙ x + add`, so it
 # is a user modifier on a lag-1 identity recurrence: the core carries the
-# previous stocks forward and the modifier applies the day's flows.
+# previous pools forward and the modifier applies the day's flows.
 
 @testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase, :param_eltype] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
@@ -31,8 +31,8 @@
     end
     ∇ref = ForwardDiff.gradient(ref_loss, θ0)
 
-    # The stocks are the strata: (O_bvd, O_bg, O_conf, O_susp). The
-    # modifier receives the previous day's stocks in `v` and overwrites them
+    # The pools are the strata: (O_bvd, O_bg, O_conf, O_susp). The
+    # modifier receives the previous day's pools in `v` and overwrites them
     # with today's.
     #
     # The fields are untyped on purpose: this is the regression test for
@@ -72,7 +72,7 @@
         )
         r = Recurrence([1.0]; modifiers = (balance,))
         # No gain: the flows live in the modifier, so `stop` sets the number
-        # of days; the stocks start empty.
+        # of days; the pools start empty.
         Y = r(; history = zeros(4, 1), stop = T)
         O_bvd, O_bg, O_conf, O_susp = eachrow(Y)
         return (;

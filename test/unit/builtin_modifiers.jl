@@ -87,7 +87,7 @@ end
     R = fill(3.0, 12)
     doses = TimeVarying(fill(0.5, 12))
     leaky(α) = CR.Pool(
-        60.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        60.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         heterogeneity = α, flows = CR.Flow(:S => :V, doses; form = CR.Truncate())
     )
     for m in (α -> CR.Depletion(60.0; removals = doses, heterogeneity = α), leaky)
@@ -386,7 +386,7 @@ end
     # protected one, and a negative removal adds to the unprotected pool only.
     function step(r)
         d = CR.Pool(
-            20.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
+            20.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, r; form = CR.Truncate()),)
         )
         return CR.forward(d, CR.Step(), (0.0,), (10.0, 4.0), 1, 1)
@@ -759,7 +759,7 @@ end
     pools = (
         (θ, form, α) -> CR.Depletion(θ[1], form; heterogeneity = α, pool0 = θ[2]),
         (θ, form, α) -> CR.Pool(
-            θ[1]; stocks = (:S, :V), initial = (θ[2], nothing),
+            θ[1]; pools = (:S, :V), initial = (θ[2], nothing),
             draw = (:S => 1, :V => 0.3) => form, heterogeneity = α
         ),
     )

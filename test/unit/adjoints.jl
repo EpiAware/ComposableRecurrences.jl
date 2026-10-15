@@ -251,14 +251,14 @@ end
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
             (
                 CR.Pool(
-                    1.5; stocks = (:O,), draw = CR.SoftTruncate(0.1) => :O,
+                    1.5; pools = (:O,), draw = CR.SoftTruncate(0.1) => :O,
                     flows_first = true, flows = CR.Flow(:O => 0, 0.3; form = CR.Share()),
                     overflow = :queue
                 ),
             ),
             (
                 CR.Pool(;
-                    stocks = (:B,), initial = PerStratum([0.5, 0.0, 1.0]),
+                    pools = (:B,), initial = PerStratum([0.5, 0.0, 1.0]),
                     draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
                     flows = CR.Flow(
                         0 => :B, TimeVarying(repeat([1.2, 0.0, 0.0], T));
@@ -270,7 +270,7 @@ end
             (
                 CR.Depletion(30.0, CR.Truncate()),
                 CR.Pool(;
-                    stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+                    pools = (:B,), draw = :B => CR.Truncate(), flows_first = true,
                     flows = CR.Flow(
                         0 => :B, TimeVarying(repeat([1.2, 0.0], T)); form = CR.Truncate()
                     )
@@ -289,7 +289,7 @@ end
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
     # Beds with the overflow in a second stratum, resumed.
     beds = CR.Pool(
-        2.0; stocks = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+        2.0; pools = (:O,), draw = CR.Truncate() => :O, flows_first = true,
         flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow = :stratum
     )
     r = Recurrence(g; coupling = K[1:2, 1:2], modifiers = (beds,))
@@ -422,7 +422,7 @@ end
             CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
             CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
             CR.Pool(
-                TimeVarying(PerStratum(N)); stocks = (:S, :V), initial = (nothing, 5.0),
+                TimeVarying(PerStratum(N)); pools = (:S, :V), initial = (nothing, 5.0),
                 draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                 flows = (CR.Flow(1 => 2, births; form = CR.Truncate()),)
             ),

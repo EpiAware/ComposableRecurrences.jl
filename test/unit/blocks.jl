@@ -110,7 +110,7 @@ end
         m̄.N.x, m̄.heterogeneity[], only(m̄.flows).demand[], m̄.weights[2].x
     )
     build(θ) = CR.Pool(
-        PerStratum(θ[1:2]); stocks = (:S, :V),
+        PerStratum(θ[1:2]); pools = (:S, :V),
         draw = (:S => 1, :V => PerStratum(θ[5:6])) => CR.Hazard(), heterogeneity = θ[3],
         flows = (CR.Flow(1 => 2, θ[4]; form = CR.Truncate()),)
     )
@@ -129,7 +129,7 @@ end
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     d = CR.Pool(
-        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
     @test CR.blocks(d) == Val((1, 2))

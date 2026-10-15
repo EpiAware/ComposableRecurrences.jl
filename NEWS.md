@@ -4,7 +4,7 @@
 
 ### Breaking
 
-- `Depletion` is the [`Pool`][api] with one stock, as a type alias, so `m isa Depletion` holds as before.
+- `Depletion` is the [`Pool`][api] with one pool, as a type alias, so `m isa Depletion` holds as before.
   `Depletion(N, form; heterogeneity, pool0)` builds it as before; its starting pool is the field `initial[1]` rather than `pool0`, and its type parameters are `Pool`'s.
 - `seeded` is removed.
   Use `r(gain; history, start = m + 1, prepend = true)`, which places the seed at times `1:m` and returns it before the run ([renewal then delay][renewal]).
@@ -32,14 +32,14 @@
 - `Transform(f, θ; derivative)` maps each value through `f(v, θ)` with parameters ([Transform tutorial][transform]).
 - `Allocate(groups, total)` rescales groups of strata to exogenous totals ([spatial and multi-type models][spatial]).
   `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
-- `Pool(N; stocks, initial, draw, heterogeneity, flows)` holds stocks for each group of strata: each step's value is drawn from weighted stocks by a depletion form, then `Flow(from => to, demand; form)`s move between the stocks ([renewal then delay][renewal]).
-  A second stock drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
-  A stock's default start is empty, in the state's element type, so a `Float32` model stays `Float32`.
-  A draw into a stock fills it up to a capacity, such as beds, and the flows can act before the draw (`flows_first = true`), such as a share leaving the beds or a grant `Flow(0 => :B, b; form = Truncate())` into an allowance at the start of each period ([occupancy and capacity][occupancy]).
+- `Pool(N; pools, initial, draw, heterogeneity, flows)` holds pools for each group of strata: each step's value is drawn from weighted pools by a depletion form, then `Flow(from => to, demand; form)`s move between the pools ([renewal then delay][renewal]).
+  A second pool drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
+  A pool's default start is empty, in the state's element type, so a `Float32` model stays `Float32`.
+  A draw into a pool fills it up to a capacity, such as beds, and the flows can act before the draw (`flows_first = true`), such as a share leaving the beds or a grant `Flow(0 => :B, b; form = Truncate())` into an allowance at the start of each period ([occupancy and capacity][occupancy]).
   What the draw leaves of the demand goes to a second stratum (`overflow = :stratum`), to a queue in the state that joins the next step's demand (`overflow = :queue`), or nowhere.
-  Without a draw the stocks are the step's values, and the pool moves values between the compartments of each group ([occupancy and capacity][occupancy]).
+  Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
-- `Depletion(N; removals)` takes removals from the pool after each draw; `Depletion` is a `Pool` with one stock ([renewal then delay][renewal]).
+- `Depletion(N; removals)` takes removals from the pool after each draw; `Depletion` is a `Pool` with one pool ([renewal then delay][renewal]).
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.

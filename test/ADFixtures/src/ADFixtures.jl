@@ -369,7 +369,7 @@ end
 function _leaky(N, doses, σ, flows...)
     CR = ComposableRecurrences
     return CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -423,7 +423,7 @@ function _ward(w, θ)
     )
     CR = ComposableRecurrences
     flows = CR.Pool(;
-        stocks = (:suspected, :confirmed), draw = nothing, flows = (
+        pools = (:suspected, :confirmed), draw = nothing, flows = (
             CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
             CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
             CR.Flow(:confirmed => 0, only(discharge)),
@@ -524,13 +524,13 @@ const GCAP = [0.5, 1.0, 1.0] .* G0'
 # differences see no kink; admitted cases transmit less. A share of the beds
 # empties before each step's admissions fill them.
 const CAPS0 = _flat(fill(log(5.0), 2, L), 0.5 .+ LOGR[1:2, :], [log(12.0)], [0.2], [0.1])
-function _capacity_stock(w, θ)
+function _capacity_beds(w, θ)
     x = CAPS0 .+ θ
     logh, logR = _unpack(x, (2, L), (2, T))
     n = length(x)
     CR = ComposableRecurrences
     beds = CR.Pool(
-        exp(x[n - 2]); stocks = (:O,), draw = CR.SoftTruncate(x[n]) => :O,
+        exp(x[n - 2]); pools = (:O,), draw = CR.SoftTruncate(x[n]) => :O,
         flows_first = true, flows = CR.Flow(:O => 0, x[n - 1]; form = CR.Share()),
         overflow = :stratum
     )
@@ -552,7 +552,7 @@ function _capacity_budget(w, θ)
     CR = ComposableRecurrences
     grants = WEEKS .* exp.(logb)
     doses = CR.Pool(;
-        stocks = (:B,), initial = PerStratum(collect(init)),
+        pools = (:B,), initial = PerStratum(collect(init)),
         draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
         flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
     )
@@ -575,7 +575,7 @@ function _capacity_drop(w, θ)
     CR = ComposableRecurrences
     pool = CR.Depletion(exp(x[n - 4]), CR.SoftTruncate(x[n - 3]))
     beds = CR.Pool(
-        PerStratum(exp.(x[(n - 2):n])); stocks = (:O,),
+        PerStratum(exp.(x[(n - 2):n])); pools = (:O,),
         draw = CR.SoftTruncate(0.2) => :O, flows_first = true,
         flows = CR.Flow(:O => 0, 0.3; form = CR.Share())
     )
@@ -1008,7 +1008,7 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
-        "Recurrence capacity, stock with overflow", _capacity_stock,
+        "Recurrence capacity, beds with overflow", _capacity_beds,
         () -> zero(CAPS0),
     ),
     (
@@ -1173,10 +1173,10 @@ const _PROBES = Dict{Symbol, Function}(
     :removals => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; removals = 1.0)
     ),
-    # A pool whose draw fills a stock up to a capacity.
+    # A `Pool` whose draw fills a pool up to a capacity.
     :pool_fill => () -> _accepts(
         () -> ComposableRecurrences.Pool(
-            1.0; stocks = (:O,), draw = ComposableRecurrences.Truncate() => :O
+            1.0; pools = (:O,), draw = ComposableRecurrences.Truncate() => :O
         )
     ),
 )
@@ -1193,7 +1193,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:_AllocateImports,),
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
-    "Recurrence capacity, stock with overflow" => (:pool_fill,),
+    "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),

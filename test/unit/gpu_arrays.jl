@@ -140,7 +140,7 @@
             d(g0);
             modifiers = (
                 Pool(
-                    PerStratum(d(NS)); stocks = (:S, :V),
+                    PerStratum(d(NS)); pools = (:S, :V),
                     initial = (nothing, PerStratum(d([1.0, 2.0, 3.0]))),
                     draw = (:S => 1, :V => PerStratum(d([0.3, 0.2, 0.1]))) => Hazard(),
                     flows = (
@@ -154,7 +154,7 @@
             d([1.0]);
             modifiers = (
                 Pool(;
-                    stocks = 3, draw = nothing, flows = (
+                    pools = 3, draw = nothing, flows = (
                         Flow(1 => 2, PerStratum(d([0.3]))),
                         Flow(1 => 0, 0.05),
                         Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
@@ -168,7 +168,7 @@
             d(g0);
             modifiers = (
                 Pool(
-                    PerStratum(d(NS)); stocks = (:S, :V),
+                    PerStratum(d(NS)); pools = (:S, :V),
                     draw = (:S => 1, :V => PerStratum(d([0.3, 0.2, 0.1]))) => Hazard(),
                     flows = (
                         Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
@@ -270,7 +270,7 @@
             modifiers = (
                 Depletion(PerStratum(d(NS))), Redistribute(d(K0 - 0.5I), 0.1),
                 Pool(
-                    60.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+                    60.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
                     flows = (Flow(1 => 2, 0.2; form = Truncate()),)
                 ),
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
@@ -407,21 +407,21 @@ end
             ComposableRecurrences._oldest_first(Pairwise(JLArray(ones(3, 3, 2)))),
             TimeVarying([JLArray([0.5, 0.5]), JLArray([1.0])]),
             Pool(
-                PerStratum(v); stocks = (:S, :V),
+                PerStratum(v); pools = (:S, :V),
                 draw = (:S => 1, :V => PerStratum(v)) => Hazard(),
                 flows = (Flow(1 => 2, tv; form = Truncate()),)
             ),
             Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
             Transform(*, 0.8 * Derived(exp, tv)),
             Pool(;
-                stocks = 2, draw = nothing, flows = (
+                pools = 2, draw = nothing, flows = (
                     Flow(1 => 2, PerStratum(v)),
                     Flow(2 => 0, tv; form = Share()),
                     Flow(1 => 0, tv; form = Truncate()),
                 )
             ),
             Pool(
-                PerStratum(v); stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+                PerStratum(v); pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
                 flows = (Flow(2 => 1, PerStratum(v)),)
             ),
         )

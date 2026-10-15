@@ -1,12 +1,12 @@
 # BVD's treatment-centre flows that follow each admission cohort: the
-# confirmed stock and the abscond-thinned discharges. A cohort's kernel
+# confirmed pool and the abscond-thinned discharges. A cohort's kernel
 # depends on its admission day through the confirmation hazard, so it is a
 # convolution with a cohort-indexed (`Primary()`) time-varying kernel.
 #
 # Column `u` of the kernel is the delay profile of the cohort admitted on
 # day `u`; its entries past the last day are never read.
 
-@testitem "Use case: BVD two-clock confirmed stock" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD two-clock confirmed pool" tags = [:usecase] setup = [UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 

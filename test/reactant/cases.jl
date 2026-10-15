@@ -164,7 +164,7 @@ const σ0 = 0.3
 function mod_depletion_protected(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
     d = Pool(
-        N0; stocks = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
+        N0; pools = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
         flows = (Flow(1 => 2, rm; form = Truncate()),)
     )
     r = Recurrence(θ[1:L]; modifiers = (d,))
@@ -213,7 +213,7 @@ end
 const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
 function mod_capacity(θ)
     c = Pool(;
-        stocks = (:B,), draw = :B => SoftTruncate(0.5), flows_first = true,
+        pools = (:B,), draw = :B => SoftTruncate(0.5), flows_first = true,
         flows = Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
         overflow = :queue
     )
@@ -224,7 +224,7 @@ end
 # Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
 function mod_flows(θ)
     fs = Pool(;
-        stocks = 3, draw = nothing,
+        pools = 3, draw = nothing,
         flows = (Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
     )
     r = Recurrence(g0; modifiers = (fs,))
@@ -358,7 +358,7 @@ const CASES = [
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),
     Case(
-        "mod_depletion_protected", "Recurrence with a protected Pool stock",
+        "mod_depletion_protected", "Recurrence with a protected pool",
         mod_depletion_protected,
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),

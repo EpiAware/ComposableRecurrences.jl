@@ -1133,7 +1133,7 @@ end
 # stratum's value goes straight to the buffer, else the step's values are
 # collected for the vector Step. Vector Steps (such as `Allocate` and
 # `Redistribute`) read every stratum, and blockwise ones (such as a `Pool`
-# with more than one stock) loop their groups, so they run on the calling task whatever
+# with more than one pool) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val

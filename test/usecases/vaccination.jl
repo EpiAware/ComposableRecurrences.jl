@@ -44,7 +44,7 @@
         return y
     end
     vaccinated(σ, r) = CR.Pool(
-        N; stocks = (:S, :V), initial = (pool0, nothing),
+        N; pools = (:S, :V), initial = (pool0, nothing),
         draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, TimeVarying(r); form = CR.Truncate()),)
     )
@@ -101,7 +101,7 @@ end
     attack(x∞, x0) = 1 - (1 - n0 / N) * x∞ / x0
     function final_size(σ, protected0)
         d = CR.Pool(
-            N; stocks = (:S, :V), initial = (rest - protected0, protected0),
+            N; pools = (:S, :V), initial = (rest - protected0, protected0),
             draw = (:S => 1, :V => σ) => CR.Hazard()
         )
         y, state = CR.with_state(

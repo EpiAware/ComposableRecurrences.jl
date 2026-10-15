@@ -119,7 +119,7 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 # where ``S_t`` is the susceptible pool, ``s_t`` above, and ``V_t`` the protected pool.
 # ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the doses on day ``t`` and ``m_t`` the doses moved.
 # The doses are capped by what remains of ``S``.
-# A [`Pool`](@ref ComposableRecurrences.Pool) with the stocks `:S` and `:V` keeps both pools.
+# A [`Pool`](@ref ComposableRecurrences.Pool) holds both pools, `:S` and `:V`.
 # It draws from ``S + \sigma V`` with `draw = (:S => 1, :V => σ) => Hazard()`.
 # The doses are a count [`Flow`](@ref ComposableRecurrences.Flow) from `:S` to `:V`, with `form = Truncate()`.
 # The `Pool` docstring gives the general form.
@@ -133,7 +133,7 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 e = 0.7
 doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
 dosed(r) = Flow(:S => :V, TimeVarying(r); form = Truncate())
-vaccinated(σ, flows) = Pool(N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => Hazard(), flows)
+vaccinated(σ, flows) = Pool(N; pools = (:S, :V), draw = (:S => 1, :V => σ) => Hazard(), flows)
 leaky = vaccinated(1 - e, dosed(doses))
 vaccines = [
     "None" => Depletion(N),

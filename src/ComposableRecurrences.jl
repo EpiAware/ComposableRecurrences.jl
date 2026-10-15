@@ -41,7 +41,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
-| stocks and flows      | `Pool(N; stocks, draw, flows)`, `Flow(from => to, d)`    |
+| pools and flows       | `Pool(N; pools, draw, flows)`, `Flow(from => to, d)`     |
 | admitted and overflow | `Pool(C; draw = Truncate() => :O, overflow = :stratum)`  |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
@@ -123,9 +123,9 @@ include("derived.jl")
 include("recent.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
-# Flows between the stocks of a pool.
+# Flows between the pools of a `Pool`.
 include("flows.jl")
-# Pools: stocks drawn from by a depletion form and moved by flows.
+# `Pool`: pools drawn from by a depletion form and moved by flows.
 include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.

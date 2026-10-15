@@ -326,14 +326,14 @@
 5.0	Use case: BVD patch model
 3.4	Use case: BVD renewal → delay
 2.4	Use case: BVD renewal_infections
-2.9	Use case: BVD two-clock confirmed stock
+2.9	Use case: BVD two-clock confirmed pool
 6.8	Use case: BVD zone share renewal
 2.2	Use case: MA(1) with a coefficient path
 4.8	Use case: MA(q)
-4.8	Use case: a pool filling its stock gives the values of Capacity with Beds
+4.8	Use case: a Pool filling a pool gives the values of Capacity with Beds
 3.4	Use case: a pool granted by flows gives the values of Capacity with Budget
-4.1	Use case: a pool with two stocks gives the values of Depletion with Protected
-0.2	Use case: a pool without a draw gives the values of Flows with Rate kinds
+4.1	Use case: a Pool with two pools gives the values of Depletion with Protected
+0.2	Use case: a Pool without a draw gives the values of Flows with Rate kinds
 7.1	Use case: all-or-nothing and leaky vaccination
 2.3	Use case: chain-length likelihood from PGF iteration
 0.4	Use case: clinical transitions as chained convolutions

@@ -243,7 +243,7 @@ end
         Recurrence(
             g; modifiers = (
                 CR.Pool(
-                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                     flows = (
                         CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
                     )
@@ -259,7 +259,7 @@ end
         Recurrence(
             g; modifiers = (
                 CR.Pool(
-                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                     flows = (
                         CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
                     )

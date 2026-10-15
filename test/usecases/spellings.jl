@@ -1,15 +1,15 @@
-# Each stock-and-flow model in the spelling that replaced an earlier one
+# Each model of pools and flows in the spelling that replaced an earlier one
 # gives the values the earlier spelling gave, recorded to full precision
 # before the change. The models are the docstring examples, so these
 # items keep their numbers whatever the doctests round to.
 
-@testitem "Use case: a pool without a draw gives the values of Flows with Rate kinds" tags = [:usecase] begin
+@testitem "Use case: a Pool without a draw gives the values of Flows with Rate kinds" tags = [:usecase] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     # Was `Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))`,
     # each a `Rate`; a bare demand is still a hazard rate.
     ward = CR.Pool(;
-        stocks = (:U, :C), draw = nothing,
+        pools = (:U, :C), draw = nothing,
         flows = (CR.Flow(:U => :C, 0.3), CR.Flow(:U => 0, 0.4), CR.Flow(:C => 0, 0.1))
     )
     r = Recurrence([1.0]; modifiers = (ward,))
@@ -30,7 +30,7 @@ end
     # Was `Flows` with `Flow(1 => 0, Linear(TimeVarying(fill(0.1, 6))))` and
     # `Flow(2 => 0, Amount(TimeVarying(PerStratum(fill(0.5, 2, 6)))))`.
     ward = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, PerStratum([0.3, 0.2])),
             CR.Flow(1 => 0, TimeVarying(fill(0.1, 6)); form = CR.Share()),
             CR.Flow(2 => 0, 0.1),
@@ -70,7 +70,7 @@ end
     # Was `Flow(1 => 0, Linear(θ[2]))` and `Flow(2 => 0, Amount(θ[4]))`.
     function run(θ)
         fl = CR.Pool(;
-            stocks = 2, draw = nothing, flows = (
+            pools = 2, draw = nothing, flows = (
                 CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
                 CR.Flow(2 => 0, θ[3]), CR.Flow(2 => 0, θ[4]; form = CR.Truncate()),
             )
@@ -100,7 +100,7 @@ end
     # Flow(2 => 0, Amount(1.0))))`. The pool is small enough that the draw
     # binds from the seventh step.
     d = CR.Pool(
-        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.2) => CR.Truncate(),
+        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.2) => CR.Truncate(),
         flows = (
             CR.Flow(:S => :V, 3.0; form = CR.Truncate()),
             CR.Flow(:V => :S, 0.05; form = CR.Share()),
@@ -116,11 +116,11 @@ end
     @test st.states[1] ≈ [0.0, 3.7198494413650236] rtol = 1.0e-12
 end
 
-@testitem "Use case: a pool with two stocks gives the values of Depletion with Protected" tags = [:usecase] begin
+@testitem "Use case: a Pool with two pools gives the values of Depletion with Protected" tags = [:usecase] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     leaky(N, σ, doses, flows...; initial = nothing, form = CR.Hazard()) = CR.Pool(
-        N; stocks = (:S, :V), initial, draw = (:S => 1, :V => σ) => form,
+        N; pools = (:S, :V), initial, draw = (:S => 1, :V => σ) => form,
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
     g = [0.3, 0.5, 0.2]
@@ -170,11 +170,11 @@ end
     ] rtol = 1.0e-10
 end
 
-@testitem "Use case: a pool filling its stock gives the values of Capacity with Beds" tags = [:usecase] begin
+@testitem "Use case: a Pool filling a pool gives the values of Capacity with Beds" tags = [:usecase] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     beds(C, δ; overflow = :stratum, form = CR.Truncate(), initial = nothing) = CR.Pool(
-        C; stocks = (:O,), initial, draw = form => :O, flows_first = true,
+        C; pools = (:O,), initial, draw = form => :O, flows_first = true,
         flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow
     )
     # Was `Capacity(10.0, Beds(0.1); pairs = [1 => 2])`.
@@ -252,7 +252,7 @@ end
     grant = CR.Flow(0 => :B, TimeVarying(5.0 .* starts); form = CR.Truncate())
     reset = CR.Flow(:B => 0, TimeVarying(float.(starts)); form = CR.Share())
     budget(flows; kw...) = CR.Pool(;
-        stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true, flows,
+        pools = (:B,), draw = :B => CR.Truncate(), flows_first = true, flows,
         overflow = :stratum, kw...
     )
     demand = [fill(0.5, 1, 7) fill(2.0, 1, 7); zeros(1, 14)]
@@ -273,7 +273,7 @@ end
         0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.5 2.0 2.0 2.0 2.0 2.0 2.0
     ]
     # Was `Capacity(2.0, Budget(Inf); pairs = [1], overflow = Drop())`.
-    doses = CR.Pool(; stocks = (:B,), initial = 2.0, draw = :B => CR.Truncate())
+    doses = CR.Pool(; pools = (:B,), initial = 2.0, draw = :B => CR.Truncate())
     @test Recurrence([0.0]; modifiers = (doses,))(; history = [0.0], add = [1.5, 1.5]) ==
         [1.5, 0.5]
 end

@@ -1,4 +1,4 @@
-# A pool without a draw, which moves its values between stocks: values and
+# A `Pool` without a draw, which moves its values between pools: values and
 # ForwardDiff gradients against naive loops for each flow form, the group
 # pullback against a local ForwardDiff Jacobian, and the checks.
 
@@ -91,7 +91,7 @@ end
         n = length(θc)
         function run(θ, adm)
             flows = CR.Pool(;
-                stocks = 2, draw = nothing, flows = (
+                pools = 2, draw = nothing, flows = (
                     CR.Flow(1 => 2, build(θ[1:n])),
                     CR.Flow(1 => 0, TimeVarying(θ[(n + 1):(n + 6)]); form = CR.Share()),
                     CR.Flow(2 => 0, θ[n + 7]),
@@ -122,7 +122,7 @@ end
     A = [30 * exp(-((t - 15) / 6)^2) for t in 1:40]
     d = 0.15
     flows = CR.Pool(;
-        stocks = 1, draw = nothing, flows = (
+        pools = 1, draw = nothing, flows = (
             CR.Flow(1 => 0, d; form = CR.Share()),
         )
     )
@@ -131,7 +131,7 @@ end
     @test vec(y) ≈ Recurrence([1 - d])(; history = [0.0], add = A) .* (1 - d)
     # The state holds the arrivals: a rate flow's confirmations.
     flows = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, 0.3),
             CR.Flow(1 => 0, 0.4),
         )
@@ -146,7 +146,7 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     flows = CR.Pool(;
-        stocks = 3, draw = nothing, flows = (
+        pools = 3, draw = nothing, flows = (
             CR.Flow(1 => 2, 4.0; form = CR.Truncate()),
             CR.Flow(1 => 3, 4.0; form = CR.Truncate()),
             CR.Flow(3 => 0, -1.0; form = CR.Truncate()),
@@ -165,7 +165,7 @@ end
     adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
     function run(θ)
         flows = CR.Pool(;
-            stocks = 2, draw = nothing, flows = (
+            pools = 2, draw = nothing, flows = (
                 CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
                 CR.Flow(2 => 0, 0.2; form = CR.Share()),
             )
@@ -174,7 +174,7 @@ end
         return r(; history = zeros(2, 1), add = [adm'; zero(adm')], stop = 6)
     end
     # The share acts first, then the count moves the smooth minimum of its
-    # demand `a` and what stock 1 holds.
+    # demand `a` and what pool 1 holds.
     function ref(θ)
         a, κ = θ
         x = zeros(eltype(θ), 2)
@@ -201,7 +201,7 @@ end
     CR = ComposableRecurrences
     function flows(θ)
         return CR.Pool(;
-            stocks = (:U, :C), draw = nothing, flows = (
+            pools = (:U, :C), draw = nothing, flows = (
                 CR.Flow(:U => :C, PerStratum(θ[1:2])),
                 CR.Flow(:U => 0, TimeVarying(θ[3:8]); form = CR.Share()),
                 CR.Flow(:C => 0, θ[9]),
@@ -238,7 +238,7 @@ end
     (; check_pullback) = ModifierChecks
     # Two groups of three compartments with a cycle, exits and every form.
     build(θ) = CR.Pool(;
-        stocks = 3, draw = nothing, flows = (
+        pools = 3, draw = nothing, flows = (
             CR.Flow(1 => 2, PerStratum(θ[1:2])),
             CR.Flow(1 => 0, θ[3]; form = CR.Share()),
             CR.Flow(2 => 3, TimeVarying(θ[4:5])),
@@ -260,7 +260,7 @@ end
     # Derived and group-by-time parameters, and a count into a compartment
     # followed by a count out of it whose cap binds.
     chained(θ) = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, Derived(exp, PerStratum(θ[1:2]))),
             CR.Flow(2 => 0, TimeVarying(PerStratum(reshape(θ[3:6], 2, 2))); form = CR.Share()),
             CR.Flow(1 => 2, θ[7]; form = CR.Truncate()),
@@ -277,7 +277,7 @@ end
     # Counts only: a negative count, a capped one and one that adds; without
     # a mirror the input cotangents are unchanged.
     counts(θ) = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate()),
             CR.Flow(2 => 0, θ[3]; form = CR.Truncate()),
         )
@@ -289,7 +289,7 @@ end
     # Smooth counts, with the softness as a parameter: one below what the
     # compartment holds, one above it and one out of an empty compartment.
     soft(θ) = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
             CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5])),
         )
@@ -330,7 +330,7 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     flows = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, 0.3),
             CR.Flow(2 => 0, 0.1; form = CR.Share()),
         )
@@ -344,7 +344,7 @@ end
     @test CR.nstate(flows, 6) == 6
     @test CR.uses_adjoint(r, CR.Run())
     f32 = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, 0.3f0),
             CR.Flow(2 => 0, 0.5f0; form = CR.Truncate()),
         )
@@ -358,12 +358,12 @@ end
 @testitem "Pool without a draw: check their options" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    @test_throws "two different stocks, got 1 => 1" CR.Flow(1 => 1, 0.1)
-    @test_throws "two different stocks, got :S => :S" CR.Flow(:S => :S, 0.1)
+    @test_throws "two different pools, got 1 => 1" CR.Flow(1 => 1, 0.1)
+    @test_throws "two different pools, got :S => :S" CR.Flow(:S => :S, 0.1)
     @test_throws "a flow from outside the pool is a count" CR.Flow(0 => 1, 0.1)
     @test_throws "got to = -1" CR.Flow(1 => -1, 0.1)
     @test_throws "given as from => to, got (1, 2)" CR.Flow((1, 2), 0.1)
-    @test_throws "stock names or positions, got 1.5" CR.Flow(1.5 => 2, 0.1)
+    @test_throws "pool names or positions, got 1.5" CR.Flow(1.5 => 2, 0.1)
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2])
     @test_throws ArgumentError CR.Flow(1 => 2, TimeVarying([0.1, 0.2], CR.Primary()))
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2]; form = CR.Share())
@@ -377,24 +377,24 @@ end
     @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )
-    moving(n, flows) = CR.Pool(; stocks = n, draw = nothing, flows)
+    moving(n, flows) = CR.Pool(; pools = n, draw = nothing, flows)
     @test_throws "expected a Flow, got 0.3" moving(2, (CR.Flow(1 => 2, 0.1), 0.3))
-    @test_throws "Flow(1 => 2) names stock 2, but the stocks are (1,)" moving(
+    @test_throws "Flow(1 => 2) names pool 2, but the pools are (1,)" moving(
         1, CR.Flow(1 => 2, 0.1)
     )
-    @test_throws "names stock :R, but the stocks are (:S, :V)" moving(
+    @test_throws "names pool :R, but the pools are (:S, :V)" moving(
         (:S, :V), CR.Flow(:S => :R, 0.1)
     )
     @test CR.blocks(moving(Int32(3), CR.Flow(1 => 2, 0.1))) == Val((3, 3))
-    @test_throws "a number of stocks, got 2.5" moving(2.5, CR.Flow(1 => 2, 0.1))
-    @test_throws "a number of stocks, got (:S, :S)" moving((:S, :S), ())
+    @test_throws "a number of pools, got 2.5" moving(2.5, CR.Flow(1 => 2, 0.1))
+    @test_throws "a number of pools, got (:S, :S)" moving((:S, :S), ())
     @test_throws "the history gives their start" CR.Pool(;
-        stocks = 2, draw = nothing, initial = (1.0, nothing)
+        pools = 2, draw = nothing, initial = (1.0, nothing)
     )
     @test_throws "heterogeneity is an exponent of the draw" CR.Pool(;
         draw = nothing, heterogeneity = 2.0
     )
-    # A third stock without flows is named by `stocks`.
+    # A third pool without flows is named by `pools`.
     flows = moving(3, CR.Flow(1 => 2, 0.5; form = CR.Share()))
     v = [1.0, 1.0, 0.0, 0.0, 7.0, 7.0]
     CR.forward(flows, CR.Step(), v, zeros(6), 1)
