@@ -237,10 +237,41 @@ end
     b = TimeVarying([1 => PerStratum([0.1, 0.2]), 5 => PerStratum([0.3, 0.0])])
     mods = (CR.Add(a), CR.Add(b), CR.Transform(*, Derived(exp, a)))
     @test pullback_matches(Recurrence(g; modifiers = mods), recargs(R, nothing, H)...)
+    # The lag contributions, and a route that reads its kernel step by step.
+    for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS)
+        ix isa CR.Primary && ps === GS && continue
+        op = CR._Contributions(Convolution(TimeVarying(ps, ix)))
+        h = ix isa CR.Primary ? nothing : X[:, 1:2]
+        @test pullback_matches(op, X, 0.5, h, 1, nothing)
+    end
+    K = [0.9 0.1; 0.2 0.8]
+    for ix in (CR.Secondary(), CR.Primary())
+        r = Recurrence(Routes((K, [0.3, 0.2]), (0.5I, TimeVarying(KS, ix))))
+        @test pullback_matches(r, recargs(R, nothing, H; start = 5)...)
+    end
     ex = CR.Threaded(; min_work = 0, ntasks = 2)
     with(CR.EXECUTOR => ex) do
         @test pullback_matches(Recurrence(TimeVarying(KS)), recargs(R, nothing, H)...)
         c = Convolution(TimeVarying(GS))
         @test pullback_matches(c, X, true, nothing, X[:, 1:2], 1, nothing)
     end
+end
+
+@testitem "Change points: in-order reverse sums equal the @simd ones" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Numbers other than IEEE floats take plain loops; the sums agree.
+    w, H = [0.2, 0.5, 0.3, 0.1], [0.1 * (i + 2k) for i in 1:9, k in 1:2]
+    kb, H̄ = zeros(4), zeros(9, 2)
+    CR._span_back!(kb, w, 0.7, H, H̄, 3, 2, 4, 2)
+    kb2, H̄2 = zeros(BigFloat, 4), zeros(BigFloat, 9, 2)
+    CR._span_back!(kb2, big.(w), 0.7, big.(H), H̄2, 3, 2, 4, 2)
+    @test kb2 ≈ kb
+    @test H̄2 ≈ H̄
+    w̄, X̄ = zeros(4), zeros(9, 2)
+    CR._tail_back!(w̄, X̄, w, H, 0.4, 1, 8, 1, 3)
+    w̄2, X̄2 = zeros(BigFloat, 4), zeros(BigFloat, 9, 2)
+    CR._tail_back!(w̄2, X̄2, big.(w), big.(H), 0.4, 1, 8, 1, 3)
+    @test w̄2 ≈ w̄
+    @test X̄2 ≈ X̄
 end
