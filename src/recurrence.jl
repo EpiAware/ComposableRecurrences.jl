@@ -772,15 +772,12 @@ end
 # A part the local step cannot rebuild sends every call to plain AD.
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
-    return _fit(Val(_coupling_adjoint(r.coupling) === :local), r.coupling, h)
-end
-_fit(w::_WithState, args...) = _fit(w.r, args...)
-_fit(::Val{false}, C, h) = :one
-function _fit(::Val{true}, C, h)
-    n = _nstrata(h) + length(_param_tuple(C))
+    _coupling_adjoint(r.coupling) === :local || return :one
+    n = _nstrata(h) + length(_param_tuple(r.coupling))
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
+_fit(w::_WithState, args...) = _fit(w.r, args...)
 
 # Whether a type holds a float array (or a field of unknown type) that a
 # local per-value derivative would have to carry, or a function with float

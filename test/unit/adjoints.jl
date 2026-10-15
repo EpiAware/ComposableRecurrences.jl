@@ -1234,9 +1234,8 @@ end
     @test CR._fit(r, args(11)...) === :wide
     @test CR._fit(r, args(22)...) === :wide
     @test CR._fit(r, args(23)...) === :none
-    @test CR._fit(Recurrence([0.3]), args(50)...) === :one
     # Without a local step the route is the rule, as for any other operator.
-    @test CR._fit(Val(false), nothing, ones(50, 2)) === :one
+    @test CR._fit(Recurrence([0.3]), args(50)...) === :one
     @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
     for S in (11, 23, 24)
         y = @test_logs CR.adjoint_call(r, args(S)...)
