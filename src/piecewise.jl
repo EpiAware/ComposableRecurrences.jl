@@ -260,14 +260,19 @@ _conv_mirror(::Nothing, c, k, j) = nothing
 _conv_mirror(V̄::AbstractMatrix, c, k, j) = view(V̄, :, j)
 _conv_mirror(V̄::NamedTuple, c, k, j) = _mirror_view(cotangent(V̄, :x), k, :, j)
 
-# Secondary: output row `j` reads the weights of its time's segment. With
-# IEEE floats the lags run in blocks of four over the whole series, as a
-# fixed kernel's do, each block one pass per segment over that segment's
-# rows, so a change point splits a pass rather than restarting the loop.
-# Other numbers, and series short enough that a fixed kernel would gather,
-# convolve each segment's outputs as a fixed kernel on their own.
+# Secondary: the outputs of each segment are one fixed convolution of the
+# whole input with that segment's weights. Keeping the fixed loop's four-lag
+# blocks across the change points instead measured slower: a segment of up
+# to three kernel lengths of outputs takes the fixed loop's four-output
+# gather, which beats the blocks.
 function _convolve_body!(k, Y, c::_TVPiecewise{Secondary}, X, m, start)
-    _convolve_segments!(view(Y, :, k), c, X, k, m, start)
+    p = c.x
+    T = size(Y, 1)
+    for j in _out_segments(p, start, T)
+        lo, hi = _out_rows(p, j, start, T)
+        y = view(Y, lo:hi, k)
+        _convolve_series!(y, _conv_weights(c, k, j), X, k, m, start + lo - 1)
+    end
     return nothing
 end
 # The segments a call from `start` with `T` outputs reads, and the output
@@ -278,49 +283,6 @@ end
 function _out_rows(p::_Piecewise, j, start, T)
     a, b = _span(p, j, start, start + T - 1)
     return a - start + 1, b - start + 1
-end
-function _convolve_segments!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
-    p = c.x
-    T = length(y)
-    L = _nlags(c)
-    _short_slice(T, L) && return _segments_each!(y, c, X, k, m, start)
-    o = m + start - 1
-    nb = L ÷ 4
-    for b in 0:(nb - 1)
-        d = 4b
-        j1 = max(1, d + 4 - o)
-        for j in _out_segments(p, start, T)
-            lo, hi = _out_rows(p, j, start, T)
-            w = _conv_weights(c, k, j)
-            for q in 0:3
-                _span_axpy!(y, w[d + q + 1], X, k, o, d + q, lo, min(j1 - 1, hi))
-            end
-            a = max(lo, j1)
-            a > hi && continue
-            r = o - d
-            _axpy4!(
-                w[d + 1], w[d + 2], w[d + 3], w[d + 4],
-                view(X, (r + a):(r + hi), k), view(X, (r + a - 1):(r + hi - 1), k),
-                view(X, (r + a - 2):(r + hi - 2), k), view(X, (r + a - 3):(r + hi - 3), k),
-                view(y, a:hi)
-            )
-        end
-    end
-    for d in (4nb):(L - 1), j in _out_segments(p, start, T)
-        lo, hi = _out_rows(p, j, start, T)
-        _span_axpy!(y, _conv_weights(c, k, j)[d + 1], X, k, o, d, lo, hi)
-    end
-    return y
-end
-_convolve_segments!(y, c, X, k, m, start) = _segments_each!(y, c, X, k, m, start)
-function _segments_each!(y, c, X, k, m, start)
-    p = c.x
-    T = length(y)
-    for j in _out_segments(p, start, T)
-        lo, hi = _out_rows(p, j, start, T)
-        _convolve_series!(view(y, lo:hi), _conv_weights(c, k, j), X, k, m, start + lo - 1)
-    end
-    return y
 end
 # The weights `w[d + 1]` against stratum `k`'s inputs at buffer rows `r - d`,
 # for the lags `lo:hi`; other numbers than IEEE floats sum in order, as
@@ -338,14 +300,6 @@ function _tail_dot(w, X, k, r, lo, hi)
         acc += w[d + 1] * X[r - d, k]
     end
     return acc
-end
-# Lag `d`'s part of output rows `lo:hi` with weight `cd`, from the first row
-# with a defined input.
-@inline function _span_axpy!(y, cd, X, k, o, d, lo, hi)
-    j0 = max(lo, d + 1 - o)
-    j0 > hi && return y
-    _axpy!(cd, view(X, (o + j0 - d):(o + hi - d), k), view(y, j0:hi))
-    return y
 end
 function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Secondary}, X, Ȳ, m, start)
     p = c.x
