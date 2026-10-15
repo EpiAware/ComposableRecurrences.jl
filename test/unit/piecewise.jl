@@ -204,6 +204,12 @@ end
         @test Recurrence(g; modifiers = mp)(R; history = H) ≈
             Recurrence(g; modifiers = md)(R; history = H)
     end
+    # Integer per-stratum values are made floats, as a dense array's are.
+    ints = [1 => PerStratum([60, 70]), 12 => PerStratum([80, 90])]
+    floats = [1 => PerStratum([60.0, 70.0]), 12 => PerStratum([80.0, 90.0])]
+    ni, nf = TimeVarying(ints), TimeVarying(PiecewiseChecks.dense(floats, T))
+    @test Recurrence(g; modifiers = (Depletion(ni; pool0 = 50.0),))(R; history = H) ≈
+        Recurrence(g; modifiers = (Depletion(nf; pool0 = 50.0),))(R; history = H)
     @test CR.param(ap, 1, 8) == 0.3 && CR.param(ap, 1, 9) == -0.1
     @test CR.param(bp, 2, 30) == 0.0
     x̄ = (; x = (; x = zeros(2), starts = nothing))

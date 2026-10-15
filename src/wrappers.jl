@@ -480,13 +480,7 @@ _value_type(::Type{<:Pair{<:Any, V}}) where {V} = V
 # pairs typed `Pair{Int, Any}`, or of `PerStratum` values with different
 # eltypes, takes the form its values share.
 _values_type(::Type{V}, get, ps) where {V} = isconcretetype(V) ? V : _join_types(get, ps)
-function _join_types(get, ps)
-    T = Union{}
-    for p in ps
-        T = typejoin(T, typeof(get(p)))
-    end
-    return T
-end
+_join_types(get, ps) = mapreduce(p -> typeof(get(p)), typejoin, ps)
 
 # The values `get(p)` of the pairs `ps`, of type `V`, read from the pairs
 # where they are: a vector of the values would be a copy of each that

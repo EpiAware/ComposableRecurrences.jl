@@ -148,9 +148,7 @@ function _kernel_buffer(ḡ, g::_StrataSegments, H, S, L)
     return _PiecewiseBuffer([_zeros(H, eltype(H), S, L) for _ in g.ks])
 end
 _run_buffer(kbuf::_PiecewiseBuffer, ::_OldestFirstPiecewise{Secondary}, j) = kbuf.x[j]
-function _kernel_finish!(ḡ, kbuf::_PiecewiseBuffer)
-    return _piecewise_finish!(_values_cotangent(ḡ), kbuf.x)
-end
+_kernel_finish!(ḡ, kb::_PiecewiseBuffer) = _piecewise_finish!(_values_cotangent(ḡ), kb.x)
 function _piecewise_finish!(V̄::AbstractMatrix, bufs)
     for j in eachindex(bufs)
         _kernel_finish!(view(V̄, :, j), bufs[j])
