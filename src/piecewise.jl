@@ -203,7 +203,9 @@ function _kdot(g::_OldestFirstPiecewise{Primary}, H, t, τ, L, a)
     end
     return acc
 end
-function _span_dot(w, H::AbstractMatrix{<:_IEEEFloat}, t, lo, hi, a)
+function _span_dot(
+        w::AbstractVector{<:_IEEEFloat}, H::AbstractMatrix{<:_IEEEFloat}, t, lo, hi, a
+    )
     acc = zero(promote_type(eltype(w), eltype(H)))
     @inbounds @simd for i in lo:hi
         acc += w[i] * H[t + i - 1, a]
@@ -234,15 +236,21 @@ function _kernel_back_at!(
     end
     return nothing
 end
-function _span_back!(kb, w, a, H, H̄, t, lo, hi, k)
+# As in the forward sums, `@simd` runs only when the weights and the
+# values are IEEE floats.
+function _span_back!(
+        kb, w::AbstractVector{<:_IEEEFloat}, a, H::AbstractMatrix{<:_IEEEFloat},
+        H̄, t, lo, hi, k
+    )
     @inbounds @simd ivdep for i in lo:hi
-        kb[i] += a * H[t + i - 1, k]
+        _add_at!(kb, a * H[t + i - 1, k], i)
         H̄[t + i - 1, k] += a * w[i]
     end
     return nothing
 end
-function _span_back!(::Nothing, w, a, H, H̄, t, lo, hi, k)
-    @inbounds @simd ivdep for i in lo:hi
+function _span_back!(kb, w, a, H, H̄, t, lo, hi, k)
+    @inbounds for i in lo:hi
+        _add_at!(kb, a * H[t + i - 1, k], i)
         H̄[t + i - 1, k] += a * w[i]
     end
     return nothing
@@ -287,7 +295,9 @@ end
 # The weights `w[d + 1]` against stratum `k`'s inputs at buffer rows `r - d`,
 # for the lags `lo:hi`; other numbers than IEEE floats sum in order, as
 # `@simd` slows them.
-function _tail_dot(w, X::AbstractMatrix{<:_IEEEFloat}, k, r, lo, hi)
+function _tail_dot(
+        w::AbstractVector{<:_IEEEFloat}, X::AbstractMatrix{<:_IEEEFloat}, k, r, lo, hi
+    )
     acc = zero(promote_type(eltype(w), eltype(X)))
     @inbounds @simd for d in lo:hi
         acc += w[d + 1] * X[r - d, k]
@@ -300,6 +310,25 @@ function _tail_dot(w, X, k, r, lo, hi)
         acc += w[d + 1] * X[r - d, k]
     end
     return acc
+end
+# The pullback of `_tail_dot` for the cotangent `ȳ`, with `@simd` under the
+# same condition.
+function _tail_back!(
+        w̄, X̄, w::AbstractVector{<:_IEEEFloat}, X::AbstractMatrix{<:_IEEEFloat},
+        ȳ, k, r, lo, hi
+    )
+    @inbounds @simd ivdep for d in lo:hi
+        _add_at!(w̄, ȳ * X[r - d, k], d + 1)
+        X̄[r - d, k] += w[d + 1] * ȳ
+    end
+    return nothing
+end
+function _tail_back!(w̄, X̄, w, X, ȳ, k, r, lo, hi)
+    @inbounds for d in lo:hi
+        _add_at!(w̄, ȳ * X[r - d, k], d + 1)
+        X̄[r - d, k] += w[d + 1] * ȳ
+    end
+    return nothing
 end
 function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Secondary}, X, Ȳ, m, start)
     p = c.x
@@ -367,11 +396,7 @@ function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Primary}, X, Ȳ, m, start)
         j < _nsegments(p) || continue
         for t in max(b + 1, start):min(b + D - 1, stop)
             @inbounds ȳ = Ȳ[t - start + 1, k]
-            @inbounds @simd ivdep for d in (t - b):min(D - 1, t - a)
-                r = m + t - d
-                _add_at!(w̄, ȳ * X[r, k], d + 1)
-                X̄[r, k] += w[d + 1] * ȳ
-            end
+            _tail_back!(w̄, X̄, w, X, ȳ, k, m + t, t - b, min(D - 1, t - a))
         end
     end
     return nothing

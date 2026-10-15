@@ -200,10 +200,11 @@ so the last value holds at every later time and the coefficient covers any
 Each value has the form of one column: a number for a parameter, a vector
 of lag weights for a kernel (shorter ones padded with zero weights), an
 `S × S` matrix for a coupling, or a [`PerStratum`](@ref) of these.
-Only the ``J`` values are stored, stacked into one array, and a call runs
-each segment with the loops of a fixed coefficient: a `Secondary()` kernel
-switches at the change points, and a `Primary()` kernel sums one fixed
-convolution per segment of the inputs from that segment.
+Only the ``J`` values are stored: they are copied when stacked into one
+array, so changing a value after building the coefficient does not change
+it.
+[`Pairwise`](@ref) values are not taken; a pairwise kernel is the dense
+`TimeVarying(Pairwise(A))`.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
 
@@ -283,8 +284,9 @@ struct TimeVarying{I, A}
         )
         x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise} || throw(
             ArgumentError(
-                "TimeVarying wraps an array, a PerStratum, a Pairwise or a " *
-                    "vector of kernel columns, got $(_describe(x))"
+                "TimeVarying wraps an array, a PerStratum, a Pairwise, a " *
+                    "vector of kernel columns or a vector of start => value " *
+                    "change points, got $(_describe(x))"
             )
         )
         return new{I, A}(x)
@@ -425,7 +427,7 @@ struct _Piecewise{X, P <: AbstractVector{Int}}
         ok || throw(
             ArgumentError(
                 "change points start at time 1 and rise, got the starts " *
-                    _describe(s)
+                    repr(s)
             )
         )
         n = _extent(_array(x))
@@ -461,7 +463,8 @@ function _piecewise(ps::AbstractVector{<:Pair})
         ArgumentError("TimeVarying needs at least one start => value pair")
     )
     starts = [_start_time(p) for p in ps]
-    return _Piecewise(_stack_values(_value_type(eltype(ps)), last, ps), starts)
+    V = _values_type(_value_type(eltype(ps)), last, ps)
+    return _Piecewise(_stack_values(V, last, ps), starts)
 end
 _start_time(p::Pair{<:Integer}) = first(p)
 function _start_time(p::Pair)
@@ -472,6 +475,18 @@ function _start_time(p::Pair)
     )
 end
 _value_type(::Type{<:Pair{<:Any, V}}) where {V} = V
+# The type that picks how the values `get(p)` stack: `V` when it is
+# concrete, else the join of the values' own types, so that a vector of
+# pairs typed `Pair{Int, Any}`, or of `PerStratum` values with different
+# eltypes, takes the form its values share.
+_values_type(::Type{V}, get, ps) where {V} = isconcretetype(V) ? V : _join_types(get, ps)
+function _join_types(get, ps)
+    T = Union{}
+    for p in ps
+        T = typejoin(T, typeof(get(p)))
+    end
+    return T
+end
 
 # The values `get(p)` of the pairs `ps`, of type `V`, read from the pairs
 # where they are: a vector of the values would be a copy of each that
@@ -491,8 +506,10 @@ function _stack_values(::Type{V}, get, ps) where {V <: AbstractArray}
     end
     return _stack(V, get, ps, sz)
 end
-function _stack_values(::Type{V}, get, ps) where {V <: Union{PerStratum, Pairwise}}
-    x = _stack_values(_field_type(V), p -> get(p).x, ps)
+_stack_values(::Type{<:Pairwise}, get, ps) = _pairwise_piecewise(map(get, ps))
+function _stack_values(::Type{V}, get, ps) where {V <: PerStratum}
+    getx = p -> get(p).x
+    x = _stack_values(_values_type(_field_type(V), getx, ps), getx, ps)
     return constructorof(V)(x)
 end
 _field_type(::Type{V}) where {V} = isconcretetype(V) ? fieldtype(V, :x) : Any
@@ -564,8 +581,15 @@ Pairwise(x::TimeVarying{<:Any, <:_AnyRagged}) = _strata_ragged(x)
 function PerStratum(x::TimeVarying{I, <:_Piecewise}) where {I}
     return TimeVarying{I}(_Piecewise(_Flat(), PerStratum(x.x.x), x.x.starts))
 end
-function Pairwise(x::TimeVarying{I, <:_Piecewise}) where {I}
-    return TimeVarying{I}(_Piecewise(_Flat(), Pairwise(x.x.x), x.x.starts))
+Pairwise(x::TimeVarying{<:Any, <:_Piecewise}) = _pairwise_piecewise(x)
+function _pairwise_piecewise(x)
+    throw(
+        ArgumentError(
+            "change points take numbers, arrays or PerStratum values, not " *
+                "Pairwise; give a pairwise kernel as the dense " *
+                "TimeVarying(Pairwise(A)), got $(_describe(x))"
+        )
+    )
 end
 function _strata_ragged(x)
     throw(

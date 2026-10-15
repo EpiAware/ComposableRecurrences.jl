@@ -72,6 +72,21 @@ end
         ones(3, 4); history = ones(3, 3)
     )
     @test occursin("change points [1, 7, 9]", CR._describe(TimeVarying(KS)))
+    err = try
+        TimeVarying([2 => 1.0, 5 => 2.0])
+    catch e
+        e
+    end
+    @test occursin("starts [2, 5]", sprint(showerror, err))
+    # Pairs of an abstract type take the form their values share.
+    q = TimeVarying([1 => PerStratum([0.1, 0.2]), 5 => PerStratum([1, 0])])
+    @test q.x.x isa PerStratum{Matrix{Float64}}
+    @test q.x.x.x == [0.1 1.0; 0.2 0.0]
+    a = TimeVarying(Pair{Int, Any}[1 => [0.5, 0.5], 4 => [0.2, 0.8]])
+    @test a.x.x == [0.5 0.2; 0.5 0.8]
+    @test TimeVarying(Pair{Int, Any}[1 => 1, 4 => 2.5]).x.x == [1.0, 2.5]
+    # `Pairwise` of change points is refused, as are Pairwise values above.
+    @test_throws ArgumentError Pairwise(TimeVarying([1 => [1.0, 2.0], 3 => [3.0, 4.0]]))
 end
 
 @testitem "Change points: Convolution equals the dense kernel" setup = [PiecewiseChecks] begin
@@ -138,6 +153,33 @@ end
     long = vcat(R[1, :], R[1, :])
     d2 = TimeVarying(PiecewiseChecks.dense(KS, 2T))
     @test Recurrence(p)(long; history = H[1, :]) ≈ Recurrence(d2)(long; history = H[1, :])
+end
+
+@testitem "Change points: one segment, a change after stop, a change every step" setup = [PiecewiseChecks] begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    (; G, X, R, H, T, both) = PiecewiseChecks
+    cases = (
+        [1 => G[2]],
+        [1 => G[1], T + 5 => G[2]],
+        [t => G[mod1(t, 3)] for t in 1:T],
+    )
+    for ix in (CR.Secondary(), CR.Primary()), ps in cases
+        p, d = both(ps, T, ix)
+        h = ix isa CR.Primary ? nothing : X[:, 1:3]
+        @test Convolution(p)(X; history = h) ≈ Convolution(d)(X; history = h)
+        @test Convolution(p)(X; history = h, start = 5, stop = 9) ≈
+            Convolution(d)(X; history = h, start = 5, stop = 9)
+        start = ix isa CR.Primary ? 5 : 1
+        @test Recurrence(p)(R; history = H, start) ≈ Recurrence(d)(R; history = H, start)
+    end
+    # One segment is the fixed kernel.
+    p = TimeVarying([1 => G[2]])
+    @test Convolution(p)(X; history = X[:, 1:3]) ≈ Convolution(G[2])(X; history = X[:, 1:3])
+    @test Recurrence(p)(R; history = H) ≈ Recurrence(G[2])(R; history = H)
+    p = TimeVarying([1 => G[2]], CR.Primary())
+    @test Convolution(p)(X) ≈ Convolution(G[2])(X)
+    @test Recurrence(p)(R; history = H, start = 5) ≈ Recurrence(G[2])(R; history = H, start = 5)
 end
 
 @testitem "Change points: couplings and parameters equal the dense form" setup = [PiecewiseChecks] begin
