@@ -548,13 +548,36 @@ end
         @test val(op) == [Val{route}]
         @test val(CR._WithState(op)) == [Val{route}]
     end
-    # A vector-level modifier or a coupling without a pullback, or a
-    # pointwise modifier without one and with array parameters, sends the
-    # whole operator to plain AD.
+    # A coupling or a pointwise modifier without a pullback whose floats
+    # sit in arrays takes the rule with a local derivative.
     for op in (
-            Recurrence(g; modifiers = (Scale(0.9),)),
             Recurrence(g; coupling = Mix(K, [1.0, 1.0])),
             Recurrence(g; modifiers = (PoolDepletion([30.0, 40.0]),)),
+        )
+        @test CR.uses_adjoint(op, CR.Run())
+        @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
+    end
+    # A vector-level modifier without a pullback, or a part whose floats sit
+    # in arrays of arrays, sends the whole operator to plain AD.
+    struct NestedPool
+        pop::Vector{Vector{Float64}}
+    end
+    CR.ispointwise(::NestedPool) = true
+    CR.forward(m::NestedPool, ::CR.Step, v, s, t, k) = (v * m.pop[k][1], s)
+    struct NestedMix
+        K::Vector{Vector{Float64}}
+    end
+    function CR.forward(C::NestedMix, ::CR.Pressure, q, p, t)
+        for i in eachindex(q)
+            q[i] = sum(C.K[i] .* p)
+        end
+        return nothing
+    end
+    nested = [[0.5, 0.1], [0.2, 0.4]]
+    for op in (
+            Recurrence(g; modifiers = (Scale(0.9),)),
+            Recurrence(g; coupling = NestedMix(nested)),
+            Recurrence(g; modifiers = (NestedPool([[30.0], [40.0]]),)),
         )
         @test !CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{:plain}]
@@ -566,10 +589,13 @@ end
     @test_logs Recurrence(g; modifiers = (Scale(0.9),))
     # The note is once per message, so other number types log nothing more.
     @test_logs Recurrence(g; modifiers = (Scale(ForwardDiff.Dual(0.9, 1.0)),))
-    @test_logs (:info, r"Mix has no pullback!") note(coupling = Mix(K, [1.0, 1.0]))
-    @test_logs (:info, r"PoolDepletion has no pullback!") note(
-        modifiers = (CR.Clamp(0.0, 9.0), PoolDepletion([30.0, 40.0]))
+    @test_logs (:info, r"NestedMix has no pullback!") note(
+        coupling = NestedMix(nested)
     )
+    @test_logs (:info, r"NestedPool has no pullback!") note(
+        modifiers = (CR.Clamp(0.0, 9.0), NestedPool([[30.0], [40.0]]))
+    )
+    @test_logs note(coupling = Mix(K, [1.0, 1.0]))
     @test_logs note(modifiers = (CR.Clamp(0.0, 9.0),))
     # A `Derived` map that holds floats is named as the cause.
     scaled = let c = 2.0
@@ -1186,9 +1212,163 @@ end
     @test op.rebuilds === true
     @test CR.uses_adjoint(op, CR.Run())
     @test pullback_matches(op, recargs(ones(S, 6), nothing, ones(S, 2))...)
-    # An array parameter of another form, or a raw array, keeps plain AD.
-    @test CR._modifier_adjoint(Cap(PerStratum([1.0 2.0; 3.0 4.0]), 1.0)) === :none
-    @test CR._modifier_adjoint(Cap([5.0, 6.0], 1.0)) === :none
+    # An array parameter of another form, or a raw array, takes the read
+    # step (`_read_pullback`) instead.
+    struct Raw{K}
+        κ::K
+    end
+    CR.ispointwise(::Raw) = true
+    CR.forward(m::Raw, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ[k]), s)
+    for m in (Cap(PerStratum([5.0 6.0; 7.0 8.0]), 1.0), Raw([5.0, 6.0, 7.0]))
+        @test CR._modifier_adjoint(m) === :local
+        ro = Recurrence([0.3, 0.2]; modifiers = (m,))
+        @test ro.rebuilds === true
+        @test pullback_matches(ro, recargs(ones(S, 2), nothing, ones(S, 2))...)
+    end
+end
+
+@testitem "Adjoint: local pullback over float arrays read entry by entry" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using LinearAlgebra: I
+    # Pointwise modifiers that read their float arrays directly: the local
+    # step records each entry read and seeds it alone, up to four a step.
+    abstract type Reader end
+    CR.ispointwise(::Reader) = true
+    struct ByT{A} <: Reader
+        a::A
+    end
+    CR.forward(m::ByT, ::CR.Step, v, s, t, k) = (v * m.a[t], s + v)
+    struct ByKT{A} <: Reader
+        a::A
+    end
+    CR.forward(m::ByKT, ::CR.Step, v, s, t, k) = (v * m.a[k, t], s)
+    struct Two{A} <: Reader
+        a::A
+    end
+    CR.forward(m::Two, ::CR.Step, v, s, t, k) = (v * m.a[t] + 0.1 * m.a[max(t - 1, 1)], s)
+    struct Every{A} <: Reader
+        a::A
+    end
+    CR.forward(m::Every, ::CR.Step, v, s, t, k) = (v * sum(m.a) / length(m.a), s)
+    struct Scaled{A, B} <: Reader
+        a::A
+        b::B
+    end
+    CR.forward(m::Scaled, ::CR.Step, v, s, t, k) = (m.b * v * m.a[t], s)
+    struct Entry{A, B} <: Reader
+        a::A
+        b::B
+    end
+    CR.forward(m::Entry, ::CR.Step, v, s, t, k) = (CR.param(m.b, k, t) * v * m.a[t], s)
+    S, T = 2, 6
+    rng = Xoshiro(6)
+    a = 0.8 .+ 0.2 .* rand(rng, T)
+    args = recargs(ones(S, T), nothing, ones(S, 2))
+    for m in (
+            ByT(a), ByKT(0.8 .+ 0.2 .* rand(rng, S, T)), Two(a), Every(a),
+            Scaled(a, 1.3), Entry(a, PerStratum([0.9, 1.1])),
+        )
+        @test CR._modifier_adjoint(m) === :local
+        @test !CR._local_params(m)
+        r = Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
+        @test r.rebuilds === true
+        @test CR.uses_adjoint(r, CR.Run())
+        # The rule on Mooncake only (`_ad_wide`).
+        @test CR._fit(r, args...) === :wide
+        @test pullback_matches(r, args...)
+        # One step against ForwardDiff over every entry at (k, t) = (2, 3).
+        x0 = [2.0; 1.5; CR._params(m)]
+        J = ForwardDiff.jacobian(x0) do x
+            md = CR._rebuild(m, view(x, 3:length(x)))
+            return collect(CR.forward(md, CR.Step(), x[1], x[2], 3, 2))
+        end
+        ref = transpose(J) * [0.3, 0.7]
+        m̄ = zero_mirror(m)
+        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
+        @test collect(got) ≈ ref[1:2]
+        @test mirror_vec(m̄, m) ≈ ref[3:end]
+    end
+    # The step infers and allocates only its record of the reads.
+    m = ByT(a)
+    m̄ = zero_mirror(m)
+    @inferred CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
+    @test (@allocated CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)) < 400
+    # A constructor that changes its array, a step that needs the array's
+    # own type, and an array of arrays keep plain AD.
+    struct Halved{A} <: Reader
+        a::A
+        Halved(a::A) where {A} = new{A}(a ./ 2)
+    end
+    CR.forward(m::Halved, ::CR.Step, v, s, t, k) = (v * m.a[t], s)
+    struct Strict{A} <: Reader
+        a::A
+    end
+    CR.forward(m::Strict, ::CR.Step, v, s, t, k) = (v * (m.a::Vector{Float64})[t], s)
+    for m in (Halved(a), Strict(a))
+        op = Recurrence([0.3, 0.2]; modifiers = (m,))
+        @test op.rebuilds === false
+        @test !CR.uses_adjoint(op, CR.Run())
+    end
+    @test CR._modifier_adjoint(ByT([a, a])) === :none
+end
+
+@testitem "Adjoint: local pullback of a coupling holding arrays" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using LinearAlgebra: mul!
+    # A user coupling holding a matrix, and one with a scalar beside it,
+    # without a pullback: the local step seeds every entry.
+    struct Mix{M}
+        M::M
+    end
+    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
+    struct ScaledMix{M, A}
+        M::M
+        a::A
+    end
+    CR.forward(C::ScaledMix, ::CR.Pressure, q, p, t) = (q .= C.a .* (C.M * p); nothing)
+    rng = Xoshiro(7)
+    for S in (2, 3, 7)
+        M = 0.5 .* rand(rng, S, S)
+        for C in (Mix(M), ScaledMix(M, 0.7))
+            @test CR._coupling_adjoint(C) === :local
+            @test CR._ninputs(C) == S^2 + (C isa ScaledMix)
+            p, q̄ = rand(rng, S), randn(rng, S)
+            θ0 = [p; CR._params(C)]
+            function pressure(x)
+                q = zeros(eltype(x), S)
+                CR.forward(CR._rebuild(C, x[(S + 1):end]), CR.Pressure(), q, x[1:S], 1)
+                return sum(q̄ .* q)
+            end
+            ref = ForwardDiff.gradient(pressure, θ0)
+            C̄ = zero_mirror(C)
+            p̄ = zeros(S)
+            bufs = CR._pressure_buffers(C̄, C, Float64)
+            CR._pressure_back!(p̄, C̄, C, q̄, p, 1, bufs)
+            @test p̄ ≈ ref[1:S]
+            @test mirror_vec(C̄, C) ≈ ref[(S + 1):end]
+            # Without the reverse pass's buffers the step makes its own.
+            C̄ = zero_mirror(C)
+            p̄ = zeros(S)
+            CR._pressure_back!(p̄, C̄, C, q̄, p, 1)
+            @test p̄ ≈ ref[1:S]
+            @test mirror_vec(C̄, C) ≈ ref[(S + 1):end]
+        end
+    end
+    # Through a recurrence; with 3 strata the 12 inputs fit one pass.
+    r = Recurrence([0.3, 0.2]; coupling = Mix(0.5 .* rand(rng, 3, 3)))
+    @test r.rebuilds === true
+    args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
+    @test CR._fit(r, args(3)...) === :one
+    @test pullback_matches(r, args(3)...)
+    @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :wide
+    @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(7, 7))), args(7)...) === :none
+    # A constructor that changes its matrix keeps plain AD.
+    struct HalvedMix{M}
+        M::M
+        HalvedMix(M::A) where {A} = new{A}(M ./ 2)
+    end
+    CR.forward(C::HalvedMix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
+    @test Recurrence([0.3]; coupling = HalvedMix(rand(3, 3))).rebuilds === false
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [AdjointCheck] begin

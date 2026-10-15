@@ -721,12 +721,12 @@ function _check_rebuilds(parts::Tuple)
 end
 # The coupling, modifiers and depletion forms the local step rebuilds.
 function _local_part(C)
-    return _coupling_adjoint(C) === :local && _nparams(C) > 0 ? (C,) : ()
+    return _coupling_adjoint(C) === :local && _holds_floats(C) ? (C,) : ()
 end
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
-    return _modifier_adjoint(m) === :local && _nparams(m) > 0 ? (m,) : ()
+    return _modifier_adjoint(m) === :local && _holds_floats(m) ? (m,) : ()
 end
 function _local_modifier(m::Depletion)
     f = m.form
@@ -770,14 +770,28 @@ end
 # and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
 # `_ad_wide`; with more it takes plain AD.
 # A part the local step cannot rebuild sends every call to plain AD.
+# A pointwise modifier whose local step records its reads of float arrays
+# (`_read_pullback`) narrows the rule to Mooncake as well: it is 0.26 to 0.58
+# of plain AD's time there, but 1.6 to 1.7 times it on Enzyme at 1 and 5
+# strata.
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
-    _coupling_adjoint(r.coupling) === :local || return :one
-    n = _nstrata(h) + _ninputs(r.coupling)
+    fit = _coupling_fit(r.coupling, h)
+    fit === :one && _any_reads(r.modifiers) && return :wide
+    return fit
+end
+_fit(w::_WithState, args...) = _fit(w.r, args...)
+function _coupling_fit(C, h)
+    _coupling_adjoint(C) === :local || return :one
+    n = _nstrata(h) + _ninputs(C)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
-_fit(w::_WithState, args...) = _fit(w.r, args...)
+function _any_reads(ms::Tuple)
+    return any(ms) do m
+        _modifier_adjoint(m) === :local && !_local_params(m) && _read_params(m)
+    end
+end
 # The parameters a coupling's local step seeds: its float scalars, folded
 # from the type, or every scalar and array entry.
 _ninputs(C) = _scalar_params(C) ? length(_param_tuple(C)) : _nparams(C)
@@ -822,14 +836,18 @@ function _has_float(::Type{T}) where {T}
     end
     return false
 end
-# Whether a type holds a parameter the local step cannot seed: an array
-# whose entries are not numbers of a concrete type (an array of arrays,
-# say), a field of unknown type, or a function with float fields. Float
-# arrays, whose entries the local step seeds, are allowed, as are arrays of
-# other numbers (integers, or the dual numbers of a forward-mode call),
-# which hold no parameters it seeds.
+# Whether a type holds a parameter the local step cannot seed: an array of
+# unknown element type or whose elements hold floats of their own (an array
+# of float arrays, say), a field of unknown type, or a function with float
+# fields. Arrays of numbers are allowed: the local step seeds float entries,
+# and integers (or the dual numbers of a forward-mode call) are not
+# parameters, nor are arrays of integer ranges or index vectors.
 function _has_opaque_params(::Type{T}) where {T}
-    T <: AbstractArray && return !(isconcretetype(eltype(T)) && eltype(T) <: Real)
+    if T <: AbstractArray
+        E = eltype(T)
+        isconcretetype(E) || return true
+        return !(E <: Real) && _has_float(E)
+    end
     T <: Function && return _has_float(T)
     T <: Union{Real, Nothing, Symbol, AbstractString} && return false
     isconcretetype(T) || return true
@@ -842,6 +860,20 @@ end
 @generated _scalar_params(m) = !_has_array_params(m, false)
 @generated _local_params(m) = !_has_array_params(m, true)
 @generated _array_params(m) = !_has_opaque_params(m)
+# Whether a type holds a float array other than a plain `Array`, outside
+# entry parameters: a `Diagonal` or a sparse matrix, say, whose fields a
+# step may read, so a pointwise modifier holding one takes the Jacobian
+# rather than recording its reads (`_read_params`).
+function _has_structured_floats(::Type{T}) where {T}
+    T <: _EntryParam && return false
+    T <: AbstractArray && return eltype(T) <: AbstractFloat && !(T <: Array)
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    isconcretetype(T) || return false
+    return any(_has_structured_floats, fieldtypes(T))
+end
+@generated function _read_params(m)
+    return !_has_opaque_params(m) && !_has_structured_floats(m)
+end
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including the state to resume from.

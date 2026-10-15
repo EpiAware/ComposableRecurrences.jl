@@ -84,8 +84,8 @@ function _rebuild(x::NamedTuple{N}, θ, o) where {N}
     return NamedTuple{N}(y), o
 end
 function _rebuild(x, θ, o)
-    _nparams(x) == 0 && return x, o
-    fs, o = _rebuild(ntuple(i -> getfield(x, i), fieldcount(typeof(x))), θ, o)
+    _holds_floats(x) || return x, o
+    fs, o = _rebuild(ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x)))), θ, o)
     return constructorof(typeof(x))(fs...), o
 end
 
@@ -138,7 +138,7 @@ function _local_pullback(grads, m, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
     if m̄ !== nothing
         _local_params(m) && return _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
-        _array_params(m) && return _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
+        _read_params(m) && return _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     end
     _nactive(m̄, m) == 0 && return _value_pullback(m, v̄, s̄, v, s, t, k)
     return _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
@@ -154,10 +154,12 @@ function _value_pullback(m, v̄, s̄, v, s, t, k)
 end
 
 # The derivative for a modifier with array parameters: a Jacobian in
-# `[v; s; θ]`.
+# `[v; s; θ]`. Its chunk size depends on the parameters' count, so the
+# Jacobian's type is asserted for what follows to infer.
 function _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
     P = _nparams(m)
-    J = ForwardDiff.jacobian(x -> _step_vector(m, x, P, t, k), [v; s; _params(m)])
+    x0 = [v; s; _params(m)]
+    J = ForwardDiff.jacobian(x -> _step_vector(m, x, P, t, k), x0)::Matrix{eltype(x0)}
     g = transpose(J) * [v̄, s̄]
     _addparams!(m̄, m, g, 2)
     return g[1], g[2]
@@ -194,13 +196,19 @@ function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     return _read_pullback(m, m̄, v̄, s̄, map(T, x), t, k)
 end
 function _read_pullback(m, m̄, v̄, s̄, x::NTuple{M, T}, t, k) where {M, T}
-    W = M + _READS
+    return _read_pullback(m, m̄, v̄, s̄, x, t, k, Val(M + _READS))
+end
+function _read_pullback(m, m̄, v̄, s̄, x::NTuple{M, T}, t, k, ::Val{W}) where {M, T, W}
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_read_pullback, T)), T, W}
     xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(M))
     reads = _Reads()
     md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, M), 1))
     v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
-    reads.n > _READS && return _jacobian_pullback(m, m̄, v̄, s̄, x[1], x[2], t, k)
+    if reads.n > _READS
+        R = typeof(v̄ * one(T) + s̄ * one(T))
+        a, b = _jacobian_pullback(m, m̄, v̄, s̄, x[1], x[2], t, k)
+        return convert(R, a)::R, convert(R, b)::R
+    end
     g = _vjp(v′, s′, v̄, s̄, ntuple(_ -> nothing, Val(W)))
     _add_scalar!(m̄, m, ntuple(i -> g[2 + i], Val(M - 2)), (k, t))
     for j in 1:reads.n
@@ -271,11 +279,22 @@ function _rebuild_reads(x::NamedTuple{N}, θ, w, l) where {N}
     return NamedTuple{N}(y), θ, l
 end
 function _rebuild_reads(x, θ, w, l)
-    (isstructtype(typeof(x)) && _nparams(x) > 0) || return x, θ, l
+    _holds_floats(x) || return x, θ, l
     fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
     ys, θ, l = _rebuild_reads(fs, θ, w, l)
     return constructorof(typeof(x))(ys...), θ, l
 end
+
+# Whether a struct holds a float scalar or float array anywhere in its
+# fields, from its type alone, so a rebuild that skips one infers.
+function _floats_in(::Type{T}) where {T}
+    T <: AbstractFloat && return true
+    T <: AbstractArray && return eltype(T) <: AbstractFloat
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function, Type, Module} && return false
+    isstructtype(T) || return false
+    return any(_floats_in, fieldtypes(T))
+end
+@generated _holds_floats(x) = _floats_in(x)
 
 # Add `g` at linear index `i` of the mirror of float array `leaf` of `x`, in
 # `_rebuild_reads`'s numbering from `l`; returns the next leaf.
@@ -292,7 +311,7 @@ function _add_read!(x̄, x::Union{Tuple, NamedTuple}, leaf, i, g, l)
     return l
 end
 function _add_read!(x̄, x, leaf, i, g, l)
-    (isstructtype(typeof(x)) && _nparams(x) > 0) || return l
+    _holds_floats(x) || return l
     for n in fieldnames(typeof(x))
         l = _add_read!(_field_mirror(x̄, n), getfield(x, n), leaf, i, g, l)
     end
@@ -578,7 +597,8 @@ end
 # `Recurrence` is built, for each part with float scalars.
 function _check_rebuild(x)
     _scalar_params(x) || (ispointwise(x) && _local_params(x)) ||
-        return ispointwise(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
+        return ispointwise(x) && _read_params(x) ? _check_reads(x) :
+        _check_rebuild(Val(false), x)
     return _check_rebuild(Val(true), x)
 end
 _check_rebuild(::Val{true}, x) = _check_rebuild(x, _param_tuple(x, (1, 1)))
