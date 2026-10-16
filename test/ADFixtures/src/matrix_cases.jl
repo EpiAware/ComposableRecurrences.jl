@@ -13,7 +13,7 @@ module MatrixCases
 
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
-using LinearAlgebra: I
+using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES
 
@@ -1354,6 +1354,79 @@ if supports(:_local_pressure!)
             TIERS[tier].cases,
             ["custom_coupling", "custom_coupling_dense", "custom_modifier_strata"]
         )
+    end
+end
+
+# A pointwise modifier that indexes a vector field by time and a coupling
+# that holds a matrix, neither with a `pullback!`: the local derivative
+# seeds the entries a step reads, or every entry of the coupling's arrays.
+"A seasonal scale `a[t]` on the new value."
+struct Seasonal{A}
+    a::A
+end
+"Pressure `K * p` through a matrix the coupling holds."
+struct MatrixPressure{M}
+    K::M
+end
+if supports(:_read_pullback)
+    CR.ispointwise(::Seasonal) = true
+    CR.forward(m::Seasonal, ::CR.Step, v, s, t, k) = (m.a[t] * v, s)
+    function CR.forward(C::MatrixPressure, ::CR.Pressure, q, p, t)
+        mul!(q, C.K, p)
+        return nothing
+    end
+
+    function custom_modifier_vector(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, a = _unpack(θ, (L,), (S, L), (S, T), (T,))
+            r = Recurrence(g; modifiers = (Seasonal(a),))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 10) for k in 1:S, t in 1:T],
+            [1 + 0.2 * sin(2π * t / 52) for t in 1:T]
+        )
+        return f, θ
+    end
+
+    function custom_coupling_matrix(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, K = _unpack(θ, (L,), (S, L), (S, T), (S, S))
+            r = Recurrence(g; coupling = MatrixPressure(K))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 11) for k in 1:S, t in 1:T],
+            [i == j ? 0.8 : 0.2 / (S - 1) for i in 1:S, j in 1:S]
+        )
+        return f, θ
+    end
+
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_vector",
+            "renewal with a user modifier reading a vector by time",
+            custom_modifier_vector, [1, 5, 20], false,
+        ),
+        Case(
+            "custom_coupling_matrix",
+            "renewal across strata with a user coupling holding a matrix",
+            custom_coupling_matrix, [3, 5], false,
+        ),
+    )
+    REQUIRES["custom_modifier_vector"] = (:_read_pullback,)
+    REQUIRES["custom_coupling_matrix"] = (:_read_pullback,)
+    for tier in ("smoke", "realistic")
+        append!(TIERS[tier].cases, ["custom_modifier_vector", "custom_coupling_matrix"])
     end
 end
 
