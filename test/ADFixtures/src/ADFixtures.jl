@@ -243,8 +243,15 @@ end
 
 # Movement whose intensity reads the recent outputs: each origin sends
 # more as its own incidence rises, through a kernel and a scale in `θ`.
+# The model is built behind a function barrier: Enzyme reverse finds no
+# shadow for the intensity when the uninferred blocks from `_unpack`
+# reach it directly.
 function _movement_recent(w, θ)
     K, κ, logh, logR = _unpack(θ, (S, S), (1,), (S, L), (S, T))
+    return _movement_recent(w, K, κ, logh, logR)
+end
+
+function _movement_recent(w, K, κ, logh, logR)
     ε = Derived(x -> 0.2 * tanh(x), κ[1] * ComposableRecurrences.Recent(3))
     mods = (
         ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),

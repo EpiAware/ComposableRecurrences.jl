@@ -1120,6 +1120,43 @@ end
     end
 end
 
+@testitem "Movement read from recent outputs with an active scale" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff
+    # The scale of the intensity is a parameter, so its gradient flows
+    # through the intensity held by the movement as well as through the
+    # outputs the intensity reads. The data are bound in a `let` so `f`
+    # is inferred: Enzyme reverse finds no shadow for the intensity when
+    # it is reached from uninferred code.
+    f = let g = exp.(-0.4 .* (1:4)) ./ sum(exp.(-0.4 .* (1:4))),
+            pop = [60.0, 90.0, 70.0], h = fill(5.0, 3, 4),
+            R = exp.(0.1 .* sin.((1:3) .+ (1:12)')), W = cos.((1:3) .* (1:12)')
+        function (θ)
+            K, κ = reshape(θ[1:9], 3, 3), θ[10]
+            ε = Derived(x -> 0.2 * tanh(x), κ * CR.Recent(3))
+            mods = (
+                CR.Redistribute(CR.movement(K, ε)),
+                CR.Depletion(PerStratum(pop)),
+            )
+            y = Recurrence(g; modifiers = mods)(R; history = h)
+            return sum(W .* log.(y))
+        end
+    end
+    θ = [0.0, 0.6, 0.4, 0.5, 0.0, 0.5, 0.2, 0.3, 0.0, 0.05]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    backend = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Const
+    )
+    n0 = CR._PULLBACK_CALLS[]
+    @test gradient(f, backend, θ) ≈ ref
+    @test CR._PULLBACK_CALLS[] > n0
+    @test ref[10] != 0
+end
+
 @testitem "Sparse Redistribute matrix through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
