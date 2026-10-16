@@ -336,9 +336,12 @@ end
         100.0; pools = (:S, :V), initial = (1.0, 2.0, 3.0)
     )
     # The layout's check on flows placed directly.
-    @test_throws "the flows name pool 2, but there are 1 pools" CR.Depletion(
+    @test_throws "the flows name pool 2, but there is 1 pool" CR.Depletion(
         100.0, CR.Hazard(), CR._FixedExponent{true}(), (nothing,),
         (CR._Fixed{true}(),), (CR.Flow(1, 2, 0.1, CR.Hazard()),)
+    )
+    @test_throws "the flows name pool 3, but there are 2 pools" CR._check_pools(
+        (CR.Flow(1, 3, 0.1, CR.Hazard()),), 2
     )
     # One starting value for one pool, and no flows.
     p = CR.Pool(100.0; initial = 80.0, flows = nothing)

@@ -265,7 +265,8 @@ end
 @noinline function _too_many_pools(f, n)
     throw(
         ArgumentError(
-            "the flows name pool $(max(f.from, f.to)), but there are $n pools"
+            "the flows name pool $(max(f.from, f.to)), but there " *
+                (n == 1 ? "is 1 pool" : "are $n pools")
         )
     )
 end
