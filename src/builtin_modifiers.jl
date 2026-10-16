@@ -451,6 +451,10 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
 # Keyword Arguments
 - `leak`: `false` (the default), or `true` to allow columns summing to less
   than one.
+  It sets a type parameter, so pass it as a literal, where it is folded at
+  compile time, or as `Val(true)` or `Val(false)`.
+  A `Bool` read from a variable leaves the operator's type unknown until
+  run time.
 
 # Examples
 ```jldoctest
@@ -477,11 +481,11 @@ struct Redistribute{L, A}
         return new{L, A}(M)
     end
 end
-# A branch on `leak` names the type parameter in each arm, so the call is
-# inferred.
-function Redistribute(M; leak::Bool = false)
-    return leak ? Redistribute{true}(M) : Redistribute{false}(M)
-end
+Redistribute(M; leak::Union{Bool, Val} = false) = _redistribute(M, leak)
+# A branch on a literal `leak` names the type parameter in each arm, so the
+# call is inferred; a `Val` names it directly.
+_redistribute(M, leak::Bool) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
+_redistribute(M, ::Val{L}) where {L} = Redistribute{L}(M)
 function Redistribute(K, ε)
     throw(
         ArgumentError(

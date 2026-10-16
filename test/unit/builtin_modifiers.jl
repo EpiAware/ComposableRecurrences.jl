@@ -343,6 +343,13 @@ end
     @test @inferred(CR.Redistribute(M)) isa CR.Redistribute{false}
     leaky_redistribute(M) = ComposableRecurrences.Redistribute(M; leak = true)
     @test @inferred(leaky_redistribute(M)) isa CR.Redistribute{true}
+    # A leak flag from a variable goes in as a `Val`.
+    for leak in (false, true)
+        r = @inferred CR.Redistribute(M; leak = Val(leak))
+        @test r isa CR.Redistribute{leak}
+        @test r.M == M
+    end
+    @test_throws "leak is true or false" CR.Redistribute(M; leak = Val(1))
     # The matrix is checked against the strata and its columns once per
     # call, in Init, and on a resumed state.
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
