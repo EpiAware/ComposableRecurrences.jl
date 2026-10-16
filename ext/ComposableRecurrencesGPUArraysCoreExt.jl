@@ -1,12 +1,7 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
-    Clamp, Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool,
-    Pressure, Recurrence,
-    Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports, _Piecewise
-using Adapt: Adapt, adapt
-using ConstructionBase: constructorof, getfields
+using ComposableRecurrences: ComposableRecurrences, Device, Pressure,
+    Secondary, Serial, TimeVarying, _Ragged, _Piecewise, _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
@@ -46,11 +41,6 @@ function _host_leaf(x::T) where {T}
     return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
 end
 
-# A coefficient given by change points reads its segments on the host, so a
-# device call refuses it, as `adapt` does.
-const _PIECEWISE_DEVICE = "a TimeVarying given by change points runs on the " *
-    "host; on a device, pass the dense TimeVarying array that repeats each " *
-    "value over its segment"
 _piecewise_leaf(::_Piecewise) = true
 const _NoPiecewise = Union{AbstractArray, Number, Symbol, Nothing, Function, Type, Module}
 _piecewise_leaf(::_NoPiecewise) = false
@@ -107,36 +97,6 @@ function ComposableRecurrences.forward(
             "a SparseMatrixCSC coupling lives on the host; move it to the " *
                 "device of the inputs, as a device sparse matrix"
         )
-    )
-end
-
-# Coefficient wrappers and built-in modifiers carry their arrays into a
-# kernel: each is rebuilt from its adapted fields, as `constructorof`
-# rebuilds it elsewhere. The operators adapt the same way, so
-# `adapt(CuArray, r)` moves every parameter of `r` to a device.
-const _Adapted = Union{
-    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Pool, Add,
-    Clamp, Redistribute, Transform, Derived, Recurrence, _AllocateImports,
-    Convolution, Flow,
-}
-function Adapt.adapt_structure(to, x::_Adapted)
-    return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
-end
-
-# A ragged kernel moves its offsets with its values, rebuilt without the
-# host check, as a kernel launch adapts it.
-function Adapt.adapt_structure(to, g::_Ragged)
-    return _Ragged(_Flat(), adapt(to, g.values), adapt(to, g.offsets))
-end
-# Columns held as given are stacked first: a device loop reads one array.
-Adapt.adapt_structure(to, g::_Columns) = adapt(to, _Ragged(g.columns))
-Adapt.adapt_structure(to, ::_Piecewise) = throw(ArgumentError(_PIECEWISE_DEVICE))
-
-# `Allocate` keeps its groups, host index arrays that each step copies where
-# it needs them, and adapts its totals and imports.
-function Adapt.adapt_structure(to, m::Allocate)
-    return constructorof(typeof(m))(
-        m.strata, m.offsets, adapt(to, m.total), adapt(to, m.imports)
     )
 end
 
