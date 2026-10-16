@@ -607,6 +607,7 @@ function Depletion(
         (Flow(1, 0, _check_param(:removals, removals), Truncate()),)
     N = _population(N)
     α = _exponent(something(heterogeneity, _unit_exponent(form)), N, form)
+    _check_nonnegative(:pool0, pool0)
     # Built without the names, as the one-pool layout needs no lookup.
     return Depletion(N, form, α, (_initial_param(pool0),), (_Fixed{true}(),), flows)
 end

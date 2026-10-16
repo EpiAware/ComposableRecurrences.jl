@@ -495,6 +495,81 @@ end
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
 end
 
+@testitem "Adjoint: a Pool's group step and draw against ForwardDiff" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    using LinearAlgebra: dot
+    # Each layout's group step and draw, with their pullbacks called
+    # directly, against forward mode: flows only, a draw out of one pool or
+    # several, and a draw into a pool with each overflow. `v` and `s` are a
+    # group's values and state, `t` a step and `g` the group.
+    rng = Xoshiro(5)
+    t, g = 3, 1
+    ward = CR.Pool(; pools = 2, draw = nothing, flows = CR.Flow(1 => 2, 0.3))
+    out_of(form) = CR.Pool(
+        5.0; pools = (:S, :V), draw = (:S => 1, :V => 0.4) => form,
+        flows = CR.Flow(:S => :V, 0.1)
+    )
+    into(overflow) = CR.Pool(
+        2.0; pools = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow
+    )
+    cases = (
+        (ward, (1.5, 0.5), (0.0, 0.0)),
+        (CR.Depletion(5.0, CR.Floor()), (1.3,), (4.0,)),
+        (out_of(CR.Hazard()), (1.3,), (3.0, 1.0)),
+        (into(nothing), (1.3,), (0.5,)),
+        (into(:stratum), (1.3, 0.2), (0.5,)),
+        (into(:queue), (1.3,), (0.5, 0.4)),
+    )
+    for (m, v, s) in cases
+        L = CR._layout(m)
+        θ = CR._params((m,))
+        nv, ns = length(v), length(s)
+        out, s′ = CR.forward(m, CR.Step(), v, s, t, g)
+        v̄, s̄ = Tuple(randn(rng, length(out))), Tuple(randn(rng, length(s′)))
+        function step(z)
+            p = only(CR._rebuild((m,), z[(nv + ns + 1):end]))
+            o, q = CR.forward(
+                p, CR.Step(), Tuple(z[1:nv]), Tuple(z[(nv + 1):(nv + ns)]), t, g
+            )
+            return dot(collect(v̄), collect(o)) + dot(collect(s̄), collect(q))
+        end
+        ref = ForwardDiff.gradient(step, [v..., s..., θ...])
+        # The step's pullback, and the two dispatches it goes through.
+        for back in (
+                (m̄, grads) -> CR.pullback!(grads, m, CR.Step(), v, s, t, g),
+                (m̄, grads) -> CR._group_pullback(Val(L), grads, m, v, s, t, g),
+                (m̄, grads) -> CR._group_pullback(
+                    Val(L.draw), Val(L), grads, m, v, s, t, g
+                ),
+            )
+            m̄ = zero_mirror(m)
+            v̄in, s̄in = back(m̄, (; piece = m̄, v = v̄, s = s̄))
+            @test [v̄in..., s̄in..., mirror_vec(m̄, m)...] ≈ ref rtol = 1.0e-10
+        end
+        L.draw || continue
+        # The draw alone, from the demand `d` and the pools `x`.
+        d, x = first(v), Tuple(s[1:L.n])
+        y, x′ = CR._take(Val(L.fill), m, d, x, t, g)
+        ȳ, x̄′ = randn(rng), Tuple(randn(rng, L.n))
+        function draw(z)
+            p = only(CR._rebuild((m,), z[(L.n + 2):end]))
+            a, b = CR._take(Val(L.fill), p, z[1], Tuple(z[2:(L.n + 1)]), t, g)
+            return ȳ * a + dot(collect(x̄′), collect(b))
+        end
+        ref = ForwardDiff.gradient(draw, [d, x..., θ...])
+        m̄ = zero_mirror(m)
+        d̄, x̄ = CR._take_back(Val(L.fill), m̄, m, d, x, y, ȳ, x̄′, t, g)
+        @test [d̄, x̄..., mirror_vec(m̄, m)...] ≈ ref rtol = 1.0e-10
+    end
+    # The queue's cotangent is the state's last entry; the pools' are the
+    # rest.
+    @test CR._left_back(Val(:queue), (1.0,), (2.0, 3.0, 4.0), Val(2)) ==
+        (4.0, (2.0, 3.0))
+end
+
 @testitem "Adjoint: Depletion with a population that varies over time" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(8)
