@@ -1314,6 +1314,46 @@ function _user_coupling_wide(w, θ)
     return sum(WSW .* log.(y))
 end
 
+# A modifier that indexes a vector field by time and a coupling that holds
+# a matrix, neither with a `pullback!`: the local derivative seeds the
+# entries a step reads, or every entry of the coupling's arrays.
+"A scale `a[t]` on the new value, read by time."
+struct ByTime{A}
+    a::A
+end
+ComposableRecurrences.ispointwise(::ByTime) = true
+function ComposableRecurrences.forward(
+        m::ByTime, ::ComposableRecurrences.Step, v, s, t, k
+    )
+    return m.a[t] * v, s
+end
+
+"Pressure `K * p`, scaled by `β` per stratum."
+struct MatrixMix{M, B}
+    K::M
+    β::B
+end
+function ComposableRecurrences.forward(
+        C::MatrixMix, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    q .= C.β .* (C.K * p)
+    return nothing
+end
+
+function _modifier_by_time(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (T,))
+    r = Recurrence(G0; coupling = K0, modifiers = (ByTime(a),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+function _user_coupling_matrix(w, θ)
+    logh, logR, K, β = _unpack(θ, (S, L), (S, T), (S, S), (S,))
+    r = Recurrence(G0; coupling = MatrixMix(K, β))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # The same modifier with its scale from change points: the local derivative
 # reads one entry of it per step.
 function _strata_modifier_piecewise(w, θ)
@@ -1343,6 +1383,14 @@ push!(
         _strata_modifier_piecewise,
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], [1.2, 0.8]),
     ),
+    (
+        "Recurrence modifier with a vector field read by time", _modifier_by_time,
+        () -> _flat(zeros(S, L), LOGR, 1 .+ 0.2 .* W1),
+    ),
+    (
+        "Recurrence user coupling holding a matrix", _user_coupling_matrix,
+        () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
@@ -1352,6 +1400,10 @@ _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,
 let name = "Recurrence modifier without a pullback, parameter from change points"
     _REQUIRES[name] = (:_Piecewise,)
 end
+# The local derivatives of a modifier's float-array reads and of a
+# coupling's arrays came together.
+_REQUIRES["Recurrence modifier with a vector field read by time"] = (:_read_pullback,)
+_REQUIRES["Recurrence user coupling holding a matrix"] = (:_read_pullback,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
@@ -1473,10 +1525,18 @@ end
 """
 Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
-passes of dual numbers is a rule on Mooncake only.
+passes of dual numbers is a rule on Mooncake only, as is a modifier's
+local derivative that records its reads of float arrays.
 """
 function backend_plain_scenarios()
-    return Dict("Enzyme reverse" => Set(["Recurrence user coupling across 30 strata"]))
+    return Dict(
+        "Enzyme reverse" => Set(
+            [
+                "Recurrence user coupling across 30 strata",
+                "Recurrence modifier with a vector field read by time",
+            ]
+        )
+    )
 end
 
 # The benchmark matrix cases at realistic sizes (see benchmark/matrix.jl).

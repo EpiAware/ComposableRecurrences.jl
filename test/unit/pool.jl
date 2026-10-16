@@ -327,6 +327,19 @@ end
     weight(w) = last(two(w).weights)
     @test weight(0) isa CR._Fixed{false}
     @test weight(2) === 2.0
+    @test_throws "number of pools, got 0" CR.Pool(100.0; pools = 0)
+    @test_throws "number of pools, got ()" CR.Pool(100.0; pools = ())
+    @test_throws "a Hazard() draw reads the population, so give N" CR.Pool(;
+        draw = :S => CR.Hazard()
+    )
+    @test_throws "initial has one entry per pool, 2, got 3" CR.Pool(
+        100.0; pools = (:S, :V), initial = (1.0, 2.0, 3.0)
+    )
+    # The layout's check on flows placed directly.
+    @test_throws "the flows name pool 2, but there are 1 pools" CR.Depletion(
+        100.0, CR.Hazard(), CR._FixedExponent{true}(), (nothing,),
+        (CR._Fixed{true}(),), (CR.Flow(1, 2, 0.1, CR.Hazard()),)
+    )
     # One starting value for one pool, and no flows.
     p = CR.Pool(100.0; initial = 80.0, flows = nothing)
     @test p.initial == (80.0,)

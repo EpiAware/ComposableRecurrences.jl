@@ -43,11 +43,13 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
-| pointwise modifier or depletion form with another array parameter | plain AD |
+| pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule on Mooncake, plain AD on Enzyme |
+| pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
 | modifier with a vector or blockwise step | plain AD |
-| coupling with only scalar float parameters, strata plus scalars at most 24 | rule, local ForwardDiff step |
+| coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
+| coupling with a `Diagonal`, sparse or other structured float array | plain AD |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
@@ -75,6 +77,15 @@ The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` pa
 So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
 A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
 A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
+
+The local step of a pointwise modifier seeds the entries of its other float arrays that a step reads, as `m.a[t]`, and records which they are.
+Up to four reads take one pass of dual numbers.
+A step that reads more runs once more with room for 8 or 12, and past 12 in passes of 12.
+The `Recurrence` constructor runs one step at the first stratum and time and counts its reads.
+Above 24 the local step is slower than plain AD, so such a modifier takes plain AD, and the constructor says so.
+A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
+The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
+A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 
 ## [Backends](@id adjoint-backends)
 
@@ -124,11 +135,17 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
+| pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | plain AD | keep on Mooncake |
+| coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 
 ² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
 The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
 
 ³ A local timing, not a matrix case: 5 strata, a dense coupling, `T` 200 and `L` 20.
+
+⁴ The worst within the route's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_vector` and `custom_coupling_matrix` cases.
+The modifier was timed at 1, 5 and 20 strata, the coupling at 2 to 5.
+On Enzyme the modifier's local step was 1.6 to 1.7 times plain AD at 1 and 5 strata, so it takes plain AD there.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.

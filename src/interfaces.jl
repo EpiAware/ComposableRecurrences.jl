@@ -220,6 +220,10 @@ true
         role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
     ),
     Arguments(;
+        piece = Pool(100.0; flows = Flow(1 => 0, 0.01)), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 2)
+    ),
+    Arguments(;
         piece = Pool(
             100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
             flows = Flow(:S => :V, 1.0; form = Truncate())
