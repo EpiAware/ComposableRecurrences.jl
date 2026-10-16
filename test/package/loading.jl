@@ -23,3 +23,62 @@
         --project=$project -e $script`
     @test read(cmd, String) == "[0.5, 0.25, 0.125]"
 end
+
+# Without `ForwardDiff` loaded, built-in pieces keep their rules, a piece
+# without a `pullback!` runs forward but its gradient says to load
+# `ForwardDiff`, and once loaded the operator built before it checks its
+# parts at the call.
+@testitem "Loading: gradients without ForwardDiff" tags = [:quality] begin
+    script = raw"""
+    using ComposableRecurrences, Mooncake, DifferentiationInterface
+    CR = ComposableRecurrences
+    loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
+    println(loaded("ForwardDiff"))
+    backend = AutoMooncake(; config = nothing)
+    function fd(f, x; h = 1.0e-6)
+        return map(eachindex(x)) do i
+            e = zero(x)
+            e[i] = h
+            (f(x + e) - f(x - e)) / 2h
+        end
+    end
+    builtin(θ) = Recurrence(θ[1:2]; modifiers = (CR.Depletion(50.0),))
+    f(θ) = sum(builtin(θ)(fill(1.5, 6); history = [1.0, 2.0]))
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(f, backend, [0.3, 0.2])
+    println(CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(f, [0.3, 0.2]); rtol = 1.0e-5))
+    struct Cap{T}
+        c::T
+    end
+    CR.ispointwise(::Cap) = true
+    CR.forward(m::Cap, ::CR.Step, v, s, t, k) = (m.c * v / (m.c + v), s)
+    r = Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),))
+    println(r.rebuilds === nothing, " ", CR.uses_adjoint(r, CR.Run()))
+    h(x) = sum(r(x; history = [1.0, 2.0]))
+    x = fill(1.5, 6)
+    println(round(h(x); digits = 6))
+    msg = try
+        gradient(h, backend, x)
+        ""
+    catch err
+        sprint(showerror, err)
+    end
+    println(occursin("Cap has no `pullback!`", msg), " ",
+        occursin("add `using ForwardDiff`", msg))
+    using ForwardDiff
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(h, backend, x)
+    println(CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(h, x); rtol = 1.0e-5))
+    println(Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),)).rebuilds)
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test lines[2] == "true true"
+    @test lines[3] == "true true"
+    @test parse(Float64, lines[4]) > 0
+    @test lines[5] == "true true"
+    @test lines[6] == "true true"
+    @test lines[7] == "true"
+end

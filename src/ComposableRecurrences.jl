@@ -143,7 +143,7 @@ include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
 # Default pullbacks of pieces without one, whose dual-number code is in the
-# ForwardDiff extension.
+# `ForwardDiff` extension.
 include("fallbacks.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("delays.jl")

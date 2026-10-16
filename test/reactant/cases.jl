@@ -119,6 +119,17 @@ function rec_pointwise_modifier(θ)
     return r(θ[(L + 1):end]; history = H1)
 end
 
+# The same operator built before the local step's check could run (as
+# before `ForwardDiff` loads): the call checks the modifier while traced.
+function rec_checked_at_call(θ)
+    r0 = Recurrence(θ[1:L]; modifiers = (Lower(1.0),))
+    r = Recurrence(
+        ComposableRecurrences._Checked(), r0.kernel, r0.coupling, r0.modifiers,
+        nothing
+    )
+    return r(θ[(L + 1):end]; history = H1)
+end
+
 function rec_apply_modifier(θ)
     r = Recurrence(g0; modifiers = (Rescale(6.0),))
     return r(reshape(θ, S, T); history = HS)
@@ -318,6 +329,11 @@ const CASES = [
     Case(
         "rec_pointwise_modifier", "Recurrence, custom pointwise modifier",
         rec_pointwise_modifier, vcat(g0, RM0), W1
+    ),
+    Case(
+        "rec_checked_at_call",
+        "Recurrence, custom pointwise modifier checked at the call",
+        rec_checked_at_call, vcat(g0, RM0), W1
     ),
     Case(
         "rec_apply_modifier", "Recurrence, custom all-strata modifier",

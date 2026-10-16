@@ -15,7 +15,7 @@ _reverse_dim(x::AbstractVector, d) = reverse(x)
 _reverse_dim(x, d) = reverse(x; dims = d)
 
 # The primal value of `x`, through any nesting of dual numbers (their
-# method is in the ForwardDiff extension), for deciding a branch. A dual
+# method is in the `ForwardDiff` extension), for deciding a branch. A dual
 # with value zero is ordered by its partials, so `P > 0` on the dual can
 # hold where the value is zero. Other numbers, traced ones included, pass
 # through.

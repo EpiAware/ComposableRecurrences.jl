@@ -92,6 +92,8 @@ dual numbers pass through any slot.
 The constructor checks once whether the local step can rebuild every
 part it differentiates and stores the result in the field `rebuilds`; see
 [Rules and plain AD](@ref adjoint-routing) for the route this sets.
+Built before the local step's dual numbers are loaded, it stores `nothing`
+and each call that takes the rule checks instead.
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
@@ -700,7 +702,7 @@ end
 # The `rebuilds` field, set at construction: `Val(true)` when the types
 # send no part to the local step, so the route folds; otherwise whether
 # each part the local step rebuilds gives its scalars back
-# (`_check_rebuild`), or `nothing` when ForwardDiff, which the check needs,
+# (`_check_rebuild`), or `nothing` when `ForwardDiff`, which the check needs,
 # is not loaded, and the call checks them (`_fit`). An operator the rule
 # does not cover, by its types or by a part that does not rebuild, says why
 # once.
@@ -790,9 +792,10 @@ function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
     return _parts_fit(r, h)
 end
-# An operator built before ForwardDiff was loaded checks its parts when it
-# is called (`_check_now`); without ForwardDiff the local step cannot run.
-function _fit(r::Recurrence{<:Any, <:Any, <:Any, Nothing}, gain, add, h, args...)
+# An operator built before `ForwardDiff` was loaded checks its parts when it
+# is called (`_check_now`). Without `ForwardDiff` the call takes the rule,
+# whose forward pass runs and whose reverse pass says to load it.
+function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args...)
     _check_now(r) || return :none
     return _parts_fit(r, h)
 end
@@ -805,9 +808,7 @@ end
 # is called; the backend extensions do not differentiate it.
 function _check_now(r::Recurrence)
     parts = (_local_part(r.coupling)..., _local_parts(r.modifiers...)...)
-    ok = _check_rebuilds(parts)
-    ok === nothing && _need_forwarddiff(first(parts))
-    return ok
+    return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
 function _coupling_fit(C, h)

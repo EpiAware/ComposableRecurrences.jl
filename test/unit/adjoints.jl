@@ -955,6 +955,94 @@ end
     @test_throws MethodError CR._run_pullback!(grads, Thrice(), nothing)
 end
 
+@testitem "Adjoint: the local step without `ForwardDiff` says to load it" setup = [
+        AdjointCheck, AdjointModifiers,
+    ] begin
+    using ComposableRecurrences
+    # The src methods run when the `ForwardDiff` extension is not loaded:
+    # each names the piece and says to load it.
+    msg(name) = Regex("^$name has no `pullback!`.*add `using ForwardDiff`\$")
+    m, C = PoolDepletion([40.0, 50.0]), Mix([0.5 0.1; 0.2 0.4], [1.0, 0.9])
+    one_arg = Tuple{Any, Vararg{Any}}
+    two_args = Tuple{Any, Any, Vararg{Any}}
+    @test_throws msg("PoolDepletion") invoke(CR._value_pullback, one_arg, m, 1.0)
+    @test_throws msg("PoolDepletion") invoke(CR._jacobian_pullback, two_args, m, nothing)
+    @test_throws msg("PoolDepletion") invoke(CR._scalar_pullback, two_args, m, nothing)
+    @test_throws msg("PoolDepletion") invoke(CR._read_pullback, two_args, m, nothing)
+    @test_throws msg("PoolDepletion") invoke(CR._init_jacobian, one_arg, m, 1.0)
+    @test_throws msg("Mix") invoke(CR._array_pressure, one_arg, C, 1.0)
+    @test_throws msg("Mix") invoke(
+        CR._local_pressure!, Tuple{Any, Any, Any, Vararg{Any}}, nothing, nothing, C
+    )
+    struct Rate{T}
+        c::T
+    end
+    @test_throws msg("Rate") invoke(CR._local_form_pullback, two_args, nothing, Rate(0.7))
+    @test_throws r"^`Transform` without a `derivative` needs `ForwardDiff`" invoke(
+        CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
+    )
+    # The checks and buffers that need dual numbers say nothing, so the
+    # constructor stores `nothing` and each call checks.
+    @test invoke(CR._check_scalars, one_arg, m, (1.0,)) === nothing
+    @test invoke(CR._check_views, one_arg, C) === nothing
+    @test invoke(CR._probe_reads, one_arg, m) === nothing
+    @test invoke(CR._dual_pressure_buffers, two_args, nothing, C, Float64) === nothing
+    @test CR._check_reads(nothing) === nothing
+    @test CR._check_rebuilds((m, C)) isa Bool
+end
+
+@testitem "Adjoint: an operator built without `ForwardDiff` checks its parts per call" setup = [
+        AdjointCheck, AdjointModifiers,
+    ] begin
+    using ComposableRecurrences
+    # Built before the extension loads, the constructor stores `nothing`;
+    # with it loaded, each call checks the parts and takes the same route as
+    # an operator checked at construction.
+    unchecked(r) = CR.Recurrence(CR._Checked(), r.kernel, r.coupling, r.modifiers, nothing)
+    struct Rate{T}
+        c::T
+    end
+    function CR.forward(f::Rate, ::CR.Step, v, s, N, α)
+        y = f.c * v * max(s, 0)^α / N
+        return y, s - y
+    end
+    args = recargs(ones(2, 6), nothing, ones(2, 2))
+    for parts in (
+            (; modifiers = (PoolDepletion([40.0, 50.0]),)),
+            (; coupling = Mix([0.5 0.1; 0.2 0.4], [1.0, 0.9])),
+            (; modifiers = (CR.Depletion(50.0, Rate(0.7)),)),
+        )
+        r0 = Recurrence([0.3, 0.2]; parts...)
+        r = unchecked(r0)
+        @test r0.rebuilds === true
+        @test r.rebuilds === nothing
+        @test CR.uses_adjoint(r, CR.Run())
+        @test Base.return_types(CR._route_val, typeof.((r, args...))) == [Val{:rule}]
+        @test Base.return_types(CR._fit, typeof.((r, args...))) == [Symbol]
+        @test (@inferred CR._fit(r, args...)) === CR._fit(r0, args...) === :one
+        @test (@inferred CR._fit(r0, args...)) === :one
+        @test pullback_matches(r, args...)
+        @test r(ones(2, 6); history = ones(2, 2)) == r0(ones(2, 6); history = ones(2, 2))
+    end
+    # A part the local step cannot rebuild takes plain AD from that call,
+    # with the construction's note.
+    struct Doubled{T}
+        c::T
+        Doubled(c::T) where {T} = new{T}(2c)
+    end
+    CR.ispointwise(::Doubled) = true
+    CR.forward(m::Doubled, ::CR.Step, v, s, t, k) = (m.c * v, s)
+    empty!(CR._PLAIN_NOTED)
+    r0 = @test_logs (:info, r"Doubled cannot be rebuilt") Recurrence(
+        [0.3, 0.2]; modifiers = (Doubled(0.4),)
+    )
+    @test r0.rebuilds === false
+    r = unchecked(r0)
+    empty!(CR._PLAIN_NOTED)
+    @test (@test_logs (:info, r"Doubled cannot be rebuilt") CR._fit(r, args...)) === :none
+    @test (@inferred CR._fit(r, args...)) === :none
+end
+
 @testitem "Adjoint: the plain-AD note logs at construction only" setup = [AdjointModifiers] begin
     using ComposableRecurrences
     # A modifier without an adjoint: the constructor notes the plain path

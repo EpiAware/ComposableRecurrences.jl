@@ -197,7 +197,7 @@ end
 _restructure(::Tuple, x) = x
 _restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
 
-# The seeds and the partials of the map's output are in the ForwardDiff
+# The seeds and the partials of the map's output are in the `ForwardDiff`
 # extension; an output without the seeds' tag is constant in `(v, θ)`.
 function _transform_seeds(xs...)
     return _need_forwarddiff("`Transform` without a `derivative`")

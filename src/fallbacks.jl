@@ -1,8 +1,8 @@
 # Default pullbacks for modifiers and couplings without a hand-written one:
 # a local forward-mode derivative of that one step, including the
-# parameters. The dual-number code is in the ForwardDiff extension; here
+# parameters. The dual-number code is in the `ForwardDiff` extension; here
 # are the parameter walks it uses, and for each local derivative a method
-# that says to load ForwardDiff when it is not.
+# that says to load `ForwardDiff` when it is not.
 # A parameter is a float leaf of the object: a float scalar, the entries of a
 # float array (a view or reshape is rebuilt as an `Array`), the nonzeros of a
 # sparse matrix or the diagonal of a `Diagonal`, found by recursing through
@@ -147,8 +147,8 @@ function _local_pullback(grads, m, v, s, t, k)
     return _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
 end
 
-# The local derivatives, with their methods in the ForwardDiff extension.
-# Without it a call names the piece and says to load ForwardDiff.
+# The local derivatives, with their methods in the `ForwardDiff` extension.
+# Without it a call names the piece and says to load `ForwardDiff`.
 _value_pullback(m, args...) = _need_forwarddiff(m)
 _jacobian_pullback(m, m̄, args...) = _need_forwarddiff(m)
 _scalar_pullback(m, m̄, args...) = _need_forwarddiff(m)
@@ -163,7 +163,7 @@ function _need_forwarddiff(piece)
     return _need_forwarddiff("$name has no `pullback!`, and its local derivative")
 end
 function _need_forwarddiff(what::AbstractString)
-    throw(ArgumentError("$what needs ForwardDiff: add `using ForwardDiff`"))
+    throw(ArgumentError("$what needs `ForwardDiff`: add `using ForwardDiff`"))
 end
 
 # The reads of a modifier's float arrays in one dual step, with room for
@@ -420,7 +420,7 @@ _check_rebuild(::Val{true}, x) = _check_scalars(x, _param_tuple(x, (1, 1)))
 # does (`_rebuild_views`) from a vector of dual numbers, each with its own
 # partial: the parameters read back must be those dual numbers.
 _check_rebuild(::Val{false}, x) = _check_views(x)
-# The checks rebuild with dual numbers, so are in the ForwardDiff extension.
+# The checks rebuild with dual numbers, so are in the `ForwardDiff` extension.
 # Without it they return `nothing`: the part is unchecked, and the call
 # checks it (`_fit`).
 _check_scalars(x, args...) = nothing

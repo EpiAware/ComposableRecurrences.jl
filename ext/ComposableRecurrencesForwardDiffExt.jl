@@ -277,7 +277,7 @@ _partialsN(x::Real, ::Val{N}) where {N} = ntuple(_ -> zero(x), Val(N))
 
 function _check_scalars(x, θ)
     T = promote_type(map(typeof, θ)...)
-    θd = _seed(ForwardDiff.Tag(_check_rebuild, T), map(T, θ))
+    θd = _seed(ForwardDiff.Tag(_check_scalars, T), map(T, θ))
     return try
         xd = first(_rebuild_scalar(x, θd))
         _rebuilt_tuple(x, xd) === θd && _steps(x, xd, one(first(θd)))
@@ -290,7 +290,7 @@ end
 function _check_views(x)
     θ = _params(x)
     T = eltype(θ)
-    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_rebuild, T)), T, 1}
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_views, T)), T, 1}
     θd = [D(θ[j], ForwardDiff.Partials((T(j),))) for j in eachindex(θ)]
     return try
         back = similar(θd)
@@ -309,7 +309,7 @@ function _probe_reads(x)
     T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
     M = length(θ) + 2
     R = first(_READ_WIDTHS)
-    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_reads, T)), T, M + R}
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_probe_reads, T)), T, M + R}
     θd = ntuple(i -> D(T(θ[i]), _unit(T, i + 2, Val(M + R))), length(θ))
     reads = _Reads{R}()
     return try
