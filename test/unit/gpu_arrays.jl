@@ -338,6 +338,8 @@ end
     # backend's device arrays as leaves. JLArrays run kernels as Julia code
     # and do not check, so each launch's arguments are recorded and checked
     # as the launch adapts them.
+    # A device array is a leaf: whether its element type can live on the
+    # device is the backend's concern, not the launch's.
     plain(::Type{<:JLArrays.JLDeviceArray}) = true
     function plain(T::Type)
         isbitstype(T) && return true
@@ -382,10 +384,10 @@ end
     ka = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     m = CR.Depletion(PerStratum([60.0, 50.0]); pool0 = PerStratum([50.0, 40.0]))
     y = adapt(Array{Float32}, m)
-    print(gpu === nothing, " ", ka !== nothing, " ", eltype(y.N.x), " ", y isa CR.Pool)
+    println("RESULT ", gpu === nothing, " ", ka !== nothing, " ", eltype(y.N.x), " ", y isa CR.Pool)
     """
     out = read(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $code`, String)
-    @test out == "true true Float32 true"
+    @test "RESULT true true Float32 true" in split(out, '\n')
 end
 
 @testitem "JLArrays: dual numbers carry tangents through the device forward pass" setup = [GPUCases] begin
