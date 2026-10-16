@@ -1,7 +1,7 @@
 # A `Pool` holds pools for each group of strata: the step's value is drawn
 # from them by a depletion form, then flows move between them. Without a
 # draw the pools are the step's values, carried by the recurrence, and the
-# flows move them. `Depletion(N)` is a `Pool` with one pool.
+# flows move them.
 #
 # The layout `L` is a named tuple in the type: the number of pools `n`,
 # whether it draws (`draw`) and the pool the draw takes from when
@@ -29,9 +29,8 @@ x^{*}_i &= x_i - v' \frac{w_i x_i}{P}, \qquad x' = \Phi_t(x^{*}),
 where ``w_i`` is pool ``i``'s weight in the draw (zero for a pool the
 draw does not name), ``v'`` the value passed on and ``\Phi_t`` the flows.
 When ``P \le 0`` the draw comes from the first pool the draw names alone.
-The flows act on the pools after the draw: hazard and share flows
-together, then the count flows in order ([`ComposableRecurrences.Flow`](@ref)
-gives each form).
+The flows act on the pools after the draw, in the order
+[`ComposableRecurrences.Flow`](@ref) sets out.
 The form is a variant struct with `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref),
 [`ComposableRecurrences.Floor`](@ref),
@@ -40,8 +39,8 @@ The form is a variant struct with `forward(form, Step(), v, s, N, α)`:
 method ([A depletion form](@ref extending-form)).
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 The draw's `Hazard()` takes its hazard from the value over the population,
-``v / N_t``, where a `Hazard()` flow's demand is the rate itself, without
-``N`` or ``\alpha``.
+``v / N_t``; a `Hazard()` flow's demand is read as
+[`ComposableRecurrences.Flow`](@ref) sets out.
 With one pool the step is pointwise and the state is the pool; with more
 it is blockwise ([`ComposableRecurrences.blocks`](@ref) is `Val((1, n))`)
 and the state holds pool 1 of every stratum, then pool 2, and so on.
@@ -56,12 +55,10 @@ previous step's pools forward, and the `Pool` applies the step's flows,
 The state then holds what flowed into each pool at the step, where a
 negative count adds nothing.
 
-Leaky vaccination with efficacy ``e`` is a second pool ``V`` drawn at
-weight ``1 - e``, with the doses a count `Flow(:S => :V, doses; form =
-Truncate())`; all-or-nothing protection is weight zero with ``e`` times the
-doses.
-Waning protection is a hazard `Flow(:V => :S, ω)`, and a delay from dose to
-protection is a [`Convolution`](@ref) of the doses before the call.
+The [renewal then delay](@ref tutorial-renewal-delay) tutorial builds
+leaky, all-or-nothing and waning protection with a second pool; a delay
+from dose to protection is a [`Convolution`](@ref) of the doses before the
+call.
 [`ComposableRecurrences.Depletion`](@ref) is a `Pool` with one pool.
 A `Pool` holds the fields `N`, `form`, `heterogeneity`, `initial`, `weights`
 (each pool's weight in the draw, fixed at zero for a pool it does not
@@ -83,8 +80,9 @@ name) and `flows`, with each flow's pools as positions.
   otherwise.
   One value stands for a `Pool` with one pool.
   A `Pool` without a draw takes its pools from the history instead.
-- `draw`: `pool => form` to draw from one pool, `(pool => w, ...) =>
-  form` to draw from weighted pools, or `nothing` for no draw;
+- `draw`: `pool => form` to draw from one pool,
+  `(pool => w, ...) => form` to draw from weighted pools, or `nothing` for
+  no draw;
   `first(pools) => Hazard()` by default.
   A weight is one value or `PerStratum`, constant over time; a weight of
   `1` is fixed, not a parameter.
@@ -360,8 +358,7 @@ const _OnePool = Pool{(n = 1, draw = true, first = 1)}
 Susceptible depletion: each stratum's new values are drawn from a pool
 that starts at `pool0` and shrinks by what is drawn.
 
-`Depletion` is the [`ComposableRecurrences.Pool`](@ref) with one pool and
-a draw, and `Depletion(N, form; heterogeneity, pool0, removals)` builds
+`Depletion(N, form; heterogeneity, pool0, removals)` builds
 
 ```julia
 Pool(N; initial = pool0, draw = :S => form, heterogeneity,

@@ -4,8 +4,9 @@
 
 ### Breaking
 
-- `Depletion` is the [`Pool`][api] with one pool, as a type alias, so `m isa Depletion` holds as before.
+- `Depletion` is now a type alias of [`Pool`][api], so `m isa Depletion` holds as before.
   `Depletion(N, form; heterogeneity, pool0)` builds it as before; its starting pool is the field `initial[1]` rather than `pool0`, and its type parameters are `Pool`'s.
+  The v0.1.0 positional constructor `Depletion(N, form, heterogeneity, pool0)` is gone.
 - `seeded` is removed.
   Use `r(gain; history, start = m + 1, prepend = true)`, which places the seed at times `1:m` and returns it before the run ([renewal then delay][renewal]).
 - `start = nothing` is an `ArgumentError`.
@@ -34,10 +35,10 @@
   `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
 - `Pool(N; pools, initial, draw, heterogeneity, flows)` holds pools for each group of strata: each step's value is drawn from weighted pools by a depletion form, then `Flow(from => to, demand; form)`s move between the pools ([renewal then delay][renewal]).
   A second pool drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
-  A pool's default start is empty, in the state's element type, so a `Float32` model stays `Float32`.
+  The first pool the draw names starts at `N` when `N` is given; every other pool starts empty, in the state's element type.
   Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
-- `Depletion(N; removals)` takes removals from the pool after each draw; `Depletion` is a `Pool` with one pool ([renewal then delay][renewal]).
+- `Depletion(N; removals)` takes removals from the pool after each draw ([renewal then delay][renewal]).
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).

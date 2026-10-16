@@ -2,9 +2,7 @@
 # into another, or out, each step, by a form applied to its
 # demand: a competing hazard rate (`Hazard()`, the default), a share
 # (`Share()`) or a count capped by what is there (`Truncate()` or
-# `SoftTruncate(κ)`). The rates out of one pool compete; rates and
-# shares act on the incoming pools together, then the counts in
-# flow order on what remains.
+# `SoftTruncate(κ)`); `Flow`'s docstring gives how they combine.
 
 @doc raw"""
 The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
@@ -17,9 +15,8 @@ m_f = p_f\, x_i,
 ```
 
 with ``x_i`` the pool before the step's flows, alongside any
-[`ComposableRecurrences.Hazard`](@ref) flows.
-Shares out of one pool that sum to more than ``e^{-H_i}``, with
-``H_i`` the sum of its hazard rates, leave it negative.
+[`ComposableRecurrences.Hazard`](@ref) flows; `Flow` says what happens
+when the shares out of one pool sum to more than it holds.
 `Share()` is a form for flows only, not a depletion form.
 
 # Examples
@@ -35,8 +32,7 @@ ComposableRecurrences.Share()
 """
 struct Share end
 
-# The forms a flow takes: rates and shares act together, the truncated
-# forms in order after them.
+# The forms a flow takes.
 const _TruncateForm = Union{Truncate, SoftTruncate}
 const _FlowForm = Union{Hazard, Share, _TruncateForm}
 

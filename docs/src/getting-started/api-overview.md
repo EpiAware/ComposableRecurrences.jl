@@ -188,7 +188,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
 |---|---|---|---|---|---|
 | [`Pool(N; pools, draw, flows)`](@ref ComposableRecurrences.Pool) | holds pools per group: draws each step's value from them by a depletion form, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | hand-written | `N`, `heterogeneity`, `initial`, each draw weight and each flow's demand |
-| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | a `Pool` with one pool: draws each step's values from a finite pool, with removals | yes | yes | hand-written | `N`, `heterogeneity`, `pool0`, `removals` |
+| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals | yes | yes | hand-written | `N`, `heterogeneity`, `initial`, `removals` |
 | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | hand-written | `ε` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
