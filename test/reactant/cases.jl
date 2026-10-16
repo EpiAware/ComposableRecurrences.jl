@@ -6,8 +6,8 @@ module ReactantCases
 
 using ComposableRecurrences
 using ComposableRecurrences: Add, Allocate, Budget, Capacity, Clamp, Depletion,
-    Floor, Flow, Flows, Hold, Primary, Protected, Redistribute, Secondary,
-    SoftTruncate, Step, Transform, with_state
+    Floor, Flow, Hazard, Hold, Pool, Primary, Redistribute, Secondary,
+    SoftTruncate, Step, Transform, Truncate, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -157,13 +157,16 @@ function mod_depletion_removals(θ)
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
 
-# `σ` is a constant: `Protected` takes one value or `PerStratum`, and a
+# `σ` is a constant: a draw weight is one value or `PerStratum`, and a
 # traced scalar is not a `Real`.
 const σ0 = 0.3
 
 function mod_depletion_protected(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
-    d = Depletion(N0; removals = rm, protected = Protected(σ0))
+    d = Pool(
+        N0; pools = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
+        flows = (Flow(1 => 2, rm; form = Truncate()),)
+    )
     r = Recurrence(θ[1:L]; modifiers = (d,))
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
@@ -217,7 +220,10 @@ end
 
 # Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
 function mod_flows(θ)
-    fs = Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
+    fs = Pool(;
+        pools = 3, draw = nothing,
+        flows = (Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
+    )
     r = Recurrence(g0; modifiers = (fs,))
     return r(reshape(θ, S, T); history = HS)
 end
@@ -349,7 +355,7 @@ const CASES = [
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),
     Case(
-        "mod_depletion_protected", "Recurrence with Depletion (Protected)",
+        "mod_depletion_protected", "Recurrence with a protected pool",
         mod_depletion_protected,
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),
@@ -377,7 +383,9 @@ const CASES = [
         "mod_capacity", "Recurrence with Capacity (Budget, Hold)",
         mod_capacity, vec(RS0), WS
     ),
-    Case("mod_flows", "Recurrence with Flows", mod_flows, vec(RS0), WS),
+    Case(
+        "mod_flows", "Recurrence with a Pool of flows", mod_flows, vec(RS0), WS
+    ),
     Case(
         "mod_recent", "Recurrence with Recent (coupled)", mod_recent,
         vec(RS0), WS

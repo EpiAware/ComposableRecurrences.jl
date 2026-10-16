@@ -47,6 +47,10 @@ One of several series run side by side (plural strata); see [`PerStratum`](@ref)
 
 Acting on each series separately; [`ispointwise`](@ref ComposableRecurrences.ispointwise) says whether a modifier does.
 
+### [Pool](@id glossary-pool)
+
+A quantity carried from one step to the next that a step draws from or adds to; a [`Pool`](@ref ComposableRecurrences.Pool) holds one or more.
+
 ## Tables
 
 Each table below lists one part of the package:
@@ -183,17 +187,17 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 
 | Name | What it does | Recurrence | Per series | Adjoint | Parameters |
 |---|---|---|---|---|---|
-| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals, flows between pools and an optional protected pool | yes | yes, or blockwise with `protected` | hand-written | `N`, `heterogeneity`, `pool0`, `flows` (the removals are the first), `protected` |
+| [`Pool(N; pools, draw, flows)`](@ref ComposableRecurrences.Pool) | holds pools per group: draws each step's value from them by a depletion form, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | hand-written | `N`, `heterogeneity`, `initial`, each draw weight and each flow's demand |
+| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals | yes | yes | hand-written | `N`, `heterogeneity`, `initial`, `removals` |
 | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | moves a share ``\varepsilon`` of each series' value to others through ``K`` | yes, with several series | no | hand-written | `ε` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
-| [`Flows(flows...)`](@ref ComposableRecurrences.Flows) | moves values between the compartments of each group by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s | yes, with groups of series | no, blockwise | hand-written | each flow's rate, share or count |
 | [`Allocate(groups, total; imports, spill)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share, with a fraction placed by an import pattern | yes, with several series | no | hand-written | `total` and `fraction`, one per group; `pattern` |
 | [`Capacity(C, mode; pairs)`](@ref ComposableRecurrences.Capacity) | admits each step's demand up to free beds or a budget per period, and routes the rest to an overflow series, a queue or nowhere | yes, with several series | no | hand-written | `C`, `exit`, `κ`, `initial` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
-The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`, `Capacity` and `Flows`.
+The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp`, `Capacity` and a `Pool` without a draw.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
@@ -206,10 +210,9 @@ Depletion forms, capacity modes and time indexing are types, and you pass an ins
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
 | your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
-| [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its compartment; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(1 => 2, p; form = Share())` |
+| [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its pool; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(:S => :V, p; form = Share())` |
 | [`Beds(δ)`](@ref ComposableRecurrences.Beds), [`Budget(period; carry_over)`](@ref ComposableRecurrences.Budget) | capacity modes: places with occupancy and exit fraction ``\delta``, or an allowance granted each period | `Capacity(C, Beds(δ); pairs = [1 => 2])` |
 | [`Route()`](@ref ComposableRecurrences.Route), [`Hold()`](@ref ComposableRecurrences.Hold), [`Drop()`](@ref ComposableRecurrences.Drop) | capacity overflow: to the paired series at the same step, to a queue offered again next step, or removed | `Capacity(C, Beds(δ); pairs = [1], overflow = Hold())` |
-| [`Protected(σ; pool0)`](@ref ComposableRecurrences.Protected) | a pool the depletion's removals move into, drawn from at relative susceptibility ``\sigma``; it wanes through the depletion's `flows` | `Depletion(N; removals, protected = Protected(σ))` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
 

@@ -331,7 +331,7 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 ## [A depletion form](@id extending-form)
 
 A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
-It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion).
+It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion), or as the form of a [`Pool`](@ref ComposableRecurrences.Pool)'s draw.
 This one takes what is asked, up to the pool:
 
 ```math

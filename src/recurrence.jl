@@ -732,10 +732,12 @@ _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
     return _modifier_adjoint(m) === :local && _holds_floats(m) ? (m,) : ()
 end
-function _local_modifier(m::Depletion)
-    f = m.form
-    local_form = !uses_adjoint(f, Step()) && _scalar_params(f) && _param_tuple(f) !== ()
-    return local_form ? (f,) : ()
+function _local_modifier(m::Pool)
+    return _rebuilt_form(m.form) ? (m.form,) : ()
+end
+_rebuilt_form(::Nothing) = false
+function _rebuilt_form(f)
+    return !uses_adjoint(f, Step()) && _scalar_params(f) && _param_tuple(f) !== ()
 end
 
 # Keyed on the message, so the same parts with other number types, dual
@@ -764,8 +766,8 @@ function _part_why(m)
     _derived_local(m) || return "$name has a Derived map that holds floats"
     return "$name has no pullback! the rule can use"
 end
-function _part_why(m::Depletion)
-    _form_adjoint(m.form) && return "Depletion has a Derived map that holds floats"
+function _part_why(m::Pool)
+    _form_adjoint(m.form) && return "Pool has a Derived map that holds floats"
     return _part_why(m.form)
 end
 
@@ -1192,8 +1194,8 @@ end
 # Otherwise each step is a loop over strata: with pointwise modifiers each
 # stratum's value goes straight to the buffer, else the step's values are
 # collected for the vector Step. Vector Steps (such as `Allocate` and
-# `Redistribute`) read every stratum, and blockwise ones (such as
-# `Protected`) loop their groups, so they run on the calling task whatever
+# `Redistribute`) read every stratum, and blockwise ones (such as a `Pool`
+# with more than one pool) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val

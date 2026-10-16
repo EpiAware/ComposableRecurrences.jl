@@ -43,8 +43,10 @@
         end
         return y
     end
-    vaccinated(σ, r) = CR.Depletion(
-        N; pool0, removals = TimeVarying(r), protected = CR.Protected(σ)
+    vaccinated(σ, r) = CR.Pool(
+        N; pools = (:S, :V), initial = (pool0, nothing),
+        draw = (:S => 1, :V => σ) => CR.Hazard(),
+        flows = (CR.Flow(1 => 2, TimeVarying(r); form = CR.Truncate()),)
     )
     model(R, d) = Recurrence(g; modifiers = (d,))(
         R; history = seed, start = length(seed) + 1, prepend = true
@@ -98,9 +100,9 @@ end
     rest = N - n0
     attack(x∞, x0) = 1 - (1 - n0 / N) * x∞ / x0
     function final_size(σ, protected0)
-        d = CR.Depletion(
-            N; pool0 = rest - protected0,
-            protected = CR.Protected(σ; pool0 = protected0)
+        d = CR.Pool(
+            N; pools = (:S, :V), initial = (rest - protected0, protected0),
+            draw = (:S => 1, :V => σ) => CR.Hazard()
         )
         y, state = CR.with_state(
             Recurrence(g; modifiers = (d,)), R; history = [float(n0)]

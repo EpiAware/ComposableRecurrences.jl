@@ -437,8 +437,9 @@ function pullback!(grads, m::Capacity, ::Init, s, history)
     return nothing
 end
 
-# The mode opens a pair's stock at time `t`: the free capacity and the
-# stock held before admission. Closing it adds or takes the admissions.
+# The mode opens a pair at time `t`: the free capacity and what the pair
+# holds before admission, the beds kept or the budget left. Closing it adds
+# or takes the admissions.
 function _open(mode::Beds, c, O, p, t)
     kept = (1 - param(mode.exit, p, t)) * O
     return c - kept, kept
@@ -454,10 +455,10 @@ _close(::Budget, B̃, x) = B̃ - x
 _refills(period::Int, t) = rem(t - 1, period) == 0
 _refills(::Nothing, t) = t == 1
 
-# Their pullbacks. `_close_back` gives the cotangents of the held stock and
-# of the admissions from that of the closed stock; `_open_back` takes those
-# of the free capacity and the held stock, adds the parameters' and returns
-# the incoming stock's.
+# Their pullbacks. `_close_back` gives the cotangents of what is held and
+# of the admissions from that of the pair's state after admission;
+# `_open_back` takes those of the free capacity and what is held, adds the
+# parameters' and returns that of the incoming state.
 _close_back(::Beds, s̄′) = (s̄′, s̄′)
 _close_back(::Budget, s̄′) = (s̄′, -s̄′)
 function _open_back(mode::Beds, m̄, m, O, f̄, h̄, p, t)

@@ -85,12 +85,14 @@ end
     end
     # With removals and with a protected pool.
     R = fill(3.0, 12)
-    for kw in (
-            (; removals = TimeVarying(fill(0.5, 12))),
-            (; removals = TimeVarying(fill(0.5, 12)), protected = CR.Protected(0.3)),
-        )
-        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0; kw...),))
-        float = Recurrence(g; modifiers = (CR.Depletion(60.0; heterogeneity = 1.0, kw...),))
+    doses = TimeVarying(fill(0.5, 12))
+    leaky(α) = CR.Pool(
+        60.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        heterogeneity = α, flows = CR.Flow(:S => :V, doses; form = CR.Truncate())
+    )
+    for m in (α -> CR.Depletion(60.0; removals = doses, heterogeneity = α), leaky)
+        fixed = Recurrence(g; modifiers = (m(nothing),))
+        float = Recurrence(g; modifiers = (m(1.0),))
         @test fixed(R; history = h) ≈ float(R; history = h)
     end
     # A Float32 population stays Float32.
@@ -269,7 +271,7 @@ end
 @testitem "Built-in modifiers implement the piece interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
-    for T in (CR.Depletion, CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp)
+    for T in (CR.Pool, CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp)
         @test Interfaces.implements(CR.PieceInterface, T)
     end
 end
@@ -383,7 +385,10 @@ end
     # With a protected pool a removal moves from the unprotected pool to the
     # protected one, and a negative removal adds to the unprotected pool only.
     function step(r)
-        d = CR.Depletion(20.0; removals = r, protected = CR.Protected(0.5))
+        d = CR.Pool(
+            20.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
+            flows = (CR.Flow(1 => 2, r; form = CR.Truncate()),)
+        )
         return CR.forward(d, CR.Step(), (0.0,), (10.0, 4.0), 1, 1)
     end
     @test step(3.0) == ((0.0,), (7.0, 7.0))
@@ -442,7 +447,7 @@ end
         m = build(θ)
         m̄ = ModifierChecks.mirror(m)
         CR.pullback!((; piece = m̄, s = s̄, history = nothing), m, CR.Init(), zeros(3), h)
-        @test vcat(ModifierChecks.flat(m̄.N), ModifierChecks.flat(m̄.pool0)) ≈ expected
+        @test vcat(ModifierChecks.flat(m̄.N), ModifierChecks.flat(m̄.initial)) ≈ expected
     end
 end
 
@@ -627,7 +632,7 @@ end
     CR = ComposableRecurrences
     for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
-        @test m isa CR.Depletion{typeof(form)}
+        @test m isa CR.Pool{<:Any, Float64, typeof(form)}
         # The built-in maths is the form's Step.
         @test CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1) ==
             CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 1.0)
@@ -637,7 +642,7 @@ end
             Tuple{Float64, Float64}
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
-    @test (@inferred default_depletion()) isa CR.Depletion{CR.Hazard}
+    @test (@inferred default_depletion()) isa CR.Pool{<:Any, Float64, CR.Hazard}
 end
 
 @testitem "Built-in modifiers: a Recurrence infers its return type" begin
@@ -751,12 +756,16 @@ end
     # At an empty pool a dual exponent would give `log(0) * 0 = NaN`.
     g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
     W = collect(range(0.5, 1.5; length = 6))
-    pools = (nothing, CR.Protected(0.3))
-    for form in (CR.Hazard(), CR.Floor()), α in (1, 2), protected in pools
+    pools = (
+        (θ, form, α) -> CR.Depletion(θ[1], form; heterogeneity = α, pool0 = θ[2]),
+        (θ, form, α) -> CR.Pool(
+            θ[1]; pools = (:S, :V), initial = (θ[2], nothing),
+            draw = (:S => 1, :V => 0.3) => form, heterogeneity = α
+        ),
+    )
+    for form in (CR.Hazard(), CR.Floor()), α in (1, 2), pool in pools
         function f(θ)
-            d = CR.Depletion(
-                θ[1], form; heterogeneity = α, pool0 = θ[2], protected
-            )
+            d = pool(θ, form, α)
             return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
         end
         θ = [100.0, 0.0]

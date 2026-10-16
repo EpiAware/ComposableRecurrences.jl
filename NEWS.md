@@ -4,6 +4,9 @@
 
 ### Breaking
 
+- `Depletion` is now a type alias of [`Pool`][api], so `m isa Depletion` holds as before.
+  `Depletion(N, form; heterogeneity, pool0)` builds it as before; its starting pool is the field `initial[1]` rather than `pool0`, and its type parameters are `Pool`'s.
+  The v0.1.0 positional constructor `Depletion(N, form, heterogeneity, pool0)` is gone.
 - `seeded` is removed.
   Use `r(gain; history, start = m + 1, prepend = true)`, which places the seed at times `1:m` and returns it before the run ([renewal then delay][renewal]).
 - `start = nothing` is an `ArgumentError`.
@@ -30,13 +33,14 @@
 - `Transform(f, θ; derivative)` maps each value through `f(v, θ)` with parameters ([Transform tutorial][transform]).
 - `Allocate(groups, total)` rescales groups of strata to exogenous totals ([spatial and multi-type models][spatial]).
   `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
-- `Depletion(N; removals, protected)` takes removals from the pool and, with `Protected(σ; pool0)`, keeps them in a second pool for all-or-nothing or leaky protection ([renewal then delay][renewal]).
-  `Protected`'s default `pool0` is an empty pool in the state's element type, so a `Float32` model stays `Float32`.
+- `Pool(N; pools, initial, draw, heterogeneity, flows)` holds pools for each group of strata: each step's value is drawn from weighted pools by a depletion form, then `Flow(from => to, demand; form)`s move between the pools ([renewal then delay][renewal]).
+  A second pool drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
+  The first pool the draw names starts at `N` when `N` is given; every other pool starts empty, in the state's element type.
+  Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
+  A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
+- `Depletion(N; removals)` takes removals from the pool after each draw ([renewal then delay][renewal]).
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
-- `Depletion(N; flows)` moves between the depletion's pools after each draw, such as waning protection `Flow(2 => 1, ω)` back from a `Protected` pool or a rate `Flow(1 => 0, μ)` out of the pool; the `removals` are its first count flow ([renewal then delay][renewal]).
-- `Flows(Flow(from => to, demand; form)...)` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
-  A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
 - `delay_masses(d, lags)` returns a delay's masses on lags `0` to `lags - 1`, and packages that own delay types add methods for them.

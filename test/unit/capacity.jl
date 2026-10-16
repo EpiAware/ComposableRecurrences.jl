@@ -23,7 +23,7 @@
         Y = zeros(Tp, S, L + T)
         Y[:, 1:L] .= h
         P = length(pairs)
-        stock = Tp[initial(p) for p in 1:P]
+        pool = Tp[initial(p) for p in 1:P]
         queue = zeros(Tp, P)
         for t in 1:T
             v = [R[k, t] * sum(G[k, i] * Y[k, L + t - i] for i in 1:L) for k in 1:S]
@@ -31,16 +31,16 @@
                 a = hold || drop ? pr : pr.first
                 d = v[a] + queue[p]
                 if mode === :beds
-                    kept = (1 - exit(p, t)) * stock[p]
+                    kept = (1 - exit(p, t)) * pool[p]
                     x = min(d, max(cap(p, t) - kept, 0))
-                    stock[p] = kept + x
+                    pool[p] = kept + x
                 else
                     refill = period === nothing ? t == 1 : (t - 1) % period == 0
                     if refill
-                        stock[p] = (carry ? stock[p] : zero(Tp)) + cap(p, t)
+                        pool[p] = (carry ? pool[p] : zero(Tp)) + cap(p, t)
                     end
-                    x = min(d, max(stock[p], 0))
-                    stock[p] -= x
+                    x = min(d, max(pool[p], 0))
+                    pool[p] -= x
                 end
                 v[a] = x
                 if hold
@@ -51,7 +51,7 @@
             end
             Y[:, L + t] .= v
         end
-        return Y[:, (L + 1):end], stock, queue
+        return Y[:, (L + 1):end], pool, queue
     end
 
     # Pairs 1 => 2 and 3 => 4; admitted strata transmit less.
@@ -267,7 +267,7 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     v = [2.0, 0.5, 3.0, 1.0]
-    # The state is each pair's stock, then each queue with Hold().
+    # The state is each pair's pool, then each queue with Hold().
     builds = (
         (
             x -> CR.Capacity(
@@ -395,8 +395,8 @@ end
     )
     @test_throws "non-empty vector" CR.Capacity(1.0, CR.Beds(); pairs = Pair{Int, Int}[])
     @test_throws "start at 1, got 0" CR.Capacity(1.0, CR.Beds(); pairs = [0 => 1])
-    @test_throws "Beds(exit) or Budget(period), got :stock" CR.Capacity(
-        1.0, :stock; pairs = [1 => 2]
+    @test_throws "Beds(exit) or Budget(period), got :pool" CR.Capacity(
+        1.0, :pool; pairs = [1 => 2]
     )
     @test_throws "Route(), Hold() or Drop(), got :hold" CR.Capacity(
         1.0, CR.Beds(); pairs = [1 => 2], overflow = :hold

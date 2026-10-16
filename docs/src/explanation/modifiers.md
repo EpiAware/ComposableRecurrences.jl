@@ -69,11 +69,10 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 
 | Built-in | Step reads | State holds | Place it |
 |---|---|---|---|
-| [`Depletion`](@ref ComposableRecurrences.Depletion) | one series, or one series with its protected pool | the pool, then the protected pool | after anything that should draw from the pool |
+| [`Pool`](@ref ComposableRecurrences.Pool), [`Depletion`](@ref ComposableRecurrences.Depletion) | one series with its pools, or without a draw one group of pools held in the series | each pool, pool by pool; without a draw, what flowed into each pool | after anything that should draw from the pool; without a draw, on a kernel of `[1.0]`, which carries the pools forward |
 | [`Redistribute`](@ref ComposableRecurrences.Redistribute) | every series | what each series received | before a `Depletion` that should deplete where values are realised |
 | [`Add`](@ref ComposableRecurrences.Add) | one series | nothing | where the addition should enter |
 | [`Clamp`](@ref ComposableRecurrences.Clamp) | one series | nothing | after what it bounds |
-| [`Flows`](@ref ComposableRecurrences.Flows) | one group of compartments | what flowed into each compartment | on a kernel of `[1.0]`, which carries the compartments forward |
 | [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of series, or every series with `imports` | nothing, or the import pattern after the spilled values | after what it rescales; an `Add` after it adds to the totals; a spill whose pattern reads the values before it goes in its `spill` |
 | [`Capacity`](@ref ComposableRecurrences.Capacity) | each admitted series and its overflow | the occupancy or allowance, then the queue with `Hold()` | after what makes the demand |
 | [`Transform`](@ref ComposableRecurrences.Transform) | one series | nothing | where the map applies |
@@ -86,7 +85,7 @@ Its parameters take every form in [Slots](@ref explanation-slots).
 Several needs have more than one fit.
 
 - To bound values, `Clamp` cuts them and `Capacity` routes, queues or drops what is cut, so it keeps account of the excess.
-- To move values between series, `Redistribute` moves a share at the same step, `Flows` moves between compartments within a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
+- To move values between series, `Redistribute` moves a share at the same step, a `Pool` without a draw moves between the pools of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
 - To map values, `Transform` takes any function, and a [new modifier](@ref extending-pointwise) is worth writing when the map keeps state or reads other series.
 
 A new modifier composes with the built-ins in the same tuple; [Writing new types](@ref extending) gives the contract.
