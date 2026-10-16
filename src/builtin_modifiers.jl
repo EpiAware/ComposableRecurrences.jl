@@ -477,7 +477,11 @@ struct Redistribute{L, A}
         return new{L, A}(M)
     end
 end
-Redistribute(M; leak::Bool = false) = Redistribute{leak}(M)
+# A branch on `leak` names the type parameter in each arm, so the call is
+# inferred.
+function Redistribute(M; leak::Bool = false)
+    return leak ? Redistribute{true}(M) : Redistribute{false}(M)
+end
 function Redistribute(K, ε)
     throw(
         ArgumentError(

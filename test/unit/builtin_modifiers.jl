@@ -338,6 +338,11 @@ end
     @test_throws "a TimeVarying coupling" CR.Redistribute(TimeVarying(ones(2, 2)))
     @test_throws "Redistribute(movement(K, ε))" CR.Redistribute(M, 0.1)
     @test_throws "leak is true or false" CR.Redistribute{1}(M)
+    # The leak flag is a type parameter; the constructor is still inferred,
+    # so a scalar held in the matrix keeps its gradient under Enzyme.
+    @test @inferred(CR.Redistribute(M)) isa CR.Redistribute{false}
+    leaky_redistribute(M) = ComposableRecurrences.Redistribute(M; leak = true)
+    @test @inferred(leaky_redistribute(M)) isa CR.Redistribute{true}
     # The matrix is checked against the strata and its columns once per
     # call, in Init, and on a resumed state.
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
