@@ -1,25 +1,22 @@
-# Flows between the stocks of a pool. A `Flow` moves part of one stock
+# Flows between the pools of a `Pool`. A `Flow` moves part of one pool
 # into another, or out, each step, by a form applied to its
 # demand: a competing hazard rate (`Hazard()`, the default), a share
 # (`Share()`) or a count capped by what is there (`Truncate()` or
-# `SoftTruncate(κ)`). The rates out of one stock compete; rates and
-# shares act on the incoming stocks together, then the counts in
-# flow order on what remains.
+# `SoftTruncate(κ)`); `Flow`'s docstring gives how they combine.
 
 @doc raw"""
 The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
-moves a share ``p`` of the stock it leaves.
+moves a share ``p`` of the pool it leaves.
 
-Flow ``f`` out of stock ``i``, with demand ``p_f``, moves
+Flow ``f`` out of pool ``i``, with demand ``p_f``, moves
 
 ```math
 m_f = p_f\, x_i,
 ```
 
-with ``x_i`` the stock before the step's flows, alongside any
-[`ComposableRecurrences.Hazard`](@ref) flows.
-Shares out of one stock that sum to more than ``e^{-H_i}``, with
-``H_i`` the sum of its hazard rates, leave it negative.
+with ``x_i`` the pool before the step's flows, alongside any
+[`ComposableRecurrences.Hazard`](@ref) flows; `Flow` says what happens
+when the shares out of one pool sum to more than it holds.
 `Share()` is a form for flows only, not a depletion form.
 
 # Examples
@@ -35,25 +32,23 @@ ComposableRecurrences.Share()
 """
 struct Share end
 
-# The forms a flow takes: rates and shares act together, the truncated
-# forms in order after them.
-
+# The forms a flow takes.
 const _TruncateForm = Union{Truncate, SoftTruncate}
 const _FlowForm = Union{Hazard, Share, _TruncateForm}
 
 @doc raw"""
-A flow from stock `from` into stock `to` of a
-[`ComposableRecurrences.Pool`](@ref), out of the pool with `to = 0` or into
+A flow from pool `from` into pool `to` of a
+[`ComposableRecurrences.Pool`](@ref), out of it with `to = 0` or into
 it with `from = 0`, that moves its `demand` by a form.
 
-Each step it moves an amount ``m_f`` out of stock `from` and into `to`,
+Each step it moves an amount ``m_f`` out of pool `from` and into `to`,
 
 ```math
 x'_{\mathrm{from}} = x_{\mathrm{from}} - m_f, \qquad
 x'_{\mathrm{to}} = x_{\mathrm{to}} + m_f,
 ```
 
-with the form setting ``m_f`` from the demand ``d_f`` and the stock ``x``
+with the form setting ``m_f`` from the demand ``d_f`` and the pool ``x``
 it leaves:
 
 | form | demand | ``m_f`` |
@@ -63,16 +58,19 @@ it leaves:
 | [`ComposableRecurrences.Truncate`](@ref) | a count | ``\min\big(d_f, \max(x, 0)\big)`` |
 | [`ComposableRecurrences.SoftTruncate`](@ref) | a count | a smooth ``\min\big(d_f, \max(x, 0)\big)`` |
 
-The hazard rates out of one stock compete, as in the `Hazard` depletion
+The hazard rates out of one pool compete, as in the `Hazard` depletion
 form, so together they move ``x (1 - e^{-H})``; with non-negative, finite
-rates a non-negative stock stays non-negative.
+rates a non-negative pool stays non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
+A constant rate out of a compartment is a geometric stay in it; for
+another stay, convolve the inflow with its survival, as
+[Occupancy and capacity](@ref tutorial-occupancy) does.
 A `Hazard()` flow's demand is the rate itself, with no population and no
 heterogeneity, where a `Hazard()` depletion draws the value divided by
 its population `N`.
-For each group at absolute time ``t``, with stocks ``x``, hazard flows
+For each group at absolute time ``t``, with pools ``x``, hazard flows
 ``f`` at rates ``r_f`` and share flows at shares ``p_f``, these act
-together on the stocks before the step's flows,
+together on the pools before the step's flows,
 
 ```math
 \begin{aligned}
@@ -84,20 +82,21 @@ y_j &= \big(e^{-H_j} - P_j\big) x_j + \sum_{f \text{ into } j} m_f,
 
 then each count flow, in the order given, moves its ``m_f`` out of what
 remains in ``y``.
-Shares out of one stock that sum to more than ``e^{-H_i}`` leave it
+Each share is between 0 and 1, checked unless it is a [`Derived`](@ref),
+which is only known at each step.
+Shares out of one pool that sum to more than ``e^{-H_i}`` leave it
 negative.
-A negative count adds ``-d_f`` to stock `from`, without a cap, and moves
+A negative count adds ``-d_f`` to pool `from`, without a cap, and moves
 nothing into `to`.
-A flow from `0` is a count from outside the pool, which never runs out:
+A flow from `0` is a count from outside the `Pool`, which never runs out:
 it moves ``m_f = d_f`` into `to`, and a negative one moves nothing.
 Its form is `Truncate()` or `SoftTruncate(κ)`.
 The derivative through ``\min`` and ``\max`` takes the active branch.
-Rates and shares are not checked: a time-varying or [`Derived`](@ref)
-demand is only known at each step.
+Rates are not checked.
 
 # Arguments
-- `stocks`: `from => to`, each a stock's name or its position from 1, with
-  `to = 0` to leave the pool and `from = 0` to enter it.
+- `pools`: `from => to`, each a pool's name or its position from 1, with
+  `to = 0` to leave the `Pool` and `from = 0` to enter it.
 - `demand`: the rate, share or count, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
   and time, with `PerStratum` holding one per group.
@@ -120,9 +119,9 @@ waning.form, transfers.to
 ```
 """
 struct Flow{D, F <: _FlowForm, E}
-    "The stock the flow leaves, by name or position."
+    "The pool the flow leaves, by name or position."
     from::E
-    "The stock it enters, by name or position, or `0` when it leaves."
+    "The pool it enters, by name or position, or `0` when it leaves."
     to::E
     "The rate, share or count, a parameter."
     demand::D
@@ -133,7 +132,7 @@ struct Flow{D, F <: _FlowForm, E}
         _check_end(:to, to)
         from == to && throw(
             ArgumentError(
-                "a flow joins two different stocks, got $(repr(from)) => $(repr(to))"
+                "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
             )
         )
         form isa _FlowForm || throw(
@@ -144,33 +143,36 @@ struct Flow{D, F <: _FlowForm, E}
         )
         from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
             ArgumentError(
-                "a flow from outside the pool is a count, with form Truncate() " *
+                "a flow from outside the Pool is a count, with form Truncate() " *
                     "or SoftTruncate(κ), got $(_describe(form))"
             )
         )
         E = Union{typeof(from), typeof(to)}
-        return new{D, F, E}(from, to, _check_param(:demand, demand), form)
+        d = _check_param(:demand, demand)
+        # A share is a fraction of the pool it leaves.
+        form isa Share && _check_unit(:demand, d)
+        return new{D, F, E}(from, to, d, form)
     end
 end
 
-function Flow(stocks::Pair, demand; form = Hazard())
-    return Flow(_end(stocks.first), _end(stocks.second), demand, form)
+function Flow(pools::Pair, demand; form = Hazard())
+    return Flow(_end(pools.first), _end(pools.second), demand, form)
 end
-function Flow(stocks, demand; form = Hazard())
+function Flow(pools, demand; form = Hazard())
     throw(
         ArgumentError(
-            "a flow joins stocks given as from => to, got " * _describe(stocks)
+            "a flow joins pools given as from => to, got " * _describe(pools)
         )
     )
 end
 
-# A flow's end: a stock's name, or its position from 1, with `0` outside.
+# A flow's end: a pool's name, or its position from 1, with `0` outside.
 _end(x::Symbol) = x
 _end(x::Integer) = Int(x)
 function _end(x)
     throw(
         ArgumentError(
-            "a flow's ends are stock names or positions, got " * _describe(x)
+            "a flow's ends are pool names or positions, got " * _describe(x)
         )
     )
 end
@@ -178,33 +180,33 @@ _check_end(name, x::Symbol) = nothing
 function _check_end(name, x::Int)
     x >= 0 || throw(
         ArgumentError(
-            "$name is a stock from 1, or 0 for outside the pool, got $name = $x"
+            "$name is a pool from 1, or 0 for outside the Pool, got $name = $x"
         )
     )
     return nothing
 end
 
-# The flow with its ends as positions among the stocks `names`.
+# The flow with its ends as positions among the pools `names`.
 function _placed(f::Flow, names)
     return Flow(_place(f.from, names, f), _place(f.to, names, f), f.demand, f.form)
 end
-_place(x::Int, names, f) = x == 0 ? 0 : _placed_stock(x, names, f)
-_place(x::Symbol, names, f) = _placed_stock(x, names, f)
-function _placed_stock(x, names, f)
+_place(x::Int, names, f) = x == 0 ? 0 : _placed_pool(x, names, f)
+_place(x::Symbol, names, f) = _placed_pool(x, names, f)
+function _placed_pool(x, names, f)
     i = _position(x, names)
-    i == 0 && _unknown_stock(x, names, f)
+    i == 0 && _unknown_pool(x, names, f)
     return i
 end
-@noinline function _unknown_stock(x, names, f)
+@noinline function _unknown_pool(x, names, f)
     throw(
         ArgumentError(
-            "Flow($(repr(f.from)) => $(repr(f.to))) names stock $(repr(x)), " *
-                "but the stocks are $(repr(names))"
+            "Flow($(repr(f.from)) => $(repr(f.to))) names pool $(repr(x)), " *
+                "but the pools are $(repr(names))"
         )
     )
 end
 
-# A count flow, which moves its demand up to what the stock holds.
+# A count flow, which moves its demand up to what the pool holds.
 const _Count = Flow{<:Any, <:_TruncateForm}
 
 # The flows as a non-empty tuple of `Flow`s.
@@ -222,7 +224,7 @@ _rate(f::Flow, g, t) = false
 _share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
 _share(f::Flow, g, t) = false
 
-# Sum `h(f, g, t)` over the flows out of stock `i`.
+# Sum `h(f, g, t)` over the flows out of pool `i`.
 _out(h, ::Tuple{}, i, g, t, z) = z
 function _out(h, fs::Tuple, i, g, t, z)
     f = first(fs)
@@ -279,32 +281,34 @@ _get(x::Tuple, i) = _get(Base.tail(x), i, 2, first(x))
 _get(::Tuple{}, i, j, v) = v
 _get(x::Tuple, i, j, v) = _get(Base.tail(x), i, j + 1, ifelse(j == i, first(x), v))
 
-# What moves out of stock `i` per unit held, `(e^{-H}, g(H), P)`.
+# What moves out of pool `i` per unit held, `(e^{-H}, g(H), P)`.
 function _leaves(fs, i, g, t, z)
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
 # Without a hazard flow nothing leaves at a rate, so `e^{-0}` and `g(0)` are
-# one, exactly as `_leave` gives them, without the exponentials.
+# one, exactly as `_leave` gives them, without the exponentials. The shares
+# are summed in their own type, not the pools': under a dual number that
+# would make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _TruncateForm}}}}
-_leaves(fs::_NoHazard, i, g, t, z) = one(z), one(z), _out(_share, fs, i, g, t, z)
+_leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false)
 
-# Add each hazard and share flow's amount into the stock it enters, in
+# Add each hazard and share flow's amount into the pool it enters, in
 # `y` and the arrivals `a`.
 _spread(::Tuple{}, x, L, y, a, g, t) = y, a
-function _spread(fs::Tuple, x, L, y, a, g, t)
+@inline function _spread(fs::Tuple, x, L, y, a, g, t)
     y, a = _spread_one(first(fs), x, L, y, a, g, t)
     return _spread(Base.tail(fs), x, L, y, a, g, t)
 end
 _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
-function _spread_one(f::Flow, x, L, y, a, g, t)
+@inline function _spread_one(f::Flow, x, L, y, a, g, t)
     f.to > 0 || return (y, a)
     _, gH, _ = L[f.from]
     m = x[f.from] * (_rate(f, g, t) * gH + _share(f, g, t))
     return _add(y, f.to, m), _add(a, f.to, m)
 end
 
-# A count `r` out of a stock holding `s`, `min(r, max(s, 0))`; it is
+# A count `r` out of a pool holding `s`, `min(r, max(s, 0))`; it is
 # also a depletion's removal from what remains after the draw. The arms
 # follow primal values, as in the pullback: a dual with value zero is
 # ordered by its partials, so `min` and `max` on duals could take the other
@@ -329,11 +333,11 @@ function _removal_pullback(r, s, m̄)
     return z, s < 0 ? z : m̄
 end
 
-# What a count moves into the stock it enters: a negative count adds
-# to the stock it leaves only. The arm follows the primal value.
+# What a count moves into the pool it enters: a negative count adds
+# to the pool it leaves only. The arm follows the primal value.
 _moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
-# What a count `a` moves out of a stock holding `s`, and the
+# What a count `a` moves out of a pool holding `s`, and the
 # cotangents `(ā, s̄, κ̄)` from that of the move; `κ̄` is the softness's.
 _moved(::Truncate, a, s) = _removal(a, s)
 _moved(form::SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
@@ -346,15 +350,15 @@ function _moved_back(form::SoftTruncate, a, s, m̄)
     return ā, ifelse(s > 0, c̄, zero(c̄)), κ̄
 end
 
-# The count flows in order on the stocks `y` and arrivals `a`.
+# The count flows in order on the pools `y` and arrivals `a`.
 _counts(::Tuple{}, y, a, g, t) = y, a
 function _counts(fs::Tuple, y, a, g, t)
     y, a = _count(first(fs), y, a, g, t)
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
-# One pass over the stocks, by `ifelse`: a flow out of the system
-# (`to = 0`) adds to no stock.
+# One pass over the pools, by `ifelse`: a flow out of the system
+# (`to = 0`) adds to no pool.
 function _count(f::_Count, y, a, g, t)
     i, j = f.from, f.to
     m = _moved(f.form, param(f.demand, g, t), _source(y, i))
@@ -365,34 +369,37 @@ function _count(f::_Count, y, a, g, t)
     return y′, _add(a, j, p)
 end
 
-# What stock `i` holds for a count out of it, or an unbounded stock for a
-# count from outside the pool (`i = 0`), so the count moves its demand.
+# What pool `i` holds for a count out of it, or an unbounded pool for a
+# count from outside the `Pool` (`i = 0`), so the count moves its demand.
 _source(y, i) = ifelse(i == 0, oftype(first(y), Inf), _get(y, i))
 
 # Count flows only, such as a depletion's removals: nothing moves at a
 # rate or as a share, so the counts act on `x` directly.
 const _Counts = Tuple{Vararg{_Count}}
 
-# One group's step: the stocks `x` after the flows, and arrivals.
+# One group's step: the pools `x` after the flows, and arrivals.
 function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
     return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
 
-function _flow_group(fs, x::NTuple{N}, g, t) where {N}
+# Inlined, with the spread of the rates and shares, so that a step on dual
+# numbers passes no tuple of them through a call, which cost a filling
+# pool's step about 40% in forward mode.
+@inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
-    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     return _counts(fs, y, a, g, t)
 end
 
-# The stocks after the flows, without the arrivals.
+# The pools after the flows, without the arrivals.
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
-_flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
+@inline _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 
 # The amount each flow moves at one step, in the order given, from the
-# stocks `x`: a hazard or share flow's from `x`, as the step spreads it,
+# pools `x`: a hazard or share flow's from `x`, as the step spreads it,
 # and a count's from what remains when it acts.
 function _amounts(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
@@ -425,7 +432,7 @@ function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     return _count_back(f, _head(f̄s), y, ȳ′, ā, g, t)
 end
 _count_back(f::Flow, f̄, y, ȳ, ā, g, t) = ȳ
-# A count from outside the pool (`from = 0`) takes from no stock, so its
+# A count from outside the `Pool` (`from = 0`) takes from no pool, so its
 # source has no cotangent.
 function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
     i = f.from
@@ -446,7 +453,7 @@ end
 _head(::Nothing) = nothing
 _head(x̄::Tuple) = first(x̄)
 
-# `Σ_f r_f ā_to(f)` over the rate flows out of stock `i`, exits
+# `Σ_f r_f ā_to(f)` over the rate flows out of pool `i`, exits
 # adding nothing.
 _arrivals_back(::Tuple{}, ā, i, g, t, B) = B
 function _arrivals_back(fs::Tuple, ā, i, g, t, B)
@@ -457,8 +464,8 @@ function _arrivals_back(fs::Tuple, ā, i, g, t, B)
     return _arrivals_back(Base.tail(fs), ā, i, g, t, B)
 end
 
-# The cotangent of one group's stocks `x` before the flows, from
-# those of the stocks `ȳ` and arrivals `ā` after them; the flows'
+# The cotangent of one group's pools `x` before the flows, from
+# those of the pools `ȳ` and arrivals `ā` after them; the flows'
 # parameter cotangents are added into their mirrors `f̄s`.
 function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
@@ -466,10 +473,10 @@ end
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
-    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
-    # The hazard and share arrivals feed both the stocks and the state.
+    # The hazard and share arrivals feed both the pools and the state.
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _arrivals_back(fs, āt, i, g, t, zero(eltype(āt))), Val(N))
@@ -480,7 +487,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     end
 end
 
-# `Σ_f p_f ā_to(f)` over the share flows out of stock `i`.
+# `Σ_f p_f ā_to(f)` over the share flows out of pool `i`.
 _shares_back(::Tuple{}, ā, i, g, t, z) = z
 function _shares_back(fs::Tuple, ā, i, g, t, z)
     f = first(fs)

@@ -16,8 +16,8 @@
     const R = [2.0 + 0.3 * cos(t / 6) for t in 1:T]
     const C = [1.0 1.0; 0.0 0.0]
 
-    # The two strata written out: `admit(d, stock, t)` returns the
-    # admissions and the new stock, and the queue holds the overflow when
+    # The two strata written out: `admit(d, pool, t)` returns the
+    # admissions and the new pool, and the queue holds the overflow when
     # `hold`.
     function naive(R, e, admit; hold = false)
         L = length(g)
@@ -25,12 +25,12 @@
         Tp = promote_type(eltype(R), typeof(e), typeof(admit(1.0, 0.0, 1)[1]))
         Y = zeros(Tp, 2, L + T)
         Y[:, 1:L] .= seed
-        stock, queue = zero(Tp), zero(Tp)
+        pool, queue = zero(Tp), zero(Tp)
         for t in 1:T
             p1 = (1 - e) * sum(g[i] * Y[1, L + t - i] for i in 1:L)
             p2 = sum(g[i] * Y[2, L + t - i] for i in 1:L)
             d = R[t] * (p1 + p2) + queue
-            x, stock = admit(d, stock, t)
+            x, pool = admit(d, pool, t)
             Y[1, L + t] = x
             if hold
                 queue = d - x
@@ -54,10 +54,10 @@ end
     CR = ComposableRecurrences
     (; T, R, naive, model) = CapacityUseCase
     w = range(0.5, 1.5; length = T)
-    # The beds are a stock filled by the admissions up to `θ[2]`, after a
+    # The beds are a pool filled by the admissions up to `θ[2]`, after a
     # share `θ[3]` leaves; the demand left goes to the second stratum.
     beds(θ; overflow = :stratum) = CR.Pool(
-        θ[2]; stocks = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+        θ[2]; pools = (:O,), draw = CR.Truncate() => :O, flows_first = true,
         flows = CR.Flow(:O => 0, θ[3]; form = CR.Share()), overflow
     )
     function admit(θ)
@@ -111,14 +111,14 @@ end
             (x, B - x)
         end
     end
-    # The rings are a stock granted `b` at each period start and drawn from;
+    # The rings are a pool granted `b` at each period start and drawn from;
     # without carry over a share flow empties it first.
     function budget(b, period, carry)
         starts = [(period === nothing ? t == 1 : (t - 1) % period == 0) for t in 1:T]
         grant = CR.Flow(0 => :B, TimeVarying(b .* starts); form = CR.Truncate())
         reset = CR.Flow(:B => 0, TimeVarying(float.(starts)); form = CR.Share())
         return CR.Pool(;
-            stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+            pools = (:B,), draw = :B => CR.Truncate(), flows_first = true,
             flows = carry ? (grant,) : (reset, grant), overflow = :stratum
         )
     end

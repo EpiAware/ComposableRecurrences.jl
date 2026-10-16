@@ -55,6 +55,9 @@ _outputs_at(rec::Tuple, H, D, t) = view(first(rec).V, :, t)
 # The records with each modifier's trace cotangent `T̄` and, for a
 # vector-level step, the buffers for the cotangents its trace sends to the
 # step's inputs.
+# A modifier's records with its trace cotangent and buffers, as
+# `_traced_record` builds them; any other record has no trace cotangent.
+const _TracedRecord = NamedTuple{(:V, :S, :A, :T̄, :V̄, :S̄)}
 _traced_records(rec, ::Nothing, S) = rec
 _traced_records(rec, T̄s::Tuple, S) = map((R, T̄) -> _traced_record(R, T̄, S), rec, T̄s)
 _traced_record(R, ::Nothing, S) = R
@@ -68,7 +71,7 @@ end
 # `_trace_in` adds after the step's pullback. Without a trace cotangent
 # both pass their arguments through.
 _trace_out(R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
-function _trace_out(R::NamedTuple{(:V, :S, :T̄, :V̄, :S̄)}, m, m̄, v̄, s̄, v, s, τ, t, k)
+function _trace_out(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t, k)
     S = length(R.V̄)
     r̄ = _gather(view(R.T̄, :, t), Val(ntrace(m, 1)), S, k)
     a, b, c, d = pullback!((; piece = m̄, trace = r̄), m, Trace(), v, s, τ, k)
@@ -80,12 +83,12 @@ _trace_in(a, x̄) = x̄ + a
 # The same for a vector-level step: the trace's share of the inputs' goes
 # into the record's buffers, added after the step's pullback.
 _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t) = nothing
-function _trace_out!(R::NamedTuple{(:V, :S, :T̄, :V̄, :S̄)}, m, m̄, v̄, s̄, v, s, τ, t)
+function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
     _trace_back!(blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
     return nothing
 end
 _trace_in!(R, v̄, s̄) = nothing
-function _trace_in!(R::NamedTuple{(:V, :S, :T̄, :V̄, :S̄)}, v̄, s̄)
+function _trace_in!(R::_TracedRecord, v̄, s̄)
     v̄ .+= R.V̄
     s̄ .+= R.S̄
     return nothing

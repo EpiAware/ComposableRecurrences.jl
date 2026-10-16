@@ -1,4 +1,4 @@
-# A pool as a capacity: a stock of beds filled by the draw and emptied by a
+# A `Pool` as a capacity: a pool of beds filled by the draw and emptied by a
 # share flow first, or an allowance drawn from and granted by flows first.
 # Values and ForwardDiff gradients against a naive loop for each with the
 # overflow in a stratum, a queue or nowhere, the budget's period semantics,
@@ -25,7 +25,7 @@
         Y = zeros(Tp, S, L + T)
         Y[:, 1:L] .= h
         P = length(pairs)
-        stock = Tp[initial(p) for p in 1:P]
+        pool = Tp[initial(p) for p in 1:P]
         queue = zeros(Tp, P)
         for t in 1:T
             v = [R[k, t] * sum(G[k, i] * Y[k, L + t - i] for i in 1:L) for k in 1:S]
@@ -33,16 +33,16 @@
                 a = hold || drop ? pr : pr.first
                 d = v[a] + queue[p]
                 if mode === :beds
-                    kept = (1 - exit(p, t)) * stock[p]
+                    kept = (1 - exit(p, t)) * pool[p]
                     x = min(d, max(cap(p, t) - kept, 0))
-                    stock[p] = kept + x
+                    pool[p] = kept + x
                 else
                     refill = period === nothing ? t == 1 : (t - 1) % period == 0
                     if refill
-                        stock[p] = (carry ? stock[p] : zero(Tp)) + cap(p, t)
+                        pool[p] = (carry ? pool[p] : zero(Tp)) + cap(p, t)
                     end
-                    x = min(d, max(stock[p], 0))
-                    stock[p] -= x
+                    x = min(d, max(pool[p], 0))
+                    pool[p] -= x
                 end
                 v[a] = x
                 if hold
@@ -53,7 +53,7 @@
             end
             Y[:, L + t] .= v
         end
-        return Y[:, (L + 1):end], stock, queue
+        return Y[:, (L + 1):end], pool, queue
     end
 
     # Groups 1 => 3 and 2 => 4, admitted strata first; they transmit less.
@@ -68,16 +68,16 @@
     const W = reshape(range(0.2, 1.4; length = 48), 4, 12)
     const ROUTE = [1 => 3, 2 => 4]
 
-    # Beds: the stock is the occupancy, a share `δ` leaves before the draw
+    # Beds: the pool is the occupancy, a share `δ` leaves before the draw
     # and the admissions fill it up to `C`.
     function beds(C, δ; overflow = :stratum, form = CR.Truncate(), initial = nothing)
         return CR.Pool(
-            C; stocks = (:O,), initial, draw = form => :O, flows_first = true,
+            C; pools = (:O,), initial, draw = form => :O, flows_first = true,
             flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow
         )
     end
 
-    # A budget: the stock is the allowance, granted `C` at each period start
+    # A budget: the pool is the allowance, granted `C` at each period start
     # (every `period` steps, or once with `nothing`) of `T` steps; without
     # carry over a share flow empties it first.
     granted(c, start) = ifelse(start > 0, c, zero(c))
@@ -92,7 +92,7 @@
         flows = carry_over ? (grant,) :
             (CR.Flow(:B => 0, starts; form = CR.Share()), grant)
         return CR.Pool(;
-            stocks = (:B,), initial, draw = :B => form, flows_first = true, flows,
+            pools = (:B,), initial, draw = :B => form, flows_first = true, flows,
             overflow
         )
     end
@@ -242,7 +242,7 @@ end
     @test run(nothing, d; initial = 2.0)[4] == 3.0
     @test run(nothing, d; initial = 2.0, carry_over = false) == run(nothing, d)
     # A lifetime budget is also a starting allowance alone.
-    lifetime = CR.Pool(; stocks = (:B,), initial = 4.0, draw = :B => CR.Truncate())
+    lifetime = CR.Pool(; pools = (:B,), initial = 4.0, draw = :B => CR.Truncate())
     @test Recurrence([0.0]; modifiers = (lifetime,))(; history = [0.0], add = d) ==
         run(nothing, d)
     # The demand left goes to the second stratum: it never returns to the
@@ -292,7 +292,7 @@ end
     CR = ComposableRecurrences
     (; beds, budget) = CapacityChecks
     v = [2.0, 0.5, 3.0, 1.0]
-    # The state is each group's stock, then each queue. The mirror holds the
+    # The state is each group's pool, then each queue. The mirror holds the
     # parameters of `θ` in order: `N`, the softness, `initial`, the flows'.
     builds = (
         (x -> beds(x[1], x[3]; initial = x[2]), [4.0, 0.0, 0.2], [2.0, 3.5], (3, 4)),
@@ -305,7 +305,7 @@ end
         ),
         (
             x -> CR.Pool(;
-                stocks = (:B,), initial = x[1], draw = :B => CR.Truncate(),
+                pools = (:B,), initial = x[1], draw = :B => CR.Truncate(),
                 flows_first = true, overflow = :queue,
                 flows = CR.Flow(0 => :B, TimeVarying(x[2:7]); form = CR.Truncate())
             ),
@@ -314,7 +314,7 @@ end
         ),
         (
             x -> CR.Pool(;
-                stocks = (:B,), initial = x[2], draw = :B => CR.SoftTruncate(x[1]),
+                pools = (:B,), initial = x[2], draw = :B => CR.SoftTruncate(x[1]),
                 flows_first = true, overflow = :stratum, flows = (
                     CR.Flow(:B => 0, TimeVarying(x[3:5]); form = CR.Share()),
                     CR.Flow(0 => :B, x[6]; form = CR.Truncate()),
@@ -323,7 +323,7 @@ end
             [0.1, 0.0, 1.0, 0.0, 1.0, 2.5], [1.0, 0.4], (1, 2),
         ),
         (
-            x -> CR.Pool(; stocks = (:B,), initial = x[1], draw = :B => CR.Truncate()),
+            x -> CR.Pool(; pools = (:B,), initial = x[1], draw = :B => CR.Truncate()),
             [2.5], [4.0, 0.5, 1.0, 0.0], (1, 2),
         ),
         (
@@ -335,7 +335,7 @@ end
         ),
         (
             x -> CR.Pool(;
-                stocks = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+                pools = (:B,), draw = :B => CR.Truncate(), flows_first = true,
                 flows = CR.Flow(0 => :B, x[1]; form = CR.Truncate()), overflow = :queue
             ),
             [0.3], [0.6, 0.1, 0.0, 0.2, 1.0, 0.0, 0.5, 0.0], (1, 2),
@@ -348,11 +348,11 @@ end
             x -> beds(x[1], x[4]; form = CR.SoftTruncate(x[2]), initial = x[3]),
             [Inf, 0.1, 0.0, 0.2], [2.0, 1.0], (1,),
         ),
-        # The occupancy as one of two stocks, with the draw weighted on the
+        # The occupancy as one of two pools, with the draw weighted on the
         # second and a hazard flow between them after it.
         (
             x -> CR.Pool(
-                x[1]; stocks = (:A, :O), initial = (x[2], x[3]),
+                x[1]; pools = (:A, :O), initial = (x[2], x[3]),
                 draw = CR.Truncate() => :O, overflow = :stratum,
                 flows = CR.Flow(:O => :A, x[4])
             ),
@@ -369,27 +369,64 @@ end
     end
 end
 
+@testitem "Pool capacity: two wards share one overflow stratum" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Wards 1 and 2 overflow into strata 3 and 4, and the Redistribute moves
+    # all of stratum 4 into stratum 3, as two pairs `1 => 3, 2 => 3` did.
+    beds = CR.Pool(1.0; pools = (:O,), draw = CR.Truncate() => :O, overflow = :stratum)
+    K = zeros(4, 4)
+    K[3, 4] = 1.0
+    shared = CR.Redistribute(K, PerStratum([0.0, 0.0, 0.0, 1.0]))
+    y = Recurrence([0.0]; modifiers = (beds, shared))(;
+        history = zeros(4, 1), add = [3.0 0.0; 2.0 0.0; 1.0 1.0; 0.0 0.0]
+    )
+    @test y[1:3, 1] ≈ [1.0, 1.0, 4.0]
+    @test all(iszero, y[4, :])
+end
+
 @testitem "Pool capacity: checks its arguments" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    fill_into(o; kw...) = CR.Pool(1.0; stocks = (:O,), draw = CR.Truncate() => o, kw...)
+    fill_into(o; kw...) = CR.Pool(1.0; pools = (:O,), draw = CR.Truncate() => o, kw...)
     @test_throws "overflow is nothing, :queue or :stratum, got :hold" fill_into(
         :O; overflow = :hold
     )
-    @test_throws "the draw names stock :X, but the stocks are (:O,)" fill_into(:X)
-    @test_throws "a draw into a stock fills it up to N, so give N" CR.Pool(;
-        stocks = (:O,), draw = CR.Truncate() => :O
+    @test_throws "overflow is nothing, :queue or :stratum, got 2" fill_into(
+        :O; overflow = 2
+    )
+    @test_throws "the draw names pool :X, but the pools are (:O,)" fill_into(:X)
+    # A draw into a pool is truncated, from a capacity that is not negative.
+    @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Pool(
+        1.0; pools = (:O,), draw = CR.Hazard() => :O
+    )
+    @test_throws "N is non-negative, got -1.0" CR.Pool(
+        PerStratum([1.0, -1.0]); pools = (:O,), draw = CR.Truncate() => :O
+    )
+    @test_throws "initial is non-negative, got -2.0" fill_into(:O; initial = -2.0)
+    # Every pool starts from a stock that is not negative, filled or not.
+    @test_throws "initial is non-negative, got -1.0" CR.Pool(;
+        pools = (:B,), initial = -1.0, draw = :B => CR.Truncate()
+    )
+    @test_throws "initial is non-negative, got -1.0" CR.Pool(
+        1.0; pools = (:S, :R), initial = (1.0, -1.0)
+    )
+    @test fill_into(:O; initial = 0.5).initial == (0.5,)
+    # A truncated draw reads no exponent; `true` and `false` stay fixed.
+    @test fill_into(:O; heterogeneity = false).heterogeneity isa CR._FixedExponent{false}
+    @test_throws "a draw into a pool fills it up to N, so give N" CR.Pool(;
+        pools = (:O,), draw = CR.Truncate() => :O
     )
     @test_throws "flows_first and overflow order and route a draw" CR.Pool(;
         draw = nothing, overflow = :queue
     )
-    @test_throws "form => stock, or nothing; got :S => :O" CR.Pool(
-        1.0; stocks = (:S, :O), draw = :S => :O
+    @test_throws "form => pool, or nothing; got :S => :O" CR.Pool(
+        1.0; pools = (:S, :O), draw = :S => :O
     )
-    @test_throws "from is a stock from 1, or 0 for outside the pool, got from = -1" CR.Flow(
+    @test_throws "from is a pool from 1, or 0 for outside the Pool, got from = -1" CR.Flow(
         -1 => 1, 0.1
     )
-    @test_throws "two different stocks, got 0 => 0" CR.Flow(0 => 0, 0.1)
+    @test_throws "two different pools, got 0 => 0" CR.Flow(0 => 0, 0.1)
     @test_throws "between 0 and 1, got 1.5" CR.SoftTruncate(1.5)
     @test_throws MethodError CR.SoftTruncate(:soft)
     m = fill_into(:O; overflow = :stratum)
@@ -411,7 +448,7 @@ end
     @test CR.param_eltype(fill_into(:O; flows = CR.Flow(:O => 0, 0.1f0))) == Float64
     @test CR.param_eltype(
         CR.Pool(
-            1.0f0; stocks = (:O,), draw = CR.Truncate() => :O,
+            1.0f0; pools = (:O,), draw = CR.Truncate() => :O,
             flows = CR.Flow(:O => 0, 0.1f0; form = CR.Share())
         )
     ) == Float32

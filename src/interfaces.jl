@@ -200,6 +200,10 @@ true
         piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
         role = Pressure(), args = (zeros(2), [1.0, 2.0], 2)
     ),
+    Arguments(;
+        piece = TimeVarying([1 => [1.0 3.0; 2.0 4.0], 2 => [5.0 7.0; 6.0 8.0]]),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
+    ),
 ]
 
 @implements PieceInterface{(:pointwise, :blocks, :nstate)} Pool [
@@ -216,22 +220,26 @@ true
         role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
     ),
     Arguments(;
+        piece = Pool(100.0; flows = Flow(1 => 0, 0.01)), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 2)
+    ),
+    Arguments(;
         piece = Pool(
-            100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+            100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
             flows = Flow(:S => :V, 1.0; form = Truncate())
         ),
         role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     ),
     Arguments(;
         piece = Pool(
-            100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+            100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
             initial = (nothing, 4.0), flows = Flow(:V => :S, 0.1)
         ),
         role = Init(), args = (zeros(4), ones(2, 3))
     ),
     Arguments(;
         piece = Pool(
-            PerStratum([100.0, 50.0]); stocks = (:S, :V, :R),
+            PerStratum([100.0, 50.0]); pools = (:S, :V, :R),
             draw = (:V => PerStratum([0.5, 0.2]), :S => 1) => Floor(),
             flows = (Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share()))
         ),
@@ -243,7 +251,7 @@ true
     ),
     Arguments(;
         piece = Pool(;
-            stocks = 2, draw = nothing,
+            pools = 2, draw = nothing,
             flows = (
                 Flow(1 => 2, PerStratum([0.3, 0.2])),
                 Flow(2 => 0, 0.1; form = Share()),
@@ -254,19 +262,19 @@ true
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
     Arguments(;
-        piece = Pool(; stocks = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
+        piece = Pool(; pools = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
         role = Init(), args = (zeros(4), ones(4, 2))
     ),
     Arguments(;
         piece = Pool(
-            4.0; stocks = (:O,), draw = SoftTruncate(0.1) => :O, flows_first = true,
+            4.0; pools = (:O,), draw = SoftTruncate(0.1) => :O, flows_first = true,
             flows = Flow(:O => 0, 0.2; form = Share()), overflow = :stratum
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2)
     ),
     Arguments(;
         piece = Pool(;
-            stocks = (:B,), draw = :B => Truncate(), flows_first = true,
+            pools = (:B,), draw = :B => Truncate(), flows_first = true,
             flows = (
                 Flow(:B => 0, TimeVarying([1.0, 0.0, 0.0]); form = Share()),
                 Flow(
@@ -279,12 +287,12 @@ true
         role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1)
     ),
     Arguments(;
-        piece = Pool(; stocks = (:B,), draw = :B => Truncate(), initial = 1.0),
+        piece = Pool(; pools = (:B,), draw = :B => Truncate(), initial = 1.0),
         role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2)
     ),
     Arguments(;
         piece = Pool(
-            2.0; stocks = (:O,), draw = Truncate() => :O, overflow = :queue,
+            2.0; pools = (:O,), draw = Truncate() => :O, overflow = :queue,
             initial = 1.0
         ),
         role = Init(), args = (zeros(4), ones(2, 2))
@@ -330,6 +338,14 @@ true
     Arguments(;
         piece = Allocate([1:2, 3:3], 1.0), role = Init(),
         args = (zeros(3), ones(3, 2))
+    ),
+    Arguments(;
+        piece = Allocate(
+            [1:2, 3:3], PerStratum([4.0, 1.0]);
+            imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
+            spill = Redistribute([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], 0.1)
+        ),
+        role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
     ),
 ]
 

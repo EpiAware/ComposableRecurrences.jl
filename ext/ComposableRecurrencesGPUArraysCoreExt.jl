@@ -1,12 +1,7 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
-    Clamp, Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool,
-    Pressure, Recurrence,
-    Redistribute, Secondary, Serial, TimeVarying, Transform,
-    _OldestFirstPairwise, _Flat, _Ragged
-using Adapt: Adapt, adapt
-using ConstructionBase: constructorof, getfields
+using ComposableRecurrences: ComposableRecurrences, Device, Pressure,
+    Secondary, Serial, TimeVarying, _Ragged, _Piecewise, _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
@@ -25,6 +20,7 @@ end
 # the device too. Integer arrays, such as `Allocate`'s groups, are copied
 # where a loop needs them.
 function ComposableRecurrences._check_device(::AnyGPUArray, parts)
+    _piecewise_leaf(parts) && throw(ArgumentError(_PIECEWISE_DEVICE))
     _host_leaf(parts) && throw(
         ArgumentError(
             "the inputs live on a device but a kernel, coupling, modifier " *
@@ -43,6 +39,15 @@ _host_leaf(x::Tuple) = any(_host_leaf, x)
 function _host_leaf(x::T) where {T}
     isstructtype(T) || return false
     return any(i -> _host_leaf(getfield(x, i)), 1:fieldcount(T))
+end
+
+_piecewise_leaf(::_Piecewise) = true
+const _NoPiecewise = Union{AbstractArray, Number, Symbol, Nothing, Function, Type, Module}
+_piecewise_leaf(::_NoPiecewise) = false
+_piecewise_leaf(x::Tuple) = any(_piecewise_leaf, x)
+function _piecewise_leaf(x::T) where {T}
+    isstructtype(T) || return false
+    return any(i -> _piecewise_leaf(getfield(x, i)), 1:fieldcount(T))
 end
 
 # The longest column of a ragged kernel whose offsets live on a device, as
@@ -93,30 +98,6 @@ function ComposableRecurrences.forward(
                 "device of the inputs, as a device sparse matrix"
         )
     )
-end
-
-# Coefficient wrappers and built-in modifiers carry their arrays into a
-# kernel: each is rebuilt from its adapted fields, as `constructorof`
-# rebuilds it elsewhere. The operators adapt the same way, so
-# `adapt(CuArray, r)` moves every parameter of `r` to a device.
-const _Adapted = Union{
-    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Pool, Add,
-    Clamp, Redistribute, Transform, Derived, Recurrence, Convolution, Flow,
-}
-function Adapt.adapt_structure(to, x::_Adapted)
-    return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
-end
-
-# A ragged kernel moves its offsets with its values, rebuilt without the
-# host check, as a kernel launch adapts it.
-function Adapt.adapt_structure(to, g::_Ragged)
-    return _Ragged(_Flat(), adapt(to, g.values), adapt(to, g.offsets))
-end
-
-# `Allocate` keeps its groups, host index arrays that each step copies where
-# it needs them, and adapts its totals.
-function Adapt.adapt_structure(to, m::Allocate)
-    return constructorof(typeof(m))(m.strata, m.offsets, adapt(to, m.total))
 end
 
 end

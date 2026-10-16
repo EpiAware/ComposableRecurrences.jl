@@ -52,7 +52,7 @@ A pointwise modifier acts on each stratum ``i`` separately,
 ``(v'_i, s'_i) = M_i(v_i, s_i, t)``.
 
   - `forward(m, Step(), v, s, t)` updates the step's values `v` and the
-    modifier's state `s` in place (one entry per stratum, or one per stock
+    modifier's state `s` in place (one entry per stratum, or one per pool
     for a [`ComposableRecurrences.Pool`](@ref) with several) and
     returns `nothing`.
   - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
@@ -82,7 +82,7 @@ struct Step end
 
 @doc raw"""
 The role of a modifier's initial state: `forward(m, Init(), s, history)`
-writes the state `s` (one entry per stratum, or one per stock for a
+writes the state `s` (one entry per stratum, or one per pool for a
 [`ComposableRecurrences.Pool`](@ref) with several, allocated
 by the operator at its buffer eltype) from the full history, and returns
 `nothing`; [Roles](@ref extending-roles) gives the arguments.
@@ -326,7 +326,7 @@ The default is `nothing`.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Pool(100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
+leaky = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
 CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
 
 # output
@@ -348,11 +348,11 @@ The recurrence allocates each modifier's state ``s`` with
 
 passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
 [`ComposableRecurrences.Step`](@ref), and checks a resumed state against it.
-This is the extension point for a modifier that holds more than one stock
+This is the extension point for a modifier that holds more than one value
 per stratum.
 A blockwise modifier ([`ComposableRecurrences.blocks`](@ref)) keeps
-``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a pool with two
-stocks keeps the first stock then the second, ``n(m, S) = 2S``.
+``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a `Pool` with two
+pools keeps the first pool then the second, ``n(m, S) = 2S``.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
 one entry per stratum, so it must have ``n(m, S) = S``.
 
@@ -364,7 +364,7 @@ one entry per stratum, so it must have ``n(m, S) = S``.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Pool(100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
+leaky = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
 CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 
 # output
@@ -544,11 +544,11 @@ end
 # modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
-    return _call_pullback!(grads, m, Step(), v, s, t)
+    return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
     ispointwise(m) && return _strata_pullback!(grads, m, v, s, t)
-    return _call_pullback!(grads, m, Step(), v, s, t)
+    return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     nv, ns = B
@@ -560,13 +560,6 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
             s = _gather(s̄, Val(ns), G, g),
         )
         vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        # The check folds; the group pullback itself is inlined here, as
-        # inlining `_call_pullback!` leaves its inner call a real one.
-        sig = Tuple{
-            typeof(pullback!), typeof(gg), typeof(m), Step, typeof(vg),
-            typeof(sg), typeof(t), typeof(g),
-        }
-        Core._hasmethod(sig) || _no_pullback(m, Step())
         v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
         _scatter!(v̄, v̄g, G, g)
         _scatter!(s̄, s̄g, G, g)

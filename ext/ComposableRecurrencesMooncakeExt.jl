@@ -6,9 +6,9 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
-    _FixedExponent, _ad, _ad_wide, _check_secondary, _current, _fft_convolve!,
-    _fft_convolve_back!, _log_plain, _note_plain_type, _rebuild_flag,
-    _run_forward, _run_pullback!, _untraced
+    _FixedExponent, _ad, _ad_wide, _check_form, _check_parts,
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
+    _plain_hook, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -33,6 +33,11 @@ function _mc(x::Base.ReshapedArray, dx::Mooncake.FData)
     return _reshape(_mc(parent(x), dx.data.parent), x)
 end
 _mc(x::Union{Tuple, NamedTuple}, dx::Union{Tuple, NamedTuple}) = map(_mc, x, dx)
+# A kernel's columns: each column's mirror from its own tangent. The fdata
+# of an array of arrays holds each element's full tangent, which for a view
+# is read as its fdata.
+_mc(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector) = map(_mc, x, dx)
+_mc(x::SubArray{<:_IEEEFloat}, dx::Mooncake.Tangent) = _mc(x, Mooncake.fdata(dx))
 _mc(x::Union{Tuple, NamedTuple}, ::NoFData) = map(xi -> _mc(xi, NoFData()), x)
 _mc(x, dx::Mooncake.FData) = _mc_struct(x, n -> getfield(dx.data, n))
 _mc(x, ::NoFData) = _mc_struct(x, _ -> NoFData())
@@ -82,27 +87,31 @@ Mooncake.@mooncake_overlay function ComposableRecurrences._axpy4!(
     return axpy!(α₃, x₃, y)
 end
 
-# The plain-AD note logs only while Mooncake differentiates the call in
-# reverse mode.
-Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_note_plain_type), Vararg}
-function Mooncake.frule!!(
-        ::Mooncake.Dual{typeof(_note_plain_type)}, args::Vararg{Mooncake.Dual, N}
-    ) where {N}
-    return Mooncake.zero_dual(nothing)
-end
-function Mooncake.rrule!!(
-        f::CoDual{typeof(_note_plain_type)}, op::CoDual, args::Vararg{CoDual, N}
-    ) where {N}
-    _log_plain(primal(op))
-    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, op, args...)
-end
-# The `Recurrence` constructor's rebuild check returns a flag, and its
-# rebuild with dual numbers (which may throw) is not differentiated.
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_rebuild_flag), Any, Tuple}
+# The `Recurrence` constructor's checks of its parts, which rebuild them
+# with dual numbers and may log, are not differentiated.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_check_parts), Any, Any, Tuple,
+}
 # Nor is its check that only the kernel takes `Primary()` indexing.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,
 }
+# Nor is the `Depletion` constructor's check that its form has a step: its
+# method lookups carry no derivative, and traced they cost more than the
+# rest of a short run's gradient.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
+# The plain-AD hook carries no derivative.
+Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_plain_hook), Vararg}
+function Mooncake.frule!!(
+        ::Mooncake.Dual{typeof(_plain_hook)}, args::Vararg{Mooncake.Dual, N}
+    ) where {N}
+    return Mooncake.zero_dual(nothing)
+end
+function Mooncake.rrule!!(
+        f::CoDual{typeof(_plain_hook)}, args::Vararg{CoDual, N}
+    ) where {N}
+    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, args...)
+end
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
 # differentiate, and the executor carries no derivative. Forward mode and
@@ -161,10 +170,10 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
 end
 
 # The rule also covers a call whose local coupling derivative needs a
-# second pass of dual numbers (13 to 24 strata and scalars). It beats plain
-# AD there on Mooncake, 0.62 of its time for a dense coupling at 23 strata,
-# but not on Enzyme, 1.46 at 20, so only this extension makes `_ad_wide` a
-# rule primitive.
+# second pass of dual numbers (25 to 48 strata and scalars). It beats plain
+# AD there on Mooncake, at most 0.81 of its time for a dense coupling, but
+# not on Enzyme, 1.58 at 26 strata, so only this extension makes `_ad_wide`
+# a rule primitive.
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad_wide), Vararg}
 )

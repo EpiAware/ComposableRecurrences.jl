@@ -110,7 +110,7 @@ end
         m̄.N.x, m̄.heterogeneity[], only(m̄.flows).demand[], m̄.weights[2].x
     )
     build(θ) = CR.Pool(
-        PerStratum(θ[1:2]); stocks = (:S, :V),
+        PerStratum(θ[1:2]); pools = (:S, :V),
         draw = (:S => 1, :V => PerStratum(θ[5:6])) => CR.Hazard(), heterogeneity = θ[3],
         flows = (CR.Flow(1 => 2, θ[4]; form = CR.Truncate()),)
     )
@@ -129,7 +129,7 @@ end
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     d = CR.Pool(
-        100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
     @test CR.blocks(d) == Val((1, 2))
@@ -151,10 +151,8 @@ end
     @test CR.ispointwise(CR.Depletion(100.0; removals = 1.0))
 end
 
-@testitem "Blocks: shapes, resume and mixed modifiers" setup = [BlockChecks] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
+@testitem "Blocks: shapes, resume and mixed modifiers" setup = [AdjointCheck, BlockChecks] begin
+    using ComposableRecurrences
     (; Move) = BlockChecks
     # No state: two compartments swap a share each step.
     struct Swap{A}
@@ -196,22 +194,19 @@ end
     @test hcat(y1, r(R; state = st)) ≈ y
     bad = CR.State(st.history, (zeros(3),), st.t)
     @test_throws "expected nstate" r(R; state = bad)
-    # Blockwise, pointwise and vector modifiers together under the rule.
+    # Blockwise, pointwise and vector modifiers together: the pullback
+    # matches ForwardDiff. The AD workflow checks that the Mooncake rule
+    # runs it ("Blocks: blockwise, pointwise and vector modifiers under the
+    # rule" in test/ad/adjoints.jl).
     K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
-    function loss(θ)
-        ms = (
-            CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
-            CR.Redistribute(K, 0.5),
-        )
-        return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
-    end
-    θ = [0.2, 0.4, 0.8]
+    ms = (
+        CR.Clamp(0.0, 50.0), Move(PerStratum([0.2, 0.4])), Keep(0.8),
+        CR.Redistribute(K, 0.5),
+    )
     @test CR.uses_adjoint(
         Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Clamp(0.0, 1.0))), CR.Run()
     )
-    n = CR._PULLBACK_CALLS[]
-    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
-    @test CR._PULLBACK_CALLS[] > n
+    @test pullback_matches(Recurrence(g; modifiers = ms), recargs(R, nothing, h)...)
     # A malformed shape is named.
     struct Odd end
     CR.blocks(::Odd) = Val((0, 1))

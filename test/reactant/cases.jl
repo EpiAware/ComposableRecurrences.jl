@@ -6,19 +6,24 @@ module ReactantCases
 
 using ComposableRecurrences
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
-    Hazard, Pool, Primary, Redistribute, Step, Transform, Truncate, with_state
+    Hazard, Pool, Primary, Redistribute, Secondary, SoftTruncate, Step,
+    Transform, Truncate, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
 
-# Small sizes: the package's plain `for` loops are unrolled when traced.
-const T = 20  # steps
+# Steps default to 20; `REACTANT_T` sets them, to measure how compile and
+# run time grow with the length of a run.
+const T = parse(Int, get(ENV, "REACTANT_T", "20"))  # steps
 const L = 4   # lags (recurrence) or delays (convolution)
 const S = 3   # strata
 const T₁ = 8  # steps in the first call of the resume case
 
 const g0 = [0.4, 0.3, 0.2, 0.1]
 const R0 = collect(range(0.9, 1.2; length = T))
+# The same span at the midpoints of `T` steps, which never meets 1 exactly,
+# so a floor at 1 is not met exactly at a step and the gradient is defined.
+const RM0 = 0.9 .+ 0.3 .* ((1:T) .- 0.5) ./ T
 const RS0 = [0.9 + 0.1 * k + 0.01 * t for k in 1:S, t in 1:T]
 const H1 = [1.0, 2.0, 1.5, 1.0]
 const HS = [1.0 + 0.5 * k + 0.1 * i for k in 1:S, i in 1:L]
@@ -159,7 +164,7 @@ const σ0 = 0.3
 function mod_depletion_protected(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
     d = Pool(
-        N0; stocks = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
+        N0; pools = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
         flows = (Flow(1 => 2, rm; form = Truncate()),)
     )
     r = Recurrence(θ[1:L]; modifiers = (d,))
@@ -203,7 +208,75 @@ function mod_redistribute(θ)
     return r(R; history = HS)
 end
 
+# A weekly budget for each stratum whose unmet demand waits in a queue,
+# with the smooth draw: the budget is granted at each week's start.
+const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
+function mod_capacity(θ)
+    c = Pool(;
+        pools = (:B,), draw = :B => SoftTruncate(0.5), flows_first = true,
+        flows = Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
+        overflow = :queue
+    )
+    r = Recurrence(g0; modifiers = (c,))
+    return r(reshape(θ, S, T); history = HS)
+end
+
+# Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
+function mod_flows(θ)
+    fs = Pool(;
+        pools = 3, draw = nothing,
+        flows = (Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
+    )
+    r = Recurrence(g0; modifiers = (fs,))
+    return r(reshape(θ, S, T); history = HS)
+end
+
+# Transmission falls with the last week's incidence, mixed across strata.
+function mod_recent(θ)
+    β = Derived(exp, -0.05 * Recent(7; coupling = K0))
+    r = Recurrence(g0; modifiers = (Transform(*, β),))
+    return r(reshape(θ, S, T); history = HS)
+end
+
 tv_kernel(n) = vec(repeat(g0, 1, n) .* (1 .+ 0.01 .* (1:n)'))
+
+# Kernels, a coupling and a parameter given by change points, with traced
+# values; the second and third segments start a third and two thirds of the
+# way through the run.
+const CP2, CP3 = max(2, T ÷ 3), max(3, 2T ÷ 3)
+cp_kernel(θ, n, I = Secondary()) = TimeVarying(
+    [1 => θ[1:n], CP2 => θ[(n + 1):(2n)], CP3 => θ[(2n + 1):(3n)]], I
+)
+cp_values(v) = vcat(v, 0.8 .* v, 0.6 .* v)
+
+rec_cp_kernel(θ) = Recurrence(cp_kernel(θ, L))(θ[(3L + 1):end]; history = H1)
+
+function rec_cp_primary(θ)
+    r = Recurrence(cp_kernel(θ, L, Primary()))
+    return r(θ[(3L + 1):end]; history = H1, start = L + 1)
+end
+
+function rec_cp_coupling(θ)
+    C1 = reshape(θ[1:(S * S)], S, S)
+    C2 = reshape(θ[(S * S + 1):(2S * S)], S, S)
+    R = reshape(θ[(2S * S + 1):end], S, T)
+    return Recurrence(g0; coupling = TimeVarying([1 => C1, CP2 => C2]))(R; history = HS)
+end
+
+conv_cp_primary(θ) = Convolution(cp_kernel(θ, L, Primary()))(θ[(3L + 1):end])
+
+function conv_cp_secondary(θ)
+    return Convolution(cp_kernel(θ, L))(θ[(3L + 1):end]; history = HX)
+end
+
+# The values are read as sums of one entry, as a traced scalar is not
+# indexed outside the package's loops.
+function mod_add_cp(θ)
+    at(i) = sum(view(θ, i:i))
+    b = TimeVarying([1 => at(L + T + 1), CP2 => at(L + T + 2)])
+    r = Recurrence(θ[1:L]; modifiers = (Add(b),))
+    return r(θ[(L + 1):(L + T)]; history = H1)
+end
 
 const CASES = [
     Case(
@@ -253,7 +326,7 @@ const CASES = [
     ),
     Case(
         "rec_pointwise_modifier", "Recurrence, custom pointwise modifier",
-        rec_pointwise_modifier, vcat(g0, R0), W1
+        rec_pointwise_modifier, vcat(g0, RM0), W1
     ),
     Case(
         "rec_apply_modifier", "Recurrence, custom all-strata modifier",
@@ -285,7 +358,7 @@ const CASES = [
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),
     Case(
-        "mod_depletion_protected", "Recurrence with a protected Pool stock",
+        "mod_depletion_protected", "Recurrence with a protected pool",
         mod_depletion_protected,
         vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
     ),
@@ -308,6 +381,41 @@ const CASES = [
     Case(
         "mod_redistribute", "Recurrence with Redistribute",
         mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
+    ),
+    Case(
+        "mod_capacity", "Recurrence with a budget Pool and a queue",
+        mod_capacity, vec(RS0), WS
+    ),
+    Case(
+        "mod_flows", "Recurrence with a Pool of flows", mod_flows, vec(RS0), WS
+    ),
+    Case(
+        "mod_recent", "Recurrence with Recent (coupled)", mod_recent,
+        vec(RS0), WS
+    ),
+    Case(
+        "rec_cp_kernel", "Recurrence, kernel from change points",
+        rec_cp_kernel, vcat(cp_values(g0), R0), W1
+    ),
+    Case(
+        "rec_cp_primary", "Recurrence, Primary() kernel from change points",
+        rec_cp_primary, vcat(cp_values(g0), R0), W1[(L + 1):end]
+    ),
+    Case(
+        "rec_cp_coupling", "Recurrence, coupling from change points",
+        rec_cp_coupling, vcat(vec(K0), vec(0.5 .* K0), vec(RS0)), WS
+    ),
+    Case(
+        "conv_cp_primary", "Convolution, Primary() kernel from change points",
+        conv_cp_primary, vcat(cp_values(d0), x0), W1
+    ),
+    Case(
+        "conv_cp_secondary", "Convolution, Secondary() kernel from change points",
+        conv_cp_secondary, vcat(cp_values(d0), x0), W1
+    ),
+    Case(
+        "mod_add_cp", "Recurrence with Add (change points)", mod_add_cp,
+        vcat(g0, R0, [0.1, -0.05]), W1
     ),
 ]
 

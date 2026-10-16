@@ -140,7 +140,7 @@
             d(g0);
             modifiers = (
                 Pool(
-                    PerStratum(d(NS)); stocks = (:S, :V),
+                    PerStratum(d(NS)); pools = (:S, :V),
                     initial = (nothing, PerStratum(d([1.0, 2.0, 3.0]))),
                     draw = (:S => 1, :V => PerStratum(d([0.3, 0.2, 0.1]))) => Hazard(),
                     flows = (
@@ -154,7 +154,7 @@
             d([1.0]);
             modifiers = (
                 Pool(;
-                    stocks = 3, draw = nothing, flows = (
+                    pools = 3, draw = nothing, flows = (
                         Flow(1 => 2, PerStratum(d([0.3]))),
                         Flow(1 => 0, 0.05),
                         Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
@@ -168,7 +168,7 @@
             d(g0);
             modifiers = (
                 Pool(
-                    PerStratum(d(NS)); stocks = (:S, :V),
+                    PerStratum(d(NS)); pools = (:S, :V),
                     draw = (:S => 1, :V => PerStratum(d([0.3, 0.2, 0.1]))) => Hazard(),
                     flows = (
                         Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
@@ -195,6 +195,23 @@
         "Allocate, one total per group" =>
             d -> Recurrence(
             d(g0); modifiers = (Allocate([[1, 3], [2]], PerStratum(d([6.0, 3.0]))),)
+        )(d(RS); history = d(HS)),
+        "Allocate with imports and a spill" =>
+            d -> Recurrence(
+            d(g0);
+            modifiers = (
+                Allocate(
+                    [1:2, 3:3], TimeVarying(PerStratum(d(TOT)));
+                    imports = (
+                        PerStratum(d([0.2, 0.1])),
+                        d([0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0]),
+                    ),
+                    spill = Redistribute(
+                        d([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]),
+                        PerStratum(d([0.1, 0.2, 0.3]))
+                    )
+                ),
+            )
         )(d(RS); history = d(HS)),
         "Transform" =>
             d -> Recurrence(
@@ -253,7 +270,7 @@
             modifiers = (
                 Depletion(PerStratum(d(NS))), Redistribute(d(K0 - 0.5I), 0.1),
                 Pool(
-                    60.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+                    60.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
                     flows = (Flow(1 => 2, 0.2; form = Truncate()),)
                 ),
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
@@ -290,6 +307,87 @@ end
     @test Array(state.history) ≈ cstate.history
     @test all(map((s, c) -> Array(s) ≈ c, state.states, cstate.states))
     @test state.t == cstate.t
+end
+
+@testitem "JLArrays: every case runs under an explicit Device executor" setup = [GPUCases] begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using Base.ScopedValues: with
+    using JLArrays, KernelAbstractions
+    JLArrays.allowscalar(false)
+    ex = CR.Device(KernelAbstractions.get_backend(JLArray(ones(1))))
+    for (name, f) in GPUCases.CASES
+        @testset "$name" begin
+            y = with(CR.EXECUTOR => ex) do
+                f(JLArray)
+            end
+            @test y isa JLArray
+            @test Array(y) ≈ f(identity)
+        end
+    end
+end
+
+@testitem "JLArrays: kernel arguments are plain data" setup = [GPUCases] begin
+    using Adapt: adapt
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using Base.ScopedValues: with
+    using JLArrays, KernelAbstractions
+    JLArrays.allowscalar(false)
+    KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
+    # A backend that compiles kernels takes plain data only: bits types, or
+    # immutable structs whose concretely typed fields are plain, with the
+    # backend's device arrays as leaves. JLArrays run kernels as Julia code
+    # and do not check, so each launch's arguments are recorded and checked
+    # as the launch adapts them.
+    # A device array is a leaf: whether its element type can live on the
+    # device is the backend's concern, not the launch's.
+    plain(::Type{<:JLArrays.JLDeviceArray}) = true
+    function plain(T::Type)
+        isbitstype(T) && return true
+        isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
+        return all(plain, fieldtypes(T))
+    end
+    launched(args) = typeof(adapt(JLArrays.Adaptor(), args))
+    # The JLArrays backend, keeping the arguments of each launch.
+    struct Recording{B}
+        inner::B
+        args::Vector{Any}
+    end
+    function KAExt._launch!(b::Recording, body::F, args, n) where {F}
+        push!(b.args, args)
+        return KAExt._launch!(b.inner, body, args, n)
+    end
+    jl = KernelAbstractions.get_backend(JLArray(ones(1)))
+    for (name, f) in GPUCases.CASES
+        @testset "$name" begin
+            b = Recording(jl, Any[])
+            y = with(CR.EXECUTOR => CR.Device(b)) do
+                f(JLArray)
+            end
+            @test Array(y) ≈ f(identity)
+            @test !isempty(b.args)
+            @test all(a -> plain(launched(a)), b.args)
+        end
+    end
+    # The call's executor is not plain data, so it must not reach a kernel.
+    @test !plain(launched((CR._current(),)))
+end
+
+@testitem "KernelAbstractions alone adapts wrappers and modifiers" begin
+    # Adapt.jl rules load with KernelAbstractions, which loads Adapt, so a
+    # kernel launch on a backend without GPUArraysCore (such as the CPU
+    # backend) adapts the arrays the wrappers and modifiers hold.
+    project = dirname(Base.active_project())
+    code = """
+    using ComposableRecurrences, KernelAbstractions, Adapt
+    const CR = ComposableRecurrences
+    gpu = Base.get_extension(CR, :ComposableRecurrencesGPUArraysCoreExt)
+    ka = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
+    m = CR.Depletion(PerStratum([60.0, 50.0]); pool0 = PerStratum([50.0, 40.0]))
+    y = adapt(Array{Float32}, m)
+    println("RESULT ", gpu === nothing, " ", ka !== nothing, " ", eltype(y.N.x), " ", y isa CR.Pool)
+    """
+    out = read(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $code`, String)
+    @test "RESULT true true Float32 true" in split(out, '\n')
 end
 
 @testitem "JLArrays: dual numbers carry tangents through the device forward pass" setup = [GPUCases] begin
@@ -342,6 +440,34 @@ end
     )
 end
 
+@testitem "JLArrays: coefficients from change points refuse a device" begin
+    using ComposableRecurrences, JLArrays, Adapt
+    using ComposableRecurrences: Add, Primary
+    JLArrays.allowscalar(false)
+    x, h = JLArray(ones(2, 6)), JLArray(ones(2, 2))
+    g1, g2 = JLArray([0.5, 0.5]), JLArray([0.3, 0.7])
+    msg(f) = try
+        f()
+        ""
+    catch e
+        e isa ArgumentError ? e.msg : rethrow()
+    end
+    # Device values stack on the device, and the call refuses them.
+    for I in (ComposableRecurrences.Secondary(), Primary())
+        k = TimeVarying([1 => g1, 4 => g2], I)
+        @test occursin("change points", msg(() -> Convolution(k)(JLArray(ones(6)))))
+        @test occursin("change points", msg(() -> Recurrence(k)(x; history = h, start = 3)))
+    end
+    C = TimeVarying([1 => JLArray([0.9 0.1; 0.2 0.8]), 3 => JLArray([1.0 0.0; 0.0 1.0])])
+    @test occursin("change points", msg(() -> Recurrence(g1; coupling = C)(x; history = h)))
+    m = Add(TimeVarying([1 => 0.1, 3 => 0.2]))
+    r = Recurrence(g1; modifiers = (m,))
+    @test occursin("change points", msg(() -> r(x; history = h)))
+    # `adapt` refuses them too.
+    r = Recurrence(TimeVarying([1 => [0.5, 0.5], 4 => [0.3, 0.7]]))
+    @test occursin("change points", msg(() -> adapt(JLArray, r)))
+end
+
 @testitem "JLArrays: wrappers and built-in modifiers adapt every array they hold" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences
@@ -362,21 +488,21 @@ end
             ComposableRecurrences._oldest_first(Pairwise(JLArray(ones(3, 3, 2)))),
             TimeVarying([JLArray([0.5, 0.5]), JLArray([1.0])]),
             Pool(
-                PerStratum(v); stocks = (:S, :V),
+                PerStratum(v); pools = (:S, :V),
                 draw = (:S => 1, :V => PerStratum(v)) => Hazard(),
                 flows = (Flow(1 => 2, tv; form = Truncate()),)
             ),
             Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
             Transform(*, 0.8 * Derived(exp, tv)),
             Pool(;
-                stocks = 2, draw = nothing, flows = (
+                pools = 2, draw = nothing, flows = (
                     Flow(1 => 2, PerStratum(v)),
                     Flow(2 => 0, tv; form = Share()),
                     Flow(1 => 0, tv; form = Truncate()),
                 )
             ),
             Pool(
-                PerStratum(v); stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
+                PerStratum(v); pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
                 flows = (Flow(2 => 1, PerStratum(v)),)
             ),
         )

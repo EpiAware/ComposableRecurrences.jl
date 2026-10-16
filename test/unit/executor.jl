@@ -180,6 +180,35 @@ end
     @test CR._splits(CR.Threaded(; ntasks = 4), 8, 500_000)
 end
 
+@testitem "Threaded: loop work is counted per kind and element type" begin
+    using ComposableRecurrences, ForwardDiff
+    const CR = ComposableRecurrences
+    x = zeros(2)
+    # Loops split every step count in full, loops split once per call as
+    # an eighth and convolutions with a fixed kernel as a sixteenth.
+    @test CR._work(CR._StepLoop(), x, 1600) == 1600
+    @test CR._work(CR._RunLoop(), x, 1600) == 200
+    @test CR._work(CR._ConvLoop(), x, 1600) == 100
+    # Loops split once per call count each 64-bit word of the element
+    # type; loops split every step do not.
+    d = ForwardDiff.Dual(1.0, ntuple(_ -> 0.0, 8)...)
+    @test CR._work(CR._RunLoop(), zeros(Float32, 2), 1600) == 200
+    @test CR._work(CR._RunLoop(), [d], 1600) == 9 * 200
+    @test CR._work(CR._ConvLoop(), [d], 1600) == 9 * 100
+    @test CR._work(CR._StepLoop(), [d], 1600) == 1600
+    @test CR._work(CR._RunLoop(), Any[1.0], 1600) == 200
+    @test CR._work(CR._RunLoop(), [big(1.0)], 1600) == 200
+    @inferred CR._work(CR._RunLoop(), [d], 1600)
+    # One threshold sets where each kind splits.
+    ex = CR.Threaded(; ntasks = 4)
+    @test !CR._splits(ex, 8, CR._work(CR._StepLoop(), [d], 499_999))
+    @test CR._splits(ex, 8, CR._work(CR._StepLoop(), x, 500_000))
+    @test !CR._splits(ex, 8, CR._work(CR._RunLoop(), x, 3_999_999))
+    @test CR._splits(ex, 8, CR._work(CR._RunLoop(), x, 4_000_000))
+    @test !CR._splits(ex, 8, CR._work(CR._ConvLoop(), x, 7_999_999))
+    @test CR._splits(ex, 8, CR._work(CR._ConvLoop(), x, 8_000_000))
+end
+
 @testitem "EXECUTOR: serial by default, set per block" begin
     using ComposableRecurrences
     using Base.ScopedValues: with
@@ -214,7 +243,7 @@ end
         Recurrence(
             g; modifiers = (
                 CR.Pool(
-                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                     flows = (
                         CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
                     )
@@ -230,7 +259,7 @@ end
         Recurrence(
             g; modifiers = (
                 CR.Pool(
-                    1.0e3; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                     flows = (
                         CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
                     )

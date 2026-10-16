@@ -16,13 +16,17 @@ using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
+# Loaded so the default `Auto()` method can take the transform.
+import FFTW
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
+using Distributions: NegativeBinomial, Poisson
 using LinearAlgebra: Diagonal, I
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
-    backend_broken_scenarios, backend_skip_scenarios, FlooredDepletion,
+    backend_broken_scenarios, backend_plain_scenarios, backend_skip_scenarios,
+    FlooredDepletion,
     supports, unsupported_scenarios
 
 # ForwardDiff reference gradient for a scenario function.
@@ -73,14 +77,32 @@ function ComposableRecurrences.forward(
     return v′, s - v′
 end
 
-# Consecutive blocks of `θ` with the given shapes.
-function _unpack(θ, shapes...)
-    o = 0
-    return map(shapes) do sh
+# Consecutive blocks of `θ` with the given shapes, as reshaped views.
+# Enzyme, up to 0.13.216 at least, fails one way of building them on each
+# side of Julia 1.12:
+# - On 1.11 the closure below, which captures a boxed offset, leaves every
+#   scenario uninferred, and Enzyme reverse mode then returns zero for the
+#   scalar parameters of an operator. So 1.11 takes the inferred recursion.
+# - From 1.12 Enzyme forward mode corrupts the heap after some thousands of
+#   calls of the inferred scenarios. So these versions keep the closure,
+#   whose gradients are right there.
+@static if VERSION < v"1.12"
+    _unpack(θ, shapes...) = _unpack_from(θ, 0, shapes...)
+    _unpack_from(θ, o) = ()
+    function _unpack_from(θ, o, sh, rest...)
         n = prod(sh)
         x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        o += n
-        x
+        return (x, _unpack_from(θ, o + n, rest...)...)
+    end
+else
+    function _unpack(θ, shapes...)
+        o = 0
+        return map(shapes) do sh
+            n = prod(sh)
+            x = reshape(view(θ, (o + 1):(o + n)), sh...)
+            o += n
+            x
+        end
     end
 end
 
@@ -161,6 +183,48 @@ function _allocate(w, θ)
     g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (2, T))
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)))
+    )
+    y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# The grouped totals with imports: a share of each group's total lands in
+# the pattern the other group sends, read before the first group's strata
+# spill into each other. The spill kernel is differentiated too.
+function _allocate_imports(w, θ)
+    g, logh, logR, logtot, φ, P, K, ε = _unpack(
+        θ, (L,), (S, L), (S, T), (2, T), (2, T), (S, S), (S, S), (S,)
+    )
+    split = ComposableRecurrences.Allocate(
+        GROUPS, TimeVarying(PerStratum(exp.(logtot)));
+        imports = (TimeVarying(PerStratum(φ)), P),
+        spill = ComposableRecurrences.Redistribute(K, PerStratum(ε))
+    )
+    y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Dense matrices held as `Matrix`, as `collect` gives them, so the dense
+# pullbacks of the coupling, `Redistribute` and the import pattern run.
+function _dense_matrices(w, θ)
+    g, C, logh, logR, logtot, P, K, ε = _unpack(
+        θ, (L,), (S, S), (S, L), (S, T), (2, T), (S, S), (S, S), (S,)
+    )
+    split = ComposableRecurrences.Allocate(
+        GROUPS, TimeVarying(PerStratum(exp.(logtot)));
+        imports = (0.2, collect(P)),
+        spill = ComposableRecurrences.Redistribute(collect(K), PerStratum(ε))
+    )
+    mods = (ComposableRecurrences.Redistribute(collect(K), 0.1), split)
+    r = Recurrence(g; coupling = collect(C), modifiers = mods)
+    return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
+# Imports by a pattern that varies over time, one fraction and no spill.
+function _allocate_imports_time_varying(w, θ)
+    g, logh, logR, φ, P = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, S, T))
+    split = ComposableRecurrences.Allocate(
+        GROUPS, PerStratum([6.0, 3.0]); imports = (φ[1], TimeVarying(P))
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -281,6 +345,15 @@ function _delay_ragged(w, θ)
     return sum(WS .* w(Convolution(kernel))(X))
 end
 
+# The same columns as views into the parameters, read by output time with
+# a history: a kernel held as the caller's columns, without a copy.
+function _delay_ragged_views(w, θ)
+    v, X, H = _unpack(θ, (sum(NS_HORIZON),), (S, T), (S, 2))
+    o = cumsum([0; NS_HORIZON])
+    kernel = TimeVarying([view(v, (o[τ] + 1):o[τ + 1]) for τ in 1:T])
+    return sum(WS .* w(Convolution(kernel))(X; history = H))
+end
+
 # Each infector keeps the kernel of its own infection time, of a length
 # that varies with that time; times with an empty column do not transmit.
 const NS_CYCLE = [mod(τ, L + 1) for τ in 1:T]
@@ -296,7 +369,7 @@ end
 function _leaky(N, doses, σ, flows...)
     CR = ComposableRecurrences
     return CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -350,7 +423,7 @@ function _ward(w, θ)
     )
     CR = ComposableRecurrences
     flows = CR.Pool(;
-        stocks = (:suspected, :confirmed), draw = nothing, flows = (
+        pools = (:suspected, :confirmed), draw = nothing, flows = (
             CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
             CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
             CR.Flow(:confirmed => 0, only(discharge)),
@@ -451,19 +524,33 @@ const GCAP = [0.5, 1.0, 1.0] .* G0'
 # differences see no kink; admitted cases transmit less. A share of the beds
 # empties before each step's admissions fill them.
 const CAPS0 = _flat(fill(log(5.0), 2, L), 0.5 .+ LOGR[1:2, :], [log(12.0)], [0.2], [0.1])
-function _capacity_stock(w, θ)
+function _capacity_beds(w, θ)
     x = CAPS0 .+ θ
     logh, logR = _unpack(x, (2, L), (2, T))
     n = length(x)
-    CR = ComposableRecurrences
-    beds = CR.Pool(
-        exp(x[n - 2]); stocks = (:O,), draw = CR.SoftTruncate(x[n]) => :O,
-        flows_first = true, flows = CR.Flow(:O => 0, x[n - 1]; form = CR.Share()),
-        overflow = :stratum
-    )
+    beds = _beds(exp(x[n - 2]), x[n - 1], x[n])
     r = Recurrence(PerStratum(GCAP[1:2, :]); modifiers = (beds,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS[1:2, :] .* log.(y))
+end
+
+# The capacity pools are built behind a call: inline in the losses, whose
+# unpacking does not infer, Enzyme rejects them when the code is compiled
+# for coverage.
+function _beds(C, δ, κ)
+    CR = ComposableRecurrences
+    return CR.Pool(
+        C; pools = (:O,), draw = CR.SoftTruncate(κ) => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow = :stratum
+    )
+end
+function _budget(init, grants)
+    CR = ComposableRecurrences
+    return CR.Pool(;
+        pools = (:B,), initial = PerStratum(init), draw = :B => CR.Truncate(),
+        flows_first = true, overflow = :queue,
+        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    )
 end
 
 # A weekly budget per stratum, carried over, with unserved demand queued for
@@ -473,17 +560,15 @@ const CAPB0 = _flat(
     fill(log(5.0), S, L), 0.5 .+ LOGR,
     [log(9.0 + p + 0.5 * sin(t)) for p in 1:S, t in 1:(L + T)], [1.0, 2.0, 0.5],
 )
-const WEEKS = [t > L && rem(t - L - 1, 4) == 0 for p in 1:S, t in 1:(L + T)]
+# A grant at each week's start, and a small one at every other step: a
+# grant of exactly zero is the kink of a count from outside, where finite
+# differences disagree with any derivative.
+const WEEKS = [t > L && rem(t - L - 1, 4) == 0 ? 1.0 : 0.01 for p in 1:S, t in 1:(L + T)]
 function _capacity_budget(w, θ)
     logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
     CR = ComposableRecurrences
     grants = WEEKS .* exp.(logb)
-    doses = CR.Pool(;
-        stocks = (:B,), initial = PerStratum(collect(init)),
-        draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
-        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
-    )
-    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    r = Recurrence(PerStratum(GCAP); modifiers = (_budget(collect(init), grants),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
 end
@@ -502,7 +587,7 @@ function _capacity_drop(w, θ)
     CR = ComposableRecurrences
     pool = CR.Depletion(exp(x[n - 4]), CR.SoftTruncate(x[n - 3]))
     beds = CR.Pool(
-        PerStratum(exp.(x[(n - 2):n])); stocks = (:O,),
+        PerStratum(exp.(x[(n - 2):n])); pools = (:O,),
         draw = CR.SoftTruncate(0.2) => :O, flows_first = true,
         flows = CR.Flow(:O => 0, 0.3; form = CR.Share())
     )
@@ -558,6 +643,91 @@ end
 function _conv_per_stratum(w, θ)
     G, X, H = _unpack(θ, (S, L + 1), (S, T), (S, L))
     return sum(WS .* w(Convolution(PerStratum(G)))(X; history = H))
+end
+
+# Coefficients given by change points: the generation interval shortens
+# from day 6 and again from day 10, mixed by a coupling.
+function _piecewise_kernel(w, θ)
+    g1, g2, g3, logh, logR = _unpack(θ, (L,), (L,), (L - 1,), (S, L), (S, T))
+    kernel = TimeVarying([1 => g1, 6 => g2, 10 => g3])
+    y = w(Recurrence(kernel; coupling = K0))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Each infector keeps the kernel of its infection time, per stratum, from
+# change points; seeded at times 1 to L.
+function _piecewise_primary(w, θ)
+    G1, G2, logh, logR = _unpack(θ, (S, L), (S, L), (S, L), (S, T))
+    kernel = TimeVarying(
+        [1 => PerStratum(G1), 7 => PerStratum(G2)], ComposableRecurrences.Primary()
+    )
+    r = w(Recurrence(kernel; coupling = K0))
+    y = r(exp.(logR); history = exp.(logh), start = L + 1)
+    return sum(WS[:, (L + 1):end] .* log.(y))
+end
+
+# A delay that lengthens from day 5, read by output time with a history.
+function _piecewise_delay(w, θ)
+    g1, g2, X, H = _unpack(θ, (L,), (L + 1,), (S, T), (S, 2))
+    kernel = TimeVarying([1 => g1, 5 => g2])
+    return sum(WS[:, 3:end] .* w(Convolution(kernel))(X; history = H, start = 3))
+end
+
+# A delay per input time that changes on days 4 and 9.
+function _piecewise_delay_primary(w, θ)
+    g1, g2, g3, X = _unpack(θ, (L,), (L,), (L,), (S, T))
+    kernel = TimeVarying([1 => g1, 4 => g2, 9 => g3], ComposableRecurrences.Primary())
+    return sum(WS .* w(Convolution(kernel))(X))
+end
+
+# A travel cut from day 7: the coupling changes once.
+function _piecewise_coupling(w, θ)
+    C1, C2, logh, logR = _unpack(θ, (S, S), (S, S), (S, L), (S, T))
+    r = Recurrence(G0; coupling = TimeVarying([1 => C1, 7 => C2]))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Importations that step down on day 8, one number shared by every stratum,
+# and a per-stratum one that steps up on day 5.
+function _piecewise_parameter(w, θ)
+    a, b1, b2, logh, logR = _unpack(θ, (2,), (S,), (S,), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Add(TimeVarying([1 => a[1], 8 => a[2]])),
+        ComposableRecurrences.Add(TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])),
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = mods)
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A long delay on a long series, with history: the default `Auto()`
+# method takes the transform under a native rule. Its `NoAdjoint` twin
+# takes the method a traced call gets, which depends on the backend and
+# the Julia version: the direct method, or the transform through its own
+# Enzyme rules on Julia 1.11.
+const LA, TA = 300, 1000
+const WA = [cos(0.1 * t) for t in 1:TA]
+function _conv_auto(w, θ)
+    g, x, h = _unpack(θ, (LA,), (TA,), (5,))
+    return sum(WA .* w(Convolution(g))(x; history = h))
+end
+
+# The same delay on a series spanning 22 orders of magnitude, under a log:
+# the default method takes the direct sums the transform cannot give to a
+# relative 1e-10.
+const XW = 10.0 .^ range(-22, 0; length = TA)
+function _conv_auto_wide(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* log.(w(Convolution(g))(x)))
+end
+
+# The same delay on an epidemic curve: a few early outputs are taken
+# directly, one by one, and the rest by the transform.
+const XE = [10 * exp(0.01 * t) * (1 + 0.2 * sin(t / 7)) for t in 1:TA]
+function _conv_auto_epidemic(w, θ)
+    g, x = _unpack(θ, (LA,), (TA,))
+    return sum(WA .* w(Convolution(g))(x))
 end
 
 # Two routes: a dense coupling with a short kernel, and a sparse coupling
@@ -665,8 +835,8 @@ function _trace_importation(w, θ)
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
 
-# A protected pool's trace: its protected stock, the value drawn and the
-# overflow, one row each per stratum after the susceptible stocks.
+# A protected pool's trace: its protected pool, the value drawn and the
+# overflow, one row each per stratum after the susceptible pools.
 function _trace_pool(w, θ)
     logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
     d = _leaky(PerStratum(POP), TimeVarying(PerStratum(doses)), only(σ))
@@ -684,7 +854,7 @@ function _trace_ward(w, θ)
     )
     CR = ComposableRecurrences
     flows = CR.Pool(;
-        stocks = (:suspected, :confirmed), draw = nothing, flows = (
+        pools = (:suspected, :confirmed), draw = nothing, flows = (
             CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
             CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
             CR.Flow(:confirmed => 0, only(discharge)),
@@ -706,7 +876,7 @@ function _trace_budget(w, θ)
     CR = ComposableRecurrences
     grants = WEEKS .* exp.(logb)
     doses = CR.Pool(;
-        stocks = (:B,), initial = PerStratum(collect(init)),
+        pools = (:B,), initial = PerStratum(collect(init)),
         draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
         flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
     )
@@ -784,6 +954,36 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence grouped totals with imports and a spill (Allocate)",
+        _allocate_imports,
+        () -> _flat(
+            G0, fill(log(5.0), S, L), LOGR,
+            [log(8.0 + p + t) for p in 1:2, t in 1:T],
+            [0.1 + 0.05 * p + 0.01 * t for p in 1:2, t in 1:T],
+            [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0],
+            [0.0 0.8 0.0; 0.9 0.0 0.0; 0.1 0.2 0.0], [0.1, 0.2, 0.3],
+        ),
+    ),
+    (
+        "Recurrence dense coupling, Redistribute and imports as Matrix",
+        _dense_matrices,
+        () -> _flat(
+            G0, K0, fill(log(5.0), S, L), LOGR,
+            [log(8.0 + p + t) for p in 1:2, t in 1:T],
+            [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0],
+            [0.0 0.8 0.0; 0.9 0.0 0.0; 0.1 0.2 0.0], [0.1, 0.2, 0.3],
+        ),
+    ),
+    (
+        "Recurrence grouped totals with time-varying imports (Allocate)",
+        _allocate_imports_time_varying,
+        () -> _flat(
+            G0, fill(log(5.0), S, L), LOGR, [0.2],
+            repeat([0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0], 1, 1, T) .+
+                0.01 .* reshape(1:(S * S * T), S, S, T),
+        ),
+    ),
+    (
         "Recurrence sparse coupling", _sparse,
         () -> _flat(KS.nzval, zeros(S, L), 1 .+ LOGR),
     ),
@@ -837,6 +1037,13 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Convolution ragged kernel of views into the parameters", _delay_ragged_views,
+        () -> _flat(
+            [0.2 + 0.1 * sin(τ + i) for τ in 1:T for i in 1:NS_HORIZON[τ]], 1 .+ LOGR,
+            ones(S, 2),
+        ),
+    ),
+    (
         "Convolution with gain and add", _conv_gain,
         () -> _flat(G0, LOGR, W1, 1 .+ LOGR, ones(S, 2)),
     ),
@@ -876,7 +1083,7 @@ const _SCENARIOS = [
         () -> zero(CRA0),
     ),
     (
-        "Recurrence capacity, stock with overflow", _capacity_stock,
+        "Recurrence capacity, beds with overflow", _capacity_beds,
         () -> zero(CAPS0),
     ),
     (
@@ -952,7 +1159,78 @@ const _SCENARIOS = [
         "Convolution per-stratum kernel with history", _conv_per_stratum,
         () -> _flat(repeat([0.0; G0]', S) .* [0.9, 1.0, 1.1], 1 .+ LOGR, ones(S, L)),
     ),
+    (
+        "Recurrence kernel from change points", _piecewise_kernel,
+        () -> _flat(G0, 0.8 .* G0, G0[1:(L - 1)], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence Primary per-stratum kernel from change points", _piecewise_primary,
+        () -> _flat(
+            repeat(G0', S), 0.7 .* repeat(G0', S) .* [0.9, 1.0, 1.1],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
+        "Convolution kernel from change points with history", _piecewise_delay,
+        () -> _flat(G0, [0.0; G0], 1 .+ LOGR, ones(S, 2)),
+    ),
+    (
+        "Convolution Primary kernel from change points", _piecewise_delay_primary,
+        () -> _flat(G0, 0.5 .* G0, reverse(G0), 1 .+ LOGR),
+    ),
+    (
+        "Recurrence coupling from change points", _piecewise_coupling,
+        () -> _flat(K0, 0.6 .* K0, zeros(S, L), LOGR),
+    ),
+    (
+        "Recurrence parameters from change points", _piecewise_parameter,
+        () -> _flat([0.3, 0.1], [0.1, 0.2, 0.3], [0.4, 0.2, 0.1], zeros(S, L), LOGR),
+    ),
+    (
+        "Convolution long kernel by the automatic method", _conv_auto,
+        () -> _flat(
+            [exp(-0.05 * l) / 20 for l in 1:LA], [1.0 + 0.5 * sin(t) for t in 1:TA],
+            ones(5),
+        ),
+    ),
+    (
+        "Convolution wide-range series by the automatic method", _conv_auto_wide,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XW),
+    ),
+    (
+        "Convolution epidemic curve by the automatic method", _conv_auto_epidemic,
+        () -> _flat([exp(-0.05 * l) / 20 for l in 1:LA], XE),
+    ),
 ]
+
+# Delays given as distributions: the gradient reaches each distribution's
+# parameters through its masses on lags `0:L`.
+function _delay_distribution(w, θ)
+    logλ, w0, ϵ = _unpack(θ, (1,), (L,), (T,))
+    c = Convolution(Poisson(exp(only(logλ))); lags = L + 1)
+    return sum(W1 .* w(c)(ϵ; history = w0))
+end
+
+function _generation_distribution(w, θ)
+    logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
+    p = 1 / (1 + exp(-only(logitp)))
+    ds = [NegativeBinomial(a * exp(only(logr)), p) for a in (1.0, 1.5, 2.0)]
+    r = Recurrence(PerStratum(ds); lags = L + 1, coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Convolution Poisson delay distribution", _delay_distribution,
+        () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Recurrence negative binomial generation interval per stratum", _generation_distribution,
+        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
+    ),
+)
 
 """
     supports(features...)
@@ -989,20 +1267,27 @@ const _PROBES = Dict{Symbol, Function}(
     :removals => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; removals = 1.0)
     ),
-    # A pool whose draw fills a stock up to a capacity.
+    # A `Pool` whose draw fills a pool up to a capacity.
     :pool_fill => () -> _accepts(
         () -> ComposableRecurrences.Pool(
-            1.0; stocks = (:O,), draw = ComposableRecurrences.Truncate() => :O
+            1.0; pools = (:O,), draw = ComposableRecurrences.Truncate() => :O
         )
     ),
 )
 
 # The features each scenario needs beyond the first release, by scenario
 # name. A scenario not listed needs none. Add an entry with each scenario
-# that uses a new public name, e.g. `"..." => (:Transform,)`.
+# that uses a new feature, named by a public or internal name that came
+# with it, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
-    "Recurrence capacity, stock with overflow" => (:pool_fill,),
+    "Recurrence grouped totals with imports and a spill (Allocate)" =>
+        (:_AllocateImports,),
+    "Recurrence grouped totals with time-varying imports (Allocate)" =>
+        (:_AllocateImports,),
+    "Recurrence dense coupling, Redistribute and imports as Matrix" =>
+        (:_AllocateImports,),
+    "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace,),
@@ -1029,17 +1314,29 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
-    # Kernels as vectors of columns are stored as `_Ragged`.
+    # Kernels as vectors of columns came with `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
+    # Columns held as given came after the stacked form.
+    "Convolution ragged kernel of views into the parameters" => (:_Columns,),
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
+    "Convolution long kernel by the automatic method" => (:Auto,),
+    "Convolution wide-range series by the automatic method" => (:Auto,),
+    "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
     # growth-path seed but before any release with it.
     "Recurrence returning its state after its seed" => (:exponential_history,),
+    # Coefficients from change points came with `_Piecewise`.
+    "Recurrence kernel from change points" => (:_Piecewise,),
+    "Recurrence Primary per-stratum kernel from change points" => (:_Piecewise,),
+    "Convolution kernel from change points with history" => (:_Piecewise,),
+    "Convolution Primary kernel from change points" => (:_Piecewise,),
+    "Recurrence coupling from change points" => (:_Piecewise,),
+    "Recurrence parameters from change points" => (:_Piecewise,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same
@@ -1092,6 +1389,67 @@ function _strata_modifier(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The same coupling across 30 strata: its local derivative takes two passes
+# of dual numbers, a rule on Mooncake and plain AD on Enzyme.
+const SW = 30
+const WSW = [cos(0.3 * a + 0.1 * t) for a in 1:SW, t in 1:T]
+function _user_coupling_wide(w, θ)
+    logh, logR, a = _unpack(θ, (SW, L), (SW, T), (1,))
+    r = Recurrence(G0; coupling = ShareFirst(only(a)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WSW .* log.(y))
+end
+
+# A modifier that indexes a vector field by time and a coupling that holds
+# a matrix, neither with a `pullback!`: the local derivative seeds the
+# entries a step reads, or every entry of the coupling's arrays.
+"A scale `a[t]` on the new value, read by time."
+struct ByTime{A}
+    a::A
+end
+ComposableRecurrences.ispointwise(::ByTime) = true
+function ComposableRecurrences.forward(
+        m::ByTime, ::ComposableRecurrences.Step, v, s, t, k
+    )
+    return m.a[t] * v, s
+end
+
+"Pressure `K * p`, scaled by `β` per stratum."
+struct MatrixMix{M, B}
+    K::M
+    β::B
+end
+function ComposableRecurrences.forward(
+        C::MatrixMix, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    q .= C.β .* (C.K * p)
+    return nothing
+end
+
+function _modifier_by_time(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (T,))
+    r = Recurrence(G0; coupling = K0, modifiers = (ByTime(a),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+function _user_coupling_matrix(w, θ)
+    logh, logR, K, β = _unpack(θ, (S, L), (S, T), (S, S), (S,))
+    r = Recurrence(G0; coupling = MatrixMix(K, β))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# The same modifier with its scale from change points: the local derivative
+# reads one entry of it per step.
+function _strata_modifier_piecewise(w, θ)
+    logh, logR, logκ, β = _unpack(θ, (S, L), (S, T), (S,), (2,))
+    m = StrataCap(PerStratum(exp.(logκ)), TimeVarying([1 => β[1], 6 => β[2]]))
+    r = Recurrence(G0; coupling = K0, modifiers = (m,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 push!(
     _SCENARIOS,
     (
@@ -1102,11 +1460,38 @@ push!(
         "Recurrence per-stratum modifier without a pullback", _strata_modifier,
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
+    (
+        "Recurrence user coupling across 30 strata", _user_coupling_wide,
+        () -> _flat(zeros(SW, L), [0.1 * sin(a + t) for a in 1:SW, t in 1:T], [0.3]),
+    ),
+    (
+        "Recurrence modifier without a pullback, parameter from change points",
+        _strata_modifier_piecewise,
+        () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], [1.2, 0.8]),
+    ),
+    (
+        "Recurrence modifier with a vector field read by time", _modifier_by_time,
+        () -> _flat(zeros(S, L), LOGR, 1 .+ 0.2 .* W1),
+    ),
+    (
+        "Recurrence user coupling holding a matrix", _user_coupling_matrix,
+        () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
+_REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+let name = "Recurrence modifier without a pullback, parameter from change points"
+    _REQUIRES[name] = (:_Piecewise,)
+end
+# The local derivatives of a modifier's float-array reads and of a
+# coupling's arrays came together.
+_REQUIRES["Recurrence modifier with a vector field read by time"] = (:_read_pullback,)
+_REQUIRES["Recurrence user coupling holding a matrix"] = (:_read_pullback,)
+_REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+_REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
 _requires(name) = get(_REQUIRES, name, ())
 
@@ -1220,6 +1605,23 @@ function backend_skip_scenarios()
                 "NoAdjoint Recurrence routes in a buffer deeper than the kernels",
             ]
         ),
+    )
+end
+
+"""
+Per-backend scenario names whose call takes plain AD by design, so the
+analytic reverse pass does not run: a coupling's local derivative in two
+passes of dual numbers is a rule on Mooncake only, as is a modifier's
+local derivative that records its reads of float arrays.
+"""
+function backend_plain_scenarios()
+    return Dict(
+        "Enzyme reverse" => Set(
+            [
+                "Recurrence user coupling across 30 strata",
+                "Recurrence modifier with a vector field read by time",
+            ]
+        )
     )
 end
 

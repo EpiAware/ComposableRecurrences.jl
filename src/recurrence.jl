@@ -94,9 +94,9 @@ it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
-The constructor sets the field `rebuilds`, whether the local derivative
-can rebuild the coupling and modifiers that use it (see
-[Rules and plain AD](@ref adjoint-routing)).
+The constructor checks once whether the local step can rebuild every
+part it differentiates and stores the result in the field `rebuilds`; see
+[Rules and plain AD](@ref adjoint-routing) for the route this sets.
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
@@ -134,7 +134,7 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
     coupling::C
     "The modifiers, applied in order after the core of each step."
     modifiers::M
-    "Whether the local derivative rebuilds the coupling and modifiers that use it."
+    "Whether the local step rebuilds the parts that use it."
     rebuilds::B
     function Recurrence(kernel::K, coupling::C, modifiers::M) where {
             K, C, M <: Tuple,
@@ -144,7 +144,8 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         _check_pairwise_coupling(kernel, coupling)
         _check_secondary(coupling, modifiers)
         return Recurrence(
-            _Checked(), kernel, coupling, modifiers, _rebuild_flag(coupling, modifiers)
+            _Checked(), kernel, coupling, modifiers,
+            _check_parts(kernel, coupling, modifiers)
         )
     end
     function Recurrence(
@@ -163,7 +164,7 @@ function _check_secondary(coupling, modifiers::Tuple)
     return nothing
 end
 
-# A rebuild of a `Recurrence` from its fields recomputes `rebuilds`.
+# A rebuild of a `Recurrence` from its fields checks its parts again.
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
@@ -290,7 +291,7 @@ _check_kernel_shape(k::AbstractVector) = nothing
 _check_kernel_shape(k::PerStratum{<:AbstractMatrix}) = nothing
 _check_kernel_shape(k::Pairwise{<:AbstractArray{<:Any, 3}}) = nothing
 _check_kernel_shape(k::TimeVarying{<:Any, <:AbstractMatrix}) = nothing
-_check_kernel_shape(k::TimeVarying{<:Any, <:_Ragged}) = nothing
+_check_kernel_shape(k::TimeVarying{<:Any, <:_AnyRagged}) = nothing
 function _check_kernel_shape(
         k::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}
     )
@@ -346,7 +347,7 @@ end
 _nlags(k::AbstractVector) = length(k)
 _nlags(k::Union{PerStratum, Pairwise}) = size(k.x, ndims(k.x))
 _nlags(k::TimeVarying) = (A = _array(k); size(A, ndims(A) - 1))
-_nlags(k::TimeVarying{<:Any, <:_Ragged}) = _maxlen(k.x)
+_nlags(k::TimeVarying{<:Any, <:_AnyRagged}) = _maxlen(k.x)
 
 # An operator held inside a modifier keeps its own buffer, so it does not
 # deepen this one.
@@ -403,27 +404,27 @@ Base.@propagate_inbounds function _weight(
 end
 # Past a ragged column's end the weight is zero.
 Base.@propagate_inbounds function _weight(
-        g::TimeVarying{<:Any, <:_Ragged}, a, b, i, τ
+        g::TimeVarying{<:Any, <:_AnyRagged}, a, b, i, τ
     )
-    r = _colrange(g.x, τ)
-    return i <= length(r) ? g.x.values[r[i]] : zero(eltype(g.x.values))
+    w = _colview(g.x, τ)
+    return i <= length(w) ? w[i] : zero(eltype(w))
 end
 
 # Time-varying kernels that do not mix strata: lags × time, and strata ×
 # lags × time.
 const _TVMatrix{I} = TimeVarying{I, <:AbstractMatrix}
 const _TVPerStratum{I} = TimeVarying{I, <:PerStratum}
-# Kernels read column by column, each column contiguous: lags × time, or
-# ragged columns, whose lengths may differ.
-const _TVColumns{I} = TimeVarying{I, <:Union{AbstractMatrix, _Ragged}}
+# Kernels read column by column: lags × time, or ragged columns, whose
+# lengths may differ and which may be strided views.
+const _TVColumns{I} = TimeVarying{I, <:Union{AbstractMatrix, _AnyRagged}}
 
 # Column `τ` of a column kernel, and the same view of its mirror `ḡ`, or
 # `nothing` without one. A loop over a column stops at its length.
 _wcolumn(g::_TVMatrix, a, τ) = view(g.x, :, τ)
 _wcolumn(ḡ, ::_TVMatrix, a, τ) = _mirror_view(cotangent(ḡ, :x), :, τ)
-_wcolumn(g::TimeVarying{<:Any, <:_Ragged}, a, τ) = view(g.x.values, _colrange(g.x, τ))
-function _wcolumn(ḡ, g::TimeVarying{<:Any, <:_Ragged}, a, τ)
-    return _mirror_view(cotangent(cotangent(ḡ, :x), :values), _colrange(g.x, τ))
+_wcolumn(g::TimeVarying{<:Any, <:_AnyRagged}, a, τ) = _colview(g.x, τ)
+function _wcolumn(ḡ, g::TimeVarying{<:Any, <:_AnyRagged}, a, τ)
+    return _column_mirror(cotangent(ḡ, :x), g.x, τ)
 end
 _mirror_view(::Nothing, I...) = nothing
 _mirror_view(x, I...) = view(x, I...)
@@ -461,7 +462,7 @@ end
 function _kdot(g::Union{_TVColumns{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
     @inbounds @simd for i in _lags(g, τ, L)
-        acc += _weight(g, a, a, i, τ - i) * H[t + L - i, a]
+        acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
 end
@@ -491,7 +492,7 @@ _column(g, τ, i) = τ
 _column(::TimeVarying{Primary}, τ, i) = τ - i
 _lags(g, τ, L) = 1:L
 _lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
-_lags(g::TimeVarying{Secondary, <:_Ragged}, τ, L) = 1:length(_colrange(g.x, τ))
+_lags(g::TimeVarying{Secondary, <:_AnyRagged}, τ, L) = 1:length(_colview(g.x, τ))
 
 # Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
 function _pressure_body!(k, p, g, H, t, τ, L)
@@ -501,7 +502,10 @@ end
 
 function _kernel_pressure!(ex, p, g, H, t, τ, L)
     S = length(p)
-    _each!(_pressure_body!, ex, H, S, S * _kwork(g, S, L), p, g, H, t, τ, L)
+    _each!(
+        _pressure_body!, ex, H, S, _work(_StepLoop(), H, S * _kwork(g, S, L)),
+        p, g, H, t, τ, L
+    )
     return p
 end
 
@@ -673,40 +677,41 @@ function _state_call(::Val{true}, r, route, history, prepend, args, stop)
     return (_prepend(prepend, history, y), tr), st
 end
 
-# The rule applies when the coupling and each modifier carry their adjoint
-# or are differentiated locally (`_type_adjoint`, read off the types, which
-# routes the call), and the local derivative rebuilds each one that uses it
-# (`rebuilds`, found at construction).
+# The rule applies when the kernel, the coupling and each modifier carry
+# their adjoint or are differentiated locally, read off the types (which
+# route the call, `_type_adjoint`), and the local step rebuilds each part
+# that uses it (`rebuilds`, read per call by `_fit`).
 function uses_adjoint(r::Recurrence, ::Run)
-    return _type_adjoint(r, Run()) && _istrue(r.rebuilds)
+    return _type_adjoint(r) && r.rebuilds !== false
 end
 uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
-function _type_adjoint(r::Recurrence, ::Run)
-    return _kernel_adjoint(r.kernel) && _coupling_adjoint(r.coupling) !== :none &&
-        _all_modifiers_adjoint(r.modifiers)
+_type_adjoint(r::Recurrence) = _parts_adjoint(r.kernel, r.coupling, r.modifiers)
+_type_adjoint(w::_WithState) = _type_adjoint(w.r)
+function _parts_adjoint(kernel, C, ms)
+    return _kernel_adjoint(kernel) && _coupling_adjoint(C) !== :none &&
+        _all_modifiers_adjoint(ms)
 end
-_type_adjoint(w::_WithState, ::Run) = _type_adjoint(w.r, Run())
 _all_modifiers_adjoint(::Tuple{}) = true
 function _all_modifiers_adjoint(ms::Tuple)
     return _modifier_adjoint(first(ms)) !== :none &&
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel; routes add their couplings.
+# Whether the rule covers the kernel, and why not; routes add their
+# couplings.
 _kernel_adjoint(kernel) = true
-_plain_why_kernel(kernel) = nothing
+_no_adjoint_kernel(kernel) = ()
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier whose
 # float parameters are scalars or `_EntryParam`s, outside functions, with
 # no parameter read from the outputs, rebuilt with dual numbers by
 # `constructorof`), or `:none` when it cannot, which includes a `Derived`
-# parameter whose map holds float fields of its own. Decided from the type;
-# whether the rebuild works is checked by value at construction.
+# parameter whose map holds float fields of its own.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _local_params(m) && !_reads_outputs(m) && return :local
+    ispointwise(m) && _array_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -714,103 +719,113 @@ end
 # parameters are all scalars.
 function _coupling_adjoint(C)
     uses_adjoint(C, Pressure()) && return :pullback
-    _derived_local(C) && _scalar_params(C) && return :local
+    _derived_local(C) && _array_params(C) && return :local
     return :none
 end
 
-# The `rebuilds` field: `Val(true)` when neither the coupling nor a modifier
-# is rebuilt by the local derivative, which the types show, so the route
-# folds; otherwise the outcome of the value check (`_round_trips`) for each
-# one that is, and for the form of a depletion without its own pullback.
-function _rebuild_flag(C, ms::Tuple)
-    _coupling_rebuilt(C) || _any_rebuilt(ms) || return Val(true)
-    return _rebuilds_coupling(C) && _all_rebuild(ms)
-end
-_coupling_rebuilt(C) = _coupling_adjoint(C) === :local && _param_tuple(C) !== ()
-_rebuilds_coupling(C) = !_coupling_rebuilt(C) || _round_trips(C)
-_any_rebuilt(::Tuple{}) = false
-_any_rebuilt(ms::Tuple) = _rebuilt(first(ms)) || _any_rebuilt(Base.tail(ms))
-_rebuilt(m) = _modifier_adjoint(m) === :local && _param_tuple(m) !== ()
-_rebuilt(m::Pool) = _rebuilt_form(m.form)
-_rebuilt_form(::Nothing) = false
-function _rebuilt_form(form)
-    return !uses_adjoint(form, Step()) && _scalar_params(form) &&
-        _param_tuple(form) !== ()
-end
-_all_rebuild(::Tuple{}) = true
-_all_rebuild(ms::Tuple) = _rebuilds_modifier(first(ms)) && _all_rebuild(Base.tail(ms))
-_rebuilds_modifier(m) = !_rebuilt(m) || _round_trips(m)
-_rebuilds_modifier(m::Pool) = !_rebuilt(m) || _round_trips(m.form)
-
-_istrue(::Val{true}) = true
-_istrue(b::Bool) = b
-
-# Whether the local derivative rebuilds the operator's coupling and modifiers.
-_rebuilds(op) = Val(true)
-_rebuilds(r::Recurrence) = r.rebuilds
-_rebuilds(w::_WithState) = _rebuilds(w.r)
-
-# A coupling's local derivative takes one pass of dual numbers per step
-# while the strata and its scalars fit in one (`_LOCAL_PRESSURE`), and the
-# call takes the rule; within two passes (`_LOCAL_PRESSURE_WIDE`) it goes
-# through `_ad_wide`, and with more it takes plain AD.
-function _fits(r::Recurrence, gain, add, h, args...)
-    return _pressure_fits(r.coupling, h, _LOCAL_PRESSURE)
-end
-_fits(w::_WithState, args...) = _fits(w.r, args...)
-function _fits_wide(r::Recurrence, gain, add, h, args...)
-    return _istrue(_pressure_fits(r.coupling, h, _LOCAL_PRESSURE_WIDE))
-end
-_fits_wide(w::_WithState, args...) = _fits_wide(w.r, args...)
-function _pressure_fits(C, h, n)
-    return _pressure_fits(Val(_coupling_adjoint(C) === :local), C, h, n)
-end
-_pressure_fits(::Val{false}, C, h, n) = Val(true)
-function _pressure_fits(::Val{true}, C, h, n)
-    return _nstrata(h) + length(_param_tuple(C)) <= n
-end
-
-# The plain-AD note names the coupling, modifiers and depletion forms with
-# neither a pullback! nor a local derivative, those that do not rebuild, or
-# the coupling whose local derivative the strata outgrow. It is built only
-# when the note is first logged for a type.
-function _plain_why(r::Recurrence)
-    why = _plain_why_kernel(r.kernel)
-    why === nothing || return why
-    if _istrue(r.rebuilds)
-        _type_adjoint(r, Run()) || return _no_adjoint_why(r)
-        _coupling_adjoint(r.coupling) === :local || return _ADJOINT_NOTE
-        return "has a coupling ($(nameof(typeof(r.coupling)))) without a " *
-            "pullback! and more strata than its local derivative covers"
+# The `rebuilds` field, set at construction: `Val(true)` when the types
+# send no part to the local step, so the route folds; otherwise whether
+# each part the local step rebuilds gives its scalars back
+# (`_check_rebuild`). An operator the rule does not cover, by its types or
+# by a part that does not rebuild, says why once.
+function _check_parts(kernel, C, ms::Tuple)
+    if !_parts_adjoint(kernel, C, ms)
+        C_why = _coupling_adjoint(C) === :none ? (_part_why(C),) : ()
+        _note_plain((_no_adjoint_kernel(kernel)..., C_why..., _no_adjoint(ms...)...))
+        return Val(true)
     end
-    C = r.coupling
-    C_name = _rebuilds_coupling(C) ? () : (nameof(typeof(C)),)
-    names = join(unique((C_name..., _not_rebuilt(r.modifiers...)...)), ", ")
-    return "has a coupling, modifier or depletion form ($names) that the " *
-        "local derivative cannot rebuild from its own parameters"
+    return _check_rebuilds((_local_part(C)..., _local_parts(ms...)...))
 end
-_plain_why(w::_WithState) = _plain_why(w.r)
-function _no_adjoint_why(r::Recurrence)
-    C = r.coupling
-    C_name = _coupling_adjoint(C) === :none ? (nameof(typeof(C)),) : ()
-    names = join(unique((C_name..., _no_adjoint(r.modifiers...)...)), ", ")
-    return "has a coupling, modifier or depletion form ($names) with no " *
-        "pullback! that the rule can use"
+_check_rebuilds(::Tuple{}) = Val(true)
+function _check_rebuilds(parts::Tuple)
+    failed = filter(!_check_rebuild, parts)
+    isempty(failed) && return true
+    _note_plain(map(_rebuild_why, failed))
+    return false
+end
+function _rebuild_why(p)
+    name = nameof(typeof(p))
+    _reads_too_many(p) &&
+        return "$name reads more than $_READ_CAP entries of its arrays in a step"
+    return "$name cannot be rebuilt from its own parameters"
+end
+# The coupling, modifiers and depletion forms the local step rebuilds.
+function _local_part(C)
+    return _coupling_adjoint(C) === :local && _holds_floats(C) ? (C,) : ()
+end
+_local_parts() = ()
+_local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
+function _local_modifier(m)
+    return _modifier_adjoint(m) === :local && _holds_floats(m) ? (m,) : ()
+end
+function _local_modifier(m::Pool)
+    return _rebuilt_form(m.form) ? (m.form,) : ()
+end
+_rebuilt_form(::Nothing) = false
+function _rebuilt_form(f)
+    return !uses_adjoint(f, Step()) && _scalar_params(f) && _param_tuple(f) !== ()
+end
+
+# Keyed on the message, so the same parts with other number types, dual
+# numbers included, log nothing more.
+const _PLAIN_NOTED = Set{String}()
+const _PLAIN_LOCK = ReentrantLock()
+function _note_plain(whys::Tuple)
+    msg = string(
+        "Recurrence gradients use plain AD of the whole operator: ",
+        join(unique(whys), "; ")
+    )
+    new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
+    new || return nothing
+    @info msg
+    return nothing
 end
 _no_adjoint() = ()
 function _no_adjoint(m, ms...)
     rest = _no_adjoint(ms...)
     _modifier_adjoint(m) === :none || return rest
-    return (_part_name(m), rest...)
+    return (_part_why(m), rest...)
 end
-_part_name(m) = nameof(typeof(m))
-_part_name(m::Pool) = _form_adjoint(m.form) ? :Pool : nameof(typeof(m.form))
-_not_rebuilt() = ()
-function _not_rebuilt(m, ms...)
-    rest = _not_rebuilt(ms...)
-    _rebuilds_modifier(m) && return rest
-    return (nameof(typeof(m isa Pool ? m.form : m)), rest...)
+# Why the rule cannot use part `m`, naming the leaf that stops it.
+function _part_why(m)
+    name = nameof(typeof(m))
+    _derived_local(m) || return "$name has a Derived map that holds floats"
+    return "$name has no pullback! the rule can use"
 end
+function _part_why(m::Pool)
+    _form_adjoint(m.form) && return "Pool has a Derived map that holds floats"
+    return _part_why(m.form)
+end
+
+# How many passes of dual numbers a coupling's local derivative needs per
+# step: one while the strata and its scalars fit in one (`_LOCAL_PRESSURE`),
+# and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
+# `_ad_wide`; with more it takes plain AD.
+# A part the local step cannot rebuild sends every call to plain AD.
+# A pointwise modifier whose local step records its reads of float arrays
+# (`_read_pullback`) takes the wider route too, as that step beats plain AD
+# only where `_ad_wide` is a rule (see the adjoints page).
+function _fit(r::Recurrence, gain, add, h, args...)
+    r.rebuilds === false && return :none
+    fit = _coupling_fit(r.coupling, h)
+    fit === :one && _any_reads(r.modifiers) && return :wide
+    return fit
+end
+_fit(w::_WithState, args...) = _fit(w.r, args...)
+function _coupling_fit(C, h)
+    _coupling_adjoint(C) === :local || return :one
+    n = _nstrata(h) + _ninputs(C)
+    n <= _LOCAL_PRESSURE && return :one
+    return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
+end
+function _any_reads(ms::Tuple)
+    return any(ms) do m
+        _modifier_adjoint(m) === :local && !_local_params(m)
+    end
+end
+# The parameters a coupling's local step seeds: its float scalars, folded
+# from the type, or every scalar and array entry.
+_ninputs(C) = _scalar_params(C) ? length(_param_tuple(C)) : _nparams(C)
 
 # Parameter forms a step reads one entry of through `param`, at stratum `k`
 # and time `t`: the local derivative seeds only that entry, as a scalar.
@@ -818,6 +833,8 @@ const _EntryParam = Union{
     PerStratum{<:AbstractVector{<:AbstractFloat}},
     TimeVarying{<:Any, <:AbstractVector{<:AbstractFloat}},
     TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix{<:AbstractFloat}}},
+    TimeVarying{<:Any, <:_Piecewise{<:AbstractVector{<:AbstractFloat}}},
+    TimeVarying{<:Any, <:_Piecewise{<:PerStratum{<:AbstractMatrix{<:AbstractFloat}}}},
 }
 
 # Whether a type holds a float array (or a field of unknown type) that a
@@ -850,9 +867,44 @@ function _has_float(::Type{T}) where {T}
     end
     return false
 end
+# Whether a type holds a parameter the local step cannot seed: an array of
+# unknown element type or whose elements hold floats of their own (an array
+# of float arrays, say), a field of unknown type, or a function with float
+# fields. Arrays of numbers are allowed: the local step seeds float entries,
+# and integers (or the dual numbers of a forward-mode call) are not
+# parameters, nor are arrays of integer ranges or index vectors.
+function _has_opaque_params(::Type{T}) where {T}
+    if T <: AbstractArray
+        E = eltype(T)
+        isconcretetype(E) || return true
+        return !(E <: Real) && _has_float(E)
+    end
+    T <: Function && return _has_float(T)
+    T <: Union{Real, Nothing, Symbol, AbstractString} && return false
+    isconcretetype(T) || return true
+    for F in fieldtypes(T)
+        _has_opaque_params(F) && return true
+    end
+    return false
+end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _scalar_params(m) = !_has_array_params(m, false)
 @generated _local_params(m) = !_has_array_params(m, true)
+# Whether a type holds a float array that is not strided, outside entry
+# parameters: a `Diagonal` or a sparse matrix, say, whose fields a step may
+# read rather than its entries.
+function _has_structured_floats(::Type{T}) where {T}
+    T <: _EntryParam && return false
+    T <: AbstractArray && return eltype(T) <: AbstractFloat && !(T <: StridedArray)
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    isconcretetype(T) || return false
+    return any(_has_structured_floats, fieldtypes(T))
+end
+# Whether the local step can seed every float of a part: its scalars and
+# the entries of its strided float arrays.
+@generated function _array_params(m)
+    return !_has_opaque_params(m) && !_has_structured_floats(m)
+end
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including the state to resume from.
@@ -967,12 +1019,17 @@ function _record!(rec, v, s, t, k)
     return nothing
 end
 
-# A modifier's records: its input values and its states (state entries ×
-# steps), or for a modifier whose state never changes the state vector it
-# started from.
+# A modifier's records: its input values, its states entering each step
+# (state entries × steps, or for a modifier whose state never changes the
+# state vector it started from) and, for a vector modifier that asks with
+# `_keeps_after`, its states after each step (`A`, else `nothing`).
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
-    return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T))
+    A = _keeps_after(m) ? _zeros(h, Tp, length(s), T) : nothing
+    return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
 end
+# Whether a vector modifier's pullback reads its state after each step,
+# so the forward pass records it (see `_pass_buffer`).
+_keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
@@ -982,6 +1039,7 @@ _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
 _record_states!(R::AbstractMatrix, s, t) = (copyto!(view(R, :, t), s); nothing)
 _record_states!(R::AbstractVector, s, t) = nothing
+_record_states!(::Nothing, s, t) = nothing
 # The recorded state of stratum `k` entering step `t`, and of every stratum.
 _state_at(R::AbstractMatrix, k, t) = R[k, t]
 _state_at(R::AbstractVector, k, t) = R[k]
@@ -994,6 +1052,7 @@ function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     copyto!(view(first(rec).V, :, t), v)
     _record_states!(first(rec).S, first(states), t)
     forward(first(ms), Step(), v, first(states), τ)
+    _record_states!(first(rec).A, first(states), t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
 
@@ -1046,16 +1105,53 @@ _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * pr.P[k, t]
 # overlaps those waits; stratum outermost measured slower even though each
 # stratum's buffer column is contiguous.
 function _series_body!(
-        ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D, T
+        ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
+        D, T
     )
-    for t in 1:T
-        τ = τ0 + t - 1
-        for k in ks
-            _step_body!(
-                k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t,
-                τ, L, D
-            )
-        end
+    for (ts, g, _) in _kernel_runs(kernel, τ0, T)
+        _steps_in!(
+            _series_step!, ex, ts, T,
+            ks, H, pr, gain, add, coupling, g, p, q, ms, states, rec, τ0, L, D
+        )
+    end
+    return nothing
+end
+
+# The runs of steps over which the kernel a step reads is fixed, each
+# `(steps, kernel, j)`: the steps (`nothing` for every step of the call),
+# the kernel they read and the run's index, by which the reverse pass reads
+# its kernel buffer. A kernel whose steps all read it is one run.
+_kernel_runs(kernel, τ0, T) = ((nothing, kernel, 1),)
+_run_steps(::Nothing, T) = 1:T
+_run_steps(ts::AbstractUnitRange, T) = ts
+_run_buffer(kbuf, kernel, j) = kbuf
+
+# `_steps!` over the steps `ts` of a call of `T` steps.
+@inline function _steps_in!(body::F, ex, ::Nothing, T, args::Vararg{Any, N}) where {F, N}
+    return _steps!(body, ex, T, args...)
+end
+@inline function _steps_in!(
+        body::F, ex, ts::AbstractUnitRange, T, args::Vararg{Any, N}
+    ) where {F, N}
+    return _steps!(_From(body, first(ts) - 1), ex, length(ts), args...)
+end
+# A step body called at step `t + o`.
+struct _From{F}
+    f::F
+    o::Int
+end
+@inline (b::_From)(t, args::Vararg{Any, N}) where {N} = b.f(t + b.o, args...)
+
+# Step `t` of the independent strata `ks`.
+@inline function _series_step!(
+        t, ks, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L, D
+    )
+    τ = τ0 + t - 1
+    for k in ks
+        _step_body!(
+            k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ,
+            L, D
+        )
     end
     return nothing
 end
@@ -1081,6 +1177,36 @@ function _store_body!(k, H, v, row)
     return nothing
 end
 
+# Step `t` of strata that read one another: the pressures, then each
+# stratum's value, through the modifiers to the buffer.
+@inline function _coupled_step!(
+        t, ex, across, H, v, pr, gain, add, coupling, kernel, p, q, modifiers,
+        states, rec, τ0, L, D, S, work
+    )
+    τ = τ0 + t - 1
+    across && _refresh!(modifiers, D + t)
+    _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
+    if _all_pointwise(modifiers)
+        _each!(
+            _step_body!, ex, H, S, work,
+            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec, t,
+            τ, L, D
+        )
+    else
+        _each!(
+            _value_body!, ex, H, S, work,
+            v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D
+        )
+        if rec === nothing
+            _stages!(modifiers, states, v, τ)
+        else
+            _stages_rec!(modifiers, states, rec, v, τ, t)
+        end
+        _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
+    end
+    return nothing
+end
+
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording, the cache the reverse pass reads. The buffer is `D`
 # rows deep before the run, `D >= L`, and row `D + t` holds absolute time
@@ -1095,7 +1221,7 @@ end
 # stratum's value goes straight to the buffer, else the step's values are
 # collected for the vector Step. Vector Steps (such as `Allocate` and
 # `Redistribute`) read every stratum, and blockwise ones (such as a `Pool`
-# with more than one stock) loop their groups, so they run on the calling task whatever
+# with more than one pool) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
@@ -1110,8 +1236,7 @@ function _run(
 end
 
 function _run(
-        ::Type{Tp}, ex::Union{Serial, _Current}, r, gain, add, h, s0, τ0, L, D, S,
-        T, ::Val{record}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record}
     ) where {Tp, record}
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
@@ -1133,36 +1258,20 @@ function _run(
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         _blocks!(
-            _series_body!, ex, H, S, T * work,
-            H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
+            _series_body!, ex, H, S, _work(_RunLoop(), H, T * work),
+            ex, H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
             τ0, L, D, T
         )
     else
         # Parameters that read across strata fill their windows once per
         # step; the check is made once, outside the loop.
         across = _reads_across(modifiers)
-        for t in 1:T
-            τ = τ0 + t - 1
-            across && _refresh!(modifiers, D + t)
-            _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
-            if _all_pointwise(modifiers)
-                _each!(
-                    _step_body!, ex, H, S, work,
-                    H, pr, gain, add, coupling, kernel, p, q, modifiers, states,
-                    rec, t, τ, L, D
-                )
-            else
-                _each!(
-                    _value_body!, ex, H, S, work,
-                    v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D
-                )
-                if record
-                    _stages_rec!(modifiers, states, rec, v, τ, t)
-                else
-                    _stages!(modifiers, states, v, τ)
-                end
-                _each!(_store_body!, Serial(), H, S, S, H, v, D + t)
-            end
+        for (ts, g, _) in _kernel_runs(kernel, τ0, T)
+            _steps_in!(
+                _coupled_step!, ex, ts, T,
+                ex, across, H, v, pr, gain, add, coupling, g, p, q, modifiers,
+                states, rec, τ0, L, D, S, _work(_StepLoop(), H, work)
+            )
         end
     end
     Y = _public(H, (D + 1):(D + T), h)

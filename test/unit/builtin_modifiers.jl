@@ -87,7 +87,7 @@ end
     R = fill(3.0, 12)
     doses = TimeVarying(fill(0.5, 12))
     leaky(α) = CR.Pool(
-        60.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        60.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         heterogeneity = α, flows = CR.Flow(:S => :V, doses; form = CR.Truncate())
     )
     for m in (α -> CR.Depletion(60.0; removals = doses, heterogeneity = α), leaky)
@@ -143,6 +143,11 @@ end
     @test_throws ArgumentError CR.Depletion(1.0; pool0 = TimeVarying(N))
     @test_throws "does not vary over time, got TimeVarying(" CR.Depletion(
         1.0; pool0 = TimeVarying(N)
+    )
+    # The starting pool is not negative.
+    @test_throws "pool0 is non-negative, got -1.0" CR.Depletion(80.0; pool0 = -1.0)
+    @test_throws "pool0 is non-negative, got -2.0" CR.Depletion(
+        PerStratum([80.0, 80.0]); pool0 = PerStratum([1.0, -2.0])
     )
     # A share is a form for flows only.
     @test_throws "Share() is not a depletion form" CR.Depletion(80.0, CR.Share())
@@ -386,7 +391,7 @@ end
     # protected one, and a negative removal adds to the unprotected pool only.
     function step(r)
         d = CR.Pool(
-            20.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
+            20.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, r; form = CR.Truncate()),)
         )
         return CR.forward(d, CR.Step(), (0.0,), (10.0, 4.0), 1, 1)
@@ -628,7 +633,7 @@ end
 end
 
 @testitem "Variants: one path per step" begin
-    using ComposableRecurrences, JET
+    using ComposableRecurrences
     CR = ComposableRecurrences
     for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
@@ -637,9 +642,9 @@ end
         @test CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1) ==
             CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 1.0)
         # A step compiles to one path: no dispatch on the form at run time.
+        # Its check for runtime dispatch runs with JET, in test/jet.
         @test (@inferred CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)) isa
             Tuple{Float64, Float64}
-        JET.@test_opt CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
     @test (@inferred default_depletion()) isa CR.Pool{<:Any, Float64, CR.Hazard}
@@ -759,7 +764,7 @@ end
     pools = (
         (θ, form, α) -> CR.Depletion(θ[1], form; heterogeneity = α, pool0 = θ[2]),
         (θ, form, α) -> CR.Pool(
-            θ[1]; stocks = (:S, :V), initial = (θ[2], nothing),
+            θ[1]; pools = (:S, :V), initial = (θ[2], nothing),
             draw = (:S => 1, :V => 0.3) => form, heterogeneity = α
         ),
     )

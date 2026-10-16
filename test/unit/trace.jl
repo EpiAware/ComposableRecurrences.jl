@@ -66,19 +66,19 @@ end
     @test M[3, :] ≈ pressures(g, R, y, h) .- y
 end
 
-@testitem "Trace: a protected pool's stocks, draw and overflow" setup = [TraceChecks] begin
+@testitem "Trace: a protected pool's pools, draw and overflow" setup = [TraceChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
     leaky = CR.Pool(
-        PerStratum([80.0, 120.0]); stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        PerStratum([80.0, 120.0]); pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
         flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
     )
     r = Recurrence(g; modifiers = (leaky,))
     y, tr = r(R; history = h, trace = true)
     M = only(tr.modifiers)
-    # Rows: stock S of each stratum, then stock V, then the value drawn,
+    # Rows: pool S of each stratum, then pool V, then the value drawn,
     # then the overflow.
     @test size(M) == (8, 8)
     @test M[1:4, :] ≈ only(states_by_step(r, R; history = h))
@@ -91,13 +91,13 @@ end
 @testitem "Trace: each flow's amount against a naive loop" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    # One ward: admissions into stock 1, confirmed into 2 at a hazard rate,
+    # One ward: admissions into pool 1, confirmed into 2 at a hazard rate,
     # ruled out as a share, discharged at a hazard rate, transferred out in
     # counts that bind on the third step.
     c, p, d, a = 0.3, 0.2, 0.1, [1.0, 1.0, 5.0, 1.0, 0.5, 0.0]
     adm = [4.0, 6.0, 2.0, 0.0, 3.0, 1.0]
     ward = CR.Pool(;
-        stocks = 2, draw = nothing, flows = (
+        pools = 2, draw = nothing, flows = (
             CR.Flow(1 => 2, c), CR.Flow(1 => 0, p; form = CR.Share()),
             CR.Flow(2 => 0, d), CR.Flow(2 => 0, TimeVarying(a); form = CR.Truncate()),
         )
@@ -149,7 +149,7 @@ end
     K = [0.0 0.3; 0.2 0.0]
     function loss(θ)
         leaky = CR.Pool(
-            PerStratum(θ[1:2]); stocks = (:S, :V),
+            PerStratum(θ[1:2]); pools = (:S, :V),
             draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
             flows = (
                 CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
@@ -168,7 +168,7 @@ end
     # parameter.
     function ward(θ)
         flows = CR.Pool(;
-            stocks = 2, draw = nothing, flows = (
+            pools = 2, draw = nothing, flows = (
                 CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
                 CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
             )

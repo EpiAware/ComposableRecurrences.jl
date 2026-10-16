@@ -8,37 +8,19 @@ Modelling packages such as [ComposableTuringIDModels.jl](https://composableturin
 
 ## [Why does a recurrence kernel start at lag 1 and a convolution kernel at lag 0?](@id faq-lag-origin)
 
-A recurrence's value cannot depend on itself in the same step, so its first weight is on the previous value.
-A convolution can weight today's input, as a reporting delay of zero days does.
-Both are written as the quantity is usually written, so a generation interval or a delay goes in unchanged.
+See [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin).
 
 ## How do I get intermediate quantities?
 
-Operators return only their outputs.
-Recompute the rest from the outputs, as [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) shows.
+Recompute them from the outputs; see [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin).
 
 ## [Which AD backends work?](@id faq-backends)
 
-The targets are ForwardDiff, Mooncake and Enzyme.
-The AD tests also run ReverseDiff, which is not a target, so the README shows coverage badges for it.
-[Adjoints and backends](@ref adjoint-backends) says what each runs, and the [AD comparison](@ref ad-comparison) page compares their gradient times.
+ForwardDiff, Mooncake and Enzyme; see [Backends](@ref adjoint-backends).
 
 ## [Does it run under Reactant?](@id faq-reactant)
 
-Yes.
-With [Reactant.jl](https://github.com/EnzymeAD/Reactant.jl) loaded, operator calls on traced arrays compile with `Reactant.@compile`, and so do Enzyme gradients of them:
-
-```julia
-using ComposableRecurrences, Reactant
-r = Recurrence([0.5, 0.3])
-R = Reactant.to_rarray(fill(1.1, 50))
-f(R) = r(R; history = [1.0, 1.0])
-y = (Reactant.@compile f(R))(R)
-```
-
-A traced call runs serially whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
-The step loops are unrolled when traced, so compile time grows with the number of steps and [strata](@ref glossary-stratum).
-[`test/reactant/RESULTS.md`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) lists the cases checked.
+Yes; see the [Reactant extension](@ref extension-reactant).
 
 ## Why is my history padded with zeros?
 

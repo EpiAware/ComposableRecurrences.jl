@@ -70,7 +70,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
-        accs = _accumulators(ex, H, S, T * work, acc)
+        accs = _accumulators(ex, H, S, _work(_RunLoop(), H, T * work), acc)
         _reduce_blocks!(
             _series_back!, accs, S,
             H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0, L,
@@ -79,11 +79,17 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     else
         m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
         acc = (; ādd, ḡain, C̄ = _Owned(C̄), ḡ = kslots, m̄s = m̄v)
-        accs = _accumulators(ex, H, S, work, acc)
+        accs = _accumulators(ex, H, S, _work(_StepLoop(), H, work), acc)
+        # The per-pass buffers of vector modifiers that ask for one, which
+        # their step pullbacks fill a column of and `_finish_pass!` reads.
+        bufs = map((m, m̄) -> _pass_buffer(H, eltype(H), m, m̄, S, T), modifiers, m̄s)
         _steps_back!(
-            accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, modifiers, H, τ0,
-            L, D, S, T
+            accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, modifiers,
+            H, τ0, L, D, S, T
         )
+        foreach(modifiers, m̄s, rec, bufs) do m, m̄, R, b
+            _finish_pass!(m̄, m, R, b, τ0)
+        end
     end
     _reduce!(accs)
     _kernel_finish!(ḡ, kbuf)
@@ -117,12 +123,15 @@ _own(x̄::_Owned) = x̄.x
 function _series_back!(
         ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
-    for t in T:-1:1
-        τ = τ0 + t - 1
-        for k in ks
-            q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, D, k)
-            p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
-            _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄k, H, H̄, t + D - L, τ, L, k)
+    for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
+        kb = _run_buffer(kbuf, kernel, j)
+        for t in reverse(_run_steps(ts, T))
+            τ = τ0 + t - 1
+            for k in ks
+                q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, D, k)
+                p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
+                _kernel_back_at!(kb, acc.ḡ, g, p̄k, H, H̄, t + D - L, τ, L, k)
+            end
         end
     end
     return nothing
@@ -147,7 +156,8 @@ end
 # strata run in blocks of the executor where each stratum writes only its
 # own slots: the pointwise modifiers and the kernel unless it is pairwise.
 function _steps_back!(
-        accs, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, S, T
+        accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, ms, H, τ0, L,
+        D, S, T
     )
     acc = first(accs)
     Tp = eltype(H)
@@ -155,26 +165,29 @@ function _steps_back!(
     p̄ = _zeros(H, Tp, S)
     q̄ = _zeros(H, Tp, S)
     pbufs = _pressure_buffers(_own(acc.C̄), coupling, Tp)
-    for t in T:-1:1
-        τ = τ0 + t - 1
-        _refresh!(ms, D + t)
-        if _all_pointwise(ms)
-            _reduce_blocks!(
-                _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄, t,
-                τ, D
-            )
-        else
-            for k in 1:S
-                v̄[k] = H̄[D + t, k]
+    for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
+        kb = _run_buffer(kbuf, kernel, j)
+        for t in reverse(_run_steps(ts, T))
+            τ = τ0 + t - 1
+            _refresh!(ms, D + t)
+            if _all_pointwise(ms)
+                _reduce_blocks!(
+                    _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄,
+                    t, τ, D
+                )
+            else
+                for k in 1:S
+                    v̄[k] = H̄[D + t, k]
+                end
+                _stages_back!(ms, _own(acc.m̄s), rec, s̄s, bufs, v̄, τ, t)
+                for k in 1:S
+                    q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
+                end
             end
-            _stages_back!(ms, _own(acc.m̄s), rec, s̄s, v̄, τ, t)
-            for k in 1:S
-                q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
-            end
+            _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
+            _kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
+            _flush!(ms)
         end
-        _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
-        _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t + D - L, τ, L)
-        _flush!(ms)
     end
     return nothing
 end
@@ -250,19 +263,49 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
     return _trace_in(a, v̄)
 end
 
-# Walk the step's value cotangent back through the modifiers, last first.
-_stages_back!(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t) = nothing
-function _stages_back!(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t)
+# Walk the step's value cotangent back through the modifiers, last first,
+# with `grads.after` and `grads.pass` for a modifier that asks for them (see
+# `_pass_buffer`).
+_stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t) = nothing
+function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     _stages_back!(
-        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t
+        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s),
+        Base.tail(bufs), v̄, τ, t
     )
     R, m, m̄, s̄ = first(rec), first(ms), first(m̄s), first(s̄s)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t)
-    _vector_pullback!((; piece = m̄, v = v̄, s = s̄), m, v, s, τ)
+    _vector_pullback!(_step_grads(m̄, v̄, s̄, R.A, first(bufs), t), m, v, s, τ)
     _trace_in!(R, v̄, s̄)
     return nothing
 end
+_step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
+function _step_grads(m̄, v̄, s̄, A, b, t)
+    return (; piece = m̄, v = v̄, s = s̄, after = _column(A, t), pass = _column(b, t))
+end
+_column(::Nothing, t) = nothing
+_column(A::AbstractMatrix, t) = view(A, :, t)
+_column(b::NamedTuple, t) = map(B -> _column(B, t), b)
+_column(x::AbstractVector, t) = x
+
+# What the reverse pass of a `Recurrence` keeps for a vector modifier:
+#
+# - `_keeps_after(m)` true: the forward pass records the modifier's state
+#   after each step (`R.A`, entries × steps), and its step pullback finds
+#   that step's column in `grads.after`.
+# - `_pass_buffer(H, Tp, m, m̄, S, T)`: `nothing`, or a named tuple of arrays
+#   whose matrices (entries × steps) the step pullback writes a column of,
+#   found in `grads.pass`; vectors are scratch shared by every step.
+#   `_finish_pass!(m̄, m, R, b, τ0)` then reads it once, after the last step,
+#   to add the cotangents the steps left for it.
+#
+# `grads` carries `after` and `pass` only when the modifier asks for one of
+# them, so other pullbacks see the usual fields. Without them a pullback
+# must give the same cotangents by its per-step path. They reach only a modifier's own vector
+# `pullback!`: a blockwise modifier split into groups gets neither, so one
+# that asks must have its own vector pullback.
+_pass_buffer(H, ::Type, m, m̄, S, T) = nothing
+_finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
@@ -389,11 +432,10 @@ Base.@propagate_inbounds function _add_weight!(
     return add_cotangent!(cotangent(cotangent(ḡ, :x), :x), v, a, b, i, τ)
 end
 Base.@propagate_inbounds function _add_weight!(
-        ḡ, g::TimeVarying{<:Any, <:_Ragged}, v, a, b, i, τ
+        ḡ, g::TimeVarying{<:Any, <:_AnyRagged}, v, a, b, i, τ
     )
-    r = _colrange(g.x, τ)
-    i <= length(r) || return nothing
-    return add_cotangent!(cotangent(cotangent(ḡ, :x), :values), v, r[i])
+    i <= length(_colview(g.x, τ)) || return nothing
+    return add_cotangent!(_column_mirror(cotangent(ḡ, :x), g.x, τ), v, i)
 end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.

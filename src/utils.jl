@@ -50,8 +50,11 @@ _describe(x::AbstractArray) = summary(x)
 _describe(x::AbstractRange) = repr(x)
 _describe(x::Union{PerStratum, Pairwise}) = _wrapped(nameof(typeof(x)), x.x)
 _describe(x::TimeVarying{I}) where {I} = _wrapped(:TimeVarying, x.x, nameof(I))
-function _describe(x::_Ragged)
+function _describe(x::_AnyRagged)
     return string(_ncols(x), " kernel columns of up to ", _maxlen(x), " entries")
+end
+function _describe(x::_Piecewise)
+    return string(_describe(x.x), " from the change points ", repr(x.starts))
 end
 _wrapped(name, x) = string(name, "(", _describe(x), ")")
 _wrapped(name, x, i) = string(name, "(", _describe(x), ", ", i, "())")
@@ -113,9 +116,11 @@ _check_kernel_times(k, stop) = nothing
 function _check_kernel_times(k::TimeVarying, stop)
     return _check_covers(:kernel, _extent(_array(k)), stop)
 end
-function _check_kernel_times(k::TimeVarying{<:Any, <:_Ragged}, stop)
+function _check_kernel_times(k::TimeVarying{<:Any, <:_AnyRagged}, stop)
     return _check_covers(:kernel, _ncols(k.x), stop)
 end
+# The last value between change points holds for every later time.
+_check_kernel_times(k::TimeVarying{<:Any, <:_Piecewise}, stop) = nothing
 
 # Check every time-varying coefficient in a coupling or modifier covers
 # times up to `stop`, walking their fields. Outside a kernel only
@@ -126,6 +131,9 @@ function _check_leaf(name, x::TimeVarying{Secondary}, stop)
 end
 _check_leaf(name, ::TimeVarying{Secondary}, ::Nothing) = nothing
 _check_leaf(name, x::TimeVarying, stop) = _primary_error(name, x)
+# The last value between change points holds for every later time.
+_check_leaf(name, ::TimeVarying{Secondary, <:_Piecewise}, stop) = nothing
+_check_leaf(name, ::TimeVarying{Secondary, <:_Piecewise}, ::Nothing) = nothing
 const _Leaf = Union{
     Real, AbstractArray, Nothing, Symbol, AbstractString, Type, Module,
     Function,
@@ -201,6 +209,7 @@ end
 # Check a parameter's leading axis against `n` entries of `what`.
 _check_rows(name, x, n, what) = nothing
 _check_rows(name, x::TimeVarying, n, what) = _check_rows(name, x.x, n, what)
+_check_rows(name, x::_Piecewise, n, what) = _check_rows(name, x.x, n, what)
 _check_rows(name, x::PerStratum, n, what) = _check_nrows(name, x.x, n, what)
 
 # Check a strata × time slot against `S` strata.
@@ -274,5 +283,38 @@ const _CPUArray = Union{
 }
 _zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
 
+# A kernel given as columns: host columns of one concrete type are held as
+# given. Others are stacked into one vector: columns of mixed types into
+# their promoted type, so the loops that read them infer, and device columns
+# into one device array, which a device loop reads.
+function _ragged(ks::AbstractVector{K}) where {K}
+    return _ragged(Val(isconcretetype(K) && K <: _CPUArray), ks)
+end
+_ragged(::Val{true}, ks) = _Columns(ks)
+_ragged(::Val{false}, ks) = _Ragged(ks)
+
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
+
+# Value checks on parameters given as numbers or arrays, on their primal
+# values (a dual number at a bound is not ordered by its value alone); a
+# `Derived` parameter is checked by nothing here.
+function _check_unit(name, x)
+    return _check_values(name, x, v -> 0 <= _primal_value(v) <= 1, "between 0 and 1")
+end
+function _check_nonnegative(name, x)
+    return _check_values(name, x, v -> _primal_value(v) >= 0, "non-negative")
+end
+_check_values(name, x, ok, what) = nothing
+function _check_values(name, x::Real, ok, what)
+    ok(x) || throw(ArgumentError("$name is $what, got $x"))
+    return nothing
+end
+function _check_values(name, x::Union{PerStratum, TimeVarying}, ok, what)
+    return _check_values(name, x.x, ok, what)
+end
+function _check_values(name, x::AbstractArray{<:Real}, ok, what)
+    i = findfirst(!ok, x)
+    i === nothing || throw(ArgumentError("$name is $what, got $(x[i])"))
+    return nothing
+end

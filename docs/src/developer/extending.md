@@ -65,23 +65,86 @@ Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 These accept every parameter form, including [`Derived`](@ref) and [`Recent`](@ref).
 Call `add_param!` for every parameter, even with a `nothing` mirror; [`add_param!`](@ref ComposableRecurrences.add_param!) says why.
 
-## [Gradient routes](@id extending-routes)
+A type without a `pullback!` still takes the rule when the local step can rebuild it; [What the local step needs](@ref adjoint-local-step) gives the conditions.
 
-[Rules and plain AD](@ref adjoint-routing) says which route a type gives its operator.
+## [A first modifier](@id extending-first)
 
-Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
+This modifier caps each value smoothly at ``\kappa``:
 
-The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
-Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
-So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
-Integer fields, index ranges and integer arrays are structure, not parameters.
-Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
+```math
+v' = \frac{v \, \kappa}{\kappa + v},
+```
 
-The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
-So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
-A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
-The local step of a coupling is capped by the strata it couples, at a limit set by the backend; the route table in [Rules and plain AD](@ref adjoint-routing) gives it.
-A coupling over more strata needs a `pullback!` to take the rule.
+where ``v`` is the value it receives and ``v'`` the value it passes on.
+It acts on each series alone, so it is pointwise and implements the scalar step.
+It keeps no state, so it passes its state on unchanged.
+The field has a type parameter so that a dual number can take its place.
+
+```@example extending
+struct Saturation{K}
+    κ::K
+end
+CR.ispointwise(::Saturation) = true
+CR.forward(m::Saturation, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
+```
+
+It goes in the modifier tuple with the package's own.
+Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it caps the infections drawn from the pool.
+With ``f`` the saturation and ``h`` the depletion draw, each step gives
+
+```math
+y_t = h\Big(f\big(g_t \sum_{l} k_l \, y_{t-l},\ \kappa\big)\Big),
+```
+
+where ``k_l`` is the kernel, ``g_t`` the gain and ``y_t`` the output.
+A lower cap gives fewer infections over the run.
+
+```@example extending
+seed = [1.0, 2.0, 3.0]
+N = 10_000.0
+pool = CR.Depletion(N; pool0 = N - sum(seed))
+model(κ) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Saturation(κ), pool))
+[round(sum(model(κ)(fill(1.8, 80); history = seed))) for κ in (50.0, 150.0, 1.0e6)]
+```
+
+ForwardDiff differentiates `forward` as written.
+Under Mooncake or Enzyme in reverse mode the operator still takes its rule, as [Rules and plain AD](@ref adjoint-routing) gives for a pointwise modifier with a float parameter.
+
+```@example extending
+using ForwardDiff
+
+loss(κ) = sum(model(κ)(fill(1.8, 80); history = seed))
+ForwardDiff.derivative(loss, 100.0), CR.uses_adjoint(model(100.0), CR.Run())
+```
+
+A `pullback!` gives the derivative in closed form instead of the local step.
+With ``\bar v'`` the cotangent of ``v'``, the cotangents are
+
+```math
+\bar v = \bar v' \, \frac{\kappa^2}{(\kappa + v)^2}, \qquad
+\bar\kappa \mathrel{+}= \bar v' \, \frac{v^2}{(\kappa + v)^2}.
+```
+
+[`cotangent`](@ref ComposableRecurrences.cotangent) reads the mirror of the field ``\kappa``, and [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!) adds to it.
+Both skip a field the backend holds constant.
+The method is defined on a second type here so that the two can be timed against each other.
+
+```@example extending
+struct SaturationPullback{K}
+    κ::K
+end
+CR.ispointwise(::SaturationPullback) = true
+CR.forward(m::SaturationPullback, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
+function CR.pullback!(grads, m::SaturationPullback, ::CR.Step, v, s, t, k)
+    d = inv(m.κ + v)^2
+    CR.add_cotangent!(CR.cotangent(grads.piece, :κ), grads.v * v^2 * d)
+    return grads.v * m.κ^2 * d, grads.s
+end
+
+CR.uses_adjoint(Saturation(100.0), CR.Step()), CR.uses_adjoint(SaturationPullback(100.0), CR.Step())
+```
+
+[Checking a new type](@ref extending-checks) tests a `pullback!` against ForwardDiff, and [Performance](@ref extending-performance) gives the timings of the two.
 
 ## [A pointwise modifier with state](@id extending-pointwise)
 
@@ -395,6 +458,33 @@ gradient(loss(r), backend, [0.3]) ≈
 - [Which rules are kept](@ref rule-policy) gives the cost of a missing `pullback!`.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
+The [benchmark matrix](@ref testing) times the gradient of a renewal with the [first modifier](@ref extending-first), under Mooncake and Enzyme in reverse mode.
+It times plain AD of the whole operator, the rule with `forward` only, and the rule with the `pullback!`.
+
+```@example extending
+using Markdown # hide
+results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv") # hide
+rows = isfile(results) ? split.(readlines(results)[2:end], ',') : [] # hide
+custom = filter(r -> r[1] == "custom modifier" && r[5] == "ok", rows) # hide
+time_of(m, sz, tg) = parse(Float64, only(r[6] for r in custom if (r[3], r[2], r[4]) == (m, sz, tg))) # hide
+cases = unique((r[2], r[4]) for r in custom) # hide
+pct(a, b) = extrema(round(Int, 100 * time_of(b, c...) / time_of(a, c...)) for c in cases) # hide
+if isempty(cases) # hide
+    md"The benchmark results are not available in this build." # hide
+else # hide
+    (lo, hi), (plo, phi) = pct("plain AD", "forward only"), pct("forward only", "with pullback!") # hide
+    Markdown.parse( # hide
+        "With `forward` only, the gradient takes $lo% to $hi% of the time of plain AD. " * # hide
+            "The `pullback!` then takes it to $plo% to $phi% of the time with `forward` only. " * # hide
+            "These are median times at revision `$(first(custom)[12])`." # hide
+    ) # hide
+end # hide
+```
+
+The local step evaluates `forward` once per step with dual numbers, so its cost follows the cost of `forward`.
+For a map as cheap as this one there is little for a `pullback!` to save.
+Write `forward` first, and add a `pullback!` when timing shows the modifier's local step matters.
+
 ## [Specialising for speed](@id specialising)
 
 Every call of an operator has one form, and the work behind it is chosen by dispatch on the types of its kernel, coupling, modifiers and numbers.
@@ -407,7 +497,13 @@ A method for a narrower type replaces the general one for that type alone, so a 
 | a depletion form at one number type | `forward(form::MyForm, Step(), v::Float32, s::Float32, N::Float32, α::Float32)` |
 | how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
 
-A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``.
+A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
+
+```math
+q_a = u_a \sum_{b=1}^{S} w_b \, p_b,
+```
+
+where ``p_b`` is stratum ``b``'s kernel-weighted past and ``q_a`` the mixed value of stratum ``a``.
 
 ```@example extending
 struct RankOne{V}

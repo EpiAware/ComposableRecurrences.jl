@@ -7,10 +7,10 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
-    _Current, _WithState, _check_secondary, _current, _fft_convolve!,
-    _fft_convolve_back!, _is_leaf, _leaf_paths, _log_plain, _note_plain_type,
-    _plain, _rebuild_flag, _rebuild_leaves, _route_forward!, _run_forward,
-    _run_pullback!, _untraced
+    _Current, _WithState, _check_form, _check_parts, _check_secondary,
+    _current, _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!,
+    _is_leaf, _leaf_paths, _plain, _plain_hook, _rebuild_leaves,
+    _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -34,6 +34,10 @@ _ezs(::_Inert, dx) = nothing
 _ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx) = nothing
 # Under runtime activity a constant array's shadow is the primal itself.
 _ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x ? nothing : dx
+# A kernel's columns: each column's mirror from its own shadow.
+function _ezs(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
+    return dx === x ? nothing : map(_ezs, x, dx)
+end
 function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC)
     return (; nzval = _ezs(nonzeros(x), nonzeros(dx)))
 end
@@ -83,32 +87,75 @@ function _addback1(dx::T, m) where {T}
     return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), T, fs, length(fs))::T
 end
 
-# The plain-AD note logs only while Enzyme differentiates the call in
-# reverse mode.
+# On Julia 1.11, Enzyme reverse mode with runtime activity drops the
+# cotangent of a float held in an immutable value next to an array once that
+# value passes through a call it cannot infer (for example a closure that
+# captures a boxed variable), so the gradient of the float is zero. That
+# call is in the caller's code, out of sight of these rules, so they warn
+# once per operator type whenever the operator has an active scalar float.
+# The annotations fix whether a scalar is active, so each annotation type is
+# checked once and later calls only look it up.
+const _SCALAR_LOSS_MSG = "On Julia 1.11, Enzyme reverse mode can return a " *
+    "zero gradient for a scalar float field of an operator when the code " *
+    "that builds the operator is not type-stable. Keep that code " *
+    "type-stable (check it with `@code_warntype`), or use Julia 1.12 or later."
+const _SCALAR_LOSS_CHECKED = Set{Any}()
+const _SCALAR_LOSS_WARNED = Set{Any}()
+const _SCALAR_LOSS_LOCK = ReentrantLock()
+function _warn_scalar_loss(::Type{T}, annotations, active::F) where {T, F}
+    A = typeof(annotations)
+    @lock _SCALAR_LOSS_LOCK (A in _SCALAR_LOSS_CHECKED) && return nothing
+    warn = active(annotations)
+    new = @lock _SCALAR_LOSS_LOCK begin
+        push!(_SCALAR_LOSS_CHECKED, A)
+        warn && !(T in _SCALAR_LOSS_WARNED) && (push!(_SCALAR_LOSS_WARNED, T); true)
+    end
+    new === true && @warn "$(nameof(T)): $(_SCALAR_LOSS_MSG)"
+    return nothing
+end
+# A scalar leaf of the rule's entry point.
+_active_float(::Active{<:_IEEEFloat}) = true
+_active_float(a::MixedDuplicated) = _holds_float(typeof(a.val))
+_active_float(a) = false
+_any_active_float(leaves) = any(_active_float, leaves)
+# Whether a value of type `T` holds a float outside any array.
+_holds_float(::Type{<:_IEEEFloat}) = true
+function _holds_float(::Type{T}) where {T}
+    isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
+    return any(_holds_float, fieldtypes(T))
+end
+# A plain-AD operator whose shadow can take a cotangent.
+_active_operator(::Union{Const, Active}) = false
+_active_operator(op) = _holds_float(typeof(op.val))
+
+# The plain-AD hook does nothing in forward mode, and in reverse mode warns
+# on Julia 1.11 when the operator has an active scalar float.
 function EnzymeRules.forward(
-        ::EnzymeRules.FwdConfig, ::Const{typeof(_note_plain_type)}, ::Type,
+        ::EnzymeRules.FwdConfig, ::Const{typeof(_plain_hook)}, ::Type,
         args::Vararg{Annotation, N}
     ) where {N}
     return nothing
 end
 function EnzymeRules.augmented_primal(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_note_plain_type)}, ::Type,
+        ::EnzymeRules.RevConfig, ::Const{typeof(_plain_hook)}, ::Type,
         op::Annotation, args::Vararg{Annotation, N}
     ) where {N}
-    _log_plain(op.val)
+    VERSION < v"1.12" && _warn_scalar_loss(typeof(op.val), op, _active_operator)
     return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
 end
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_note_plain_type)}, ::Type,
+        ::EnzymeRules.RevConfig, ::Const{typeof(_plain_hook)}, ::Type,
         tape, op::Annotation, args::Vararg{Annotation, N}
     ) where {N}
     return map(a -> a isa Active ? Enzyme.make_zero(a.val) : nothing, (op, args...))
 end
-# The `Recurrence` constructor's rebuild check returns a flag, and its
-# rebuild with dual numbers (which may throw) is not differentiated.
-EnzymeRules.inactive(::typeof(_rebuild_flag), args...) = nothing
+# The `Recurrence` constructor's checks of its parts, which rebuild them
+# with dual numbers and may log, are not differentiated.
+EnzymeRules.inactive(::typeof(_check_parts), args...) = nothing
 # Nor is its check that only the kernel takes `Primary()` indexing.
 EnzymeRules.inactive(::typeof(_check_secondary), args...) = nothing
+# Nor is the `Depletion` constructor's check that its form has a step.
+EnzymeRules.inactive(::typeof(_check_form), args...) = nothing
 
 # The executor carries no derivative. Forward mode and plain reverse mode
 # (a `NoAdjoint` route) do not differentiate tasks or the scoped value
@@ -196,19 +243,32 @@ _kernel_mirror(c::PerStratum) = PerStratum(zeros(eltype(c.x), size(c.x)))
 _kernel_cotangent(c::AbstractVector, k̄) = convert(typeof(c), k̄)
 _kernel_cotangent(c::PerStratum, k̄) = PerStratum(convert(typeof(c.x), k̄.x))
 
+# The tangent of a lag sum `c ⋆ X` is `ċ ⋆ X + c ⋆ Ẋ`: its nonzero terms,
+# taken and checked as one sum.
+_tangent_terms(c, dX, dk, X) = ((c, dX), (dk, X))
+_tangent_terms(c, ::Nothing, dk, X) = ((dk, X),)
+_tangent_terms(c, dX, ::Nothing, X) = ((c, dX),)
+_tangent_terms(c, ::Nothing, ::Nothing, X) = ()
+
+# The trailing gain and add inputs only choose which sums the transform
+# takes directly; the lag sums do not depend on them.
+_vals(extra) = map(a -> a.val, extra)
+_no_cotangent(a::Active) = zero(a.val)
+_no_cotangent(a) = nothing
+
 function EnzymeRules.forward(
         config::EnzymeRules.FwdConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
-        m::Const, start::Const
-    )
+        m::Const, start::Const, extra::Vararg{Annotation, N}
+    ) where {N}
     w = EnzymeRules.width(config)
     for i in 1:w
         dY, dk, dX = _lane(Y, i), _lane(kernel, i), _lane(X, i)
         dY === nothing && continue
-        dX === nothing || _fft_convolve!(dY, kernel.val, dX, m.val, start.val)
-        dk === nothing || _fft_convolve!(dY, dk, X.val, m.val, start.val)
+        terms = _tangent_terms(kernel.val, dX, dk, X.val)
+        isempty(terms) || _fft_convolve_terms!(dY, terms, m.val, start.val)
     end
-    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val, _vals(extra)...)
     p, s = EnzymeRules.needs_primal(config), EnzymeRules.needs_shadow(config)
     s || return p ? Y.val : nothing
     dY = _out_shadow(Y, w)
@@ -219,9 +279,9 @@ end
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, Y::Annotation, kernel::Annotation, X::Annotation,
-        m::Const, start::Const
-    )
-    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val)
+        m::Const, start::Const, extra::Vararg{Annotation, N}
+    ) where {N}
+    _fft_convolve!(Y.val, kernel.val, X.val, m.val, start.val, _vals(extra)...)
     # The reverse pass reads the kernel and the input: keep copies if later
     # code overwrites them.
     ow = EnzymeRules.overwritten(config)
@@ -236,8 +296,8 @@ end
 function EnzymeRules.reverse(
         config::EnzymeRules.RevConfig, ::Const{typeof(_fft_convolve!)},
         ::Type, tape, Y::Annotation, kernel::Annotation, X::Annotation,
-        m::Const, start::Const
-    )
+        m::Const, start::Const, extra::Vararg{Annotation, N}
+    ) where {N}
     c = something(tape[1], kernel.val)
     Xv = something(tape[2], X.val)
     w = EnzymeRules.width(config)
@@ -258,7 +318,7 @@ function EnzymeRules.reverse(
     k̄ = k̄s === nothing ? nothing :
         w == 1 ? _kernel_cotangent(c, only(k̄s)) :
         map(b -> _kernel_cotangent(c, b), k̄s)
-    return (nothing, k̄, nothing, nothing, nothing)
+    return (nothing, k̄, nothing, nothing, nothing, map(_no_cotangent, extra)...)
 end
 
 # The reverse pass of the transform runs inside the rules, as primal code.
@@ -313,6 +373,8 @@ function EnzymeRules.augmented_primal(
     ) where {X, RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
+    VERSION < v"1.12" &&
+        _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
     y, cache = _run_forward(_rebuild_leaves(X, map(a -> a.val, leaves))...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing

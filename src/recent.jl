@@ -204,7 +204,7 @@ end
 _read(::Nothing, b, k, i) = _recent_window(b.x.w, b.H, i, k)
 function _read(C, b, k, i)
     acc = zero(promote_type(eltype(C), eltype(b.x.w), eltype(b.H)))
-    if b.row[] == i
+    if _cached(b, i)
         u = b.u
         for j in axes(b.H, 2)
             acc += C[k, j] * u[j]
@@ -248,9 +248,14 @@ function _refresh_one!(b::_BoundRecent, i)
     for j in axes(H, 2)
         u[j] = _recent_window(w, H, i, j)
     end
-    b.row[] = i
+    _cache_row!(b, i)
     return nothing
 end
+
+# Whether the windows in `u` are those of buffer row `i`, and marking them
+# as row `i`'s once filled.
+_cached(b::_BoundRecent, i) = b.row[] == i
+_cache_row!(b::_BoundRecent, i) = (b.row[] = i; nothing)
 
 # Send the cotangents the reads of a step added into `z` to the buffer and
 # the weights, then clear them.

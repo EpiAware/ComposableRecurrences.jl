@@ -123,12 +123,33 @@ A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
 `work` counts multiply-adds.
-The default `min_work` of 500 000 is where, on a 4-core machine, four
-threads began to beat one for independent strata and pairwise kernels
-(`benchmark/threshold.jl`).
-Independent strata are one loop per call, but strata that mix through a
-coupling, a pairwise kernel or a modifier with a vector step are one loop
-per step, so such models gain only with many strata.
+Operators split three kinds of loop, and count the work of each kind so
+that one `min_work` sets where each of them breaks even:
+
+- strata that mix through a coupling, a pairwise kernel or a modifier with
+  a vector step: one loop per step, counted in full;
+- independent strata, each over the whole series: one loop per call,
+  counted as an eighth, so it splits from eight times `min_work`;
+- a convolution with a fixed kernel and its lag contributions: one loop per
+  call of vector multiply-adds, counted as a sixteenth; a convolution that
+  forms each output as one dot, such as one with a time-varying kernel,
+  counts as independent strata do.
+
+In the loops split once per call, a multiply-add counts once per 64-bit
+word of the element type, so a dual number with 8 partials counts 9.
+An element type that is not a bits type, such as `BigFloat` or a tracked
+real, counts as one word, as do the floats of an AD backend that carries
+its tangents or shadows beside the arrays rather than in them.
+Loops split every step count each multiply-add once whatever the type.
+
+The default `min_work` of 500 000 comes from whole-loss timings with four
+threads against one on a shared 4-core machine (`benchmark/threshold.jl`).
+At its threshold, each kind ran 0.9 to 1.4 times as fast on the primal
+and in reverse mode, and 1.1 to 3 times as fast with dual numbers; the
+exception was the convolution primal, at 0.8 to 1.1 times.
+Strata that mix reach the threshold only with a pairwise kernel over a few
+hundred strata, or a coupling over tens of thousands, so with a sparse or
+dense coupling at the sizes usually fitted they do not split.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
 A reverse pass sums some parameter cotangents per chunk, so those agree
@@ -192,6 +213,19 @@ end
 # whether it splits one of cost `work`.
 _nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
 _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
+
+# The kinds of loop operators split, and the work an operator passes for a
+# loop of kind `kind` that does `w` multiply-adds on elements like those of
+# `x`, scaled so that one `min_work` is where each kind breaks even (see
+# `Threaded`). Loops split once per call count one per 64-bit word of the
+# element type; loops split every step count `w` as it is.
+struct _StepLoop end
+struct _RunLoop end
+struct _ConvLoop end
+_words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
+_work(::_StepLoop, x, w) = w
+_work(::_RunLoop, x, w) = w * _words(eltype(x)) ÷ 8
+_work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
@@ -293,6 +327,14 @@ struct _Current
 end
 _current() = _Current(EXECUTOR[])
 
+# The arguments a device kernel receives. A kernel thread runs its loop
+# body serially, as the default executor does, so the call's executor
+# reaches it as the singleton `Serial()`: `_Current`, whose field is
+# abstractly typed, is not plain data and so cannot be a kernel argument.
+_kernel_args(args::Tuple) = map(_kernel_arg, args)
+_kernel_arg(::_Current) = Serial()
+_kernel_arg(x) = x
+
 # The loop `each!(body, ex, n, work, args...)` as operators run it, for the
 # executor `c.ex` of a call and arrays like `x`. Operators pass the default
 # executor as the singleton `Serial()` (the method below), so here a
@@ -325,6 +367,17 @@ end
         body::F, c::_Current, x, n, work, args...
     ) where {F}
     each!(body, _resolve(c.ex, x), n, work, args...)
+    return nothing
+end
+
+# The time loop: `body(t, args...)` for `t` in `1:n`, in order, each step
+# reading the steps before it. Every executor runs it as written; one that
+# compiles the whole call, such as a traced one, may compile it as a single
+# loop whose body is the step.
+@inline function _steps!(body::F, ex, n, args::Vararg{Any, N}) where {F, N}
+    for t in 1:n
+        @inline body(t, args...)
+    end
     return nothing
 end
 

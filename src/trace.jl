@@ -16,9 +16,9 @@ r_t = R_M\big(v_t,\ s_{t-1},\ v'_t,\ s_t\big),
 
 with ``R_M`` the modifier's own map: by default its state after the step,
 ``r_t = s_t``.
-A [`ComposableRecurrences.Pool`](@ref) with a draw records its stocks after
+A [`ComposableRecurrences.Pool`](@ref) with a draw records its pools after
 the step, the value drawn ``y_t`` and what the draw leaves of the demand
-``d_t``, ``d_t - y_t``, with rows for each stock, then the drawn values,
+``d_t``, ``d_t - y_t``, with rows for each pool, then the drawn values,
 then the leftovers, each over the strata or groups; without a draw it
 records the amount each flow moves, a row per flow over the groups.
 [`ComposableRecurrences.Redistribute`](@ref) records its arrivals, its

@@ -1,4 +1,4 @@
-# A pool with removals and a second, protected stock: values and
+# A `Pool` with removals and a second, protected pool: values and
 # ForwardDiff gradients against a loop written from the maths, the limits
 # that reduce to the base Depletion, conservation, and the pullbacks against
 # a local ForwardDiff Jacobian of the Step.
@@ -62,7 +62,7 @@ end
     W = collect(range(0.5, 1.5; length = 10))
     function run(R, N, σ, r)
         d = CR.Pool(
-            N; stocks = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+            N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, TimeVarying(r); form = CR.Truncate()),)
         )
         return Recurrence(g; modifiers = (d,))(R; history = h)
@@ -92,7 +92,7 @@ end
         N = PerStratum([100.0, 80.0])
         base = CR.Depletion(N, form; heterogeneity = α)
         full = CR.Pool(
-            N; stocks = (:S, :V), draw = (:S => 1, :V => 1.0) => form, heterogeneity = α,
+            N; pools = (:S, :V), draw = (:S => 1, :V => 1.0) => form, heterogeneity = α,
             flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
         )
         @test Recurrence(g; modifiers = (full,))(R; history = h) ≈
@@ -107,7 +107,7 @@ end
     R = fill(2.4, 40)
     doses = vcat(zeros(5), fill(8.0, 35))
     d = CR.Pool(
-        N; stocks = (:S, :V), initial = (N - sum(h), nothing),
+        N; pools = (:S, :V), initial = (N - sum(h), nothing),
         draw = (:S => 1, :V => 0.4) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, TimeVarying(doses); form = CR.Truncate()),)
     )
@@ -121,11 +121,11 @@ end
     # (σ = 1 - e, removals doses) at the same efficacy.
     e = 0.7
     aon = CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => 0.0) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => 0.0) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, TimeVarying(e .* doses); form = CR.Truncate()),)
     )
     leaky = CR.Pool(
-        N; stocks = (:S, :V), draw = (:S => 1, :V => 1 - e) => CR.Hazard(),
+        N; pools = (:S, :V), draw = (:S => 1, :V => 1 - e) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, TimeVarying(doses); form = CR.Truncate()),)
     )
     none = CR.Depletion(N)
@@ -158,7 +158,7 @@ end
     for form in (CR.Hazard(), CR.Floor(), CR.Truncate()), s in pools
         form isa CR.Hazard && s[1] < 0 && continue
         build(θ) = CR.Pool(
-            PerStratum(θ[1:3]); stocks = (:S, :V), initial = (nothing, θ[5]),
+            PerStratum(θ[1:3]); pools = (:S, :V), initial = (nothing, θ[5]),
             draw = (:S => 1, :V => PerStratum(θ[6:8])) => form, heterogeneity = θ[4],
             flows = (CR.Flow(1 => 2, PerStratum(θ[9:11]); form = CR.Truncate()),)
         )
@@ -168,7 +168,7 @@ end
     end
     # A protected pool without removals.
     build(θ) = CR.Pool(
-        θ[1]; stocks = (:S, :V), initial = (nothing, θ[3]),
+        θ[1]; pools = (:S, :V), initial = (nothing, θ[3]),
         draw = (:S => 1, :V => θ[4]) => CR.Hazard(), heterogeneity = θ[2]
     )
     c = ModifierChecks.check_pullback(
@@ -184,8 +184,8 @@ end
     # A dual with value zero and non-zero partials compares above zero, so
     # the step must pick its arm on the value and not divide by zero.
     P = ForwardDiff.Dual(0.0, 1.0, 0.4)
-    m = CR.Pool(100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
-    y, (S′, V′) = CR._draw_stocks(m, 2.0, (P, zero(P)), 1, 1)
+    m = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
+    y, (S′, V′) = CR._draw_pools(m, 2.0, (P, zero(P)), 1, 1)
     @test all(isfinite, ForwardDiff.partials(S′))
     @test ForwardDiff.value(S′) == 0
     @test S′ == P - y
@@ -195,7 +195,7 @@ end
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
         d = CR.Pool(
-            100.0; stocks = (:S, :V), initial = (θ[1], θ[3]),
+            100.0; pools = (:S, :V), initial = (θ[1], θ[3]),
             draw = (:S => 1, :V => θ[2]) => CR.Hazard()
         )
         return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
@@ -206,7 +206,7 @@ end
     # A seeded pool emptied by removals, with all-or-nothing protection.
     function fr(θ)
         d = CR.Pool(
-            100.0; stocks = (:S, :V), initial = (θ[1], nothing),
+            100.0; pools = (:S, :V), initial = (θ[1], nothing),
             draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, TimeVarying(fill(θ[2], 6)); form = CR.Truncate()),)
         )
@@ -215,7 +215,7 @@ end
     @test all(isfinite, ForwardDiff.gradient(fr, [3.0, 4.0, 0.0]))
     # The step's pullback at an empty pool against its local Jacobian.
     build(θ) = CR.Pool(
-        θ[1]; stocks = (:S, :V), initial = (nothing, θ[3]),
+        θ[1]; pools = (:S, :V), initial = (nothing, θ[3]),
         draw = (:S => 1, :V => θ[4]) => CR.Floor(), heterogeneity = θ[2]
     )
     c = ModifierChecks.check_pullback(
@@ -229,7 +229,7 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     d = CR.Pool(
-        PerStratum([100.0, 50.0]); stocks = (:S, :V),
+        PerStratum([100.0, 50.0]); pools = (:S, :V),
         initial = (PerStratum([90.0, 45.0]), PerStratum([3.0, 4.0])),
         draw = (:S => 1, :V => 0.5) => CR.Hazard(),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
@@ -246,8 +246,8 @@ end
     CR.pullback!(grads, d, CR.Init(), s, ones(2, 2))
     @test m̄.initial[1].x == [1.0, 2.0]
     @test m̄.initial[2].x == [3.0, 4.0]
-    # The first stock's default start is the population at time 1.
-    d = CR.Pool(PerStratum([100.0, 50.0]); stocks = (:S, :V), draw = :S => CR.Hazard())
+    # The first pool's default start is the population at time 1.
+    d = CR.Pool(PerStratum([100.0, 50.0]); pools = (:S, :V), draw = :S => CR.Hazard())
     CR.forward(d, CR.Init(), s, ones(2, 2))
     @test s == [100.0, 50.0, 0.0, 0.0]
     m̄ = (;
@@ -263,12 +263,12 @@ end
     CR = ComposableRecurrences
     g, R, h = Float32[0.2, 0.5, 0.3], fill(1.5f0, 1, 20), ones(Float32, 1, 3)
     pool(σ, V0) = CR.Pool(
-        100.0f0; stocks = (:S, :V), initial = (nothing, V0),
+        100.0f0; pools = (:S, :V), initial = (nothing, V0),
         draw = (:S => 1, :V => σ) => CR.Hazard(),
         flows = CR.Flow(:S => :V, 1.0f0; form = CR.Truncate())
     )
     run(p) = Recurrence(g; modifiers = (p,))
-    # The default starting stock is empty and takes the state's type.
+    # The default starting pool is empty and takes the state's type.
     @test pool(0.5f0, nothing).initial === (nothing, nothing)
     for p in (
             pool(0.5f0, nothing), pool(0.5f0, 2.0f0),
@@ -283,7 +283,7 @@ end
     # The empty default gives the same values as an explicit empty pool.
     @test run(pool(0.5f0, nothing))(R; history = h) ==
         run(pool(0.5f0, 0.0f0))(R; history = h)
-    # A given starting stock is converted to a float.
+    # A given starting pool is converted to a float.
     @test pool(0.5, 1).initial[2] === 1.0
 end
 
@@ -291,7 +291,7 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     @test_throws ArgumentError CR.Depletion(100.0; removals = [1.0, 2.0])
-    two(w) = CR.Pool(100.0; stocks = (:S, :V), draw = (:S => 1, :V => w) => CR.Hazard())
+    two(w) = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => w) => CR.Hazard())
     @test_throws "it does not vary over time" two(TimeVarying([0.1, 0.2]))
     @test_throws ArgumentError two([0.1, 0.2])
     d = CR.Depletion(100.0; removals = TimeVarying([1.0, 2.0]))
@@ -299,7 +299,7 @@ end
         fill(1.1, 3); history = [1.0]
     )
     d = CR.Pool(
-        100.0; stocks = (:S, :V),
+        100.0; pools = (:S, :V),
         draw = (:S => 1, :V => PerStratum([0.1, 0.2, 0.3])) => CR.Hazard()
     )
     @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (d,))(
@@ -308,7 +308,7 @@ end
     for dp in (
             CR.Depletion(100.0; removals = PerStratum([1.0, 2.0, 3.0])),
             CR.Pool(
-                100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
+                100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
                 flows = CR.Flow(:S => :V, PerStratum([1.0, 2.0, 3.0]); form = CR.Truncate())
             ),
         )
@@ -316,6 +316,37 @@ end
             fill(1.1, 2, 3); history = ones(2, 1)
         )
     end
+    @test_throws "draw is pool => form" CR.Pool(100.0; draw = CR.Hazard())
+    @test_throws "the draw names pool :X, but the pools are (:S,)" CR.Pool(
+        100.0; draw = :X => CR.Hazard()
+    )
+    @test_throws "not a Pool layout" CR.Pool{(n = 1, draw = false, first = 1)}(
+        nothing, nothing, nothing, (nothing,), nothing, ()
+    )
+    # A weight of zero is fixed, as one is; another integer is a float.
+    weight(w) = last(two(w).weights)
+    @test weight(0) isa CR._Fixed{false}
+    @test weight(2) === 2.0
+    @test_throws "number of pools, got 0" CR.Pool(100.0; pools = 0)
+    @test_throws "number of pools, got ()" CR.Pool(100.0; pools = ())
+    @test_throws "a Hazard() draw reads the population, so give N" CR.Pool(;
+        draw = :S => CR.Hazard()
+    )
+    @test_throws "initial has one entry per pool, 2, got 3" CR.Pool(
+        100.0; pools = (:S, :V), initial = (1.0, 2.0, 3.0)
+    )
+    # The layout's check on flows placed directly.
+    @test_throws "the flows name pool 2, but there is 1 pool" CR.Depletion(
+        100.0, CR.Hazard(), CR._FixedExponent{true}(), (nothing,),
+        (CR._Fixed{true}(),), (CR.Flow(1, 2, 0.1, CR.Hazard()),)
+    )
+    @test_throws "the flows name pool 3, but there are 2 pools" CR._check_pools(
+        (CR.Flow(1, 3, 0.1, CR.Hazard()),), 2
+    )
+    # One starting value for one pool, and no flows.
+    p = CR.Pool(100.0; initial = 80.0, flows = nothing)
+    @test p.initial == (80.0,)
+    @test p.flows == ()
 end
 
 @testitem "Pool: declare their adjoint" begin
@@ -324,15 +355,19 @@ end
     doses = TimeVarying([1.0, 2.0])
     for d in (
             CR.Depletion(100.0; removals = doses),
-            CR.Pool(100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Floor()),
+            CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Floor()),
             CR.Pool(
-                100.0; stocks = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
                 flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
             ),
         )
         @test CR.uses_adjoint(d, CR.Step())
         @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
     end
+    # Without a draw there is no form for the rule to rebuild.
+    ward = CR.Pool(; pools = 2, draw = nothing, flows = CR.Flow(1 => 2, 0.3))
+    @test CR.uses_adjoint(ward, CR.Step())
+    @test CR._local_modifier(ward) == ()
 end
 
 @testitem "Pool: the Recurrence reverse pass" setup = [AdjointCheck] begin
@@ -347,24 +382,26 @@ end
     mods = (
         CR.Depletion(PerStratum([60.0, 80.0]); removals = doses),
         CR.Pool(
-            PerStratum([60.0, 80.0]); stocks = (:S, :V), initial = (nothing, 2.0),
+            PerStratum([60.0, 80.0]); pools = (:S, :V), initial = (nothing, 2.0),
             draw = (:S => 1, :V => PerStratum([0.3, 0.5])) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
         ),
         CR.Pool(
-            70.0; stocks = (:S, :V), initial = (65.0, nothing),
+            70.0; pools = (:S, :V), initial = (65.0, nothing),
             draw = (:S => 1, :V => 0.2) => CR.Floor(), heterogeneity = 1.3,
             flows = (CR.Flow(1 => 2, TimeVarying(rand(rng, T)); form = CR.Truncate()),)
         ),
         CR.Pool(
-            70.0; stocks = (:S, :V), initial = (nothing, 10.0),
+            70.0; pools = (:S, :V), initial = (nothing, 10.0),
             draw = (:S => 1, :V => 0.4) => CR.Hazard()
         ),
         # Both pools start empty.
         CR.Pool(
-            70.0; stocks = (:S, :V), initial = (0.0, nothing),
+            70.0; pools = (:S, :V), initial = (0.0, nothing),
             draw = (:S => 1, :V => 0.4) => CR.Floor()
         ),
+        # Without a population: a truncated draw reads none.
+        CR.Pool(; draw = :S => CR.SoftTruncate(0.5), initial = PerStratum([30.0, 40.0])),
     )
     for m in mods
         r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))
@@ -410,7 +447,7 @@ end
     for d in (
             CR.Depletion(100.0; pool0 = 3.0, removals = doses),
             CR.Pool(
-                100.0; stocks = (:S, :V), initial = (3.0, nothing),
+                100.0; pools = (:S, :V), initial = (3.0, nothing),
                 draw = (:S => 1, :V => 0.0) => CR.Hazard(),
                 flows = CR.Flow(:S => :V, doses; form = CR.Truncate())
             ),
