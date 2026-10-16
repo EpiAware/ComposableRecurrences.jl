@@ -6,7 +6,7 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
-    _FixedExponent, _ad, _ad_wide, _check_form, _check_parts,
+    _FixedExponent, _ad, _ad_wide, _check_form, _check_now, _check_parts,
     _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
     _plain_hook, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
@@ -92,6 +92,9 @@ end
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_parts), Any, Any, Tuple,
 }
+# Nor is the same check run by the call of an operator built before
+# ForwardDiff was loaded.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_now), Any}
 # Nor is its check that only the kernel takes `Primary()` indexing.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,
