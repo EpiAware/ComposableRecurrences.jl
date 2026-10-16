@@ -35,7 +35,7 @@
   `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
 - `Pool(N; pools, initial, draw, heterogeneity, flows)` holds pools for each group of strata: each step's value is drawn from weighted pools by a depletion form, then `Flow(from => to, demand; form)`s move between the pools ([renewal then delay][renewal]).
   A second pool drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
-  The first pool the draw names starts at `N` when `N` is given; every other pool starts empty, in the state's element type.
+  The first pool the draw takes from starts at `N` when `N` is given; every other pool, and a pool the draw fills, starts empty, in the state's element type.
   A draw into a pool fills it up to a capacity, such as beds, and the flows can act before the draw (`flows_first = true`), such as a share leaving the beds or a grant `Flow(0 => :B, b; form = Truncate())` into an allowance at the start of each period ([occupancy and capacity][occupancy]).
   What the draw leaves of the demand goes to a second stratum (`overflow = :stratum`), to a queue in the state that joins the next step's demand (`overflow = :queue`), or nowhere.
   Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
