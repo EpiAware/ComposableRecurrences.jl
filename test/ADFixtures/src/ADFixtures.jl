@@ -528,15 +528,29 @@ function _capacity_beds(w, θ)
     x = CAPS0 .+ θ
     logh, logR = _unpack(x, (2, L), (2, T))
     n = length(x)
-    CR = ComposableRecurrences
-    beds = CR.Pool(
-        exp(x[n - 2]); pools = (:O,), draw = CR.SoftTruncate(x[n]) => :O,
-        flows_first = true, flows = CR.Flow(:O => 0, x[n - 1]; form = CR.Share()),
-        overflow = :stratum
-    )
+    beds = _beds(exp(x[n - 2]), x[n - 1], x[n])
     r = Recurrence(PerStratum(GCAP[1:2, :]); modifiers = (beds,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS[1:2, :] .* log.(y))
+end
+
+# The capacity pools are built behind a call: inline in the losses, whose
+# unpacking does not infer, Enzyme rejects them when the code is compiled
+# for coverage.
+function _beds(C, δ, κ)
+    CR = ComposableRecurrences
+    return CR.Pool(
+        C; pools = (:O,), draw = CR.SoftTruncate(κ) => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow = :stratum
+    )
+end
+function _budget(init, grants)
+    CR = ComposableRecurrences
+    return CR.Pool(;
+        pools = (:B,), initial = PerStratum(init), draw = :B => CR.Truncate(),
+        flows_first = true, overflow = :queue,
+        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    )
 end
 
 # A weekly budget per stratum, carried over, with unserved demand queued for
@@ -546,17 +560,15 @@ const CAPB0 = _flat(
     fill(log(5.0), S, L), 0.5 .+ LOGR,
     [log(9.0 + p + 0.5 * sin(t)) for p in 1:S, t in 1:(L + T)], [1.0, 2.0, 0.5],
 )
-const WEEKS = [t > L && rem(t - L - 1, 4) == 0 for p in 1:S, t in 1:(L + T)]
+# A grant at each week's start, and a small one at every other step: a
+# grant of exactly zero is the kink of a count from outside, where finite
+# differences disagree with any derivative.
+const WEEKS = [t > L && rem(t - L - 1, 4) == 0 ? 1.0 : 0.01 for p in 1:S, t in 1:(L + T)]
 function _capacity_budget(w, θ)
     logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
     CR = ComposableRecurrences
     grants = WEEKS .* exp.(logb)
-    doses = CR.Pool(;
-        pools = (:B,), initial = PerStratum(collect(init)),
-        draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
-        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
-    )
-    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    r = Recurrence(PerStratum(GCAP); modifiers = (_budget(collect(init), grants),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
 end
