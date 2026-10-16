@@ -350,3 +350,11 @@ end
 # The one entry without its index, as `v[]`, for a step that holds it alone.
 @inline Base.getindex(a::_At) = @inbounds a[a.k]
 @inline Base.setindex!(a::_At, x) = (@inbounds a[a.k] = x; a)
+# A broadcast whose result has the axes `k:k` of a one-entry view, such as
+# `2 .* v` in a step, allocates another one-entry view over a `Ref`.
+struct _AtStyle <: Broadcast.AbstractArrayStyle{1} end
+_AtStyle(::Val) = _AtStyle()
+Base.BroadcastStyle(::Type{<:_At}) = _AtStyle()
+function Base.similar(bc::Broadcast.Broadcasted{_AtStyle}, ::Type{T}) where {T}
+    return _At(Ref{T}(), first(only(axes(bc))))
+end

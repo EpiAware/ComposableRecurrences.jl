@@ -42,9 +42,9 @@ end
         ),
     )
     @test Interfaces.test(CR.PieceInterface, Scale, objs; show = false)
-    # A coupling is any struct with forward on Pressure().
+    # A coupling is any struct with forward! on Pressure().
     struct Twice end
-    function CR.forward(::Twice, ::CR.Pressure, q, p, t)
+    function CR.forward!(::Twice, ::CR.Pressure, q, p, t)
         q .= 2 .* p
         return nothing
     end
@@ -64,11 +64,23 @@ end
     CR = ComposableRecurrences
     struct Halving end
     CR.ispointwise(::Halving) = true
-    CR.forward(::Halving, ::CR.Step, v, s, t, k) = (v / 2, s)
-    obj = Interfaces.Arguments(; piece = Halving(), role = CR.Step(), args = (2.0, 0.0, 1, 1))
+    function CR.forward!(::Halving, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] / 2, s[k]
+        end
+        return nothing
+    end
+    obj = Interfaces.Arguments(; piece = Halving(), role = CR.Step(), args = ([2.0], [0.0], 1))
     @test Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
     # A typed method is missed by `uses_adjoint`, so the rule would drop it.
-    CR.pullback!(grads, ::Halving, ::CR.Step, v::Real, s::Real, t, k) = (grads.v / 2, grads.s)
+    function CR.pullback!(
+            grads, ::Halving, ::CR.Step, v::AbstractVector, s::AbstractVector, t
+        )
+        for k in eachindex(v, s)
+            grads.v[k], grads.s[k] = grads.v[k] / 2, grads.s[k]
+        end
+        return nothing
+    end
     @test !CR.uses_adjoint(Halving(), CR.Step())
     @test !Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
     # Declaring it, or writing the method with untyped arguments, passes.
@@ -76,11 +88,73 @@ end
     @test Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
     struct Third end
     CR.ispointwise(::Third) = true
-    CR.forward(::Third, ::CR.Step, v, s, t, k) = (v / 3, s)
-    CR.pullback!(grads, ::Third, ::CR.Step, v, s, t, k) = (grads.v / 3, grads.s)
-    obj = Interfaces.Arguments(; piece = Third(), role = CR.Step(), args = (3.0, 0.0, 1, 1))
+    function CR.forward!(::Third, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] / 3, s[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, ::Third, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            grads.v[k], grads.s[k] = grads.v[k] / 3, grads.s[k]
+        end
+        return nothing
+    end
+    obj = Interfaces.Arguments(; piece = Third(), role = CR.Step(), args = ([3.0], [0.0], 1))
     @test CR.uses_adjoint(Third(), CR.Step())
     @test Interfaces.test(CR.PieceInterface, Third, (obj,); show = false)
+end
+
+@testitem "Interfaces: a step that returns instead of writing fails" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # A step that returns its new value and state instead of writing them.
+    struct Returning end
+    CR.ispointwise(::Returning) = true
+    CR.forward!(::Returning, ::CR.Step, v, s, t) = (2 * first(v), first(s))
+    r = Recurrence([0.5, 0.5]; modifiers = (Returning(),))
+    @test_throws ArgumentError r(ones(4); history = ones(2))
+    err = try
+        r(ones(4); history = ones(2))
+    catch e
+        e
+    end
+    @test occursin("return nothing", err.msg)
+    obj = Interfaces.Arguments(; piece = Returning(), role = CR.Step(), args = ([2.0], [0.0], 1))
+    @test !Interfaces.test(CR.PieceInterface, Returning, (obj,); show = false)
+end
+
+@testitem "Interfaces: a pointwise step may broadcast" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # The same step written with an out-of-place broadcast and with a loop.
+    struct Broadcasting{A}
+        a::A
+    end
+    struct Looping{A}
+        a::A
+    end
+    CR.ispointwise(::Union{Broadcasting, Looping}) = true
+    function CR.forward!(m::Broadcasting, ::CR.Step, v, s, t)
+        w = m.a .* v
+        s .+= w
+        v .= w
+        return nothing
+    end
+    function CR.forward!(m::Looping, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= m.a
+            s[k] += v[k]
+        end
+        return nothing
+    end
+    R, h = fill(1.1, 2, 6), [1.0 2.0; 3.0 1.0]
+    run(m) = Recurrence([0.5, 0.5]; modifiers = (m,))(R; history = h)
+    @test run(Broadcasting(0.9)) == run(Looping(0.9))
+    obj = Interfaces.Arguments(;
+        piece = Broadcasting(0.9), role = CR.Step(), args = ([2.0, 1.0], [0.0, 1.0], 1)
+    )
+    @test Interfaces.test(CR.PieceInterface{(:pointwise,)}, Broadcasting, (obj,); show = false)
 end
 
 @testitem "Interfaces: state length" begin
@@ -102,10 +176,9 @@ end
     struct DoubleState end
     CR.ispointwise(::DoubleState) = true
     CR.nstate(::DoubleState, S) = 2S
-    CR.forward(::DoubleState, ::CR.Step, v, s, t, k) = (v, s)
-    function CR.forward(m::DoubleState, ::CR.Step, v, s, t)
+    function CR.forward!(m::DoubleState, ::CR.Step, v, s, t)
         for k in eachindex(v)
-            v[k], s[k] = CR.forward(m, CR.Step(), v[k], s[k], t, k)
+            v[k], s[k] = v[k], s[k]
         end
         return nothing
     end

@@ -67,12 +67,11 @@ end
     for form in (CR.Hazard(), CR.Floor()), s in (80.0, 0.0, -3.0), v in (0.5, 150.0)
         s < 0 && form isa CR.Hazard && continue
         @test all(
-            CR.forward(form, CR.Step(), v, s, 100.0, true) .≈
-                CR.forward(form, CR.Step(), v, s, 100.0, 1.0)
+            CR._draw(form, v, s, 100.0, true) .≈ CR._draw(form, v, s, 100.0, 1.0)
         )
         grads = (; piece = nothing, v = 0.7, s = -0.2)
-        fixed = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, true)
-        float = CR.pullback!(grads, form, CR.Step(), v, s, 100.0, 1.0)
+        fixed = CR._draw_back(grads, form, v, s, 100.0, true)
+        float = CR._draw_back(grads, form, v, s, 100.0, 1.0)
         @test all(fixed[1:3] .≈ float[1:3])
         @test iszero(fixed[4])
     end
@@ -110,14 +109,21 @@ end
         CR._FixedExponent{false}()
     for form in (CR.Hazard(), CR.Floor())
         @test all(
-            CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, false) .≈
-                CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 0.0)
+            CR._draw(form, 2.0, 80.0, 100.0, false) .≈
+                CR._draw(form, 2.0, 80.0, 100.0, 0.0)
         )
     end
     # Other forms take a `Bool` as a float, as they may type their exponent.
     struct Float64Form end
-    CR.forward(::Float64Form, ::CR.Step, v::Float64, s::Float64, N::Float64, α::Float64) =
-        (v, s - v)
+    function CR.forward!(
+            ::Float64Form, ::CR.Step, v::AbstractVector{Float64},
+            s::AbstractVector{Float64}, N::Float64, α::Float64
+        )
+        for i in eachindex(v, s)
+            v[i], s[i] = v[i], s[i] - v[i]
+        end
+        return nothing
+    end
     @test CR.Depletion(60.0, Float64Form()).heterogeneity === 1.0
     @test CR.Depletion(60.0, Float64Form(); heterogeneity = true).heterogeneity === 1.0
 end
@@ -127,7 +133,7 @@ end
     CR = ComposableRecurrences
     h = [1.0 2.0; 3.0 1.0]
     N = [100.0, 50.0]
-    init(m, h) = (s = zeros(size(h, 1)); CR.forward(m, CR.Init(), s, h); s)
+    init(m, h) = (s = zeros(size(h, 1)); CR.forward!(m, CR.Init(), s, h); s)
     m = CR.Depletion(PerStratum(N); pool0 = PerStratum(N .- vec(sum(h; dims = 2))))
     @test init(m, h) ≈ [97.0, 46.0]
     @test init(CR.Depletion(80.0), h) == [80.0, 80.0]
@@ -232,7 +238,7 @@ end
             ),
         )
         x, s = copy(v), zeros(3)
-        CR.forward(CR.Redistribute(K, ε), CR.Step(), x, s, 2)
+        CR.forward!(CR.Redistribute(K, ε), CR.Step(), x, s, 2)
         @test x ≈ naive(εv)
         # What moves is conserved; the state is the arrivals in each stratum.
         @test sum(x) ≈ sum(v)
@@ -256,10 +262,10 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [-1.0, 0.5, 3.0], zeros(3)
-    CR.forward(CR.Clamp(0.0, 1.0), CR.Step(), v, s, 1)
+    CR.forward!(CR.Clamp(0.0, 1.0), CR.Step(), v, s, 1)
     @test v == [0.0, 0.5, 1.0]
     v = [-1.0, 0.5, 3.0]
-    CR.forward(
+    CR.forward!(
         CR.Clamp(PerStratum([-2.0, 0.6, 0.0]), PerStratum([0.0, 1.0, 2.0])),
         CR.Step(), v, s, 1
     )
@@ -394,7 +400,7 @@ end
             20.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Hazard(),
             flows = (CR.Flow(1 => 2, r; form = CR.Truncate()),)
         )
-        return CR.forward(d, CR.Step(), (0.0,), (10.0, 4.0), 1, 1)
+        return CR._block_step(d, (0.0,), (10.0, 4.0), 1, 1)
     end
     @test step(3.0) == ((0.0,), (7.0, 7.0))
     @test step(-2.0) == ((0.0,), (12.0, 4.0))
@@ -444,7 +450,7 @@ end
             CR.Depletion(wrap(θ[1:n]))
         function pool(θ)
             s = zeros(eltype(θ), 3)
-            CR.forward(build(θ), CR.Init(), s, h)
+            CR.forward!(build(θ), CR.Init(), s, h)
             return s
         end
         θ = with_pool0 ? vcat(N0, 0.9 .* N0) : N0
@@ -610,18 +616,37 @@ end
     end
     @test err isa ArgumentError
     @test occursin("NotAForm", err.msg) &&
-        occursin("forward(form, Step(), v, s, N, α)", err.msg)
+        occursin("forward!(form, Step(), v, s, N, α)", err.msg)
     @test_throws ArgumentError CR.Depletion(1.0, :floor)
     @test_throws ":floor is not a depletion form" CR.Depletion(1.0, :floor)
     # A form for one float type, or for any real, is a form.
+    function take_all!(v, s)
+        for i in eachindex(v, s)
+            v[i], s[i] = v[i], s[i] - v[i]
+        end
+        return nothing
+    end
     struct Float32Form end
-    CR.forward(::Float32Form, ::CR.Step, v::Float32, s::Float32, N::Float32, α::Float32) =
-        (v, s - v)
+    function CR.forward!(
+            ::Float32Form, ::CR.Step, v::AbstractVector{Float32},
+            s::AbstractVector{Float32}, N::Float32, α::Float32
+        )
+        return take_all!(v, s)
+    end
     struct RealForm end
-    CR.forward(::RealForm, ::CR.Step, v::Real, s::Real, N::Real, α::Real) = (v, s - v)
+    function CR.forward!(
+            ::RealForm, ::CR.Step, v::AbstractVector{<:Real}, s::AbstractVector{<:Real},
+            N::Real, α::Real
+        )
+        return take_all!(v, s)
+    end
     struct SameTypeForm end
-    CR.forward(::SameTypeForm, ::CR.Step, v::T, s::T, N::T, α::T) where {T <: Real} =
-        (v, s - v)
+    function CR.forward!(
+            ::SameTypeForm, ::CR.Step, v::AbstractVector{T}, s::AbstractVector{T},
+            N::T, α::T
+        ) where {T <: Real}
+        return take_all!(v, s)
+    end
     m = CR.Depletion(100.0f0, Float32Form())
     @test m.N isa Float32 && m.heterogeneity isa Float32
     y = Recurrence(Float32[0.5, 0.5]; modifiers = (m,))(
@@ -639,11 +664,10 @@ end
         m = CR.Depletion(100.0, form)
         @test m isa CR.Pool{<:Any, Float64, typeof(form)}
         # The built-in maths is the form's Step.
-        @test CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1) ==
-            CR.forward(form, CR.Step(), 2.0, 80.0, 100.0, 1.0)
+        @test CR._step(m, 2.0, 80.0, 1, 1) == CR._draw(form, 2.0, 80.0, 100.0, 1.0)
         # A step compiles to one path: no dispatch on the form at run time.
         # Its check for runtime dispatch runs with JET, in test/jet.
-        @test (@inferred CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)) isa
+        @test (@inferred CR._step(m, 2.0, 80.0, 1, 1)) isa
             Tuple{Float64, Float64}
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
@@ -682,17 +706,31 @@ end
     CR = ComposableRecurrences
     # Take what is asked, up to the pool.
     struct Linear end
-    CR.forward(::Linear, ::CR.Step, v, s, N, α) = (y = min(v, s); (y, s - y))
+    function CR.forward!(::Linear, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = min(v[i], s[i])
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
+    end
     struct LinearWithPullback end
-    function CR.forward(::LinearWithPullback, ::CR.Step, v, s, N, α)
-        y = min(v, s)
-        return y, s - y
+    function CR.forward!(::LinearWithPullback, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = min(v[i], s[i])
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
     end
     function CR.pullback!(ḡ, ::LinearWithPullback, ::CR.Step, v, s, N, α)
-        take = v < s
-        v̄ = take ? ḡ.v - ḡ.s : zero(v)
-        s̄ = take ? ḡ.s : ḡ.v
-        return v̄, s̄, zero(N), zero(α)
+        for i in eachindex(v, s)
+            take = v[i] < s[i]
+            v̄ = take ? ḡ.v[i] - ḡ.s[i] : zero(v[i])
+            s̄ = take ? ḡ.s[i] : ḡ.v[i]
+            ḡ.v[i], ḡ.s[i] = v̄, s̄
+            ḡ.N[i] += zero(N)
+            ḡ.α[i] += zero(α)
+        end
+        return nothing
     end
     h = [1.0, 2.0]
     function naive(R, N)
@@ -756,8 +794,8 @@ end
     @test all(isnan, ForwardDiff.partials(CR._pool_power(NaN, Dual(1.0, 1.0))))
     @test isnan(ForwardDiff.value(CR._pool_power(0.0, Dual(NaN, 1.0))))
     grads = (; v = 1.0, s = 0.0)
-    @test isnan(CR.pullback!(grads, CR.Hazard(), CR.Step(), 1.0, NaN, 1.0, 2.0)[4])
-    @test CR.pullback!(grads, CR.Hazard(), CR.Step(), 1.0, 0.0, 1.0, 2.0)[4] == 0
+    @test isnan(CR._draw_back(grads, CR.Hazard(), 1.0, NaN, 1.0, 2.0)[4])
+    @test CR._draw_back(grads, CR.Hazard(), 1.0, 0.0, 1.0, 2.0)[4] == 0
     # At an empty pool a dual exponent would give `log(0) * 0 = NaN`.
     g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
     W = collect(range(0.5, 1.5; length = 6))

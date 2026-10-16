@@ -12,16 +12,21 @@
         a::A
     end
     CR.blocks(::Move) = Val((2, 1))
-    function CR.forward(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        x = CR.param(m.a, g, t) * v[1]
-        return (v[1] - x, v[2] + x), (x,)
+    function CR.forward!(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2 = v[1][], v[2][]
+        x = CR.param(m.a, g, t) * v1
+        v[1][], v[2][] = v1 - x, v2 + x
+        s[1][] = x
+        return nothing
     end
     function CR.pullback!(grads, m::Move, ::CR.Step, v, s, t, g)
-        (v̄1, v̄2), (s̄,) = grads.v, grads.s
+        v̄1, v̄2, s̄ = grads.v[1][], grads.v[2][], grads.s[1][]
         a = CR.param(m.a, g, t)
         c = v̄2 + s̄ - v̄1
-        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, c * v[1], g, t)
-        return (v̄1 + a * c, v̄2), (zero(s̄),)
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, c * v[1][], g, t)
+        grads.v[1][], grads.v[2][] = v̄1 + a * c, v̄2
+        grads.s[1][] = zero(s̄)
+        return nothing
     end
 
     # The same step without a pullback.
@@ -29,8 +34,8 @@
         a::A
     end
     CR.blocks(::MovePlain) = Val((2, 1))
-    function CR.forward(m::MovePlain, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        return CR.forward(Move(m.a), CR.Step(), v, s, t, g)
+    function CR.forward!(m::MovePlain, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return CR.forward!(Move(m.a), CR.Step(), v, s, t, g)
     end
 
     # A renewal over `G` groups of two compartments with the move written
@@ -159,9 +164,11 @@ end
         a::A
     end
     CR.blocks(::Swap) = Val((2, 0))
-    function CR.forward(m::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        x = m.a * (v[1] - v[2])
-        return (v[1] - x, v[2] + x), ()
+    function CR.forward!(m::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2 = v[1][], v[2][]
+        x = m.a * (v1 - v2)
+        v[1][], v[2][] = v1 - x, v2 + x
+        return nothing
     end
     @test CR.nstate(Swap(0.1), 4) == 0
     swap = Recurrence([1.0]; modifiers = (Swap(0.25),))
@@ -173,13 +180,19 @@ end
         a::A
     end
     CR.blocks(::Keep) = Val((2, 2))
-    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + 1)
+    function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+        v[1][], v[2][] = v1 * m.a, v2 + s1
+        s[1][], s[2][] = s1 + v1, s2 + 1
+        return nothing
     end
     function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
-        return (v̄1 * m.a + s̄1, v̄2), (v̄2 + s̄1, s̄2)
+        v̄1, v̄2 = grads.v[1][], grads.v[2][]
+        s̄1, s̄2 = grads.s[1][], grads.s[2][]
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2
+        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+        return nothing
     end
     @test CR.uses_adjoint(Keep(0.5), CR.Step())
     @test CR.nstate(Keep(0.5), 6) == 6

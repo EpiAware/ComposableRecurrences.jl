@@ -10,14 +10,14 @@
         w::Int
     end
     CR.ispointwise(::Deep) = true
-    CR.forward(::Deep, ::CR.Step, v, s, t, k) = (v, s)
+    CR.forward!(::Deep, ::CR.Step, v, s, t) = nothing
     CR.depth(m::Deep) = m.w
 
     # The same, as a vector step, so the step collects every stratum.
     struct DeepVector
         w::Int
     end
-    CR.forward(::DeepVector, ::CR.Step, v, s, t) = nothing
+    CR.forward!(::DeepVector, ::CR.Step, v, s, t) = nothing
     CR.pullback!(grads, ::DeepVector, ::CR.Step, v, s, t) = nothing
     CR.depth(m::DeepVector) = m.w
 
@@ -126,7 +126,7 @@ end
     using ComposableRecurrences
     struct BadDepth end
     CR.ispointwise(::BadDepth) = true
-    CR.forward(::BadDepth, ::CR.Step, v, s, t, k) = (v, s)
+    CR.forward!(::BadDepth, ::CR.Step, v, s, t) = nothing
     CR.depth(::BadDepth) = -2
     r = Recurrence([0.5, 0.5]; modifiers = (BadDepth(),))
     err = try
@@ -188,7 +188,7 @@ end
     struct DeepCoupling
         C::Matrix{Float64}
     end
-    function CR.forward(c::DeepCoupling, ::CR.Pressure, q, p, t)
+    function CR.forward!(c::DeepCoupling, ::CR.Pressure, q, p, t)
         q .= c.C * p
         return nothing
     end

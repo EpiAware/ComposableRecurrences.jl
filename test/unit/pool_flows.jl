@@ -237,7 +237,7 @@ end
         flows = ComposableRecurrences.Flow(:V => :S, 0.1)
     )
     @inferred build()
-    @inferred CR.forward(d, CR.Step(), (2.0,), (400.0, 50.0), 3, 1)
+    @inferred CR._block_step(d, (2.0,), (400.0, 50.0), 3, 1)
     # Float32 throughout gives the Float64 values in Float32.
     d32 = CR.Pool(
         500.0f0; pools = (:S, :V), draw = (:S => 1, :V => 0.3f0) => CR.Hazard(),

@@ -197,14 +197,14 @@ end
     # The state holds the spilled values, then the pattern.
     v = [1.0, 3.0, 2.0]
     s = zeros(6)
-    CR.forward(spilled, CR.Step(), v, s, 1)
+    CR.forward!(spilled, CR.Step(), v, s, 1)
     @test s ≈ [1.4, 2.6, 2.0, 1.5, 0.5, 0.0]
     # The step and its pullback infer.
     m̄ = (;
         total = Ref(0.0),
         imports = (; fraction = Ref(0.0), pattern = zero(P), spill = (; K = zero(K), ε = Ref(0.0))),
     )
-    @inferred CR.forward(spilled, CR.Step(), copy(v), zeros(6), 1)
+    @inferred CR.forward!(spilled, CR.Step(), copy(v), zeros(6), 1)
     grads = (; piece = m̄, v = ones(3), s = ones(6))
     @inferred CR.pullback!(grads, spilled, CR.Step(), v, zeros(6), 1)
     r = Recurrence([0.5, 0.5]; modifiers = (spilled,))
@@ -216,10 +216,10 @@ end
     CR = ComposableRecurrences
     m = CR.Allocate([1:2, 3:3], PerStratum([4.0, 2.0]))
     v = [1.0, 3.0, 0.0]
-    CR.forward(m, CR.Step(), v, zeros(3), 1)
+    CR.forward!(m, CR.Step(), v, zeros(3), 1)
     @test v ≈ [1.0, 3.0, 0.0]
     v = [1.0e-20, 3.0e-20, 1.0]
-    CR.forward(m, CR.Step(), v, zeros(3), 1)
+    CR.forward!(m, CR.Step(), v, zeros(3), 1)
     @test v ≈ [4.0e-20, 12.0e-20, 2.0] ./ [eps(), eps(), 1.0]
 end
 
@@ -238,7 +238,7 @@ end
             spill = CR.Redistribute(K, 0.2)
         )
         y = copy(v)
-        CR.forward(m, CR.Step(), y, zeros(eltype(x), 6), 1)
+        CR.forward!(m, CR.Step(), y, zeros(eltype(x), 6), 1)
         return y
     end
     tot, φ, v = [4.0, 2.0], [0.3, 0.5], [1.0, 3.0, 2.0]
@@ -374,7 +374,7 @@ end
     s̄ = collect(range(-0.4, 0.9; length = 10))
     out = map((dense, sparse_)) do m
         vv, ss = copy(v), zeros(10)
-        CR.forward(m, CR.Step(), vv, ss, 3)
+        CR.forward!(m, CR.Step(), vv, ss, 3)
         grads = (; piece = nothing, v = collect(range(0.3, 1.7; length = 5)), s = copy(s̄))
         CR.pullback!(grads, m, CR.Step(), v, zeros(10), 3)
         return vv, ss, grads.v, grads.s

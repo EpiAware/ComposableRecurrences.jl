@@ -161,7 +161,12 @@ end
         u::U
     end
     CR.ispointwise(::Scale) = true
-    CR.forward(m::Scale, ::CR.Step, v, s, t, k) = (v * CR.param(m.u, k, t), s)
+    function CR.forward!(m::Scale, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] * CR.param(m.u, k, t), s[k]
+        end
+        return nothing
+    end
     r = Recurrence([0.5, 0.3]; modifiers = (Scale(Derived(exp, -0.1 * Recent(4))),))
     @test !CR.uses_adjoint(r, CR.Run())
     r0 = Recurrence([0.5, 0.3]; modifiers = (Scale(1.0),))

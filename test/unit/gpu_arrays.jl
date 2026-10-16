@@ -556,7 +556,7 @@ end
         w::Int
     end
     CR.ispointwise(::DeepPass) = true
-    CR.forward(::DeepPass, ::CR.Step, v, s, t, k) = (v, s)
+    CR.forward!(::DeepPass, ::CR.Step, v, s, t) = nothing
     CR.depth(m::DeepPass) = m.w
     S, L, T, D = 3, 3, 9, 7
     g, K = [0.5, 0.3, 0.2], [0.8 0.1 0.1; 0.2 0.7 0.1; 0.1 0.2 0.7]
