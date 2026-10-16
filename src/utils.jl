@@ -347,3 +347,6 @@ end
     @inbounds a.parent[_ix(a)...] = x
     return a
 end
+# The one entry without its index, as `v[]`, for a step that holds it alone.
+@inline Base.getindex(a::_At) = @inbounds a[a.k]
+@inline Base.setindex!(a::_At, x) = (@inbounds a[a.k] = x; a)

@@ -962,7 +962,7 @@ _coef(C::Diagonal, k) = C.diag[k]
 _prepare!(ex, p, q, C::_PointwiseCoupling, kernel, H, t, τ, L) = nothing
 function _prepare!(ex, p, q, C, kernel, H, t, τ, L)
     _kernel_pressure!(ex, p, kernel, H, t, τ, L)
-    forward(C, Pressure(), q, p, τ)
+    forward!(C, Pressure(), q, p, τ)
     return nothing
 end
 
@@ -976,24 +976,14 @@ _pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
 
-# Thread one stratum's value, held in buffer row `r`, through pointwise
-# modifiers in tuple order, each on the one-entry views of stratum `k`,
+# Thread one stratum's value through pointwise modifiers in tuple order,
 # recording each modifier's input value and state when `rec` holds records.
-# The stratum's value through its pointwise steps, as the one-entry view
-# `x`: in the buffer, or for dual numbers in a local slot, which
-# ForwardDiff keeps in registers while the buffer costs a load and store
-# per step; plain Mooncake gives such a slot a tangent per step, so floats
-# stay in the buffer.
-@inline _slot(H, r, k, v) = (@inbounds H[r, k] = v; _At(H, r, k))
-@inline _slot(::AbstractMatrix{<:ForwardDiff.Dual}, r, k, v) = _At(Ref(v), k)
-_unslot!(H, r, k, x) = nothing
-@inline _unslot!(H, r, k, x::_At{<:Any, <:Base.RefValue}) = (@inbounds H[r, k] = x.parent[]; nothing)
-_thread!(::Tuple{}, ::Tuple{}, rec, x, τ, t, k) = nothing
-@inline function _thread!(ms::Tuple, states::Tuple, rec, x, τ, t, k)
+_thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
+function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
     s = first(states)
-    rec === nothing || _record!(first(rec), @inbounds(x[k]), s[k], t, k)
-    forward!(first(ms), Step(), x, _At(s, k), τ)
-    return _thread!(Base.tail(ms), Base.tail(states), _tail(rec), x, τ, t, k)
+    rec === nothing || _record!(first(rec), v, s[k], t, k)
+    v′, s[k] = _step(first(ms), v, s[k], τ, k)
+    return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
 end
 _tail(::Nothing) = nothing
 _tail(rec::Tuple) = Base.tail(rec)
@@ -1035,7 +1025,7 @@ _stages_rec!(::Tuple{}, ::Tuple{}, ::Tuple{}, v, τ, t) = nothing
 function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     copyto!(view(first(rec).V, :, t), v)
     _record_states!(first(rec).S, first(states), t)
-    forward(first(ms), Step(), v, first(states), τ)
+    forward!(first(ms), Step(), v, first(states), τ)
     _record_states!(first(rec).A, first(states), t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
@@ -1044,7 +1034,7 @@ end
 # buffer eltype.
 function _init_state(::Type{Tp}, m, h, S) where {Tp}
     s = _zeros(h, Tp, nstate(m, S))
-    forward(m, Init(), s, h)
+    forward!(m, Init(), s, h)
     return s
 end
 
@@ -1144,9 +1134,8 @@ end
 @inline function _step_body!(
         k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L, D
     )
-    x = _slot(H, D + t, k, _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k))
-    _thread!(ms, states, rec, x, τ, t, k)
-    _unslot!(H, D + t, k, x)
+    x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
+    H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
     return nothing
 end
 

@@ -126,7 +126,7 @@ _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 # else the local derivative.
 function _step_pullback(grads, m, v, s, t, k)
     uses_adjoint(m, Step()) || return _local_pullback(grads, m, v, s, t, k)
-    return pullback!(grads, m, Step(), v, s, t, k)
+    return _step_back(grads, m, v, s, t, k)
 end
 
 # Default scalar pullback of a pointwise modifier without its own: a local
@@ -148,7 +148,7 @@ end
 function _value_pullback(m, v̄, s̄, v, s, t, k)
     T = promote_type(typeof(v), typeof(s))
     xd = _seed(ForwardDiff.Tag(_value_pullback, T), (T(v), T(s)))
-    v′, s′ = forward(m, Step(), xd[1], xd[2], t, k)
+    v′, s′ = _step(m, xd[1], xd[2], t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
     return g[1], g[2]
 end
@@ -165,7 +165,7 @@ function _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
     return g[1], g[2]
 end
 function _step_vector(m, x, P, t, k)
-    v′, s′ = forward(_rebuild(m, view(x, 3:(P + 2))), Step(), x[1], x[2], t, k)
+    v′, s′ = _step(_rebuild(m, view(x, 3:(P + 2))), x[1], x[2], t, k)
     return [v′, s′]
 end
 
@@ -178,7 +178,7 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     T = promote_type(map(typeof, x)...)
     xd = _seed(ForwardDiff.Tag(_scalar_pullback, T), map(T, x))
     md = first(_rebuild_scalar(m, Base.tail(Base.tail(xd))))
-    v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
+    v′, s′ = _step(md, xd[1], xd[2], t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
     _add_scalar!(m̄, m, Base.tail(Base.tail(g)), (k, t))
     return g[1], g[2]
@@ -234,7 +234,7 @@ function _read_step(
     xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(N + 2))
     reads = _Reads{R}(lo)
     md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, N + 2), 1))
-    v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
+    v′, s′ = _step(md, xd[1], xd[2], t, k)
     return v′, s′, reads
 end
 # The cotangents of one dual step: the reads' are added to the mirror and,
@@ -449,7 +449,7 @@ function _local_pressure!(
             @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
         end
         θd = ntuple(j -> D(T(θ[j]), _unit(T, S + j - o, Val(N))), Val(P))
-        forward(_with_scalars(C, θd), Pressure(), qd, pd, t)
+        forward!(_with_scalars(C, θd), Pressure(), qd, pd, t)
         ā = zero(ForwardDiff.Partials{N, T})
         for i in 1:S
             @inbounds ā += q̄[i] * ForwardDiff.partials(qd[i])
@@ -512,7 +512,7 @@ function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
         for j in 1:P
             @inbounds θd[j] = D(b.θ[j], _unit(T, S + j - o, Val(N)))
         end
-        forward(_rebuild_views(C, θd), Pressure(), qd, pd, t)
+        forward!(_rebuild_views(C, θd), Pressure(), qd, pd, t)
         ā = zero(ForwardDiff.Partials{N, T})
         for i in 1:S
             @inbounds ā += q̄[i] * ForwardDiff.partials(qd[i])
@@ -557,13 +557,51 @@ end
 # when it declares one, else a local derivative that seeds the value, the
 # pool, the population, the exponent and the form's float scalars as one
 # tuple of dual numbers. Returns the cotangents of `(v, s, N, α)`.
+# The draw of a depletion form, `(v, s, N, α) -> (y, s′)`, and its pullback,
+# which returns the cotangents of `(v, s, N, α)`: a built-in's kernel, or
+# the form's `forward!` and `pullback!` on one-entry views of local slots,
+# with `grads.N` and `grads.α` the views its pullback adds into.
+@inline function _draw(form, v, s, N, α)
+    T = promote_type(typeof(v), typeof(s), typeof(N), typeof(α), param_eltype(form))
+    vr, sr = Ref{T}(v), Ref{T}(s)
+    _written(form, forward!(form, Step(), _At(vr, 1), _At(sr, 1), N, α))
+    return vr[], sr[]
+end
+@inline function _draw_back(grads, form, v, s, N, α)
+    z = zero(grads.v)
+    v̄r, s̄r, N̄r, ᾱr = Ref(grads.v), Ref(grads.s), Ref(z), Ref(z)
+    g = (;
+        piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
+        α = _At(ᾱr, 1),
+    )
+    _written(form, pullback!(g, form, Step(), _At(Ref(v), 1), _At(Ref(s), 1), N, α))
+    return v̄r[], s̄r[], N̄r[], ᾱr[]
+end
+# A depletion form's in-place step and pullback on views of a stratum's
+# values and pools, with `N` and `α` shared, from its scalar kernel.
+function _form_forward!(form, v, s, N, α)
+    for i in eachindex(v, s)
+        v[i], s[i] = _draw(form, v[i], s[i], N, α)
+    end
+    return nothing
+end
+function _form_pullback!(grads, form, v, s, N, α)
+    for i in eachindex(v, s)
+        g = (; piece = grads.piece, v = grads.v[i], s = grads.s[i])
+        v̄, s̄, N̄, ᾱ = _draw_back(g, form, v[i], s[i], N, α)
+        grads.v[i], grads.s[i] = v̄, s̄
+        grads.N[i] += N̄
+        grads.α[i] += ᾱ
+    end
+    return nothing
+end
 _form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
 _form_adjoint(::Nothing) = true
 function _form_pullback(grads, form, v, s, N, α)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
 end
 function _form_pullback(::Val{true}, grads, form, v, s, N, α)
-    return pullback!(grads, form, Step(), v, s, N, α)
+    return _draw_back(grads, form, v, s, N, α)
 end
 function _form_pullback(::Val{false}, grads, form, v, s, N, α)
     x = (v, s, N, α, _param_tuple(form)...)
@@ -571,7 +609,7 @@ function _form_pullback(::Val{false}, grads, form, v, s, N, α)
     xd = _seed(ForwardDiff.Tag(_form_pullback, T), map(T, x))
     θd = Base.tail(Base.tail(Base.tail(Base.tail(xd))))
     fd = first(_rebuild_scalar(form, θd))
-    y, s′ = forward(fd, Step(), xd[1], xd[2], xd[3], xd[4])
+    y, s′ = _draw(fd, xd[1], xd[2], xd[3], xd[4])
     g = _vjp(y, s′, grads.v, grads.s, xd)
     _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(Base.tail(g)))), nothing)
     return g[1], g[2], g[3], g[4]
@@ -661,7 +699,10 @@ function _check_rebuild(x, θ)
         false
     end
 end
-_steps(m, md, x) = _scalar_params(m) || (forward(md, Step(), x, x, 1, 1); true)
+_steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
+# One step of a part rebuilt with dual numbers, a pointwise modifier's or a
+# depletion form's.
+_any_step(m, x) = _is_form(m) ? _draw(m, x, x, 1, 1) : _step(m, x, x, 1, 1)
 # A part with float arrays among its parameters, rebuilt as the local step
 # does (`_rebuild_views`) from a vector of dual numbers, each with its own
 # partial: the parameters read back must be those dual numbers.
@@ -697,7 +738,7 @@ function _probe_reads(x)
     return try
         xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(reads, M), 1))
         _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd) || return -1
-        forward(xd, Step(), one(D), one(D), 1, 1)
+        _step(xd, one(D), one(D), 1, 1)
         reads.n
     catch e
         e isa InterruptException && rethrow()
@@ -801,7 +842,7 @@ function pullback!(grads, m, ::Init, s, history)
         mm = P == 0 ? m : _rebuild(m, view(x, 1:P))
         hh = nh == 0 ? history : reshape(x[(P + 1):end], size(history))
         ss = similar(x, length(s))
-        forward(mm, Init(), ss, hh)
+        forward!(mm, Init(), ss, hh)
         return ss
     end
     g = transpose(J) * s̄

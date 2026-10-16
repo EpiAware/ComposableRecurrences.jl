@@ -211,20 +211,25 @@ struct Floor end
 # The population: any parameter, read at each step's stratum and time.
 _population(N) = _float_param(_check_param(:N, N))
 
-# A form is a type with a scalar Step, for generic reals or one float type.
+# A form is a type with an in-place Step on one-entry views, for scalar
+# `N` and `α` of any real type or of one float type.
 function _check_form(form::F) where {F}
     _is_form(F) || throw(
         ArgumentError(
             "$(_describe(form)) is not a depletion form: a form implements " *
-                "forward(form, Step(), v, s, N, α) -> (y, s′)"
+                "forward!(form, Step(), v, s, N, α), writing v and s in place"
         )
     )
     return nothing
 end
+_is_form(x) = _is_form(typeof(x))
 function _is_form(::Type{F}) where {F}
-    return hasmethod(forward, Tuple{F, Step, Vararg{Real, 4}}) ||
-        hasmethod(forward, Tuple{F, Step, Vararg{Float64, 4}}) ||
-        hasmethod(forward, Tuple{F, Step, Vararg{Float32, 4}})
+    return _form_step_for(F, Real) || _form_step_for(F, Float64) ||
+        _form_step_for(F, Float32)
+end
+function _form_step_for(::Type{F}, ::Type{T}) where {F, T}
+    V = _At{T, Base.RefValue{T}}
+    return hasmethod(forward!, Tuple{F, Step, V, V, T, T})
 end
 
 # The starting pool is per stratum, not over time.
@@ -277,7 +282,7 @@ _floor_power(r, α::Bool) = α ? r : one(r)
 _times_log(α, r, c) = c * log(r)
 _times_log(::Bool, r, c) = zero(c)
 
-function forward(::Hazard, ::Step, v, s, N, α)
+function _draw(::Hazard, v, s, N, α)
     x = v / N * _share_power(s / N, α)
     e, em = _exp_neg(x)
     return -s * em, s * e
@@ -314,7 +319,7 @@ function _pool_power(r, e::ForwardDiff.Dual)
     return convert(promote_type(typeof(r), typeof(e)), r^_primal_value(e))
 end
 
-function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
+function _draw_back(grads, ::Hazard, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     r = s / N
     h = _power_m1(r, α)
@@ -329,14 +334,14 @@ end
 
 const _DEPLETION_FLOOR = 1.0e-6
 
-function forward(::Floor, ::Step, v, s, N, α)
+function _draw(::Floor, v, s, N, α)
     r = s / N
     f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
     y = f * v
     return y, s - y
 end
 
-function pullback!(grads, ::Floor, ::Step, v, s, N, α)
+function _draw_back(grads, ::Floor, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s
     r = s / N
     p = _floor_power(max(r, zero(r)), α)
@@ -346,6 +351,13 @@ function pullback!(grads, ::Floor, ::Step, v, s, N, α)
     f̄ = ḡ * v
     ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
     return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N, ᾱ
+end
+
+for F in (:Hazard, :Floor)
+    @eval begin
+        forward!(f::$F, ::Step, v, s, N, α) = _form_forward!(f, v, s, N, α)
+        pullback!(grads, f::$F, ::Step, v, s, N, α) = _form_pullback!(grads, f, v, s, N, α)
+    end
 end
 
 # Add ---------------------------------------------------------------------
@@ -396,15 +408,17 @@ end
 
 ispointwise(::Add) = true
 _stateless(::Add) = true
-forward(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
+forward!(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
 pullback!(grads, ::Add, ::Init, s, history) = nothing
 
-forward(m::Add, ::Step, v, s, t, k) = (v + param(m.b, k, t), s)
+_kernel(::Add) = true
+_step(m::Add, v, s, t, k) = (v + param(m.b, k, t), s)
 
-function pullback!(grads, m::Add, ::Step, v, s, t, k)
+function _step_back(grads, m::Add, v, s, t, k)
     add_param!(cotangent(grads.piece, :b), m.b, grads.v, k, t)
     return grads.v, grads.s
 end
+pullback!(grads, m::Add, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)
 
 # Redistribute ------------------------------------------------------------
 
@@ -470,7 +484,7 @@ end
 
 # The kernel is checked against the strata once, here and on a resumed
 # state, not on every step.
-function forward(m::Redistribute, ::Init, s, history)
+function forward!(m::Redistribute, ::Init, s, history)
     _check_modifier_strata(m, length(s))
     return _zero_state!(s, :ε => m.ε)
 end
@@ -502,7 +516,7 @@ function _outflow(K::Matrix, q)
     return out - K[q, q]
 end
 
-function forward(m::Redistribute, ::Step, v, s, t)
+function forward!(m::Redistribute, ::Step, v, s, t)
     (; K, ε) = m
     S = length(eachindex(v, s))
     _arrivals!(s, K, ε, v, t)
@@ -670,15 +684,16 @@ end
 
 ispointwise(::Clamp) = true
 _stateless(::Clamp) = true
-forward(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
+forward!(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
 pullback!(grads, ::Clamp, ::Init, s, history) = nothing
 
-function forward(m::Clamp, ::Step, v, s, t, k)
+_kernel(::Clamp) = true
+function _step(m::Clamp, v, s, t, k)
     return clamp(v, param(m.lo, k, t), param(m.hi, k, t)), s
 end
 
 # Matches `clamp`'s branches: above `hi`, then below `lo`, else `v`.
-function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
+function _step_back(grads, m::Clamp, v, s, t, k)
     v̄′, s̄′ = grads.v, grads.s
     if v > param(m.hi, k, t)
         add_param!(cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
@@ -689,3 +704,4 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t, k)
     end
     return v̄′, s̄′
 end
+pullback!(grads, m::Clamp, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)

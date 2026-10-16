@@ -202,6 +202,7 @@ Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop 
 ```
 """
 function forward end
+function forward! end
 
 @doc raw"""
 Accumulate the reverse pass of [`ComposableRecurrences.forward`](@ref) for
@@ -480,20 +481,52 @@ end
 # `Init` and on a resumed state.
 _check_modifier_strata(m, S) = nothing
 
-# Defaults: a zero initial state, and a vector step that loops the scalar
-# one for a pointwise modifier or the group one for a blockwise modifier.
-function forward(m, ::Init, s, history)
+# Defaults: a zero initial state, and a vector step that loops the
+# per-stratum or per-group step.
+function forward!(m, ::Init, s, history)
     fill!(s, zero(eltype(s)))
     return nothing
 end
 
-forward(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
-# The in-place step on the one-entry views of a stratum: a pointwise
-# modifier's scalar step.
-@inline function forward!(m, ::Step, v::_At, s::_At, t)
-    k = v.k
-    @inbounds v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
-    return nothing
+forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
+
+# Whether `m` is a built-in pointwise piece whose step is an internal
+# scalar kernel, `_step` and `_step_back`, which the recurrence threads
+# through a stratum's value without views and which other built-ins call.
+_kernel(m) = false
+
+# The step of a pointwise piece on stratum `k`'s value and state, as new
+# scalars. A built-in's kernel; anything else runs its `forward!` on
+# one-entry views of local slots, which a fully inlined step keeps in
+# registers.
+@inline function _step(m, v, s, t, k)
+    vr, sr = _slot(m, v), _slot(m, s)
+    _written(m, forward!(m, Step(), _At(vr, k), _At(sr, k), t))
+    return vr[], sr[]
+end
+# The same for its `pullback!`: the cotangents of the step's inputs from
+# those of its outputs, `grads.v` and `grads.s`.
+@inline function _step_back(grads, m, v, s, t, k)
+    v̄r, s̄r = Ref(grads.v), Ref(grads.s)
+    g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
+    _written(m, pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
+    return v̄r[], s̄r[]
+end
+# A slot for a scalar the step may write a value of the piece's float type
+# into, such as a dual number from a parameter.
+@inline _slot(m, x) = Ref{promote_type(typeof(x), param_eltype(m))}(x)
+
+# A step writes its outputs in place and returns `nothing`; a returned
+# value is an error, not a silent no-op.
+@inline _written(m, ::Nothing) = nothing
+@noinline function _written(m, x)
+    throw(
+        ArgumentError(
+            "the step of $(nameof(typeof(m))) returned a $(typeof(x)); " *
+                "forward! and pullback! write their outputs in place and " *
+                "return nothing"
+        )
+    )
 end
 
 # The group `g` entries of `x`, compartment by compartment, as a tuple, and
@@ -505,6 +538,23 @@ end
 @generated function _scatter!(x, xs::Tuple, G, g)
     body = (:(x[$(i - 1) * G + g] = xs[$i]) for i in 1:fieldcount(xs))
     return Expr(:block, body..., :(return x))
+end
+
+# The step of a blockwise piece on group `g`'s values and state, as new
+# tuples: a built-in's kernel, or the piece's `forward!` on tuples of
+# one-entry views of local slots. Its pullback likewise.
+@inline function _block_step(m, v::Tuple, s::Tuple, t, g)
+    vr, sr = map(x -> _slot(m, x), v), map(x -> _slot(m, x), s)
+    at = r -> _At(r, g)
+    _written(m, forward!(m, Step(), map(at, vr), map(at, sr), t, g))
+    return map(getindex, vr), map(getindex, sr)
+end
+@inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
+    v̄r, s̄r = map(Ref, grads.v), map(Ref, grads.s)
+    at = r -> _At(r, g)
+    gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
+    _written(m, pullback!(gg, m, Step(), map(at ∘ Ref, v), map(at ∘ Ref, s), t, g))
+    return map(getindex, v̄r), map(getindex, s̄r)
 end
 
 # The group step and its pullback are inlined at their calls: across a call
@@ -519,8 +569,8 @@ end
 # Group `g`'s step, gathered from and scattered back into `v` and `s`.
 function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
     nv, ns = B
-    v′, s′ = @inline forward(
-        m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
+    v′, s′ = @inline _block_step(
+        m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
     )
     _scatter!(v, v′, G, g)
     _scatter!(s, s′, G, g)
@@ -528,11 +578,10 @@ function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
-    ispointwise(m) || throw(
+    _kernel(m) || throw(
         ArgumentError(
-            "$(typeof(m)) implements neither forward(m, Step(), v, s, t) " *
-                "nor a pointwise forward(m, Step(), v, s, t, k), and is " *
-                "not blockwise (see blocks)"
+            "$(typeof(m)) has no forward!(m, Step(), v, s, t), and is not " *
+                "blockwise (see blocks)"
         )
     )
     n = length(eachindex(v, s))
@@ -541,13 +590,13 @@ function _vector_step!(::Nothing, m, v, s, t)
 end
 
 function _pointwise_body!(k, v, s, m, t)
-    v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
+    v[k], s[k] = _step(m, v[k], s[k], t, k)
     return nothing
 end
 
-# The vector step's pullback: the modifier's own, or for a pointwise or
-# blockwise modifier without one the scalar or group pullback per stratum
-# or group. Not a `pullback!` method, which would count as every
+# The vector step's pullback: the modifier's own, or for a built-in
+# pointwise or a blockwise modifier the kernel or group pullback per
+# stratum or group. Not a `pullback!` method, which would count as every
 # modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
@@ -567,7 +616,7 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
             s = _gather(s̄, Val(ns), G, g),
         )
         vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
+        v̄g, s̄g = @inline _block_back(gg, m, vg, sg, t, g)
         _scatter!(v̄, v̄g, G, g)
         _scatter!(s̄, s̄g, G, g)
     end
@@ -586,6 +635,6 @@ end
 # Run the modifiers in tuple order on the step's values, in place.
 _stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
 function _stages!(ms::Tuple, states::Tuple, v, t)
-    forward(first(ms), Step(), v, first(states), t)
+    forward!(first(ms), Step(), v, first(states), t)
     return _stages!(Base.tail(ms), Base.tail(states), v, t)
 end

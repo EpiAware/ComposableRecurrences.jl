@@ -79,7 +79,7 @@ struct SoftTruncate{K <: Real}
     end
 end
 
-function forward(::Truncate, ::Step, v, s, N, α)
+function _draw(::Truncate, v, s, N, α)
     v, s = promote(v, s)
     y = _removal(v, s)
     return y, s - y
@@ -88,7 +88,7 @@ end
 # The softness goes to the smooth minimum in its own type: promoted with the
 # value and pool to a dual number first, the step took about 20% longer in
 # forward mode.
-function forward(form::SoftTruncate, ::Step, v, s, N, α)
+function _draw(form::SoftTruncate, v, s, N, α)
     v, s = promote(v, s)
     y = _soft_min(form.κ, v, _pool_left(s))
     return y, s - y
@@ -99,18 +99,24 @@ end
 _pool_left(s) = ifelse(_primal_value(s) > 0, s, zero(s))
 
 # The cotangents of `(v, s, N, α)`; the softness takes its own.
-function pullback!(grads, ::Truncate, ::Step, v, s, N, α)
+function _draw_back(grads, ::Truncate, v, s, N, α)
     ȳ = grads.v - grads.s
     v̄, s̄ = _removal_pullback(v, s, ȳ)
     z = zero(ȳ)
     return v̄, grads.s + s̄, z, z
 end
-function pullback!(grads, form::SoftTruncate, ::Step, v, s, N, α)
+function _draw_back(grads, form::SoftTruncate, v, s, N, α)
     ȳ = grads.v - grads.s
     v̄, c̄, κ̄ = _soft_min_back(form.κ, v, _pool_left(s), ȳ)
     add_cotangent!(cotangent(grads.piece, :κ), κ̄)
     z = zero(ȳ)
     return v̄, grads.s + ifelse(s > 0, c̄, z), z, z
+end
+for F in (:Truncate, :SoftTruncate)
+    @eval begin
+        forward!(f::$F, ::Step, v, s, N, α) = _form_forward!(f, v, s, N, α)
+        pullback!(grads, f::$F, ::Step, v, s, N, α) = _form_pullback!(grads, f, v, s, N, α)
+    end
 end
 _softness(::Truncate) = nothing
 _softness(form::SoftTruncate) = form.κ

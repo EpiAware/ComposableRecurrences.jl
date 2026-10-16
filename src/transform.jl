@@ -127,7 +127,7 @@ _theta_pairs(::Nothing) = ()
 _theta_pairs(θ::Union{Tuple, NamedTuple}) = map(x -> :θ => x, Tuple(θ))
 _theta_pairs(θ) = (:θ => θ,)
 
-forward(m::Transform, ::Init, s, history) = _zero_state!(s, _theta_pairs(m.θ)...)
+forward!(m::Transform, ::Init, s, history) = _zero_state!(s, _theta_pairs(m.θ)...)
 pullback!(grads, ::Transform, ::Init, s, history) = nothing
 
 # The parameters at stratum `k` and absolute time `t`.
@@ -138,11 +138,12 @@ _theta_at(θ, k, t) = param(θ, k, t)
 _call(f, v, ::Nothing) = f(v)
 _call(f, v, θ) = f(v, θ)
 
-function forward(m::Transform, ::Step, v, s, t, k)
+_kernel(::Transform) = true
+function _step(m::Transform, v, s, t, k)
     return _call(m.f, v, _theta_at(m.θ, k, t)), s
 end
 
-function pullback!(grads, m::Transform, ::Step, v, s, t, k)
+function _step_back(grads, m::Transform, v, s, t, k)
     _local_derivative(m) || throw(
         ArgumentError(
             "a Transform whose map has float fields is differentiated by " *
@@ -153,6 +154,7 @@ function pullback!(grads, m::Transform, ::Step, v, s, t, k)
     _add_theta!(cotangent(grads.piece, :θ), m.θ, ∂θ, grads.v, k, t)
     return grads.v * ∂v, grads.s
 end
+pullback!(grads, m::Transform, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)
 
 # Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. Each
 # entry's `∂θ` depends on every entry of `(v, θ)`, so a mirror holds the

@@ -98,7 +98,7 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Deriv
 public Pool, Depletion, Flow, Share, Redistribute,
     Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
-    exponential_history, with_state, State, contributions, forward,
+    exponential_history, with_state, State, contributions, forward, forward!,
     pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
