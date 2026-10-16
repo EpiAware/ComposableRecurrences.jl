@@ -1,8 +1,8 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
 using ComposableRecurrences: ComposableRecurrences, Add, Allocate,
-    Clamp, Convolution, Depletion, Derived, Device, Flow, Flows,
-    Pairwise, PerStratum, Pressure, Protected, Recurrence,
+    Clamp, Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool,
+    Pressure, Recurrence,
     Redistribute, Secondary, Serial, TimeVarying, Transform,
     _OldestFirstPairwise, _Flat, _Ragged, _Columns, _AllocateImports, _Piecewise
 using Adapt: Adapt, adapt
@@ -115,10 +115,9 @@ end
 # rebuilds it elsewhere. The operators adapt the same way, so
 # `adapt(CuArray, r)` moves every parameter of `r` to a device.
 const _Adapted = Union{
-    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion,
-    Protected, Add, Clamp, Redistribute, Transform, Derived, Recurrence,
-    _AllocateImports,
-    Convolution, Flows, Flow,
+    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Pool, Add,
+    Clamp, Redistribute, Transform, Derived, Recurrence, _AllocateImports,
+    Convolution, Flow,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)

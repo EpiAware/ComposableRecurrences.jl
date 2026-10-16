@@ -22,8 +22,8 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Protected, Flow, Floor, Add,
-    exponential_history, with_state
+using ComposableRecurrences: Depletion, Pool, Flow, Floor, Hazard, Truncate,
+    Add, exponential_history, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 
@@ -117,23 +117,27 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 # ```
 #
 # where ``S_t`` is the susceptible pool, ``s_t`` above, and ``V_t`` the protected pool.
-# ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the removals on day ``t`` and ``m_t`` the doses moved.
+# ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the doses on day ``t`` and ``m_t`` the doses moved.
 # The doses are capped by what remains of ``S``.
-# `removals` gives ``r_t``, and `Protected(σ)` keeps the second pool.
-# The [`Protected`](@ref ComposableRecurrences.Protected) docstring gives the general form.
+# A [`Pool`](@ref ComposableRecurrences.Pool) holds both pools, `:S` and `:V`.
+# It draws from ``S + \sigma V`` with `draw = (:S => 1, :V => σ) => Hazard()`.
+# The doses are a count [`Flow`](@ref ComposableRecurrences.Flow) from `:S` to `:V`, with `form = Truncate()`.
+# The `Pool` docstring gives the general form.
 # Let ``e`` be the efficacy.
 # An all-or-nothing vaccine fully protects a share ``e`` of the vaccinated.
-# This gives ``\sigma = 0``, with ``e`` times the doses removed.
+# This gives ``\sigma = 0``, with ``e`` times the doses moved.
 # A leaky vaccine reduces every vaccinated person's risk by ``e``.
-# This gives ``\sigma = 1 - e``, with all the doses removed.
+# This gives ``\sigma = 1 - e``, with all the doses moved.
 # Here 40 doses a day start on day 15.
 
 e = 0.7
 doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
-leaky = Depletion(N; removals = TimeVarying(doses), protected = Protected(1 - e))
+dosed(r) = Flow(:S => :V, TimeVarying(r); form = Truncate())
+vaccinated(σ, flows) = Pool(N; pools = (:S, :V), draw = (:S => 1, :V => σ) => Hazard(), flows)
+leaky = vaccinated(1 - e, dosed(doses))
 vaccines = [
     "None" => Depletion(N),
-    "All-or-nothing" => Depletion(N; removals = TimeVarying(e .* doses), protected = Protected(0.0)),
+    "All-or-nothing" => vaccinated(0.0, dosed(e .* doses)),
     "Leaky" => leaky,
 ]
 plot_infections(vaccines)
@@ -142,13 +146,14 @@ plot_infections(vaccines)
 # The peak comes slightly earlier, because the pool shrinks faster.
 # At the same efficacy the all-or-nothing vaccine prevents slightly more infections.
 # The leaky vaccine leaves every vaccinated person some risk, which adds up over time.
-# A delay from dose to protection is a `Convolution` of the doses, passed as `removals`.
+# A delay from dose to protection is a `Convolution` of the doses, passed as the flow's demand.
 #
 # ### Waning protection
 #
 # Protection that wanes moves people from the protected pool back to the susceptible pool.
-# The depletion's `flows` move between its pools after each day's infections, with the susceptible pool ``S`` as compartment 1 and the protected pool ``V`` as compartment 2.
-# So waning at rate ``\omega`` is a [`Flow`](@ref ComposableRecurrences.Flow), `Flow(2 => 1, ω)`, which acts before the day's doses:
+# The pool's flows act after each day's infections.
+# So waning at rate ``\omega`` is a hazard flow, `Flow(:V => :S, ω)`.
+# Hazard flows act before count flows, so it acts before the day's doses:
 #
 # ```math
 # V'_t = e^{-\omega} V_t, \qquad
@@ -158,9 +163,7 @@ plot_infections(vaccines)
 # with ``S_t`` and ``V_t`` the pools after the day's infections.
 # Here protection lasts about 20 days on average.
 
-waning = Depletion(
-    N; removals = TimeVarying(doses), protected = Protected(1 - e), flows = Flow(2 => 1, 1 / 20)
-)
+waning = vaccinated(1 - e, (dosed(doses), Flow(:V => :S, 1 / 20)))
 plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # Waning raises the peak a little and adds about 8% more infections over the outbreak, because people protected early return to the susceptible pool while the epidemic runs.

@@ -15,7 +15,7 @@ _reverse_dim(x::AbstractVector, d) = reverse(x)
 _reverse_dim(x, d) = reverse(x; dims = d)
 
 # The primal value of `x`, through any nesting of dual numbers (their
-# method is in the `ForwardDiff` extension), for deciding a branch. A dual
+# method is in the dual-number extension), for deciding a branch. A dual
 # with value zero is ordered by its partials, so `P > 0` on the dual can
 # hold where the value is zero. Other numbers, traced ones included, pass
 # through.
@@ -266,7 +266,7 @@ param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 # that carries the field count or a tuple's length in its signature
 # (`Val(N)`, `map` over a tuple) is widened by inference's recursion limit
 # when an inner struct has more fields than an outer one, as
-# `Depletion` inside a `Recurrence` does.
+# a `Pool` inside a `Recurrence` does.
 @generated function _fields_eltype(x)
     calls = (:(param_eltype(getfield(x, $i))) for i in 1:fieldcount(x))
     return :(promote_type(Bool, $(calls...)))

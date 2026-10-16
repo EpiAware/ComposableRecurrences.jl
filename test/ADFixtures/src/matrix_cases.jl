@@ -212,6 +212,15 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# A pool of susceptibles `S` and protected `V`, drawn from at weight `σ` on
+# `V`, with the doses moving `S` into `V` and any further `flows`.
+function _leaky(N, doses, σ, flows...)
+    return CR.Pool(
+        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+        flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
+    )
+end
+
 # Strata with leaky vaccination: doses move susceptibles into a protected
 # pool drawn from at relative susceptibility σ.
 function strata_vaccination(wrap, z::Size)
@@ -220,10 +229,7 @@ function strata_vaccination(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         g, logh, logR, doses, σ = _unpack(θ, (L,), (S, L), (S, T), (S, T), (1,))
-        d = CR.Depletion(
-            pop; removals = TimeVarying(PerStratum(doses)),
-            protected = CR.Protected(only(σ))
-        )
+        d = _leaky(pop, TimeVarying(PerStratum(doses)), only(σ))
         r = Recurrence(g; modifiers = (d,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
@@ -241,10 +247,9 @@ function strata_waning(wrap, z::Size)
         g, logh, logR, doses, σ, ω = _unpack(
             θ, (L,), (S, L), (S, T), (S, T), (1,), (S, T)
         )
-        d = CR.Depletion(
-            pop; removals = TimeVarying(PerStratum(doses)),
-            protected = CR.Protected(only(σ)),
-            flows = CR.Flow(2 => 1, TimeVarying(PerStratum(ω)))
+        d = _leaky(
+            pop, TimeVarying(PerStratum(doses)), only(σ),
+            CR.Flow(:V => :S, TimeVarying(PerStratum(ω)))
         )
         r = Recurrence(g; modifiers = (d,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
@@ -267,11 +272,16 @@ function ward_flows(wrap, z::Size)
         adm, confirm, ruleout, discharge, transfer = _unpack(
             θ, (2S, T), (S,), (T,), (1,), (S, T)
         )
-        flows = CR.Flows(
-            CR.Flow(1 => 2, PerStratum(confirm)),
-            CR.Flow(1 => 0, TimeVarying(ruleout); form = CR.Share()),
-            CR.Flow(2 => 0, only(discharge)),
-            CR.Flow(2 => 0, TimeVarying(PerStratum(transfer)); form = CR.Truncate()),
+        flows = CR.Pool(;
+            pools = (:suspected, :confirmed), draw = nothing, flows = (
+                CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
+                CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
+                CR.Flow(:confirmed => 0, only(discharge)),
+                CR.Flow(
+                    :confirmed => 0, TimeVarying(PerStratum(transfer));
+                    form = CR.Truncate()
+                ),
+            )
         )
         r = Recurrence([1.0]; modifiers = (flows,))
         return sum(W .* wrap(r)(; history = zeros(2S, 1), add = adm, stop = T))
@@ -758,9 +768,9 @@ pending_cases() = Tuple{String, String}[]
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
-    "strata_vaccination" => (:Protected,),
-    "ward_flows" => (:Flows, :Share),
-    "strata_waning" => (:depletion_flows,),
+    "strata_vaccination" => (:Pool,),
+    "ward_flows" => (:Pool,),
+    "strata_waning" => (:Pool,),
     "transform" => (:Transform,),
     "capacity_beds" => (:Capacity,),
     # The coupling on `Recent` came after `Recent`.

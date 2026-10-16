@@ -41,6 +41,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input        | `add =`, before the modifiers                            |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
+| pools and flows       | `Pool(N; pools, draw, flows)`, `Flow(from => to, d)`     |
 | admitted and overflow | `Capacity(C, Beds(δ); pairs = [a => o])`                 |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
@@ -93,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Depletion, Protected, Flow, Flows, Share, Redistribute,
+public Pool, Depletion, Flow, Share, Redistribute,
     Add, Clamp, Allocate, Capacity, Beds, Budget, Route, Hold, Drop,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,
@@ -121,10 +122,10 @@ include("derived.jl")
 include("recent.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
-# Flows between the compartments of each group.
+# Flows between the pools of a `Pool`.
 include("flows.jl")
-# Depletion with flows and a protected pool.
-include("depletion_pools.jl")
+# `Pool`: pools drawn from by a depletion form and moved by flows.
+include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
@@ -143,7 +144,7 @@ include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
 # Default pullbacks of modifiers and couplings without one, whose dual-number
-# code is in the `ForwardDiff` extension.
+# code is in an extension.
 include("fallbacks.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("delays.jl")

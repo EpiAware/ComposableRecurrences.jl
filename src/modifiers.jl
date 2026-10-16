@@ -36,7 +36,7 @@ struct Run end
 
 @doc raw"""
 The role of one step of a modifier, or of a variant inside its owner (a
-depletion form inside [`ComposableRecurrences.Depletion`](@ref)).
+depletion form inside a [`ComposableRecurrences.Pool`](@ref)).
 
 A modifier ``M`` maps the step's values and its own state at absolute time
 ``t`` to new ones,
@@ -52,8 +52,8 @@ A pointwise modifier acts on each stratum ``i`` separately,
 ``(v'_i, s'_i) = M_i(v_i, s_i, t)``.
 
   - `forward(m, Step(), v, s, t)` updates the step's values `v` and the
-    modifier's state `s` in place (one entry per stratum, or two for a
-    [`ComposableRecurrences.Depletion`](@ref) with a protected pool) and
+    modifier's state `s` in place (one entry per stratum, or one per pool
+    for a [`ComposableRecurrences.Pool`](@ref) with several) and
     returns `nothing`.
   - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
     returning `(v′, s′)`; a modifier with
@@ -82,8 +82,8 @@ struct Step end
 
 @doc raw"""
 The role of a modifier's initial state: `forward(m, Init(), s, history)`
-writes the state `s` (one entry per stratum, or two for a
-[`ComposableRecurrences.Depletion`](@ref) with a protected pool, allocated
+writes the state `s` (one entry per stratum, or one per pool for a
+[`ComposableRecurrences.Pool`](@ref) with several, allocated
 by the operator at its buffer eltype) from the full history, and returns
 `nothing`; [Roles](@ref extending-roles) gives the arguments.
 
@@ -326,7 +326,7 @@ The default is `nothing`.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+leaky = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
 CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
 
 # output
@@ -348,12 +348,11 @@ The recurrence allocates each modifier's state ``s`` with
 
 passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
 [`ComposableRecurrences.Step`](@ref), and checks a resumed state against it.
-This is the extension point for a modifier that holds more than one stock
+This is the extension point for a modifier that holds more than one value
 per stratum.
 A blockwise modifier ([`ComposableRecurrences.blocks`](@ref)) keeps
-``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a depletion with a
-protected pool keeps the unprotected pool then the protected pool,
-``n(m, S) = 2S``.
+``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a `Pool` with two
+pools keeps the first pool then the second, ``n(m, S) = 2S``.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
 one entry per stratum, so it must have ``n(m, S) = S``.
 
@@ -365,7 +364,7 @@ one entry per stratum, so it must have ``n(m, S) = S``.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+leaky = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
 CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 
 # output

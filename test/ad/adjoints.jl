@@ -313,10 +313,13 @@
                     Recurrence(
                         g; coupling = 0.3 .* rand(rng, S, S),
                         modifiers = (
-                            CR.Depletion(
-                                PerStratum(fill(80.0, S)); pool0 = pool(80.0, h),
-                                removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))),
-                                protected = CR.Protected(PerStratum([0.2, 0.3, 0.4]); pool0 = 1.0)
+                            CR.Pool(
+                                PerStratum(fill(80.0, S)); pools = (:S, :V),
+                                initial = (pool(80.0, h), 1.0),
+                                draw = (:S => 1, :V => PerStratum([0.2, 0.3, 0.4])) => CR.Hazard(),
+                                flows = (
+                                    CR.Flow(1 => 2, TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))); form = CR.Truncate()),
+                                )
                             ),
                         )
                     ),
@@ -1190,8 +1193,9 @@ end
     # pool is zero with a non-zero ForwardDiff tangent at every step.
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
-        d = CR.Depletion(
-            100.0; pool0 = θ[1], protected = CR.Protected(θ[2]; pool0 = θ[3])
+        d = CR.Pool(
+            100.0; pools = (:S, :V), initial = (θ[1], θ[3]),
+            draw = (:S => 1, :V => θ[2]) => CR.Hazard()
         )
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
@@ -1224,16 +1228,20 @@ end
     # A seeded pool emptied by removals: with all-or-nothing protection the
     # pool stays at zero with a tangent from `σ`, a tie in the removal.
     by_removals(θ) = total(
-        CR.Depletion(
-            100.0; pool0 = θ[1], removals = TimeVarying(fill(θ[2], 6)),
-            protected = CR.Protected(θ[3])
+        CR.Pool(
+            100.0; pools = (:S, :V), initial = (θ[1], nothing),
+            draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
+            flows = (CR.Flow(1 => 2, TimeVarying(fill(θ[2], 6)); form = CR.Truncate()),)
         )
     )
     # An empty pool with a dual population and an integer heterogeneity,
     # alone and with a protected pool.
     by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pool0 = θ[2]))
     by_protected(θ) = total(
-        CR.Depletion(θ[1]; pool0 = θ[2], protected = CR.Protected(θ[3]))
+        CR.Pool(
+            θ[1]; pools = (:S, :V), initial = (θ[2], nothing),
+            draw = (:S => 1, :V => θ[3]) => CR.Hazard()
+        )
     )
     # A differentiated heterogeneity at an empty pool.
     by_heterogeneity(θ) = total(CR.Depletion(100.0; heterogeneity = θ[1], pool0 = θ[2]))
@@ -1459,9 +1467,10 @@ end
         logh = reshape(view(θ, 1:(S * L)), S, L)
         logR = reshape(view(θ, (S * L + 1):(S * L + S * T)), S, T)
         doses = reshape(view(θ, (S * L + S * T + 1):n), S, T)
-        d = CR.Depletion(
-            PerStratum(POP); removals = TimeVarying(PerStratum(doses)),
-            protected = CR.Protected(θ[n + 1])
+        d = CR.Pool(
+            PerStratum(POP); pools = (:S, :V),
+            draw = (:S => 1, :V => θ[n + 1]) => CR.Hazard(),
+            flows = (CR.Flow(1 => 2, TimeVarying(PerStratum(doses)); form = CR.Truncate()),)
         )
         r = Recurrence(G0; coupling = K0, modifiers = (d,))
         return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
