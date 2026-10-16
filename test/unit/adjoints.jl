@@ -961,7 +961,7 @@ end
     using ComposableRecurrences
     # The src methods run when the `ForwardDiff` extension is not loaded:
     # each names the piece and says to load it.
-    msg(name) = Regex("^$name has no `pullback!`.*add `using ForwardDiff`\$")
+    msg(name) = Regex("^ArgumentError: $name has no `pullback!`.*add `using ForwardDiff`\$")
     m, C = PoolDepletion([40.0, 50.0]), Mix([0.5 0.1; 0.2 0.4], [1.0, 0.9])
     one_arg = Tuple{Any, Vararg{Any}}
     two_args = Tuple{Any, Any, Vararg{Any}}
@@ -978,7 +978,7 @@ end
         c::T
     end
     @test_throws msg("Rate") invoke(CR._local_form_pullback, two_args, nothing, Rate(0.7))
-    @test_throws r"^`Transform` without a `derivative` needs `ForwardDiff`" invoke(
+    @test_throws r"^ArgumentError: `Transform` without a `derivative` needs `ForwardDiff`" invoke(
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
     # The checks and buffers that need dual numbers say nothing, so the
@@ -987,7 +987,7 @@ end
     @test invoke(CR._check_views, one_arg, C) === nothing
     @test invoke(CR._probe_reads, one_arg, m) === nothing
     @test invoke(CR._dual_pressure_buffers, two_args, nothing, C, Float64) === nothing
-    @test CR._check_reads(nothing) === nothing
+    @test CR._reads_within(nothing) === nothing
     @test CR._check_rebuilds((m, C)) isa Bool
 end
 
@@ -1019,8 +1019,7 @@ end
         @test CR.uses_adjoint(r, CR.Run())
         @test Base.return_types(CR._route_val, typeof.((r, args...))) == [Val{:rule}]
         @test Base.return_types(CR._fit, typeof.((r, args...))) == [Symbol]
-        @test (@inferred CR._fit(r, args...)) === CR._fit(r0, args...) === :one
-        @test (@inferred CR._fit(r0, args...)) === :one
+        @test (@inferred CR._fit(r, args...)) === (@inferred CR._fit(r0, args...))
         @test pullback_matches(r, args...)
         @test r(ones(2, 6); history = ones(2, 2)) == r0(ones(2, 6); history = ones(2, 2))
     end

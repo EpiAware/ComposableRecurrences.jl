@@ -148,7 +148,7 @@ function _local_pullback(grads, m, v, s, t, k)
 end
 
 # The local derivatives, with their methods in the `ForwardDiff` extension.
-# Without it a call names the piece and says to load `ForwardDiff`.
+# Without it a call names the modifier or coupling and says to load it.
 _value_pullback(m, args...) = _need_forwarddiff(m)
 _jacobian_pullback(m, m̄, args...) = _need_forwarddiff(m)
 _scalar_pullback(m, m̄, args...) = _need_forwarddiff(m)
