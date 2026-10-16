@@ -1083,6 +1083,43 @@ end
     end
 end
 
+@testitem "Conserving dense movement through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # The kernel and the intensity are the parameters, so the dense
+    # movement matrix's columns sum to one at every input and the
+    # conserving (`leak = false`) path runs with its column check.
+    h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
+    W = cos.(reshape(1:18, 3, 6))
+    function f(θ)
+        K, ε = reshape(θ[1:9], 3, 3), θ[10:12]
+        r = Recurrence(
+            [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
+            modifiers = (
+                CR.Redistribute(CR.movement(K, ε)),
+                CR.Depletion(PerStratum(fill(40.0, 3))),
+            )
+        )
+        return sum(W .* r(R; history = h))
+    end
+    θ = [0.0, 0.6, 0.4, 0.3, 0.0, 0.7, 0.5, 0.5, 0.0, 0.2, 0.3, 0.1]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    for backend in (
+            AutoMooncake(; config = nothing),
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        n0 = CR._PULLBACK_CALLS[]
+        @test gradient(f, backend, θ) ≈ ref
+        @test CR._PULLBACK_CALLS[] > n0
+    end
+end
+
 @testitem "Sparse Redistribute matrix through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
