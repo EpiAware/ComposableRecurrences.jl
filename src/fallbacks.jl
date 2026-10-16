@@ -564,7 +564,7 @@ end
 @inline function _draw(form, v, s, N, α)
     T = promote_type(typeof(v), typeof(s), typeof(N), typeof(α), param_eltype(form))
     vr, sr = Ref{T}(v), Ref{T}(s)
-    _written(form, forward!(form, Step(), _At(vr, 1), _At(sr, 1), N, α))
+    _written(form, @inline forward!(form, Step(), _At(vr, 1), _At(sr, 1), N, α))
     return vr[], sr[]
 end
 @inline function _draw_back(grads, form, v, s, N, α)
@@ -574,7 +574,7 @@ end
         piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
         α = _At(ᾱr, 1),
     )
-    _written(form, pullback!(g, form, Step(), _At(Ref(v), 1), _At(Ref(s), 1), N, α))
+    _written(form, @inline pullback!(g, form, Step(), _At(Ref(v), 1), _At(Ref(s), 1), N, α))
     return v̄r[], s̄r[], N̄r[], ᾱr[]
 end
 # A depletion form's in-place step and pullback on views of a stratum's
@@ -854,5 +854,5 @@ end
 # Whether modifier `m` uses the default zero initial state.
 function _default_init(m, s, history)
     sig = Tuple{typeof(m), Init, typeof(s), typeof(history)}
-    return which(forward, sig) === which(forward, Tuple{Any, Init, Any, Any})
+    return which(forward!, sig) === which(forward!, Tuple{Any, Init, Any, Any})
 end

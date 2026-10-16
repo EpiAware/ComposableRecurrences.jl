@@ -535,7 +535,7 @@ _kernel(m) = false
 # registers.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
-    _written(m, forward!(m, Step(), _At(vr, k), _At(sr, k), t))
+    _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
     return vr[], sr[]
 end
 # The same for its `pullback!`: the cotangents of the step's inputs from
@@ -543,7 +543,7 @@ end
 @inline function _step_back(grads, m, v, s, t, k)
     v̄r, s̄r = Ref(grads.v), Ref(grads.s)
     g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
-    _written(m, pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
+    _written(m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
     return v̄r[], s̄r[]
 end
 # A slot for a scalar the step may write a value of the piece's float type
@@ -580,14 +580,14 @@ end
 @inline function _block_step(m, v::Tuple, s::Tuple, t, g)
     vr, sr = map(x -> _slot(m, x), v), map(x -> _slot(m, x), s)
     at = r -> _At(r, g)
-    _written(m, forward!(m, Step(), map(at, vr), map(at, sr), t, g))
+    _written(m, @inline forward!(m, Step(), map(at, vr), map(at, sr), t, g))
     return map(getindex, vr), map(getindex, sr)
 end
 @inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
     v̄r, s̄r = map(Ref, grads.v), map(Ref, grads.s)
     at = r -> _At(r, g)
     gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
-    _written(m, pullback!(gg, m, Step(), map(at ∘ Ref, v), map(at ∘ Ref, s), t, g))
+    _written(m, @inline pullback!(gg, m, Step(), map(at ∘ Ref, v), map(at ∘ Ref, s), t, g))
     return map(getindex, v̄r), map(getindex, s̄r)
 end
 
