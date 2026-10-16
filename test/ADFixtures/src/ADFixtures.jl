@@ -1347,6 +1347,21 @@ function _modifier_by_time(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A coupling and a modifier without a pullback, in an operator built before
+# the local step's check could run (as before `ForwardDiff` loads): the
+# call checks its parts on their primal values, inside the backend's trace.
+function _unchecked_parts(w, θ)
+    logh, logR, a, logκ, β = _unpack(θ, (S, L), (S, T), (1,), (S,), (T,))
+    m = StrataCap(PerStratum(exp.(logκ)), TimeVarying(β))
+    r0 = Recurrence(G0; coupling = ShareFirst(only(a)), modifiers = (m,))
+    r = Recurrence(
+        ComposableRecurrences._Checked(), r0.kernel, r0.coupling, r0.modifiers,
+        nothing
+    )
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 function _user_coupling_matrix(w, θ)
     logh, logR, K, β = _unpack(θ, (S, L), (S, T), (S, S), (S,))
     r = Recurrence(G0; coupling = MatrixMix(K, β))
@@ -1391,6 +1406,10 @@ push!(
         "Recurrence user coupling holding a matrix", _user_coupling_matrix,
         () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
     ),
+    (
+        "Recurrence checked at the call", _unchecked_parts,
+        () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
@@ -1404,6 +1423,9 @@ end
 # coupling's arrays came together.
 _REQUIRES["Recurrence modifier with a vector field read by time"] = (:_read_pullback,)
 _REQUIRES["Recurrence user coupling holding a matrix"] = (:_read_pullback,)
+# An operator built before the local step's check could run came with
+# `ForwardDiff` as an extension.
+_REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
