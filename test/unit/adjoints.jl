@@ -493,9 +493,10 @@ end
             CR.Depletion(TimeVarying(N[1, :]), CR.Floor(); pool0 = 30.0),
             CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
             CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
-            CR.Depletion(
-                TimeVarying(PerStratum(N)); removals = births,
-                protected = CR.Protected(0.3; pool0 = 5.0)
+            CR.Pool(
+                TimeVarying(PerStratum(N)); pools = (:S, :V), initial = (nothing, 5.0),
+                draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                flows = (CR.Flow(1 => 2, births; form = CR.Truncate()),)
             ),
         )
         r = Recurrence(g; coupling = K, modifiers = (d,))
@@ -695,7 +696,7 @@ end
     @test_logs (:info, r"Add has a Derived map that holds floats") note(
         modifiers = (CR.Add(Derived(scaled, 0.5)),)
     )
-    @test_logs (:info, r"Depletion has a Derived map that holds floats") note(
+    @test_logs (:info, r"Pool has a Derived map that holds floats") note(
         modifiers = (CR.Depletion(Derived(scaled, 25.0)),)
     )
     # A depletion is named by its form when the form has no adjoint.

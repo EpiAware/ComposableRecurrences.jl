@@ -278,9 +278,10 @@ end
     mods = (
         (CR.Depletion(100.0 + 10 * Recent(3)),),
         (
-            CR.Depletion(
-                100.0 + 10 * Recent(3); removals = 0.1 * Recent(2),
-                protected = CR.Protected(0.3)
+            CR.Pool(
+                100.0 + 10 * Recent(3); pools = (:S, :V),
+                draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                flows = (CR.Flow(1 => 2, 0.1 * Recent(2); form = CR.Truncate()),)
             ),
         ),
     )

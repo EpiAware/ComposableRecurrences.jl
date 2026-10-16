@@ -104,14 +104,15 @@ end
     pmirror(m) = (;
         N = (; x = zero(m.N.x)), heterogeneity = Ref(0.0),
         flows = ((; demand = Ref(0.0), form = nothing),),
-        protected = (; σ = (; x = zero(m.protected.σ.x)), pool0 = Ref(0.0)),
+        weights = (nothing, (; x = zero(m.weights[2].x))),
     )
     pflat(m̄) = vcat(
-        m̄.N.x, m̄.heterogeneity[], only(m̄.flows).demand[], m̄.protected.σ.x
+        m̄.N.x, m̄.heterogeneity[], only(m̄.flows).demand[], m̄.weights[2].x
     )
-    build(θ) = CR.Depletion(
-        PerStratum(θ[1:2]); heterogeneity = θ[3], removals = θ[4],
-        protected = CR.Protected(PerStratum(θ[5:6]))
+    build(θ) = CR.Pool(
+        PerStratum(θ[1:2]); pools = (:S, :V),
+        draw = (:S => 1, :V => PerStratum(θ[5:6])) => CR.Hazard(), heterogeneity = θ[3],
+        flows = (CR.Flow(1 => 2, θ[4]; form = CR.Truncate()),)
     )
     for removals in (2.0, 70.0, -1.0), heterogeneity in (1.0, 1.4)
         pc = check_pullback(
@@ -127,7 +128,10 @@ end
 @testitem "Blocks: a protected pool is blockwise" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
-    d = CR.Depletion(100.0; removals = 1.0, protected = CR.Protected(0.3))
+    d = CR.Pool(
+        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+    )
     @test CR.blocks(d) == Val((1, 2))
     @test CR.blocks(CR.Depletion(100.0)) === nothing
     @test CR.nstate(d, 3) == 6

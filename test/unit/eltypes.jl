@@ -124,7 +124,7 @@ end
     floor_depletion() = ComposableRecurrences.Depletion(
         1.0, ComposableRecurrences.Floor()
     )
-    @test (@inferred floor_depletion()) isa CR.Depletion
+    @test (@inferred floor_depletion()) isa CR.Pool
     beds() = ComposableRecurrences.Capacity(
         1.0, ComposableRecurrences.Beds(0.1); pairs = [1 => 2]
     )

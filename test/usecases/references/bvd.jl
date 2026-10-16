@@ -193,7 +193,7 @@ end
 
 # src/models/observations.jl L1943-L2014
 ## The forward balance of `accumulate_occupancy`. With `Val(true)` it also
-## returns the non-case stock `O_bg` and the branch flags for each day, which
+## returns the non-case pool `O_bg` and the branch flags for each day, which
 ## the Mooncake rule in `src/mooncake_rules.jl` reads.
 function _accumulate_occupancy(
         ::Val{record}, A_bvd, A_bg, deaths, recover, ruleout, κ,
@@ -320,7 +320,7 @@ function abscond_thinned_flows(
         dmax2 = min(nmax2 - 1, n - t)
         ## Both schedules run to `dboth`; only the longer one runs past it.
         dboth = min(dmax1, dmax2)
-        ## Admission day: the cohort is not yet in the stock the balance
+        ## Admission day: the cohort is not yet in the pool the balance
         ## charges absconds against, so it faces no abscond hazard.
         out1[t] += a1 * pmf1[1]
         out2[t] += a2 * pmf2[1]

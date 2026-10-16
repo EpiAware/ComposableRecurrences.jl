@@ -30,8 +30,9 @@
         doses = TimeVarying(PerStratum(fill(5.0, S, T)))
         rv = Recurrence(
             g; modifiers = (
-                CR.Depletion(
-                    1.0e3; removals = doses, protected = CR.Protected(0.3)
+                CR.Pool(
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
                 ),
             )
         )
@@ -39,8 +40,9 @@
         ra = Recurrence(g; modifiers = (CR.Allocate([1:3, 4:6], totals),))
         rva = Recurrence(
             g; modifiers = (
-                CR.Depletion(
-                    1.0e3; removals = doses, protected = CR.Protected(0.3)
+                CR.Pool(
+                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                    flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
                 ),
                 CR.Allocate([1:3, 4:6], totals),
             )
