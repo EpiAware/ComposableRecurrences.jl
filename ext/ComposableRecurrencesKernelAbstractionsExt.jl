@@ -18,7 +18,13 @@ function ComposableRecurrences.each!(
         body::F, ex::Device, n, work, args::Vararg{Any, N}
     ) where {F, N}
     n == 0 && return nothing
-    _each_kernel!(ex.backend)(body, _kernel_args(args); ndrange = n)
+    _launch!(ex.backend, body, _kernel_args(args), n)
+    return nothing
+end
+
+# Launches the kernel on `backend` with `n` threads.
+function _launch!(backend, body::F, args, n) where {F}
+    _each_kernel!(backend)(body, args; ndrange = n)
     return nothing
 end
 

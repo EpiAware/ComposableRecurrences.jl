@@ -332,49 +332,42 @@ end
     using Base.ScopedValues: with
     using JLArrays, KernelAbstractions
     JLArrays.allowscalar(false)
+    KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     # A backend that compiles kernels takes plain data only: bits types, or
     # immutable structs whose concretely typed fields are plain, with the
     # backend's device arrays as leaves. JLArrays run kernels as Julia code
     # and do not check, so each launch's arguments are recorded and checked
-    # as a kernel launch adapts them.
+    # as the launch adapts them.
     plain(::Type{<:JLArrays.JLDeviceArray}) = true
     function plain(T::Type)
         isbitstype(T) && return true
         isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
         return all(plain, fieldtypes(T))
     end
-    launched(args) = typeof(adapt(JLArrays.Adaptor(), CR._kernel_args(args)))
-    # Runs each loop on the device, keeping the arguments it was given.
-    struct Recorded{B} <: CR.Executor
-        backend::B
+    launched(args) = typeof(adapt(JLArrays.Adaptor(), args))
+    # The JLArrays backend, keeping the arguments of each launch.
+    struct Recording{B}
+        inner::B
         args::Vector{Any}
     end
-    function CR.each!(
-            body::F, ex::Recorded, n, work, args::Vararg{Any, N}
-        ) where {F, N}
-        push!(ex.args, args)
-        return CR.each!(body, CR.Device(ex.backend), n, work, args...)
+    function KAExt._launch!(b::Recording, body::F, args, n) where {F}
+        push!(b.args, args)
+        return KAExt._launch!(b.inner, body, args, n)
     end
-    backend = KernelAbstractions.get_backend(JLArray(ones(1)))
+    jl = KernelAbstractions.get_backend(JLArray(ones(1)))
     for (name, f) in GPUCases.CASES
         @testset "$name" begin
-            ex = Recorded(backend, Any[])
-            y = with(CR.EXECUTOR => ex) do
+            b = Recording(jl, Any[])
+            y = with(CR.EXECUTOR => CR.Device(b)) do
                 f(JLArray)
             end
             @test Array(y) ≈ f(identity)
-            @test !isempty(ex.args)
-            @test all(a -> plain(launched(a)), ex.args)
+            @test !isempty(b.args)
+            @test all(a -> plain(launched(a)), b.args)
         end
     end
-    # Without the conversion the call's executor reaches the kernel, and it
-    # is not plain data.
-    ex = Recorded(backend, Any[])
-    with(CR.EXECUTOR => ex) do
-        Dict(GPUCases.CASES)["Depletion (Floor), PerStratum population"](JLArray)
-    end
-    @test any(a -> any(x -> x isa CR._Current, a), ex.args)
-    @test !plain(typeof(adapt(JLArrays.Adaptor(), first(ex.args))))
+    # The call's executor is not plain data, so it must not reach a kernel.
+    @test !plain(launched((CR._current(),)))
 end
 
 @testitem "KernelAbstractions alone adapts wrappers and modifiers" begin
