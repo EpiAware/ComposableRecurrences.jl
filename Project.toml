@@ -34,9 +34,9 @@ ComposableRecurrencesEnzymeExt = "Enzyme"
 ComposableRecurrencesEnzymeTestUtilsExt = ["ADTypes", "Enzyme", "EnzymeTestUtils"]
 ComposableRecurrencesFFTWExt = "FFTW"
 ComposableRecurrencesForwardDiffExt = "ForwardDiff"
-ComposableRecurrencesGPUArraysCoreExt = ["Adapt", "GPUArraysCore", "KernelAbstractions"]
+ComposableRecurrencesGPUArraysCoreExt = ["GPUArraysCore", "KernelAbstractions"]
 ComposableRecurrencesGPUArraysExt = ["GPUArrays", "GPUArraysCore", "KernelAbstractions"]
-ComposableRecurrencesKernelAbstractionsExt = "KernelAbstractions"
+ComposableRecurrencesKernelAbstractionsExt = ["Adapt", "KernelAbstractions"]
 ComposableRecurrencesMooncakeExt = ["ADTypes", "Mooncake", "Random"]
 ComposableRecurrencesReactantExt = "Reactant"
 

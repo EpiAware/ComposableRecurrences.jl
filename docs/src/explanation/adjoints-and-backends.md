@@ -127,7 +127,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Pool` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Allocate` with `imports` and `spill`, 64 strata | 0.05 | 0.11 | keep |
-| `Capacity` | 0.26 | 0.32 | keep |
+| `Pool` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |

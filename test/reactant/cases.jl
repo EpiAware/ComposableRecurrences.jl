@@ -5,9 +5,9 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Add, Allocate, Budget, Capacity, Clamp, Depletion,
-    Floor, Flow, Hazard, Hold, Pool, Primary, Redistribute, Secondary,
-    SoftTruncate, Step, Transform, Truncate, with_state
+using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
+    Hazard, Pool, Primary, Redistribute, Secondary, SoftTruncate, Step,
+    Transform, Truncate, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -219,11 +219,14 @@ function mod_redistribute(θ)
     return r(R; history = HS)
 end
 
-# A weekly budget for stratum 1 whose unmet demand waits in a queue, with
-# the smooth draw, so the step time picks the budget's refills.
+# A weekly budget for each stratum whose unmet demand waits in a queue,
+# with the smooth draw: the budget is granted at each week's start.
+const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
 function mod_capacity(θ)
-    c = Capacity(
-        5.0, Budget(7); pairs = [1], overflow = Hold(), form = SoftTruncate(0.5)
+    c = Pool(;
+        pools = (:B,), draw = :B => SoftTruncate(0.5), flows_first = true,
+        flows = Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
+        overflow = :queue
     )
     r = Recurrence(g0; modifiers = (c,))
     return r(reshape(θ, S, T); history = HS)
@@ -396,7 +399,7 @@ const CASES = [
         mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
     ),
     Case(
-        "mod_capacity", "Recurrence with Capacity (Budget, Hold)",
+        "mod_capacity", "Recurrence with a budget Pool and a queue",
         mod_capacity, vec(RS0), WS
     ),
     Case(
