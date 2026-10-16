@@ -437,3 +437,41 @@ end
         @test_throws ArgumentError conv(x; add = shifted(fill(2.0, 6)))
     end
 end
+
+@testitem "Convolution: axpy loops check their axes" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    X = reshape(collect(1.0:24), 8, 3)
+    xs = ntuple(k -> view(X, 2:6, k), 3)
+    y = view(zeros(8), 3:7)
+    CR._axpy!(2.0, xs[1], y)
+    @test y == 2 .* xs[1]
+    CR._axpy4!(1.0, 2.0, 3.0, 4.0, xs[1], xs[2], xs[3], xs[1], y)
+    @test y == 7 .* xs[1] .+ 2 .* xs[2] .+ 3 .* xs[3]
+
+    # Each read vector is checked against the written one, and the message
+    # is a constant a device kernel can raise.
+    short = view(X, 2:5, 1)
+    @test_throws DimensionMismatch CR._axpy!(1.0, short, y)
+    for k in 1:4
+        x4 = ntuple(i -> i == k ? short : xs[1], 4)
+        @test_throws DimensionMismatch CR._axpy4!(1.0, 1.0, 1.0, 1.0, x4..., y)
+    end
+    err = try
+        CR._axpy!(1.0, short, y)
+    catch e
+        e
+    end
+    @test err.msg == "axpy vectors have different axes"
+
+    # The loops never reach the mismatch error of `eachindex` over several
+    # arrays, which formats the axes into a string.
+    V = typeof(y)
+    for (f, types) in (
+            (CR._axpy!, Tuple{Float64, V, V}),
+            (CR._axpy4!, Tuple{ntuple(_ -> Float64, 4)..., ntuple(_ -> V, 5)...}),
+        )
+        ir = string(only(code_typed(f, types)))
+        @test !occursin("eachindex_mismatch", ir)
+    end
+end
