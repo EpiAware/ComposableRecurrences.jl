@@ -685,7 +685,7 @@ _no_adjoint_kernel(kernel) = ()
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _local_params(m) && !_reads_outputs(m) && return :local
+    ispointwise(m) && _array_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
 
@@ -693,7 +693,7 @@ end
 # parameters are all scalars.
 function _coupling_adjoint(C)
     uses_adjoint(C, Pressure()) && return :pullback
-    _derived_local(C) && _scalar_params(C) && return :local
+    _derived_local(C) && _array_params(C) && return :local
     return :none
 end
 
@@ -714,19 +714,23 @@ _check_rebuilds(::Tuple{}) = Val(true)
 function _check_rebuilds(parts::Tuple)
     failed = filter(!_check_rebuild, parts)
     isempty(failed) && return true
-    _note_plain(
-        map(p -> "$(nameof(typeof(p))) cannot be rebuilt from its own parameters", failed)
-    )
+    _note_plain(map(_rebuild_why, failed))
     return false
+end
+function _rebuild_why(p)
+    name = nameof(typeof(p))
+    _reads_too_many(p) &&
+        return "$name reads more than $_READ_CAP entries of its arrays in a step"
+    return "$name cannot be rebuilt from its own parameters"
 end
 # The coupling, modifiers and depletion forms the local step rebuilds.
 function _local_part(C)
-    return _coupling_adjoint(C) === :local && _param_tuple(C) !== () ? (C,) : ()
+    return _coupling_adjoint(C) === :local && _holds_floats(C) ? (C,) : ()
 end
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
-    return _modifier_adjoint(m) === :local && _param_tuple(m) !== () ? (m,) : ()
+    return _modifier_adjoint(m) === :local && _holds_floats(m) ? (m,) : ()
 end
 function _local_modifier(m::Depletion)
     f = m.form
@@ -770,14 +774,30 @@ end
 # and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
 # `_ad_wide`; with more it takes plain AD.
 # A part the local step cannot rebuild sends every call to plain AD.
+# A pointwise modifier whose local step records its reads of float arrays
+# (`_read_pullback`) takes the wider route too, as that step beats plain AD
+# only where `_ad_wide` is a rule (see the adjoints page).
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
-    _coupling_adjoint(r.coupling) === :local || return :one
-    n = _nstrata(h) + length(_param_tuple(r.coupling))
+    fit = _coupling_fit(r.coupling, h)
+    fit === :one && _any_reads(r.modifiers) && return :wide
+    return fit
+end
+_fit(w::_WithState, args...) = _fit(w.r, args...)
+function _coupling_fit(C, h)
+    _coupling_adjoint(C) === :local || return :one
+    n = _nstrata(h) + _ninputs(C)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
-_fit(w::_WithState, args...) = _fit(w.r, args...)
+function _any_reads(ms::Tuple)
+    return any(ms) do m
+        _modifier_adjoint(m) === :local && !_local_params(m)
+    end
+end
+# The parameters a coupling's local step seeds: its float scalars, folded
+# from the type, or every scalar and array entry.
+_ninputs(C) = _scalar_params(C) ? length(_param_tuple(C)) : _nparams(C)
 
 # Parameter forms a step reads one entry of through `param`, at stratum `k`
 # and time `t`: the local derivative seeds only that entry, as a scalar.
@@ -819,9 +839,44 @@ function _has_float(::Type{T}) where {T}
     end
     return false
 end
+# Whether a type holds a parameter the local step cannot seed: an array of
+# unknown element type or whose elements hold floats of their own (an array
+# of float arrays, say), a field of unknown type, or a function with float
+# fields. Arrays of numbers are allowed: the local step seeds float entries,
+# and integers (or the dual numbers of a forward-mode call) are not
+# parameters, nor are arrays of integer ranges or index vectors.
+function _has_opaque_params(::Type{T}) where {T}
+    if T <: AbstractArray
+        E = eltype(T)
+        isconcretetype(E) || return true
+        return !(E <: Real) && _has_float(E)
+    end
+    T <: Function && return _has_float(T)
+    T <: Union{Real, Nothing, Symbol, AbstractString} && return false
+    isconcretetype(T) || return true
+    for F in fieldtypes(T)
+        _has_opaque_params(F) && return true
+    end
+    return false
+end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _scalar_params(m) = !_has_array_params(m, false)
 @generated _local_params(m) = !_has_array_params(m, true)
+# Whether a type holds a float array that is not strided, outside entry
+# parameters: a `Diagonal` or a sparse matrix, say, whose fields a step may
+# read rather than its entries.
+function _has_structured_floats(::Type{T}) where {T}
+    T <: _EntryParam && return false
+    T <: AbstractArray && return eltype(T) <: AbstractFloat && !(T <: StridedArray)
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    isconcretetype(T) || return false
+    return any(_has_structured_floats, fieldtypes(T))
+end
+# Whether the local step can seed every float of a part: its scalars and
+# the entries of its strided float arrays.
+@generated function _array_params(m)
+    return !_has_opaque_params(m) && !_has_structured_floats(m)
+end
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including the state to resume from.
