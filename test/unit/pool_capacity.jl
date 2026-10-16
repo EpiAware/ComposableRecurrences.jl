@@ -396,8 +396,7 @@ end
         :O; overflow = 2
     )
     @test_throws "the draw names pool :X, but the pools are (:O,)" fill_into(:X)
-    # A draw into a pool is truncated, from a capacity and start that are
-    # not negative.
+    # A draw into a pool is truncated, from a capacity that is not negative.
     @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Pool(
         1.0; pools = (:O,), draw = CR.Hazard() => :O
     )
@@ -405,6 +404,13 @@ end
         PerStratum([1.0, -1.0]); pools = (:O,), draw = CR.Truncate() => :O
     )
     @test_throws "initial is non-negative, got -2.0" fill_into(:O; initial = -2.0)
+    # Every pool starts from a stock that is not negative, filled or not.
+    @test_throws "initial is non-negative, got -1.0" CR.Pool(;
+        pools = (:B,), initial = -1.0, draw = :B => CR.Truncate()
+    )
+    @test_throws "initial is non-negative, got -1.0" CR.Pool(
+        1.0; pools = (:S, :R), initial = (1.0, -1.0)
+    )
     @test fill_into(:O; initial = 0.5).initial == (0.5,)
     # A truncated draw reads no exponent; `true` and `false` stay fixed.
     @test fill_into(:O; heterogeneity = false).heterogeneity isa CR._FixedExponent{false}

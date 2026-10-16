@@ -32,8 +32,8 @@ When ``P \le 0`` the draw comes from the first pool the draw names alone.
 A draw into pool ``f`` (`draw = form => pool`) fills it instead, up to
 ``N_t``: ``(v', \cdot) = F(v, N_t - x_f, N_t, \alpha)`` and
 ``x^{*}_f = x_f + v'``, as admissions fill beds.
-Its form is `Truncate()` or `SoftTruncate(κ)`, and its capacity ``N_t`` and
-the starting pools are not negative.
+Its form is `Truncate()` or `SoftTruncate(κ)`, and its capacity ``N_t`` is
+not negative.
 The flows act on the pools after the draw, or before it with
 `flows_first = true`, as when patients leave before the day's admissions
 or an allowance is granted at the start of a period.
@@ -314,16 +314,16 @@ end
         n, draw = form !== nothing, first, fill, flows_first,
         overflow = _overflow(overflow),
     )
-    fill && _check_fill(form, N, initial)
+    _check_each_nonnegative(:initial, initial)
+    fill && _check_fill(form, N)
     return Pool{L}(N, form, α, _initials(initial, n, form), weights, fs)
 end
 
 # A draw into a pool takes what is asked for up to the free capacity, which
-# like the pool's start is not negative.
-function _check_fill(form, N, initial)
+# is not negative.
+function _check_fill(form, N)
     _check_fill_form(form)
     _check_nonnegative(:N, N)
-    _check_each_nonnegative(:initial, initial)
     return nothing
 end
 _check_fill_form(::_TruncateForm) = nothing
