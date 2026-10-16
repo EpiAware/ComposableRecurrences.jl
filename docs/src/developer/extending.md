@@ -13,6 +13,7 @@ const CR = ComposableRecurrences
 
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
 Both write their outputs in place and return `nothing`; a method that returns anything else is an error.
+Pieces write in place, and operators return: an operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
