@@ -399,3 +399,9 @@ function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Primary}, X, Ȳ, m, start)
     end
     return nothing
 end
+
+# A coefficient given by change points reads its segments on the host, so a
+# device call refuses it, as adapting it for a kernel does.
+const _PIECEWISE_DEVICE = "a TimeVarying given by change points runs on the " *
+    "host; on a device, pass the dense TimeVarying array that repeats each " *
+    "value over its segment"

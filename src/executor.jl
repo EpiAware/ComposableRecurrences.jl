@@ -327,6 +327,14 @@ struct _Current
 end
 _current() = _Current(EXECUTOR[])
 
+# The arguments a device kernel receives. A kernel thread runs its loop
+# body serially, as the default executor does, so the call's executor
+# reaches it as the singleton `Serial()`: `_Current`, whose field is
+# abstractly typed, is not plain data and so cannot be a kernel argument.
+_kernel_args(args::Tuple) = map(_kernel_arg, args)
+_kernel_arg(::_Current) = Serial()
+_kernel_arg(x) = x
+
 # The loop `each!(body, ex, n, work, args...)` as operators run it, for the
 # executor `c.ex` of a call and arrays like `x`. Operators pass the default
 # executor as the singleton `Serial()` (the method below), so here a
