@@ -44,7 +44,7 @@ default; with `overflow = :stratum` to the group's second value,
 ``v'_2 = v_2 + u``, and with `overflow = :queue` to a queue held after the
 pools in the state, whose content joins the next step's demand.
 
-The form is a variant struct with `forward(form, Step(), v, s, N, α)`:
+The form is a variant struct with `forward!(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref),
 [`ComposableRecurrences.Floor`](@ref),
 [`ComposableRecurrences.Truncate`](@ref),
@@ -522,7 +522,7 @@ where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on, ``s_{t,i}`` the pool after step ``t``, ``s_{0,i}`` the starting
 pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
 ``t``, ``\alpha`` the heterogeneity exponent, ``F`` the form's
-`forward(form, Step(), v, s, N, α)` and ``r_{t,i}`` the removals.
+`forward!(form, Step(), v, s, N, α)` and ``r_{t,i}`` the removals.
 A negative removal adds to the pool without a cap.
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.

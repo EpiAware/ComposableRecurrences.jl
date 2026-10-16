@@ -44,10 +44,10 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | pools and flows       | `Pool(N; pools, draw, flows)`, `Flow(from => to, d)`     |
 | admitted and overflow | `Pool(C; draw = Truncate() => :O, overflow = :stratum)`  |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
-| extension             | a type with a `forward` method for a role                |
+| extension             | a type with a `forward!` method for a role               |
 
 To extend the package, define a type and add a
-[`ComposableRecurrences.forward`](@ref) method, and optionally a
+[`ComposableRecurrences.forward!`](@ref) method, and optionally a
 [`ComposableRecurrences.pullback!`](@ref) method, for its role
 ([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
 or [`ComposableRecurrences.Pressure`](@ref)).
@@ -111,7 +111,7 @@ include("wrappers.jl")
 include("utils.jl")
 # Executors: how loops over independent strata, series or times run.
 include("executor.jl")
-# The role interface: roles, `forward`, `pullback!` and the stage loop.
+# The role interface: roles, `forward!`, `pullback!` and the stage loop.
 include("modifiers.jl")
 # The operator supertype, `NoAdjoint` and the routing to the native rules.
 include("adjoints.jl")
@@ -130,7 +130,7 @@ include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
-# The built-in couplings, `forward` and `pullback!` on `Pressure()`.
+# The built-in couplings, `forward!` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")

@@ -23,12 +23,13 @@ A NaN pool gives a NaN draw.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Truncate(), CR.Step(), 2.0, 80.0, 100.0, 1.0),
-CR.forward(CR.Truncate(), CR.Step(), 2.0, 1.5, 100.0, 1.0)
+v, s = [2.0, 2.0], [80.0, 1.5]
+CR.forward!(CR.Truncate(), CR.Step(), v, s, 100.0, 1.0)
+v, s
 
 # output
 
-((2.0, 78.0), (1.5, 0.0))
+([2.0, 1.5], [78.0, 0.0])
 ```
 """
 struct Truncate end
@@ -60,12 +61,13 @@ The floor at ``s = 0`` keeps its kink.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-y, s = CR.forward(CR.SoftTruncate(0.1), CR.Step(), 2.0, 2.0, 100.0, 1.0)
-round(y; digits = 3), round(s; digits = 3)
+v, s = [2.0], [2.0]
+CR.forward!(CR.SoftTruncate(0.1), CR.Step(), v, s, 100.0, 1.0)
+round.(v; digits = 3), round.(s; digits = 3)
 
 # output
 
-(1.866, 0.134)
+([1.866], [0.134])
 ```
 """
 struct SoftTruncate{K <: Real}

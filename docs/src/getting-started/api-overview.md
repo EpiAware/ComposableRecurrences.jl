@@ -177,7 +177,7 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
 | `I`, `λI` | no mixing, or a uniform scaling | – |
 | `S × S` matrix (dense, `Diagonal`, sparse) | contact, mobility or type-to-type mixing | – |
 | [`TimeVarying(C)`](@ref TimeVarying) with `C` `S × S × T` | mixing that changes by day | – |
-| your type | a `forward` method for [`Pressure()`](@ref ComposableRecurrences.Pressure) | – |
+| your type | a `forward!` method for [`Pressure()`](@ref ComposableRecurrences.Pressure) | – |
 
 ## [Modifiers](@id overview-modifiers)
 
@@ -208,7 +208,7 @@ Depletion forms, flow forms and time indexing are types, and you pass an instanc
 | [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(b, Truncate())`, `Pool(C; pools = (:O,), draw = SoftTruncate(0.1) => :O)` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
-| your type | a new depletion form, with a `forward` method for `Step()` | `Depletion(N, MyForm())` |
+| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N, MyForm())` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its pool; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(:S => :V, p; form = Share())` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
@@ -238,13 +238,13 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 
 These names are for writing a new coupling, modifier, depletion form or executor, and for checking its gradient.
 A model built from the package's own parts needs none of them.
-To extend the package, define a new type and add a `forward` method for it.
+To extend the package, define a new type and add a `forward!` method for it.
 Add a `pullback!` method for a hand-written gradient, and the operator's rule calls it.
 See [Writing new types](@ref extending).
 
 | Name | What it does | Returns |
 |---|---|---|
-| [`forward(m, role, args...)`](@ref ComposableRecurrences.forward) | the maths of a modifier, coupling or depletion form for one job | writes in place, or returns values |
+| [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
@@ -258,7 +258,7 @@ See [Writing new types](@ref extending).
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
 | [`Executor`](@ref ComposableRecurrences.Executor), [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | the executor supertype, and the loop a new executor adds a method of | `nothing` |
 
-A coupling is any type with a `forward` method for `Pressure()`; [A coupling](@ref extending-coupling) writes one with its `pullback!`.
+A coupling is any type with a `forward!` method for `Pressure()`; [A coupling](@ref extending-coupling) writes one with its `pullback!`.
 
 ### [Checking gradients](@id overview-gradients)
 

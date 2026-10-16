@@ -54,8 +54,8 @@ so its coupling is `I` too; the keyword constructor folds routes that have
 a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
-struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
-Modifiers are structs with `forward` on [`ComposableRecurrences.Step`](@ref)
+struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
+Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
 Called as `r(gain = 1; history, state, add, start, stop, prepend)`, the

@@ -169,12 +169,13 @@ The default form of [`ComposableRecurrences.Depletion`](@ref).
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
-round(y; digits = 3), round(s; digits = 3)
+v, s = [2.0], [80.0]
+CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, 1.0)
+round.(v; digits = 3), round.(s; digits = 3)
 
 # output
 
-(1.584, 78.416)
+([1.584], [78.416])
 ```
 """
 struct Hazard end
@@ -199,11 +200,13 @@ The pool can go negative, and then the floor applies.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Floor(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
+v, s = [2.0], [80.0]
+CR.forward!(CR.Floor(), CR.Step(), v, s, 100.0, 1.0)
+v, s
 
 # output
 
-(1.6, 78.4)
+([1.6], [78.4])
 ```
 """
 struct Floor end

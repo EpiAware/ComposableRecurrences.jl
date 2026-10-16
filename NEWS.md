@@ -4,6 +4,12 @@
 
 ### Breaking
 
+- Couplings, modifiers and depletion forms implement `forward!` in place for `Step()`, `Init()` and `Pressure()`, and `forward!` and `pullback!` return `nothing`; returning a value is an `ArgumentError` ([extending][extending]).
+  A pointwise modifier no longer has a scalar step `forward(m, Step(), v, s, t, k)`: its `forward!(m, Step(), v, s, t)` writes each entry of `v` and `s` from its own, and the operator may call it on a one-entry view of each stratum.
+  A blockwise group step takes tuples of one-entry views, and a depletion form `forward!(form, Step(), v, s, N, α)` writes `v` and `s` in place.
+  The matching `pullback!` methods overwrite `grads.v` and `grads.s` in place, and a form's adds into `grads.N` and `grads.α`.
+  To migrate, rename `forward` to `forward!` for these roles, loop over `eachindex(v)`, and write the outputs instead of returning them.
+  `forward(op, Run(), args...)` is unchanged.
 - `Depletion` is now a type alias of [`Pool`][api], so `m isa Depletion` holds as before.
   `Depletion(N, form; heterogeneity, pool0)` builds it as before; its starting pool is the field `initial[1]` rather than `pool0`, and its type parameters are `Pool`'s.
   The v0.1.0 positional constructor `Depletion(N, form, heterogeneity, pool0)` is gone.
@@ -61,7 +67,7 @@
   A coupling's local derivative keeps the rules up to 24 strata and scalars on every backend, and up to 48 on Mooncake ([adjoints and backends][adjoints]).
   A coupling's local derivative also seeds the entries of its float arrays, which count towards those limits.
   A pointwise modifier's local derivative seeds the entries of its other float arrays that a step reads, and keeps the rule on Mooncake ([adjoints and backends][adjoints]).
-- The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
+- The extension API is public: `forward`, `forward!`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
 - Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 

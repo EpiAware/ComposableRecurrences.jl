@@ -94,23 +94,25 @@ end
 
 @interface PieceInterface Any (
     mandatory = (
-        forward = "forward runs in its role" =>
+        forward = "forward or forward! runs in its role" =>
             a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
         adjoint = "uses_adjoint finds a pullback! method for the role" =>
             a -> _adjoint_found(a.piece, a.role),
     ),
     optional = (
-        pointwise = "a vector Step matches the scalar Step on each stratum" =>
+        pointwise = "a vector Step matches the Step on each stratum's view" =>
             a -> _pointwise_ok(a.piece, a.role, a.args),
         blocks = "a vector Step matches the group Step on each group" =>
             a -> _blocks_ok(a.piece, a.role, a.args),
         nstate = "Init and Step keep the state at nstate(m, S) entries" =>
             a -> _nstate_ok(a.piece, a.role, a.args),
     ),
-) "An operator, coupling, modifier or variant with `forward` for a role.
+) "An operator, coupling, modifier or variant with `forward` or `forward!`
+for a role.
 
-The mandatory `forward` component checks that `forward` runs and keeps to
-its role's conventions (outputs written into the leading arrays, inputs
+The mandatory `forward` component checks that `forward` (for `Run()`) or
+`forward!` (for the other roles) runs and keeps to its role's conventions
+(outputs written into the leading arrays and `nothing` returned, inputs
 unchanged).
 The mandatory `adjoint` component checks that a `pullback!` method for the
 type and role is found by [`ComposableRecurrences.uses_adjoint`](@ref): a
@@ -119,7 +121,8 @@ from a blockwise group step's with `v::Tuple, s::Tuple`, and needs a
 `uses_adjoint` method, and one with the wrong number of arguments fails
 too.
 The optional `pointwise` component checks that a pointwise modifier's
-vector step equals its scalar step on every stratum,
+step on the whole vectors equals its step on a one-entry view of each
+stratum,
 
 ```math
 M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
