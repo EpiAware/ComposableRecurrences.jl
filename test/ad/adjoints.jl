@@ -845,9 +845,12 @@ end
             n0, u0 = CR._PULLBACK_CALLS[], UserPkg.CALLS[]
             @test gradient(f, backend, θ) ≈ ref
             @test (UserPkg.CALLS[] > u0) == own
-            # A user operator's own pullback is not the package's.
+            # A user operator's own pullback is not the package's. A coupling
+            # without one whose arrays fit one pass of dual numbers takes the
+            # package's rule with a local derivative.
+            rule = own || name == "coupling, no pullback"
             occursin("operator", name) ||
-                @test (CR._PULLBACK_CALLS[] > n0) == own
+                @test (CR._PULLBACK_CALLS[] > n0) == rule
         end
     end
     @test Base.return_types(
