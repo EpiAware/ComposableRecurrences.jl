@@ -318,3 +318,32 @@ function _check_values(name, x::AbstractArray{<:Real}, ok, what)
     i === nothing || throw(ArgumentError("$name is $what, got $(x[i])"))
     return nothing
 end
+
+# The one entry of stratum `k` of a vector, or of row `r` of a matrix, as a
+# vector with axes `k:k`, so a step written over `eachindex(v)` reads and
+# writes that entry and reads a per-stratum parameter at `k`.
+struct _At{T, A} <: AbstractVector{T}
+    parent::A
+    r::Int
+    k::Int
+end
+@inline _At(a::AbstractVector, k::Integer) = _At{eltype(a), typeof(a)}(a, 0, Int(k))
+@inline _At(a::Base.RefValue, k::Integer) = _At{eltype(a), typeof(a)}(a, 0, Int(k))
+@inline function _At(a::AbstractMatrix, r::Integer, k::Integer)
+    return _At{eltype(a), typeof(a)}(a, Int(r), Int(k))
+end
+@inline Base.size(::_At) = (1,)
+@inline Base.axes(a::_At) = (a.k:a.k,)
+Base.IndexStyle(::Type{<:_At}) = IndexLinear()
+@inline _ix(a::_At{T, <:AbstractVector}) where {T} = (a.k,)
+@inline _ix(a::_At{T, <:Base.RefValue}) where {T} = ()
+@inline _ix(a::_At{T, <:AbstractMatrix}) where {T} = (a.r, a.k)
+@inline function Base.getindex(a::_At, i::Int)
+    @boundscheck i == a.k || throw(BoundsError(a, i))
+    return @inbounds a.parent[_ix(a)...]
+end
+@inline function Base.setindex!(a::_At, x, i::Int)
+    @boundscheck i == a.k || throw(BoundsError(a, i))
+    @inbounds a.parent[_ix(a)...] = x
+    return a
+end

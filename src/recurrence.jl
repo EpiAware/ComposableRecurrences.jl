@@ -976,14 +976,24 @@ _pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
 
-# Thread one stratum's value through pointwise modifiers in tuple order,
+# Thread one stratum's value, held in buffer row `r`, through pointwise
+# modifiers in tuple order, each on the one-entry views of stratum `k`,
 # recording each modifier's input value and state when `rec` holds records.
-_thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
-function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
+# The stratum's value through its pointwise steps, as the one-entry view
+# `x`: in the buffer, or for dual numbers in a local slot, which
+# ForwardDiff keeps in registers while the buffer costs a load and store
+# per step; plain Mooncake gives such a slot a tangent per step, so floats
+# stay in the buffer.
+@inline _slot(H, r, k, v) = (@inbounds H[r, k] = v; _At(H, r, k))
+@inline _slot(::AbstractMatrix{<:ForwardDiff.Dual}, r, k, v) = _At(Ref(v), k)
+_unslot!(H, r, k, x) = nothing
+@inline _unslot!(H, r, k, x::_At{<:Any, <:Base.RefValue}) = (@inbounds H[r, k] = x.parent[]; nothing)
+_thread!(::Tuple{}, ::Tuple{}, rec, x, τ, t, k) = nothing
+@inline function _thread!(ms::Tuple, states::Tuple, rec, x, τ, t, k)
     s = first(states)
-    rec === nothing || _record!(first(rec), v, s[k], t, k)
-    v′, s[k] = forward(first(ms), Step(), v, s[k], τ, k)
-    return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
+    rec === nothing || _record!(first(rec), @inbounds(x[k]), s[k], t, k)
+    forward!(first(ms), Step(), x, _At(s, k), τ)
+    return _thread!(Base.tail(ms), Base.tail(states), _tail(rec), x, τ, t, k)
 end
 _tail(::Nothing) = nothing
 _tail(rec::Tuple) = Base.tail(rec)
@@ -1134,8 +1144,9 @@ end
 @inline function _step_body!(
         k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L, D
     )
-    x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
-    H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
+    x = _slot(H, D + t, k, _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k))
+    _thread!(ms, states, rec, x, τ, t, k)
+    _unslot!(H, D + t, k, x)
     return nothing
 end
 

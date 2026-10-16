@@ -488,6 +488,13 @@ function forward(m, ::Init, s, history)
 end
 
 forward(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
+# The in-place step on the one-entry views of a stratum: a pointwise
+# modifier's scalar step.
+@inline function forward!(m, ::Step, v::_At, s::_At, t)
+    k = v.k
+    @inbounds v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
+    return nothing
+end
 
 # The group `g` entries of `x`, compartment by compartment, as a tuple, and
 # their write-back. Generated as straight-line indexing, which AD backends
