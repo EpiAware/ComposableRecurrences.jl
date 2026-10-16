@@ -956,8 +956,8 @@ end
 end
 
 @testitem "Adjoint: the local step without `ForwardDiff` says to load it" setup = [
-        AdjointCheck, AdjointModifiers,
-    ] begin
+    AdjointCheck, AdjointModifiers,
+] begin
     using ComposableRecurrences
     # The src methods run when the `ForwardDiff` extension is not loaded:
     # each names the piece and says to load it.
@@ -992,8 +992,8 @@ end
 end
 
 @testitem "Adjoint: an operator built without `ForwardDiff` checks its parts per call" setup = [
-        AdjointCheck, AdjointModifiers,
-    ] begin
+    AdjointCheck, AdjointModifiers,
+] begin
     using ComposableRecurrences
     # Built before the extension loads, the constructor stores `nothing`;
     # with it loaded, each call checks the parts and takes the same route as

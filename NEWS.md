@@ -15,6 +15,9 @@
   Before, such a call ran its strata loops with the host arrays inside device kernels, which works on JLArrays but not on a GPU.
   To migrate, move kernels and parameters to the device first, for example with `Adapt.adapt(CuArray, r)`, which moves every parameter of an operator `r`, or `Recurrence(cu(g))`.
 
+- ForwardDiff is a weak dependency.
+  A gradient through the local derivative of a coupling, modifier, depletion form or `Transform` without its own `pullback!` or `derivative` needs `using ForwardDiff`, and without it throws an `ArgumentError` that says so ([adjoints and backends][adjoints]).
+
 ### New
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
