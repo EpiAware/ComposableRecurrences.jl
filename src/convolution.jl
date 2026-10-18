@@ -711,17 +711,32 @@ end
 # AD the extension swaps in BLAS `axpy!`, which `Mooncake` differentiates
 # with one rule.
 @inline function _axpy!(α, x, y)
-    @inbounds @simd ivdep for i in eachindex(x, y)
+    _same_length(y, x)
+    @inbounds @simd ivdep for i in eachindex(y)
         y[i] += α * x[i]
     end
     return y
 end
 @inline function _axpy4!(α₀, α₁, α₂, α₃, x₀, x₁, x₂, x₃, y)
-    @inbounds @simd ivdep for i in eachindex(x₀, x₁, x₂, x₃, y)
+    _same_length(y, x₀, x₁, x₂, x₃)
+    @inbounds @simd ivdep for i in eachindex(y)
         y[i] += α₀ * x₀[i] + α₁ * x₁[i] + α₂ * x₂[i] + α₃ * x₃[i]
     end
     return y
 end
+
+# The vectors an axpy reads have the axes of the one it writes. The message
+# is a constant: a device kernel cannot format the axes into a string, as
+# `eachindex` over several arrays does when they differ. Every comparison
+# runs, and the throw sits behind a call, so the check stays branch-light.
+@inline _same_length(y, x) = axes(x) == axes(y) || _axpy_mismatch()
+@inline function _same_length(y, x₀, x₁, x₂, x₃)
+    a = axes(y)
+    return (axes(x₀) == a) & (axes(x₁) == a) & (axes(x₂) == a) &
+        (axes(x₃) == a) || _axpy_mismatch()
+end
+@noinline _axpy_mismatch() =
+    throw(DimensionMismatch("axpy vectors have different axes"))
 
 # Each stratum is one index of the executor loop; `work` counts one
 # multiply-add per output row and lag.
