@@ -158,6 +158,7 @@ _array_pressure(C, args...) = _need_forwarddiff(C)
 _local_form_pullback(grads, form, args...) = _need_forwarddiff(form)
 _init_jacobian(m, args...) = _need_forwarddiff(m)
 _dual_pressure_buffers(C̄, C, args...) = nothing
+_amounts_gradient(f, args...) = _need_forwarddiff("The trace of a `Pool`'s flow amounts")
 function _need_forwarddiff(piece)
     name = nameof(typeof(piece))
     return _need_forwarddiff("$name has no `pullback!`, and its local derivative")

@@ -1054,8 +1054,8 @@ function _pool_trace_back(::Val{L}, grads, m, v, s, t, g) where {L}
 end
 
 # The flows' amounts back to the pools before them, and to each flow's
-# demand and softness, through a local derivative of `_amounts` at the
-# group's pools, demands and softnesses.
+# demand and softness, through a local forward-mode derivative of
+# `_amounts` at the group's pools, demands and softnesses.
 function _amounts_back(grads, m, x::NTuple{N}, s, t, g) where {N}
     fs, r̄ = m.flows, grads.trace
     z0 = [x..., map(f -> param(f.demand, g, t), fs)..., _softnesses(fs)...]
@@ -1063,7 +1063,7 @@ function _amounts_back(grads, m, x::NTuple{N}, s, t, g) where {N}
         xs = ntuple(i -> z[i], Val(N))
         return sum(map(*, r̄, _amounts(_rebuild_flows(fs, z, N), xs, g, t)))
     end
-    z̄ = ForwardDiff.gradient(traced, z0)
+    z̄ = _amounts_gradient(traced, z0)
     _add_flows!(cotangent(grads.piece, :flows), fs, z̄, N, length(fs) + N, g, t)
     zs = map(_ -> zero(eltype(z̄)), s)
     return ntuple(i -> z̄[i], Val(N)), zs, map(_ -> zero(eltype(z̄)), x), zs

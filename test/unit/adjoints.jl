@@ -1073,6 +1073,9 @@ end
         c::T
     end
     @test_throws msg("Rate") invoke(CR._local_form_pullback, two_args, nothing, Rate(0.7))
+    @test_throws r"^ArgumentError: The trace of a `Pool`'s flow amounts needs `ForwardDiff`" invoke(
+        CR._amounts_gradient, one_arg, sum, [1.0]
+    )
     @test_throws r"^ArgumentError: `Transform` without a `derivative` needs `ForwardDiff`" invoke(
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
