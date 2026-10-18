@@ -835,7 +835,7 @@ function _trace_importation(w, θ)
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
 
-# A protected pool's trace: its protected pool, the value drawn and the
+# A protected `Pool`'s trace: its protected pool, the value drawn and the
 # overflow, one row each per stratum after the susceptible pools.
 function _trace_pool(w, θ)
     logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))

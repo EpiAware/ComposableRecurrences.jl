@@ -66,7 +66,7 @@ end
     @test M[3, :] ≈ pressures(g, R, y, h) .- y
 end
 
-@testitem "Trace: a protected pool's pools, draw and overflow" setup = [TraceChecks] begin
+@testitem "Trace: a protected Pool's pools, draw and overflow" setup = [TraceChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; states_by_step, pressures) = TraceChecks
