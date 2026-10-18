@@ -29,6 +29,21 @@ export scenarios, backends, broken_scenario_names,
     FlooredDepletion,
     supports, unsupported_scenarios
 
+# The benchmark history loads these fixtures with the last few tagged
+# releases (see `supports`). Releases before `forward!` call `forward` for
+# every role, with a pointwise modifier's step on stratum `k`'s scalars
+# returning `(v′, s′)`, so each user type here defines that method there.
+const IN_PLACE = isdefined(ComposableRecurrences, :forward!)
+
+# A `forward!` method that writes in place on every release, an `Init` or a
+# `Pressure`: as written, or on a release before `forward!` as `forward`.
+macro in_place(def)
+    return esc(IN_PLACE ? def : _as_forward(def))
+end
+_as_forward(x) = x
+_as_forward(x::QuoteNode) = x.value === :forward! ? QuoteNode(:forward) : x
+_as_forward(x::Expr) = Expr(x.head, map(_as_forward, x.args)...)
+
 # ForwardDiff reference gradient for a scenario function.
 function _reference(f, θ)
     return DifferentiationInterface.gradient(f, AutoForwardDiff(), θ)
@@ -42,18 +57,30 @@ scaled by `max(s / pop, 1e-6)` and removed from the pool `s`, which starts at
 struct FlooredDepletion{P}
     pop::P
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         m::FlooredDepletion, ::ComposableRecurrences.Init, s, history
     )
     s .= m.pop
     return nothing
 end
 ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-function ComposableRecurrences.forward(
-        m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    v′ = max(s / m.pop[k], 1.0e-6) * v
-    return v′, s - v′
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        v′ = max(s / m.pop[k], 1.0e-6) * v
+        return v′, s - v′
+    end
 end
 
 """
@@ -63,18 +90,30 @@ the scalar field is differentiated.
 struct ScalarDepletion{T}
     N::T
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         m::ScalarDepletion, ::ComposableRecurrences.Init, s, history
     )
     fill!(s, m.N)
     return nothing
 end
 ComposableRecurrences.ispointwise(::ScalarDepletion) = true
-function ComposableRecurrences.forward(
-        m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    v′ = max(s / m.N, 1.0e-6) * v
-    return v′, s - v′
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.N, 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        v′ = max(s / m.N, 1.0e-6) * v
+        return v′, s - v′
+    end
 end
 
 # Consecutive blocks of `θ` with the given shapes, as reshaped views.
@@ -755,10 +794,18 @@ struct DeepBuffer
     w::Int
 end
 ComposableRecurrences.ispointwise(::DeepBuffer) = true
-function ComposableRecurrences.forward(
-        ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    return v, s
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t
+        )
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        return v, s
+    end
 end
 if isdefined(ComposableRecurrences, :depth)
     ComposableRecurrences.depth(m::DeepBuffer) = m.w
@@ -1264,7 +1311,7 @@ const _TWIN_REQUIRES = (:uses_adjoint,)
 struct ShareFirst{A}
     a::A
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         C::ShareFirst, ::ComposableRecurrences.Pressure, q, p, t
     )
     tot = sum(view(p, 2:length(p)))
@@ -1281,11 +1328,23 @@ struct StrataCap{K, B}
     β::B
 end
 ComposableRecurrences.ispointwise(::StrataCap) = true
-function ComposableRecurrences.forward(
-        m::StrataCap, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    κ = ComposableRecurrences.param(m.κ, k, t)
-    return ComposableRecurrences.param(m.β, k, t) * v * κ / (κ + v), s
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::StrataCap, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            κ = ComposableRecurrences.param(m.κ, k, t)
+            v[k] = ComposableRecurrences.param(m.β, k, t) * v[k] * κ / (κ + v[k])
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::StrataCap, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        κ = ComposableRecurrences.param(m.κ, k, t)
+        return ComposableRecurrences.param(m.β, k, t) * v * κ / (κ + v), s
+    end
 end
 
 function _user_coupling(w, θ)
@@ -1322,10 +1381,21 @@ struct ByTime{A}
     a::A
 end
 ComposableRecurrences.ispointwise(::ByTime) = true
-function ComposableRecurrences.forward(
-        m::ByTime, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    return m.a[t] * v, s
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::ByTime, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            v[k] = m.a[t] * v[k]
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::ByTime, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        return m.a[t] * v, s
+    end
 end
 
 "Pressure `K * p`, scaled by `β` per stratum."
@@ -1333,7 +1403,7 @@ struct MatrixMix{M, B}
     K::M
     β::B
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         C::MatrixMix, ::ComposableRecurrences.Pressure, q, p, t
     )
     q .= C.β .* (C.K * p)
