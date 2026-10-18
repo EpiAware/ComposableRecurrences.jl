@@ -65,6 +65,11 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 
 ### [What the local step needs](@id adjoint-local-step)
 
+The local step needs ForwardDiff loaded, as `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
+Without it the forward pass runs, and a gradient through the local step throws an `ArgumentError` that names the part and says to load ForwardDiff.
+A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction.
+The check itself needs ForwardDiff, so without it a part that the local step cannot rebuild also throws, rather than taking plain AD; once ForwardDiff is loaded it takes plain AD as below.
+
 Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
 
 The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.

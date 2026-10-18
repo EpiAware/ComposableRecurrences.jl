@@ -82,7 +82,6 @@ module ComposableRecurrences
 using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
-using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
@@ -146,7 +145,8 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
-# Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.
+# Default pullbacks of modifiers and couplings without one, whose dual-number
+# code is in an extension.
 include("fallbacks.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("delays.jl")

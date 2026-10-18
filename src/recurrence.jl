@@ -97,6 +97,8 @@ dual numbers pass through any slot.
 The constructor checks once whether the local step can rebuild every
 part it differentiates and stores the result in the field `rebuilds`; see
 [Rules and plain AD](@ref adjoint-routing) for the route this sets.
+Built before the local step's dual numbers are loaded, it stores `nothing`
+and each call that takes the rule checks instead.
 
 # Arguments
 - `kernel`: the kernel, lag 1 first.
@@ -726,8 +728,10 @@ end
 # The `rebuilds` field, set at construction: `Val(true)` when the types
 # send no part to the local step, so the route folds; otherwise whether
 # each part the local step rebuilds gives its scalars back
-# (`_check_rebuild`). An operator the rule does not cover, by its types or
-# by a part that does not rebuild, says why once.
+# (`_check_rebuild`), or `nothing` when the dual-number extension, which
+# the check needs, is not loaded, and the call checks them (`_fit`). An operator the rule
+# does not cover, by its types or by a part that does not rebuild, says why
+# once.
 function _check_parts(kernel, C, ms::Tuple)
     if !_parts_adjoint(kernel, C, ms)
         C_why = _coupling_adjoint(C) === :none ? (_part_why(C),) : ()
@@ -738,10 +742,17 @@ function _check_parts(kernel, C, ms::Tuple)
 end
 _check_rebuilds(::Tuple{}) = Val(true)
 function _check_rebuilds(parts::Tuple)
-    failed = filter(!_check_rebuild, parts)
+    oks = map(_check_rebuild, parts)
+    any(isnothing, oks) && return nothing
+    failed = _failed(parts, oks)
     isempty(failed) && return true
     _note_plain(map(_rebuild_why, failed))
     return false
+end
+_failed(::Tuple{}, ::Tuple{}) = ()
+function _failed(ps::Tuple, oks::Tuple)
+    rest = _failed(Base.tail(ps), Base.tail(oks))
+    return first(oks) ? rest : (first(ps), rest...)
 end
 function _rebuild_why(p)
     name = nameof(typeof(p))
@@ -807,9 +818,26 @@ end
 # only where `_ad_wide` is a rule (see the adjoints page).
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
+    return _parts_fit(r, h)
+end
+# An operator built before the dual-number extension was loaded checks its
+# parts when it is called (`_check_now`). Without the extension the call
+# takes the rule, whose forward pass runs and whose reverse pass says to
+# load it.
+function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args...)
+    _check_now(r) || return :none
+    return _parts_fit(r, h)
+end
+function _parts_fit(r, h)
     fit = _coupling_fit(r.coupling, h)
     fit === :one && _any_reads(r.modifiers) && return :wide
     return fit
+end
+# The construction check of `r`'s parts, run on its primal values when it
+# is called; the backend extensions do not differentiate it.
+function _check_now(r::Recurrence)
+    parts = (_local_part(r.coupling)..., _local_parts(r.modifiers...)...)
+    return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
 function _coupling_fit(C, h)
