@@ -215,8 +215,12 @@ end
     x̄ = (; x = (; x = zeros(2), starts = nothing))
     CR.add_param!(x̄, ap, 1.5, 1, 10)
     @test x̄.x.x == [0.0, 1.5]
-    @test_throws ArgumentError CR.Beds(TimeVarying([1 => 0.2, 3 => 1.5]))
-    @test CR.Beds(TimeVarying([1 => 0.2, 3 => 0.5])).exit isa TimeVarying
+    @test_throws ArgumentError CR.Flow(
+        :O => 0, TimeVarying([1 => 0.2, 3 => 1.5]); form = CR.Share()
+    )
+    @test CR.Flow(
+        :O => 0, TimeVarying([1 => 0.2, 3 => 0.5]); form = CR.Share()
+    ).demand isa TimeVarying
 end
 
 @testitem "Adjoint: coefficients from change points" setup = [AdjointCheck, PiecewiseChecks] begin

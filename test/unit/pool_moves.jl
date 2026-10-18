@@ -360,13 +360,20 @@ end
     CR = ComposableRecurrences
     @test_throws "two different pools, got 1 => 1" CR.Flow(1 => 1, 0.1)
     @test_throws "two different pools, got :S => :S" CR.Flow(:S => :S, 0.1)
-    @test_throws "got from = 0" CR.Flow(0 => 1, 0.1)
+    @test_throws "a flow from outside the Pool is a count" CR.Flow(0 => 1, 0.1)
     @test_throws "got to = -1" CR.Flow(1 => -1, 0.1)
     @test_throws "given as from => to, got (1, 2)" CR.Flow((1, 2), 0.1)
     @test_throws "pool names or positions, got 1.5" CR.Flow(1.5 => 2, 0.1)
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2])
     @test_throws ArgumentError CR.Flow(1 => 2, TimeVarying([0.1, 0.2], CR.Primary()))
     @test_throws ArgumentError CR.Flow(1 => 2, [0.1, 0.2]; form = CR.Share())
+    @test_throws "demand is between 0 and 1, got 1.5" CR.Flow(
+        1 => 2, 1.5; form = CR.Share()
+    )
+    @test_throws "demand is between 0 and 1, got -0.1" CR.Flow(
+        1 => 0, PerStratum([0.2, -0.1]); form = CR.Share()
+    )
+    @test CR.Flow(1 => 2, 1.5).demand == 1.5
     @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )

@@ -13,7 +13,7 @@
 # 1. Turn admissions into occupancy with a convolution and, for a geometric stay, a recurrence.
 # 2. Compare a log-normal stay with the same mean.
 # 3. Cap occupancy at the number of beds with `Clamp`.
-# 4. Admit up to the free beds with `Capacity` and keep the rest.
+# 4. Admit up to the free beds with a `Pool` and keep the rest.
 # 5. Move suspected and confirmed patients between two compartments in one ward.
 #
 # ### What might I need to know before starting
@@ -24,7 +24,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp, Capacity, Beds, Flow, Pool
+using ComposableRecurrences: Clamp, Flow, Pool, Share, Truncate
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using SpecialFunctions: erfc
 
@@ -114,7 +114,7 @@ end
 
 # The log-normal stay gives a lower, later peak and a longer tail.
 # For the same mean, more patients leave within two days and more stay beyond two weeks than with the geometric stay.
-# The rest of this tutorial uses the geometric stay, as the `Beds` mode and the hazard flows do.
+# The rest of this tutorial uses the geometric stay, as a pool's share exit flow and the hazard flows do.
 
 # ## A bed cap
 #
@@ -146,7 +146,7 @@ round(sum(by_recurrence .- capped))
 # ## Admitted and turned away
 #
 # The cap deletes the patients it turns away.
-# [`Capacity`](@ref ComposableRecurrences.Capacity) keeps them instead.
+# A [`Pool`](@ref ComposableRecurrences.Pool) keeps them instead.
 # It admits each day's demand up to the free beds and routes the rest to a second series:
 #
 # ```math
@@ -157,11 +157,16 @@ round(sum(by_recurrence .- capped))
 #
 # where ``f_t`` is the number of free beds and ``x_t`` the admissions.
 # The second series receives the ``A_t - x_t`` patients turned away.
-# In the [`Beds`](@ref ComposableRecurrences.Beds) mode the state is the occupancy.
-# A share `δ` of it leaves each day.
+# The `Pool`'s one pool `:O` is the occupancy, and its state.
+# The draw `Truncate() => :O` fills it with the admissions, up to `beds`.
+# A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as `flows_first = true`.
+# `overflow = :stratum` sends what is turned away to the second series.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
-routing = Capacity(beds, Beds(δ); pairs = [1 => 2])
+routing = Pool(
+    beds; pools = (:O,), draw = Truncate() => :O, flows_first = true,
+    flows = Flow(:O => 0, δ; form = Share()), overflow = :stratum
+)
 routed = Recurrence([0.0]; modifiers = (routing,))(;
     history = zeros(2, 1), add = [admissions'; zeros(1, T)]
 )
@@ -179,9 +184,9 @@ end
 
 maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
-# A [`Budget`](@ref ComposableRecurrences.Budget) mode grants an allowance each
-# period instead.
-# Vaccine doses per week are one example.
+# An allowance granted each period works the same way, with a pool drawn from rather than filled.
+# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B`.
+# The [`Pool`](@ref ComposableRecurrences.Pool) docstring gives it and the other models of pools and flows.
 
 # ## A ward with two linked compartments
 #

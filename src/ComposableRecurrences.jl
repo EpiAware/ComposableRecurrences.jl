@@ -42,7 +42,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
 | pools and flows       | `Pool(N; pools, draw, flows)`, `Flow(from => to, d)`     |
-| admitted and overflow | `Capacity(C, Beds(δ); pairs = [a => o])`                 |
+| admitted and overflow | `Pool(C; draw = Truncate() => :O, overflow = :stratum)`  |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
 | extension             | a type with a `forward` method for a role                |
 
@@ -82,7 +82,6 @@ module ComposableRecurrences
 using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
-using ForwardDiff: ForwardDiff
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
@@ -96,7 +95,7 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Deriv
     Recent
 
 public Pool, Depletion, Flow, Share, Redistribute, movement,
-    Add, Clamp, Allocate, Capacity, Beds, Budget, Route, Hold, Drop,
+    Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,
     pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
@@ -130,8 +129,6 @@ include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
-# Routing demand between admitted and overflow strata under a capacity.
-include("capacity.jl")
 # The built-in couplings, `forward` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
@@ -144,7 +141,8 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
-# Local `ForwardDiff` pullbacks for pointwise modifiers and initial states.
+# Default pullbacks of modifiers and couplings without one, whose dual-number
+# code is in an extension.
 include("fallbacks.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("delays.jl")

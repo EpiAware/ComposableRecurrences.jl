@@ -557,59 +557,80 @@ end
 
 # The capacity scenarios' parameters are offsets from a base vector, so they
 # start at zero, as `TRUNC0` below. Scalars are indexed from the sum: built
-# from `only` of a view, a `Capacity` makes Enzyme reverse fail with an
+# from `only` of a view, a capacity pool makes Enzyme reverse fail with an
 # `EnzymeNoShadowError` in the `Recurrence` constructor.
 const GCAP = [0.5, 1.0, 1.0] .* G0'
 
 # A bed cap on stratum 1 with its overflow in stratum 2, smoothed so finite
-# differences see no kink; admitted cases transmit less.
-const CAPS0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, [log(12.0)], [0.2], [0.1])
+# differences see no kink; admitted cases transmit less. A share of the beds
+# empties before each step's admissions fill them.
+const CAPS0 = _flat(fill(log(5.0), 2, L), 0.5 .+ LOGR[1:2, :], [log(12.0)], [0.2], [0.1])
 function _capacity_beds(w, θ)
     x = CAPS0 .+ θ
-    logh, logR = _unpack(x, (S, L), (S, T))
+    logh, logR = _unpack(x, (2, L), (2, T))
     n = length(x)
-    beds = ComposableRecurrences.Capacity(
-        exp(x[n - 2]), ComposableRecurrences.Beds(x[n - 1]);
-        pairs = [1 => 2], form = ComposableRecurrences.SoftTruncate(x[n])
-    )
-    r = Recurrence(PerStratum(GCAP); modifiers = (beds,))
+    beds = _beds(exp(x[n - 2]), x[n - 1], x[n])
+    r = Recurrence(PerStratum(GCAP[1:2, :]); modifiers = (beds,))
     y = w(r)(exp.(logR); history = exp.(logh))
-    return sum(WS .* log.(y))
+    return sum(WS[1:2, :] .* log.(y))
 end
 
-# A weekly budget per admitted stratum, carried over, with unserved demand
-# queued for the next step.
+# The capacity pools are built behind a call: inline in the losses, whose
+# unpacking does not infer, Enzyme rejects them when the code is compiled
+# for coverage.
+function _beds(C, δ, κ)
+    CR = ComposableRecurrences
+    return CR.Pool(
+        C; pools = (:O,), draw = CR.SoftTruncate(κ) => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow = :stratum
+    )
+end
+function _budget(init, grants)
+    CR = ComposableRecurrences
+    return CR.Pool(;
+        pools = (:B,), initial = PerStratum(init), draw = :B => CR.Truncate(),
+        flows_first = true, overflow = :queue,
+        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    )
+end
+
+# A weekly budget per stratum, carried over, with unserved demand queued for
+# the next step: the grants are a flow into each allowance at each week's
+# start.
 const CAPB0 = _flat(
     fill(log(5.0), S, L), 0.5 .+ LOGR,
-    [log(9.0 + p + 0.5 * sin(t)) for p in 1:2, t in 1:T], [1.0, 2.0],
+    [log(9.0 + p + 0.5 * sin(t)) for p in 1:S, t in 1:(L + T)], [1.0, 2.0, 0.5],
 )
+# A grant at each week's start, and a small one at every other step: a
+# grant of exactly zero is the kink of a count from outside, where finite
+# differences disagree with any derivative.
+const WEEKS = [t > L && rem(t - L - 1, 4) == 0 ? 1.0 : 0.01 for p in 1:S, t in 1:(L + T)]
 function _capacity_budget(w, θ)
-    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (2, T), (2,))
-    doses = ComposableRecurrences.Capacity(
-        TimeVarying(PerStratum(exp.(logb))), ComposableRecurrences.Budget(4);
-        pairs = [1, 3], overflow = ComposableRecurrences.Hold(),
-        initial = PerStratum(collect(init))
-    )
-    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
+    CR = ComposableRecurrences
+    grants = WEEKS .* exp.(logb)
+    r = Recurrence(PerStratum(GCAP); modifiers = (_budget(collect(init), grants),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
 end
 
 # A pool that runs low, drawn with the smooth truncation, then a bed cap per
-# pair whose overflow is dropped: the pool, softness and beds are
+# stratum whose overflow is dropped: the pool, softness and beds are
 # parameters.
 const CAPD0 = _flat(
-    fill(log(5.0), S, L), 0.5 .+ LOGR, [log(500.0), 0.15, log(8.0), log(6.0)]
+    fill(log(5.0), S, L), 0.5 .+ LOGR,
+    [log(500.0), 0.15, log(8.0), log(20.0), log(6.0)]
 )
 function _capacity_drop(w, θ)
     x = CAPD0 .+ θ
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = CR.Depletion(exp(x[n - 3]), CR.SoftTruncate(x[n - 2]))
-    beds = CR.Capacity(
-        PerStratum(exp.(x[(n - 1):n])), CR.Beds(0.3); pairs = [1, 3],
-        overflow = CR.Drop(), form = CR.SoftTruncate(0.2)
+    pool = CR.Depletion(exp(x[n - 4]), CR.SoftTruncate(x[n - 3]))
+    beds = CR.Pool(
+        PerStratum(exp.(x[(n - 2):n])); pools = (:O,),
+        draw = CR.SoftTruncate(0.2) => :O, flows_first = true,
+        flows = CR.Flow(:O => 0, 0.3; form = CR.Share())
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -1222,6 +1243,12 @@ const _PROBES = Dict{Symbol, Function}(
     :removals => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; removals = 1.0)
     ),
+    # A `Pool` whose draw fills a pool up to a capacity.
+    :pool_fill => () -> _accepts(
+        () -> ComposableRecurrences.Pool(
+            1.0; pools = (:O,), draw = ComposableRecurrences.Truncate() => :O
+        )
+    ),
 )
 
 # The features each scenario needs beyond the first release, by scenario
@@ -1240,9 +1267,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:movement, :_intensity, :Recent),
-    "Recurrence capacity, beds with overflow" => (:Capacity,),
-    "Recurrence capacity, weekly budget with a queue" => (:Capacity,),
-    "Recurrence capacity, dropped overflow after a truncated draw" => (:Capacity,),
+    "Recurrence capacity, beds with overflow" => (:pool_fill,),
+    "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
+    "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:Pool,),
@@ -1382,6 +1409,21 @@ function _modifier_by_time(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A coupling and a modifier without a pullback, in an operator built before
+# the local step's check could run (as before `ForwardDiff` loads): the
+# call checks its parts on their primal values, inside the backend's trace.
+function _unchecked_parts(w, θ)
+    logh, logR, a, logκ, β = _unpack(θ, (S, L), (S, T), (1,), (S,), (T,))
+    m = StrataCap(PerStratum(exp.(logκ)), TimeVarying(β))
+    r0 = Recurrence(G0; coupling = ShareFirst(only(a)), modifiers = (m,))
+    r = Recurrence(
+        ComposableRecurrences._Checked(), r0.kernel, r0.coupling, r0.modifiers,
+        nothing
+    )
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 function _user_coupling_matrix(w, θ)
     logh, logR, K, β = _unpack(θ, (S, L), (S, T), (S, S), (S,))
     r = Recurrence(G0; coupling = MatrixMix(K, β))
@@ -1426,6 +1468,10 @@ push!(
         "Recurrence user coupling holding a matrix", _user_coupling_matrix,
         () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
     ),
+    (
+        "Recurrence checked at the call", _unchecked_parts,
+        () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
@@ -1439,6 +1485,9 @@ end
 # coupling's arrays came together.
 _REQUIRES["Recurrence modifier with a vector field read by time"] = (:_read_pullback,)
 _REQUIRES["Recurrence user coupling holding a matrix"] = (:_read_pullback,)
+# An operator built before the local step's check could run came with
+# `ForwardDiff` as an extension.
+_REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 

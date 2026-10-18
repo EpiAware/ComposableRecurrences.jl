@@ -5,9 +5,9 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Add, Allocate, Budget, Capacity, Clamp, Depletion,
-    Floor, Flow, Hazard, Hold, Pool, Primary, Redistribute, Secondary,
-    SoftTruncate, Step, Transform, Truncate, with_state
+using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
+    Hazard, Pool, Primary, Redistribute, Secondary, SoftTruncate, Step,
+    Transform, Truncate, with_state
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -119,6 +119,17 @@ function rec_pointwise_modifier(θ)
     return r(θ[(L + 1):end]; history = H1)
 end
 
+# The same operator built before the local step's check could run (as
+# before `ForwardDiff` loads): the call checks the modifier while traced.
+function rec_checked_at_call(θ)
+    r0 = Recurrence(θ[1:L]; modifiers = (Lower(1.0),))
+    r = Recurrence(
+        ComposableRecurrences._Checked(), r0.kernel, r0.coupling, r0.modifiers,
+        nothing
+    )
+    return r(θ[(L + 1):end]; history = H1)
+end
+
 function rec_apply_modifier(θ)
     r = Recurrence(g0; modifiers = (Rescale(6.0),))
     return r(reshape(θ, S, T); history = HS)
@@ -208,11 +219,14 @@ function mod_redistribute(θ)
     return r(R; history = HS)
 end
 
-# A weekly budget for stratum 1 whose unmet demand waits in a queue, with
-# the smooth draw, so the step time picks the budget's refills.
+# A weekly budget for each stratum whose unmet demand waits in a queue,
+# with the smooth draw: the budget is granted at each week's start.
+const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
 function mod_capacity(θ)
-    c = Capacity(
-        5.0, Budget(7); pairs = [1], overflow = Hold(), form = SoftTruncate(0.5)
+    c = Pool(;
+        pools = (:B,), draw = :B => SoftTruncate(0.5), flows_first = true,
+        flows = Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
+        overflow = :queue
     )
     r = Recurrence(g0; modifiers = (c,))
     return r(reshape(θ, S, T); history = HS)
@@ -326,6 +340,11 @@ const CASES = [
         rec_pointwise_modifier, vcat(g0, RM0), W1
     ),
     Case(
+        "rec_checked_at_call",
+        "Recurrence, custom pointwise modifier checked at the call",
+        rec_checked_at_call, vcat(g0, RM0), W1
+    ),
+    Case(
         "rec_apply_modifier", "Recurrence, custom all-strata modifier",
         rec_apply_modifier, vec(RS0), WS
     ),
@@ -380,7 +399,7 @@ const CASES = [
         mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
     ),
     Case(
-        "mod_capacity", "Recurrence with Capacity (Budget, Hold)",
+        "mod_capacity", "Recurrence with a budget Pool and a queue",
         mod_capacity, vec(RS0), WS
     ),
     Case(

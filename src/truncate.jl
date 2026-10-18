@@ -115,6 +115,11 @@ end
 _softness(::Truncate) = nothing
 _softness(form::SoftTruncate) = form.κ
 
+# The truncated forms read no exponent, so it is fixed at one, without a
+# cotangent.
+_unit_exponent(::Union{Truncate, SoftTruncate}) = _FixedExponent{true}()
+_exponent(α::Bool, N, ::Union{Truncate, SoftTruncate}) = _FixedExponent{α}()
+
 # The minimum of `a` and a non-negative `b`, or with softness `κ` the
 # smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M`
 # the smaller and larger of the two; a non-positive `m` is returned as it

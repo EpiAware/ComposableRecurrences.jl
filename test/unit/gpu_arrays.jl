@@ -315,6 +315,87 @@ end
     @test state.t == cstate.t
 end
 
+@testitem "JLArrays: every case runs under an explicit Device executor" setup = [GPUCases] begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using Base.ScopedValues: with
+    using JLArrays, KernelAbstractions
+    JLArrays.allowscalar(false)
+    ex = CR.Device(KernelAbstractions.get_backend(JLArray(ones(1))))
+    for (name, f) in GPUCases.CASES
+        @testset "$name" begin
+            y = with(CR.EXECUTOR => ex) do
+                f(JLArray)
+            end
+            @test y isa JLArray
+            @test Array(y) ≈ f(identity)
+        end
+    end
+end
+
+@testitem "JLArrays: kernel arguments are plain data" setup = [GPUCases] begin
+    using Adapt: adapt
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using Base.ScopedValues: with
+    using JLArrays, KernelAbstractions
+    JLArrays.allowscalar(false)
+    KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
+    # A backend that compiles kernels takes plain data only: bits types, or
+    # immutable structs whose concretely typed fields are plain, with the
+    # backend's device arrays as leaves. JLArrays run kernels as Julia code
+    # and do not check, so each launch's arguments are recorded and checked
+    # as the launch adapts them.
+    # A device array is a leaf: whether its element type can live on the
+    # device is the backend's concern, not the launch's.
+    plain(::Type{<:JLArrays.JLDeviceArray}) = true
+    function plain(T::Type)
+        isbitstype(T) && return true
+        isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
+        return all(plain, fieldtypes(T))
+    end
+    launched(args) = typeof(adapt(JLArrays.Adaptor(), args))
+    # The JLArrays backend, keeping the arguments of each launch.
+    struct Recording{B}
+        inner::B
+        args::Vector{Any}
+    end
+    function KAExt._launch!(b::Recording, body::F, args, n) where {F}
+        push!(b.args, args)
+        return KAExt._launch!(b.inner, body, args, n)
+    end
+    jl = KernelAbstractions.get_backend(JLArray(ones(1)))
+    for (name, f) in GPUCases.CASES
+        @testset "$name" begin
+            b = Recording(jl, Any[])
+            y = with(CR.EXECUTOR => CR.Device(b)) do
+                f(JLArray)
+            end
+            @test Array(y) ≈ f(identity)
+            @test !isempty(b.args)
+            @test all(a -> plain(launched(a)), b.args)
+        end
+    end
+    # The call's executor is not plain data, so it must not reach a kernel.
+    @test !plain(launched((CR._current(),)))
+end
+
+@testitem "KernelAbstractions alone adapts wrappers and modifiers" begin
+    # Adapt.jl rules load with KernelAbstractions, which loads Adapt, so a
+    # kernel launch on a backend without GPUArraysCore (such as the CPU
+    # backend) adapts the arrays the wrappers and modifiers hold.
+    project = dirname(Base.active_project())
+    code = """
+    using ComposableRecurrences, KernelAbstractions, Adapt
+    const CR = ComposableRecurrences
+    gpu = Base.get_extension(CR, :ComposableRecurrencesGPUArraysCoreExt)
+    ka = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
+    m = CR.Depletion(PerStratum([60.0, 50.0]); pool0 = PerStratum([50.0, 40.0]))
+    y = adapt(Array{Float32}, m)
+    println("RESULT ", gpu === nothing, " ", ka !== nothing, " ", eltype(y.N.x), " ", y isa CR.Pool)
+    """
+    out = read(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $code`, String)
+    @test "RESULT true true Float32 true" in split(out, '\n')
+end
+
 @testitem "JLArrays: dual numbers carry tangents through the device forward pass" setup = [GPUCases] begin
     using ForwardDiff: Dual, partials, value
     using JLArrays

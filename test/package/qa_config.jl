@@ -71,6 +71,11 @@ const QA_CONFIG = (
             prefixes = ("ComposableRecurrences",),
         ),
         (;
+            name = :ComposableRecurrencesForwardDiffExt,
+            triggers = ("ForwardDiff",),
+            prefixes = ("ComposableRecurrences",),
+        ),
+        (;
             name = :ComposableRecurrencesEnzymeExt, triggers = ("Enzyme",),
             prefixes = ("ComposableRecurrences",),
         ),

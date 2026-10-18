@@ -21,6 +21,9 @@
   Before, such a call ran its strata loops with the host arrays inside device kernels, which works on JLArrays but not on a GPU.
   To migrate, move kernels and parameters to the device first, for example with `Adapt.adapt(CuArray, r)`, which moves every parameter of an operator `r`, or `Recurrence(cu(g))`.
 
+- ForwardDiff is a weak dependency.
+  A gradient through the local derivative of a coupling, modifier, depletion form or `Transform` without its own `pullback!` or `derivative` needs `using ForwardDiff`, and without it throws an `ArgumentError` that says so ([adjoints and backends][adjoints]).
+
 ### New
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
@@ -38,13 +41,14 @@
   `Allocate(groups, total; imports = (fraction, pattern), spill)` places a fraction of each total by an import pattern read before a within-group spill.
 - `Pool(N; pools, initial, draw, heterogeneity, flows)` holds pools for each group of strata: each step's value is drawn from weighted pools by a depletion form, then `Flow(from => to, demand; form)`s move between the pools ([renewal then delay][renewal]).
   A second pool drawn at weight `σ` gives all-or-nothing or leaky protection, and `Flow(:V => :S, ω)` gives waning protection.
-  The first pool the draw names starts at `N` when `N` is given; every other pool starts empty, in the state's element type.
+  The first pool the draw takes from starts at `N` when `N` is given; every other pool, and a pool the draw fills, starts empty, in the state's element type.
+  A draw into a pool fills it up to a capacity, such as beds, and the flows can act before the draw (`flows_first = true`), such as a share leaving the beds or a grant `Flow(0 => :B, b; form = Truncate())` into an allowance at the start of each period ([occupancy and capacity][occupancy]).
+  What the draw leaves of the demand goes to a second stratum (`overflow = :stratum`), to a queue in the state that joins the next step's demand (`overflow = :queue`), or nowhere.
   Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Depletion(N; removals)` takes removals from the pool after each draw ([renewal then delay][renewal]).
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
-- `Capacity(C, mode; pairs, overflow, form)` admits demand up to free `Beds` or a per-period `Budget` and sends the rest to an overflow stratum (`Route()`), a queue (`Hold()`) or nowhere (`Drop()`) ([occupancy and capacity][occupancy]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
 - `delay_masses(d, lags)` returns a delay's masses on lags `0` to `lags - 1`, and packages that own delay types add methods for them.
   With Distributions loaded, `Recurrence(kernel; lags)` and `Convolution(kernel; lags)` take a kernel of delay distributions, alone or in `PerStratum`, `Pairwise`, `TimeVarying` or `Routes`, from each operator's own lag origin ([delay distributions][delays]).
@@ -65,11 +69,11 @@
   A pointwise modifier's local derivative seeds the entries of its other float arrays that a step reads, and keeps the rule on Mooncake ([adjoints and backends][adjoints]).
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
-- Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
+- Extensions for Distributions, ForwardDiff, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 
 ### Changed
 
-- ConstructionBase and ForwardDiff are hard dependencies.
+- ConstructionBase is a hard dependency.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.
 - `Redistribute` checks its matrix against the strata, and its columns, once, in `Init` or on a resumed state, rather than every step.

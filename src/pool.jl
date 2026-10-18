@@ -13,11 +13,11 @@ A modifier of pools and flows: each group of strata holds pools, the step's
 value is drawn from them by a depletion form, and
 [`ComposableRecurrences.Flow`](@ref)s move between them.
 
-With a draw, each stratum is a group with ``n`` pools
-``x_1, \dots, x_n``.
-At absolute time ``t``, for a group with value ``v``, population ``N_t``
-and heterogeneity ``\alpha``, the form ``F`` draws from the weighted pools
-``P``, and each pool loses the draw in proportion to its weight:
+With a draw, each group has ``n`` pools ``x_1, \dots, x_n`` in the state
+and its value ``v`` is the demand.
+At absolute time ``t``, with population ``N_t`` and heterogeneity
+``\alpha``, the form ``F`` draws from the weighted pools ``P``, and each
+pool loses the draw in proportion to its weight:
 
 ```math
 \begin{aligned}
@@ -29,8 +29,21 @@ x^{*}_i &= x_i - v' \frac{w_i x_i}{P}, \qquad x' = \Phi_t(x^{*}),
 where ``w_i`` is pool ``i``'s weight in the draw (zero for a pool the
 draw does not name), ``v'`` the value passed on and ``\Phi_t`` the flows.
 When ``P \le 0`` the draw comes from the first pool the draw names alone.
-The flows act on the pools after the draw, in the order
-[`ComposableRecurrences.Flow`](@ref) sets out.
+A draw into pool ``f`` (`draw = form => pool`) fills it instead, up to
+``N_t``: ``(v', \cdot) = F(v, N_t - x_f, N_t, \alpha)`` and
+``x^{*}_f = x_f + v'``, as admissions fill beds.
+Its form is `Truncate()` or `SoftTruncate(κ)`, and its capacity ``N_t`` is
+not negative.
+The flows act on the pools after the draw, or before it with
+`flows_first = true`, as when patients leave before the day's admissions
+or an allowance is granted at the start of a period.
+They act in the order [`ComposableRecurrences.Flow`](@ref) sets out, and a
+count flow from `0` brings its demand in from outside the `Pool`.
+What the draw leaves of the demand, ``u = v - v'``, goes nowhere by
+default; with `overflow = :stratum` to the group's second value,
+``v'_2 = v_2 + u``, and with `overflow = :queue` to a queue held after the
+pools in the state, whose content joins the next step's demand.
+
 The form is a variant struct with `forward(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref),
 [`ComposableRecurrences.Floor`](@ref),
@@ -41,9 +54,21 @@ method ([A depletion form](@ref extending-form)).
 The draw's `Hazard()` takes its hazard from the value over the population,
 ``v / N_t``; a `Hazard()` flow's demand is read as
 [`ComposableRecurrences.Flow`](@ref) sets out.
-With one pool the step is pointwise and the state is the pool; with more
-it is blockwise ([`ComposableRecurrences.blocks`](@ref) is `Val((1, n))`)
-and the state holds pool 1 of every stratum, then pool 2, and so on.
+A `Pool` with one pool, drawn from, flows after the draw and no overflow is
+a pointwise step whose state is the pool, as
+[`ComposableRecurrences.Depletion`](@ref).
+Any other is blockwise ([`ComposableRecurrences.blocks`](@ref)): each group
+has one value, or two with `overflow = :stratum`, value ``(j - 1) G + g``
+being value ``j`` of group ``g`` for ``G`` groups, and the state holds
+pool 1 of every group, then pool 2, and so on, then the queue.
+A `Pool` covers every stratum, so a stratum without a cap takes an
+infinite `N`.
+With `overflow = :stratum` group ``g`` overflows into stratum ``G + g``, so
+another pairing permutes the strata.
+For groups that share one overflow stratum, a
+[`ComposableRecurrences.Redistribute`](@ref) after the `Pool`, with
+``\varepsilon = 1`` on the other overflow strata and `K` sending each to the
+shared one, moves their values into it.
 
 Without a draw (`draw = nothing`) the pools are the step's values: the
 values hold ``n`` pools of ``G`` groups each, pool by pool
@@ -55,20 +80,32 @@ previous step's pools forward, and the `Pool` applies the step's flows,
 The state then holds what flowed into each pool at the step, where a
 negative count adds nothing.
 
+| model | pools | draw | flows |
+|:----- |:------ |:---- |:----- |
+| beds that a share ``\delta`` leaves each step | `(:O,)` | `Truncate() => :O`, with `N` the beds | `Flow(:O => 0, δ; form = Share())`, with `flows_first = true` |
+| an allowance granted ``b_t`` at each period start | `(:B,)` | `:B => Truncate()` | `Flow(0 => :B, TimeVarying(b); form = Truncate())`, with `flows_first = true` |
+| the same without carry over | `(:B,)` | `:B => Truncate()` | `Flow(:B => 0, starts; form = Share())` before the grant, with `flows_first = true` |
+
+Here `starts` is a `TimeVarying` share of one at each period start and
+zero otherwise, and a lifetime allowance is an `initial` pool alone.
 The [renewal then delay](@ref tutorial-renewal-delay) tutorial builds
 leaky, all-or-nothing and waning protection with a second pool; a delay
 from dose to protection is a [`Convolution`](@ref) of the doses before the
 call.
-[`ComposableRecurrences.Depletion`](@ref) is a `Pool` with one pool.
+A share ``\delta`` leaving the beds is a geometric length of stay, with
+survival ``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
+admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
+indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
+[`ComposableRecurrences.Clamp`](@ref) or a `Pool` whose draw fills a pool.
 A `Pool` holds the fields `N`, `form`, `heterogeneity`, `initial`, `weights`
 (each pool's weight in the draw, fixed at zero for a pool it does not
 name) and `flows`, with each flow's pools as positions.
 
 # Arguments
-- `N`: the population the form reads, a
-  [parameter](@ref ComposableRecurrences.param) read at each step's group
-  and time; `nothing` for a `Pool` without a draw, or whose form does not
-  read it.
+- `N`: the population the form reads, or the capacity a draw fills up to,
+  a [parameter](@ref ComposableRecurrences.param) read at each step's group
+  and time; `nothing` for a `Pool` without a draw, or whose truncated draw
+  from its pools does not read it.
 
 # Keyword Arguments
 - `pools`: the pool names, a tuple of symbols, or the number of pools;
@@ -76,14 +113,14 @@ name) and `flows`, with each flow's pools as positions.
   A flow names a pool by its name or position.
 - `initial`: each pool's value before the first step, one value or
   [`PerStratum`](@ref) each, or `nothing` for the default: `N` at time 1
-  for the first pool the draw names when `N` is given, and zero
+  for the first pool a draw takes from when `N` is given, and zero
   otherwise.
   One value stands for a `Pool` with one pool.
   A `Pool` without a draw takes its pools from the history instead.
 - `draw`: `pool => form` to draw from one pool,
-  `(pool => w, ...) => form` to draw from weighted pools, or `nothing` for
-  no draw;
-  `first(pools) => Hazard()` by default.
+  `(pool => w, ...) => form` to draw from weighted pools, `form => pool` to
+  fill a pool, or `nothing` for no draw; `first(pools) => Hazard()` by
+  default.
   A weight is one value or `PerStratum`, constant over time; a weight of
   `1` is fixed, not a parameter.
 - `heterogeneity`: the exponent `α`; `true` by default for the built-in
@@ -94,6 +131,10 @@ name) and `flows`, with each flow's pools as positions.
   Pass a float to differentiate the exponent.
 - `flows`: a [`ComposableRecurrences.Flow`](@ref), or a tuple or vector of
   them; none by default.
+- `flows_first`: whether the flows act before the draw; `false` by
+  default.
+- `overflow`: where what the draw leaves goes: `nothing` (the default),
+  `:stratum` or `:queue`.
 
 # Examples
 
@@ -119,6 +160,48 @@ round.(y; digits = 3)
  12.779
  18.196
  25.151
+```
+
+Ten beds, a tenth of patients leaving each day before the admissions:
+demand above the free beds goes to the community stratum.
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+beds = CR.Pool(
+    10.0; pools = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+    flows = CR.Flow(:O => 0, 0.1; form = CR.Share()), overflow = :stratum
+)
+demand = [4.0 3.0 5.0 6.0 2.0; 0.0 0.0 0.0 0.0 0.0]
+y = Recurrence([0.0]; modifiers = (beds,))(; history = zeros(2, 1), add = demand)
+round.(y; digits = 3)
+
+# output
+
+2×5 Matrix{Float64}:
+ 4.0  3.0  4.06  1.0  1.0
+ 0.0  0.0  0.94  5.0  1.0
+```
+
+A budget of 5 doses a week: the 1.5 doses left in the first week carry
+over to the second.
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+grants = TimeVarying([rem(t - 1, 7) == 0 ? 5.0 : 0.0 for t in 1:14])
+doses = CR.Pool(;
+    pools = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+    flows = CR.Flow(0 => :B, grants; form = CR.Truncate()), overflow = :stratum
+)
+demand = [fill(0.5, 1, 7) fill(2.0, 1, 7); zeros(1, 14)]
+y = Recurrence([0.0]; modifiers = (doses,))(; history = zeros(2, 1), add = demand)
+y[1, :]'
+
+# output
+
+1×14 adjoint(::Vector{Float64}) with eltype Float64:
+ 0.5  0.5  0.5  0.5  0.5  0.5  0.5  2.0  2.0  2.0  0.5  0.0  0.0  0.0
 ```
 
 A ward without a draw: suspected patients are confirmed or ruled out, and
@@ -169,6 +252,8 @@ struct Pool{L, P, F, A, I, W, R}
 end
 ConstructionBase.constructorof(::Type{<:Pool{L}}) where {L} = Pool{L}
 
+const _LAYOUT_KEYS = (:n, :draw, :first, :fill, :flows_first, :overflow)
+
 # That the flows name no pool beyond the `n` there are; the message is
 # built only when one does.
 _check_pools(::Tuple{}, n) = nothing
@@ -180,7 +265,8 @@ end
 @noinline function _too_many_pools(f, n)
     throw(
         ArgumentError(
-            "the flows name pool $(max(f.from, f.to)), but there are $n pools"
+            "the flows name pool $(max(f.from, f.to)), but there " *
+                (n == 1 ? "is 1 pool" : "are $n pools")
         )
     )
 end
@@ -188,8 +274,11 @@ end
 # Whether `L` is a pool layout, decided from the type alone, so a `Pool`
 # built inside a differentiated function runs no check.
 @generated function _check_layout(::Val{L}) where {L}
-    ok = L isa NamedTuple{(:n, :draw, :first), Tuple{Int, Bool, Int}} &&
-        L.n >= 1 && 0 <= L.first <= L.n && (L.first >= 1) == L.draw
+    ok = L isa NamedTuple{_LAYOUT_KEYS, Tuple{Int, Bool, Int, Bool, Bool, Symbol}} &&
+        L.n >= 1 && 0 <= L.first <= L.n && (L.first >= 1) == L.draw &&
+        (L.draw || !(L.fill || L.flows_first)) &&
+        L.overflow in (:none, :queue, :stratum) &&
+        (L.draw || L.overflow === :none)
     ok && return :(nothing)
     msg = "not a Pool layout: $(repr(L))"
     return :(throw(ArgumentError($msg)))
@@ -201,22 +290,65 @@ end
 @inline function Pool(
         N = nothing; pools = (:S,), initial = nothing,
         draw = _first_pool(pools) => Hazard(), heterogeneity = nothing,
-        flows = ()
+        flows = (), flows_first::Bool = false, overflow = nothing
     )
     names = _pool_names(pools)
     n = length(names)
     N = N === nothing ? nothing : _population(N)
-    form, weights, first = _draw_spec(draw, names)
+    form, weights, first, fill = _draw_spec(draw, names)
     α = form === nothing ? _no_heterogeneity(heterogeneity) :
         _exponent(something(heterogeneity, _unit_exponent(form)), N, form)
-    form === nothing || N !== nothing || form isa _TruncateForm || throw(
+    form === nothing || N !== nothing || form isa _TruncateForm && !fill ||
+        throw(
         ArgumentError(
-            "a $(nameof(typeof(form)))() draw reads the population, so give N"
+            fill ? "a draw into a pool fills it up to N, so give N" :
+                "a $(nameof(typeof(form)))() draw reads the population, so give N"
+        )
+    )
+    form === nothing && (flows_first || overflow !== nothing) && throw(
+        ArgumentError(
+            "flows_first and overflow order and route a draw, and the Pool has none"
         )
     )
     fs = map(f -> _placed(f, names), _pool_flows(flows))
-    L = (; n, draw = form !== nothing, first)
+    L = (;
+        n, draw = form !== nothing, first, fill, flows_first,
+        overflow = _overflow(overflow),
+    )
+    _check_each_nonnegative(:initial, initial)
+    fill && _check_fill(form, N)
     return Pool{L}(N, form, α, _initials(initial, n, form), weights, fs)
+end
+
+# A draw into a pool takes what is asked for up to the free capacity, which
+# is not negative.
+function _check_fill(form, N)
+    _check_fill_form(form)
+    _check_nonnegative(:N, N)
+    return nothing
+end
+_check_fill_form(::_TruncateForm) = nothing
+@noinline function _check_fill_form(form)
+    throw(
+        ArgumentError(
+            "a draw into a pool is Truncate() or SoftTruncate(κ), got " *
+                _describe(form)
+        )
+    )
+end
+_check_each_nonnegative(name, x) = _check_nonnegative(name, x)
+_check_each_nonnegative(name, xs::Tuple) = foreach(x -> _check_nonnegative(name, x), xs)
+
+# Where the value the draw leaves goes.
+_overflow(::Nothing) = :none
+_overflow(x::Symbol) = x in (:queue, :stratum) ? x : _bad_overflow(x)
+_overflow(x) = _bad_overflow(x)
+@noinline function _bad_overflow(x)
+    throw(
+        ArgumentError(
+            "overflow is nothing, :queue or :stratum, got " * _describe(x)
+        )
+    )
 end
 
 # The pool names, or positions for a number of pools.
@@ -254,8 +386,16 @@ end
 
 _first_pool(pools) = first(_pool_names(pools))
 
-# The draw as its form, each pool's weight and the first pool it names.
-_draw_spec(::Nothing, names) = (nothing, nothing, 0)
+# The draw as its form, each pool's weight, the first pool it names and
+# whether it fills that pool.
+_draw_spec(::Nothing, names) = (nothing, nothing, 0, false)
+function _draw_spec(draw::Pair{<:Any, <:Union{Symbol, Integer}}, names)
+    draw.first isa Union{Symbol, Integer, Tuple, AbstractVector, Pair} &&
+        _bad_draw(draw)
+    i = _drawn_place(_end(draw.second), names)
+    weights = ntuple(j -> _Fixed{j == i}(), Val(length(names)))
+    return draw.first, weights, i, true
+end
 function _draw_spec(draw::Pair, names)
     spec = draw.first isa Union{Tuple, AbstractVector} ? Tuple(draw.first) :
         (draw.first => true,)
@@ -269,14 +409,15 @@ function _draw_spec(draw::Pair, names)
         j = _index_of(i, places)
         return j == 0 ? _Fixed{false}() : _weight(spec[j].second)
     end
-    return draw.second, weights, first(places)
+    return draw.second, weights, first(places), false
 end
 _draw_spec(draw, names) = _bad_draw(draw)
 @noinline function _bad_draw(draw)
     throw(
         ArgumentError(
             "draw is pool => form, (pool => weight, ...) => form with " *
-                "distinct pools, or nothing; got " * _describe(draw)
+                "distinct pools, form => pool, or nothing; got " *
+                _describe(draw)
         )
     )
 end
@@ -294,7 +435,8 @@ end
     )
 end
 
-# A weight of one is fixed; any other is a constant parameter.
+# A weight of one or zero, as an integer, is fixed; any other is a
+# constant parameter.
 _weight(w::Bool) = _Fixed{w}()
 function _weight(w::Integer)
     isone(w) && return _Fixed{true}()
@@ -352,7 +494,9 @@ function _pool_flows(fs)
 end
 
 # A `Pool` with one pool and a draw, as `Depletion` builds it.
-const _OnePool = Pool{(n = 1, draw = true, first = 1)}
+const _OnePool = Pool{
+    (n = 1, draw = true, first = 1, fill = false, flows_first = false, overflow = :none),
+}
 
 @doc raw"""
 Susceptible depletion: each stratum's new values are drawn from a pool
@@ -463,6 +607,7 @@ function Depletion(
         (Flow(1, 0, _check_param(:removals, removals), Truncate()),)
     N = _population(N)
     α = _exponent(something(heterogeneity, _unit_exponent(form)), N, form)
+    _check_nonnegative(:pool0, pool0)
     # Built without the names, as the one-pool layout needs no lookup.
     return Depletion(N, form, α, (_initial_param(pool0),), (_Fixed{true}(),), flows)
 end
@@ -477,13 +622,17 @@ _layout(::Pool{L}) where {L} = L
 _draws(m::Pool) = _layout(m).draw
 _npools(m::Pool) = _layout(m).n
 
-# One pool with a draw is a pointwise step; more pools, or none drawn, a
-# blockwise one.
+# The values and state entries of each group: with a draw, one value (two
+# with the overflow in a stratum) and one entry per pool (and the queue);
+# without, the pools are both. A `Pool` laid out as `Depletion` is a
+# pointwise step.
 blocks(m::Pool) = _pool_blocks(Val(_layout(m)))
 function _pool_blocks(::Val{L}) where {L}
     L.draw || return Val((L.n, L.n))
-    return L.n == 1 ? nothing : Val((1, L.n))
+    L == _layout_of(_OnePool) && return nothing
+    return Val((1 + (L.overflow === :stratum), L.n + (L.overflow === :queue)))
 end
+_layout_of(::Type{<:Pool{L}}) where {L} = L
 ispointwise(m::Pool) = blocks(m) === nothing
 
 # The groups of `S` strata.
@@ -508,16 +657,18 @@ function _check_each_strata(name, xs::Tuple, G)
     return _check_each_strata(name, Base.tail(xs), G)
 end
 
-# Pool `i`'s value before the first step at group `k`, and its cotangent.
+# Pool `i`'s value before the first step at group `k`, and its cotangent:
+# by default `N` at time 1 for the pool a draw takes from first, else zero.
 function _initial(m::Pool, ::Val{i}, k) where {i}
-    return _initial(m.initial[i], m, Val(i == _layout(m).first), k)
+    return _initial(m.initial[i], m, Val(_starts_full(m, i)), k)
 end
+_starts_full(m, i) = i == _layout(m).first && !_layout(m).fill
 _initial(x, m, ::Val, k) = param(x, k, 1)
 _initial(::Nothing, m, ::Val{false}, k) = false
 _initial(::Nothing, m, ::Val{true}, k) = m.N === nothing ? false : param(m.N, k, 1)
 function _add_initial!(m̄, m::Pool, ::Val{i}, x̄, k) where {i}
     return _add_initial!(
-        m̄, m.initial[i], m, Val(i), Val(i == _layout(m).first), x̄, k
+        m̄, m.initial[i], m, Val(i), Val(_starts_full(m, i)), x̄, k
     )
 end
 function _add_initial!(m̄, x, m, ::Val{i}, ::Val, x̄, k) where {i}
@@ -543,10 +694,16 @@ end
     return Expr(:block, calls..., :(return nothing))
 end
 
+# The values of each group.
+_nvalues(::Nothing) = 1
+_nvalues(::Val{B}) where {B} = B[1]
+
+# The state entries of each group: the pools, then the queue.
+_nentries(m::Pool) = _npools(m) + (_layout(m).overflow === :queue)
+
 function forward(m::Pool, ::Init, s, history)
-    n = _npools(m)
-    G = length(s) ÷ n
-    _check_modifier_strata(m, _draws(m) ? G : length(s))
+    G = length(s) ÷ _nentries(m)
+    _check_modifier_strata(m, _nvalues(blocks(m)) * G)
     if _draws(m)
         _each!(_initial_body!, Serial(), s, G, length(s), s, m, G)
     else
@@ -556,14 +713,14 @@ function forward(m::Pool, ::Init, s, history)
 end
 
 function _initial_body!(k, s, m, G)
-    _scatter!(s, _initials(m, k), G, k)
+    x = _initials(m, k)
+    _scatter!(s, _with_queue(Val(_layout(m).overflow), x, false), G, k)
     return nothing
 end
 
 function pullback!(grads, m::Pool, ::Init, s, history)
     _draws(m) || return nothing
-    n = _npools(m)
-    G = length(s) ÷ n
+    G = length(s) ÷ _nentries(m)
     s̄ = grads.s
     for k in 1:G
         _add_initials!(grads.piece, m, s̄, G, k)
@@ -623,19 +780,39 @@ function pullback!(grads, m::_Flowing, ::Step, v::Number, s::Number, t, k)
     return v̄, s̄
 end
 
-# A group's step: the draw from its weighted pools then the flows, or the
-# flows on its values. The step, its pullback and their helpers are
-# inlined, as their calls are (see `_vector_step!`): the call-site inline
-# reaches only the first method, and across the inner call the rule's
-# reverse pass took about 45% longer per group.
+# A group's step without a draw: the flows on its values. The step, its
+# pullback and their helpers are inlined, as their calls are (see
+# `_vector_step!`): the call-site inline reaches only the first method, and
+# across the inner calls the rule's reverse pass took about 45% longer per
+# group.
 function forward(m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
-    return _group_step(Val(_draws(m)), m, v, s, t, g)
+    return _group_step(Val(_layout(m)), m, v, s, t, g)
 end
-@inline _group_step(::Val{false}, m, v, s, t, g) = _flow_group(m.flows, v, g, t)
-@inline function _group_step(::Val{true}, m, v, s, t, g)
-    y, x = _draw_pools(m, only(v), s, t, g)
-    return (y,), _flow_only(m.flows, x, g, t)
+@inline function _group_step(::Val{L}, m, v, s, t, g) where {L}
+    return _group_step(Val(L.draw), Val(L), m, v, s, t, g)
 end
+@inline _group_step(::Val{false}, ::Val, m, v, s, t, g) = _flow_group(m.flows, v, g, t)
+
+# With a draw: the demand is the group's value (and its queue); the flows
+# act on the pools before or after the draw, and what the draw leaves of
+# the demand goes to the queue, the group's second value or nowhere.
+@inline function _group_step(::Val{true}, ::Val{L}, m, v, s, t, g) where {L}
+    x, Q = _pools_queue(Val(L.overflow), s, Val(L.n))
+    d = first(v) + Q
+    x1 = L.flows_first ? _flow_only(m.flows, x, g, t) : x
+    y, x2 = _take(Val(L.fill), m, d, x1, t, g)
+    x3 = L.flows_first ? x2 : _flow_only(m.flows, x2, g, t)
+    out = _out_values(Val(L.overflow), v, d - y, y)
+    return out, _with_queue(Val(L.overflow), x3, d - y)
+end
+
+# The pools and the queue in a group's state, zero without a queue.
+_pools_queue(::Val, s, ::Val{n}) where {n} = s, false
+_pools_queue(::Val{:queue}, s, ::Val{n}) where {n} = ntuple(i -> s[i], Val(n)), s[n + 1]
+_with_queue(::Val, x, u) = x
+_with_queue(::Val{:queue}, x, u) = (x..., u)
+_out_values(::Val, v, u, y) = (y,)
+_out_values(::Val{:stratum}, v, u, y) = (y, v[2] + u)
 
 # The weights at group `g` and time `t`, promoted to one type so a step
 # indexes them without a union, and the weighted pools `Σ w_i x_i`, summed
@@ -651,7 +828,27 @@ function _weighted_sum(w::Tuple, x::Tuple, P)
     return _weighted_sum(Base.tail(w), Base.tail(x), P + first(w) * first(x))
 end
 
-# One group's draw from its pools `x`, and the pools after it.
+# The draw from the pools: out of the weighted pools, or into one pool
+# up to `N`. Returns the value drawn and the pools after it.
+@inline _take(::Val{false}, m, d, x, t, g) = _draw_pools(m, d, x, t, g)
+@inline function _take(::Val{true}, m, d, x::NTuple{n}, t, g) where {n}
+    f = _layout(m).first
+    N = _pop(m.N, g, t)
+    y, _ = forward(m.form, Step(), d, N - x[f], N, _exponent_value(m.heterogeneity))
+    return y, ntuple(i -> i == f ? x[i] + y : x[i], Val(n))
+end
+
+# One pool: it loses the draw.
+@inline function _draw_pools(m, v, x::Tuple{Any}, t, g)
+    w = param(only(m.weights), g, t)
+    y, _ = forward(
+        m.form, Step(), v, w * only(x), _pop(m.N, g, t),
+        _exponent_value(m.heterogeneity)
+    )
+    return y, (only(x) - y,)
+end
+
+# Several pools: each loses the draw in proportion to its weighted pool.
 @inline function _draw_pools(m, v, x::NTuple{n}, t, g) where {n}
     w = _weights_at(m, Val(n), g, t)
     P = _weighted(w, x)
@@ -671,34 +868,95 @@ end
 end
 
 function pullback!(grads, m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
-    return _group_pullback(Val(_draws(m)), grads, m, v, s, t, g)
+    return _group_pullback(Val(_layout(m)), grads, m, v, s, t, g)
 end
-@inline function _group_pullback(::Val{false}, grads, m, v, s::NTuple{n}, t, g) where {n}
+@inline function _group_pullback(::Val{L}, grads, m, v, s, t, g) where {L}
+    return _group_pullback(Val(L.draw), Val(L), grads, m, v, s, t, g)
+end
+@inline function _group_pullback(::Val{false}, ::Val{L}, grads, m, v, s, t, g) where {L}
     x̄ = _flows_pullback(
         m.flows, cotangent(grads.piece, :flows), v, grads.v, grads.s, g, t
     )
-    return x̄, ntuple(_ -> zero(eltype(x̄)), Val(n))
+    return x̄, ntuple(_ -> zero(eltype(x̄)), Val(L.n))
 end
 
-# `v` and `x` are the group's incoming value and pools; returns the
-# cotangents of the inputs from those of the output and of the pools after
-# the step.
-@inline function _group_pullback(::Val{true}, grads, m, v, x::NTuple{n}, t, g) where {n}
-    m̄ = grads.piece
+# `v` and `s` are the group's incoming values and state; returns their
+# cotangents from those of the values and state after the step.
+@inline function _group_pullback(::Val{true}, ::Val{L}, grads, m, v, s, t, g) where {L}
+    f̄s = cotangent(grads.piece, :flows)
+    x, Q = _pools_queue(Val(L.overflow), s, Val(L.n))
+    d = first(v) + Q
+    x1 = L.flows_first ? _flow_only(m.flows, x, g, t) : x
+    # The draw again, only where its pullback reads it: the pools after it
+    # for flows that follow it, the value for a draw from several pools.
+    retake = !L.flows_first || (!L.fill && L.n > 1)
+    y, x2 = _retake(Val(retake), Val(L.fill), m, d, x1, t, g)
+    # The cotangent of what the draw leaves, `d - y`, and of the pools
+    # after the step.
+    ū, x̄3 = _left_back(Val(L.overflow), grads.v, grads.s, Val(L.n))
+    z = ntuple(_ -> zero(ū), Val(L.n))
+    x̄2 = L.flows_first ? x̄3 : _flows_pullback(m.flows, f̄s, x2, x̄3, z, g, t)
+    ȳ = first(grads.v) - ū
+    d̄, x̄1 = _take_back(Val(L.fill), grads.piece, m, d, x1, y, ȳ, x̄2, t, g)
+    x̄ = L.flows_first ? _flows_pullback(m.flows, f̄s, x, x̄1, z, g, t) : x̄1
+    d̄ += ū
+    return _in_values(Val(L.overflow), d̄, ū), _with_queue(Val(L.overflow), x̄, d̄)
+end
+
+# Without the draw, the pools before it stand in for those after it, which
+# the pullback does not read then, so both arms have the pools' type.
+_retake(::Val{true}, fill, m, d, x, t, g) = _take(fill, m, d, x, t, g)
+_retake(::Val{false}, fill, m, d, x, t, g) = nothing, x
+
+# The cotangent of the overflow and of the pools after the step, from the
+# cotangents of the group's values and state.
+_left_back(::Val, v̄, s̄, ::Val{n}) where {n} = zero(first(v̄)), s̄
+_left_back(::Val{:stratum}, v̄, s̄, ::Val{n}) where {n} = v̄[2], s̄
+function _left_back(::Val{:queue}, v̄, s̄, ::Val{n}) where {n}
+    return s̄[n + 1], ntuple(i -> s̄[i], Val(n))
+end
+_in_values(::Val, d̄, ū) = (d̄,)
+_in_values(::Val{:stratum}, d̄, ū) = (d̄, ū)
+
+# The draw's pullback: the cotangents of the demand and of the pools
+# before the draw, from those of the value drawn `y`, `ȳ`, and of the
+# pools after it, `x̄′`; the parameters' are added into the mirror `m̄`.
+@inline function _take_back(
+        ::Val{true}, m̄, m, d, x::NTuple{n}, y, ȳ, x̄′, t, g
+    ) where {n}
+    f = _layout(m).first
+    N, α = _pop(m.N, g, t), _exponent_value(m.heterogeneity)
+    d̄, P̄, N̄, ᾱ = _form_pullback(
+        (; piece = cotangent(m̄, :form), v = ȳ + x̄′[f], s = zero(ȳ)), m.form,
+        d, N - x[f], N, α
+    )
+    _add_pop!(cotangent(m̄, :N), m.N, N̄ + P̄, g, t)
+    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
+    return d̄, ntuple(i -> i == f ? x̄′[i] - P̄ : x̄′[i], Val(n))
+end
+@inline function _take_back(::Val{false}, m̄, m, v, x::Tuple{Any}, y, ȳ, x̄′, t, g)
+    w = param(only(m.weights), g, t)
+    N, α = _pop(m.N, g, t), _exponent_value(m.heterogeneity)
+    v̄, P̄, N̄, ᾱ = _form_pullback(
+        (; piece = cotangent(m̄, :form), v = ȳ - only(x̄′), s = zero(ȳ)), m.form,
+        v, w * only(x), N, α
+    )
+    _add_pop!(cotangent(m̄, :N), m.N, N̄, g, t)
+    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
+    _add_weights!(cotangent(m̄, :weights), m.weights, (only(x) * P̄,), g, t)
+    return v̄, (only(x̄′) + w * P̄,)
+end
+@inline function _take_back(
+        ::Val{false}, m̄, m, vk, x::NTuple{n}, y, ȳ, x̄′, t, g
+    ) where {n}
     α = _exponent_value(m.heterogeneity)
-    vk, N = only(v), _pop(m.N, g, t)
+    N = _pop(m.N, g, t)
     w = _weights_at(m, Val(n), g, t)
     P = _weighted(w, x)
-    y, _ = forward(m.form, Step(), vk, P, N, α)
-    ȳ = only(grads.v)
     on = _primal_value(P) > 0
     q = on ? y / P : zero(y)
     d = _layout(m).first
-    x′ = ntuple(i -> on ? x[i] - q * w[i] * x[i] : (i == d ? x[i] - y : x[i]), Val(n))
     z = zero(ȳ)
-    x̄′ = _flows_pullback(
-        m.flows, cotangent(m̄, :flows), x′, grads.s, ntuple(_ -> z, Val(n)), g, t
-    )
     # The shares' pullback, from a function so that no name the closures
     # below capture is assigned twice, which would box it.
     x̄, w̄, ȳd, P̄d = _shares_back(on, x̄′, w, x, q, P, ȳ, d, z, Val(n))
@@ -713,7 +971,7 @@ end
         cotangent(m̄, :weights), m.weights, ntuple(i -> w̄[i] + x[i] * P̄, Val(n)),
         g, t
     )
-    return (v̄k,), ntuple(i -> x̄[i] + w[i] * P̄, Val(n))
+    return v̄k, ntuple(i -> x̄[i] + w[i] * P̄, Val(n))
 end
 
 # The cotangents of the pools, the weights, the value drawn and the

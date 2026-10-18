@@ -197,26 +197,10 @@ end
 _restructure(::Tuple, x) = x
 _restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
 
-# A `ForwardDiff.Tag` orders this dual against any outer one, so the
-# derivative also runs on dual inputs. The tag reaches the seeds as a static
-# parameter: a closure that captures a type as a value does not infer it on
-# Julia 1.11.
-function _transform_seeds(xs::Tuple{T, Vararg{T}}) where {T}
-    return _transform_seeds(typeof(ForwardDiff.Tag(_TransformTag(), T)), xs)
-end
-function _transform_seeds(::Type{G}, xs::Tuple{T, Vararg{T, M}}) where {G, T, M}
-    N = Val(M + 1)
-    return ntuple(N) do i
-        ForwardDiff.Dual{G}(xs[i], ntuple(j -> T(i == j), N))
-    end
-end
-
-# The partials of the map's output; an output without this tag is constant
-# in `(v, θ)`.
-function _transform_partials(
-        y::ForwardDiff.Dual{<:ForwardDiff.Tag{_TransformTag}}, ::Val{N}
-    ) where {N}
-    return ntuple(i -> ForwardDiff.partials(y, i), Val(N))
+# The seeds and the partials of the map's output are in the dual-number
+# extension; an output without the seeds' tag is constant in `(v, θ)`.
+function _transform_seeds(xs...)
+    return _need_forwarddiff("`Transform` without a `derivative`")
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
 

@@ -14,16 +14,15 @@ _like(v, x) = x
 _reverse_dim(x::AbstractVector, d) = reverse(x)
 _reverse_dim(x, d) = reverse(x; dims = d)
 
-# The primal value of `x`, through any nesting of `ForwardDiff.Dual`s, for
-# deciding a branch. A dual with value zero is ordered by its partials, so
-# `P > 0` on the dual can hold where the value is zero. Other numbers,
-# traced ones included, pass through.
+# The primal value of `x`, through any nesting of dual numbers (their
+# method is in the dual-number extension), for deciding a branch. A dual
+# with value zero is ordered by its partials, so `P > 0` on the dual can
+# hold where the value is zero. Other numbers, traced ones included, pass
+# through.
 _primal_value(x) = x
-_primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
 
 # The type `_primal_value` returns for a number of type `T`.
 _primal_type(::Type{T}) where {T} = T
-_primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 
 # A gain or add slot at stratum `k`, absolute time `t`. A missing add is
 # `false`, the additive identity for every `Real`.
@@ -295,3 +294,26 @@ _ragged(::Val{false}, ks) = _Ragged(ks)
 
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
+
+# Value checks on parameters given as numbers or arrays, on their primal
+# values (a dual number at a bound is not ordered by its value alone); a
+# `Derived` parameter is checked by nothing here.
+function _check_unit(name, x)
+    return _check_values(name, x, v -> 0 <= _primal_value(v) <= 1, "between 0 and 1")
+end
+function _check_nonnegative(name, x)
+    return _check_values(name, x, v -> _primal_value(v) >= 0, "non-negative")
+end
+_check_values(name, x, ok, what) = nothing
+function _check_values(name, x::Real, ok, what)
+    ok(x) || throw(ArgumentError("$name is $what, got $x"))
+    return nothing
+end
+function _check_values(name, x::Union{PerStratum, TimeVarying}, ok, what)
+    return _check_values(name, x.x, ok, what)
+end
+function _check_values(name, x::AbstractArray{<:Real}, ok, what)
+    i = findfirst(!ok, x)
+    i === nothing || throw(ArgumentError("$name is $what, got $(x[i])"))
+    return nothing
+end

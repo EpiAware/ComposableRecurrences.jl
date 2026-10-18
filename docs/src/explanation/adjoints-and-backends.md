@@ -65,6 +65,11 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 
 ### [What the local step needs](@id adjoint-local-step)
 
+The local step needs ForwardDiff loaded, as `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
+Without it the forward pass runs, and a gradient through the local step throws an `ArgumentError` that names the part and says to load ForwardDiff.
+A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction.
+The check itself needs ForwardDiff, so without it a part that the local step cannot rebuild also throws, rather than taking plain AD; once ForwardDiff is loaded it takes plain AD as below.
+
 Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
 
 The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
@@ -122,7 +127,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Pool` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Allocate` with `imports` and `spill`, 64 strata | 0.05 | 0.11 | keep |
-| `Capacity` | 0.26 | 0.32 | keep |
+| `Pool` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
