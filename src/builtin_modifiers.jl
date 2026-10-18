@@ -289,7 +289,8 @@ end
 # and dual numbers branch on their value; a traced number would fix the
 # branch when its trace is recorded, or reject it, so takes both.
 _exp_neg(x) = (exp(-x), expm1(-x))
-function _exp_neg(x::Union{AbstractFloat, ForwardDiff.Dual})
+_exp_neg(x::AbstractFloat) = _exp_neg_branch(x)
+function _exp_neg_branch(x)
     if x < 0.5
         em = expm1(-x)
         return 1 + em, em
@@ -306,13 +307,6 @@ end
 # branch-free for traced shares and exponents. A NaN share is kept, so its
 # NaN reaches the tangent.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
-# With a dual exponent the power at an empty pool takes the primal
-# exponent. A dual exponent is never traced, so a branch computes only one
-# power.
-function _pool_power(r, e::ForwardDiff.Dual)
-    _primal_value(r) <= 0 || return r^e
-    return convert(promote_type(typeof(r), typeof(e)), r^_primal_value(e))
-end
 
 function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
     ȳ, s̄′ = grads.v, grads.s

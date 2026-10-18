@@ -18,6 +18,9 @@
   Before, such a call ran its strata loops with the host arrays inside device kernels, which works on JLArrays but not on a GPU.
   To migrate, move kernels and parameters to the device first, for example with `Adapt.adapt(CuArray, r)`, which moves every parameter of an operator `r`, or `Recurrence(cu(g))`.
 
+- ForwardDiff is a weak dependency.
+  A gradient through the local derivative of a coupling, modifier, depletion form or `Transform` without its own `pullback!` or `derivative` needs `using ForwardDiff`, and without it throws an `ArgumentError` that says so ([adjoints and backends][adjoints]).
+
 ### New
 
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
@@ -63,11 +66,11 @@
   A pointwise modifier's local derivative seeds the entries of its other float arrays that a step reads, and keeps the rule on Mooncake ([adjoints and backends][adjoints]).
 - The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
-- Extensions for Distributions, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
+- Extensions for Distributions, ForwardDiff, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 
 ### Changed
 
-- ConstructionBase and ForwardDiff are hard dependencies.
+- ConstructionBase is a hard dependency.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.
 - `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
