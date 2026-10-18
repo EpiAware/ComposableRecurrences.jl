@@ -1178,9 +1178,12 @@ end
     struct Rate{T}
         c::T
     end
-    function CR.forward(f::Rate, ::CR.Step, v, s, N, α)
-        y = f.c * v * max(s, 0)^α / N
-        return y, s - y
+    function CR.forward!(f::Rate, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = f.c * v[i] * max(s[i], 0)^α / N
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
     end
     args = recargs(ones(2, 6), nothing, ones(2, 2))
     for parts in (
@@ -1206,7 +1209,10 @@ end
         Doubled(c::T) where {T} = new{T}(2c)
     end
     CR.ispointwise(::Doubled) = true
-    CR.forward(m::Doubled, ::CR.Step, v, s, t, k) = (m.c * v, s)
+    function CR.forward!(m::Doubled, ::CR.Step, v, s, t)
+        v .*= m.c
+        return nothing
+    end
     empty!(CR._PLAIN_NOTED)
     r0 = @test_logs (:info, r"Doubled cannot be rebuilt") Recurrence(
         [0.3, 0.2]; modifiers = (Doubled(0.4),)

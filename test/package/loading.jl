@@ -63,7 +63,12 @@ end
         c::T
     end
     CR.ispointwise(::Cap) = true
-    CR.forward(m::Cap, ::CR.Step, v, s, t, k) = (m.c * v / (m.c + v), s)
+    function CR.forward!(m::Cap, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] = m.c * v[k] / (m.c + v[k])
+        end
+        return nothing
+    end
     r = Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),))
     println(r.rebuilds === nothing, " ", CR.uses_adjoint(r, CR.Run()))
     h(x) = sum(r(x; history = [1.0, 2.0]))
