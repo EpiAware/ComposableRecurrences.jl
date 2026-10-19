@@ -106,7 +106,7 @@ end
 # since traced code does not reach them on every Julia version. They cover
 # each mix of active kernel and input, batched shadows, a constant output
 # buffer, an immutable kernel and runtime activity off and on.
-@testitem "FFT convolution: Enzyme rules of the transform" tags = [:ad, :enzyme, :enzyme_reverse, :enzyme_forward, :compat_floor] begin
+@testitem "FFT convolution: Enzyme rules of the transform" tags = [:ad, :enzyme, :enzyme_reverse, :enzyme_forward, :compat_floor] setup = [JobBackends] begin
     using ComposableRecurrences, Enzyme, FFTW
     using EnzymeTestUtils: test_forward, test_reverse
     using Random: Xoshiro
@@ -120,6 +120,8 @@ end
     Base.getindex(k::Lags3, i::Int) = k.t[i]
     Base.convert(::Type{Lags3}, v::AbstractVector) = Lags3(Tuple(v))
 
+    # Each mode's checks in its own job.
+    fwd_job, rev_job = job_runs(:enzyme_forward), job_runs(:enzyme_reverse)
     f = CR._fft_convolve!
     rng = Xoshiro(4)
     m, start, T, L = 3, 2, 40, 5
@@ -137,19 +139,19 @@ end
                 (copy(Y), Duplicated), (k, Tk), (X, TX),
                 (m, Const), (start, Const),
             )
-            fwd(Const in (Tk, TX)) &&
+            fwd_job && fwd(Const in (Tk, TX)) &&
                 test_forward(f, Duplicated, args...; runtime_activity = ra)
-            test_reverse(f, Duplicated, args...; runtime_activity = ra)
+            rev_job && test_reverse(f, Duplicated, args...; runtime_activity = ra)
         end
         batch = (
             (copy(Y), BatchDuplicated), (k, BatchDuplicated),
             (X, BatchDuplicated), (m, Const), (start, Const),
         )
-        test_forward(f, BatchDuplicated, batch...; runtime_activity = ra)
-        test_reverse(f, BatchDuplicated, batch...; runtime_activity = ra)
+        fwd_job && test_forward(f, BatchDuplicated, batch...; runtime_activity = ra)
+        rev_job && test_reverse(f, BatchDuplicated, batch...; runtime_activity = ra)
         # A constant output buffer carries no tangent. The harness cannot
         # check the reverse pass of a constant mutated return.
-        fwd(true) && test_forward(
+        fwd_job && fwd(true) && test_forward(
             f, Const, (copy(Y), Const), (k, Duplicated), (X, Duplicated),
             (m, Const), (start, Const); runtime_activity = ra
         )
@@ -161,17 +163,17 @@ end
         (copy(Y), Duplicated), (k, Duplicated), (X, Duplicated), (m, Const),
         (start, Const), (gain, Const), (add, Const),
     )
-    test_forward(f, Duplicated, extras...)
-    test_reverse(f, Duplicated, extras...)
+    fwd_job && test_forward(f, Duplicated, extras...)
+    rev_job && test_reverse(f, Duplicated, extras...)
     k = Lags3((0.3, 0.5, 0.2))
     X, Y = rand(rng, m + T, 1), zeros(T - start + 1, 1)
     for ra in (false, true), TX in (Const, Duplicated)
-        test_reverse(
+        rev_job && test_reverse(
             f, Duplicated, (copy(Y), Duplicated), (k, Active), (X, TX),
             (m, Const), (start, Const); runtime_activity = ra
         )
     end
-    test_reverse(
+    rev_job && test_reverse(
         f, BatchDuplicated, (copy(Y), BatchDuplicated), (k, Active),
         (X, BatchDuplicated), (m, Const), (start, Const)
     )
@@ -186,7 +188,7 @@ end
     K = PerStratum(Coefs2x3(Tuple(rand(rng, 6))))
     X, Y = rand(rng, m + T, 2), zeros(T - start + 1, 2)
     for TX in (Const, Duplicated)
-        test_reverse(
+        rev_job && test_reverse(
             f, Duplicated, (copy(Y), Duplicated), (K, Active), (X, TX),
             (m, Const), (start, Const); runtime_activity = true
         )
