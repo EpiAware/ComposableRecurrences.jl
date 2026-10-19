@@ -2,26 +2,21 @@ module ComposableRecurrencesForwardDiffExt
 
 # The local forward-mode derivatives of pieces without a `pullback!`, the
 # checks that their rebuild gives their parameters back, `Transform`'s
-# derivative, the pullback of a `Pool`'s traced flow amounts, and the
-# dual-number methods of the primal helpers.
+# derivative, and the dual-number methods of the primal helpers.
 
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward,
     param_eltype
-import ComposableRecurrences: _amounts_gradient, _array_pressure, _check_scalars,
-    _check_views, _dual_pressure_buffers, _exp_neg, _init_jacobian,
-    _jacobian_pullback, _local_form_pullback, _local_pressure!, _pool_power,
-    _primal_type, _primal_value, _probe_reads, _read_pullback, _scalar_pullback,
-    _transform_partials, _transform_seeds, _value_pullback
+import ComposableRecurrences: _array_pressure, _check_scalars, _check_views,
+    _dual_pressure_buffers, _exp_neg, _init_jacobian, _jacobian_pullback,
+    _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
+    _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
+    _transform_seeds, _value_pullback
 using ComposableRecurrences: _ArrayPressure, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _exp_neg_branch, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps
 using ForwardDiff: ForwardDiff
-
-# The gradient of a `Pool`'s traced flow amounts in its pools, demands and
-# softnesses.
-_amounts_gradient(f, z0::AbstractVector) = ForwardDiff.gradient(f, z0)
 
 # The derivative in the value and the state only.
 function _value_pullback(m, v̄, s̄, v, s, t, k)

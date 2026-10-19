@@ -15,12 +15,15 @@ r_t = R_M\big(v_t,\ s_{t-1},\ v'_t,\ s_t\big),
 ```
 
 with ``R_M`` the modifier's own map: by default its state after the step,
-``r_t = s_t``.
+``r_t = s_t``, and a modifier whose state never changes, such as
+[`ComposableRecurrences.Add`](@ref), records nothing.
 A [`ComposableRecurrences.Pool`](@ref) with a draw records its pools after
-the step, the value drawn ``y_t`` and what the draw leaves of the demand
-``d_t``, ``d_t - y_t``, with rows for each pool, then the drawn values,
-then the leftovers, each over the strata or groups; without a draw it
-records the amount each flow moves, a row per flow over the groups.
+the step, the value drawn ``y_t`` and the overflow
+``d_t + Q_{t-1} - y_t``, what the draw leaves of the demand ``d_t`` and
+the queue ``Q_{t-1}`` (zero without one), with rows for each pool, then
+the drawn values, then the overflows, each over the strata or groups;
+without a draw it records the amount each flow moves, a row per flow over
+the groups.
 [`ComposableRecurrences.Redistribute`](@ref) records its arrivals, its
 state.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref))
@@ -61,7 +64,7 @@ n_r = r S \quad \text{or} \quad n_r = r G;
 ```
 
 the default is the modifier's [`ComposableRecurrences.nstate`](@ref), its
-state after each step.
+state after each step, or none for a modifier whose state never changes.
 
 # Arguments
 - `m`: the modifier.
@@ -75,10 +78,10 @@ CR.ntrace(CR.Clamp(0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
 
 # output
 
-(3, 9)
+(0, 9)
 ```
 """
-ntrace(m, S) = nstate(m, S)
+ntrace(m, S) = _stateless(m) ? 0 : nstate(m, S)
 
 # The defaults: the state after the step, per stratum or per group.
 forward(m, ::Trace, v, s, v′, s′, t, k) = (s′,)

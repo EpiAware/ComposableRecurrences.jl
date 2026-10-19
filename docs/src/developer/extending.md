@@ -332,8 +332,7 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 
 ## [A trace](@id extending-trace)
 
-A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
-By default a modifier's trace is its state after each step.
+A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps; [`Trace`](@ref ComposableRecurrences.Trace) gives the default, the built-in traces and the layout of the rows.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 
@@ -348,7 +347,7 @@ and the pullback sends their cotangents to the inputs and outputs of the step:
 ```
 
 with ``\bar s`` and ``\bar v'`` zero.
-The rows run trace value by trace value, each over the strata, so a modifier with ``r`` values per stratum has ``r S`` rows.
+Two values per stratum give ``2S`` rows.
 
 ```@example extending
 CR.ntrace(::Smooth, S) = 2S
@@ -364,7 +363,7 @@ y, trace = r(2.0; history = [1.0, 2.0], stop = 4, trace = true)
 only(trace.modifiers)
 ```
 
-A blockwise modifier records its trace per group from tuples, and its rows run each value over the groups.
+A blockwise modifier records its trace per group from tuples.
 The pullback is given the values before the step, `v` and `s`.
 One whose trace is not linear in the step's outputs computes them with the step's `forward`.
 

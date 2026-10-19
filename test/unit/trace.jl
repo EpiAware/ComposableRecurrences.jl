@@ -121,6 +121,32 @@ end
     end
 end
 
+@testitem "Trace: the flow amounts' pullback against forward mode" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # Every kind of flow: two hazards out of one pool, a share, a count
+    # into a pool, a smooth count out of the system and a count from
+    # outside, where the count into a pool binds and where it does not.
+    build(θ) = (
+        CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]),
+        CR.Flow(2 => 0, θ[3]; form = CR.Share()),
+        CR.Flow(2 => 1, θ[4]; form = CR.Truncate()),
+        CR.Flow(1 => 0, θ[5]; form = CR.SoftTruncate(θ[6])),
+        CR.Flow(0 => 2, θ[7]; form = CR.Truncate()),
+    )
+    θ = [0.3, 0.2, 0.25, 0.8, 0.5, 0.2, 1.5]
+    r̄ = (0.7, -0.4, 1.1, 0.6, -0.9, 0.5)
+    for x in ((4.0, 3.0), (4.0, 0.3))
+        f(z) = sum(map(*, r̄, CR._amounts(build(z[3:end]), (z[1], z[2]), 1, 1)))
+        ref = ForwardDiff.gradient(f, [x..., θ...])
+        fs = build(θ)
+        f̄s = map(_ -> (; demand = Ref(0.0), form = (; κ = Ref(0.0))), fs)
+        x̄ = CR._amounts_pullback(fs, f̄s, r̄, x, 1, 1)
+        d̄ = map(f̄ -> f̄.demand[], f̄s)
+        @test [x̄..., d̄[1:5]..., f̄s[5].form.κ[], d̄[6]] ≈ ref
+    end
+end
+
 @testitem "Trace: the default is the state after the step" setup = [TraceChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -138,6 +164,14 @@ end
     @test M1 ≈ S1
     @test M2[1:3, :] ≈ S2
     @test CR.ntrace(CR.Redistribute(K, 0.2), 3) == 3
+    # A modifier whose state never changes records nothing.
+    for m in (CR.Add(0.1), CR.Clamp(0.0, 5.0), CR.Allocate([1:3], 5.0))
+        @test CR.ntrace(m, 3) == 0
+        s = Recurrence([0.4, 0.6]; modifiers = (m, CR.Depletion(60.0)))
+        _, tm = s(R; history = h, trace = true)
+        @test size(first(tm.modifiers)) == (0, 6)
+        @test size(last(tm.modifiers)) == (9, 6)
+    end
 end
 
 @testitem "Trace: gradients through a trace, the rule against ForwardDiff" begin
@@ -155,12 +189,13 @@ end
                 CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
             )
         )
-        mods = (CR.Redistribute(K, θ[6]), leaky)
+        # `Add` keeps no state, so its trace is empty and takes no cotangent.
+        mods = (CR.Redistribute(K, θ[6]), CR.Add(θ[7]), leaky)
         _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
-        T1, T2 = tr.modifiers
-        return sum(W[1:2, :] .* T1) + sum(W .* T2[3:8, :])
+        T1, T0, T2 = tr.modifiers
+        return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])
     end
-    θ = [80.0, 120.0, 0.3, 2.0, 0.1, 0.2]
+    θ = [80.0, 120.0, 0.3, 2.0, 0.1, 0.2, 0.4]
     n = CR._PULLBACK_CALLS[]
     @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
     @test CR._PULLBACK_CALLS[] > n
@@ -171,13 +206,15 @@ end
             pools = 2, draw = nothing, flows = (
                 CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
                 CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
+                CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
+                CR.Flow(0 => 2, θ[6]; form = CR.Truncate()),
             )
         )
         r = Recurrence([1.0]; modifiers = (flows,))
         adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
         y, tr = r(; history = zeros(2, 1), add = adm, trace = true)
-        return sum(W[1:3, 1:6] .* only(tr.modifiers)) + sum(y)
+        return sum(W[1:5, 1:6] .* only(tr.modifiers)) + sum(y)
     end
-    θw = [0.3, 0.2, 1.5, 0.2]
+    θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
     @test gradient(ward, AutoMooncake(), θw) ≈ ForwardDiff.gradient(ward, θw)
 end

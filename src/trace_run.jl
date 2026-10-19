@@ -34,12 +34,16 @@ function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)
     # The last step's state after it is the final state, apart so that each
     # call sees one type.
     rest = Base.tail(rec)
+    _stateless(m) || _trace_steps!(out, m, R, rest, first(finals), H, D, T, τ0)
+    rest = _traces(Base.tail(ms), Base.tail(rec), Base.tail(finals), H, D, S, T, τ0)
+    return (out, rest...)
+end
+function _trace_steps!(out, m, R, rest, final, H, D, T, τ0)
     for t in 1:(T - 1)
         _trace_at!(out, m, R, rest, _states_at(R.S, t + 1), H, D, t, τ0)
     end
-    _trace_at!(out, m, R, rest, first(finals), H, D, T, τ0)
-    rest = _traces(Base.tail(ms), Base.tail(rec), Base.tail(finals), H, D, S, T, τ0)
-    return (out, rest...)
+    _trace_at!(out, m, R, rest, final, H, D, T, τ0)
+    return nothing
 end
 function _trace_at!(out, m, R, rest, s′, H, D, t, τ0)
     v, s = view(R.V, :, t), _states_at(R.S, t)
@@ -71,7 +75,12 @@ end
 # `_trace_in` adds after the step's pullback. Without a trace cotangent
 # both pass their arguments through.
 _trace_out(R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
-function _trace_out(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t, k)
+function _trace_out(R::_TracedRecord, m, args...)
+    return _trace_out(Val(_stateless(m)), R, m, args...)
+end
+# A modifier whose state never changes has no trace, so no cotangent.
+_trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
+function _trace_out(::Val{false}, R, m, m̄, v̄, s̄, v, s, τ, t, k)
     S = length(R.V̄)
     r̄ = _gather(view(R.T̄, :, t), Val(ntrace(m, 1)), S, k)
     a, b, c, d = pullback!((; piece = m̄, trace = r̄), m, Trace(), v, s, τ, k)
@@ -84,6 +93,7 @@ _trace_in(a, x̄) = x̄ + a
 # into the record's buffers, added after the step's pullback.
 _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t) = nothing
 function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
+    _stateless(m) && return nothing
     _trace_back!(blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
     return nothing
 end
