@@ -215,7 +215,7 @@ end
 function mod_redistribute(θ)
     K = reshape(θ[1:(S * S)], S, S)
     R = reshape(θ[(S * S + 1):end], S, T)
-    r = Recurrence(g0; modifiers = (Redistribute(K, 0.1),))
+    r = Recurrence(g0; modifiers = (Redistribute(ComposableRecurrences.movement(K, 0.1)),))
     return r(R; history = HS)
 end
 

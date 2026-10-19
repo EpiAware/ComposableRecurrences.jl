@@ -214,6 +214,7 @@ end
     K = [9.0 0.2 0.1; 0.3 9.0 0.2; 0.1 0.4 9.0]
     Ktrue = K - Diagonal(diag(K))
     v = [4.0, 2.0, 1.0]
+    # The movement of a kernel and an origin intensity, written out.
     function naive(ε)
         out = vec(sum(Ktrue; dims = 1))
         return [
@@ -222,34 +223,160 @@ end
                 for p in 1:3
         ]
     end
+    E = [0.1 0.3; 0.2 0.1; 0.05 0.2]
     for (ε, εv) in (
-            (0.1, fill(0.1, 3)),
-            (PerStratum([0.1, 0.2, 0.05]), [0.1, 0.2, 0.05]),
-            (TimeVarying([0.1, 0.4]), fill(0.4, 3)),
-            (
-                TimeVarying(PerStratum([0.1 0.3; 0.2 0.1; 0.05 0.2])),
-                [0.3, 0.1, 0.2],
-            ),
+            (0.1, fill(0.1, 3)), ([0.1, 0.2, 0.05], [0.1, 0.2, 0.05]),
+            (E, E[:, 2]),
         )
+        M = CR.movement(K, ε)
+        @test M isa (ε isa AbstractMatrix ? TimeVarying : Matrix)
         x, s = copy(v), zeros(3)
-        CR.forward(CR.Redistribute(K, ε), CR.Step(), x, s, 2)
+        CR.forward(CR.Redistribute(M), CR.Step(), x, s, 2)
         @test x ≈ naive(εv)
         # What moves is conserved; the state is the arrivals in each stratum.
         @test sum(x) ≈ sum(v)
         @test s ≈ [sum(εv[q] * Ktrue[p, q] * v[q] for q in 1:3 if q != p) for p in 1:3]
     end
-    @test_throws DimensionMismatch CR.Redistribute(ones(2, 3), 0.1)
-    # The kernel is checked against the strata once per call, in Init, and
-    # on a resumed state.
-    r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K, 0.1),))
-    @test_throws "Redistribute K is (3, 3), expected (2, 2) for 2 strata" r(
-        ones(2, 4); history = ones(2, 2)
+    # The step is the product with the matrix.
+    M = [0.7 0.2 0.0; 0.2 0.5 0.4; 0.1 0.3 0.6]
+    x, s = copy(v), zeros(3)
+    CR.forward(CR.Redistribute(M), CR.Step(), x, s, 1)
+    @test x ≈ M * v
+    @test s ≈ M * v .- diag(M) .* v
+end
+
+@testitem "Redistribute: a movement that varies over time" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    K = [0.0 0.3 0.1; 0.2 0.5 0.5; 0.4 0.2 0.0]
+    E = [0.1 0.2; 0.3 0.05; 0.15 0.25]
+    M = CR.movement(K, E)
+    # Read from the kernel and the intensity, it equals the dense matrix of
+    # each time's intensity, and its columns sum to one.
+    @test size(M.x) == (3, 3, 2)
+    slice(t) = [M.x[p, q, t] for p in 1:3, q in 1:3]
+    for t in 1:2
+        @test slice(t) ≈ CR.movement(K, E[:, t])
+        @test vec(sum(slice(t); dims = 1)) ≈ ones(3)
+    end
+    v, s̄0, v̄0 = [4.0, 2.0, 1.0], [0.3, -0.2, 0.5], [0.7, 0.1, -0.4]
+    # The step and its pullback in the kernel and the intensity, against a
+    # local Jacobian of the step built from them.
+    function step(x, t)
+        Kx, Ex, vx = reshape(x[1:9], 3, 3), reshape(x[10:15], 3, 2), x[16:18]
+        vv, ss = copy(vx), zeros(eltype(x), 3)
+        CR.forward(CR.Redistribute(CR.movement(Kx, Ex)), CR.Step(), vv, ss, t)
+        return vcat(vv, ss)
+    end
+    for t in 1:2
+        x = vcat(vec(K), vec(E), v)
+        J = ForwardDiff.jacobian(y -> step(y, t), x)
+        expected = transpose(J) * vcat(v̄0, s̄0)
+        m̄ = (; M = (; x = (; K = zeros(3, 3), E = zeros(3, 2))))
+        grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(grads, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
+        x̄ = m̄.M.x
+        @test vcat(vec(x̄.K), vec(x̄.E), grads.v) ≈ expected
+        @test grads.s == zeros(3)
+        # The value's cotangent matches the dense matrix of that time's.
+        gm = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gm, CR.Redistribute(slice(t)), CR.Step(), v, zeros(3), 1)
+        @test grads.v ≈ gm.v
+    end
+    # As a coupling on its own, as a spill reads it, it is the slice's
+    # product, and with no mirror the pullback still gives the input's
+    # cotangent.
+    @test ndims(M.x) == 3
+    for t in 1:2
+        q = zeros(3)
+        CR.forward(M, CR.Pressure(), q, v, t)
+        @test q ≈ slice(t) * v
+        g0 = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(g0, CR.Redistribute(M), CR.Step(), v, zeros(3), t)
+        gd = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gd, CR.Redistribute(slice(t)), CR.Step(), v, zeros(3), 1)
+        @test g0.v ≈ gd.v
+    end
+    # Its columns sum to one by construction, so Init does not check them.
+    r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
+    @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
+    @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
+    # The parameter forms the kernel-and-intensity Redistribute took: a
+    # PerStratum vector and strata × time matrix read as what they hold, and
+    # any other parameter at each origin and time.
+    entries(X) = [X.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2]
+    @test CR.movement(K, PerStratum(E[:, 1])) == CR.movement(K, E[:, 1])
+    @test entries(CR.movement(K, TimeVarying(PerStratum(E)))) == entries(M)
+    D = CR.movement(K, Derived(exp, TimeVarying(PerStratum(log.(E)))))
+    @test entries(D) ≈ entries(M)
+    @test entries(CR.movement(K, TimeVarying([0.1, 0.2]))) ≈
+        entries(CR.movement(K, [0.1 0.2; 0.1 0.2; 0.1 0.2]))
+    @test_throws "ε is one value" CR.movement(K, "fast")
+    @test_throws "S × S kernel matrix" CR.movement([0.1, 0.2], 0.1)
+    # A parameter's strata are checked when the run starts.
+    r3 = Recurrence([0.5]; modifiers = (CR.Redistribute(CR.movement(K, D.x.E)),))
+    @test size(r3(ones(3, 2); history = ones(3, 1))) == (3, 2)
+    short = CR.Redistribute(CR.movement(K, Derived(exp, PerStratum([0.0, 0.0]))))
+    @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (short,))(
+        ones(3, 2); history = ones(3, 1)
     )
-    r2 = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(K[1:2, 1:2], 0.1),))
+    # With one stratum nothing moves: the value passes on, the arrivals are
+    # zero, and the kernel and intensity get no gradient.
+    one = CR.Redistribute(CR.movement(fill(0.4, 1, 1), [0.2 0.3]))
+    x, s = [2.0], [5.0]
+    CR.forward(one, CR.Step(), x, s, 2)
+    @test x == [2.0] && s == [0.0]
+    m̄ = (; M = (; x = (; K = zeros(1, 1), E = zeros(1, 2))))
+    g1 = (; piece = m̄, v = [0.7], s = [0.3])
+    CR.pullback!(g1, one, CR.Step(), [2.0], zeros(1), 2)
+    @test g1.v == [0.7] && g1.s == [0.0]
+    @test all(iszero, m̄.M.x.K) && all(iszero, m̄.M.x.E)
+end
+
+@testitem "Redistribute: checks its matrix" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    M = [0.9 0.2 0.0; 0.1 0.7 0.3; 0.0 0.1 0.7]
+    @test_throws DimensionMismatch CR.Redistribute(ones(2, 3))
+    @test_throws DimensionMismatch CR.Redistribute(TimeVarying(ones(2, 3, 4)))
+    @test_throws "M is an S × S matrix" CR.Redistribute([0.5, 0.5])
+    @test_throws "a TimeVarying coupling" CR.Redistribute(TimeVarying(ones(2, 2)))
+    @test_throws "Redistribute(movement(K, ε))" CR.Redistribute(M, 0.1)
+    @test_throws "leak is true or false" CR.Redistribute{1}(M)
+    # The leak flag is a type parameter; the constructor is still inferred,
+    # so a scalar held in the matrix keeps its gradient under Enzyme.
+    @test @inferred(CR.Redistribute(M)) isa CR.Redistribute{false}
+    leaky_redistribute(M) = ComposableRecurrences.Redistribute(M; leak = true)
+    @test @inferred(leaky_redistribute(M)) isa CR.Redistribute{true}
+    # A leak flag from a variable goes in as a `Val`.
+    for leak in (false, true)
+        r = @inferred CR.Redistribute(M; leak = Val(leak))
+        @test r isa CR.Redistribute{leak}
+        @test r.M == M
+    end
+    @test_throws "leak is true or false" CR.Redistribute(M; leak = Val(1))
+    # The matrix is checked against the strata and its columns once per
+    # call, in Init, and on a resumed state.
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
+    @test_throws "coupling is (3, 3), expected (2, 2)" r(ones(2, 4); history = ones(2, 2))
+    r2 = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M[1:2, 1:2] ./ [1.0 0.9]),))
     _, state = CR.with_state(r2, ones(2, 4); history = ones(2, 2), stop = 2)
     @test_throws DimensionMismatch r(ones(2, 4); state)
-    @test_throws ArgumentError CR.Redistribute(K, [0.1, 0.2, 0.05])
-    @test_throws ArgumentError CR.Redistribute(K, ones(3, 2))
+    # Columns that do not sum to one are an error unless they may leak, and
+    # a leaky column may still not sum to more than one.
+    lost = [0.8 0.2 0.0; 0.1 0.7 0.3; 0.0 0.1 0.6]
+    for (m, msg) in (
+            (CR.Redistribute(lost), "must sum to one"),
+            (CR.Redistribute(TimeVarying(cat(M, lost; dims = 3))), "must sum to one"),
+            (CR.Redistribute(lost .+ 0.2; leak = true), "must sum to at most one"),
+        )
+        r = Recurrence([0.5]; modifiers = (m,))
+        @test_throws msg r(ones(3, 2); history = ones(3, 1))
+    end
+    leaky = Recurrence([0.5]; modifiers = (CR.Redistribute(lost; leak = true),))
+    y = leaky(ones(3, 1); history = ones(3, 1))
+    @test vec(y) ≈ 0.5 .* vec(sum(lost; dims = 2))
+    @test sum(y) < 1.5
 end
 
 @testitem "Clamp: bounds, scalar and per stratum" begin
@@ -480,32 +607,21 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [4.0, 2.0, 1.0], [0.3, 0.1, 0.2]
-    K = [0.5, 0.3, 0.1, 0.2, 0.7, 0.4, 0.1, 0.2, 0.9]
-    Kof(θ) = reshape(θ[1:9], 3, 3)
+    M = [0.7, 0.2, 0.1, 0.2, 0.5, 0.3, 0.0, 0.4, 0.6]
     c = ModifierChecks.check_pullback(
-        θ -> CR.Redistribute(Kof(θ), θ[10]), vcat(K, 0.1), v, s, 1
+        θ -> CR.Redistribute(reshape(θ, 3, 3)), M, v, s, 1
     )
     @test c.v && c.s && c.θ
-    @test c.θ̄[10] != 0
-    # The diagonal of K is not read.
-    @test all(iszero, c.θ̄[[1, 5, 9]])
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Redistribute(Kof(θ), PerStratum(θ[10:12])),
-        vcat(K, [0.1, 0.2, 0.05]), v, s, 1
-    )
-    @test c.v && c.s && c.θ
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Redistribute(Kof(θ), TimeVarying(θ[10:11])),
-        vcat(K, [0.1, 0.2]), v, s, 2
-    )
-    @test c.v && c.s && c.θ
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Redistribute(
-            Kof(θ), TimeVarying(PerStratum(reshape(θ[10:15], 3, 2)))
-        ),
-        vcat(K, [0.1, 0.2, 0.05, 0.3, 0.1, 0.2]), v, s, 2
-    )
-    @test c.v && c.s && c.θ
+    @test all(!iszero, c.θ̄)
+    # A matrix per time reads its slice at `t`.
+    MT = vcat(M, 0.9 .* M)
+    for t in (1, 2)
+        c = ModifierChecks.check_pullback(
+            θ -> CR.Redistribute(TimeVarying(reshape(θ, 3, 3, 2))), MT, v, s, t
+        )
+        @test c.v && c.s && c.θ
+        @test all(iszero, c.θ̄[(9 * (2 - t) + 1):(9 * (3 - t))])
+    end
 end
 
 @testitem "Clamp pullback matches the local Jacobian" setup = [ModifierChecks] begin
@@ -536,7 +652,7 @@ end
     w = reshape(range(0.5, 2.0; length = 15), 3, 5)
     function loss(θ)
         mods = (
-            CR.Redistribute(K, θ[1]),
+            CR.Redistribute(CR.movement(K, θ[1])),
             CR.Depletion(
                 PerStratum(θ[2:4]);
                 pool0 = PerStratum(max.(θ[2:4] .- vec(sum(h; dims = 2)), 0)),
@@ -587,8 +703,7 @@ end
     @test ca(R) == cb(R)
     # And for modifier parameters.
     for build in (
-            b -> CR.Add(b), b -> CR.Redistribute([0.0 0.2; 0.3 0.0], b),
-            b -> CR.Clamp(0.0, b),
+            b -> CR.Add(b), b -> CR.Depletion(b), b -> CR.Clamp(0.0, b),
         )
         ma, mb = build(TimeVarying(PerStratum(B))), build(PerStratum(TimeVarying(B)))
         @test typeof(ma) === typeof(mb)
@@ -663,7 +778,7 @@ end
                 PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0]),
                 heterogeneity = 1.5
             ),
-            CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(K, 0.1),
+            CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(CR.movement(K, 0.1)),
         )
         r = Recurrence([0.5, 0.5]; modifiers = (m,))
         @test (@inferred r(fill(1.1, 2, 6); history = ones(2, 2))) isa

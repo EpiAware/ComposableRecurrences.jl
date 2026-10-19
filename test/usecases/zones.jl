@@ -70,14 +70,14 @@
     # patch's imported share lands in the pattern the other patches' zones
     # send, weighted by each origin, and the rest is split by the spilled
     # force. The within block's columns sum to one, so the spill is a
-    # `Redistribute`.
+    # `Redistribute` of its movement matrix.
     pattern = mix.between .* permutedims(mix.origin_weight)
     fraction = TimeVarying(PerStratum(mix.import_fraction[:, t0:n]))
     function mixed_split(ε)
         return CR.Allocate(
             patch_ranges, TimeVarying(PerStratum(I_bar[:, t0:n]));
             imports = (fraction, pattern),
-            spill = CR.Redistribute(mix.within, PerStratum(ε))
+            spill = CR.Redistribute(CR.movement(mix.within, ε))
         )
     end
 

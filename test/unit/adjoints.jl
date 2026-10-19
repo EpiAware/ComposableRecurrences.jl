@@ -238,13 +238,14 @@ end
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     # Import patterns: dense and sparse, and one that varies over time. The
-    # spill kernel has a nonzero diagonal, which the spill leaves out.
+    # spill kernel has a nonzero diagonal, which the movement leaves out.
     prng = Xoshiro(7)
     P = rand(prng, S, S)
     PT = 0.5 .+ rand(prng, S, S, T)
     Ks = rand(prng, S, S) ./ 2 + 0.3I
-    spill = CR.Redistribute(Ks, PerStratum([0.3, 0.2, 0.1]))
-    sparse_spill = CR.Redistribute(sparse(Ks), PerStratum([0.3, 0.2, 0.1]))
+    Ms = CR.movement(Ks, [0.3, 0.2, 0.1])
+    spill = CR.Redistribute(Ms)
+    sparse_spill = CR.Redistribute(sparse(Ms))
     for mods in (
             (PoolDepletion([30.0, 40.0, 50.0]),),
             (Hazard(45.0),),
@@ -253,7 +254,7 @@ end
             (Slope(0.3),),
             (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
             (CR.Depletion(50.0, CR.Floor(); heterogeneity = 1.5),),
-            (CR.Redistribute(K, PerStratum([0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
+            (CR.Redistribute(CR.movement(K, [0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
@@ -330,9 +331,9 @@ end
     groups = [1:2, 3:5]
     P = rand(rng, S, S)
     K = rand(rng, S, S) ./ 2 + 0.2I
-    ε = PerStratum(fill(0.2, S))
+    M = CR.movement(K, fill(0.2, S))
     imports = (PerStratum([0.3, 0.5]), P)
-    m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(K, ε))
+    m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(M))
     # One step: the pullback given the state after the step, and given a
     # per-pass buffer finished by `_finish_pass!`, matches the one that
     # computes everything again.
@@ -365,7 +366,7 @@ end
     g = rand(rng, L) ./ 2
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
-    for spill in (CR.Redistribute(K, ε), nothing)
+    for spill in (CR.Redistribute(M), nothing)
         r = Recurrence(
             g; coupling = rand(rng, S, S) ./ 4,
             modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Add(0.1))
@@ -1362,6 +1363,40 @@ end
     )
     @test_throws DimensionMismatch CR.pullback!(
         (; piece = nothing, q = q̄, p = zeros(2)), C, CR.Pressure(), nothing, p, 1
+    )
+end
+
+@testitem "Adjoint: time-varying dense coupling pullback with every mirror" setup = [AdjointCheck] begin
+    # A dense 3-array read at time `t` takes its fast loop for a 3-array
+    # mirror, a wrapped one or none, and the generic loop for any other
+    # mirror; all agree with the slice's transposed product.
+    rng = Xoshiro(5)
+    X, p, q̄ = randn(rng, 3, 3, 4), randn(rng, 3), randn(rng, 3)
+    C, t = TimeVarying(X), 2
+    p̄ref = transpose(X[:, :, t]) * q̄
+    X̄ref = q̄ * transpose(p)
+    for (m̄, read) in (
+            ((; x = zeros(3, 3, 4)), m -> m.x),
+            ((; x = (; x = zeros(3, 3, 4))), m -> m.x.x),
+            ((; x = view(zeros(3, 3, 4), :, :, :)), m -> m.x),
+            ((; x = nothing), nothing), (nothing, nothing),
+        )
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, t)
+        @test p̄ ≈ p̄ref
+        read === nothing || @test read(m̄)[:, :, t] ≈ X̄ref
+        read === nothing || @test iszero(read(m̄)[:, :, 1])
+    end
+    # Mismatched sizes are an error, not a read past the end.
+    @test_throws DimensionMismatch CR.pullback!(
+        (; piece = (; x = zeros(2, 2, 4)), q = q̄, p = zeros(3)), C, CR.Pressure(),
+        nothing, p, t
+    )
+    @test_throws DimensionMismatch CR.pullback!(
+        (; piece = nothing, q = q̄, p = zeros(2)), C, CR.Pressure(), nothing, p, t
+    )
+    @test_throws BoundsError CR.pullback!(
+        (; piece = nothing, q = q̄, p = zeros(3)), C, CR.Pressure(), nothing, p, 5
     )
 end
 
