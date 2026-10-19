@@ -364,6 +364,7 @@ end
 # A copy or a map of a one-entry view is another, over a `Ref`.
 function Base.similar(::_At, ::Type{T}, ax::Tuple{Base.IdentityUnitRange}) where {T}
     r = only(ax)
-    length(r) == 1 || throw(DimensionMismatch("a one-entry view has one entry, not $(length(r))"))
+    length(r) == 1 ||
+        throw(DimensionMismatch("a one-entry view has one entry, not $(length(r))"))
     return _At(Ref{T}(), first(r))
 end

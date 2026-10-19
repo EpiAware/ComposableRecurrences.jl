@@ -362,7 +362,8 @@ end
         piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
         α = _At(ᾱr, 1),
     )
-    _written(form, @inline pullback!(g, form, Step(), _At(Ref(v), 1), _At(Ref(s), 1), N, α))
+    vv, sv = _At(Ref(v), 1), _At(Ref(s), 1)
+    _written(form, @inline pullback!(g, form, Step(), vv, sv, N, α))
     return v̄r[], s̄r[], N̄r[], ᾱr[]
 end
 # A depletion form's in-place step and pullback on views of a stratum's

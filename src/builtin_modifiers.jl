@@ -353,7 +353,9 @@ end
 for F in (:Hazard, :Floor)
     @eval begin
         forward!(f::$F, ::Step, v, s, N, α) = _form_forward!(f, v, s, N, α)
-        pullback!(grads, f::$F, ::Step, v, s, N, α) = _form_pullback!(grads, f, v, s, N, α)
+        function pullback!(grads, f::$F, ::Step, v, s, N, α)
+            return _form_pullback!(grads, f, v, s, N, α)
+        end
     end
 end
 
@@ -731,7 +733,9 @@ end
 # Redistribute over a movement of a kernel and an intensity in one pass:
 # column `b` adds `K[:, b] w_b` to the arrivals, finds its sum, and sets
 # `v[b]` to its own share `M_bb v_b`; the arrivals then join.
-function forward!(m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}}, ::Step, v, s, t)
+function forward!(
+        m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}}, ::Step, v, s, t
+    )
     _stays(m.M) && return (fill!(s, zero(eltype(s))); nothing)
     (; K, E) = m.M.x
     _check_time(E, t)

@@ -117,7 +117,9 @@ end
 for F in (:Truncate, :SoftTruncate)
     @eval begin
         forward!(f::$F, ::Step, v, s, N, α) = _form_forward!(f, v, s, N, α)
-        pullback!(grads, f::$F, ::Step, v, s, N, α) = _form_pullback!(grads, f, v, s, N, α)
+        function pullback!(grads, f::$F, ::Step, v, s, N, α)
+            return _form_pullback!(grads, f, v, s, N, α)
+        end
     end
 end
 _softness(::Truncate) = nothing

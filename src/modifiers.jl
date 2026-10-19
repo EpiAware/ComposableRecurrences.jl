@@ -613,7 +613,8 @@ end
     v̄r, s̄r = map(Ref, grads.v), map(Ref, grads.s)
     at = r -> _At(r, g)
     gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
-    _written(m, @inline pullback!(gg, m, Step(), map(at ∘ Ref, v), map(at ∘ Ref, s), t, g))
+    vv, sv = map(at ∘ Ref, v), map(at ∘ Ref, s)
+    _written(m, @inline pullback!(gg, m, Step(), vv, sv, t, g))
     return map(getindex, v̄r), map(getindex, s̄r)
 end
 
