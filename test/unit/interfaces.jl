@@ -301,3 +301,101 @@ end
     c = Convolution([0.5, 0.5])
     @test CR.NoAdjoint(c)(R) == c(R)
 end
+
+@testitem "Interfaces: the step kernels behind forward!" begin
+    using ComposableRecurrences, LinearAlgebra
+    CR = ComposableRecurrences
+    # The built-ins' scalar kernels, called directly: the operators inline
+    # them into their loops.
+    pool = CR.Pool(
+        100.0; pools = (:S,), draw = :S => CR.Hazard(),
+        flows = (CR.Flow(0 => 1, 2.0; form = CR.Truncate()),)
+    )
+    for m in (CR.Add(1.0), CR.Clamp(0.0, 1.0), CR.Transform(*, 2.0), CR.Depletion(100.0), pool)
+        @test CR._kernel(m)
+    end
+    @test !CR._kernel(nothing)
+    grads = (; piece = (; b = Ref(0.0)), v = 1.0, s = 0.5)
+    @test CR._step_back(grads, CR.Add(1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
+    @test grads.piece.b[] == 1.0
+    grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = 1.0, s = 0.0)
+    @test CR._step_back(grads, CR.Clamp(0.0, 1.0), 2.0, 0.0, 1, 1) == (0.0, 0.0)
+    @test grads.piece.hi[] == 1.0
+    # A form's public in-place step and pullback match its kernels.
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
+        v, s = [2.0, 3.0], [80.0, 1.5]
+        CR.forward!(form, CR.Step(), v, s, 100.0, 1.0)
+        @test (v[2], s[2]) == CR._draw(form, 3.0, 1.5, 100.0, 1.0)
+        g = (; piece = nothing, v = [1.0, 1.0], s = [0.5, 0.5], N = zeros(2), α = zeros(2))
+        CR.pullback!(g, form, CR.Step(), [2.0, 3.0], [80.0, 1.5], 100.0, 1.0)
+        v̄, s̄, N̄, ᾱ = CR._draw_back(
+            (; piece = nothing, v = 1.0, s = 0.5), form, 3.0, 1.5, 100.0, 1.0
+        )
+        @test (g.v[2], g.s[2], g.N[2], g.α[2]) == (v̄, s̄, N̄, ᾱ)
+    end
+    # A diagonal coupling scales each stratum's pressure.
+    q = zeros(2)
+    CR.forward!(Diagonal([0.5, 2.0]), CR.Pressure(), q, [2.0, 3.0], 1)
+    @test q == [1.0, 6.0]
+end
+
+@testitem "Interfaces: the generic steps on a user type's views" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A pointwise modifier, a blockwise one and a depletion form, each with
+    # an in-place step and pullback, run through the generic kernels.
+    struct Halve end
+    CR.ispointwise(::Halve) = true
+    function CR.forward!(::Halve, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] / 2, s[k] + v[k] / 2
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, ::Halve, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            grads.v[k] = (grads.v[k] + grads.s[k]) / 2
+        end
+        return nothing
+    end
+    @test !CR._kernel(Halve())
+    @test CR._step(Halve(), 2.0, 1.0, 1, 3) == (1.0, 2.0)
+    pointwise = (; piece = nothing, v = 1.0, s = 1.0)
+    @test CR._step_back(pointwise, Halve(), 2.0, 1.0, 1, 3) == (1.0, 1.0)
+    struct Swap end
+    CR.blocks(::Swap) = Val((2, 0))
+    function CR.forward!(::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v[1][], v[2][] = v[2][], v[1][]
+        return nothing
+    end
+    function CR.pullback!(grads, ::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        grads.v[1][], grads.v[2][] = grads.v[2][], grads.v[1][]
+        return nothing
+    end
+    @test CR._block_step(Swap(), (1.0, 2.0), (), 1, 2) == ((2.0, 1.0), ())
+    blockwise = (; piece = nothing, v = (3.0, 4.0), s = ())
+    @test CR._block_back(blockwise, Swap(), (1.0, 2.0), (), 1, 2) == ((4.0, 3.0), ())
+    struct Half end
+    function CR.forward!(::Half, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            v[i], s[i] = v[i] / 2, s[i] - v[i] / 2
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, ::Half, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            grads.v[i] = (grads.v[i] - grads.s[i]) / 2
+        end
+        return nothing
+    end
+    @test CR._draw(Half(), 2.0, 5.0, 100.0, 1.0) == (1.0, 4.0)
+    form = (; piece = nothing, v = 1.0, s = 0.5)
+    @test CR._draw_back(form, Half(), 2.0, 5.0, 100.0, 1.0) == (0.25, 0.5, 0.0, 0.0)
+    # Copies, maps and broadcasts of a one-entry view are views of the same
+    # entry.
+    a = CR._At(Ref(2.0), 3)
+    @test copy(a)[3] == 2.0
+    @test map(x -> 3x, a)[3] == 6.0
+    @test (2 .* a)[3] == 4.0
+    @test_throws BoundsError a[1]
+end
