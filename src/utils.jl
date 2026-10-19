@@ -320,7 +320,8 @@ end
 
 # The one entry of stratum `k` of a vector, or of row `r` of a matrix, as a
 # vector with axes `k:k`, so a step written over `eachindex(v)` reads and
-# writes that entry and reads a per-stratum parameter at `k`.
+# writes that entry and reads a per-stratum parameter at `k`. The axis is an
+# identity range, so Base's linear indices of the view are `k` too.
 struct _At{T, A} <: AbstractVector{T}
     parent::A
     r::Int
@@ -332,7 +333,7 @@ end
     return _At{eltype(a), typeof(a)}(a, Int(r), Int(k))
 end
 @inline Base.size(::_At) = (1,)
-@inline Base.axes(a::_At) = (a.k:a.k,)
+@inline Base.axes(a::_At) = (Base.IdentityUnitRange(a.k:a.k),)
 Base.IndexStyle(::Type{<:_At}) = IndexLinear()
 @inline _ix(a::_At{T, <:AbstractVector}) where {T} = (a.k,)
 @inline _ix(a::_At{T, <:Base.RefValue}) where {T} = ()
@@ -348,9 +349,7 @@ end
 end
 # The error for an index other than the view's own takes the indices only,
 # so the view and its slot do not escape into it.
-@noinline function _out_of_view(i, k)
-    throw(BoundsError("a one-entry view of entry $k", i))
-end
+@noinline _out_of_view(i, k) = throw(BoundsError(k:k, i))
 # The one entry without its index, as `v[]`, for a step that holds it alone.
 @inline Base.getindex(a::_At) = @inbounds a[a.k]
 @inline Base.setindex!(a::_At, x) = (@inbounds a[a.k] = x; a)
@@ -361,4 +360,10 @@ _AtStyle(::Val) = _AtStyle()
 Base.BroadcastStyle(::Type{<:_At}) = _AtStyle()
 function Base.similar(bc::Broadcast.Broadcasted{_AtStyle}, ::Type{T}) where {T}
     return _At(Ref{T}(), first(only(axes(bc))))
+end
+# A copy or a map of a one-entry view is another, over a `Ref`.
+function Base.similar(::_At, ::Type{T}, ax::Tuple{Base.IdentityUnitRange}) where {T}
+    r = only(ax)
+    length(r) == 1 || throw(DimensionMismatch("a one-entry view has one entry, not $(length(r))"))
+    return _At(Ref{T}(), first(r))
 end
