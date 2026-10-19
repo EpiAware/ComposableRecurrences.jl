@@ -272,7 +272,7 @@
                     "patch model",
                     Recurrence(
                         g; modifiers = (
-                            CR.Redistribute(K, 0.4),
+                            ADFixtures._leaky(CR.movement(K, 0.4)),
                             CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
                         )
                     ),
@@ -292,7 +292,9 @@
                 (
                     "patch model, sparse kernel",
                     Recurrence(
-                        g; modifiers = (CR.Redistribute(sparse(K), PerStratum([0.4, 0.3, 0.2])),)
+                        g; modifiers = (
+                            ADFixtures._leaky(sparse(CR.movement(K, [0.4, 0.3, 0.2]))),
+                        )
                     ),
                     rec(R, nothing, h),
                 ),
@@ -1088,25 +1090,100 @@ end
     end
 end
 
-@testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+@testitem "Conserving dense movement through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # The kernel and the intensity are the parameters, so the dense
+    # movement matrix's columns sum to one at every input and the
+    # conserving (`leak = false`) path runs with its column check.
+    h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
+    W = cos.(reshape(1:18, 3, 6))
+    function f(θ)
+        K, ε = reshape(θ[1:9], 3, 3), θ[10:12]
+        r = Recurrence(
+            [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
+            modifiers = (
+                CR.Redistribute(CR.movement(K, ε)),
+                CR.Depletion(PerStratum(fill(40.0, 3))),
+            )
+        )
+        return sum(W .* r(R; history = h))
+    end
+    θ = [0.0, 0.6, 0.4, 0.3, 0.0, 0.7, 0.5, 0.5, 0.0, 0.2, 0.3, 0.1]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    for backend in job_backends(
+            :mooncake_reverse => AutoMooncake(; config = nothing),
+            :enzyme_reverse => AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        n0 = CR._PULLBACK_CALLS[]
+        @test gradient(f, backend, θ) ≈ ref
+        @test CR._PULLBACK_CALLS[] > n0
+    end
+end
+
+@testitem "Movement read from recent outputs with an active scale" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff
+    # The scale of the intensity is a parameter, so its gradient flows
+    # through the intensity held by the movement as well as through the
+    # outputs the intensity reads. The data are bound in a `let` so `f`
+    # is inferred: Enzyme reverse finds no shadow for the intensity when
+    # it is reached from uninferred code.
+    f = let g = exp.(-0.4 .* (1:4)) ./ sum(exp.(-0.4 .* (1:4))),
+            pop = [60.0, 90.0, 70.0], h = fill(5.0, 3, 4),
+            R = exp.(0.1 .* sin.((1:3) .+ (1:12)')), W = cos.((1:3) .* (1:12)')
+        function (θ)
+            K, κ = reshape(θ[1:9], 3, 3), θ[10]
+            ε = Derived(x -> 0.2 * tanh(x), κ * CR.Recent(3))
+            mods = (
+                CR.Redistribute(CR.movement(K, ε)),
+                CR.Depletion(PerStratum(pop)),
+            )
+            y = Recurrence(g; modifiers = mods)(R; history = h)
+            return sum(W .* log.(y))
+        end
+    end
+    θ = [0.0, 0.6, 0.4, 0.5, 0.0, 0.5, 0.2, 0.3, 0.0, 0.05]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    backend = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Const
+    )
+    n0 = CR._PULLBACK_CALLS[]
+    @test gradient(f, backend, θ) ≈ ref
+    @test CR._PULLBACK_CALLS[] > n0
+    @test ref[10] != 0
+end
+
+@testitem "Sparse Redistribute matrix through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     using SparseArrays
     import Enzyme, ForwardDiff, Mooncake
-    K = sparse([0.0 0.2 0.0; 0.1 0.0 0.3; 0.2 0.0 0.0])
+    # Columns summing to one, with the diagonal stored.
+    M = sparse([0.8 0.2 0.0; 0.1 0.8 0.3; 0.1 0.0 0.7])
     h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
     W = cos.(reshape(1:18, 3, 6))
     function f(θ)
-        Kθ = SparseMatrixCSC(3, 3, K.colptr, K.rowval, θ[1:4])
+        Mθ = SparseMatrixCSC(3, 3, M.colptr, M.rowval, θ)
         r = Recurrence(
             [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
-            modifiers = (CR.Redistribute(Kθ, θ[5]), CR.Depletion(PerStratum(fill(40.0, 3))))
+            modifiers = (CR.Redistribute(Mθ), CR.Depletion(PerStratum(fill(40.0, 3))))
         )
         return sum(W .* r(R; history = h))
     end
-    θ = [K.nzval; 0.4]
+    θ = copy(M.nzval)
     ref = gradient(f, AutoForwardDiff(), θ)
     for backend in job_backends(
             :mooncake_reverse => AutoMooncake(; config = nothing),
@@ -1268,7 +1345,7 @@ end
     end
 end
 
-@testitem "Empty and seeded pools: forward modes match ForwardDiff" tags = [:ad, :mooncake, :mooncake_forward, :enzyme, :enzyme_forward] begin
+@testitem "Empty and seeded pools: forward modes match ForwardDiff" tags = [:ad, :mooncake, :mooncake_forward, :enzyme, :enzyme_forward] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncakeForward, AutoEnzyme, AutoForwardDiff
@@ -1282,9 +1359,9 @@ end
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
     end
-    backends = (
-        AutoMooncakeForward(),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_forward => AutoMooncakeForward(),
+        :enzyme_forward => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Forward),
             function_annotation = Enzyme.Const
         ),
@@ -1562,7 +1639,7 @@ end
     function loss(θ)
         ms = (
             CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
-            CR.Redistribute(K, 0.5),
+            CR.Redistribute(CR.movement(K, 0.5)),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end

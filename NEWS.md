@@ -4,9 +4,12 @@
 
 ### Breaking
 
+- `Redistribute(M; leak = false)` takes one movement matrix whose columns sum to one, fixed or `TimeVarying`, in place of a kernel `K` and an intensity `ε` ([spatial and multi-type models][spatial]).
+  To migrate, write `Redistribute(movement(K, ε))`; `movement` takes `ε` in every form the old `Redistribute` did (one value, `PerStratum`, `TimeVarying`, `TimeVarying(PerStratum)`, `Derived` or `Recent`) and also a plain vector over origins or an origins × time matrix.
 - `Depletion` is now a type alias of [`Pool`][api], so `m isa Depletion` holds as before.
   `Depletion(N, form; heterogeneity, pool0)` builds it as before; its starting pool is the field `initial[1]` rather than `pool0`, and its type parameters are `Pool`'s.
   The v0.1.0 positional constructor `Depletion(N, form, heterogeneity, pool0)` is gone.
+
 - `seeded` is removed.
   Use `r(gain; history, start = m + 1, prepend = true)`, which places the seed at times `1:m` and returns it before the run ([renewal then delay][renewal]).
 - `start = nothing` is an `ArgumentError`.
@@ -73,14 +76,14 @@
 - ConstructionBase is a hard dependency.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.
-- `Redistribute` checks its kernel against the strata once, in `Init` or on a resumed state, rather than every step.
+- `Redistribute` checks its matrix against the strata, and its columns, once, in `Init` or on a resumed state, rather than every step.
 - Argument errors name the value they got as well as what they expected.
 - The fixed-kernel convolution, time-varying kernels, `Pairwise` kernels and ForwardDiff paths are faster.
 - `Threaded()` counts each loop's work by its kind, so one `min_work` sets where each kind breaks even: independent strata split from eight times `min_work` and a fixed-kernel convolution from sixteen times, and in these loops a dual number with 8 partials counts 9 multiply-adds.
   With the default `min_work` of 500 000, strata that mix through a sparse or dense coupling run in order at the sizes usually fitted.
 - Under Reactant, the time loop of `Recurrence` and `Convolution` compiles to one loop rather than one block per step, so compile time no longer grows with the number of steps ([Reactant extension][reactant]).
 - The reverse rule of a `Recurrence` records less: no per-step state for `Add`, `Clamp`, `Transform` and `Allocate`, and no pressure record for `I` and `Diagonal` couplings.
-- The reverse rule of `Allocate` with imports reads its spilled values and pattern from a record of each step instead of computing them again, and a dense pattern or spill kernel takes its cotangent in one matrix product after the last step.
+- The reverse rule of `Allocate` with imports reads its spilled values and pattern from a record of each step instead of computing them again, and a dense pattern or movement matrix takes its cotangent in one matrix product after the last step.
 - Mooncake and Enzyme no longer differentiate the check a `Depletion` makes on its form, which cost Mooncake about 8 µs a gradient.
 - On Julia 1.11, the Enzyme extension warns once per operator type when Enzyme reverse mode differentiates an operator with an active scalar field.
   Enzyme on 1.11 returns a zero gradient for such a field when the operator is built by code it cannot infer, such as a closure over a boxed variable, and the extension cannot detect that case (#181).

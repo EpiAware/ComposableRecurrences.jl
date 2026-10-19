@@ -3,7 +3,8 @@ module ComposableRecurrencesKernelAbstractionsExt
 using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Clamp,
     Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool, Recurrence,
     Redistribute, TimeVarying, Transform, _AllocateImports, _Columns, _Flat,
-    _OldestFirstPairwise, _PIECEWISE_DEVICE, _Piecewise, _Ragged, _kernel_args
+    _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE, _Piecewise, _Ragged,
+    _kernel_args
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using KernelAbstractions: @index, @kernel
@@ -36,7 +37,7 @@ end
 const _Adapted = Union{
     PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Pool, Add,
     Clamp, Redistribute, Transform, Derived, Recurrence, _AllocateImports,
-    Convolution, Flow,
+    _Movement, Convolution, Flow,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
