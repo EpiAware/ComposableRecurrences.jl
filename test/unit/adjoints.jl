@@ -2007,6 +2007,23 @@ end
     for r in cases, op in (CR._WithTrace(r), CR._WithTrace(CR._WithState(r)))
         @test pullback_matches(op, recargs(R, nothing, h)...)
     end
+    # A trace without a cotangent, whole or for one modifier, leaves the
+    # pullback of the call without it.
+    r = first(cases)
+    args = recargs(R, nothing, h)
+    y, cache = CR._run_forward(r, args...)
+    ȳ = randn(Xoshiro(3), size(y))
+    plain = zero_mirror((r, args...))
+    CR._run_pullback!((; piece = first(plain), y = ȳ, args = Base.tail(plain)), r, cache)
+    w = CR._WithTrace(r)
+    (_, tr), _ = CR._run_forward(w, args...)
+    for tr̄ in (nothing, (; modifiers = (nothing, nothing, zero(last(tr.modifiers)))))
+        ms = zero_mirror((w, args...))
+        _, cache = CR._run_forward(w, args...)
+        grads = (; piece = first(ms), y = (ȳ, tr̄), args = Base.tail(ms))
+        CR._run_pullback!(grads, w, cache)
+        @test mirror_vec(ms, (w, args...)) ≈ mirror_vec(plain, (r, args...))
+    end
     # A ward without a draw: each flow's amount, with every form.
     ward = CR.Pool(;
         pools = 2, draw = nothing, flows = (
