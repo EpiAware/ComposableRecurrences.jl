@@ -14,7 +14,8 @@ const CR = ComposableRecurrences
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
 Both write their outputs in place and return `nothing`; a method that returns anything else is an error.
 Couplings, modifiers and depletion forms write in place, and operators return: an operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
-A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it, and returns its values for one stratum or group.
+A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
+It still returns its values for one stratum or group, and will move to `forward!`.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
