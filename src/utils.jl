@@ -266,10 +266,21 @@ param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 # that carries the field count or a tuple's length in its signature
 # (`Val(N)`, `map` over a tuple) is widened by inference's recursion limit
 # when an inner struct has more fields than an outer one, as
-# a `Pool` inside a `Recurrence` does.
+# a `Pool` inside a `Recurrence` does. Each promotion takes two types, as a
+# `promote_type` of more than about 32 types does not infer.
 @generated function _fields_eltype(x)
-    calls = (:(param_eltype(getfield(x, $i))) for i in 1:fieldcount(x))
-    return :(promote_type(Bool, $(calls...)))
+    ex = :Bool
+    for i in 1:fieldcount(x)
+        ex = :(promote_type($ex, param_eltype(getfield(x, $i))))
+    end
+    return ex
+end
+
+# `map` over a tuple, unrolled so that the result is concretely typed at
+# any length: `map` over a tuple of 32 or more entries returns a `Tuple` of
+# unknown type. The generator reads only the length.
+@generated function _tuple_map(f, xs::Tuple{Vararg{Any, N}}) where {N}
+    return :(($((:(f(xs[$i])) for i in 1:N)...),))
 end
 
 # A zeroed array like `x` of eltype `T` and size `dims`.

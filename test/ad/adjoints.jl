@@ -1629,6 +1629,51 @@ end
     @test CR._PULLBACK_CALLS[] > 0
 end
 
+@testitem "Enzyme reverse: a field of 32 or more entries" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
+    using ComposableRecurrences: Flow, Pool
+    import DifferentiationInterface as DI
+    CR = ComposableRecurrences
+    b = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
+    )
+    # A pool with a scalar rate on each of `n` flows, built in the loss.
+    function flows_loss(θ, ::Val{n}) where {n}
+        ring = (:A, :B, :C, :D)
+        fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(n))
+        d = Pool(1000.0; pools = ring, initial = (900.0, 50.0, 30.0, 20.0), flows = fs)
+        r = Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
+        return sum(log.(r(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
+    end
+    # Each check takes the size as a type, so the loss it builds infers.
+    function check(loss, θ, v)
+        f = θ -> loss(θ, v)
+        CR._PULLBACK_CALLS[] = 0
+        @test DI.gradient(f, b, θ) ≈ ForwardDiff.gradient(f, θ)
+        @test CR._PULLBACK_CALLS[] > 0
+        return nothing
+    end
+    for v in (Val(32), Val(33), Val(64))
+        n = typeof(v).parameters[1]
+        check(flows_loss, [0.005 + 0.0005 * i for i in 1:n], v)
+    end
+    # A modifier holding one tuple of `n` active scalars.
+    struct Weights{W}
+        w::W
+    end
+    CR.ispointwise(::Weights) = true
+    CR.forward(m::Weights, ::CR.Step, v, s, t, k) = (v * m.w[mod1(t, length(m.w))], s)
+    function weights_loss(θ, ::Val{n}) where {n}
+        m = Weights(ntuple(i -> θ[i], Val(n)))
+        r = Recurrence([0.3, 0.2]; modifiers = (m,))
+        return sum(r(fill(1.5, 20); history = [1.0, 1.0]))
+    end
+    for v in (Val(35), Val(40))
+        n = typeof(v).parameters[1]
+        check(weights_loss, [1.0 + 0.01 * i for i in 1:n], v)
+    end
+end
+
 @testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
