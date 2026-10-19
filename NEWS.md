@@ -53,6 +53,8 @@
   Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Depletion(N; removals)` takes removals from the pool after each draw ([renewal then delay][renewal]).
+- A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding each modifier's series per step, differentiable as the output is; a modifier can record its own through a `Trace()` role ([extending][extending]).
+  A call without it runs as before.
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.

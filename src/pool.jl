@@ -1030,3 +1030,60 @@ end
 # A `Pool` uses its own pullback when its form has one or the form's local
 # derivative covers it (see `_form_pullback`).
 uses_adjoint(m::Pool, ::Step) = _form_adjoint(m.form)
+
+# Trace ---------------------------------------------------------------------
+
+# A pool's trace: with a draw, its pools after the step, the value drawn
+# and what the draw leaves of the demand, per stratum for one pool and per
+# group otherwise; without one, the amount each flow moves, per group.
+ntrace(m::Pool, S) = _pool_ntrace(Val(_layout(m)), m, S)
+function _pool_ntrace(::Val{L}, m, S) where {L}
+    L.draw || return length(m.flows) * (S ÷ L.n)
+    B = blocks(m)
+    B === nothing && return 3S
+    return (L.n + 2) * _ngroups(B, S)
+end
+
+function forward(m::_OnePool, ::Trace, v::Number, s::Number, v′, s′, t, k)
+    return s′, v′, v - v′
+end
+function pullback!(grads, m::_OnePool, ::Trace, v::Number, s::Number, t, k)
+    p̄, ȳ, ū = grads.trace
+    return ū, zero(ū), ȳ - ū, p̄
+end
+
+function forward(m::Pool, ::Trace, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+    return _pool_trace(Val(_layout(m)), m, v, s, v′, s′, t, g)
+end
+function _pool_trace(::Val{L}, m, v, s, v′, s′, t, g) where {L}
+    L.draw || return _amounts(m.flows, v, g, t)
+    x, _ = _pools_queue(Val(L.overflow), s′, Val(L.n))
+    _, Q = _pools_queue(Val(L.overflow), s, Val(L.n))
+    y = first(v′)
+    return (x..., y, first(v) + Q - y)
+end
+
+function pullback!(grads, m::Pool, ::Trace, v::Tuple, s::Tuple, t, g)
+    return _pool_trace_back(Val(_layout(m)), grads, m, v, s, t, g)
+end
+function _pool_trace_back(::Val{L}, grads, m, v, s, t, g) where {L}
+    L.draw || return _amounts_back(grads, m, v, s, t, g)
+    r̄ = grads.trace
+    ȳ, ū = r̄[L.n + 1], r̄[L.n + 2]
+    z = zero(ū)
+    x̄ = ntuple(i -> r̄[i], Val(L.n))
+    zx = ntuple(_ -> z, Val(L.n))
+    v̄ = ntuple(i -> i == 1 ? ū : z, Val(length(v)))
+    v̄′ = ntuple(i -> i == 1 ? ȳ - ū : z, Val(length(v)))
+    q = Val(L.overflow)
+    return v̄, _with_queue(q, zx, ū), v̄′, _with_queue(q, x̄, z)
+end
+
+# The flows' amounts back to the pools before them, and to each flow's
+# demand and softness.
+function _amounts_back(grads, m, x, s, t, g)
+    x̄ = _amounts_pullback(m.flows, cotangent(grads.piece, :flows), grads.trace, x, g, t)
+    z = zero(eltype(x̄))
+    zs = map(_ -> z, s)
+    return x̄, zs, map(_ -> z, x), zs
+end
