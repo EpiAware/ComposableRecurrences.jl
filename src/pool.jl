@@ -255,12 +255,15 @@ ConstructionBase.constructorof(::Type{<:Pool{L}}) where {L} = Pool{L}
 const _LAYOUT_KEYS = (:n, :draw, :first, :fill, :flows_first, :overflow)
 
 # That the flows name no pool beyond the `n` there are; the message is
-# built only when one does.
-_check_pools(::Tuple{}, n) = nothing
-function _check_pools(fs::Tuple, n)
-    f = first(fs)
+# built only when one does. The check is unrolled: a recursion over the
+# flows is widened by inference past about 32 of them, and its dynamic call
+# is then rejected by reverse-mode AD of a `Pool` built in the loss.
+@generated function _check_pools(fs::Tuple{Vararg{Any, N}}, n) where {N}
+    return Expr(:block, (:(_check_pool(fs[$i], n)) for i in 1:N)..., :(return nothing))
+end
+function _check_pool(f, n)
     max(f.from, f.to) <= n || _too_many_pools(f, n)
-    return _check_pools(Base.tail(fs), n)
+    return nothing
 end
 @noinline function _too_many_pools(f, n)
     throw(
@@ -310,7 +313,7 @@ end
             "flows_first and overflow order and route a draw, and the Pool has none"
         )
     )
-    fs = map(f -> _placed(f, names), _pool_flows(flows))
+    fs = _tuple_map(f -> _placed(f, names), _pool_flows(flows))
     L = (;
         n, draw = form !== nothing, first, fill, flows_first,
         overflow = _overflow(overflow),
