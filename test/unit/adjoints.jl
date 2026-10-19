@@ -1816,6 +1816,7 @@ end
     for (S, fit) in ((3, :one), (5, :wide), (7, :none))
         rS = Recurrence([0.3]; coupling = Mix(0.5 .* rand(rng, S, S)))
         for op in (CR._WithTrace(rS), CR._WithTrace(CR._WithState(rS)))
+            @test CR.uses_adjoint(op, CR.Run()) === CR.uses_adjoint(rS, CR.Run())
             @test CR._type_adjoint(op) === CR._type_adjoint(rS)
             @test CR._fit(op, args(S)...) === fit
         end
