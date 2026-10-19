@@ -1812,6 +1812,15 @@ end
     @test pullback_matches(r, args(3)...)
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :wide
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(7, 7))), args(7)...) === :none
+    # A call with its trace is routed as the call without it.
+    for (S, fit) in ((3, :one), (5, :wide), (7, :none))
+        rS = Recurrence([0.3]; coupling = Mix(0.5 .* rand(rng, S, S)))
+        for op in (CR._WithTrace(rS), CR._WithTrace(CR._WithState(rS)))
+            @test CR.uses_adjoint(op, CR.Run()) === CR.uses_adjoint(rS, CR.Run())
+            @test CR._type_adjoint(op) === CR._type_adjoint(rS)
+            @test CR._fit(op, args(S)...) === fit
+        end
+    end
     # A coupling whose arrays sit in a named tuple and a tuple, beside a
     # scalar and an integer.
     struct NTMix{N, P}
@@ -1948,4 +1957,86 @@ end
 @testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin
     using ComposableRecurrences
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2)))
+end
+
+@testitem "Adjoint: a call with its trace against ForwardDiff" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # The trace's cotangent through the records, for each modifier's own
+    # trace and the default, with `with_state` too.
+    # A pointwise modifier whose state decays and gathers what passes it.
+    struct Decay{A}
+        a::A
+    end
+    CR.ispointwise(::Decay) = true
+    CR.uses_adjoint(::Decay, ::CR.Step) = true
+    CR.forward(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
+    CR.forward(m::Decay, ::CR.Step, v, s, t, k) = v, m.a * s + v
+    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t, k)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.s * s)
+        return grads.v + grads.s, m.a * grads.s
+    end
+    # Two values and two state entries per group.
+    struct Keep{A}
+        a::A
+    end
+    CR.blocks(::Keep) = Val((2, 2))
+    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + v[2])
+    end
+    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
+        return (v̄1 * m.a + s̄1, v̄2 + s̄2), (v̄2 + s̄1, s̄2)
+    end
+    g, R, h = [0.5, 0.3], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
+    K = [0.0 0.2 0.1 0.0; 0.1 0.0 0.0 0.2; 0.2 0.1 0.0 0.1; 0.0 0.1 0.2 0.0]
+    leaky = CR.Pool(
+        PerStratum([80.0, 120.0, 90.0, 100.0]); pools = (:S, :V),
+        draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
+    )
+    cases = (
+        Recurrence(g; modifiers = (Decay(0.6), CR.Add(0.1), CR.Depletion(80.0))),
+        Recurrence(g; modifiers = (Keep(0.8), leaky)),
+        Recurrence(
+            g; modifiers = (
+                CR.Redistribute(CR.movement(K, fill(0.2, 4, 6))),
+                CR.Depletion(PerStratum([60.0, 70.0, 80.0, 90.0])),
+            )
+        ),
+    )
+    for r in cases, op in (CR._WithTrace(r), CR._WithTrace(CR._WithState(r)))
+        @test pullback_matches(op, recargs(R, nothing, h)...)
+    end
+    # A trace without a cotangent, whole or for one modifier, leaves the
+    # pullback of the call without it.
+    r = first(cases)
+    args = recargs(R, nothing, h)
+    y, cache = CR._run_forward(r, args...)
+    ȳ = randn(Xoshiro(3), size(y))
+    plain = zero_mirror((r, args...))
+    CR._run_pullback!((; piece = first(plain), y = ȳ, args = Base.tail(plain)), r, cache)
+    w = CR._WithTrace(r)
+    (_, tr), _ = CR._run_forward(w, args...)
+    for tr̄ in (nothing, (; modifiers = (nothing, nothing, zero(last(tr.modifiers)))))
+        ms = zero_mirror((w, args...))
+        _, cache = CR._run_forward(w, args...)
+        grads = (; piece = first(ms), y = (ȳ, tr̄), args = Base.tail(ms))
+        CR._run_pullback!(grads, w, cache)
+        @test mirror_vec(ms, (w, args...)) ≈ mirror_vec(plain, (r, args...))
+    end
+    # A ward without a draw: each flow's amount, with every form.
+    ward = CR.Pool(;
+        pools = 2, draw = nothing, flows = (
+            CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
+            CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
+            CR.Flow(2 => 1, 0.4; form = CR.Truncate()),
+            CR.Flow(0 => 2, 0.6; form = CR.Truncate()),
+        )
+    )
+    r = Recurrence([1.0]; modifiers = (ward,))
+    adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
+    for op in (CR._WithTrace(r), CR._WithTrace(CR._WithState(r)))
+        @test pullback_matches(op, recargs(true, adm, zeros(2, 1); stop = 6)...)
+    end
 end

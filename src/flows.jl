@@ -398,6 +398,123 @@ end
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
 @inline _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
 
+# The amount each flow moves at one step, in the order given, from the
+# pools `x`: a hazard or share flow's from `x`, as the step spreads it,
+# and a count's from what remains when it acts.
+function _amounts(fs, x::NTuple{N}, g, t) where {N}
+    z = zero(first(x))
+    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
+    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y, _ = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    return _amounts_each(fs, x, L, y, g, t)
+end
+_amounts_each(::Tuple{}, x, L, y, g, t) = ()
+function _amounts_each(fs::Tuple, x, L, y, g, t)
+    m, y′ = _amount(first(fs), x, L, y, g, t)
+    return (m, _amounts_each(Base.tail(fs), x, L, y′, g, t)...)
+end
+function _amount(f::Flow, x, L, y, g, t)
+    return x[f.from] * (_rate(f, g, t) * L[f.from][2] + _share(f, g, t)), y
+end
+function _amount(f::_Count, x, L, y, g, t)
+    m = _moved(f.form, param(f.demand, g, t), _source(y, f.from))
+    return m, first(_count(f, y, nothing, g, t))
+end
+
+# The cotangent of one group's pools `x` from those of the amounts, `r̄`,
+# one per flow; the flows' parameter cotangents are added into `f̄s`. As in
+# `_flows_pullback`, with a hazard or share flow's amount `m_f` taking its
+# own cotangent and that of the pool it enters, `q_f = r̄_f + ȳ_to`, where
+# the step's pullback takes the second only, and each count adding its own.
+function _amounts_pullback(fs, f̄s, r̄, x::NTuple{N}, g, t) where {N}
+    z = zero(first(x))
+    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
+    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
+    y, _ = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    z̄ = zero(promote_type(eltype(x), eltype(r̄)))
+    ȳ = _amount_counts_back(fs, f̄s, r̄, y, ntuple(_ -> z̄, Val(N)), g, t)
+    q = _amount_cotangents(fs, r̄, ȳ)
+    H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
+    B = ntuple(i -> _rated(fs, q, i, g, t, z̄), Val(N))
+    _amount_rates_back!(fs, f̄s, q, x, L, H, B, ȳ, g, t)
+    return ntuple(Val(N)) do i
+        E, gH, P = L[i]
+        (E - P) * ȳ[i] + gH * B[i] + _shared(fs, q, i, g, t, z̄)
+    end
+end
+
+# The counts' pullback, last first, from the cotangent `ȳ` of the pools
+# after them, each count's own amount cotangent added to its move's.
+_amount_counts_back(::Tuple{}, f̄s, r̄, y, ȳ, g, t) = ȳ
+function _amount_counts_back(fs::Tuple, f̄s, r̄, y, ȳ, g, t)
+    f = first(fs)
+    y′ = first(_count(f, y, nothing, g, t))
+    ȳ′ = _amount_counts_back(Base.tail(fs), _tail(f̄s), Base.tail(r̄), y′, ȳ, g, t)
+    return _amount_count_back(f, _head(f̄s), first(r̄), y, ȳ′, g, t)
+end
+_amount_count_back(f::Flow, f̄, r̄, y, ȳ, g, t) = ȳ
+function _amount_count_back(f::_Count, f̄, r̄, y, ȳ, g, t)
+    i = f.from
+    c = param(f.demand, g, t)
+    s = _source(y, i)
+    m = _moved(f.form, c, s)
+    m̄ = r̄ + ifelse(i == 0, zero(r̄), -_get(ȳ, i))
+    if f.to > 0 && _primal_value(m) >= 0
+        m̄ += ȳ[f.to]
+    end
+    c̄, s̄, κ̄ = _moved_back(f.form, c, s, m̄)
+    add_cotangent!(cotangent(cotangent(f̄, :form), :κ), κ̄)
+    add_param!(cotangent(f̄, :demand), f.demand, c̄, g, t)
+    return _set(ȳ, i, _get(ȳ, i) + s̄)
+end
+
+# Each flow's `q_f`: its amount's cotangent, and the cotangent of the pool
+# it enters for a hazard or share flow.
+_amount_cotangents(::Tuple{}, r̄, ȳ) = ()
+function _amount_cotangents(fs::Tuple, r̄, ȳ)
+    f = first(fs)
+    q = f isa _Count || f.to == 0 ? first(r̄) : first(r̄) + ȳ[f.to]
+    return (q, _amount_cotangents(Base.tail(fs), Base.tail(r̄), ȳ)...)
+end
+
+# `Σ_f r_f q_f` over the rate flows out of pool `i`, and `Σ_f p_f q_f` over
+# the share flows.
+_rated(::Tuple{}, q, i, g, t, B) = B
+function _rated(fs::Tuple, q, i, g, t, B)
+    f = first(fs)
+    B = f.from == i ? B + _rate(f, g, t) * first(q) : B
+    return _rated(Base.tail(fs), Base.tail(q), i, g, t, B)
+end
+_shared(::Tuple{}, q, i, g, t, z) = z
+function _shared(fs::Tuple, q, i, g, t, z)
+    f = first(fs)
+    z = f.from == i ? z + _share(f, g, t) * first(q) : z
+    return _shared(Base.tail(fs), Base.tail(q), i, g, t, z)
+end
+
+# Each rate takes `x_i (g q_f + g′ B_i - e^{-H_i} ȳ_i)` and each share
+# `x_i (q_f - ȳ_i)`.
+_amount_rates_back!(::Tuple{}, f̄s, q, x, L, H, B, ȳ, g, t) = nothing
+function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
+    _amount_rate_back!(first(fs), _head(f̄s), first(q), x, L, H, B, ȳ, g, t)
+    return _amount_rates_back!(
+        Base.tail(fs), _tail(f̄s), Base.tail(q), x, L, H, B, ȳ, g, t
+    )
+end
+_amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
+function _amount_rate_back!(f::Flow{<:Any, Hazard}, f̄, q, x, L, H, B, ȳ, g, t)
+    i = f.from
+    E, gH, _ = L[i]
+    r̄ = x[i] * (gH * q + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
+    add_param!(cotangent(f̄, :demand), f.demand, r̄, g, t)
+    return nothing
+end
+function _amount_rate_back!(f::Flow{<:Any, Share}, f̄, q, x, L, H, B, ȳ, g, t)
+    i = f.from
+    add_param!(cotangent(f̄, :demand), f.demand, x[i] * (q - ȳ[i]), g, t)
+    return nothing
+end
+
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
 # flows; returns those before them.
