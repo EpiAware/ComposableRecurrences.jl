@@ -5,12 +5,10 @@ struct _WithTrace{O <: AbstractOperator} <: AbstractOperator
     op::O
 end
 
+# Routed as its operator is.
 uses_adjoint(w::_WithTrace, ::Run) = uses_adjoint(w.op, Run())
-_type_adjoint(w::_WithTrace, ::Run) = _type_adjoint(w.op, Run())
-_rebuilds(w::_WithTrace) = _rebuilds(w.op)
-_fits(w::_WithTrace, args...) = _fits(w.op, args...)
-_fits_wide(w::_WithTrace, args...) = _fits_wide(w.op, args...)
-_plain_why(w::_WithTrace) = _plain_why(w.op)
+_type_adjoint(w::_WithTrace) = _type_adjoint(w.op)
+_fit(w::_WithTrace, args...) = _fit(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop)

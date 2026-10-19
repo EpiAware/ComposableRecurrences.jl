@@ -230,3 +230,53 @@ end
     θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
     @test gradient(ward, AutoMooncake(), θw) ≈ ForwardDiff.gradient(ward, θw)
 end
+
+@testitem "Trace: gradients through the default trace of user modifiers" begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    # A pointwise modifier whose state decays and gathers what passes it.
+    struct Decay{A}
+        a::A
+    end
+    CR.ispointwise(::Decay) = true
+    CR.uses_adjoint(::Decay, ::CR.Step) = true
+    CR.forward(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
+    CR.forward(m::Decay, ::CR.Step, v, s, t, k) = v, m.a * s + v
+    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t, k)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.s * s)
+        return grads.v + grads.s, m.a * grads.s
+    end
+    # Two values and two state entries per group.
+    struct Keep{A}
+        a::A
+    end
+    CR.blocks(::Keep) = Val((2, 2))
+    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + v[2])
+    end
+    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
+        return (v̄1 * m.a + s̄1, v̄2 + s̄2), (v̄2 + s̄1, s̄2)
+    end
+    g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
+    W = reshape(range(0.2, 1.8; length = 72), 12, 6)
+    # Pointwise modifiers only, so each stratum's pullback runs on its own;
+    # `Add` keeps no state, so its trace takes no cotangent.
+    function pointwise(θ)
+        mods = (Decay(θ[1]), CR.Add(0.1), CR.Depletion(θ[2]))
+        y, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
+        T1, _, T2 = tr.modifiers
+        return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
+    end
+    function blockwise(θ)
+        y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, trace = true)
+        return sum(W[1:4, :] .* only(tr.modifiers)) + sum(y)
+    end
+    for (f, θ) in ((pointwise, [0.6, 80.0]), (blockwise, [0.8]))
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
+        @test CR._PULLBACK_CALLS[] > n
+    end
+end
