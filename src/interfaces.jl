@@ -318,7 +318,7 @@ true
 
 @implements PieceInterface{(:nstate,)} Redistribute [
     Arguments(;
-        piece = Redistribute([0.0 0.3; 0.2 0.0], PerStratum([0.1, 0.2])),
+        piece = Redistribute([0.98 0.06; 0.02 0.94]),
         role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
@@ -342,7 +342,7 @@ true
         piece = Allocate(
             [1:2, 3:3], PerStratum([4.0, 1.0]);
             imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
-            spill = Redistribute([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], 0.1)
+            spill = Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
         ),
         role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
     ),

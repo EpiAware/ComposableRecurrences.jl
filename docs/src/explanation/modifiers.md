@@ -84,7 +84,7 @@ Its parameters take every form in [Slots](@ref explanation-slots).
 Several needs have more than one fit.
 
 - To bound values, `Clamp` cuts them and a `Pool` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
-- To move values between series, `Redistribute` moves a share at the same step, a `Pool` without a draw moves between the pools of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
+- To move values between series, `Redistribute` moves them after the gain through a movement matrix whose columns sum to one, a `Pool` without a draw moves between the pools of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
 - To map values, `Transform` takes any function, and a [new modifier](@ref extending-pointwise) is worth writing when the map keeps state or reads other series.
 
 A new modifier composes with the built-ins in the same tuple; [Writing new types](@ref extending) gives the contract.

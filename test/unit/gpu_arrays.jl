@@ -6,7 +6,7 @@
     using ComposableRecurrences
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Floor, Hazard, Pool, Primary, Redistribute, Share, Truncate,
-        Transform, contributions, with_state
+        Transform, contributions, movement, with_state
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -207,8 +207,7 @@
                         d([0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0]),
                     ),
                     spill = Redistribute(
-                        d([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]),
-                        PerStratum(d([0.1, 0.2, 0.3]))
+                        d(movement([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], [0.1, 0.2, 0.3]))
                     )
                 ),
             )
@@ -246,11 +245,18 @@
         )(d(RS); history = d(HS)),
         "Redistribute" =>
             d -> Recurrence(
-            d(g0); modifiers = (Redistribute(d(K0 - 0.5I), TimeVarying(d(0.1 .+ 0.001 .* (1:T)))),)
+            d(g0);
+            modifiers = (
+                Redistribute(
+                    TimeVarying(
+                        d(cat((movement(K0 - 0.5I, 0.1 + 0.001 * t) for t in 1:T)...; dims = 3))
+                    )
+                ),
+            )
         )(d(RS); history = d(HS)),
         "Redistribute, one intensity per stratum" =>
             d -> Recurrence(
-            d(g0); modifiers = (Redistribute(d(K0 - 0.5I), PerStratum(d([0.1, 0.2, 0.3]))),)
+            d(g0); modifiers = (Redistribute(d(movement(K0 - 0.5I, [0.1, 0.2, 0.3]))),)
         )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
             d -> Recurrence(
@@ -268,7 +274,7 @@
         r = Recurrence(
             d(g0);
             modifiers = (
-                Depletion(PerStratum(d(NS))), Redistribute(d(K0 - 0.5I), 0.1),
+                Depletion(PerStratum(d(NS))), Redistribute(d(movement(K0 - 0.5I, 0.1))),
                 Pool(
                     60.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
                     flows = (Flow(1 => 2, 0.2; form = Truncate()),)
@@ -492,7 +498,7 @@ end
                 draw = (:S => 1, :V => PerStratum(v)) => Hazard(),
                 flows = (Flow(1 => 2, tv; form = Truncate()),)
             ),
-            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m, PerStratum(v)),
+            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m),
             Transform(*, 0.8 * Derived(exp, tv)),
             Pool(;
                 pools = 2, draw = nothing, flows = (

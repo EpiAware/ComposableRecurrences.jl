@@ -32,8 +32,9 @@ v'_i &= T_{t,p} \Big((1 - \phi_{t,p} r_p) \frac{u_i}{\sigma^u_p}
 \end{aligned}
 ```
 
-where ``M_t`` is the step of a [`ComposableRecurrences.Redistribute`](@ref)
-(the identity without `spill`) and ``P_t`` a
+where ``M_t`` is the movement matrix of a
+[`ComposableRecurrences.Redistribute`](@ref) (the identity without `spill`)
+and ``P_t`` a
 [coupling](@ref explanation-coupling).
 ``r_p`` is one once the pattern sum reaches ``\epsilon``.
 Below that, the pattern places the share ``\phi_{t,p} r_p`` of the total, so
@@ -81,10 +82,8 @@ With `imports`, ``a^u_p`` and ``a^h_p`` are the same sums over ``u`` and
 ```
 
 where ``a^h_p`` is replaced by ``a^u_p`` in ``\bar h_i`` while the pattern
-sum is below ``\epsilon``,
-
-then ``\bar v = M_t^\top \bar u + P_t^\top \bar h``, the spill's and the
-coupling's own pullbacks, so the step costs two transposed products.
+sum is below ``\epsilon``, then
+``\bar v = M_t^\top \bar u + P_t^\top \bar h``, two transposed products.
 
 # Arguments
 - `groups`: a vector of index ranges or vectors, one per group,
@@ -124,7 +123,7 @@ other; the second group imports nothing:
 using ComposableRecurrences
 CR = ComposableRecurrences
 P = [0.0 0.0 0.2; 0.0 0.0 0.8; 0.0 0.0 0.0]
-within = CR.Redistribute([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], 0.1)
+within = CR.Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
 split = CR.Allocate(
     [1:2, 3:3], PerStratum([10.0, 2.0]);
     imports = (PerStratum([0.2, 0.0]), P), spill = within
@@ -197,7 +196,7 @@ function _imports(::Nothing, spill, P)
     spill === nothing || throw(
         ArgumentError(
             "spill needs imports; without them use " *
-                "(Redistribute(K, ε), Allocate(groups, total)), got spill = " *
+                "(Redistribute(M), Allocate(groups, total)), got spill = " *
                 _describe(spill)
         )
     )
@@ -306,7 +305,6 @@ function _check_imports(im::_AllocateImports, S)
     _check_coupling(im.pattern, S)
     im.spill === nothing && return nothing
     _check_modifier_strata(im.spill, S)
-    _check_param_strata(:ε, im.spill.ε, S)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
@@ -379,14 +377,11 @@ function forward!(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     return nothing
 end
 
-# The spilled values `u`, the spill's own step written to `u` rather than
-# to `v`.
+# The spilled values `u = M v`, the spill's product written to `u` rather
+# than to `v`.
 _spill!(::Nothing, u, v, t) = v
 function _spill!(r::Redistribute, u, v, t)
-    (; K, ε) = r
-    S = length(v)
-    _arrivals!(u, K, ε, v, t)
-    _each!(_redistribute_body!, Serial(), v, S, S * S, u, v, u, K, ε, t)
+    forward!(r.M, Pressure(), u, v, t)
     return u
 end
 
@@ -503,93 +498,66 @@ function _pattern_back!(P::Matrix, P̄, h̄, v̄, v, t, hb::AbstractVector)
     return nothing
 end
 
-# Batching asks for a dense pattern or spill kernel whose mirror is a dense
-# matrix: the buffer keeps each step's `h̄` (`hb`) and each step's input
-# cotangent to the spill (`vc`), with a scratch vector for the spill's `Kᵀ v̄`.
-# Whether it batches depends on the types only, so the buffer's type is
-# inferred; a mirror of the wrong size throws.
+# Batching asks for a dense pattern or movement matrix whose mirror is a
+# dense matrix: the buffer keeps each step's `h̄` (`hb`) and each step's
+# cotangent of the spilled values (`vc`). Whether it batches depends on the
+# types only, so the buffer's type is inferred; a mirror of the wrong size
+# throws.
 function _pass_buffer(H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T) where {Tp}
     (; pattern, spill) = m.imports
     īm = cotangent(m̄, :imports)
     P̄ = cotangent(īm, :pattern)
+    r̄ = cotangent(īm, :spill)
     hb = _batches(pattern, P̄) ? _batch_columns(H, Tp, pattern, P̄, S, T) : nothing
-    vc, acc = if _batches_spill(spill, cotangent(īm, :spill))
-        K̄ = cotangent(cotangent(īm, :spill), :K)
-        _batch_columns(H, Tp, spill.K, K̄, S, T), _zeros(H, Tp, S)
-    else
-        nothing, nothing
-    end
+    vc = _batches_spill(spill, r̄) ?
+        _batch_columns(H, Tp, spill.M, cotangent(r̄, :M), S, T) : nothing
     hb === nothing && vc === nothing && return nothing
-    return (; hb, vc, acc)
+    return (; hb, vc)
 end
 _batches(P, P̄) = false
 _batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix
 _batches_spill(spill, r̄) = false
-_batches_spill(r::Redistribute, r̄) = _batches(r.K, cotangent(r̄, :K))
+_batches_spill(r::Redistribute, r̄) = _batches(r.M, cotangent(r̄, :M))
 function _batch_columns(H, ::Type{Tp}, P, P̄, S, T) where {Tp}
     _check_dense(_array_mirror(P̄), P)
     return _zeros(H, Tp, S, T)
 end
 
-# After the last step: the pattern's cotangent `P̄ += H̄ Vᵀ`, with `H̄` each
-# step's `h̄` and `V` each step's input; the spill kernel's
-# `K̄[p, q] += Σ_t w_qt (c_pt − c_qt)` off the diagonal, with `w = ε ∘ v` and
-# `c` each step's input cotangent to the spill.
+# After the last step: `P̄ += H̄ Vᵀ` and `M̄ += Ū Vᵀ`, with `H̄` and `Ū` each
+# step's cotangents of the pattern and the spilled values, and `V` each
+# step's input.
 function _finish_pass!(m̄, m::Allocate{<:Any, <:_AllocateImports}, R, b::NamedTuple, τ0)
-    (; pattern, spill) = m.imports
     īm = cotangent(m̄, :imports)
     if b.hb !== nothing
         P̄ = _array_mirror(cotangent(īm, :pattern))
         mul!(P̄, b.hb, transpose(R.V), true, true)
     end
     if b.vc !== nothing
-        K̄ = _array_mirror(cotangent(cotangent(īm, :spill), :K))
-        W = similar(R.V)
-        c = similar(b.acc)
-        fill!(c, zero(eltype(c)))
-        for t in axes(W, 2), q in axes(W, 1)
-            W[q, t] = param(spill.ε, q, τ0 + t - 1) * R.V[q, t]
-            c[q] += W[q, t] * b.vc[q, t]
-        end
-        mul!(K̄, b.vc, transpose(W), true, true)
-        for q in axes(K̄, 2), p in axes(K̄, 1)
-            K̄[p, q] -= c[q]
-        end
+        M̄ = _array_mirror(cotangent(cotangent(īm, :spill), :M))
+        mul!(M̄, b.vc, transpose(R.V), true, true)
     end
     return nothing
 end
 
 _spill_back!(::Nothing, r̄, v̄, s̄, v, t, vc, pass) = nothing
-# The spilled values' state cotangent joins theirs, then the spill's own
-# pullback sends them to `v`.
+# The spilled values' state cotangent joins theirs, then they go back
+# through the spill's product: `v̄ = Mᵀ ū` and `M̄ += ū vᵀ`.
 function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, ::Nothing, pass)
     ū = view(s̄, 1:length(v))
-    v̄ .+= ū
+    ū .+= v̄
+    fill!(v̄, zero(eltype(v̄)))
+    M̄ = cotangent(r̄, :M)
+    pullback!((; piece = M̄, q = ū, p = v̄), r.M, Pressure(), ū, v, t)
     fill!(ū, zero(eltype(ū)))
-    pullback!((; piece = r̄, v = v̄, s = ū), r, Step(), v, ū, t)
     return nothing
 end
-# The same with the kernel's cotangent left to `_finish_pass!`: the step
-# keeps its input cotangent `c` in the column `vc`, and with
-# `a = Kᵀ c − diag(K) ∘ c` it adds `ε̄_q += v_q (a_q − o_q c_q)` and sets
-# `v̄_q = (1 − ε_q o_q) c_q + ε_q a_q`, as `_redistribute_back!` does.
-function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, vc, pass)
-    (; K, ε) = r
-    a = pass.acc
-    axes(v̄, 1) == axes(v, 1) == axes(K, 1) == axes(K, 2) == axes(a, 1) ||
-        throw(DimensionMismatch("kernel is $(size(K)), values are $(length(v))"))
+# The same with `M̄` left to `_finish_pass!`: the step keeps `ū` in the
+# column `vc`.
+function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, vc::AbstractVector, pass)
     ū = view(s̄, 1:length(v))
-    v̄ .+= ū
+    ū .+= v̄
+    copyto!(vc, ū)
+    mul!(v̄, transpose(r.M), ū)
     fill!(ū, zero(eltype(ū)))
-    copyto!(vc, v̄)
-    mul!(a, transpose(K), v̄)
-    ε̄ = cotangent(r̄, :ε)
-    @inbounds for q in eachindex(v, v̄)
-        εq = param(ε, q, t)
-        out = _outflow(K, q)
-        aq = a[q] - K[q, q] * v̄[q]
-        add_param!(ε̄, ε, v[q] * (aq - v̄[q] * out), q, t)
-        v̄[q] = v̄[q] * (1 - εq * out) + εq * aq
-    end
     return nothing
 end
