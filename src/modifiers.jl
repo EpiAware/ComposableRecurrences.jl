@@ -166,13 +166,36 @@ Run operator `op` over a whole call, returning `(y, cache)`.
 
 This is the [`ComposableRecurrences.Run`](@ref) role: calling the operator
 lowers to `forward(op, Run(), args...; kwargs...)`.
-The other roles write their outputs in place through
-[`ComposableRecurrences.forward!`](@ref).
+For inputs ``u`` it computes
+
+```math
+y = f_{\mathrm{op}}(u),
+```
+
+with ``f_{\mathrm{op}}`` the operator's own maths, and `cache` holds what
+the reverse pass needs.
+Couplings, modifiers and depletion forms write their outputs in place
+through [`ComposableRecurrences.forward!`](@ref) instead.
 
 # Arguments
 - `op`: the operator.
 - `role`: `Run()`.
 - `args`: the call's arguments.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+y, cache = CR.forward(Convolution([0.5, 0.5]), CR.Run(), [1.0, 2.0, 3.0])
+y
+
+# output
+
+3-element Vector{Float64}:
+ 0.5
+ 1.5
+ 2.5
+```
 """
 function forward end
 
@@ -524,12 +547,12 @@ end
 
 forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
-# Whether `m` is a built-in pointwise piece whose step is an internal
+# Whether `m` is a built-in pointwise modifier whose step is an internal
 # scalar kernel, `_step` and `_step_back`, which the recurrence threads
 # through a stratum's value without views and which other built-ins call.
 _kernel(m) = false
 
-# The step of a pointwise piece on stratum `k`'s value and state, as new
+# The step of a pointwise modifier on stratum `k`'s value and state, as new
 # scalars. A built-in's kernel; anything else runs its `forward!` on
 # one-entry views of local slots, which a fully inlined step keeps in
 # registers.
@@ -546,9 +569,9 @@ end
     _written(m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
     return v̄r[], s̄r[]
 end
-# A slot for a scalar the step may write a value of the piece's float type
+# A slot for a scalar the step may write a value of the modifier's float type
 # into, such as a dual number from a parameter.
-@inline _slot(m, x) = Ref{promote_type(typeof(x), param_eltype(m))}(x)
+@inline _slot(m, x) = Base.RefValue{promote_type(typeof(x), param_eltype(m))}(x)
 
 # A step writes its outputs in place and returns `nothing`; a returned
 # value is an error, not a silent no-op.
@@ -574,8 +597,8 @@ end
     return Expr(:block, body..., :(return x))
 end
 
-# The step of a blockwise piece on group `g`'s values and state, as new
-# tuples: a built-in's kernel, or the piece's `forward!` on tuples of
+# The step of a blockwise modifier on group `g`'s values and state, as new
+# tuples: a built-in's kernel, or the modifier's `forward!` on tuples of
 # one-entry views of local slots. Its pullback likewise.
 @inline function _block_step(m, v::Tuple, s::Tuple, t, g)
     vr, sr = map(x -> _slot(m, x), v), map(x -> _slot(m, x), s)

@@ -13,7 +13,7 @@ const CR = ComposableRecurrences
 
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
 Both write their outputs in place and return `nothing`; a method that returns anything else is an error.
-Pieces write in place, and operators return: an operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
+Couplings, modifiers and depletion forms write in place, and operators return: an operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
@@ -342,7 +342,8 @@ Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.
 ## [A blockwise step](@id extending-blockwise)
 
 A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
-[`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group, and the step takes them as tuples of one-entry views, read and written as `x[]`.
+[`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group.
+The step takes them as tuples of one-entry views, read and written as `x[]`.
 This one keeps a running total and a step count per series, and adds their mean to the value:
 
 ```math

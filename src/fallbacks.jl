@@ -355,7 +355,7 @@ end
 # with `grads.N` and `grads.α` the views its pullback adds into.
 @inline function _draw(form, v, s, N, α)
     T = promote_type(typeof(v), typeof(s), typeof(N), typeof(α), param_eltype(form))
-    vr, sr = Ref{T}(v), Ref{T}(s)
+    vr, sr = Base.RefValue{T}(v), Base.RefValue{T}(s)
     _written(form, @inline forward!(form, Step(), _At(vr, 1), _At(sr, 1), N, α))
     return vr[], sr[]
 end
