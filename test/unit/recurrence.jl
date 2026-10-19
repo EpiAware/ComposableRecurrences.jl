@@ -596,3 +596,21 @@ end
     CR.forward!([1.0 2.0; 3.0 4.0], CR.Pressure(), qv, pv, 1)
     @test qv == [5.0, 11.0]
 end
+
+@testitem "Recurrence: forward(r, Run(), R) and with_state infer" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # The two entry points beside `r(R)`, with and without a history, for
+    # one series, coupled strata and a modifier with state.
+    cases = (
+        (Recurrence([0.5, 0.5]), fill(1.1, 6), ones(2)),
+        (Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]), fill(1.1, 2, 6), ones(2, 2)),
+        (Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(100.0),)), fill(1.1, 6), ones(2)),
+    )
+    for (r, R, h) in cases
+        @test (@inferred CR.forward(r, CR.Run(), R)) isa Tuple
+        @test (@inferred CR.forward(r, CR.Run(), R; history = h)) isa Tuple
+        @test (@inferred CR.with_state(r, R)) isa Tuple
+        @test (@inferred CR.with_state(r, R; history = h)) isa Tuple
+    end
+end
