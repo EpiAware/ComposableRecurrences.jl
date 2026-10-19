@@ -455,6 +455,29 @@ function _waning(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A ring of four pools with twelve flows, each with its own scalar rate, so
+# the operator and its arguments have more than 32 leaves: past the length
+# at which `map` over a tuple no longer infers.
+const NFLOWS = 12
+const RING = (:A, :B, :C, :D)
+const RING0 = (
+    PerStratum(POP .- 30), PerStratum(fill(10.0, S)), PerStratum(fill(10.0, S)),
+    PerStratum(fill(10.0, S)),
+)
+_ring_flow(ρ, i) = ComposableRecurrences.Flow(
+    RING[mod1(i, 4)] => RING[mod1(i + 1, 4)], exp(ρ[i])
+)
+function _many_flows(w, θ)
+    logh, logR, logρ = _unpack(θ, (S, L), (S, T), (NFLOWS,))
+    fs = ntuple(i -> _ring_flow(logρ, i), Val(NFLOWS))
+    d = ComposableRecurrences.Pool(
+        PerStratum(POP); pools = RING, initial = RING0, flows = fs
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Wards in each stratum: suspected patients (compartment 1) are confirmed
 # at a rate or ruled out as a share; confirmed patients (compartment 2) are
 # discharged at a rate and transferred out in counts. Admissions enter both.
@@ -912,6 +935,10 @@ const _SCENARIOS = [
             zeros(S, L), 0.3 .+ LOGR, log.(1 .+ 0.5 .* abs.(LOGR)), [0.3],
             log.(0.05 .+ 0.02 .* abs.(LOGR)),
         ),
+    ),
+    (
+        "Recurrence pool with twelve flows (over 32 leaves)", _many_flows,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, log.(0.02 .+ 0.01 .* (1:NFLOWS))),
     ),
     (
         "Recurrence ward with competing flows (Pool without a draw)", _ward,
