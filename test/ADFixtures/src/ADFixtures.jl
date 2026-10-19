@@ -853,8 +853,10 @@ end
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
     CR = ComposableRecurrences
+    # The intensity per origin and step keeps the movement a kernel and
+    # an intensity, whose columns sum to one under any perturbation.
     mods = (
-        CR.Redistribute(CR.movement(K0, PerStratum(ε))),
+        CR.Redistribute(CR.movement(K0, ε .* ones(1, T))),
         CR.Depletion(PerStratum(POP)),
     )
     y, tr = w(Recurrence(G0; modifiers = mods))(
