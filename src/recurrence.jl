@@ -1006,8 +1006,8 @@ _all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(m
 
 # Thread one stratum's value through pointwise modifiers in tuple order,
 # recording each modifier's input value and state when `rec` holds records.
-_thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
-function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
+@inline _thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
+@inline function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
     s = first(states)
     rec === nothing || _record!(first(rec), v, s[k], t, k)
     v′, s[k] = _step(first(ms), v, s[k], τ, k)

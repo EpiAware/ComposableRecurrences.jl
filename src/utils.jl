@@ -338,13 +338,18 @@ Base.IndexStyle(::Type{<:_At}) = IndexLinear()
 @inline _ix(a::_At{T, <:Base.RefValue}) where {T} = ()
 @inline _ix(a::_At{T, <:AbstractMatrix}) where {T} = (a.r, a.k)
 @inline function Base.getindex(a::_At, i::Int)
-    @boundscheck i == a.k || throw(BoundsError(a, i))
+    @boundscheck i == a.k || _out_of_view(i, a.k)
     return @inbounds a.parent[_ix(a)...]
 end
 @inline function Base.setindex!(a::_At, x, i::Int)
-    @boundscheck i == a.k || throw(BoundsError(a, i))
+    @boundscheck i == a.k || _out_of_view(i, a.k)
     @inbounds a.parent[_ix(a)...] = x
     return a
+end
+# The error for an index other than the view's own takes the indices only,
+# so the view and its slot do not escape into it.
+@noinline function _out_of_view(i, k)
+    throw(BoundsError("a one-entry view of entry $k", i))
 end
 # The one entry without its index, as `v[]`, for a step that holds it alone.
 @inline Base.getindex(a::_At) = @inbounds a[a.k]
