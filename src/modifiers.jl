@@ -72,7 +72,6 @@ else is an error.
 [Roles](@ref extending-roles) gives the matching
 [`ComposableRecurrences.pullback!`](@ref) for each.
 
-
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -326,6 +325,10 @@ a per-stratum map sets `ispointwise(m) = true`, and its
 `k` only, so the operator may run it on a one-entry view of each stratum;
 a modifier that couples strata leaves it `false` and reads the whole
 vectors.
+A pointwise step reads a per-stratum parameter through
+[`ComposableRecurrences.param`](@ref) at `k`: a broadcast against a field
+with one entry per stratum, such as `v .*= m.w`, cannot run on a one-entry
+view.
 The default is `false`.
 
 # Arguments

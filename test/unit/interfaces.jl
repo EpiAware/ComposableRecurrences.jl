@@ -157,6 +157,28 @@ end
     @test Interfaces.test(CR.PieceInterface{(:pointwise,)}, Broadcasting, (obj,); show = false)
 end
 
+@testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # A field with one entry per stratum, broadcast against the values: it
+    # cannot run on one stratum's view, so the check fails and the call
+    # throws, rather than either reading the wrong entries.
+    struct Weights{W}
+        w::W
+    end
+    CR.ispointwise(::Weights) = true
+    function CR.forward!(m::Weights, ::CR.Step, v, s, t)
+        v .*= m.w
+        return nothing
+    end
+    obj = Interfaces.Arguments(;
+        piece = Weights([0.5, 2.0]), role = CR.Step(), args = ([1.0, 1.0], [0.0, 0.0], 1)
+    )
+    @test !Interfaces.test(CR.PieceInterface{(:pointwise,)}, Weights, (obj,); show = false)
+    r = Recurrence([0.5, 0.5]; modifiers = (Weights([0.5, 2.0]),))
+    @test_throws DimensionMismatch r(ones(2, 3); history = ones(2, 2))
+end
+
 @testitem "Interfaces: state length" begin
     using ComposableRecurrences, Interfaces, LinearAlgebra
     CR = ComposableRecurrences

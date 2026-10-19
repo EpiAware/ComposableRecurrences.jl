@@ -34,7 +34,14 @@ function _pointwise_ok(m, ::Step, args)
     ispointwise(m) || return true
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
-    pairs = [_step(m, v[k], s[k], t, k) for k in eachindex(v)]
+    # A step that broadcasts against a length-S field cannot run on one
+    # stratum's view, which fails the check rather than the call.
+    pairs = try
+        [_step(m, v[k], s[k], t, k) for k in eachindex(v)]
+    catch e
+        e isa DimensionMismatch || rethrow()
+        return false
+    end
     forward!(m, Step(), v, s, t)
     return v ≈ first.(pairs) && s ≈ last.(pairs)
 end

@@ -34,6 +34,7 @@ The arguments mean the same in every role:
 - Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
 - A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise), and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
   The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
+  A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
   Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
 - A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
 - Any other modifier implements the step on whole vectors and may read every stratum.

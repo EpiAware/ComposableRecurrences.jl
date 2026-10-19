@@ -345,10 +345,6 @@ function _rebuild_views(x, θ, o)
     return constructorof(typeof(x))(fs...), o
 end
 
-# The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
-# when it declares one, else a local derivative that seeds the value, the
-# pool, the population, the exponent and the form's float scalars as one
-# tuple of dual numbers. Returns the cotangents of `(v, s, N, α)`.
 # The draw of a depletion form, `(v, s, N, α) -> (y, s′)`, and its pullback,
 # which returns the cotangents of `(v, s, N, α)`: a built-in's kernel, or
 # the form's `forward!` and `pullback!` on one-entry views of local slots,
@@ -387,6 +383,10 @@ function _form_pullback!(grads, form, v, s, N, α)
     end
     return nothing
 end
+# The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
+# when it declares one, else a local derivative that seeds the value, the
+# pool, the population, the exponent and the form's float scalars as one
+# tuple of dual numbers.
 _form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
 _form_adjoint(::Nothing) = true
 function _form_pullback(grads, form, v, s, N, α)
