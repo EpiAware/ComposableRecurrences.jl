@@ -290,6 +290,9 @@ end
     x = (Outer((Inner(Leaf(), 1.0f0, (Leaf(), 2.0, (; c = 3.0f0))),)),)
     @test (@inferred CR.param_eltype(x)) == Float64
     @test (@inferred CR.param_eltype(Outer(Leaf()))) == Bool
+    # A tuple wider than a variadic `promote_type` infers.
+    @test (@inferred CR.param_eltype(ntuple(i -> Float32(i), Val(40)))) == Float32
+    @test (@inferred CR.param_eltype((ntuple(Float32, Val(39))..., 1.0))) == Float64
 end
 
 @testitem "NoAdjoint forwards to the operator" begin

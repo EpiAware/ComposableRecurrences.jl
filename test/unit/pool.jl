@@ -287,6 +287,26 @@ end
     @test pool(0.5, 1).initial[2] === 1.0
 end
 
+@testitem "Pool: many flows infer" begin
+    using ComposableRecurrences, Test
+    using ComposableRecurrences: Flow, Pool
+    # Past 32 flows, where `map` over a tuple and a recursion over the flows
+    # stop inferring.
+    function pool(::Val{n}) where {n}
+        ring = (:A, :B, :C, :D)
+        fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], 0.001i), Val(n))
+        return Pool(
+            1000.0; pools = ring, initial = (900.0, 50.0, 30.0, 20.0), flows = fs
+        )
+    end
+    for n in (32, 33, 64)
+        p = @inferred pool(Val(n))
+        @test length(p.flows) == n
+        r = Recurrence([0.3, 0.2, 0.1]; modifiers = (p,))
+        @test eltype(@inferred r(fill(2.0, 20); history = [1.0, 1.0, 1.0])) == Float64
+    end
+end
+
 @testitem "Pool: checks its arguments" begin
     using ComposableRecurrences
     CR = ComposableRecurrences

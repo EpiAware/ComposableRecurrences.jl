@@ -76,6 +76,24 @@ function _ez_writeback!(a::Union{Duplicated, DuplicatedNoNeed}, m)
     return nothing
 end
 
+# `map` and `foreach` over the rule's leaves, unrolled so that the result is
+# concretely typed at any number of leaves: `map` over tuples of 32 or more
+# entries returns a `Tuple` of unknown type, which Enzyme rejects as a
+# rule's return, and `ntuple` infers each entry only while constant
+# propagation reaches it. Each generator reads only the number of leaves,
+# as inference does not expand one that reads an argument whose type is not
+# concrete, and a leaf's mirror can be a `Union`.
+@generated function _map_leaves(f, xs::Tuple{Vararg{Any, N}}) where {N}
+    return :(($((:(f(xs[$i])) for i in 1:N)...),))
+end
+@generated function _map_leaves(f, xs::Tuple{Vararg{Any, N}}, ys::Tuple) where {N}
+    return :(($((:(f(xs[$i], ys[$i])) for i in 1:N)...),))
+end
+@generated function _foreach_leaves(f, xs::Tuple{Vararg{Any, N}}, ys::Tuple) where {N}
+    return Expr(:block, (:(f(xs[$i], ys[$i])) for i in 1:N)..., :(return nothing))
+end
+_val(a) = a.val
+
 _addback(dx, m) = m === nothing ? dx : _addback1(dx, m)
 _addback1(dx::Real, m::Base.RefValue) = dx + m[]
 _addback1(dx::AbstractArray, m) = dx
@@ -378,7 +396,7 @@ function EnzymeRules.augmented_primal(
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     VERSION < v"1.12" &&
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
-    y, cache = _run_forward(_rebuild_leaves(X, map(a -> a.val, leaves))...)
+    y, cache = _run_forward(_rebuild_leaves(X, _map_leaves(_val, leaves))...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing
     R = eltype(RA)
@@ -393,13 +411,13 @@ function EnzymeRules.reverse(
         tape, leaves::Vararg{Annotation, N}
     ) where {X, N}
     cache, y, dy = tape
-    dy === nothing && return map(_ -> nothing, leaves)
-    lms = map(_ez, leaves)
+    dy === nothing && return _map_leaves(_ -> nothing, leaves)
+    lms = _map_leaves(_ez, leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))
-    _run_pullback!(grads, _rebuild_leaves(X, map(a -> a.val, leaves))[1], cache)
-    foreach(_ez_writeback!, leaves, lms)
-    return map(_ez_ret, leaves, lms)
+    _run_pullback!(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
+    _foreach_leaves(_ez_writeback!, leaves, lms)
+    return _map_leaves(_ez_ret, leaves, lms)
 end
 
 # Plain Enzyme reverse AD of a sparse coupling's products in a loop gives

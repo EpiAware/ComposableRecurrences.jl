@@ -102,6 +102,8 @@
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
 - `FFTMethod()` is correct under Enzyme on Julia 1.11.
 - Enzyme without runtime activity works for a constant input or history.
+- The Enzyme reverse rule works for an operator with 32 or more leaves, such as a `Pool` with eight flows, where before Enzyme rejected its return type.
+- A `Pool` with 32 or more flows and a part with a tuple of 35 or more numbers infer, and their Enzyme reverse gradients work; before, the element type and the `Pool`'s construction did not infer, and Enzyme failed or crashed.
 - `param_eltype` infers through nested structs such as `Depletion`.
 
 [api]: https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/
