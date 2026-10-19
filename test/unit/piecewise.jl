@@ -87,6 +87,12 @@ end
     @test TimeVarying(Pair{Int, Any}[1 => 1, 4 => 2.5]).x.x == [1.0, 2.5]
     # `Pairwise` of change points is refused, as are Pairwise values above.
     @test_throws ArgumentError Pairwise(TimeVarying([1 => [1.0, 2.0], 3 => [3.0, 4.0]]))
+    # `TimeVarying` takes neither another `TimeVarying` nor a value with no
+    # time axis.
+    @test_throws "cannot wrap another TimeVarying" TimeVarying(
+        TimeVarying([1.0, 2.0])
+    )
+    @test_throws "TimeVarying wraps an array" TimeVarying(1.0)
 end
 
 @testitem "Change points: Convolution equals the dense kernel" setup = [PiecewiseChecks] begin
