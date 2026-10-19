@@ -1715,7 +1715,12 @@ end
         w::W
     end
     CR.ispointwise(::Weights) = true
-    CR.forward(m::Weights, ::CR.Step, v, s, t, k) = (v * m.w[mod1(t, length(m.w))], s)
+    function CR.forward!(m::Weights, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= m.w[mod1(t, length(m.w))]
+        end
+        return nothing
+    end
     function weights_loss(θ, ::Val{n}) where {n}
         m = Weights(ntuple(i -> θ[i], Val(n)))
         r = Recurrence([0.3, 0.2]; modifiers = (m,))
