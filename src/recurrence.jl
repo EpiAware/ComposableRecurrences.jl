@@ -81,9 +81,10 @@ the call covers the absolute times `start:stop`:
     output, covering the times `start - m` to `stop`.
   - `trace`: `false`, or `true` to return `(y, trace)`, with
     `trace.modifiers` holding each modifier's series per step, a
-    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix: by default its
-    state after each step ([`ComposableRecurrences.Trace`](@ref) gives the
-    built-in ones). It is differentiable as the output is.
+    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix
+    ([`ComposableRecurrences.Trace`](@ref) says what each records). It is
+    differentiable as the output is. Pass it as a literal, so that the
+    return type infers.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -620,11 +621,15 @@ _join(::Nothing, y) = throw(ArgumentError("prepend = true needs a history, not n
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, prepend::Bool = false,
-        trace::Bool = false
+        trace::Union{Nothing, Bool} = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
-    return _call(Val(trace), r, route, history, prepend, args, stop)
+    return _call(_traced(trace), r, route, history, prepend, args, stop)
 end
+# `trace` is `nothing` unless given, so that a call without it compiles
+# without the traced arm.
+_traced(::Nothing) = Val(false)
+_traced(trace::Bool) = Val(trace)
 # Without a trace, the output; with one, `(y, trace)`.
 function _call(::Val{false}, r, route, history, prepend, args, stop)
     return _prepend(prepend, history, adjoint_call(route, args..., stop))
@@ -645,11 +650,14 @@ end
 
 function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, trace::Bool = false
+        add = nothing, start = _start(state), stop = nothing,
+        trace::Union{Nothing, Bool} = nothing
     )
-    op = trace ? _WithTrace(r) : r
+    op = _trace_op(_traced(trace), r)
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
 end
+_trace_op(::Val{false}, r) = r
+_trace_op(::Val{true}, r) = _WithTrace(r)
 
 # `with_state` routes through the rules too: a recurrence whose output is
 # `(y, state)`.
@@ -663,10 +671,10 @@ end
 Base.@constprop :aggressive function _with_state(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, prepend::Bool = false,
-        trace::Bool = false
+        trace::Union{Nothing, Bool} = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
-    return _state_call(Val(trace), r, route, history, prepend, args, stop)
+    return _state_call(_traced(trace), r, route, history, prepend, args, stop)
 end
 # Without a trace, `(y, state)`; with one, `((y, trace), state)`.
 function _state_call(::Val{false}, r, route, history, prepend, args, stop)

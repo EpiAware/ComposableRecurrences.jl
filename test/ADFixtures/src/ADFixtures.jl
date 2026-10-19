@@ -421,19 +421,8 @@ function _ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
         θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
-    CR = ComposableRecurrences
-    flows = CR.Pool(;
-        pools = (:suspected, :confirmed), draw = nothing, flows = (
-            CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
-            CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
-            CR.Flow(:confirmed => 0, only(discharge)),
-            CR.Flow(
-                :confirmed => 0, TimeVarying(PerStratum(transfer));
-                form = CR.Truncate()
-            ),
-        )
-    )
-    r = Recurrence([1.0]; modifiers = (flows,))
+    ward = _ward(confirm, ruleout, only(discharge), transfer)
+    r = Recurrence([1.0]; modifiers = (ward,))
     y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
     return sum([WS; WS] .* y)
 end
@@ -817,11 +806,6 @@ function _routes_deep(w, θ)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
-# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
-# EnzymeTestUtils compares the rule with finite differences taken in the
-# arguments' precision. In single precision these differ from the rule by up
-# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
-# entry with Float32 values carries `FLOAT32_RTOL`.
 # The traces, read by a loss downstream of the output. BVD's importation is
 # the arrivals `Redistribute` keeps as its state, read with the patches'
 # infections, as BVD's joint model reads them.
@@ -852,21 +836,26 @@ function _trace_ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
         θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
+    ward = _ward(confirm, ruleout, only(discharge), transfer)
+    r = Recurrence([1.0]; modifiers = (ward,))
+    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
+    return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
+end
+
+# The ward, built behind a call as the capacity pools are.
+function _ward(confirm, ruleout, discharge, transfer)
     CR = ComposableRecurrences
-    flows = CR.Pool(;
+    return CR.Pool(;
         pools = (:suspected, :confirmed), draw = nothing, flows = (
             CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
             CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
-            CR.Flow(:confirmed => 0, only(discharge)),
+            CR.Flow(:confirmed => 0, discharge),
             CR.Flow(
                 :confirmed => 0, TimeVarying(PerStratum(transfer));
                 form = CR.Truncate()
             ),
         )
     )
-    r = Recurrence([1.0]; modifiers = (flows,))
-    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
-    return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
 end
 
 # A weekly budget with a queue: the allowance, the doses given and what
@@ -885,6 +874,11 @@ function _trace_budget(w, θ)
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
+# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
+# EnzymeTestUtils compares the rule with finite differences taken in the
+# arguments' precision. In single precision these differ from the rule by up
+# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
+# entry with Float32 values carries `FLOAT32_RTOL`.
 const ENZYME_RTOL = 1.0e-7
 const FLOAT32_RTOL = 1.0e-3
 const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
@@ -1599,14 +1593,21 @@ broken_scenario_names() = String[]
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
 On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
-"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
-rule is correct and runs. Every other scenario and its `NoAdjoint` twin
-passes on every backend.
+"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`, and
+that of "Recurrence trace of a ward's flows" loses the gradient of the
+discharge rate, a scalar field built where the loss's unpacking does not
+infer (the loss the Enzyme extension warns of); the rules are correct and
+run. Every other scenario and its `NoAdjoint` twin passes on every backend.
 """
 function backend_broken_scenarios()
     VERSION < v"1.12" || return Dict{String, Set{String}}()
     return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
+        "Enzyme reverse" => Set(
+            [
+                "NoAdjoint Recurrence Redistribute, Add and Clamp",
+                "NoAdjoint Recurrence trace of a ward's flows",
+            ]
+        ),
     )
 end
 
