@@ -122,7 +122,7 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
 | `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Pool` with two pools and a count flow | 0.28 | 0.40 | keep |
-| `Redistribute` | 0.26 | 0.32 | keep |
+| `Redistribute` | 0.07 | 0.35 | keep |
 | `Pool` without a draw | 0.43 | 0.43 | keep |
 | `Pool` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |

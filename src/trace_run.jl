@@ -14,16 +14,21 @@ _plain_why(w::_WithTrace) = _plain_why(w.op)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop)
-    return (y, _traces(cache)), cache
+    return (y, _traces(_traced_recurrence(w.op), cache)), cache
 end
+# The modifiers are read from the operator, as the step reads them, not
+# from the cache: plain reverse AD on Julia 1.11 can lose the cotangent of
+# a scalar field read back from a value that also holds arrays.
+_traced_recurrence(r::Recurrence) = r
+_traced_recurrence(w::_WithState) = w.r
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 
 # The call's trace, `(; modifiers)`, one matrix per modifier with a
 # column per step: each step's inputs are the modifier's records, its
 # outputs the next modifier's inputs (or the buffer's row for the last)
 # and its state entering the next step (or its final state).
-function _traces(c)
-    (; r, H, rec, D, S, T, τ0) = c
+function _traces(r, c)
+    (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     return (; modifiers = _traces(ms, rec, c.state.states, H, D, S, T, τ0))
 end

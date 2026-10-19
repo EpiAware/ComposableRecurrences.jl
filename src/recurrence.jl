@@ -648,7 +648,7 @@ function _run_args(r, gain, history, state, add, start)
     return gain, add, h, s0, τ0
 end
 
-function forward(
+Base.@constprop :aggressive function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing,
         trace::Union{Nothing, Bool} = nothing

@@ -188,6 +188,12 @@ function _allocate(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A `Redistribute` of a fixed movement matrix whose columns sum to 0.9,
+# with `leak = true`. Enzyme's rule tester perturbs the operator's matrix
+# itself by finite differences, which a matrix whose columns must sum to
+# one would refuse at `Init`; columns below one leave it room.
+_leaky(M) = ComposableRecurrences.Redistribute(0.9 .* M; leak = true)
+
 # The grouped totals with imports: a share of each group's total lands in
 # the pattern the other group sends, read before the first group's strata
 # spill into each other. The spill kernel is differentiated too.
@@ -198,7 +204,7 @@ function _allocate_imports(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = ComposableRecurrences.Redistribute(K, PerStratum(ε))
+        spill = _leaky(ComposableRecurrences.movement(K, ε))
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -213,11 +219,46 @@ function _dense_matrices(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (0.2, collect(P)),
-        spill = ComposableRecurrences.Redistribute(collect(K), PerStratum(ε))
+        spill = _leaky(ComposableRecurrences.movement(collect(K), ε))
     )
-    mods = (ComposableRecurrences.Redistribute(collect(K), 0.1), split)
+    mods = (
+        _leaky(ComposableRecurrences.movement(collect(K), 0.1)),
+        split,
+    )
     r = Recurrence(g; coupling = collect(C), modifiers = mods)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
+end
+
+# Movement between strata from a kernel and an intensity per origin and
+# time, both reshaped from θ, before a depletion.
+function _movement_time_varying(w, θ)
+    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
+        ComposableRecurrences.Depletion(PerStratum(POP)),
+    )
+    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# Movement whose intensity reads the recent outputs: each origin sends
+# more as its own incidence rises, through a kernel and a scale in `θ`.
+# The model is built behind a function barrier: Enzyme reverse finds no
+# shadow for the intensity when the uninferred blocks from `_unpack`
+# reach it directly.
+function _movement_recent(w, θ)
+    K, κ, logh, logR = _unpack(θ, (S, S), (1,), (S, L), (S, T))
+    return _movement_recent(w, K, κ, logh, logR)
+end
+
+function _movement_recent(w, K, κ, logh, logR)
+    ε = Derived(x -> 0.2 * tanh(x), κ[1] * ComposableRecurrences.Recent(3))
+    mods = (
+        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
+        ComposableRecurrences.Depletion(PerStratum(POP)),
+    )
+    y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
 end
 
 # Imports by a pattern that varies over time, one fraction and no spill.
@@ -495,7 +536,7 @@ function _clamp_redistribute_add(w, θ)
         CRA0 .+ θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T)
     )
     mods = (
-        ComposableRecurrences.Redistribute(K, PerStratum(ε)),
+        _leaky(ComposableRecurrences.movement(K, ε)),
         ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
         ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
     )
@@ -812,7 +853,10 @@ end
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
     CR = ComposableRecurrences
-    mods = (CR.Redistribute(K0, PerStratum(ε)), CR.Depletion(PerStratum(POP)))
+    mods = (
+        CR.Redistribute(CR.movement(K0, PerStratum(ε))),
+        CR.Depletion(PerStratum(POP)),
+    )
     y, tr = w(Recurrence(G0; modifiers = mods))(
         exp.(logR); history = exp.(logh), trace = true
     )
@@ -956,6 +1000,23 @@ const _SCENARIOS = [
             [0.1 + 0.05 * p + 0.01 * t for p in 1:2, t in 1:T],
             [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0],
             [0.0 0.8 0.0; 0.9 0.0 0.0; 0.1 0.2 0.0], [0.1, 0.2, 0.3],
+        ),
+    ),
+    (
+        "Recurrence Redistribute of a time-varying movement",
+        _movement_time_varying,
+        () -> _flat(
+            G0, [0.0 0.5 0.2; 0.6 0.0 0.3; 0.4 0.5 0.0],
+            [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
+        "Recurrence Redistribute of a movement read from recent outputs",
+        _movement_recent,
+        () -> _flat(
+            [0.0 0.5 0.2; 0.6 0.0 0.3; 0.4 0.5 0.0], [0.05],
+            fill(log(5.0), S, L), LOGR,
         ),
     ),
     (
@@ -1281,6 +1342,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:_AllocateImports,),
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
+    "Recurrence Redistribute of a time-varying movement" => (:movement,),
+    # A movement read from a parameter at each step came with `_intensity`.
+    "Recurrence Redistribute of a movement read from recent outputs" =>
+        (:movement, :_intensity, :Recent),
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
@@ -1593,21 +1658,14 @@ broken_scenario_names() = String[]
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
 On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
-"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`, and
-that of "Recurrence trace of a ward's flows" loses the gradient of the
-discharge rate, a scalar field built where the loss's unpacking does not
-infer (the loss the Enzyme extension warns of); the rules are correct and
-run. Every other scenario and its `NoAdjoint` twin passes on every backend.
+"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
+rule is correct and runs. Every other scenario and its `NoAdjoint` twin
+passes on every backend.
 """
 function backend_broken_scenarios()
     VERSION < v"1.12" || return Dict{String, Set{String}}()
     return Dict(
-        "Enzyme reverse" => Set(
-            [
-                "NoAdjoint Recurrence Redistribute, Add and Clamp",
-                "NoAdjoint Recurrence trace of a ward's flows",
-            ]
-        ),
+        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
     )
 end
 

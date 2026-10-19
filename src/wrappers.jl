@@ -276,22 +276,33 @@ struct TimeVarying{I, A}
     "The coefficients, time on the last axis."
     x::A
     function TimeVarying{I}(x::A) where {I, A}
-        x isa TimeVarying && throw(
-            ArgumentError(
-                "TimeVarying cannot wrap another TimeVarying, got " *
-                    _describe(x)
-            )
-        )
-        x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise} || throw(
-            ArgumentError(
-                "TimeVarying wraps an array, a PerStratum, a Pairwise, a " *
-                    "vector of kernel columns or a vector of start => value " *
-                    "change points, got $(_describe(x))"
-            )
-        )
+        x isa TimeVarying && _nested_time_error(x)
+        _over_time(x) || _over_time_error(x)
         return new{I, A}(x)
     end
 end
+# The constructor's errors, kept out of line so the constructor stays small.
+@noinline function _nested_time_error(x)
+    throw(
+        ArgumentError(
+            "TimeVarying cannot wrap another TimeVarying, got " * _describe(x)
+        )
+    )
+end
+@noinline function _over_time_error(x)
+    throw(
+        ArgumentError(
+            "TimeVarying wraps an array, a PerStratum, a Pairwise, a " *
+                "vector of kernel columns or a vector of start => value " *
+                "change points, got $(_describe(x))"
+        )
+    )
+end
+
+# What `TimeVarying` can wrap: an array, a `PerStratum`, a `Pairwise`,
+# kernel columns or change points, and a movement read from its kernel and
+# intensity.
+_over_time(x) = x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise}
 
 # A kernel's columns, of any lengths, stacked: column `τ` is
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each

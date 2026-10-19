@@ -51,6 +51,15 @@ end
     (y4, tr4), _ = CR.forward(r, CR.Run(), R; history = [5.0], trace = true)
     @test y4 == y
     @test tr4.modifiers == tr.modifiers
+    # A literal `trace` inside a function is folded, so each call infers.
+    # `forward` and `Run` are imported, as a global alias does not infer.
+    using ComposableRecurrences: forward, Run
+    traced(r, R, h) = r(R; history = h, trace = true)
+    untraced(r, R, h) = r(R; history = h, trace = false)
+    run(r, R, h) = first(forward(r, Run(), R; history = h, trace = true))
+    @test @inferred(traced(r, R, [5.0])) == (y2, tr)
+    @test @inferred(untraced(r, R, [5.0])) == y
+    @test @inferred(run(r, R, [5.0])) == (y2, tr)
 end
 
 @testitem "Trace: a depletion's pool, draw and overflow" setup = [TraceChecks] begin
@@ -155,7 +164,10 @@ end
     # each stratum receives at each step.
     K = [0.0 0.3 0.1; 0.2 0.0 0.4; 0.1 0.2 0.0]
     r = Recurrence(
-        [0.4, 0.6]; modifiers = (CR.Redistribute(K, 0.2), CR.Depletion(PerStratum([50.0, 60.0, 70.0])))
+        [0.4, 0.6]; modifiers = (
+            CR.Redistribute(CR.movement(K, 0.2)),
+            CR.Depletion(PerStratum([50.0, 60.0, 70.0])),
+        )
     )
     R, h = fill(1.8, 3, 6), [1.0 2.0; 2.0 1.0; 0.5 0.5]
     y, tr = r(R; history = h, trace = true)
@@ -163,7 +175,7 @@ end
     S1, S2 = states_by_step(r, R; history = h)
     @test M1 ≈ S1
     @test M2[1:3, :] ≈ S2
-    @test CR.ntrace(CR.Redistribute(K, 0.2), 3) == 3
+    @test CR.ntrace(CR.Redistribute(CR.movement(K, 0.2)), 3) == 3
     # A modifier whose state never changes records nothing.
     for m in (CR.Add(0.1), CR.Clamp(0.0, 5.0), CR.Allocate([1:3], 5.0))
         @test CR.ntrace(m, 3) == 0
@@ -190,7 +202,7 @@ end
             )
         )
         # `Add` keeps no state, so its trace is empty and takes no cotangent.
-        mods = (CR.Redistribute(K, θ[6]), CR.Add(θ[7]), leaky)
+        mods = (CR.Redistribute(CR.movement(K, θ[6])), CR.Add(θ[7]), leaky)
         _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
         T1, T0, T2 = tr.modifiers
         return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])

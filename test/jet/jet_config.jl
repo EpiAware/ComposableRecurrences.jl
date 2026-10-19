@@ -29,7 +29,7 @@ let CR = ComposableRecurrences
 end
 
 # The reverse pass of a `Recurrence` whose `Allocate` batches a dense
-# pattern and spill kernel runs with no dispatch at run time: the per-pass
+# pattern and movement matrix runs with no dispatch at run time: the per-pass
 # buffers' types follow from the types alone.
 let CR = ComposableRecurrences
     S, L, T = 5, 3, 8
@@ -37,7 +37,7 @@ let CR = ComposableRecurrences
     K = 0.2 .* P
     m = CR.Allocate(
         [1:2, 3:5], 6.0; imports = (0.3, P),
-        spill = CR.Redistribute(K, PerStratum(fill(0.2, S)))
+        spill = CR.Redistribute(CR.movement(K, fill(0.2, S)))
     )
     r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m, CR.Add(0.1)))
     R, h = fill(1.2, S, T), ones(S, L)
@@ -45,7 +45,7 @@ let CR = ComposableRecurrences
     m̄ = (;
         imports = (;
             fraction = Ref(0.0), pattern = zero(P),
-            spill = (; K = zero(K), ε = (; x = zeros(S))),
+            spill = (; M = zero(K)),
         ),
         total = Ref(0.0),
     )

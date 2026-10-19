@@ -60,6 +60,10 @@ end
 # A traced array's eltype is a traced number, which is not a `Real`, so the
 # generic array method would reduce over its entries' types; the eltype
 # is the answer, also for reshapes and views of traced arrays.
+# A traced movement matrix's values are not known while tracing, so its
+# columns are not checked.
+ComposableRecurrences._check_columns(::AnyTracedRArray, leak) = nothing
+
 function ComposableRecurrences.param_eltype(x::AbstractArray{<:TracedRNumber})
     return eltype(x)
 end

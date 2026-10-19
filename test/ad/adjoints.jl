@@ -272,7 +272,7 @@
                     "patch model",
                     Recurrence(
                         g; modifiers = (
-                            CR.Redistribute(K, 0.4),
+                            ADFixtures._leaky(CR.movement(K, 0.4)),
                             CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
                         )
                     ),
@@ -292,7 +292,9 @@
                 (
                     "patch model, sparse kernel",
                     Recurrence(
-                        g; modifiers = (CR.Redistribute(sparse(K), PerStratum([0.4, 0.3, 0.2])),)
+                        g; modifiers = (
+                            ADFixtures._leaky(sparse(CR.movement(K, [0.4, 0.3, 0.2]))),
+                        )
                     ),
                     rec(R, nothing, h),
                 ),
@@ -604,14 +606,14 @@ end
     )
 end
 
-@testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+@testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Mooncake, Enzyme, ForwardDiff
     using ComposableRecurrences: NoAdjoint
-    backends = (
-        AutoMooncake(; config = nothing),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
             function_annotation = Enzyme.Const
         ),
@@ -649,14 +651,14 @@ end
     end
 end
 
-@testitem "Transform: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+@testitem "Transform: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Mooncake, Enzyme, ForwardDiff
     using ComposableRecurrences: NoAdjoint
-    backends = (
-        AutoMooncake(; config = nothing),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
             function_annotation = Enzyme.Const
         ),
@@ -686,14 +688,14 @@ end
     end
 end
 
-@testitem "Derived: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+@testitem "Derived: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Mooncake, Enzyme, ForwardDiff
     using ComposableRecurrences: NoAdjoint
-    backends = (
-        AutoMooncake(; config = nothing),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
             function_annotation = Enzyme.Const
         ),
@@ -721,7 +723,7 @@ end
     end
 end
 
-@testitem "User modifiers: functions, index ranges and constructors" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "User modifiers: functions, index ranges and constructors" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
@@ -748,9 +750,9 @@ end
     _in(k, idx) = k in idx
     _in(k, idx::AbstractVector{<:AbstractVector}) = any(i -> k in i, idx)
     CR.forward(m::Pick, ::CR.Step, v, s, t, k) = (_in(k, m.idx) ? m.a * v : v, s)
-    backends = (
-        AutoMooncake(; config = nothing),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
             function_annotation = Enzyme.Const
         ),
@@ -828,13 +830,13 @@ end
     end
 end
 
-@testitem "User-defined operator, modifier and coupling" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes] begin
+@testitem "User-defined operator, modifier and coupling" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [UserTypes, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Mooncake, Enzyme, ForwardDiff
-    backends = (
-        AutoMooncake(; config = nothing),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
             function_annotation = Enzyme.Const
         ),
@@ -862,7 +864,7 @@ end
 end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse, :compat_floor] setup = [UserTypes] begin
+@testitem "User-defined types: test_adjoint" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse, :compat_floor] setup = [UserTypes, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme
     import Mooncake, Enzyme, EnzymeTestUtils
     using LinearAlgebra
@@ -875,7 +877,10 @@ end
         (Recurrence(rand(L); coupling = UserPkg.Mix(K0, 1 .+ rand(S))), args),
     )
     for (op, xs) in cases,
-            backend in (AutoMooncake(; config = nothing), AutoEnzyme())
+            backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(),
+            )
         @testset "$(typeof(op).name.name) $(nameof(typeof(backend)))" begin
             CR.test_adjoint(backend, op, CR.Run(), xs...)
         end
@@ -1049,7 +1054,7 @@ end
     end
 end
 
-@testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] begin
+@testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] setup = [JobBackends] begin
     using ADFixtures
     using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
     using DifferentiationInterface: value_and_gradient
@@ -1060,14 +1065,15 @@ end
     )
     θ = θ0()
     @test eltype(θ) == Float32
-    backends = (
-        AutoForwardDiff(), AutoMooncake(; config = nothing),
-        AutoMooncakeForward(; config = nothing),
-        AutoEnzyme(;
+    backends = job_backends(
+        :forwarddiff => AutoForwardDiff(),
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :mooncake_forward => AutoMooncakeForward(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
             function_annotation = Enzyme.Const
         ),
-        AutoEnzyme(;
+        :enzyme_forward => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Forward),
             function_annotation = Enzyme.Const
         ),
@@ -1084,29 +1090,33 @@ end
     end
 end
 
-@testitem "Sparse Redistribute kernel through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Conserving dense movement through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
-    using SparseArrays
     import Enzyme, ForwardDiff, Mooncake
-    K = sparse([0.0 0.2 0.0; 0.1 0.0 0.3; 0.2 0.0 0.0])
+    # The kernel and the intensity are the parameters, so the dense
+    # movement matrix's columns sum to one at every input and the
+    # conserving (`leak = false`) path runs with its column check.
     h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
     W = cos.(reshape(1:18, 3, 6))
     function f(θ)
-        Kθ = SparseMatrixCSC(3, 3, K.colptr, K.rowval, θ[1:4])
+        K, ε = reshape(θ[1:9], 3, 3), θ[10:12]
         r = Recurrence(
             [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
-            modifiers = (CR.Redistribute(Kθ, θ[5]), CR.Depletion(PerStratum(fill(40.0, 3))))
+            modifiers = (
+                CR.Redistribute(CR.movement(K, ε)),
+                CR.Depletion(PerStratum(fill(40.0, 3))),
+            )
         )
         return sum(W .* r(R; history = h))
     end
-    θ = [K.nzval; 0.4]
+    θ = [0.0, 0.6, 0.4, 0.3, 0.0, 0.7, 0.5, 0.5, 0.0, 0.2, 0.3, 0.1]
     ref = gradient(f, AutoForwardDiff(), θ)
-    for backend in (
-            AutoMooncake(; config = nothing),
-            AutoEnzyme(;
+    for backend in job_backends(
+            :mooncake_reverse => AutoMooncake(; config = nothing),
+            :enzyme_reverse => AutoEnzyme(;
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
                 function_annotation = Enzyme.Const
             ),
@@ -1117,7 +1127,78 @@ end
     end
 end
 
-@testitem "Rule gradients survive inputs mutated after the call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Movement read from recent outputs with an active scale" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff
+    # The scale of the intensity is a parameter, so its gradient flows
+    # through the intensity held by the movement as well as through the
+    # outputs the intensity reads. The data are bound in a `let` so `f`
+    # is inferred: Enzyme reverse finds no shadow for the intensity when
+    # it is reached from uninferred code.
+    f = let g = exp.(-0.4 .* (1:4)) ./ sum(exp.(-0.4 .* (1:4))),
+            pop = [60.0, 90.0, 70.0], h = fill(5.0, 3, 4),
+            R = exp.(0.1 .* sin.((1:3) .+ (1:12)')), W = cos.((1:3) .* (1:12)')
+        function (θ)
+            K, κ = reshape(θ[1:9], 3, 3), θ[10]
+            ε = Derived(x -> 0.2 * tanh(x), κ * CR.Recent(3))
+            mods = (
+                CR.Redistribute(CR.movement(K, ε)),
+                CR.Depletion(PerStratum(pop)),
+            )
+            y = Recurrence(g; modifiers = mods)(R; history = h)
+            return sum(W .* log.(y))
+        end
+    end
+    θ = [0.0, 0.6, 0.4, 0.5, 0.0, 0.5, 0.2, 0.3, 0.0, 0.05]
+    ref = gradient(f, AutoForwardDiff(), θ)
+    backend = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+        function_annotation = Enzyme.Const
+    )
+    n0 = CR._PULLBACK_CALLS[]
+    @test gradient(f, backend, θ) ≈ ref
+    @test CR._PULLBACK_CALLS[] > n0
+    @test ref[10] != 0
+end
+
+@testitem "Sparse Redistribute matrix through both rules" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using SparseArrays
+    import Enzyme, ForwardDiff, Mooncake
+    # Columns summing to one, with the diagonal stored.
+    M = sparse([0.8 0.2 0.0; 0.1 0.8 0.3; 0.1 0.0 0.7])
+    h, R = ones(3, 2), 1 .+ 0.1 .* reshape(1:18, 3, 6)
+    W = cos.(reshape(1:18, 3, 6))
+    function f(θ)
+        Mθ = SparseMatrixCSC(3, 3, M.colptr, M.rowval, θ)
+        r = Recurrence(
+            [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
+            modifiers = (CR.Redistribute(Mθ), CR.Depletion(PerStratum(fill(40.0, 3))))
+        )
+        return sum(W .* r(R; history = h))
+    end
+    θ = copy(M.nzval)
+    ref = gradient(f, AutoForwardDiff(), θ)
+    for backend in job_backends(
+            :mooncake_reverse => AutoMooncake(; config = nothing),
+            :enzyme_reverse => AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )
+        n0 = CR._PULLBACK_CALLS[]
+        @test gradient(f, backend, θ) ≈ ref
+        @test CR._PULLBACK_CALLS[] > n0
+    end
+end
+
+@testitem "Rule gradients survive inputs mutated after the call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
@@ -1133,9 +1214,9 @@ end
     end
     θ = [1.1, 0.9, 1.2, 1.0, 0.8, 1.3, 1.0, 2.0]
     ref = gradient(f, AutoForwardDiff(), θ)
-    for backend in (
-            AutoMooncake(; config = nothing),
-            AutoEnzyme(;
+    for backend in job_backends(
+            :mooncake_reverse => AutoMooncake(; config = nothing),
+            :enzyme_reverse => AutoEnzyme(;
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
                 function_annotation = Enzyme.Const
             ),
@@ -1144,7 +1225,7 @@ end
     end
 end
 
-@testitem "A pool held in a view gets its gradient" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "A pool held in a view gets its gradient" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
@@ -1172,9 +1253,9 @@ end
     θ = [0.1, 0.2, 0.3]
     ref = gradient(f, AutoForwardDiff(), θ)
     @test all(!iszero, ref)
-    for backend in (
-            AutoMooncake(; config = nothing),
-            AutoEnzyme(;
+    for backend in job_backends(
+            :mooncake_reverse => AutoMooncake(; config = nothing),
+            :enzyme_reverse => AutoEnzyme(;
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
                 function_annotation = Enzyme.Const
             ),
@@ -1183,7 +1264,7 @@ end
     end
 end
 
-@testitem "Empty protected pools: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Empty protected pools: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
@@ -1203,9 +1284,9 @@ end
     θ = [0.0, 0.3, 0.0]
     ref = gradient(f, AutoForwardDiff(), θ)
     @test all(isfinite, ref)
-    for backend in (
-            AutoMooncake(; config = nothing),
-            AutoEnzyme(;
+    for backend in job_backends(
+            :mooncake_reverse => AutoMooncake(; config = nothing),
+            :enzyme_reverse => AutoEnzyme(;
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
                 function_annotation = Enzyme.Const
             ),
@@ -1214,7 +1295,7 @@ end
     end
 end
 
-@testitem "Empty pools with removals or a dual population: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Empty pools with removals or a dual population: rules match ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
@@ -1252,9 +1333,9 @@ end
     for (f, θ) in cases
         ref = gradient(f, AutoForwardDiff(), θ)
         @test all(isfinite, ref)
-        for backend in (
-                AutoMooncake(; config = nothing),
-                AutoEnzyme(;
+        for backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
                     mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
                     function_annotation = Enzyme.Const
                 ),
@@ -1264,7 +1345,7 @@ end
     end
 end
 
-@testitem "Empty and seeded pools: forward modes match ForwardDiff" tags = [:ad, :mooncake, :mooncake_forward, :enzyme, :enzyme_forward] begin
+@testitem "Empty and seeded pools: forward modes match ForwardDiff" tags = [:ad, :mooncake, :mooncake_forward, :enzyme, :enzyme_forward] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncakeForward, AutoEnzyme, AutoForwardDiff
@@ -1278,9 +1359,9 @@ end
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
     end
-    backends = (
-        AutoMooncakeForward(),
-        AutoEnzyme(;
+    backends = job_backends(
+        :mooncake_forward => AutoMooncakeForward(),
+        :enzyme_forward => AutoEnzyme(;
             mode = Enzyme.set_runtime_activity(Enzyme.Forward),
             function_annotation = Enzyme.Const
         ),
@@ -1342,7 +1423,7 @@ end
     end
 end
 
-@testitem "Plain-AD note logs once at construction under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Plain-AD note logs once at construction under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
@@ -1361,9 +1442,9 @@ end
         @eval CR.ispointwise(::$M) = true
         @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
     end
-    for (M, backend) in (
-            (ScaleM, AutoMooncake(; config = nothing)),
-            (
+    for (M, backend) in job_backends(
+            :mooncake_reverse => (ScaleM, AutoMooncake(; config = nothing)),
+            :enzyme_reverse => (
                 ScaleE,
                 AutoEnzyme(;
                     mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
@@ -1382,17 +1463,21 @@ end
     end
 end
 
-@testitem "Local coupling and entry-parameter steps: the rule and its limits" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+@testitem "Local coupling and entry-parameter steps: the rule and its limits" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Enzyme, ForwardDiff, Mooncake
-    backends = (
-        AutoMooncake(; config = nothing),
-        AutoEnzyme(;
-            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-            function_annotation = Enzyme.Const
+    # Each backend with its place in a case's `fires`.
+    backends = job_backends(
+        :mooncake_reverse => (1, AutoMooncake(; config = nothing)),
+        :enzyme_reverse => (
+            2,
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
         ),
     )
     # A coupling without a pullback: the strata average, weighted by `a`.
@@ -1439,10 +1524,10 @@ end
         for w in (identity, NoAdjoint)
             f(θ) = L(w, θ, S)
             ref = gradient(f, AutoForwardDiff(), θ)
-            for (backend, fired) in zip(backends, fires)
+            for (i, backend) in backends
                 n0 = CR._PULLBACK_CALLS[]
                 @test gradient(f, backend, θ) ≈ ref
-                @test (CR._PULLBACK_CALLS[] > n0) == (fired && w === identity)
+                @test (CR._PULLBACK_CALLS[] > n0) == (fires[i] && w === identity)
             end
         end
     end
@@ -1453,7 +1538,7 @@ end
 # `Depletion` then failed Enzyme's type analysis when the loss was compiled
 # with coverage, as CI runs it. The loss and θ are the registry's
 # vaccination scenario, unpacked without a closure.
-@testitem "Enzyme: a type-stable loss through a protected pool" tags = [:ad, :enzyme, :enzyme_forward, :enzyme_reverse] begin
+@testitem "Enzyme: a type-stable loss through a protected pool" tags = [:ad, :enzyme, :enzyme_forward, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences, ADFixtures, ForwardDiff
     using ADFixtures: S, L, T, G0, K0, POP, WS
     import DifferentiationInterface as DI
@@ -1476,7 +1561,10 @@ end
         return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
     end
     θ = copy(scen.x)
-    enzyme = filter(e -> startswith(e.name, "Enzyme"), ADFixtures.backends())
+    tag(e) = e.name == "Enzyme forward" ? :enzyme_forward : :enzyme_reverse
+    enzyme = filter(
+        e -> startswith(e.name, "Enzyme") && job_runs(tag(e)), ADFixtures.backends()
+    )
     for w in (identity, CR.NoAdjoint)
         f(θ) = loss(w, θ)
         @test f(θ) ≈ scen.f(θ, map(c -> c.data, scen.contexts)...)
@@ -1551,7 +1639,7 @@ end
     function loss(θ)
         ms = (
             CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
-            CR.Redistribute(K, 0.5),
+            CR.Redistribute(CR.movement(K, 0.5)),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end

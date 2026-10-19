@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Pool, Depletion, Flow, Share, Redistribute,
+public Pool, Depletion, Flow, Share, Redistribute, movement,
     Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward,

@@ -243,12 +243,15 @@ end
     ∇ref = ForwardDiff.gradient(ref_loss, θ0)
 
     # Each patch generates R_{p,t} Σ_i g_i I_{p,t-i}; a share ε_{q,t} K_{pq}
-    # of what origin q generates is realised in p instead (Redistribute),
+    # of what origin q generates is realised in p instead (Redistribute of
+    # the movement matrix of K and ε),
     # then each patch depletes its own pool from N_p − Σ seed (hazard form).
     # The seeds are the history and are returned first; the first output is
     # day `L + 1`, which reads R_t and ε at that day.
     function patch_model(K, ε, N)
-        importation = ComposableRecurrences.Redistribute(K, ε)
+        importation = ComposableRecurrences.Redistribute(
+            ComposableRecurrences.movement(K, ε)
+        )
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
         return Recurrence(g; modifiers = (importation, depletion))
@@ -257,10 +260,10 @@ end
         r = patch_model(K, ε, N)
         return r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)
     end
-    @test patch(K, TimeVarying(PerStratum(ε)), N) ≈ ref
+    @test patch(K, ε, N) ≈ ref
     function loss(θ)
         K, ε, N = unpack(θ)
-        return sum(w .* patch(K, TimeVarying(PerStratum(ε)), N))
+        return sum(w .* patch(K, ε, N))
     end
     @test ForwardDiff.gradient(loss, θ0) ≈ ∇ref
 
@@ -269,14 +272,14 @@ end
         B.patch_infections(Rt, g, seeds, K, 0.05, N).infections
     # One intensity per origin, the same every day.
     εq = [0.05, 0.1, 0.02]
-    @test patch(K, PerStratum(εq), N) ≈
+    @test patch(K, εq, N) ≈
         B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
     # BVD also returns the importation series, the arrivals in each patch:
     # the trace of the importation, whose state is its arrivals, at each
     # step. The seed days have no arrivals.
     function patch_importation(K, ε, N)
-        r = patch_model(K, TimeVarying(PerStratum(ε)), N)
+        r = patch_model(K, ε, N)
         _, tr = r(Rt; history = seeds, start = size(seeds, 2) + 1, trace = true)
         arrivals = first(tr.modifiers)
         return hcat(zeros(eltype(arrivals), np, size(seeds, 2)), arrivals)
