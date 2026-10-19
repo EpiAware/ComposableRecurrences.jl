@@ -15,7 +15,7 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, _unpack
+using ..ADFixtures: supports, _TWIN_REQUIRES
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -49,6 +49,16 @@ _weights(T) = [_noise(t, 1) for t in 1:T]
 _weights(S, T) = [_noise(t, k + 1) for k in 1:S, t in 1:T]
 _gi(L) = (g = exp.(-0.2 .* (1:L)); g ./ sum(g))
 
+# Consecutive blocks of `θ` with the given shapes.
+function _unpack(θ, shapes...)
+    o = 0
+    return map(shapes) do sh
+        n = prod(sh)
+        x = reshape(view(θ, (o + 1):(o + n)), sh...)
+        o += n
+        x
+    end
+end
 
 _flat(xs...) = reduce(vcat, map(vec, xs))
 

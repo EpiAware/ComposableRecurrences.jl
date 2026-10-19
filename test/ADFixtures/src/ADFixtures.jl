@@ -81,9 +81,7 @@ end
 # block ends are a tuple computed before the blocks are built, so the blocks
 # are inferred: a closure that captured and advanced an offset would box it,
 # and Enzyme cannot differentiate every scenario built from uninferred
-# blocks. Recursing over the shapes is inferred too, but from Julia 1.12
-# Enzyme forward mode corrupts the heap after some thousands of calls of
-# scenarios built that way.
+# blocks.
 function _unpack(θ, shapes::Vararg{Tuple, N}) where {N}
     lens = map(prod, shapes)
     return map(shapes, cumsum(lens), lens) do sh, stop, n
@@ -1486,8 +1484,13 @@ function unsupported_scenarios()
     ]
 end
 
+# Each scenario is reached through one dynamic call, so Enzyme compiles a
+# scenario once and reuses it across the operators a test runs, while the
+# scenario itself, from its parameter blocks on, is inferred.
+_dynamic(f) = θ -> Base.inferencebarrier(f)(θ)
+
 const _TWINS = Tuple{String, Any, Any}[
-    (prefix * name, Base.Fix1(f, wrap), θ0)
+    (prefix * name, _dynamic(Base.Fix1(f, wrap)), θ0)
         for (prefix, wrap, extra) in (
             ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
         )
