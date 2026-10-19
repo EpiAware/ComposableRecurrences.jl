@@ -157,6 +157,41 @@ end
     @test Interfaces.test(CR.PieceInterface{(:pointwise,)}, Broadcasting, (obj,); show = false)
 end
 
+@testitem "Interfaces: one-entry views under bounds checks" begin
+    # Base reads a view through its linear indices, which must be the
+    # stratum's own; a run with bounds checks on catches any that are not.
+    script = """
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    a, b = CR._At([1.0, 2.0, 3.0], 2), CR._At(Ref(0.0), 2)
+    copyto!(b, a)
+    c = b[2]
+    b .= 2 .* a
+    fill!(a, 4.0)
+    struct Broadcasting end
+    CR.ispointwise(::Broadcasting) = true
+    function CR.forward!(::Broadcasting, ::CR.Step, v, s, t)
+        w = 0.5 .* v
+        s .+= w
+        v .= w
+        return nothing
+    end
+    struct Looping end
+    CR.ispointwise(::Looping) = true
+    function CR.forward!(::Looping, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= 0.5
+            s[k] += v[k]
+        end
+        return nothing
+    end
+    run(m) = Recurrence([0.5, 0.5]; modifiers = (m,))(ones(3, 4); history = ones(3, 2))
+    print(c, " ", b[2], " ", sum(a), " ", a.parent, " ", run(Broadcasting()) == run(Looping()))
+    """
+    cmd = `$(Base.julia_cmd()) --startup-file=no --check-bounds=yes --project=$(Base.active_project()) -e $script`
+    @test readchomp(cmd) == "2.0 4.0 4.0 [1.0, 4.0, 3.0] true"
+end
+
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
