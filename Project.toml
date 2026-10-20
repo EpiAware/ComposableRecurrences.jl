@@ -1,6 +1,6 @@
 name = "ComposableRecurrences"
 uuid = "4e7e49c6-d082-4112-9a58-49588f39a74b"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Sam Abbott", "EpiAware contributors"]
 
 [workspace]
