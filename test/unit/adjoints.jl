@@ -873,15 +873,16 @@ end
     end
     CR.forward!(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
     rs = Recurrence(g; modifiers = (Scaled(0.5),))
-    @test !CR.uses_adjoint(rs, CR.Run())
+    @test CR._modifier_adjoint(Scaled(0.5)) === :local
     CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
     @test CR.uses_adjoint(Scaled(0.5), CR.Step())
     # Only the roles an operator's rule calls are derived.
     @test !CR._has_pullback(Scaled(0.5), CR.Init())
     @test CR.uses_adjoint(rs, CR.Run())
     @test val(rs) == [Val{:rule}]
+    # Declared without, the step takes the local derivative again.
     CR.uses_adjoint(::Scaled, ::CR.Step) = false
-    @test !CR.uses_adjoint(rs, CR.Run())
+    @test CR._modifier_adjoint(Scaled(0.5)) === :local
     # A pointwise step's `pullback!` whose value is typed as a vector is not
     # found by the method lookup, so the step takes the local derivative;
     # declaring it opts in.
@@ -907,8 +908,8 @@ end
     CR.uses_adjoint(::Typed, ::CR.Step) = true
     @test CR._modifier_adjoint(Typed(0.5)) === :pullback
     @test pullback_matches(rt, recargs(ones(2, 4), nothing, ones(2, 2))...)
-    # The same for a step that is not pointwise, which has no local
-    # derivative: the declared adjoint calls the typed `pullback!`.
+    # The same for a step that is not pointwise: the declared adjoint calls
+    # the typed `pullback!`.
     struct TypedVec{A}
         a::A
     end
@@ -918,8 +919,9 @@ end
         grads.v .*= m.a
         return nothing
     end
-    @test CR._modifier_adjoint(TypedVec(0.5)) === :none
+    @test CR._modifier_adjoint(TypedVec(0.5)) === :local
     CR.uses_adjoint(::TypedVec, ::CR.Step) = true
+    @test CR._modifier_adjoint(TypedVec(0.5)) === :pullback
     rv = Recurrence(g; modifiers = (TypedVec(0.5),))
     @test pullback_matches(rv, recargs(ones(2, 4), nothing, ones(2, 2))...)
 
@@ -2074,13 +2076,15 @@ end
         s .= 0.5 .* s .+ v
         return nothing
     end
-    # A per-stratum scale held as an array, and one read through `param`.
+    # A per-stratum scale held as an array, or read through `param`.
     struct VecScale{A}
         a::A
     end
+    scale_at(a::AbstractVector, k, t) = a[k]
+    scale_at(a, k, t) = CR.param(a, k, t)
     function CR.forward!(m::VecScale, ::CR.Step, v, s, t)
         for k in eachindex(v)
-            v[k] *= CR.param(m.a, k, t)
+            v[k] *= scale_at(m.a, k, t)
         end
         return nothing
     end
@@ -2152,14 +2156,14 @@ end
         @test op.rebuilds === true || op.rebuilds === Val(true)
         @test pullback_matches(op, recargs(fill(1.1, S, 6), nothing, ones(S, 2))...)
     end
-    # The size limits are the coupling's: the values, the state and the
-    # parameters in one pass of 24, two on Mooncake, else plain AD.
+    # One pass of 24 holds the values, the state and the parameters; past
+    # it the call takes the wider route, at any size.
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(11)...) === :one
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(12)...) === :wide
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(23)...) === :wide
-    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(24)...) === :none
-    @test CR._fit(Recurrence([0.3]; modifiers = (Smear(),)), args(24)...) === :one
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(60)...) === :wide
+    @test CR._fit(Recurrence([0.3]; modifiers = (Smear(),)), args(12)...) === :one
     # A constructor that changes its arguments takes plain AD with the note.
     struct Doubling{A}
         a::A

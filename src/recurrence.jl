@@ -849,16 +849,16 @@ function _parts_fit(r, h)
     fit === :one && _any_reads(r.modifiers) && return :wide
     return fit
 end
-# The passes a whole-step modifier's local derivative needs, as a
-# coupling's: its inputs are the step's values, its state and its
-# parameters.
+# A whole-step modifier's local derivative seeds the step's values, its
+# state and its parameters: within one pass of dual numbers
+# (`_LOCAL_PRESSURE`) the call takes the rule, and with more `_ad_wide`,
+# a rule on Mooncake at any size, where it stays faster than plain AD, and
+# plain AD on Enzyme, where the two are level (see the adjoints page).
 _steps_fit(::Tuple{}, S) = :one
 _steps_fit(ms::Tuple, S) = _worse(_step_fit(first(ms), S), _steps_fit(Base.tail(ms), S))
 function _step_fit(m, S)
     _whole_local(m) || return :one
-    n = S + nstate(m, S) + _ninputs(m)
-    n <= _LOCAL_PRESSURE && return :one
-    return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
+    return S + nstate(m, S) + _ninputs(m) <= _LOCAL_PRESSURE ? :one : :wide
 end
 # The route that holds for both of two parts.
 function _worse(a::Symbol, b::Symbol)
