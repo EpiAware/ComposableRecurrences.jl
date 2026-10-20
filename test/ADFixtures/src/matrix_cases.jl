@@ -768,6 +768,7 @@ pending_cases() = Tuple{String, String}[]
 # The features each case needs beyond the first release, by case name, as
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "bvd_patch" => (:movement,),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
     "strata_vaccination" => (:Pool,),
