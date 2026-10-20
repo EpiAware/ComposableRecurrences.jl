@@ -244,16 +244,27 @@ end
 _route_mirrors(::Nothing, xs) = map(_ -> nothing, xs)
 _route_mirrors(x̄s, xs) = x̄s
 
+# Each route's kernel buffer, and its coupling's dual-number buffers
+# (`_pressure_buffers`), made once per reverse pass so a step allocates
+# nothing.
+struct _RouteBuffers{K <: Tuple, P <: Tuple}
+    kernels::K
+    pressures::P
+end
 function _kernel_buffer(ḡ, k::_RouteKernels, H, S, L)
     ḡs = _route_mirrors(cotangent(ḡ, :kernels), k.kernels)
-    return map((ḡr, g, Lr) -> _kernel_buffer(ḡr, g, H, S, Lr), ḡs, k.kernels, k.lags)
+    C̄s = _route_mirrors(cotangent(ḡ, :couplings), k.couplings)
+    kbufs = map((ḡr, g, Lr) -> _kernel_buffer(ḡr, g, H, S, Lr), ḡs, k.kernels, k.lags)
+    pbufs = map((C̄, C) -> _pressure_buffers(C̄, C, eltype(H)), C̄s, k.couplings)
+    return _RouteBuffers(kbufs, pbufs)
 end
 
 function _kernel_back!(kbuf, ḡ, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     C̄s = _route_mirrors(cotangent(ḡ, :couplings), k.couplings)
     ḡs = _route_mirrors(cotangent(ḡ, :kernels), k.kernels)
     _routes_back!(
-        kbuf, ḡs, C̄s, k.couplings, k.kernels, k.lags, k.z, k.w, p̄, H, H̄, t, τ, L
+        kbuf.kernels, kbuf.pressures, ḡs, C̄s, k.couplings, k.kernels, k.lags,
+        k.z, k.w, p̄, H, H̄, t, τ, L
     )
     return nothing
 end
@@ -263,22 +274,29 @@ function _kernels_back!(accs, kbuf, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     _kernel_back!(kbuf, _own(first(accs).ḡ), k, p̄, H, H̄, t, τ, L)
     return nothing
 end
-_routes_back!(::Tuple{}, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L) = nothing
-function _routes_back!(kbuf::Tuple, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L)
+function _routes_back!(
+        ::Tuple{}, pbufs, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L
+    )
+    return nothing
+end
+function _routes_back!(
+        kbuf::Tuple, pbufs, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L
+    )
     Lr, g = first(Ls), first(gs)
     tr = t + L - Lr
     _kernel_pressure!(Serial(), z, g, H, tr, τ, Lr)
     fill!(z̄, zero(eltype(z̄)))
-    _pressure_back!(z̄, first(C̄s), first(Cs), p̄, z, τ)
+    _pressure_back!(z̄, first(C̄s), first(Cs), p̄, z, τ, first(pbufs))
     _kernel_back!(first(kbuf), first(ḡs), g, z̄, H, H̄, tr, τ, Lr)
     return _routes_back!(
-        Base.tail(kbuf), Base.tail(ḡs), Base.tail(C̄s), Base.tail(Cs),
-        Base.tail(gs), Base.tail(Ls), z, z̄, p̄, H, H̄, t, τ, L
+        Base.tail(kbuf), Base.tail(pbufs), Base.tail(ḡs), Base.tail(C̄s),
+        Base.tail(Cs), Base.tail(gs), Base.tail(Ls), z, z̄, p̄, H, H̄, t, τ, L
     )
 end
 
-function _kernel_finish!(ḡ, kbuf::Tuple)
-    foreach(_kernel_finish!, _route_mirrors(cotangent(ḡ, :kernels), kbuf), kbuf)
+function _kernel_finish!(ḡ, kbuf::_RouteBuffers)
+    kbufs = kbuf.kernels
+    foreach(_kernel_finish!, _route_mirrors(cotangent(ḡ, :kernels), kbufs), kbufs)
     return nothing
 end
 
