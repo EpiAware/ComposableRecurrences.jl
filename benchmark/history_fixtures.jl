@@ -30,7 +30,7 @@ for (name, f, θ0) in ADFixtures._TWINS
     try
         f(θ0())
     catch e
-        note("scenario \"$name\"", e)
+        note("scenario " * repr(name), e)
     end
 end
 for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci"), arm in ("rule", "NoAdjoint", "loop")
