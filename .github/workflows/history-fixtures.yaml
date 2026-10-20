@@ -7,7 +7,8 @@ name: History fixtures
 # needs a `_REQUIRES` entry; this job fails on the pull request that adds one
 # without it, rather than on the history run after merge. History also
 # runs this branch's benchmark/benchmarks.jl against each tag, so the check
-# covers the package names that script uses outside an `isdefined` test.
+# runs that script against each tag too, without preparing gradients or
+# timing anything.
 # The check is benchmark/history_fixtures.jl, which needs only Julia and git.
 
 on:
@@ -15,6 +16,7 @@ on:
     paths:
       - 'test/ADFixtures/**'
       - 'benchmark/benchmarks.jl'
+      - 'benchmark/Project.toml'
       - 'benchmark/history_fixtures.jl'
       - '.github/workflows/history-fixtures.yaml'
   workflow_dispatch:

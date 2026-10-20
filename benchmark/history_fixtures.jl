@@ -10,31 +10,29 @@
 # Without one the history run fails, and only after merge.
 #
 # For each tag (by default the last five, newest first, as the workflow
-# picks them) this script checks the tag out in a temporary worktree,
-# stages a copy of test/ADFixtures pointed at it, and in a fresh process
-# evaluates every scenario and every arm of every `ci` matrix case that the
-# loaded version supports. History also runs this branch's
-# benchmark/benchmarks.jl against each tag, so the check also requires each
-# `ComposableRecurrences.name` and `using ComposableRecurrences: name` there
-# that is not under an `isdefined(ComposableRecurrences, ...)` test to exist
-# in the tag; building that script's whole suite would take hours. It prints
-# each failure and exits non-zero if there is any. With no tags it checks
-# nothing.
+# picks them) this script checks the tag out in a temporary worktree and
+# stages copies of test/ADFixtures and benchmark/Project.toml pointed at
+# it. In a fresh process it evaluates every scenario and every arm of every
+# `ci` matrix case that the loaded version supports. History also runs this
+# branch's benchmark/benchmarks.jl against each tag, so the process then runs
+# that script too, without timing anything: each `DI.prepare_gradient` call
+# is replaced by `nothing`, and each `@benchmarkable` by its expression,
+# evaluated once, or by `nothing` if the expression calls `DI`. Building the
+# script's gradients would take hours. It prints each failure and exits
+# non-zero if there is any. With no tags it checks nothing.
+
+using TOML
 
 const ROOT = dirname(@__DIR__)
 const FIXTURES = joinpath(ROOT, "test", "ADFixtures")
 
 # Run in the staged environment: the scenarios as `scenarios()` builds them,
-# and the `ci` matrix arms `benchmark/benchmarks.jl` builds.
+# the `ci` matrix arms `benchmark/benchmarks.jl` builds, and that script.
 const CHECK = raw"""
 using ADFixtures, ComposableRecurrences
 using ADFixtures: MatrixCases
 failed = String[]
 note(what, e) = push!(failed, what * ": " * first(split(sprint(showerror, e), '\n')))
-for name in split(ENV["HISTORY_SCRIPT_NAMES"], ','; keepempty = false)
-    isdefined(ComposableRecurrences, Symbol(name)) ||
-        push!(failed, "benchmark/benchmarks.jl uses ComposableRecurrences." * name)
-end
 for (name, f, θ0) in ADFixtures._TWINS
     try
         f(θ0())
@@ -54,59 +52,62 @@ for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci"), arm in ("rule", "No
 end
 println(length(ADFixtures._TWINS), " scenarios checked, ",
     length(ADFixtures.unsupported_scenarios()), " left out by `_REQUIRES`")
+
+# The benchmark script, with the gradient preparation and the timing taken
+# out.
+uses_di(ex) = ex === :DI
+uses_di(ex::Expr) = any(uses_di, ex.args)
+unquote(ex) = ex
+unquote(ex::Expr) = ex.head === :$ ? unquote(only(ex.args)) : Expr(ex.head, map(unquote, ex.args)...)
+untimed(ex) = ex
+function untimed(ex::Expr)
+    if ex.head === :call && ex.args[1] == :(DI.prepare_gradient)
+        return :nothing
+    elseif ex.head === :macrocall && ex.args[1] === Symbol("@benchmarkable")
+        body = first(a for a in ex.args[2:end] if !(a isa LineNumberNode))
+        return uses_di(body) ? :nothing : unquote(body)
+    end
+    return Expr(ex.head, map(untimed, ex.args)...)
+end
+script = Module(:BenchmarkScript)
+Core.eval(script, :(include(p) = Base.include($untimed, $script, p)))
+try
+    Base.include(untimed, script, ENV["HISTORY_SCRIPT"])
+    suite = Base.invokelatest(getglobal, script, :SUITE)
+    println("benchmark/benchmarks.jl built ", join(sort!(collect(keys(suite.data))), ", "))
+catch e
+    note("benchmark/benchmarks.jl", e)
+end
 foreach(println, failed)
 exit(isempty(failed) ? 0 : 1)
 """
-
-# The package names a script uses outside an `isdefined` test on the package.
-function package_names(path)
-    names = Set{Symbol}()
-    walk(ex, guarded) = nothing
-    function walk(ex::Expr, guarded)
-        if ex.head in (:if, :elseif)
-            g = guarded || has_isdefined(ex.args[1])
-            walk(ex.args[1], g)
-            walk(ex.args[2], g)
-            length(ex.args) > 2 && walk(ex.args[3], guarded)
-        elseif ex.head === :. && length(ex.args) == 2 &&
-                ex.args[1] === :ComposableRecurrences && ex.args[2] isa QuoteNode
-            guarded || push!(names, ex.args[2].value)
-        elseif ex.head in (:using, :import) && ex.args[1] isa Expr &&
-                ex.args[1].head === :(:) &&
-                ex.args[1].args[1] == Expr(:., :ComposableRecurrences)
-            guarded || foreach(a -> push!(names, last(a.args)), ex.args[1].args[2:end])
-        else
-            foreach(a -> walk(a, guarded), ex.args)
-        end
-        return nothing
-    end
-    walk(Meta.parseall(read(path, String)), false)
-    return sort!(collect(names))
-end
-has_isdefined(ex) = false
-function has_isdefined(ex::Expr)
-    ex.head === :call && ex.args[1] === :isdefined && length(ex.args) > 1 &&
-        ex.args[2] === :ComposableRecurrences && return true
-    return any(has_isdefined, ex.args)
-end
 
 function last_tags(n = 5)
     tags = readlines(`git -C $ROOT tag --sort=-v:refname`)
     return first(tags, min(n, length(tags)))
 end
 
-# Stage the fixtures for `tag` in `dir`, as the workflow does, with the
-# package resolved from a worktree of the tag. Returns the staged project.
+# Stage the fixtures and the benchmark environment for `tag` in `dir`, as
+# the workflow does, with the package resolved from a worktree of the tag.
+# Returns the staged benchmark project.
 function stage(tag, dir)
     worktree = joinpath(dir, "package")
     run(`git -C $ROOT worktree add --quiet --detach $worktree $tag`)
-    staged = joinpath(dir, "test", "ADFixtures")
-    mkpath(dirname(staged))
-    cp(FIXTURES, staged)
-    rm(joinpath(staged, "Manifest.toml"); force = true)
-    project = joinpath(staged, "Project.toml")
+    fixtures = joinpath(dir, "test", "ADFixtures")
+    mkpath(dirname(fixtures))
+    cp(FIXTURES, fixtures)
+    rm(joinpath(fixtures, "Manifest.toml"); force = true)
+    project = joinpath(fixtures, "Project.toml")
     toml = replace(read(project, String), "path = \"../..\"" => "path = $(repr(worktree))")
     write(project, toml)
+    # The benchmark harness is not needed to build the suite.
+    bench = TOML.parsefile(joinpath(ROOT, "benchmark", "Project.toml"))
+    delete!(bench["deps"], "EpiAwarePackageTools")
+    delete!(get(bench, "compat", Dict()), "EpiAwarePackageTools")
+    bench["sources"]["ComposableRecurrences"] = Dict("path" => worktree)
+    staged = joinpath(dir, "benchmark")
+    mkpath(staged)
+    open(io -> TOML.print(io, bench), joinpath(staged, "Project.toml"), "w")
     return staged
 end
 
@@ -115,10 +116,10 @@ function check(tag)
     try
         staged = stage(tag, dir)
         julia = `$(Base.julia_cmd()) --startup-file=no --project=$staged`
-        names = join(package_names(joinpath(ROOT, "benchmark", "benchmarks.jl")), ',')
         run(`$julia -e 'using Pkg; Pkg.instantiate()'`)
         println("Fixtures against ", tag, ":")
-        cmd = addenv(`$julia -e $CHECK`, "HISTORY_SCRIPT_NAMES" => names)
+        script = joinpath(ROOT, "benchmark", "benchmarks.jl")
+        cmd = addenv(`$julia -e $CHECK`, "HISTORY_SCRIPT" => script)
         return success(pipeline(cmd; stdout, stderr))
     finally
         run(ignorestatus(`git -C $ROOT worktree remove --force $(joinpath(dir, "package"))`))
