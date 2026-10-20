@@ -34,8 +34,10 @@ The positional constructor keeps them.
 One route is its kernel with its coupling,
 and routes whose couplings are all `λ * I` on vector kernels are the one
 kernel ``\sum_r \lambda_r k^{(r)}``.
-The analytic adjoint applies when every route coupling has its own
-[`ComposableRecurrences.pullback!`](@ref), as the built-in ones do.
+The analytic adjoint applies when it covers every route coupling, as it
+would the coupling of a [`Recurrence`](@ref): with its own
+[`ComposableRecurrences.pullback!`](@ref), as the built-in ones have, or
+with a local derivative, within the same limits on strata and scalars.
 The constructor stores the routes' couplings in `couplings` and their
 kernels in `kernels`, in route order.
 
@@ -171,21 +173,26 @@ function _check_primary_seed(R::Routes, history, start)
     return nothing
 end
 
-# The rule covers the routes when every route coupling has its own
-# pullback.
-_kernel_adjoint(R::Routes) = _all_pressure_pullbacks(R.couplings)
-_all_pressure_pullbacks(::Tuple{}) = true
-function _all_pressure_pullbacks(Cs::Tuple)
-    return uses_adjoint(first(Cs), Pressure()) &&
-        _all_pressure_pullbacks(Base.tail(Cs))
+# The rule covers the routes when it covers every route coupling, with its
+# own pullback or a local derivative, as for the coupling of a
+# `Recurrence`; the local step rebuilds each route coupling that holds
+# floats, and the widest route coupling's fit sets the call's.
+_kernel_adjoint(R::Routes) = _all_couplings_adjoint(R.couplings)
+_all_couplings_adjoint(::Tuple{}) = true
+function _all_couplings_adjoint(Cs::Tuple)
+    return _coupling_adjoint(first(Cs)) !== :none &&
+        _all_couplings_adjoint(Base.tail(Cs))
+end
+_local_kernel_parts(R::Routes) = _route_parts(R.couplings...)
+_route_parts() = ()
+_route_parts(C, Cs...) = (_local_part(C)..., _route_parts(Cs...)...)
+function _kernel_fit(R::Routes, h)
+    return foldl((f, C) -> _wider_fit(f, _coupling_fit(C, h)), R.couplings; init = :one)
 end
 
-# The plain-AD note names the route couplings without a pullback.
+# The plain-AD note names the route couplings the rule cannot use.
 function _no_adjoint_kernel(R::Routes)
-    return Tuple(
-        "$(nameof(typeof(C))) has no pullback! the rule can use"
-            for C in R.couplings if !uses_adjoint(C, Pressure())
-    )
+    return Tuple(_part_why(C) for C in R.couplings if _coupling_adjoint(C) === :none)
 end
 
 # The routes as a run reads them: the couplings, each kernel oldest first

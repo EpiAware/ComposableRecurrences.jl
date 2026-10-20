@@ -707,10 +707,13 @@ function _all_modifiers_adjoint(ms::Tuple)
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel, and why not; routes add their
+# Whether the rule covers the kernel, and why not, the kernel's parts the
+# local step rebuilds, and how its local steps fit; routes add their
 # couplings.
 _kernel_adjoint(kernel) = true
 _no_adjoint_kernel(kernel) = ()
+_local_kernel_parts(kernel) = ()
+_kernel_fit(kernel, h) = :one
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier whose
@@ -746,7 +749,9 @@ function _check_parts(kernel, C, ms::Tuple)
         _note_plain((_no_adjoint_kernel(kernel)..., C_why..., _no_adjoint(ms...)...))
         return Val(true)
     end
-    return _check_rebuilds((_local_part(C)..., _local_parts(ms...)...))
+    return _check_rebuilds(
+        (_local_kernel_parts(kernel)..., _local_part(C)..., _local_parts(ms...)...)
+    )
 end
 _check_rebuilds(::Tuple{}) = Val(true)
 function _check_rebuilds(parts::Tuple)
@@ -837,14 +842,23 @@ function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args.
     return _parts_fit(r, h)
 end
 function _parts_fit(r, h)
-    fit = _coupling_fit(r.coupling, h)
+    fit = _wider_fit(_kernel_fit(r.kernel, h), _coupling_fit(r.coupling, h))
     fit === :one && _any_reads(r.modifiers) && return :wide
     return fit
+end
+# The route that covers both fits: plain AD over the wider route over one
+# pass.
+function _wider_fit(a, b)
+    (a === :none || b === :none) && return :none
+    return a === :wide || b === :wide ? :wide : :one
 end
 # The construction check of `r`'s parts, run on its primal values when it
 # is called; the backend extensions do not differentiate it.
 function _check_now(r::Recurrence)
-    parts = (_local_part(r.coupling)..., _local_parts(r.modifiers...)...)
+    parts = (
+        _local_kernel_parts(r.kernel)..., _local_part(r.coupling)...,
+        _local_parts(r.modifiers...)...,
+    )
     return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
