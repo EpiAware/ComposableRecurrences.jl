@@ -308,11 +308,9 @@ _column(x::AbstractVector, t) = x
 # A whole-step modifier differentiated by its local derivative takes its
 # dual numbers as its pass buffer (`_StepDuals`), made once per reverse
 # pass, and reads them from `grads.pass`.
-function _pass_buffer(H, ::Type{Tp}, m, m̄, S, T) where {Tp}
-    return _local_step_duals(Val(_whole_local(m)), m̄, m, Tp)
-end
-_local_step_duals(::Val{false}, m̄, m, Tp) = nothing
-_local_step_duals(::Val{true}, m̄, m, Tp) = _step_duals(m̄, m, Tp)
+_pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H)
+_local_step_duals(::Val{false}, m̄, m, H) = nothing
+_local_step_duals(::Val{true}, m̄, m, H) = _step_duals(m̄, m, eltype(H))
 _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
