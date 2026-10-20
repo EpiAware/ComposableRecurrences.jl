@@ -1,6 +1,6 @@
 # News
 
-## 0.2.0
+## Unreleased
 
 ### Breaking
 
