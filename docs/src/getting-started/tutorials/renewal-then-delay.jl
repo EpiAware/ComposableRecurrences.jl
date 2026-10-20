@@ -60,7 +60,7 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 # ## Susceptible depletion
 #
 # `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the hazard form, which [Getting started](@ref overview-build) gives.
-# `Depletion(N, Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
+# `Depletion(N; form = Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
 
 N = 2_000.0
 R_high = fill(1.8, T)
