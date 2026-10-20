@@ -155,6 +155,11 @@ end
 Each outbreak now peaks and declines as its pool runs down.
 Town A peaks first, and towns B and C about two weeks later.
 About 73% of each town is infected by the end.
+The delay from the second step gives each town's total reports over the 75 days:
+
+```@example overview
+round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
+```
 
 ### An intervention
 

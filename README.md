@@ -85,6 +85,7 @@ C_{t,i} = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}.
 
 ```julia
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
 ```
 
 ### An intervention
