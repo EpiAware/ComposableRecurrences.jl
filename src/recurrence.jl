@@ -707,13 +707,12 @@ function _all_modifiers_adjoint(ms::Tuple)
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel, and why not, the kernel's parts the
-# local step rebuilds, and how its local steps fit; routes add their
-# couplings.
+# Whether the rule covers the kernel, and why not, and the couplings it
+# holds, which the local step rebuilds and fits as it does the coupling;
+# routes add their couplings.
 _kernel_adjoint(kernel) = true
 _no_adjoint_kernel(kernel) = ()
-_local_kernel_parts(kernel) = ()
-_kernel_fit(kernel, h) = :one
+_kernel_couplings(kernel) = ()
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
 # `pullback!`, `:local` with a local derivative (a pointwise modifier whose
@@ -750,7 +749,7 @@ function _check_parts(kernel, C, ms::Tuple)
         return Val(true)
     end
     return _check_rebuilds(
-        (_local_kernel_parts(kernel)..., _local_part(C)..., _local_parts(ms...)...)
+        (_coupling_parts(C, _kernel_couplings(kernel)...)..., _local_parts(ms...)...)
     )
 end
 _check_rebuilds(::Tuple{}) = Val(true)
@@ -773,10 +772,12 @@ function _rebuild_why(p)
         return "$name reads more than $_READ_CAP entries of its arrays in a step"
     return "$name cannot be rebuilt from its own parameters"
 end
-# The coupling, modifiers and depletion forms the local step rebuilds.
+# The couplings, modifiers and depletion forms the local step rebuilds.
 function _local_part(C)
     return _coupling_adjoint(C) === :local && _holds_floats(C) ? (C,) : ()
 end
+_coupling_parts(C) = _local_part(C)
+_coupling_parts(C, Cs...) = (_local_part(C)..., _coupling_parts(Cs...)...)
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
@@ -842,21 +843,15 @@ function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args.
     return _parts_fit(r, h)
 end
 function _parts_fit(r, h)
-    fit = _wider_fit(_kernel_fit(r.kernel, h), _coupling_fit(r.coupling, h))
+    fit = _couplings_fit(h, r.coupling, _kernel_couplings(r.kernel)...)
     fit === :one && _any_reads(r.modifiers) && return :wide
     return fit
-end
-# The route that covers both fits: plain AD over the wider route over one
-# pass.
-function _wider_fit(a, b)
-    (a === :none || b === :none) && return :none
-    return a === :wide || b === :wide ? :wide : :one
 end
 # The construction check of `r`'s parts, run on its primal values when it
 # is called; the backend extensions do not differentiate it.
 function _check_now(r::Recurrence)
     parts = (
-        _local_kernel_parts(r.kernel)..., _local_part(r.coupling)...,
+        _coupling_parts(r.coupling, _kernel_couplings(r.kernel)...)...,
         _local_parts(r.modifiers...)...,
     )
     return _check_rebuilds(parts) !== false
@@ -867,6 +862,14 @@ function _coupling_fit(C, h)
     n = _nstrata(h) + _ninputs(C)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
+end
+# The route that covers every coupling's fit: plain AD over the wider route
+# over one pass.
+_couplings_fit(h, C) = _coupling_fit(C, h)
+function _couplings_fit(h, C, Cs...)
+    a, b = _coupling_fit(C, h), _couplings_fit(h, Cs...)
+    (a === :none || b === :none) && return :none
+    return a === :wide || b === :wide ? :wide : :one
 end
 function _any_reads(ms::Tuple)
     return any(ms) do m

@@ -175,20 +175,10 @@ end
 
 # The rule covers the routes when it covers every route coupling, with its
 # own pullback or a local derivative, as for the coupling of a
-# `Recurrence`; the local step rebuilds each route coupling that holds
-# floats, and the widest route coupling's fit sets the call's.
-_kernel_adjoint(R::Routes) = _all_couplings_adjoint(R.couplings)
-_all_couplings_adjoint(::Tuple{}) = true
-function _all_couplings_adjoint(Cs::Tuple)
-    return _coupling_adjoint(first(Cs)) !== :none &&
-        _all_couplings_adjoint(Base.tail(Cs))
-end
-_local_kernel_parts(R::Routes) = _route_parts(R.couplings...)
-_route_parts() = ()
-_route_parts(C, Cs...) = (_local_part(C)..., _route_parts(Cs...)...)
-function _kernel_fit(R::Routes, h)
-    return foldl((f, C) -> _wider_fit(f, _coupling_fit(C, h)), R.couplings; init = :one)
-end
+# `Recurrence`; the local step rebuilds and fits each route coupling as it
+# does that coupling.
+_kernel_adjoint(R::Routes) = all(C -> _coupling_adjoint(C) !== :none, R.couplings)
+_kernel_couplings(R::Routes) = R.couplings
 
 # The plain-AD note names the route couplings the rule cannot use.
 function _no_adjoint_kernel(R::Routes)

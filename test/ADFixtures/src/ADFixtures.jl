@@ -1677,7 +1677,7 @@ _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,
 # The rule took routes whose couplings have no pullback once they came with
 # a local derivative.
 let name = "Recurrence routes with a user coupling without a pullback"
-    _REQUIRES[name] = (:Routes, :_local_kernel_parts)
+    _REQUIRES[name] = (:Routes, :_kernel_couplings)
 end
 let name = "Recurrence modifier without a pullback, parameter from change points"
     _REQUIRES[name] = (:_Piecewise,)
