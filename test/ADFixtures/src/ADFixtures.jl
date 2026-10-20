@@ -1594,6 +1594,15 @@ function _unchecked_parts(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The coupling as one of two routes, the other a dense matrix with its
+# own pullback: the rule differentiates the route coupling locally.
+function _user_coupling_routes(w, θ)
+    logh, logR, a, K, g = _unpack(θ, (S, L), (S, T), (1,), (S, S), (2,))
+    r = Recurrence(Routes((ShareFirst(only(a)), G0), (K, g)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 function _user_coupling_matrix(w, θ)
     logh, logR, K, β = _unpack(θ, (S, L), (S, T), (S, S), (S,))
     r = Recurrence(G0; coupling = MatrixMix(K, β))
@@ -1635,6 +1644,11 @@ push!(
         () -> _flat(zeros(S, L), LOGR, 1 .+ 0.2 .* W1),
     ),
     (
+        "Recurrence routes with a user coupling without a pullback",
+        _user_coupling_routes,
+        () -> _flat(zeros(S, L), LOGR, [0.3], 0.5 .* K0, [0.2, 0.1]),
+    ),
+    (
         "Recurrence user coupling holding a matrix", _user_coupling_matrix,
         () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
     ),
@@ -1648,6 +1662,11 @@ push!(
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+# The rule took routes whose couplings have no pullback once they came with
+# a local derivative.
+let name = "Recurrence routes with a user coupling without a pullback"
+    _REQUIRES[name] = (:Routes, :_kernel_couplings)
+end
 let name = "Recurrence modifier without a pullback, parameter from change points"
     _REQUIRES[name] = (:_Piecewise,)
 end

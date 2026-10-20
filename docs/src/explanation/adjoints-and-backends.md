@@ -50,6 +50,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
+| [`Routes`](@ref) coupling | as a coupling, the widest route coupling setting the call's route |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
@@ -142,6 +143,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 | pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | plain AD | keep on Mooncake |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
+| `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
+| the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
 
 ² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
 The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
@@ -151,6 +154,11 @@ The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13
 ⁴ The worst within the route's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_vector` and `custom_coupling_matrix` cases.
 The modifier was timed at 1, 5 and 20 strata, the coupling at 2 to 5.
 On Enzyme the modifier's local step was 1.6 to 1.7 times plain AD at 1 and 5 strata, so it takes plain AD there.
+
+⁵ A local timing, not a matrix case: the worst within the row's limit against plain AD of the same model, at `T` 100 and `L` 6.
+The model has two routes, a dense user coupling with one scalar and a dense matrix.
+It was timed at 5, 11, 20, 22 and 23 strata, one pass, and at 30, 46 and 47, two passes.
+At 60 strata the call takes plain AD, within noise of the time before: 1.02 times it on Mooncake and 0.98 on Enzyme.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
