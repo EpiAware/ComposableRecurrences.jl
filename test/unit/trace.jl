@@ -296,7 +296,7 @@ end
     end
 end
 
-@testitem "Trace: user traces written in place, for each kind of step" begin
+@testitem "Trace: user traces written in place, for each kind of step" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake
     CR = ComposableRecurrences
@@ -412,7 +412,7 @@ end
         end
         θ = [0.6]
         n = CR._PULLBACK_CALLS[]
-        @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
+        @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
         @test CR._PULLBACK_CALLS[] > n
     end
     # A trace that returns its values rather than writing them is an error.
