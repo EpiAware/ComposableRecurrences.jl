@@ -25,7 +25,7 @@ const CHECK = raw"""
 using ADFixtures
 using ADFixtures: MatrixCases
 failed = String[]
-note(what, e) = push!(failed, what * ": " * first(sprint(showerror, e), 300))
+note(what, e) = push!(failed, what * ": " * first(split(sprint(showerror, e), '\n')))
 for (name, f, θ0) in ADFixtures._TWINS
     try
         f(θ0())
