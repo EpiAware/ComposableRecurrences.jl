@@ -340,6 +340,12 @@ end
     @test_throws "the draw names pool :X, but the pools are (:O,)" CR.Depletion(
         10.0; pools = (:O,), form = CR.Truncate(), fill = :X
     )
+    @test_throws "the draw names pool \"O\", but the pools are (:O,)" CR.Depletion(
+        10.0; pools = (:O,), form = CR.Truncate(), fill = "O"
+    )
+    @test_throws "the draw names pool 2, but the pools are (:O,)" CR.Depletion(
+        10.0; pools = (:O,), form = CR.Truncate(), fill = 2
+    )
     @test_throws "one pool is drawn with weight 1, got 0.5" CR.Depletion(
         100.0; weights = (S = 0.5,)
     )

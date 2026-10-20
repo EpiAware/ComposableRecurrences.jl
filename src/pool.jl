@@ -662,8 +662,7 @@ function _initial(::Nothing, m, i, k)
     N = m.N === nothing ? false : param(m.N, k, 1)
     return ifelse(_starts_full(m.draw, i), N, zero(N))
 end
-_starts_full(d::_DrawFrom, i) = i == d.first
-_starts_full(d, i) = false
+_starts_full(d, i) = d isa _DrawFrom && i == d.first
 function _add_initial!(m̄, x, x̄s, m, i, x̄, k)
     return add_param!(x̄s, x, x̄, k, 1)
 end
