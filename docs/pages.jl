@@ -37,7 +37,6 @@ pages = [
         "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",
         "Occupancy and capacity" => "getting-started/tutorials/occupancy.md",
         "Branching processes" => "getting-started/tutorials/transform.md",
-        "Case study: a backend model" => "getting-started/tutorials/backend-case-study.md",
     ],
     "API reference" => [
         "Public API" => "lib/public.md",
@@ -75,6 +74,7 @@ pages = [
         "Extending" => [
             "Writing new types" => "developer/extending.md",
             "Testing and benchmarking" => "developer/testing.md",
+            "Case study: a backend model" => "getting-started/tutorials/backend-case-study.md",
         ],
         "Release process" => "developer/release-process.md",
         "Developer FAQ" => "developer/faq.md",

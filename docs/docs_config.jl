@@ -234,8 +234,6 @@ const PACKAGE_TUTORIALS = [
         "getting-started/tutorials/occupancy.md",
     "Branching processes" =>
         "getting-started/tutorials/transform.md",
-    "Case study: a backend model" =>
-        "getting-started/tutorials/backend-case-study.md",
 ]
 
 # Whole extra top-level nav groups the package owns (e.g. "Tools", "Guide",
@@ -269,6 +267,8 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
     "Writing new types" => "developer/extending.md",
     "Testing and benchmarking" => "developer/testing.md",
+    "Case study: a backend model" =>
+        "getting-started/tutorials/backend-case-study.md",
 ]
 
 # An optional Getting-started FAQ page, listed right after Overview, e.g.

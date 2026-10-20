@@ -176,7 +176,7 @@ DataFrame(
 # ## Timing against the backend loops
 #
 # The [benchmark matrix](@ref testing) times this model's kernels against the backend-style loops, with and without their hand-written rules.
-# [Performance](@ref overview-performance) and the [AD backend comparison](@ref ad-comparison) report the package's times.
+# `task -t benchmark/Taskfile.yml matrix-docs` writes those times to [`benchmark/results/docs.csv`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/benchmark/results/docs.csv), the `backend` rows; the site does not plot them.
 #
 # ## [Porting from a hand-written loop](@id porting-hand-loops)
 #
