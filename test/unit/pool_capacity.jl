@@ -98,7 +98,7 @@
     end
 end
 
-@testitem "Pool capacity: values and gradients against a naive loop" setup = [CapacityChecks] begin
+@testitem "Pool capacity: values and gradients against a naive loop" setup = [ReferenceAD, CapacityChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; G, R, h, W, ROUTE, naive, beds, budget) = CapacityChecks
@@ -166,10 +166,10 @@ end
         pairs = CR._layout(build(θ)).overflow === :stratum ? ROUTE : collect(1:4)
         ref(θ, R) = first(naive(G, R, h, pairs; kw(θ)...))
         @test r(θ, R) ≈ ref(θ, R)
-        @test ForwardDiff.gradient(θ -> sum(W .* r(θ, R)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* r(θ, R)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R)), R)
+        @test ReferenceAD.gradient(θ -> sum(W .* r(θ, R)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* r(θ, R)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R)), R)
         # The capacity binds somewhere, so the cases test the routing.
         @test r(θ, R) != Recurrence(PerStratum(G))(R; history = h)
     end
@@ -404,7 +404,7 @@ end
         PerStratum([1.0, -1.0]); pools = (:O,), draw = CR.Truncate() => :O
     )
     @test_throws "initial is non-negative, got -2.0" fill_into(:O; initial = -2.0)
-    # Every pool starts from a stock that is not negative, filled or not.
+    # Every pool starts from a level that is not negative, filled or not.
     @test_throws "initial is non-negative, got -1.0" CR.Pool(;
         pools = (:B,), initial = -1.0, draw = :B => CR.Truncate()
     )

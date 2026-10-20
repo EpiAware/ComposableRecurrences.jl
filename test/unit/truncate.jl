@@ -2,7 +2,7 @@
 # naive loop, with the pullback against a local ForwardDiff Jacobian and the
 # smooth minimum's bounds.
 
-@testitem "Truncate: values and gradients against a naive loop" begin
+@testitem "Truncate: values and gradients against a naive loop" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
@@ -32,10 +32,10 @@
         y = run(R, b, κ)
         @test y ≈ naive(R, b, κ)
         @test sum(y) <= b + 1.0e-9
-        @test ForwardDiff.gradient(R -> sum(w .* run(R, b, κ)), R) ≈
-            ForwardDiff.gradient(R -> sum(w .* naive(R, b, κ)), R)
-        @test ForwardDiff.derivative(b -> sum(w .* run(R, b, κ)), b) ≈
-            ForwardDiff.derivative(b -> sum(w .* naive(R, b, κ)), b)
+        @test ReferenceAD.gradient(R -> sum(w .* run(R, b, κ)), R) ≈
+            ReferenceAD.gradient(R -> sum(w .* naive(R, b, κ)), R)
+        @test ReferenceAD.derivative(b -> sum(w .* run(R, b, κ)), b) ≈
+            ReferenceAD.derivative(b -> sum(w .* naive(R, b, κ)), b)
     end
     # The pool of 40 runs out, so the draws stop at its size.
     @test sum(run(R, 40.0, 0.0)) ≈ 40.0
@@ -44,7 +44,7 @@
     @test run(R, 1.0e6, 0.0) ≈ Recurrence(g)(R; history = h)
 end
 
-@testitem "Truncate: pullback against a local Jacobian" begin
+@testitem "Truncate: pullback against a local Jacobian" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     points = (
@@ -54,7 +54,7 @@ end
     for κ in (nothing, 0.1, 0.4), (v, s) in points
         form(κ) = κ === nothing ? CR.Truncate() : CR.SoftTruncate(κ)
         θ = κ === nothing ? Float64[] : [κ]
-        J = ForwardDiff.jacobian([v, s, 100.0, 1.0, θ...]) do x
+        J = ReferenceAD.jacobian([v, s, 100.0, 1.0, θ...]) do x
             f = κ === nothing ? CR.Truncate() : CR.SoftTruncate(x[5])
             collect(CR._draw(f, x[1], x[2], x[3], x[4]))
         end
@@ -122,7 +122,7 @@ end
     @test sum(y) <= 20.0 + 1.0e-9
 end
 
-@testitem "Truncate: the shared minimum matches each form" begin
+@testitem "Truncate: the shared minimum matches each form" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # `_softness` and `_soft_min` give each form's draw, so a modifier that
@@ -132,7 +132,7 @@ end
         y = CR._soft_min(κ, v, s)
         @test y == first(CR._draw(form, v, s, 1.0, 1.0))
         back = CR._soft_min_back(κ, v, s, 0.7)
-        @test collect(back[1:2]) ≈ 0.7 .* ForwardDiff.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
+        @test collect(back[1:2]) ≈ 0.7 .* ReferenceAD.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
     end
     @test CR._softness(CR.Truncate()) === nothing
     @test CR._softness(CR.SoftTruncate(0.3)) == 0.3

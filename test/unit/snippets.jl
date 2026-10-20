@@ -151,11 +151,16 @@ end
         S, n = length(v), length(s)
         v̄′ = v̄ === nothing ? collect(range(0.3, 1.7; length = S)) : v̄
         s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = n)) : s̄
-        J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
+        step = function (x)
             vv, ss = x[1:S], x[(S + 1):(S + n)]
             CR.forward!(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
             return vcat(vv, ss)
         end
+        # The tag and chunk `ReferenceAD` uses, so the dual code is shared.
+        x0 = vcat(v, s, θ)
+        tag = ForwardDiff.Tag(CR._run_forward, eltype(x0))
+        cfg = ForwardDiff.JacobianConfig(step, x0, ForwardDiff.Chunk{min(8, length(x0))}(), tag)
+        J = ForwardDiff.jacobian(step, x0, cfg, Val(false))
         expected = transpose(J) * vcat(v̄′, s̄′)
         m = build(θ)
         m̄ = mirror_of(m)
@@ -167,5 +172,31 @@ end
             θ = flatten(m̄) ≈ expected[(S + n + 1):end],
             θ̄ = flatten(m̄),
         )
+    end
+end
+
+# Reference derivatives through ForwardDiff with one tag and a fixed chunk,
+# so the dual code compiled for one test is reused by every other test in
+# the same worker, whatever its function or number of inputs. ForwardDiff's
+# default tags the duals by the function's type and picks the chunk from
+# the input's length, which compiles each operator again for every closure
+# and length. Not for nested derivatives, which need distinct tags.
+@testmodule ReferenceAD begin
+    using ComposableRecurrences, ForwardDiff
+
+    _tag(::Type{V}) where {V} = ForwardDiff.Tag(ComposableRecurrences._run_forward, V)
+    _chunk(x) = ForwardDiff.Chunk{min(8, length(x))}()
+
+    function gradient(f, x)
+        cfg = ForwardDiff.GradientConfig(f, x, _chunk(x), _tag(eltype(x)))
+        return ForwardDiff.gradient(f, x, cfg, Val(false))
+    end
+    function jacobian(f, x)
+        cfg = ForwardDiff.JacobianConfig(f, x, _chunk(x), _tag(eltype(x)))
+        return ForwardDiff.jacobian(f, x, cfg, Val(false))
+    end
+    function derivative(f, x::Real)
+        T = typeof(_tag(typeof(x)))
+        return ForwardDiff.extract_derivative(T, f(ForwardDiff.Dual{T}(x, one(x))))
     end
 end

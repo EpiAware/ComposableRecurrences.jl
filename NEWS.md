@@ -4,7 +4,7 @@
 
 ### Breaking
 
-- Couplings, modifiers and depletion forms implement `forward!` in place for `Step()`, `Init()`, `Pressure()` and `Trace()`, and `forward!` and `pullback!` return `nothing`; returning a value is an `ArgumentError` ([extending][extending]).
+- Couplings, modifiers and depletion forms implement `forward!` in place for `Step()`, `Init()` and `Pressure()`, and `forward!` and `pullback!` return `nothing`; returning a value is an `ArgumentError` ([extending][extending]).
   A pointwise modifier no longer has a scalar step `forward(m, Step(), v, s, t, k)`: its `forward!(m, Step(), v, s, t)` writes each entry of `v` and `s` from its own, and the operator may call it on a one-entry view of each stratum.
   A blockwise group step takes tuples of one-entry views, and a depletion form `forward!(form, Step(), v, s, N, α)` writes `v` and `s` in place.
   The matching `pullback!` methods overwrite `grads.v` and `grads.s` in place, and a form's adds into `grads.N` and `grads.α`.
@@ -53,7 +53,7 @@
   Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Depletion(N; removals)` takes removals from the pool after each draw ([renewal then delay][renewal]).
-- A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding each modifier's series per step, differentiable as the output is; a modifier can record its own through `forward!(m, Trace(), r, v, s, v′, s′, t)`, writing `r` in place, and its pullback adds into the cotangents of the step's inputs and outputs ([extending][extending]).
+- A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding each modifier's series per step, differentiable as the output is; a modifier can record its own through a `Trace()` role ([extending][extending]).
   A call without it runs as before.
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).

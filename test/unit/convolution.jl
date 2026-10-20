@@ -103,7 +103,7 @@ end
     @test_throws ArgumentError conv(shifted)
 end
 
-@testitem "Convolution: calls without a rule gather on CPU arrays of other numbers" begin
+@testitem "Convolution: calls without a rule gather on CPU arrays of other numbers" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff, Random
     CR = ComposableRecurrences
     rng = Xoshiro(3)
@@ -131,8 +131,8 @@ end
     for (k, Kk) in ((K[1, :], repeat(K[1, :]', S)), (PerStratum(K), K))
         conv = Convolution(k)
         f(θ) = sum(abs2, conv(reshape(θ, S, T); gain = g, add = a, history = h))
-        @test ForwardDiff.gradient(f, vec(x)) ≈
-            ForwardDiff.gradient(θ -> sum(abs2, naive(Kk, reshape(θ, S, T))), vec(x))
+        @test ReferenceAD.gradient(f, vec(x)) ≈
+            ReferenceAD.gradient(θ -> sum(abs2, naive(Kk, reshape(θ, S, T))), vec(x))
         y = conv(Dual.(x, 1.0); gain = g, add = a, history = h, start = 2, stop = 8)
         @test ForwardDiff.value.(y) ≈
             conv(x; gain = g, add = a, history = h, start = 2, stop = 8)

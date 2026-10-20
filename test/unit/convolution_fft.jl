@@ -75,7 +75,7 @@ end
     @test Y ≈ Convolution(K)(X) rtol = 1.0f-5
 end
 
-@testitem "Convolution FFT: which calls take the transform" begin
+@testitem "Convolution FFT: which calls take the transform" setup = [ReferenceAD] begin
     using ComposableRecurrences, FFTW, ForwardDiff
     const CR = ComposableRecurrences
     fft = CR.FFTMethod()
@@ -104,7 +104,7 @@ end
     k = rand(4)
     f(k) = sum(abs2, Convolution(k; method = fft)(x))
     g(k) = sum(abs2, Convolution(k)(x))
-    @test ForwardDiff.gradient(f, k) ≈ ForwardDiff.gradient(g, k)
+    @test ReferenceAD.gradient(f, k) ≈ ReferenceAD.gradient(g, k)
 end
 
 @testitem "Convolution: method validation and rebuild" begin

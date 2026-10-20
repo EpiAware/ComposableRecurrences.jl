@@ -100,7 +100,7 @@ end
     )
 end
 
-@testitem "Derived: add_param! against ForwardDiff" begin
+@testitem "Derived: add_param! against ForwardDiff" setup = [ReferenceAD] begin
     using ComposableRecurrences
     using ForwardDiff
     CR = ComposableRecurrences
@@ -113,7 +113,7 @@ end
     end
     θ = [a; z; 1.5]
     for k in 1:2, t in 1:3
-        ref = ForwardDiff.gradient(θ -> CR.param(build(θ), k, t), θ)
+        ref = ReferenceAD.gradient(θ -> CR.param(build(θ), k, t), θ)
         x = build(θ)
         mirror = (;
             f = nothing,

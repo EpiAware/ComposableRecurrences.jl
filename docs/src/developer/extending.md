@@ -12,9 +12,9 @@ const CR = ComposableRecurrences
 ## [Roles](@id extending-roles)
 
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
-Both write their outputs in place and return `nothing`; a method that returns anything else is an error.
-Couplings, modifiers and depletion forms write in place, and operators return: an operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
+For a step, an initial state, a coupling's mixing or a modifier's trace, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
 A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
+An operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
@@ -118,8 +118,7 @@ model(κ) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Saturation(κ), p
 [round(sum(model(κ)(fill(1.8, 80); history = seed))) for κ in (50.0, 150.0, 1.0e6)]
 ```
 
-ForwardDiff differentiates `forward!` as written.
-Under Mooncake or Enzyme in reverse mode the operator still takes its rule, as [Rules and plain AD](@ref adjoint-routing) gives for a pointwise modifier with a float parameter.
+Without a `pullback!` the operator still takes its rule; [Rules and plain AD](@ref adjoint-routing) gives the route.
 
 ```@example extending
 using ForwardDiff
@@ -319,17 +318,17 @@ Its pullback overwrites `grads.v` with the cotangent of the incoming values.
 The state passes through unchanged, so `grads.s` already holds its cotangent.
 
 ```@example extending
-struct Pool{A}
+struct ToMean{A}
     a::A
 end
-function CR.forward!(m::Pool, ::CR.Step, v, s, t)
+function CR.forward!(m::ToMean, ::CR.Step, v, s, t)
     μ = sum(v) / length(v)
     for k in eachindex(v)
         v[k] = (1 - m.a) * v[k] + m.a * μ
     end
     return nothing
 end
-function CR.pullback!(grads, m::Pool, ::CR.Step, v, s, t)
+function CR.pullback!(grads, m::ToMean, ::CR.Step, v, s, t)
     v̄ = grads.v
     μ, μ̄ = sum(v) / length(v), sum(v̄) / length(v̄)
     ā = sum(k -> v̄[k] * (μ - v[k]), eachindex(v))
@@ -340,7 +339,7 @@ function CR.pullback!(grads, m::Pool, ::CR.Step, v, s, t)
     return nothing
 end
 
-Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.0], stop = 3)
+Recurrence([0.5, 0.5]; modifiers = (ToMean(0.5),))(1.0; history = [1.0 2.0; 3.0 1.0], stop = 3)
 ```
 
 ## [A blockwise step](@id extending-blockwise)

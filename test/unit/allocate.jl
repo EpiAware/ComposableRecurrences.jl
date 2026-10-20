@@ -108,7 +108,7 @@
     )
 end
 
-@testitem "Allocate: values and gradients against a naive loop" setup = [AllocateChecks] begin
+@testitem "Allocate: values and gradients against a naive loop" setup = [ReferenceAD, AllocateChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; g, R, h, groups, totals, naive) = AllocateChecks
@@ -119,10 +119,10 @@ end
         )
         ref(θ, R) = naive(g, R, h, groups, (p, t) -> at(θ, p, t))
         @test run(θ, R) ≈ ref(θ, R)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* run(θ, R)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R)), R)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* run(θ, R)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R)), R)
         # The group sums equal the totals.
         Y = run(θ, R)
         @test [sum(Y[zs, t]) for (p, zs) in enumerate(groups), t in 1:8] ≈
@@ -130,7 +130,7 @@ end
     end
 end
 
-@testitem "Allocate: imports against a naive loop" setup = [AllocateChecks] begin
+@testitem "Allocate: imports against a naive loop" setup = [ReferenceAD, AllocateChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; g, R, h, groups, TT, P0, K0, fractions, naive_imports) = AllocateChecks
@@ -157,12 +157,12 @@ end
             )
         end
         @test run(θ, R, εs) ≈ ref(θ, R, εs)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, R, εs)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R, εs)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* run(θ, R, εs)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R, εs)), R)
-        @test ForwardDiff.gradient(ε -> sum(W .* run(θ, R, ε)), εs) ≈
-            ForwardDiff.gradient(ε -> sum(W .* ref(θ, R, ε)), εs)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, R, εs)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R, εs)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* run(θ, R, εs)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R, εs)), R)
+        @test ReferenceAD.gradient(ε -> sum(W .* run(θ, R, ε)), εs) ≈
+            ReferenceAD.gradient(ε -> sum(W .* ref(θ, R, ε)), εs)
         # The group sums still equal the totals.
         Y = run(θ, R, εs)
         @test [sum(Y[zs, t]) for (p, zs) in enumerate(groups), t in 1:8] ≈ TT
@@ -223,7 +223,7 @@ end
     @test v ≈ [4.0e-20, 12.0e-20, 2.0] ./ [eps(), eps(), 1.0]
 end
 
-@testitem "Allocate: imports keep the totals near an empty pattern" begin
+@testitem "Allocate: imports keep the totals near an empty pattern" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
@@ -248,7 +248,7 @@ end
         @test y[3] ≈ tot[2]
     end
     W = [1.0, -2.0, 0.5]
-    g = ForwardDiff.gradient(x -> sum(W .* step(x)), vcat(tot, φ, v, 0.0))
+    g = ReferenceAD.gradient(x -> sum(W .* step(x)), vcat(tot, φ, v, 0.0))
     @test all(isfinite, g)
 end
 

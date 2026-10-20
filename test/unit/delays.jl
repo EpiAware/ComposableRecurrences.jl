@@ -201,7 +201,7 @@ end
         Recurrence(arrays; lags = 4)(R; history = h)
 end
 
-@testitem "Delay distributions: gradients reach the parameters" setup = [DelayCases] begin
+@testitem "Delay distributions: gradients reach the parameters" setup = [ReferenceAD, DelayCases] begin
     using ForwardDiff
     x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0]
     conv(λ) = sum(Convolution(Poisson(λ); lags = 4)(x))
@@ -212,7 +212,7 @@ end
         )
     )
     for f in (conv, rec, strata)
-        g = ForwardDiff.derivative(f, 1.5)
+        g = ReferenceAD.derivative(f, 1.5)
         ϵ = 1.0e-6
         @test g ≈ (f(1.5 + ϵ) - f(1.5 - ϵ)) / 2ϵ rtol = 1.0e-6
         @test g != 0

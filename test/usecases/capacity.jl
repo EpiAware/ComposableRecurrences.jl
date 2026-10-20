@@ -49,7 +49,7 @@
     end
 end
 
-@testitem "Use case: isolation beds with overflow to the community" tags = [:usecase] setup = [CapacityUseCase] begin
+@testitem "Use case: isolation beds with overflow to the community" tags = [:usecase] setup = [ReferenceAD, CapacityUseCase] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; T, R, naive, model) = CapacityUseCase
@@ -80,23 +80,23 @@ end
     @test all(iszero, free[2, :])
     @test sum(free) < sum(Y)
     loss(Y) = sum(w' .* Y)
-    @test ForwardDiff.gradient(θ -> loss(run(R, θ)), θ) ≈
-        ForwardDiff.gradient(θ -> loss(ref(R, θ)), θ)
-    @test ForwardDiff.gradient(R -> loss(run(R, θ)), R) ≈
-        ForwardDiff.gradient(R -> loss(ref(R, θ)), R)
+    @test ReferenceAD.gradient(θ -> loss(run(R, θ)), θ) ≈
+        ReferenceAD.gradient(θ -> loss(ref(R, θ)), θ)
+    @test ReferenceAD.gradient(R -> loss(run(R, θ)), R) ≈
+        ReferenceAD.gradient(R -> loss(ref(R, θ)), R)
     # More beds, fewer cases.
-    @test ForwardDiff.gradient(θ -> sum(run(R, θ)), θ)[2] < 0
+    @test ReferenceAD.gradient(θ -> sum(run(R, θ)), θ)[2] < 0
 
     # A queue for the next free bed instead: cases wait in the state.
     queued(θ) = beds(θ; overflow = :queue)
     Yq = model(R, θ[1], queued(θ))
     @test Yq ≈ naive(R, θ[1], admit(θ); hold = true)
     @test all(iszero, Yq[2, :])
-    @test ForwardDiff.gradient(θ -> loss(model(R, θ[1], queued(θ))), θ) ≈
-        ForwardDiff.gradient(θ -> loss(naive(R, θ[1], admit(θ); hold = true)), θ)
+    @test ReferenceAD.gradient(θ -> loss(model(R, θ[1], queued(θ))), θ) ≈
+        ReferenceAD.gradient(θ -> loss(naive(R, θ[1], admit(θ); hold = true)), θ)
 end
 
-@testitem "Use case: ring vaccination under a weekly budget" tags = [:usecase] setup = [CapacityUseCase] begin
+@testitem "Use case: ring vaccination under a weekly budget" tags = [:usecase] setup = [ReferenceAD, CapacityUseCase] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; T, R, naive, model) = CapacityUseCase
@@ -128,12 +128,12 @@ end
         Y = model(R, e, rings(b))
         @test Y ≈ naive(R, e, admit(b, period, carry))
         @test any(>(0), Y[2, :])
-        @test ForwardDiff.derivative(b -> loss(model(R, e, rings(b))), b) ≈
-            ForwardDiff.derivative(b -> loss(naive(R, e, admit(b, period, carry))), b)
-        @test ForwardDiff.gradient(R -> loss(model(R, e, rings(b))), R) ≈
-            ForwardDiff.gradient(R -> loss(naive(R, e, admit(b, period, carry))), R)
+        @test ReferenceAD.derivative(b -> loss(model(R, e, rings(b))), b) ≈
+            ReferenceAD.derivative(b -> loss(naive(R, e, admit(b, period, carry))), b)
+        @test ReferenceAD.gradient(R -> loss(model(R, e, rings(b))), R) ≈
+            ReferenceAD.gradient(R -> loss(naive(R, e, admit(b, period, carry))), R)
         # More rings, fewer cases.
-        @test ForwardDiff.derivative(b -> sum(model(R, e, rings(b))), b) < 0
+        @test ReferenceAD.derivative(b -> sum(model(R, e, rings(b))), b) < 0
     end
     # Carrying unused rings over never gives more cases than resetting them.
     @test sum(model(R, e, budget(60.0, 7, true))) <=

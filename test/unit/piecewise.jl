@@ -95,7 +95,7 @@ end
     @test_throws "TimeVarying wraps an array" TimeVarying(1.0)
 end
 
-@testitem "Change points: Convolution equals the dense kernel" setup = [PiecewiseChecks] begin
+@testitem "Change points: Convolution equals the dense kernel" setup = [ReferenceAD, PiecewiseChecks] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     CR = ComposableRecurrences
@@ -122,7 +122,7 @@ end
     pw(ps, T) = TimeVarying(ps, CR.Primary())
     dn(ps, T) = TimeVarying(PiecewiseChecks.dense(ps, T), CR.Primary())
     θ = [0.5, 0.3, 0.2, 0.1, 0.6, 0.3]
-    @test ForwardDiff.gradient(f(pw), θ) ≈ ForwardDiff.gradient(f(dn), θ)
+    @test ReferenceAD.gradient(f(pw), θ) ≈ ReferenceAD.gradient(f(dn), θ)
 end
 
 @testitem "Change points: Recurrence equals the dense kernel" setup = [PiecewiseChecks] begin
