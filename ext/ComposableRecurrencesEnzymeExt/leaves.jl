@@ -74,7 +74,8 @@ function EnzymeRules.reverse(
         tape, leaves::Vararg{Annotation, N}
     ) where {X, N}
     cache, y, dy = tape
-    dy === nothing && return _map_leaves(_ -> nothing, leaves)
+    # An unused output still owes each `Active` leaf a zero cotangent.
+    dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
     lms = _map_leaves(_ez, leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))

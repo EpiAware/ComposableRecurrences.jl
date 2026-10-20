@@ -1649,6 +1649,40 @@ end
     end
 end
 
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse: an unused output gives each active argument a zero cotangent" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    import Enzyme
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    # Each call's output is dropped, so Enzyme calls the rule with a `Const`
+    # return; the active scalar still takes a zero cotangent from it, and
+    # the gradient is that of `ρ^2` alone.
+    @noinline unused(y) = nothing
+    let x = [0.1, 0.2, 0.3]
+        losses = (
+            (ρ, x) -> (
+                unused(Recurrence([1.0])(ρ; history = [0.5], add = x, prepend = true));
+                ρ^2 + sum(x)
+            ),
+            (ρ, x) -> (
+                unused(Recurrence([0.5]; modifiers = (CR.Add(ρ),))(x; history = [0.5]));
+                ρ^2 + sum(x)
+            ),
+            (ρ, x) -> (unused(Convolution([0.3, 0.2])(x; gain = ρ)); ρ^2 + sum(x)),
+        )
+        for f in losses
+            dx = zero(x)
+            ((dρ, _),) = Enzyme.autodiff(
+                mode, Enzyme.Const(f), Enzyme.Active, Enzyme.Active(0.7),
+                Enzyme.Duplicated(x, dx)
+            )
+            @test dρ ≈ 1.4
+            @test dx == ones(3)
+        end
+    end
+end
+
 @testitem "Enzyme reverse: an operator with more than 32 leaves takes the rule" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
     using ComposableRecurrences: Flow, Pool

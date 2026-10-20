@@ -387,7 +387,8 @@ function EnzymeRules.reverse(
         tape, op::Annotation, args::Vararg{Annotation, N}
     ) where {N}
     cache, y, dy = tape
-    dy === nothing && return (nothing, map(_ -> nothing, args)...)
+    # An unused output still owes each `Active` argument a zero cotangent.
+    dy === nothing && return (nothing, map(a -> _ez_ret(a, nothing), args)...)
     o, dop = _operator(op)
     m = dop === nothing ? nothing : _ezs(o, dop[])
     ms = map(_ez, args)
