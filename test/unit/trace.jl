@@ -295,3 +295,132 @@ end
         @test CR._PULLBACK_CALLS[] > n
     end
 end
+
+@testitem "Trace: user traces written in place, for each kind of step" begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    # Pointwise: the smoothed value and what it leaves of the value, as
+    # a tuple of series over the strata.
+    struct Smoothing{A}
+        a::A
+    end
+    CR.ispointwise(::Smoothing) = true
+    function CR.forward!(m::Smoothing, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + (1 - m.a) * v[k]
+            v[k] = s[k]
+        end
+        return nothing
+    end
+    CR.ntrace(::Smoothing, S) = 2S
+    function CR.forward!(m::Smoothing, ::CR.Trace, r, v, s, v′, s′, t)
+        smoothed, left = r
+        for k in eachindex(v)
+            smoothed[k], left[k] = s′[k], v[k] - s′[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::Smoothing, ::CR.Trace, v, s, t)
+        s̄′, r̄ = grads.trace
+        for k in eachindex(v)
+            grads.v[k] += r̄[k]
+            grads.s′[k] += s̄′[k] - r̄[k]
+        end
+        return nothing
+    end
+    # Blockwise: two values and two state entries per group; its trace is
+    # the group's total after the step.
+    struct Pairs{A}
+        a::A
+    end
+    CR.blocks(::Pairs) = Val((2, 2))
+    function CR.forward!(m::Pairs, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+        v[1][], v[2][] = v1 * m.a, v2 + s1
+        s[1][], s[2][] = s1 + v1, s2 + v2
+        return nothing
+    end
+    function CR.pullback!(grads, m::Pairs, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v̄1, v̄2 = grads.v[1][], grads.v[2][]
+        s̄1, s̄2 = grads.s[1][], grads.s[2][]
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+        return nothing
+    end
+    CR.ntrace(::Pairs, S) = S ÷ 2
+    function CR.forward!(m::Pairs, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+        only(r)[] = v′[1][] + v′[2][]
+        return nothing
+    end
+    function CR.pullback!(grads, m::Pairs, ::CR.Trace, v::Tuple, s::Tuple, t, g)
+        r̄ = only(grads.trace)[]
+        grads.v′[1][] += r̄
+        grads.v′[2][] += r̄
+        return nothing
+    end
+    # Whole step: each value mixed with the mean, its trace the mean.
+    struct Mean{B}
+        b::B
+    end
+    function CR.forward!(m::Mean, ::CR.Step, v, s, t)
+        μ = sum(v) / length(v)
+        v .= (1 - m.b) .* v .+ m.b * μ
+        return nothing
+    end
+    function CR.pullback!(grads, m::Mean, ::CR.Step, v, s, t)
+        v̄ = grads.v
+        μ, μ̄ = sum(v) / length(v), sum(v̄) / length(v)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :b), sum(v̄ .* (μ .- v)))
+        v̄ .= (1 - m.b) .* v̄ .+ m.b * μ̄
+        fill!(grads.s, zero(eltype(grads.s)))
+        return nothing
+    end
+    CR.ntrace(::Mean, S) = 1
+    function CR.forward!(m::Mean, ::CR.Trace, r, v, s, v′, s′, t)
+        r[1] = sum(v) / length(v)
+        return nothing
+    end
+    function CR.pullback!(grads, m::Mean, ::CR.Trace, v, s, t)
+        grads.v .+= grads.trace[1] / length(v)
+        return nothing
+    end
+    g, h = [0.5, 0.3], [1.0 2.0; 2.0 1.0; 1.5 0.5; 0.5 1.5]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6]
+    # The trace rows against the step run by hand.
+    # The trace rows: the smoothed value is the output, and the two rows
+    # sum to the value the step received.
+    y, tr = Recurrence(g; modifiers = (Smoothing(0.6),))(R; history = h, trace = true)
+    M = only(tr.modifiers)
+    @test size(M) == (8, 6)
+    @test M[1:4, :] ≈ y
+    _, trm = Recurrence(g; modifiers = (Mean(0.3),))(R; history = h, trace = true)
+    @test size(only(trm.modifiers)) == (1, 6)
+    _, trp = Recurrence(g; modifiers = (Pairs(0.8),))(R; history = h, trace = true)
+    @test size(only(trp.modifiers)) == (2, 6)
+    for (mods, W) in (
+            ((Smoothing(0.6), CR.Depletion(PerStratum(fill(80.0, 4)))), nothing),
+            ((Pairs(0.8),), nothing),
+            ((Mean(0.3), CR.Clamp(0.0, 9.0)), nothing),
+        )
+        f(θ) = begin
+            ms = mods[1] isa Smoothing ? (Smoothing(θ[1]), Base.tail(mods)...) :
+                mods[1] isa Pairs ? (Pairs(θ[1]),) : (Mean(θ[1]), Base.tail(mods)...)
+            y, tr = Recurrence(g; modifiers = ms)(R; history = h, trace = true)
+            sum(y) + sum(x -> sum(abs2, x), tr.modifiers)
+        end
+        θ = [0.6]
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
+        @test CR._PULLBACK_CALLS[] > n
+    end
+    # A trace that returns its values rather than writing them is an error.
+    struct Returns end
+    CR.ispointwise(::Returns) = true
+    CR.forward!(::Returns, ::CR.Step, v, s, t) = nothing
+    CR.nstate(::Returns, S) = S
+    CR.forward!(::Returns, ::CR.Trace, r, v, s, v′, s′, t) = (s′,)
+    r = Recurrence(g; modifiers = (Returns(),))
+    @test_throws r"returned a Tuple" r(R; history = h, trace = true)
+end
