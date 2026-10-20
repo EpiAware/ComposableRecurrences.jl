@@ -245,6 +245,14 @@ end
     pw = Recurrence(Pairwise(rand(rng, S, S, L) ./ 3))
     @test pullback_matches(pw, recargs(R, nothing, h[:, 1:2]; start = 3)...)
     @test constant_kernel_matches(pw, recargs(R, ϵ, h)...)
+    # A Diagonal coupling with a vector modifier takes the coupled steps, and
+    # a fixed kernel held constant sends back only the window's cotangent.
+    D = Diagonal(rand(rng, S))
+    move = CR.Redistribute(CR.movement(rand(rng, S, S) ./ 2, [0.3, 0.2, 0.1]))
+    @test pullback_matches(
+        Recurrence(g; coupling = D, modifiers = (move,)), recargs(R, ϵ, h)...
+    )
+    @test constant_kernel_matches(Recurrence(g; coupling = D), recargs(R, ϵ, h)...)
 end
 
 @testitem "Adjoint: Recurrence time-varying slots at absolute time" setup = [AdjointCheck] begin
