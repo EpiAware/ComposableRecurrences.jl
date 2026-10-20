@@ -10,7 +10,7 @@
 # Funeral transmission opens at death and reaches the place and its
 # neighbours, a sparse matrix. Susceptibles deplete in each place.
 
-@testitem "Use case: community, household and funeral routes" tags = [:usecase] begin
+@testitem "Use case: community, household and funeral routes" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
 
@@ -88,7 +88,7 @@
 
     # Gradients in the route scales, for the attack rates per place.
     attack(f) = β -> sum(f(β); dims = 2) ./ pop
-    @test ForwardDiff.jacobian(attack(run), β) ≈ ForwardDiff.jacobian(attack(naive), β)
+    @test ReferenceAD.jacobian(attack(run), β) ≈ ReferenceAD.jacobian(attack(naive), β)
 
     # Per-route incidence is recomputed after the run as each route's
     # coupling applied to a Convolution of the infections with its kernel.

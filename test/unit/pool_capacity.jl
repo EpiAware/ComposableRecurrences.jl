@@ -98,7 +98,7 @@
     end
 end
 
-@testitem "Pool capacity: values and gradients against a naive loop" setup = [CapacityChecks] begin
+@testitem "Pool capacity: values and gradients against a naive loop" setup = [ReferenceAD, CapacityChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; G, R, h, W, ROUTE, naive, beds, budget) = CapacityChecks
@@ -166,10 +166,10 @@ end
         pairs = CR._layout(build(θ)).overflow === :stratum ? ROUTE : collect(1:4)
         ref(θ, R) = first(naive(G, R, h, pairs; kw(θ)...))
         @test r(θ, R) ≈ ref(θ, R)
-        @test ForwardDiff.gradient(θ -> sum(W .* r(θ, R)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* r(θ, R)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R)), R)
+        @test ReferenceAD.gradient(θ -> sum(W .* r(θ, R)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* r(θ, R)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R)), R)
         # The capacity binds somewhere, so the cases test the routing.
         @test r(θ, R) != Recurrence(PerStratum(G))(R; history = h)
     end
@@ -268,7 +268,7 @@ end
 @testitem "Pool capacity: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, d, f) = first(CR.forward(CR.SoftTruncate(κ), CR.Step(), d, f, 1.0, 1.0))
+    draw(κ, d, f) = first(CR._draw(CR.SoftTruncate(κ), d, f, 1.0, 1.0))
     for κ in (0.05, 0.2)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0

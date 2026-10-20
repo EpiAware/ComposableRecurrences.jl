@@ -129,7 +129,7 @@ _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
 # else the local derivative.
 function _step_pullback(grads, m, v, s, t, k)
     uses_adjoint(m, Step()) || return _local_pullback(grads, m, v, s, t, k)
-    return pullback!(grads, m, Step(), v, s, t, k)
+    return _step_back(grads, m, v, s, t, k)
 end
 
 # Default scalar pullback of a pointwise modifier without its own: a local
@@ -345,17 +345,56 @@ function _rebuild_views(x, θ, o)
     return constructorof(typeof(x))(fs...), o
 end
 
+# The draw of a depletion form, `(v, s, N, α) -> (y, s′)`, and its pullback,
+# which returns the cotangents of `(v, s, N, α)`: a built-in's kernel, or
+# the form's `forward!` and `pullback!` on one-entry views of local slots,
+# with `grads.N` and `grads.α` the views its pullback adds into.
+@inline function _draw(form, v, s, N, α)
+    T = promote_type(typeof(v), typeof(s), typeof(N), typeof(α), param_eltype(form))
+    vr, sr = Base.RefValue{T}(v), Base.RefValue{T}(s)
+    _written(form, @inline forward!(form, Step(), _At(vr, 1), _At(sr, 1), N, α))
+    return vr[], sr[]
+end
+@inline function _draw_back(grads, form, v, s, N, α)
+    z = zero(grads.v)
+    v̄r, s̄r, N̄r, ᾱr = Ref(grads.v), Ref(grads.s), Ref(z), Ref(z)
+    g = (;
+        piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
+        α = _At(ᾱr, 1),
+    )
+    vv, sv = _At(Ref(v), 1), _At(Ref(s), 1)
+    _written(form, @inline pullback!(g, form, Step(), vv, sv, N, α))
+    return v̄r[], s̄r[], N̄r[], ᾱr[]
+end
+# A depletion form's in-place step and pullback on views of a stratum's
+# values and pools, with `N` and `α` shared, from its scalar kernel.
+function _form_forward!(form, v, s, N, α)
+    for i in eachindex(v, s)
+        v[i], s[i] = _draw(form, v[i], s[i], N, α)
+    end
+    return nothing
+end
+function _form_pullback!(grads, form, v, s, N, α)
+    for i in eachindex(v, s)
+        g = (; piece = grads.piece, v = grads.v[i], s = grads.s[i])
+        v̄, s̄, N̄, ᾱ = _draw_back(g, form, v[i], s[i], N, α)
+        grads.v[i], grads.s[i] = v̄, s̄
+        grads.N[i] += N̄
+        grads.α[i] += ᾱ
+    end
+    return nothing
+end
 # The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the
 # pool, the population, the exponent and the form's float scalars as one
-# tuple of dual numbers. Returns the cotangents of `(v, s, N, α)`.
+# tuple of dual numbers.
 _form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
 _form_adjoint(::Nothing) = true
 function _form_pullback(grads, form, v, s, N, α)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
 end
 function _form_pullback(::Val{true}, grads, form, v, s, N, α)
-    return pullback!(grads, form, Step(), v, s, N, α)
+    return _draw_back(grads, form, v, s, N, α)
 end
 function _form_pullback(::Val{false}, grads, form, v, s, N, α)
     return _local_form_pullback(grads, form, v, s, N, α)
@@ -427,7 +466,10 @@ _check_rebuild(::Val{false}, x) = _check_views(x)
 _check_scalars(x, args...) = nothing
 _check_views(x, args...) = nothing
 _probe_reads(x, args...) = nothing
-_steps(m, md, x) = _scalar_params(m) || (forward(md, Step(), x, x, 1, 1); true)
+_steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
+# One step of a part rebuilt with dual numbers, a pointwise modifier's or a
+# depletion form's.
+_any_step(m, x) = _is_form(m) ? _draw(m, x, x, 1, 1) : _step(m, x, x, 1, 1)
 # A pointwise modifier with other float arrays, rebuilt as its read step
 # does: the scalars must come back unchanged, each array must stay its
 # `_ReadArray`, and one step must run on the rebuild, reading at most
@@ -537,5 +579,5 @@ end
 # Whether modifier `m` uses the default zero initial state.
 function _default_init(m, s, history)
     sig = Tuple{typeof(m), Init, typeof(s), typeof(history)}
-    return which(forward, sig) === which(forward, Tuple{Any, Init, Any, Any})
+    return which(forward!, sig) === which(forward!, Tuple{Any, Init, Any, Any})
 end

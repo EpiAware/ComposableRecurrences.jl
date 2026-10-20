@@ -6,7 +6,7 @@ using GPUArraysCore: AnyGPUArray
 
 # A device CSR coupling gives each stratum its own row, so the rows run as
 # one loop with no shared writes.
-function ComposableRecurrences.forward(
+function ComposableRecurrences.forward!(
         C::AbstractGPUSparseMatrixCSR, ::Pressure, q::AnyGPUArray, p, t
     )
     n = length(q)

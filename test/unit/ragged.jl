@@ -79,7 +79,7 @@ end
     end
 end
 
-@testitem "Ragged kernel: gradients equal the padded kernel's" setup = [RaggedChecks] begin
+@testitem "Ragged kernel: gradients equal the padded kernel's" setup = [ReferenceAD, RaggedChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; pad, KS, X, R, H, T) = RaggedChecks
@@ -91,12 +91,12 @@ end
     L = maximum(ns)
     for I in (CR.Secondary(), CR.Primary())
         conv(K) = sum(W .* Convolution(TimeVarying(K, I))(X))
-        @test ForwardDiff.gradient(v -> conv(cols(v)), v) ≈
-            ForwardDiff.gradient(v -> conv(pad(cols(v))), v)
+        @test ReferenceAD.gradient(v -> conv(cols(v)), v) ≈
+            ReferenceAD.gradient(v -> conv(pad(cols(v))), v)
         start = I isa CR.Primary ? L + 1 : 1
         rec(K) = sum(Recurrence(TimeVarying(K, I))(R; history = H[:, 1:L], start))
-        @test ForwardDiff.gradient(v -> rec(cols(v)), v) ≈
-            ForwardDiff.gradient(v -> rec(pad(cols(v))), v)
+        @test ReferenceAD.gradient(v -> rec(cols(v)), v) ≈
+            ReferenceAD.gradient(v -> rec(pad(cols(v))), v)
     end
 end
 

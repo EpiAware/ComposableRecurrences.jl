@@ -3,48 +3,52 @@
 
 _kwargs(a) = haskey(a, :kwargs) ? a.kwargs : (;)
 
-# `forward` runs and keeps to the role's conventions: outputs written into
-# the leading arrays, inputs unchanged.
+# `forward!` runs and keeps to the role's conventions: outputs written into
+# the leading arrays and `nothing` returned, inputs unchanged; a `Run`
+# returns `(y, cache)`.
 function _forward_ok(op, ::Run, args, kwargs)
     x = copy(first(args))
     y, cache = forward(op, Run(), args...; kwargs...)
     return size(y) == size(x) && first(args) == x
 end
 function _forward_ok(m, ::Step, args, kwargs)
-    first(args) isa AbstractVector || return forward(m, Step(), args...) isa
-        Tuple{Any, Any}
     v, s = float(copy(args[1])), float(copy(args[2]))
-    out = forward(m, Step(), v, s, args[3:end]...)
+    out = forward!(m, Step(), v, s, args[3:end]...)
     return out === nothing && length(v) == length(args[1]) &&
         length(s) == length(args[2])
 end
 function _forward_ok(m, ::Init, args, kwargs)
     s = float(copy(args[1]))
-    return forward(m, Init(), s, args[2]) === nothing && all(isfinite, s)
+    return forward!(m, Init(), s, args[2]) === nothing && all(isfinite, s)
 end
 function _forward_ok(C, ::Pressure, args, kwargs)
     q, p = float(copy(args[1])), copy(args[2])
-    out = forward(C, Pressure(), q, p, args[3])
+    out = forward!(C, Pressure(), q, p, args[3])
     return out === nothing && p == args[2] && all(isfinite, q)
 end
 
-# The vector Step of a pointwise modifier matches its scalar Step per stratum.
+# A pointwise modifier's Step on each stratum's one-entry views matches its
+# Step on the whole vectors.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
-    first(args) isa AbstractVector && ispointwise(m) || return true
+    ispointwise(m) || return true
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
-    pairs = [forward(m, Step(), v[k], s[k], t, k) for k in eachindex(v)]
-    forward(m, Step(), v, s, t)
+    # A step that broadcasts against a length-S field cannot run on one
+    # stratum's view, which fails the check rather than the call.
+    pairs = try
+        [_step(m, v[k], s[k], t, k) for k in eachindex(v)]
+    catch e
+        e isa DimensionMismatch || rethrow()
+        return false
+    end
+    forward!(m, Step(), v, s, t)
     return v ≈ first.(pairs) && s ≈ last.(pairs)
 end
 
 # The vector Step of a blockwise modifier matches its group Step per group.
 _blocks_ok(piece, role, args) = true
-function _blocks_ok(m, ::Step, args)
-    first(args) isa AbstractVector || return true
-    return _groups_ok(blocks(m), m, args)
-end
+_blocks_ok(m, ::Step, args) = _groups_ok(blocks(m), m, args)
 _groups_ok(::Nothing, m, args) = true
 function _groups_ok(::Val{B}, m, args) where {B}
     nv, ns = B
@@ -52,10 +56,10 @@ function _groups_ok(::Val{B}, m, args) where {B}
     t = args[3]
     G = length(v) ÷ nv
     groups = [
-        forward(m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g)
+        _block_step(m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g)
             for g in 1:G
     ]
-    forward(m, Step(), v, s, t)
+    forward!(m, Step(), v, s, t)
     return all(1:G) do g
         v′, s′ = groups[g]
         all(i -> v[(i - 1) * G + g] ≈ v′[i], 1:nv) &&
@@ -70,16 +74,15 @@ function _nstate_ok(m, ::Init, args)
     n = nstate(m, _nstrata(args[2]))
     s = float(copy(args[1]))
     length(s) == n || return false
-    forward(m, Init(), s, args[2])
+    forward!(m, Init(), s, args[2])
     return length(s) == n
 end
 function _nstate_ok(m, ::Step, args)
-    first(args) isa AbstractVector || return true
     v, s = float(copy(args[1])), float(copy(args[2]))
     S = length(v)
     n = nstate(m, S)
     length(s) == n || return false
-    forward(m, Step(), v, s, args[3:end]...)
+    forward!(m, Step(), v, s, args[3:end]...)
     return length(s) == n && (!ispointwise(m) || n == S)
 end
 
@@ -98,23 +101,25 @@ end
 
 @interface PieceInterface Any (
     mandatory = (
-        forward = "forward runs in its role" =>
+        forward = "forward or forward! runs in its role" =>
             a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
         adjoint = "uses_adjoint finds a pullback! method for the role" =>
             a -> _adjoint_found(a.piece, a.role),
     ),
     optional = (
-        pointwise = "a vector Step matches the scalar Step on each stratum" =>
+        pointwise = "a vector Step matches the Step on each stratum's view" =>
             a -> _pointwise_ok(a.piece, a.role, a.args),
         blocks = "a vector Step matches the group Step on each group" =>
             a -> _blocks_ok(a.piece, a.role, a.args),
         nstate = "Init and Step keep the state at nstate(m, S) entries" =>
             a -> _nstate_ok(a.piece, a.role, a.args),
     ),
-) "An operator, coupling, modifier or variant with `forward` for a role.
+) "An operator, coupling, modifier or variant with `forward` or `forward!`
+for a role.
 
-The mandatory `forward` component checks that `forward` runs and keeps to
-its role's conventions (outputs written into the leading arrays, inputs
+The mandatory `forward` component checks that `forward` (for `Run()`) or
+`forward!` (for the other roles) runs and keeps to its role's conventions
+(outputs written into the leading arrays and `nothing` returned, inputs
 unchanged).
 The mandatory `adjoint` component checks that a `pullback!` method for the
 type and role is found by [`ComposableRecurrences.uses_adjoint`](@ref): a
@@ -123,7 +128,8 @@ from a blockwise group step's with `v::Tuple, s::Tuple`, and needs a
 `uses_adjoint` method, and one with the wrong number of arguments fails
 too.
 The optional `pointwise` component checks that a pointwise modifier's
-vector step equals its scalar step on every stratum,
+step on the whole vectors equals its step on a one-entry view of each
+stratum,
 
 ```math
 M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
@@ -300,11 +306,11 @@ true
 ]
 
 @implements PieceInterface Hazard [
-    Arguments(; piece = Hazard(), role = Step(), args = (2.0, 80.0, 100.0, 1.0)),
+    Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0, 1.0)),
 ]
 
 @implements PieceInterface Floor [
-    Arguments(; piece = Floor(), role = Step(), args = (2.0, 80.0, 100.0, 1.5)),
+    Arguments(; piece = Floor(), role = Step(), args = ([2.0], [80.0], 100.0, 1.5)),
 ]
 
 @implements PieceInterface{(:pointwise, :nstate)} Add [
@@ -351,11 +357,11 @@ true
 
 
 @implements PieceInterface Truncate [
-    Arguments(; piece = Truncate(), role = Step(), args = (2.0, 1.5, 100.0, 1.0)),
+    Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0, 1.0)),
 ]
 
 @implements PieceInterface SoftTruncate [
     Arguments(;
-        piece = SoftTruncate(0.1), role = Step(), args = (2.0, 1.5, 100.0, 1.0)
+        piece = SoftTruncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0, 1.0)
     ),
 ]

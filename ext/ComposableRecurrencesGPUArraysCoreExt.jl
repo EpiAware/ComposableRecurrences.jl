@@ -70,26 +70,26 @@ end
 
 # Couplings on a device mix the strata with one `mul!` (or broadcast) per
 # step. The coupling must live on the device of the pressures.
-function ComposableRecurrences.forward(
+function ComposableRecurrences.forward!(
         C::AbstractMatrix, ::Pressure, q::AnyGPUArray, p, t
     )
     mul!(q, C, p)
     return nothing
 end
-function ComposableRecurrences.forward(
+function ComposableRecurrences.forward!(
         C::Diagonal, ::Pressure, q::AnyGPUArray, p, t
     )
     q .= C.diag .* p
     return nothing
 end
-function ComposableRecurrences.forward(
+function ComposableRecurrences.forward!(
         C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure,
         q::AnyGPUArray, p, t
     )
     mul!(q, view(C.x, :, :, t), p)
     return nothing
 end
-function ComposableRecurrences.forward(
+function ComposableRecurrences.forward!(
         C::SparseMatrixCSC, ::Pressure, q::AnyGPUArray, p, t
     )
     throw(

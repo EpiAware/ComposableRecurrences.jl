@@ -44,7 +44,7 @@ default; with `overflow = :stratum` to the group's second value,
 ``v'_2 = v_2 + u``, and with `overflow = :queue` to a queue held after the
 pools in the state, whose content joins the next step's demand.
 
-The form is a variant struct with `forward(form, Step(), v, s, N, α)`:
+The form is a variant struct with `forward!(form, Step(), v, s, N, α)`:
 [`ComposableRecurrences.Hazard`](@ref),
 [`ComposableRecurrences.Floor`](@ref),
 [`ComposableRecurrences.Truncate`](@ref),
@@ -255,12 +255,15 @@ ConstructionBase.constructorof(::Type{<:Pool{L}}) where {L} = Pool{L}
 const _LAYOUT_KEYS = (:n, :draw, :first, :fill, :flows_first, :overflow)
 
 # That the flows name no pool beyond the `n` there are; the message is
-# built only when one does.
-_check_pools(::Tuple{}, n) = nothing
-function _check_pools(fs::Tuple, n)
-    f = first(fs)
+# built only when one does. The check is unrolled: a recursion over the
+# flows is widened by inference past about 32 of them, and its dynamic call
+# is then rejected by reverse-mode AD of a `Pool` built in the loss.
+@generated function _check_pools(fs::Tuple{Vararg{Any, N}}, n) where {N}
+    return Expr(:block, (:(_check_pool(fs[$i], n)) for i in 1:N)..., :(return nothing))
+end
+function _check_pool(f, n)
     max(f.from, f.to) <= n || _too_many_pools(f, n)
-    return _check_pools(Base.tail(fs), n)
+    return nothing
 end
 @noinline function _too_many_pools(f, n)
     throw(
@@ -310,7 +313,7 @@ end
             "flows_first and overflow order and route a draw, and the Pool has none"
         )
     )
-    fs = map(f -> _placed(f, names), _pool_flows(flows))
+    fs = _tuple_map(f -> _placed(f, names), _pool_flows(flows))
     L = (;
         n, draw = form !== nothing, first, fill, flows_first,
         overflow = _overflow(overflow),
@@ -522,7 +525,7 @@ where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
 it passes on, ``s_{t,i}`` the pool after step ``t``, ``s_{0,i}`` the starting
 pool `pool0` (``N_{1,i}`` by default), ``N_{t,i}`` the population at time
 ``t``, ``\alpha`` the heterogeneity exponent, ``F`` the form's
-`forward(form, Step(), v, s, N, α)` and ``r_{t,i}`` the removals.
+`forward!(form, Step(), v, s, N, α)` and ``r_{t,i}`` the removals.
 A negative removal adds to the pool without a cap.
 The state is the pool; the hazard fraction divides by `N` whatever the
 pool starts at.
@@ -701,7 +704,7 @@ _nvalues(::Val{B}) where {B} = B[1]
 # The state entries of each group: the pools, then the queue.
 _nentries(m::Pool) = _npools(m) + (_layout(m).overflow === :queue)
 
-function forward(m::Pool, ::Init, s, history)
+function forward!(m::Pool, ::Init, s, history)
     G = length(s) ÷ _nentries(m)
     _check_modifier_strata(m, _nvalues(blocks(m)) * G)
     if _draws(m)
@@ -731,13 +734,14 @@ end
 # One pool and no flows: the form's step.
 const _Depleting = _OnePool{<:Any, <:Any, <:Any, <:Any, <:Any, Tuple{}}
 
-function forward(m::_Depleting, ::Step, v::Number, s::Number, t, k)
-    return forward(
-        m.form, Step(), v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
+_kernel(::_Depleting) = true
+function _step(m::_Depleting, v::Number, s::Number, t, k)
+    return _draw(
+        m.form, v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
     )
 end
 
-function pullback!(grads, m::_Depleting, ::Step, v::Number, s::Number, t, k)
+function _step_back(grads, m::_Depleting, v::Number, s::Number, t, k)
     m̄ = grads.piece
     v̄, s̄, N̄, ᾱ = _form_pullback(
         (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
@@ -753,18 +757,19 @@ const _Flowing = _OnePool{
     <:Any, <:Any, <:Any, <:Any, <:Any, <:Tuple{Flow, Vararg{Flow}},
 }
 
-function forward(m::_Flowing, ::Step, v::Number, s::Number, t, k)
-    y, s′ = forward(
-        m.form, Step(), v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
+_kernel(::_Flowing) = true
+function _step(m::_Flowing, v::Number, s::Number, t, k)
+    y, s′ = _draw(
+        m.form, v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
     )
     (s″,) = _flow_only(m.flows, (s′,), k, t)
     return y, s″
 end
 
-function pullback!(grads, m::_Flowing, ::Step, v::Number, s::Number, t, k)
+function _step_back(grads, m::_Flowing, v::Number, s::Number, t, k)
     m̄ = grads.piece
     N, α = _pop(m.N, k, t), _exponent_value(m.heterogeneity)
-    _, s′ = forward(m.form, Step(), v, s, N, α)
+    _, s′ = _draw(m.form, v, s, N, α)
     s̄′ = only(
         _flows_pullback(
             m.flows, cotangent(m̄, :flows), (s′,), (grads.s,),
@@ -779,13 +784,16 @@ function pullback!(grads, m::_Flowing, ::Step, v::Number, s::Number, t, k)
     add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
     return v̄, s̄
 end
+for P in (:_Depleting, :_Flowing)
+    @eval pullback!(grads, m::$P, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)
+end
 
 # A group's step without a draw: the flows on its values. The step, its
 # pullback and their helpers are inlined, as their calls are (see
 # `_vector_step!`): the call-site inline reaches only the first method, and
 # across the inner calls the rule's reverse pass took about 45% longer per
 # group.
-function forward(m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
+function _block_step(m::Pool, v::Tuple, s::Tuple, t, g)
     return _group_step(Val(_layout(m)), m, v, s, t, g)
 end
 @inline function _group_step(::Val{L}, m, v, s, t, g) where {L}
@@ -834,15 +842,15 @@ end
 @inline function _take(::Val{true}, m, d, x::NTuple{n}, t, g) where {n}
     f = _layout(m).first
     N = _pop(m.N, g, t)
-    y, _ = forward(m.form, Step(), d, N - x[f], N, _exponent_value(m.heterogeneity))
+    y, _ = _draw(m.form, d, N - x[f], N, _exponent_value(m.heterogeneity))
     return y, ntuple(i -> i == f ? x[i] + y : x[i], Val(n))
 end
 
 # One pool: it loses the draw.
 @inline function _draw_pools(m, v, x::Tuple{Any}, t, g)
     w = param(only(m.weights), g, t)
-    y, _ = forward(
-        m.form, Step(), v, w * only(x), _pop(m.N, g, t),
+    y, _ = _draw(
+        m.form, v, w * only(x), _pop(m.N, g, t),
         _exponent_value(m.heterogeneity)
     )
     return y, (only(x) - y,)
@@ -852,8 +860,8 @@ end
 @inline function _draw_pools(m, v, x::NTuple{n}, t, g) where {n}
     w = _weights_at(m, Val(n), g, t)
     P = _weighted(w, x)
-    y, _ = forward(
-        m.form, Step(), v, P, _pop(m.N, g, t), _exponent_value(m.heterogeneity)
+    y, _ = _draw(
+        m.form, v, P, _pop(m.N, g, t), _exponent_value(m.heterogeneity)
     )
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
     # division keeps the unused arm finite. The arm follows the primal `P`,
@@ -867,7 +875,22 @@ end
     return y, x′
 end
 
+# The group step and its pullback on tuples of one-entry views, from the
+# kernels.
+function forward!(m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
+    v′, s′ = _block_step(m, map(getindex, v), map(getindex, s), t, g)
+    foreach(setindex!, v, v′)
+    foreach(setindex!, s, s′)
+    return nothing
+end
 function pullback!(grads, m::Pool, ::Step, v::Tuple, s::Tuple, t, g)
+    gg = (; piece = grads.piece, v = map(getindex, grads.v), s = map(getindex, grads.s))
+    v̄, s̄ = _block_back(gg, m, map(getindex, v), map(getindex, s), t, g)
+    foreach(setindex!, grads.v, v̄)
+    foreach(setindex!, grads.s, s̄)
+    return nothing
+end
+function _block_back(grads, m::Pool, v::Tuple, s::Tuple, t, g)
     return _group_pullback(Val(_layout(m)), grads, m, v, s, t, g)
 end
 @inline function _group_pullback(::Val{L}, grads, m, v, s, t, g) where {L}
@@ -1007,3 +1030,60 @@ end
 # A `Pool` uses its own pullback when its form has one or the form's local
 # derivative covers it (see `_form_pullback`).
 uses_adjoint(m::Pool, ::Step) = _form_adjoint(m.form)
+
+# Trace ---------------------------------------------------------------------
+
+# A pool's trace: with a draw, its pools after the step, the value drawn
+# and what the draw leaves of the demand, per stratum for one pool and per
+# group otherwise; without one, the amount each flow moves, per group.
+ntrace(m::Pool, S) = _pool_ntrace(Val(_layout(m)), m, S)
+function _pool_ntrace(::Val{L}, m, S) where {L}
+    L.draw || return length(m.flows) * (S ÷ L.n)
+    B = blocks(m)
+    B === nothing && return 3S
+    return (L.n + 2) * _ngroups(B, S)
+end
+
+function forward(m::_OnePool, ::Trace, v::Number, s::Number, v′, s′, t, k)
+    return s′, v′, v - v′
+end
+function pullback!(grads, m::_OnePool, ::Trace, v::Number, s::Number, t, k)
+    p̄, ȳ, ū = grads.trace
+    return ū, zero(ū), ȳ - ū, p̄
+end
+
+function forward(m::Pool, ::Trace, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+    return _pool_trace(Val(_layout(m)), m, v, s, v′, s′, t, g)
+end
+function _pool_trace(::Val{L}, m, v, s, v′, s′, t, g) where {L}
+    L.draw || return _amounts(m.flows, v, g, t)
+    x, _ = _pools_queue(Val(L.overflow), s′, Val(L.n))
+    _, Q = _pools_queue(Val(L.overflow), s, Val(L.n))
+    y = first(v′)
+    return (x..., y, first(v) + Q - y)
+end
+
+function pullback!(grads, m::Pool, ::Trace, v::Tuple, s::Tuple, t, g)
+    return _pool_trace_back(Val(_layout(m)), grads, m, v, s, t, g)
+end
+function _pool_trace_back(::Val{L}, grads, m, v, s, t, g) where {L}
+    L.draw || return _amounts_back(grads, m, v, s, t, g)
+    r̄ = grads.trace
+    ȳ, ū = r̄[L.n + 1], r̄[L.n + 2]
+    z = zero(ū)
+    x̄ = ntuple(i -> r̄[i], Val(L.n))
+    zx = ntuple(_ -> z, Val(L.n))
+    v̄ = ntuple(i -> i == 1 ? ū : z, Val(length(v)))
+    v̄′ = ntuple(i -> i == 1 ? ȳ - ū : z, Val(length(v)))
+    q = Val(L.overflow)
+    return v̄, _with_queue(q, zx, ū), v̄′, _with_queue(q, x̄, z)
+end
+
+# The flows' amounts back to the pools before them, and to each flow's
+# demand and softness.
+function _amounts_back(grads, m, x, s, t, g)
+    x̄ = _amounts_pullback(m.flows, cotangent(grads.piece, :flows), grads.trace, x, g, t)
+    z = zero(eltype(x̄))
+    zs = map(_ -> z, s)
+    return x̄, zs, map(_ -> z, x), zs
+end

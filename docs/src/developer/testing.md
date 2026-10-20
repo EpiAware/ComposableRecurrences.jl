@@ -2,7 +2,7 @@
 
 This page covers the tools for checking a new modifier, coupling or depletion form, and for timing the package.
 
-[Checking a new type](@ref extending-checks) tests a new type's `forward` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and its `pullback!` against ForwardDiff and plain AD.
+[Checking a new type](@ref extending-checks) tests a new type's `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and its `pullback!` against ForwardDiff and plain AD.
 
 ## [Comparing with plain automatic differentiation](@id compare-plain-ad)
 

@@ -11,7 +11,7 @@
 #
 # a property of the infector's cohort, so it is a Primary() kernel.
 
-@testitem "Use case: scheduled isolation as a cohort kernel" tags = [:usecase] begin
+@testitem "Use case: scheduled isolation as a cohort kernel" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
 
@@ -40,8 +40,8 @@
     K = kernel(p, b)
     @test model(K, R) ≈ naive(K, R)
     θ = [p, b]
-    @test ForwardDiff.gradient(θ -> sum(model(kernel(θ...), R)), θ) ≈
-        ForwardDiff.gradient(θ -> sum(naive(kernel(θ...), R)), θ)
+    @test ReferenceAD.gradient(θ -> sum(model(kernel(θ...), R)), θ) ≈
+        ReferenceAD.gradient(θ -> sum(naive(kernel(θ...), R)), θ)
 
     # Cohorts isolated only after the start see the plain kernel; cohorts
     # infected from t0 on see the thinned kernel g(τ)(1 - p b P(D ≤ τ)).

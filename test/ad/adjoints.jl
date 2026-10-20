@@ -12,25 +12,31 @@
     using ComposableRecurrences: ComposableRecurrences as CR
     using LinearAlgebra, Random, SparseArrays
 
-    # Pointwise hazard depletion with a scalar pool, a hand-written scalar
+    # Pointwise hazard depletion with a scalar pool, a hand-written in-place
     # pullback and a pooled initial state.
     struct Hazard{T}
         N::T
     end
     CR.ispointwise(::Hazard) = true
     CR.uses_adjoint(::Hazard, ::CR.Step) = true
-    CR.forward(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
-    function CR.forward(m::Hazard, ::CR.Step, v, s, t, k)
-        x = v / m.N
-        return -s * expm1(-x), s * exp(-x)
+    CR.forward!(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward!(m::Hazard, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            x = v[k] / m.N
+            v[k], s[k] = -s[k] * expm1(-x), s[k] * exp(-x)
+        end
+        return nothing
     end
-    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t, k)
-        v̄, s̄ = grads.v, grads.s
-        x = v / m.N
-        e = exp(-x)
-        x̄ = s * e * (v̄ - s̄)
-        CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
-        return x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v̄, s̄ = grads.v[k], grads.s[k]
+            x = v[k] / m.N
+            e = exp(-x)
+            x̄ = s[k] * e * (v̄ - s̄)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
+            grads.v[k], grads.s[k] = x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+        end
+        return nothing
     end
     function CR.pullback!(grads, m::Hazard, ::CR.Init, s, history)
         CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
@@ -42,10 +48,13 @@
         pop::P
     end
     CR.ispointwise(::PoolDepletion) = true
-    CR.forward(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
-    function CR.forward(m::PoolDepletion, ::CR.Step, v, s, t, k)
-        v′ = max(s / m.pop[k], 1.0e-6) * v
-        return v′, s - v′
+    CR.forward!(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
+    function CR.forward!(m::PoolDepletion, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
     end
 
     # A negative binomial probability generating function for `Transform`.
@@ -463,7 +472,7 @@ end
     struct Saturate{V}
         K::V
     end
-    function CR.forward(m::Saturate, ::CR.Step, v, s, t)
+    function CR.forward!(m::Saturate, ::CR.Step, v, s, t)
         v ./= 1 .+ v ./ m.K
         return nothing
     end
@@ -481,8 +490,8 @@ end
     struct SaturateNoPB{V}
         K::V
     end
-    function CR.forward(m::SaturateNoPB, ::CR.Step, v, s, t)
-        return CR.forward(Saturate(m.K), CR.Step(), v, s, t)
+    function CR.forward!(m::SaturateNoPB, ::CR.Step, v, s, t)
+        return CR.forward!(Saturate(m.K), CR.Step(), v, s, t)
     end
 
     # q = β ⊙ (K p).
@@ -490,7 +499,7 @@ end
         K::M
         β::V
     end
-    function CR.forward(C::Mix, ::CR.Pressure, q, p, t)
+    function CR.forward!(C::Mix, ::CR.Pressure, q, p, t)
         mul!(q, C.K, p)
         q .*= C.β
         return nothing
@@ -509,8 +518,8 @@ end
         K::M
         β::V
     end
-    function CR.forward(C::MixNoPB, ::CR.Pressure, q, p, t)
-        return CR.forward(Mix(C.K, C.β), CR.Pressure(), q, p, t)
+    function CR.forward!(C::MixNoPB, ::CR.Pressure, q, p, t)
+        return CR.forward!(Mix(C.K, C.β), CR.Pressure(), q, p, t)
     end
     end
 
@@ -737,7 +746,12 @@ end
         a::T
     end
     CR.ispointwise(::MapBy) = true
-    CR.forward(m::MapBy, ::CR.Step, v, s, t, k) = (m.a * m.f(v), s)
+    function CR.forward!(m::MapBy, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = m.a * m.f(v[k])
+        end
+        return nothing
+    end
     # A closure's captured value is a parameter the local derivative does not
     # reach, so the operator takes plain AD; a plain function keeps the rule.
     scale(b) = x -> b * x
@@ -749,7 +763,12 @@ end
     CR.ispointwise(::Pick) = true
     _in(k, idx) = k in idx
     _in(k, idx::AbstractVector{<:AbstractVector}) = any(i -> k in i, idx)
-    CR.forward(m::Pick, ::CR.Step, v, s, t, k) = (_in(k, m.idx) ? m.a * v : v, s)
+    function CR.forward!(m::Pick, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = _in(k, m.idx) ? m.a * v[k] : v[k]
+        end
+        return nothing
+    end
     backends = job_backends(
         :mooncake_reverse => AutoMooncake(; config = nothing),
         :enzyme_reverse => AutoEnzyme(;
@@ -780,23 +799,39 @@ end
     end
     for M in (ScaleKw, ScaleF, Doubled)
         @eval CR.ispointwise(::$M) = true
-        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+        @eval function CR.forward!(m::$M, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                v[k] = m.a * v[k]
+            end
+            return nothing
+        end
     end
     # Depletion forms with no pullback: the local derivative covers them.
     struct Linear end
-    CR.forward(::Linear, ::CR.Step, v, s, N, α) = (y = v * max(s, 0) / N; (y, s - y))
+    function CR.forward!(::Linear, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = v[i] * max(s[i], 0) / N
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
+    end
     struct LinearRate{T}
         c::T
     end
-    function CR.forward(f::LinearRate, ::CR.Step, v, s, N, α)
-        y = f.c * v * max(s, 0)^α / N
-        return y, s - y
+    function CR.forward!(f::LinearRate, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = f.c * v[i] * max(s[i], 0)^α / N
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
     end
     struct DoubledRate{T}
         c::T
         DoubledRate(c::T) where {T} = new{T}(2c)
     end
-    CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
+    function CR.forward!(f::DoubledRate, ::CR.Step, v, s, N, α)
+        return CR.forward!(LinearRate(f.c), CR.Step(), v, s, N, α)
+    end
     # `(modifier, uses_adjoint, rule fires)`.
     cases = (
         (θ -> MapBy(scale(θ), 0.9), false, false),
@@ -1236,11 +1271,14 @@ end
     struct PoolDep{P}
         pop::P
     end
-    CR.forward(m::PoolDep, ::CR.Init, s, history) = (s .= m.pop; nothing)
+    CR.forward!(m::PoolDep, ::CR.Init, s, history) = (s .= m.pop; nothing)
     CR.ispointwise(::PoolDep) = true
-    function CR.forward(m::PoolDep, ::CR.Step, v, s, t, k)
-        v′ = max(s / m.pop[k], 1.0e-6) * v
-        return v′, s - v′
+    function CR.forward!(m::PoolDep, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
     end
     W = cos.(reshape(1:18, 3, 6))
     function f(θ)
@@ -1440,7 +1478,12 @@ end
     end
     for M in (ScaleM, ScaleE)
         @eval CR.ispointwise(::$M) = true
-        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+        @eval function CR.forward!(m::$M, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                v[k] = m.a * v[k]
+            end
+            return nothing
+        end
     end
     for (M, backend) in job_backends(
             :mooncake_reverse => (ScaleM, AutoMooncake(; config = nothing)),
@@ -1484,7 +1527,7 @@ end
     struct Blend{A}
         a::A
     end
-    function CR.forward(C::Blend, ::CR.Pressure, q, p, t)
+    function CR.forward!(C::Blend, ::CR.Pressure, q, p, t)
         m = sum(p) / length(p)
         q .= (1 - C.a) .* p .+ C.a * m
         return nothing
@@ -1494,7 +1537,12 @@ end
         κ::K
     end
     CR.ispointwise(::Direct) = true
-    CR.forward(m::Direct, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ.x[k]), s)
+    function CR.forward!(m::Direct, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + v[k] / m.κ.x[k])
+        end
+        return nothing
+    end
     function loss(w, θ, S)
         W = [cos(a * t) for a in 1:S, t in 1:6]
         r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Direct(PerStratum(θ[2:(S + 1)])),))
@@ -1505,7 +1553,12 @@ end
         κ::K
     end
     CR.ispointwise(::Plain) = true
-    CR.forward(m::Plain, ::CR.Step, v, s, t, k) = (v / (1 + v / CR.param(m.κ, k, t)), s)
+    function CR.forward!(m::Plain, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + v[k] / CR.param(m.κ, k, t))
+        end
+        return nothing
+    end
     function loss_param(w, θ, S)
         W = [cos(a * t) for a in 1:S, t in 1:6]
         r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Plain(PerStratum(θ[2:(S + 1)])),))
@@ -1596,6 +1649,89 @@ end
     end
 end
 
+@testitem "Enzyme reverse: the rule returns a typed tuple past 32 leaves" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
+    using ComposableRecurrences: Flow, Pool
+    import DifferentiationInterface as DI
+    CR = ComposableRecurrences
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    # `map` over a tuple of 32 or more entries does not infer; the rule's
+    # own map does at any length, with a mirror that may be a `Union`.
+    xs = ntuple(i -> isodd(i) ? Float64(i) : i, Val(40))
+    @test (@inferred ext._map_leaves(float, xs)) === map(float, xs)
+    U = Tuple{ntuple(_ -> Union{Nothing, Float64}, 40)...}
+    second(x, y) = y
+    @test Base.return_types(ext._map_leaves, (typeof(second), typeof(xs), U)) == [U]
+    # A pool with a scalar rate on each of eight flows has more than 32
+    # leaves, and its gradient takes the rule.
+    function op(θ)
+        ring = (:A, :B, :C, :D)
+        fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(8))
+        d = Pool(1000.0; pools = ring, initial = (900.0, 50.0, 30.0, 20.0), flows = fs)
+        return Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
+    end
+    f(θ) = sum(log.(op(θ)(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
+    θ = [0.05 + 0.01 * i for i in 1:8]
+    args = (fill(2.0, 20), nothing, [1.0, 1.0, 1.0], nothing, 1, nothing)
+    @test length(CR._leaf_paths(Tuple{typeof(op(θ)), typeof.(args)...})) >= 32
+    b = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
+    )
+    CR._PULLBACK_CALLS[] = 0
+    @test DI.gradient(f, b, θ) ≈ ForwardDiff.gradient(f, θ)
+    @test CR._PULLBACK_CALLS[] > 0
+end
+
+@testitem "Enzyme reverse: a field of 32 or more entries" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
+    using ComposableRecurrences: Flow, Pool
+    import DifferentiationInterface as DI
+    CR = ComposableRecurrences
+    b = AutoEnzyme(;
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
+    )
+    # A pool with a scalar rate on each of `n` flows, built in the loss.
+    function flows_loss(θ, ::Val{n}) where {n}
+        ring = (:A, :B, :C, :D)
+        fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(n))
+        d = Pool(1000.0; pools = ring, initial = (900.0, 50.0, 30.0, 20.0), flows = fs)
+        r = Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
+        return sum(log.(r(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
+    end
+    # Each check takes the size as a type, so the loss it builds infers.
+    function check(loss, θ, v)
+        f = θ -> loss(θ, v)
+        CR._PULLBACK_CALLS[] = 0
+        @test DI.gradient(f, b, θ) ≈ ForwardDiff.gradient(f, θ)
+        @test CR._PULLBACK_CALLS[] > 0
+        return nothing
+    end
+    for v in (Val(32), Val(33), Val(64))
+        n = typeof(v).parameters[1]
+        check(flows_loss, [0.005 + 0.0005 * i for i in 1:n], v)
+    end
+    # A modifier holding one tuple of `n` active scalars.
+    struct Weights{W}
+        w::W
+    end
+    CR.ispointwise(::Weights) = true
+    function CR.forward!(m::Weights, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= m.w[mod1(t, length(m.w))]
+        end
+        return nothing
+    end
+    function weights_loss(θ, ::Val{n}) where {n}
+        m = Weights(ntuple(i -> θ[i], Val(n)))
+        r = Recurrence([0.3, 0.2]; modifiers = (m,))
+        return sum(r(fill(1.5, 20); history = [1.0, 1.0]))
+    end
+    for v in (Val(35), Val(40))
+        n = typeof(v).parameters[1]
+        check(weights_loss, [1.0 + 0.01 * i for i in 1:n], v)
+    end
+end
+
 @testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
@@ -1608,29 +1744,38 @@ end
         a::A
     end
     CR.blocks(::Move) = Val((2, 1))
-    function CR.forward(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        x = CR.param(m.a, g, t) * v[1]
-        return (v[1] - x, v[2] + x), (x,)
+    function CR.forward!(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2 = v[1][], v[2][]
+        x = CR.param(m.a, g, t) * v1
+        v[1][], v[2][], s[1][] = v1 - x, v2 + x, x
+        return nothing
     end
     function CR.pullback!(grads, m::Move, ::CR.Step, v, s, t, g)
-        (v̄1, v̄2), (s̄,) = grads.v, grads.s
+        v̄1, v̄2, s̄ = grads.v[1][], grads.v[2][], grads.s[1][]
         a = CR.param(m.a, g, t)
         c = v̄2 + s̄ - v̄1
-        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, c * v[1], g, t)
-        return (v̄1 + a * c, v̄2), (zero(s̄),)
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, c * v[1][], g, t)
+        grads.v[1][], grads.v[2][], grads.s[1][] = v̄1 + a * c, v̄2, zero(s̄)
+        return nothing
     end
     # Two values and two state entries per group, with a typed pullback.
     struct Keep{A}
         a::A
     end
     CR.blocks(::Keep) = Val((2, 2))
-    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + 1)
+    function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+        v[1][], v[2][] = v1 * m.a, v2 + s1
+        s[1][], s[2][] = s1 + v1, s2 + 1
+        return nothing
     end
     function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
-        return (v̄1 * m.a + s̄1, v̄2), (v̄2 + s̄1, s̄2)
+        v̄1, v̄2 = grads.v[1][], grads.v[2][]
+        s̄1, s̄2 = grads.s[1][], grads.s[2][]
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2
+        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+        return nothing
     end
     g = [0.5, 0.5]
     R = [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6]

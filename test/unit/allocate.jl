@@ -108,7 +108,7 @@
     )
 end
 
-@testitem "Allocate: values and gradients against a naive loop" setup = [AllocateChecks] begin
+@testitem "Allocate: values and gradients against a naive loop" setup = [ReferenceAD, AllocateChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; g, R, h, groups, totals, naive) = AllocateChecks
@@ -119,10 +119,10 @@ end
         )
         ref(θ, R) = naive(g, R, h, groups, (p, t) -> at(θ, p, t))
         @test run(θ, R) ≈ ref(θ, R)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* run(θ, R)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R)), R)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* run(θ, R)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R)), R)
         # The group sums equal the totals.
         Y = run(θ, R)
         @test [sum(Y[zs, t]) for (p, zs) in enumerate(groups), t in 1:8] ≈
@@ -130,7 +130,7 @@ end
     end
 end
 
-@testitem "Allocate: imports against a naive loop" setup = [AllocateChecks] begin
+@testitem "Allocate: imports against a naive loop" setup = [ReferenceAD, AllocateChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; g, R, h, groups, TT, P0, K0, fractions, naive_imports) = AllocateChecks
@@ -157,12 +157,12 @@ end
             )
         end
         @test run(θ, R, εs) ≈ ref(θ, R, εs)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, R, εs)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R, εs)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* run(θ, R, εs)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R, εs)), R)
-        @test ForwardDiff.gradient(ε -> sum(W .* run(θ, R, ε)), εs) ≈
-            ForwardDiff.gradient(ε -> sum(W .* ref(θ, R, ε)), εs)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, R, εs)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R, εs)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* run(θ, R, εs)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R, εs)), R)
+        @test ReferenceAD.gradient(ε -> sum(W .* run(θ, R, ε)), εs) ≈
+            ReferenceAD.gradient(ε -> sum(W .* ref(θ, R, ε)), εs)
         # The group sums still equal the totals.
         Y = run(θ, R, εs)
         @test [sum(Y[zs, t]) for (p, zs) in enumerate(groups), t in 1:8] ≈ TT
@@ -197,14 +197,14 @@ end
     # The state holds the spilled values, then the pattern.
     v = [1.0, 3.0, 2.0]
     s = zeros(6)
-    CR.forward(spilled, CR.Step(), v, s, 1)
+    CR.forward!(spilled, CR.Step(), v, s, 1)
     @test s ≈ [1.4, 2.6, 2.0, 1.5, 0.5, 0.0]
     # The step and its pullback infer.
     m̄ = (;
         total = Ref(0.0),
         imports = (; fraction = Ref(0.0), pattern = zero(P), spill = (; K = zero(K), ε = Ref(0.0))),
     )
-    @inferred CR.forward(spilled, CR.Step(), copy(v), zeros(6), 1)
+    @inferred CR.forward!(spilled, CR.Step(), copy(v), zeros(6), 1)
     grads = (; piece = m̄, v = ones(3), s = ones(6))
     @inferred CR.pullback!(grads, spilled, CR.Step(), v, zeros(6), 1)
     r = Recurrence([0.5, 0.5]; modifiers = (spilled,))
@@ -216,14 +216,14 @@ end
     CR = ComposableRecurrences
     m = CR.Allocate([1:2, 3:3], PerStratum([4.0, 2.0]))
     v = [1.0, 3.0, 0.0]
-    CR.forward(m, CR.Step(), v, zeros(3), 1)
+    CR.forward!(m, CR.Step(), v, zeros(3), 1)
     @test v ≈ [1.0, 3.0, 0.0]
     v = [1.0e-20, 3.0e-20, 1.0]
-    CR.forward(m, CR.Step(), v, zeros(3), 1)
+    CR.forward!(m, CR.Step(), v, zeros(3), 1)
     @test v ≈ [4.0e-20, 12.0e-20, 2.0] ./ [eps(), eps(), 1.0]
 end
 
-@testitem "Allocate: imports keep the totals near an empty pattern" begin
+@testitem "Allocate: imports keep the totals near an empty pattern" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
@@ -238,7 +238,7 @@ end
             spill = CR.Redistribute(CR.movement(K, 0.2))
         )
         y = copy(v)
-        CR.forward(m, CR.Step(), y, zeros(eltype(x), 6), 1)
+        CR.forward!(m, CR.Step(), y, zeros(eltype(x), 6), 1)
         return y
     end
     tot, φ, v = [4.0, 2.0], [0.3, 0.5], [1.0, 3.0, 2.0]
@@ -248,7 +248,7 @@ end
         @test y[3] ≈ tot[2]
     end
     W = [1.0, -2.0, 0.5]
-    g = ForwardDiff.gradient(x -> sum(W .* step(x)), vcat(tot, φ, v, 0.0))
+    g = ReferenceAD.gradient(x -> sum(W .* step(x)), vcat(tot, φ, v, 0.0))
     @test all(isfinite, g)
 end
 
@@ -373,7 +373,7 @@ end
     s̄ = collect(range(-0.4, 0.9; length = 10))
     out = map((dense, sparse_)) do m
         vv, ss = copy(v), zeros(10)
-        CR.forward(m, CR.Step(), vv, ss, 3)
+        CR.forward!(m, CR.Step(), vv, ss, 3)
         grads = (; piece = nothing, v = collect(range(0.3, 1.7; length = 5)), s = copy(s̄))
         CR.pullback!(grads, m, CR.Step(), v, zeros(10), 3)
         return vv, ss, grads.v, grads.s

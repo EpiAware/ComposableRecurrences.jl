@@ -29,6 +29,21 @@ export scenarios, backends, broken_scenario_names,
     FlooredDepletion,
     supports, unsupported_scenarios
 
+# The benchmark history loads these fixtures with the last few tagged
+# releases (see `supports`). Releases before `forward!` call `forward` for
+# every role, with a pointwise modifier's step on stratum `k`'s scalars
+# returning `(v′, s′)`, so each user type here defines that method there.
+const IN_PLACE = isdefined(ComposableRecurrences, :forward!)
+
+# A `forward!` method that writes in place on every release, an `Init` or a
+# `Pressure`: as written, or on a release before `forward!` as `forward`.
+macro in_place(def)
+    return esc(IN_PLACE ? def : _as_forward(def))
+end
+_as_forward(x) = x
+_as_forward(x::QuoteNode) = x.value === :forward! ? QuoteNode(:forward) : x
+_as_forward(x::Expr) = Expr(x.head, map(_as_forward, x.args)...)
+
 # ForwardDiff reference gradient for a scenario function.
 function _reference(f, θ)
     return DifferentiationInterface.gradient(f, AutoForwardDiff(), θ)
@@ -42,18 +57,30 @@ scaled by `max(s / pop, 1e-6)` and removed from the pool `s`, which starts at
 struct FlooredDepletion{P}
     pop::P
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         m::FlooredDepletion, ::ComposableRecurrences.Init, s, history
     )
     s .= m.pop
     return nothing
 end
 ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-function ComposableRecurrences.forward(
-        m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    v′ = max(s / m.pop[k], 1.0e-6) * v
-    return v′, s - v′
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        v′ = max(s / m.pop[k], 1.0e-6) * v
+        return v′, s - v′
+    end
 end
 
 """
@@ -63,18 +90,30 @@ the scalar field is differentiated.
 struct ScalarDepletion{T}
     N::T
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         m::ScalarDepletion, ::ComposableRecurrences.Init, s, history
     )
     fill!(s, m.N)
     return nothing
 end
 ComposableRecurrences.ispointwise(::ScalarDepletion) = true
-function ComposableRecurrences.forward(
-        m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    v′ = max(s / m.N, 1.0e-6) * v
-    return v′, s - v′
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.N, 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        v′ = max(s / m.N, 1.0e-6) * v
+        return v′, s - v′
+    end
 end
 
 # Consecutive blocks of `θ` with the given shapes, as reshaped views. The
@@ -432,6 +471,29 @@ function _waning(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A ring of four pools with twelve flows, each with its own scalar rate, so
+# the operator and its arguments have more than 32 leaves: past the length
+# at which `map` over a tuple no longer infers.
+const NFLOWS = 12
+const RING = (:A, :B, :C, :D)
+const RING0 = (
+    PerStratum(POP .- 30), PerStratum(fill(10.0, S)), PerStratum(fill(10.0, S)),
+    PerStratum(fill(10.0, S)),
+)
+_ring_flow(ρ, i) = ComposableRecurrences.Flow(
+    RING[mod1(i, 4)] => RING[mod1(i + 1, 4)], exp(ρ[i])
+)
+function _many_flows(w, θ)
+    logh, logR, logρ = _unpack(θ, (S, L), (S, T), (NFLOWS,))
+    fs = ntuple(i -> _ring_flow(logρ, i), Val(NFLOWS))
+    d = ComposableRecurrences.Pool(
+        PerStratum(POP); pools = RING, initial = RING0, flows = fs
+    )
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Wards in each stratum: suspected patients (compartment 1) are confirmed
 # at a rate or ruled out as a share; confirmed patients (compartment 2) are
 # discharged at a rate and transferred out in counts. Admissions enter both.
@@ -439,19 +501,8 @@ function _ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
         θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
-    CR = ComposableRecurrences
-    flows = CR.Pool(;
-        pools = (:suspected, :confirmed), draw = nothing, flows = (
-            CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
-            CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
-            CR.Flow(:confirmed => 0, only(discharge)),
-            CR.Flow(
-                :confirmed => 0, TimeVarying(PerStratum(transfer));
-                form = CR.Truncate()
-            ),
-        )
-    )
-    r = Recurrence([1.0]; modifiers = (flows,))
+    ward = _ward(confirm, ruleout, only(discharge), transfer)
+    r = Recurrence([1.0]; modifiers = (ward,))
     y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
     return sum([WS; WS] .* y)
 end
@@ -773,10 +824,18 @@ struct DeepBuffer
     w::Int
 end
 ComposableRecurrences.ispointwise(::DeepBuffer) = true
-function ComposableRecurrences.forward(
-        ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    return v, s
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t
+        )
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        return v, s
+    end
 end
 if isdefined(ComposableRecurrences, :depth)
     ComposableRecurrences.depth(m::DeepBuffer) = m.w
@@ -835,6 +894,79 @@ function _routes_deep(w, θ)
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
+# The traces, read by a loss downstream of the output. BVD's importation is
+# the arrivals `Redistribute` keeps as its state, read with the patches'
+# infections, as BVD's joint model reads them.
+function _trace_importation(w, θ)
+    logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    CR = ComposableRecurrences
+    # The intensity per origin and step keeps the movement a kernel and
+    # an intensity, whose columns sum to one under any perturbation.
+    mods = (
+        CR.Redistribute(CR.movement(K0, ε .* ones(1, T))),
+        CR.Depletion(PerStratum(POP)),
+    )
+    y, tr = w(Recurrence(G0; modifiers = mods))(
+        exp.(logR); history = exp.(logh), trace = true
+    )
+    return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
+end
+
+# A protected `Pool`'s trace: its protected pool, the value drawn and the
+# overflow, one row each per stratum after the susceptible pools.
+function _trace_pool(w, θ)
+    logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
+    d = _leaky(PerStratum(POP), TimeVarying(PerStratum(doses)), only(σ))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    M = only(tr.modifiers)
+    return sum(WS .* log.(y)) + sum(WS .* M[(S + 1):(2S), :]) +
+        sum(WS .* M[(3S + 1):(4S), :])
+end
+
+# The ward's flows, each flow's amount per stratum and step.
+function _trace_ward(w, θ)
+    adm, confirm, ruleout, discharge, transfer = _unpack(
+        θ, (2S, T), (S,), (T,), (1,), (S, T)
+    )
+    ward = _ward(confirm, ruleout, only(discharge), transfer)
+    r = Recurrence([1.0]; modifiers = (ward,))
+    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
+    return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
+end
+
+# The ward, built behind a call as the capacity pools are.
+function _ward(confirm, ruleout, discharge, transfer)
+    CR = ComposableRecurrences
+    return CR.Pool(;
+        pools = (:suspected, :confirmed), draw = nothing, flows = (
+            CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
+            CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
+            CR.Flow(:confirmed => 0, discharge),
+            CR.Flow(
+                :confirmed => 0, TimeVarying(PerStratum(transfer));
+                form = CR.Truncate()
+            ),
+        )
+    )
+end
+
+# A weekly budget with a queue: the allowance, the doses given and what
+# joins the queue.
+function _trace_budget(w, θ)
+    logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
+    CR = ComposableRecurrences
+    grants = WEEKS .* exp.(logb)
+    doses = CR.Pool(;
+        pools = (:B,), initial = PerStratum(collect(init)),
+        draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
+        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    )
+    r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
+    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
+end
+
 # The relative tolerance of Enzyme's rule tester in `test_adjoint`.
 # EnzymeTestUtils compares the rule with finite differences taken in the
 # arguments' precision. In single precision these differ from the rule by up
@@ -889,6 +1021,10 @@ const _SCENARIOS = [
             zeros(S, L), 0.3 .+ LOGR, log.(1 .+ 0.5 .* abs.(LOGR)), [0.3],
             log.(0.05 .+ 0.02 .* abs.(LOGR)),
         ),
+    ),
+    (
+        "Recurrence pool with twelve flows (over 32 leaves)", _many_flows,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, log.(0.02 .+ 0.01 .* (1:NFLOWS))),
     ),
     (
         "Recurrence ward with competing flows (Pool without a draw)", _ward,
@@ -1060,6 +1196,25 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence capacity, weekly budget with a queue", _capacity_budget,
+        () -> zero(CAPB0),
+    ),
+    (
+        "Recurrence trace of the importation (Redistribute)", _trace_importation,
+        () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
+        "Recurrence trace of a protected pool", _trace_pool,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
+    ),
+    (
+        "Recurrence trace of a ward's flows", _trace_ward,
+        () -> _flat(
+            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+        ),
+    ),
+    (
+        "Recurrence trace of a weekly budget with a queue", _trace_budget,
         () -> zero(CAPB0),
     ),
     (
@@ -1246,6 +1401,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:movement, :_intensity, :Recent),
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
+    "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace of a protected pool" => (:Trace,),
+    "Recurrence trace of a ward's flows" => (:Trace,),
+    "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
@@ -1303,7 +1462,7 @@ const _TWIN_REQUIRES = (:uses_adjoint,)
 struct ShareFirst{A}
     a::A
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         C::ShareFirst, ::ComposableRecurrences.Pressure, q, p, t
     )
     tot = sum(view(p, 2:length(p)))
@@ -1320,11 +1479,23 @@ struct StrataCap{K, B}
     β::B
 end
 ComposableRecurrences.ispointwise(::StrataCap) = true
-function ComposableRecurrences.forward(
-        m::StrataCap, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    κ = ComposableRecurrences.param(m.κ, k, t)
-    return ComposableRecurrences.param(m.β, k, t) * v * κ / (κ + v), s
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::StrataCap, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            κ = ComposableRecurrences.param(m.κ, k, t)
+            v[k] = ComposableRecurrences.param(m.β, k, t) * v[k] * κ / (κ + v[k])
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::StrataCap, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        κ = ComposableRecurrences.param(m.κ, k, t)
+        return ComposableRecurrences.param(m.β, k, t) * v * κ / (κ + v), s
+    end
 end
 
 function _user_coupling(w, θ)
@@ -1361,10 +1532,21 @@ struct ByTime{A}
     a::A
 end
 ComposableRecurrences.ispointwise(::ByTime) = true
-function ComposableRecurrences.forward(
-        m::ByTime, ::ComposableRecurrences.Step, v, s, t, k
-    )
-    return m.a[t] * v, s
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::ByTime, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            v[k] = m.a[t] * v[k]
+        end
+        return nothing
+    end
+else
+    function ComposableRecurrences.forward(
+            m::ByTime, ::ComposableRecurrences.Step, v, s, t, k
+        )
+        return m.a[t] * v, s
+    end
 end
 
 "Pressure `K * p`, scaled by `β` per stratum."
@@ -1372,7 +1554,7 @@ struct MatrixMix{M, B}
     K::M
     β::B
 end
-function ComposableRecurrences.forward(
+@in_place function ComposableRecurrences.forward!(
         C::MatrixMix, ::ComposableRecurrences.Pressure, q, p, t
     )
     q .= C.β .* (C.K * p)

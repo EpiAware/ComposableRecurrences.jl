@@ -24,7 +24,7 @@
     @test st.states[1] ≈ [0.0, 4.0250997316062085] rtol = 1.0e-12
 end
 
-@testitem "Use case: share and count flows give the values of the Linear and Amount kinds" tags = [:usecase] begin
+@testitem "Use case: share and count flows give the values of the Linear and Amount kinds" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # Was `Flows` with `Flow(1 => 0, Linear(TimeVarying(fill(0.1, 6))))` and
@@ -78,7 +78,7 @@ end
         r = Recurrence([1.0]; modifiers = (fl,))
         return r(; history = zeros(2, 1), add = [fill(10.0, 1, 8); zeros(1, 8)])
     end
-    @test ForwardDiff.gradient(θ -> sum(run(θ)), [0.3, 0.1, 0.1, 0.5]) ≈ [
+    @test ReferenceAD.gradient(θ -> sum(run(θ)), [0.3, 0.1, 0.1, 0.5]) ≈ [
         2.8407073275040133, -568.1334926059575, -229.0565344570363,
         -29.04541828738811,
     ] rtol = 1.0e-10
@@ -116,7 +116,7 @@ end
     @test st.states[1] ≈ [0.0, 3.7198494413650236] rtol = 1.0e-12
 end
 
-@testitem "Use case: a Pool with two pools gives the values of Depletion with Protected" tags = [:usecase] begin
+@testitem "Use case: a Pool with two pools gives the values of Depletion with Protected" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     leaky(N, σ, doses, flows...; initial = nothing, form = CR.Hazard()) = CR.Pool(
@@ -165,12 +165,12 @@ end
         d = leaky(1000.0, θ[2], TimeVarying(fill(θ[1], 10)), CR.Flow(:V => :S, θ[3]))
         return Recurrence(g; modifiers = (d,))(fill(2.0, 10); history = [5.0])
     end
-    @test ForwardDiff.gradient(θ -> sum(run(θ)), [5.0, 0.3, 0.1]) ≈ [
+    @test ReferenceAD.gradient(θ -> sum(run(θ)), [5.0, 0.3, 0.1]) ≈ [
         -2.6050995531441092, 19.321408591358114, 27.16492339422564,
     ] rtol = 1.0e-10
 end
 
-@testitem "Use case: a Pool filling a pool gives the values of Capacity with Beds" tags = [:usecase] begin
+@testitem "Use case: a Pool filling a pool gives the values of Capacity with Beds" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     beds(C, δ; overflow = :stratum, form = CR.Truncate(), initial = nothing) = CR.Pool(
@@ -241,7 +241,7 @@ end
     @test all(==(6.0), y[1, 11:end])
     @test y[2, 10] ≈ 3.8536799762198104 rtol = 1.0e-12
     @test y[2, end] ≈ 6762.515477827001 rtol = 1.0e-12
-    @test ForwardDiff.gradient(θ -> sum(run(θ)), θ) ≈
+    @test ReferenceAD.gradient(θ -> sum(run(θ)), θ) ≈
         [-618713.3057836883, -1582.4750230049747, -297304.06579611194] rtol = 1.0e-10
 end
 

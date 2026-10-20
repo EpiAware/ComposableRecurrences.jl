@@ -291,7 +291,7 @@ param_eltype(m::Allocate) = promote_type(param_eltype(m.total), param_eltype(m.i
 # when there is a spill.
 nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
 
-function forward(m::Allocate, ::Init, s, history)
+function forward!(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))
     fill!(s, zero(eltype(s)))
     return nothing
@@ -311,7 +311,7 @@ pullback!(grads, ::Allocate, ::Init, s, history) = nothing
 _stateless(::Allocate{<:Any, Nothing}) = true
 
 # The groups are disjoint, so each is one index of the loop.
-function forward(m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
+function forward!(m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
     strata, offsets = _like(v, m.strata), _like(v, m.offsets)
     _each!(
         _allocate_body!, Serial(), v, _ngroups(m), length(v),
@@ -363,12 +363,12 @@ end
 # With imports: the spilled values `u` go into the first slot of the state
 # when there is a spill (otherwise `u = v`) and the pattern `h = P v` into
 # the last, then each group shares its total between them.
-function forward(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
+function forward!(m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
     (; fraction, pattern, spill) = m.imports
     S = length(v)
     h = view(s, (length(s) - S + 1):length(s))
     u = _spill!(spill, view(s, 1:S), v, t)
-    forward(pattern, Pressure(), h, v, t)
+    forward!(pattern, Pressure(), h, v, t)
     strata, offsets = _like(v, m.strata), _like(v, m.offsets)
     _each!(
         _import_body!, Serial(), v, _ngroups(m), length(v),
@@ -381,7 +381,7 @@ end
 # than to `v`.
 _spill!(::Nothing, u, v, t) = v
 function _spill!(r::Redistribute, u, v, t)
-    forward(r.M, Pressure(), u, v, t)
+    forward!(r.M, Pressure(), u, v, t)
     return u
 end
 
@@ -471,7 +471,7 @@ function _spilled_and_pattern(::Nothing, spill, pattern, v, t)
     buf = similar(v, 2S)
     h = view(buf, (S + 1):(2S))
     u = _spill!(spill, view(buf, 1:S), v, t)
-    forward(pattern, Pressure(), h, v, t)
+    forward!(pattern, Pressure(), h, v, t)
     return u, h
 end
 function _spilled_and_pattern(after, spill, pattern, v, t)

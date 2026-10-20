@@ -5,7 +5,7 @@
 #
 # Arrays are strata × time; the history is strata × time, oldest first.
 
-@testitem "Use case: strata with a mixing matrix" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: strata with a mixing matrix" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -23,7 +23,7 @@
     w = reshape(range(0.5, 2.0; length = S * T), S, T)
     unpack(θ) = (reshape(θ[1:9], 3, 3), reshape(θ[10:end], S, T))
     θ0 = vcat(vec(K), vec(Rt))
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_renewal(unpack(θ)...)), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* ref_renewal(unpack(θ)...)), θ0)
 
     # I_{g,t} = R_{g,t} Σ_h K_{gh} Σ_i g_i I_{h,t-i}: K couples the strata
     # after the generation-interval convolution.
@@ -32,10 +32,10 @@
         return Recurrence(g; coupling = K)(Rt; history = window)
     end
     @test mixed(K, Rt) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* mixed(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* mixed(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: strata with identity mixing" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: strata with identity mixing" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra
     C = UseCaseReferences.CTIDMReference
 
@@ -58,7 +58,7 @@ end
     w = reshape(range(0.5, 2.0; length = S * T), S, T)
     unpack(θ) = (θ[1:S], reshape(θ[(S + 1):end], S, T))
     θ0 = vcat(N, vec(Rt))
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_renewal(unpack(θ)...)), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* ref_renewal(unpack(θ)...)), θ0)
 
     # `UniformScaling` mixing leaves each stratum on its own window: the
     # coupling is `I`, the default, and each stratum depletes its own pool.
@@ -71,7 +71,7 @@ end
         return renewal(Rt; history = window)
     end
     @test independent(N, Rt) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* independent(unpack(θ)...)), θ0) ≈
+    @test ReferenceAD.gradient(θ -> sum(w .* independent(unpack(θ)...)), θ0) ≈
         ∇ref
     # Each row is the single-series renewal of that stratum.
     for k in 1:S
@@ -80,7 +80,7 @@ end
     end
 end
 
-@testitem "Use case: gravity coupling with depletion" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: gravity coupling with depletion" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -101,7 +101,7 @@ end
     end
     θ0 = [0.5, 1.0, 2.0]
     ref = ref_renewal(θ0)
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_renewal(θ)), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* ref_renewal(θ)), θ0)
 
     # The gravity K is built by the caller and is differentiable through the
     # coupling slot; depletion takes one population per stratum.
@@ -114,10 +114,10 @@ end
         return r(Rt; history = window)
     end
     @test coupled(θ0) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* coupled(θ)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* coupled(θ)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: per-stratum generation intervals" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: per-stratum generation intervals" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -129,7 +129,7 @@ end
     step(G) = C.ConstantRenewalStep(reverse(G; dims = 2), K)
     ref_renewal(G) = C.renewal(step(G), G, I₀, r, Rt)
     ref = ref_renewal(G)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3))), vec(G)
     )
 
@@ -140,12 +140,12 @@ end
         return r(Rt; history = window)
     end
     @test per_stratum(G) ≈ ref
-    @test ForwardDiff.gradient(
+    @test ReferenceAD.gradient(
         θ -> sum(w .* per_stratum(reshape(θ, 3, 3))), vec(G)
     ) ≈ ∇ref
 end
 
-@testitem "Use case: per-pair generation intervals" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: per-pair generation intervals" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -165,7 +165,7 @@ end
         return C.renewal(step, g, I₀, r, Rt)
     end
     ref = ref_renewal(K)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3))), vec(K)
     )
 
@@ -177,11 +177,11 @@ end
         return r(Rt; history = window)
     end
     @test per_pair(K) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* per_pair(reshape(θ, 3, 3))), vec(K)) ≈
+    @test ReferenceAD.gradient(θ -> sum(w .* per_pair(reshape(θ, 3, 3))), vec(K)) ≈
         ∇ref
 end
 
-@testitem "Use case: time-varying mixing" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying mixing" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -200,7 +200,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     ref_renewal(Ks) = C.time_varying_mixing_renewal(reverse(g), Ks, window, Rt)
     ref = ref_renewal(Ks)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* ref_renewal(reshape(θ, 3, 3, T))), vec(Ks)
     )
 
@@ -210,12 +210,12 @@ end
         return r(Rt; history = window)
     end
     @test tv(Ks) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* tv(reshape(θ, 3, 3, T))), vec(Ks)) ≈
+    @test ReferenceAD.gradient(θ -> sum(w .* tv(reshape(θ, 3, 3, T))), vec(Ks)) ≈
         ∇ref
 end
 
-@testitem "Use case: BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+@testitem "Use case: BVD patch model" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
+    using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
     g = [0.3, 0.5, 0.2]
@@ -240,7 +240,7 @@ end
         K, ε, N = unpack(θ)
         return sum(w .* B.patch_infections(Rt, g, seeds, K, ε, N).infections)
     end
-    ∇ref = ForwardDiff.gradient(ref_loss, θ0)
+    ∇ref = ReferenceAD.gradient(ref_loss, θ0)
 
     # Each patch generates R_{p,t} Σ_i g_i I_{p,t-i}; a share ε_{q,t} K_{pq}
     # of what origin q generates is realised in p instead (Redistribute of
@@ -248,13 +248,16 @@ end
     # then each patch depletes its own pool from N_p − Σ seed (hazard form).
     # The seeds are the history and are returned first; the first output is
     # day `L + 1`, which reads R_t and ε at that day.
-    function patch(K, ε, N)
+    function patch_model(K, ε, N)
         importation = ComposableRecurrences.Redistribute(
             ComposableRecurrences.movement(K, ε)
         )
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
-        r = Recurrence(g; modifiers = (importation, depletion))
+        return Recurrence(g; modifiers = (importation, depletion))
+    end
+    function patch(K, ε, N)
+        r = patch_model(K, ε, N)
         return r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)
     end
     @test patch(K, ε, N) ≈ ref
@@ -262,7 +265,7 @@ end
         K, ε, N = unpack(θ)
         return sum(w .* patch(K, ε, N))
     end
-    @test ForwardDiff.gradient(loss, θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(loss, θ0) ≈ ∇ref
 
     # One importation intensity shared by every origin and day.
     @test patch(K, 0.05, N) ≈
@@ -272,24 +275,30 @@ end
     @test patch(K, εq, N) ≈
         B.patch_infections(Rt, g, seeds, K, repeat(εq, 1, n), N).infections
 
-    # BVD also returns the importation series, the arrivals in each patch.
-    # It is recomputed from the infections: each patch's force is its lag
-    # 1..L convolution with g (a lag-0 weight of zero shifts the kernel by a
-    # day), what it generates is R_t times that, and the arrivals are the
-    # off-diagonal K applied to each origin's ε-weighted generation. The
-    # seed days have no arrivals.
+    # BVD also returns the importation series, the arrivals in each patch:
+    # the trace of the importation, whose state is its arrivals, at each
+    # step. The seed days have no arrivals.
     function patch_importation(K, ε, N)
-        I = patch(K, ε, N)
-        gen = Rt .* Convolution(vcat(0.0, g))(I)
-        arrivals = (K - Diagonal(diag(K))) * (ε .* gen)
-        arrivals[:, 1:L] .= 0
-        return arrivals
+        r = patch_model(K, ε, N)
+        _, tr = r(Rt; history = seeds, start = size(seeds, 2) + 1, trace = true)
+        arrivals = first(tr.modifiers)
+        return hcat(zeros(eltype(arrivals), np, size(seeds, 2)), arrivals)
     end
     @test patch_importation(K, ε, N) ≈
         B.patch_infections(Rt, g, seeds, K, ε, N).importation
+    # A loss on the importation, as BVD's joint model reads it.
+    function import_loss(θ)
+        K, ε, N = unpack(θ)
+        return sum(w .* patch_importation(K, ε, N))
+    end
+    function ref_import_loss(θ)
+        K, ε, N = unpack(θ)
+        return sum(w .* B.patch_infections(Rt, g, seeds, K, ε, N).importation)
+    end
+    @test ReferenceAD.gradient(import_loss, θ0) ≈ ReferenceAD.gradient(ref_import_loss, θ0)
 end
 
-@testitem "Use case: stratified renewal with imports, depletion and mixing" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: stratified renewal with imports, depletion and mixing" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -318,8 +327,8 @@ end
     unpack(θ) = (reshape(θ[1:9], 3, 3), θ[10:12], reshape(θ[13:end], S, T))
     θ0 = vcat(vec(K), N, vec(ι))
     loss(f) = θ -> sum(w .* f(unpack(θ)...))
-    ∇ref_after = ForwardDiff.gradient(loss(ref_after), θ0)
-    ∇ref_before = ForwardDiff.gradient(loss(ref_before), θ0)
+    ∇ref_after = ReferenceAD.gradient(loss(ref_after), θ0)
+    ∇ref_before = ReferenceAD.gradient(loss(ref_before), θ0)
 
     # The mixing is the coupling, the pool is per stratum, and the imports
     # are per stratum and day: `Add` after the depletion, or `add` before it.
@@ -341,11 +350,11 @@ end
     end
     @test after(K, N, ι) ≈ ref_after(K, N, ι)
     @test before(K, N, ι) ≈ ref_before(K, N, ι)
-    @test ForwardDiff.gradient(loss(after), θ0) ≈ ∇ref_after
-    @test ForwardDiff.gradient(loss(before), θ0) ≈ ∇ref_before
+    @test ReferenceAD.gradient(loss(after), θ0) ≈ ∇ref_after
+    @test ReferenceAD.gradient(loss(before), θ0) ≈ ∇ref_before
 end
 
-@testitem "Use case: BVD deviation knots (stratified AR(1))" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD deviation knots (stratified AR(1))" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -371,7 +380,7 @@ end
         walking, walk_index, n_walking, n_knots
     )
     W = reshape(range(0.5, 2.0; length = nz * n_knots), nz, n_knots)
-    ∇ref = ForwardDiff.gradient(θ -> sum(W .* ref(unpack(θ)...)), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(W .* ref(unpack(θ)...)), θ0)
 
     # The level and each knot's innovation are group-centred linear maps of
     # the draws; they do not read δ, so they are built before the call.
@@ -404,7 +413,7 @@ end
         return hcat(δ1, ar(1.0; history = reshape(δ1, :, 1), add = c))
     end
     @test knots(unpack(θ0)...) ≈ ref(unpack(θ0)...)
-    @test ForwardDiff.gradient(θ -> sum(W .* knots(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(W .* knots(unpack(θ)...)), θ0) ≈ ∇ref
 
     # `patch_rt_model` carries the same AR(1) past the cut-off on fresh
     # innovations. Resuming from the fitted knots' state is the one run.
@@ -418,5 +427,5 @@ end
         return hcat(δ1, fitted, ar(1.0; state, add = c))
     end
     @test forecast(unpack(θ0)...) ≈ ref(unpack(θ0)...)
-    @test ForwardDiff.gradient(θ -> sum(W .* forecast(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(W .* forecast(unpack(θ)...)), θ0) ≈ ∇ref
 end

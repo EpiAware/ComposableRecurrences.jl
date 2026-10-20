@@ -41,13 +41,18 @@ struct Lower
     lo::Float64
 end
 ComposableRecurrences.ispointwise(::Lower) = true
-ComposableRecurrences.forward(m::Lower, ::Step, v, s, t, k) = (max(v, m.lo), s)
+function ComposableRecurrences.forward!(m::Lower, ::Step, v, s, t)
+    for k in eachindex(v, s)
+        v[k] = max(v[k], m.lo)
+    end
+    return nothing
+end
 
 # A modifier that couples strata: rescale the step to a fixed total.
 struct Rescale
     total::Float64
 end
-function ComposableRecurrences.forward(m::Rescale, ::Step, v, s, t)
+function ComposableRecurrences.forward!(m::Rescale, ::Step, v, s, t)
     v .*= m.total / sum(v)
     return nothing
 end

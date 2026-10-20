@@ -8,7 +8,7 @@
 #
 # where a negative c_t - b_t adds the net births to the pool.
 
-@testitem "Use case: herd turnover with births and sales" tags = [:usecase] begin
+@testitem "Use case: herd turnover with births and sales" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
 
@@ -49,8 +49,8 @@
     # Without births the herd shrinks and the epidemic is smaller.
     @test sum(model(R, zero(births))) < sum(model(R, births))
     W = [cos(t / 7) for t in 1:T]
-    @test ForwardDiff.gradient(b -> sum(W .* model(R, b)), births) ≈
-        ForwardDiff.gradient(b -> sum(W .* naive(R, b)), births)
-    @test ForwardDiff.gradient(r -> sum(W .* model(r, births)), R) ≈
-        ForwardDiff.gradient(r -> sum(W .* naive(r, births)), R)
+    @test ReferenceAD.gradient(b -> sum(W .* model(R, b)), births) ≈
+        ReferenceAD.gradient(b -> sum(W .* naive(R, b)), births)
+    @test ReferenceAD.gradient(r -> sum(W .* model(r, births)), R) ≈
+        ReferenceAD.gradient(r -> sum(W .* naive(r, births)), R)
 end

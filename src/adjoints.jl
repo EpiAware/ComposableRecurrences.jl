@@ -130,10 +130,13 @@ function _has_pullback(x, ::Pressure)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Pressure, Any, Any, Any}
     return Core._hasmethod(sig)
 end
-_has_pullback(x, ::Step) = _has_scalar_pullback(x) || _has_vector_pullback(x)
-# A blockwise group step's `pullback!` may type its value and state as
-# tuples.
-function _has_scalar_pullback(x)
+function _has_pullback(x, ::Step)
+    return _kernel(x) || _has_group_pullback(x) || _has_vector_pullback(x)
+end
+# A blockwise group step's or a depletion form's `pullback!`, after the role
+# its value and state and two more arguments; a group step's may type its
+# value and state as tuples.
+function _has_group_pullback(x)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any, Any}
     tup = Tuple{typeof(pullback!), Any, typeof(x), Step, Tuple, Tuple, Any, Any}
     return Core._hasmethod(sig) || Core._hasmethod(tup)

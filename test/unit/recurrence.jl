@@ -464,7 +464,7 @@ end
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
 
-@testitem "prepend returns the history then the run" begin
+@testitem "prepend returns the history then the run" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
@@ -488,7 +488,7 @@ end
         @test stn.history ≈ st.history && stn.t == st.t
         loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
         θ = vcat(vec(h), vec(R))
-        @test ForwardDiff.gradient(loss(seeded), θ) ≈ ForwardDiff.gradient(loss(expansion), θ)
+        @test ReferenceAD.gradient(loss(seeded), θ) ≈ ReferenceAD.gradient(loss(expansion), θ)
     end
     # With the seed at times 1 to m the result is as long as the inputs.
     @test size(@inferred r(fill(1.8, 2, 7); history = ones(2, 2), start = 3, prepend = true)) ==
@@ -516,7 +516,7 @@ end
     end
 end
 
-@testitem "exponential_history" begin
+@testitem "exponential_history" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     @test CR.exponential_history(5.0, 0.1, 3) ≈ 5.0 .* exp.(0.1 .* [-2, -1, 0])
@@ -535,7 +535,7 @@ end
     R = 1 / sum(g[l] * exp(-rate * l) for l in 1:3)
     y = Recurrence(g)(fill(R, 6); history = CR.exponential_history(5.0, rate, 3))
     @test y ≈ 5.0 .* exp.(rate .* (1:6))
-    @test ForwardDiff.derivative(r -> sum(CR.exponential_history(5.0, r, 3)), 0.1) ≈
+    @test ReferenceAD.derivative(r -> sum(CR.exponential_history(5.0, r, 3)), 0.1) ≈
         sum(5.0 .* [-2, -1, 0] .* exp.(0.1 .* [-2, -1, 0]))
     @inferred CR.exponential_history(5.0, 0.1, 3)
     @inferred CR.exponential_history(I0, r, 3)
@@ -582,17 +582,35 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     q, p = zeros(2), [1.0, 2.0]
-    CR.forward([1.0 2.0; 3.0 4.0], CR.Pressure(), q, p, 1)
+    CR.forward!([1.0 2.0; 3.0 4.0], CR.Pressure(), q, p, 1)
     @test q == [5.0, 11.0]
-    @test_throws DimensionMismatch CR.forward(ones(2, 3), CR.Pressure(), q, p, 1)
-    @test_throws DimensionMismatch CR.forward(ones(3, 2), CR.Pressure(), q, p, 1)
+    @test_throws DimensionMismatch CR.forward!(ones(2, 3), CR.Pressure(), q, p, 1)
+    @test_throws DimensionMismatch CR.forward!(ones(3, 2), CR.Pressure(), q, p, 1)
     C = TimeVarying(cat([1.0 0.0; 0.0 1.0], [0.0 1.0; 1.0 0.0]; dims = 3), CR.Secondary())
-    CR.forward(C, CR.Pressure(), q, p, 2)
+    CR.forward!(C, CR.Pressure(), q, p, 2)
     @test q == [2.0, 1.0]
-    @test_throws BoundsError CR.forward(C, CR.Pressure(), q, p, 3)
-    @test_throws DimensionMismatch CR.forward(C, CR.Pressure(), zeros(3), p, 1)
+    @test_throws BoundsError CR.forward!(C, CR.Pressure(), q, p, 3)
+    @test_throws DimensionMismatch CR.forward!(C, CR.Pressure(), zeros(3), p, 1)
     # Pressures held in views that index by Cartesian index.
     qv, pv = view(zeros(3, 3), [1, 2], 1), view([1.0 0.0; 2.0 0.0; 9.0 0.0], [1, 2], 1)
-    CR.forward([1.0 2.0; 3.0 4.0], CR.Pressure(), qv, pv, 1)
+    CR.forward!([1.0 2.0; 3.0 4.0], CR.Pressure(), qv, pv, 1)
     @test qv == [5.0, 11.0]
+end
+
+@testitem "Recurrence: forward(r, Run(), R) and with_state infer" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # The two entry points beside `r(R)`, with and without a history, for
+    # one series, coupled strata and a modifier with state.
+    cases = (
+        (Recurrence([0.5, 0.5]), fill(1.1, 6), ones(2)),
+        (Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]), fill(1.1, 2, 6), ones(2, 2)),
+        (Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(100.0),)), fill(1.1, 6), ones(2)),
+    )
+    for (r, R, h) in cases
+        @test (@inferred CR.forward(r, CR.Run(), R)) isa Tuple
+        @test (@inferred CR.forward(r, CR.Run(), R; history = h)) isa Tuple
+        @test (@inferred CR.with_state(r, R)) isa Tuple
+        @test (@inferred CR.with_state(r, R; history = h)) isa Tuple
+    end
 end

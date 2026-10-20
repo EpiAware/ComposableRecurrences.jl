@@ -1,7 +1,7 @@
-# The built-in couplings: `forward(C, Pressure(), q, p, t)` mixes the
+# The built-in couplings: `forward!(C, Pressure(), q, p, t)` mixes the
 # per-stratum kernel convolutions `p` into the pressure `q` on each stratum.
 
-function forward(J::UniformScaling, ::Pressure, q, p, t)
+function forward!(J::UniformScaling, ::Pressure, q, p, t)
     λ = J.λ
     for a in eachindex(q, p)
         q[a] = λ * p[a]
@@ -11,7 +11,7 @@ end
 
 # Column by column, the order a column-major matrix is stored in. The
 # shapes are checked once, so the loop reads without bounds checks.
-function forward(C::AbstractMatrix, ::Pressure, q, p, t)
+function forward!(C::AbstractMatrix, ::Pressure, q, p, t)
     _check_pressure(C, q, p)
     fill!(q, zero(eltype(q)))
     @inbounds for b in axes(C, 2)
@@ -33,7 +33,7 @@ function _check_pressure(C, q, p)
     return nothing
 end
 
-function forward(C::Diagonal, ::Pressure, q, p, t)
+function forward!(C::Diagonal, ::Pressure, q, p, t)
     d = C.diag
     for a in eachindex(q, p)
         q[a] = d[a] * p[a]
@@ -41,7 +41,7 @@ function forward(C::Diagonal, ::Pressure, q, p, t)
     return nothing
 end
 
-function forward(C::SparseMatrixCSC, ::Pressure, q, p, t)
+function forward!(C::SparseMatrixCSC, ::Pressure, q, p, t)
     fill!(q, zero(eltype(q)))
     rows = rowvals(C)
     vals = nonzeros(C)
@@ -54,7 +54,7 @@ function forward(C::SparseMatrixCSC, ::Pressure, q, p, t)
     return nothing
 end
 
-function forward(
+function forward!(
         C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure, q, p, t
     )
     X = C.x

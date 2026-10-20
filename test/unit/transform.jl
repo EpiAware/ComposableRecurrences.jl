@@ -145,14 +145,12 @@ end
     @test eltype(y) == Float32
     m̄ = (; f = (;), θ = (; r = Ref(0.0f0), p = Ref(0.0f0)), derivative = nothing)
     grads = (; piece = m̄, v = 1.0f0, s = 0.0f0)
-    out = CR.pullback!(grads, m, CR.Step(), 0.3f0, 0.0f0, 1, 1)
+    out = CR._step_back(grads, m, 0.3f0, 0.0f0, 1, 1)
     @test out isa Tuple{Float32, Float32}
     @test m̄.θ.r[] isa Float32 && m̄.θ.r[] != 0
     # `CR` is a non-constant global here, so call through the module.
     function alloc(grads, m)
-        pb(grads, m) = ComposableRecurrences.pullback!(
-            grads, m, ComposableRecurrences.Step(), 0.3f0, 0.0f0, 1, 1
-        )
+        pb(grads, m) = ComposableRecurrences._step_back(grads, m, 0.3f0, 0.0f0, 1, 1)
         pb(grads, m)
         return @allocated pb(grads, m)
     end
@@ -168,7 +166,7 @@ end
     @test alloc((; piece = m̄, v = 1.0f0, s = 0.0f0), m) == 0 skip = coverage
 end
 
-@testitem "Transform: a map carrying parameters is differentiated whole" begin
+@testitem "Transform: a map carrying parameters is differentiated whole" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # A field-free map takes the local derivative; a closure or callable
@@ -191,10 +189,10 @@ end
         )
     )
     fd = (loss(1.5 + 1.0e-6) - loss(1.5 - 1.0e-6)) / 2.0e-6
-    @test ForwardDiff.derivative(loss, 1.5) ≈ fd rtol = 1.0e-6
+    @test ReferenceAD.derivative(loss, 1.5) ≈ fd rtol = 1.0e-6
 end
 
-@testitem "Transform: ForwardDiff through a recurrence" begin
+@testitem "Transform: ForwardDiff through a recurrence" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
@@ -204,7 +202,7 @@ end
         return sum(w .* Recurrence([1.0]; modifiers = (m,))(; history = [0.0], stop = 8))
     end
     θ = [0.5, 0.4]
-    ∇ = ForwardDiff.gradient(loss, θ)
+    ∇ = ReferenceAD.gradient(loss, θ)
     fd = map(eachindex(θ)) do i
         e = zeros(2)
         e[i] = 1.0e-6
@@ -225,7 +223,7 @@ end
         T = CR.param_eltype(m(r))
         θ̄ = (; r = Ref(zero(T)), p = Ref(zero(T)))
         grads = (; piece = (; θ = θ̄), v = 1.0, s = 0.0)
-        v̄, _ = CR.pullback!(grads, m(r), CR.Step(), 0.3, 0.0, 1, 1)
+        v̄, _ = CR._step_back(grads, m(r), 0.3, 0.0, 1, 1)
         return v̄, θ̄.p[]
     end
     ∂v(r) = ForwardDiff.derivative(v -> nb(v, (; r, p = 0.4)), 0.3)
@@ -248,12 +246,12 @@ end
     end
     (f::Shift)(v) = v + f.b
     grads = (; piece = nothing, v = 1.0, s = 0.0)
-    @test_throws "differentiated by the AD backend" CR.pullback!(
-        grads, CR.Transform(Shift(0.5)), CR.Step(), 0.3, 0.0, 1, 1
+    @test_throws "differentiated by the AD backend" CR._step_back(
+        grads, CR.Transform(Shift(0.5)), 0.3, 0.0, 1, 1
     )
     # Without a θ mirror only the value cotangent is returned.
     m = CR.Transform((v, θ) -> θ.a * v^2, (; a = 2.0))
-    @test CR.pullback!(grads, m, CR.Step(), 0.3, 0.0, 1, 1) == (1.2, 0.0)
+    @test CR._step_back(grads, m, 0.3, 0.0, 1, 1) == (1.2, 0.0)
     # Init has no parameters to pull back.
     @test CR.pullback!(grads, m, CR.Init(), zeros(2), ones(2, 1)) === nothing
 end
@@ -279,7 +277,7 @@ end
     @test θ̄[1][] ≈ 0.18 && θ̄[2][] ≈ 2.0
     # The pullback with a Tuple of parameters.
     grads = (; piece = (; θ = (Ref(0.0), Ref(0.0))), v = 1.0, s = 0.0)
-    @test CR.pullback!(grads, m, CR.Step(), 0.3, 0.0, 1, 1)[1] ≈ 1.2
+    @test CR._step_back(grads, m, 0.3, 0.0, 1, 1)[1] ≈ 1.2
     @test grads.piece.θ[2][] ≈ 1.0
 end
 

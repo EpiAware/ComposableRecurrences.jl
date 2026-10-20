@@ -44,10 +44,10 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | pools and flows       | `Pool(N; pools, draw, flows)`, `Flow(from => to, d)`     |
 | admitted and overflow | `Pool(C; draw = Truncate() => :O, overflow = :stratum)`  |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
-| extension             | a type with a `forward` method for a role                |
+| extension             | a type with a `forward!` method for a role               |
 
 To extend the package, define a type and add a
-[`ComposableRecurrences.forward`](@ref) method, and optionally a
+[`ComposableRecurrences.forward!`](@ref) method, and optionally a
 [`ComposableRecurrences.pullback!`](@ref) method, for its role
 ([`ComposableRecurrences.Step`](@ref), [`ComposableRecurrences.Init`](@ref)
 or [`ComposableRecurrences.Pressure`](@ref)).
@@ -97,8 +97,8 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Deriv
 public Pool, Depletion, Flow, Share, Redistribute, movement,
     Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
-    exponential_history, with_state, State, contributions, forward,
-    pullback!, Step, Init, Pressure, Run, ispointwise, blocks, nstate,
+    exponential_history, with_state, State, contributions, forward, forward!,
+    pullback!, Step, Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
     Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Auto,
@@ -110,8 +110,10 @@ include("wrappers.jl")
 include("utils.jl")
 # Executors: how loops over independent strata, series or times run.
 include("executor.jl")
-# The role interface: roles, `forward`, `pullback!` and the stage loop.
+# The role interface: roles, `forward!`, `pullback!` and the stage loop.
 include("modifiers.jl")
+# The trace role: what a call with `trace = true` records per modifier.
+include("trace.jl")
 # The operator supertype, `NoAdjoint` and the routing to the native rules.
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
@@ -129,10 +131,12 @@ include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.
 include("allocate.jl")
-# The built-in couplings, `forward` and `pullback!` on `Pressure()`.
+# The built-in couplings, `forward!` and `pullback!` on `Pressure()`.
 include("couplings.jl")
 # The recurrence operator and its buffer loop.
 include("recurrence.jl")
+# A call with its trace, built from the records after the run.
+include("trace_run.jl")
 # The analytic reverse pass of the recurrence.
 include("recurrence_adjoint.jl")
 # The routes kernel: a sum of (coupling, kernel) routes.

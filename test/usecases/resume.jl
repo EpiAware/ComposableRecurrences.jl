@@ -1,7 +1,7 @@
 # Resuming from a returned state, as a forecast does: running a horizon in
 # two pieces must match one run over the whole horizon.
 
-@testitem "Use case: resume a depleting renewal" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: resume a depleting renewal" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -13,7 +13,7 @@
     ref = C.renewal(ref_step(N), g, I₀, r, Rt)
     w = range(0.5, 2.0; length = length(Rt))
     θ0 = vcat(N, Rt)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* C.renewal(ref_step(θ[1]), g, I₀, r, θ[2:end])), θ0
     )
 
@@ -35,11 +35,11 @@
     end
     @test renewal(N)(Rt; history = window) ≈ ref
     @test split_run(N, Rt) ≈ ref
-    ∇ = ForwardDiff.gradient(θ -> sum(w .* split_run(θ[1], θ[2:end])), θ0)
+    ∇ = ReferenceAD.gradient(θ -> sum(w .* split_run(θ[1], θ[2:end])), θ0)
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: resume an AR(p) forecast" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: resume an AR(p) forecast" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -50,7 +50,7 @@ end
     ref = C.ar(ρ, init, ϵ)
     w = range(0.5, 2.0; length = length(ref))
     θ0 = vcat(ρ, ϵ)
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* C.ar(θ[1:2], init, θ[3:end])), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* C.ar(θ[1:2], init, θ[3:end])), θ0)
 
     function split_run(ρ, ϵ)
         ar = Recurrence(ρ)
@@ -61,11 +61,11 @@ end
         return vcat(init, fitted, forecast)
     end
     @test split_run(ρ, ϵ) ≈ ref
-    ∇ = ForwardDiff.gradient(θ -> sum(w .* split_run(θ[1:2], θ[3:end])), θ0)
+    ∇ = ReferenceAD.gradient(θ -> sum(w .* split_run(θ[1:2], θ[3:end])), θ0)
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: resume the BVD patch model" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: resume the BVD patch model" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -83,7 +83,7 @@ end
         Rt = reshape(θ, np, n)
         return sum(w .* B.patch_infections(Rt, g, seeds, K, ε, N).infections)
     end
-    ∇ref = ForwardDiff.gradient(ref_loss, vec(Rt))
+    ∇ref = ReferenceAD.gradient(ref_loss, vec(Rt))
 
     # One operator over the whole horizon. The state carries the day
     # reached, so the forecast reads R_t and ε from the next day.
@@ -102,6 +102,6 @@ end
         return hcat(seeds, fitted, forecast)
     end
     @test split_run(Rt) ≈ ref
-    ∇ = ForwardDiff.gradient(θ -> sum(w .* split_run(reshape(θ, np, n))), vec(Rt))
+    ∇ = ReferenceAD.gradient(θ -> sum(w .* split_run(reshape(θ, np, n))), vec(Rt))
     @test ∇ ≈ ∇ref
 end

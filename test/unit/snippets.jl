@@ -49,21 +49,24 @@ end
     struct FlooredDepletion{P}
         pop::P
     end
-    function ComposableRecurrences.forward(m::FlooredDepletion, ::ComposableRecurrences.Init, s, history)
+    function ComposableRecurrences.forward!(m::FlooredDepletion, ::ComposableRecurrences.Init, s, history)
         s .= m.pop
         return nothing
     end
     ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-    function ComposableRecurrences.forward(m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k)
-        v′ = max(s / m.pop[k], 1.0e-6) * v
-        return v′, s - v′
+    function ComposableRecurrences.forward!(m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
     end
 
     # Vector-level: scale every value, and keep a running total in the state.
     struct Scale{A}
         a::A
     end
-    function ComposableRecurrences.forward(m::Scale, ::ComposableRecurrences.Step, v, s, t)
+    function ComposableRecurrences.forward!(m::Scale, ::ComposableRecurrences.Step, v, s, t)
         v .*= m.a
         s .+= v
         return nothing
@@ -75,25 +78,38 @@ end
         params::NamedTuple
     end
     ComposableRecurrences.ispointwise(::LooseScale) = true
-    function ComposableRecurrences.forward(m::LooseScale, ::ComposableRecurrences.Step, v, s, t, k)
-        return m.a * v + m.params.b, s
+    function ComposableRecurrences.forward!(m::LooseScale, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = m.a * v[k] + m.params.b, s[k]
+        end
+        return nothing
     end
 
     # Adds each stratum's history total, set once by its Init.
     struct HistoryTotal end
-    function ComposableRecurrences.forward(::HistoryTotal, ::ComposableRecurrences.Init, s, history)
+    function ComposableRecurrences.forward!(::HistoryTotal, ::ComposableRecurrences.Init, s, history)
         s .= vec(sum(history; dims = ndims(history)))
         return nothing
     end
     ComposableRecurrences.ispointwise(::HistoryTotal) = true
-    ComposableRecurrences.forward(::HistoryTotal, ::ComposableRecurrences.Step, v, s, t, k) = (v + s, s)
+    function ComposableRecurrences.forward!(::HistoryTotal, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] + s[k], s[k]
+        end
+        return nothing
+    end
 
     # Pointwise and time-varying: add `b[t]`.
     struct Shift{B}
         b::B
     end
     ComposableRecurrences.ispointwise(::Shift) = true
-    ComposableRecurrences.forward(m::Shift, ::ComposableRecurrences.Step, v, s, t, k) = (v + m.b[t], s)
+    function ComposableRecurrences.forward!(m::Shift, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] + m.b[t], s[k]
+        end
+        return nothing
+    end
 end
 
 # Pullback checks for modifiers against a local ForwardDiff Jacobian, shared
@@ -123,7 +139,7 @@ end
     flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 
     # Compare the Step's `pullback!` with the transposed Jacobian of its
-    # `forward` in `[v; s; θ]`, for a modifier `build(θ)` whose mirror
+    # `forward!` in `[v; s; θ]`, for a modifier `build(θ)` whose mirror
     # flattens in the order of `θ`; `mirror_of` and `flatten` replace
     # `mirror` and `flat` for a modifier whose mirror needs another order.
     # The state may be longer than `v`. Returns the parameter cotangent for
@@ -135,11 +151,16 @@ end
         S, n = length(v), length(s)
         v̄′ = v̄ === nothing ? collect(range(0.3, 1.7; length = S)) : v̄
         s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = n)) : s̄
-        J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
+        step = function (x)
             vv, ss = x[1:S], x[(S + 1):(S + n)]
-            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
+            CR.forward!(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
             return vcat(vv, ss)
         end
+        # The tag and chunk `ReferenceAD` uses, so the dual code is shared.
+        x0 = vcat(v, s, θ)
+        tag = ForwardDiff.Tag(CR._run_forward, eltype(x0))
+        cfg = ForwardDiff.JacobianConfig(step, x0, ForwardDiff.Chunk{min(8, length(x0))}(), tag)
+        J = ForwardDiff.jacobian(step, x0, cfg, Val(false))
         expected = transpose(J) * vcat(v̄′, s̄′)
         m = build(θ)
         m̄ = mirror_of(m)
@@ -151,5 +172,31 @@ end
             θ = flatten(m̄) ≈ expected[(S + n + 1):end],
             θ̄ = flatten(m̄),
         )
+    end
+end
+
+# Reference derivatives through ForwardDiff with one tag and a fixed chunk,
+# so the dual code compiled for one test is reused by every other test in
+# the same worker, whatever its function or number of inputs. ForwardDiff's
+# default tags the duals by the function's type and picks the chunk from
+# the input's length, which compiles each operator again for every closure
+# and length. Not for nested derivatives, which need distinct tags.
+@testmodule ReferenceAD begin
+    using ComposableRecurrences, ForwardDiff
+
+    _tag(::Type{V}) where {V} = ForwardDiff.Tag(ComposableRecurrences._run_forward, V)
+    _chunk(x) = ForwardDiff.Chunk{min(8, length(x))}()
+
+    function gradient(f, x)
+        cfg = ForwardDiff.GradientConfig(f, x, _chunk(x), _tag(eltype(x)))
+        return ForwardDiff.gradient(f, x, cfg, Val(false))
+    end
+    function jacobian(f, x)
+        cfg = ForwardDiff.JacobianConfig(f, x, _chunk(x), _tag(eltype(x)))
+        return ForwardDiff.jacobian(f, x, cfg, Val(false))
+    end
+    function derivative(f, x::Real)
+        T = typeof(_tag(typeof(x)))
+        return ForwardDiff.extract_derivative(T, f(ForwardDiff.Dual{T}(x, one(x))))
     end
 end

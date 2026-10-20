@@ -4,6 +4,12 @@
 
 ### Breaking
 
+- Couplings, modifiers and depletion forms implement `forward!` in place for `Step()`, `Init()` and `Pressure()`, and `forward!` and `pullback!` return `nothing`; returning a value is an `ArgumentError` ([extending][extending]).
+  A pointwise modifier no longer has a scalar step `forward(m, Step(), v, s, t, k)`: its `forward!(m, Step(), v, s, t)` writes each entry of `v` and `s` from its own, and the operator may call it on a one-entry view of each stratum.
+  A blockwise group step takes tuples of one-entry views, and a depletion form `forward!(form, Step(), v, s, N, α)` writes `v` and `s` in place.
+  The matching `pullback!` methods overwrite `grads.v` and `grads.s` in place, and a form's adds into `grads.N` and `grads.α`.
+  To migrate, rename `forward` to `forward!` for these roles, loop over `eachindex(v)`, and write the outputs instead of returning them.
+  `forward(op, Run(), args...)` is unchanged.
 - `Redistribute(M; leak = false)` takes one movement matrix whose columns sum to one, fixed or `TimeVarying`, in place of a kernel `K` and an intensity `ε` ([spatial and multi-type models][spatial]).
   To migrate, write `Redistribute(movement(K, ε))`; `movement` takes `ε` in every form the old `Redistribute` did (one value, `PerStratum`, `TimeVarying`, `TimeVarying(PerStratum)`, `Derived` or `Recent`) and also a plain vector over origins or an origins × time matrix.
 - `Depletion` is now a type alias of [`Pool`][api], so `m isa Depletion` holds as before.
@@ -47,6 +53,8 @@
   Without a draw the pools are the step's values, and the `Pool` moves values between the compartments of each group ([occupancy and capacity][occupancy]).
   A flow's form says how its demand moves: a competing hazard rate (`Hazard()`, the default), a share (`Share()`) or a count capped by what remains (`Truncate()` or `SoftTruncate(κ)`).
 - `Depletion(N; removals)` takes removals from the pool after each draw ([renewal then delay][renewal]).
+- A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding each modifier's series per step, differentiable as the output is; a modifier can record its own through a `Trace()` role ([extending][extending]).
+  A call without it runs as before.
 - `Depletion`'s population `N` can vary over time, by stratum or as a `Derived`.
 - `Truncate()` and `SoftTruncate(κ)` are draw forms that take what is asked for up to what is left, exactly or smoothly ([API overview][api]).
 - `ComposableRecurrences.exponential_history(I0, r, L)` builds an exponential-growth seed.
@@ -67,7 +75,7 @@
   A coupling's local derivative keeps the rules up to 24 strata and scalars on every backend, and up to 48 on Mooncake ([adjoints and backends][adjoints]).
   A coupling's local derivative also seeds the entries of its float arrays, which count towards those limits.
   A pointwise modifier's local derivative seeds the entries of its other float arrays that a step reads, and keeps the rule on Mooncake ([adjoints and backends][adjoints]).
-- The extension API is public: `forward`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
+- The extension API is public: `forward`, `forward!`, `pullback!`, `blocks`, `nstate`, `depth`, `param`, `add_param!`, `cotangent`, `add_cotangent!`, `uses_adjoint`, `test_adjoint`, `Executor` and `each!` ([extending][extending]).
 - `blocks(m)` marks a modifier that steps groups of compartments together, and `nstate(m, S)` sizes a modifier's state; a resumed call checks each state against it.
 - Extensions for Distributions, ForwardDiff, Enzyme, Mooncake, EnzymeTestUtils, FFTW, KernelAbstractions, GPUArraysCore, GPUArrays and Reactant, each loaded with its package ([extensions][extensions]).
 
@@ -96,6 +104,8 @@
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
 - `FFTMethod()` is correct under Enzyme on Julia 1.11.
 - Enzyme without runtime activity works for a constant input or history.
+- The Enzyme reverse rule works for an operator with 32 or more leaves, such as a `Pool` with eight flows, where before Enzyme rejected its return type.
+- A `Pool` with 32 or more flows and a part with a tuple of 35 or more numbers infer, and their Enzyme reverse gradients work; before, the element type and the `Pool`'s construction did not infer, and Enzyme failed or crashed.
 - `param_eltype` infers through nested structs such as `Depletion`.
 
 [api]: https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/

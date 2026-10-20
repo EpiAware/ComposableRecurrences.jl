@@ -3,7 +3,7 @@
 # over delay, and the ascertainment anchor averages a calendar series over
 # each onset date's reporting window.
 
-@testitem "Use case: BVD onset reporting delay CDF" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD onset reporting delay CDF" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -15,7 +15,7 @@
     W = reshape(range(0.5, 2.0; length = D * nu), D, nu)
     unpack(θ) = (θ[1:D], θ[(D + 1):end])
     θ0 = vcat(logit_h0, γ)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(W .* B.onset_report_cdf_table(unpack(θ)..., grid_start, u_lo, u_hi)),
         θ0
     )
@@ -33,7 +33,7 @@
         return 1 .- permutedims(survival)
     end
     @test cdf_table(logit_h0, γ) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(W .* cdf_table(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(W .* cdf_table(unpack(θ)...)), θ0) ≈ ∇ref
 
     # anchor(u) = Σ_d g(u, d) a[min(u + d, na)] reads forward from u, so it is
     # a causal convolution in reversed time: onset date u is reversed time
@@ -48,7 +48,7 @@
         table = B.onset_report_cdf_table(logit_h0, γ, grid_start, u_lo, u_hi)
         return B.onset_report_anchor_series(table, u_lo, a)
     end
-    ∇refa = ForwardDiff.gradient(θ -> sum(wa .* ref_anchor(unpacka(θ)...)), θa)
+    ∇refa = ReferenceAD.gradient(θ -> sum(wa .* ref_anchor(unpacka(θ)...)), θa)
     function anchor(logit_h0, γ, a)
         F = cdf_table(logit_h0, γ)
         G = F ./ F[end:end, :]
@@ -62,5 +62,5 @@
         return y[u_lo:u_hi]
     end
     @test anchor(logit_h0, γ, a) ≈ refa
-    @test ForwardDiff.gradient(θ -> sum(wa .* anchor(unpacka(θ)...)), θa) ≈ ∇refa
+    @test ReferenceAD.gradient(θ -> sum(wa .* anchor(unpacka(θ)...)), θa) ≈ ∇refa
 end

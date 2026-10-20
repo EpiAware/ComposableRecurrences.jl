@@ -1,5 +1,6 @@
-# The role interface. Every operator, coupling, modifier or variant
-# implements `forward`, and optionally `pullback!`, for a role.
+# The role interface. An operator implements `forward` for `Run()`; every
+# coupling, modifier or variant implements `forward!`, and optionally
+# `pullback!`, for its role.
 
 @doc raw"""
 The role of an operator's whole call, `forward(op, Run(), args...; kwargs...)`,
@@ -51,18 +52,23 @@ this one.
 A pointwise modifier acts on each stratum ``i`` separately,
 ``(v'_i, s'_i) = M_i(v_i, s_i, t)``.
 
-  - `forward(m, Step(), v, s, t)` updates the step's values `v` and the
+  - `forward!(m, Step(), v, s, t)` updates the step's values `v` and the
     modifier's state `s` in place (one entry per stratum, or one per pool
     for a [`ComposableRecurrences.Pool`](@ref) with several) and
     returns `nothing`.
-  - `forward(m, Step(), v, s, t, k)` is the scalar form for stratum `k`,
-    returning `(v′, s′)`; a modifier with
-    [`ComposableRecurrences.ispointwise`](@ref) implements this one.
-    A blockwise modifier ([`ComposableRecurrences.blocks`](@ref))
-    implements it for group `k`, with `v`, `s`, `v′` and `s′` tuples.
-  - `forward(form, Step(), v, s, N, α)` draws `v` from pool `s` for a
-    depletion form, returning `(y, s′)`.
+    A modifier with [`ComposableRecurrences.ispointwise`](@ref) writes
+    entry `k` from entry `k` only, for each `k` in `eachindex(v)`.
+    The operator may call it on a one-entry view of stratum `k`, whose
+    axes are `k:k`, so parameters read at `k` through
+    [`ComposableRecurrences.param`](@ref) read the right entry.
+  - `forward!(m, Step(), v, s, t, g)` is the group step of a blockwise
+    modifier ([`ComposableRecurrences.blocks`](@ref)), with `v` and `s`
+    tuples of one-entry views of group `g`'s values and state.
+  - `forward!(form, Step(), v, s, N, α)` draws `v` from pool `s` in place
+    for a depletion form, with `v` and `s` views and `N` and `α` numbers.
 
+A step writes its outputs and returns `nothing`; one that returns anything
+else is an error.
 [Roles](@ref extending-roles) gives the matching
 [`ComposableRecurrences.pullback!`](@ref) for each.
 
@@ -70,18 +76,19 @@ A pointwise modifier acts on each stratum ``i`` separately,
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-y, s = CR.forward(CR.Hazard(), CR.Step(), 2.0, 80.0, 100.0, 1.0)
-round(y; digits = 3), round(s; digits = 3)
+v, s = [2.0], [80.0]
+CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, 1.0)
+round.(v; digits = 3), round.(s; digits = 3)
 
 # output
 
-(1.584, 78.416)
+([1.584], [78.416])
 ```
 """
 struct Step end
 
 @doc raw"""
-The role of a modifier's initial state: `forward(m, Init(), s, history)`
+The role of a modifier's initial state: `forward!(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or one per pool for a
 [`ComposableRecurrences.Pool`](@ref) with several, allocated
 by the operator at its buffer eltype) from the full history, and returns
@@ -102,7 +109,7 @@ The default is ``s_{t_0 - 1} = 0``.
 using ComposableRecurrences
 CR = ComposableRecurrences
 s = zeros(2)
-CR.forward(CR.Depletion(PerStratum([100.0, 50.0])), CR.Init(), s, ones(2, 3))
+CR.forward!(CR.Depletion(PerStratum([100.0, 50.0])), CR.Init(), s, ones(2, 3))
 s
 
 # output
@@ -115,7 +122,7 @@ s
 struct Init end
 
 @doc raw"""
-The role of a coupling: `forward(C, Pressure(), q, p, t)` writes into `q`
+The role of a coupling: `forward!(C, Pressure(), q, p, t)` writes into `q`
 the mixing of the per-stratum kernel convolutions `p` at absolute time `t`,
 and returns `nothing`.
 
@@ -141,7 +148,7 @@ To add a coupling, define a type and add this method; it may compute any
 using ComposableRecurrences
 CR = ComposableRecurrences
 q = zeros(2)
-CR.forward([0.9 0.1; 0.2 0.8], CR.Pressure(), q, [1.0, 2.0], 1)
+CR.forward!([0.9 0.1; 0.2 0.8], CR.Pressure(), q, [1.0, 2.0], 1)
 q
 
 # output
@@ -154,7 +161,45 @@ q
 struct Pressure end
 
 @doc raw"""
-Run `x` in `role` on primal arguments `args`.
+Run operator `op` over a whole call, returning `(y, cache)`.
+
+This is the [`ComposableRecurrences.Run`](@ref) role: calling the operator
+lowers to `forward(op, Run(), args...; kwargs...)`.
+For inputs ``u`` it computes
+
+```math
+y = f_{\mathrm{op}}(u),
+```
+
+with ``f_{\mathrm{op}}`` the operator's own maths, and `cache` holds what
+the reverse pass needs.
+Couplings, modifiers and depletion forms write their outputs in place
+through [`ComposableRecurrences.forward!`](@ref) instead.
+
+# Arguments
+- `op`: the operator.
+- `role`: `Run()`.
+- `args`: the call's arguments.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+y, cache = CR.forward(Convolution([0.5, 0.5]), CR.Run(), [1.0, 2.0, 3.0])
+y
+
+# output
+
+3-element Vector{Float64}:
+ 0.5
+ 1.5
+ 2.5
+```
+"""
+function forward end
+
+@doc raw"""
+Run `x` in `role` on primal arguments `args`, writing the outputs in place.
 
 For the role's inputs ``u`` it computes its outputs
 
@@ -163,22 +208,23 @@ o = f_{\mathrm{role}}(u),
 ```
 
 with ``f_{\mathrm{role}}`` the map each role's docstring gives:
-[`ComposableRecurrences.Run`](@ref) an operator's whole call,
 [`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
 [`ComposableRecurrences.Init`](@ref) an initial state from the history and
 [`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t``.
-Array outputs are written into the leading array arguments and the method
-returns `nothing`; a scalar [`ComposableRecurrences.Step`](@ref) returns its
-new scalars and [`ComposableRecurrences.Run`](@ref) returns `(y, cache)`.
+The outputs are written into the leading array arguments, and the method
+returns `nothing`; returning anything else is an error.
 To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling.
 [Roles](@ref extending-roles) gives each role's arguments.
 
+A pointwise step runs on a [`ComposableRecurrences.Device`](@ref) when it
+reads and writes only `eachindex(v)` entries, and allocates nothing.
+
 # Arguments
-- `x`: the operator, coupling, modifier or variant.
-- `role`: `Run()`, `Step()`, `Init()` or `Pressure()`.
+- `x`: the coupling, modifier or variant.
+- `role`: `Step()`, `Init()` or `Pressure()`.
 - `args`: the role's arguments.
 
 # Examples
@@ -189,7 +235,12 @@ struct Offset{T}
     b::T
 end
 CR.ispointwise(::Offset) = true
-CR.forward(m::Offset, ::CR.Step, v, s, t, k) = (v + m.b, s)
+function CR.forward!(m::Offset, ::CR.Step, v, s, t)
+    for k in eachindex(v)
+        v[k] += m.b
+    end
+    return nothing
+end
 Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
 
 # output
@@ -201,13 +252,13 @@ Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop 
  3.875
 ```
 """
-function forward end
+function forward! end
 
 @doc raw"""
-Accumulate the reverse pass of [`ComposableRecurrences.forward`](@ref) for
+Accumulate the reverse pass of [`ComposableRecurrences.forward!`](@ref) for
 `x` in `role`.
 
-For `forward` computing outputs ``o = f(u, \theta)`` from inputs ``u`` and
+For `forward!` computing outputs ``o = f(u, \theta)`` from inputs ``u`` and
 the object's parameters ``\theta``, given the output cotangent ``\bar o``
 (the gradient of a scalar loss with respect to ``o``) it adds
 
@@ -221,10 +272,13 @@ the object's parameters ``\theta``, given the output cotangent ``\bar o``
 object's parameters (or is `nothing`), and the other fields are named after
 the role's arguments.
 Output cotangents are read on entry and input cotangents accumulated; a
-buffer `forward` updated in place is overwritten with the cotangent of its
-incoming value, and a scalar `Step` returns its input cotangents instead.
-[Roles](@ref extending-roles) gives the signature, the `grads` fields and the
-return value for each role, and [The gradient mirror](@ref extending-mirror)
+buffer `forward!` updated in place is overwritten with the cotangent of its
+incoming value.
+It returns `nothing`.
+A pointwise or blockwise `Step` gets the same views as its `forward!`, with
+`grads.v` and `grads.s` views of the same entries.
+[Roles](@ref extending-roles) gives the signature and the `grads` fields for
+each role, and [The gradient mirror](@ref extending-mirror)
 the shape of `grads.piece`.
 An operator's native rule calls a method whose `grads` and arguments after
 the role are untyped (see [`ComposableRecurrences.uses_adjoint`](@ref)).
@@ -236,19 +290,20 @@ is differentiated.
   `x`'s parameters.
 - `x`: the operator, coupling, modifier or variant.
 - `role`: the role.
-- `args`: the primal arguments `forward` was given.
+- `args`: the primal arguments `forward!` was given.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 m = CR.Clamp(0.0, 1.0)
-grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = 1.0, s = 0.0)
-CR.pullback!(grads, m, CR.Step(), 2.0, 0.0, 1, 1), grads.piece.hi[]
+grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0], s = [0.0])
+CR.pullback!(grads, m, CR.Step(), [2.0], [0.0], 1)
+grads.v, grads.piece.hi[]
 
 # output
 
-((0.0, 0.0), 1.0)
+([0.0], 1.0)
 ```
 """
 function pullback! end
@@ -265,10 +320,15 @@ value and state depend only on its own,
 ```
 
 This sets which [`ComposableRecurrences.Step`](@ref) a modifier implements:
-a per-stratum map sets `ispointwise(m) = true` and implements the scalar
-`forward(m, Step(), v, s, t, k)`, which the default vector step loops over
-strata; a modifier that couples strata implements
-`forward(m, Step(), v, s, t)` instead.
+a per-stratum map sets `ispointwise(m) = true`, and its
+`forward!(m, Step(), v, s, t)` writes entry `k` of `v` and `s` from entry
+`k` only, so the operator may run it on a one-entry view of each stratum;
+a modifier that couples strata leaves it `false` and reads the whole
+vectors.
+A pointwise step reads a per-stratum parameter through
+[`ComposableRecurrences.param`](@ref) at `k`: a broadcast against a field
+with one entry per stratum, such as `v .*= m.w`, cannot run on a one-entry
+view.
 The default is `false`.
 
 # Arguments
@@ -304,11 +364,12 @@ M_g\big(v_{1:n_v,\,g},\ s_{1:n_s,\,g},\ t\big),
 \qquad g = 1, \dots, G .
 ```
 
-A blockwise modifier implements `forward(m, Step(), v, s, t, g)` with `v`
-and `s` tuples of the group's ``n_v`` values and ``n_s`` state entries,
-returning the new tuples `(v′, s′)`, and optionally
+A blockwise modifier implements `forward!(m, Step(), v, s, t, g)` with `v`
+and `s` tuples of one-entry views of the group's ``n_v`` values and ``n_s``
+state entries, writing them in place, and optionally
 `pullback!(grads, m, Step(), v, s, t, g)` with `grads.v` and `grads.s`
-tuples, returning the input cotangents as tuples.
+tuples of views, overwritten with the input cotangents.
+Both return `nothing`.
 The default vector [`ComposableRecurrences.Step`](@ref) loops the groups,
 and [`ComposableRecurrences.nstate`](@ref) is ``n_s G``.
 The group step reads parameters at group `g`, so a [`PerStratum`](@ref)
@@ -316,7 +377,7 @@ parameter has ``G`` entries.
 `blocks` should follow from the type of `m`, so the group loop is
 compiled for its shape.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) is the
-case ``n_v = n_s = 1`` with a scalar step, and is not blockwise.
+case ``n_v = n_s = 1``, and is not blockwise.
 The default is `nothing`.
 
 # Arguments
@@ -480,14 +541,53 @@ end
 # `Init` and on a resumed state.
 _check_modifier_strata(m, S) = nothing
 
-# Defaults: a zero initial state, and a vector step that loops the scalar
-# one for a pointwise modifier or the group one for a blockwise modifier.
-function forward(m, ::Init, s, history)
+# Defaults: a zero initial state, and a vector step that loops the
+# per-stratum or per-group step.
+function forward!(m, ::Init, s, history)
     fill!(s, zero(eltype(s)))
     return nothing
 end
 
-forward(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
+forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
+
+# Whether `m` is a built-in pointwise modifier whose step is an internal
+# scalar kernel, `_step` and `_step_back`, which the recurrence threads
+# through a stratum's value without views and which other built-ins call.
+_kernel(m) = false
+
+# The step of a pointwise modifier on stratum `k`'s value and state, as new
+# scalars. A built-in's kernel; anything else runs its `forward!` on
+# one-entry views of local slots, which a fully inlined step keeps in
+# registers.
+@inline function _step(m, v, s, t, k)
+    vr, sr = _slot(m, v), _slot(m, s)
+    _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
+    return vr[], sr[]
+end
+# The same for its `pullback!`: the cotangents of the step's inputs from
+# those of its outputs, `grads.v` and `grads.s`.
+@inline function _step_back(grads, m, v, s, t, k)
+    v̄r, s̄r = Ref(grads.v), Ref(grads.s)
+    g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
+    _written(m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
+    return v̄r[], s̄r[]
+end
+# A slot for a scalar the step may write a value of the modifier's float type
+# into, such as a dual number from a parameter.
+@inline _slot(m, x) = Base.RefValue{promote_type(typeof(x), param_eltype(m))}(x)
+
+# A step writes its outputs in place and returns `nothing`; a returned
+# value is an error, not a silent no-op.
+@inline _written(m, ::Nothing) = nothing
+@noinline function _written(m, x)
+    throw(
+        ArgumentError(
+            "the step of $(nameof(typeof(m))) returned a $(typeof(x)); " *
+                "forward! and pullback! write their outputs in place and " *
+                "return nothing"
+        )
+    )
+end
 
 # The group `g` entries of `x`, compartment by compartment, as a tuple, and
 # their write-back. Generated as straight-line indexing, which AD backends
@@ -498,6 +598,24 @@ end
 @generated function _scatter!(x, xs::Tuple, G, g)
     body = (:(x[$(i - 1) * G + g] = xs[$i]) for i in 1:fieldcount(xs))
     return Expr(:block, body..., :(return x))
+end
+
+# The step of a blockwise modifier on group `g`'s values and state, as new
+# tuples: a built-in's kernel, or the modifier's `forward!` on tuples of
+# one-entry views of local slots. Its pullback likewise.
+@inline function _block_step(m, v::Tuple, s::Tuple, t, g)
+    vr, sr = map(x -> _slot(m, x), v), map(x -> _slot(m, x), s)
+    at = r -> _At(r, g)
+    _written(m, @inline forward!(m, Step(), map(at, vr), map(at, sr), t, g))
+    return map(getindex, vr), map(getindex, sr)
+end
+@inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
+    v̄r, s̄r = map(Ref, grads.v), map(Ref, grads.s)
+    at = r -> _At(r, g)
+    gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
+    vv, sv = map(at ∘ Ref, v), map(at ∘ Ref, s)
+    _written(m, @inline pullback!(gg, m, Step(), vv, sv, t, g))
+    return map(getindex, v̄r), map(getindex, s̄r)
 end
 
 # The group step and its pullback are inlined at their calls: across a call
@@ -512,8 +630,8 @@ end
 # Group `g`'s step, gathered from and scattered back into `v` and `s`.
 function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
     nv, ns = B
-    v′, s′ = @inline forward(
-        m, Step(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
+    v′, s′ = @inline _block_step(
+        m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
     )
     _scatter!(v, v′, G, g)
     _scatter!(s, s′, G, g)
@@ -521,11 +639,10 @@ function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
-    ispointwise(m) || throw(
+    _kernel(m) || throw(
         ArgumentError(
-            "$(typeof(m)) implements neither forward(m, Step(), v, s, t) " *
-                "nor a pointwise forward(m, Step(), v, s, t, k), and is " *
-                "not blockwise (see blocks)"
+            "$(typeof(m)) has no forward!(m, Step(), v, s, t), and is not " *
+                "blockwise (see blocks)"
         )
     )
     n = length(eachindex(v, s))
@@ -534,13 +651,13 @@ function _vector_step!(::Nothing, m, v, s, t)
 end
 
 function _pointwise_body!(k, v, s, m, t)
-    v[k], s[k] = forward(m, Step(), v[k], s[k], t, k)
+    v[k], s[k] = _step(m, v[k], s[k], t, k)
     return nothing
 end
 
-# The vector step's pullback: the modifier's own, or for a pointwise or
-# blockwise modifier without one the scalar or group pullback per stratum
-# or group. Not a `pullback!` method, which would count as every
+# The vector step's pullback: the modifier's own, or for a built-in
+# pointwise or a blockwise modifier the kernel or group pullback per
+# stratum or group. Not a `pullback!` method, which would count as every
 # modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
@@ -560,7 +677,7 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
             s = _gather(s̄, Val(ns), G, g),
         )
         vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        v̄g, s̄g = @inline pullback!(gg, m, Step(), vg, sg, t, g)
+        v̄g, s̄g = @inline _block_back(gg, m, vg, sg, t, g)
         _scatter!(v̄, v̄g, G, g)
         _scatter!(s̄, s̄g, G, g)
     end
@@ -579,6 +696,6 @@ end
 # Run the modifiers in tuple order on the step's values, in place.
 _stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
 function _stages!(ms::Tuple, states::Tuple, v, t)
-    forward(first(ms), Step(), v, first(states), t)
+    forward!(first(ms), Step(), v, first(states), t)
     return _stages!(Base.tail(ms), Base.tail(states), v, t)
 end

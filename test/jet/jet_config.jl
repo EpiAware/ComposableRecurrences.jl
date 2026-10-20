@@ -21,7 +21,7 @@
 let CR = ComposableRecurrences
     for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
         m = CR.Depletion(100.0, form)
-        r = JET.@report_opt CR.forward(m, CR.Step(), 2.0, 80.0, 1, 1)
+        r = JET.@report_opt CR._step(m, 2.0, 80.0, 1, 1)
         reports = JET.get_reports(r)
         isempty(reports) || error("runtime dispatch in a $(typeof(form)) step: $r")
     end
