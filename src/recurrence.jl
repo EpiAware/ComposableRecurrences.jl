@@ -1225,7 +1225,9 @@ _record_pressure!(::Nothing, pk, xk, t, k) = nothing
 end
 # Stratum `k`'s pressure at step `t` from the records.
 Base.@propagate_inbounds _pressure(C, pr, k, t) = pr.X[k, t]
-Base.@propagate_inbounds _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * pr.P[k, t]
+Base.@propagate_inbounds function _pressure(C::_PointwiseCoupling, pr, k, t)
+    return _coef(C, k) * pr.P[k, t]
+end
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata

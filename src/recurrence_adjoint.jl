@@ -287,7 +287,10 @@ _mirrors(m̄s, ms) = m̄s
 _add_slot!(::Nothing, v, k, t) = nothing
 _add_slot!(x̄::Base.RefValue, v, k, t) = (x̄[] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
-Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
+Base.@propagate_inbounds function _add_slot!(x̄::AbstractMatrix, v, k, t)
+    x̄[k, t] += v
+    return nothing
+end
 Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
 # One stratum's value cotangent back through pointwise modifiers, last
