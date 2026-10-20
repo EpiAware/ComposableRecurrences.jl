@@ -143,7 +143,10 @@ A package that owns a delay type adds a method for it, as the `delay_masses` doc
 An array of delays is read by its element type, so that type needs a `delay_masses` method.
 `lags` has no default, since where a delay is cut is a modelling choice.
 A kernel of delays without `lags` is an error, and so is `lags` on a kernel with no delays.
-A continuous distribution is an error until it is discretised, for example by interval censoring.
+A continuous distribution has masses once a censoring choice discretises it.
+Loading [CensoredDistributions](https://censoreddistributions.epiaware.org) as well makes that choice with its defaults: `delay_masses(d, lags; interval = 1)` takes the masses of `double_interval_censored(d; interval)`.
+Without it, a continuous distribution is an error that names it.
+The [CensoredDistributions extension](@ref extension-censored-distributions) page has an example.
 Gradients reach the delays' parameters through their masses.
 
 ```jldoctest

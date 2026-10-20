@@ -32,6 +32,7 @@ delays.
 
 A delay on continuous time has masses only once a censoring choice turns it
 into one on whole steps, so a method for it belongs with that choice.
+[Delay distributions](@ref overview-delays) says which extension makes it.
 
 # Arguments
 - `k`: the delay, or a vector of masses.
@@ -67,6 +68,10 @@ Recurrence(GeometricDelay(0.5); lags = 3).kernel
 ```
 """
 delay_masses(k::AbstractVector, lags) = k
+
+# The masses of a continuous delay, from the extension that makes the
+# censoring choice. It has no methods until that extension loads.
+function _continuous_masses end
 
 # A delay is a value whose type has a `delay_masses` method. An array of
 # masses has the vector method but is a kernel, not a delay. Read from the
