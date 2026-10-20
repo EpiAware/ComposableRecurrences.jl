@@ -156,6 +156,47 @@ end
     end
 end
 
+@testitem "Trace: a Pool group's trace and pullback on one-entry views" setup = [ReferenceAD] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # The group methods a caller reaches directly, which the run passes by
+    # for the gathered values: a ward of two pools, one group, against the
+    # run's own group trace and forward mode.
+    build(θ) = CR.Pool(;
+        pools = 2, draw = nothing, flows = (
+            CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+            CR.Flow(2 => 0, θ[3]),
+        )
+    )
+    θ = [0.3, 0.2, 0.1]
+    m = build(θ)
+    n = CR.ntrace(m, 2)
+    refs(x) = map(Ref, Tuple(x))
+    function trace(z)
+        r = ntuple(_ -> Ref(zero(eltype(z))), n)
+        CR.forward!(
+            build(z[9:end]), CR.Trace(), r, refs(z[1:2]), refs(z[3:4]),
+            refs(z[5:6]), refs(z[7:8]), 1, 1
+        )
+        return collect(map(x -> x[], r))
+    end
+    z = [4.0, 3.0, 0.0, 0.0, 2.6, 4.1, 0.0, 0.0, θ...]
+    col = zeros(n)
+    CR._group_trace!(m, CR.blocks(m), col, z[1:2], z[3:4], z[5:6], z[7:8], 1, 1, 1)
+    @test trace(z) ≈ col
+    r̄ = [0.7, -0.4, 1.1][1:n]
+    ref = ReferenceAD.gradient(x -> sum(r̄ .* trace(x)), z)
+    piece = (; flows = map(_ -> (; demand = Ref(0.0), form = nothing), m.flows))
+    grads = (;
+        piece, trace = refs(r̄), v = refs(zeros(2)), s = refs(zeros(2)),
+        v′ = refs(zeros(2)), s′ = refs(zeros(2)),
+    )
+    @test CR.pullback!(grads, m, CR.Trace(), refs(z[1:2]), refs(z[3:4]), 1, 1) === nothing
+    x̄ = [map(x -> x[], (grads.v..., grads.s..., grads.v′..., grads.s′...))...]
+    d̄ = [f̄.demand[] for f̄ in piece.flows]
+    @test [x̄; d̄] ≈ ref
+end
+
 @testitem "Trace: the default is the state after the step" setup = [TraceChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
