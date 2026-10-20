@@ -81,7 +81,8 @@ one_report = delay(one_town; gain = 0.4)
 end
 ```
 
-Reports are 40% of infections, spread over the days that follow.
+The gain reports 40% of infections, spread over the days that follow by the delay.
+While infections grow, reports lag them, so each day's reports are about a quarter of that day's infections.
 These two steps are the usual model of infections and their reports.
 Each later step adds one part to it.
 
