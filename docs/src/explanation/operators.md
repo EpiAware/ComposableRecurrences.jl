@@ -1,7 +1,6 @@
 # [Operators](@id explanation-operators)
 
 This page explains how the two operators handle time.
-It covers the lag origin, the time base, history and state, seeding, and what a call returns.
 The [API overview](@ref api-overview) gives the full step and the calls, and [`Recurrence`](@ref) and [`Convolution`](@ref) give every argument.
 
 ```@example operators
@@ -19,7 +18,7 @@ y_t = g_t \sum_{l=1}^{L} k_l \, y_{t-l} = g_t \sum_{l=0}^{L} \tilde k_l \, y_{t-
 \qquad \tilde k = (0, k_1, \dots, k_L),
 ```
 
-where ``y_t`` is the output on day ``t``, ``k_l`` the kernel weight on lag ``l``, and ``	ilde k`` the convolution kernel `vcat(0, k)`.
+where ``y_t`` is the output on day ``t``, ``k_l`` the kernel weight on lag ``l``, and ``\tilde k`` the convolution kernel `vcat(0, k)`.
 A recurrence's value cannot depend on itself in the same step, so its first weight is on the previous value.
 A convolution can weight today's input, as a reporting delay of zero days does.
 Both are written as the quantity is usually written, so a generation interval or a delay goes in unchanged.
@@ -66,7 +65,7 @@ A modifier's `Init` reads the whole history, so a modifier can set its starting 
 
 A [`State`](@ref ComposableRecurrences.State) holds everything the next step reads: the last ``L`` outputs, the state of each modifier and the next time.
 So a call that resumes from a `State` gives the values one call over both ranges would.
-This is what makes a forecast a second call rather than a second model.
+A forecast is then a second call, not a second model.
 
 ```@example operators
 modifiers = (Depletion(50.0; pool0 = 50.0 - sum(seed)),)
@@ -82,8 +81,7 @@ A modifier parameter read from past outputs, [`Recent`](@ref), deepens the windo
 
 ## [Seeding](@id explanation-seeding)
 
-A recurrence needs values before its first step.
-There are two places to put them.
+A recurrence needs values before its first step, in one of two places.
 
 - Before time 1, as `history` with `start = 1`.
   The run starts at time 1, so the gain and other inputs cover the run only.

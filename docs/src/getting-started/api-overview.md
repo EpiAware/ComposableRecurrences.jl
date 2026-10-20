@@ -84,15 +84,14 @@ A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@r
 | [`contributions(c, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | the terms of `c(x; gain)` before the sum over lags, such as a reporting triangle | `L × T`, or `S × L × T` for `S` series |
 | [`with_state(r, gain; kwargs...)`](@ref ComposableRecurrences.with_state) | runs `r` like `r(gain; kwargs...)` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
 | [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t` | the values from `state.t` on |
+| [`(r::Recurrence)(gain; history, trace = true)`](@ref Recurrence) | runs `r` and records what each modifier did at each step | a `(y, trace)` tuple, with one matrix per modifier in `trace.modifiers` |
 | [`(r::Recurrence)(gain; history, prepend = true)`](@ref Recurrence) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |
 | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | an `L`-step seed growing at rate `r` up to `I0` | a `Vector`, or `S × L` for a vector `I0` |
 | [`State`](@ref ComposableRecurrences.State) | holds the last ``L`` values ``y_{t-L}, \dots, y_{t-1}``, each modifier's state ``s^{(n)}_{t-1}`` (such as the remaining pool) and the next time ``t`` | a struct |
 
-A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` coefficient) at absolute time ``t``.
+A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` coefficient) at absolute time ``t``; see [Time base](@ref explanation-time-base).
 `stop` defaults to the common length of those inputs, and inputs of different lengths without a `stop` are an error.
-A history shorter than the kernel is padded with zeros, meaning no earlier values.
-A recurrence returns only the run unless `prepend = true`, and a convolution never prepends its history.
-[`Recurrence`](@ref) states where a seed sits for a given `start`.
+[History and state](@ref explanation-history-state), [Seeding](@ref explanation-seeding) and [What a call returns](@ref explanation-returns) cover short histories, resuming, where a seed sits and `prepend`.
 The [Renewal then delay](@ref tutorial-renewal-delay) tutorial forecasts by continuing from a `State`.
 
 ## [Shapes](@id overview-shapes)
@@ -117,31 +116,38 @@ The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
 ## [Delay distributions](@id overview-delays)
 
-A kernel can hold delay distributions, and the operator turns them into masses when it is built with the number of lags `lags`.
-[`delay_masses(d, lags)`](@ref ComposableRecurrences.delay_masses) gives the masses on lags `0` to `lags - 1`:
+A kernel can hold delays, and the operator turns them into masses when it is built with the number of lags `lags`.
+A delay is a value whose type has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method.
+`delay_masses(d, lags)` gives the masses on lags `0` to `lags - 1`:
 
 ```math
 k_l = P(D = l), \qquad l = 0, \dots, L - 1,
 ```
 
 where ``D`` is the delay in whole steps and ``L`` = `lags`.
-`lags` counts from lag 0 for both operators, and each operator keeps the masses from its own [lag origin](@ref faq-lag-origin): a convolution from ``k_0`` and a recurrence from ``k_1``.
+`lags` counts from lag 0 for both operators, and each operator keeps the masses from its own [lag origin](@ref explanation-lag-origin): a convolution from ``k_0`` and a recurrence from ``k_1``.
 So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
-The masses are not renormalised after this cut, as the `delay_masses` docstring says, so a recurrence kernel sums to ``\sum_{l=1}^{L-1} k_l``, which scales the gain.
-Loading Distributions adds `delay_masses` for any discrete distribution, and a package that owns a delay type adds a method for it.
+The masses are not renormalised after this cut, so a recurrence kernel sums to ``\sum_{l=1}^{L-1} k_l``, which scales the gain.
+Loading Distributions adds `delay_masses` for any discrete distribution.
+A package that owns a delay type adds a method for it, as the `delay_masses` docstring shows, and its delays then work as kernels too.
 
 | Kernel | Holds |
 |---|---|
-| `d` | one distribution |
-| `PerStratum(ds)` | a vector of distributions, one per series |
-| `Pairwise(D)` | a matrix of distributions, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
-| `TimeVarying(ds, indexing)` | a vector of distributions, one per time, or `PerStratum` or `Pairwise` of them with time last |
-| `Routes((C₁, d₁), (C₂, g₂))` | distributions or arrays as route kernels; `Recurrence` only |
+| `d` | one delay |
+| `PerStratum(ds)` | a vector of delays, one per series |
+| `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
+| `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
+| `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
 
 `Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any of these.
+An array of delays is read by its element type, so that type needs a `delay_masses` method.
 `lags` has no default, since where a delay is cut is a modelling choice.
-A continuous distribution is an error until it is discretised, for example by interval censoring.
-Gradients reach the distributions' parameters through their masses.
+A kernel of delays without `lags` is an error, and so is `lags` on a kernel with no delays.
+A continuous distribution has masses once a censoring choice discretises it.
+Loading [CensoredDistributions](https://censoreddistributions.epiaware.org) as well makes that choice with its defaults: `delay_masses(d, lags; interval = 1)` takes the masses of `double_interval_censored(d; interval)`.
+Without it, a continuous distribution is an error that names it.
+The [CensoredDistributions extension](@ref extension-censored-distributions) page has an example.
+Gradients reach the delays' parameters through their masses.
 
 ```jldoctest
 using ComposableRecurrences, Distributions
@@ -177,7 +183,7 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
 | `I`, `λI` | no mixing, or a uniform scaling | – |
 | `S × S` matrix (dense, `Diagonal`, sparse) | contact, mobility or type-to-type mixing | – |
 | [`TimeVarying(C)`](@ref TimeVarying) with `C` `S × S × T` | mixing that changes by day | – |
-| your type | a `forward!` method for [`Pressure()`](@ref ComposableRecurrences.Pressure) | – |
+| your type | see [A coupling](@ref extending-coupling) | – |
 
 ## [Modifiers](@id overview-modifiers)
 
@@ -185,17 +191,18 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
 The `add` input enters before every modifier, and `Add` enters where it sits in the tuple; [Imported cases](@ref tutorial-imports) compares the two for imports.
 `Redistribute` moves whatever it receives, including values from `add`.
 
-| Name | What it does | Recurrence | Per series | Adjoint | Parameters |
-|---|---|---|---|---|---|
-| [`Pool(N; pools, draw, flows)`](@ref ComposableRecurrences.Pool) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | hand-written | `N`, `heterogeneity`, `initial`, each draw weight and each flow's demand |
-| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals | yes | yes | hand-written | `N`, `heterogeneity`, `initial`, `removals` |
-| [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | hand-written | `M` |
-| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | hand-written | `b` |
-| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | hand-written | `lo`, `hi` |
-| [`Allocate(groups, total; imports, spill)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share, with a fraction placed by an import pattern | yes, with several series | no | hand-written | `total` and `fraction`, one per group; `pattern` |
-| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | hand-written when `derivative` is given or `f` has no float fields, else plain AD | `θ` |
+| Name | What it does | Recurrence | Per series | Parameters |
+|---|---|---|---|---|
+| [`Pool(N; pools, draw, flows)`](@ref ComposableRecurrences.Pool) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | `N`, `heterogeneity`, `initial`, each draw weight and each flow's demand |
+| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals | yes | yes | `N`, `heterogeneity`, `pool0`, `removals` |
+| [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | `M` |
+| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | `b` |
+| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | `lo`, `hi` |
+| [`Allocate(groups, total; imports, spill)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share, with a fraction placed by an import pattern | yes, with several series | no | `total` and `fraction`, one per group; `pattern` |
+| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | `θ` |
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
+Each modifier here has a hand-written gradient, except a `Transform` whose `f` holds floats and has no `derivative`; [Rules and plain AD](@ref adjoint-routing) gives the route a call takes.
 The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and a `Pool` as a capacity and without a draw.
 
 ## [Depletion forms and indexing](@id overview-variants)
@@ -238,15 +245,16 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 
 These names are for writing a new coupling, modifier, depletion form or executor, and for checking its gradient.
 A model built from the package's own parts needs none of them.
-To extend the package, define a new type and add a `forward!` method for it.
-Add a `pullback!` method for a hand-written gradient, and the operator's rule calls it.
-See [Writing new types](@ref extending).
+[Writing new types](@ref extending) gives the contract and an example for each role.
 
 | Name | What it does | Returns |
 |---|---|---|
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
+| [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward) | an operator's whole call, which the rules and `test_adjoint` use | `(y, cache)` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Run()`](@ref ComposableRecurrences.Run) | the job a method does: one step, the starting state, a coupling's mixing, a whole call | singletons for dispatch |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure) | the job a `forward!` method does: one step, the starting state, a coupling's mixing | singletons for dispatch |
+| [`Run()`](@ref ComposableRecurrences.Run) | the job of `forward`: an operator's whole call | a singleton for dispatch |
+| [`Trace()`](@ref ComposableRecurrences.Trace), [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | what a modifier records for a call with `trace = true`, and how many rows | a tuple of values, and an `Int` |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |
@@ -257,8 +265,6 @@ See [Writing new types](@ref extending).
 | [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the element type a type's parameters promote the buffer to | a type |
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
 | [`Executor`](@ref ComposableRecurrences.Executor), [`each!(body, ex, n, work, args...)`](@ref ComposableRecurrences.each!) | the executor supertype, and the loop a new executor adds a method of | `nothing` |
-
-A coupling is any type with a `forward!` method for `Pressure()`; [A coupling](@ref extending-coupling) writes one with its `pullback!`.
 
 ### [Checking gradients](@id overview-gradients)
 
