@@ -852,8 +852,8 @@ end
 # A whole-step modifier's local derivative seeds the step's values, its
 # state and its parameters: within one pass of dual numbers
 # (`_LOCAL_PRESSURE`) the call takes the rule, and with more `_ad_wide`,
-# a rule on Mooncake at any size, where it stays faster than plain AD, and
-# plain AD on Enzyme, where the two are level (see the adjoints page).
+# a rule on `Mooncake` at any size, where it stays faster than plain AD, and
+# plain AD on `Enzyme`, where the two are level (see the adjoints page).
 _steps_fit(::Tuple{}, S) = :one
 _steps_fit(ms::Tuple, S) = _worse(_step_fit(first(ms), S), _steps_fit(Base.tail(ms), S))
 function _step_fit(m, S)
