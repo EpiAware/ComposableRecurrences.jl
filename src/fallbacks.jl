@@ -366,24 +366,6 @@ end
     _written(form, @inline pullback!(g, form, Step(), vv, sv, N, α))
     return v̄r[], s̄r[], N̄r[], ᾱr[]
 end
-# A depletion form's in-place step and pullback on views of a stratum's
-# values and pools, with `N` and `α` shared, from its scalar kernel.
-function _form_forward!(form, v, s, N, α)
-    for i in eachindex(v, s)
-        v[i], s[i] = _draw(form, v[i], s[i], N, α)
-    end
-    return nothing
-end
-function _form_pullback!(grads, form, v, s, N, α)
-    for i in eachindex(v, s)
-        g = (; piece = grads.piece, v = grads.v[i], s = grads.s[i])
-        v̄, s̄, N̄, ᾱ = _draw_back(g, form, v[i], s[i], N, α)
-        grads.v[i], grads.s[i] = v̄, s̄
-        grads.N[i] += N̄
-        grads.α[i] += ᾱ
-    end
-    return nothing
-end
 # The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the
 # pool, the population, the exponent and the form's float scalars as one

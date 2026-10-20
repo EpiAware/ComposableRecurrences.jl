@@ -1087,7 +1087,7 @@ _stages_rec!(::Tuple{}, ::Tuple{}, ::Tuple{}, v, τ, t) = nothing
 function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     copyto!(view(first(rec).V, :, t), v)
     _record_states!(first(rec).S, first(states), t)
-    forward!(first(ms), Step(), v, first(states), τ)
+    _stage!(first(ms), v, first(states), τ)
     _record_states!(first(rec).A, first(states), t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
