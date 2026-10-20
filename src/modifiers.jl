@@ -665,7 +665,8 @@ function _vector_pullback!(grads, m, v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
     ispointwise(m) && return _strata_pullback!(grads, m, v, s, t)
-    return pullback!(grads, m, Step(), v, s, t)
+    uses_adjoint(m, Step()) && return pullback!(grads, m, Step(), v, s, t)
+    return _local_step_back!(grads, m, v, s, t)
 end
 function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     nv, ns = B

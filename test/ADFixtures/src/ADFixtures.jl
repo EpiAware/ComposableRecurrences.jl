@@ -1585,6 +1585,47 @@ function _unchecked_parts(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Whole-step modifiers without a pullback: the local derivative seeds the
+# step's values, its state and its parameters.
+"A share `b` of the values mixed evenly over the strata, and the mixed values' decaying total, at rate `a`, kept as the state."
+struct ZoneMix{B, A}
+    b::B
+    a::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::ZoneMix, ::ComposableRecurrences.Step, v, s, t
+    )
+    mean = sum(v) / length(v)
+    for k in eachindex(v, s)
+        v[k] = (1 - m.b) * v[k] + m.b * mean
+        s[k] = m.a * s[k] + v[k]
+    end
+    return nothing
+end
+"A per-stratum scale held as a vector, applied to every stratum at once."
+struct StrataScale{A}
+    a::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::StrataScale, ::ComposableRecurrences.Step, v, s, t
+    )
+    v .*= m.a
+    return nothing
+end
+
+function _whole_step_scalars(w, θ)
+    logh, logR, p = _unpack(θ, (S, L), (S, T), (2,))
+    r = Recurrence(G0; coupling = K0, modifiers = (ZoneMix(p[1], p[2]),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+function _whole_step_array(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; modifiers = (StrataScale(a), ZoneMix(0.2, 0.5)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # The coupling as one of two routes, the other a dense matrix with its
 # own pullback: the rule differentiates the route coupling locally.
 function _user_coupling_routes(w, θ)
@@ -1644,6 +1685,14 @@ push!(
         () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
     ),
     (
+        "Recurrence whole-step modifier without a pullback", _whole_step_scalars,
+        () -> _flat(zeros(S, L), LOGR, [0.3, 0.5]),
+    ),
+    (
+        "Recurrence whole-step modifier holding a vector", _whole_step_array,
+        () -> _flat(zeros(S, L), LOGR, [0.9, 1.0, 1.1]),
+    ),
+    (
         "Recurrence checked at the call", _unchecked_parts,
         () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
@@ -1668,6 +1717,9 @@ _REQUIRES["Recurrence user coupling holding a matrix"] = (:_read_pullback,)
 # An operator built before the local step's check could run came with
 # `ForwardDiff` as an extension.
 _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
+# The local derivative of a whole-step modifier.
+_REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
+_REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 

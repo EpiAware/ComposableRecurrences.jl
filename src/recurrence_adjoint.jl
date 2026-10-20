@@ -304,7 +304,13 @@ _column(x::AbstractVector, t) = x
 # must give the same cotangents by its per-step path. They reach only a modifier's own vector
 # `pullback!`: a blockwise modifier split into groups gets neither, so one
 # that asks must have its own vector pullback.
-_pass_buffer(H, ::Type, m, m̄, S, T) = nothing
+#
+# A whole-step modifier differentiated by its local derivative takes its
+# dual numbers as its pass buffer (`_StepDuals`), made once per reverse
+# pass, and reads them from `grads.pass`.
+_pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H)
+_local_step_duals(::Val{false}, m̄, m, H) = nothing
+_local_step_duals(::Val{true}, m̄, m, H) = _step_duals(m̄, m, eltype(H))
 _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
