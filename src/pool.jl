@@ -1044,17 +1044,30 @@ function _pool_ntrace(::Val{L}, m, S) where {L}
     return (L.n + 2) * _ngroups(B, S)
 end
 
-function forward(m::_OnePool, ::Trace, v::Number, s::Number, v′, s′, t, k)
-    return s′, v′, v - v′
+function forward!(m::_OnePool, ::Trace, r, v, s, v′, s′, t)
+    pools, drawn, left = r
+    for k in eachindex(v, v′, s′)
+        pools[k], drawn[k], left[k] = s′[k], v′[k], v[k] - v′[k]
+    end
+    return nothing
 end
-function pullback!(grads, m::_OnePool, ::Trace, v::Number, s::Number, t, k)
+function pullback!(grads, m::_OnePool, ::Trace, v, s, t)
     p̄, ȳ, ū = grads.trace
-    return ū, zero(ū), ȳ - ū, p̄
+    for k in eachindex(v)
+        grads.v[k] += ū[k]
+        grads.v′[k] += ȳ[k] - ū[k]
+        grads.s′[k] += p̄[k]
+    end
+    return nothing
 end
 
-function forward(m::Pool, ::Trace, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
-    return _pool_trace(Val(_layout(m)), m, v, s, v′, s′, t, g)
+function forward!(m::Pool, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+    vals = _pool_trace(Val(_layout(m)), m, _view_entries(v), _view_entries(s), _view_entries(v′), _view_entries(s′), t, g)
+    foreach((x, y) -> x[] = y, r, vals)
+    return nothing
 end
+# The entries of a group's one-entry views.
+_view_entries(xs::Tuple) = map(x -> x[], xs)
 function _pool_trace(::Val{L}, m, v, s, v′, s′, t, g) where {L}
     L.draw || return _amounts(m.flows, v, g, t)
     x, _ = _pools_queue(Val(L.overflow), s′, Val(L.n))
@@ -1064,7 +1077,13 @@ function _pool_trace(::Val{L}, m, v, s, v′, s′, t, g) where {L}
 end
 
 function pullback!(grads, m::Pool, ::Trace, v::Tuple, s::Tuple, t, g)
-    return _pool_trace_back(Val(_layout(m)), grads, m, v, s, t, g)
+    inner = (; piece = grads.piece, trace = _view_entries(grads.trace))
+    a, b, c, d = _pool_trace_back(Val(_layout(m)), inner, m, _view_entries(v), _view_entries(s), t, g)
+    foreach((x̄, y) -> x̄[] += y, grads.v, a)
+    foreach((x̄, y) -> x̄[] += y, grads.s, b)
+    foreach((x̄, y) -> x̄[] += y, grads.v′, c)
+    foreach((x̄, y) -> x̄[] += y, grads.s′, d)
+    return nothing
 end
 function _pool_trace_back(::Val{L}, grads, m, v, s, t, g) where {L}
     L.draw || return _amounts_back(grads, m, v, s, t, g)

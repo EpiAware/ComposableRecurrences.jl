@@ -26,28 +26,36 @@ without a draw it records the amount each flow moves, a row per flow over
 the groups.
 [`ComposableRecurrences.Redistribute`](@ref) records its arrivals, its
 state.
-A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref))
-implements `forward(m, Trace(), v, s, v′, s′, t, k)` for stratum `k`,
-returning a tuple of ``r`` values, which fill rows `(j - 1) * S + k`.
-A blockwise modifier ([`ComposableRecurrences.blocks`](@ref)) implements it
-for group `g`, with `v`, `s`, `v′` and `s′` tuples, its values filling rows
-`(j - 1) * G + g` for ``G`` groups.
-Its pullback, `pullback!(grads, m, Trace(), v, s, t, k)` with
-`grads = (; piece, trace)`, returns the cotangents
-`(v̄, s̄, v̄′, s̄′)` of the inputs and outputs from that of the trace and
-adds those of the modifier's parameters into `piece`;
-[`ComposableRecurrences.ntrace`](@ref) gives the number of rows.
+A modifier records its trace with
+`forward!(m, Trace(), r, v, s, v′, s′, t)`, writing into `r`, which takes
+the shape of `v` for its kind of step:
+for a pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) a
+tuple of vectors, one per trace value, indexed by stratum as `v` is, their
+`k`th entries filling row `(j - 1) * S + k`;
+for a blockwise modifier ([`ComposableRecurrences.blocks`](@ref)), as
+`forward!(m, Trace(), r, v, s, v′, s′, t, g)` for group `g`, a tuple of
+one-entry views filling rows `(j - 1) * G + g` for ``G`` groups, with
+`v`, `s`, `v′` and `s′` tuples of one-entry views;
+for any other modifier the step's column of
+[`ComposableRecurrences.ntrace`](@ref) rows.
+Its pullback, `pullback!(grads, m, Trace(), v, s, t)` (with `g` for a
+group), is given `grads = (; piece, trace, v, s, v′, s′)`: `trace` holds
+the cotangent of `r`, in its shape, and the pullback adds the cotangents
+of the step's inputs and outputs into `v`, `s`, `v′` and `s′` and those of
+the modifier's parameters into `piece`.
 [A trace](@ref extending-trace) writes one.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.forward(CR.Depletion(100.0), CR.Trace(), 2.0, 80.0, 1.6, 78.4, 1, 1)
+r = ([0.0], [0.0], [0.0])
+CR.forward!(CR.Depletion(100.0), CR.Trace(), r, [2.0], [80.0], [1.6], [78.4], 1)
+r
 
 # output
 
-(78.4, 1.6, 0.3999999999999999)
+([78.4], [1.6], [0.3999999999999999])
 ```
 """
 struct Trace end
@@ -83,40 +91,65 @@ CR.ntrace(CR.Clamp(0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
 """
 ntrace(m, S) = _stateless(m) ? 0 : nstate(m, S)
 
-# The defaults: the state after the step, per stratum or per group.
-forward(m, ::Trace, v, s, v′, s′, t, k) = (s′,)
-forward(m, ::Trace, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g) = s′
-function pullback!(grads, m, ::Trace, v, s, t, k)
-    z = zero(first(grads.trace))
-    return z, z, z, only(grads.trace)
+# The defaults: the state after the step, per stratum, per group or for
+# the whole step, and its pullback, which adds the trace's cotangent into
+# that of the state after the step.
+function forward!(m, ::Trace, r, v, s, v′, s′, t)
+    _copy_trace!(r, s′)
+    return nothing
+end
+function forward!(m, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+    foreach((x, y) -> x[] = y[], r, s′)
+    return nothing
+end
+function pullback!(grads, m, ::Trace, v, s, t)
+    _add_trace!(grads.s′, grads.trace)
+    return nothing
 end
 function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
-    z = zero(first(grads.trace))
-    zv = map(_ -> z, v)
-    return zv, map(_ -> z, s), zv, grads.trace
+    foreach((x̄, r̄) -> x̄[] += r̄[], grads.s′, grads.trace)
+    return nothing
 end
-
-# A modifier's trace at one step into `out`, from its inputs `v` and `s`
-# and outputs `v′` and `s′`: per stratum, per group, or for a vector-level
-# modifier its state after the step.
-_trace!(out, m, v, s, v′, s′, t) = _trace!(blocks(m), out, m, v, s, v′, s′, t)
-function _trace!(::Nothing, out, m, v, s, v′, s′, t)
-    ispointwise(m) || (copyto!(out, s′); return nothing)
-    S = length(v)
-    for k in 1:S
-        _scatter!(out, forward(m, Trace(), v[k], s[k], v′[k], s′[k], t, k), S, k)
+# A pointwise modifier's trace is a tuple of series, one per value, and a
+# whole-step modifier's one vector.
+_copy_trace!(r::Tuple, s′) = (copyto!(first(r), s′); nothing)
+_copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
+_add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))
+function _add_trace!(s̄′, r̄::AbstractVector)
+    for k in eachindex(s̄′, r̄)
+        s̄′[k] += r̄[k]
     end
     return nothing
 end
-function _trace!(::Val{B}, out, m, v, s, v′, s′, t) where {B}
+
+# A modifier's trace at one step into its column `col`, from its inputs
+# `v` and `s` and outputs `v′` and `s′`: a pointwise modifier's as one
+# series per value over the strata, a blockwise one's per group from
+# one-entry views, and any other's as the whole column.
+_trace!(col, m, v, s, v′, s′, t) = _trace!(blocks(m), col, m, v, s, v′, s′, t)
+function _trace!(::Nothing, col, m, v, s, v′, s′, t)
+    r = ispointwise(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
+    _written(m, forward!(m, Trace(), r, v, s, v′, s′, t))
+    return nothing
+end
+function _trace!(::Val{B}, col, m, v, s, v′, s′, t) where {B}
     nv, ns = B
     G = _ngroups(Val(B), length(v))
     for g in 1:G
-        r = forward(
-            m, Trace(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g),
-            _gather(v′, Val(nv), G, g), _gather(s′, Val(ns), G, g), t, g
+        r = _group_views(col, Val(ntrace(m, nv)), G, g)
+        _written(
+            m, forward!(
+                m, Trace(), r, _group_views(v, Val(nv), G, g),
+                _group_views(s, Val(ns), G, g), _group_views(v′, Val(nv), G, g),
+                _group_views(s′, Val(ns), G, g), t, g
+            )
         )
-        _scatter!(out, r, G, g)
     end
     return nothing
+end
+# The `n` series of a column, rows `(j - 1) * S + 1` to `j * S` for the
+# `j`th, and a group's one-entry views of them, entry `g` of each.
+_trace_series(col, ::Val{n}, S) where {n} = ntuple(j -> view(col, ((j - 1) * S + 1):(j * S)), Val(n))
+function _group_views(x, ::Val{n}, G, g) where {n}
+    return ntuple(j -> _At(view(x, ((j - 1) * G + 1):(j * G)), g), Val(n))
 end
