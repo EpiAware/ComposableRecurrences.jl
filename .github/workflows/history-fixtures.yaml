@@ -1,0 +1,41 @@
+# Package-owned: not part of the kit's managed workflows.
+name: History fixtures
+
+# Checks that the AD fixtures in test/ADFixtures load against the last five
+# release tags, as the managed benchmark history workflow loads them after
+# merge. A scenario or matrix case that uses a name an older release lacks
+# needs a `_REQUIRES` entry; this job fails on the pull request that adds one
+# without it, rather than on the history run after merge. History also
+# runs this branch's benchmark/benchmarks.jl against each tag, so the check
+# runs that script against each tag too, without preparing gradients or
+# timing anything.
+# The check is benchmark/history_fixtures.jl, which needs only Julia and git.
+
+on:
+  pull_request:
+    paths:
+      - 'test/ADFixtures/**'
+      - 'benchmark/benchmarks.jl'
+      - 'benchmark/Project.toml'
+      - 'benchmark/history_fixtures.jl'
+      - '.github/workflows/history-fixtures.yaml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # The tags are needed to check out each release.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --startup-file=no benchmark/history_fixtures.jl
