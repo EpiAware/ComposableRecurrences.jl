@@ -70,8 +70,9 @@ Recurrence(GeometricDelay(0.5); lags = 3).kernel
 delay_masses(k::AbstractVector, lags) = k
 
 # The masses of a continuous delay, from the extension that makes the
-# censoring choice. It has no methods until that extension loads.
-function _continuous_masses end
+# censoring choice; until it loads, the error says which package to load.
+_continuous_masses(d, lags; kwargs...) = _no_censoring(d)
+function _no_censoring end
 
 # A delay is a value whose type has a `delay_masses` method. An array of
 # masses has the vector method but is a kernel, not a delay. Read from the

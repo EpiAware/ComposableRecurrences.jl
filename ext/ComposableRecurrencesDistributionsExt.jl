@@ -17,19 +17,13 @@ end
 function ComposableRecurrences.delay_masses(
         d::ContinuousUnivariateDistribution, lags; kwargs...
     )
-    _can_censor(d, lags) || _continuous_error(d)
     return _continuous_masses(d, lags; kwargs...)
 end
 
-# Whether the censoring extension is loaded. Read from the types, so the
-# branch folds, and loading it later invalidates the result.
-function _can_censor(d, lags)
-    return Core._hasmethod(
-        Tuple{typeof(_continuous_masses), typeof(d), typeof(lags)}
+# Reached only while the CensoredDistributions extension is not loaded.
+@noinline function ComposableRecurrences._no_censoring(
+        d::ContinuousUnivariateDistribution
     )
-end
-
-@noinline function _continuous_error(d)
     throw(
         ArgumentError(
             "a continuous delay has no masses on whole lags until a " *

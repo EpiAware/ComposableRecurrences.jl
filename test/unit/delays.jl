@@ -29,19 +29,51 @@ end
 
 @testitem "delay_masses: a continuous distribution names the censoring package" setup = [DelayCases] begin
     # Whether the censoring extension is loaded depends on which items ran
-    # first in this process, so the error is checked directly.
-    ext = Base.get_extension(CR, :ComposableRecurrencesDistributionsExt)
-    loaded = Base.get_extension(CR, :ComposableRecurrencesCensoredDistributionsExt) !==
-        nothing
-    @test ext._can_censor(Gamma(2.0, 1.5), 4) == loaded
+    # first in this process, so the error is checked directly here and end
+    # to end in a fresh process below.
     err = try
-        ext._continuous_error(Gamma(2.0, 1.5))
+        CR._no_censoring(Gamma(2.0, 1.5))
     catch e
         e
     end
     @test err isa ArgumentError
     @test occursin("CensoredDistributions", sprint(showerror, err))
     @test occursin("Gamma", sprint(showerror, err))
+end
+
+@testitem "Continuous delays: an error naming CensoredDistributions without it" begin
+    script = raw"""
+    using ComposableRecurrences, Distributions, LinearAlgebra
+    loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
+    println(loaded("CensoredDistributions"))
+    names_it(f) = try
+        f()
+        false
+    catch err
+        err isa ArgumentError &&
+            occursin("CensoredDistributions", sprint(showerror, err))
+    end
+    d = LogNormal(1.5, 0.75)
+    g = Gamma(2.0, 1.0)
+    println(
+        all(
+            names_it, (
+                () -> ComposableRecurrences.delay_masses(d, 4),
+                () -> Convolution(d; lags = 4),
+                () -> Recurrence(g; lags = 4),
+                () -> Recurrence(PerStratum([g, g]); lags = 4),
+                () -> Convolution(TimeVarying([g, g]); lags = 4),
+                () -> Recurrence(Pairwise(fill(g, 2, 2)); lags = 4),
+                () -> Recurrence(Routes(([1.0 0.0; 0.0 1.0], g)); lags = 4),
+            )
+        )
+    )
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test lines[2] == "true"
 end
 
 @testitem "Convolution: a delay distribution from lag 0" setup = [DelayCases] begin
