@@ -425,6 +425,31 @@ function ar(wrap, z::Size)
     return f, _flat([0.6, 0.2], [0.1, -0.1], [0.1 * _noise(t, 5) for t in 1:T])
 end
 
+# A random walk, a unit lag-1 recurrence from a seed with the seed
+# prepended, as a latent-process package spells it; `L` is unused.
+function random_walk(wrap, z::Size)
+    (; T) = z
+    W = [_noise(t, 9) for t in 1:(T + 1)]
+    f = function (θ)
+        y = wrap(Recurrence([1.0]))(
+            1.0; history = θ[1:1], add = θ[2:end], prepend = true
+        )
+        return sum(W .* y)
+    end
+    return f, _flat([0.1], [0.1 * _noise(t, 10) for t in 1:T])
+end
+
+# An AR(1) latent process with a differentiated coefficient; `L` is unused.
+function ar1(wrap, z::Size)
+    (; T) = z
+    W = _weights(T)
+    f = function (θ)
+        φ, h, ϵ = _unpack(θ, (1,), (1,), (T,))
+        return sum(W .* wrap(Recurrence(φ))(; history = h, add = ϵ))
+    end
+    return f, _flat([0.7], [0.1], [0.1 * _noise(t, 11) for t in 1:T])
+end
+
 # Delay convolutions shaped as a delay-distribution package calls them: a
 # lag-0-first pmf over a single series with no history, the loss weighting
 # every output (or, `masked`, only the last 14).
@@ -671,6 +696,11 @@ const CASES = [
         [5, 50], false,
     ),
     Case("ar", "AR(2) with additive innovations", ar, [1], false),
+    Case(
+        "random_walk", "unit lag-1 random walk with its seed prepended",
+        random_walk, [1], false,
+    ),
+    Case("ar1", "AR(1) with additive innovations", ar1, [1], false),
     Case("conv_fixed", "fixed pmf, no history", conv_fixed, [1], false),
     Case(
         "conv_masked", "fixed pmf, last 14 outputs", conv_masked, [1], false,
@@ -782,6 +812,8 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "conv_primary_ragged" => (:_Ragged,),
     "conv_gain" => (:contributions,),
     "triangle" => (:contributions,),
+    # `prepend` came with the growth-path seed.
+    "random_walk" => (:exponential_history,),
 )
 # Kernels from change points came with `_Piecewise`.
 const PIECEWISE_CASES = [
@@ -818,7 +850,7 @@ getting-started model at the page's size and at T 200, L 20, with the
 backend kernels of the case study at their own sizes; `convolved`
 holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
 `realistic` spans T 200-400, L 20-60 and S 1 to 50; `large` is S = 500,
-T = 2000.
+T = 2000; `lag1` is the unit lag-1 processes at T 8 to 1000.
 """
 const TIERS = Dict(
     "smoke" => (
@@ -831,9 +863,13 @@ const TIERS = Dict(
             "overview", "renewal", "strata_mixing", "bvd_patch", "delay_fixed",
             "conv_fixed", "tv_piecewise_secondary_k5", "tv_piecewise_primary_k5",
             "tv_piecewise_renewal_secondary_k5", "tv_piecewise_renewal_primary_k5",
+            "random_walk",
         ],
         sizes = [(T = 200, L = 20)],
         strata = [1, 3, 5],
+        # A random walk at the length of a latent-process package's own
+        # benchmark fixtures.
+        bycase = Dict("random_walk" => [(T = 30, L = 1)]),
     ),
     "docs" => (
         cases = ["overview"],
@@ -873,6 +909,11 @@ const TIERS = Dict(
         cases = ["strata_independent", "zones_sparse", "delay_fixed"],
         sizes = [(T = 2000, L = 20)],
         strata = [1, 500],
+    ),
+    "lag1" => (
+        cases = ["random_walk", "ar1"],
+        sizes = [(T = 8, L = 1), (T = 30, L = 1), (T = 100, L = 1), (T = 1000, L = 1)],
+        strata = [1],
     ),
 )
 

@@ -22,30 +22,66 @@ const _Inert = Union{
     AbstractArray{<:AbstractArray{<:Integer}},
 }
 
+# Under runtime activity a constant array's shadow is the primal itself,
+# and it gets no mirror. Whether any does is known only at run time, so the
+# mirrors are built in one of two modes: `_Shared()` checks each array and
+# gives `nothing` for a shared one, so a mirror's type is a `Union`;
+# `_Distinct()`, taken when no shadow is shared (`_shares`), uses every
+# shadow as given, so the mirrors and the pullback they reach infer.
+struct _Shared end
+struct _Distinct end
+
 # The mirror of an annotated argument.
-_ez(::Const) = nothing
-_ez(a::Active) = _ezs(a.val, Enzyme.make_zero(a.val))
-_ez(a::Union{Duplicated, DuplicatedNoNeed}) = _ezs(a.val, a.dval)
-_ez(a::MixedDuplicated) = _ezs(a.val, a.dval[])
+_ez(::Const, mode) = nothing
+_ez(a::Active, mode) = _ezs(a.val, Enzyme.make_zero(a.val), mode)
+_ez(a::Union{Duplicated, DuplicatedNoNeed}, mode) = _ezs(a.val, a.dval, mode)
+_ez(a::MixedDuplicated, mode) = _ezs(a.val, a.dval[], mode)
 
 # The mirror of primal `x` from its shadow `dx`.
-_ezs(x::_IEEEFloat, dx) = Ref(zero(x))
-_ezs(::_Inert, dx) = nothing
-_ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx) = nothing
-# Under runtime activity a constant array's shadow is the primal itself.
-_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x ? nothing : dx
+_ezs(x::_IEEEFloat, dx, mode) = Ref(zero(x))
+_ezs(::_Inert, dx, mode) = nothing
+_ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx, mode) = nothing
+_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray, ::_Shared) = dx === x ? nothing : dx
+_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray, ::_Distinct) = dx
 # A kernel's columns: each column's mirror from its own shadow.
-function _ezs(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
-    return dx === x ? nothing : map(_ezs, x, dx)
+function _ezs(
+        x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector, mode::_Shared
+    )
+    return dx === x ? nothing : map((a, b) -> _ezs(a, b, mode), x, dx)
 end
-function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC)
-    return (; nzval = _ezs(nonzeros(x), nonzeros(dx)))
+function _ezs(
+        x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector,
+        mode::_Distinct
+    )
+    return map((a, b) -> _ezs(a, b, mode), x, dx)
 end
-_ezs(x::Diagonal, dx::Diagonal) = (; diag = _ezs(x.diag, dx.diag))
-_ezs(x::Union{Tuple, NamedTuple}, dx) = map(_ezs, x, dx)
-function _ezs(x, dx)
+function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC, mode)
+    return (; nzval = _ezs(nonzeros(x), nonzeros(dx), mode))
+end
+_ezs(x::Diagonal, dx::Diagonal, mode) = (; diag = _ezs(x.diag, dx.diag, mode))
+_ezs(x::Union{Tuple, NamedTuple}, dx, mode) = map((a, b) -> _ezs(a, b, mode), x, dx)
+function _ezs(x, dx, mode)
     names = fieldnames(typeof(x))
-    return NamedTuple{names}(map(n -> _ezs(getfield(x, n), getfield(dx, n)), names))
+    return NamedTuple{names}(
+        map(n -> _ezs(getfield(x, n), getfield(dx, n), mode), names)
+    )
+end
+
+# Whether an annotated argument's shadow shares a float array with its
+# primal, along the same paths as `_ezs`.
+_shares(::Union{Const, Active}) = false
+_shares(a::Union{Duplicated, DuplicatedNoNeed}) = _shares(a.val, a.dval)
+_shares(a::MixedDuplicated) = _shares(a.val, a.dval[])
+_shares(::Union{_IEEEFloat, _Inert, AbstractString, Char, Type, Module, Ptr}, dx) = false
+_shares(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x
+function _shares(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
+    return dx === x || any(map(_shares, x, dx))
+end
+_shares(x::SparseMatrixCSC, dx::SparseMatrixCSC) = _shares(nonzeros(x), nonzeros(dx))
+_shares(x::Diagonal, dx::Diagonal) = _shares(x.diag, dx.diag)
+_shares(x::Union{Tuple, NamedTuple}, dx) = any(map(_shares, x, dx))
+function _shares(x, dx)
+    return any(n -> _shares(getfield(x, n), getfield(dx, n)), fieldnames(typeof(x)))
 end
 
 # Whether a mirror holds a nonzero scalar cotangent.
@@ -91,6 +127,9 @@ end
 end
 @generated function _foreach_leaves(f, xs::Tuple{Vararg{Any, N}}, ys::Tuple) where {N}
     return Expr(:block, (:(f(xs[$i], ys[$i])) for i in 1:N)..., :(return nothing))
+end
+@generated function _any_leaf(f, xs::Tuple{Vararg{Any, N}}) where {N}
+    return foldr((a, b) -> :($a || $b), (:(f(xs[$i])) for i in 1:N); init = false)
 end
 _val(a) = a.val
 
@@ -412,9 +451,13 @@ function EnzymeRules.reverse(
     ) where {X, N}
     cache, y, dy = tape
     dy === nothing && return _map_leaves(_ -> nothing, leaves)
-    lms = _map_leaves(_ez, leaves)
+    mode = _any_leaf(_shares, leaves) ? _Shared() : _Distinct()
+    return _reverse_leaves(mode, X, cache, y, dy, leaves)
+end
+function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
+    lms = _map_leaves(a -> _ez(a, mode), leaves)
     ms = _assemble(X, typeof(leaves), lms)
-    grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))
+    grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
     _run_pullback!(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)

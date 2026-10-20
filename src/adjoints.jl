@@ -248,7 +248,10 @@ _plain(op, args...) = _primal(op, args...)
 # warns of a gradient `Enzyme` can lose on Julia 1.11. It takes the operator
 # and its arguments so that the backend sees their activity, and
 # `donotdelete` keeps the call.
-@noinline _plain_hook(op, args...) = (Base.donotdelete(op, args...); nothing)
+@noinline function _plain_hook(op, args::Vararg{Any, N}) where {N}
+    Base.donotdelete(op, args...)
+    return nothing
+end
 function _hooked_plain(op, args::Vararg{Any, N}) where {N}
     _plain_hook(op, args...)
     return _plain(op, args...)

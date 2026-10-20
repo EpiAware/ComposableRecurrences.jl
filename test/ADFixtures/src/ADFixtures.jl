@@ -342,6 +342,33 @@ function _growth_seed(w, θ)
     return sum(WSL .* log.(y))
 end
 
+# Unit lag-1 recurrences, as a latent-process package spells them: a random
+# walk with its seed prepended, a cumulative sum of growth rates from a log
+# seed, and AR(1) with a coefficient per step (the gain) or one
+# differentiated coefficient (the kernel).
+function _random_walk(w, θ)
+    z0, ϵ = _unpack(θ, (1,), (T,))
+    y = w(Recurrence([1.0]))(1.0; history = z0, add = ϵ, prepend = true)
+    return sum(abs2, y) + sum(W1 .* y[2:end])
+end
+
+function _growth_rate(w, θ)
+    logI0, r = _unpack(θ, (1,), (T,))
+    y = w(Recurrence([1.0]))(1.0; history = logI0, add = r)
+    return sum(W1 .* exp.(y))
+end
+
+function _ar1_gain(w, θ)
+    ρ, z1, ϵ = _unpack(θ, (T,), (1,), (T,))
+    y = w(Recurrence([1.0]))(ρ; history = z1, add = ϵ, prepend = true)
+    return sum(abs2, y) + sum(W1 .* y[2:end])
+end
+
+function _ar1(w, θ)
+    φ, z1, ϵ = _unpack(θ, (1,), (1,), (T,))
+    return sum(W1 .* w(Recurrence(φ))(; history = z1, add = ϵ))
+end
+
 # The state returned after the seed and the run, with the seed prepended.
 function _with_state_prepend(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
@@ -1123,6 +1150,22 @@ const _SCENARIOS = [
         () -> _flat(log.([5.0, 2.0, 1.0]), [0.1], LOGR),
     ),
     (
+        "Recurrence random walk (unit lag-1)", _random_walk,
+        () -> _flat([0.2], 0.1 .* LOGR[1, :]),
+    ),
+    (
+        "Recurrence cumulative growth rate (unit lag-1)", _growth_rate,
+        () -> _flat([log(5.0)], LOGR[2, :]),
+    ),
+    (
+        "Recurrence AR(1) with a coefficient per step (unit lag-1)", _ar1_gain,
+        () -> _flat(0.8 .+ 0.1 .* LOGR[3, :], [0.3], 0.1 .* LOGR[1, :]),
+    ),
+    (
+        "Recurrence AR(1) with a differentiated coefficient", _ar1,
+        () -> _flat([0.7], [0.3], 0.1 .* LOGR[2, :]),
+    ),
+    (
         "Recurrence returning its state after its seed", _with_state_prepend,
         () -> _flat(fill(log(5.0), S, L), LOGR),
     ),
@@ -1441,6 +1484,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
+    "Recurrence random walk (unit lag-1)" => (:exponential_history,),
+    "Recurrence AR(1) with a coefficient per step (unit lag-1)" =>
+        (:exponential_history,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
     # growth-path seed but before any release with it.
     "Recurrence returning its state after its seed" => (:exponential_history,),

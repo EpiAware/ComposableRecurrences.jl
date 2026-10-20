@@ -291,7 +291,7 @@ end
             @test yt == yr == y
             @test cachet.pr == cache.pr
             @test map(x -> (x.V, x.S), cachet.rec) == map(x -> (x.V, x.S), cache.rec)
-            @test cachet.state.states == cache.state.states
+            @test cachet.states == cache.states
         end
         for c in convolutions
             @test with(() -> c(R), CR.EXECUTOR => ex) == c(R)
