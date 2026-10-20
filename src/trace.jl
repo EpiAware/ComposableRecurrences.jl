@@ -17,7 +17,7 @@ r_t = R_M\big(v_t,\ s_{t-1},\ v'_t,\ s_t\big),
 with ``R_M`` the modifier's own map: by default its state after the step,
 ``r_t = s_t``, and a modifier whose state never changes, such as
 [`ComposableRecurrences.Add`](@ref), records nothing.
-A [`ComposableRecurrences.Pool`](@ref) with a draw records its pools after
+A [`ComposableRecurrences.Depletion`](@ref) with a draw records its pools after
 the step, the value drawn ``y_t`` and the overflow
 ``d_t + Q_{t-1} - y_t``, what the draw leaves of the demand ``d_t`` and
 the queue ``Q_{t-1}`` (zero without one), with rows for each pool, then

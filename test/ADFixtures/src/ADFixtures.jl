@@ -168,7 +168,7 @@ end
 function _renewal_strata(w, θ)
     g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
     dep = ComposableRecurrences.Depletion(
-        PerStratum(POP), ComposableRecurrences.Floor()
+        PerStratum(POP); form = ComposableRecurrences.Floor()
     )
     r = Recurrence(g; coupling = K, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -181,7 +181,7 @@ end
 function _heterogeneity(w, θ, form)
     α, logh, logR = _unpack(θ, (1,), (S, L), (S, T))
     dep = ComposableRecurrences.Depletion(
-        PerStratum(POP), form; heterogeneity = only(α)
+        PerStratum(POP); form = form, heterogeneity = only(α)
     )
     r = Recurrence(G0; coupling = K0, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -207,7 +207,7 @@ function _array_and_scalar_fields(w, θ)
     logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
     mods = (
         ComposableRecurrences.Depletion(
-            PerStratum(POP), ComposableRecurrences.Floor()
+            PerStratum(POP); form = ComposableRecurrences.Floor()
         ),
         ComposableRecurrences.Add(b),
     )
@@ -448,8 +448,8 @@ end
 # `V`, with the doses moving `S` into `V` and any further `flows`.
 function _leaky(N, doses, σ, flows...)
     CR = ComposableRecurrences
-    return CR.Pool(
-        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+    return CR.Depletion(
+        N; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = σ),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -509,8 +509,8 @@ _ring_flow(ρ, i) = ComposableRecurrences.Flow(
 function _many_flows(w, θ)
     logh, logR, logρ = _unpack(θ, (S, L), (S, T), (NFLOWS,))
     fs = ntuple(i -> _ring_flow(logρ, i), Val(NFLOWS))
-    d = ComposableRecurrences.Pool(
-        PerStratum(POP); pools = RING, initial = RING0, flows = fs
+    d = ComposableRecurrences.Depletion(
+        PerStratum(POP); pools = NamedTuple{RING}(RING0), flows = fs
     )
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -560,8 +560,7 @@ end
 # branches of the scenario point.
 function _empty_pool(w, θ)
     d = ComposableRecurrences.Depletion(
-        100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2],
-        removals = 1000 + θ[3]
+        100.0; heterogeneity = 1 + θ[1], pools = (S = 50 + θ[2],), removals = 1000 + θ[3]
     )
     mods = (d, ComposableRecurrences.Add(1.0))
     y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
@@ -631,15 +630,15 @@ end
 # for coverage.
 function _beds(C, δ, κ)
     CR = ComposableRecurrences
-    return CR.Pool(
-        C; pools = (:O,), draw = CR.SoftTruncate(κ) => :O, flows_first = true,
+    return CR.Depletion(
+        C; pools = (:O,), form = CR.SoftTruncate(κ), fill = :O, flows_first = true,
         flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow = :stratum
     )
 end
 function _budget(init, grants)
     CR = ComposableRecurrences
-    return CR.Pool(;
-        pools = (:B,), initial = PerStratum(init), draw = :B => CR.Truncate(),
+    return CR.Depletion(;
+        pools = (B = PerStratum(init),), form = CR.Truncate(),
         flows_first = true, overflow = :queue,
         flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
     )
@@ -677,10 +676,10 @@ function _capacity_drop(w, θ)
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = CR.Depletion(exp(x[n - 4]), CR.SoftTruncate(x[n - 3]))
-    beds = CR.Pool(
+    pool = CR.Depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
+    beds = CR.Depletion(
         PerStratum(exp.(x[(n - 2):n])); pools = (:O,),
-        draw = CR.SoftTruncate(0.2) => :O, flows_first = true,
+        form = CR.SoftTruncate(0.2), fill = :O, flows_first = true,
         flows = CR.Flow(:O => 0, 0.3; form = CR.Share())
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
@@ -698,7 +697,7 @@ function _truncate(w, θ)
     x = TRUNC0[1:length(θ)] .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
     d = ComposableRecurrences.Depletion(
-        PerStratum(exp.(logpool)), ComposableRecurrences.Truncate()
+        PerStratum(exp.(logpool)); form = ComposableRecurrences.Truncate()
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
@@ -707,7 +706,7 @@ function _soft_truncate(w, θ)
     x = TRUNC0 .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
     form = ComposableRecurrences.SoftTruncate(x[length(x)])
-    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)), form)
+    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)); form = form)
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
 end
@@ -935,7 +934,7 @@ function _trace_importation(w, θ)
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
 
-# A protected `Pool`'s trace: its protected pool, the value drawn and the
+# A protected `Depletion`'s trace: its protected pool, the value drawn and the
 # overflow, one row each per stratum after the susceptible pools.
 function _trace_pool(w, θ)
     logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
@@ -961,8 +960,8 @@ end
 # The ward, built behind a call as the capacity pools are.
 function _ward(confirm, ruleout, discharge, transfer)
     CR = ComposableRecurrences
-    return CR.Pool(;
-        pools = (:suspected, :confirmed), draw = nothing, flows = (
+    return CR.Depletion(;
+        pools = (:suspected, :confirmed), form = nothing, flows = (
             CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
             CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
             CR.Flow(:confirmed => 0, discharge),
@@ -980,9 +979,9 @@ function _trace_budget(w, θ)
     logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
     CR = ComposableRecurrences
     grants = WEEKS .* exp.(logb)
-    doses = CR.Pool(;
-        pools = (:B,), initial = PerStratum(collect(init)),
-        draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
+    doses = CR.Depletion(;
+        pools = (B = PerStratum(collect(init)),), form = CR.Truncate(),
+        flows_first = true, overflow = :queue,
         flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
@@ -1039,7 +1038,7 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
     (
-        "Recurrence waning protection (Pool flows)", _waning,
+        "Recurrence waning protection (Depletion flows)", _waning,
         () -> _flat(
             zeros(S, L), 0.3 .+ LOGR, log.(1 .+ 0.5 .* abs.(LOGR)), [0.3],
             log.(0.05 .+ 0.02 .* abs.(LOGR)),
@@ -1050,7 +1049,7 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, log.(0.02 .+ 0.01 .* (1:NFLOWS))),
     ),
     (
-        "Recurrence ward with competing flows (Pool without a draw)", _ward,
+        "Recurrence ward with competing flows (Depletion without a draw)", _ward,
         () -> _flat(
             [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
             0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
@@ -1398,11 +1397,15 @@ const _PROBES = Dict{Symbol, Function}(
     :removals => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; removals = 1.0)
     ),
-    # A `Pool` whose draw fills a pool up to a capacity.
+    # A `Depletion` whose draw fills a pool up to a capacity.
     :pool_fill => () -> _accepts(
-        () -> ComposableRecurrences.Pool(
-            1.0; pools = (:O,), draw = ComposableRecurrences.Truncate() => :O
+        () -> ComposableRecurrences.Depletion(
+            1.0; pools = (:O,), form = ComposableRecurrences.Truncate(), fill = :O
         )
+    ),
+    # A `Depletion` holding its pools' names and starting values together.
+    :depletion_pools => () -> _accepts(
+        () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
     ),
 )
 
@@ -1431,10 +1434,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
-    "Recurrence vaccination into a protected pool" => (:Pool,),
-    "Recurrence ward with competing flows (Pool without a draw)" => (:Pool,),
-    "Recurrence waning protection (Pool flows)" => (:Pool,),
-    "Recurrence protected pool in Float32" => (:Pool,),
+    "Recurrence vaccination into a protected pool" => (:depletion_pools,),
+    "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
+    "Recurrence waning protection (Depletion flows)" => (:depletion_pools,),
+    "Recurrence protected pool in Float32" => (:depletion_pools,),
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),

@@ -114,7 +114,7 @@ A lower cap gives fewer infections over the run.
 ```@example extending
 seed = [1.0, 2.0, 3.0]
 N = 10_000.0
-pool = CR.Depletion(N; pool0 = N - sum(seed))
+pool = CR.Depletion(N; pools = (S = N - sum(seed),))
 model(κ) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Saturation(κ), pool))
 [round(sum(model(κ)(fill(1.8, 80); history = seed))) for κ in (50.0, 150.0, 1.0e6)]
 ```
@@ -320,17 +320,17 @@ Its pullback overwrites `grads.v` with the cotangent of the incoming values.
 The state passes through unchanged, so `grads.s` already holds its cotangent.
 
 ```@example extending
-struct Pool{A}
+struct ToMean{A}
     a::A
 end
-function CR.forward!(m::Pool, ::CR.Step, v, s, t)
+function CR.forward!(m::ToMean, ::CR.Step, v, s, t)
     μ = sum(v) / length(v)
     for k in eachindex(v)
         v[k] = (1 - m.a) * v[k] + m.a * μ
     end
     return nothing
 end
-function CR.pullback!(grads, m::Pool, ::CR.Step, v, s, t)
+function CR.pullback!(grads, m::ToMean, ::CR.Step, v, s, t)
     v̄ = grads.v
     μ, μ̄ = sum(v) / length(v), sum(v̄) / length(v̄)
     ā = sum(k -> v̄[k] * (μ - v[k]), eachindex(v))
@@ -341,7 +341,7 @@ function CR.pullback!(grads, m::Pool, ::CR.Step, v, s, t)
     return nothing
 end
 
-Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.0], stop = 3)
+Recurrence([0.5, 0.5]; modifiers = (ToMean(0.5),))(1.0; history = [1.0 2.0; 3.0 1.0], stop = 3)
 ```
 
 ## [A blockwise step](@id extending-blockwise)
@@ -411,7 +411,7 @@ One whose trace is not linear in the step's outputs computes them with the step'
 ## [A depletion form](@id extending-form)
 
 A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
-It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion), or as the form of a [`Pool`](@ref ComposableRecurrences.Pool)'s draw.
+It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion) as its `form`.
 This one takes what is asked, up to the pool:
 
 ```math
@@ -444,7 +444,7 @@ function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N, α)
     return nothing
 end
 
-d = CR.Depletion(10.0, Capped())
+d = CR.Depletion(10.0; form = Capped())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 

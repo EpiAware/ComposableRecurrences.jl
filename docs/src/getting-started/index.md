@@ -223,7 +223,7 @@ Imported infections are not drawn from the pool.
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι)))))
++renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop); form = Floor()), Add(TimeVarying(PerStratum(ι)))))
 ```
 
 ::: details The same change in the hand-written loop
@@ -255,7 +255,7 @@ end
 ι[3, 1:10] .= 5.0
 extended = Recurrence(
     gi; coupling = K,
-    modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι))))
+    modifiers = (Depletion(PerStratum(pop); form = Floor()), Add(TimeVarying(PerStratum(ι))))
 )
 maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι))
 ```

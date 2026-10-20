@@ -27,7 +27,7 @@
     function chain(ρ, ϵ)
         log_Rt = Recurrence(ρ)(1.0; history = init, add = ϵ, prepend = true)
         depletion = ComposableRecurrences.Depletion(
-            N, ComposableRecurrences.Floor()
+            N; form = ComposableRecurrences.Floor()
         )
         renewal = Recurrence(g; modifiers = (depletion,))
         infections = renewal(exp.(log_Rt); history = window)
@@ -55,7 +55,7 @@ end
     function chain(Rt)
         # The seed is drawn from the pool, so it starts at N − Σ seed.
         depletion = ComposableRecurrences.Depletion(
-            N; pool0 = max(N - sum(seed), 0)
+            N; pools = (S = max(N - sum(seed), 0),)
         )
         renewal = Recurrence(g; modifiers = (depletion,))
         infections = renewal(Rt; history = seed, start = length(seed) + 1, prepend = true)
