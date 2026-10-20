@@ -35,6 +35,20 @@ export scenarios, backends, broken_scenario_names,
 # returning `(v′, s′)`, so each user type here defines that method there.
 const IN_PLACE = isdefined(ComposableRecurrences, :forward!)
 
+# A `Depletion` with a form and a starting pool, spelled as the loaded release
+# takes it: by keyword since `Depletion` became the one pool type, and as a
+# positional form with `pool0` before.
+const KEYWORD_DEPLETION = try
+    ComposableRecurrences.Depletion(1.0; form = ComposableRecurrences.Hazard())
+    true
+catch
+    false
+end
+function depletion(N; form = ComposableRecurrences.Hazard(), pool0 = nothing, kw...)
+    KEYWORD_DEPLETION || return ComposableRecurrences.Depletion(N, form; pool0, kw...)
+    return ComposableRecurrences.Depletion(N; form, pools = (S = pool0,), kw...)
+end
+
 # A `forward!` method that writes in place on every release, an `Init` or a
 # `Pressure`: as written, or on a release before `forward!` as `forward`.
 macro in_place(def)
@@ -151,9 +165,7 @@ end
 
 function _renewal_strata(w, θ)
     g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
-    dep = ComposableRecurrences.Depletion(
-        PerStratum(POP); form = ComposableRecurrences.Floor()
-    )
+    dep = depletion(PerStratum(POP); form = ComposableRecurrences.Floor())
     r = Recurrence(g; coupling = K, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -164,9 +176,7 @@ end
 # every backend.
 function _heterogeneity(w, θ, form)
     α, logh, logR = _unpack(θ, (1,), (S, L), (S, T))
-    dep = ComposableRecurrences.Depletion(
-        PerStratum(POP); form = form, heterogeneity = only(α)
-    )
+    dep = depletion(PerStratum(POP); form = form, heterogeneity = only(α))
     r = Recurrence(G0; coupling = K0, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -190,9 +200,7 @@ function _array_and_scalar_fields(w, θ)
     logh = reshape(view(θ, 2:(1 + S * L)), S, L)
     logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
     mods = (
-        ComposableRecurrences.Depletion(
-            PerStratum(POP); form = ComposableRecurrences.Floor()
-        ),
+        depletion(PerStratum(POP); form = ComposableRecurrences.Floor()),
         ComposableRecurrences.Add(b),
     )
     y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
@@ -536,8 +544,8 @@ end
 # removal of 1000, so compiled ReverseDiff tapes, recorded at zero, take the
 # branches of the scenario point.
 function _empty_pool(w, θ)
-    d = ComposableRecurrences.Depletion(
-        100.0; heterogeneity = 1 + θ[1], pools = (S = 50 + θ[2],), removals = 1000 + θ[3]
+    d = depletion(
+        100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2], removals = 1000 + θ[3]
     )
     mods = (d, ComposableRecurrences.Add(1.0))
     y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
@@ -653,7 +661,7 @@ function _capacity_drop(w, θ)
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = CR.Depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
+    pool = depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
     beds = CR.Depletion(
         PerStratum(exp.(x[(n - 2):n])); pools = (:O,),
         form = CR.SoftTruncate(0.2), fill = :O, flows_first = true,
@@ -673,9 +681,7 @@ const TRUNC0 = _flat(fill(log(5.0), S, L), 0.5 .+ LOGR, log.([40.0, 60.0, 300.0]
 function _truncate(w, θ)
     x = TRUNC0[1:length(θ)] .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
-    d = ComposableRecurrences.Depletion(
-        PerStratum(exp.(logpool)); form = ComposableRecurrences.Truncate()
-    )
+    d = depletion(PerStratum(exp.(logpool)); form = ComposableRecurrences.Truncate())
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
 end
@@ -683,7 +689,7 @@ function _soft_truncate(w, θ)
     x = TRUNC0 .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
     form = ComposableRecurrences.SoftTruncate(x[length(x)])
-    d = ComposableRecurrences.Depletion(PerStratum(exp.(logpool)); form = form)
+    d = depletion(PerStratum(exp.(logpool)); form = form)
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
 end
@@ -1406,8 +1412,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
-    "Recurrence trace of a protected pool" => (:Trace,),
-    "Recurrence trace of a ward's flows" => (:Trace,),
+    "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
+    "Recurrence trace of a ward's flows" => (:Trace, :depletion_pools),
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
