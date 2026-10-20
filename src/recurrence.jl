@@ -621,12 +621,10 @@ end
 _join(history::AbstractVector, y) = vcat(history, y)
 # `cat` rather than `hcat`, which is ambiguous for some tracked array types.
 _join(history::AbstractMatrix, y) = cat(history, y; dims = 2)
-# The call branches on `prepend`, as a backend's interpreter may not fold
-# a runtime `Bool` into a type; both branches return the output's type.
-function _prepended_call(
-        prepend::Bool, route, history, op, args::Vararg{Any, N}
-    ) where {N}
-    prepend || return adjoint_call(_reroute(route, op), args...)
+# The call joins the history to the output when `prepend` is set, branching
+# on the `Bool`: a backend's interpreter may not fold it into a type, and
+# both branches return the output's type.
+function _prepended_call(route, history, op, args::Vararg{Any, N}) where {N}
     history === nothing &&
         throw(ArgumentError("prepend = true needs a history, not nothing"))
     return adjoint_call(_reroute(route, _Prepended(op)), args...)
@@ -677,10 +675,13 @@ _traced(::Nothing) = Val(false)
 _traced(trace::Bool) = Val(trace)
 # Without a trace, the output; with one, `(y, trace)`.
 function _call(::Val{false}, r, route, history, prepend, args, stop)
-    return _prepended_call(prepend, route, history, r, args..., stop)
+    prepend && return _prepended_call(route, history, r, args..., stop)
+    return adjoint_call(route, args..., stop)
 end
 function _call(::Val{true}, r, route, history, prepend, args, stop)
-    return _prepended_call(prepend, route, history, _WithTrace(r), args..., stop)
+    op = _WithTrace(r)
+    prepend && return _prepended_call(route, history, op, args..., stop)
+    return adjoint_call(_reroute(route, op), args..., stop)
 end
 
 function _run_args(r, gain, history, state, add, start)
@@ -723,11 +724,14 @@ Base.@constprop :aggressive function _with_state(
 end
 # Without a trace, `(y, state)`; with one, `((y, trace), state)`.
 function _state_call(::Val{false}, r, route, history, prepend, args, stop)
-    return _prepended_call(prepend, route, history, _WithState(r), args..., stop)
+    op = _WithState(r)
+    prepend && return _prepended_call(route, history, op, args..., stop)
+    return adjoint_call(_reroute(route, op), args..., stop)
 end
 function _state_call(::Val{true}, r, route, history, prepend, args, stop)
     op = _WithTrace(_WithState(r))
-    (y, st), tr = _prepended_call(prepend, route, history, op, args..., stop)
+    (y, st), tr = prepend ? _prepended_call(route, history, op, args..., stop) :
+        adjoint_call(_reroute(route, op), args..., stop)
     return (y, tr), st
 end
 
