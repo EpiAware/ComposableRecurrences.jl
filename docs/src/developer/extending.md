@@ -12,8 +12,8 @@ const CR = ComposableRecurrences
 ## [Roles](@id extending-roles)
 
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
-For a step, an initial state or a coupling's mixing, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
-A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is the exception: it is read from the step's records, its `forward` and `pullback!` return the values for one stratum or group, and it will move to `forward!`.
+For a step, an initial state, a coupling's mixing or a modifier's trace, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
+A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
 An operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
 
 | Type | `forward!` | `pullback!` | `grads` |
@@ -23,8 +23,8 @@ An operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurre
 | initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
 | coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
 | depletion form | `forward!(form, Step(), v, s, N, α)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N, α)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, and add those of `N` and `α` into `N` and `α`, which are indexed as `v` is |
-| pointwise modifier trace | `forward(m, Trace(), v, s, v′, s′, t, k)` returns a tuple | `pullback!(grads, m, Trace(), v, s, t, k)`, returning `(v̄, s̄, v̄′, s̄′)` | `piece`; `trace` holds the tuple's cotangents |
-| blockwise modifier group trace | `forward(m, Trace(), v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` returns a tuple | `pullback!(grads, m, Trace(), v, s, t, g)`, returning tuples `(v̄, s̄, v̄′, s̄′)` | `piece`; `trace` holds the tuple's cotangents |
+| modifier trace | `forward!(m, Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
+| blockwise modifier group trace | `forward!(m, Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
 
 The arguments mean the same in every role:
 
@@ -372,7 +372,7 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 ## [A trace](@id extending-trace)
 
 A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps; [`Trace`](@ref ComposableRecurrences.Trace) gives the default, the built-in traces and the layout of the rows.
-A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`.
+A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 
 ```math
@@ -390,11 +390,20 @@ Two values per stratum give ``2S`` rows.
 
 ```@example extending
 CR.ntrace(::Smooth, S) = 2S
-CR.forward(m::Smooth, ::CR.Trace, v, s, v′, s′, t, k) = (s′, v - s′)
-function CR.pullback!(grads, m::Smooth, ::CR.Trace, v, s, t, k)
+function CR.forward!(m::Smooth, ::CR.Trace, r, v, s, v′, s′, t)
+    smoothed, left = r
+    for k in eachindex(v)
+        smoothed[k], left[k] = s′[k], v[k] - s′[k]
+    end
+    return nothing
+end
+function CR.pullback!(grads, m::Smooth, ::CR.Trace, v, s, t)
     s̄′, r̄ = grads.trace
-    z = zero(r̄)
-    return r̄, z, z, s̄′ - r̄
+    for k in eachindex(v)
+        grads.v[k] += r̄[k]
+        grads.s′[k] += s̄′[k] - r̄[k]
+    end
+    return nothing
 end
 
 r = Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))
@@ -402,7 +411,7 @@ y, trace = r(2.0; history = [1.0, 2.0], stop = 4, trace = true)
 only(trace.modifiers)
 ```
 
-A blockwise modifier records its trace per group from tuples.
+A blockwise modifier records its trace per group, on tuples of one-entry views, as its step.
 The pullback is given the values before the step, `v` and `s`.
 One whose trace is not linear in the step's outputs computes them with the step's `forward!`.
 

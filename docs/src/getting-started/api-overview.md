@@ -143,7 +143,10 @@ A package that owns a delay type adds a method for it, as the `delay_masses` doc
 An array of delays is read by its element type, so that type needs a `delay_masses` method.
 `lags` has no default, since where a delay is cut is a modelling choice.
 A kernel of delays without `lags` is an error, and so is `lags` on a kernel with no delays.
-A continuous distribution is an error until it is discretised, for example by interval censoring.
+A continuous distribution has masses once a censoring choice discretises it.
+Loading [CensoredDistributions](https://censoreddistributions.epiaware.org) as well makes that choice with its defaults: `delay_masses(d, lags; interval = 1)` takes the masses of `double_interval_censored(d; interval)`.
+Without it, a continuous distribution is an error that names it.
+The [CensoredDistributions extension](@ref extension-censored-distributions) page has an example.
 Gradients reach the delays' parameters through their masses.
 
 ```jldoctest
@@ -248,9 +251,9 @@ A model built from the package's own parts needs none of them.
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
 | [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward) | an operator's whole call, which the rules and `test_adjoint` use | `(y, cache)` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure) | the job a `forward!` method does: one step, the starting state, a coupling's mixing | singletons for dispatch |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the job a `forward!` method does: one step, the starting state, a coupling's mixing, a modifier's record for a call with `trace = true` | singletons for dispatch |
 | [`Run()`](@ref ComposableRecurrences.Run) | the job of `forward`: an operator's whole call | a singleton for dispatch |
-| [`Trace()`](@ref ComposableRecurrences.Trace), [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | what a modifier records for a call with `trace = true`, and how many rows | a tuple of values, and an `Int` |
+| [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |
