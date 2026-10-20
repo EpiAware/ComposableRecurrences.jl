@@ -116,32 +116,16 @@ else
     end
 end
 
-# Consecutive blocks of `θ` with the given shapes, as reshaped views.
-# Enzyme, up to 0.13.216 at least, fails one way of building them on each
-# side of Julia 1.12:
-# - On 1.11 the closure below, which captures a boxed offset, leaves every
-#   scenario uninferred, and Enzyme reverse mode then returns zero for the
-#   scalar parameters of an operator. So 1.11 takes the inferred recursion.
-# - From 1.12 Enzyme forward mode corrupts the heap after some thousands of
-#   calls of the inferred scenarios. So these versions keep the closure,
-#   whose gradients are right there.
-@static if VERSION < v"1.12"
-    _unpack(θ, shapes...) = _unpack_from(θ, 0, shapes...)
-    _unpack_from(θ, o) = ()
-    function _unpack_from(θ, o, sh, rest...)
-        n = prod(sh)
-        x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        return (x, _unpack_from(θ, o + n, rest...)...)
-    end
-else
-    function _unpack(θ, shapes...)
-        o = 0
-        return map(shapes) do sh
-            n = prod(sh)
-            x = reshape(view(θ, (o + 1):(o + n)), sh...)
-            o += n
-            x
-        end
+# Consecutive blocks of `θ` with the given shapes, as reshaped views. The
+# block ends are a tuple computed before the blocks are built, so the blocks
+# are inferred: a closure that captured and advanced an offset would box it,
+# and Enzyme cannot differentiate every scenario built from uninferred
+# blocks. It is not inlined, so the block ranges are not folded into
+# constants that Enzyme cannot type when a scenario is called dynamically.
+@noinline function _unpack(θ, shapes::Vararg{Tuple, N}) where {N}
+    lens = map(prod, shapes)
+    return map(shapes, cumsum(lens), lens) do sh, stop, n
+        reshape(view(θ, (stop - n + 1):stop), sh...)
     end
 end
 
@@ -282,15 +266,8 @@ end
 
 # Movement whose intensity reads the recent outputs: each origin sends
 # more as its own incidence rises, through a kernel and a scale in `θ`.
-# The model is built behind a function barrier: Enzyme reverse finds no
-# shadow for the intensity when the uninferred blocks from `_unpack`
-# reach it directly.
 function _movement_recent(w, θ)
     K, κ, logh, logR = _unpack(θ, (S, S), (1,), (S, L), (S, T))
-    return _movement_recent(w, K, κ, logh, logR)
-end
-
-function _movement_recent(w, K, κ, logh, logR)
     ε = Derived(x -> 0.2 * tanh(x), κ[1] * ComposableRecurrences.Recent(3))
     mods = (
         ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
@@ -1422,6 +1399,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:movement,),
+    "Recurrence Redistribute, Add and Clamp" => (:movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:movement, :_intensity, :Recent),
@@ -1438,6 +1416,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
     "Recurrence waning protection (Depletion flows)" => (:depletion_pools,),
     "Recurrence protected pool in Float32" => (:depletion_pools,),
+    "Recurrence pool with twelve flows (over 32 leaves)" => (:depletion_pools,),
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
@@ -1693,8 +1672,13 @@ function unsupported_scenarios()
     ]
 end
 
+# Each scenario is reached through one dynamic call, so Enzyme compiles a
+# scenario once and reuses it across the operators a test runs, while the
+# scenario itself, from its parameter blocks on, is inferred.
+_dynamic(f) = θ -> Base.inferencebarrier(f)(θ)
+
 const _TWINS = Tuple{String, Any, Any}[
-    (prefix * name, Base.Fix1(f, wrap), θ0)
+    (prefix * name, _dynamic(Base.Fix1(f, wrap)), θ0)
         for (prefix, wrap, extra) in (
             ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
         )
