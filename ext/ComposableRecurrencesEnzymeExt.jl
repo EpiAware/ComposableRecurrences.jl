@@ -41,20 +41,18 @@ _ez(a::MixedDuplicated, mode) = _ezs(a.val, a.dval[], mode)
 _ezs(x::_IEEEFloat, dx, mode) = Ref(zero(x))
 _ezs(::_Inert, dx, mode) = nothing
 _ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx, mode) = nothing
-_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray, ::_Shared) = dx === x ? nothing : dx
-_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray, ::_Distinct) = dx
+_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray, mode) = _unshared(x, dx, mode)
 # A kernel's columns: each column's mirror from its own shadow.
-function _ezs(
-        x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector, mode::_Shared
-    )
-    return dx === x ? nothing : map((a, b) -> _ezs(a, b, mode), x, dx)
+function _ezs(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector, mode)
+    return _unshared(x, map((a, b) -> _ezs(a, b, mode), x, dx), dx, mode)
 end
-function _ezs(
-        x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector,
-        mode::_Distinct
-    )
-    return map((a, b) -> _ezs(a, b, mode), x, dx)
-end
+# A shadow, or `nothing` where it is the primal in the `_Shared` mode. The
+# mode is read here rather than in `_ezs`, whose methods for structured
+# arrays it would make ambiguous.
+_unshared(x, dx, ::_Shared) = dx === x ? nothing : dx
+_unshared(x, dx, ::_Distinct) = dx
+_unshared(x, m, dx, ::_Shared) = dx === x ? nothing : m
+_unshared(x, m, dx, ::_Distinct) = m
 function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC, mode)
     return (; nzval = _ezs(nonzeros(x), nonzeros(dx), mode))
 end
