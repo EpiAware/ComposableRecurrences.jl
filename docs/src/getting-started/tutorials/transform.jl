@@ -2,10 +2,8 @@
 #
 # ## Introduction
 #
-# A branching process follows the offspring of each case.
-# Its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
-# This tutorial computes mean cases with types, isolation and contact tracing, and the probability of extinction by generation.
-# These are expectations of branching processes, not simulated chains.
+# A branching process follows the offspring of each case, and its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
+# This tutorial computes these expectations; it does not simulate chains.
 #
 # ### What are we going to do in this exercise
 #
@@ -16,7 +14,7 @@
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on [Getting started](@ref getting-started) and uses couplings and [`Pairwise`](@ref) kernels from [Shapes and couplings](@ref explanation-shapes-couplings).
+# This builds on [Getting started](@ref getting-started) and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
 # No fitting is involved.
 
 # ## Packages used
@@ -62,7 +60,7 @@ end
 
 # After a few generations both types grow at the same rate, in a fixed ratio.
 
-# ## Isolation as a thinned kernel
+# ## [Isolation as a thinned kernel](@id tutorial-isolation-thinning)
 #
 # Isolating a share `p` of cases blocks a share `b` of their later transmission.
 # ``F_D(\tau)`` is the probability a case is isolated by lag ``\tau``.
@@ -95,8 +93,7 @@ end
 #
 # The delay to isolation can depend on a case's state.
 # Once a household's first case is found, later cases in it are found sooner.
-# In expectation each type gets its own thinned kernel.
-# This is a [`PerStratum`](@ref) kernel by infector type.
+# In expectation each infector type gets its own thinned kernel, a [`PerStratum`](@ref) kernel.
 # Type 1 is a household's first case and type 2 a later case.
 # `M_house` is the mean offspring matrix.
 # The next-generation matrix scales each column of `M_house` by its type's kernel sum.

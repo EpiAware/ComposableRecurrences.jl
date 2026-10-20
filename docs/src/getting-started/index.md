@@ -9,8 +9,10 @@ Computational efficiency is a main focus; see [Performance](@ref overview-perfor
 ## [Building the model](@id overview-build)
 
 Three towns share an outbreak.
-This section builds a model of it in five steps, giving the equation and then the code at each step.
-The equations follow the [`Recurrence`](@ref), [`Depletion`](@ref ComposableRecurrences.Depletion) and [`Convolution`](@ref) docstrings.
+This section builds a model of it in five steps.
+Each step gives the equation, then the code, then a plot of what the step adds.
+The model and numbers are those of the README.
+The equations follow the [`Recurrence`](@ref), [`Convolution`](@ref) and [`Depletion`](@ref ComposableRecurrences.Depletion) docstrings.
 
 ```@example overview
 using ComposableRecurrences
@@ -19,6 +21,13 @@ using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff, Markdown
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
+
+# The rows of `x` as named series in a long table, one row per day.
+long(x, names; name = :town) = @chain DataFrame(permutedims(x), names) begin
+    @transform(:day = 1:size(x, 2))
+    stack(Not(:day); variable_name = name, value_name = :count)
+end
+small = (size = (600, 280),)
 nothing # hide
 ```
 
@@ -39,8 +48,43 @@ Infections before the first day are the history.
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 T = 75
 one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
-round.(one_town[1:8])
+
+@chain DataFrame(day = 1:T, count = one_town) begin
+    data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"), figure = small)
+end
 ```
+
+Nothing limits growth yet, so infections grow exponentially.
+
+### A reporting delay
+
+A share ``\rho`` of infections is reported, after a delay:
+
+```math
+C_t = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l},
+```
+
+where ``C_t`` is the number of reports on day ``t``.
+``w_l`` is the delay's weight on lag ``l``, and ``L_w`` is its length.
+Infections before day 1 count as zero here.
+``\rho`` is the gain of the [`Convolution`](@ref), and a delay of zero days is lag 0.
+
+```@example overview
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+one_report = delay(one_town; gain = 0.4)
+
+@chain long([one_town one_report]', ["Infections", "Reports"]; name = :series) begin
+    data(_) * mapping(:day, :count, color = :series => "") *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Daily count"), figure = small)
+end
+```
+
+The gain reports 40% of infections, spread over the days that follow by the delay.
+While infections grow, reports lag them, so each day's reports are about a quarter of that day's infections.
+These two steps are the usual model of infections and their reports.
+Each later step adds one part to it.
 
 ### Three towns and a gravity coupling
 
@@ -69,8 +113,19 @@ K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; di
 
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 coupled = Recurrence(gi; coupling = K)(fill(1.8, 3, T); history = seed)
-round.(coupled[:, 10])
+
+@chain long(coupled, towns) begin
+    data(_) * mapping(:day, :count, color = :town => "Town") *
+        visual(Lines, linewidth = 2)
+    draw(
+        _; axis = (xlabel = "Day", ylabel = "Infections", yscale = log10),
+        figure = small
+    )
+end
 ```
+
+Towns B and C start from infections that town A passes on.
+They then grow at about the same rate as town A.
 
 ### Depletion
 
@@ -90,26 +145,20 @@ where ``v_{t,i}`` is the right-hand side of the coupled equation above.
 ```@example overview
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 depleted = renewal(fill(1.8, 3, T); history = seed)
-round.(vec(sum(depleted; dims = 2)))
+
+@chain long(depleted, towns) begin
+    data(_) * mapping(:day, :count, color = :town => "Town") *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"), figure = small)
+end
 ```
 
-Each town's total infections now stay below its population.
-
-### A reporting delay
-
-A share ``\rho`` of infections is reported, after a delay:
-
-```math
-C_{t,i} = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i},
-```
-
-where ``C_{t,i}`` is the number of reports on day ``t``.
-``w_l`` is the delay's weight on lag ``l``, and ``L_w`` is its length.
-Infections before day 1 count as zero here.
-``\rho`` is the gain of the [`Convolution`](@ref), and a delay of zero days is lag 0.
+Each outbreak now peaks and declines as its pool runs down.
+Town A peaks first, and towns B and C about two weeks later.
+About 73% of each town is infected by the end.
+The delay from the second step gives each town's total reports over the 75 days:
 
 ```@example overview
-delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
 ```
 
@@ -121,27 +170,21 @@ An intervention from day 50 lowers the reproduction number over six days:
 R_{t,i} = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
 ```
 
+The reports are those of the delay above, applied to each town.
+The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
+
 ```@example overview
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4)
-round.(vec(sum(reports; dims = 2)))
-```
 
-The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
-
-```@example overview
-long(x) = @chain DataFrame(permutedims(x), towns) begin
-    @transform(:day = 1:T)
-    stack(Not(:day); variable_name = :town, value_name = :count)
-end
 susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
 @chain [
         ("Infections", "Daily count") => infections,
         ("Reports", "Daily count") => reports,
         ("Susceptible", "Susceptible share") => susceptible,
     ] begin
-    map((((series, panel), x),) -> @transform(long(x), :series = series, :panel = panel), _)
+    map((((series, panel), x),) -> @transform(long(x, towns), :series = series, :panel = panel), _)
     reduce(vcat, _)
     data(_) * mapping(:day, :count => "", color = :series => "", row = :panel, col = :town) *
         visual(Lines, linewidth = 2)
@@ -219,7 +262,7 @@ I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
 where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the imported infections.
-Imported infections are not drawn from the pool.
+[Imported cases](@ref tutorial-imports) compares imports before and after depletion.
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
@@ -272,7 +315,7 @@ size(∂R)
 ```
 
 ```@example overview
-@chain long(∂R) begin
+@chain long(∂R, towns) begin
     data(_) * mapping(:day, :town, :count => "∂ reports / ∂R") * visual(Heatmap)
     draw(_; axis = (xlabel = "Day", ylabel = "Town"))
 end

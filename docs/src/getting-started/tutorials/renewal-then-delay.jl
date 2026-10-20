@@ -3,7 +3,7 @@
 # ## Introduction
 #
 # [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
-# This tutorial covers what it leaves out: seeding, depletion forms, vaccination, imports, clinical outcomes and forecasts.
+# This tutorial adds the parts it leaves out.
 #
 # ### What are we going to do in this exercise
 #
@@ -12,12 +12,11 @@
 # 3. Vaccinate with all-or-nothing, leaky and waning protection.
 # 4. Add imported cases before or after depletion.
 # 5. Chain delays for clinical outcomes.
-# 6. Forecast by continuing the renewal process from its last fitted day.
+# 6. Forecast by continuing from the last fitted day.
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the [Getting started](@ref getting-started) example.
-# No fitting is involved.
+# It builds on the [Getting started](@ref getting-started) example, with no fitting.
 
 # ## Packages used
 
@@ -31,11 +30,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A renewal process
 #
-# The renewal process is the one in [Getting started](@ref overview-build), with a reproduction number that changes on days 30 and 50:
-#
-# ```math
-# I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
-# ```
+# The renewal process is the one in [Getting started](@ref overview-build), with a reproduction number that changes on days 30 and 50.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 renewal = Recurrence(gi)
@@ -46,10 +41,8 @@ infections = renewal(R; history = [5.0])
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
-# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed.
-# The seed is already growing at rate `r`.
-# Its docstring states the equation linking `r` to `R` for a generation interval.
-# A few Newton steps solve it.
+# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r` (see [Seeding](@ref explanation-seeding)).
+# Its docstring gives the equation linking `r` to `R`, and a few Newton steps solve it.
 
 euler_lotka(r, R, gi) = R * sum(gi[l] * exp(-r * l) for l in eachindex(gi)) - 1
 function growth_rate(R, gi; r = 0.0)
@@ -66,21 +59,8 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 # ## Susceptible depletion
 #
-# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles.
-# The default `Hazard()` form draws
-#
-# ```math
-# I_t = s_{t-1} \big(1 - e^{-v_t / N}\big), \qquad s_t = s_{t-1} \, e^{-v_t / N}.
-# ```
-#
-# Here ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value.
-# ``s_t`` is the pool after day ``t``.
-# The pool starts at ``N`` and never goes negative.
-# The `Floor()` form draws
-#
-# ```math
-# I_t = \max\big(\max(s_{t-1} / N, 0),\ 10^{-6}\big) \, v_t, \qquad s_t = s_{t-1} - I_t.
-# ```
+# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the hazard form, which [Getting started](@ref overview-build) gives.
+# `Depletion(N, Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
 
 N = 2_000.0
 R_high = fill(1.8, T)
@@ -100,7 +80,7 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 
 # Both forms end the outbreak as the pool empties.
 # The hazard form draws slightly less at the peak and leaves more susceptibles, as the remaining pools show.
-# This is because ``1 - e^{-x}`` is below ``x``.
+# This is because the hazard form draws ``1 - e^{-x}`` where the floored form draws ``x``, and ``1 - e^{-x}`` is below ``x``.
 
 # ## Vaccination
 #
@@ -116,7 +96,7 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 # \end{aligned}
 # ```
 #
-# where ``S_t`` is the susceptible pool, ``s_t`` above, and ``V_t`` the protected pool.
+# where ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value, ``S_t`` the susceptible pool and ``V_t`` the protected pool.
 # ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the doses on day ``t`` and ``m_t`` the doses moved.
 # The doses are capped by what remains of ``S``.
 # A [`Pool`](@ref ComposableRecurrences.Pool) holds both pools, `:S` and `:V`.
@@ -224,12 +204,9 @@ round.((sum(admissions), sum(deaths)) ./ sum(infections); digits = 3)
 
 # ## Forecasting by continuing a run
 #
-# `with_state(renewal, R; history, stop = 50)` runs the renewal to day 50.
-# It also returns a `State`.
-# The state holds the last five infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
-# It also holds the state of any modifiers, such as a remaining pool (none here).
-# Passing it back as `state` continues the run.
-# A forecast then needs no rerun of the fitted period.
+# `with_state(renewal, R; history, stop = 50)` runs to day 50 and also returns a `State`.
+# Here the state holds the infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
+# Passing it back as `state` continues the run; [History and state](@ref explanation-history-state) explains what a `State` holds.
 
 split = 50
 fitted, state = with_state(renewal, R; history = [5.0], stop = split)
@@ -241,7 +218,6 @@ forecast = renewal(R; state)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# The forecast continues from the state on day 50, with no rerun of the first 50 days.
 # The two calls together match one call over all 80 days exactly.
 
 maximum(abs, vcat(fitted, forecast) .- infections)

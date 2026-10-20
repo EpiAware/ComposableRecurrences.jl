@@ -3,10 +3,7 @@
 # ## Introduction
 #
 # Reporting delays and generation intervals often change as testing or behaviour changes.
-# A [`TimeVarying`](@ref) kernel has one column per day.
-# A delay's column can be read by the day a case is reported or the day it is infected.
-# This tutorial shows both and checks which one conserves cases.
-# It then uses a changing generation interval in a renewal process.
+# A [`TimeVarying`](@ref) kernel models this with one column per day.
 #
 # ### What are we going to do in this exercise
 #
@@ -14,12 +11,11 @@
 # 2. Report infections through it, indexed by report day and by infection day.
 # 3. Check which indexing conserves the total.
 # 4. Run a renewal process with a generation interval that shortens.
-# 5. Model an isolation policy that starts on a set day, by the day each case was infected.
+# 5. Model an isolation policy that starts on a set day.
 #
 # ### What might I need to know before starting
 #
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay), which uses fixed kernels.
-# No fitting is involved.
+# It builds on [Renewal then delay](@ref tutorial-renewal-delay), with no fitting.
 
 # ## Packages used
 
@@ -62,9 +58,8 @@ end
 #
 # where ``I_t`` is the number of infections and ``C_t`` the reports on day ``t``.
 # ``L_d`` is the delay's length, `D` in the code.
-# [`Secondary()`](@ref ComposableRecurrences.Secondary) is the default.
-# With it, column `t` is a report day.
-# With [`Primary()`](@ref ComposableRecurrences.Primary) column `s` is the infection day.
+# With the default [`Secondary()`](@ref ComposableRecurrences.Secondary), column `t` is a report day.
+# With [`Primary()`](@ref ComposableRecurrences.Primary), column `s` is the infection day.
 # A constant delay at the starting mean is a reference.
 
 infections = [100 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -89,8 +84,7 @@ end
 # ## Which indexing conserves cases
 #
 # By infection day, each infection's delay sums to one, so each case is reported once.
-# Indexed by report day, each day's weights sum to one.
-# But several columns with different delays can count one infection, so the total drifts.
+# Indexed by report day, each day's weights sum to one, but several columns with different delays can count one infection, so the total drifts.
 
 cumulative = @chain reports begin
     @groupby(:series)
@@ -102,8 +96,7 @@ end
 end
 
 # Indexed by infection day, the cumulative reports reach the cumulative infections.
-# Indexed by report day, they overshoot by about 2%.
-# Some infections are counted on more than one day as the delay shortens after day 40.
+# Indexed by report day, they overshoot by about 2%, as the delay shortens after day 40 and some infections are counted on more than one day.
 #
 # The totals by the end of the window:
 
@@ -144,13 +137,11 @@ end
 
 # ## An isolation policy that starts on a set day
 #
-# A recurrence kernel can also be read by the day each case was infected.
-# Then each case keeps the generation interval of the day it was infected.
-# That is a cohort effect.
+# A recurrence kernel read by infection day gives each case the generation interval of the day it was infected, a cohort effect.
 # A `Secondary()` kernel is a period effect, the same for every case on a given day.
 #
-# A case infected on day ``c`` is isolated with probability ``p`` after a delay ``D``.
-# Isolation blocks a share ``b`` of its later transmission.
+# Isolation thins the generation interval, as [Isolation as a thinned kernel](@ref tutorial-isolation-thinning) derives.
+# Here a case infected on day ``c`` is isolated with probability ``p`` after a delay ``D``, and isolation blocks a share ``b`` of its later transmission.
 # The policy starts on day ``t_0``; an isolation that would fall before it does not happen.
 # The expected generation interval of cohort ``c`` at lag ``l`` is then
 #
@@ -183,12 +174,9 @@ seeded_iso(kernel) = Recurrence(kernel)(R_iso; history = seed_iso, start = 7, pr
 end
 
 # Without isolation the outbreak keeps growing; both isolation curves turn down near day 30.
-# Read by calendar day, every case infectious on day 30 is thinned at once.
-# It is as if its isolation had applied from infection, so infections halve that day.
-# Read by infection day, cases infected just before day 30 keep most of their transmission.
-# Their isolation would be dated before the policy starts, so it does not happen.
-# Infections then peak on day 31.
-# The extra cases seed later generations, so infections stay just under twice as high.
+# Read by calendar day, every case infectious on day 30 is thinned at once, as if isolated from infection, so infections halve that day.
+# Read by infection day, cases infected shortly before day 30 keep most of their transmission, because their isolation would fall before the policy starts.
+# Infections then peak on day 31, and the extra cases seed later generations, so infections stay nearly twice as high.
 
 # ## Learning more
 #
