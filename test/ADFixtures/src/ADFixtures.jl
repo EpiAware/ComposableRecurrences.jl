@@ -1810,14 +1810,22 @@ Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
 On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
 "Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
-rule is correct and runs. Every other scenario and its `NoAdjoint` twin
-passes on every backend.
+rule is correct and runs.
+From Julia 1.12, Enzyme forward mode gives a wrong gradient for a
+whole-step modifier holding a float vector, or fails its type analysis,
+on main as on this scenario; forward modes never take the rule, so both
+twins are plain AD. On 1.11 it is right.
+Every other scenario and its `NoAdjoint` twin passes on every backend.
 """
 function backend_broken_scenarios()
-    VERSION < v"1.12" || return Dict{String, Set{String}}()
-    return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
-    )
+    if VERSION < v"1.12"
+        return Dict(
+            "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
+        )
+    end
+    whole = "Recurrence whole-step modifier holding a vector"
+    supports(_requires(whole)...) || return Dict{String, Set{String}}()
+    return Dict("Enzyme forward" => Set([whole, "NoAdjoint " * whole]))
 end
 
 """
