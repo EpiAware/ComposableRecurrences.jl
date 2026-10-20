@@ -110,7 +110,20 @@ Recent(w::AbstractVector{<:Real}; coupling = nothing) = Recent(w, coupling)
 Recent(n::Integer; coupling = nothing) = Recent(n, coupling)
 function Recent(n::Integer, coupling)
     n >= 1 || throw(ArgumentError("Recent(n) needs n >= 1 outputs; got n = $n"))
-    return Recent(fill(true, n), coupling)
+    return Recent(_Ones(n), coupling)
+end
+
+# The weights of `Recent(n)`: `n` ones, held as their count. A parameter
+# such as `κ * Recent(n)` then holds no array beside its scalar, a value
+# that some reverse-mode AD cannot pass through a dynamic call.
+struct _Ones <: AbstractVector{Bool}
+    n::Int
+end
+Base.size(w::_Ones) = (w.n,)
+Base.IndexStyle(::Type{_Ones}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(w::_Ones, l::Int)
+    @boundscheck checkbounds(w, l)
+    return true
 end
 
 # A short description for errors: the weights and the coupling's size.
