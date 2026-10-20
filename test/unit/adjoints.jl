@@ -759,6 +759,28 @@ end
     @test constant_kernel_matches(r, recargs(R, nothing, h; start = 5)...)
 end
 
+@testitem "Adjoint: the Enzyme entry point takes the operator in a Ref or by value" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # An operator holding a float outside its arrays reaches the rule in a
+    # `Ref`; any other is passed by value. Either way the call is the
+    # operator's own.
+    R, h = fill(1.1, 2, 5), ones(2, 2)
+    args = recargs(R, nothing, h)
+    for r in (
+            Recurrence([0.3, 0.2]; modifiers = (CR.Add(0.5),)),
+            Recurrence([0.3, 0.2]),
+        )
+        y = r(R; history = h)
+        @test CR._ad_call(Ref(r), args...) == y
+        @test CR._ad_call(r, args...) == y
+    end
+    @test CR._scalar_floats(typeof(Recurrence([0.3, 0.2]; modifiers = (CR.Add(0.5),))))
+    @test !CR._scalar_floats(typeof(Recurrence([0.3, 0.2])))
+    @test CR._scalar_floats(Float32)
+    @test !CR._scalar_floats(Vector{Float64})
+    @test !CR._scalar_floats(Base.RefValue{Float64})
+end
+
 @testitem "Adjoint: routing by uses_adjoint" setup = [ReferenceAD, AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences, ConstructionBase, ForwardDiff
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
