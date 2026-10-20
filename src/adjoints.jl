@@ -183,26 +183,36 @@ _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
 # The primal call, which the extensions make a rule primitive: `Mooncake`'s
-# rule is on `_ad`, and `Enzyme`'s on `_ad_call`, which takes the operator in
-# a `Ref` in code `Enzyme` traces. A mutable `Ref` has a `Duplicated` shadow
-# whatever the operator holds, so the rule writes every cotangent into that
-# shadow; passed by value, an operator holding both an array and a float
-# would be annotated `MixedDuplicated`, which `Enzyme` rejects for a custom
-# rule when the float is constant. The arguments are passed as they are, so
-# each takes its own annotation: in one `Ref` with the operator, a constant
-# argument would sit in active memory, which needs runtime activity. Code
-# that is not traced (`_untraced`) calls the operator directly, without the
-# `Ref`.
+# rule is on `_ad`, and `Enzyme`'s on `_ad_call` in code `Enzyme` traces.
+# An operator that holds a float outside its arrays goes to `_ad_call` in a
+# `Ref`: a mutable `Ref` has a `Duplicated` shadow whatever the operator
+# holds, so the rule writes the float's cotangent into that shadow. Passed
+# by value with an array, the float's operator would be annotated
+# `MixedDuplicated`, which `Enzyme` rejects for a custom rule when the
+# float is constant. Any other operator is passed by value, as a `Ref`
+# around it needs runtime activity to hold its constant fields. The
+# arguments are passed as they are, so each takes its own annotation. Code
+# that is not traced (`_untraced`) calls the operator directly.
 _primal(op, args...) = first(_run_forward(op, args...))
 @static if VERSION >= v"1.12"
     function _ad(op, args::Vararg{Any, N}) where {N}
         _untraced() && return _primal(op, args...)
-        return _ad_call(Ref(op), args...)
+        _scalar_floats(typeof(op)) && return _ad_call(Ref(op), args...)
+        return _ad_call(op, args...)
     end
 else
     include("adjoint_leaves.jl")
 end
-@inline _ad_call(op::Base.RefValue, args::Vararg{Any, N}) where {N} = _primal(op[], args...)
+_ad_call(op, args::Vararg{Any, N}) where {N} = _primal(_unbox(op), args...)
+_unbox(op::Base.RefValue) = op[]
+_unbox(op) = op
+# Whether a value of type `T` holds a float outside any array, read from the
+# type alone.
+Base.@assume_effects :foldable function _scalar_floats(::Type{T}) where {T}
+    T <: Base.IEEEFloat && return true
+    isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
+    return any(_scalar_floats, fieldtypes(T))
+end
 _plain(op, args...) = _primal(op, args...)
 # A call the backend differentiates by plain AD first passes through this
 # hook, which does nothing; the `Enzyme` extension's reverse rule for it

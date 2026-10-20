@@ -12,7 +12,7 @@ module ComposableRecurrencesEnzymeExt
 using ComposableRecurrences: PerStratum, Recurrence, Serial, _Current,
     _WithState, _ad_call, _check_form, _check_now, _check_parts, _check_secondary,
     _current, _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!,
-    _plain, _plain_hook, _route_forward!, _run_forward, _run_pullback!,
+    _plain, _plain_hook, _route_forward!, _run_forward, _run_pullback!, _unbox,
     _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
@@ -346,15 +346,19 @@ function EnzymeRules.reverse(
     throw(ErrorException(_FFT_TRACED))
 end
 
-# The operator in its `Ref`, and its shadow when it has one. Under runtime
-# activity a constant `Ref` comes as its own shadow.
-_boxed(x::Const) = x.val[], nothing
-_boxed(x::Union{Duplicated, DuplicatedNoNeed}) = x.val[], x.dval === x.val ? nothing : x.dval
-function _boxed(x::Annotation)
+# The operator, in its `Ref` or by value, and its mirror's source: the
+# shadow when it has one. Under runtime activity a constant `Ref` or array
+# comes as its own shadow.
+_operator(x::Const) = _unbox(x.val), nothing
+function _operator(x::Union{Duplicated{<:Base.RefValue}, DuplicatedNoNeed{<:Base.RefValue}})
+    return x.val[], x.dval === x.val ? nothing : x.dval
+end
+_operator(x::Union{Duplicated, DuplicatedNoNeed}) = x.val, Ref(x.dval)
+function _operator(x::Annotation)
     throw(
         ArgumentError(
-            "the Enzyme rule takes its operator as a Const or Duplicated Ref; got " *
-                "$(nameof(typeof(x)))"
+            "the Enzyme rule takes an operator holding scalar floats in a " *
+                "Const or Duplicated Ref; got $(nameof(typeof(x)))"
         )
     )
 end
@@ -368,7 +372,7 @@ function EnzymeRules.augmented_primal(
     ) where {RA <: Annotation, N}
     EnzymeRules.width(config) == 1 ||
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
-    y, cache = _run_forward(first(_boxed(op)), map(_val, args)...)
+    y, cache = _run_forward(first(_operator(op)), map(_val, args)...)
     dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
     ret = EnzymeRules.needs_primal(config) ? y : nothing
     R = eltype(RA)
@@ -384,7 +388,7 @@ function EnzymeRules.reverse(
     ) where {N}
     cache, y, dy = tape
     dy === nothing && return (nothing, map(_ -> nothing, args)...)
-    o, dop = _boxed(op)
+    o, dop = _operator(op)
     m = dop === nothing ? nothing : _ezs(o, dop[])
     ms = map(_ez, args)
     _run_pullback!((; piece = m, y = _ezs(y, dy), args = ms), o, cache)
