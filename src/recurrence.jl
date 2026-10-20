@@ -623,7 +623,9 @@ _join(history::AbstractVector, y) = vcat(history, y)
 _join(history::AbstractMatrix, y) = cat(history, y; dims = 2)
 # The call branches on `prepend`, as a backend's interpreter may not fold
 # a runtime `Bool` into a type; both branches return the output's type.
-function _prepended_call(prepend::Bool, route, history, op, args...)
+function _prepended_call(
+        prepend::Bool, route, history, op, args::Vararg{Any, N}
+    ) where {N}
     prepend || return adjoint_call(_reroute(route, op), args...)
     history === nothing &&
         throw(ArgumentError("prepend = true needs a history, not nothing"))
@@ -640,13 +642,24 @@ _type_adjoint(p::_Prepended) = _type_adjoint(p.op)
 _fit(p::_Prepended, args...) = _fit(p.op, args...)
 function _run_forward(p::_Prepended, gain, add, h, s0, τ0, stop)
     out, cache = _run_forward(p.op, gain, add, h, s0, τ0, stop)
-    return _prepend_output(p.op, h, out), cache
+    return _prepend_output(p.op, h, out, _copy_join), cache
 end
 function _primal(p::_Prepended, gain, add, h, s0, τ0, stop)
     return _prepend_output(p.op, h, _primal(p.op, gain, add, h, s0, τ0, stop))
 end
-# The history joins the series part of each operator's output.
-_prepend_output(::Recurrence, h, y) = _join(h, y)
+# The history joins the series part of each operator's output: by `_join`,
+# which plain AD differentiates, or, in a rule's forward pass, which no
+# backend differentiates, by `_copy_join` into one array.
+_prepend_output(::Recurrence, h, y, join = _join) = join(h, y)
+_copy_join(h, y) = _join(h, y)
+# Column-major, so the history's entries and then the output's in turn.
+function _copy_join(h::Matrix, y::Matrix)
+    Tz = promote_type(eltype(h), eltype(y))
+    z = similar(y, Tz, size(y, 1), size(h, 2) + size(y, 2))
+    copyto!(z, 1, h, 1, length(h))
+    copyto!(z, length(h) + 1, y, 1, length(y))
+    return z
+end
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
@@ -695,7 +708,7 @@ _trace_op(::Val{true}, r) = _WithTrace(r)
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
-_prepend_output(::_WithState, h, (y, st)) = (_join(h, y), st)
+_prepend_output(::_WithState, h, (y, st), join = _join) = (join(h, y), st)
 with_state(r::Recurrence, args...; kwargs...) = _with_state(r, r, args...; kwargs...)
 function with_state(n::NoAdjoint{<:Recurrence}, args...; kwargs...)
     return _with_state(n.op, n, args...; kwargs...)

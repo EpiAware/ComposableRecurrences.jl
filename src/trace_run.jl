@@ -20,7 +20,9 @@ end
 _traced_recurrence(r::Recurrence) = r
 _traced_recurrence(w::_WithState) = w.r
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
-_prepend_output(w::_WithTrace, h, (y, tr)) = (_prepend_output(w.op, h, y), tr)
+function _prepend_output(w::_WithTrace, h, (y, tr), join = _join)
+    return (_prepend_output(w.op, h, y, join), tr)
+end
 
 # The call's trace, `(; modifiers)`, one matrix per modifier with a
 # column per step: each step's inputs are the modifier's records, its
