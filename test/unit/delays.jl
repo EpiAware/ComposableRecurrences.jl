@@ -27,23 +27,53 @@ end
     @test (@inferred CR.delay_masses(Poisson(2.0), 4)) ≈ masses(Poisson(2.0), 4)
 end
 
-@testitem "delay_masses: a continuous distribution must be discretised" setup = [DelayCases] begin
-    for d in (Gamma(2.0, 1.5), LogNormal(1.0, 0.5))
-        @test_throws ArgumentError CR.delay_masses(d, 4)
-        @test_throws ArgumentError Convolution(d; lags = 4)
-        @test_throws ArgumentError Recurrence(d; lags = 4)
-        @test_throws ArgumentError Recurrence(PerStratum([d, d]); lags = 4)
-        @test_throws ArgumentError Convolution(TimeVarying([d, d]); lags = 4)
-        @test_throws ArgumentError Recurrence(Pairwise(fill(d, 2, 2)); lags = 4)
-        @test_throws ArgumentError Recurrence(Routes((I, d)); lags = 4)
-    end
+@testitem "delay_masses: a continuous distribution names the censoring package" setup = [DelayCases] begin
+    # Whether the censoring extension is loaded depends on which items ran
+    # first in this process, so the error is checked directly here and end
+    # to end in a fresh process below.
     err = try
-        CR.delay_masses(Gamma(2.0, 1.5), 4)
+        CR._no_censoring(Gamma(2.0, 1.5))
     catch e
         e
     end
-    @test occursin("discretise", sprint(showerror, err))
+    @test err isa ArgumentError
+    @test occursin("CensoredDistributions", sprint(showerror, err))
     @test occursin("Gamma", sprint(showerror, err))
+end
+
+@testitem "Continuous delays: an error naming CensoredDistributions without it" begin
+    script = raw"""
+    using ComposableRecurrences, Distributions, LinearAlgebra
+    loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
+    println(loaded("CensoredDistributions"))
+    names_it(f) = try
+        f()
+        false
+    catch err
+        err isa ArgumentError &&
+            occursin("CensoredDistributions", sprint(showerror, err))
+    end
+    d = LogNormal(1.5, 0.75)
+    g = Gamma(2.0, 1.0)
+    println(
+        all(
+            names_it, (
+                () -> ComposableRecurrences.delay_masses(d, 4),
+                () -> Convolution(d; lags = 4),
+                () -> Recurrence(g; lags = 4),
+                () -> Recurrence(PerStratum([g, g]); lags = 4),
+                () -> Convolution(TimeVarying([g, g]); lags = 4),
+                () -> Recurrence(Pairwise(fill(g, 2, 2)); lags = 4),
+                () -> Recurrence(Routes(([1.0 0.0; 0.0 1.0], g)); lags = 4),
+            )
+        )
+    )
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test lines[2] == "true"
 end
 
 @testitem "Convolution: a delay distribution from lag 0" setup = [DelayCases] begin
@@ -308,4 +338,47 @@ end
         @test g ≈ (f(0.4 + ϵ) - f(0.4 - ϵ)) / 2ϵ rtol = 1.0e-6
         @test g != 0
     end
+end
+
+@testsnippet CensoredDelays begin
+    using ComposableRecurrences, Distributions, CensoredDistributions
+    CR = ComposableRecurrences
+    censored(d, lags; interval = 1) =
+        [pdf(double_interval_censored(d; interval), l) for l in 0:(lags - 1)]
+end
+
+@testitem "Continuous delays: double interval censored with the defaults" setup = [CensoredDelays] begin
+    for d in (LogNormal(1.5, 0.75), Gamma(2.0, 3.0))
+        m = @inferred CR.delay_masses(d, 30)
+        @test m isa Vector{Float64}
+        @test m ≈ censored(d, 30)
+        @test CR.delay_masses(d, 30; interval = 1) ≈ m
+    end
+    @test CR.delay_masses(Gamma(2.0, 3.0), 10; interval = 2) ≈
+        censored(Gamma(2.0, 3.0), 10; interval = 2)
+    @test CR._isdelay(LogNormal{Float64})
+end
+
+@testitem "Continuous delays: as kernels" setup = [CensoredDelays] begin
+    d = LogNormal(1.5, 0.75)
+    c = @inferred Convolution(d; lags = 30)
+    @test c.kernel ≈ censored(d, 30)
+    g = Gamma(2.0, 3.0)
+    r = @inferred Recurrence(g; lags = 20)
+    @test r.kernel ≈ censored(g, 20)[2:end]
+    ps = Recurrence(PerStratum([g, Gamma(3.0, 2.0)]); lags = 6)
+    @test ps.kernel.x[2, :] ≈ censored(Gamma(3.0, 2.0), 6)[2:end]
+    # A discrete and a continuous delay on separate routes.
+    mixed = Routes(([0.9 0.1; 0.1 0.9], Poisson(2.0)), ([0.0 0.4; 0.4 0.0], g))
+    rt = Recurrence(mixed; lags = 6)
+    @test rt.kernel.kernels[2] ≈ censored(g, 6)[2:end]
+end
+
+@testitem "Continuous delays: gradients reach the parameters" setup = [ReferenceAD, CensoredDelays] begin
+    x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0, 2.0, 3.0]
+    conv(μ) = sum(Convolution(LogNormal(μ, 0.75); lags = 8)(x))
+    g = ReferenceAD.derivative(conv, 1.2)
+    ϵ = 1.0e-6
+    @test g ≈ (conv(1.2 + ϵ) - conv(1.2 - ϵ)) / 2ϵ rtol = 1.0e-5
+    @test g != 0
 end
