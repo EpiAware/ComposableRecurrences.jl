@@ -1715,8 +1715,8 @@ end
         @test CR._PULLBACK_CALLS[] > 0
         return nothing
     end
-    # From 24 flows, a pool built in place in the rule's `Ref` was copied
-    # byte by byte, which Enzyme's type analysis rejected.
+    # A pool built in place in a `Ref` with the call's arguments was copied
+    # byte by byte from 24 flows, which Enzyme's type analysis rejected.
     for v in (Val(24), Val(32), Val(33), Val(64))
         n = typeof(v).parameters[1]
         check(flows_loss, [0.005 + 0.0005 * i for i in 1:n], v)
