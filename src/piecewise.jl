@@ -79,8 +79,8 @@ _check_coupling(C::_TVPiecewise, S) = _check_coupling(_values(C), S)
 const _PiecewiseCoupling = TimeVarying{
     Secondary, <:_Piecewise{<:AbstractArray{<:Any, 3}},
 }
-function forward(C::_PiecewiseCoupling, ::Pressure, q, p, t)
-    return forward(_values(C), Pressure(), q, p, _segment(C.x, t))
+function forward!(C::_PiecewiseCoupling, ::Pressure, q, p, t)
+    return forward!(_values(C), Pressure(), q, p, _segment(C.x, t))
 end
 function pullback!(grads, C::_PiecewiseCoupling, ::Pressure, q, p, t)
     g = (; piece = _values_mirror(grads.piece), q = grads.q, p = grads.p)

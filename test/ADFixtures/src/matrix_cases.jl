@@ -15,7 +15,7 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -901,12 +901,23 @@ if supports(_TWIN_REQUIRES...)
     # Releases that read the adjoint off `pullback!` methods differentiate
     # a step without one locally; earlier ones needed it declared.
     supports(:_local_pullback) || (CR.uses_adjoint(::LocalStep, ::CR.Step) = true)
-    CR.forward(w::LocalStep, ::CR.Init, s, h) = CR.forward(w.m, CR.Init(), s, h)
+    @in_place CR.forward!(w::LocalStep, ::CR.Init, s, h) = CR.forward!(w.m, CR.Init(), s, h)
     function CR.pullback!(grads, w::LocalStep, ::CR.Init, s, h)
         return CR.pullback!(_inner(grads), w.m, CR.Init(), s, h)
     end
-    function CR.forward(w::LocalStep, ::CR.Step, v, s, t, k)
-        return CR.forward(w.m, CR.Step(), v, s, t, k)
+    if IN_PLACE
+        # The wrapped modifier's step on each stratum's scalars, which
+        # takes a built-in's kernel or a user type's `forward!`.
+        function CR.forward!(w::LocalStep, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                v[k], s[k] = CR._step(w.m, v[k], s[k], t, k)
+            end
+            return nothing
+        end
+    else
+        function CR.forward(w::LocalStep, ::CR.Step, v, s, t, k)
+            return CR.forward(w.m, CR.Step(), v, s, t, k)
+        end
     end
 end
 
@@ -918,8 +929,8 @@ struct LocalPressure{C}
     C::C
 end
 if supports(_TWIN_REQUIRES...)
-    function CR.forward(w::LocalPressure, ::CR.Pressure, q, p, t)
-        return CR.forward(w.C, CR.Pressure(), q, p, t)
+    @in_place function CR.forward!(w::LocalPressure, ::CR.Pressure, q, p, t)
+        return CR.forward!(w.C, CR.Pressure(), q, p, t)
     end
 end
 
@@ -968,7 +979,7 @@ end
 include("matrix_naive.jl")
 
 # The user-written modifier in the repository's benchmark folder, in a
-# single renewal: once with `forward` only and once with its `pullback!`.
+# single renewal: once with `forward!` only and once with its `pullback!`.
 # Skipped where the file is absent (a copied fixture package).
 const DOCS_MODIFIER = joinpath(
     @__DIR__, "..", "..", "..", "benchmark", "docs_modifier.jl"
@@ -1243,7 +1254,7 @@ struct StrataSaturation{K}
     κ::K
 end
 if supports(:_local_pressure!)
-    function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
+    @in_place function CR.forward!(C::ToFirst, ::CR.Pressure, q, p, t)
         tot = sum(view(p, 2:length(p)))
         q[1] = p[1] + C.a * tot
         for k in 2:length(p)
@@ -1266,15 +1277,35 @@ if supports(:_local_pressure!)
     _hide_coupling(C::ToFirst) = LocalPressure(C)
 
     CR.ispointwise(::StrataSaturation) = true
-    function CR.forward(m::StrataSaturation, ::CR.Step, v, s, t, k)
-        κ = CR.param(m.κ, k, t)
-        return v * κ / (κ + v), s
-    end
-    function CR.pullback!(grads, m::StrataSaturation, ::CR.Step, v, s, t, k)
-        κ = CR.param(m.κ, k, t)
-        d = inv(κ + v)^2
-        CR.add_param!(CR.cotangent(grads.piece, :κ), m.κ, grads.v * v^2 * d, k, t)
-        return grads.v * κ^2 * d, grads.s
+    if IN_PLACE
+        function CR.forward!(m::StrataSaturation, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                κ = CR.param(m.κ, k, t)
+                v[k] = v[k] * κ / (κ + v[k])
+            end
+            return nothing
+        end
+        function CR.pullback!(grads, m::StrataSaturation, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                κ = CR.param(m.κ, k, t)
+                d = inv(κ + v[k])^2
+                v̄ = grads.v[k]
+                CR.add_param!(CR.cotangent(grads.piece, :κ), m.κ, v̄ * v[k]^2 * d, k, t)
+                grads.v[k] = v̄ * κ^2 * d
+            end
+            return nothing
+        end
+    else
+        function CR.forward(m::StrataSaturation, ::CR.Step, v, s, t, k)
+            κ = CR.param(m.κ, k, t)
+            return v * κ / (κ + v), s
+        end
+        function CR.pullback!(grads, m::StrataSaturation, ::CR.Step, v, s, t, k)
+            κ = CR.param(m.κ, k, t)
+            d = inv(κ + v)^2
+            CR.add_param!(CR.cotangent(grads.piece, :κ), m.κ, grads.v * v^2 * d, k, t)
+            return grads.v * κ^2 * d, grads.s
+        end
     end
 
     function custom_coupling(wrap, z::Size)
@@ -1312,7 +1343,7 @@ if supports(:_local_pressure!)
 
     # A dense user coupling, without a `pullback!`: its cost grows with the
     # strata squared, so its local derivative grows with their cube.
-    function CR.forward(C::Decay, ::CR.Pressure, q, p, t)
+    @in_place function CR.forward!(C::Decay, ::CR.Pressure, q, p, t)
         S = length(p)
         for i in 1:S
             acc = zero(eltype(q))
@@ -1382,8 +1413,17 @@ struct MatrixPressure{M}
 end
 if supports(:_read_pullback)
     CR.ispointwise(::Seasonal) = true
-    CR.forward(m::Seasonal, ::CR.Step, v, s, t, k) = (m.a[t] * v, s)
-    function CR.forward(C::MatrixPressure, ::CR.Pressure, q, p, t)
+    if IN_PLACE
+        function CR.forward!(m::Seasonal, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                v[k] = m.a[t] * v[k]
+            end
+            return nothing
+        end
+    else
+        CR.forward(m::Seasonal, ::CR.Step, v, s, t, k) = (m.a[t] * v, s)
+    end
+    @in_place function CR.forward!(C::MatrixPressure, ::CR.Pressure, q, p, t)
         mul!(q, C.K, p)
         return nothing
     end

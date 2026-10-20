@@ -96,6 +96,6 @@ Use a coupling when one lag shape fits, `Routes` for a few shapes, and `Pairwise
 
 ## [Your own coupling](@id explanation-own-coupling)
 
-A coupling is any type with a `forward` method for [`Pressure()`](@ref ComposableRecurrences.Pressure).
+A coupling is any type with a `forward!` method for [`Pressure()`](@ref ComposableRecurrences.Pressure).
 Write one when the mixing has structure a matrix wastes, such as low rank, or follows a formula in time.
 [A coupling](@ref extending-coupling) writes one, and [Specialising for speed](@ref specialising) gives a low-rank example.

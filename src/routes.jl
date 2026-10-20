@@ -226,7 +226,7 @@ end
 _routes_pressure!(ex, p, z, w, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, t, τ, L) = nothing
 # One route's coupled pressure; its own function so an AD backend can
 # refuse a route coupling it differentiates wrongly.
-_route_forward!(C, w, z, τ) = forward(C, Pressure(), w, z, τ)
+_route_forward!(C, w, z, τ) = forward!(C, Pressure(), w, z, τ)
 function _routes_pressure!(ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, τ, L)
     Lr = first(Ls)
     _kernel_pressure!(ex, z, first(gs), H, t + L - Lr, τ, Lr)

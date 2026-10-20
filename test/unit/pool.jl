@@ -235,7 +235,7 @@ end
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
     s = zeros(4)
-    CR.forward(d, CR.Init(), s, ones(2, 2))
+    CR.forward!(d, CR.Init(), s, ones(2, 2))
     @test s == [90.0, 45.0, 3.0, 4.0]
     m̄ = (;
         N = (; x = zeros(2)), form = nothing, heterogeneity = nothing,
@@ -248,7 +248,7 @@ end
     @test m̄.initial[2].x == [3.0, 4.0]
     # The first pool's default start is the population at time 1.
     d = CR.Pool(PerStratum([100.0, 50.0]); pools = (:S, :V), draw = :S => CR.Hazard())
-    CR.forward(d, CR.Init(), s, ones(2, 2))
+    CR.forward!(d, CR.Init(), s, ones(2, 2))
     @test s == [100.0, 50.0, 0.0, 0.0]
     m̄ = (;
         N = (; x = zeros(2)), form = nothing, heterogeneity = nothing,

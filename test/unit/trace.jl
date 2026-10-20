@@ -241,24 +241,39 @@ end
     end
     CR.ispointwise(::Decay) = true
     CR.uses_adjoint(::Decay, ::CR.Step) = true
-    CR.forward(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
-    CR.forward(m::Decay, ::CR.Step, v, s, t, k) = v, m.a * s + v
-    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t, k)
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.s * s)
-        return grads.v + grads.s, m.a * grads.s
+    CR.forward!(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
+    function CR.forward!(m::Decay, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + v[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t)
+        v̄, s̄ = grads.v, grads.s
+        for k in eachindex(v, s)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :a), s̄[k] * s[k])
+            v̄[k], s̄[k] = v̄[k] + s̄[k], m.a * s̄[k]
+        end
+        return nothing
     end
     # Two values and two state entries per group.
     struct Keep{A}
         a::A
     end
     CR.blocks(::Keep) = Val((2, 2))
-    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + v[2])
+    function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+        v[1][], v[2][] = v1 * m.a, v2 + s1
+        s[1][], s[2][] = s1 + v1, s2 + v2
+        return nothing
     end
     function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
-        return (v̄1 * m.a + s̄1, v̄2 + s̄2), (v̄2 + s̄1, s̄2)
+        v̄1, v̄2 = grads.v[1][], grads.v[2][]
+        s̄1, s̄2 = grads.s[1][], grads.s[2][]
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+        return nothing
     end
     g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
     W = reshape(range(0.2, 1.8; length = 72), 12, 6)

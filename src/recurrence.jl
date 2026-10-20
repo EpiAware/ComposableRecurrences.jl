@@ -54,8 +54,8 @@ so its coupling is `I` too; the keyword constructor folds routes that have
 a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
-struct with `forward` on [`ComposableRecurrences.Pressure`](@ref).
-Modifiers are structs with `forward` on [`ComposableRecurrences.Step`](@ref)
+struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
+Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
 Called as `r(gain = 1; history, state, add, start, stop, prepend, trace)`,
@@ -1024,7 +1024,7 @@ _coef(C::Diagonal, k) = C.diag[k]
 _prepare!(ex, p, q, C::_PointwiseCoupling, kernel, H, t, τ, L) = nothing
 function _prepare!(ex, p, q, C, kernel, H, t, τ, L)
     _kernel_pressure!(ex, p, kernel, H, t, τ, L)
-    forward(C, Pressure(), q, p, τ)
+    forward!(C, Pressure(), q, p, τ)
     return nothing
 end
 
@@ -1040,11 +1040,11 @@ _all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(m
 
 # Thread one stratum's value through pointwise modifiers in tuple order,
 # recording each modifier's input value and state when `rec` holds records.
-_thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
-function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
+@inline _thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
+@inline function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
     s = first(states)
     rec === nothing || _record!(first(rec), v, s[k], t, k)
-    v′, s[k] = forward(first(ms), Step(), v, s[k], τ, k)
+    v′, s[k] = _step(first(ms), v, s[k], τ, k)
     return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
 end
 _tail(::Nothing) = nothing
@@ -1087,7 +1087,7 @@ _stages_rec!(::Tuple{}, ::Tuple{}, ::Tuple{}, v, τ, t) = nothing
 function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     copyto!(view(first(rec).V, :, t), v)
     _record_states!(first(rec).S, first(states), t)
-    forward(first(ms), Step(), v, first(states), τ)
+    forward!(first(ms), Step(), v, first(states), τ)
     _record_states!(first(rec).A, first(states), t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
@@ -1096,7 +1096,7 @@ end
 # buffer eltype.
 function _init_state(::Type{Tp}, m, h, S) where {Tp}
     s = _zeros(h, Tp, nstate(m, S))
-    forward(m, Init(), s, h)
+    forward!(m, Init(), s, h)
     return s
 end
 

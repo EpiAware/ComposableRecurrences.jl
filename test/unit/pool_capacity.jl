@@ -268,7 +268,7 @@ end
 @testitem "Pool capacity: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, d, f) = first(CR.forward(CR.SoftTruncate(κ), CR.Step(), d, f, 1.0, 1.0))
+    draw(κ, d, f) = first(CR._draw(CR.SoftTruncate(κ), d, f, 1.0, 1.0))
     for κ in (0.05, 0.2)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0

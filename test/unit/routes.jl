@@ -90,7 +90,7 @@ end
     # In a buffer deeper than the longest route, with the state it returns.
     struct Deep end
     ComposableRecurrences.ispointwise(::Deep) = true
-    ComposableRecurrences.forward(::Deep, ::ComposableRecurrences.Step, v, s, t, k) = (v, s)
+    ComposableRecurrences.forward!(::Deep, ::ComposableRecurrences.Step, v, s, t) = nothing
     ComposableRecurrences.depth(::Deep) = 2L
     hd = rand(rng, S, 2L)
     deep = Recurrence(Routes((K1, g1), (K2, g2)); modifiers = (Deep(),))
@@ -203,9 +203,9 @@ end
 @testitem "Routes: the rule needs a pullback on every route coupling" begin
     using ComposableRecurrences, ConstructionBase, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
-    # A coupling with `forward` only, no `pullback!`.
+    # A coupling with `forward!` only, no `pullback!`.
     struct Halve end
-    CR.forward(::Halve, ::CR.Pressure, q, p, t) = (q .= p ./ 2; nothing)
+    CR.forward!(::Halve, ::CR.Pressure, q, p, t) = (q .= p ./ 2; nothing)
     g = [0.5, 0.3]
     K = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
     with = Recurrence(Routes((fill(0.2, 3, 3), g), (K, g)))

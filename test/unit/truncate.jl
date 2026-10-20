@@ -56,12 +56,12 @@ end
         θ = κ === nothing ? Float64[] : [κ]
         J = ForwardDiff.jacobian([v, s, 100.0, 1.0, θ...]) do x
             f = κ === nothing ? CR.Truncate() : CR.SoftTruncate(x[5])
-            collect(CR.forward(f, CR.Step(), x[1], x[2], x[3], x[4]))
+            collect(CR._draw(f, x[1], x[2], x[3], x[4]))
         end
         ȳ, s̄ = 0.7, -0.3
         κ̄ = Ref(0.0)
         grads = (; piece = (; κ = κ̄), v = ȳ, s = s̄)
-        back = CR.pullback!(grads, form(κ), CR.Step(), v, s, 100.0, 1.0)
+        back = CR._draw_back(grads, form(κ), v, s, 100.0, 1.0)
         expected = transpose(J) * [ȳ, s̄]
         @test collect(back) ≈ expected[1:4]
         κ === nothing || @test κ̄[] ≈ expected[5] atol = 1.0e-12
@@ -71,7 +71,7 @@ end
 @testitem "Truncate: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, v, s) = first(CR.forward(CR.SoftTruncate(κ), CR.Step(), v, s, 1.0, 1.0))
+    draw(κ, v, s) = first(CR._draw(CR.SoftTruncate(κ), v, s, 1.0, 1.0))
     for κ in (0.05, 0.3)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0
@@ -86,10 +86,10 @@ end
     @test draw(0.01, 1.0, 2.0) ≈ 1.0
     # The exact form takes the value asked for on a tie and returns a NaN
     # pool's NaN, as a depletion's removals do.
-    y, s = CR.forward(CR.Truncate(), CR.Step(), 2.0, 2.0, 1.0, 1.0)
+    y, s = CR._draw(CR.Truncate(), 2.0, 2.0, 1.0, 1.0)
     @test (y, s) == (2.0, 0.0)
-    @test isnan(first(CR.forward(CR.Truncate(), CR.Step(), 2.0, NaN, 1.0, 1.0)))
-    @test isnan(first(CR.forward(CR.Truncate(), CR.Step(), NaN, 2.0, 1.0, 1.0)))
+    @test isnan(first(CR._draw(CR.Truncate(), 2.0, NaN, 1.0, 1.0)))
+    @test isnan(first(CR._draw(CR.Truncate(), NaN, 2.0, 1.0, 1.0)))
     # Smooth through the tie: the derivatives match on either side.
     lo = CR._soft_min_back(0.2, 3.0 - 1.0e-9, 3.0, 1.0)
     hi = CR._soft_min_back(0.2, 3.0 + 1.0e-9, 3.0, 1.0)
@@ -104,9 +104,9 @@ end
     @test CR.SoftTruncate(0.1f0).κ isa Float32
     # Mixed argument types promote, so the step infers one type.
     for form in (CR.Truncate(), CR.SoftTruncate(0.1), CR.SoftTruncate(0.1f0))
-        @inferred CR.forward(form, CR.Step(), 2.0, 1.5f0, 1.0, 1.0)
-        @inferred CR.forward(form, CR.Step(), 2.0f0, 1.5f0, 1.0, 1.0)
-        @inferred CR.forward(form, CR.Step(), 0.0f0, 1.5, 1.0, 1.0)
+        @inferred CR._draw(form, 2.0, 1.5f0, 1.0, 1.0)
+        @inferred CR._draw(form, 2.0f0, 1.5f0, 1.0, 1.0)
+        @inferred CR._draw(form, 0.0f0, 1.5, 1.0, 1.0)
     end
     for form in (CR.Truncate(), CR.SoftTruncate(0.2))
         d = CR.Depletion(50.0, form)
@@ -130,7 +130,7 @@ end
     for form in (CR.Truncate(), CR.SoftTruncate(0.2)), (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0))
         κ = CR._softness(form)
         y = CR._soft_min(κ, v, s)
-        @test y == first(CR.forward(form, CR.Step(), v, s, 1.0, 1.0))
+        @test y == first(CR._draw(form, v, s, 1.0, 1.0))
         back = CR._soft_min_back(κ, v, s, 0.7)
         @test collect(back[1:2]) ≈ 0.7 .* ForwardDiff.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
     end

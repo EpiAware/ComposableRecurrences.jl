@@ -153,7 +153,7 @@ end
         )
     )
     v = [6.0, 0.0, 0.0]
-    CR.forward(flows, CR.Step(), v, zeros(3), 1)
+    CR.forward!(flows, CR.Step(), v, zeros(3), 1)
     # 4 to compartment 2, the remaining 2 to compartment 3, then 1 added
     # to compartment 3 with nothing leaving.
     @test v == [0.0, 4.0, 3.0]
@@ -397,7 +397,7 @@ end
     # A third pool without flows is named by `pools`.
     flows = moving(3, CR.Flow(1 => 2, 0.5; form = CR.Share()))
     v = [1.0, 1.0, 0.0, 0.0, 7.0, 7.0]
-    CR.forward(flows, CR.Step(), v, zeros(6), 1)
+    CR.forward!(flows, CR.Step(), v, zeros(6), 1)
     @test v ≈ [0.5, 0.5, 0.5, 0.5, 7.0, 7.0]
     r = Recurrence([1.0]; modifiers = (moving(2, CR.Flow(1 => 2, 0.1)),))
     @test_throws "multiple of 2 strata, got 3" r(; history = zeros(3, 1), stop = 2)

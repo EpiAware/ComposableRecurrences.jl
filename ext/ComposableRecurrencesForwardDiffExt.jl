@@ -4,7 +4,7 @@ module ComposableRecurrencesForwardDiffExt
 # checks that their rebuild gives their parameters back, `Transform`'s
 # derivative, and the dual-number methods of the primal helpers.
 
-using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward,
+using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
 import ComposableRecurrences: _array_pressure, _check_scalars, _check_views,
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _jacobian_pullback,
@@ -15,14 +15,14 @@ using ComposableRecurrences: _ArrayPressure, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _exp_neg_branch, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
-    _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps
+    _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw
 using ForwardDiff: ForwardDiff
 
 # The derivative in the value and the state only.
 function _value_pullback(m, v̄, s̄, v, s, t, k)
     T = promote_type(typeof(v), typeof(s))
     xd = _seed(ForwardDiff.Tag(_value_pullback, T), (T(v), T(s)))
-    v′, s′ = forward(m, Step(), xd[1], xd[2], t, k)
+    v′, s′ = _step(m, xd[1], xd[2], t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
     return g[1], g[2]
 end
@@ -39,7 +39,7 @@ function _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
     return g[1], g[2]
 end
 function _step_vector(m, x, P, t, k)
-    v′, s′ = forward(_rebuild(m, view(x, 3:(P + 2))), Step(), x[1], x[2], t, k)
+    v′, s′ = _step(_rebuild(m, view(x, 3:(P + 2))), x[1], x[2], t, k)
     return [v′, s′]
 end
 
@@ -52,7 +52,7 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     T = promote_type(map(typeof, x)...)
     xd = _seed(ForwardDiff.Tag(_scalar_pullback, T), map(T, x))
     md = first(_rebuild_scalar(m, Base.tail(Base.tail(xd))))
-    v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
+    v′, s′ = _step(md, xd[1], xd[2], t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
     _add_scalar!(m̄, m, Base.tail(Base.tail(g)), (k, t))
     return g[1], g[2]
@@ -108,7 +108,7 @@ function _read_step(
     xd = ntuple(i -> D(x[i], _unit(T, i, Val(W))), Val(N + 2))
     reads = _Reads{R}(lo)
     md = first(_rebuild_reads(m, Base.tail(Base.tail(xd)), _ReadSeed{D}(reads, N + 2), 1))
-    v′, s′ = forward(md, Step(), xd[1], xd[2], t, k)
+    v′, s′ = _step(md, xd[1], xd[2], t, k)
     return v′, s′, reads
 end
 # The cotangents of one dual step: the reads' are added to the mirror and,
@@ -179,7 +179,7 @@ function _local_pressure!(
             @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
         end
         θd = ntuple(j -> D(T(θ[j]), _unit(T, S + j - o, Val(N))), Val(P))
-        forward(_with_scalars(C, θd), Pressure(), qd, pd, t)
+        forward!(_with_scalars(C, θd), Pressure(), qd, pd, t)
         ā = zero(ForwardDiff.Partials{N, T})
         for i in 1:S
             @inbounds ā += q̄[i] * ForwardDiff.partials(qd[i])
@@ -231,7 +231,7 @@ function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
         for j in 1:P
             @inbounds θd[j] = D(b.θ[j], _unit(T, S + j - o, Val(N)))
         end
-        forward(_rebuild_views(C, θd), Pressure(), qd, pd, t)
+        forward!(_rebuild_views(C, θd), Pressure(), qd, pd, t)
         ā = zero(ForwardDiff.Partials{N, T})
         for i in 1:S
             @inbounds ā += q̄[i] * ForwardDiff.partials(qd[i])
@@ -253,7 +253,7 @@ function _local_form_pullback(grads, form, v, s, N, α)
     xd = _seed(ForwardDiff.Tag(_local_form_pullback, T), map(T, x))
     θd = Base.tail(Base.tail(Base.tail(Base.tail(xd))))
     fd = first(_rebuild_scalar(form, θd))
-    y, s′ = forward(fd, Step(), xd[1], xd[2], xd[3], xd[4])
+    y, s′ = _draw(fd, xd[1], xd[2], xd[3], xd[4])
     g = _vjp(y, s′, grads.v, grads.s, xd)
     _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(Base.tail(g)))), nothing)
     return g[1], g[2], g[3], g[4]
@@ -315,7 +315,7 @@ function _probe_reads(x)
     return try
         xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(reads, M), 1))
         _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd) || return -1
-        forward(xd, Step(), one(D), one(D), 1, 1)
+        _step(xd, one(D), one(D), 1, 1)
         reads.n
     catch e
         e isa InterruptException && rethrow()
@@ -331,7 +331,7 @@ function _init_jacobian(m, s, history, P, nh)
         mm = P == 0 ? m : _rebuild(m, view(x, 1:P))
         hh = nh == 0 ? history : reshape(x[(P + 1):end], size(history))
         ss = similar(x, length(s))
-        forward(mm, Init(), ss, hh)
+        forward!(mm, Init(), ss, hh)
         return ss
     end
     return J

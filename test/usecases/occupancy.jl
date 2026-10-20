@@ -47,7 +47,7 @@
         κ
         conf_hazard
     end
-    function ComposableRecurrences.forward(
+    function ComposableRecurrences.forward!(
             m::OccupancyBalance, ::ComposableRecurrences.Step, v, s, t
         )
         z = zero(eltype(v))

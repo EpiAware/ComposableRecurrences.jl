@@ -97,10 +97,13 @@ end
         pop::P
     end
     CR.ispointwise(::PoolDepletion) = true
-    CR.forward(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
-    function CR.forward(m::PoolDepletion, ::CR.Step, v, s, t, k)
-        v′ = max(s / m.pop[k], 1.0e-6) * v
-        return v′, s - v′
+    CR.forward!(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
+    function CR.forward!(m::PoolDepletion, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
     end
 
     # Hazard depletion with a scalar pool and hand-written pullbacks.
@@ -109,18 +112,24 @@ end
     end
     CR.ispointwise(::Hazard) = true
     CR.uses_adjoint(::Hazard, ::CR.Step) = true
-    CR.forward(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
-    function CR.forward(m::Hazard, ::CR.Step, v, s, t, k)
-        x = v / m.N
-        return -s * expm1(-x), s * exp(-x)
+    CR.forward!(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward!(m::Hazard, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            x = v[k] / m.N
+            v[k], s[k] = -s[k] * expm1(-x), s[k] * exp(-x)
+        end
+        return nothing
     end
-    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t, k)
-        v̄, s̄ = grads.v, grads.s
-        x = v / m.N
-        e = exp(-x)
-        x̄ = s * e * (v̄ - s̄)
-        CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
-        return x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+    function CR.pullback!(grads, m::Hazard, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v̄, s̄ = grads.v[k], grads.s[k]
+            x = v[k] / m.N
+            e = exp(-x)
+            x̄ = s[k] * e * (v̄ - s̄)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
+            grads.v[k], grads.s[k] = x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+        end
+        return nothing
     end
     function CR.pullback!(grads, m::Hazard, ::CR.Init, s, history)
         CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
@@ -131,7 +140,7 @@ end
     struct Scale{A}
         a::A
     end
-    function CR.forward(m::Scale, ::CR.Step, v, s, t)
+    function CR.forward!(m::Scale, ::CR.Step, v, s, t)
         v .*= m.a
         s .+= v
         return nothing
@@ -142,24 +151,37 @@ end
         b::B
     end
     CR.ispointwise(::Shift) = true
-    CR.forward(m::Shift, ::CR.Step, v, s, t, k) = (v + m.b[t], s)
+    function CR.forward!(m::Shift, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] += m.b[t]
+        end
+        return nothing
+    end
 
     # Adds a tenth of each stratum's history total, set once by its Init.
     struct HistoryTotal end
     CR.ispointwise(::HistoryTotal) = true
-    function CR.forward(::HistoryTotal, ::CR.Init, s, history)
+    function CR.forward!(::HistoryTotal, ::CR.Init, s, history)
         s .= vec(sum(history; dims = ndims(history)))
         return nothing
     end
-    CR.forward(::HistoryTotal, ::CR.Step, v, s, t, k) = (v + 0.1 * s, s)
+    function CR.forward!(::HistoryTotal, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] += 0.1 * s[k]
+        end
+        return nothing
+    end
 
     # Pointwise, calling ForwardDiff itself: `v′ = d/dx (a x²) at v`.
     struct Slope{A}
         a::A
     end
     CR.ispointwise(::Slope) = true
-    function CR.forward(m::Slope, ::CR.Step, v, s, t, k)
-        return ForwardDiff.derivative(x -> m.a * x^2, v), s
+    function CR.forward!(m::Slope, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = ForwardDiff.derivative(x -> m.a * x^2, v[k])
+        end
+        return nothing
     end
 
     # A coupling with no pullback: `q = β ⊙ (K p)`.
@@ -167,7 +189,7 @@ end
         K::M
         β::V
     end
-    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (q .= C.β .* (C.K * p); nothing)
+    CR.forward!(C::Mix, ::CR.Pressure, q, p, t) = (q .= C.β .* (C.K * p); nothing)
 end
 
 @testitem "Adjoint: Recurrence, single series" setup = [AdjointCheck] begin
@@ -340,7 +362,7 @@ end
     v = 0.5 .+ rand(rng, S)
     s = zeros(2S)
     after = copy(s)
-    CR.forward(m, CR.Step(), copy(v), after, 3)
+    CR.forward!(m, CR.Step(), copy(v), after, 3)
     v̄0, s̄0 = randn(rng, S), randn(rng, 2S)
     function step_back(extra)
         m̄ = zero_mirror(m)
@@ -528,19 +550,32 @@ end
         L = CR._layout(m)
         θ = CR._params((m,))
         nv, ns = length(v), length(s)
-        out, s′ = CR.forward(m, CR.Step(), v, s, t, g)
+        out, s′ = CR._block_step(m, v, s, t, g)
+        # The public in-place step, on one-entry vectors, writes the same.
+        vr, sr = map(x -> [x], v), map(x -> [x], s)
+        @test CR.forward!(m, CR.Step(), vr, sr, t, g) === nothing
+        @test map(only, vr) == out && map(only, sr) == s′
         v̄, s̄ = Tuple(randn(rng, length(out))), Tuple(randn(rng, length(s′)))
         function step(z)
             p = only(CR._rebuild((m,), z[(nv + ns + 1):end]))
-            o, q = CR.forward(
-                p, CR.Step(), Tuple(z[1:nv]), Tuple(z[(nv + 1):(nv + ns)]), t, g
+            o, q = CR._block_step(
+                p, Tuple(z[1:nv]), Tuple(z[(nv + 1):(nv + ns)]), t, g
             )
             return dot(collect(v̄), collect(o)) + dot(collect(s̄), collect(q))
         end
         ref = ForwardDiff.gradient(step, [v..., s..., θ...])
-        # The step's pullback, and the two dispatches it goes through.
+        # The step's in-place pullback on one-entry vectors, its kernel, and
+        # the two dispatches the kernel goes through.
+        function inplace(m̄, grads)
+            gv, gs = map(x -> [x], grads.v), map(x -> [x], grads.s)
+            vr, sr = map(x -> [x], v), map(x -> [x], s)
+            gg = (; piece = m̄, v = gv, s = gs)
+            @test CR.pullback!(gg, m, CR.Step(), vr, sr, t, g) === nothing
+            return map(only, gv), map(only, gs)
+        end
         for back in (
-                (m̄, grads) -> CR.pullback!(grads, m, CR.Step(), v, s, t, g),
+                inplace,
+                (m̄, grads) -> CR._block_back(grads, m, v, s, t, g),
                 (m̄, grads) -> CR._group_pullback(Val(L), grads, m, v, s, t, g),
                 (m̄, grads) -> CR._group_pullback(
                     Val(L.draw), Val(L), grads, m, v, s, t, g
@@ -749,11 +784,16 @@ end
         pop::Vector{Vector{Float64}}
     end
     CR.ispointwise(::NestedPool) = true
-    CR.forward(m::NestedPool, ::CR.Step, v, s, t, k) = (v * m.pop[k][1], s)
+    function CR.forward!(m::NestedPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= m.pop[k][1]
+        end
+        return nothing
+    end
     struct NestedMix
         K::Vector{Vector{Float64}}
     end
-    function CR.forward(C::NestedMix, ::CR.Pressure, q, p, t)
+    function CR.forward!(C::NestedMix, ::CR.Pressure, q, p, t)
         for i in eachindex(q)
             q[i] = sum(C.K[i] .* p)
         end
@@ -797,7 +837,13 @@ end
     struct VecForm
         w::Vector{Float64}
     end
-    CR.forward(f::VecForm, ::CR.Step, v, s, N, α) = (y = min(v * f.w[1], s); (y, s - y))
+    function CR.forward!(f::VecForm, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = min(v[i] * f.w[1], s[i])
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
+    end
     @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
         "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
@@ -807,7 +853,7 @@ end
     struct Scaled{A}
         a::A
     end
-    CR.forward(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    CR.forward!(m::Scaled, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
     rs = Recurrence(g; modifiers = (Scaled(0.5),))
     @test !CR.uses_adjoint(rs, CR.Run())
     CR.pullback!(grads, m::Scaled, ::CR.Step, v, s, t) = (grads.v .*= m.a; nothing)
@@ -818,27 +864,37 @@ end
     @test val(rs) == [Val{:rule}]
     CR.uses_adjoint(::Scaled, ::CR.Step) = false
     @test !CR.uses_adjoint(rs, CR.Run())
-    # A method with typed arguments is not found; declaring it opts in.
+    # A pointwise step's `pullback!` whose value is typed as a vector is not
+    # found by the method lookup, so the step takes the local derivative;
+    # declaring it opts in.
     struct Typed{A}
         a::A
     end
     CR.ispointwise(::Typed) = true
-    CR.forward(m::Typed, ::CR.Step, v, s, t, k) = (m.a * v, s)
-    function CR.pullback!(grads, m::Typed, ::CR.Step, v::Real, s::Real, t, k)
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.v * v)
-        return m.a * grads.v, grads.s
+    function CR.forward!(m::Typed, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= m.a
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::Typed, ::CR.Step, v::AbstractVector, s, t)
+        for k in eachindex(v, s)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.v[k] * v[k])
+            grads.v[k] *= m.a
+        end
+        return nothing
     end
     rt = Recurrence(g; modifiers = (Typed(0.5),))
     @test CR._modifier_adjoint(Typed(0.5)) === :local
     CR.uses_adjoint(::Typed, ::CR.Step) = true
     @test CR._modifier_adjoint(Typed(0.5)) === :pullback
     @test pullback_matches(rt, recargs(ones(2, 4), nothing, ones(2, 2))...)
-    # The same for a vector step whose typed `pullback!` the method lookup
-    # misses: the declared adjoint calls it.
+    # The same for a step that is not pointwise, which has no local
+    # derivative: the declared adjoint calls the typed `pullback!`.
     struct TypedVec{A}
         a::A
     end
-    CR.forward(m::TypedVec, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    CR.forward!(m::TypedVec, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
     function CR.pullback!(grads, m::TypedVec, ::CR.Step, v::AbstractVector, s, t)
         CR.add_cotangent!(CR.cotangent(grads.piece, :a), sum(grads.v .* v))
         grads.v .*= m.a
@@ -858,7 +914,12 @@ end
         a::T
     end
     CR.ispointwise(::MapBy) = true
-    CR.forward(m::MapBy, ::CR.Step, v, s, t, k) = (m.a * m.f(v), s)
+    function CR.forward!(m::MapBy, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = m.a * m.f(v[k])
+        end
+        return nothing
+    end
     struct Halve end
     (::Halve)(x) = x / 2
     shift(b) = x -> x + b
@@ -878,7 +939,12 @@ end
         a::T
     end
     CR.ispointwise(::Pick) = true
-    CR.forward(m::Pick, ::CR.Step, v, s, t, k) = (k in m.idx ? m.a * v : v, s)
+    function CR.forward!(m::Pick, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = k in m.idx ? m.a * v[k] : v[k]
+        end
+        return nothing
+    end
     for idx in (1:2, 1:2:3, Base.OneTo(2), [1, 2], [1:1, 2:2], [[1], [2]], (1:1, 2:2))
         op = Recurrence(g; modifiers = (Pick(idx, 0.5),))
         @test CR._ok(typeof(idx))
@@ -910,7 +976,12 @@ end
     end
     for M in (ScaleKw, ScaleF, Doubled, Kept)
         @eval CR.ispointwise(::$M) = true
-        @eval CR.forward(m::$M, ::CR.Step, v, s, t, k) = (m.a * v, s)
+        @eval function CR.forward!(m::$M, ::CR.Step, v, s, t)
+            for k in eachindex(v, s)
+                v[k] = m.a * v[k]
+            end
+            return nothing
+        end
     end
     for (m, rule) in (
             (ScaleKw(; a = 0.5), false), (ScaleF(0.5), false),
@@ -976,15 +1047,18 @@ end
     struct LinearRate{T}
         c::T
     end
-    function CR.forward(f::LinearRate, ::CR.Step, v, s, N, α)
-        y = f.c * v * max(s, 0)^α / N
-        return y, s - y
+    function CR.forward!(f::LinearRate, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = f.c * v[i] * max(s[i], 0)^α / N
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
     end
     f = LinearRate(0.7)
     grads = (; piece = (; c = Ref(0.0)), v = 0.3, s = 0.6)
     got = CR._form_pullback(grads, f, 2.0, 40.0, 50.0, 1.2)
     ref = ForwardDiff.gradient(collect((2.0, 40.0, 50.0, 1.2, 0.7))) do x
-        y, s′ = CR.forward(LinearRate(x[5]), CR.Step(), x[1], x[2], x[3], x[4])
+        y, s′ = CR._draw(LinearRate(x[5]), x[1], x[2], x[3], x[4])
         return 0.3 * y + 0.6 * s′
     end
     @test [got..., grads.piece.c[]] ≈ ref
@@ -1001,7 +1075,9 @@ end
         c::T
         DoubledRate(c::T) where {T} = new{T}(2c)
     end
-    CR.forward(f::DoubledRate, ::CR.Step, v, s, N, α) = CR.forward(LinearRate(f.c), CR.Step(), v, s, N, α)
+    function CR.forward!(f::DoubledRate, ::CR.Step, v, s, N, α)
+        return CR.forward!(LinearRate(f.c), CR.Step(), v, s, N, α)
+    end
     empty!(CR._PLAIN_NOTED)
     op = @test_logs (:info, r"DoubledRate cannot be rebuilt") Recurrence(
         g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),)
@@ -1038,7 +1114,12 @@ end
     # throws the `MethodError` of the missing method.
     struct Halved end
     CR.ispointwise(::Halved) = true
-    CR.forward(::Halved, ::CR.Step, v, s, t, k) = (v / 2, s)
+    function CR.forward!(::Halved, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] /= 2
+        end
+        return nothing
+    end
     CR.uses_adjoint(::Halved, ::CR.Step) = true
     args = recargs(ones(2, 4), nothing, ones(2, 2))
     r = Recurrence([0.3, 0.2]; modifiers = (Halved(),))
@@ -1098,9 +1179,12 @@ end
     struct Rate{T}
         c::T
     end
-    function CR.forward(f::Rate, ::CR.Step, v, s, N, α)
-        y = f.c * v * max(s, 0)^α / N
-        return y, s - y
+    function CR.forward!(f::Rate, ::CR.Step, v, s, N, α)
+        for i in eachindex(v, s)
+            y = f.c * v[i] * max(s[i], 0)^α / N
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
     end
     args = recargs(ones(2, 6), nothing, ones(2, 2))
     for parts in (
@@ -1126,7 +1210,10 @@ end
         Doubled(c::T) where {T} = new{T}(2c)
     end
     CR.ispointwise(::Doubled) = true
-    CR.forward(m::Doubled, ::CR.Step, v, s, t, k) = (m.c * v, s)
+    function CR.forward!(m::Doubled, ::CR.Step, v, s, t)
+        v .*= m.c
+        return nothing
+    end
     empty!(CR._PLAIN_NOTED)
     r0 = @test_logs (:info, r"Doubled cannot be rebuilt") Recurrence(
         [0.3, 0.2]; modifiers = (Doubled(0.4),)
@@ -1240,9 +1327,12 @@ end
         inner::B
     end
     CR.ispointwise(::Outer) = true
-    function CR.forward(m::Outer, ::CR.Step, v, s, t, k)
-        v′ = m.a * max(s / m.inner.N, 1.0e-6) * v * m.inner.k
-        return v′, s - v′
+    function CR.forward!(m::Outer, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v′ = m.a * max(s[k] / m.inner.N, 1.0e-6) * v[k] * m.inner.k
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
     end
     m = Outer(0.7f0, Inner(50.0, 2))
     @test CR._scalar_params(m)
@@ -1251,9 +1341,7 @@ end
         # Reference: the Jacobian of the step in the value, state and
         # parameters.
         J = ForwardDiff.jacobian([v; s; CR._params(m)]) do x
-            v′, s′ = CR.forward(
-                CR._rebuild(m, view(x, 3:4)), CR.Step(), x[1], x[2], 1, 1
-            )
+            v′, s′ = CR._step(CR._rebuild(m, view(x, 3:4)), x[1], x[2], 1, 1)
             return [v′, s′]
         end
         ref = transpose(J) * [0.3, 0.7]
@@ -1298,12 +1386,17 @@ end
     CR.ispointwise(::Capped) = true
     # Counts the Init calls on dual numbers, which only the Jacobian makes.
     const DUAL_INITS = Ref(0)
-    function CR.forward(::Capped, ::CR.Init, s, history)
+    function CR.forward!(::Capped, ::CR.Init, s, history)
         eltype(history) <: ForwardDiff.Dual && (DUAL_INITS[] += 1)
         s .= sum(history)
         return nothing
     end
-    CR.forward(m::Capped, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
+    function CR.forward!(m::Capped, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * m.κ / (m.κ + v[k])
+        end
+        return nothing
+    end
     m, h = Capped(5.0), ones(3, 4)
     init_back(s̄) = (; piece = (; κ = Ref(0.0)), s = s̄, history = zeros(3, 4))
     zero_grads, one_grads = init_back(zeros(3)), init_back(ones(3))
@@ -1330,7 +1423,7 @@ end
         rebuild(θ) = C isa UniformScaling ? θ[1] * I : Diagonal(θ)
         function pressure(θ, p)
             q = zeros(promote_type(eltype(θ), eltype(p)), 3)
-            CR.forward(rebuild(θ), CR.Pressure(), q, p, 1)
+            CR.forward!(rebuild(θ), CR.Pressure(), q, p, 1)
             return sum(q̄ .* q)
         end
         p̄ = zeros(3)
@@ -1413,9 +1506,12 @@ end
         tp::P
     end
     CR.ispointwise(::Mixed) = true
-    function CR.forward(m::Mixed, ::CR.Step, v, s, t, k)
-        w = m.D.diag[k] + m.K[k, k] + m.nt.a + m.tp[1] + m.tp[2][k]
-        return v * w, s + 0.1 * v
+    function CR.forward!(m::Mixed, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            w = m.D.diag[k] + m.K[k, k] + m.nt.a + m.tp[1] + m.tp[2][k]
+            v[k], s[k] = v[k] * w, s[k] + 0.1 * v[k]
+        end
+        return nothing
     end
     m = Mixed(
         Diagonal([0.2, 0.3]), sparse([0.1 0.0; 0.0 0.2]), (; a = 0.05),
@@ -1427,7 +1523,7 @@ end
     @test pullback_matches(r, recargs(1.1, nothing, ones(2, 2); stop = 6)...)
     # Without a mirror only the value and state cotangents come back.
     grads = (; piece = nothing, v = 0.3, s = 0.7)
-    J = ForwardDiff.jacobian(x -> collect(CR.forward(m, CR.Step(), x[1], x[2], 1, 2)), [2.0, 1.0])
+    J = ForwardDiff.jacobian(x -> collect(CR._step(m, x[1], x[2], 1, 2)), [2.0, 1.0])
     @test collect(CR._step_pullback(grads, m, 2.0, 1.0, 1, 2)) ≈ transpose(J) * [0.3, 0.7]
 
     # Scalar parameters inside a named tuple and a tuple take the dual-number
@@ -1437,8 +1533,11 @@ end
         tp::P
     end
     CR.ispointwise(::Nested) = true
-    function CR.forward(m::Nested, ::CR.Step, v, s, t, k)
-        return v * (m.nt.a + m.nt.b * m.tp[2]), s + m.tp[1] * v
+    function CR.forward!(m::Nested, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] * (m.nt.a + m.nt.b * m.tp[2]), s[k] + m.tp[1] * v[k]
+        end
+        return nothing
     end
     n = Nested((; a = 0.5, b = 0.25), (0.1, 2))
     @test CR._scalar_params(n)
@@ -1455,7 +1554,7 @@ end
         s0
     end
     CR.ispointwise(::Start) = true
-    CR.forward(m::Start, ::CR.Init, s, h) = (s .= m.s0; nothing)
+    CR.forward!(m::Start, ::CR.Init, s, h) = (s .= m.s0; nothing)
     @test CR._rebuild(Start(1.5), [9.0]) == Start(9.0)
     grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
     CR.pullback!(grads, Start(2.0), CR.Init(), zeros(2), ones(2, 2))
@@ -1471,7 +1570,7 @@ end
     end
     for M in (StartReal, StartUnion)
         @eval CR.ispointwise(::$M) = true
-        @eval CR.forward(m::$M, ::CR.Init, s, h) = (s .= m.s0; nothing)
+        @eval CR.forward!(m::$M, ::CR.Init, s, h) = (s .= m.s0; nothing)
     end
     grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
     CR.pullback!(grads, StartReal(2.0), CR.Init(), zeros(2), ones(2, 2))
@@ -1491,10 +1590,13 @@ end
         b::B
     end
     CR.ispointwise(::Cap) = true
-    function CR.forward(m::Cap, ::CR.Step, v, s, t, k)
-        κ = CR.param(m.κ, k, t)
-        v′ = CR.param(m.b, k, t) * v * κ / (κ + v)
-        return v′, s + v′
+    function CR.forward!(m::Cap, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            κ = CR.param(m.κ, k, t)
+            v′ = CR.param(m.b, k, t) * v[k] * κ / (κ + v[k])
+            v[k], s[k] = v′, s[k] + v′
+        end
+        return nothing
     end
     S, n = 2, 8
     rng = Xoshiro(4)
@@ -1511,7 +1613,7 @@ end
         x0 = [2.0; 1.5; CR._params(m)]
         J = ForwardDiff.jacobian(x0) do x
             md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR.forward(md, CR.Step(), x[1], x[2], 3, 2))
+            return collect(CR._step(md, x[1], x[2], 3, 2))
         end
         ref = transpose(J) * [0.3, 0.7]
         m̄ = zero_mirror(m)
@@ -1540,7 +1642,12 @@ end
         κ::K
     end
     CR.ispointwise(::Direct) = true
-    CR.forward(m::Direct, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ.x[k]), s)
+    function CR.forward!(m::Direct, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + v[k] / m.κ.x[k])
+        end
+        return nothing
+    end
     d = Direct(PerStratum([5.0, 6.0]))
     @test CR._modifier_adjoint(d) === :local
     op = Recurrence([0.3, 0.2]; modifiers = (d,))
@@ -1552,7 +1659,12 @@ end
         κ::K
     end
     CR.ispointwise(::Root) = true
-    CR.forward(m::Root, ::CR.Step, v, s, t, k) = (v * sqrt(CR.param(m.κ, k, t) - 1), s)
+    function CR.forward!(m::Root, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * sqrt(CR.param(m.κ, k, t) - 1)
+        end
+        return nothing
+    end
     op = Recurrence([0.3, 0.2]; modifiers = (Root(PerStratum([5.0, 6.0])),))
     @test op.rebuilds === true
     @test CR.uses_adjoint(op, CR.Run())
@@ -1563,7 +1675,12 @@ end
         κ::K
     end
     CR.ispointwise(::Raw) = true
-    CR.forward(m::Raw, ::CR.Step, v, s, t, k) = (v / (1 + v / m.κ[k]), s)
+    function CR.forward!(m::Raw, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + v[k] / m.κ[k])
+        end
+        return nothing
+    end
     for m in (Cap(PerStratum([5.0 6.0; 7.0 8.0]), 1.0), Raw([5.0, 6.0, 7.0]))
         @test CR._modifier_adjoint(m) === :local
         ro = Recurrence([0.3, 0.2]; modifiers = (m,))
@@ -1582,55 +1699,98 @@ end
     struct ByT{A} <: Reader
         a::A
     end
-    CR.forward(m::ByT, ::CR.Step, v, s, t, k) = (v * m.a[t], s + v)
+    function CR.forward!(m::ByT, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] * m.a[t], s[k] + v[k]
+        end
+        return nothing
+    end
     struct ByKT{A} <: Reader
         a::A
     end
-    CR.forward(m::ByKT, ::CR.Step, v, s, t, k) = (v * m.a[k, t], s)
+    function CR.forward!(m::ByKT, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * m.a[k, t]
+        end
+        return nothing
+    end
     struct Two{A} <: Reader
         a::A
     end
-    CR.forward(m::Two, ::CR.Step, v, s, t, k) = (v * m.a[t] + 0.1 * m.a[max(t - 1, 1)], s)
+    function CR.forward!(m::Two, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * m.a[t] + 0.1 * m.a[max(t - 1, 1)]
+        end
+        return nothing
+    end
     struct Every{A} <: Reader
         a::A
     end
-    CR.forward(m::Every, ::CR.Step, v, s, t, k) = (v * sum(m.a) / length(m.a), s)
+    function CR.forward!(m::Every, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * sum(m.a) / length(m.a)
+        end
+        return nothing
+    end
     struct Scaled{A, B} <: Reader
         a::A
         b::B
     end
-    CR.forward(m::Scaled, ::CR.Step, v, s, t, k) = (m.b * v * m.a[t], s)
+    function CR.forward!(m::Scaled, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = m.b * v[k] * m.a[t]
+        end
+        return nothing
+    end
     struct Entry{A, B} <: Reader
         a::A
         b::B
     end
-    CR.forward(m::Entry, ::CR.Step, v, s, t, k) = (CR.param(m.b, k, t) * v * m.a[t], s)
+    function CR.forward!(m::Entry, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = CR.param(m.b, k, t) * v[k] * m.a[t]
+        end
+        return nothing
+    end
     # The first `n` entries, so each width of the read step and the
     # Jacobian beyond them are reached.
     struct Firsts{A} <: Reader
         a::A
         n::Int
     end
-    function CR.forward(m::Firsts, ::CR.Step, v, s, t, k)
-        acc = zero(v)
-        for i in 1:m.n
-            acc += m.a[i]
+    function CR.forward!(m::Firsts, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            acc = zero(v[k])
+            for i in 1:m.n
+                acc += m.a[i]
+            end
+            v[k] = v[k] * acc / m.n
         end
-        return v * acc / m.n, s
+        return nothing
     end
     # Two arrays, and arrays inside a named tuple and an inner struct.
     struct Pair2{A, B} <: Reader
         a::A
         b::B
     end
-    CR.forward(m::Pair2, ::CR.Step, v, s, t, k) = (v * m.a[t] + m.b[k], s)
+    function CR.forward!(m::Pair2, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * m.a[t] + m.b[k]
+        end
+        return nothing
+    end
     struct Inner{C}
         c::C
     end
     struct Nest{N} <: Reader
         nt::N
     end
-    CR.forward(m::Nest, ::CR.Step, v, s, t, k) = (v * m.nt.w[t] * m.nt.inner.c[k], s)
+    function CR.forward!(m::Nest, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * m.nt.w[t] * m.nt.inner.c[k]
+        end
+        return nothing
+    end
     S, T = 2, 6
     rng = Xoshiro(6)
     a = 0.8 .+ 0.2 .* rand(rng, T)
@@ -1655,7 +1815,7 @@ end
         x0 = [2.0; 1.5; CR._params(m)]
         J = ForwardDiff.jacobian(x0) do x
             md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR.forward(md, CR.Step(), x[1], x[2], 3, 2))
+            return collect(CR._step(md, x[1], x[2], 3, 2))
         end
         ref = transpose(J) * [0.3, 0.7]
         m̄ = zero_mirror(m)
@@ -1692,7 +1852,7 @@ end
         x0 = [2.0; 1.5; CR._params(m)]
         J = ForwardDiff.jacobian(x0) do x
             md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR.forward(md, CR.Step(), x[1], x[2], 3, 2))
+            return collect(CR._step(md, x[1], x[2], 3, 2))
         end
         ref = transpose(J) * [0.3, 0.7]
         m̄ = zero_mirror(m)
@@ -1706,11 +1866,21 @@ end
         a::A
         Halved(a::A) where {A} = new{A}(a ./ 2)
     end
-    CR.forward(m::Halved, ::CR.Step, v, s, t, k) = (v * m.a[t], s)
+    function CR.forward!(m::Halved, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * m.a[t]
+        end
+        return nothing
+    end
     struct Strict{A} <: Reader
         a::A
     end
-    CR.forward(m::Strict, ::CR.Step, v, s, t, k) = (v * (m.a::Vector{Float64})[t], s)
+    function CR.forward!(m::Strict, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] * (m.a::Vector{Float64})[t]
+        end
+        return nothing
+    end
     for m in (Halved(a), Strict(a))
         op = Recurrence([0.3, 0.2]; modifiers = (m,))
         @test op.rebuilds === false
@@ -1729,7 +1899,12 @@ end
         a::A
     end
     CR.ispointwise(::ByTime) = true
-    CR.forward(m::ByTime, ::CR.Step, v, s, t, k) = (v * m.a[t], s + v)
+    function CR.forward!(m::ByTime, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] * m.a[t], s[k] + v[k]
+        end
+        return nothing
+    end
     a = [0.9, 1.1, 1.3]
     m̄ = (; a = zeros(3))
     @test collect(CR._read_pullback(ByTime(a), m̄, 0.3, 0.7, 2.0, 1.0, 2, 1)) ≈
@@ -1753,7 +1928,7 @@ end
     struct Mix{M}
         M::M
     end
-    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
+    CR.forward!(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
     C, p, q̄ = Mix([0.5 0.1; 0.2 0.4]), [1.0, 2.0], [0.3, 0.7]
     p̄, C̄ = zeros(2), (; M = zeros(2, 2))
     CR._local_pressure!(p̄, C̄, C, q̄, p, 1, CR._array_pressure(C, Float64))
@@ -1770,12 +1945,12 @@ end
     struct Mix{M}
         M::M
     end
-    CR.forward(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
+    CR.forward!(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
     struct ScaledMix{M, A}
         M::M
         a::A
     end
-    CR.forward(C::ScaledMix, ::CR.Pressure, q, p, t) = (q .= C.a .* (C.M * p); nothing)
+    CR.forward!(C::ScaledMix, ::CR.Pressure, q, p, t) = (q .= C.a .* (C.M * p); nothing)
     rng = Xoshiro(7)
     for S in (2, 3, 7)
         M = 0.5 .* rand(rng, S, S)
@@ -1786,7 +1961,7 @@ end
             θ0 = [p; CR._params(C)]
             function pressure(x)
                 q = zeros(eltype(x), S)
-                CR.forward(CR._rebuild(C, x[(S + 1):end]), CR.Pressure(), q, x[1:S], 1)
+                CR.forward!(CR._rebuild(C, x[(S + 1):end]), CR.Pressure(), q, x[1:S], 1)
                 return sum(q̄ .* q)
             end
             ref = ForwardDiff.gradient(pressure, θ0)
@@ -1827,7 +2002,7 @@ end
         nt::N
         tp::P
     end
-    function CR.forward(C::NTMix, ::CR.Pressure, q, p, t)
+    function CR.forward!(C::NTMix, ::CR.Pressure, q, p, t)
         mul!(q, C.nt.M, p)
         q .= C.nt.a .* q .+ C.tp[1] .* p ./ C.nt.n
         return nothing
@@ -1842,7 +2017,7 @@ end
     struct WMix{W}
         w::W
     end
-    CR.forward(C::WMix, ::CR.Pressure, q, p, t) = (q .= (sum(C.w) / length(C.w)) .* p; nothing)
+    CR.forward!(C::WMix, ::CR.Pressure, q, p, t) = (q .= (sum(C.w) / length(C.w)) .* p; nothing)
     for (P, fit) in ((22, :one), (23, :wide), (46, :wide), (47, :none))
         @test CR._fit(Recurrence([0.3]; coupling = WMix(rand(P))), args(2)...) === fit
     end
@@ -1851,7 +2026,7 @@ end
         M::M
         HalvedMix(M::A) where {A} = new{A}(M ./ 2)
     end
-    CR.forward(C::HalvedMix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
+    CR.forward!(C::HalvedMix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
     @test Recurrence([0.3]; coupling = HalvedMix(rand(3, 3))).rebuilds === false
     # A Diagonal or a sparse matrix, whose fields a step may read, keeps
     # plain AD, as do views and reshapes of an array the step seeds.
@@ -1870,7 +2045,7 @@ end
         c::C
         n::Int
     end
-    function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
+    function CR.forward!(C::ToFirst, ::CR.Pressure, q, p, t)
         tot = sum(view(p, 2:length(p)))
         q[1] = C.c * (p[1] + C.a * tot)
         for k in 2:length(p)
@@ -1892,7 +2067,7 @@ end
         p, q̄ = randn(rng, S), randn(rng, S)
         function pressure(x)
             q = zeros(eltype(x), S)
-            CR.forward(ToFirst(x[S + 1], x[S + 2], 2), CR.Pressure(), q, x[1:S], 4)
+            CR.forward!(ToFirst(x[S + 1], x[S + 2], 2), CR.Pressure(), q, x[1:S], 4)
             return sum(q̄ .* q)
         end
         ref = ForwardDiff.gradient(pressure, [p; 0.3; Float64(0.9f0)])
@@ -1938,7 +2113,7 @@ end
     end
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end
-    CR.forward(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
+    CR.forward!(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
     @test Recurrence([0.3], Swap(), ()).rebuilds === Val(true)
     @test pullback_matches(
         Recurrence([0.3, 0.2]; coupling = Swap()), args(3)...
@@ -1948,7 +2123,7 @@ end
         a::A
         Halved(a::A) where {A} = new{A}(a / 2)
     end
-    CR.forward(C::Halved, ::CR.Pressure, q, p, t) = (q .= C.a .* p; nothing)
+    CR.forward!(C::Halved, ::CR.Pressure, q, p, t) = (q .= C.a .* p; nothing)
     op = Recurrence([0.3]; coupling = Halved(0.5))
     @test op.rebuilds === false
     @test CR._fit(op, args(3)...) === :none
@@ -1969,24 +2144,39 @@ end
     end
     CR.ispointwise(::Decay) = true
     CR.uses_adjoint(::Decay, ::CR.Step) = true
-    CR.forward(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
-    CR.forward(m::Decay, ::CR.Step, v, s, t, k) = v, m.a * s + v
-    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t, k)
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), grads.s * s)
-        return grads.v + grads.s, m.a * grads.s
+    CR.forward!(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
+    function CR.forward!(m::Decay, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + v[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t)
+        v̄, s̄ = grads.v, grads.s
+        for k in eachindex(v, s)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :a), s̄[k] * s[k])
+            v̄[k], s̄[k] = v̄[k] + s̄[k], m.a * s̄[k]
+        end
+        return nothing
     end
     # Two values and two state entries per group.
     struct Keep{A}
         a::A
     end
     CR.blocks(::Keep) = Val((2, 2))
-    function CR.forward(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        return (v[1] * m.a, v[2] + s[1]), (s[1] + v[1], s[2] + v[2])
+    function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+        v[1][], v[2][] = v1 * m.a, v2 + s1
+        s[1][], s[2][] = s1 + v1, s2 + v2
+        return nothing
     end
     function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        (v̄1, v̄2), (s̄1, s̄2) = grads.v, grads.s
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1])
-        return (v̄1 * m.a + s̄1, v̄2 + s̄2), (v̄2 + s̄1, s̄2)
+        v̄1, v̄2 = grads.v[1][], grads.v[2][]
+        s̄1, s̄2 = grads.s[1][], grads.s[2][]
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+        return nothing
     end
     g, R, h = [0.5, 0.3], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
     K = [0.0 0.2 0.1 0.0; 0.1 0.0 0.0 0.2; 0.2 0.1 0.0 0.1; 0.0 0.1 0.2 0.0]

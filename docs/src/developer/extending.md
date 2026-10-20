@@ -1,6 +1,6 @@
 # [Writing new types](@id extending)
 
-A new modifier, coupling or depletion form is a type with a [`forward`](@ref ComposableRecurrences.forward) method for its role.
+A new modifier, coupling or depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for its role.
 Add a [`pullback!`](@ref ComposableRecurrences.pullback!) method for a hand-written gradient.
 This page gives the contract for each role, then one worked example for each kind of type.
 
@@ -11,33 +11,40 @@ const CR = ComposableRecurrences
 
 ## [Roles](@id extending-roles)
 
-The second argument of `forward` and the third of `pullback!` is a singleton that selects the role by dispatch.
+The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
+Both write their outputs in place and return `nothing`; a method that returns anything else is an error.
+Couplings, modifiers and depletion forms write in place, and operators return: an operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
+A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
+It still returns its values for one stratum or group, and will move to `forward!`.
 
-| Type | `forward` | `pullback!` | `grads` | `pullback!` returns |
-|---|---|---|---|---|
-| pointwise modifier step | `forward(m, Step(), v, s, t, k)` returns `(v′, s′)` | `pullback!(grads, m, Step(), v, s, t, k)` | `piece`; `v` and `s` hold the scalar cotangents of `v′` and `s′` | `(v̄, s̄)` |
-| blockwise modifier group step | `forward(m, Step(), v::Tuple, s::Tuple, t, g)` returns tuples `(v′, s′)` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples holding the cotangents of `v′` and `s′` | tuples `(v̄, s̄)` |
-| vector modifier step | `forward(m, Step(), v, s, t)` updates `v` and `s` in place | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` are vectors holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` | `nothing` |
-| initial state | `forward(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` | `nothing` |
-| coupling | `forward(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` | `nothing` |
-| depletion form | `forward(form, Step(), v, s, N, α)` returns `(y, s′)` | `pullback!(grads, form, Step(), v, s, N, α)` | `piece`; `v` and `s` hold the cotangents of `y` and `s′` | `(v̄, s̄, N̄, ᾱ)` |
-| pointwise modifier trace | `forward(m, Trace(), v, s, v′, s′, t, k)` returns a tuple | `pullback!(grads, m, Trace(), v, s, t, k)` | `piece`; `trace` holds the tuple's cotangents | `(v̄, s̄, v̄′, s̄′)` |
-| blockwise modifier group trace | `forward(m, Trace(), v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` returns a tuple | `pullback!(grads, m, Trace(), v, s, t, g)` | `piece`; `trace` holds the tuple's cotangents | tuples `(v̄, s̄, v̄′, s̄′)` |
+| Type | `forward!` | `pullback!` | `grads` |
+|---|---|---|---|
+| modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+| blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+| initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
+| coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
+| depletion form | `forward!(form, Step(), v, s, N, α)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N, α)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, and add those of `N` and `α` into `N` and `α`, which are indexed as `v` is |
+| pointwise modifier trace | `forward(m, Trace(), v, s, v′, s′, t, k)` returns a tuple | `pullback!(grads, m, Trace(), v, s, t, k)`, returning `(v̄, s̄, v̄′, s̄′)` | `piece`; `trace` holds the tuple's cotangents |
+| blockwise modifier group trace | `forward(m, Trace(), v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` returns a tuple | `pullback!(grads, m, Trace(), v, s, t, g)`, returning tuples `(v̄, s̄, v̄′, s̄′)` | `piece`; `trace` holds the tuple's cotangents |
 
 The arguments mean the same in every role:
 
-- `t` is the absolute time, counted from 1 as `start` and `stop` are, and `k` is the [stratum](@ref glossary-stratum).
-- `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
+- `t` is the absolute time, counted from 1 as `start` and `stop` are.
+- `v` holds one value per [stratum](@ref glossary-stratum), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
 - `history` is the call's `history` as given: a vector for one series, else strata × time.
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
-- In `pullback!`, `v`, `s`, `p` and `history` are the values `forward` was given, so the values before the step.
+- In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
   Read them, but do not write to them.
 - Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
-- A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise) and implements the scalar step.
-  A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) and implements the step for one group, `g`.
-  Any other modifier implements the vector step and may read every stratum.
+- A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise), and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
+  The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
+  A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
+  Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
+- A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
+- Any other modifier implements the step on whole vectors and may read every stratum.
+- A depletion form is pointwise: it draws each entry of `v` from the same entry of `s`.
 
-`forward` must be generic in the element type of its arguments.
+`forward!` must be generic in the element type of its arguments.
 A dual number, a `Float32` or a tracked value can arrive in `v`, `s` or a field.
 So do not annotate `Float64` or build `0.0`; use `zero(v)` and `oftype`.
 Under [`Threaded`](@ref ComposableRecurrences.Threaded) the steps of different strata can run at once.
@@ -76,8 +83,8 @@ v' = \frac{v \, \kappa}{\kappa + v},
 ```
 
 where ``v`` is the value it receives and ``v'`` the value it passes on.
-It acts on each series alone, so it is pointwise and implements the scalar step.
-It keeps no state, so it passes its state on unchanged.
+It acts on each series alone, so it is pointwise and writes each entry from its own.
+It keeps no state, so it leaves its state unchanged.
 The field has a type parameter so that a dual number can take its place.
 
 ```@example extending
@@ -85,7 +92,12 @@ struct Saturation{K}
     κ::K
 end
 CR.ispointwise(::Saturation) = true
-CR.forward(m::Saturation, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
+function CR.forward!(m::Saturation, ::CR.Step, v, s, t)
+    for k in eachindex(v)
+        v[k] = v[k] * m.κ / (m.κ + v[k])
+    end
+    return nothing
+end
 ```
 
 It goes in the modifier tuple with the package's own.
@@ -107,7 +119,7 @@ model(κ) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Saturation(κ), p
 [round(sum(model(κ)(fill(1.8, 80); history = seed))) for κ in (50.0, 150.0, 1.0e6)]
 ```
 
-ForwardDiff differentiates `forward` as written.
+ForwardDiff differentiates `forward!` as written.
 Under Mooncake or Enzyme in reverse mode the operator still takes its rule, as [Rules and plain AD](@ref adjoint-routing) gives for a pointwise modifier with a float parameter.
 
 ```@example extending
@@ -134,11 +146,20 @@ struct SaturationPullback{K}
     κ::K
 end
 CR.ispointwise(::SaturationPullback) = true
-CR.forward(m::SaturationPullback, ::CR.Step, v, s, t, k) = (v * m.κ / (m.κ + v), s)
-function CR.pullback!(grads, m::SaturationPullback, ::CR.Step, v, s, t, k)
-    d = inv(m.κ + v)^2
-    CR.add_cotangent!(CR.cotangent(grads.piece, :κ), grads.v * v^2 * d)
-    return grads.v * m.κ^2 * d, grads.s
+function CR.forward!(m::SaturationPullback, ::CR.Step, v, s, t)
+    for k in eachindex(v)
+        v[k] = v[k] * m.κ / (m.κ + v[k])
+    end
+    return nothing
+end
+function CR.pullback!(grads, m::SaturationPullback, ::CR.Step, v, s, t)
+    v̄ = grads.v
+    for k in eachindex(v, v̄)
+        d = inv(m.κ + v[k])^2
+        CR.add_cotangent!(CR.cotangent(grads.piece, :κ), v̄[k] * v[k]^2 * d)
+        v̄[k] *= m.κ^2 * d
+    end
+    return nothing
 end
 
 CR.uses_adjoint(Saturation(100.0), CR.Step()), CR.uses_adjoint(SaturationPullback(100.0), CR.Step())
@@ -162,14 +183,17 @@ struct Smooth{A}
     a::A
 end
 CR.ispointwise(::Smooth) = true
-function CR.forward(m::Smooth, ::CR.Init, s, history)
+function CR.forward!(m::Smooth, ::CR.Init, s, history)
     H = reshape(history, length(s), :)
     s .= view(H, :, size(H, 2))
     return nothing
 end
-function CR.forward(m::Smooth, ::CR.Step, v, s, t, k)
-    s′ = m.a * s + (1 - m.a) * v
-    return s′, s′
+function CR.forward!(m::Smooth, ::CR.Step, v, s, t)
+    for k in eachindex(v, s)
+        s[k] = m.a * s[k] + (1 - m.a) * v[k]
+        v[k] = s[k]
+    end
+    return nothing
 end
 
 Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))(2.0; history = [1.0, 2.0], stop = 5)
@@ -190,10 +214,14 @@ where a bar marks a cotangent, ``\bar g`` is the summed cotangent and ``s`` is t
 The `Init` pullback adds the state's cotangent into the last column of the history.
 
 ```@example extending
-function CR.pullback!(grads, m::Smooth, ::CR.Step, v, s, t, k)
-    ḡ = grads.v + grads.s
-    CR.add_cotangent!(CR.cotangent(grads.piece, :a), (s - v) * ḡ)
-    return (1 - m.a) * ḡ, m.a * ḡ
+function CR.pullback!(grads, m::Smooth, ::CR.Step, v, s, t)
+    v̄, s̄ = grads.v, grads.s
+    for k in eachindex(v, s)
+        ḡ = v̄[k] + s̄[k]
+        CR.add_cotangent!(CR.cotangent(grads.piece, :a), (s[k] - v[k]) * ḡ)
+        v̄[k], s̄[k] = (1 - m.a) * ḡ, m.a * ḡ
+    end
+    return nothing
 end
 function CR.pullback!(grads, m::Smooth, ::CR.Init, s, history)
     grads.history === nothing && return nothing
@@ -202,8 +230,9 @@ function CR.pullback!(grads, m::Smooth, ::CR.Init, s, history)
     return nothing
 end
 
-grads = (; piece = (; a = Ref(0.0)), v = 1.0, s = 0.5)
-CR.pullback!(grads, Smooth(0.5), CR.Step(), 2.0, 1.0, 1, 1), grads.piece.a[]
+grads = (; piece = (; a = Ref(0.0)), v = [1.0], s = [0.5])
+CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
+grads.v, grads.s, grads.piece.a[]
 ```
 
 ## [A per-stratum parameter](@id extending-param)
@@ -215,22 +244,31 @@ v'_{t,k} = v_{t,k} + b_k.
 ```
 
 It reads `b` with `param` and adds its cotangent with `add_param!`, so `b` may be one value or `PerStratum`.
-For a `PerStratum` `b` the mirror entry is `(; x)`, and the cotangent lands in `x[k]`.
+For a `PerStratum` `b` the mirror entry is `(; x)`, and the cotangent of entry `k` lands in `x[k]`.
 
 ```@example extending
 struct Shift{B}
     b::B
 end
 CR.ispointwise(::Shift) = true
-CR.forward(m::Shift, ::CR.Step, v, s, t, k) = (v + CR.param(m.b, k, t), s)
-function CR.pullback!(grads, m::Shift, ::CR.Step, v, s, t, k)
-    CR.add_param!(CR.cotangent(grads.piece, :b), m.b, grads.v, k, t)
-    return grads.v, grads.s
+function CR.forward!(m::Shift, ::CR.Step, v, s, t)
+    for k in eachindex(v)
+        v[k] += CR.param(m.b, k, t)
+    end
+    return nothing
+end
+function CR.pullback!(grads, m::Shift, ::CR.Step, v, s, t)
+    b̄ = CR.cotangent(grads.piece, :b)
+    for k in eachindex(v)
+        CR.add_param!(b̄, m.b, grads.v[k], k, t)
+    end
+    return nothing
 end
 
 m = Shift(PerStratum([0.1, 0.2]))
-grads = (; piece = (; b = (; x = zeros(2))), v = 1.5, s = 0.0)
-CR.pullback!(grads, m, CR.Step(), 2.0, 0.0, 1, 2), grads.piece.b.x
+grads = (; piece = (; b = (; x = zeros(2))), v = [1.5, 0.5], s = [0.0, 0.0])
+CR.pullback!(grads, m, CR.Step(), [2.0, 1.0], [0.0, 0.0], 1)
+grads.piece.b.x
 ```
 
 ## [A coupling](@id extending-coupling)
@@ -249,7 +287,7 @@ Its pullback reads `grads.q`, adds into `grads.p` and adds the cotangent of `sha
 struct ToFirst{A}
     share::A
 end
-function CR.forward(C::ToFirst, ::CR.Pressure, q, p, t)
+function CR.forward!(C::ToFirst, ::CR.Pressure, q, p, t)
     q .= (1 - C.share) .* p
     q[1] += C.share * sum(p)
     return nothing
@@ -269,7 +307,7 @@ Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop 
 
 ## [A vector step](@id extending-vector)
 
-A modifier that reads other strata implements the vector step.
+A modifier that reads other strata is not pointwise, and its step reads the whole vectors.
 This one pulls each value towards the mean over strata by a share ``a``:
 
 ```math
@@ -285,7 +323,7 @@ The state passes through unchanged, so `grads.s` already holds its cotangent.
 struct Pool{A}
     a::A
 end
-function CR.forward(m::Pool, ::CR.Step, v, s, t)
+function CR.forward!(m::Pool, ::CR.Step, v, s, t)
     μ = sum(v) / length(v)
     for k in eachindex(v)
         v[k] = (1 - m.a) * v[k] + m.a * μ
@@ -309,22 +347,25 @@ Recurrence([0.5, 0.5]; modifiers = (Pool(0.5),))(1.0; history = [1.0 2.0; 3.0 1.
 ## [A blockwise step](@id extending-blockwise)
 
 A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
-[`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group, and the step takes and returns them as tuples.
+[`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group.
+The step takes them as tuples of one-entry views, read and written as `x[]`.
 This one keeps a running total and a step count per series, and adds their mean to the value:
 
 ```math
 a_t = a_{t-1} + v_t, \qquad n_t = n_{t-1} + 1, \qquad v'_t = v_t + \frac{a_t}{n_t},
 ```
 
-where ``v_t`` is the value at step ``t`` and ``v'_t`` the value returned.
+where ``v_t`` is the value at step ``t`` and ``v'_t`` the value passed on.
 ``a_t`` is the running total and ``n_t`` the step count, the series' two state entries.
 
 ```@example extending
 struct AddMean end
 CR.blocks(::AddMean) = Val((1, 2))
-function CR.forward(::AddMean, ::CR.Step, v::Tuple, s::Tuple, t, k)
-    total, n = s[1] + v[1], s[2] + 1
-    return (v[1] + total / n,), (total, n)
+function CR.forward!(::AddMean, ::CR.Step, v::Tuple, s::Tuple, t, g)
+    total, n = s[1][] + v[1][], s[2][] + 1
+    v[1][] += total / n
+    s[1][], s[2][] = total, n
+    return nothing
 end
 
 Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0 2.0; 3.0 1.0])
@@ -365,7 +406,7 @@ only(trace.modifiers)
 
 A blockwise modifier records its trace per group from tuples.
 The pullback is given the values before the step, `v` and `s`.
-One whose trace is not linear in the step's outputs computes them with the step's `forward`.
+One whose trace is not linear in the step's outputs computes them with the step's `forward!`.
 
 ## [A depletion form](@id extending-form)
 
@@ -378,18 +419,29 @@ v' = \min(v, s), \qquad s' = s - v',
 ```
 
 where ``v'`` is the value drawn and ``s'`` the pool after the step.
-Its pullback returns the cotangents of `v`, `s`, `N` and `α`.
-`Depletion` adds those of `N` and `α` into its own mirror.
+Its pullback overwrites `grads.v` and `grads.s` with the cotangents of `v` and `s`.
+This form reads neither `N` nor `α`, so it adds nothing into `grads.N` and `grads.α`; `Depletion` adds what a form puts there into its own mirror.
 Its `grads.piece` is the mirror of the form's own fields.
 
 ```@example extending
 struct Capped end
-CR.forward(::Capped, ::CR.Step, v, s, N, α) = (y = min(v, s); (y, s - y))
+function CR.forward!(::Capped, ::CR.Step, v, s, N, α)
+    for k in eachindex(v, s)
+        y = min(v[k], s[k])
+        v[k], s[k] = y, s[k] - y
+    end
+    return nothing
+end
 function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N, α)
-    ȳ, s̄′ = grads.v, grads.s
-    z = zero(ȳ)
-    v <= s && return ȳ - s̄′, s̄′, z, z
-    return z, ȳ, z, z
+    v̄, s̄ = grads.v, grads.s
+    for k in eachindex(v, s)
+        if v[k] <= s[k]
+            v̄[k] -= s̄[k]
+        else
+            v̄[k], s̄[k] = zero(v̄[k]), v̄[k]
+        end
+    end
+    return nothing
 end
 
 d = CR.Depletion(10.0, Capped())
@@ -398,13 +450,13 @@ Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 
 ## [Checking a new type](@id extending-checks)
 
-First test `forward` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), with one `Arguments(; piece, role, args)` per role the type has.
+First test `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), with one `Arguments(; piece, role, args)` per role the type has.
 Here `args` are the arguments after the role:
 
 - `(s, history)` for `Init()`;
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
-- scalars `(v, s, N, α)` for a depletion form.
+- `(v, s, N, α)`, with vectors `v` and `s`, for a depletion form.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 
@@ -420,16 +472,20 @@ Interfaces.test(
 )
 ```
 
-Then check each `pullback!` against ForwardDiff of `forward` on the same inputs.
+Then check each `pullback!` against ForwardDiff of `forward!` on the same inputs.
 
 ```@example extending
 using ForwardDiff
 
-smooth_step(x) = collect(CR.forward(Smooth(x[1]), CR.Step(), x[2], x[3], 1, 1))
+function smooth_step(x)
+    v, s = [x[2]], [x[3]]
+    CR.forward!(Smooth(x[1]), CR.Step(), v, s, 1)
+    return [v[1], s[1]]
+end
 J = ForwardDiff.jacobian(smooth_step, [0.5, 2.0, 1.0])
-grads = (; piece = (; a = Ref(0.0)), v = 1.0, s = 0.5)
-v̄, s̄ = CR.pullback!(grads, Smooth(0.5), CR.Step(), 2.0, 1.0, 1, 1)
-J' * [grads.v, grads.s] ≈ [grads.piece.a[], v̄, s̄]
+grads = (; piece = (; a = Ref(0.0)), v = [1.0], s = [0.5])
+CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
+J' * [1.0, 0.5] ≈ [grads.piece.a[], grads.v[1], grads.s[1]]
 ```
 
 Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
@@ -451,14 +507,14 @@ gradient(loss(r), backend, [0.3]) ≈
 
 ## [Performance](@id extending-performance)
 
-- Keep `forward` and `pullback!` free of allocations: return scalars from a pointwise step and loop over a vector step in place.
+- Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
 - [Which rules are kept](@ref rule-policy) gives the cost of a missing `pullback!`.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
 The [benchmark matrix](@ref testing) times the gradient of a renewal with the [first modifier](@ref extending-first), under Mooncake and Enzyme in reverse mode.
-It times plain AD of the whole operator, the rule with `forward` only, and the rule with the `pullback!`.
+It times plain AD of the whole operator, the rule with `forward!` only, and the rule with the `pullback!`.
 
 ```@example extending
 using Markdown # hide
@@ -473,16 +529,16 @@ if isempty(cases) # hide
 else # hide
     (lo, hi), (plo, phi) = pct("plain AD", "forward only"), pct("forward only", "with pullback!") # hide
     Markdown.parse( # hide
-        "With `forward` only, the gradient takes $lo% to $hi% of the time of plain AD. " * # hide
-            "The `pullback!` then takes it to $plo% to $phi% of the time with `forward` only. " * # hide
+        "With `forward!` only, the gradient takes $lo% to $hi% of the time of plain AD. " * # hide
+            "The `pullback!` then takes it to $plo% to $phi% of the time with `forward!` only. " * # hide
             "These are median times at revision `$(first(custom)[12])`." # hide
     ) # hide
 end # hide
 ```
 
-The local step evaluates `forward` once per step with dual numbers, so its cost follows the cost of `forward`.
+The local step evaluates `forward!` once per step with dual numbers, so its cost follows the cost of `forward!`.
 For a map as cheap as this one there is little for a `pullback!` to save.
-Write `forward` first, and add a `pullback!` when timing shows the modifier's local step matters.
+Write `forward!` first, and add a `pullback!` when timing shows the modifier's local step matters.
 
 ## [Specialising for speed](@id specialising)
 
@@ -491,9 +547,9 @@ A method for a narrower type replaces the general one for that type alone, so a 
 
 | To speed up | Add a method |
 |---|---|
-| a coupling with structure, such as low rank or banded | `forward(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
-| a modifier at one parameter form | `forward(m::MyModifier{<:PerStratum}, Step(), v, s, t, k)` |
-| a depletion form at one number type | `forward(form::MyForm, Step(), v::Float32, s::Float32, N::Float32, α::Float32)` |
+| a coupling with structure, such as low rank or banded | `forward!(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
+| a modifier at one parameter form | `forward!(m::MyModifier{<:PerStratum}, Step(), v, s, t)` |
+| a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32, α::Float32)` |
 | how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
 
 A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
@@ -509,7 +565,7 @@ struct RankOne{V}
     u::V
     w::V
 end
-function CR.forward(C::RankOne, ::CR.Pressure, q, p, t)
+function CR.forward!(C::RankOne, ::CR.Pressure, q, p, t)
     c = zero(eltype(q))
     for b in eachindex(p)
         c += C.w[b] * p[b]

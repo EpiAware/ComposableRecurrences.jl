@@ -49,21 +49,24 @@ end
     struct FlooredDepletion{P}
         pop::P
     end
-    function ComposableRecurrences.forward(m::FlooredDepletion, ::ComposableRecurrences.Init, s, history)
+    function ComposableRecurrences.forward!(m::FlooredDepletion, ::ComposableRecurrences.Init, s, history)
         s .= m.pop
         return nothing
     end
     ComposableRecurrences.ispointwise(::FlooredDepletion) = true
-    function ComposableRecurrences.forward(m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t, k)
-        v′ = max(s / m.pop[k], 1.0e-6) * v
-        return v′, s - v′
+    function ComposableRecurrences.forward!(m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
+            v[k], s[k] = v′, s[k] - v′
+        end
+        return nothing
     end
 
     # Vector-level: scale every value, and keep a running total in the state.
     struct Scale{A}
         a::A
     end
-    function ComposableRecurrences.forward(m::Scale, ::ComposableRecurrences.Step, v, s, t)
+    function ComposableRecurrences.forward!(m::Scale, ::ComposableRecurrences.Step, v, s, t)
         v .*= m.a
         s .+= v
         return nothing
@@ -75,25 +78,38 @@ end
         params::NamedTuple
     end
     ComposableRecurrences.ispointwise(::LooseScale) = true
-    function ComposableRecurrences.forward(m::LooseScale, ::ComposableRecurrences.Step, v, s, t, k)
-        return m.a * v + m.params.b, s
+    function ComposableRecurrences.forward!(m::LooseScale, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = m.a * v[k] + m.params.b, s[k]
+        end
+        return nothing
     end
 
     # Adds each stratum's history total, set once by its Init.
     struct HistoryTotal end
-    function ComposableRecurrences.forward(::HistoryTotal, ::ComposableRecurrences.Init, s, history)
+    function ComposableRecurrences.forward!(::HistoryTotal, ::ComposableRecurrences.Init, s, history)
         s .= vec(sum(history; dims = ndims(history)))
         return nothing
     end
     ComposableRecurrences.ispointwise(::HistoryTotal) = true
-    ComposableRecurrences.forward(::HistoryTotal, ::ComposableRecurrences.Step, v, s, t, k) = (v + s, s)
+    function ComposableRecurrences.forward!(::HistoryTotal, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] + s[k], s[k]
+        end
+        return nothing
+    end
 
     # Pointwise and time-varying: add `b[t]`.
     struct Shift{B}
         b::B
     end
     ComposableRecurrences.ispointwise(::Shift) = true
-    ComposableRecurrences.forward(m::Shift, ::ComposableRecurrences.Step, v, s, t, k) = (v + m.b[t], s)
+    function ComposableRecurrences.forward!(m::Shift, ::ComposableRecurrences.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = v[k] + m.b[t], s[k]
+        end
+        return nothing
+    end
 end
 
 # Pullback checks for modifiers against a local ForwardDiff Jacobian, shared
@@ -123,7 +139,7 @@ end
     flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 
     # Compare the Step's `pullback!` with the transposed Jacobian of its
-    # `forward` in `[v; s; θ]`, for a modifier `build(θ)` whose mirror
+    # `forward!` in `[v; s; θ]`, for a modifier `build(θ)` whose mirror
     # flattens in the order of `θ`; `mirror_of` and `flatten` replace
     # `mirror` and `flat` for a modifier whose mirror needs another order.
     # The state may be longer than `v`. Returns the parameter cotangent for
@@ -137,7 +153,7 @@ end
         s̄′ = s̄ === nothing ? collect(range(-0.4, 0.9; length = n)) : s̄
         J = ForwardDiff.jacobian(vcat(v, s, θ)) do x
             vv, ss = x[1:S], x[(S + 1):(S + n)]
-            CR.forward(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
+            CR.forward!(build(x[(S + n + 1):end]), CR.Step(), vv, ss, t)
             return vcat(vv, ss)
         end
         expected = transpose(J) * vcat(v̄′, s̄′)
