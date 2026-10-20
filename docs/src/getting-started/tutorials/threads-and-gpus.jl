@@ -1,21 +1,13 @@
 # # [Threads and GPUs](@id tutorial-threads-gpus)
 #
 # !!! note "Draft"
-#     This tutorial is a draft and is not in the docs build yet: it is not
-#     listed in `docs/docs_config.jl` or the navigation in `docs/pages.jl`,
-#     and the docs environment does not have JLArrays.jl or
-#     KernelAbstractions.jl.
-#     Its timings come from a shared 4-core machine; before it is listed it
-#     needs speed-ups from 8 to 16 threads on a dedicated machine
-#     (`benchmark/threshold.jl`), with the hardware stated.
+#     This tutorial is a draft and is not in the docs build yet: it is not listed in `docs/docs_config.jl` or the navigation in `docs/pages.jl`, and the docs environment does not have JLArrays.jl or KernelAbstractions.jl.
+#     Its timings come from a shared 4-core machine; before it is listed it needs speed-ups from 8 to 16 threads on a dedicated machine (`benchmark/threshold.jl`), with the hardware stated.
 #
 # ## Introduction
 #
-# [Strata](@ref glossary-stratum) that do not mix within a step can be computed
-# at the same time.
-# So can the strata of a convolution.
-# An [executor](@ref executors) sets how.
-# The executor is chosen for a block of code, so the model code does not change.
+# [Strata](@ref glossary-stratum) that do not mix within a step, and the strata of a convolution, can be computed at the same time.
+# An [executor](@ref executors), chosen for a block of code, sets how, so the model code does not change.
 #
 # ### What are we going to do in this exercise
 #
@@ -26,8 +18,7 @@
 #
 # ### What might I need to know before starting
 #
-# This tutorial builds on the
-# [Spatial models](@ref tutorial-spatial-strata) tutorial.
+# This builds on [Spatial models](@ref tutorial-spatial-strata).
 # Start Julia with more than one thread, for example `julia --threads=4`, to see a speed-up.
 
 # ## Packages used
@@ -39,8 +30,7 @@ using JLArrays, KernelAbstractions
 
 # ## Threads
 #
-# Each of the `S` strata has its own reproduction number and generation
-# interval, with no mixing between strata:
+# Each of the `S` strata has its own reproduction number and generation interval, with no mixing:
 #
 # ```math
 # y_{t,i} = R_{t,i} \sum_{l=1}^{L} k_{i,l} \, y_{t-l,i}, \qquad i = 1, \ldots, S.
@@ -61,26 +51,20 @@ y_threaded = with(EXECUTOR => Threaded()) do
 end
 y_threaded == y_serial
 
-# Each stratum's output is written by one thread only, so the results are
-# identical, not just close.
+# Each stratum's output is written by one thread only, so the results are identical.
 
 Threads.nthreads()
 
 # ## When threads pay off
 #
-# Starting and joining the tasks costs tens of microseconds, so `Threaded()`
-# runs a loop in order when its work is below `min_work`.
-# [`Threaded`](@ref ComposableRecurrences.Threaded) gives the default and how
-# each kind of loop counts its work against it.
+# Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work is below `min_work`.
+# [`Threaded`](@ref ComposableRecurrences.Threaded) gives the default and how each kind of loop counts its work.
 #
-# The timings below are of whole losses, including the serial work outside
-# the split loops, with four threads against one on a shared 4-core virtual
-# machine (Intel Xeon at 2.1 GHz, Julia 1.12, load about 2).
+# The table gives the speed-up of four threads over one for whole losses, including the serial work outside the split loops.
+# The machine was a shared 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12, load about 2).
 # Each range is the spread over three rounds that alternate the executors.
 # ForwardDiff is one pushforward of 8 tangents.
-# The work is that of the loop the executor splits, in multiply-adds:
-# `S × T × L` for independent strata and a convolution, `S² × L` per step
-# for a pairwise kernel and `S × L` per step for a sparse coupling.
+# The work is that of the loop the executor splits, in multiply-adds: `S × T × L` for independent strata and a convolution, `S² × L` per step for a pairwise kernel and `S × L` per step for a sparse coupling.
 #
 # | Model | Work | Primal | Mooncake reverse | Enzyme reverse | ForwardDiff |
 # |---|---|---|---|---|---|
@@ -102,33 +86,26 @@ Threads.nthreads()
 # | convolution | 8 million | 0.82–1.13 | 1.07–1.17 | 1.13–1.15 | |
 #
 # The machine was shared, so the ranges are indicative.
-# A second run of independent strata at two million multiply-adds gave 0.92
-# to 0.98 times on the primal and in reverse mode, so that row is break-even.
-# Below a few hundred thousand multiply-adds threads lost on the primal and
-# in reverse mode.
-# With dual numbers each multiply-add costs more, so threads gained from
-# less work; below 500 000 the gains for strata that mix varied between runs.
-# A convolution with a fixed kernel vectorises well, and its primal gained
-# little at any size.
-# Much of a recurrence's call is serial: allocating its buffer and output
-# and, in these losses, the transforms of its inputs and outputs.
+# A second run of independent strata at two million multiply-adds gave 0.92 to 0.98 on the primal and in reverse mode, so that row is break-even.
+# Below a few hundred thousand multiply-adds threads lost on the primal and in reverse mode.
+# With dual numbers each multiply-add costs more, so threads gained from less work; below 500 000 the gains for strata that mix varied between runs.
+# A convolution with a fixed kernel vectorises well, and its primal gained little at any size.
+# Much of a recurrence's call is serial: allocating its buffer and output and, in these losses, the transforms of its inputs and outputs.
 #
-# Set `min_work` to move the break-even point.
-# This model's work is `S × T × L`, four million multiply-adds, so it splits
-# under the default threshold but not under one twice as high:
+# `min_work` moves the break-even point.
+# This model's work is `S × T × L`, four million multiply-adds, so it splits under the default threshold but not under one twice as high:
 
 with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
     r(R; history = seed)
 end == y_serial
 
-# The result is the same either way; only the time differs.
+# The result is the same either way.
 
 # ## GPU arrays
 #
 # `Device(backend)` runs the same strata loops as one GPU kernel each.
-# Calls on arrays that live on a GPU use it without being asked.
-# Every array a call reads moves to the device: the inputs, the history, the
-# kernel, the coupling and the modifiers' parameters.
+# Calls on arrays that live on a GPU use it by default.
+# Every array a call reads must be on the device; [GPU arrays](@ref gpu-arrays) lists them.
 # JLArrays.jl provides GPU-style arrays that run on the CPU, so this section runs anywhere.
 
 JLArrays.allowscalar(false)
@@ -144,10 +121,8 @@ Array(y_device) ≈ y_serial
 # y = r_cuda(CuArray(R); history = CuArray(seed))
 # ```
 #
-# A recurrence pays one kernel launch per step when its strata mix, so a GPU
-# pays off only with many strata or many series.
-# On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the
-# arrays from the host, so use `Device(backend)` there.
+# [GPU arrays](@ref gpu-arrays) gives the cost of strata that mix on a GPU.
+# On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the arrays from the host, so use `Device(backend)` there.
 # To compile a model with Reactant.jl instead, see the [Reactant extension](@ref extension-reactant).
 
 # ## What each executor supports
