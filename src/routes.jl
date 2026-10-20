@@ -34,8 +34,10 @@ The positional constructor keeps them.
 One route is its kernel with its coupling,
 and routes whose couplings are all `λ * I` on vector kernels are the one
 kernel ``\sum_r \lambda_r k^{(r)}``.
-The analytic adjoint applies when every route coupling has its own
-[`ComposableRecurrences.pullback!`](@ref), as the built-in ones do.
+The analytic adjoint applies when it covers every route coupling, as it
+would the coupling of a [`Recurrence`](@ref): with its own
+[`ComposableRecurrences.pullback!`](@ref), as the built-in ones have, or
+with a local derivative, within the same limits on strata and scalars.
 The constructor stores the routes' couplings in `couplings` and their
 kernels in `kernels`, in route order.
 
@@ -172,21 +174,16 @@ function _check_primary_seed(R::Routes, history, start)
     return nothing
 end
 
-# The rule covers the routes when every route coupling has its own
-# pullback.
-_kernel_adjoint(R::Routes) = _all_pressure_pullbacks(R.couplings)
-_all_pressure_pullbacks(::Tuple{}) = true
-function _all_pressure_pullbacks(Cs::Tuple)
-    return uses_adjoint(first(Cs), Pressure()) &&
-        _all_pressure_pullbacks(Base.tail(Cs))
-end
+# The rule covers the routes when it covers every route coupling, with its
+# own pullback or a local derivative, as for the coupling of a
+# `Recurrence`; the local step rebuilds and fits each route coupling as it
+# does that coupling.
+_kernel_adjoint(R::Routes) = all(C -> _coupling_adjoint(C) !== :none, R.couplings)
+_kernel_couplings(R::Routes) = R.couplings
 
-# The plain-AD note names the route couplings without a pullback.
+# The plain-AD note names the route couplings the rule cannot use.
 function _no_adjoint_kernel(R::Routes)
-    return Tuple(
-        "$(nameof(typeof(C))) has no pullback! the rule can use"
-            for C in R.couplings if !uses_adjoint(C, Pressure())
-    )
+    return Tuple(_part_why(C) for C in R.couplings if _coupling_adjoint(C) === :none)
 end
 
 # The routes as a run reads them: the couplings, each kernel oldest first
@@ -245,16 +242,27 @@ end
 _route_mirrors(::Nothing, xs) = map(_ -> nothing, xs)
 _route_mirrors(x̄s, xs) = x̄s
 
+# Each route's kernel buffer, and its coupling's dual-number buffers
+# (`_pressure_buffers`), made once per reverse pass so a step allocates
+# nothing.
+struct _RouteBuffers{K <: Tuple, P <: Tuple}
+    kernels::K
+    pressures::P
+end
 function _kernel_buffer(ḡ, k::_RouteKernels, H, S, L)
     ḡs = _route_mirrors(cotangent(ḡ, :kernels), k.kernels)
-    return map((ḡr, g, Lr) -> _kernel_buffer(ḡr, g, H, S, Lr), ḡs, k.kernels, k.lags)
+    C̄s = _route_mirrors(cotangent(ḡ, :couplings), k.couplings)
+    kbufs = map((ḡr, g, Lr) -> _kernel_buffer(ḡr, g, H, S, Lr), ḡs, k.kernels, k.lags)
+    pbufs = map((C̄, C) -> _pressure_buffers(C̄, C, eltype(H)), C̄s, k.couplings)
+    return _RouteBuffers(kbufs, pbufs)
 end
 
 function _kernel_back!(kbuf, ḡ, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     C̄s = _route_mirrors(cotangent(ḡ, :couplings), k.couplings)
     ḡs = _route_mirrors(cotangent(ḡ, :kernels), k.kernels)
     _routes_back!(
-        kbuf, ḡs, C̄s, k.couplings, k.kernels, k.lags, k.z, k.w, p̄, H, H̄, t, τ, L
+        kbuf.kernels, kbuf.pressures, ḡs, C̄s, k.couplings, k.kernels, k.lags,
+        k.z, k.w, p̄, H, H̄, t, τ, L
     )
     return nothing
 end
@@ -264,22 +272,29 @@ function _kernels_back!(accs, kbuf, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     _kernel_back!(kbuf, _own(first(accs).ḡ), k, p̄, H, H̄, t, τ, L)
     return nothing
 end
-_routes_back!(::Tuple{}, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L) = nothing
-function _routes_back!(kbuf::Tuple, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L)
+function _routes_back!(
+        ::Tuple{}, pbufs, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L
+    )
+    return nothing
+end
+function _routes_back!(
+        kbuf::Tuple, pbufs, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L
+    )
     Lr, g = first(Ls), first(gs)
     tr = t + L - Lr
     _kernel_pressure!(Serial(), z, g, H, tr, τ, Lr)
     fill!(z̄, zero(eltype(z̄)))
-    _pressure_back!(z̄, first(C̄s), first(Cs), p̄, z, τ)
+    _pressure_back!(z̄, first(C̄s), first(Cs), p̄, z, τ, first(pbufs))
     _kernel_back!(first(kbuf), first(ḡs), g, z̄, H, H̄, tr, τ, Lr)
     return _routes_back!(
-        Base.tail(kbuf), Base.tail(ḡs), Base.tail(C̄s), Base.tail(Cs),
-        Base.tail(gs), Base.tail(Ls), z, z̄, p̄, H, H̄, t, τ, L
+        Base.tail(kbuf), Base.tail(pbufs), Base.tail(ḡs), Base.tail(C̄s),
+        Base.tail(Cs), Base.tail(gs), Base.tail(Ls), z, z̄, p̄, H, H̄, t, τ, L
     )
 end
 
-function _kernel_finish!(ḡ, kbuf::Tuple)
-    foreach(_kernel_finish!, _route_mirrors(cotangent(ḡ, :kernels), kbuf), kbuf)
+function _kernel_finish!(ḡ, kbuf::_RouteBuffers)
+    kbufs = kbuf.kernels
+    foreach(_kernel_finish!, _route_mirrors(cotangent(ḡ, :kernels), kbufs), kbufs)
     return nothing
 end
 

@@ -2140,6 +2140,65 @@ end
     @test CR._fit(op, args(3)...) === :none
 end
 
+@testitem "Adjoint: local route coupling pullback" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # A dense coupling without a pullback, as one route of two.
+    struct Spread{A}
+        a::A
+    end
+    function CR.forward!(C::Spread, ::CR.Pressure, q, p, t)
+        for i in eachindex(q)
+            q[i] = zero(eltype(q))
+            for j in eachindex(p)
+                q[i] += exp(-C.a * abs(i - j)) * p[j] / length(p)
+            end
+        end
+        return nothing
+    end
+    function step_allocations(kbuf, ḡ, k, p̄, H, H̄, L)
+        CR._kernel_back!(kbuf, ḡ, k, p̄, H, H̄, 1, 4, L)
+        return @allocated CR._kernel_back!(kbuf, ḡ, k, p̄, H, H̄, 1, 4, L)
+    end
+    rng = Xoshiro(7)
+    for S in (3, 6, 20)
+        R = Routes((Spread(0.5), rand(rng, 4)), (rand(rng, S, S) ./ S, rand(rng, 2)))
+        # Through a recurrence the rule matches ForwardDiff.
+        @test pullback_matches(
+            Recurrence(R), recargs(ones(S, 6), nothing, ones(S, 4))...;
+            rtol = 1.0e-6
+        )
+        # The reverse pass makes each route coupling's buffers once, and
+        # with them a route step allocates nothing.
+        H = rand(rng, 6, S)
+        k = CR._run_kernel(Float64, R, H, S)
+        ḡ = zero_mirror(R)
+        kbuf = @inferred CR._kernel_buffer(ḡ, k, H, S, 4)
+        @test first(kbuf.pressures) !== nothing
+        @test last(kbuf.pressures) === nothing
+        @test step_allocations(kbuf, ḡ, k, randn(rng, S), H, zero(H), 4) == 0
+    end
+    # The rule takes the routes, and the widest route coupling's local
+    # step sets the call's route, as for the coupling of a `Recurrence`.
+    routes(Cs...) = Recurrence(Routes(map(C -> (C, [0.3, 0.2]), Cs)...))
+    args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
+    r = routes(Spread(0.5), I)
+    @test CR.uses_adjoint(r, CR.Run())
+    @test CR._fit(r, args(23)...) === :one
+    @test CR._fit(r, args(24)...) === :wide
+    @test CR._fit(r, args(47)...) === :wide
+    @test CR._fit(r, args(48)...) === :none
+    @test CR._fit(routes(fill(0.01, 60, 60), I), args(60)...) === :one
+    # A rebuild that fails sends every call to plain AD.
+    struct Halved{A}
+        a::A
+        Halved(a::A) where {A} = new{A}(a / 2)
+    end
+    CR.forward!(C::Halved, ::CR.Pressure, q, p, t) = (q .= C.a .* p; nothing)
+    op = routes(Spread(0.5), Halved(0.5))
+    @test op.rebuilds === false
+    @test CR._fit(op, args(3)...) === :none
+end
+
 @testitem "Recurrence: a Pairwise kernel must be strata × strata × lags" begin
     using ComposableRecurrences
     @test_throws ArgumentError Recurrence(Pairwise(ones(2, 2)))
