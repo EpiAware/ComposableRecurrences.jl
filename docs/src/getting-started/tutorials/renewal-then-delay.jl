@@ -30,11 +30,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A renewal process
 #
-# The renewal process is the one in [Getting started](@ref overview-build), with a reproduction number that changes on days 30 and 50:
-#
-# ```math
-# I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
-# ```
+# The renewal process is the one in [Getting started](@ref overview-build), with a reproduction number that changes on days 30 and 50.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 renewal = Recurrence(gi)
@@ -63,21 +59,8 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 # ## Susceptible depletion
 #
-# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles.
-# The default `Hazard()` form draws
-#
-# ```math
-# I_t = s_{t-1} \big(1 - e^{-v_t / N}\big), \qquad s_t = s_{t-1} \, e^{-v_t / N}.
-# ```
-#
-# Here ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value.
-# ``s_t`` is the pool after day ``t``.
-# The pool starts at ``N`` and never goes negative.
-# The `Floor()` form draws
-#
-# ```math
-# I_t = \max\big(\max(s_{t-1} / N, 0),\ 10^{-6}\big) \, v_t, \qquad s_t = s_{t-1} - I_t.
-# ```
+# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the hazard form, and `Depletion(N, Floor())` by the floored form.
+# [Getting started](@ref overview-build) gives both equations.
 
 N = 2_000.0
 R_high = fill(1.8, T)
@@ -97,7 +80,7 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 
 # Both forms end the outbreak as the pool empties.
 # The hazard form draws slightly less at the peak and leaves more susceptibles, as the remaining pools show.
-# This is because ``1 - e^{-x}`` is below ``x``.
+# This is because the hazard form draws ``1 - e^{-x}`` where the floored form draws ``x``, and ``1 - e^{-x}`` is below ``x``.
 
 # ## Vaccination
 #
@@ -113,7 +96,7 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 # \end{aligned}
 # ```
 #
-# where ``S_t`` is the susceptible pool, ``s_t`` above, and ``V_t`` the protected pool.
+# where ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value, ``S_t`` the susceptible pool and ``V_t`` the protected pool.
 # ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the doses on day ``t`` and ``m_t`` the doses moved.
 # The doses are capped by what remains of ``S``.
 # A [`Pool`](@ref ComposableRecurrences.Pool) holds both pools, `:S` and `:V`.

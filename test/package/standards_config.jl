@@ -69,6 +69,9 @@ const MATHS_FIRST_CALLS = (
 const MATHS_FIRST_REUSE = (
     # Runs the smoothing modifier through the operator to check its rule.
     "docs/src/developer/extending.md" => "Checking a new type",
+    # Reuse the renewal and the depletion forms built in the overview.
+    "docs/src/getting-started/tutorials/renewal-then-delay.jl" => "A renewal process",
+    "docs/src/getting-started/tutorials/renewal-then-delay.jl" => "Susceptible depletion",
 )
 # Sections still giving prose before their code, as `page => heading`,
 # marked broken until they gain a ```math block.

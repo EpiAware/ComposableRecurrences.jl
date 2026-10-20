@@ -21,7 +21,6 @@ const HEAVY_TUTORIALS = [
     "time-varying-delays.jl",
     "occupancy.jl",
     "transform.jl",
-    "custom-modifier.jl",
     "backend-case-study.jl",
 ]
 
@@ -45,8 +44,6 @@ const TUTORIAL_STUBS = [
         "# [Occupancy and capacity](@id tutorial-occupancy)",
     "transform.md" =>
         "# [Branching processes](@id tutorial-branching)",
-    "custom-modifier.md" =>
-        "# [Writing your own modifier](@id tutorial-custom-modifier)",
     "backend-case-study.md" =>
         "# [Case study: a backend model](@id tutorial-backend-case-study)\n\n" *
         "## [Porting from a hand-written loop](@id porting-hand-loops)",

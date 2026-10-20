@@ -7,7 +7,7 @@
 #
 # ### What are we going to do in this exercise
 #
-# 1. Build a gravity coupling.
+# 1. Reuse the overview's gravity coupling.
 # 2. Compare a fixed coupling, per-pair generation intervals and a travel cut.
 # 3. Move infections between patches with `Redistribute`.
 # 4. Split each patch's known infections among its districts with `Allocate`.
@@ -29,19 +29,12 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## A gravity coupling
 #
-# A gravity coupling weights each pair of patches by population over squared distance:
-#
-# ```math
-# K_{ij} = 0.95 \, \delta_{ij} + 0.05 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad
-# G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \qquad G_{ii} = 0.
-# ```
-#
-# The symbols are those of the [three-town example](@ref overview-build), with patches for towns and 5% mixing.
+# The coupling is the [three-town example's](@ref overview-build) gravity coupling ``K``, with the same towns as patches and 5% mixing rather than 0.2%.
 
 patches = ["A", "B", "C"]
 S, T = 3, 120
-pop = [50_000.0, 30_000.0, 20_000.0]
-dist = [0.0 15.0 40.0; 15.0 0.0 25.0; 40.0 25.0 0.0]
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
 gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:S, b in 1:S]
 K = 0.95 * I(S) + 0.05 * gravity ./ sum(gravity; dims = 2)
 
@@ -238,7 +231,7 @@ end
 end
 
 # Neither route alone sustains spread: their reproduction numbers are 0.9 and 0.45.
-# Together they do, and 42% to 49% of each patch is infected.
+# Together they do, and 40% to 57% of each patch is infected.
 # The funeral force peaks a few days after the community force.
 # Its mean lag is about five days longer.
 
