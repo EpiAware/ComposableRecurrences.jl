@@ -1435,6 +1435,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence ward with competing flows (Pool without a draw)" => (:Pool,),
     "Recurrence waning protection (Pool flows)" => (:Pool,),
     "Recurrence protected pool in Float32" => (:Pool,),
+    "Recurrence pool with twelve flows (over 32 leaves)" => (:Pool,),
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
