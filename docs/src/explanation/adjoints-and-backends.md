@@ -68,7 +68,7 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 The local step needs ForwardDiff loaded, as `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
 Without it the forward pass runs, and a gradient through the local step throws an `ArgumentError` that names the part and says to load ForwardDiff.
 A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction.
-The check itself needs ForwardDiff, so without it a part that the local step cannot rebuild also throws, rather than taking plain AD; once ForwardDiff is loaded it takes plain AD as below.
+The check itself needs ForwardDiff, so without it a part that the local step cannot rebuild also throws, rather than taking plain AD.
 
 Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
 
@@ -105,7 +105,7 @@ A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rathe
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
-The AD tests also run ReverseDiff, which is not a target, so the README shows coverage badges for it.
+The AD tests also run ReverseDiff, which is not a target; the README's coverage badges include it because those tests run.
 The [AD comparison](@ref ad-comparison) page compares the gradient times.
 
 ## [Which rules are kept](@id rule-policy)
@@ -193,7 +193,8 @@ A call on arrays that live on a GPU runs each loop over strata, series or output
 Independent strata are one kernel per call, each thread stepping its stratum through time.
 Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata or many series.
 Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
-A call with device inputs and a host float array among these is an error; move each array to the device first; `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r`.
+A call with device inputs and a host float array among these is an error.
+`Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.
 Buffers, states and outputs are allocated from the inputs, so they live there too.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.

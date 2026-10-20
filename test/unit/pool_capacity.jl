@@ -409,7 +409,7 @@ end
         PerStratum([1.0, -1.0]); pools = (:O,), form = CR.Truncate(), fill = :O
     )
     @test_throws "pools is non-negative, got -2.0" fill_into(:O; pools = (O = -2.0,))
-    # Every pool starts from a stock that is not negative, filled or not.
+    # Every pool starts from a level that is not negative, filled or not.
     @test_throws "pools is non-negative, got -1.0" CR.Depletion(;
         pools = (B = -1.0,), form = CR.Truncate()
     )

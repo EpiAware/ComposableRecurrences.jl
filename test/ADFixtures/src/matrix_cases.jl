@@ -1229,10 +1229,31 @@ if isfile(BVD_HANDRULE)
             "handrule" => z -> loss(hand(kernels[2]))(identity, z),
         ]
         push!(TIERS["realistic"].cases, name)
-        # The docs case study reads these at the backend's sizes.
+        # The docs case study tables these at the backend's sizes.
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
+    # The patch movement built as an `S × S × T` array before the run, the
+    # form `movement` is timed against: the package reads it lazily from the
+    # kernel and the intensity.
+    function _materialised_movement(K, ε)
+        S, T = size(ε)
+        E = reshape(ε, 1, S, T)
+        Id = axes(K, 1) .== permutedims(axes(K, 2))
+        return TimeVarying(Id .* (1 .- sum(K; dims = 1) .* E) .+ K .* E)
+    end
+    function _bvd_patches_materialised(wrap, g, K, seeds, R, ε, N)
+        pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+        mods = (
+            CR.Redistribute(_materialised_movement(K, ε)),
+            CR.Depletion(CR.PerStratum(N); pool0),
+        )
+        return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
+    end
+    push!(
+        BASELINES["bvd_patches"],
+        "materialised" => z -> _bvd_patches(_bvd_patches_materialised)(identity, z),
+    )
     push!(TIERS["realistic"].strata, 11, 64)
     push!(TIERS["docs"].strata, 11)
     REQUIRES["bvd_zones"] = (:_AllocateImports,)

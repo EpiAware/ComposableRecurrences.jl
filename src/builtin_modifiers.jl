@@ -551,10 +551,10 @@ Any other [parameter](@ref ComposableRecurrences.param), such as
 `TimeVarying(ε)` over time or one built with `Derived` or
 [`Recent`](@ref) that reads the outputs, gives a movement read at each step
 as ``M_t`` above with ``\varepsilon_{t,q}`` that parameter at origin ``q``.
-The array is held as ``K``, ``\varepsilon`` and the column sums ``o`` and
-read from them, so a step costs one product with ``K`` and its reverse pass
-gives the cotangents of ``K`` and ``\varepsilon`` without storing a matrix
-per time.
+The array is held as ``K`` and ``\varepsilon`` and read from them, the
+column sums ``o`` taken as each column is read, so a step costs one product
+with ``K`` and its reverse pass gives the cotangents of ``K`` and
+``\varepsilon`` without storing a matrix per time.
 
 # Arguments
 - `K`: the `S × S` kernel, `K[p, q]` the weight from origin `q` to `p`.
@@ -599,7 +599,10 @@ end
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
 # with `o` the column sums of `K`, summed where they are read. Its columns
 # sum to one by construction. It is a struct of its arrays, not an array, so
-# the rules read its cotangent field by field.
+# the rules read its cotangent field by field. Its own loops below are kept
+# over the generic array ones because they measured faster than building
+# the `S × S × T` array first, on the primal and every AD backend measured;
+# see the `materialised` arm of the patch-model benchmark case.
 struct _Movement{KT <: AbstractMatrix, ET}
     K::KT
     E::ET

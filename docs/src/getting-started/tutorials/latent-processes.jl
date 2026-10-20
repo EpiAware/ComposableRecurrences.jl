@@ -3,23 +3,19 @@
 # ## Introduction
 #
 # A smoothly changing reproduction number is often a latent process on the log scale.
-# Random walks, AR and MA processes are recurrences or convolutions of innovations.
-# This tutorial builds each from the same innovations.
-# It then uses one as the log reproduction number of a renewal process.
-# Last, it lets transmission respond to incidence through [`Transform`](@ref ComposableRecurrences.Transform) and [`Recent`](@ref).
+# Random walks, AR and MA processes are recurrences or convolutions of innovations, and this tutorial uses them to drive a renewal process.
 #
 # ### What are we going to do in this exercise
 #
 # 1. Build a random walk, an AR(2) and an MA(2) process from the same innovations.
-# 2. Show that a time-varying AR coefficient can be a kernel or a multiplier.
+# 2. Give an AR process a time-varying coefficient.
 # 3. Drive a renewal process with the exponential of an AR(1) process.
-# 4. Saturate transmission as incidence rises, and take its gradient.
-# 5. Drive a response and vaccination from recent incidence.
+# 4. Saturate transmission as incidence rises, with [`Transform`](@ref ComposableRecurrences.Transform).
+# 5. Drive a response and vaccination from [`Recent`](@ref) incidence.
 #
 # ### What might I need to know before starting
 #
-# You should know the [Getting started](@ref getting-started) example and AR processes.
-# No fitting is involved.
+# The [Getting started](@ref getting-started) example and AR processes; no fitting is involved.
 
 # ## Packages used
 
@@ -168,7 +164,7 @@ ForwardDiff.gradient(total_infections, [100.0, 1.5])
 # ## Feedback from recent incidence
 #
 # The saturating response reacts to the current day only.
-# A response to the last week's incidence is built from parts instead of a bespoke modifier.
+# A response to the last week's incidence is built from existing modifiers.
 # [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref) maps them, and any modifier parameter takes the result.
 # The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it:
 #
@@ -177,7 +173,7 @@ ForwardDiff.gradient(total_infections, [100.0, 1.5])
 # ```
 #
 # where ``y_t`` is the infections drawn on day ``t`` and ``v'_t`` the value the depletion draws them from.
-# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases (@placeholder).
+# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases.
 
 N = 5_000.0
 κr = 10.0
@@ -200,8 +196,8 @@ feedback = [
 end
 
 # Both measures cut the peak, and together they cut it further than either alone.
-# The reverse-mode rule sends each gradient back through the outputs that `Recent` reads, so Mooncake and Enzyme follow the feedback too.
-# ForwardDiff gives the gradient of the total infections with respect to the response strength and ``R``:
+# The [reverse-mode rule](@ref adjoint-routing) sends gradients back through the outputs `Recent` reads, so Mooncake and Enzyme follow the feedback.
+# The gradient of the total infections with respect to the response strength and ``R``:
 
 function total_with_response(x)
     modifiers = (Transform(*, Derived(exp, -x[1] / N * Recent(7))), Depletion(N))
