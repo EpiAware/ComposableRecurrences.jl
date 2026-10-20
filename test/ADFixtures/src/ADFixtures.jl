@@ -81,8 +81,9 @@ end
 # block ends are a tuple computed before the blocks are built, so the blocks
 # are inferred: a closure that captured and advanced an offset would box it,
 # and Enzyme cannot differentiate every scenario built from uninferred
-# blocks.
-function _unpack(θ, shapes::Vararg{Tuple, N}) where {N}
+# blocks. It is not inlined, so the block ranges are not folded into
+# constants that Enzyme cannot type when a scenario is called dynamically.
+@noinline function _unpack(θ, shapes::Vararg{Tuple, N}) where {N}
     lens = map(prod, shapes)
     return map(shapes, cumsum(lens), lens) do sh, stop, n
         reshape(view(θ, (stop - n + 1):stop), sh...)
