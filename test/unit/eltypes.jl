@@ -30,7 +30,7 @@
     @test eltype(Convolution(Float64.(g))(R)) == Float64
 end
 
-@testitem "Eltypes: ForwardDiff gradients through every slot" setup = [TestModifiers] begin
+@testitem "Eltypes: ForwardDiff gradients through every slot" setup = [ReferenceAD, TestModifiers] begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra, Random,
         SparseArrays
     rng = Xoshiro(41)
@@ -44,7 +44,7 @@ end
 
     # Central differences on a scalar direction, checked against ForwardDiff.
     function check(f, x)
-        gr = ForwardDiff.gradient(f, x)
+        gr = ReferenceAD.gradient(f, x)
         δ = 1.0e-6
         fd = map(eachindex(x)) do i
             e = zero(x)

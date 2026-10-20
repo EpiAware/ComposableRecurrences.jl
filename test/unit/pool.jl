@@ -53,7 +53,7 @@ end
     end
 end
 
-@testitem "Pool: values and gradients against the maths" setup = [PoolChecks] begin
+@testitem "Pool: values and gradients against the maths" setup = [ReferenceAD, PoolChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g, h = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0]
@@ -71,15 +71,15 @@ end
     f(θ) = sum(W .* run(θ[1:10], θ[11], θ[12], θ[13:22]))
     fref(θ) = sum(W .* PoolChecks.naive(g, θ[1:10], h, θ[11], θ[12], θ[13:22]))
     θ = vcat(R, 100.0, 0.3, r)
-    @test ForwardDiff.gradient(f, θ) ≈ ForwardDiff.gradient(fref, θ)
+    @test ReferenceAD.gradient(f, θ) ≈ ReferenceAD.gradient(fref, θ)
     # Removals alone leave the pool: all-or-nothing with no protected pool.
     function only(R, r)
         d = CR.Depletion(100.0; removals = TimeVarying(r))
         return Recurrence(g; modifiers = (d,))(R; history = h)
     end
     @test only(R, r) ≈ PoolChecks.naive(g, R, h, 100.0, 0.0, r)
-    @test ForwardDiff.gradient(r -> sum(W .* only(R, r)), r) ≈
-        ForwardDiff.gradient(r -> sum(W .* PoolChecks.naive(g, R, h, 100.0, 0.0, r)), r)
+    @test ReferenceAD.gradient(r -> sum(W .* only(R, r)), r) ≈
+        ReferenceAD.gradient(r -> sum(W .* PoolChecks.naive(g, R, h, 100.0, 0.0, r)), r)
 end
 
 @testitem "Pool: full susceptibility undoes the protection" begin
@@ -178,7 +178,7 @@ end
     @test c.v && c.s && c.θ
 end
 
-@testitem "Pool: an empty pool with a tangent under ForwardDiff" setup = [ModifierChecks, PoolChecks] begin
+@testitem "Pool: an empty pool with a tangent under ForwardDiff" setup = [ReferenceAD, ModifierChecks, PoolChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # A dual with value zero and non-zero partials compares above zero, so
@@ -200,7 +200,7 @@ end
         )
         return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
     end
-    ∇ = ForwardDiff.gradient(f, [0.0, 0.3, 0.0])
+    ∇ = ReferenceAD.gradient(f, [0.0, 0.3, 0.0])
     @test all(isfinite, ∇)
     @test ∇[1] ≈ (f([1.0e-7, 0.3, 0.0]) - f([0.0, 0.3, 0.0])) / 1.0e-7 rtol = 1.0e-5
     # A seeded pool emptied by removals, with all-or-nothing protection.
@@ -212,7 +212,7 @@ end
         )
         return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
     end
-    @test all(isfinite, ForwardDiff.gradient(fr, [3.0, 4.0, 0.0]))
+    @test all(isfinite, ReferenceAD.gradient(fr, [3.0, 4.0, 0.0]))
     # The step's pullback at an empty pool against its local Jacobian.
     build(θ) = CR.Pool(
         θ[1]; pools = (:S, :V), initial = (nothing, θ[3]),

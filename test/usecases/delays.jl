@@ -3,7 +3,7 @@
 # `bin_increments`. Each is a causal convolution whose kernel is indexed from
 # lag 0, or a running total.
 
-@testitem "Use case: fixed reporting delay (LatentDelay)" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: fixed reporting delay (LatentDelay)" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -13,20 +13,20 @@
     ref = C.latent_delay(pmf, Y)
     w = range(0.5, 2.0; length = length(ref))
     θ0 = vcat(pmf, Y)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* C.latent_delay(θ[1:d], θ[(d + 1):end])), θ0
     )
 
     # CTIDM reports the times with a full delay window, `d:n`.
     latent_delay(pmf, Y) = Convolution(pmf)(Y)[d:end]
     @test latent_delay(pmf, Y) ≈ ref
-    ∇ = ForwardDiff.gradient(
+    ∇ = ReferenceAD.gradient(
         θ -> sum(w .* latent_delay(θ[1:d], θ[(d + 1):end])), θ0
     )
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: time-varying reporting delay" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: time-varying reporting delay" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -46,15 +46,15 @@ end
         P, Y = unpack(θ)
         return sum(w .* C.time_varying_latent_delay(collect(eachcol(P)), Y))
     end
-    ∇ref = ForwardDiff.gradient(ref_loss, θ0)
+    ∇ref = ReferenceAD.gradient(ref_loss, θ0)
 
     # The kernel is `L × T`: column `t` weights the inputs reaching time `t`.
     tv_delay(P, Y) = Convolution(TimeVarying(P))(Y)[d:end]
     @test tv_delay(P, Y) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* tv_delay(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* tv_delay(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: BVD convolve_delay" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD convolve_delay" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -64,7 +64,7 @@ end
     ref = B.convolve_delay(x, delay)
     refX = reduce(vcat, [B.convolve_delay(r, delay)' for r in eachrow(X)])
     w = range(0.5, 2.0; length = length(x))
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* B.convolve_delay(θ[5:end], θ[1:4])), vcat(delay, x)
     )
 
@@ -72,13 +72,13 @@ end
     @test Convolution(delay)(x) ≈ ref
     # A strata × time input convolves each row.
     @test Convolution(delay)(X) ≈ refX
-    ∇ = ForwardDiff.gradient(
+    ∇ = ReferenceAD.gradient(
         θ -> sum(w .* Convolution(θ[1:4])(θ[5:end])), vcat(delay, x)
     )
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: BVD convolve_pmf" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD convolve_pmf" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -89,7 +89,7 @@ end
     na, nb = length(a), length(b)
     ref = B.convolve_pmf(a, b)
     w = range(0.5, 2.0; length = length(ref))
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* B.convolve_pmf(θ[1:na], θ[(na + 1):end])), vcat(a, b)
     )
 
@@ -97,12 +97,12 @@ end
     compose(a, b) = Convolution(a)(vcat(b, zeros(eltype(b), na - 1)))
     @test compose(a, b) ≈ ref
     @test sum(compose(a, b)) ≈ 1
-    @test ForwardDiff.gradient(
+    @test ReferenceAD.gradient(
         θ -> sum(w .* compose(θ[1:na], θ[(na + 1):end])), vcat(a, b)
     ) ≈ ∇ref
 end
 
-@testitem "Use case: window aggregation" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: window aggregation" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
     B = UseCaseReferences.BVDReference
@@ -115,13 +115,13 @@ end
     idx = findall(!=(0), aggregation)
     ref = C.aggregate(aggregation, Y)
     wa = range(0.5, 2.0; length = length(ref))
-    ∇ref = ForwardDiff.gradient(y -> sum(wa .* C.aggregate(aggregation, y)), Y)
+    ∇ref = ReferenceAD.gradient(y -> sum(wa .* C.aggregate(aggregation, y)), Y)
 
     # A box kernel from lag 0 whose width is the window reported at `t`.
     box = [d < aggregation[t] ? 1.0 : 0.0 for d in 0:(maximum(aggregation) - 1), t in 1:n]
     aggregate(Y) = Convolution(TimeVarying(box))(Y)[idx]
     @test aggregate(Y) ≈ ref
-    @test ForwardDiff.gradient(y -> sum(wa .* aggregate(y)), Y) ≈ ∇ref
+    @test ReferenceAD.gradient(y -> sum(wa .* aggregate(y)), Y) ≈ ∇ref
 
     # BVD's `bin_increments`: sums over the windows between report days, an
     # empty window giving zero. The difference of a running total at the
@@ -129,11 +129,11 @@ end
     days = [3, 7, 7, 10, 12]
     refb = B.bin_increments(Y, days)
     wb = range(0.5, 2.0; length = length(days))
-    ∇refb = ForwardDiff.gradient(y -> sum(wb .* B.bin_increments(y, days)), Y)
+    ∇refb = ReferenceAD.gradient(y -> sum(wb .* B.bin_increments(y, days)), Y)
     function bins(Y)
         total = vcat(zero(eltype(Y)), Recurrence([1.0])(1.0; history = [0.0], add = Y))
         return total[days .+ 1] .- total[vcat(0, days[1:(end - 1)]) .+ 1]
     end
     @test bins(Y) ≈ refb
-    @test ForwardDiff.gradient(y -> sum(wb .* bins(y)), Y) ≈ ∇refb
+    @test ReferenceAD.gradient(y -> sum(wb .* bins(y)), Y) ≈ ∇refb
 end

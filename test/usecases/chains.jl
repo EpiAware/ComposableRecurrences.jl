@@ -1,7 +1,7 @@
 # Chained operators: a latent AR process mapped to R_t driving a renewal
 # whose infections are then delayed, and BVD's renewal into its delay.
 
-@testitem "Use case: AR → exp → renewal → delay" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: AR → exp → renewal → delay" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -21,7 +21,7 @@
     ref = ref_chain(ρ, ϵ)
     w = range(0.5, 2.0; length = length(ref))
     θ0 = vcat(ρ, ϵ)
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_chain(θ[1:2], θ[3:end])), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* ref_chain(θ[1:2], θ[3:end])), θ0)
 
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function chain(ρ, ϵ)
@@ -34,11 +34,11 @@
         return Convolution(pmf)(infections)[d:end]
     end
     @test chain(ρ, ϵ) ≈ ref
-    ∇ = ForwardDiff.gradient(θ -> sum(w .* chain(θ[1:2], θ[3:end])), θ0)
+    ∇ = ReferenceAD.gradient(θ -> sum(w .* chain(θ[1:2], θ[3:end])), θ0)
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: BVD renewal → delay" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD renewal → delay" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -50,7 +50,7 @@ end
     ref_chain(Rt) = B.convolve_delay(B.renewal_infections(Rt, g, seed, N), delay)
     ref = ref_chain(Rt)
     w = range(0.5, 2.0; length = length(ref))
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_chain(θ)), Rt)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* ref_chain(θ)), Rt)
 
     function chain(Rt)
         # The seed is drawn from the pool, so it starts at N − Σ seed.
@@ -62,5 +62,5 @@ end
         return Convolution(delay)(infections)
     end
     @test chain(Rt) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* chain(θ)), Rt) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* chain(θ)), Rt) ≈ ∇ref
 end
