@@ -24,7 +24,7 @@ Yes; see the [Reactant extension](@ref extension-reactant).
 
 ## Why is my history padded with zeros?
 
-A shorter history means no earlier values; see `history` in [`Recurrence`](@ref).
+A shorter history means no earlier values; see [History and state](@ref explanation-history-state).
 
 ## `Recurrence` clashes with Lux
 

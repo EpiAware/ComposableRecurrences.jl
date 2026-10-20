@@ -1,6 +1,6 @@
 # [Testing and benchmarking](@id testing)
 
-This page covers the tools for checking a new modifier, coupling or depletion form, and for timing the package.
+These tools check a new modifier, coupling or depletion form, and time the package.
 
 [Checking a new type](@ref extending-checks) tests a new type's `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and its `pullback!` against ForwardDiff and plain AD.
 

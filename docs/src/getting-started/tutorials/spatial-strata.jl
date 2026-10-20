@@ -2,22 +2,20 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, the [strata](@ref glossary-stratum), one per place.
-# A coupling mixes the series within each step, and a [`Pairwise`](@ref) kernel gives each pair its own generation interval.
-# [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves infections between places, and [`Routes`](@ref) sums transmission routes.
+# A model can run several series side by side, the [strata](@ref glossary-stratum), one per place, mixed within each step.
 # Series as types rather than places are in [Branching processes](@ref tutorial-branching).
 #
 # ### What are we going to do in this exercise
 #
-# 1. Build a gravity coupling from populations and distances.
-# 2. Compare a fixed coupling, per-pair generation intervals and changing mixing.
-# 3. Move infections between patches with `Redistribute` and recompute the imports.
-# 4. Share each patch's known infections among its districts with `Allocate`.
+# 1. Build a gravity coupling.
+# 2. Compare a fixed coupling, per-pair generation intervals and a travel cut.
+# 3. Move infections between patches with `Redistribute`.
+# 4. Split each patch's known infections among its districts with `Allocate`.
 # 5. Combine community and funeral transmission with `Routes`.
 #
 # ### What might I need to know before starting
 #
-# It extends the three-town [Getting started](@ref getting-started) example.
+# This extends the three-town example in [Getting started](@ref overview-build).
 # No fitting is involved.
 
 # ## Packages used
@@ -38,9 +36,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \qquad G_{ii} = 0.
 # ```
 #
-# ``K_{ij}`` weights patch ``j`` in patch ``i``.
-# ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
-# ``N_j`` is the population of patch ``j`` and ``d_{ij}`` the distance between patches.
+# The symbols are those of the [three-town example](@ref overview-build), with patches for towns and 5% mixing.
 
 patches = ["A", "B", "C"]
 S, T = 3, 120
@@ -74,7 +70,7 @@ end
 # ``A_{ij,l}`` is ``K_{ij} g_l`` within a patch and ``K_{ij} g^{\text{between}}_l`` between.
 # ``g^{\text{between}}_l`` is a longer interval, `gi_between` below.
 # ``K_{ij}(t)`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30.
-# A `Pairwise` kernel weights each interval by `K`, so its coupling stays `I`.
+# A [`Pairwise`](@ref) kernel weights each interval by `K`, so its coupling stays `I`.
 # A [`TimeVarying`](@ref) coupling gives ``K_{ij}(t)``.
 # It changes once, so it is given by its change points.
 # Each model depletes every patch's pool and starts from ten infections a day in patch A.
@@ -125,8 +121,7 @@ end
 # ``M_{t,ij}`` is the share of patch ``j``'s infections realised in patch ``i``.
 # Each column sums to one, so no infections are lost.
 # The modifier is [`Redistribute(M)`](@ref ComposableRecurrences.Redistribute).
-# It sits before [`Depletion`](@ref ComposableRecurrences.Depletion).
-# Each pool is then depleted by what its patch receives.
+# It sits before [`Depletion`](@ref ComposableRecurrences.Depletion), so each pool is depleted by what its patch receives.
 #
 # Here each patch sends a share ``\varepsilon_{t,j}`` of its infections to the others, in proportion to ``K``.
 # Each origin has its own share, which halves from day 40.
@@ -136,7 +131,7 @@ end
 patch = Recurrence(gi; modifiers = (Redistribute(movement(K, ε)), depletion))
 infections, state = with_state(patch, 1.6; history = seed, stop = T);
 
-# The importation series is not recorded, but it can be recomputed from the infections.
+# The importation series is not recorded, but the infections give it.
 # Each patch's value before the modifiers is ``R`` times a [`Convolution`](@ref).
 # Its kernel is the generation interval with a zero at lag 0.
 # The arrivals are the off-diagonal `K` applied to each origin's `ε`-weighted value.
@@ -159,9 +154,7 @@ maximum(abs, state.states[1] .- arrivals[:, end])
 
 # ## Sharing a total fixed elsewhere
 #
-# Sometimes each patch's infections are known, from the model above or an earlier fit.
-# The question is how they split among the patch's districts.
-# [`Allocate`](@ref ComposableRecurrences.Allocate) splits them by the districts' renewals:
+# When each patch's infections are known, from the model above or an earlier fit, [`Allocate`](@ref ComposableRecurrences.Allocate) splits them among its districts by the districts' renewals:
 #
 # ```math
 # y_{t,i} = Y_{t,p} \, \frac{v_{t,i}}{\sum_{j \in \mathcal{G}_p} v_{t,j}},
@@ -226,7 +219,7 @@ routes = Routes((K, gi), (K_funeral, gi_funeral))
 ebola = Recurrence(routes; modifiers = (depletion,))
 ebola_cases = ebola(0.9; history = seed, stop = T);
 
-# Each route's share of the force is not recorded, but it can be recomputed.
+# Each route's share of the force is not recorded.
 # It is the route's coupling applied to a `Convolution` of the infections with its kernel.
 # This is the force before depletion, so the routes sum to more than the cases.
 

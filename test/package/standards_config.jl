@@ -25,7 +25,7 @@ const PENDING_WORDING = ()
 # by stem, case-insensitively, at a word boundary. The word "piece" is
 # checked separately, so that "piecewise" passes.
 const BANNED_SHARED_SKIP = ()
-const BANNED_EXTRA = ("seamless",)
+const BANNED_EXTRA = ("seamless", "stock")
 
 # Package names that docstrings and src comments must not use: sibling
 # packages and automatic differentiation backends. Matched case-sensitively.
@@ -97,6 +97,14 @@ const ONE_HOME = (
     "tutorial-imports" => (
         "docs/src/getting-started/tutorials/renewal-then-delay.jl",
         ("drawn from the pool like local cases",),
+    ),
+    "explanation-seeding" => (
+        "docs/src/explanation/operators.md",
+        ("The two placements give the same run",),
+    ),
+    "extending" => (
+        "docs/src/developer/extending.md",
+        ("selects the role by dispatch",),
     ),
 )
 

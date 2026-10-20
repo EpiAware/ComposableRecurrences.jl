@@ -2,24 +2,20 @@
 #
 # ## Introduction
 #
-# The `BVDOutbreakSize` backend fits an outbreak model across 11 patches.
-# It writes its renewal, patch coupling and reporting delay as loops, with hand-written Mooncake rules for their gradients.
-# This page builds the same model from the package's operators.
-# It checks the values and gradients against the backend-style loops, and reads their timings from the benchmark results.
-# It then maps each hand-written loop in `BVDOutbreakSize` and `ComposableTuringIDModels` to the package.
+# The `BVDOutbreakSize` backend fits an outbreak model across 11 patches, writing its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
+# This page builds the same model from the package's operators and compares the two.
 #
 # ### What are we going to do in this exercise
 #
-# 1. Build the backend model: a seeded renewal with depletion, coupled across patches, then delayed.
+# 1. Build the backend model: a seeded renewal with depletion and movement between patches, then delayed.
 # 2. Check it against the backend-style loops.
 # 3. Take its gradient with Mooncake and Enzyme, checked against ForwardDiff.
 # 4. Compare gradient times with the loops and their hand-written rules.
-# 5. Map hand-written loops to the package.
+# 5. Map the hand-written loops in `BVDOutbreakSize` and `ComposableTuringIDModels` to the package.
 #
 # ### What might I need to know before starting
 #
-# This page builds on [Renewal then delay](@ref tutorial-renewal-delay) and [Spatial models](@ref tutorial-spatial-strata).
-# [Adjoints and backends](@ref adjoints-backends) explains the routes a gradient can take.
+# This builds on [Renewal then delay](@ref tutorial-renewal-delay), [Spatial models](@ref tutorial-spatial-strata) and [Adjoints and backends](@ref adjoints-backends).
 # No fitting is involved.
 
 # ## Packages used
@@ -53,9 +49,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ```
 #
 # ``N_p`` is patch ``p``'s population, and its pool starts at ``s_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
-# [Renewal then delay](@ref tutorial-renewal-delay) builds the renewal, the depletion and the delay one at a time.
-# [Spatial models](@ref tutorial-spatial-strata) builds the importation.
-# Here they are one model, at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
+# The model runs at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
 
 S, T, L, D = 11, 200, 20, 30
 gi = let w = [l^2 * exp(-l / 2.5) for l in 1:L]
@@ -75,7 +69,7 @@ inputs = (; gi, delay, K, seeds);
 
 # The model is two modifiers on one `Recurrence`, then a `Convolution`.
 # [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves each origin's share, and [`Depletion`](@ref ComposableRecurrences.Depletion) draws from each patch's pool.
-# The seeds are the history, so the run starts on the day after them.
+# The seeds are the history, so the run starts on the day after them (see [Seeding](@ref explanation-seeding)).
 # The fixed inputs come in as one named tuple, so the function reads no globals.
 
 function backend_model(R, ε, N, inputs)
@@ -179,7 +173,7 @@ DataFrame(
 )
 
 # Each reverse-mode gradient matches the ForwardDiff reference to rounding.
-# The package's gradient needs no rule from the model: each operator brings its own.
+# The package's gradient needs no rule written for the model; [Rules and plain AD](@ref adjoint-routing) says which code each operator runs.
 #
 # ## Timing against the backend loops
 #
@@ -240,9 +234,8 @@ else
     end
 end
 
-# The comparison that matters for each backend is the package against the fastest hand-written option.
-# On Mooncake that is the loop with its rules, and on Enzyme the loop itself.
-# The table gives the package's time over that option's, for the minimum and for the median times.
+# For each backend the package is compared with the fastest hand-written option: on Mooncake the loop with its rules, on Enzyme the loop itself.
+# The table gives the package's time over that option's, for the minimum and the median times.
 # A ratio below one means the package is faster.
 
 function ratio_to(bench, target, method)
@@ -268,7 +261,7 @@ ratio_table = if have_bench
     )
 end
 
-# The takeaway, computed from the same results:
+# From the same results:
 
 function span(t, target)
     r = t[t.target .== target, :min_ratio]
