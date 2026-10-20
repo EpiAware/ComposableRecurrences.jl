@@ -23,18 +23,12 @@ A package that owns a delay type adds a method for that type:
   - it does not normalise the masses or fold the mass past `lags - 1` into
     the last lag, since where a delay is cut is the caller's choice.
 
-A type with a method is a delay, whatever its supertype.
-`Recurrence(kernel; lags)` and `Convolution(kernel; lags)` replace each
-delay in `kernel` with its masses, and keep them from the operator's lag
-origin: lag 0 for a convolution and lag 1 for a recurrence.
-The kernel is one delay, or a wrapper that holds them: a vector of delays in
-[`PerStratum`](@ref) or [`TimeVarying`](@ref), a matrix in
-[`Pairwise`](@ref), `PerStratum` or `Pairwise` of them in `TimeVarying`
-with time last, or delays as [`Routes`](@ref) kernels.
+A type with a method is a delay, whatever its supertype, so
+`Recurrence(kernel; lags)` and `Convolution(kernel; lags)` take it.
 An array of delays is read by its element type, so that type, or a
 supertype of it, needs the method.
-Arrays of masses in the kernel stay as they are.
-`lags` has no default, and a kernel of delays without it is an error.
+[Delay distributions](@ref overview-delays) lists the kernels that hold
+delays.
 
 A delay on continuous time has masses only once a censoring choice turns it
 into one on whole steps, so a method for it belongs with that choice.
@@ -79,7 +73,8 @@ delay_masses(k::AbstractVector, lags) = k
 # type, so the branches on it fold, and a method added later invalidates
 # them.
 function _isdelay(::Type{T}) where {T}
-    return !(T <: AbstractArray) && hasmethod(delay_masses, Tuple{T, Int})
+    return !(T <: AbstractArray) &&
+        Core._hasmethod(Tuple{typeof(delay_masses), T, Int})
 end
 
 # Whether a kernel holds delays, from its type.
@@ -118,9 +113,16 @@ end
 
 # The kernel with each delay replaced by its masses from lag `origin`, the
 # lag axis where the wrapper reads it. Arrays of masses, such as a route
-# kernel beside a route of delays, stay as they are.
+# kernel beside a route of delays, stay as they are, but a kernel with no
+# delays at all takes no `lags`.
 function _delay_kernel(kernel, lags, origin)
     _check_lags(lags, origin)
+    _has_delays(typeof(kernel)) || throw(
+        ArgumentError(
+            "`lags` turns delays into masses, and $(_describe(kernel)) holds " *
+                "no delays; build the operator without `lags`"
+        )
+    )
     return _masses_kernel(kernel, lags, origin)
 end
 

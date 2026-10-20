@@ -80,6 +80,10 @@ end
     @test_throws ArgumentError Convolution(d; lags = 0)
     @test_throws ArgumentError Convolution(d; lags = 2.0)
     @test_throws ArgumentError Recurrence(PerStratum([d, d]); lags = 1)
+    # A kernel of masses alone takes no `lags`.
+    @test_throws ArgumentError Recurrence([0.3, 0.2]; lags = 5)
+    @test_throws ArgumentError Convolution([0.3, 0.2]; lags = 5)
+    @test_throws ArgumentError Recurrence(PerStratum(ones(2, 3)); lags = 4)
     err = try
         Recurrence(d; lags = 1)
     catch e
@@ -195,10 +199,9 @@ end
     @test ps.kernel.x[2, :] ≈ tail(d2, 3)
     @test_throws ArgumentError Recurrence(Routes((C1, d1), (C2, d2)))
     @test_throws ArgumentError Recurrence(Routes((C1, d1)); lags = 1)
-    # Routes of arrays alone are unchanged.
+    # Routes of arrays alone take no `lags`.
     arrays = Routes((C1, [0.5, 0.3]), (C2, [0.1, 0.1, 0.2]))
-    @test Recurrence(arrays)(R; history = h) ≈
-        Recurrence(arrays; lags = 4)(R; history = h)
+    @test_throws ArgumentError Recurrence(arrays; lags = 4)
 end
 
 @testitem "Delay distributions: gradients reach the parameters" setup = [ReferenceAD, DelayCases] begin
@@ -229,7 +232,7 @@ end
     h = ones(2, 3)
     for rs in (routes, folded)
         r = @inferred Recurrence(rs)
-        @test r(R; history = h) == Recurrence(rs; lags = 4)(R; history = h)
+        @test_throws ArgumentError Recurrence(rs; lags = 4)
         @test typeof(@inferred Recurrence(rs; coupling = I)) == typeof(r)
     end
     @test !(@inferred CR._has_delays(typeof(routes)))

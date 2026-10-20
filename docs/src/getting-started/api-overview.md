@@ -117,8 +117,9 @@ The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
 ## [Delay distributions](@id overview-delays)
 
-A kernel can hold delay distributions, and the operator turns them into masses when it is built with the number of lags `lags`.
-[`delay_masses(d, lags)`](@ref ComposableRecurrences.delay_masses) gives the masses on lags `0` to `lags - 1`:
+A kernel can hold delays, and the operator turns them into masses when it is built with the number of lags `lags`.
+A delay is a value whose type has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method.
+`delay_masses(d, lags)` gives the masses on lags `0` to `lags - 1`:
 
 ```math
 k_l = P(D = l), \qquad l = 0, \dots, L - 1,
@@ -128,20 +129,23 @@ where ``D`` is the delay in whole steps and ``L`` = `lags`.
 `lags` counts from lag 0 for both operators, and each operator keeps the masses from its own [lag origin](@ref faq-lag-origin): a convolution from ``k_0`` and a recurrence from ``k_1``.
 So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
 The masses are not renormalised after this cut, as the `delay_masses` docstring says, so a recurrence kernel sums to ``\sum_{l=1}^{L-1} k_l``, which scales the gain.
-Loading Distributions adds `delay_masses` for any discrete distribution, and a package that owns a delay type adds a method for it.
+Loading Distributions adds `delay_masses` for any discrete distribution.
+A package that owns a delay type adds a method for it, as the `delay_masses` docstring shows, and its delays then work as kernels too.
 
 | Kernel | Holds |
 |---|---|
-| `d` | one distribution |
-| `PerStratum(ds)` | a vector of distributions, one per series |
-| `Pairwise(D)` | a matrix of distributions, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
-| `TimeVarying(ds, indexing)` | a vector of distributions, one per time, or `PerStratum` or `Pairwise` of them with time last |
-| `Routes((C₁, d₁), (C₂, g₂))` | distributions or arrays as route kernels; `Recurrence` only |
+| `d` | one delay |
+| `PerStratum(ds)` | a vector of delays, one per series |
+| `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
+| `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
+| `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
 
 `Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any of these.
+An array of delays is read by its element type, so that type needs a `delay_masses` method.
 `lags` has no default, since where a delay is cut is a modelling choice.
+A kernel of delays without `lags` is an error, and so is `lags` on a kernel with no delays.
 A continuous distribution is an error until it is discretised, for example by interval censoring.
-Gradients reach the distributions' parameters through their masses.
+Gradients reach the delays' parameters through their masses.
 
 ```jldoctest
 using ComposableRecurrences, Distributions
