@@ -48,7 +48,7 @@
     )
 end
 
-@testitem "Primary Recurrence: equals the reindexed Secondary kernel" setup = [PrimaryChecks] begin
+@testitem "Primary Recurrence: equals the reindexed Secondary kernel" setup = [ReferenceAD, PrimaryChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; reindex, shapes, m) = PrimaryChecks
@@ -62,12 +62,12 @@ end
         @test prim(K, R, h) ≈ sec(K, R, h)
         W = reshape(range(0.3, 1.2; length = length(R)), size(R))
         f(g) = (K, R, h) -> sum(W .* g(K, R, h))
-        @test ForwardDiff.gradient(K -> f(prim)(K, R, h), K) ≈
-            ForwardDiff.gradient(K -> f(sec)(K, R, h), K)
-        @test ForwardDiff.gradient(R -> f(prim)(K, R, h), R) ≈
-            ForwardDiff.gradient(R -> f(sec)(K, R, h), R)
-        @test ForwardDiff.gradient(h -> f(prim)(K, R, h), h) ≈
-            ForwardDiff.gradient(h -> f(sec)(K, R, h), h)
+        @test ReferenceAD.gradient(K -> f(prim)(K, R, h), K) ≈
+            ReferenceAD.gradient(K -> f(sec)(K, R, h), K)
+        @test ReferenceAD.gradient(R -> f(prim)(K, R, h), R) ≈
+            ReferenceAD.gradient(R -> f(sec)(K, R, h), R)
+        @test ReferenceAD.gradient(h -> f(prim)(K, R, h), h) ≈
+            ReferenceAD.gradient(h -> f(sec)(K, R, h), h)
     end
 end
 
@@ -81,7 +81,7 @@ end
     @test Recurrence(TimeVarying(K, CR.Primary()))(R; seed...) ≈ Recurrence(g)(R; seed...)
 end
 
-@testitem "Primary Recurrence: a cohort's onward weight is its column sum" setup = [PrimaryChecks] begin
+@testitem "Primary Recurrence: a cohort's onward weight is its column sum" setup = [ReferenceAD, PrimaryChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     K = PrimaryChecks.Kv
@@ -92,7 +92,7 @@ end
     for c in 1:3
         seed = [i == c ? 1.0 : 0.0 for i in 1:c]
         r = Recurrence(TimeVarying(K, CR.Primary()))
-        force = ForwardDiff.gradient(
+        force = ReferenceAD.gradient(
             R -> sum(r(R; history = seed, start = c + 1)), zeros(size(K, 2))
         )
         @test sum(force) ≈ sum(K[:, c])

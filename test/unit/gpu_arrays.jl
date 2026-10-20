@@ -287,57 +287,37 @@
     end
 end
 
-@testitem "JLArrays: every operator, coupling and modifier runs forward on the device" setup = [GPUCases] begin
-    using JLArrays
-    JLArrays.allowscalar(false)
-    for (name, f) in GPUCases.CASES
-        @testset "$name" begin
-            y = f(JLArray)
-            @test y isa JLArray
-            @test Array(y) ≈ f(identity)
-        end
-    end
-end
-
-@testitem "JLArrays: a run resumed from a device state matches the CPU" setup = [GPUCases] begin
-    using JLArrays
-    JLArrays.allowscalar(false)
-    y1, state, y2 = GPUCases.resumed(JLArray)
-    c1, cstate, c2 = GPUCases.resumed(identity)
-    @test y1 isa JLArray
-    @test y2 isa JLArray
-    @test state.history isa JLArray
-    @test all(s -> s isa JLArray, state.states)
-    @test Array(y1) ≈ c1
-    @test Array(y2) ≈ c2
-    @test Array(state.history) ≈ cstate.history
-    @test all(map((s, c) -> Array(s) ≈ c, state.states, cstate.states))
-    @test state.t == cstate.t
-end
-
-@testitem "JLArrays: every case runs under an explicit Device executor" setup = [GPUCases] begin
-    using ComposableRecurrences: ComposableRecurrences as CR
-    using Base.ScopedValues: with
-    using JLArrays, KernelAbstractions
-    JLArrays.allowscalar(false)
-    ex = CR.Device(KernelAbstractions.get_backend(JLArray(ones(1))))
-    for (name, f) in GPUCases.CASES
-        @testset "$name" begin
-            y = with(CR.EXECUTOR => ex) do
-                f(JLArray)
-            end
-            @test y isa JLArray
-            @test Array(y) ≈ f(identity)
-        end
-    end
-end
-
-@testitem "JLArrays: kernel arguments are plain data" setup = [GPUCases] begin
+# One item for the three runs of every case, so the device code compiled
+# for one run is reused by the others.
+@testitem "JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences: ComposableRecurrences as CR
     using Base.ScopedValues: with
     using JLArrays, KernelAbstractions
     JLArrays.allowscalar(false)
+    # Every operator, coupling and modifier, with the default executor.
+    @testset "default executor" begin
+        for (name, f) in GPUCases.CASES
+            @testset "$name" begin
+                y = f(JLArray)
+                @test y isa JLArray
+                @test Array(y) ≈ f(identity)
+            end
+        end
+    end
+    # Every case under an explicit Device executor.
+    ex = CR.Device(KernelAbstractions.get_backend(JLArray(ones(1))))
+    @testset "explicit Device executor" begin
+        for (name, f) in GPUCases.CASES
+            @testset "$name" begin
+                y = with(CR.EXECUTOR => ex) do
+                    f(JLArray)
+                end
+                @test y isa JLArray
+                @test Array(y) ≈ f(identity)
+            end
+        end
+    end
     KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     # A backend that compiles kernels takes plain data only: bits types, or
     # immutable structs whose concretely typed fields are plain, with the
@@ -363,19 +343,37 @@ end
         return KAExt._launch!(b.inner, body, args, n)
     end
     jl = KernelAbstractions.get_backend(JLArray(ones(1)))
-    for (name, f) in GPUCases.CASES
-        @testset "$name" begin
-            b = Recording(jl, Any[])
-            y = with(CR.EXECUTOR => CR.Device(b)) do
-                f(JLArray)
+    @testset "plain kernel arguments" begin
+        for (name, f) in GPUCases.CASES
+            @testset "$name" begin
+                b = Recording(jl, Any[])
+                y = with(CR.EXECUTOR => CR.Device(b)) do
+                    f(JLArray)
+                end
+                @test Array(y) ≈ f(identity)
+                @test !isempty(b.args)
+                @test all(a -> plain(launched(a)), b.args)
             end
-            @test Array(y) ≈ f(identity)
-            @test !isempty(b.args)
-            @test all(a -> plain(launched(a)), b.args)
         end
     end
     # The call's executor is not plain data, so it must not reach a kernel.
     @test !plain(launched((CR._current(),)))
+end
+
+@testitem "JLArrays: a run resumed from a device state matches the CPU" setup = [GPUCases] begin
+    using JLArrays
+    JLArrays.allowscalar(false)
+    y1, state, y2 = GPUCases.resumed(JLArray)
+    c1, cstate, c2 = GPUCases.resumed(identity)
+    @test y1 isa JLArray
+    @test y2 isa JLArray
+    @test state.history isa JLArray
+    @test all(s -> s isa JLArray, state.states)
+    @test Array(y1) ≈ c1
+    @test Array(y2) ≈ c2
+    @test Array(state.history) ≈ cstate.history
+    @test all(map((s, c) -> Array(s) ≈ c, state.states, cstate.states))
+    @test state.t == cstate.t
 end
 
 @testitem "KernelAbstractions alone adapts wrappers and modifiers" begin

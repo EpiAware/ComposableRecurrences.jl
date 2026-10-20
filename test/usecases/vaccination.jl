@@ -12,7 +12,7 @@
 #   y = P (1 - exp(-v / N)),  S ← S - y S / P - m,  V ← V - y σ V / P + m,
 # and m = min(r_t, S) the doses taken up.
 
-@testitem "Use case: all-or-nothing and leaky vaccination" tags = [:usecase] begin
+@testitem "Use case: all-or-nothing and leaky vaccination" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
 
@@ -62,7 +62,7 @@
         r(θ) = arm === aon ? θ[1] .* θ[2:end] : θ[2:end]
         fref(θ) = sum(naive(R, θ[2:end], σ(θ), r(θ)))
         θ = vcat(e, doses)
-        @test ForwardDiff.gradient(f, θ) ≈ ForwardDiff.gradient(fref, θ)
+        @test ReferenceAD.gradient(f, θ) ≈ ReferenceAD.gradient(fref, θ)
     end
 
     # All-or-nothing never draws from the protected pool, so it equals the

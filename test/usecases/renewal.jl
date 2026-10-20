@@ -6,7 +6,7 @@
 # CTIDM's `ConstantRenewalStep` stores the interval reversed, so `reverse`
 # appears only in the reference calls.
 
-@testitem "Use case: renewal" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -22,7 +22,7 @@
         g, I₀, Rt = unpack(θ)
         return sum(w .* C.renewal(C.ConstantRenewalStep(reverse(g)), g, I₀, r, Rt))
     end
-    ∇ref = ForwardDiff.gradient(ref_loss, θ0)
+    ∇ref = ReferenceAD.gradient(ref_loss, θ0)
 
     # I_t = R_t Σ_i g_i I_{t-i}, from CTIDM's exponentially seeded window.
     function renewal(g, I₀, Rt)
@@ -30,10 +30,10 @@
         return Recurrence(g)(Rt; history = window)
     end
     @test renewal(g, I₀, Rt) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* renewal(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* renewal(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: renewal with susceptible depletion" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal with susceptible depletion" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -45,7 +45,7 @@ end
     ref = C.renewal(ref_step(N), g, I₀, r, Rt)
     w = range(0.5, 2.0; length = length(ref))
     θ0 = vcat(N, Rt)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* C.renewal(ref_step(θ[1]), g, I₀, r, θ[2:end])), θ0
     )
 
@@ -61,11 +61,11 @@ end
     @test renewal(N, Rt) ≈ ref
     # The floor binds once the pool is exhausted.
     @test renewal(50.0, Rt) ≈ C.renewal(ref_step(50.0), g, I₀, r, Rt)
-    ∇ = ForwardDiff.gradient(θ -> sum(w .* renewal(θ[1], θ[2:end])), θ0)
+    ∇ = ReferenceAD.gradient(θ -> sum(w .* renewal(θ[1], θ[2:end])), θ0)
     @test ∇ ≈ ∇ref
 end
 
-@testitem "Use case: renewal with imported cases" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: renewal with imported cases" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -85,8 +85,8 @@ end
     w = range(0.5, 2.0; length = length(Rt))
     θ0 = vcat(ι, N)
     loss(f) = θ -> sum(w .* f(θ[1:10], θ[11]))
-    ∇ref_alone = ForwardDiff.gradient(loss(ref_alone), θ0)
-    ∇ref_before = ForwardDiff.gradient(loss(ref_before), θ0)
+    ∇ref_alone = ReferenceAD.gradient(loss(ref_alone), θ0)
+    ∇ref_before = ReferenceAD.gradient(loss(ref_before), θ0)
 
     # Imports join the new infections before any modifier, so they are
     # `add`. With depletion after them they are depleted with the rest,
@@ -101,11 +101,11 @@ end
     end
     @test alone(ι, N) ≈ ref_alone(ι, N)
     @test before(ι, N) ≈ ref_before(ι, N)
-    @test ForwardDiff.gradient(loss(alone), θ0) ≈ ∇ref_alone
-    @test ForwardDiff.gradient(loss(before), θ0) ≈ ∇ref_before
+    @test ReferenceAD.gradient(loss(alone), θ0) ≈ ∇ref_alone
+    @test ReferenceAD.gradient(loss(before), θ0) ≈ ∇ref_before
 end
 
-@testitem "Use case: imports added after depletion" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: imports added after depletion" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     C = UseCaseReferences.CTIDMReference
 
@@ -121,7 +121,7 @@ end
     )
     w = range(0.5, 2.0; length = length(Rt))
     θ0 = vcat(ι, N)
-    ∇ref = ForwardDiff.gradient(θ -> sum(w .* ref_after(θ[1:10], θ[11])), θ0)
+    ∇ref = ReferenceAD.gradient(θ -> sum(w .* ref_after(θ[1:10], θ[11])), θ0)
 
     # CTIDM's `(SusceptibleDepletion, ImportedCases)` order adds imports to
     # the depleted infections, which `add` cannot express because it enters
@@ -136,10 +136,10 @@ end
         return r(Rt; history = window)
     end
     @test after(ι, N) ≈ ref_after(ι, N)
-    @test ForwardDiff.gradient(θ -> sum(w .* after(θ[1:10], θ[11])), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* after(θ[1:10], θ[11])), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: BVD renewal_infections" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD renewal_infections" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -180,11 +180,11 @@ end
         )
         θ0 = vcat(Rt, g, seed, N)
         ref = B.renewal_infections(Rt, g, seed, N)
-        ∇ref = ForwardDiff.gradient(
+        ∇ref = ReferenceAD.gradient(
             θ -> sum(w .* B.renewal_infections(unpack(θ)...)), θ0
         )
         @test bvd_renewal(Rt, g, seed, N) ≈ ref
-        ∇ = ForwardDiff.gradient(θ -> sum(w .* bvd_renewal(unpack(θ)...)), θ0)
+        ∇ = ReferenceAD.gradient(θ -> sum(w .* bvd_renewal(unpack(θ)...)), θ0)
         @test ∇ ≈ ∇ref
     end
 

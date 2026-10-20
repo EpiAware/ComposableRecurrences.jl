@@ -4,7 +4,7 @@
 # rules on every backend, with derived removals and a derived waning rate,
 # are in the AD registry's waning scenario.
 
-@testitem "Pool flows: waning against a naive loop" setup = [FlowChecks] begin
+@testitem "Pool flows: waning against a naive loop" setup = [ReferenceAD, FlowChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; flow_step, forms) = FlowChecks
@@ -52,10 +52,10 @@
         end
         ref(θ, R) = naive(R, (k, t) -> at(θ, k, t))
         @test run(θ, R) ≈ ref(θ, R)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* run(θ, R)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R)), R)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* run(θ, R)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R)), R)
     end
     # Removals are the first count flow, and no waning is the depletion
     # without flows.
@@ -77,7 +77,7 @@
     @test Recurrence(g; modifiers = (still,))(R; history = h) ≈ y
 end
 
-@testitem "Pool flows: susceptibles leaving at a rate or in counts" begin
+@testitem "Pool flows: susceptibles leaving at a rate or in counts" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g, h, N = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0], 500.0
@@ -100,10 +100,10 @@ end
         R; history = h
     )
     @test run(R, 0.05) ≈ naive(R, 0.05, 0.0)
-    @test ForwardDiff.derivative(μ -> sum(run(R, μ)), 0.05) ≈
-        ForwardDiff.derivative(μ -> sum(naive(R, μ, 0.0)), 0.05)
-    @test ForwardDiff.gradient(R -> sum(run(R, 0.05)), R) ≈
-        ForwardDiff.gradient(R -> sum(naive(R, 0.05, 0.0)), R)
+    @test ReferenceAD.derivative(μ -> sum(run(R, μ)), 0.05) ≈
+        ReferenceAD.derivative(μ -> sum(naive(R, μ, 0.0)), 0.05)
+    @test ReferenceAD.gradient(R -> sum(run(R, 0.05)), R) ≈
+        ReferenceAD.gradient(R -> sum(naive(R, 0.05, 0.0)), R)
     d = CR.Pool(N; flows = (CR.Flow(1 => 0, 0.05),))
     @test CR.ispointwise(d)
     @test CR.uses_adjoint(Recurrence(g; modifiers = (d,)), CR.Run())
@@ -114,8 +114,8 @@ end
     )
     @test removed(3.0) ≈ naive(R, 0.0, 3.0)
     @test removed(2 * Derived(identity, 1.5)) ≈ naive(R, 0.0, 3.0)
-    @test ForwardDiff.derivative(r -> sum(removed(r)), 3.0) ≈
-        ForwardDiff.derivative(r -> sum(naive(R, 0.0, r)), 3.0)
+    @test ReferenceAD.derivative(r -> sum(removed(r)), 3.0) ≈
+        ReferenceAD.derivative(r -> sum(naive(R, 0.0, r)), 3.0)
 end
 
 @testitem "Pool flows: pullbacks against a local Jacobian" setup = [ModifierChecks] begin

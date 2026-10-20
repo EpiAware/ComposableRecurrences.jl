@@ -4,7 +4,7 @@
 # is a user modifier on a lag-1 identity recurrence: the core carries the
 # previous pools forward and the modifier applies the day's flows.
 
-@testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase, :param_eltype] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD accumulate_occupancy (user modifier)" tags = [:usecase, :param_eltype] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -29,7 +29,7 @@
             )
         )
     end
-    ∇ref = ForwardDiff.gradient(ref_loss, θ0)
+    ∇ref = ReferenceAD.gradient(ref_loss, θ0)
 
     # The pools are the strata: (O_bvd, O_bg, O_conf, O_susp). The
     # modifier receives the previous day's pools in `v` and overwrites them
@@ -84,6 +84,6 @@
     for k in keys(ref)
         @test getproperty(y, k) ≈ getproperty(ref, k)
     end
-    ∇ = ForwardDiff.gradient(θ -> loss(occupancy(unpack(θ)...)), θ0)
+    ∇ = ReferenceAD.gradient(θ -> loss(occupancy(unpack(θ)...)), θ0)
     @test ∇ ≈ ∇ref
 end

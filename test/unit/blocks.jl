@@ -60,7 +60,7 @@
     end
 end
 
-@testitem "Blocks: a user modifier against a naive loop" setup = [BlockChecks] begin
+@testitem "Blocks: a user modifier against a naive loop" setup = [ReferenceAD, BlockChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; Move, MovePlain, naive) = BlockChecks
@@ -73,10 +73,10 @@ end
         ref(θ, R) = naive(g, R, h, (j, t) -> θ[j])
         θ = [0.1, 0.3, 0.5]
         @test run(θ, R) ≈ ref(θ, R)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, R)), θ)
-        @test ForwardDiff.gradient(R -> sum(W .* run(θ, R)), R) ≈
-            ForwardDiff.gradient(R -> sum(W .* ref(θ, R)), R)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, R)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, R)), θ)
+        @test ReferenceAD.gradient(R -> sum(W .* run(θ, R)), R) ≈
+            ReferenceAD.gradient(R -> sum(W .* ref(θ, R)), R)
         @test CR.nstate(M(0.1), 6) == 3
         @test !CR.ispointwise(M(0.1))
     end
