@@ -464,7 +464,7 @@ end
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
 
-@testitem "prepend returns the history then the run" begin
+@testitem "prepend returns the history then the run" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
@@ -488,7 +488,7 @@ end
         @test stn.history ≈ st.history && stn.t == st.t
         loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
         θ = vcat(vec(h), vec(R))
-        @test ForwardDiff.gradient(loss(seeded), θ) ≈ ForwardDiff.gradient(loss(expansion), θ)
+        @test ReferenceAD.gradient(loss(seeded), θ) ≈ ReferenceAD.gradient(loss(expansion), θ)
     end
     # With the seed at times 1 to m the result is as long as the inputs.
     @test size(@inferred r(fill(1.8, 2, 7); history = ones(2, 2), start = 3, prepend = true)) ==
@@ -516,7 +516,7 @@ end
     end
 end
 
-@testitem "exponential_history" begin
+@testitem "exponential_history" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     @test CR.exponential_history(5.0, 0.1, 3) ≈ 5.0 .* exp.(0.1 .* [-2, -1, 0])
@@ -535,7 +535,7 @@ end
     R = 1 / sum(g[l] * exp(-rate * l) for l in 1:3)
     y = Recurrence(g)(fill(R, 6); history = CR.exponential_history(5.0, rate, 3))
     @test y ≈ 5.0 .* exp.(rate .* (1:6))
-    @test ForwardDiff.derivative(r -> sum(CR.exponential_history(5.0, r, 3)), 0.1) ≈
+    @test ReferenceAD.derivative(r -> sum(CR.exponential_history(5.0, r, 3)), 0.1) ≈
         sum(5.0 .* [-2, -1, 0] .* exp.(0.1 .* [-2, -1, 0]))
     @inferred CR.exponential_history(5.0, 0.1, 3)
     @inferred CR.exponential_history(I0, r, 3)

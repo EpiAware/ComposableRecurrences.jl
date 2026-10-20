@@ -176,10 +176,7 @@
 2.2	JLArrays: adapting an operator moves its parameters to the device
 2.8	JLArrays: coefficients from change points refuse a device
 16.8	JLArrays: dual numbers carry tangents through the device forward pass
-96.6	JLArrays: every case runs under an explicit Device executor
-90.2	JLArrays: every operator, coupling and modifier runs forward on the device
 8.7	JLArrays: host parameters and ragged kernels on device inputs are errors
-90.4	JLArrays: kernel arguments are plain data
 1.3	JLArrays: wrappers and built-in modifiers adapt every array they hold
 2.8	KernelAbstractions alone adapts wrappers and modifiers
 37.0	Loading: gradients without ForwardDiff
@@ -314,7 +311,6 @@
 2.7	Trace: a depletion's pool, draw and overflow
 4.2	Trace: a protected Pool's pools, draw and overflow
 2.0	Trace: each flow's amount against a naive loop
-76.4	Trace: gradients through a trace, the rule against ForwardDiff
 3.6	Trace: the default is the state after the step
 0.0	Transform implements the role interface
 4.7	Transform pullback matches the local Jacobian
@@ -419,3 +415,5 @@
 0.1	param_eltype recurses through fields
 11.2	prepend returns the history then the run
 0.2	start = nothing names the default to use
+147.3	JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments
+87.8	Trace: gradients through a trace and the default trace of user modifiers, the rule against ForwardDiff

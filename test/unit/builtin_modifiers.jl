@@ -59,7 +59,7 @@ end
     end
 end
 
-@testitem "Depletion: the fixed default exponent matches an exponent of 1.0" begin
+@testitem "Depletion: the fixed default exponent matches an exponent of 1.0" setup = [ReferenceAD] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     # Pools above, at and below zero, with values on both sides of the
@@ -102,8 +102,8 @@ end
     total(N, α) = sum(
         Recurrence(g; modifiers = (CR.Depletion(N; heterogeneity = α),))(R; history = h)
     )
-    @test ForwardDiff.derivative(N -> total(N, true), 60.0) ≈
-        ForwardDiff.derivative(N -> total(N, 1.0), 60.0)
+    @test ReferenceAD.derivative(N -> total(N, true), 60.0) ≈
+        ReferenceAD.derivative(N -> total(N, 1.0), 60.0)
     # `false` is a fixed exponent of zero for the built-in forms.
     @test CR.Depletion(60.0; heterogeneity = false).heterogeneity ===
         CR._FixedExponent{false}()
@@ -251,7 +251,7 @@ end
     @test s ≈ M * v .- diag(M) .* v
 end
 
-@testitem "Redistribute: a movement that varies over time" begin
+@testitem "Redistribute: a movement that varies over time" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     K = [0.0 0.3 0.1; 0.2 0.5 0.5; 0.4 0.2 0.0]
@@ -276,7 +276,7 @@ end
     end
     for t in 1:2
         x = vcat(vec(K), vec(E), v)
-        J = ForwardDiff.jacobian(y -> step(y, t), x)
+        J = ReferenceAD.jacobian(y -> step(y, t), x)
         expected = transpose(J) * vcat(v̄0, s̄0)
         m̄ = (; M = (; x = (; K = zeros(3, 3), E = zeros(3, 2))))
         grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0))
@@ -488,7 +488,7 @@ end
     @test_throws ArgumentError CR.Depletion(TimeVarying(Nt[1, :], CR.Primary()))
 end
 
-@testitem "Depletion: negative removals add to the pool" begin
+@testitem "Depletion: negative removals add to the pool" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g, h = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0]
@@ -514,8 +514,8 @@ end
     end
     @test run(R, births) ≈ naive(R, births)
     W = collect(range(0.5, 1.5; length = length(b)))
-    @test ForwardDiff.gradient(x -> sum(W .* run(R, x)), births) ≈
-        ForwardDiff.gradient(x -> sum(W .* naive(R, x)), births)
+    @test ReferenceAD.gradient(x -> sum(W .* run(R, x)), births) ≈
+        ReferenceAD.gradient(x -> sum(W .* naive(R, x)), births)
     # The removal and its pullback take the negative arm.
     @test CR._removal(-2.0, 5.0) == -2.0
     @test CR._removal(-2.0, -1.0) == -2.0
@@ -564,7 +564,7 @@ end
     @test m̄.N.x.x == [0.7 0.0; -1.2 0.0]
 end
 
-@testitem "Depletion init pullback matches ForwardDiff" setup = [ModifierChecks] begin
+@testitem "Depletion init pullback matches ForwardDiff" setup = [ReferenceAD, ModifierChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     h = [1.0 2.0 3.0; 4.0 5.0 6.0; 50.0 60.0 70.0]
@@ -581,7 +581,7 @@ end
             return s
         end
         θ = with_pool0 ? vcat(N0, 0.9 .* N0) : N0
-        expected = transpose(ForwardDiff.jacobian(pool, θ)) * s̄
+        expected = transpose(ReferenceAD.jacobian(pool, θ)) * s̄
         m = build(θ)
         m̄ = ModifierChecks.mirror(m)
         CR.pullback!((; piece = m̄, s = s̄, history = nothing), m, CR.Init(), zeros(3), h)
@@ -648,7 +648,7 @@ end
     @test c.v && c.s && c.θ
 end
 
-@testitem "Built-in modifiers: ForwardDiff through a recurrence" begin
+@testitem "Built-in modifiers: ForwardDiff through a recurrence" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
@@ -670,7 +670,7 @@ end
         return sum(w .* Recurrence(g; modifiers = mods)(R; history = h))
     end
     θ = [0.05, 300.0, 200.0, 150.0, 1.2, 0.3, 50.0]
-    ∇ = ForwardDiff.gradient(loss, θ)
+    ∇ = ReferenceAD.gradient(loss, θ)
     fd = map(eachindex(θ)) do i
         e = zeros(length(θ))
         e[i] = 1.0e-6 * max(1.0, abs(θ[i]))
@@ -816,7 +816,7 @@ end
         Vector{Float32}
 end
 
-@testitem "Variants: a user depletion form, with and without a pullback" setup = [ModifierChecks] begin
+@testitem "Variants: a user depletion form, with and without a pullback" setup = [ReferenceAD, ModifierChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # Take what is asked, up to the pool.
@@ -858,7 +858,7 @@ end
         return y[3:end]
     end
     R = fill(2.0, 8)
-    ∇ref = ForwardDiff.gradient(θ -> sum(naive(θ[2:end], θ[1])), vcat(100.0, R))
+    ∇ref = ReferenceAD.gradient(θ -> sum(naive(θ[2:end], θ[1])), vcat(100.0, R))
     for form in (Linear(), LinearWithPullback())
         d = CR.Depletion(100.0, form)
         y = Recurrence([0.5, 0.5]; modifiers = (d,))(R; history = h)
@@ -868,7 +868,7 @@ end
         run(θ) = Recurrence([0.5, 0.5]; modifiers = (CR.Depletion(θ[1], form),))(
             θ[2:end]; history = h
         )
-        @test ForwardDiff.gradient(θ -> sum(run(θ)), vcat(100.0, R)) ≈ ∇ref
+        @test ReferenceAD.gradient(θ -> sum(run(θ)), vcat(100.0, R)) ≈ ∇ref
     end
     # The pullback matches the local Jacobian on both branches.
     c = ModifierChecks.check_pullback(
@@ -878,7 +878,7 @@ end
     @test c.v && c.s && c.θ
 end
 
-@testitem "Depletion: a dual population keeps an integer heterogeneity plain" begin
+@testitem "Depletion: a dual population keeps an integer heterogeneity plain" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     using ForwardDiff: Dual
@@ -927,7 +927,7 @@ end
             return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
         end
         θ = [100.0, 0.0]
-        ∇ = ForwardDiff.gradient(f, θ)
+        ∇ = ReferenceAD.gradient(f, θ)
         @test all(isfinite, ∇)
         e = 1.0e-7
         @test ∇[1] ≈ (f(θ + [e, 0]) - f(θ - [e, 0])) / 2e atol = 1.0e-6

@@ -47,6 +47,16 @@
     dotall(a::Union{Tuple, NamedTuple}, b) = sum(map(dotall, values(a), values(b)); init = 0.0)
     dotall(a, b) = 0.0
 
+    # One tag and a fixed chunk for every reference gradient, so the dual
+    # code compiled for one check is reused by the others, in this item and
+    # in the other items of the same worker, whatever their operator or
+    # number of parameters. The tag is a package function, as a type defined
+    # here would be new in each item.
+    function _gradient_config(f, θ)
+        chunk = ForwardDiff.Chunk{min(8, length(θ))}()
+        tag = ForwardDiff.Tag(CR._run_forward, eltype(θ))
+        return ForwardDiff.GradientConfig(f, θ, chunk, tag)
+    end
     # `pullback!` of `op` at `args` against ForwardDiff, over every float
     # leaf of `(op, args...)`.
     function pullback_matches(op, args...; rng = Xoshiro(1), rtol = 1.0e-8)
@@ -55,7 +65,7 @@
         ȳ = randlike(rng, y)
         θ = CR._params(xs)
         f = θ -> dotall(ȳ, first(CR._run_forward(CR._rebuild(xs, θ)...)))
-        ref = ForwardDiff.gradient(f, θ)
+        ref = ForwardDiff.gradient(f, θ, _gradient_config(f, θ), Val(false))
         ms = zero_mirror(xs)
         grads = (; piece = first(ms), y = ȳ, args = Base.tail(ms))
         CR._run_pullback!(grads, op, cache)
@@ -532,6 +542,7 @@ end
 end
 
 @testitem "Adjoint: a Pool's group step and draw against ForwardDiff" setup = [
+    ReferenceAD,
     AdjointCheck,
 ] begin
     using ComposableRecurrences
@@ -576,7 +587,7 @@ end
             )
             return dot(collect(v̄), collect(o)) + dot(collect(s̄), collect(q))
         end
-        ref = ForwardDiff.gradient(step, [v..., s..., θ...])
+        ref = ReferenceAD.gradient(step, [v..., s..., θ...])
         # The step's in-place pullback on one-entry vectors, its kernel, and
         # the two dispatches the kernel goes through.
         function inplace(m̄, grads)
@@ -608,7 +619,7 @@ end
             a, b = CR._take(Val(L.fill), p, z[1], Tuple(z[2:(L.n + 1)]), t, g)
             return ȳ * a + dot(collect(x̄′), collect(b))
         end
-        ref = ForwardDiff.gradient(draw, [d, x..., θ...])
+        ref = ReferenceAD.gradient(draw, [d, x..., θ...])
         m̄ = zero_mirror(m)
         d̄, x̄ = CR._take_back(Val(L.fill), m̄, m, d, x, y, ȳ, x̄′, t, g)
         @test [d̄, x̄..., mirror_vec(m̄, m)...] ≈ ref rtol = 1.0e-10
@@ -761,7 +772,7 @@ end
     @test constant_kernel_matches(r, recargs(R, nothing, h; start = 5)...)
 end
 
-@testitem "Adjoint: routing by uses_adjoint" setup = [AdjointCheck, AdjointModifiers] begin
+@testitem "Adjoint: routing by uses_adjoint" setup = [ReferenceAD, AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences, ConstructionBase, ForwardDiff
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
@@ -1077,7 +1088,7 @@ end
     f = LinearRate(0.7)
     grads = (; piece = (; c = Ref(0.0)), v = 0.3, s = 0.6)
     got = CR._form_pullback(grads, f, 2.0, 40.0, 50.0, 1.2)
-    ref = ForwardDiff.gradient(collect((2.0, 40.0, 50.0, 1.2, 0.7))) do x
+    ref = ReferenceAD.gradient(collect((2.0, 40.0, 50.0, 1.2, 0.7))) do x
         y, s′ = CR._draw(LinearRate(x[5]), x[1], x[2], x[3], x[4])
         return 0.3 * y + 0.6 * s′
     end
@@ -1337,7 +1348,7 @@ end
     @test unwrap(y) ≈ first(CR._run_forward(c, x, true, nothing, nothing, 1, nothing))
 end
 
-@testitem "Adjoint: scalar-parameter local pullback" setup = [AdjointCheck] begin
+@testitem "Adjoint: scalar-parameter local pullback" setup = [ReferenceAD, AdjointCheck] begin
     # A pointwise modifier with only scalar parameters, nested in a struct,
     # mixed float types and an integer field: the default `Step` pullback
     # seeds them as one tuple of dual numbers.
@@ -1363,7 +1374,7 @@ end
     for (v, s) in ((2.0, 30.0), (1.5, 0.2))
         # Reference: the Jacobian of the step in the value, state and
         # parameters.
-        J = ForwardDiff.jacobian([v; s; CR._params(m)]) do x
+        J = ReferenceAD.jacobian([v; s; CR._params(m)]) do x
             v′, s′ = CR._step(CR._rebuild(m, view(x, 3:4)), x[1], x[2], 1, 1)
             return [v′, s′]
         end
@@ -1434,7 +1445,7 @@ end
     @test pullback_matches(r, recargs(ones(3, 5), nothing, h)...)
 end
 
-@testitem "Adjoint: coupling pullbacks called directly" setup = [AdjointCheck] begin
+@testitem "Adjoint: coupling pullbacks called directly" setup = [ReferenceAD, AdjointCheck] begin
     # `I` and `Diagonal` couplings have fused paths inside the recurrence
     # rule; their `Pressure` pullbacks are public and checked here.
     rng = Xoshiro(3)
@@ -1451,9 +1462,9 @@ end
         end
         p̄ = zeros(3)
         CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, 1)
-        @test p̄ ≈ ForwardDiff.gradient(x -> pressure(θ, x), p)
+        @test p̄ ≈ ReferenceAD.gradient(x -> pressure(θ, x), p)
         @test mirror_vec(m̄, C isa UniformScaling ? (; λ = 2.5) : C) ≈
-            ForwardDiff.gradient(x -> pressure(x, p), θ)
+            ReferenceAD.gradient(x -> pressure(x, p), θ)
     end
 end
 
@@ -1516,7 +1527,7 @@ end
     )
 end
 
-@testitem "Adjoint: local pullback over structured and nested parameters" setup = [AdjointCheck] begin
+@testitem "Adjoint: local pullback over structured and nested parameters" setup = [ReferenceAD, AdjointCheck] begin
     # The local Jacobian of a pointwise modifier with array parameters: a
     # Diagonal, a sparse matrix, a named tuple and a tuple holding an array,
     # read back in the order the parameters are collected. A step may read
@@ -1546,7 +1557,7 @@ end
     @test pullback_matches(r, recargs(1.1, nothing, ones(2, 2); stop = 6)...)
     # Without a mirror only the value and state cotangents come back.
     grads = (; piece = nothing, v = 0.3, s = 0.7)
-    J = ForwardDiff.jacobian(x -> collect(CR._step(m, x[1], x[2], 1, 2)), [2.0, 1.0])
+    J = ReferenceAD.jacobian(x -> collect(CR._step(m, x[1], x[2], 1, 2)), [2.0, 1.0])
     @test collect(CR._step_pullback(grads, m, 2.0, 1.0, 1, 2)) ≈ transpose(J) * [0.3, 0.7]
 
     # Scalar parameters inside a named tuple and a tuple take the dual-number
@@ -1604,7 +1615,7 @@ end
     )
 end
 
-@testitem "Adjoint: local pullback over entry parameters" setup = [AdjointCheck] begin
+@testitem "Adjoint: local pullback over entry parameters" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     # A pointwise modifier whose array parameters a step reads one entry of
     # through `param`: the default `Step` pullback seeds that entry alone.
@@ -1634,7 +1645,7 @@ end
         @test CR.uses_adjoint(@inferred(Recurrence([0.3, 0.2], I, (m,))), CR.Run())
         # Against ForwardDiff over every parameter entry at (k, t) = (2, 3).
         x0 = [2.0; 1.5; CR._params(m)]
-        J = ForwardDiff.jacobian(x0) do x
+        J = ReferenceAD.jacobian(x0) do x
             md = CR._rebuild(m, view(x, 3:length(x)))
             return collect(CR._step(md, x[1], x[2], 3, 2))
         end
@@ -1712,7 +1723,7 @@ end
     end
 end
 
-@testitem "Adjoint: local pullback over float arrays read entry by entry" setup = [AdjointCheck] begin
+@testitem "Adjoint: local pullback over float arrays read entry by entry" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     using LinearAlgebra: I
     # Pointwise modifiers that read their float arrays directly: the local
@@ -1836,7 +1847,7 @@ end
         @test pullback_matches(r, args...)
         # One step against ForwardDiff over every entry at (k, t) = (2, 3).
         x0 = [2.0; 1.5; CR._params(m)]
-        J = ForwardDiff.jacobian(x0) do x
+        J = ReferenceAD.jacobian(x0) do x
             md = CR._rebuild(m, view(x, 3:length(x)))
             return collect(CR._step(md, x[1], x[2], 3, 2))
         end
@@ -1873,7 +1884,7 @@ end
         @test op.rebuilds === false
         @test !CR.uses_adjoint(op, CR.Run())
         x0 = [2.0; 1.5; CR._params(m)]
-        J = ForwardDiff.jacobian(x0) do x
+        J = ReferenceAD.jacobian(x0) do x
             md = CR._rebuild(m, view(x, 3:length(x)))
             return collect(CR._step(md, x[1], x[2], 3, 2))
         end
@@ -1959,7 +1970,7 @@ end
     @test C̄.M ≈ q̄ * transpose(p)
 end
 
-@testitem "Adjoint: local pullback of a coupling holding arrays" setup = [AdjointCheck] begin
+@testitem "Adjoint: local pullback of a coupling holding arrays" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     using LinearAlgebra: Diagonal, mul!
     using SparseArrays: sparse
@@ -1987,7 +1998,7 @@ end
                 CR.forward!(CR._rebuild(C, x[(S + 1):end]), CR.Pressure(), q, x[1:S], 1)
                 return sum(q̄ .* q)
             end
-            ref = ForwardDiff.gradient(pressure, θ0)
+            ref = ReferenceAD.gradient(pressure, θ0)
             C̄ = zero_mirror(C)
             p̄ = zeros(S)
             bufs = CR._pressure_buffers(C̄, C, Float64)
@@ -2059,7 +2070,10 @@ end
     @test CR._coupling_adjoint(Mix(reshape(view(rand(9), 1:9), 3, 3))) === :local
 end
 
-@testitem "Adjoint: local pullback of a whole-step modifier" setup = [AdjointCheck] begin
+@testitem "Adjoint: local pullback of a whole-step modifier" setup = [
+    ReferenceAD,
+    AdjointCheck,
+] begin
     using ComposableRecurrences
     # Vector-level modifiers without a pullback: the local derivative seeds
     # the step's values, its state and its parameters as dual numbers.
@@ -2104,7 +2118,7 @@ end
     function reference(m, v, s, t)
         θ = CR._params(m)
         S, R = length(v), length(s)
-        J = ForwardDiff.jacobian([v; s; θ]) do x
+        J = ReferenceAD.jacobian([v; s; θ]) do x
             vv, ss = x[1:S], x[(S + 1):(S + R)]
             mm = isempty(θ) ? m : CR._rebuild(m, x[(S + R + 1):end])
             vv, ss = collect(vv), collect(ss)
@@ -2183,7 +2197,7 @@ end
         nothing
 end
 
-@testitem "Adjoint: local coupling pullback" setup = [AdjointCheck] begin
+@testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     # A coupling without a pullback: a share `a` of every other stratum's
     # pressure goes to the first, scaled by `c`.
@@ -2217,7 +2231,7 @@ end
             CR.forward!(ToFirst(x[S + 1], x[S + 2], 2), CR.Pressure(), q, x[1:S], 4)
             return sum(q̄ .* q)
         end
-        ref = ForwardDiff.gradient(pressure, [p; 0.3; Float64(0.9f0)])
+        ref = ReferenceAD.gradient(pressure, [p; 0.3; Float64(0.9f0)])
         p̄, C̄ = fill(1.0, S), (; a = Ref(0.0), c = Ref(0.0f0), n = nothing)
         CR._pressure_back!(p̄, C̄, C, q̄, p, 4)
         @test p̄ ≈ 1 .+ ref[1:S]

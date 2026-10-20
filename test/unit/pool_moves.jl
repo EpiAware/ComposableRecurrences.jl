@@ -81,7 +81,7 @@
     )
 end
 
-@testitem "Pool without a draw: wards against a naive loop" setup = [FlowChecks] begin
+@testitem "Pool without a draw: wards against a naive loop" setup = [ReferenceAD, FlowChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; ward, forms) = FlowChecks
@@ -109,10 +109,10 @@ end
         end
         θ = vcat(θc, [0.4, 0.0, 0.2, 0.3, 0.1, 0.25], 0.1, [0.5, 30.0])
         @test run(θ, adm) ≈ ref(θ, adm)
-        @test ForwardDiff.gradient(θ -> sum(W .* run(θ, adm)), θ) ≈
-            ForwardDiff.gradient(θ -> sum(W .* ref(θ, adm)), θ)
-        @test ForwardDiff.gradient(a -> sum(W .* run(θ, a)), adm) ≈
-            ForwardDiff.gradient(a -> sum(W .* ref(θ, a)), adm)
+        @test ReferenceAD.gradient(θ -> sum(W .* run(θ, adm)), θ) ≈
+            ReferenceAD.gradient(θ -> sum(W .* ref(θ, adm)), θ)
+        @test ReferenceAD.gradient(a -> sum(W .* run(θ, a)), adm) ≈
+            ReferenceAD.gradient(a -> sum(W .* ref(θ, a)), adm)
     end
 end
 
@@ -159,7 +159,7 @@ end
     @test v == [0.0, 4.0, 3.0]
 end
 
-@testitem "Pool without a draw: a smooth count against a naive loop" begin
+@testitem "Pool without a draw: a smooth count against a naive loop" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
@@ -191,11 +191,11 @@ end
     end
     θ = [2.0, 0.3]
     @test run(θ) ≈ ref(θ)
-    @test ForwardDiff.gradient(θ -> sum(run(θ)), θ) ≈
-        ForwardDiff.gradient(θ -> sum(ref(θ)), θ)
+    @test ReferenceAD.gradient(θ -> sum(run(θ)), θ) ≈
+        ReferenceAD.gradient(θ -> sum(ref(θ)), θ)
 end
 
-@testitem "Pool without a draw: the time checks infer and allocate nothing, after a gradient too" begin
+@testitem "Pool without a draw: the time checks infer and allocate nothing, after a gradient too" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake
     CR = ComposableRecurrences
@@ -226,7 +226,7 @@ end
     call_allocs(m) = (call(m); @allocated call(m))
     before = call_allocs(mods)
     loss(θ) = sum(call((flows(θ), CR.Clamp(0.0, 1.0e6))))
-    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
+    @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
     # A gradient does not leave the checks to run inference on each call.
     @test check_allocs(mods) == 0 skip = coverage
     @test call_allocs(mods) <= before skip = coverage

@@ -130,7 +130,7 @@ end
     end
 end
 
-@testitem "Trace: the flow amounts' pullback against forward mode" begin
+@testitem "Trace: the flow amounts' pullback against forward mode" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # Every kind of flow: two hazards out of one pool, a share, a count
@@ -147,7 +147,7 @@ end
     r̄ = (0.7, -0.4, 1.1, 0.6, -0.9, 0.5)
     for x in ((4.0, 3.0), (4.0, 0.3))
         f(z) = sum(map(*, r̄, CR._amounts(build(z[3:end]), (z[1], z[2]), 1, 1)))
-        ref = ForwardDiff.gradient(f, [x..., θ...])
+        ref = ReferenceAD.gradient(f, [x..., θ...])
         fs = build(θ)
         f̄s = map(_ -> (; demand = Ref(0.0), form = (; κ = Ref(0.0))), fs)
         x̄ = CR._amounts_pullback(fs, f̄s, r̄, x, 1, 1)
@@ -186,52 +186,9 @@ end
     end
 end
 
-@testitem "Trace: gradients through a trace, the rule against ForwardDiff" begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
-    W = reshape(range(0.2, 1.8; length = 48), 6, 8)
-    g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
-    K = [0.0 0.3; 0.2 0.0]
-    function loss(θ)
-        leaky = CR.Pool(
-            PerStratum(θ[1:2]); pools = (:S, :V),
-            draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
-            flows = (
-                CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
-            )
-        )
-        # `Add` keeps no state, so its trace is empty and takes no cotangent.
-        mods = (CR.Redistribute(CR.movement(K, θ[6])), CR.Add(θ[7]), leaky)
-        _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
-        T1, T0, T2 = tr.modifiers
-        return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])
-    end
-    θ = [80.0, 120.0, 0.3, 2.0, 0.1, 0.2, 0.4]
-    n = CR._PULLBACK_CALLS[]
-    @test gradient(loss, AutoMooncake(), θ) ≈ ForwardDiff.gradient(loss, θ)
-    @test CR._PULLBACK_CALLS[] > n
-    # The flows' amounts, with a smooth count whose softness is a
-    # parameter.
-    function ward(θ)
-        flows = CR.Pool(;
-            pools = 2, draw = nothing, flows = (
-                CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
-                CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
-                CR.Flow(0 => 2, θ[6]; form = CR.Truncate()),
-            )
-        )
-        r = Recurrence([1.0]; modifiers = (flows,))
-        adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
-        y, tr = r(; history = zeros(2, 1), add = adm, trace = true)
-        return sum(W[1:5, 1:6] .* only(tr.modifiers)) + sum(y)
-    end
-    θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
-    @test gradient(ward, AutoMooncake(), θw) ≈ ForwardDiff.gradient(ward, θw)
-end
-
-@testitem "Trace: gradients through the default trace of user modifiers" begin
+# One item for the Mooncake gradients through traces, so the rules compiled
+# for one loss are reused by the others.
+@testitem "Trace: gradients through a trace and the default trace of user modifiers, the rule against ForwardDiff" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake
     CR = ComposableRecurrences
@@ -275,23 +232,66 @@ end
         grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
         return nothing
     end
-    g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
-    W = reshape(range(0.2, 1.8; length = 72), 12, 6)
-    # Pointwise modifiers only, so each stratum's pullback runs on its own;
-    # `Add` keeps no state, so its trace takes no cotangent.
-    function pointwise(θ)
-        mods = (Decay(θ[1]), CR.Add(0.1), CR.Depletion(θ[2]))
-        y, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
-        T1, _, T2 = tr.modifiers
-        return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
-    end
-    function blockwise(θ)
-        y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, trace = true)
-        return sum(W[1:4, :] .* only(tr.modifiers)) + sum(y)
-    end
-    for (f, θ) in ((pointwise, [0.6, 80.0]), (blockwise, [0.8]))
+    @testset "built-in modifiers and flows" begin
+        W = reshape(range(0.2, 1.8; length = 48), 6, 8)
+        g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
+        K = [0.0 0.3; 0.2 0.0]
+        function loss(θ)
+            leaky = CR.Pool(
+                PerStratum(θ[1:2]); pools = (:S, :V),
+                draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
+                flows = (
+                    CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
+                )
+            )
+            # `Add` keeps no state, so its trace is empty and takes no cotangent.
+            mods = (CR.Redistribute(CR.movement(K, θ[6])), CR.Add(θ[7]), leaky)
+            _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
+            T1, T0, T2 = tr.modifiers
+            return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])
+        end
+        θ = [80.0, 120.0, 0.3, 2.0, 0.1, 0.2, 0.4]
         n = CR._PULLBACK_CALLS[]
-        @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
+        @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
         @test CR._PULLBACK_CALLS[] > n
+        # The flows' amounts, with a smooth count whose softness is a
+        # parameter.
+        function ward(θ)
+            flows = CR.Pool(;
+                pools = 2, draw = nothing, flows = (
+                    CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+                    CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
+                    CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
+                    CR.Flow(0 => 2, θ[6]; form = CR.Truncate()),
+                )
+            )
+            r = Recurrence([1.0]; modifiers = (flows,))
+            adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
+            y, tr = r(; history = zeros(2, 1), add = adm, trace = true)
+            return sum(W[1:5, 1:6] .* only(tr.modifiers)) + sum(y)
+        end
+        θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
+        @test gradient(ward, AutoMooncake(), θw) ≈ ReferenceAD.gradient(ward, θw)
+    end
+    @testset "the default trace of user modifiers" begin
+        g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
+        W = reshape(range(0.2, 1.8; length = 72), 12, 6)
+        # Pointwise modifiers only, so each stratum's pullback runs on its own;
+        # `Add` keeps no state, so its trace takes no cotangent.
+        function pointwise(θ)
+            mods = (Decay(θ[1]), CR.Add(0.1), CR.Depletion(θ[2]))
+            y, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
+            T1, _, T2 = tr.modifiers
+            return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
+        end
+        function blockwise(θ)
+            y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, trace = true)
+            return sum(W[1:4, :] .* only(tr.modifiers)) + sum(y)
+        end
+        for (f, θ) in ((pointwise, [0.6, 80.0]), (blockwise, [0.8]))
+            n = CR._PULLBACK_CALLS[]
+            @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
+            @test CR._PULLBACK_CALLS[] > n
+        end
     end
 end

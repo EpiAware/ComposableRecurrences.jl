@@ -166,7 +166,7 @@ end
     @test alloc((; piece = m̄, v = 1.0f0, s = 0.0f0), m) == 0 skip = coverage
 end
 
-@testitem "Transform: a map carrying parameters is differentiated whole" begin
+@testitem "Transform: a map carrying parameters is differentiated whole" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # A field-free map takes the local derivative; a closure or callable
@@ -189,10 +189,10 @@ end
         )
     )
     fd = (loss(1.5 + 1.0e-6) - loss(1.5 - 1.0e-6)) / 2.0e-6
-    @test ForwardDiff.derivative(loss, 1.5) ≈ fd rtol = 1.0e-6
+    @test ReferenceAD.derivative(loss, 1.5) ≈ fd rtol = 1.0e-6
 end
 
-@testitem "Transform: ForwardDiff through a recurrence" begin
+@testitem "Transform: ForwardDiff through a recurrence" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
@@ -202,7 +202,7 @@ end
         return sum(w .* Recurrence([1.0]; modifiers = (m,))(; history = [0.0], stop = 8))
     end
     θ = [0.5, 0.4]
-    ∇ = ForwardDiff.gradient(loss, θ)
+    ∇ = ReferenceAD.gradient(loss, θ)
     fd = map(eachindex(θ)) do i
         e = zeros(2)
         e[i] = 1.0e-6

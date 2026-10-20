@@ -7,7 +7,7 @@
 # The zones are the strata; time is the grid day `j`, absolute day
 # `t0 + j - 1`.
 
-@testitem "Use case: BVD zone share renewal" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD zone share renewal" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -56,7 +56,7 @@
         I_bar, g, δ, w0, patch_ranges, t0, force_pre;
         mix = mixed ? mix : nothing, ε = mixed ? ε : nothing
     ).infections
-    ∇ref(mixed) = ForwardDiff.gradient(
+    ∇ref(mixed) = ReferenceAD.gradient(
         θ -> sum(Wt .* ref(unpack(θ)...; mixed)), θ0
     )
 
@@ -92,7 +92,7 @@
     end
     for mixed in (false, true)
         @test zones(δ, w0, ε; mixed) ≈ ref(δ, w0, ε; mixed)
-        @test ForwardDiff.gradient(
+        @test ReferenceAD.gradient(
             θ -> sum(Wt .* zones(unpack(θ)...; mixed)), θ0
         ) ≈ ∇ref(mixed)
     end

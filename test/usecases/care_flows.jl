@@ -6,7 +6,7 @@
 # Column `u` of the kernel is the delay profile of the cohort admitted on
 # day `u`; its entries past the last day are never read.
 
-@testitem "Use case: BVD two-clock confirmed pool" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD two-clock confirmed pool" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -18,7 +18,7 @@
     w = range(0.5, 2.0; length = n)
     unpack(θ) = (θ[1:n], θ[(n + 1):(2n)], θ[(2n + 1):end])
     θ0 = vcat(A, h, S_clin)
-    ∇ref = ForwardDiff.gradient(
+    ∇ref = ReferenceAD.gradient(
         θ -> sum(w .* B.two_clock_confirmed(unpack(θ)...)), θ0
     )
 
@@ -31,10 +31,10 @@
         return Convolution(TimeVarying(K, ComposableRecurrences.Primary()))(A)
     end
     @test confirmed(A, h, S_clin) ≈ ref
-    @test ForwardDiff.gradient(θ -> sum(w .* confirmed(unpack(θ)...)), θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(θ -> sum(w .* confirmed(unpack(θ)...)), θ0) ≈ ∇ref
 end
 
-@testitem "Use case: BVD abscond-thinned discharge flows" tags = [:usecase] setup = [UseCaseReferences] begin
+@testitem "Use case: BVD abscond-thinned discharge flows" tags = [:usecase] setup = [ReferenceAD, UseCaseReferences] begin
     using ComposableRecurrences, ForwardDiff
     B = UseCaseReferences.BVDReference
 
@@ -54,7 +54,7 @@ end
         out1, out2 = B.abscond_thinned_flows(adm1, pmf1, adm2, pmf2, κ, h)
         return sum(w .* out1) + sum(w .* reverse(out2))
     end
-    ∇ref = ForwardDiff.gradient(ref_loss, θ0)
+    ∇ref = ReferenceAD.gradient(ref_loss, θ0)
 
     # Cohort u survives absconding at d days with
     # Π_{j ≤ d} (1 - κ Π_{i ≤ j} (1 - h_{u+i-1})); both schedules share it,
@@ -73,5 +73,5 @@ end
         out = flows(unpack(θ)...)
         return sum(w .* out[1, :]) + sum(w .* reverse(out[2, :]))
     end
-    @test ForwardDiff.gradient(loss, θ0) ≈ ∇ref
+    @test ReferenceAD.gradient(loss, θ0) ≈ ∇ref
 end
