@@ -107,7 +107,8 @@ function _route_coupling(route::Tuple)
     return first(route)
 end
 
-_check_route_kernel(g) = _check_kernel_shape(g)
+# A route kernel may hold delays until the operator is built with `lags`.
+_check_route_kernel(g) = _has_delays(typeof(g)) ? nothing : _check_kernel_shape(g)
 function _check_route_kernel(::Routes)
     throw(ArgumentError("a route's kernel cannot itself be Routes"))
 end
