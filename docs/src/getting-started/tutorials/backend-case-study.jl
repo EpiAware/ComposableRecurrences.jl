@@ -11,7 +11,8 @@
 # 1. Build the backend model: a seeded renewal with depletion and movement between patches, then delayed.
 # 2. Check it against the backend-style loops.
 # 3. Take its gradient with Mooncake and Enzyme, checked against ForwardDiff.
-# 4. Map the hand-written loops in `BVDOutbreakSize` and `ComposableTuringIDModels` to the package.
+# 4. Compare gradient times with the loops and their hand-written rules.
+# 5. Map the hand-written loops in `BVDOutbreakSize` and `ComposableTuringIDModels` to the package.
 #
 # ### What might I need to know before starting
 #
@@ -175,9 +176,32 @@ DataFrame(
 #
 # ## Timing against the backend loops
 #
-# The [benchmark matrix](@ref testing) times this model's kernels against the backend-style loops, with and without their hand-written rules.
-# `task -t benchmark/Taskfile.yml matrix-docs` writes those times to [`benchmark/results/docs.csv`](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/benchmark/results/docs.csv), the `backend` rows; the site does not plot them.
+# The [benchmark matrix](@ref testing) times the gradient of each backend kernel in four arms:
 #
+# - the package as written here, `ComposableRecurrences`;
+# - the package with its rules turned off, `plain AD`;
+# - the backend-style loop differentiated by the backend, `hand loop`;
+# - the same loop with its hand-written Mooncake rules, `hand rules`.
+#
+# The table gives the minimum times in microseconds, read from `benchmark/results/docs.csv`, so this page times nothing itself.
+# The size gives the days `T`, the kernel length `L` and the patches `S`.
+# The hand rules are Mooncake rules, so Enzyme has no time for them.
+
+results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv")
+timings = if isfile(results)
+    lines = readlines(results)
+    header = Symbol.(split(first(lines), ','))
+    rows = split.(lines[2:end], ',')
+    @chain DataFrame([h => String.(getindex.(rows, i)) for (i, h) in enumerate(header)]) begin
+        @subset(
+            startswith.(:block, "backend "), :status .== "ok",
+            in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"]))
+        )
+        @transform(:kernel = chopprefix.(:block, "backend "), :min_us = parse.(Float64, :min_us))
+        unstack([:kernel, :size, :target], :method, :min_us)
+    end
+end
+
 # ## [Porting from a hand-written loop](@id porting-hand-loops)
 #
 # A hand-written loop maps to one operator call per kernel.
