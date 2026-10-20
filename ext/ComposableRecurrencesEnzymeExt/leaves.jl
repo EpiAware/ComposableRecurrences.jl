@@ -7,40 +7,6 @@
 
 using ComposableRecurrences: _ADLeaves, _is_leaf, _leaf_paths, _rebuild_leaves
 
-# The mirror of an annotated argument.
-_ez(::Const) = nothing
-_ez(a::Active) = _ezs(a.val, Enzyme.make_zero(a.val))
-_ez(a::Union{Duplicated, DuplicatedNoNeed}) = _ezs(a.val, a.dval)
-_ez(a::MixedDuplicated) = _ezs(a.val, a.dval[])
-
-# Whether a mirror holds a nonzero scalar cotangent.
-_hasscalar(m::Base.RefValue) = !iszero(m[])
-_hasscalar(m::Union{Tuple, NamedTuple}) = any(_hasscalar, values(m))
-_hasscalar(m) = false
-
-# The returned cotangent of an `Active` argument: its scalar leaves rebuilt.
-_ez_ret(a::Active, m) = _addback(Enzyme.make_zero(a.val), m)
-_ez_ret(a, m) = nothing
-
-# Scalar cotangents of a `MixedDuplicated` argument are written back into its
-# shadow. A `Duplicated` immutable shadow cannot take them, so refuse rather
-# than drop them.
-_ez_writeback!(a, m) = nothing
-function _ez_writeback!(a::MixedDuplicated, m)
-    a.dval[] = _addback(a.dval[], m)
-    return nothing
-end
-function _ez_writeback!(a::Union{Duplicated, DuplicatedNoNeed}, m)
-    _hasscalar(m) && throw(
-        ArgumentError(
-            "a Duplicated $(typeof(a.val)) has scalar float fields whose " *
-                "cotangents Enzyme cannot receive; annotate it Active or " *
-                "MixedDuplicated, or Const"
-        )
-    )
-    return nothing
-end
-
 # `map` and `foreach` over the rule's leaves, unrolled so that the result is
 # concretely typed at any number of leaves: `map` over tuples of 32 or more
 # entries returns a `Tuple` of unknown type, which Enzyme rejects as a
@@ -57,7 +23,6 @@ end
 @generated function _foreach_leaves(f, xs::Tuple{Vararg{Any, N}}, ys::Tuple) where {N}
     return Expr(:block, (:(f(xs[$i], ys[$i])) for i in 1:N)..., :(return nothing))
 end
-_val(a) = a.val
 
 # A scalar leaf of the rule's entry point.
 _active_float(::Active{<:_IEEEFloat}) = true

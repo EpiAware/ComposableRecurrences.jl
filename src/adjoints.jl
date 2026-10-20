@@ -183,26 +183,27 @@ _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
 # The primal call, which the extensions make a rule primitive: `Mooncake`'s
-# rule is on `_ad`, and `Enzyme`'s on `_ad_call`, which takes the operator
-# and its arguments as one `Ref` in code `Enzyme` traces. A mutable `Ref`
-# has a `Duplicated` shadow whatever it holds, so the rule writes every
-# cotangent into that shadow. A struct passed by value that holds both an
-# array and a float would be annotated `MixedDuplicated`, which `Enzyme`
-# rejects for a custom rule when the float is constant. `_box` is not
-# inlined: built in place, a large struct is copied into the `Ref` byte by
-# byte, which `Enzyme`'s type analysis rejects. Code that is not traced
-# (`_untraced`) calls the operator directly, without the `Ref`.
+# rule is on `_ad`, and `Enzyme`'s on `_ad_call`, which takes the operator in
+# a `Ref` in code `Enzyme` traces. A mutable `Ref` has a `Duplicated` shadow
+# whatever the operator holds, so the rule writes every cotangent into that
+# shadow; passed by value, an operator holding both an array and a float
+# would be annotated `MixedDuplicated`, which `Enzyme` rejects for a custom
+# rule when the float is constant. The arguments are passed as they are, so
+# each takes its own annotation. `_box` is not inlined: built in place, a
+# large operator is copied into the `Ref` byte by byte, which `Enzyme`'s
+# type analysis rejects. Code that is not traced (`_untraced`) calls the
+# operator directly, without the `Ref`.
 _primal(op, args...) = first(_run_forward(op, args...))
 @static if VERSION >= v"1.12"
     function _ad(op, args::Vararg{Any, N}) where {N}
         _untraced() && return _primal(op, args...)
-        return _ad_call(_box((op, args...)))
+        return _ad_call(_box(op), args...)
     end
 else
     include("adjoint_leaves.jl")
 end
-@noinline _box(x) = Ref(x)
-@inline _ad_call(x::Base.RefValue) = _primal(x[]...)
+@inline _box(x) = Ref(x)
+@inline _ad_call(op::Base.RefValue, args::Vararg{Any, N}) where {N} = _primal(op[], args...)
 _plain(op, args...) = _primal(op, args...)
 # A call the backend differentiates by plain AD first passes through this
 # hook, which does nothing; the `Enzyme` extension's reverse rule for it
