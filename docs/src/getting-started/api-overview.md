@@ -252,9 +252,9 @@ A model built from the package's own parts needs none of them.
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
 | [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward) | an operator's whole call, which the rules and `test_adjoint` use | `(y, cache)` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure) | the job a `forward!` method does: one step, the starting state, a coupling's mixing | singletons for dispatch |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the job a `forward!` method does: one step, the starting state, a coupling's mixing, a modifier's record for a call with `trace = true` | singletons for dispatch |
 | [`Run()`](@ref ComposableRecurrences.Run) | the job of `forward`: an operator's whole call | a singleton for dispatch |
-| [`Trace()`](@ref ComposableRecurrences.Trace), [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | what a modifier records for a call with `trace = true`, and how many rows | a tuple of values, and an `Int` |
+| [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |

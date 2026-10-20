@@ -924,6 +924,53 @@ function _trace_pool(w, θ)
         sum(WS .* M[(3S + 1):(4S), :])
 end
 
+# Pointwise traces: a depletion's pool, drawn value and overflow, and a
+# user modifier's own trace, written in place with its own pullback.
+"A pointwise smoothing at rate `a`, whose trace is its smoothed value and what it leaves of the value."
+struct TracedSmooth{A}
+    a::A
+end
+if isdefined(ComposableRecurrences, :_trace_series)
+    ComposableRecurrences.ispointwise(::TracedSmooth) = true
+    function ComposableRecurrences.forward!(
+            m::TracedSmooth, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + (1 - m.a) * v[k]
+            v[k] = s[k]
+        end
+        return nothing
+    end
+    ComposableRecurrences.ntrace(::TracedSmooth, S) = 2S
+    function ComposableRecurrences.forward!(
+            m::TracedSmooth, ::ComposableRecurrences.Trace, r, v, s, v′, s′, t
+        )
+        smoothed, left = r
+        for k in eachindex(v)
+            smoothed[k], left[k] = s′[k], v[k] - s′[k]
+        end
+        return nothing
+    end
+    function ComposableRecurrences.pullback!(
+            grads, m::TracedSmooth, ::ComposableRecurrences.Trace, v, s, t
+        )
+        s̄′, r̄ = grads.trace
+        for k in eachindex(v)
+            grads.v[k] += r̄[k]
+            grads.s′[k] += s̄′[k] - r̄[k]
+        end
+        return nothing
+    end
+end
+function _trace_pointwise(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
+    mods = (TracedSmooth(only(a)), ComposableRecurrences.Depletion(PerStratum(POP)))
+    r = Recurrence(G0; coupling = K0, modifiers = mods)
+    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    T1, T2 = tr.modifiers
+    return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
+end
+
 # The ward's flows, each flow's amount per stratum and step.
 function _trace_ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
@@ -1207,6 +1254,10 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
     (
+        "Recurrence trace of pointwise modifiers", _trace_pointwise,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, [0.6]),
+    ),
+    (
         "Recurrence trace of a ward's flows", _trace_ward,
         () -> _flat(
             [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
@@ -1404,6 +1455,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace,),
+    # A trace written in place, with `forward!`.
+    "Recurrence trace of pointwise modifiers" => (:_trace_series,),
     "Recurrence trace of a ward's flows" => (:Trace,),
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
