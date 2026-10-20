@@ -552,7 +552,7 @@ forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
 # Whether `m`'s step is an internal scalar kernel, `_step` and
 # `_step_back`, rather than its `forward!` and `pullback!`: only a `Pool`'s
-# pointwise pieces, which hold no `forward!` of their own.
+# pointwise depletion steps, which hold no `forward!` of their own.
 _kernel(m) = false
 
 # The step of a pointwise modifier on stratum `k`'s value and state, as new
