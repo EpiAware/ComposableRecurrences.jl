@@ -1229,7 +1229,7 @@ if isfile(BVD_HANDRULE)
             "handrule" => z -> loss(hand(kernels[2]))(identity, z),
         ]
         push!(TIERS["realistic"].cases, name)
-        # The docs case study reads these at the backend's sizes.
+        # The docs case study tables these at the backend's sizes.
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end

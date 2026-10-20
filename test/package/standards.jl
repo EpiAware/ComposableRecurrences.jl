@@ -190,6 +190,30 @@ end
     @test sections_missing_maths("# ## [A](@id a)\nAdd(1)\n", calls) == ["A"]
 end
 
+@testitem "Standards: the nav lists every page docs_config registers" tags = [
+    :quality,
+] begin
+    include(joinpath(@__DIR__, "standards_helpers.jl"))
+    docs = joinpath(STANDARDS_ROOT, "docs")
+    load(file) = (m = Module(); Base.include(m, joinpath(docs, file)); m)
+    cfg, nav = load("docs_config.jl"), load("pages.jl")
+    paths(x::AbstractString) = [x]
+    paths(x::Pair) = paths(last(x))
+    paths(x::AbstractVector) = reduce(vcat, map(paths, x); init = String[])
+    paths(::Nothing) = String[]
+    names = (
+        :PACKAGE_TUTORIALS, :PACKAGE_SECTIONS,
+        :DEVELOPMENT_EXTEND_PAGE, :GETTING_STARTED_FAQ,
+    )
+    registered = String[]
+    for name in names
+        isdefined(cfg, name) && append!(registered, paths(getfield(cfg, name)))
+    end
+    @test !isempty(registered)
+    # Regenerate `docs/pages.jl` with the kit's `update` when this fails.
+    @test setdiff(registered, paths(nav.pages)) == String[]
+end
+
 @testitem "Standards: recorded item times fit the time budget" tags = [:quality] begin
     include(joinpath(@__DIR__, "..", "item_times.jl"))
     times = read_times()

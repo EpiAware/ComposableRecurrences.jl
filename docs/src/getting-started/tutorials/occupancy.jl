@@ -3,23 +3,19 @@
 # ## Introduction
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
-# When the stay is geometric it is also a recurrence: yesterday's patients who stay, plus today's admissions.
-# This tutorial builds occupancy both ways, compares a stay that is not geometric, and caps occupancy at the number of beds.
-# It then routes the patients turned away to a second series.
-# Last, it moves patients between two linked compartments in a ward.
+# This tutorial models occupancy, bed capacity and the movement of patients within a ward.
 #
 # ### What are we going to do in this exercise
 #
-# 1. Turn admissions into occupancy with a convolution and, for a geometric stay, a recurrence.
+# 1. Turn admissions into occupancy with a convolution and with a recurrence.
 # 2. Compare a log-normal stay with the same mean.
 # 3. Cap occupancy at the number of beds with `Clamp`.
 # 4. Admit up to the free beds with a `Pool` and keep the rest.
-# 5. Move suspected and confirmed patients between two compartments in one ward.
+# 5. Move suspected and confirmed patients between two compartments.
 #
 # ### What might I need to know before starting
 #
-# You need only the [Getting started](@ref getting-started) overview.
-# No fitting is involved.
+# The [Getting started](@ref getting-started) overview; no fitting is involved.
 
 # ## Packages used
 
@@ -41,13 +37,13 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``, and ``S_k`` the survival, lag 0 first.
 # This is `Convolution(S)(admissions)`.
 # A geometric stay, in which each patient leaves with probability ``\delta`` each day, has ``S_k = (1 - \delta)^k``.
-# Only then, because the geometric distribution is memoryless, does the sum collapse to a recurrence of order one:
+# Because the geometric distribution is memoryless, only this stay collapses the sum to a recurrence of order one:
 #
 # ```math
 # O_t = (1 - \delta) \, O_{t-1} + A_t, \qquad O_0 = 0.
 # ```
 #
-# As a recurrence, occupancy is yesterday's occupancy times `1 - δ` plus today's admissions, which enter as `add`.
+# The admissions enter the recurrence as `add`.
 
 T = 90
 admissions = [30 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -65,8 +61,7 @@ by_recurrence = Recurrence([1 - δ])(; history = [0.0], add = admissions)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
 end
 
-# Occupancy peaks a few days after admissions at nearly six times their height.
-# This is because each patient stays about ``1 / \delta`` days.
+# Occupancy peaks a few days after admissions at nearly six times their height, because each patient stays about ``1 / \delta`` days.
 
 maximum(abs, by_convolution .- by_recurrence)
 
@@ -125,8 +120,7 @@ end
 # O_t = \min\big(\max\big((1 - \delta) \, O_{t-1} + A_t,\ 0\big),\ B\big).
 # ```
 #
-# As a modifier, the cap applies before occupancy carries over to the next day.
-# So patients turned away never occupy a bed later.
+# The cap applies before occupancy carries over to the next day, so patients turned away never occupy a bed later.
 
 beds = 120.0
 capped = Recurrence([1 - δ]; modifiers = (Clamp(0.0, beds),))(; history = [0.0], add = admissions)
@@ -194,27 +188,25 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # Each day some suspected patients are confirmed and move to the confirmed compartment.
 # Others are ruled out and leave, and confirmed patients are discharged.
 # Confirmation and ruling out compete for the same suspected patients.
-# Let ``U_t`` be the suspected compartment, ``C_t`` the confirmed compartment
-# and ``A_t`` the admissions.
-# With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``\delta``,
+# Let ``U_t`` be the suspected compartment, ``C_t`` the confirmed compartment and ``A_t`` the admissions.
+# With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``d``,
 #
 # ```math
 # \begin{aligned}
 # U^{*}_t &= U_{t-1} + A_t, \\
 # U_t &= e^{-(c + r)} U^{*}_t, \\
-# C_t &= e^{-\delta} C_{t-1} + \frac{c}{c + r} \big(1 - e^{-(c + r)}\big) U^{*}_t .
+# C_t &= e^{-d} C_{t-1} + \frac{c}{c + r} \big(1 - e^{-(c + r)}\big) U^{*}_t .
 # \end{aligned}
 # ```
 #
 # The rates are hazards, so the share leaving a compartment never exceeds what it holds.
 # The two compartments are the strata of a recurrence with the unit kernel, suspected first.
-# The recurrence carries yesterday's compartments forward and adds the
-# admissions to the suspected one.
+# The recurrence carries yesterday's compartments forward and adds the admissions to the suspected one.
 # A [`Pool`](@ref ComposableRecurrences.Pool) without a draw then applies the day's flows.
 # Its pools are the compartments, held in the strata.
-# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to
-# another, or to `0` to leave, with a hazard rate as its demand.
-# Each rate is a parameter, so it can also differ by ward or change over time.
+# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to another, or to `0` to leave, with a hazard rate as its demand.
+# Each rate is a parameter, so it can differ by ward or change over time.
+# Here ``c = 0.3``, ``r = 0.4`` and ``d = 0.1``.
 
 ward_flows = Pool(;
     pools = (:suspected, :confirmed), draw = nothing,
@@ -235,17 +227,12 @@ end
 # Suspected patients peak first.
 # Confirmed patients peak about a week later and stay longer, as they leave more slowly.
 #
-# A flow with `form = Share()` moves a share instead,
-# like the daily discharge probability ``\delta`` at the start of this tutorial,
-# except that the day's admissions can also leave that day.
-# A flow with `form = Truncate()` moves a count, capped by
-# what the compartment holds, such as a fixed number of transfers a day.
-# Several wards are several groups: with ``G`` wards the strata are the ``G``
-# suspected compartments, then the ``G`` confirmed ones.
+# A flow with `form = Share()` moves a share, like the daily discharge probability ``\delta`` above, except that the day's admissions can also leave that day.
+# A flow with `form = Truncate()` moves a count capped by what the compartment holds, such as a fixed number of transfers a day.
+# With ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
 
 # ## Learning more
 #
 # - See every operator, coupling and modifier on the [API overview](@ref api-overview).
-# - Want a step of your own that moves values between compartments? See
-#   [A blockwise step](@ref extending-blockwise).
+# - Want a step of your own that moves values between compartments? See [A blockwise step](@ref extending-blockwise).
 # - Want the full interface? See the [Public API](@ref public-api).
