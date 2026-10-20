@@ -394,7 +394,7 @@ function EnzymeRules.reverse(
     ms = map(_ez, args)
     _run_pullback!((; piece = m, y = _ezs(y, dy), args = ms), o, cache)
     _hasscalar(m) && (dop[] = _addback(dop[], m))
-    foreach(_ez_writeback!, args, ms)
+    map(_ez_writeback!, args, ms)
     return (nothing, map(_ez_ret, args, ms)...)
 end
 
