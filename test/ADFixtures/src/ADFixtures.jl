@@ -1812,9 +1812,9 @@ On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
 "Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
 rule is correct and runs.
 From Julia 1.12, Enzyme forward mode gives a wrong gradient for a
-whole-step modifier holding a float vector, or fails its type analysis,
-on main as on this scenario; forward modes never take the rule, so both
-twins are plain AD. On 1.11 it is right.
+whole-step modifier holding a float vector, or fails its type analysis
+(#293); forward modes never take the rule, so both twins are plain AD.
+On 1.11 it is right.
 Every other scenario and its `NoAdjoint` twin passes on every backend.
 """
 function backend_broken_scenarios()
