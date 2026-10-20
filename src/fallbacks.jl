@@ -356,8 +356,12 @@ end
     return vr[], sr[]
 end
 @inline function _draw_back(grads, form, v, s, N, α)
-    z = zero(grads.v)
-    v̄r, s̄r, N̄r, ᾱr = Ref(grads.v), Ref(grads.s), Ref(z), Ref(z)
+    T = promote_type(
+        typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), typeof(N),
+        typeof(α), param_eltype(form)
+    )
+    v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
+    N̄r, ᾱr = Base.RefValue{T}(zero(T)), Base.RefValue{T}(zero(T))
     g = (;
         piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
         α = _At(ᾱr, 1),

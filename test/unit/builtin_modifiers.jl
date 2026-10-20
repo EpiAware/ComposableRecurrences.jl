@@ -908,7 +908,7 @@ end
     # A NaN share or exponent stays NaN in the value and the tangent.
     @test all(isnan, ForwardDiff.partials(CR._pool_power(NaN, Dual(1.0, 1.0))))
     @test isnan(ForwardDiff.value(CR._pool_power(0.0, Dual(NaN, 1.0))))
-    grads = (; v = 1.0, s = 0.0)
+    grads = (; piece = nothing, v = 1.0, s = 0.0)
     @test isnan(CR._draw_back(grads, CR.Hazard(), 1.0, NaN, 1.0, 2.0)[4])
     @test CR._draw_back(grads, CR.Hazard(), 1.0, 0.0, 1.0, 2.0)[4] == 0
     # At an empty pool a dual exponent would give `log(0) * 0 = NaN`.

@@ -566,7 +566,8 @@ end
 # The same for its `pullback!`: the cotangents of the step's inputs from
 # those of its outputs, `grads.v` and `grads.s`.
 @inline function _step_back(grads, m, v, s, t, k)
-    v̄r, s̄r = Ref(grads.v), Ref(grads.s)
+    T = promote_type(typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), param_eltype(m))
+    v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
     g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
     _written(m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
     return v̄r[], s̄r[]
@@ -609,7 +610,8 @@ end
     return map(getindex, vr), map(getindex, sr)
 end
 @inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
-    v̄r, s̄r = map(Ref, grads.v), map(Ref, grads.s)
+    T = promote_type(map(typeof, (grads.v..., grads.s..., v..., s...))..., param_eltype(m))
+    v̄r, s̄r = map(Base.RefValue{T}, grads.v), map(Base.RefValue{T}, grads.s)
     at = r -> _At(r, g)
     gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
     vv, sv = map(at ∘ Ref, v), map(at ∘ Ref, s)
