@@ -1419,6 +1419,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:movement,),
+    "Recurrence Redistribute, Add and Clamp" => (:movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:movement, :_intensity, :Recent),
@@ -1435,6 +1436,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence ward with competing flows (Pool without a draw)" => (:Pool,),
     "Recurrence waning protection (Pool flows)" => (:Pool,),
     "Recurrence protected pool in Float32" => (:Pool,),
+    "Recurrence pool with twelve flows (over 32 leaves)" => (:Pool,),
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
