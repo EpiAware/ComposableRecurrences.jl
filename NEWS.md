@@ -39,7 +39,6 @@
 - `Convolution(kernel; method = ComposableRecurrences.FFTMethod())` computes a fixed-kernel convolution by overlap-add when FFTW is loaded, with outputs and gradients that match `Direct()` to a relative 1e-10 (1e-4 in `Float32`) ([FFTW extension][fftw]).
   The default method, `Auto()`, takes it only for long `Float64` kernels and series, and otherwise takes `Direct()`.
 - `Routes((C₁, g₁), (C₂, g₂), ...)` is a `Recurrence` kernel that sums transmission routes, each with its own kernel and coupling ([API overview][api]).
-  Its gradients take the analytic rule when every route coupling has a `pullback!` or a local derivative, as the coupling of a `Recurrence` does ([adjoints and backends][adjoints]).
 - `Derived(f, args...)` is a modifier parameter computed from other parameters, with arithmetic on a `Derived` building another ([API overview][api]).
 - `Recent(w)` is a modifier parameter read from the recurrence's own last outputs, and `Recent(w; coupling = C)` reads them across strata through a matrix ([API overview][api]).
 - A `Recurrence` keeps as many past outputs as its kernel, coupling or modifiers read, given by the public `depth` trait.
