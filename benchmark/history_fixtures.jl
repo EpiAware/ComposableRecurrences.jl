@@ -13,13 +13,16 @@
 # picks them) this script checks the tag out in a temporary worktree and
 # stages copies of test/ADFixtures and benchmark/Project.toml pointed at
 # it. In a fresh process it evaluates every scenario and every arm of every
-# `ci` matrix case that the loaded version supports. History also runs this
-# branch's benchmark/benchmarks.jl against each tag, so the process then runs
-# that script too, without timing anything: each `DI.prepare_gradient` call
-# is replaced by `nothing`, and each `@benchmarkable` by its expression,
-# evaluated once, or by `nothing` if the expression calls `DI`. Building the
-# script's gradients would take hours. It prints each failure and exits
-# non-zero if there is any. With no tags it checks nothing.
+# matrix case that the loaded version supports, at the case's `ci` sizes and
+# at its `smoke` size, which every case has. History builds only the `ci`
+# cases, but `MatrixCases.available` is what any build against an older
+# release relies on. History also runs this branch's benchmark/benchmarks.jl
+# against each tag, so the process then runs that script too, without timing
+# anything: each `DI.prepare_gradient` call is replaced by `nothing`, and each
+# `@benchmarkable` by its expression, evaluated once, or by `nothing` if the
+# expression calls `DI`. Building the script's gradients would take hours.
+# It prints each failure and exits non-zero if there is any. With no tags it
+# checks nothing.
 
 using TOML
 
@@ -27,7 +30,8 @@ const ROOT = dirname(@__DIR__)
 const FIXTURES = joinpath(ROOT, "test", "ADFixtures")
 
 # Run in the staged environment: the scenarios as `scenarios()` builds them,
-# the `ci` matrix arms `benchmark/benchmarks.jl` builds, and that script.
+# every matrix case at its `ci` and `smoke` sizes, and
+# `benchmark/benchmarks.jl`.
 const CHECK = raw"""
 using ADFixtures, ComposableRecurrences
 using ADFixtures: MatrixCases
@@ -40,7 +44,8 @@ for (name, f, θ0) in ADFixtures._TWINS
         note("scenario " * repr(name), e)
     end
 end
-for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci"), arm in ("rule", "NoAdjoint", "loop")
+for c in MatrixCases.CASES, tier in ("ci", "smoke"), z in MatrixCases.sizes(c, tier),
+        arm in ("rule", "NoAdjoint", "loop")
     arm == "loop" && !(arm in MatrixCases.arms(c)) && continue
     MatrixCases.available(c, arm) || continue
     try
