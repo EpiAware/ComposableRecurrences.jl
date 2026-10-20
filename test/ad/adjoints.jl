@@ -1649,19 +1649,22 @@ end
     end
 end
 
-@testitem "Enzyme reverse: the rule returns a typed tuple past 32 leaves" tags = [:ad, :enzyme, :enzyme_reverse] begin
+@testitem "Enzyme reverse: an operator with more than 32 leaves takes the rule" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
     using ComposableRecurrences: Flow, Pool
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
-    # `map` over a tuple of 32 or more entries does not infer; the rule's
-    # own map does at any length, with a mirror that may be a `Union`.
-    xs = ntuple(i -> isodd(i) ? Float64(i) : i, Val(40))
-    @test (@inferred ext._map_leaves(float, xs)) === map(float, xs)
-    U = Tuple{ntuple(_ -> Union{Nothing, Float64}, 40)...}
-    second(x, y) = y
-    @test Base.return_types(ext._map_leaves, (typeof(second), typeof(xs), U)) == [U]
+    # On Julia 1.11 the rule takes the operator's leaves. `map` over a
+    # tuple of 32 or more entries does not infer; the rule's own map does at
+    # any length, with a mirror that may be a `Union`.
+    if VERSION < v"1.12"
+        xs = ntuple(i -> isodd(i) ? Float64(i) : i, Val(40))
+        @test (@inferred ext._map_leaves(float, xs)) === map(float, xs)
+        U = Tuple{ntuple(_ -> Union{Nothing, Float64}, 40)...}
+        second(x, y) = y
+        @test Base.return_types(ext._map_leaves, (typeof(second), typeof(xs), U)) == [U]
+    end
     # A pool with a scalar rate on each of eight flows has more than 32
     # leaves, and its gradient takes the rule.
     function op(θ)
@@ -1673,7 +1676,13 @@ end
     f(θ) = sum(log.(op(θ)(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
     θ = [0.05 + 0.01 * i for i in 1:8]
     args = (fill(2.0, 20), nothing, [1.0, 1.0, 1.0], nothing, 1, nothing)
-    @test length(CR._leaf_paths(Tuple{typeof(op(θ)), typeof.(args)...})) >= 32
+    if VERSION < v"1.12"
+        @test length(CR._leaf_paths(Tuple{typeof(op(θ)), typeof.(args)...})) >= 32
+    else
+        # Later Julia versions take the operator whole, without its leaves.
+        @test !isdefined(CR, :_leaf_paths)
+        @test !isdefined(ext, :_map_leaves)
+    end
     b = AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
     )
@@ -1706,7 +1715,9 @@ end
         @test CR._PULLBACK_CALLS[] > 0
         return nothing
     end
-    for v in (Val(32), Val(33), Val(64))
+    # From 24 flows, a pool built in place in the rule's `Ref` was copied
+    # byte by byte, which Enzyme's type analysis rejected.
+    for v in (Val(24), Val(32), Val(33), Val(64))
         n = typeof(v).parameters[1]
         check(flows_loss, [0.005 + 0.0005 * i for i in 1:n], v)
     end

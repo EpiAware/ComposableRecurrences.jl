@@ -182,66 +182,27 @@ _ad_wide(op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
 _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
-# The primal call. The extensions make `_ad` a rule primitive for
-# `Mooncake` and `_ADLeaves` one for `Enzyme`; `_plain` is differentiated by
-# the backend. `_ad` passes `_ADLeaves` each leaf of the operator and its
-# arguments as its own argument, so `Enzyme` annotates every float and array
-# on its own and never needs a shadow for a struct that holds both;
-# `_ADLeaves` rebuilds the operator and arguments from them. It exists for
-# `Enzyme` on Julia 1.11: there, an operator holding both an array and an
-# active scalar was annotated `MixedDuplicated`, and the scalar's cotangent
-# written back by the rule did not reach the caller, a silent zero.
+# The primal call, which the extensions make a rule primitive: `Mooncake`'s
+# rule is on `_ad`, and `Enzyme`'s on `_ad_call`, which takes the operator
+# and its arguments as one `Ref` in code `Enzyme` traces. A mutable `Ref`
+# has a `Duplicated` shadow whatever it holds, so the rule writes every
+# cotangent into that shadow. A struct passed by value that holds both an
+# array and a float would be annotated `MixedDuplicated`, which `Enzyme`
+# rejects for a custom rule when the float is constant. `_box` is not
+# inlined: built in place, a large struct is copied into the `Ref` byte by
+# byte, which `Enzyme`'s type analysis rejects. Code that is not traced
+# (`_untraced`) calls the operator directly, without the `Ref`.
 _primal(op, args...) = first(_run_forward(op, args...))
-struct _ADLeaves{X} end
-function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
-    return _primal(_rebuild_leaves(X, leaves)...)
-end
-
-# The field paths to the leaves of a value of type `T`. A leaf is a float,
-# an array, other data without float fields, a mutable struct or a field
-# whose type is not concrete; a struct without fields has none.
-function _leaf_paths(::Type{T}) where {T}
-    _is_leaf(T) && return ((),)
-    fieldcount(T) == 0 && return ()
-    paths = Tuple[]
-    for i in 1:fieldcount(T), p in _leaf_paths(fieldtype(T, i))
-        push!(paths, (i, p...))
+@static if VERSION >= v"1.12"
+    function _ad(op, args::Vararg{Any, N}) where {N}
+        _untraced() && return _primal(op, args...)
+        return _ad_call(_box((op, args...)))
     end
-    return Tuple(paths)
+else
+    include("adjoint_leaves.jl")
 end
-function _is_leaf(T)
-    T <: Union{
-        Base.IEEEFloat, AbstractArray, Integer, Symbol, AbstractString, Char,
-        Type, Module, Ptr,
-    } && return true
-    return !isconcretetype(T) || ismutabletype(T) ||
-        (fieldcount(T) == 0 && !Base.issingletontype(T))
-end
-function _path_expr(x, p)
-    isempty(p) && return x
-    return _path_expr(:(getfield($x, $(first(p)))), Base.tail(p))
-end
-# After its helpers: a generator sees only the methods defined before it.
-@generated function _ad(op, args::Vararg{Any, N}) where {N}
-    X = Tuple{op, args...}
-    roots = (:op, (:(args[$i]) for i in 1:N)...)
-    leaves = map(p -> _path_expr(roots[first(p)], Base.tail(p)), _leaf_paths(X))
-    return :(_ADLeaves{$X}()($(leaves...)))
-end
-
-# The value of type `X` with the given leaves, built field by field without
-# calling constructors.
-@generated function _rebuild_leaves(::Type{X}, leaves::Tuple) where {X}
-    k = Ref(0)
-    function build(T)
-        _is_leaf(T) && return :(leaves[$(k[] += 1)])
-        fieldcount(T) == 0 && return T.instance
-        parts = (build(fieldtype(T, i)) for i in 1:fieldcount(T))
-        T <: Tuple && return :(($(parts...),))
-        return Expr(:new, T, parts...)
-    end
-    return build(X)
-end
+@noinline _box(x) = Ref(x)
+@inline _ad_call(x::Base.RefValue) = _primal(x[]...)
 _plain(op, args...) = _primal(op, args...)
 # A call the backend differentiates by plain AD first passes through this
 # hook, which does nothing; the `Enzyme` extension's reverse rule for it
