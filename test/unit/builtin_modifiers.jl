@@ -607,6 +607,14 @@ end
         θ -> CR.Add(TimeVarying(θ)), [0.1, 0.2, 0.3], v, s, 2
     )
     @test c.v && c.s && c.θ
+    # On the whole vectors, a shift leaves the value's cotangent and adds
+    # each stratum's into its own shift.
+    b̄ = zeros(2)
+    g = (; piece = (; b = b̄), v = [0.5, 2.0], s = [0.1, 0.2])
+    @test CR.pullback!(g, CR.Add(PerStratum([0.1, 0.2])), CR.Step(), v, s, 1) === nothing
+    @test g.v == [0.5, 2.0]
+    @test g.s == [0.1, 0.2]
+    @test b̄ == [0.5, 2.0]
 end
 
 @testitem "Redistribute pullback matches the local Jacobian" setup = [ModifierChecks] begin
