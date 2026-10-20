@@ -133,23 +133,30 @@ function _trace!(::Nothing, col, m, v, s, v′, s′, t)
     return nothing
 end
 function _trace!(::Val{B}, col, m, v, s, v′, s′, t) where {B}
-    nv, ns = B
     G = _ngroups(Val(B), length(v))
     for g in 1:G
-        r = _group_views(col, Val(ntrace(m, nv)), G, g)
-        _written(
-            m, forward!(
-                m, Trace(), r, _group_views(v, Val(nv), G, g),
-                _group_views(s, Val(ns), G, g), _group_views(v′, Val(nv), G, g),
-                _group_views(s′, Val(ns), G, g), t, g
-            )
-        )
+        _group_trace!(m, Val(B), col, v, s, v′, s′, t, G, g)
     end
     return nothing
 end
-# The `n` series of a column, rows `(j - 1) * S + 1` to `j * S` for the
-# `j`th, and a group's one-entry views of them, entry `g` of each.
-_trace_series(col, ::Val{n}, S) where {n} = ntuple(j -> view(col, ((j - 1) * S + 1):(j * S)), Val(n))
-function _group_views(x, ::Val{n}, G, g) where {n}
-    return ntuple(j -> _At(view(x, ((j - 1) * G + 1):(j * G)), g), Val(n))
+# Group `g`'s trace: the modifier's `forward!` on one-entry views. A
+# built-in's group trace (`_trace_values`) is a function of the group's
+# gathered values, which it returns, so its trace runs without views, as
+# its step does.
+function _group_trace!(m, ::Val{B}, col, v, s, v′, s′, t, G, g) where {B}
+    nv, ns = B
+    r = _group_views(col, Val(ntrace(m, nv)), G, g)
+    _written(
+        m, forward!(
+            m, Trace(), r, _group_views(v, Val(nv), G, g),
+            _group_views(s, Val(ns), G, g), _group_views(v′, Val(nv), G, g),
+            _group_views(s′, Val(ns), G, g), t, g
+        )
+    )
+    return nothing
 end
+# The `n` series of a column, rows `(j - 1) * S + 1` to `j * S` for the
+# `j`th, and a group's one-entry views of them, entry `g` of each. A group
+# reads its views as `x[]`, so each points at its entry of `x` directly.
+_trace_series(col, ::Val{n}, S) where {n} = ntuple(j -> view(col, ((j - 1) * S + 1):(j * S)), Val(n))
+_group_views(x, ::Val{n}, G, g) where {n} = ntuple(j -> _At(x, (j - 1) * G + g), Val(n))

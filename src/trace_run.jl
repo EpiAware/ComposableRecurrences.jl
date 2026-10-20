@@ -133,13 +133,21 @@ function _trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
     for g in 1:G
-        grads = (;
-            piece = m̄, trace = _group_views(r̄, Val(ntrace(m, nv)), G, g),
-            v = _group_views(R.V̄, Val(nv), G, g), s = _group_views(R.S̄, Val(ns), G, g),
-            v′ = _group_views(v̄, Val(nv), G, g), s′ = _group_views(s̄, Val(ns), G, g),
-        )
-        vg, sg = _group_views(v, Val(nv), G, g), _group_views(s, Val(ns), G, g)
-        _written(m, pullback!(grads, m, Trace(), vg, sg, τ, g))
+        _group_trace_back!(m, Val(B), R, m̄, v̄, s̄, r̄, v, s, τ, G, g)
     end
+    return nothing
+end
+# Group `g`'s trace pullback, adding into the cotangents of the step's
+# outputs and the record's buffers: the modifier's `pullback!` on one-entry
+# views, or a built-in's on the gathered values.
+function _group_trace_back!(m, ::Val{B}, R, m̄, v̄, s̄, r̄, v, s, τ, G, g) where {B}
+    nv, ns = B
+    grads = (;
+        piece = m̄, trace = _group_views(r̄, Val(ntrace(m, nv)), G, g),
+        v = _group_views(R.V̄, Val(nv), G, g), s = _group_views(R.S̄, Val(ns), G, g),
+        v′ = _group_views(v̄, Val(nv), G, g), s′ = _group_views(s̄, Val(ns), G, g),
+    )
+    vg, sg = _group_views(v, Val(nv), G, g), _group_views(s, Val(ns), G, g)
+    _written(m, pullback!(grads, m, Trace(), vg, sg, τ, g))
     return nothing
 end

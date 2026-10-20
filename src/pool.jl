@@ -1066,6 +1066,30 @@ function forward!(m::Pool, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s
     foreach((x, y) -> x[] = y, r, vals)
     return nothing
 end
+# A pool's group trace and its pullback on the gathered values, without
+# views, as its step runs.
+@inline function _group_trace!(m::Pool, ::Val{B}, col, v, s, v′, s′, t, G, g) where {B}
+    nv, ns = B
+    r = _pool_trace(
+        Val(_layout(m)), m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g),
+        _gather(v′, Val(nv), G, g), _gather(s′, Val(ns), G, g), t, g
+    )
+    _scatter!(col, r, G, g)
+    return nothing
+end
+@inline function _group_trace_back!(m::Pool, ::Val{B}, R, m̄, v̄, s̄, r̄, v, s, τ, G, g) where {B}
+    nv, ns = B
+    inner = (; piece = m̄, trace = _gather(r̄, Val(ntrace(m, nv)), G, g))
+    a, b, c, d = _pool_trace_back(
+        Val(_layout(m)), inner, m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g),
+        τ, g
+    )
+    _scatter!(v̄, map(+, _gather(v̄, Val(nv), G, g), c), G, g)
+    _scatter!(s̄, map(+, _gather(s̄, Val(ns), G, g), d), G, g)
+    _scatter!(R.V̄, map(+, _gather(R.V̄, Val(nv), G, g), a), G, g)
+    _scatter!(R.S̄, map(+, _gather(R.S̄, Val(ns), G, g), b), G, g)
+    return nothing
+end
 # The entries of a group's one-entry views.
 _view_entries(xs::Tuple) = map(x -> x[], xs)
 function _pool_trace(::Val{L}, m, v, s, v′, s′, t, g) where {L}
