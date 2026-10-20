@@ -146,6 +146,19 @@ end
         return nothing
     end
 
+    # Vector-level, mapping each value through a function held in a field.
+    # A closure that captures a float hides it from the local derivative.
+    struct Mapped{F}
+        f::F
+    end
+    function CR.forward!(m::Mapped, ::CR.Step, v, s, t)
+        v .= m.f.(v)
+        return nothing
+    end
+    halved = let c = 0.5
+        x -> c * x
+    end
+
     # Pointwise and time-varying: add `b[t]` (absolute time).
     struct Shift{B}
         b::B
@@ -769,16 +782,18 @@ end
         @test val(op) == [Val{route}]
         @test val(CR._WithState(op)) == [Val{route}]
     end
-    # A coupling or a pointwise modifier without a pullback whose floats
-    # sit in arrays takes the rule with a local derivative.
+    # A coupling, a pointwise modifier or a vector-level modifier without a
+    # pullback, whose floats sit in scalars or arrays, takes the rule with a
+    # local derivative.
     for op in (
             Recurrence(g; coupling = Mix(K, [1.0, 1.0])),
             Recurrence(g; modifiers = (PoolDepletion([30.0, 40.0]),)),
+            Recurrence(g; modifiers = (Scale(0.9),)),
         )
         @test CR.uses_adjoint(op, CR.Run())
         @test pullback_matches(op, recargs(ones(2, 4), nothing, ones(2, 2))...)
     end
-    # A vector-level modifier without a pullback, or a part whose floats sit
+    # A modifier whose floats sit in a closure, or a part whose floats sit
     # in arrays of arrays, sends the whole operator to plain AD.
     struct NestedPool
         pop::Vector{Vector{Float64}}
@@ -801,7 +816,7 @@ end
     end
     nested = [[0.5, 0.1], [0.2, 0.4]]
     for op in (
-            Recurrence(g; modifiers = (Scale(0.9),)),
+            Recurrence(g; modifiers = (Mapped(halved),)),
             Recurrence(g; coupling = NestedMix(nested)),
             Recurrence(g; modifiers = (NestedPool([[30.0], [40.0]]),)),
         )
@@ -811,10 +826,13 @@ end
     # The constructor notes, once per message, the part that sends the
     # operator there.
     note(; kwargs...) = (empty!(CR._PLAIN_NOTED); Recurrence(g; kwargs...))
-    @test_logs (:info, r"Scale has no pullback!") note(modifiers = (Scale(0.9),))
-    @test_logs Recurrence(g; modifiers = (Scale(0.9),))
+    @test_logs (:info, r"Mapped has no pullback!") note(modifiers = (Mapped(halved),))
+    @test_logs Recurrence(g; modifiers = (Mapped(halved),))
     # The note is once per message, so other number types log nothing more.
-    @test_logs Recurrence(g; modifiers = (Scale(ForwardDiff.Dual(0.9, 1.0)),))
+    dual_halved = let c = ForwardDiff.Dual(0.5, 1.0)
+        x -> c * x
+    end
+    @test_logs Recurrence(g; modifiers = (Mapped(dual_halved),))
     @test_logs (:info, r"NestedMix has no pullback!") note(
         coupling = NestedMix(nested)
     )
@@ -1230,8 +1248,11 @@ end
     # A modifier without an adjoint: the constructor notes the plain path
     # once per type, and calls log nothing.
     empty!(CR._PLAIN_NOTED)
-    r = @test_logs (:info, r"Scale") Recurrence([0.2, 0.3]; modifiers = (Scale(0.9),))
-    @test_logs Recurrence([0.2, 0.3]; modifiers = (Scale(0.5),))
+    r = @test_logs (:info, r"Mapped") Recurrence([0.2, 0.3]; modifiers = (Mapped(halved),))
+    quartered = let c = 0.25
+        x -> c * x
+    end
+    @test_logs Recurrence([0.2, 0.3]; modifiers = (Mapped(quartered),))
     @test_logs r(ones(4); history = ones(2))
     @test_logs CR.with_state(r, ones(4); history = ones(2))
 end
@@ -2034,6 +2055,128 @@ end
     @test CR._coupling_adjoint(Mix(sparse(rand(3, 3)))) === :none
     @test CR._coupling_adjoint(Mix(view(rand(4, 3), 1:3, :))) === :local
     @test CR._coupling_adjoint(Mix(reshape(view(rand(9), 1:9), 3, 3))) === :local
+end
+
+@testitem "Adjoint: local pullback of a whole-step modifier" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # Vector-level modifiers without a pullback: the local derivative seeds
+    # the step's values, its state and its parameters as dual numbers.
+    # Scales the values by `a`, moves a share `b` of their total to the
+    # first stratum, and keeps a decaying total of them as its state.
+    struct Mixer{A, B}
+        a::A
+        b::B
+    end
+    function CR.forward!(m::Mixer, ::CR.Step, v, s, t)
+        v .*= m.a
+        tot = sum(v)
+        v[1] += m.b * tot
+        s .= 0.5 .* s .+ v
+        return nothing
+    end
+    # A per-stratum scale held as an array, and one read through `param`.
+    struct VecScale{A}
+        a::A
+    end
+    function CR.forward!(m::VecScale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.a, k, t)
+        end
+        return nothing
+    end
+    # No parameters: each value takes the mean of its neighbours.
+    struct Smear end
+    function CR.forward!(::Smear, ::CR.Step, v, s, t)
+        S = length(v)
+        S == 1 && return nothing
+        w = copy(v)
+        for k in eachindex(v)
+            v[k] = (w[k] + w[mod1(k + 1, S)]) / 2
+        end
+        return nothing
+    end
+    CR.nstate(::Mixer, S) = S
+    # The step's Jacobian in `[v; s; θ]`, the reference for a direct call.
+    function reference(m, v, s, t)
+        θ = CR._params(m)
+        S, R = length(v), length(s)
+        J = ForwardDiff.jacobian([v; s; θ]) do x
+            vv, ss = x[1:S], x[(S + 1):(S + R)]
+            mm = isempty(θ) ? m : CR._rebuild(m, x[(S + R + 1):end])
+            vv, ss = collect(vv), collect(ss)
+            CR.forward!(mm, CR.Step(), vv, ss, t)
+            return [vv; ss]
+        end
+        return J
+    end
+    rng = Xoshiro(3)
+    for (m, S) in (
+            (Mixer(0.9, 0.1), 1), (Mixer(0.9, 0.1), 3), (Mixer(0.9, 0.1), 11),
+            (VecScale([0.9, 1.1, 1.0]), 3), (VecScale(PerStratum([0.9, 1.1])), 2),
+            (VecScale(rand(rng, 30)), 30), (Smear(), 4),
+        )
+        @test CR._modifier_adjoint(m) === :local
+        @test CR._whole_local(m)
+        R = CR.nstate(m, S)
+        v, s = rand(rng, S), rand(rng, R)
+        v̄, s̄ = rand(rng, S), rand(rng, R)
+        ref = transpose(reference(m, v, s, 2)) * [v̄; s̄]
+        m̄ = zero_mirror(m)
+        grads = (; piece = m̄, v = copy(v̄), s = copy(s̄))
+        CR._local_step_back!(grads, m, v, s, 2)
+        @test [grads.v; grads.s] ≈ ref[1:(S + R)]
+        @test mirror_vec(m̄, m) ≈ ref[(S + R + 1):end]
+        # Held constant, only the values' and the state's cotangents.
+        grads = (; piece = nothing, v = copy(v̄), s = copy(s̄))
+        CR._local_step_back!(grads, m, v, s, 2)
+        @test [grads.v; grads.s] ≈ ref[1:(S + R)]
+    end
+    # With the buffers made once, as the reverse pass does, a step
+    # allocates nothing.
+    m, S = Mixer(0.9, 0.1), 3
+    v, s, v̄, s̄ = ones(S), ones(S), ones(S), ones(S)
+    m̄ = zero_mirror(m)
+    b = CR._step_duals(m̄, m, Float64)
+    grads = (; piece = m̄, v = v̄, s = s̄, pass = b)
+    CR._local_step_back!(grads, m, v, s, 2)
+    coverage = Base.JLOptions().code_coverage != 0
+    @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
+    @inferred CR._local_step_back!(grads, m, v, s, 2)
+    # Through a recurrence the rule matches ForwardDiff over every leaf.
+    for (ms, S) in (
+            ((Mixer(0.9, 0.1),), 3), ((VecScale([0.9, 1.1]),), 2),
+            ((Smear(), CR.Clamp(0.0, 9.0)), 3), ((Mixer(0.95, 0.05), Smear()), 2),
+        )
+        op = Recurrence([0.3, 0.2]; modifiers = ms)
+        @test CR.uses_adjoint(op, CR.Run())
+        @test op.rebuilds === true || op.rebuilds === Val(true)
+        @test pullback_matches(op, recargs(fill(1.1, S, 6), nothing, ones(S, 2))...)
+    end
+    # The size limits are the coupling's: the values, the state and the
+    # parameters in one pass of 24, two on Mooncake, else plain AD.
+    args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(11)...) === :one
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(12)...) === :wide
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(23)...) === :wide
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(24)...) === :none
+    @test CR._fit(Recurrence([0.3]; modifiers = (Smear(),)), args(24)...) === :one
+    # A constructor that changes its arguments takes plain AD with the note.
+    struct Doubling{A}
+        a::A
+        Doubling(a::A) where {A} = new{A}(2a)
+    end
+    CR.forward!(m::Doubling, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    empty!(CR._PLAIN_NOTED)
+    op = @test_logs (:info, r"Doubling cannot be rebuilt") Recurrence(
+        [0.3, 0.2]; modifiers = (Doubling(0.4),)
+    )
+    @test op.rebuilds === false
+    # Without the dual-number extension, the step says to load it.
+    @test_throws r"^ArgumentError: Mixer has no `pullback!`.*add `using ForwardDiff`$" invoke(
+        CR._local_step!, Tuple{Any, Any, Vararg{Any}}, nothing, Mixer(0.9, 0.1)
+    )
+    @test invoke(CR._step_duals, Tuple{Any, Any, Vararg{Any}}, nothing, Mixer(0.9, 0.1)) ===
+        nothing
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [AdjointCheck] begin

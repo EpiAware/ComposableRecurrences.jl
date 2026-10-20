@@ -6,12 +6,12 @@ module ComposableRecurrencesForwardDiffExt
 
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
-import ComposableRecurrences: _array_pressure, _check_scalars, _check_views,
+import ComposableRecurrences: _array_pressure, _local_step!, _step_duals, _check_scalars, _check_views,
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback
-using ComposableRecurrences: _ArrayPressure, _LOCAL_PRESSURE, _READ_WIDTHS,
+using ComposableRecurrences: _ArrayPressure, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _exp_neg_branch, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
@@ -246,6 +246,75 @@ function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
     _addparams!(C̄, C, b.ḡ, 0)
     return nothing
 end
+
+# Default pullback of a whole-step modifier without its own: the local
+# `ForwardDiff` derivative of `forward!(m, Step(), v, s, t)` in the
+# values, the state and the parameters, seeded `N` at a time, as a
+# coupling's. Each pass adds `v̄′ ⋅ ∂v′/∂x + s̄′ ⋅ ∂s′/∂x` for its inputs.
+function _step_dual(T, ::Val{N}) where {N}
+    return ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_step!, T)), T, N}
+end
+function _step_duals(m̄, m, ::Type{Tp}) where {Tp}
+    T = float(promote_type(Tp, param_eltype(m)))
+    θ = m̄ === nothing ? T[] : Vector{T}(_params(m))
+    lane(N) = (D -> (D[], D[], Vector{D}(undef, length(θ))))(_step_dual(T, N))
+    lanes = (lane(Val(4)), lane(Val(8)), lane(Val(12)), lane(Val(_LOCAL_PRESSURE)))
+    return _StepDuals(T[], T[], θ, zero(θ), lanes)
+end
+function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
+    n = length(v) + length(s) + length(b.θ)
+    n <= 4 && return _local_step!(Val(4), b.lanes[1], b, m̄, m, v̄, s̄, v, s, t)
+    n <= 8 && return _local_step!(Val(8), b.lanes[2], b, m̄, m, v̄, s̄, v, s, t)
+    n <= 12 && return _local_step!(Val(12), b.lanes[3], b, m̄, m, v̄, s̄, v, s, t)
+    return _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, m̄, m, v̄, s̄, v, s, t)
+end
+function _local_step!(::Val{N}, lane, b, m̄, m, v̄, s̄, v, s, t) where {N}
+    vd, sd, θd = lane
+    T = eltype(b.θ)
+    S, R, P = length(v), length(s), length(b.θ)
+    resize!(vd, S)
+    resize!(sd, R)
+    copyto!(resize!(b.v̄, S), v̄)
+    copyto!(resize!(b.s̄, R), s̄)
+    fill!(v̄, zero(eltype(v̄)))
+    fill!(s̄, zero(eltype(s̄)))
+    fill!(b.ḡ, zero(T))
+    for o in 0:N:(S + R + P - 1)
+        for i in 1:S
+            @inbounds vd[i] = eltype(vd)(T(v[i]), _unit(T, i - o, Val(N)))
+        end
+        for j in 1:R
+            @inbounds sd[j] = eltype(sd)(T(s[j]), _unit(T, S + j - o, Val(N)))
+        end
+        for j in 1:P
+            @inbounds θd[j] = eltype(θd)(b.θ[j], _unit(T, S + R + j - o, Val(N)))
+        end
+        _written(m, forward!(_dual_modifier(m̄, m, θd), Step(), vd, sd, t))
+        ā = zero(ForwardDiff.Partials{N, T})
+        for i in 1:S
+            @inbounds ā += b.v̄[i] * ForwardDiff.partials(vd[i])
+        end
+        for j in 1:R
+            @inbounds ā += b.s̄[j] * ForwardDiff.partials(sd[j])
+        end
+        for j in max(1, o + 1):min(S, o + N)
+            @inbounds v̄[j] += ā[j - o]
+        end
+        for j in max(1, o + 1 - S):min(R, o + N - S)
+            @inbounds s̄[j] += ā[S + j - o]
+        end
+        for j in max(1, o + 1 - S - R):min(P, o + N - S - R)
+            @inbounds b.ḡ[j] += ā[S + R + j - o]
+        end
+    end
+    P == 0 || _addparams!(m̄, m, b.ḡ, 0)
+    return nothing
+end
+# The modifier the dual step runs: rebuilt from the seeded parameters when it
+# is differentiated (each pass, as scalars are copied), as itself when it is
+# held constant.
+_dual_modifier(::Nothing, m, θd) = m
+_dual_modifier(m̄, m, θd) = _rebuild_views(m, θd)
 
 function _local_form_pullback(grads, form, v, s, N, α)
     x = (v, s, N, α, _param_tuple(form)...)
