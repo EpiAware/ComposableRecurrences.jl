@@ -1224,10 +1224,9 @@ _record_pressure!(::Nothing, pk, xk, t, k) = nothing
     return nothing
 end
 # Stratum `k`'s pressure at step `t` from the records.
-Base.@propagate_inbounds _pressure(C, pr, k, t) = pr.X[k, t]
-Base.@propagate_inbounds function _pressure(C::_PointwiseCoupling, pr, k, t)
-    return _coef(C, k) * pr.P[k, t]
-end
+# The records are sized by the call, so they are read without bounds checks.
+_pressure(C, pr, k, t) = @inbounds pr.X[k, t]
+_pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata
@@ -1237,24 +1236,14 @@ function _series_body!(
         ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
         D, T
     )
-    if length(ks) == 1
+    # A block of one stratum runs with the stratum fixed, so each step has
+    # no loop over strata.
+    if ks isa AbstractUnitRange && length(ks) == 1
         return _series_body!(
             (first(ks),), ex, H, pr, gain, add, coupling, kernel, p, q, ms,
             states, rec, τ0, L, D, T
         )
     end
-    for (ts, g, _) in _kernel_runs(kernel, τ0, T)
-        _steps_in!(
-            _series_step!, ex, ts, T,
-            ks, H, pr, gain, add, coupling, g, p, q, ms, states, rec, τ0, L, D
-        )
-    end
-    return nothing
-end
-function _series_body!(
-        ks::Tuple{Int}, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states,
-        rec, τ0, L, D, T
-    )
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
             _series_step!, ex, ts, T,

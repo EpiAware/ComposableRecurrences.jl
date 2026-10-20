@@ -125,27 +125,12 @@ function _series_back!(
     )
     # A block of one stratum runs with the stratum fixed, as in
     # `_series_body!`.
-    if length(ks) == 1
+    if ks isa AbstractUnitRange && length(ks) == 1
         return _series_back!(
             (first(ks),), acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms,
             H, τ0, L, D, T
         )
     end
-    return _series_back_steps!(
-        ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
-    )
-end
-function _series_back!(
-        ks::Tuple{Int}, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H,
-        τ0, L, D, T
-    )
-    return _series_back_steps!(
-        ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
-    )
-end
-@inline function _series_back_steps!(
-        ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
-    )
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         for t in reverse(_run_steps(ts, T))
@@ -191,9 +176,7 @@ end
     return (gk * _coef(C, k)) * v̄k
 end
 _coef_back!(C̄, C::UniformScaling, v, k) = add_cotangent!(cotangent(C̄, :λ), v)
-function _coef_back!(C̄, C::Diagonal, v, k)
-    return @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
-end
+_coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
 
 # The reverse steps of strata that mix, last first. Each step's loops over
 # strata run in blocks of the executor where each stratum writes only its
@@ -287,10 +270,7 @@ _mirrors(m̄s, ms) = m̄s
 _add_slot!(::Nothing, v, k, t) = nothing
 _add_slot!(x̄::Base.RefValue, v, k, t) = (x̄[] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
-Base.@propagate_inbounds function _add_slot!(x̄::AbstractMatrix, v, k, t)
-    x̄[k, t] += v
-    return nothing
-end
+Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
 # One stratum's value cotangent back through pointwise modifiers, last
