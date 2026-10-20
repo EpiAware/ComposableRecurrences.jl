@@ -46,14 +46,14 @@ function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC)
 end
 _ezs(x::Diagonal, dx::Diagonal) = (; diag = _ezs(x.diag, dx.diag))
 _ezs(x::Union{Tuple, NamedTuple}, dx) = map(_ezs, x, dx)
-function _ezs(x, dx)
-    names = fieldnames(typeof(x))
-    return NamedTuple{names}(map(n -> _ezs(getfield(x, n), getfield(dx, n)), names))
+@generated function _ezs(x::T, dx) where {T}
+    mirrors = [:(_ezs(getfield(x, $i), getfield(dx, $i))) for i in 1:fieldcount(T)]
+    return :(NamedTuple{$(fieldnames(T))}(($(mirrors...),)))
 end
 
 # Whether a mirror holds a nonzero scalar cotangent.
 _hasscalar(m::Base.RefValue) = !iszero(m[])
-_hasscalar(m::Union{Tuple, NamedTuple}) = any(_hasscalar, values(m))
+_hasscalar(m::Union{Tuple, NamedTuple}) = any(map(_hasscalar, values(m)))
 _hasscalar(m) = false
 
 # The returned cotangent of an `Active` argument: its scalar leaves rebuilt.
@@ -85,9 +85,9 @@ _addback1(dx::AbstractArray, m) = dx
 _addback1(dx::Union{Tuple, NamedTuple}, m) = map(_addback, dx, m)
 # The shadow rebuilt with the same type and new scalar fields, bypassing
 # constructors (which may check or convert their arguments).
-function _addback1(dx::T, m) where {T}
-    fs = Any[_addback(getfield(dx, n), getfield(m, n)) for n in fieldnames(T)]
-    return ccall(:jl_new_structv, Any, (Any, Ptr{Any}, UInt32), T, fs, length(fs))::T
+@generated function _addback1(dx::T, m) where {T}
+    fs = [:(_addback(getfield(dx, $i), getfield(m, $i))) for i in 1:fieldcount(T)]
+    return Expr(:new, T, fs...)
 end
 
 # On Julia 1.11, Enzyme reverse mode with runtime activity drops the
@@ -353,7 +353,7 @@ _operator(x::Const) = _unbox(x.val), nothing
 function _operator(x::Union{Duplicated{<:Base.RefValue}, DuplicatedNoNeed{<:Base.RefValue}})
     return x.val[], x.dval === x.val ? nothing : x.dval
 end
-_operator(x::Union{Duplicated, DuplicatedNoNeed}) = x.val, Ref(x.dval)
+_operator(x::Union{Duplicated, DuplicatedNoNeed}) = x.val, x.dval
 function _operator(x::Annotation)
     throw(
         ArgumentError(
@@ -390,10 +390,10 @@ function EnzymeRules.reverse(
     # An unused output still owes each `Active` argument a zero cotangent.
     dy === nothing && return (nothing, map(a -> _ez_ret(a, nothing), args)...)
     o, dop = _operator(op)
-    m = dop === nothing ? nothing : _ezs(o, dop[])
+    m = dop === nothing ? nothing : _ezs(o, _unbox(dop))
     ms = map(_ez, args)
     _run_pullback!((; piece = m, y = _ezs(y, dy), args = ms), o, cache)
-    dop === nothing || (dop[] = _addback(dop[], m))
+    _hasscalar(m) && (dop[] = _addback(dop[], m))
     foreach(_ez_writeback!, args, ms)
     return (nothing, map(_ez_ret, args, ms)...)
 end
