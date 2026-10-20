@@ -13,8 +13,13 @@
 # picks them) this script checks the tag out in a temporary worktree,
 # stages a copy of test/ADFixtures pointed at it, and in a fresh process
 # evaluates every scenario and every arm of every `ci` matrix case that the
-# loaded version supports. It prints each one that throws and exits
-# non-zero if any does. With no tags it checks nothing.
+# loaded version supports. History also runs this branch's
+# benchmark/benchmarks.jl against each tag, so the check also requires each
+# `ComposableRecurrences.name` and `using ComposableRecurrences: name` there
+# that is not under an `isdefined(ComposableRecurrences, ...)` test to exist
+# in the tag; building that script's whole suite would take hours. It prints
+# each failure and exits non-zero if there is any. With no tags it checks
+# nothing.
 
 const ROOT = dirname(@__DIR__)
 const FIXTURES = joinpath(ROOT, "test", "ADFixtures")
@@ -22,10 +27,14 @@ const FIXTURES = joinpath(ROOT, "test", "ADFixtures")
 # Run in the staged environment: the scenarios as `scenarios()` builds them,
 # and the `ci` matrix arms `benchmark/benchmarks.jl` builds.
 const CHECK = raw"""
-using ADFixtures
+using ADFixtures, ComposableRecurrences
 using ADFixtures: MatrixCases
 failed = String[]
 note(what, e) = push!(failed, what * ": " * first(split(sprint(showerror, e), '\n')))
+for name in split(ENV["HISTORY_SCRIPT_NAMES"], ','; keepempty = false)
+    isdefined(ComposableRecurrences, Symbol(name)) ||
+        push!(failed, "benchmark/benchmarks.jl uses ComposableRecurrences." * name)
+end
 for (name, f, θ0) in ADFixtures._TWINS
     try
         f(θ0())
@@ -48,6 +57,38 @@ println(length(ADFixtures._TWINS), " scenarios checked, ",
 foreach(println, failed)
 exit(isempty(failed) ? 0 : 1)
 """
+
+# The package names a script uses outside an `isdefined` test on the package.
+function package_names(path)
+    names = Set{Symbol}()
+    walk(ex, guarded) = nothing
+    function walk(ex::Expr, guarded)
+        if ex.head in (:if, :elseif)
+            g = guarded || has_isdefined(ex.args[1])
+            walk(ex.args[1], g)
+            walk(ex.args[2], g)
+            length(ex.args) > 2 && walk(ex.args[3], guarded)
+        elseif ex.head === :. && length(ex.args) == 2 &&
+                ex.args[1] === :ComposableRecurrences && ex.args[2] isa QuoteNode
+            guarded || push!(names, ex.args[2].value)
+        elseif ex.head in (:using, :import) && ex.args[1] isa Expr &&
+                ex.args[1].head === :(:) &&
+                ex.args[1].args[1] == Expr(:., :ComposableRecurrences)
+            guarded || foreach(a -> push!(names, last(a.args)), ex.args[1].args[2:end])
+        else
+            foreach(a -> walk(a, guarded), ex.args)
+        end
+        return nothing
+    end
+    walk(Meta.parseall(read(path, String)), false)
+    return sort!(collect(names))
+end
+has_isdefined(ex) = false
+function has_isdefined(ex::Expr)
+    ex.head === :call && ex.args[1] === :isdefined && length(ex.args) > 1 &&
+        ex.args[2] === :ComposableRecurrences && return true
+    return any(has_isdefined, ex.args)
+end
 
 function last_tags(n = 5)
     tags = readlines(`git -C $ROOT tag --sort=-v:refname`)
@@ -74,9 +115,11 @@ function check(tag)
     try
         staged = stage(tag, dir)
         julia = `$(Base.julia_cmd()) --startup-file=no --project=$staged`
+        names = join(package_names(joinpath(ROOT, "benchmark", "benchmarks.jl")), ',')
         run(`$julia -e 'using Pkg; Pkg.instantiate()'`)
         println("Fixtures against ", tag, ":")
-        return success(pipeline(`$julia -e $CHECK`; stdout, stderr))
+        cmd = addenv(`$julia -e $CHECK`, "HISTORY_SCRIPT_NAMES" => names)
+        return success(pipeline(cmd; stdout, stderr))
     finally
         run(ignorestatus(`git -C $ROOT worktree remove --force $(joinpath(dir, "package"))`))
     end
