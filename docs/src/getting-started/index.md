@@ -83,7 +83,7 @@ end
 
 Reports are 40% of infections, spread over the days that follow.
 These two steps are the usual model of infections and their reports.
-The next steps each add one piece to it.
+Each later step adds one part to it.
 
 ### Three towns and a gravity coupling
 
@@ -256,7 +256,7 @@ I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
 where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the imported infections.
-Imported infections are not drawn from the pool.
+[Imported cases](@ref tutorial-imports) compares imports before and after depletion.
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
