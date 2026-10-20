@@ -102,11 +102,13 @@ Built before the local step's dual numbers are loaded, it stores `nothing`
 and each call that takes the rule checks instead.
 
 # Arguments
-- `kernel`: the kernel, lag 1 first.
+- `kernel`: the kernel, lag 1 first, or a kernel of delays (see
+  [`ComposableRecurrences.delay_masses`](@ref)).
 
 # Keyword Arguments
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
+- `lags`: for a kernel of delays only, the number of lags from lag 0.
 
 # Examples
 ```jldoctest
@@ -171,7 +173,10 @@ end
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
-function Recurrence(kernel; coupling = I, modifiers = ())
+function Recurrence(kernel; coupling = I, modifiers = (), lags = nothing)
+    lags === nothing ||
+        return Recurrence(_delay_kernel(kernel, lags, 1); coupling, modifiers)
+    _check_no_delays(kernel)
     k, C = _fold(kernel, coupling)
     return Recurrence(k, C, Tuple(modifiers))
 end
