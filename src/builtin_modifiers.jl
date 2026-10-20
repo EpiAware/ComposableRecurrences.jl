@@ -600,10 +600,9 @@ end
 # with `o` the column sums of `K`, summed where they are read. Its columns
 # sum to one by construction. It is a struct of its arrays, not an array, so
 # the rules read its cotangent field by field. Its own loops below are kept
-# over the generic array ones: on the BVD patch model at 1 and 11 patches
-# they beat building the `S × S × T` array first on the primal and every
-# backend, by up to 3.8 times on Mooncake (the `materialised` arm of the
-# `bvd_patches` benchmark case).
+# over the generic array ones because they measured faster than building
+# the `S × S × T` array first, on the primal and every AD backend; see the
+# `materialised` arm of the patch-model benchmark case.
 struct _Movement{KT <: AbstractMatrix, ET}
     K::KT
     E::ET
