@@ -102,11 +102,13 @@ Built before the local step's dual numbers are loaded, it stores `nothing`
 and each call that takes the rule checks instead.
 
 # Arguments
-- `kernel`: the kernel, lag 1 first.
+- `kernel`: the kernel, lag 1 first, or a kernel of delays (see
+  [`ComposableRecurrences.delay_masses`](@ref)).
 
 # Keyword Arguments
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
+- `lags`: for a kernel of delays only, the number of lags from lag 0.
 
 # Examples
 ```jldoctest
@@ -171,7 +173,10 @@ end
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
-function Recurrence(kernel; coupling = I, modifiers = ())
+function Recurrence(kernel; coupling = I, modifiers = (), lags = nothing)
+    lags === nothing ||
+        return Recurrence(_delay_kernel(kernel, lags, 1); coupling, modifiers)
+    _check_no_delays(kernel)
     k, C = _fold(kernel, coupling)
     return Recurrence(k, C, Tuple(modifiers))
 end
@@ -707,23 +712,32 @@ function _all_modifiers_adjoint(ms::Tuple)
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel, and why not; routes add their
-# couplings.
+# Whether the rule covers the kernel, and why not, and the couplings it
+# holds, which the local step rebuilds and fits as it does the coupling;
+# routes add their couplings.
 _kernel_adjoint(kernel) = true
 _no_adjoint_kernel(kernel) = ()
+_kernel_couplings(kernel) = ()
 
 # How the rule differentiates modifier `m`'s step: `:pullback` with its own
-# `pullback!`, `:local` with a local derivative (a pointwise modifier whose
-# float parameters are scalars or `_EntryParam`s, outside functions, with
+# `pullback!`, `:local` with a local derivative (a pointwise modifier, or a
+# whole-step one that is neither pointwise nor blockwise, whose float
+# parameters are scalars or strided float arrays, outside functions, with
 # no parameter read from the outputs, rebuilt with dual numbers by
 # `constructorof`), or `:none` when it cannot, which includes a `Derived`
 # parameter whose map holds float fields of its own.
 function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
-    ispointwise(m) && _array_params(m) && !_reads_outputs(m) && return :local
+    _local_step_kind(m) && _array_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
+_local_step_kind(m) = ispointwise(m) || _whole_step(m)
+# A modifier whose step reads and writes the whole step's values at once:
+# neither pointwise nor blockwise.
+_whole_step(m) = !ispointwise(m) && blocks(m) === nothing
+# A whole-step modifier the rule differentiates with its local derivative.
+_whole_local(m) = _whole_step(m) && _modifier_adjoint(m) === :local
 
 # The same for the coupling's `Pressure()` step: `:local` when its float
 # parameters are all scalars.
@@ -746,7 +760,9 @@ function _check_parts(kernel, C, ms::Tuple)
         _note_plain((_no_adjoint_kernel(kernel)..., C_why..., _no_adjoint(ms...)...))
         return Val(true)
     end
-    return _check_rebuilds((_local_part(C)..., _local_parts(ms...)...))
+    return _check_rebuilds(
+        (_coupling_parts(C, _kernel_couplings(kernel)...)..., _local_parts(ms...)...)
+    )
 end
 _check_rebuilds(::Tuple{}) = Val(true)
 function _check_rebuilds(parts::Tuple)
@@ -768,10 +784,12 @@ function _rebuild_why(p)
         return "$name reads more than $_READ_CAP entries of its arrays in a step"
     return "$name cannot be rebuilt from its own parameters"
 end
-# The coupling, modifiers and depletion forms the local step rebuilds.
+# The couplings, modifiers and depletion forms the local step rebuilds.
 function _local_part(C)
     return _coupling_adjoint(C) === :local && _holds_floats(C) ? (C,) : ()
 end
+_coupling_parts(C) = _local_part(C)
+_coupling_parts(C, Cs...) = (_local_part(C)..., _coupling_parts(Cs...)...)
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
@@ -837,14 +855,33 @@ function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args.
     return _parts_fit(r, h)
 end
 function _parts_fit(r, h)
-    fit = _coupling_fit(r.coupling, h)
+    couplings = _couplings_fit(h, r.coupling, _kernel_couplings(r.kernel)...)
+    fit = _worse(couplings, _steps_fit(r.modifiers, _nstrata(h)))
     fit === :one && _any_reads(r.modifiers) && return :wide
     return fit
+end
+# A whole-step modifier's local derivative seeds the step's values, its
+# state and its parameters: within one pass of dual numbers
+# (`_LOCAL_PRESSURE`) the call takes the rule, and with more `_ad_wide`,
+# a rule on `Mooncake` at any size, where it stays faster than plain AD, and
+# plain AD on `Enzyme`, where the two are level (see the adjoints page).
+_steps_fit(ms::Tuple, S) = reduce(_worse, map(m -> _step_fit(m, S), ms); init = :one)
+function _step_fit(m, S)
+    _whole_local(m) || return :one
+    return S + nstate(m, S) + _ninputs(m) <= _LOCAL_PRESSURE ? :one : :wide
+end
+# The route that holds for both of two parts.
+function _worse(a::Symbol, b::Symbol)
+    (a === :none || b === :none) && return :none
+    return a === :wide || b === :wide ? :wide : :one
 end
 # The construction check of `r`'s parts, run on its primal values when it
 # is called; the backend extensions do not differentiate it.
 function _check_now(r::Recurrence)
-    parts = (_local_part(r.coupling)..., _local_parts(r.modifiers...)...)
+    parts = (
+        _coupling_parts(r.coupling, _kernel_couplings(r.kernel)...)...,
+        _local_parts(r.modifiers...)...,
+    )
     return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
@@ -854,9 +891,13 @@ function _coupling_fit(C, h)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
+# The route that covers every coupling's fit: plain AD over the wider route
+# over one pass.
+_couplings_fit(h, C) = _coupling_fit(C, h)
+_couplings_fit(h, C, Cs...) = _worse(_coupling_fit(C, h), _couplings_fit(h, Cs...))
 function _any_reads(ms::Tuple)
     return any(ms) do m
-        _modifier_adjoint(m) === :local && !_local_params(m)
+        ispointwise(m) && _modifier_adjoint(m) === :local && !_local_params(m)
     end
 end
 # The parameters a coupling's local step seeds: its float scalars, folded

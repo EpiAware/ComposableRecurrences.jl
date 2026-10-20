@@ -768,6 +768,7 @@ pending_cases() = Tuple{String, String}[]
 # The features each case needs beyond the first release, by case name, as
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "bvd_patch" => (:movement,),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
     "strata_vaccination" => (:Pool,),
@@ -1500,6 +1501,54 @@ if supports(:_read_pullback)
     REQUIRES["custom_coupling_matrix"] = (:_read_pullback,)
     for tier in ("smoke", "realistic")
         append!(TIERS[tier].cases, ["custom_modifier_vector", "custom_coupling_matrix"])
+    end
+end
+
+# A whole-step modifier without a `pullback!`, as a mixed zone split with an
+# occupancy total: the local derivative seeds the values, the state and
+# the scalars, one pass while they fit in 24.
+"A share `b` of the values mixed evenly over the strata, and the mixed values' decaying total, at rate `a`, kept as the state."
+struct ZoneShare{B, A}
+    b::B
+    a::A
+end
+if supports(:_StepDuals)
+    @in_place function CR.forward!(m::ZoneShare, ::CR.Step, v, s, t)
+        mean = sum(v) / length(v)
+        for k in eachindex(v, s)
+            v[k] = (1 - m.b) * v[k] + m.b * mean
+            s[k] = m.a * s[k] + v[k]
+        end
+        return nothing
+    end
+
+    function custom_modifier_whole(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, p = _unpack(θ, (L,), (S, L), (S, T), (2,))
+            r = Recurrence(g; modifiers = (ZoneShare(p[1], p[2]),))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 12) for k in 1:S, t in 1:T], [0.2, 0.5]
+        )
+        return f, θ
+    end
+
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_whole",
+            "renewal with a user whole-step modifier mixing the strata",
+            custom_modifier_whole, [3, 10, 20], false,
+        ),
+    )
+    REQUIRES["custom_modifier_whole"] = (:_StepDuals,)
+    for tier in ("smoke", "realistic")
+        push!(TIERS[tier].cases, "custom_modifier_whole")
     end
 end
 

@@ -116,32 +116,16 @@ else
     end
 end
 
-# Consecutive blocks of `θ` with the given shapes, as reshaped views.
-# Enzyme, up to 0.13.216 at least, fails one way of building them on each
-# side of Julia 1.12:
-# - On 1.11 the closure below, which captures a boxed offset, leaves every
-#   scenario uninferred, and Enzyme reverse mode then returns zero for the
-#   scalar parameters of an operator. So 1.11 takes the inferred recursion.
-# - From 1.12 Enzyme forward mode corrupts the heap after some thousands of
-#   calls of the inferred scenarios. So these versions keep the closure,
-#   whose gradients are right there.
-@static if VERSION < v"1.12"
-    _unpack(θ, shapes...) = _unpack_from(θ, 0, shapes...)
-    _unpack_from(θ, o) = ()
-    function _unpack_from(θ, o, sh, rest...)
-        n = prod(sh)
-        x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        return (x, _unpack_from(θ, o + n, rest...)...)
-    end
-else
-    function _unpack(θ, shapes...)
-        o = 0
-        return map(shapes) do sh
-            n = prod(sh)
-            x = reshape(view(θ, (o + 1):(o + n)), sh...)
-            o += n
-            x
-        end
+# Consecutive blocks of `θ` with the given shapes, as reshaped views. The
+# block ends are a tuple computed before the blocks are built, so the blocks
+# are inferred: a closure that captured and advanced an offset would box it,
+# and Enzyme cannot differentiate every scenario built from uninferred
+# blocks. It is not inlined, so the block ranges are not folded into
+# constants that Enzyme cannot type when a scenario is called dynamically.
+@noinline function _unpack(θ, shapes::Vararg{Tuple, N}) where {N}
+    lens = map(prod, shapes)
+    return map(shapes, cumsum(lens), lens) do sh, stop, n
+        reshape(view(θ, (stop - n + 1):stop), sh...)
     end
 end
 
@@ -282,15 +266,8 @@ end
 
 # Movement whose intensity reads the recent outputs: each origin sends
 # more as its own incidence rises, through a kernel and a scale in `θ`.
-# The model is built behind a function barrier: Enzyme reverse finds no
-# shadow for the intensity when the uninferred blocks from `_unpack`
-# reach it directly.
 function _movement_recent(w, θ)
     K, κ, logh, logR = _unpack(θ, (S, S), (1,), (S, L), (S, T))
-    return _movement_recent(w, K, κ, logh, logR)
-end
-
-function _movement_recent(w, K, κ, logh, logR)
     ε = Derived(x -> 0.2 * tanh(x), κ[1] * ComposableRecurrences.Recent(3))
     mods = (
         ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
@@ -947,6 +924,53 @@ function _trace_pool(w, θ)
         sum(WS .* M[(3S + 1):(4S), :])
 end
 
+# Pointwise traces: a depletion's pool, drawn value and overflow, and a
+# user modifier's own trace, written in place with its own pullback.
+"A pointwise smoothing at rate `a`, whose trace is its smoothed value and what it leaves of the value."
+struct TracedSmooth{A}
+    a::A
+end
+if isdefined(ComposableRecurrences, :_trace_series)
+    ComposableRecurrences.ispointwise(::TracedSmooth) = true
+    function ComposableRecurrences.forward!(
+            m::TracedSmooth, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + (1 - m.a) * v[k]
+            v[k] = s[k]
+        end
+        return nothing
+    end
+    ComposableRecurrences.ntrace(::TracedSmooth, S) = 2S
+    function ComposableRecurrences.forward!(
+            m::TracedSmooth, ::ComposableRecurrences.Trace, r, v, s, v′, s′, t
+        )
+        smoothed, left = r
+        for k in eachindex(v)
+            smoothed[k], left[k] = s′[k], v[k] - s′[k]
+        end
+        return nothing
+    end
+    function ComposableRecurrences.pullback!(
+            grads, m::TracedSmooth, ::ComposableRecurrences.Trace, v, s, t
+        )
+        s̄′, r̄ = grads.trace
+        for k in eachindex(v)
+            grads.v[k] += r̄[k]
+            grads.s′[k] += s̄′[k] - r̄[k]
+        end
+        return nothing
+    end
+end
+function _trace_pointwise(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
+    mods = (TracedSmooth(only(a)), ComposableRecurrences.Depletion(PerStratum(POP)))
+    r = Recurrence(G0; coupling = K0, modifiers = mods)
+    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    T1, T2 = tr.modifiers
+    return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
+end
+
 # The ward's flows, each flow's amount per stratum and step.
 function _trace_ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
@@ -1230,6 +1254,10 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
     (
+        "Recurrence trace of pointwise modifiers", _trace_pointwise,
+        () -> _flat(zeros(S, L), 0.3 .+ LOGR, [0.6]),
+    ),
+    (
         "Recurrence trace of a ward's flows", _trace_ward,
         () -> _flat(
             [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
@@ -1419,6 +1447,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:movement,),
+    "Recurrence Redistribute, Add and Clamp" => (:movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:movement, :_intensity, :Recent),
@@ -1426,6 +1455,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace,),
+    # A trace written in place, with `forward!`.
+    "Recurrence trace of pointwise modifiers" => (:_trace_series,),
     "Recurrence trace of a ward's flows" => (:Trace,),
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
@@ -1435,6 +1466,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence ward with competing flows (Pool without a draw)" => (:Pool,),
     "Recurrence waning protection (Pool flows)" => (:Pool,),
     "Recurrence protected pool in Float32" => (:Pool,),
+    "Recurrence pool with twelve flows (over 32 leaves)" => (:Pool,),
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
@@ -1606,6 +1638,56 @@ function _unchecked_parts(w, θ)
     return sum(WS .* log.(y))
 end
 
+# Whole-step modifiers without a pullback: the local derivative seeds the
+# step's values, its state and its parameters.
+"A share `b` of the values mixed evenly over the strata, and the mixed values' decaying total, at rate `a`, kept as the state."
+struct ZoneMix{B, A}
+    b::B
+    a::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::ZoneMix, ::ComposableRecurrences.Step, v, s, t
+    )
+    mean = sum(v) / length(v)
+    for k in eachindex(v, s)
+        v[k] = (1 - m.b) * v[k] + m.b * mean
+        s[k] = m.a * s[k] + v[k]
+    end
+    return nothing
+end
+"A per-stratum scale held as a vector, applied to every stratum at once."
+struct StrataScale{A}
+    a::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::StrataScale, ::ComposableRecurrences.Step, v, s, t
+    )
+    v .*= m.a
+    return nothing
+end
+
+function _whole_step_scalars(w, θ)
+    logh, logR, p = _unpack(θ, (S, L), (S, T), (2,))
+    r = Recurrence(G0; coupling = K0, modifiers = (ZoneMix(p[1], p[2]),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+function _whole_step_array(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; modifiers = (StrataScale(a), ZoneMix(0.2, 0.5)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# The coupling as one of two routes, the other a dense matrix with its
+# own pullback: the rule differentiates the route coupling locally.
+function _user_coupling_routes(w, θ)
+    logh, logR, a, K, g = _unpack(θ, (S, L), (S, T), (1,), (S, S), (2,))
+    r = Recurrence(Routes((ShareFirst(only(a)), G0), (K, g)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 function _user_coupling_matrix(w, θ)
     logh, logR, K, β = _unpack(θ, (S, L), (S, T), (S, S), (S,))
     r = Recurrence(G0; coupling = MatrixMix(K, β))
@@ -1647,8 +1729,21 @@ push!(
         () -> _flat(zeros(S, L), LOGR, 1 .+ 0.2 .* W1),
     ),
     (
+        "Recurrence routes with a user coupling without a pullback",
+        _user_coupling_routes,
+        () -> _flat(zeros(S, L), LOGR, [0.3], 0.5 .* K0, [0.2, 0.1]),
+    ),
+    (
         "Recurrence user coupling holding a matrix", _user_coupling_matrix,
         () -> _flat(zeros(S, L), LOGR, K0, [0.9, 1.0, 1.1]),
+    ),
+    (
+        "Recurrence whole-step modifier without a pullback", _whole_step_scalars,
+        () -> _flat(zeros(S, L), LOGR, [0.3, 0.5]),
+    ),
+    (
+        "Recurrence whole-step modifier holding a vector", _whole_step_array,
+        () -> _flat(zeros(S, L), LOGR, [0.9, 1.0, 1.1]),
     ),
     (
         "Recurrence checked at the call", _unchecked_parts,
@@ -1660,6 +1755,11 @@ push!(
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+# The rule took routes whose couplings have no pullback once they came with
+# a local derivative.
+let name = "Recurrence routes with a user coupling without a pullback"
+    _REQUIRES[name] = (:Routes, :_kernel_couplings)
+end
 let name = "Recurrence modifier without a pullback, parameter from change points"
     _REQUIRES[name] = (:_Piecewise,)
 end
@@ -1670,6 +1770,9 @@ _REQUIRES["Recurrence user coupling holding a matrix"] = (:_read_pullback,)
 # An operator built before the local step's check could run came with
 # `ForwardDiff` as an extension.
 _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
+# The local derivative of a whole-step modifier.
+_REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
+_REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
@@ -1690,8 +1793,13 @@ function unsupported_scenarios()
     ]
 end
 
+# Each scenario is reached through one dynamic call, so Enzyme compiles a
+# scenario once and reuses it across the operators a test runs, while the
+# scenario itself, from its parameter blocks on, is inferred.
+_dynamic(f) = θ -> Base.inferencebarrier(f)(θ)
+
 const _TWINS = Tuple{String, Any, Any}[
-    (prefix * name, Base.Fix1(f, wrap), θ0)
+    (prefix * name, _dynamic(Base.Fix1(f, wrap)), θ0)
         for (prefix, wrap, extra) in (
             ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
         )
