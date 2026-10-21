@@ -191,10 +191,16 @@ _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 # `MixedDuplicated`, which `Enzyme` rejects for a custom rule when the
 # float is constant. Any other operator is passed by value, as a `Ref`
 # around it needs runtime activity to hold its constant fields. The
-# arguments are passed as they are, so each takes its own annotation.
+# arguments are passed as they are, so each takes its own annotation. Code
+# that is not traced (`_untraced`) calls the operator directly. `Enzyme`
+# needs that branch too: without it, a pool of 24 or more flows built in
+# the loss raises `IllegalTypeAnalysisException`, and `@noinline` on `_ad`
+# instead loses the scalar cotangent of an operator differentiated as the
+# argument.
 _primal(op, args...) = first(_run_forward(op, args...))
 @static if VERSION >= v"1.12"
     function _ad(op, args::Vararg{Any, N}) where {N}
+        _untraced() && return _primal(op, args...)
         _scalar_floats(typeof(op)) && return _ad_call(Ref(op), args...)
         return _ad_call(op, args...)
     end
