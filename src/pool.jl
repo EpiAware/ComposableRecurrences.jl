@@ -724,59 +724,64 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
     return nothing
 end
 
-# One pool and no flows: the form's step.
+# One pool and no flows: the form's draw from each stratum's pool.
 const _Depleting = _OnePool{Tuple{}}
 
-_kernel(::_Depleting) = true
-function _step(m::_Depleting, v::Number, s::Number, t, k)
-    return _draw(
-        m.form, v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
-    )
+function forward!(m::_Depleting, ::Step, v, s, t)
+    α = _exponent_value(m.heterogeneity)
+    for k in eachindex(v, s)
+        v[k], s[k] = _draw(m.form, v[k], s[k], _pop(m.N, k, t), α)
+    end
+    return nothing
 end
 
-function _step_back(grads, m::_Depleting, v::Number, s::Number, t, k)
-    m̄ = grads.piece
-    v̄, s̄, N̄, ᾱ = _form_pullback(
-        (; piece = cotangent(m̄, :form), v = grads.v, s = grads.s), m.form,
-        v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
-    )
-    _add_pop!(cotangent(m̄, :N), m.N, N̄, k, t)
-    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
-    return v̄, s̄
+function pullback!(grads, m::_Depleting, ::Step, v, s, t)
+    m̄, v̄, s̄ = grads.piece, grads.v, grads.s
+    α = _exponent_value(m.heterogeneity)
+    for k in eachindex(v, s)
+        v̄[k], s̄[k], N̄, ᾱ = _form_pullback(
+            (; piece = cotangent(m̄, :form), v = v̄[k], s = s̄[k]), m.form,
+            v[k], s[k], _pop(m.N, k, t), α
+        )
+        _add_pop!(cotangent(m̄, :N), m.N, N̄, k, t)
+        add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
+    end
+    return nothing
 end
 
 # One pool with flows: the draw, then the flows on the pool.
 const _Flowing = _OnePool{<:Tuple{Flow, Vararg{Flow}}}
 
-_kernel(::_Flowing) = true
-function _step(m::_Flowing, v::Number, s::Number, t, k)
-    y, s′ = _draw(
-        m.form, v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
-    )
-    (s″,) = _flow_only(m.flows, (s′,), k, t)
-    return y, s″
+function forward!(m::_Flowing, ::Step, v, s, t)
+    α = _exponent_value(m.heterogeneity)
+    for k in eachindex(v, s)
+        y, s′ = _draw(m.form, v[k], s[k], _pop(m.N, k, t), α)
+        (s″,) = _flow_only(m.flows, (s′,), k, t)
+        v[k], s[k] = y, s″
+    end
+    return nothing
 end
 
-function _step_back(grads, m::_Flowing, v::Number, s::Number, t, k)
-    m̄ = grads.piece
-    N, α = _pop(m.N, k, t), _exponent_value(m.heterogeneity)
-    _, s′ = _draw(m.form, v, s, N, α)
-    s̄′ = only(
-        _flows_pullback(
-            m.flows, cotangent(m̄, :flows), (s′,), (grads.s,),
-            (zero(grads.s),), k, t
+function pullback!(grads, m::_Flowing, ::Step, v, s, t)
+    m̄, v̄, s̄ = grads.piece, grads.v, grads.s
+    α = _exponent_value(m.heterogeneity)
+    for k in eachindex(v, s)
+        N = _pop(m.N, k, t)
+        _, s′ = _draw(m.form, v[k], s[k], N, α)
+        s̄′ = only(
+            _flows_pullback(
+                m.flows, cotangent(m̄, :flows), (s′,), (s̄[k],),
+                (zero(s̄[k]),), k, t
+            )
         )
-    )
-    v̄, s̄, N̄, ᾱ = _form_pullback(
-        (; piece = cotangent(m̄, :form), v = grads.v, s = s̄′),
-        m.form, v, s, N, α
-    )
-    _add_pop!(cotangent(m̄, :N), m.N, N̄, k, t)
-    add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
-    return v̄, s̄
-end
-for P in (:_Depleting, :_Flowing)
-    @eval pullback!(grads, m::$P, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)
+        v̄[k], s̄[k], N̄, ᾱ = _form_pullback(
+            (; piece = cotangent(m̄, :form), v = v̄[k], s = s̄′),
+            m.form, v[k], s[k], N, α
+        )
+        _add_pop!(cotangent(m̄, :N), m.N, N̄, k, t)
+        add_cotangent!(cotangent(m̄, :heterogeneity), ᾱ)
+    end
+    return nothing
 end
 
 # A group's step without a draw: the flows on its values. The step, its
