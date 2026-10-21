@@ -442,12 +442,24 @@ Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 # Stratum `a`'s kernel convolution of the window `H[t:(t + L - 1), :]`,
 # for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
-# The newest lag, the previous step's value, is added last, after the vector
-# loop over the older lags, which do not wait on that step; so each step
-# waits on one fused multiply-add. Sums start from `-0.0`, the exact additive
-# identity, so a one-lag kernel's convolution can compile to one product.
-@inline _kdot(g::AbstractVector, H, t, τ, L, a) = _window_dot(g, H, t, L, a)
-@inline _kdot(g::PerStratum, H, t, τ, L, a) = _window_dot(view(g.x, a, :), H, t, L, a)
+@inline _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
+@inline _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
+# A run of independent strata with no modifiers waits each step on its
+# kernel convolution alone (`_Chained`). The newest lag, the previous step's
+# value, is then added last, after the vector loop over the older lags,
+# which do not wait on that step; so each step waits on one fused
+# multiply-add. Sums start from `-0.0`, the exact additive identity, so a
+# one-lag kernel's convolution can compile to one product. Elsewhere one
+# loop is as fast and costs `Enzyme` less.
+struct _Chained{G}
+    g::G
+end
+_chain(g, ms) = g
+_chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}) = _Chained(g)
+@inline _kdot(c::_Chained{<:AbstractVector}, H, t, τ, L, a) = _window_dot(c.g, H, t, L, a)
+@inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
+    return _window_dot(view(c.g.x, a, :), H, t, L, a)
+end
 _sum_start(::Type{T}) where {T} = -zero(T)
 @inline function _window_dot(g, H, t, L, a)
     acc = _sum_start(promote_type(eltype(g), eltype(H)))
@@ -457,9 +469,8 @@ _sum_start(::Type{T}) where {T} = -zero(T)
     end
     return @inbounds muladd(g[L], H[t + L - 1, a], acc)
 end
-# A window's convolution in one loop over the lags, for sums that do not
-# wait on a single newest value: a sum over the senders' windows.
-function _window_sum(g, H, t, L, a)
+# A window's convolution in one loop over the lags.
+@inline function _window_sum(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
     @inbounds @simd for i in 1:L
         acc += g[i] * H[t + i - 1, a]
@@ -517,17 +528,10 @@ _lags(g, τ, L) = 1:L
 _lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
 _lags(g::TimeVarying{Secondary, <:_AnyRagged}, τ, L) = 1:length(_colview(g.x, τ))
 
-# Stratum `k`'s kernel convolution at step `t`, written to `p[k]`. Every
-# stratum's convolution is formed before the coupling reads any, so the
-# strata's sums overlap and each keeps one loop over the lags.
+# Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
 function _pressure_body!(k, p, g, H, t, τ, L)
-    p[k] = _kdot_all(g, H, t, τ, L, k)
+    p[k] = _kdot(g, H, t, τ, L, k)
     return nothing
-end
-_kdot_all(g, H, t, τ, L, a) = _kdot(g, H, t, τ, L, a)
-_kdot_all(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
-function _kdot_all(g::PerStratum, H, t, τ, L, a)
-    return _window_sum(view(g.x, a, :), H, t, L, a)
 end
 
 function _kernel_pressure!(ex, p, g, H, t, τ, L)
@@ -1325,7 +1329,8 @@ function _series_body!(
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
             _series_step!, ex, ts, T,
-            ks, H, pr, gain, add, coupling, g, p, q, ms, states, rec, τ0, L, D
+            ks, H, pr, gain, add, coupling, _chain(g, ms), p, q, ms, states, rec,
+            τ0, L, D
         )
     end
     return nothing
