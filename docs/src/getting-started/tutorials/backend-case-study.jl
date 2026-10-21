@@ -73,10 +73,10 @@ inputs = (; gi, delay, K, seeds);
 
 function backend_model(R, ε, N, inputs)
     (; gi, delay, K, seeds) = inputs
-    pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+    S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
     modifiers = (
         Redistribute(movement(K, ε)),
-        Depletion(PerStratum(N); pool0),
+        Depletion(PerStratum(N); pools = (; S)),
     )
     infections = Recurrence(gi; modifiers)(R; history = seeds)
     return (; infections, reports = Convolution(delay)(infections))
@@ -213,8 +213,8 @@ end
 #
 # | Loop | Package | Test |
 # |:--|:--|:--|
-# | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pool0 = max(N - sum(seed), 0)),))`, called as `r(Rt; history = seed, start = length(seed) + 1, prepend = true)` | `BVD renewal_infections` |
-# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pool0)))`, with `pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)` | `BVD patch model` |
+# | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pools = (S = max(N - sum(seed), 0),)),))`, called as `r(Rt; history = seed, start = length(seed) + 1, prepend = true)` | `BVD renewal_infections` |
+# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)` | `BVD patch model` |
 # | `convolve_delay(x, delay)` | `Convolution(delay)(x)` | `BVD convolve_delay` |
 #
 # `ComposableTuringIDModels` writes each step for an `accumulate_scan`:
@@ -223,7 +223,7 @@ end
 # |:--|:--|:--|
 # | `RenewalStep` with `UniformScaling` mixing | `Recurrence(g)`, one series or one row per stratum | `renewal`, `strata with identity mixing` |
 # | `RenewalStep` with matrix mixing `K` | `Recurrence(g; coupling = K)` | `strata with a mixing matrix` |
-# | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N, Floor())` in `modifiers` | `renewal with susceptible depletion` |
+# | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N; form = Floor())` in `modifiers` | `renewal with susceptible depletion` |
 # | `LDStep` in `LatentDelay` | `Convolution(pmf)(Y)[d:end]` | `fixed reporting delay (LatentDelay)` |
 # | `TimeVaryingLDStep` in `LatentDelay` | `Convolution(TimeVarying(P))(Y)[d:end]`, one pmf per column | `time-varying reporting delay` |
 #

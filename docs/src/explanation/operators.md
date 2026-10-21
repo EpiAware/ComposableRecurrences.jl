@@ -68,7 +68,7 @@ So a call that resumes from a `State` gives the values one call over both ranges
 A forecast is then a second call, not a second model.
 
 ```@example operators
-modifiers = (Depletion(50.0; pool0 = 50.0 - sum(seed)),)
+modifiers = (Depletion(50.0; pools = (S = 50.0 - sum(seed),)),)
 r = Recurrence(k; modifiers)
 whole = r(fill(1.6, 20); history = seed)
 fit, state = with_state(r, fill(1.6, 20); history = seed, stop = 12)
@@ -89,7 +89,7 @@ A recurrence needs values before its first step, in one of two places.
   The inputs then cover the seed days too, which a [`Primary`](@ref ComposableRecurrences.Primary) kernel needs, since only times from 1 have a column.
 
 [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds a seed that grows at a fixed rate, as at the start of an epidemic.
-A seed drawn from a finite pool should leave the pool smaller; the `pool0` keyword of [`Depletion`](@ref ComposableRecurrences.Depletion) does this.
+A seed drawn from a finite pool should leave the pool smaller; the `pools` keyword of [`Depletion`](@ref ComposableRecurrences.Depletion) does this.
 
 ```@example operators
 seed = exponential_history(2.0, 0.1, length(k))

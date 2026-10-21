@@ -8,7 +8,7 @@
     @test Interfaces.test(ComposableRecurrences; show = false)
     for T in (
             Recurrence, Convolution, UniformScaling, Matrix{Float64},
-            Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Pool,
+            Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
             CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
             CR.Truncate, CR.SoftTruncate,
         )
@@ -218,8 +218,8 @@ end
     using ComposableRecurrences, Interfaces, LinearAlgebra
     CR = ComposableRecurrences
     # A protected pool keeps two entries per stratum.
-    d = CR.Pool(
-        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+    d = CR.Depletion(
+        100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
     objs = (
@@ -228,7 +228,7 @@ end
             piece = d, role = CR.Step(), args = ([1.0, 2.0], [90.0, 80.0, 5.0, 6.0], 1)
         ),
     )
-    @test Interfaces.test(CR.PieceInterface{(:nstate,)}, CR.Pool, objs; show = false)
+    @test Interfaces.test(CR.PieceInterface{(:nstate,)}, CR.Depletion, objs; show = false)
     # A pointwise modifier that claims more than one entry per stratum fails.
     struct DoubleState end
     CR.ispointwise(::DoubleState) = true
@@ -310,9 +310,9 @@ end
     CR = ComposableRecurrences
     # The built-in pointwise modifiers and forms implement forward! and
     # pullback! as a user's pieces do, and the operators reach them through
-    # the same step on one stratum's view; a Pool keeps its own kernels.
-    pool = CR.Pool(
-        100.0; pools = (:S,), draw = :S => CR.Hazard(),
+    # the same step on one stratum's view; a Depletion keeps its own kernels.
+    pool = CR.Depletion(
+        100.0; pools = (:S,), form = CR.Hazard(),
         flows = (CR.Flow(0 => 1, 2.0; form = CR.Truncate()),)
     )
     for m in (CR.Add(1.0), CR.Clamp(0.0, 1.0), CR.Transform(*, 2.0))

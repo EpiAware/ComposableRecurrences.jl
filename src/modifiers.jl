@@ -37,7 +37,7 @@ struct Run end
 
 @doc raw"""
 The role of one step of a modifier, or of a variant inside its owner (a
-depletion form inside a [`ComposableRecurrences.Pool`](@ref)).
+depletion form inside a [`ComposableRecurrences.Depletion`](@ref)).
 
 A modifier ``M`` maps the step's values and its own state at absolute time
 ``t`` to new ones,
@@ -54,7 +54,7 @@ A pointwise modifier acts on each stratum ``i`` separately,
 
   - `forward!(m, Step(), v, s, t)` updates the step's values `v` and the
     modifier's state `s` in place (one entry per stratum, or one per pool
-    for a [`ComposableRecurrences.Pool`](@ref) with several) and
+    for a [`ComposableRecurrences.Depletion`](@ref) with several) and
     returns `nothing`.
     A modifier with [`ComposableRecurrences.ispointwise`](@ref) writes
     entry `k` from entry `k` only, for each `k` in `eachindex(v)`.
@@ -90,7 +90,7 @@ struct Step end
 @doc raw"""
 The role of a modifier's initial state: `forward!(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or one per pool for a
-[`ComposableRecurrences.Pool`](@ref) with several, allocated
+[`ComposableRecurrences.Depletion`](@ref) with several, allocated
 by the operator at its buffer eltype) from the full history, and returns
 `nothing`; [Roles](@ref extending-roles) gives the arguments.
 
@@ -387,7 +387,7 @@ The default is `nothing`.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
+leaky = CR.Depletion(100.0; protected = 0.3)
 CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
 
 # output
@@ -412,7 +412,7 @@ passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
 This is the extension point for a modifier that holds more than one value
 per stratum.
 A blockwise modifier ([`ComposableRecurrences.blocks`](@ref)) keeps
-``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a `Pool` with two
+``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a `Depletion` with two
 pools keeps the first pool then the second, ``n(m, S) = 2S``.
 A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
 one entry per stratum, so it must have ``n(m, S) = S``.
@@ -425,7 +425,7 @@ one entry per stratum, so it must have ``n(m, S) = S``.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Pool(100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard())
+leaky = CR.Depletion(100.0; protected = 0.3)
 CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 
 # output
@@ -551,13 +551,13 @@ end
 forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
 # Whether `m`'s step is an internal scalar kernel, `_step` and
-# `_step_back`, rather than its `forward!` and `pullback!`: only a `Pool`'s
-# pointwise depletion steps, which hold no `forward!` of their own.
+# `_step_back`, rather than its `forward!` and `pullback!`: only a
+# `Depletion`'s pointwise steps, which hold no `forward!` of their own.
 _kernel(m) = false
 
 # The step of a pointwise modifier on stratum `k`'s value and state, as new
 # scalars: its `forward!` on one-entry views of local slots, which a fully
-# inlined step keeps in registers, or a `Pool`'s kernel.
+# inlined step keeps in registers, or a `Depletion`'s kernel.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
     _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))

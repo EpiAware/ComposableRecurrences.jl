@@ -398,7 +398,7 @@ The state is unused.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
+mods = (CR.Depletion(50.0; form = CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 
 # output

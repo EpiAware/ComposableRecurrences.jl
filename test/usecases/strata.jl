@@ -65,7 +65,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function independent(N, Rt)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N), ComposableRecurrences.Floor()
+            PerStratum(N); form = ComposableRecurrences.Floor()
         )
         renewal = Recurrence(g; coupling = I, modifiers = (depletion,))
         return renewal(Rt; history = window)
@@ -108,7 +108,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function coupled(θ)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N), ComposableRecurrences.Floor()
+            PerStratum(N); form = ComposableRecurrences.Floor()
         )
         r = Recurrence(g; coupling = gravity(θ), modifiers = (depletion,))
         return r(Rt; history = window)
@@ -253,7 +253,7 @@ end
             ComposableRecurrences.movement(K, ε)
         )
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
-        depletion = ComposableRecurrences.Depletion(PerStratum(N); pool0)
+        depletion = ComposableRecurrences.Depletion(PerStratum(N); pools = (S = pool0,))
         return Recurrence(g; modifiers = (importation, depletion))
     end
     function patch(K, ε, N)
@@ -335,7 +335,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function after(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N), ComposableRecurrences.Floor()
+            PerStratum(N); form = ComposableRecurrences.Floor()
         )
         imports = ComposableRecurrences.Add(TimeVarying(PerStratum(ι)))
         renewal = Recurrence(g; coupling = K, modifiers = (depletion, imports))
@@ -343,7 +343,7 @@ end
     end
     function before(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N), ComposableRecurrences.Floor()
+            PerStratum(N); form = ComposableRecurrences.Floor()
         )
         renewal = Recurrence(g; coupling = K, modifiers = (depletion,))
         return renewal(Rt; history = window, add = ι)

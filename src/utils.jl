@@ -266,7 +266,7 @@ param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 # that carries the field count or a tuple's length in its signature
 # (`Val(N)`, `map` over a tuple) is widened by inference's recursion limit
 # when an inner struct has more fields than an outer one, as
-# a `Pool` inside a `Recurrence` does. Each promotion takes two types, as a
+# a `Depletion` inside a `Recurrence` does. Each promotion takes two types, as a
 # `promote_type` of more than about 32 types does not infer.
 @generated function _fields_eltype(x)
     ex = :Bool

@@ -43,9 +43,8 @@
         end
         return y
     end
-    vaccinated(σ, r) = CR.Pool(
-        N; pools = (:S, :V), initial = (pool0, nothing),
-        draw = (:S => 1, :V => σ) => CR.Hazard(),
+    vaccinated(σ, r) = CR.Depletion(
+        N; pools = (S = pool0, V = nothing), form = CR.Hazard(), weights = (S = 1, V = σ),
         flows = (CR.Flow(1 => 2, TimeVarying(r); form = CR.Truncate()),)
     )
     model(R, d) = Recurrence(g; modifiers = (d,))(
@@ -68,12 +67,12 @@
     # All-or-nothing never draws from the protected pool, so it equals the
     # removals alone leaving the pool.
     @test model(R, aon(e, doses)) ≈
-        model(R, CR.Depletion(N; pool0, removals = TimeVarying(e .* doses)))
+        model(R, CR.Depletion(N; pools = (S = pool0,), removals = TimeVarying(e .* doses)))
     # At the same efficacy all-or-nothing protects more than leaky, and both
     # more than no vaccination.
     final(d) = sum(model(R, d))
     @test final(aon(e, doses)) < final(leaky(e, doses)) <
-        final(CR.Depletion(N; pool0))
+        final(CR.Depletion(N; pools = (S = pool0,)))
 end
 
 # The same two vaccines against seeded stochastic simulations of
@@ -100,9 +99,8 @@ end
     rest = N - n0
     attack(x∞, x0) = 1 - (1 - n0 / N) * x∞ / x0
     function final_size(σ, protected0)
-        d = CR.Pool(
-            N; pools = (:S, :V), initial = (rest - protected0, protected0),
-            draw = (:S => 1, :V => σ) => CR.Hazard()
+        d = CR.Depletion(
+            N; pools = (S = rest - protected0, V = protected0), weights = (S = 1, V = σ)
         )
         y, state = CR.with_state(
             Recurrence(g; modifiers = (d,)), R; history = [float(n0)]
