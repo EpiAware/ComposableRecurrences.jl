@@ -682,6 +682,10 @@ end
             @test pullback_matches(CR._Prepended(op), recargs(R, nothing, h; start)...)
         end
     end
+    # A history of counts takes no cotangent.
+    r = Recurrence(g; modifiers = (CR.Depletion(50.0),))
+    args = recargs(0.5 .+ rand(rng, L + T), nothing, [2, 1, 3]; start = L + 1)
+    @test pullback_matches(CR._Prepended(CR._WithTrace(r)), args...)
 end
 
 @testitem "Adjoint: Recurrence with mixed eltypes" setup = [AdjointCheck] begin
