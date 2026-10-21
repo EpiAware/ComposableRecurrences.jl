@@ -1,4 +1,4 @@
-# A `Pool` as a capacity: a pool of beds filled by the draw and emptied by a
+# A `Depletion` as a capacity: a pool of beds filled by the draw and emptied by a
 # share flow first, or an allowance drawn from and granted by flows first.
 # Values and ForwardDiff gradients against a naive loop for each with the
 # overflow in a stratum, a queue or nowhere, the budget's period semantics,
@@ -71,8 +71,8 @@
     # Beds: the pool is the occupancy, a share `δ` leaves before the draw
     # and the admissions fill it up to `C`.
     function beds(C, δ; overflow = :stratum, form = CR.Truncate(), initial = nothing)
-        return CR.Pool(
-            C; pools = (:O,), initial, draw = form => :O, flows_first = true,
+        return CR.Depletion(
+            C; pools = (O = initial,), form, fill = :O, flows_first = true,
             flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow
         )
     end
@@ -91,14 +91,13 @@
         grant = CR.Flow(0 => :B, Derived(granted, C, starts); form = CR.Truncate())
         flows = carry_over ? (grant,) :
             (CR.Flow(:B => 0, starts; form = CR.Share()), grant)
-        return CR.Pool(;
-            pools = (:B,), initial, draw = :B => form, flows_first = true, flows,
-            overflow
+        return CR.Depletion(;
+            pools = (B = initial,), form, flows_first = true, flows, overflow
         )
     end
 end
 
-@testitem "Pool capacity: values and gradients against a naive loop" setup = [ReferenceAD, CapacityChecks] begin
+@testitem "Depletion capacity: values and gradients against a naive loop" setup = [ReferenceAD, CapacityChecks] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     (; G, R, h, W, ROUTE, naive, beds, budget) = CapacityChecks
@@ -163,7 +162,7 @@ end
     )
     for (build, kw, θ) in values(cases)
         r(θ, R) = Recurrence(PerStratum(G); modifiers = (build(θ),))(R; history = h)
-        pairs = CR._layout(build(θ)).overflow === :stratum ? ROUTE : collect(1:4)
+        pairs = build(θ).overflow isa CR._ToStratum ? ROUTE : collect(1:4)
         ref(θ, R) = first(naive(G, R, h, pairs; kw(θ)...))
         @test r(θ, R) ≈ ref(θ, R)
         @test ReferenceAD.gradient(θ -> sum(W .* r(θ, R)), θ) ≈
@@ -175,7 +174,7 @@ end
     end
 end
 
-@testitem "Pool capacity: infinite capacity is the identity" setup = [CapacityChecks] begin
+@testitem "Depletion capacity: infinite capacity is the identity" setup = [CapacityChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; G, R, h, beds, budget) = CapacityChecks
@@ -189,7 +188,7 @@ end
     end
 end
 
-@testitem "Pool capacity: the stratum conserves each step, the queue across steps" setup = [CapacityChecks] begin
+@testitem "Depletion capacity: the stratum conserves each step, the queue across steps" setup = [CapacityChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; beds, budget) = CapacityChecks
@@ -219,7 +218,7 @@ end
     end
 end
 
-@testitem "Pool capacity: budget periods, carry over and lifetime" setup = [CapacityChecks] begin
+@testitem "Depletion capacity: budget periods, carry over and lifetime" setup = [CapacityChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; budget) = CapacityChecks
@@ -242,7 +241,7 @@ end
     @test run(nothing, d; initial = 2.0)[4] == 3.0
     @test run(nothing, d; initial = 2.0, carry_over = false) == run(nothing, d)
     # A lifetime budget is also a starting allowance alone.
-    lifetime = CR.Pool(; pools = (:B,), initial = 4.0, draw = :B => CR.Truncate())
+    lifetime = CR.Depletion(; pools = (B = 4.0,), form = CR.Truncate())
     @test Recurrence([0.0]; modifiers = (lifetime,))(; history = [0.0], add = d) ==
         run(nothing, d)
     # The demand left goes to the second stratum: it never returns to the
@@ -253,7 +252,7 @@ end
     @test y[2, :] == d .- y[1, :]
 end
 
-@testitem "Pool capacity: resuming from the state matches one call" setup = [CapacityChecks] begin
+@testitem "Depletion capacity: resuming from the state matches one call" setup = [CapacityChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; G, R, h, beds, budget) = CapacityChecks
@@ -265,7 +264,7 @@ end
     end
 end
 
-@testitem "Pool capacity: the smooth minimum" begin
+@testitem "Depletion capacity: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     draw(κ, d, f) = first(CR._draw(CR.SoftTruncate(κ), d, f, 1.0, 1.0))
@@ -287,13 +286,13 @@ end
     @test lo[3] ≈ hi[3] atol = 1.0e-6
 end
 
-@testitem "Pool capacity: pullback against a local Jacobian" setup = [ModifierChecks, CapacityChecks] begin
+@testitem "Depletion capacity: pullback against a local Jacobian" setup = [ModifierChecks, CapacityChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; beds, budget) = CapacityChecks
     v = [2.0, 0.5, 3.0, 1.0]
     # The state is each group's pool, then each queue. The mirror holds the
-    # parameters of `θ` in order: `N`, the softness, `initial`, the flows'.
+    # parameters of `θ` in order: `N`, the softness, `pools`, the flows'.
     builds = (
         (x -> beds(x[1], x[3]; initial = x[2]), [4.0, 0.0, 0.2], [2.0, 3.5], (3, 4)),
         (
@@ -304,18 +303,18 @@ end
             [4.0, 2.0, 0.2, 0.0, 0.2, 0.4], [2.0, 1.0], (1,),
         ),
         (
-            x -> CR.Pool(;
-                pools = (:B,), initial = x[1], draw = :B => CR.Truncate(),
-                flows_first = true, overflow = :queue,
+            x -> CR.Depletion(;
+                pools = (B = x[1],), form = CR.Truncate(), flows_first = true,
+                overflow = :queue,
                 flows = CR.Flow(0 => :B, TimeVarying(x[2:7]); form = CR.Truncate())
             ),
             [0.0; collect(range(2.0, 4.0; length = 6))],
             [1.2, 0.5, 1.0, 2.0, 0.3, 0.0, 1.0, 0.4], (1, 3, 4),
         ),
         (
-            x -> CR.Pool(;
-                pools = (:B,), initial = x[2], draw = :B => CR.SoftTruncate(x[1]),
-                flows_first = true, overflow = :stratum, flows = (
+            x -> CR.Depletion(;
+                pools = (B = x[2],), form = CR.SoftTruncate(x[1]), flows_first = true,
+                overflow = :stratum, flows = (
                     CR.Flow(:B => 0, TimeVarying(x[3:5]); form = CR.Share()),
                     CR.Flow(0 => :B, x[6]; form = CR.Truncate()),
                 )
@@ -323,7 +322,7 @@ end
             [0.1, 0.0, 1.0, 0.0, 1.0, 2.5], [1.0, 0.4], (1, 2),
         ),
         (
-            x -> CR.Pool(; pools = (:B,), initial = x[1], draw = :B => CR.Truncate()),
+            x -> CR.Depletion(; pools = (B = x[1],), form = CR.Truncate()),
             [2.5], [4.0, 0.5, 1.0, 0.0], (1, 2),
         ),
         (
@@ -334,8 +333,8 @@ end
             [2.0, 4.0, 1.0, 3.0, 0.15, 0.3], [1.5, 2.5, 0.0, 1.0], (1,),
         ),
         (
-            x -> CR.Pool(;
-                pools = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+            x -> CR.Depletion(;
+                pools = (:B,), form = CR.Truncate(), flows_first = true,
                 flows = CR.Flow(0 => :B, x[1]; form = CR.Truncate()), overflow = :queue
             ),
             [0.3], [0.6, 0.1, 0.0, 0.2, 1.0, 0.0, 0.5, 0.0], (1, 2),
@@ -351,9 +350,9 @@ end
         # The occupancy as one of two pools, with the draw weighted on the
         # second and a hazard flow between them after it.
         (
-            x -> CR.Pool(
-                x[1]; pools = (:A, :O), initial = (x[2], x[3]),
-                draw = CR.Truncate() => :O, overflow = :stratum,
+            x -> CR.Depletion(
+                x[1]; pools = (A = x[2], O = x[3]), form = CR.Truncate(), fill = :O,
+                overflow = :stratum,
                 flows = CR.Flow(:O => :A, x[4])
             ),
             [5.0, 1.0, 2.0, 0.3], [1.0, 0.5, 2.0, 3.0], (1,),
@@ -369,12 +368,14 @@ end
     end
 end
 
-@testitem "Pool capacity: two wards share one overflow stratum" begin
+@testitem "Depletion capacity: two wards share one overflow stratum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     # Wards 1 and 2 overflow into strata 3 and 4, and the Redistribute moves
     # all of stratum 4 into stratum 3, as two pairs `1 => 3, 2 => 3` did.
-    beds = CR.Pool(1.0; pools = (:O,), draw = CR.Truncate() => :O, overflow = :stratum)
+    beds = CR.Depletion(
+        1.0; pools = (:O,), form = CR.Truncate(), fill = :O, overflow = :stratum
+    )
     K = zeros(4, 4)
     K[3, 4] = 1.0
     shared = CR.Redistribute(CR.movement(K, PerStratum([0.0, 0.0, 0.0, 1.0])))
@@ -385,10 +386,12 @@ end
     @test all(iszero, y[4, :])
 end
 
-@testitem "Pool capacity: checks its arguments" begin
+@testitem "Depletion capacity: checks its arguments" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    fill_into(o; kw...) = CR.Pool(1.0; pools = (:O,), draw = CR.Truncate() => o, kw...)
+    fill_into(o; pools = (:O,), kw...) = CR.Depletion(
+        1.0; pools, form = CR.Truncate(), fill = o, kw...
+    )
     @test_throws "overflow is nothing, :queue or :stratum, got :hold" fill_into(
         :O; overflow = :hold
     )
@@ -396,34 +399,33 @@ end
         :O; overflow = 2
     )
     @test_throws "the draw names pool :X, but the pools are (:O,)" fill_into(:X)
+    @test_throws "the draw names pool \"O\", but the pools are (:O,)" fill_into("O")
+    @test fill_into(1).draw === CR._DrawInto(1)
     # A draw into a pool is truncated, from a capacity that is not negative.
-    @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Pool(
-        1.0; pools = (:O,), draw = CR.Hazard() => :O
+    @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Depletion(
+        1.0; pools = (:O,), form = CR.Hazard(), fill = :O
     )
-    @test_throws "N is non-negative, got -1.0" CR.Pool(
-        PerStratum([1.0, -1.0]); pools = (:O,), draw = CR.Truncate() => :O
+    @test_throws "N is non-negative, got -1.0" CR.Depletion(
+        PerStratum([1.0, -1.0]); pools = (:O,), form = CR.Truncate(), fill = :O
     )
-    @test_throws "initial is non-negative, got -2.0" fill_into(:O; initial = -2.0)
+    @test_throws "pools is non-negative, got -2.0" fill_into(:O; pools = (O = -2.0,))
     # Every pool starts from a level that is not negative, filled or not.
-    @test_throws "initial is non-negative, got -1.0" CR.Pool(;
-        pools = (:B,), initial = -1.0, draw = :B => CR.Truncate()
+    @test_throws "pools is non-negative, got -1.0" CR.Depletion(;
+        pools = (B = -1.0,), form = CR.Truncate()
     )
-    @test_throws "initial is non-negative, got -1.0" CR.Pool(
-        1.0; pools = (:S, :R), initial = (1.0, -1.0)
+    @test_throws "pools is non-negative, got -1.0" CR.Depletion(
+        1.0; pools = (S = 1.0, R = -1.0)
     )
-    @test fill_into(:O; initial = 0.5).initial == (0.5,)
+    @test fill_into(:O; pools = (O = 0.5,)).pools == (O = 0.5,)
     # A truncated draw reads no exponent; `true` and `false` stay fixed.
     @test fill_into(:O; heterogeneity = false).heterogeneity isa CR._FixedExponent{false}
-    @test_throws "a draw into a pool fills it up to N, so give N" CR.Pool(;
-        pools = (:O,), draw = CR.Truncate() => :O
+    @test_throws "a draw into a pool fills it up to N, so give N" CR.Depletion(;
+        pools = (:O,), form = CR.Truncate(), fill = :O
     )
-    @test_throws "flows_first and overflow order and route a draw" CR.Pool(;
-        draw = nothing, overflow = :queue
+    @test_throws "shape a draw, and form = nothing has none" CR.Depletion(;
+        form = nothing, overflow = :queue
     )
-    @test_throws "form => pool, or nothing; got :S => :O" CR.Pool(
-        1.0; pools = (:S, :O), draw = :S => :O
-    )
-    @test_throws "from is a pool from 1, or 0 for outside the Pool, got from = -1" CR.Flow(
+    @test_throws "from is a pool from 1, or 0 for outside the Depletion, got from = -1" CR.Flow(
         -1 => 1, 0.1
     )
     @test_throws "two different pools, got 0 => 0" CR.Flow(0 => 0, 0.1)
@@ -433,7 +435,9 @@ end
     @test_throws "multiple of 2 strata, got 3" Recurrence([0.5]; modifiers = (m,))(
         ones(3, 3); history = ones(3, 1)
     )
-    @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (fill_into(:O; initial = PerStratum([1.0, 2.0, 3.0])),))(
+    @test_throws DimensionMismatch Recurrence(
+        [0.5]; modifiers = (fill_into(:O; pools = (O = PerStratum([1.0, 2.0, 3.0]),)),)
+    )(
         ones(2, 3); history = ones(2, 1)
     )
     @test CR.blocks(m) == Val((2, 1))
@@ -447,14 +451,14 @@ end
     @test CR.nstate(dropped, 5) == 5
     @test CR.param_eltype(fill_into(:O; flows = CR.Flow(:O => 0, 0.1f0))) == Float64
     @test CR.param_eltype(
-        CR.Pool(
-            1.0f0; pools = (:O,), draw = CR.Truncate() => :O,
+        CR.Depletion(
+            1.0f0; pools = (:O,), form = CR.Truncate(), fill = :O,
             flows = CR.Flow(:O => 0, 0.1f0; form = CR.Share())
         )
     ) == Float32
 end
 
-@testitem "Pool capacity: the recurrence uses its adjoint" setup = [CapacityChecks] begin
+@testitem "Depletion capacity: the recurrence uses its adjoint" setup = [CapacityChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; G, beds) = CapacityChecks

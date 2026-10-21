@@ -6,7 +6,7 @@ module ReactantCases
 
 using ComposableRecurrences
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
-    Hazard, Pool, Primary, Redistribute, Secondary, SoftTruncate, Step,
+    Hazard, Primary, Redistribute, Secondary, SoftTruncate, Step,
     Transform, Truncate, with_state
 using LinearAlgebra: I
 
@@ -162,7 +162,7 @@ function mod_depletion(θ)
 end
 
 function mod_depletion_floor(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0, Floor()),))
+    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0; form = Floor()),))
     return r(θ[(L + 1):end]; history = H1)
 end
 
@@ -179,8 +179,8 @@ const σ0 = 0.3
 
 function mod_depletion_protected(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
-    d = Pool(
-        N0; pools = (:S, :V), draw = (:S => 1, :V => σ0) => Hazard(),
+    d = Depletion(
+        N0; pools = (:S, :V), form = Hazard(), weights = (S = 1, V = σ0),
         flows = (Flow(1 => 2, rm; form = Truncate()),)
     )
     r = Recurrence(θ[1:L]; modifiers = (d,))
@@ -228,8 +228,8 @@ end
 # with the smooth draw: the budget is granted at each week's start.
 const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
 function mod_capacity(θ)
-    c = Pool(;
-        pools = (:B,), draw = :B => SoftTruncate(0.5), flows_first = true,
+    c = Depletion(;
+        pools = (:B,), form = SoftTruncate(0.5), flows_first = true,
         flows = Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
         overflow = :queue
     )
@@ -239,8 +239,8 @@ end
 
 # Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
 function mod_flows(θ)
-    fs = Pool(;
-        pools = 3, draw = nothing,
+    fs = Depletion(;
+        pools = (:A, :B, :C), form = nothing,
         flows = (Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
     )
     r = Recurrence(g0; modifiers = (fs,))
@@ -404,11 +404,11 @@ const CASES = [
         mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
     ),
     Case(
-        "mod_capacity", "Recurrence with a budget Pool and a queue",
+        "mod_capacity", "Recurrence with a budget pool and a queue",
         mod_capacity, vec(RS0), WS
     ),
     Case(
-        "mod_flows", "Recurrence with a Pool of flows", mod_flows, vec(RS0), WS
+        "mod_flows", "Recurrence with a Depletion of flows", mod_flows, vec(RS0), WS
     ),
     Case(
         "mod_recent", "Recurrence with Recent (coupled)", mod_recent,

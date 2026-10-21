@@ -27,7 +27,9 @@
         return y[(L + 1):end]
     end
     form(κ) = κ == 0 ? CR.Truncate() : CR.SoftTruncate(κ)
-    run(R, b, κ) = Recurrence(g; modifiers = (CR.Depletion(b, form(κ)),))(R; history = h)
+    run(R, b, κ) = Recurrence(
+        g; modifiers = (CR.Depletion(b; form = form(κ)),)
+    )(R; history = h)
     for κ in (0.0, 0.1), b in (40.0, 300.0)
         y = run(R, b, κ)
         @test y ≈ naive(R, b, κ)
@@ -109,13 +111,13 @@ end
         @inferred CR._draw(form, 0.0f0, 1.5, 1.0, 1.0)
     end
     for form in (CR.Truncate(), CR.SoftTruncate(0.2))
-        d = CR.Depletion(50.0, form)
+        d = CR.Depletion(50.0; form = form)
         @test CR.uses_adjoint(d, CR.Step())
         @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
     end
     # A protected pool draws through the form too.
-    d = CR.Pool(
-        20.0; pools = (:S, :V), draw = (:S => 1, :V => 0.5) => CR.Truncate(),
+    d = CR.Depletion(
+        20.0; pools = (:S, :V), form = CR.Truncate(), weights = (S = 1, V = 0.5),
         flows = (CR.Flow(1 => 2, TimeVarying(fill(2.0, 6)); form = CR.Truncate()),)
     )
     y = Recurrence([1.0]; modifiers = (d,))(fill(3.0, 6); history = [2.0])

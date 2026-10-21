@@ -298,7 +298,7 @@ end
             (Shift(randn(rng, T)), Hazard(60.0)),
             (Slope(0.3),),
             (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
-            (CR.Depletion(50.0, CR.Floor(); heterogeneity = 1.5),),
+            (CR.Depletion(50.0; form = CR.Floor(), heterogeneity = 1.5),),
             (CR.Redistribute(CR.movement(K, [0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
@@ -320,16 +320,16 @@ end
                 CR.Add(0.2),
             ),
             (
-                CR.Pool(
-                    1.5; pools = (:O,), draw = CR.SoftTruncate(0.1) => :O,
+                CR.Depletion(
+                    1.5; pools = (:O,), form = CR.SoftTruncate(0.1), fill = :O,
                     flows_first = true, flows = CR.Flow(:O => 0, 0.3; form = CR.Share()),
                     overflow = :queue
                 ),
             ),
             (
-                CR.Pool(;
-                    pools = (:B,), initial = PerStratum([0.5, 0.0, 1.0]),
-                    draw = :B => CR.Truncate(), flows_first = true, overflow = :queue,
+                CR.Depletion(;
+                    pools = (B = PerStratum([0.5, 0.0, 1.0]),), form = CR.Truncate(),
+                    flows_first = true, overflow = :queue,
                     flows = CR.Flow(
                         0 => :B, TimeVarying(repeat([1.2, 0.0, 0.0], T));
                         form = CR.Truncate()
@@ -338,9 +338,9 @@ end
                 CR.Add(0.2),
             ),
             (
-                CR.Depletion(30.0, CR.Truncate()),
-                CR.Pool(;
-                    pools = (:B,), draw = :B => CR.Truncate(), flows_first = true,
+                CR.Depletion(30.0; form = CR.Truncate()),
+                CR.Depletion(;
+                    pools = (:B,), form = CR.Truncate(), flows_first = true,
                     flows = CR.Flow(
                         0 => :B, TimeVarying(repeat([1.2, 0.0], T)); form = CR.Truncate()
                     )
@@ -358,8 +358,8 @@ end
     r = Recurrence(g; coupling = K, modifiers = (PoolDepletion([30.0, 40.0, 50.0]),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
     # Beds with the overflow in a second stratum, resumed.
-    beds = CR.Pool(
-        2.0; pools = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+    beds = CR.Depletion(
+        2.0; pools = (:O,), form = CR.Truncate(), fill = :O, flows_first = true,
         flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow = :stratum
     )
     r = Recurrence(g; coupling = K[1:2, 1:2], modifiers = (beds,))
@@ -442,7 +442,7 @@ end
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     ϵ = randn(rng, S, T)
-    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Add(0.2))
+    mods = (CR.Depletion(PerStratum(fill(60.0, S)); form = CR.Floor()), CR.Add(0.2))
     ops = (
         Recurrence(g; modifiers = mods),
         Recurrence(g; coupling = 0.8I, modifiers = (CR.Clamp(0.0, 4.0),)),
@@ -541,37 +541,37 @@ end
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
 end
 
-@testitem "Adjoint: a Pool's group step and draw against ForwardDiff" setup = [
+@testitem "Adjoint: a Depletion's group step and draw against ForwardDiff" setup = [
     ReferenceAD,
     AdjointCheck,
 ] begin
     using ComposableRecurrences
     using LinearAlgebra: dot
-    # Each layout's group step and draw, with their pullbacks called
+    # Each kind's group step and draw, with their pullbacks called
     # directly, against forward mode: flows only, a draw out of one pool or
     # several, and a draw into a pool with each overflow. `v` and `s` are a
     # group's values and state, `t` a step and `g` the group.
     rng = Xoshiro(5)
     t, g = 3, 1
-    ward = CR.Pool(; pools = 2, draw = nothing, flows = CR.Flow(1 => 2, 0.3))
-    out_of(form) = CR.Pool(
-        5.0; pools = (:S, :V), draw = (:S => 1, :V => 0.4) => form,
+    ward = CR.Depletion(; pools = (:A, :B), form = nothing, flows = CR.Flow(1 => 2, 0.3))
+    out_of(form) = CR.Depletion(
+        5.0; pools = (:S, :V), form = form, weights = (S = 1, V = 0.4),
         flows = CR.Flow(:S => :V, 0.1)
     )
-    into(overflow) = CR.Pool(
-        2.0; pools = (:O,), draw = CR.Truncate() => :O, flows_first = true,
+    into(overflow) = CR.Depletion(
+        2.0; pools = (:O,), form = CR.Truncate(), fill = :O, flows_first = true,
         flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow
     )
     cases = (
         (ward, (1.5, 0.5), (0.0, 0.0)),
-        (CR.Depletion(5.0, CR.Floor()), (1.3,), (4.0,)),
+        (CR.Depletion(5.0; form = CR.Floor()), (1.3,), (4.0,)),
         (out_of(CR.Hazard()), (1.3,), (3.0, 1.0)),
         (into(nothing), (1.3,), (0.5,)),
         (into(:stratum), (1.3, 0.2), (0.5,)),
         (into(:queue), (1.3,), (0.5, 0.4)),
     )
     for (m, v, s) in cases
-        L = CR._layout(m)
+        n = CR._npools(m)
         θ = CR._params((m,))
         nv, ns = length(v), length(s)
         out, s′ = CR._block_step(m, v, s, t, g)
@@ -589,7 +589,7 @@ end
         end
         ref = ReferenceAD.gradient(step, [v..., s..., θ...])
         # The step's in-place pullback on one-entry vectors, its kernel, and
-        # the two dispatches the kernel goes through.
+        # the dispatch on the draw the kernel goes through.
         function inplace(m̄, grads)
             gv, gs = map(x -> [x], grads.v), map(x -> [x], grads.s)
             vr, sr = map(x -> [x], v), map(x -> [x], s)
@@ -600,33 +600,30 @@ end
         for back in (
                 inplace,
                 (m̄, grads) -> CR._block_back(grads, m, v, s, t, g),
-                (m̄, grads) -> CR._group_pullback(Val(L), grads, m, v, s, t, g),
-                (m̄, grads) -> CR._group_pullback(
-                    Val(L.draw), Val(L), grads, m, v, s, t, g
-                ),
+                (m̄, grads) -> CR._group_pullback(m.draw, grads, m, v, s, t, g),
             )
             m̄ = zero_mirror(m)
             v̄in, s̄in = back(m̄, (; piece = m̄, v = v̄, s = s̄))
             @test [v̄in..., s̄in..., mirror_vec(m̄, m)...] ≈ ref rtol = 1.0e-10
         end
-        L.draw || continue
+        CR._draws(m) || continue
         # The draw alone, from the demand `d` and the pools `x`.
-        d, x = first(v), Tuple(s[1:L.n])
-        y, x′ = CR._take(Val(L.fill), m, d, x, t, g)
-        ȳ, x̄′ = randn(rng), Tuple(randn(rng, L.n))
+        d, x = first(v), Tuple(s[1:n])
+        y, x′ = CR._take(m.draw, m, d, x, t, g)
+        ȳ, x̄′ = randn(rng), Tuple(randn(rng, n))
         function draw(z)
-            p = only(CR._rebuild((m,), z[(L.n + 2):end]))
-            a, b = CR._take(Val(L.fill), p, z[1], Tuple(z[2:(L.n + 1)]), t, g)
+            p = only(CR._rebuild((m,), z[(n + 2):end]))
+            a, b = CR._take(p.draw, p, z[1], Tuple(z[2:(n + 1)]), t, g)
             return ȳ * a + dot(collect(x̄′), collect(b))
         end
         ref = ReferenceAD.gradient(draw, [d, x..., θ...])
         m̄ = zero_mirror(m)
-        d̄, x̄ = CR._take_back(Val(L.fill), m̄, m, d, x, y, ȳ, x̄′, t, g)
+        d̄, x̄ = CR._take_back(m.draw, m̄, m, d, x, y, ȳ, x̄′, t, g)
         @test [d̄, x̄..., mirror_vec(m̄, m)...] ≈ ref rtol = 1.0e-10
     end
     # The queue's cotangent is the state's last entry; the pools' are the
     # rest.
-    @test CR._left_back(Val(:queue), (1.0,), (2.0, 3.0, 4.0), Val(2)) ==
+    @test CR._left_back(CR._Queue(), (1.0,), (2.0, 3.0, 4.0), Val(2)) ==
         (4.0, (2.0, 3.0))
 end
 
@@ -643,12 +640,12 @@ end
     births = TimeVarying(PerStratum(-rand(rng, S, stop)))
     for d in (
             CR.Depletion(TimeVarying(PerStratum(N))),
-            CR.Depletion(TimeVarying(N[1, :]), CR.Floor(); pool0 = 30.0),
+            CR.Depletion(TimeVarying(N[1, :]); form = CR.Floor(), pools = (S = 30.0,)),
             CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
             CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
-            CR.Pool(
-                TimeVarying(PerStratum(N)); pools = (:S, :V), initial = (nothing, 5.0),
-                draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+            CR.Depletion(
+                TimeVarying(PerStratum(N)); pools = (S = nothing, V = 5.0),
+                weights = (S = 1, V = 0.3),
                 flows = (CR.Flow(1 => 2, births; form = CR.Truncate()),)
             ),
         )
@@ -859,7 +856,7 @@ end
     @test_logs (:info, r"Add has a Derived map that holds floats") note(
         modifiers = (CR.Add(Derived(scaled, 0.5)),)
     )
-    @test_logs (:info, r"Pool has a Derived map that holds floats") note(
+    @test_logs (:info, r"Depletion has a Derived map that holds floats") note(
         modifiers = (CR.Depletion(Derived(scaled, 25.0)),)
     )
     # A depletion is named by its form when the form has no adjoint.
@@ -873,7 +870,7 @@ end
         end
         return nothing
     end
-    @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
+    @test CR._part_why(CR.Depletion(50.0; form = VecForm([1.0]))) ==
         "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
     @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
@@ -1094,8 +1091,8 @@ end
     end
     @test [got..., grads.piece.c[]] ≈ ref
     for op in (
-            Recurrence(g; modifiers = (CR.Depletion(50.0, f; heterogeneity = 1.2),)),
-            Recurrence(g; modifiers = (CR.Depletion(50.0, f; removals = 0.5),)),
+            Recurrence(g; modifiers = (CR.Depletion(50.0; form = f, heterogeneity = 1.2),)),
+            Recurrence(g; modifiers = (CR.Depletion(50.0; form = f, removals = 0.5),)),
         )
         @test CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{:rule}]
@@ -1111,11 +1108,13 @@ end
     end
     empty!(CR._PLAIN_NOTED)
     op = @test_logs (:info, r"DoubledRate cannot be rebuilt") Recurrence(
-        g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),)
+        g; modifiers = (CR.Depletion(50.0; form = DoubledRate(0.7)),)
     )
     @test !CR.uses_adjoint(op, CR.Run())
     @test op.rebuilds === false
-    @test CR.uses_adjoint(Recurrence(g; modifiers = (CR.Depletion(50.0, f),)), CR.Run())
+    @test CR.uses_adjoint(
+        Recurrence(g; modifiers = (CR.Depletion(50.0; form = f),)), CR.Run()
+    )
 
     # Dual numbers and BigFloat take the plain path.
     r = Recurrence(g)
@@ -1221,7 +1220,7 @@ end
     for parts in (
             (; modifiers = (PoolDepletion([40.0, 50.0]),)),
             (; coupling = Mix([0.5 0.1; 0.2 0.4], [1.0, 0.9])),
-            (; modifiers = (CR.Depletion(50.0, Rate(0.7)),)),
+            (; modifiers = (CR.Depletion(50.0; form = Rate(0.7)),)),
         )
         r0 = Recurrence([0.3, 0.2]; parts...)
         r = unchecked(r0)
@@ -2400,9 +2399,9 @@ end
     end
     g, R, h = [0.5, 0.3], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
     K = [0.0 0.2 0.1 0.0; 0.1 0.0 0.0 0.2; 0.2 0.1 0.0 0.1; 0.0 0.1 0.2 0.0]
-    leaky = CR.Pool(
+    leaky = CR.Depletion(
         PerStratum([80.0, 120.0, 90.0, 100.0]); pools = (:S, :V),
-        draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+        form = CR.Hazard(), weights = (S = 1, V = 0.3),
         flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
     )
     cases = (
@@ -2436,8 +2435,8 @@ end
         @test mirror_vec(ms, (w, args...)) ≈ mirror_vec(plain, (r, args...))
     end
     # A ward without a draw: each flow's amount, with every form.
-    ward = CR.Pool(;
-        pools = 2, draw = nothing, flows = (
+    ward = CR.Depletion(;
+        pools = (:A, :B), form = nothing, flows = (
             CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
             CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
             CR.Flow(2 => 1, 0.4; form = CR.Truncate()),

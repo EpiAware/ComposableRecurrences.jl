@@ -30,21 +30,21 @@ Inputs, histories and outputs are strata × time arrays, or a vector for a
 single series.
 Time is absolute, counted from 1, and a call covers the times `start:stop`.
 
-| concept               | one way                                                  |
-|:--------------------- |:-------------------------------------------------------- |
-| feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first   |
-| causal convolution    | `Convolution(kernel)`, lag 0 first                       |
-| strata                | `PerStratum(x)`, `Pairwise(x)`                           |
-| time variation        | `TimeVarying(x, Secondary())`                            |
-| strata and time       | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))` |
-| multiplicative input  | `r(gain; ...)`                                           |
-| additive input        | `add =`, before the modifiers                            |
-| seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`   |
-| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform` |
-| pools and flows       | `Pool(N; pools, draw, flows)`, `Flow(from => to, d)`     |
-| admitted and overflow | `Pool(C; draw = Truncate() => :O, overflow = :stratum)`  |
-| variants              | structs: `Hazard()`, `Floor()`, `Primary()`              |
-| extension             | a type with a `forward!` method for a role               |
+| concept               | one way                                                      |
+|:--------------------- |:------------------------------------------------------------ |
+| feedback recursion    | `Recurrence(kernel; coupling, modifiers)`, lag 1 first       |
+| causal convolution    | `Convolution(kernel)`, lag 0 first                           |
+| strata                | `PerStratum(x)`, `Pairwise(x)`                               |
+| time variation        | `TimeVarying(x, Secondary())`                                |
+| strata and time       | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))`     |
+| multiplicative input  | `r(gain; ...)`                                               |
+| additive input        | `add =`, before the modifiers                                |
+| seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`       |
+| modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform`     |
+| pools and flows       | `Depletion(N; pools, weights, flows)`, `Flow(from => to, d)` |
+| filling a pool        | `Depletion(C; form = Truncate(), fill = :O)`                 |
+| variants              | structs: `Hazard()`, `Floor()`, `Primary()`                  |
+| extension             | a type with a `forward!` method for a role                   |
 
 To extend the package, define a type and add a
 [`ComposableRecurrences.forward!`](@ref) method, and optionally a
@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
     Recent
 
-public Pool, Depletion, Flow, Share, Redistribute, movement,
+public Depletion, Flow, Share, Redistribute, movement,
     Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, with_state, State, contributions, forward, forward!,
@@ -124,9 +124,9 @@ include("derived.jl")
 include("recent.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
-# Flows between the pools of a `Pool`.
+# Flows between the pools of a `Depletion`.
 include("flows.jl")
-# `Pool`: pools drawn from by a depletion form and moved by flows.
+# `Depletion`: pools drawn from by a depletion form and moved by flows.
 include("pool.jl")
 
 # Rescaling groups of strata to exogenous totals.
