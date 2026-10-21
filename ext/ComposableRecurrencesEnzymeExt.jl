@@ -23,10 +23,10 @@ const _Inert = Union{
 }
 
 # Under runtime activity a constant array's shadow is the primal itself,
-# and it gets no mirror. Whether any does is known only at run time, so the
-# mirrors are built in one of two modes: `_Shared()` checks each array and
-# gives `nothing` for a shared one, so a mirror's type is a `Union`;
-# `_Distinct()`, taken when no shadow is shared (`_shares`), uses every
+# and it gets no mirror. The mirrors are built in one of two modes, read
+# from the rule's configuration so each call compiles one: `_Shared()`, under
+# runtime activity, checks each array and gives `nothing` for a shared one,
+# so a mirror's type is a `Union`; `_Distinct()`, otherwise, uses every
 # shadow as given, so the mirrors and the pullback they reach infer.
 struct _Shared end
 struct _Distinct end
@@ -63,23 +63,6 @@ function _ezs(x, dx, mode)
     return NamedTuple{names}(
         map(n -> _ezs(getfield(x, n), getfield(dx, n), mode), names)
     )
-end
-
-# Whether an annotated argument's shadow shares a float array with its
-# primal, along the same paths as `_ezs`.
-_shares(::Union{Const, Active}) = false
-_shares(a::Union{Duplicated, DuplicatedNoNeed}) = _shares(a.val, a.dval)
-_shares(a::MixedDuplicated) = _shares(a.val, a.dval[])
-_shares(::Union{_IEEEFloat, _Inert, AbstractString, Char, Type, Module, Ptr}, dx) = false
-_shares(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x
-function _shares(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
-    return dx === x || any(map(_shares, x, dx))
-end
-_shares(x::SparseMatrixCSC, dx::SparseMatrixCSC) = _shares(nonzeros(x), nonzeros(dx))
-_shares(x::Diagonal, dx::Diagonal) = _shares(x.diag, dx.diag)
-_shares(x::Union{Tuple, NamedTuple}, dx) = any(map(_shares, x, dx))
-function _shares(x, dx)
-    return any(n -> _shares(getfield(x, n), getfield(dx, n)), fieldnames(typeof(x)))
 end
 
 # Whether a mirror holds a nonzero scalar cotangent.
@@ -125,9 +108,6 @@ end
 end
 @generated function _foreach_leaves(f, xs::Tuple{Vararg{Any, N}}, ys::Tuple) where {N}
     return Expr(:block, (:(f(xs[$i], ys[$i])) for i in 1:N)..., :(return nothing))
-end
-@generated function _any_leaf(f, xs::Tuple{Vararg{Any, N}}) where {N}
-    return foldr((a, b) -> :($a || $b), (:(f(xs[$i])) for i in 1:N); init = false)
 end
 _val(a) = a.val
 
@@ -444,13 +424,13 @@ function EnzymeRules.augmented_primal(
 end
 
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}}, ::Type{<:Annotation},
+        config::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}}, ::Type{<:Annotation},
         tape, leaves::Vararg{Annotation, N}
     ) where {X, N}
     cache, y, dy = tape
     # An unused output still owes each `Active` leaf a zero cotangent.
     dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
-    mode = _any_leaf(_shares, leaves) ? _Shared() : _Distinct()
+    mode = EnzymeRules.runtime_activity(config) ? _Shared() : _Distinct()
     return _reverse_leaves(mode, X, cache, y, dy, leaves)
 end
 function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
