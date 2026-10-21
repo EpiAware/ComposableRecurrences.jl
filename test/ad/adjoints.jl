@@ -1717,6 +1717,14 @@ end
                 ρ^2 + sum(x)
             ),
             (ρ, x) -> (unused(Convolution([0.3, 0.2])(x; gain = ρ)); ρ^2 + sum(x)),
+            (ρ, x) -> (
+                unused(
+                    Recurrence([0.5]; modifiers = (CR.Depletion(1000 * ρ),))(
+                        x; history = [0.5]
+                    )
+                );
+                ρ^2 + sum(x)
+            ),
         )
         for f in losses
             dx = zero(x)
