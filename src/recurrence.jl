@@ -1297,7 +1297,7 @@ end
         k, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, t, τ, L, D
     )
     x = _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
-    @inbounds H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
+    H[D + t, k] = _thread(ms, states, rec, x, τ, t, k)
     return nothing
 end
 
