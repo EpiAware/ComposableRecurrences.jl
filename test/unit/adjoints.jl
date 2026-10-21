@@ -668,6 +668,25 @@ end
     end
 end
 
+@testitem "Adjoint: a prepended call" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(8)
+    S, L, T = 2, 3, 6
+    g = rand(rng, L) ./ 2
+    # A single series and strata, seeded at times 1 to `L` or before time 1,
+    # with the output, its state and its trace in turn.
+    pop = PerStratum([40.0, 60.0])
+    for (h, R, d) in (
+                (1 .+ rand(rng, L), 0.5 .+ rand(rng, L + T), CR.Depletion(50.0)),
+                (1 .+ rand(rng, S, L), 0.5 .+ rand(rng, S, L + T), CR.Depletion(pop)),
+            ), start in (1, L + 1)
+        r = Recurrence(g; modifiers = (d,))
+        for op in (r, CR._WithState(r), CR._WithTrace(r), CR._WithTrace(CR._WithState(r)))
+            @test pullback_matches(CR._Prepended(op), recargs(R, nothing, h; start)...)
+        end
+    end
+end
+
 @testitem "Adjoint: Recurrence with mixed eltypes" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(8)
