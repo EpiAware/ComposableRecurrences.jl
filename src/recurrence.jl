@@ -457,6 +457,15 @@ _sum_start(::Type{T}) where {T} = -zero(T)
     end
     return @inbounds muladd(g[L], H[t + L - 1, a], acc)
 end
+# A window's convolution in one loop over the lags, for sums that do not
+# wait on a single newest value: a sum over the senders' windows.
+function _window_sum(g, H, t, L, a)
+    acc = zero(promote_type(eltype(g), eltype(H)))
+    @inbounds @simd for i in 1:L
+        acc += g[i] * H[t + i - 1, a]
+    end
+    return acc
+end
 function _kdot(g::_TVColumns{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
     acc = zero(eltype(H))
@@ -483,7 +492,7 @@ end
 function _kdot(g::_OldestFirstPairwise, H, t, τ, L, a)
     acc = zero(eltype(H))
     for b in axes(H, 2)
-        acc += _window_dot(view(g.x, :, b, a), H, t, L, b)
+        acc += _window_sum(view(g.x, :, b, a), H, t, L, b)
     end
     return acc
 end
@@ -508,10 +517,17 @@ _lags(g, τ, L) = 1:L
 _lags(::TimeVarying{Primary}, τ, L) = 1:min(L, τ - 1)
 _lags(g::TimeVarying{Secondary, <:_AnyRagged}, τ, L) = 1:length(_colview(g.x, τ))
 
-# Stratum `k`'s kernel convolution at step `t`, written to `p[k]`.
+# Stratum `k`'s kernel convolution at step `t`, written to `p[k]`. Every
+# stratum's convolution is formed before the coupling reads any, so the
+# strata's sums overlap and each keeps one loop over the lags.
 function _pressure_body!(k, p, g, H, t, τ, L)
-    p[k] = _kdot(g, H, t, τ, L, k)
+    p[k] = _kdot_all(g, H, t, τ, L, k)
     return nothing
+end
+_kdot_all(g, H, t, τ, L, a) = _kdot(g, H, t, τ, L, a)
+_kdot_all(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
+function _kdot_all(g::PerStratum, H, t, τ, L, a)
+    return _window_sum(view(g.x, a, :), H, t, L, a)
 end
 
 function _kernel_pressure!(ex, p, g, H, t, τ, L)
