@@ -192,6 +192,14 @@ end
     @test readchomp(cmd) == "2.0 4.0 4.0 [1.0, 4.0, 3.0] true"
 end
 
+@testitem "Interfaces: eachindex of two one-entry views" begin
+    const CR = ComposableRecurrences
+    a, b = CR._At([1.0, 2.0, 3.0], 2), CR._At(Ref(0.0), 2)
+    @test eachindex(a, b) == 2:2
+    @test collect(eachindex(a, b)) == collect(eachindex(a))
+    @test_throws DimensionMismatch eachindex(a, CR._At(Ref(0.0), 3))
+end
+
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
