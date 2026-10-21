@@ -320,6 +320,38 @@ struct _ArrayPressure{T, L}
     ḡ::Vector{T}
     lanes::L
 end
+# The local derivative of a whole-step modifier without a `pullback!`, the
+# step `forward!(m, Step(), v, s, t)` over every stratum at once: the
+# values, the state and the parameters are seeded `N` at a time, as a
+# coupling's are, through a rebuild whose float arrays are views of one
+# vector of dual numbers. The buffers hold the output cotangents, the
+# parameters and their cotangent for one step, and the dual vectors of the
+# values, the state and the parameters for each width. Without the
+# dual-number extension there are none, and the step says to load it.
+struct _StepDuals{T, L}
+    v̄::Vector{T}
+    s̄::Vector{T}
+    θ::Vector{T}
+    ḡ::Vector{T}
+    lanes::L
+end
+_step_duals(m̄, m, args...) = nothing
+_local_step!(m̄, m, args...) = _need_forwarddiff(m)
+# Overwrites `grads.v` and `grads.s` with the cotangents of the step's
+# inputs and adds the parameters' into `grads.piece`. The reverse pass of a
+# `Recurrence` passes its buffers in `grads.pass`; a direct call makes
+# them.
+function _local_step_back!(grads, m, v, s, t)
+    b = _given_duals(get(grads, :pass, nothing), grads.piece, m, eltype(v))
+    _local_step!(grads.piece, m, grads.v, grads.s, v, s, t, b)
+    return nothing
+end
+_given_duals(b::_StepDuals, m̄, m, Tp) = b
+_given_duals(::Any, m̄, m, Tp) = _step_duals(m̄, m, Tp)
+# The buffers are shared by every step, and read nothing after the last.
+_column(b::_StepDuals, t) = b
+_finish_pass!(m̄, m, R, ::_StepDuals, τ0) = nothing
+
 # `_rebuild` with each float array a view of `θ` rather than a copy, so a
 # change to `θ` reaches the rebuilt object.
 _rebuild_views(x, θ) = first(_rebuild_views(x, θ, 0))
@@ -356,8 +388,12 @@ end
     return vr[], sr[]
 end
 @inline function _draw_back(grads, form, v, s, N, α)
-    z = zero(grads.v)
-    v̄r, s̄r, N̄r, ᾱr = Ref(grads.v), Ref(grads.s), Ref(z), Ref(z)
+    T = promote_type(
+        typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), typeof(N),
+        typeof(α), param_eltype(form)
+    )
+    v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
+    N̄r, ᾱr = Base.RefValue{T}(zero(T)), Base.RefValue{T}(zero(T))
     g = (;
         piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
         α = _At(ᾱr, 1),
@@ -365,24 +401,6 @@ end
     vv, sv = _At(Ref(v), 1), _At(Ref(s), 1)
     _written(form, @inline pullback!(g, form, Step(), vv, sv, N, α))
     return v̄r[], s̄r[], N̄r[], ᾱr[]
-end
-# A depletion form's in-place step and pullback on views of a stratum's
-# values and pools, with `N` and `α` shared, from its scalar kernel.
-function _form_forward!(form, v, s, N, α)
-    for i in eachindex(v, s)
-        v[i], s[i] = _draw(form, v[i], s[i], N, α)
-    end
-    return nothing
-end
-function _form_pullback!(grads, form, v, s, N, α)
-    for i in eachindex(v, s)
-        g = (; piece = grads.piece, v = grads.v[i], s = grads.s[i])
-        v̄, s̄, N̄, ᾱ = _draw_back(g, form, v[i], s[i], N, α)
-        grads.v[i], grads.s[i] = v̄, s̄
-        grads.N[i] += N̄
-        grads.α[i] += ᾱ
-    end
-    return nothing
 end
 # The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the

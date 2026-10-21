@@ -45,7 +45,9 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
 | pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule on Mooncake, plain AD on Enzyme |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
-| modifier with a vector or blockwise step | plain AD |
+| whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24 | rule, local ForwardDiff step |
+| the same with more | rule on Mooncake, plain AD on Enzyme |
+| blockwise modifier | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
@@ -91,6 +93,8 @@ The `Recurrence` constructor runs one step at the first stratum and time and cou
 Above 24 the local step is slower than plain AD, so such a modifier takes plain AD, and the constructor says so.
 A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
+The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
+Past one pass it stays faster than plain AD on Mooncake at any size, and is level with it on Enzyme.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 
 ## [Backends](@id adjoint-backends)
@@ -122,13 +126,13 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
 | `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
-| `Pool` with two pools and a count flow | 0.28 | 0.40 | keep |
+| `Depletion` with two pools and a count flow | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.07 | 0.35 | keep |
-| `Pool` without a draw | 0.43 | 0.43 | keep |
-| `Pool` with two pools and waning | 0.40 | 0.32 | keep |
+| `Depletion` without a draw | 0.43 | 0.43 | keep |
+| `Depletion` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Allocate` with `imports` and `spill`, 64 strata | 0.05 | 0.11 | keep |
-| `Pool` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
+| `Depletion` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
@@ -208,7 +212,7 @@ Buffers, states and outputs are allocated from the inputs, so they live there to
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
   Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
-- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Pool` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
+- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
 - A ragged `TimeVarying` kernel (a vector of columns) keeps its column offsets where its values live.

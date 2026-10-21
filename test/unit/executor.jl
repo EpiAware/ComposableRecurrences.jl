@@ -234,7 +234,7 @@ end
         Recurrence(g),
         Recurrence(PerStratum(rand(rng, S, L) ./ 2L)),
         Recurrence(g; coupling = Diagonal(fill(0.9, S))),
-        Recurrence(g; modifiers = (CR.Depletion(1.0e3; pool0 = 1.0e3),)),
+        Recurrence(g; modifiers = (CR.Depletion(1.0e3; pools = (S = 1.0e3,)),)),
         Recurrence(g; coupling = K),
         Recurrence(Pairwise(rand(rng, S, S, L) ./ (2 * S * L))),
         Recurrence(g; modifiers = (CR.Redistribute(CR.movement(K, 0.1)),)),
@@ -242,8 +242,8 @@ end
         # threaded strata loops.
         Recurrence(
             g; modifiers = (
-                CR.Pool(
-                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                CR.Depletion(
+                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
                     flows = (
                         CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
                     )
@@ -258,8 +258,8 @@ end
         # Both in one call: a protected pool, then grouped totals.
         Recurrence(
             g; modifiers = (
-                CR.Pool(
-                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                CR.Depletion(
+                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
                     flows = (
                         CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
                     )

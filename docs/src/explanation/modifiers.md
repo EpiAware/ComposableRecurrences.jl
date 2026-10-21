@@ -37,7 +37,7 @@ The [`Hazard`](@ref ComposableRecurrences.Hazard) and [`Floor`](@ref ComposableR
 k = [0.3, 0.4, 0.3]
 gain = fill(2.5, 15)
 seed = [1.0, 2.0, 3.0]
-pool(N) = Depletion(N; pool0 = N - sum(seed))
+pool(N) = Depletion(N; pools = (S = N - sum(seed),))
 cap_first = Recurrence(k; modifiers = (Clamp(0.0, 8.0), pool(100.0)))
 cap_last = Recurrence(k; modifiers = (pool(100.0), Clamp(0.0, 8.0)))
 round.(cap_first(gain; history = seed)[end-2:end]; digits = 2),
@@ -69,7 +69,7 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 
 | Built-in | Step reads | State holds | Place it |
 |---|---|---|---|
-| [`Pool`](@ref ComposableRecurrences.Pool), [`Depletion`](@ref ComposableRecurrences.Depletion) | one series with its pools, two with `overflow = :stratum`, or without a draw one group of pools held in the series | each pool, pool by pool, then the queue with `overflow = :queue`; without a draw, what flowed into each pool | after anything that should draw from the pool; without a draw, on a kernel of `[1.0]`, which carries the pools forward |
+| [`Depletion`](@ref ComposableRecurrences.Depletion) | one series with its pools, two with `overflow = :stratum`, or without a draw one group of pools held in the series | each pool, pool by pool, then the queue with `overflow = :queue`; without a draw, what flowed into each pool | after anything that should draw from the pool; without a draw, on a kernel of `[1.0]`, which carries the pools forward |
 | [`Redistribute`](@ref ComposableRecurrences.Redistribute) | every series | what each series received | before a `Depletion` that should deplete where values are realised |
 | [`Add`](@ref ComposableRecurrences.Add) | one series | nothing | where the addition should enter |
 | [`Clamp`](@ref ComposableRecurrences.Clamp) | one series | nothing | after what it bounds |
@@ -83,8 +83,8 @@ Its parameters take every form in [Slots](@ref explanation-slots).
 
 Several needs have more than one fit.
 
-- To bound values, `Clamp` cuts them and a `Pool` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
-- To move values between series, `Redistribute` moves them after the gain through a movement matrix whose columns sum to one, a `Pool` without a draw moves between the pools of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
+- To bound values, `Clamp` cuts them and a `Depletion` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
+- To move values between series, `Redistribute` moves them after the gain through a movement matrix whose columns sum to one, a `Depletion` without a draw moves between the pools of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
 - To map values, `Transform` takes any function, and write a [new modifier](@ref extending-pointwise) when the map keeps state or reads other series.
 
 A new modifier composes with the built-ins in the same tuple; [Writing new types](@ref extending) gives the contract.

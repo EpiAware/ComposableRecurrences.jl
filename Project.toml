@@ -16,6 +16,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 [weakdeps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+CensoredDistributions = "b2eeebe4-5992-4301-9193-7ebc9f62c855"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 EnzymeTestUtils = "12d8515a-0907-448a-8884-5fe00fdf1c5a"
@@ -29,6 +30,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
 
 [extensions]
+ComposableRecurrencesCensoredDistributionsExt = ["CensoredDistributions", "Distributions"]
 ComposableRecurrencesDistributionsExt = "Distributions"
 ComposableRecurrencesEnzymeExt = "Enzyme"
 ComposableRecurrencesEnzymeTestUtilsExt = ["ADTypes", "Enzyme", "EnzymeTestUtils"]
@@ -43,6 +45,7 @@ ComposableRecurrencesReactantExt = "Reactant"
 [compat]
 ADTypes = "1"
 Adapt = "4"
+CensoredDistributions = "0.2.22"
 ConstructionBase = "1.6"
 Distributions = "0.25"
 DocStringExtensions = "0.9.5, 0.10"

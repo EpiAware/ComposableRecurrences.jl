@@ -66,6 +66,11 @@ const QA_CONFIG = (
             prefixes = ("ComposableRecurrences",),
         ),
         (;
+            name = :ComposableRecurrencesCensoredDistributionsExt,
+            triggers = ("CensoredDistributions", "Distributions"),
+            prefixes = ("ComposableRecurrences",),
+        ),
+        (;
             name = :ComposableRecurrencesMooncakeExt,
             triggers = ("ADTypes", "Mooncake", "Random"),
             prefixes = ("ComposableRecurrences",),

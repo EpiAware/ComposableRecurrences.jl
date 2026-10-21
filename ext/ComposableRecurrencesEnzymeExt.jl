@@ -7,8 +7,8 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
-    _Current, _WithState, _check_form, _check_now, _check_parts, _check_secondary,
-    _current, _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!,
+    _Current, _Prepended, _WithState, _check_form, _check_now, _check_parts,
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!,
     _is_leaf, _leaf_paths, _plain, _plain_hook, _rebuild_leaves,
     _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
@@ -448,7 +448,8 @@ function EnzymeRules.reverse(
         tape, leaves::Vararg{Annotation, N}
     ) where {X, N}
     cache, y, dy = tape
-    dy === nothing && return _map_leaves(_ -> nothing, leaves)
+    # An unused output still owes each `Active` leaf a zero cotangent.
+    dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
     mode = _any_leaf(_shares, leaves) ? _Shared() : _Distinct()
     return _reverse_leaves(mode, X, cache, y, dy, leaves)
 end
@@ -466,7 +467,8 @@ end
 # the recurrence's coupling here, and a route coupling at its own step
 # below.
 const _SparseRec = Recurrence{<:Any, <:SparseMatrixCSC}
-const _SparseOp = Union{_SparseRec, _WithState{<:_SparseRec}}
+const _SparseCall = Union{_SparseRec, _WithState{<:_SparseRec}}
+const _SparseOp = Union{_SparseCall, _Prepended{<:_SparseCall}}
 const _ActiveSparse = Union{
     Duplicated{<:_SparseOp}, DuplicatedNoNeed{<:_SparseOp},
     MixedDuplicated{<:_SparseOp},

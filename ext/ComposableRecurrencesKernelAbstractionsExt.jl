@@ -1,7 +1,7 @@
 module ComposableRecurrencesKernelAbstractionsExt
 
 using ComposableRecurrences: ComposableRecurrences, Add, Allocate, Clamp,
-    Convolution, Derived, Device, Flow, Pairwise, PerStratum, Pool, Recurrence,
+    Convolution, Depletion, Derived, Device, Flow, Pairwise, PerStratum, Recurrence,
     Redistribute, TimeVarying, Transform, _AllocateImports, _Columns, _Flat,
     _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE, _Piecewise, _Ragged,
     _kernel_args
@@ -35,7 +35,7 @@ end
 # rebuilds them elsewhere. The operators adapt the same way, so
 # `adapt(CuArray, r)` moves every parameter of `r` to a device.
 const _Adapted = Union{
-    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Pool, Add,
+    PerStratum, Pairwise, TimeVarying, _OldestFirstPairwise, Depletion, Add,
     Clamp, Redistribute, Transform, Derived, Recurrence, _AllocateImports,
     _Movement, Convolution, Flow,
 }

@@ -1,4 +1,4 @@
-# Flows between the pools of a `Pool`. A `Flow` moves part of one pool
+# Flows between the pools of a `Depletion`. A `Flow` moves part of one pool
 # into another, or out, each step, by a form applied to its
 # demand: a competing hazard rate (`Hazard()`, the default), a share
 # (`Share()`) or a count capped by what is there (`Truncate()` or
@@ -38,7 +38,7 @@ const _FlowForm = Union{Hazard, Share, _TruncateForm}
 
 @doc raw"""
 A flow from pool `from` into pool `to` of a
-[`ComposableRecurrences.Pool`](@ref), out of it with `to = 0` or into
+[`ComposableRecurrences.Depletion`](@ref), out of it with `to = 0` or into
 it with `from = 0`, that moves its `demand` by a form.
 
 Each step it moves an amount ``m_f`` out of pool `from` and into `to`,
@@ -88,7 +88,7 @@ Shares out of one pool that sum to more than ``e^{-H_i}`` leave it
 negative.
 A negative count adds ``-d_f`` to pool `from`, without a cap, and moves
 nothing into `to`.
-A flow from `0` is a count from outside the `Pool`, which never runs out:
+A flow from `0` is a count from outside the `Depletion`, which never runs out:
 it moves ``m_f = d_f`` into `to`, and a negative one moves nothing.
 Its form is `Truncate()` or `SoftTruncate(κ)`.
 The derivative through ``\min`` and ``\max`` takes the active branch.
@@ -96,7 +96,7 @@ Rates are not checked.
 
 # Arguments
 - `pools`: `from => to`, each a pool's name or its position from 1, with
-  `to = 0` to leave the `Pool` and `from = 0` to enter it.
+  `to = 0` to leave the `Depletion` and `from = 0` to enter it.
 - `demand`: the rate, share or count, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
   and time, with `PerStratum` holding one per group.
@@ -143,7 +143,7 @@ struct Flow{D, F <: _FlowForm, E}
         )
         from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
             ArgumentError(
-                "a flow from outside the Pool is a count, with form Truncate() " *
+                "a flow from outside the Depletion is a count, with form Truncate() " *
                     "or SoftTruncate(κ), got $(_describe(form))"
             )
         )
@@ -180,7 +180,7 @@ _check_end(name, x::Symbol) = nothing
 function _check_end(name, x::Int)
     x >= 0 || throw(
         ArgumentError(
-            "$name is a pool from 1, or 0 for outside the Pool, got $name = $x"
+            "$name is a pool from 1, or 0 for outside the Depletion, got $name = $x"
         )
     )
     return nothing
@@ -370,7 +370,7 @@ function _count(f::_Count, y, a, g, t)
 end
 
 # What pool `i` holds for a count out of it, or an unbounded pool for a
-# count from outside the `Pool` (`i = 0`), so the count moves its demand.
+# count from outside the `Depletion` (`i = 0`), so the count moves its demand.
 _source(y, i) = ifelse(i == 0, oftype(first(y), Inf), _get(y, i))
 
 # Count flows only, such as a depletion's removals: nothing moves at a
@@ -526,7 +526,7 @@ function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     return _count_back(f, _head(f̄s), y, ȳ′, ā, g, t)
 end
 _count_back(f::Flow, f̄, y, ȳ, ā, g, t) = ȳ
-# A count from outside the `Pool` (`from = 0`) takes from no pool, so its
+# A count from outside the `Depletion` (`from = 0`) takes from no pool, so its
 # source has no cotangent.
 function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
     i = f.from
