@@ -550,14 +550,9 @@ end
 
 forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
-# Whether `m`'s step is an internal scalar kernel, `_step` and
-# `_step_back`, rather than its `forward!` and `pullback!`: only a
-# `Depletion`'s pointwise steps, which hold no `forward!` of their own.
-_kernel(m) = false
-
 # The step of a pointwise modifier on stratum `k`'s value and state, as new
 # scalars: its `forward!` on one-entry views of local slots, which a fully
-# inlined step keeps in registers, or a `Depletion`'s kernel.
+# inlined step keeps in registers.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
     _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
@@ -640,15 +635,12 @@ function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
-    _kernel(m) || throw(
+    throw(
         ArgumentError(
             "$(typeof(m)) has no forward!(m, Step(), v, s, t), and is not " *
                 "blockwise (see blocks)"
         )
     )
-    n = length(eachindex(v, s))
-    _each!(_pointwise_body!, Serial(), v, n, n, v, s, m, t)
-    return nothing
 end
 
 function _pointwise_body!(k, v, s, m, t)
@@ -656,10 +648,9 @@ function _pointwise_body!(k, v, s, m, t)
     return nothing
 end
 
-# The vector step's pullback: the modifier's own, or for a built-in
-# pointwise or a blockwise modifier the kernel or group pullback per
-# stratum or group. Not a `pullback!` method, which would count as every
-# modifier's own.
+# The vector step's pullback: the modifier's own, or per stratum or group
+# for a pointwise or a blockwise modifier without one. Not a `pullback!`
+# method, which would count as every modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
     return pullback!(grads, m, Step(), v, s, t)

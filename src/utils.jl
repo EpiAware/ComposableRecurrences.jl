@@ -364,6 +364,15 @@ end
         )
     )
 end
+# A step's `eachindex(v, s)` over two one-entry views of the same stratum:
+# Base's generic axis match costs plain reverse-mode AD more to compile.
+@inline function Base.eachindex(a::_At, b::_At)
+    a.k == b.k || _view_mismatch(a.k, b.k)
+    return a.k:a.k
+end
+@noinline function _view_mismatch(a, b)
+    throw(DimensionMismatch("one-entry views of strata $a and $b"))
+end
 # The one entry without its index, as `v[]`, for a step that holds it alone.
 @inline Base.getindex(a::_At) = @inbounds a[a.k]
 @inline Base.setindex!(a::_At, x) = (@inbounds a[a.k] = x; a)

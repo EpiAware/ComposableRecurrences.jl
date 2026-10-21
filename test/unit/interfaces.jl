@@ -192,6 +192,14 @@ end
     @test readchomp(cmd) == "2.0 4.0 4.0 [1.0, 4.0, 3.0] true"
 end
 
+@testitem "Interfaces: eachindex of two one-entry views" begin
+    const CR = ComposableRecurrences
+    a, b = CR._At([1.0, 2.0, 3.0], 2), CR._At(Ref(0.0), 2)
+    @test eachindex(a, b) == 2:2
+    @test collect(eachindex(a, b)) == collect(eachindex(a))
+    @test_throws DimensionMismatch eachindex(a, CR._At(Ref(0.0), 3))
+end
+
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
@@ -310,16 +318,20 @@ end
     CR = ComposableRecurrences
     # The built-in pointwise modifiers and forms implement forward! and
     # pullback! as a user's pieces do, and the operators reach them through
-    # the same step on one stratum's view; a Depletion keeps its own kernels.
+    # the same step on one stratum's view.
     pool = CR.Depletion(
         100.0; pools = (:S,), form = CR.Hazard(),
         flows = (CR.Flow(0 => 1, 2.0; form = CR.Truncate()),)
     )
-    for m in (CR.Add(1.0), CR.Clamp(0.0, 1.0), CR.Transform(*, 2.0))
-        @test !CR._kernel(m)
-    end
-    for m in (CR.Depletion(100.0), pool)
-        @test CR._kernel(m)
+    for m in (CR.Depletion(PerStratum([100.0, 80.0])), pool)
+        v, s = [2.0, 3.0], [70.0, 60.0]
+        CR.forward!(m, CR.Step(), v, s, 1)
+        @test (v[2], s[2]) == CR._step(m, 3.0, 60.0, 1, 2)
+        g = (; piece = nothing, v = [1.0, 1.0], s = [0.5, 0.5])
+        CR.pullback!(g, m, CR.Step(), [2.0, 3.0], [70.0, 60.0], 1)
+        @test (g.v[2], g.s[2]) == CR._step_back(
+            (; piece = nothing, v = 1.0, s = 0.5), m, 3.0, 60.0, 1, 2
+        )
     end
     grads = (; piece = (; b = Ref(0.0)), v = 1.0, s = 0.5)
     @test CR._step_back(grads, CR.Add(1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
@@ -364,7 +376,7 @@ end
         end
         return nothing
     end
-    @test !CR._kernel(Halve())
+    @test CR.uses_adjoint(Halve(), CR.Step())
     @test CR._step(Halve(), 2.0, 1.0, 1, 3) == (1.0, 2.0)
     pointwise = (; piece = nothing, v = 1.0, s = 1.0)
     @test CR._step_back(pointwise, Halve(), 2.0, 1.0, 1, 3) == (1.0, 1.0)
@@ -433,4 +445,15 @@ end
     end
     @test err isa ArgumentError
     @test occursin("eachindex(v)", err.msg)
+end
+
+@testitem "Interfaces: a modifier with no step says it needs forward!" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A type made a modifier without a `forward!` for `Step()`, and not
+    # blockwise, has no step to run.
+    struct NoStep end
+    @test_throws "has no forward!(m, Step(), v, s, t)" CR.forward!(
+        NoStep(), CR.Step(), [1.0, 2.0], [0.0, 0.0], 1
+    )
 end
