@@ -438,3 +438,14 @@ end
     @test err isa ArgumentError
     @test occursin("eachindex(v)", err.msg)
 end
+
+@testitem "Interfaces: a modifier with no step says it needs forward!" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A type made a modifier without a `forward!` for `Step()`, and not
+    # blockwise, has no step to run.
+    struct NoStep end
+    @test_throws "has no forward!(m, Step(), v, s, t)" CR.forward!(
+        NoStep(), CR.Step(), [1.0, 2.0], [0.0, 0.0], 1
+    )
+end
