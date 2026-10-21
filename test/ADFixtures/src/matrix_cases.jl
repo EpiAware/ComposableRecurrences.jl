@@ -212,6 +212,63 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# The BVD renewal and patch models as the backend calls them: the series
+# cover the seed's `L` days too, the run starts on day `L + 1`, the output
+# keeps the seed in front, and the patch call takes its trace. `T` counts
+# the days after the seed.
+function bvd_renewal_call_rule(wrap, g, seed, R, N)
+    L = length(seed)
+    d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
+    r = wrap(Recurrence(g; modifiers = (d,)))
+    return r(R; history = seed, start = L + 1, prepend = true)
+end
+function bvd_renewal_call(run)
+    return function (wrap, z::Size)
+        (; T, L) = z
+        W = _weights(L + T)
+        N = 1.0e5
+        f = function (θ)
+            g, logh, logR = _unpack(θ, (L,), (L,), (L + T,))
+            return sum(W .* log.(run(wrap, g, exp.(logh), exp.(logR), N)))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), L), [0.2 + 0.1 * _noise(t, 10) for t in 1:(L + T)]
+        )
+        return f, θ
+    end
+end
+function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
+    L = size(seeds, 2)
+    pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+    mods = (
+        CR.Redistribute(CR.movement(K, ε)),
+        depletion(CR.PerStratum(N); pool0),
+    )
+    r = wrap(Recurrence(g; modifiers = mods))
+    y, _ = r(R; history = seeds, start = L + 1, prepend = true, trace = true)
+    return y
+end
+function bvd_patches_call(run)
+    return function (wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, L + T)
+        N = fill(1.0e5, S)
+        f = function (θ)
+            g, K, logh, logR, ε = _unpack(
+                θ, (L,), (S, S), (S, L), (S, L + T), (S, L + T)
+            )
+            y = run(wrap, g, K, exp.(logh), exp.(logR), ε, N)
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), 0.05 .* (ones(S, S) .- I(S)), fill(log(5.0), S, L),
+            [0.2 + 0.1 * _noise(t, k + 11) for k in 1:S, t in 1:(L + T)],
+            [0.3 + 0.1 * _noise(t, k + 12) for k in 1:S, t in 1:(L + T)]
+        )
+        return f, θ
+    end
+end
+
 # A pool of susceptibles `S` and protected `V`, drawn from at weight `σ` on
 # `V`, with the doses moving `S` into `V` and any further `flows`.
 function _leaky(N, doses, σ, flows...)
@@ -642,6 +699,14 @@ const CASES = [
         bvd_patch, [5, 50], false,
     ),
     Case(
+        "bvd_renewal_call", "BVD renewal as called: seeded, prepended, hazard depletion",
+        bvd_renewal_call(bvd_renewal_call_rule), [1], false,
+    ),
+    Case(
+        "bvd_patches_call", "BVD patches as called: seeded, prepended, traced",
+        bvd_patches_call(bvd_patches_call_rule), [1, 5, 11], false,
+    ),
+    Case(
         "strata_vaccination", "leaky vaccination into a protected pool",
         strata_vaccination, [5, 50], false,
     ),
@@ -769,6 +834,9 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:movement,),
+    # `prepend` came with `exponential_history`, `trace` with `_WithTrace`.
+    "bvd_renewal_call" => (:exponential_history,),
+    "bvd_patches_call" => (:movement, :exponential_history, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
     "strata_vaccination" => (:depletion_pools,),
@@ -831,7 +899,8 @@ const TIERS = Dict(
     ),
     "ci" => (
         cases = [
-            "overview", "renewal", "strata_mixing", "bvd_patch", "delay_fixed",
+            "overview", "renewal", "strata_mixing", "bvd_patch", "bvd_renewal_call",
+            "bvd_patches_call", "delay_fixed",
             "conv_fixed", "tv_piecewise_secondary_k5", "tv_piecewise_primary_k5",
             "tv_piecewise_renewal_secondary_k5", "tv_piecewise_renewal_primary_k5",
         ],
@@ -1236,6 +1305,29 @@ if isfile(BVD_HANDRULE)
         # The docs case study tables these at the backend's sizes.
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
+    end
+    # The backend's call shape against the same loops, which read the series
+    # over the seed's days too and return those days first.
+    _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
+    function _patches_call_hand(kernel)
+        return function (wrap, g, K, seeds, R, ε, N)
+            return kernel(R, collect(g), seeds, collect(K), collect(ε), N)
+        end
+    end
+    for (name, loss, hand, kernels) in (
+            (
+                "bvd_renewal_call", bvd_renewal_call, _renewal_call_hand,
+                (BVD.renewal_loop, BVD.renewal_infections),
+            ),
+            (
+                "bvd_patches_call", bvd_patches_call, _patches_call_hand,
+                (BVD.patch_loop, BVD.patch_infections),
+            ),
+        )
+        BASELINES[name] = [
+            "loop" => z -> loss(hand(kernels[1]))(identity, z),
+            "handrule" => z -> loss(hand(kernels[2]))(identity, z),
+        ]
     end
     # The patch movement built as an `S × S × T` array before the run, the
     # form `movement` is timed against: the package reads it lazily from the

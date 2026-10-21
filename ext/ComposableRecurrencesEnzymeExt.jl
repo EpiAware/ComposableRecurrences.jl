@@ -7,8 +7,8 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
-    _Current, _WithState, _check_form, _check_now, _check_parts, _check_secondary,
-    _current, _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!,
+    _Current, _Prepended, _WithState, _check_form, _check_now, _check_parts,
+    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!,
     _is_leaf, _leaf_paths, _plain, _plain_hook, _rebuild_leaves,
     _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
@@ -425,7 +425,8 @@ end
 # the recurrence's coupling here, and a route coupling at its own step
 # below.
 const _SparseRec = Recurrence{<:Any, <:SparseMatrixCSC}
-const _SparseOp = Union{_SparseRec, _WithState{<:_SparseRec}}
+const _SparseCall = Union{_SparseRec, _WithState{<:_SparseRec}}
+const _SparseOp = Union{_SparseCall, _Prepended{<:_SparseCall}}
 const _ActiveSparse = Union{
     Duplicated{<:_SparseOp}, DuplicatedNoNeed{<:_SparseOp},
     MixedDuplicated{<:_SparseOp},
