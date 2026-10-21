@@ -614,12 +614,50 @@ function _resume(history, state::State, start, gain, add)
     return state.history, state.states, state.t
 end
 
-# `prepend = true` joins the history and the output along time.
-_prepend(prepend::Bool, history, y) = prepend ? _join(history, y) : y
+# `prepend = true` joins the history and the output along time, inside the
+# routed call (`_Prepended`): a rule returns the joined output and its
+# pullback hands the history's columns of the cotangent to the history, so
+# no backend differentiates the join itself.
 _join(history::AbstractVector, y) = vcat(history, y)
 # `cat` rather than `hcat`, which is ambiguous for some tracked array types.
 _join(history::AbstractMatrix, y) = cat(history, y; dims = 2)
-_join(::Nothing, y) = throw(ArgumentError("prepend = true needs a history, not nothing"))
+# The call joins the history to the output when `prepend` is set, branching
+# on the `Bool`: a backend's interpreter may not fold it into a type, and
+# both branches return the output's type.
+function _prepended_call(route, history, op, args::Vararg{Any, N}) where {N}
+    history === nothing &&
+        throw(ArgumentError("prepend = true needs a history, not nothing"))
+    return adjoint_call(_reroute(route, _Prepended(op)), args...)
+end
+
+# A call whose output is preceded by its history along time, routed as its
+# operator: a `Recurrence`, its `_WithState` or a `_WithTrace` of either.
+struct _Prepended{O <: AbstractOperator} <: AbstractOperator
+    op::O
+end
+uses_adjoint(p::_Prepended, ::Run) = uses_adjoint(p.op, Run())
+_type_adjoint(p::_Prepended) = _type_adjoint(p.op)
+_fit(p::_Prepended, args...) = _fit(p.op, args...)
+function _run_forward(p::_Prepended, gain, add, h, s0, τ0, stop)
+    out, cache = _run_forward(p.op, gain, add, h, s0, τ0, stop)
+    return _prepend_output(p.op, h, out, _copy_join), cache
+end
+function _primal(p::_Prepended, gain, add, h, s0, τ0, stop)
+    return _prepend_output(p.op, h, _primal(p.op, gain, add, h, s0, τ0, stop))
+end
+# The history joins the series part of each operator's output: by `_join`,
+# which plain AD differentiates, or, in a rule's forward pass, which no
+# backend differentiates, by `_copy_join` into one array.
+_prepend_output(::Recurrence, h, y, join = _join) = join(h, y)
+_copy_join(h, y) = _join(h, y)
+# Column-major, so the history's entries and then the output's in turn.
+function _copy_join(h::Matrix, y::Matrix)
+    Tz = promote_type(eltype(h), eltype(y))
+    z = similar(y, Tz, size(y, 1), size(h, 2) + size(y, 2))
+    copyto!(z, 1, h, 1, length(h))
+    copyto!(z, length(h) + 1, y, 1, length(y))
+    return z
+end
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
@@ -637,11 +675,13 @@ _traced(::Nothing) = Val(false)
 _traced(trace::Bool) = Val(trace)
 # Without a trace, the output; with one, `(y, trace)`.
 function _call(::Val{false}, r, route, history, prepend, args, stop)
-    return _prepend(prepend, history, adjoint_call(route, args..., stop))
+    prepend && return _prepended_call(route, history, r, args..., stop)
+    return adjoint_call(route, args..., stop)
 end
 function _call(::Val{true}, r, route, history, prepend, args, stop)
-    y, tr = adjoint_call(_reroute(route, _WithTrace(r)), args..., stop)
-    return _prepend(prepend, history, y), tr
+    op = _WithTrace(r)
+    prepend && return _prepended_call(route, history, op, args..., stop)
+    return adjoint_call(_reroute(route, op), args..., stop)
 end
 
 function _run_args(r, gain, history, state, add, start)
@@ -669,6 +709,7 @@ _trace_op(::Val{true}, r) = _WithTrace(r)
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
+_prepend_output(::_WithState, h, (y, st), join = _join) = (join(h, y), st)
 with_state(r::Recurrence, args...; kwargs...) = _with_state(r, r, args...; kwargs...)
 function with_state(n::NoAdjoint{<:Recurrence}, args...; kwargs...)
     return _with_state(n.op, n, args...; kwargs...)
@@ -683,13 +724,15 @@ Base.@constprop :aggressive function _with_state(
 end
 # Without a trace, `(y, state)`; with one, `((y, trace), state)`.
 function _state_call(::Val{false}, r, route, history, prepend, args, stop)
-    y, st = adjoint_call(_reroute(route, _WithState(r)), args..., stop)
-    return _prepend(prepend, history, y), st
+    op = _WithState(r)
+    prepend && return _prepended_call(route, history, op, args..., stop)
+    return adjoint_call(_reroute(route, op), args..., stop)
 end
 function _state_call(::Val{true}, r, route, history, prepend, args, stop)
-    op = _reroute(route, _WithTrace(_WithState(r)))
-    (y, st), tr = adjoint_call(op, args..., stop)
-    return (_prepend(prepend, history, y), tr), st
+    op = _WithTrace(_WithState(r))
+    (y, st), tr = prepend ? _prepended_call(route, history, op, args..., stop) :
+        adjoint_call(_reroute(route, op), args..., stop)
+    return (y, tr), st
 end
 
 # The rule applies when the kernel, the coupling and each modifier carry
