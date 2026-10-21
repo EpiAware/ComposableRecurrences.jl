@@ -792,6 +792,9 @@ const DENSE_CASES = [
     "tv_dense_$(op)$(ix)" for op in ("", "renewal_") for ix in ("secondary", "primary")
 ]
 foreach(n -> REQUIRES[n] = (:_Piecewise,), PIECEWISE_CASES)
+# A renewal whose kernel varies by infection time needs a `Primary()`
+# time-varying kernel in `Recurrence`; the other dense cases need nothing.
+REQUIRES["tv_dense_renewal_primary"] = (:primary_recurrence,)
 const PIECEWISE_SIZES = [
     (T = 200, L = 20), (T = 400, L = 20), (T = 200, L = 60), (T = 400, L = 60),
 ]
