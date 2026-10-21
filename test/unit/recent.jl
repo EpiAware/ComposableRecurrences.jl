@@ -49,6 +49,13 @@ end
     using ComposableRecurrences
     const CR = ComposableRecurrences
     @test Recent(3).w == [true, true, true]
+    # `Recent(n)` holds its ones as their count, plain data with no array,
+    # and its type does not depend on `n`.
+    @test eltype(Recent(3).w) === Bool
+    @test isbits(Recent(3).w)
+    n = Ref(4)
+    @test (@inferred Recent(n[])).w == trues(4)
+    @test_throws BoundsError Recent(3).w[4]
     @test Recent([0.5, 0.2]).w == [0.5, 0.2]
     @test CR.depth(Recent(7)) == 7
     @test CR.depth(CR.Transform(*, Derived(exp, -0.1 * Recent(9)))) == 9
