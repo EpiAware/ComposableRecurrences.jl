@@ -728,11 +728,19 @@ end
 const _Depleting = _OnePool{Tuple{}}
 
 function forward!(m::_Depleting, ::Step, v, s, t)
-    α = _exponent_value(m.heterogeneity)
     for k in eachindex(v, s)
-        v[k], s[k] = _draw(m.form, v[k], s[k], _pop(m.N, k, t), α)
+        v[k], s[k] = _step(m, v[k], s[k], t, k)
     end
     return nothing
+end
+
+# Stratum `k`'s step as scalars, which the operator's per-stratum path calls
+# in place of `forward!` on one-entry views: plain Mooncake compiles it
+# faster.
+function _step(m::_Depleting, v::Number, s::Number, t, k)
+    return _draw(
+        m.form, v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
 end
 
 function pullback!(grads, m::_Depleting, ::Step, v, s, t)
@@ -753,13 +761,19 @@ end
 const _Flowing = _OnePool{<:Tuple{Flow, Vararg{Flow}}}
 
 function forward!(m::_Flowing, ::Step, v, s, t)
-    α = _exponent_value(m.heterogeneity)
     for k in eachindex(v, s)
-        y, s′ = _draw(m.form, v[k], s[k], _pop(m.N, k, t), α)
-        (s″,) = _flow_only(m.flows, (s′,), k, t)
-        v[k], s[k] = y, s″
+        v[k], s[k] = _step(m, v[k], s[k], t, k)
     end
     return nothing
+end
+
+# Stratum `k`'s step as scalars, as for `_Depleting`.
+function _step(m::_Flowing, v::Number, s::Number, t, k)
+    y, s′ = _draw(
+        m.form, v, s, _pop(m.N, k, t), _exponent_value(m.heterogeneity)
+    )
+    (s″,) = _flow_only(m.flows, (s′,), k, t)
+    return y, s″
 end
 
 function pullback!(grads, m::_Flowing, ::Step, v, s, t)
