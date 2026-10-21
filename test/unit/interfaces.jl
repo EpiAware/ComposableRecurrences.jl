@@ -305,19 +305,22 @@ end
     @test CR.NoAdjoint(c)(R) == c(R)
 end
 
-@testitem "Interfaces: the step kernels behind forward!" begin
+@testitem "Interfaces: the built-ins' steps behind forward!" begin
     using ComposableRecurrences, LinearAlgebra
     CR = ComposableRecurrences
-    # The built-ins' scalar kernels, called directly: the operators inline
-    # them into their loops.
+    # The built-in pointwise modifiers and forms implement forward! and
+    # pullback! as a user's pieces do, and the operators reach them through
+    # the same step on one stratum's view; a Depletion keeps its own kernels.
     pool = CR.Depletion(
         100.0; pools = (:S,), form = CR.Hazard(),
         flows = (CR.Flow(0 => 1, 2.0; form = CR.Truncate()),)
     )
-    for m in (CR.Add(1.0), CR.Clamp(0.0, 1.0), CR.Transform(*, 2.0), CR.Depletion(100.0), pool)
+    for m in (CR.Add(1.0), CR.Clamp(0.0, 1.0), CR.Transform(*, 2.0))
+        @test !CR._kernel(m)
+    end
+    for m in (CR.Depletion(100.0), pool)
         @test CR._kernel(m)
     end
-    @test !CR._kernel(nothing)
     grads = (; piece = (; b = Ref(0.0)), v = 1.0, s = 0.5)
     @test CR._step_back(grads, CR.Add(1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
     @test grads.piece.b[] == 1.0
@@ -400,5 +403,34 @@ end
     @test copy(a)[3] == 2.0
     @test map(x -> 3x, a)[3] == 6.0
     @test (2 .* a)[3] == 4.0
-    @test_throws BoundsError a[1]
+    err = try
+        a[1]
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("eachindex(v)", err.msg)
+end
+
+@testitem "Interfaces: a pointwise step that loops over 1:length(v) says why it fails" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A step on one stratum's view sees the index `k`, not `1`, so a loop
+    # over `1:length(v)` reaches outside it for every stratum but the first.
+    struct OneBased end
+    CR.ispointwise(::OneBased) = true
+    function CR.forward!(::OneBased, ::CR.Step, v, s, t)
+        for i in 1:length(v)
+            v[i] *= 2
+        end
+        return nothing
+    end
+    r = Recurrence([0.5, 0.5]; modifiers = (OneBased(),))
+    err = try
+        r(ones(2, 3); history = ones(2, 2))
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("eachindex(v)", err.msg)
 end

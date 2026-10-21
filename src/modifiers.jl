@@ -550,15 +550,14 @@ end
 
 forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
-# Whether `m` is a built-in pointwise modifier whose step is an internal
-# scalar kernel, `_step` and `_step_back`, which the recurrence threads
-# through a stratum's value without views and which other built-ins call.
+# Whether `m`'s step is an internal scalar kernel, `_step` and
+# `_step_back`, rather than its `forward!` and `pullback!`: only a
+# `Depletion`'s pointwise steps, which hold no `forward!` of their own.
 _kernel(m) = false
 
 # The step of a pointwise modifier on stratum `k`'s value and state, as new
-# scalars. A built-in's kernel; anything else runs its `forward!` on
-# one-entry views of local slots, which a fully inlined step keeps in
-# registers.
+# scalars: its `forward!` on one-entry views of local slots, which a fully
+# inlined step keeps in registers, or a `Depletion`'s kernel.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
     _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
@@ -567,7 +566,8 @@ end
 # The same for its `pullback!`: the cotangents of the step's inputs from
 # those of its outputs, `grads.v` and `grads.s`.
 @inline function _step_back(grads, m, v, s, t, k)
-    v̄r, s̄r = Ref(grads.v), Ref(grads.s)
+    T = promote_type(typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), param_eltype(m))
+    v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
     g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
     _written(m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
     return v̄r[], s̄r[]
@@ -610,7 +610,8 @@ end
     return map(getindex, vr), map(getindex, sr)
 end
 @inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
-    v̄r, s̄r = map(Ref, grads.v), map(Ref, grads.s)
+    T = promote_type(map(typeof, (grads.v..., grads.s..., v..., s...))..., param_eltype(m))
+    v̄r, s̄r = map(Base.RefValue{T}, grads.v), map(Base.RefValue{T}, grads.s)
     at = r -> _At(r, g)
     gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
     vv, sv = map(at ∘ Ref, v), map(at ∘ Ref, s)
@@ -697,6 +698,18 @@ end
 # Run the modifiers in tuple order on the step's values, in place.
 _stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
 function _stages!(ms::Tuple, states::Tuple, v, t)
-    forward!(first(ms), Step(), v, first(states), t)
+    _stage!(first(ms), v, first(states), t)
     return _stages!(Base.tail(ms), Base.tail(states), v, t)
+end
+
+# One modifier's step on the step's values. A pointwise modifier runs per
+# stratum, as in the loops that thread one stratum's value, so the strata
+# loop runs where the executor puts it, on a device too; any other on the
+# whole vectors.
+_stage!(m, v, s, t) = _stage!(Val(ispointwise(m)), m, v, s, t)
+_stage!(::Val{false}, m, v, s, t) = forward!(m, Step(), v, s, t)
+function _stage!(::Val{true}, m, v, s, t)
+    n = length(eachindex(v, s))
+    _each!(_pointwise_body!, Serial(), v, n, n, v, s, m, t)
+    return nothing
 end

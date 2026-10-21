@@ -353,9 +353,17 @@ end
     @inbounds a.parent[_ix(a)...] = x
     return a
 end
-# The error for an index other than the view's own takes the indices only,
-# so the view and its slot do not escape into it.
-@noinline _out_of_view(i, k) = throw(BoundsError(k:k, i))
+# The error for an index other than the view's own, such as a pointwise
+# step looping over `1:length(v)`, says to loop over `eachindex(v)`. It
+# takes the indices only, so the view and its slot do not escape into it.
+@noinline function _out_of_view(i, k)
+    throw(
+        ArgumentError(
+            "index $i is outside a pointwise step's view of stratum $k: " *
+                "loop over eachindex(v), not 1:length(v)"
+        )
+    )
+end
 # The one entry without its index, as `v[]`, for a step that holds it alone.
 @inline Base.getindex(a::_At) = @inbounds a[a.k]
 @inline Base.setindex!(a::_At, x) = (@inbounds a[a.k] = x; a)

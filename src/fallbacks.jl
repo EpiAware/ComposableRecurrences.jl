@@ -388,8 +388,12 @@ end
     return vr[], sr[]
 end
 @inline function _draw_back(grads, form, v, s, N, α)
-    z = zero(grads.v)
-    v̄r, s̄r, N̄r, ᾱr = Ref(grads.v), Ref(grads.s), Ref(z), Ref(z)
+    T = promote_type(
+        typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), typeof(N),
+        typeof(α), param_eltype(form)
+    )
+    v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
+    N̄r, ᾱr = Base.RefValue{T}(zero(T)), Base.RefValue{T}(zero(T))
     g = (;
         piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
         α = _At(ᾱr, 1),
@@ -397,24 +401,6 @@ end
     vv, sv = _At(Ref(v), 1), _At(Ref(s), 1)
     _written(form, @inline pullback!(g, form, Step(), vv, sv, N, α))
     return v̄r[], s̄r[], N̄r[], ᾱr[]
-end
-# A depletion form's in-place step and pullback on views of a stratum's
-# values and pools, with `N` and `α` shared, from its scalar kernel.
-function _form_forward!(form, v, s, N, α)
-    for i in eachindex(v, s)
-        v[i], s[i] = _draw(form, v[i], s[i], N, α)
-    end
-    return nothing
-end
-function _form_pullback!(grads, form, v, s, N, α)
-    for i in eachindex(v, s)
-        g = (; piece = grads.piece, v = grads.v[i], s = grads.s[i])
-        v̄, s̄, N̄, ᾱ = _draw_back(g, form, v[i], s[i], N, α)
-        grads.v[i], grads.s[i] = v̄, s̄
-        grads.N[i] += N̄
-        grads.α[i] += ᾱ
-    end
-    return nothing
 end
 # The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the

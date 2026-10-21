@@ -308,6 +308,12 @@ end
     @test @inferred(CR._bind(mods, H, nothing, 1)) isa Tuple
     @test @inferred(CR._bind(mods, H, H, 1)) isa Tuple
     @test_throws "per group" CR.Allocate([[1], [2]], Recent(2))
+    # A coupled source's cotangent slot holds no parameter, so a bound
+    # modifier's float type still infers for the slots a step writes into.
+    C = fill(0.5, 2, 2)
+    m = CR.Transform(*, Derived(exp, -0.05 * Recent(7; coupling = C)))
+    b = only(CR._bind((m,), H, H, 1))
+    @test @inferred(CR.param_eltype(b)) === Float64
 end
 
 @testitem "Recent: a coupling against a naive loop" begin
