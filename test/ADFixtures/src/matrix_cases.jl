@@ -218,7 +218,7 @@ end
 # the days after the seed.
 function bvd_renewal_call_rule(wrap, g, seed, R, N)
     L = length(seed)
-    d = CR.Depletion(N, CR.Hazard(); pool0 = max(N - sum(seed), zero(eltype(seed))))
+    d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
     r = wrap(Recurrence(g; modifiers = (d,)))
     return r(R; history = seed, start = L + 1, prepend = true)
 end
@@ -242,7 +242,7 @@ function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
     pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
     mods = (
         CR.Redistribute(CR.movement(K, ε)),
-        CR.Depletion(CR.PerStratum(N), CR.Hazard(); pool0),
+        depletion(CR.PerStratum(N); pool0),
     )
     r = wrap(Recurrence(g; modifiers = mods))
     y, _ = r(R; history = seeds, start = L + 1, prepend = true, trace = true)
