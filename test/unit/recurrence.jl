@@ -614,3 +614,51 @@ end
         @test (@inferred CR.with_state(r, R; history = h)) isa Tuple
     end
 end
+
+@testitem "Recurrence: no step reads a buffer row before it is written" begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    # A history whose `similar` is filled with NaN: the run's buffer zeroes
+    # only its history rows, so a row read before its step writes it shows
+    # as NaN in the output.
+    struct Poison{T, N} <: AbstractArray{T, N}
+        x::Array{T, N}
+    end
+    Base.size(p::Poison) = size(p.x)
+    Base.getindex(p::Poison, i::Int...) = p.x[i...]
+    Base.similar(::Poison, ::Type{T}, dims::Dims) where {T} = fill(T(NaN), dims)
+    H = CR._buffer(Poison(ones(3, 2)), Float64, 2, 4, 3)
+    @test all(iszero, H[1:2, :]) && all(isnan, H[3:end, :])
+
+    rng = Xoshiro(2)
+    S, L, T = 3, 4, 10
+    g = rand(rng, L) ./ 2
+    h = rand(rng, S, 7)
+    R = 0.5 .+ rand(rng, S, T)
+    G = rand(rng, S, L, T) ./ 3
+    P = rand(rng, S, S, L) ./ 6
+    K = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
+    pool = CR.Depletion(PerStratum(fill(50.0, S)))
+    removals = CR.Depletion(PerStratum(fill(50.0, S)); removals = 0.1 * CR.Recent(7))
+    feedback = CR.Transform(*, Derived(exp, -0.02 * CR.Recent(6; coupling = K)))
+    cases = (
+        (Recurrence(g), (;)),
+        (Recurrence(g; coupling = K), (;)),
+        (Recurrence(Pairwise(P)), (;)),
+        (Recurrence(TimeVarying(PerStratum(G), CR.Primary()); coupling = K), (; start = 8)),
+        (Recurrence(g; coupling = K, modifiers = (pool,)), (;)),
+        (Recurrence(g; coupling = K, modifiers = (removals,)), (;)),
+        (Recurrence(g; modifiers = (feedback,)), (;)),
+    )
+    for (r, kw) in cases
+        y = r(R; history = h, kw...)
+        @test r(R; history = Poison(h), kw...) ≈ y
+    end
+    # One series, which takes over the buffer for its output.
+    r = Recurrence(g)
+    @test r(R[1, :]; history = Poison(h[1, :])) ≈ r(R[1, :]; history = h[1, :])
+    # A resumed call loads its history from the state.
+    r = Recurrence(g; coupling = K, modifiers = (pool,))
+    _, st = CR.with_state(r, R; history = Poison(h), stop = 5)
+    @test r(R; state = st) ≈ r(R; history = h)[:, 6:end]
+end
