@@ -10,7 +10,7 @@
 # 1. Turn admissions into occupancy with a convolution and with a recurrence.
 # 2. Compare a log-normal stay with the same mean.
 # 3. Cap occupancy at the number of beds with `Clamp`.
-# 4. Admit up to the free beds with a `Pool` and keep the rest.
+# 4. Admit up to the free beds with a `Depletion` and keep the rest.
 # 5. Move suspected and confirmed patients between two compartments.
 #
 # ### What might I need to know before starting
@@ -20,7 +20,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp, Flow, Pool, Share, Truncate
+using ComposableRecurrences: Clamp, Depletion, Flow, Share, Truncate
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using SpecialFunctions: erfc
 
@@ -140,7 +140,7 @@ round(sum(by_recurrence .- capped))
 # ## Admitted and turned away
 #
 # The cap deletes the patients it turns away.
-# A [`Pool`](@ref ComposableRecurrences.Pool) keeps them instead.
+# A [`Depletion`](@ref ComposableRecurrences.Depletion) that fills a pool keeps them instead.
 # It admits each day's demand up to the free beds and routes the rest to a second series:
 #
 # ```math
@@ -151,14 +151,14 @@ round(sum(by_recurrence .- capped))
 #
 # where ``f_t`` is the number of free beds and ``x_t`` the admissions.
 # The second series receives the ``A_t - x_t`` patients turned away.
-# The `Pool`'s one pool `:O` is the occupancy, and its state.
-# The draw `Truncate() => :O` fills it with the admissions, up to `beds`.
+# Its one pool `:O` is the occupancy, and its state.
+# The draw `form = Truncate()` with `fill = :O` fills it with the admissions, up to `beds`.
 # A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as `flows_first = true`.
 # `overflow = :stratum` sends what is turned away to the second series.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
-routing = Pool(
-    beds; pools = (:O,), draw = Truncate() => :O, flows_first = true,
+routing = Depletion(
+    beds; pools = (:O,), form = Truncate(), fill = :O, flows_first = true,
     flows = Flow(:O => 0, δ; form = Share()), overflow = :stratum
 )
 routed = Recurrence([0.0]; modifiers = (routing,))(;
@@ -180,7 +180,7 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
 # An allowance granted each period works the same way, with a pool drawn from rather than filled.
 # Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B`.
-# The [`Pool`](@ref ComposableRecurrences.Pool) docstring gives it and the other models of pools and flows.
+# The [`Depletion`](@ref ComposableRecurrences.Depletion) docstring gives it and the other models of pools and flows.
 
 # ## A ward with two linked compartments
 #
@@ -202,14 +202,14 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # The rates are hazards, so the share leaving a compartment never exceeds what it holds.
 # The two compartments are the strata of a recurrence with the unit kernel, suspected first.
 # The recurrence carries yesterday's compartments forward and adds the admissions to the suspected one.
-# A [`Pool`](@ref ComposableRecurrences.Pool) without a draw then applies the day's flows.
+# A [`Depletion`](@ref ComposableRecurrences.Depletion) without a draw then applies the day's flows.
 # Its pools are the compartments, held in the strata.
 # Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to another, or to `0` to leave, with a hazard rate as its demand.
 # Each rate is a parameter, so it can differ by ward or change over time.
 # Here ``c = 0.3``, ``r = 0.4`` and ``d = 0.1``.
 
-ward_flows = Pool(;
-    pools = (:suspected, :confirmed), draw = nothing,
+ward_flows = Depletion(;
+    pools = (:suspected, :confirmed), form = nothing,
     flows = (
         Flow(:suspected => :confirmed, 0.3), Flow(:suspected => 0, 0.4),
         Flow(:confirmed => 0, 0.1),

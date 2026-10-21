@@ -39,6 +39,16 @@ end
     @test err isa ArgumentError
     @test occursin("CensoredDistributions", sprint(showerror, err))
     @test occursin("Gamma", sprint(showerror, err))
+    # Anything else reaching the continuous fallback gets an error that
+    # names no package.
+    err = try
+        CR._continuous_masses(:not_a_delay, 3)
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("Symbol", sprint(showerror, err))
+    @test !occursin("CensoredDistributions", sprint(showerror, err))
 end
 
 @testitem "Continuous delays: an error naming CensoredDistributions without it" begin

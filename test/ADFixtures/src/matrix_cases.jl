@@ -15,7 +15,7 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, depletion
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -83,7 +83,7 @@ function renewal_depletion(wrap, z::Size)
     f = function (θ)
         g, logh, logR = _unpack(θ, (L,), (L,), (T,))
         seed = exp.(logh)
-        d = CR.Depletion(N; pool0 = max(N - sum(seed), zero(eltype(θ))))
+        d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(θ))))
         y = wrap(Recurrence(g; modifiers = (d,)))(exp.(logR); history = seed)
         return sum(W .* log.(y))
     end
@@ -98,7 +98,7 @@ function strata_mixing(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
-        r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(g; coupling = K, modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     K0 = 0.8I(S) .+ 0.2 / S .* ones(S, S)
@@ -113,7 +113,7 @@ function strata_independent(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
-        r = Recurrence(g; modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(g; modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
@@ -127,7 +127,7 @@ function strata_pairwise(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         A, logh, logR = _unpack(θ, (S, S, L), (S, L), (S, T))
-        r = Recurrence(Pairwise(A); modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(Pairwise(A); modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     K0 = 0.8I(S) .+ 0.2 / S .* ones(S, S)
@@ -153,7 +153,7 @@ function strata_routes(wrap, z::Size)
         Ks = SparseMatrixCSC(S, S, K2.colptr, K2.rowval, collect(v))
         r = Recurrence(
             Routes((K1, g1), (Ks, g2));
-            modifiers = (CR.Depletion(pop, CR.Floor()),)
+            modifiers = (depletion(pop; form = CR.Floor()),)
         )
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
@@ -185,7 +185,7 @@ function zones_sparse(wrap, z::Size)
     f = function (θ)
         g, v, logh, logR = _unpack(θ, (L,), (length(nonzeros(K0)),), (S, L), (S, T))
         K = SparseMatrixCSC(S, S, K0.colptr, K0.rowval, collect(v))
-        r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(g; coupling = K, modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     return f, _flat(_gi(L), nonzeros(K0), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
@@ -203,7 +203,7 @@ function bvd_patch(wrap, z::Size)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
             CR.Redistribute(CR.movement(K, only(ε))),
-            CR.Depletion(CR.PerStratum(N); pool0),
+            depletion(CR.PerStratum(N); pool0),
         )
         y = wrap(Recurrence(g; modifiers = mods))(exp.(logR); history = seeds)
         return sum(W .* log.(y))
@@ -212,11 +212,68 @@ function bvd_patch(wrap, z::Size)
     return f, _flat(_gi(L), K0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T), [0.5])
 end
 
+# The BVD renewal and patch models as the backend calls them: the series
+# cover the seed's `L` days too, the run starts on day `L + 1`, the output
+# keeps the seed in front, and the patch call takes its trace. `T` counts
+# the days after the seed.
+function bvd_renewal_call_rule(wrap, g, seed, R, N)
+    L = length(seed)
+    d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
+    r = wrap(Recurrence(g; modifiers = (d,)))
+    return r(R; history = seed, start = L + 1, prepend = true)
+end
+function bvd_renewal_call(run)
+    return function (wrap, z::Size)
+        (; T, L) = z
+        W = _weights(L + T)
+        N = 1.0e5
+        f = function (θ)
+            g, logh, logR = _unpack(θ, (L,), (L,), (L + T,))
+            return sum(W .* log.(run(wrap, g, exp.(logh), exp.(logR), N)))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), L), [0.2 + 0.1 * _noise(t, 10) for t in 1:(L + T)]
+        )
+        return f, θ
+    end
+end
+function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
+    L = size(seeds, 2)
+    pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+    mods = (
+        CR.Redistribute(CR.movement(K, ε)),
+        depletion(CR.PerStratum(N); pool0),
+    )
+    r = wrap(Recurrence(g; modifiers = mods))
+    y, _ = r(R; history = seeds, start = L + 1, prepend = true, trace = true)
+    return y
+end
+function bvd_patches_call(run)
+    return function (wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, L + T)
+        N = fill(1.0e5, S)
+        f = function (θ)
+            g, K, logh, logR, ε = _unpack(
+                θ, (L,), (S, S), (S, L), (S, L + T), (S, L + T)
+            )
+            y = run(wrap, g, K, exp.(logh), exp.(logR), ε, N)
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), 0.05 .* (ones(S, S) .- I(S)), fill(log(5.0), S, L),
+            [0.2 + 0.1 * _noise(t, k + 11) for k in 1:S, t in 1:(L + T)],
+            [0.3 + 0.1 * _noise(t, k + 12) for k in 1:S, t in 1:(L + T)]
+        )
+        return f, θ
+    end
+end
+
 # A pool of susceptibles `S` and protected `V`, drawn from at weight `σ` on
 # `V`, with the doses moving `S` into `V` and any further `flows`.
 function _leaky(N, doses, σ, flows...)
-    return CR.Pool(
-        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+    return CR.Depletion(
+        N; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = σ),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -272,8 +329,8 @@ function ward_flows(wrap, z::Size)
         adm, confirm, ruleout, discharge, transfer = _unpack(
             θ, (2S, T), (S,), (T,), (1,), (S, T)
         )
-        flows = CR.Pool(;
-            pools = (:suspected, :confirmed), draw = nothing, flows = (
+        flows = CR.Depletion(;
+            pools = (:suspected, :confirmed), form = nothing, flows = (
                 CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
                 CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
                 CR.Flow(:confirmed => 0, only(discharge)),
@@ -322,8 +379,8 @@ function capacity_beds(wrap, z::Size)
     G = PerStratum([(k <= P ? 0.5 : 1.0) * g for k in 1:S, g in _gi(L)])
     f = function (θ)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
-        beds = CR.Pool(
-            PerStratum(exp.(logC)); pools = (:O,), draw = CR.SoftTruncate(0.1) => :O,
+        beds = CR.Depletion(
+            PerStratum(exp.(logC)); pools = (:O,), form = CR.SoftTruncate(0.1), fill = :O,
             flows_first = true, flows = CR.Flow(:O => 0, 0.1; form = CR.Share()),
             overflow = :stratum
         )
@@ -642,6 +699,14 @@ const CASES = [
         bvd_patch, [5, 50], false,
     ),
     Case(
+        "bvd_renewal_call", "BVD renewal as called: seeded, prepended, hazard depletion",
+        bvd_renewal_call(bvd_renewal_call_rule), [1], false,
+    ),
+    Case(
+        "bvd_patches_call", "BVD patches as called: seeded, prepended, traced",
+        bvd_patches_call(bvd_patches_call_rule), [1, 5, 11], false,
+    ),
+    Case(
         "strata_vaccination", "leaky vaccination into a protected pool",
         strata_vaccination, [5, 50], false,
     ),
@@ -753,7 +818,7 @@ const CASES = [
         transform, [5, 50], false,
     ),
     Case(
-        "capacity_beds", "isolation beds with overflow, a Pool filled up to capacity",
+        "capacity_beds", "isolation beds with overflow, a pool filled up to capacity",
         capacity_beds, [20, 50], false,
     ),
     Case(
@@ -769,11 +834,14 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:movement,),
+    # `prepend` came with `exponential_history`, `trace` with `_WithTrace`.
+    "bvd_renewal_call" => (:exponential_history,),
+    "bvd_patches_call" => (:movement, :exponential_history, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
-    "strata_vaccination" => (:Pool,),
-    "ward_flows" => (:Pool,),
-    "strata_waning" => (:Pool,),
+    "strata_vaccination" => (:depletion_pools,),
+    "ward_flows" => (:depletion_pools,),
+    "strata_waning" => (:depletion_pools,),
     "transform" => (:Transform,),
     "capacity_beds" => (:pool_fill,),
     # The coupling on `Recent` came after `Recent`.
@@ -792,6 +860,9 @@ const DENSE_CASES = [
     "tv_dense_$(op)$(ix)" for op in ("", "renewal_") for ix in ("secondary", "primary")
 ]
 foreach(n -> REQUIRES[n] = (:_Piecewise,), PIECEWISE_CASES)
+# A renewal whose kernel varies by infection time needs a `Primary()`
+# time-varying kernel in `Recurrence`; the other dense cases need nothing.
+REQUIRES["tv_dense_renewal_primary"] = (:primary_recurrence,)
 const PIECEWISE_SIZES = [
     (T = 200, L = 20), (T = 400, L = 20), (T = 200, L = 60), (T = 400, L = 60),
 ]
@@ -828,7 +899,8 @@ const TIERS = Dict(
     ),
     "ci" => (
         cases = [
-            "overview", "renewal", "strata_mixing", "bvd_patch", "delay_fixed",
+            "overview", "renewal", "strata_mixing", "bvd_patch", "bvd_renewal_call",
+            "bvd_patches_call", "delay_fixed",
             "conv_fixed", "tv_piecewise_secondary_k5", "tv_piecewise_primary_k5",
             "tv_piecewise_renewal_secondary_k5", "tv_piecewise_renewal_primary_k5",
         ],
@@ -1048,7 +1120,7 @@ if isfile(BVD_HANDRULE)
         end
     end
     function _bvd_renewal_rule(wrap, g, seed, R, N)
-        d = CR.Depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
+        d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
         return wrap(Recurrence(g; modifiers = (d,)))(R; history = seed)
     end
     # The hand loops read `R` on the seed days too, and return them first.
@@ -1096,7 +1168,7 @@ if isfile(BVD_HANDRULE)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
             CR.Redistribute(CR.movement(K, ε)),
-            CR.Depletion(CR.PerStratum(N); pool0),
+            depletion(CR.PerStratum(N); pool0),
         )
         return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
     end
@@ -1234,6 +1306,29 @@ if isfile(BVD_HANDRULE)
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
+    # The backend's call shape against the same loops, which read the series
+    # over the seed's days too and return those days first.
+    _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
+    function _patches_call_hand(kernel)
+        return function (wrap, g, K, seeds, R, ε, N)
+            return kernel(R, collect(g), seeds, collect(K), collect(ε), N)
+        end
+    end
+    for (name, loss, hand, kernels) in (
+            (
+                "bvd_renewal_call", bvd_renewal_call, _renewal_call_hand,
+                (BVD.renewal_loop, BVD.renewal_infections),
+            ),
+            (
+                "bvd_patches_call", bvd_patches_call, _patches_call_hand,
+                (BVD.patch_loop, BVD.patch_infections),
+            ),
+        )
+        BASELINES[name] = [
+            "loop" => z -> loss(hand(kernels[1]))(identity, z),
+            "handrule" => z -> loss(hand(kernels[2]))(identity, z),
+        ]
+    end
     # The patch movement built as an `S × S × T` array before the run, the
     # form `movement` is timed against: the package reads it lazily from the
     # kernel and the intensity.
@@ -1247,7 +1342,7 @@ if isfile(BVD_HANDRULE)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
             CR.Redistribute(_materialised_movement(K, ε)),
-            CR.Depletion(CR.PerStratum(N); pool0),
+            depletion(CR.PerStratum(N); pool0),
         )
         return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
     end
@@ -1501,6 +1596,54 @@ if supports(:_read_pullback)
     REQUIRES["custom_coupling_matrix"] = (:_read_pullback,)
     for tier in ("smoke", "realistic")
         append!(TIERS[tier].cases, ["custom_modifier_vector", "custom_coupling_matrix"])
+    end
+end
+
+# A whole-step modifier without a `pullback!`, as a mixed zone split with an
+# occupancy total: the local derivative seeds the values, the state and
+# the scalars, one pass while they fit in 24.
+"A share `b` of the values mixed evenly over the strata, and the mixed values' decaying total, at rate `a`, kept as the state."
+struct ZoneShare{B, A}
+    b::B
+    a::A
+end
+if supports(:_StepDuals)
+    @in_place function CR.forward!(m::ZoneShare, ::CR.Step, v, s, t)
+        mean = sum(v) / length(v)
+        for k in eachindex(v, s)
+            v[k] = (1 - m.b) * v[k] + m.b * mean
+            s[k] = m.a * s[k] + v[k]
+        end
+        return nothing
+    end
+
+    function custom_modifier_whole(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, p = _unpack(θ, (L,), (S, L), (S, T), (2,))
+            r = Recurrence(g; modifiers = (ZoneShare(p[1], p[2]),))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 12) for k in 1:S, t in 1:T], [0.2, 0.5]
+        )
+        return f, θ
+    end
+
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_whole",
+            "renewal with a user whole-step modifier mixing the strata",
+            custom_modifier_whole, [3, 10, 20], false,
+        ),
+    )
+    REQUIRES["custom_modifier_whole"] = (:_StepDuals,)
+    for tier in ("smoke", "realistic")
+        push!(TIERS[tier].cases, "custom_modifier_whole")
     end
 end
 

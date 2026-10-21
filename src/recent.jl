@@ -192,6 +192,11 @@ function _check_recent_strata(C, S)
 end
 
 param(b::_BoundRecent, k, t) = _read(b.x.coupling, b, k, _recent_row(b, k, t))
+# A read's float type, from the weights, the coupling and the history: the
+# weights' mirror is a cotangent slot, not a parameter.
+function param_eltype(b::_BoundRecent)
+    return promote_type(param_eltype(b.x), param_eltype(b.H), param_eltype(b.u))
+end
 
 # Stratum `j`'s weighted window ending before row `i`.
 function _recent_window(w, H, i, j)

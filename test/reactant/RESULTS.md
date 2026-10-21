@@ -41,8 +41,8 @@ Total run time 163.0 min, one subprocess per cell, timeout 300 s.
 | Recurrence with Add (TimeVarying) | works (52.5 s / 6.8 µs) | works (51.1 s / 15.4 µs) | works (55.1 s / 33.4 µs) | works (54.6 s / 991.3 µs) |
 | Recurrence with Clamp | works (49.6 s / 9.3 µs) | works (50.6 s / 15.1 µs) | works (53.8 s / 42.0 µs) | works (54.6 s / 622.2 µs) |
 | Recurrence with Redistribute | works (49.2 s / 16.4 µs) | works (51.2 s / 24.6 µs) | works (51.8 s / 85.3 µs) | works (52.7 s / 981.4 µs) |
-| Recurrence with a budget Pool and a queue | works (43.7 s / 7.9 µs) | works (45.7 s / 32.5 µs) | works (50.8 s / 467.4 µs) | works (44.4 s / 4453.6 µs) |
-| Recurrence with a Pool of flows | works (43.8 s / 8.3 µs) | works (40.8 s / 12.6 µs) | works (47.7 s / 22.5 µs) | works (48.2 s / 572.0 µs) |
+| Recurrence with a budget pool and a queue | works (43.7 s / 7.9 µs) | works (45.7 s / 32.5 µs) | works (50.8 s / 467.4 µs) | works (44.4 s / 4453.6 µs) |
+| Recurrence with a Depletion of flows | works (43.8 s / 8.3 µs) | works (40.8 s / 12.6 µs) | works (47.7 s / 22.5 µs) | works (48.2 s / 572.0 µs) |
 | Recurrence with Recent (coupled) | works (55.2 s / 10.8 µs) | works (55.4 s / 33.6 µs) | works (57.9 s / 271.9 µs) | works (59.5 s / 3029.7 µs) |
 | Recurrence, kernel from change points | works (63.1 s / 15.2 µs) | works (60.7 s / 17.8 µs) | works (64.5 s / 27.0 µs) | works (67.3 s / 473.2 µs) |
 | Recurrence, Primary() kernel from change points | works (60.0 s / 7.7 µs) | works (64.9 s / 14.9 µs) | works (68.6 s / 21.9 µs) | works (62.8 s / 2218.7 µs) |
@@ -231,7 +231,7 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
-This lives in the package for the draw of a `Pool` with several pools (`_draw_pools`, `src/pool.jl`).
+This lives in the package for the draw of a `Depletion` with several pools (`_draw_pools`, `src/pool.jl`).
 The soft minimum of `SoftTruncate` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
 
 Things to keep in mind when reading the tables.

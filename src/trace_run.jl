@@ -20,6 +20,9 @@ end
 _traced_recurrence(r::Recurrence) = r
 _traced_recurrence(w::_WithState) = w.r
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
+function _prepend_output(w::_WithTrace, h, (y, tr), join = _join)
+    return (_prepend_output(w.op, h, y, join), tr)
+end
 
 # The call's trace, `(; modifiers)`, one matrix per modifier with a
 # column per step: each step's inputs are the modifier's records, its
@@ -83,11 +86,19 @@ function _trace_out(R::_TracedRecord, m, args...)
 end
 # A modifier whose state never changes has no trace, so no cotangent.
 _trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
-function _trace_out(::Val{false}, R, m, m̄, v̄, s̄, v, s, τ, t, k)
+# The trace's pullback runs on one-entry views of stratum `k`: of the
+# trace's cotangent series, and of slots the pullback adds the cotangents
+# of the step's inputs and outputs into. Inlined, so the slots stay off
+# the heap.
+@inline function _trace_out(::Val{false}, R, m, m̄, v̄, s̄, v, s, τ, t, k)
     S = length(R.V̄)
-    r̄ = _gather(view(R.T̄, :, t), Val(ntrace(m, 1)), S, k)
-    a, b, c, d = pullback!((; piece = m̄, trace = r̄), m, Trace(), v, s, τ, k)
-    return v̄ + c, s̄ + d, a, b
+    r̄ = _trace_series(view(R.T̄, :, t), Val(ntrace(m, 1)), S)
+    z = zero(v̄)
+    a, b, c, d = Ref(z), Ref(z), Ref(z), Ref(z)
+    at = x -> _At(x, k)
+    grads = (; piece = m̄, trace = map(at, r̄), v = at(a), s = at(b), v′ = at(c), s′ = at(d))
+    _written(m, @inline pullback!(grads, m, Trace(), at(Ref(v)), at(Ref(s)), τ))
+    return v̄ + c[], s̄ + d[], a[], b[]
 end
 _trace_in(::Nothing, x̄) = x̄
 _trace_in(a, x̄) = x̄ + a
@@ -107,40 +118,39 @@ function _trace_in!(R::_TracedRecord, v̄, s̄)
     return nothing
 end
 
-# A pointwise modifier's trace pullback per stratum, a blockwise one's per
-# group, or a vector-level one's trace, its state after the step.
+# A pointwise modifier's trace pullback on the strata's vectors, a
+# blockwise one's per group, or another's on the whole step. The
+# cotangents of the step's outputs gather into `v̄` and `s̄`, and those of
+# its inputs into the record's buffers, added after the step's pullback.
 function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
-    if !ispointwise(m)
-        R.V̄ .= zero(eltype(R.V̄))
-        R.S̄ .= zero(eltype(R.S̄))
-        s̄ .+= r̄
-        return nothing
-    end
-    S = length(v)
-    for k in 1:S
-        a, b, c, d = pullback!(
-            (; piece = m̄, trace = _gather(r̄, Val(ntrace(m, 1)), S, k)), m, Trace(),
-            v[k], s[k], τ, k
-        )
-        v̄[k] += c
-        s̄[k] += d
-        R.V̄[k] = a
-        R.S̄[k] = b
-    end
+    R.V̄ .= zero(eltype(R.V̄))
+    R.S̄ .= zero(eltype(R.S̄))
+    r = ispointwise(m) ? _trace_series(r̄, Val(ntrace(m, 1)), length(v)) : r̄
+    grads = (; piece = m̄, trace = r, v = R.V̄, s = R.S̄, v′ = v̄, s′ = s̄)
+    _written(m, pullback!(grads, m, Trace(), v, s, τ))
     return nothing
 end
 function _trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
     nv, ns = B
     G = _ngroups(Val(B), length(v))
+    R.V̄ .= zero(eltype(R.V̄))
+    R.S̄ .= zero(eltype(R.S̄))
     for g in 1:G
-        a, b, c, d = pullback!(
-            (; piece = m̄, trace = _gather(r̄, Val(ntrace(m, nv)), G, g)), m,
-            Trace(), _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), τ, g
-        )
-        _scatter!(v̄, map(+, _gather(v̄, Val(nv), G, g), c), G, g)
-        _scatter!(s̄, map(+, _gather(s̄, Val(ns), G, g), d), G, g)
-        _scatter!(R.V̄, a, G, g)
-        _scatter!(R.S̄, b, G, g)
+        _group_trace_back!(m, Val(B), R, m̄, v̄, s̄, r̄, v, s, τ, G, g)
     end
+    return nothing
+end
+# Group `g`'s trace pullback, adding into the cotangents of the step's
+# outputs and the record's buffers: the modifier's `pullback!` on one-entry
+# views, or a built-in's on the gathered values.
+function _group_trace_back!(m, ::Val{B}, R, m̄, v̄, s̄, r̄, v, s, τ, G, g) where {B}
+    nv, ns = B
+    grads = (;
+        piece = m̄, trace = _group_views(r̄, Val(ntrace(m, nv)), G, g),
+        v = _group_views(R.V̄, Val(nv), G, g), s = _group_views(R.S̄, Val(ns), G, g),
+        v′ = _group_views(v̄, Val(nv), G, g), s′ = _group_views(s̄, Val(ns), G, g),
+    )
+    vg, sg = _group_views(v, Val(nv), G, g), _group_views(s, Val(ns), G, g)
+    _written(m, pullback!(grads, m, Trace(), vg, sg, τ, g))
     return nothing
 end

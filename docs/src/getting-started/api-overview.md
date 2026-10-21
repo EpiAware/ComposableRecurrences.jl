@@ -49,7 +49,7 @@ Acting on each series separately; [`ispointwise`](@ref ComposableRecurrences.isp
 
 ### [Pool](@id glossary-pool)
 
-A quantity carried from one step to the next that a step draws from or adds to; a [`Pool`](@ref ComposableRecurrences.Pool) holds one or more.
+A quantity carried from one step to the next that a step draws from or adds to; a [`Depletion`](@ref ComposableRecurrences.Depletion) holds one or more.
 
 ## Tables
 
@@ -193,8 +193,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 
 | Name | What it does | Recurrence | Per series | Parameters |
 |---|---|---|---|---|
-| [`Pool(N; pools, draw, flows)`](@ref ComposableRecurrences.Pool) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | `N`, `heterogeneity`, `initial`, each draw weight and each flow's demand |
-| [`Depletion(N, form)`](@ref ComposableRecurrences.Depletion) | draws each step's values from a finite pool, with removals | yes | yes | `N`, `heterogeneity`, `pool0`, `removals` |
+| [`Depletion(N; pools, form, weights, flows)`](@ref ComposableRecurrences.Depletion) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | `N`, `heterogeneity`, each starting pool, each draw weight and each flow's demand |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | `lo`, `hi` |
@@ -203,7 +202,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 
 Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
 Each modifier here has a hand-written gradient, except a `Transform` whose `f` holds floats and has no `derivative`; [Rules and plain AD](@ref adjoint-routing) gives the route a call takes.
-The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and a `Pool` as a capacity and without a draw.
+The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and a `Depletion` as a capacity and without a draw.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
@@ -211,11 +210,11 @@ Depletion forms, flow forms and time indexing are types, and you pass an instanc
 
 | Name | What it does | Example |
 |---|---|---|
-| [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N, Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(b, Truncate())`, `Pool(C; pools = (:O,), draw = SoftTruncate(0.1) => :O)` |
+| [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N; form = Floor())` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(b; form = Truncate())`, `Depletion(C; form = SoftTruncate(0.1), fill = :S)` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
-| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N, MyForm())` |
+| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N; form = MyForm())` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its pool; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(:S => :V, p; form = Share())` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
@@ -252,9 +251,9 @@ A model built from the package's own parts needs none of them.
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
 | [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward) | an operator's whole call, which the rules and `test_adjoint` use | `(y, cache)` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure) | the job a `forward!` method does: one step, the starting state, a coupling's mixing | singletons for dispatch |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the job a `forward!` method does: one step, the starting state, a coupling's mixing, a modifier's record for a call with `trace = true` | singletons for dispatch |
 | [`Run()`](@ref ComposableRecurrences.Run) | the job of `forward`: an operator's whole call | a singleton for dispatch |
-| [`Trace()`](@ref ComposableRecurrences.Trace), [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | what a modifier records for a call with `trace = true`, and how many rows | a tuple of values, and an `Int` |
+| [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | marks a modifier that acts on each series separately | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | marks a modifier that acts on groups of series, `Val((nv, ns))` values and state entries per group | `Val` or `nothing` |

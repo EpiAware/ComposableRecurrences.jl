@@ -66,7 +66,7 @@ end
     @test err isa ArgumentError
     @test occursin("inside a Recurrence", err.msg)
     @test_throws "does not vary over time" CR.Depletion(
-        100.0; pool0 = Recent(2)
+        100.0; pools = (S = Recent(2),)
     )
 end
 
@@ -283,9 +283,9 @@ end
     mods = (
         (CR.Depletion(100.0 + 10 * Recent(3)),),
         (
-            CR.Pool(
+            CR.Depletion(
                 100.0 + 10 * Recent(3); pools = (:S, :V),
-                draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                form = CR.Hazard(), weights = (S = 1, V = 0.3),
                 flows = (CR.Flow(1 => 2, 0.1 * Recent(2); form = CR.Truncate()),)
             ),
         ),
@@ -308,6 +308,12 @@ end
     @test @inferred(CR._bind(mods, H, nothing, 1)) isa Tuple
     @test @inferred(CR._bind(mods, H, H, 1)) isa Tuple
     @test_throws "per group" CR.Allocate([[1], [2]], Recent(2))
+    # A coupled source's cotangent slot holds no parameter, so a bound
+    # modifier's float type still infers for the slots a step writes into.
+    C = fill(0.5, 2, 2)
+    m = CR.Transform(*, Derived(exp, -0.05 * Recent(7; coupling = C)))
+    b = only(CR._bind((m,), H, H, 1))
+    @test @inferred(CR.param_eltype(b)) === Float64
 end
 
 @testitem "Recent: a coupling against a naive loop" begin
@@ -359,7 +365,7 @@ end
     @test Recent(3, ones(2, 2)).w == Recent(3; coupling = ones(2, 2)).w
     # Errors describe a Recent by its sizes, not its contents.
     @test_throws "Recent(2 weights; coupling 40 × 40)" CR.Depletion(
-        100.0; pool0 = Recent(2; coupling = ones(40, 40))
+        100.0; pools = (S = Recent(2; coupling = ones(40, 40)),)
     )
     r = Recurrence(
         [0.5]; modifiers = (CR.Add(Recent(2; coupling = ones(3, 3))),)

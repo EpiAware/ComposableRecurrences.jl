@@ -285,10 +285,13 @@ _floor_power(r, α::Bool) = α ? r : one(r)
 _times_log(α, r, c) = c * log(r)
 _times_log(::Bool, r, c) = zero(c)
 
-function _draw(::Hazard, v, s, N, α)
-    x = v / N * _share_power(s / N, α)
-    e, em = _exp_neg(x)
-    return -s * em, s * e
+function forward!(::Hazard, ::Step, v, s, N, α)
+    for k in eachindex(v, s)
+        x = v[k] / N * _share_power(s[k] / N, α)
+        e, em = _exp_neg(x)
+        v[k], s[k] = -s[k] * em, s[k] * e
+    end
+    return nothing
 end
 
 # `(exp(-x), expm1(-x))` from one exponential: `expm1` below `1/2`, where
@@ -316,47 +319,54 @@ end
 # NaN reaches the tangent.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
 
-function _draw_back(grads, ::Hazard, v, s, N, α)
-    ȳ, s̄′ = grads.v, grads.s
-    r = s / N
-    h = _power_m1(r, α)
-    x = v / N * h
-    e, em = _exp_neg(x)
-    x̄ = s * e * (ȳ - s̄′)
-    s̄ = -ȳ * em + s̄′ * e
-    α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-    ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
-    return x̄ * h / N, s̄, -x̄ * α * x / N, ᾱ
+function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
+    for k in eachindex(v, s)
+        ȳ, s̄′ = grads.v[k], grads.s[k]
+        r = s[k] / N
+        h = _power_m1(r, α)
+        x = v[k] / N * h
+        e, em = _exp_neg(x)
+        x̄ = s[k] * e * (ȳ - s̄′)
+        s̄ = -ȳ * em + s̄′ * e
+        α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
+        ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
+        grads.v[k], grads.s[k] = x̄ * h / N, s̄
+        grads.N[k] += -x̄ * α * x / N
+        grads.α[k] += ᾱ
+    end
+    return nothing
 end
 
 const _DEPLETION_FLOOR = 1.0e-6
 
-function _draw(::Floor, v, s, N, α)
-    r = s / N
-    f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
-    y = f * v
-    return y, s - y
+function forward!(::Floor, ::Step, v, s, N, α)
+    for k in eachindex(v, s)
+        r = s[k] / N
+        f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
+        y = f * v[k]
+        v[k], s[k] = y, s[k] - y
+    end
+    return nothing
 end
 
-function _draw_back(grads, ::Floor, v, s, N, α)
-    ȳ, s̄′ = grads.v, grads.s
-    r = s / N
-    p = _floor_power(max(r, zero(r)), α)
-    fl = oftype(p, _DEPLETION_FLOOR)
-    ḡ = ȳ - s̄′
-    p > fl || return ḡ * fl, s̄′, zero(ḡ), zero(ḡ)
-    f̄ = ḡ * v
-    ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
-    return ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N, -f̄ * α * p / N, ᾱ
-end
-
-for F in (:Hazard, :Floor)
-    @eval begin
-        forward!(f::$F, ::Step, v, s, N, α) = _form_forward!(f, v, s, N, α)
-        function pullback!(grads, f::$F, ::Step, v, s, N, α)
-            return _form_pullback!(grads, f, v, s, N, α)
+function pullback!(grads, ::Floor, ::Step, v, s, N, α)
+    for k in eachindex(v, s)
+        ȳ, s̄′ = grads.v[k], grads.s[k]
+        r = s[k] / N
+        p = _floor_power(max(r, zero(r)), α)
+        fl = oftype(p, _DEPLETION_FLOOR)
+        ḡ = ȳ - s̄′
+        if p > fl
+            f̄ = ḡ * v[k]
+            ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
+            grads.v[k], grads.s[k] = ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N
+            grads.N[k] += -f̄ * α * p / N
+            grads.α[k] += ᾱ
+        else
+            grads.v[k] = ḡ * fl
         end
     end
+    return nothing
 end
 
 # Add ---------------------------------------------------------------------
@@ -388,7 +398,7 @@ The state is unused.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
+mods = (CR.Depletion(50.0; form = CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 
 # output
@@ -410,14 +420,19 @@ _stateless(::Add) = true
 forward!(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
 pullback!(grads, ::Add, ::Init, s, history) = nothing
 
-_kernel(::Add) = true
-_step(m::Add, v, s, t, k) = (v + param(m.b, k, t), s)
-
-function _step_back(grads, m::Add, v, s, t, k)
-    add_param!(cotangent(grads.piece, :b), m.b, grads.v, k, t)
-    return grads.v, grads.s
+function forward!(m::Add, ::Step, v, s, t)
+    for k in eachindex(v)
+        v[k] += param(m.b, k, t)
+    end
+    return nothing
 end
-pullback!(grads, m::Add, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)
+function pullback!(grads, m::Add, ::Step, v, s, t)
+    b̄ = cotangent(grads.piece, :b)
+    for k in eachindex(v)
+        add_param!(b̄, m.b, grads.v[k], k, t)
+    end
+    return nothing
+end
 
 # Redistribute ------------------------------------------------------------
 
@@ -919,21 +934,24 @@ _stateless(::Clamp) = true
 forward!(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
 pullback!(grads, ::Clamp, ::Init, s, history) = nothing
 
-_kernel(::Clamp) = true
-function _step(m::Clamp, v, s, t, k)
-    return clamp(v, param(m.lo, k, t), param(m.hi, k, t)), s
+function forward!(m::Clamp, ::Step, v, s, t)
+    for k in eachindex(v)
+        v[k] = clamp(v[k], param(m.lo, k, t), param(m.hi, k, t))
+    end
+    return nothing
 end
 
 # Matches `clamp`'s branches: above `hi`, then below `lo`, else `v`.
-function _step_back(grads, m::Clamp, v, s, t, k)
-    v̄′, s̄′ = grads.v, grads.s
-    if v > param(m.hi, k, t)
-        add_param!(cotangent(grads.piece, :hi), m.hi, v̄′, k, t)
-        return zero(v̄′), s̄′
-    elseif v < param(m.lo, k, t)
-        add_param!(cotangent(grads.piece, :lo), m.lo, v̄′, k, t)
-        return zero(v̄′), s̄′
+function pullback!(grads, m::Clamp, ::Step, v, s, t)
+    v̄ = grads.v
+    for k in eachindex(v)
+        if v[k] > param(m.hi, k, t)
+            add_param!(cotangent(grads.piece, :hi), m.hi, v̄[k], k, t)
+            v̄[k] = zero(v̄[k])
+        elseif v[k] < param(m.lo, k, t)
+            add_param!(cotangent(grads.piece, :lo), m.lo, v̄[k], k, t)
+            v̄[k] = zero(v̄[k])
+        end
     end
-    return v̄′, s̄′
+    return nothing
 end
-pullback!(grads, m::Clamp, ::Step, v, s, t) = _strata_pullback!(grads, m, v, s, t)
