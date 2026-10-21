@@ -354,8 +354,8 @@ end
 @testitem "Recurrence: a resumed state has nstate entries per modifier" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    d = CR.Pool(
-        100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+    d = CR.Depletion(
+        100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
     @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
@@ -373,7 +373,7 @@ end
         e
     end
     @test err isa ArgumentError
-    @test occursin("modifier 2 (Pool)", err.msg)
+    @test occursin("modifier 2 (Depletion)", err.msg)
     @test occursin("length 2", err.msg)
     @test occursin("nstate(m, 2) = 4", err.msg)
     bad = CR.State(state.history, (state.states[1][1:1], state.states[2]), state.t)
@@ -468,7 +468,7 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
-    d = CR.Depletion(80.0; pool0 = 71.0)
+    d = CR.Depletion(80.0; pools = (S = 71.0,))
     r = Recurrence(g; modifiers = (d,))
     # A single series, and strata with a seed shorter than the kernel; the
     # seed before time 1 or at times 1 to m.

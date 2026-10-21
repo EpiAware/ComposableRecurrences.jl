@@ -199,12 +199,14 @@ call covers the absolute times `start:stop`:
 The output has the layout of `x` and length `stop - start + 1`.
 
 # Arguments
-- `kernel`: the kernel, lag 0 first.
+- `kernel`: the kernel, lag 0 first, or a kernel of delays (see
+  [`ComposableRecurrences.delay_masses`](@ref)).
 
 # Keyword Arguments
 - `method`: how the lag sum is computed, a
   [`ComposableRecurrences.ConvolutionMethod`](@ref);
   [`ComposableRecurrences.Auto`](@ref) by default.
+- `lags`: for a kernel of delays only, the number of lags from lag 0.
 
 # Examples
 ```jldoctest
@@ -229,7 +231,10 @@ Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
 struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
-    function Convolution(kernel::K; method = Auto()) where {K}
+    function Convolution(kernel::K; method = Auto(), lags = nothing) where {K}
+        lags === nothing ||
+            return Convolution(_delay_kernel(kernel, lags, 0); method)
+        _check_no_delays(kernel)
         kernel isa Union{_PairwiseKernel, Routes} && throw(
             ArgumentError(
                 "a Pairwise or Routes kernel is for a Recurrence, not a " *

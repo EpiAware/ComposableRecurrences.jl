@@ -45,11 +45,14 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
 | pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule on Mooncake, plain AD on Enzyme |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
-| modifier with a vector or blockwise step | plain AD |
+| whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24 | rule, local ForwardDiff step |
+| the same with more | rule on Mooncake, plain AD on Enzyme |
+| blockwise modifier | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
+| [`Routes`](@ref) coupling | as a coupling, the widest route coupling setting the call's route |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
@@ -90,6 +93,8 @@ The `Recurrence` constructor runs one step at the first stratum and time and cou
 Above 24 the local step is slower than plain AD, so such a modifier takes plain AD, and the constructor says so.
 A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
+The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
+Past one pass it stays faster than plain AD on Mooncake at any size, and is level with it on Enzyme.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 
 ## [Backends](@id adjoint-backends)
@@ -121,13 +126,13 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
 | `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
-| `Pool` with two pools and a count flow | 0.28 | 0.40 | keep |
+| `Depletion` with two pools and a count flow | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.07 | 0.35 | keep |
-| `Pool` without a draw | 0.43 | 0.43 | keep |
-| `Pool` with two pools and waning | 0.40 | 0.32 | keep |
+| `Depletion` without a draw | 0.43 | 0.43 | keep |
+| `Depletion` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Allocate` with `imports` and `spill`, 64 strata | 0.05 | 0.11 | keep |
-| `Pool` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
+| `Depletion` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
@@ -142,6 +147,8 @@ The table gives the rule time over the `NoAdjoint` time, from [benchmark matrix]
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 | pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | plain AD | keep on Mooncake |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
+| `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
+| the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
 
 ² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
 The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
@@ -151,6 +158,11 @@ The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13
 ⁴ The worst within the route's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_vector` and `custom_coupling_matrix` cases.
 The modifier was timed at 1, 5 and 20 strata, the coupling at 2 to 5.
 On Enzyme the modifier's local step was 1.6 to 1.7 times plain AD at 1 and 5 strata, so it takes plain AD there.
+
+⁵ A local timing, not a matrix case: the worst within the row's limit against plain AD of the same model, at `T` 100 and `L` 6.
+The model has two routes, a dense user coupling with one scalar and a dense matrix.
+It was timed at 5, 11, 20, 22 and 23 strata, one pass, and at 30, 46 and 47, two passes.
+At 60 strata the call takes plain AD, within noise of the time before: 1.02 times it on Mooncake and 0.98 on Enzyme.
 
 Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
@@ -200,7 +212,7 @@ Buffers, states and outputs are allocated from the inputs, so they live there to
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
   Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
-- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Pool` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
+- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
 - A ragged `TimeVarying` kernel (a vector of columns) keeps its column offsets where its values live.

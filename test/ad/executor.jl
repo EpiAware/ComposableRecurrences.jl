@@ -21,7 +21,7 @@
         w = rand(rng, S, T)
         r = Recurrence(
             PerStratum(repeat(g', S));
-            modifiers = (CR.Depletion(1.0e4; pool0 = 1.0e4),)
+            modifiers = (CR.Depletion(1.0e4; pools = (S = 1.0e4,)),)
         )
         rc = Recurrence(g; coupling = fill(1 / S, S, S))
         c = Convolution(g)
@@ -30,8 +30,8 @@
         doses = TimeVarying(PerStratum(fill(5.0, S, T)))
         rv = Recurrence(
             g; modifiers = (
-                CR.Pool(
-                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                CR.Depletion(
+                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
                     flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
                 ),
             )
@@ -40,8 +40,8 @@
         ra = Recurrence(g; modifiers = (CR.Allocate([1:3, 4:6], totals),))
         rva = Recurrence(
             g; modifiers = (
-                CR.Pool(
-                    1.0e3; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+                CR.Depletion(
+                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
                     flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
                 ),
                 CR.Allocate([1:3, 4:6], totals),
@@ -71,7 +71,7 @@
             g, R = split(θ, L + 1)
             r = Recurrence(
                 g[1:L]; modifiers = (
-                    CR.Depletion(1.0e3, CR.Floor()), CR.Add(g[L + 1]),
+                    CR.Depletion(1.0e3; form = CR.Floor()), CR.Add(g[L + 1]),
                 )
             )
             return sum(w .* r(R; history = seed))

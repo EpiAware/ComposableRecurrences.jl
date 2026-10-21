@@ -53,7 +53,7 @@ end
     # step's new infections.
     function renewal(N, Rt)
         depletion = ComposableRecurrences.Depletion(
-            N, ComposableRecurrences.Floor()
+            N; form = ComposableRecurrences.Floor()
         )
         r = Recurrence(g; modifiers = (depletion,))
         return r(Rt; history = window)
@@ -94,7 +94,7 @@ end
     alone(ι, N) = Recurrence(g)(Rt; history = window, add = ι)
     function before(ι, N)
         depletion = ComposableRecurrences.Depletion(
-            N, ComposableRecurrences.Floor()
+            N; form = ComposableRecurrences.Floor()
         )
         r = Recurrence(g; modifiers = (depletion,))
         return r(Rt; history = window, add = ι)
@@ -129,7 +129,7 @@ end
     # in the tuple.
     function after(ι, N)
         depletion = ComposableRecurrences.Depletion(
-            N, ComposableRecurrences.Floor()
+            N; form = ComposableRecurrences.Floor()
         )
         imports = ComposableRecurrences.Add(TimeVarying(ι))
         r = Recurrence(g; modifiers = (depletion, imports))
@@ -158,7 +158,7 @@ end
     # by all of it.
     function renewal(g, seed, N)
         depletion = ComposableRecurrences.Depletion(
-            N; pool0 = max(N - sum(seed), 0)
+            N; pools = (S = max(N - sum(seed), 0),)
         )
         return Recurrence(g; modifiers = (depletion,))
     end

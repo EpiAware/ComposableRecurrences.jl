@@ -20,7 +20,7 @@
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function renewal(N)
         depletion = ComposableRecurrences.Depletion(
-            N, ComposableRecurrences.Floor()
+            N; form = ComposableRecurrences.Floor()
         )
         return Recurrence(g; modifiers = (depletion,))
     end
@@ -88,7 +88,7 @@ end
     # One operator over the whole horizon. The state carries the day
     # reached, so the forecast reads R_t and ε from the next day.
     depletion = ComposableRecurrences.Depletion(
-        PerStratum(N); pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
+        PerStratum(N); pools = (S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0)),)
     )
     importation = ComposableRecurrences.Redistribute(
         ComposableRecurrences.movement(K, ε)

@@ -74,7 +74,9 @@ end
     @test_throws ArgumentError Derived(exp, TimeVarying([1.0], CR.Primary()))
     # A population may vary over time; a starting pool is constant.
     @test CR.Depletion(Derived(exp, TimeVarying([1.0, 2.0]))).N isa Derived
-    @test_throws ArgumentError CR.Depletion(10.0; pool0 = 2.0 * Derived(exp, TimeVarying([1.0])))
+    @test_throws ArgumentError CR.Depletion(
+        10.0; pools = (S = 2.0 * Derived(exp, TimeVarying([1.0])),)
+    )
     # Strata and times are checked through the arguments.
     g, R, h = [0.5], fill(1.1, 2, 3), ones(2, 1)
     run(b) = Recurrence(g; modifiers = (CR.Add(b),))(R; history = h)
