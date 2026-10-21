@@ -113,7 +113,7 @@ A lower cap gives fewer infections over the run.
 ```@example extending
 seed = [1.0, 2.0, 3.0]
 N = 10_000.0
-pool = CR.Depletion(N; pool0 = N - sum(seed))
+pool = CR.Depletion(N; pools = (S = N - sum(seed),))
 model(κ) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Saturation(κ), pool))
 [round(sum(model(κ)(fill(1.8, 80); history = seed))) for κ in (50.0, 150.0, 1.0e6)]
 ```
@@ -418,7 +418,7 @@ One whose trace is not linear in the step's outputs computes them with the step'
 ## [A depletion form](@id extending-form)
 
 A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
-It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion), or as the form of a [`Pool`](@ref ComposableRecurrences.Pool)'s draw.
+It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion) as its `form`.
 This one takes what is asked, up to the pool:
 
 ```math
@@ -451,7 +451,7 @@ function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N, α)
     return nothing
 end
 
-d = CR.Depletion(10.0, Capped())
+d = CR.Depletion(10.0; form = Capped())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 

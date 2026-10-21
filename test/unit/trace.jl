@@ -75,13 +75,13 @@ end
     @test M[3, :] ≈ pressures(g, R, y, h) .- y
 end
 
-@testitem "Trace: a protected Pool's pools, draw and overflow" setup = [TraceChecks] begin
+@testitem "Trace: a protected Depletion's pools, draw and overflow" setup = [TraceChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
-    leaky = CR.Pool(
-        PerStratum([80.0, 120.0]); pools = (:S, :V), draw = (:S => 1, :V => 0.3) => CR.Hazard(),
+    leaky = CR.Depletion(
+        PerStratum([80.0, 120.0]); pools = (:S, :V), weights = (S = 1, V = 0.3),
         flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
     )
     r = Recurrence(g; modifiers = (leaky,))
@@ -105,8 +105,8 @@ end
     # counts that bind on the third step.
     c, p, d, a = 0.3, 0.2, 0.1, [1.0, 1.0, 5.0, 1.0, 0.5, 0.0]
     adm = [4.0, 6.0, 2.0, 0.0, 3.0, 1.0]
-    ward = CR.Pool(;
-        pools = 2, draw = nothing, flows = (
+    ward = CR.Depletion(;
+        pools = (:A, :B), form = nothing, flows = (
             CR.Flow(1 => 2, c), CR.Flow(1 => 0, p; form = CR.Share()),
             CR.Flow(2 => 0, d), CR.Flow(2 => 0, TimeVarying(a); form = CR.Truncate()),
         )
@@ -156,14 +156,14 @@ end
     end
 end
 
-@testitem "Trace: a Pool group's trace and pullback on one-entry views" setup = [ReferenceAD] begin
+@testitem "Trace: a Depletion group's trace and pullback on one-entry views" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # The group methods a caller reaches directly, which the run passes by
     # for the gathered values: a ward of two pools, one group, against the
     # run's own group trace and forward mode.
-    build(θ) = CR.Pool(;
-        pools = 2, draw = nothing, flows = (
+    build(θ) = CR.Depletion(;
+        pools = (:A, :B), form = nothing, flows = (
             CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
             CR.Flow(2 => 0, θ[3]),
         )
@@ -278,9 +278,9 @@ end
         g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
         K = [0.0 0.3; 0.2 0.0]
         function loss(θ)
-            leaky = CR.Pool(
+            leaky = CR.Depletion(
                 PerStratum(θ[1:2]); pools = (:S, :V),
-                draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
+                form = CR.Hazard(), weights = (S = 1, V = θ[3]),
                 flows = (
                     CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
                 )
@@ -298,8 +298,8 @@ end
         # The flows' amounts, with a smooth count whose softness is a
         # parameter.
         function ward(θ)
-            flows = CR.Pool(;
-                pools = 2, draw = nothing, flows = (
+            flows = CR.Depletion(;
+                pools = (:A, :B), form = nothing, flows = (
                     CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
                     CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
                     CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),

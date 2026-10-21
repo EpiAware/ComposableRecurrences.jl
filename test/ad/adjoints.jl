@@ -274,7 +274,9 @@
                 ),
                 (
                     "seeded renewal",
-                    Recurrence(g; modifiers = (CR.Depletion(60.0; pool0 = pool(60.0, h[1, :])),)),
+                    Recurrence(
+                        g; modifiers = (CR.Depletion(60.0; pools = (S = pool(60.0, h[1, :]),)),)
+                    ),
                     rec(R[1, :], nothing, h[1, :]),
                 ),
                 (
@@ -282,7 +284,9 @@
                     Recurrence(
                         g; modifiers = (
                             ADFixtures._leaky(CR.movement(K, 0.4)),
-                            CR.Depletion(PerStratum(fill(80.0, S)); pool0 = pool(80.0, h)),
+                            CR.Depletion(
+                                PerStratum(fill(80.0, S)); pools = (S = pool(80.0, h),)
+                            ),
                         )
                     ),
                     rec(R, nothing, h),
@@ -324,10 +328,10 @@
                     Recurrence(
                         g; coupling = 0.3 .* rand(rng, S, S),
                         modifiers = (
-                            CR.Pool(
-                                PerStratum(fill(80.0, S)); pools = (:S, :V),
-                                initial = (pool(80.0, h), 1.0),
-                                draw = (:S => 1, :V => PerStratum([0.2, 0.3, 0.4])) => CR.Hazard(),
+                            CR.Depletion(
+                                PerStratum(fill(80.0, S));
+                                pools = (S = pool(80.0, h), V = 1.0),
+                                weights = (S = 1, V = PerStratum([0.2, 0.3, 0.4])),
                                 flows = (
                                     CR.Flow(1 => 2, TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))); form = CR.Truncate()),
                                 )
@@ -843,10 +847,10 @@ end
         (θ -> ScaleKw(; a = θ), false, false),
         (θ -> ScaleF(θ), false, false),
         (θ -> Doubled(θ), false, false),
-        (θ -> CR.Depletion(100 * θ, Linear()), true, true),
-        (θ -> CR.Depletion(100.0, LinearRate(θ); heterogeneity = 1.1), true, true),
-        (θ -> CR.Depletion(100.0, Linear(); removals = θ), true, true),
-        (θ -> CR.Depletion(100.0, DoubledRate(θ)), false, false),
+        (θ -> CR.Depletion(100 * θ; form = Linear()), true, true),
+        (θ -> CR.Depletion(100.0; form = LinearRate(θ), heterogeneity = 1.1), true, true),
+        (θ -> CR.Depletion(100.0; form = Linear(), removals = θ), true, true),
+        (θ -> CR.Depletion(100.0; form = DoubledRate(θ)), false, false),
     )
     for (m, adj, fires) in cases, w in (identity, NoAdjoint)
         @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
@@ -1006,7 +1010,7 @@ end
             R = 1.0 .+ 0.05 .* [sin(a + t) for a in 1:3, t in 1:8],
             pool = PerStratum([60.0, 90.0, 70.0])
 
-        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Add(b))
+        mods(b) = (CR.Depletion(pool; form = CR.Floor()), CR.Add(b))
         op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
         ws(r) = CR.with_state(r, R; history = h, stop = 4)
         # The operator built from `b` inside the loss.
@@ -1313,9 +1317,8 @@ end
     # pool is zero with a non-zero ForwardDiff tangent at every step.
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
-        d = CR.Pool(
-            100.0; pools = (:S, :V), initial = (θ[1], θ[3]),
-            draw = (:S => 1, :V => θ[2]) => CR.Hazard()
+        d = CR.Depletion(
+            100.0; pools = (S = θ[1], V = θ[3]), weights = (S = 1, V = θ[2])
         )
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
@@ -1348,23 +1351,23 @@ end
     # A seeded pool emptied by removals: with all-or-nothing protection the
     # pool stays at zero with a tangent from `σ`, a tie in the removal.
     by_removals(θ) = total(
-        CR.Pool(
-            100.0; pools = (:S, :V), initial = (θ[1], nothing),
-            draw = (:S => 1, :V => θ[3]) => CR.Hazard(),
+        CR.Depletion(
+            100.0; pools = (S = θ[1], V = nothing), weights = (S = 1, V = θ[3]),
             flows = (CR.Flow(1 => 2, TimeVarying(fill(θ[2], 6)); form = CR.Truncate()),)
         )
     )
     # An empty pool with a dual population and an integer heterogeneity,
     # alone and with a protected pool.
-    by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pool0 = θ[2]))
+    by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pools = (S = θ[2],)))
     by_protected(θ) = total(
-        CR.Pool(
-            θ[1]; pools = (:S, :V), initial = (θ[2], nothing),
-            draw = (:S => 1, :V => θ[3]) => CR.Hazard()
+        CR.Depletion(
+            θ[1]; pools = (S = θ[2], V = nothing), weights = (S = 1, V = θ[3])
         )
     )
     # A differentiated heterogeneity at an empty pool.
-    by_heterogeneity(θ) = total(CR.Depletion(100.0; heterogeneity = θ[1], pool0 = θ[2]))
+    by_heterogeneity(θ) = total(
+        CR.Depletion(100.0; heterogeneity = θ[1], pools = (S = θ[2],))
+    )
     cases = (
         (by_removals, [3.0, 4.0, 0.0]), (by_population, [100.0, 0.0]),
         (by_protected, [100.0, 0.0, 0.3]), (by_heterogeneity, [1.0, 0.0]),
@@ -1394,7 +1397,7 @@ end
     # empty pool must not give the exponent a `log(0)` tangent.
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
-        d = CR.Depletion(100.0; heterogeneity = θ[1], pool0 = θ[2])
+        d = CR.Depletion(100.0; heterogeneity = θ[1], pools = (S = θ[2],))
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
     end
@@ -1444,7 +1447,7 @@ end
     # regressed; folded, these cases allocate about 160 and 95.
     W = sin.(1:50)
     renewal(θ) = sum(
-        W .* Recurrence(θ[1:5]; modifiers = (CR.Depletion(1.0e3; pool0 = 995.0),))(
+        W .* Recurrence(θ[1:5]; modifiers = (CR.Depletion(1.0e3; pools = (S = 995.0,)),))(
             θ[6:55]; history = ones(5)
         )
     )
@@ -1606,9 +1609,9 @@ end
         logh = reshape(view(θ, 1:(S * L)), S, L)
         logR = reshape(view(θ, (S * L + 1):(S * L + S * T)), S, T)
         doses = reshape(view(θ, (S * L + S * T + 1):n), S, T)
-        d = CR.Pool(
+        d = CR.Depletion(
             PerStratum(POP); pools = (:S, :V),
-            draw = (:S => 1, :V => θ[n + 1]) => CR.Hazard(),
+            form = CR.Hazard(), weights = (S = 1, V = θ[n + 1]),
             flows = (CR.Flow(1 => 2, TimeVarying(PerStratum(doses)); form = CR.Truncate()),)
         )
         r = Recurrence(G0; coupling = K0, modifiers = (d,))
@@ -1652,7 +1655,7 @@ end
 
 @testitem "Enzyme reverse: the rule returns a typed tuple past 32 leaves" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
-    using ComposableRecurrences: Flow, Pool
+    using ComposableRecurrences: Flow, Depletion
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
@@ -1668,7 +1671,9 @@ end
     function op(θ)
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(8))
-        d = Pool(1000.0; pools = ring, initial = (900.0, 50.0, 30.0, 20.0), flows = fs)
+        d = Depletion(
+            1000.0; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0)), flows = fs
+        )
         return Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
     end
     f(θ) = sum(log.(op(θ)(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
@@ -1685,7 +1690,7 @@ end
 
 @testitem "Enzyme reverse: a field of 32 or more entries" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
-    using ComposableRecurrences: Flow, Pool
+    using ComposableRecurrences: Flow, Depletion
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     b = AutoEnzyme(;
@@ -1695,7 +1700,9 @@ end
     function flows_loss(θ, ::Val{n}) where {n}
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(n))
-        d = Pool(1000.0; pools = ring, initial = (900.0, 50.0, 30.0, 20.0), flows = fs)
+        d = Depletion(
+            1000.0; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0)), flows = fs
+        )
         r = Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
         return sum(log.(r(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
     end

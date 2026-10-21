@@ -15,7 +15,7 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, depletion
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -83,7 +83,7 @@ function renewal_depletion(wrap, z::Size)
     f = function (θ)
         g, logh, logR = _unpack(θ, (L,), (L,), (T,))
         seed = exp.(logh)
-        d = CR.Depletion(N; pool0 = max(N - sum(seed), zero(eltype(θ))))
+        d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(θ))))
         y = wrap(Recurrence(g; modifiers = (d,)))(exp.(logR); history = seed)
         return sum(W .* log.(y))
     end
@@ -98,7 +98,7 @@ function strata_mixing(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         g, K, logh, logR = _unpack(θ, (L,), (S, S), (S, L), (S, T))
-        r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(g; coupling = K, modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     K0 = 0.8I(S) .+ 0.2 / S .* ones(S, S)
@@ -113,7 +113,7 @@ function strata_independent(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
-        r = Recurrence(g; modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(g; modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     return f, _flat(_gi(L), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
@@ -127,7 +127,7 @@ function strata_pairwise(wrap, z::Size)
     pop = CR.PerStratum(fill(1.0e5, S))
     f = function (θ)
         A, logh, logR = _unpack(θ, (S, S, L), (S, L), (S, T))
-        r = Recurrence(Pairwise(A); modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(Pairwise(A); modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     K0 = 0.8I(S) .+ 0.2 / S .* ones(S, S)
@@ -153,7 +153,7 @@ function strata_routes(wrap, z::Size)
         Ks = SparseMatrixCSC(S, S, K2.colptr, K2.rowval, collect(v))
         r = Recurrence(
             Routes((K1, g1), (Ks, g2));
-            modifiers = (CR.Depletion(pop, CR.Floor()),)
+            modifiers = (depletion(pop; form = CR.Floor()),)
         )
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
@@ -185,7 +185,7 @@ function zones_sparse(wrap, z::Size)
     f = function (θ)
         g, v, logh, logR = _unpack(θ, (L,), (length(nonzeros(K0)),), (S, L), (S, T))
         K = SparseMatrixCSC(S, S, K0.colptr, K0.rowval, collect(v))
-        r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(pop, CR.Floor()),))
+        r = Recurrence(g; coupling = K, modifiers = (depletion(pop; form = CR.Floor()),))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
     end
     return f, _flat(_gi(L), nonzeros(K0), fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
@@ -203,7 +203,7 @@ function bvd_patch(wrap, z::Size)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
             CR.Redistribute(CR.movement(K, only(ε))),
-            CR.Depletion(CR.PerStratum(N); pool0),
+            depletion(CR.PerStratum(N); pool0),
         )
         y = wrap(Recurrence(g; modifiers = mods))(exp.(logR); history = seeds)
         return sum(W .* log.(y))
@@ -272,8 +272,8 @@ end
 # A pool of susceptibles `S` and protected `V`, drawn from at weight `σ` on
 # `V`, with the doses moving `S` into `V` and any further `flows`.
 function _leaky(N, doses, σ, flows...)
-    return CR.Pool(
-        N; pools = (:S, :V), draw = (:S => 1, :V => σ) => CR.Hazard(),
+    return CR.Depletion(
+        N; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = σ),
         flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
     )
 end
@@ -329,8 +329,8 @@ function ward_flows(wrap, z::Size)
         adm, confirm, ruleout, discharge, transfer = _unpack(
             θ, (2S, T), (S,), (T,), (1,), (S, T)
         )
-        flows = CR.Pool(;
-            pools = (:suspected, :confirmed), draw = nothing, flows = (
+        flows = CR.Depletion(;
+            pools = (:suspected, :confirmed), form = nothing, flows = (
                 CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
                 CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
                 CR.Flow(:confirmed => 0, only(discharge)),
@@ -379,8 +379,8 @@ function capacity_beds(wrap, z::Size)
     G = PerStratum([(k <= P ? 0.5 : 1.0) * g for k in 1:S, g in _gi(L)])
     f = function (θ)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
-        beds = CR.Pool(
-            PerStratum(exp.(logC)); pools = (:O,), draw = CR.SoftTruncate(0.1) => :O,
+        beds = CR.Depletion(
+            PerStratum(exp.(logC)); pools = (:O,), form = CR.SoftTruncate(0.1), fill = :O,
             flows_first = true, flows = CR.Flow(:O => 0, 0.1; form = CR.Share()),
             overflow = :stratum
         )
@@ -818,7 +818,7 @@ const CASES = [
         transform, [5, 50], false,
     ),
     Case(
-        "capacity_beds", "isolation beds with overflow, a Pool filled up to capacity",
+        "capacity_beds", "isolation beds with overflow, a pool filled up to capacity",
         capacity_beds, [20, 50], false,
     ),
     Case(
@@ -839,9 +839,9 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patches_call" => (:movement, :exponential_history, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
-    "strata_vaccination" => (:Pool,),
-    "ward_flows" => (:Pool,),
-    "strata_waning" => (:Pool,),
+    "strata_vaccination" => (:depletion_pools,),
+    "ward_flows" => (:depletion_pools,),
+    "strata_waning" => (:depletion_pools,),
     "transform" => (:Transform,),
     "capacity_beds" => (:pool_fill,),
     # The coupling on `Recent` came after `Recent`.
@@ -1117,7 +1117,7 @@ if isfile(BVD_HANDRULE)
         end
     end
     function _bvd_renewal_rule(wrap, g, seed, R, N)
-        d = CR.Depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
+        d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
         return wrap(Recurrence(g; modifiers = (d,)))(R; history = seed)
     end
     # The hand loops read `R` on the seed days too, and return them first.
@@ -1165,7 +1165,7 @@ if isfile(BVD_HANDRULE)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
             CR.Redistribute(CR.movement(K, ε)),
-            CR.Depletion(CR.PerStratum(N); pool0),
+            depletion(CR.PerStratum(N); pool0),
         )
         return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
     end
@@ -1339,7 +1339,7 @@ if isfile(BVD_HANDRULE)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
             CR.Redistribute(_materialised_movement(K, ε)),
-            CR.Depletion(CR.PerStratum(N); pool0),
+            depletion(CR.PerStratum(N); pool0),
         )
         return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
     end

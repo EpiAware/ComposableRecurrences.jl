@@ -212,13 +212,15 @@ true
     ),
 ]
 
-@implements PieceInterface{(:pointwise, :blocks, :nstate)} Pool [
+@implements PieceInterface{(:pointwise, :blocks, :nstate)} Depletion [
     Arguments(;
-        piece = Depletion(PerStratum([100.0, 50.0]); pool0 = PerStratum([97.0, 46.0])),
+        piece = Depletion(
+            PerStratum([100.0, 50.0]); pools = (S = PerStratum([97.0, 46.0]),)
+        ),
         role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
     ),
     Arguments(;
-        piece = Depletion(80.0, Floor(); heterogeneity = 1.5), role = Step(),
+        piece = Depletion(80.0; form = Floor(), heterogeneity = 1.5), role = Step(),
         args = ([2.0, 3.0], [80.0, 60.0], 1)
     ),
     Arguments(;
@@ -226,38 +228,35 @@ true
         role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
     ),
     Arguments(;
-        piece = Pool(100.0; flows = Flow(1 => 0, 0.01)), role = Step(),
+        piece = Depletion(100.0; flows = Flow(1 => 0, 0.01)), role = Step(),
         args = ([2.0, 3.0], [80.0, 60.0], 2)
     ),
     Arguments(;
-        piece = Pool(
-            100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
-            flows = Flow(:S => :V, 1.0; form = Truncate())
-        ),
+        piece = Depletion(100.0; protected = 0.3, removals = 1.0),
         role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
     ),
     Arguments(;
-        piece = Pool(
-            100.0; pools = (:S, :V), draw = (:S => 1, :V => 0.3) => Hazard(),
-            initial = (nothing, 4.0), flows = Flow(:V => :S, 0.1)
+        piece = Depletion(
+            100.0; pools = (S = nothing, V = 4.0), protected = 0.3,
+            flows = Flow(:V => :S, 0.1)
         ),
         role = Init(), args = (zeros(4), ones(2, 3))
     ),
     Arguments(;
-        piece = Pool(
-            PerStratum([100.0, 50.0]); pools = (:S, :V, :R),
-            draw = (:V => PerStratum([0.5, 0.2]), :S => 1) => Floor(),
+        piece = Depletion(
+            PerStratum([100.0, 50.0]); pools = (:S, :V, :R), form = Floor(),
+            weights = (V = PerStratum([0.5, 0.2]), S = 1),
             flows = (Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share()))
         ),
         role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2)
     ),
     Arguments(;
-        piece = Depletion(100.0, Truncate()), role = Step(),
+        piece = Depletion(100.0; form = Truncate()), role = Step(),
         args = ([2.0, 3.0], [80.0, 1.0], 2)
     ),
     Arguments(;
-        piece = Pool(;
-            pools = 2, draw = nothing,
+        piece = Depletion(;
+            pools = (:A, :B), form = nothing,
             flows = (
                 Flow(1 => 2, PerStratum([0.3, 0.2])),
                 Flow(2 => 0, 0.1; form = Share()),
@@ -268,19 +267,20 @@ true
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
     Arguments(;
-        piece = Pool(; pools = (:U, :C), draw = nothing, flows = Flow(:U => :C, 0.3)),
+        piece = Depletion(; pools = (:U, :C), form = nothing, flows = Flow(:U => :C, 0.3)),
         role = Init(), args = (zeros(4), ones(4, 2))
     ),
     Arguments(;
-        piece = Pool(
-            4.0; pools = (:O,), draw = SoftTruncate(0.1) => :O, flows_first = true,
-            flows = Flow(:O => 0, 0.2; form = Share()), overflow = :stratum
+        piece = Depletion(
+            4.0; pools = (:O,), form = SoftTruncate(0.1), fill = :O,
+            flows = Flow(:O => 0, 0.2; form = Share()), flows_first = true,
+            overflow = :stratum
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2)
     ),
     Arguments(;
-        piece = Pool(;
-            pools = (:B,), draw = :B => Truncate(), flows_first = true,
+        piece = Depletion(;
+            pools = (:B,), form = Truncate(), flows_first = true,
             flows = (
                 Flow(:B => 0, TimeVarying([1.0, 0.0, 0.0]); form = Share()),
                 Flow(
@@ -293,13 +293,12 @@ true
         role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1)
     ),
     Arguments(;
-        piece = Pool(; pools = (:B,), draw = :B => Truncate(), initial = 1.0),
+        piece = Depletion(; pools = (B = 1.0,), form = Truncate()),
         role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2)
     ),
     Arguments(;
-        piece = Pool(
-            2.0; pools = (:O,), draw = Truncate() => :O, overflow = :queue,
-            initial = 1.0
+        piece = Depletion(
+            2.0; pools = (O = 1.0,), form = Truncate(), fill = :O, overflow = :queue
         ),
         role = Init(), args = (zeros(4), ones(2, 2))
     ),

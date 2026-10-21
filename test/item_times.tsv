@@ -16,7 +16,7 @@
 9.2	Adjoint: Recurrence time-varying slots at absolute time
 3.8	Adjoint: Recurrence with mixed eltypes
 13.3	Adjoint: Recurrence, single series
-9.6	Adjoint: a Pool's group step and draw against ForwardDiff
+9.6	Adjoint: a Depletion's group step and draw against ForwardDiff
 4.1	Adjoint: a declared adjoint without a pullback! throws
 2.2	Adjoint: a plain primal call logs nothing
 14.4	Adjoint: an operator built without `ForwardDiff` checks its parts per call
@@ -187,43 +187,43 @@
 20.9	Operators: threaded calls match serial calls exactly
 2.2	Pairwise: a delay distribution per pair
 1.8	PerStratum: a delay distribution per stratum
-4.4	Pool capacity: budget periods, carry over and lifetime
-2.6	Pool capacity: checks its arguments
-7.4	Pool capacity: infinite capacity is the identity
-11.3	Pool capacity: pullback against a local Jacobian
-4.7	Pool capacity: resuming from the state matches one call
-0.1	Pool capacity: the recurrence uses its adjoint
-0.1	Pool capacity: the smooth minimum
-11.5	Pool capacity: the stratum conserves each step, the queue across steps
-1.2	Pool capacity: two wards share one overflow stratum
-53.2	Pool capacity: values and gradients against a naive loop
-1.3	Pool flows: check their options
-7.7	Pool flows: pullbacks against a local Jacobian
-6.5	Pool flows: resume, Float32 and inference
-9.9	Pool flows: susceptibles leaving at a rate or in counts
-21.3	Pool flows: waning against a naive loop
-3.5	Pool without a draw: a share flow is the occupancy recurrence
-3.8	Pool without a draw: a smooth count against a naive loop
-3.2	Pool without a draw: check their options
-0.1	Pool without a draw: counts are capped and act in order
-6.5	Pool without a draw: pullback against a local Jacobian
-4.7	Pool without a draw: resume, Float32 and the adjoint route
-0.2	Pool without a draw: the share that leaves near zero hazard
-69.2	Pool without a draw: the time checks infer and allocate nothing, after a gradient too
-42.7	Pool without a draw: wards against a naive loop
-10.1	Pool: a single-precision model stays in single precision
-5.7	Pool: an empty pool with a tangent under ForwardDiff
-4.7	Pool: checks its arguments
-6.8	Pool: conservation and final-size ordering
-0.3	Pool: declare their adjoint
-3.9	Pool: full susceptibility undoes the protection
-1.2	Pool: no removals and no protected pool is the base
-8.8	Pool: pullbacks against a local Jacobian
-11.1	Pool: removals at an empty pool, reverse against ForwardDiff
-48.5	Pool: the Recurrence reverse pass
-0.3	Pool: the initial state and its pullback
-1.3	Pool: the removal picks its arm as its pullback does
-6.9	Pool: values and gradients against the maths
+4.4	Depletion capacity: budget periods, carry over and lifetime
+2.6	Depletion capacity: checks its arguments
+7.4	Depletion capacity: infinite capacity is the identity
+11.3	Depletion capacity: pullback against a local Jacobian
+4.7	Depletion capacity: resuming from the state matches one call
+0.1	Depletion capacity: the recurrence uses its adjoint
+0.1	Depletion capacity: the smooth minimum
+11.5	Depletion capacity: the stratum conserves each step, the queue across steps
+1.2	Depletion capacity: two wards share one overflow stratum
+53.2	Depletion capacity: values and gradients against a naive loop
+1.3	Depletion flows: check their options
+7.7	Depletion flows: pullbacks against a local Jacobian
+6.5	Depletion flows: resume, Float32 and inference
+9.9	Depletion flows: susceptibles leaving at a rate or in counts
+21.3	Depletion flows: waning against a naive loop
+3.5	Depletion without a draw: a share flow is the occupancy recurrence
+3.8	Depletion without a draw: a smooth count against a naive loop
+3.2	Depletion without a draw: check their options
+0.1	Depletion without a draw: counts are capped and act in order
+6.5	Depletion without a draw: pullback against a local Jacobian
+4.7	Depletion without a draw: resume, Float32 and the adjoint route
+0.2	Depletion without a draw: the share that leaves near zero hazard
+69.2	Depletion without a draw: the time checks infer and allocate nothing, after a gradient too
+42.7	Depletion without a draw: wards against a naive loop
+10.1	Depletion: a single-precision model stays in single precision
+5.7	Depletion: an empty pool with a tangent under ForwardDiff
+4.7	Depletion: checks its arguments
+6.8	Depletion: conservation and final-size ordering
+0.3	Depletion: declare their adjoint
+3.9	Depletion: full susceptibility undoes the protection
+1.2	Depletion: no removals and no protected pool is the base
+8.8	Depletion: pullbacks against a local Jacobian
+11.1	Depletion: removals at an empty pool, reverse against ForwardDiff
+48.5	Depletion: the Recurrence reverse pass
+0.3	Depletion: the initial state and its pullback
+1.3	Depletion: the removal picks its arm as its pullback does
+6.9	Depletion: values and gradients against the maths
 1.3	Primary Recurrence: a cohort's onward weight is its column sum
 0.0	Primary Recurrence: a fixed kernel reads the same either way
 0.2	Primary Recurrence: a rebuild from fields keeps the indexing
@@ -309,7 +309,7 @@
 2.2	TimeVarying: a delay distribution per time
 1.2	Trace: a call without a trace is unchanged
 2.7	Trace: a depletion's pool, draw and overflow
-4.2	Trace: a protected Pool's pools, draw and overflow
+4.2	Trace: a protected Depletion's pools, draw and overflow
 2.0	Trace: each flow's amount against a naive loop
 3.6	Trace: the default is the state after the step
 0.0	Transform implements the role interface
@@ -346,9 +346,9 @@
 9.5	Use case: BVD zone share renewal
 2.6	Use case: MA(1) with a coefficient path
 5.1	Use case: MA(q)
-5.1	Use case: a Pool filling a pool gives the values of Capacity with Beds
-5.3	Use case: a Pool with two pools gives the values of Depletion with Protected
-1.5	Use case: a Pool without a draw gives the values of Flows with Rate kinds
+5.1	Use case: a Depletion filling a pool gives the values of Capacity with Beds
+5.3	Use case: a protected Depletion gives the values of Depletion with Protected
+1.5	Use case: a Depletion without a draw gives the values of Flows with Rate kinds
 6.4	Use case: a pool granted by flows gives the values of Capacity with Budget
 8.6	Use case: all-or-nothing and leaky vaccination
 2.1	Use case: chain-length likelihood from PGF iteration

@@ -21,7 +21,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Pool, Flow, Floor, Hazard, Truncate,
+using ComposableRecurrences: Depletion, Flow, Floor,
     Add, exponential_history, with_state
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
@@ -60,7 +60,7 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 # ## Susceptible depletion
 #
 # `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the hazard form, which [Getting started](@ref overview-build) gives.
-# `Depletion(N, Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
+# `Depletion(N; form = Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
 
 N = 2_000.0
 R_high = fill(1.8, T)
@@ -71,7 +71,7 @@ plot_infections(runs) = @chain runs begin
     data(_) * mapping(:day, :count, color = :model => "") * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
-forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N, Floor())]
+forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N; form = Floor())]
 plot_infections(forms)
 
 #-
@@ -99,10 +99,9 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 # where ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value, ``S_t`` the susceptible pool and ``V_t`` the protected pool.
 # ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the doses on day ``t`` and ``m_t`` the doses moved.
 # The doses are capped by what remains of ``S``.
-# A [`Pool`](@ref ComposableRecurrences.Pool) holds both pools, `:S` and `:V`.
-# It draws from ``S + \sigma V`` with `draw = (:S => 1, :V => σ) => Hazard()`.
-# The doses are a count [`Flow`](@ref ComposableRecurrences.Flow) from `:S` to `:V`, with `form = Truncate()`.
-# The `Pool` docstring gives the general form.
+# A [`Depletion`](@ref ComposableRecurrences.Depletion) with `protected = σ` holds both pools, `:S` and `:V`.
+# It draws from ``S + \sigma V``, and its `removals` are the doses, moved from `:S` to `:V` up to what remains.
+# The `Depletion` docstring gives the general form, with `weights = (S = 1, V = σ)` and the doses as a count [`Flow`](@ref ComposableRecurrences.Flow).
 # Let ``e`` be the efficacy.
 # An all-or-nothing vaccine fully protects a share ``e`` of the vaccinated.
 # This gives ``\sigma = 0``, with ``e`` times the doses moved.
@@ -112,12 +111,10 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 
 e = 0.7
 doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
-dosed(r) = Flow(:S => :V, TimeVarying(r); form = Truncate())
-vaccinated(σ, flows) = Pool(N; pools = (:S, :V), draw = (:S => 1, :V => σ) => Hazard(), flows)
-leaky = vaccinated(1 - e, dosed(doses))
+leaky = Depletion(N; protected = 1 - e, removals = TimeVarying(doses))
 vaccines = [
     "None" => Depletion(N),
-    "All-or-nothing" => vaccinated(0.0, dosed(e .* doses)),
+    "All-or-nothing" => Depletion(N; protected = 0.0, removals = TimeVarying(e .* doses)),
     "Leaky" => leaky,
 ]
 plot_infections(vaccines)
@@ -143,7 +140,9 @@ plot_infections(vaccines)
 # with ``S_t`` and ``V_t`` the pools after the day's infections.
 # Here protection lasts about 20 days on average.
 
-waning = vaccinated(1 - e, (dosed(doses), Flow(:V => :S, 1 / 20)))
+waning = Depletion(
+    N; protected = 1 - e, removals = TimeVarying(doses), flows = Flow(:V => :S, 1 / 20)
+)
 plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # Waning raises the peak a little and adds about 8% more infections over the outbreak, because people protected early return to the susceptible pool while the epidemic runs.
