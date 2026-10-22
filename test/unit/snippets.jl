@@ -138,6 +138,21 @@ end
     flat(x::AbstractArray) = vec(copy(x))
     flat(x::Union{Tuple, NamedTuple}) = reduce(vcat, map(flat, values(x)); init = Float64[])
 
+    # A `Depletion`'s mirror leaves in the order `N`, the form's, `pools`,
+    # the weights, then the flows', for one with at most one draw; `pad`
+    # stands a zero for a form without leaves, whose exponent `θ` lists.
+    isdraw(p̄) = p̄ isa NamedTuple && haskey(p̄, :N)
+    function flat_pool(m̄; pad = false)
+        ps = something(m̄.pieces, ())
+        draws, runs = filter(isdraw, ps), filter(!isdraw, ps)
+        d = isempty(draws) ? (; N = nothing, form = nothing) : only(draws)
+        form = flat(d.form)
+        pad && isempty(form) && (form = [0.0])
+        return vcat(
+            flat(d.N), form, flat(m̄.pools), flat(get(d, :weights, nothing)), flat(runs)
+        )
+    end
+
     # Compare the Step's `pullback!` with the transposed Jacobian of its
     # `forward!` in `[v; s; θ]`, for a modifier `build(θ)` whose mirror
     # flattens in the order of `θ`; `mirror_of` and `flatten` replace

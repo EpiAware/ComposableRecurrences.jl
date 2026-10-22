@@ -1193,8 +1193,8 @@ end
 
 # A draw's pools and the entries after them: a draw from the pools weighs
 # each, and a draw into one takes every entry but its own queue.
-_pools_rest(p::_DrawFrom, s) = _split_at(s, Val(length(p.weights)))
-_pools_rest(p::_DrawInto, s) = _pools_rest(p.overflow, s)
+_pools_rest(p::_DrawFrom, s::Tuple) = _split_at(s, Val(length(p.weights)))
+_pools_rest(p::_DrawInto, s::Tuple) = _pools_rest(p.overflow, s)
 _pools_rest(o, s::Tuple) = s, ()
 _pools_rest(::_Queue, s::Tuple) = Base.front(s), (last(s),)
 function _split_at(s::Tuple, ::Val{n}) where {n}
