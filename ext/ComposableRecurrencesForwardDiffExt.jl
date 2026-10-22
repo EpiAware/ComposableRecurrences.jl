@@ -16,7 +16,55 @@ using ComposableRecurrences: _ArrayPressure, _StepDuals, _written, _LOCAL_PRESSU
     _addparams!, _array_seeds, _exp_neg_branch, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params
-using ForwardDiff: ForwardDiff
+using ForwardDiff: ForwardDiff, Dual, value
+
+# The local derivatives, `Transform`'s among them, seed each input with a
+# partial of its own.
+# `ForwardDiff` breaks a tie between values by the partials, so at a tie a
+# seeded step would take the branch its seed points into: `x > 0 ? y / x : 0`
+# at `x = 0` would read `x` as positive and divide zero by zero, where the
+# step does not. Their dual numbers compare by value only, as plain floats
+# do, so each local derivative is that of the branch the step takes.
+const _LocalTag = ForwardDiff.Tag{
+    <:Union{
+        typeof(_value_pullback), typeof(_jacobian_pullback),
+        typeof(_scalar_pullback), typeof(_read_pullback),
+        typeof(_local_pressure!), typeof(_local_step!),
+        typeof(_local_form_pullback), typeof(_init_jacobian),
+        typeof(_check_scalars), typeof(_check_views), typeof(_probe_reads),
+        _TransformTag,
+    },
+}
+# `iszero` by value too: `ForwardDiff`'s also reads the partials.
+Base.iszero(x::Dual{<:_LocalTag}) = iszero(value(x))
+for f in (:<, :<=, :isless, :(==), :isequal)
+    @eval begin
+        function Base.$f(x::Dual{T}, y::Dual{T}) where {T <: _LocalTag}
+            return $f(value(x), value(y))
+        end
+        Base.$f(x::Dual{<:_LocalTag}, y::Dual{<:_LocalTag}) = _compare($f, x, y)
+        Base.$f(x::Dual{<:_LocalTag}, y::Dual) = _compare($f, x, y)
+        Base.$f(x::Dual, y::Dual{<:_LocalTag}) = _compare($f, x, y)
+    end
+    # `Base` compares a `Real` with an `AbstractIrrational` by its own
+    # method, so that pair has one here too.
+    for R in (ForwardDiff.AMBIGUOUS_TYPES..., AbstractIrrational)
+        @eval begin
+            Base.$f(x::Dual{<:_LocalTag}, y::$R) = $f(value(x), y)
+            Base.$f(x::$R, y::Dual{<:_LocalTag}) = $f(x, value(y))
+        end
+    end
+end
+# Dual numbers of two tags: the outer one by its value when it is a local
+# derivative's, else as `ForwardDiff` compares it with a plain number.
+function _compare(f, x::Dual{Tx}, y::Dual{Ty}) where {Tx, Ty}
+    if ForwardDiff.:≺(Ty, Tx)
+        Tx <: _LocalTag && return f(value(x), y)
+        return invoke(f, Tuple{typeof(x), Real}, x, y)
+    end
+    Ty <: _LocalTag && return f(x, value(y))
+    return invoke(f, Tuple{Real, typeof(y)}, x, y)
+end
 
 # The derivative in the value and the state only.
 function _value_pullback(m, v̄, s̄, v, s, t, k)
@@ -33,7 +81,9 @@ end
 function _jacobian_pullback(m, m̄, v̄, s̄, v, s, t, k)
     P = _nparams(m)
     x0 = [v; s; _params(m)]
-    J = ForwardDiff.jacobian(x -> _step_vector(m, x, P, t, k), x0)::Matrix{eltype(x0)}
+    f = x -> _step_vector(m, x, P, t, k)
+    cfg = _local_config(_jacobian_pullback, f, x0)
+    J = ForwardDiff.jacobian(f, x0, cfg, Val(false))::Matrix{eltype(x0)}
     g = transpose(J) * [v̄, s̄]
     _addparams!(m̄, m, g, 2)
     return g[1], g[2]
@@ -409,14 +459,21 @@ end
 # history's `nh` entries.
 function _init_jacobian(m, s, history, P, nh)
     x0 = P == 0 ? vec(history) : [_params(m); vec(history)]
-    J = ForwardDiff.jacobian(x0) do x
+    f = function (x)
         mm = P == 0 ? m : _rebuild(m, view(x, 1:P))
         hh = nh == 0 ? history : reshape(x[(P + 1):end], size(history))
         ss = similar(x, length(s))
         forward!(mm, Init(), ss, hh)
         return ss
     end
-    return J
+    cfg = _local_config(_init_jacobian, f, x0)
+    return ForwardDiff.jacobian(f, x0, cfg, Val(false))
+end
+# A Jacobian's configuration with the tag of local derivative `g`.
+function _local_config(g, f, x)
+    return ForwardDiff.JacobianConfig(
+        f, x, ForwardDiff.Chunk(x), ForwardDiff.Tag(g, eltype(x))
+    )
 end
 
 # The dual-number buffers of a coupling's local derivative, made once per
