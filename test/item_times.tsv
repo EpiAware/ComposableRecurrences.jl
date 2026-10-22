@@ -43,6 +43,7 @@
 0.2	Adjoint: user operators declare their adjoint
 3.0	Allocate: Float32 stays Float32
 0.2	Allocate: a group whose sum is below the floor
+8.9	Allocate: an empty group's total is unused
 2.8	Allocate: checks its groups and totals
 2.7	Allocate: checks its imports
 121.7	Allocate: imports against a naive loop
