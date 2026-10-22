@@ -1318,14 +1318,6 @@ function _series_body!(
         ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
         D, T
     )
-    # A block of one stratum runs with the stratum fixed, so each step has
-    # no loop over strata.
-    if ks isa AbstractUnitRange && length(ks) == 1
-        return _series_body!(
-            (first(ks),), ex, H, pr, gain, add, coupling, kernel, p, q, ms,
-            states, rec, τ0, L, D, T
-        )
-    end
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
             _series_step!, ex, ts, T,
