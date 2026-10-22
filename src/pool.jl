@@ -1,16 +1,16 @@
-# A `Depletion` holds pools for each group of strata, and its pieces act on
+# A `Depletion` holds pools for each group of strata, and its parts act on
 # the step's value and the pools in the order given: a draw takes the value
 # from the pools, or fills one, and flows move between them. Without a draw
 # the pools are the step's values, carried by the recurrence, and the flows
 # move them.
 #
-# The step is a fold of the pieces, and its pullback the fold in reverse.
-# The number of pools and the pieces are in the type, so each kind has
+# The step is a fold of the parts, and its pullback the fold in reverse.
+# The number of pools and the parts are in the type, so each kind has
 # methods of its own: one pool drawn from before its flows, with nothing
 # left over, is a pointwise step; any other is blockwise.
 
 @doc raw"""
-Depletion of pools: each group of strata holds pools, and pieces act on
+Depletion of pools: each group of strata holds pools, and parts act on
 the step's value and the pools in the order given.
 A draw takes the value from the pools, or fills one, and
 [`ComposableRecurrences.Flow`](@ref)s move between them.
@@ -55,9 +55,9 @@ What a draw leaves of the value it takes, ``u = v - v'``, goes nowhere by
 default; with `overflow = :stratum` to the group's second value,
 ``v'_2 = v_2 + u``, and with `overflow = :queue` to a queue held after the
 pools in the state, whose content joins the draw's value at the next step.
-Each draw takes the value the pieces before it pass on.
+Each draw takes the value the parts before it pass on.
 
-The flows act on the pools where they stand among the pieces, as when
+The flows act on the pools where they stand among the parts, as when
 patients leave before the day's admissions or an allowance is granted at
 the start of a period.
 Flows given one after another act together, as
@@ -101,7 +101,7 @@ flows, ``v' = \Phi_t(v)``.
 The state then holds what flowed into each pool at the step, where a
 negative count adds nothing.
 
-| model | pieces |
+| model | parts |
 |:----- |:------ |
 | a population with births and deaths | a `TimeVarying` `N`, `Hazard()`, then the births as a count `Flow(0 => :S, b; form = Truncate())` and the deaths as one out of `:S` |
 | leaky protection at relative susceptibility ``\sigma`` | `Hazard(; weights = (S = 1, V = σ))`, then the doses as `Flow(:S => :V, d; form = Truncate())` |
@@ -126,7 +126,7 @@ A `Depletion` holds the fields `pools` (each pool's starting value,
 `nothing` for its default) and `pieces`: the draws, each with `N` and its
 pools named by position, and the flows given one after another as one
 tuple.
-Each piece is a modifier on the pools it shares with the others: its group
+Each part is a modifier on the pools it shares with the others: its group
 step `forward!(piece, Step(), v, s, t, g)` takes the group's values and
 its pools, then the queue, as tuples of one-entry views, with
 `pullback!` and [`ComposableRecurrences.Trace`](@ref) alike, and the
@@ -389,7 +389,7 @@ function _check_drawn_pool(i, n)
     return nothing
 end
 
-# The pieces' draws, queues and overflows into a stratum, read from their
+# The parts' draws, queues and overflows into a stratum, read from their
 # types.
 _isdraw(p) = false
 _isdraw(::_Drawing) = true
@@ -455,7 +455,7 @@ _pool_starts(pools) = _bad_pools(pools)
     )
 end
 
-# A piece with its pools as positions among `starts`: a flow, a draw, or a
+# A part with its pools as positions among `starts`: a flow, a draw, or a
 # form drawn from the first pool alone.
 _place_piece(f::Flow, N, starts) = _placed(f, keys(starts))
 function _place_piece(d::_Draw, N, starts)
@@ -596,8 +596,8 @@ end
 _initial_param(::Nothing) = nothing
 _initial_param(x) = _float_param(_check_constant(:pools, x))
 
-# The placed pieces with each run of flows given one after another as one
-# tuple, as they act together. Generated from the pieces' types, so a run
+# The placed parts with each run of flows given one after another as one
+# tuple, as they act together. Generated from the parts' types, so a run
 # of more flows than inference's tuple recursion follows still infers.
 @generated function _runs(ps::Tuple)
     out, run = Any[], Any[]
@@ -677,7 +677,7 @@ end
 _by_position(x::NamedTuple) = values(x)
 _by_position(x) = x
 
-# The first draw from the pools, its position among the pieces, or zero.
+# The first draw from the pools, its position among the parts, or zero.
 _first_from(ps::Tuple) = _first_from(ps, 1)
 _first_from(::Tuple{}, j) = 0
 function _first_from(ps::Tuple, j)
@@ -764,7 +764,7 @@ function pullback!(grads, m::Depletion, ::Init, s, history)
 end
 pullback!(grads, m::_Drawless, ::Init, s, history) = nothing
 
-# The mirrors of the first piece and of the run of flows after it.
+# The mirrors of the first part and of the run of flows after it.
 _draw_mirror(m̄) = _head(cotangent(m̄, :pieces))
 _run_mirror(m̄) = _head(_tail(cotangent(m̄, :pieces)))
 
@@ -806,7 +806,7 @@ function pullback!(grads, m::_Flowing, ::Step, v, s, t)
     return nothing
 end
 
-# A group's step and its pullback. They, the pieces' steps and their
+# A group's step and its pullback. They, the parts' steps and their
 # helpers are inlined, as their calls are (see `_vector_step!`): the
 # call-site inline reaches only the first method, and across the inner
 # calls the rule's reverse pass took about 45% longer per group.
@@ -817,7 +817,7 @@ _block_step(m::Depletion, v::Tuple, s::Tuple, t, g) = _group_step(m, v, s, t, g)
     return _flow_group(only(m.pieces), v, g, t)
 end
 
-# With a draw: the pieces fold over the group's value, the value of its
+# With a draw: the parts fold over the group's value, the value of its
 # overflow stratum, its pools and its queue, `(a, b, x, Q)`, with
 # `nothing` for an overflow it lacks.
 @inline function _group_step(m, v, s, t, g)
@@ -839,7 +839,7 @@ _second(::_ToStratum, v) = v[2]
 _out_values(st, a, b) = (a,)
 _out_values(::_ToStratum, a, b) = (a, b)
 
-# Each piece on `(a, b, x, Q)` in turn.
+# Each part on `(a, b, x, Q)` in turn.
 @inline _pieces_step(::Tuple{}, c, t, g) = c
 @inline function _pieces_step(ps::Tuple, c, t, g)
     return _pieces_step(Base.tail(ps), _piece_step(first(ps), c, t, g), t, g)
@@ -956,8 +956,8 @@ end
     return _out_values(st, ā, b̄), _with_queue(q, x̄0, Q̄0)
 end
 
-# The fold in reverse: each piece's step forward, so the pieces after it
-# read what it gives, then its pullback, last first. The last piece's step
+# The fold in reverse: each part's step forward, so the parts after it
+# read what it gives, then its pullback, last first. The last part's step
 # is not run: its pullback reads what it gives only where it says so.
 @inline function _pieces_back(ps::Tuple{Any}, p̄s, c, c̄, t, g)
     return _piece_back(first(ps), _head(p̄s), c, nothing, c̄, t, g)
@@ -1001,7 +1001,7 @@ _queue_back(o, Q̄, d̄) = Q̄
 _queue_back(::_Queue, Q̄, d̄) = d̄
 
 # The value drawn, where the draw's pullback reads it: from several pools.
-# The last piece's is drawn again.
+# The last part's is drawn again.
 _drawn_value(p, c′, d, x, t, g) = nothing
 function _drawn_value(p::_DrawFrom, c′, d, x::NTuple{n, Any}, t, g) where {n}
     return n > 1 ? _drawn_again(c′, p, d, x, t, g) : nothing
@@ -1096,12 +1096,12 @@ function _add_weights!(w̄s, ws::Tuple, vals, g, t)
     return _add_weights!(_tail(w̄s), Base.tail(ws), Base.tail(vals), g, t)
 end
 
-# The pieces as modifiers --------------------------------------------------
+# The parts as modifiers --------------------------------------------------
 #
-# Each piece is a modifier on the values of a group and the pools the
-# `Depletion` shares among its pieces: its group step takes the group's
+# Each part is a modifier on the values of a group and the pools the
+# `Depletion` shares among its parts: its group step takes the group's
 # values `v`, with the overflow stratum's second, and its state `s`, the
-# pools with the queue last, as tuples of one-entry views; a piece on one
+# pools with the queue last, as tuples of one-entry views; a part on one
 # pool takes vectors of one value and one pool per stratum. The
 # `Depletion` folds the same steps over the group's scalars.
 const _Piece = Union{_Drawing, Flow, _Flows}
@@ -1209,7 +1209,7 @@ _second_of(v::Tuple{Any, Any}) = v[2]
 _values_of(v::Tuple{Any}, a, b) = (a,)
 _values_of(v::Tuple{Any, Any}, a, b) = (a, b)
 
-# Each piece's trace: a draw records the value it passes on and what it
+# Each part's trace: a draw records the value it passes on and what it
 # leaves of the value it takes, and a run of flows the amount each moves.
 function forward!(
         p::_Piece, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g

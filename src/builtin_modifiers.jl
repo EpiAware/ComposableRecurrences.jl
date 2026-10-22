@@ -180,7 +180,7 @@ exponent.
 # Keyword Arguments
 - `weights`, `into`, `overflow`: the draw's, as
   [`ComposableRecurrences.Depletion`](@ref) sets out; with any of them
-  `Hazard` returns a draw piece rather than the form.
+  `Hazard` returns a draw rather than the form.
 
 # Examples
 ```jldoctest
@@ -245,7 +245,7 @@ struct Floor{A}
 end
 
 # A form with its exponent: `true` is the default exponent of one. With a
-# draw's keywords, the draw piece.
+# draw's keywords, the draw.
 const _ExponentForm = Union{Hazard, Floor}
 for F in (:Hazard, :Floor)
     @eval function $F(α = nothing; weights = nothing, into = nothing, overflow = nothing)
@@ -463,7 +463,7 @@ The state is unused.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-mods = (CR.Depletion(50.0; form = CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
+mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 
 # output

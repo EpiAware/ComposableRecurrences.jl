@@ -22,7 +22,7 @@ A NaN pool gives a NaN draw.
 # Keyword Arguments
 - `weights`, `into`, `overflow`: the draw's, as
   [`ComposableRecurrences.Depletion`](@ref) sets out; with any of them
-  `Truncate` returns a draw piece rather than the form.
+  `Truncate` returns a draw rather than the form.
 
 # Examples
 ```jldoctest
