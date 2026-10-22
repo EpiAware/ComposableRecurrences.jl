@@ -217,6 +217,15 @@ end
     @test_throws ArgumentError c(A; history = [1.0])
     # A computed kernel is not a modifier parameter.
     @test_throws ArgumentError CR.Add(p * s)
+    # A map that holds floats is named as the reason for plain AD.
+    scaled = let c = 2.0
+        x -> c * x
+    end
+    empty!(CR._PLAIN_NOTED)
+    @test_logs (:info, r"the kernel has a Derived map that holds floats") Recurrence(
+        TimeVarying(Derived(scaled, p), CR.Primary())
+    )
+    @test_logs Recurrence(TimeVarying(Derived(exp, p), CR.Primary()))
 end
 
 # Each rule's pullback against the Jacobian of the plain call. The float
@@ -300,6 +309,12 @@ end
     check(conv(W.confirmed(q, hs)), (x, true, nothing, nothing, 1, T), sin.(1:T))
     check(conv(W.confirmed(q, hs)), (x, 0.7, nothing, nothing, 3, T), sin.(1:(T - 2)))
     check(conv(W.nested(Ps, 0.4, hs)), (xs, true, nothing, nothing, 1, T), sin.(xs))
+    # Per-stratum coefficients, one value per stratum and one per stratum
+    # and calendar time.
+    B = [1.0 + 0.05 * k * t for k in 1:2, t in 1:(T + L)]
+    args = (xs, true, nothing, nothing, 1, T)
+    check(conv(PerStratum([0.5, 0.8]) * W.confirmed(q, hs)), args, sin.(xs))
+    check(conv(Derived(*, q, TimeVarying(PerStratum(B)))), args, sin.(xs))
     # Another executor takes the dense kernel of the same weights.
     threaded = CR.Threaded(; min_work = 0, ntasks = 2)
     Base.ScopedValues.with(CR.EXECUTOR => threaded) do
