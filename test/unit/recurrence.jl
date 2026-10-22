@@ -665,9 +665,9 @@ end
     @test r(R[1, :]; history = Poison(h[1, :])) ≈ r(R[1, :]; history = h[1, :])
     # A resumed call loads its history from the state.
     r = Recurrence(g; coupling = K, modifiers = (pool,))
-    _, st = CR.with_state(r, R; history = Poison(h), stop = 5)
+    _, st = r(R; history = Poison(h), stop = 5, state = true)
     st = CR.State(Poison(st.history), st.states, st.t)
-    @test r(R; state = st) ≈ r(R; history = h)[:, 6:end]
+    @test first(r(R; state = st)) ≈ r(R; history = h)[:, 6:end]
 end
 
 @testitem "Recurrence: a zero sum is +0.0 for every run form" begin
