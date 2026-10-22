@@ -2234,6 +2234,7 @@ end
     @test x == z
     @test x == 0
     @test isequal(x, 0.0)
+    @test iszero(x)
     @test !isless(z, x)
     # `max` and `clamp` choose their branches by the values.
     @test ForwardDiff.partials(max(x, z)) == Partials((0.0, 0.0))
@@ -2282,6 +2283,7 @@ end
     end
     CR.nstate(::Damp, S) = S
     for m in (Damp(0.4), Damp(PerStratum([0.4, 0.6])), Damp([0.4, 0.5, 0.6]))
+        @test CR.ispointwise(m)
         θ = CR._param_tuple(m, (2, 3))
         J = ReferenceAD.jacobian([-δ; 0.0; θ...]) do x
             mm = isempty(θ) ? m : first(CR._rebuild_scalar(m, Tuple(x[3:end])))
@@ -2350,6 +2352,12 @@ end
         @test p̄ ≈ ref[1:3] atol = 1.0e-8
         @test mirror_vec(C̄, C) ≈ ref[4:end] atol = 1.0e-8
     end
+    # A `Transform` without a `derivative`, through its own local
+    # derivative, and a guard written with `iszero`.
+    f(v, a) = v > 0 ? a * v^2 / v : 2 * a * v
+    @test collect(CR._forward_derivative(f, 0.0, 0.4)) == [0.8, 0.0]
+    g(v, a) = iszero(v) ? 2 * a * v : a * v^2 / v
+    @test collect(CR._forward_derivative(g, 0.0, 0.4)) == [0.8, 0.0]
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin

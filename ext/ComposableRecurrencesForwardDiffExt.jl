@@ -18,7 +18,8 @@ using ComposableRecurrences: _ArrayPressure, _StepDuals, _written, _LOCAL_PRESSU
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params
 using ForwardDiff: ForwardDiff, Dual, value
 
-# The local derivatives seed each input with a partial of its own.
+# The local derivatives, `Transform`'s among them, seed each input with a
+# partial of its own.
 # `ForwardDiff` breaks a tie between values by the partials, so at a tie a
 # seeded step would take the branch its seed points into: `max(x, 0)` and
 # `x > 0 ? y / x : 0` at `x = 0` would read `x` as positive, and the second
@@ -32,8 +33,11 @@ const _LocalTag = ForwardDiff.Tag{
         typeof(_local_pressure!), typeof(_local_step!),
         typeof(_local_form_pullback), typeof(_init_jacobian),
         typeof(_check_scalars), typeof(_check_views), typeof(_probe_reads),
+        _TransformTag,
     },
 }
+# `iszero` by value too: `ForwardDiff`'s also reads the partials.
+Base.iszero(x::Dual{<:_LocalTag}) = iszero(value(x))
 for f in (:<, :<=, :isless, :(==), :isequal)
     @eval begin
         function Base.$f(x::Dual{T}, y::Dual{T}) where {T <: _LocalTag}
