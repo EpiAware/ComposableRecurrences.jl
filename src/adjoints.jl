@@ -131,7 +131,7 @@ function _has_pullback(x, ::Pressure)
     return Core._hasmethod(sig)
 end
 function _has_pullback(x, ::Step)
-    return _kernel(x) || _has_group_pullback(x) || _has_vector_pullback(x)
+    return _has_group_pullback(x) || _has_vector_pullback(x)
 end
 # A blockwise group step's or a depletion form's `pullback!`, after the role
 # its value and state and two more arguments; a group step's may type its

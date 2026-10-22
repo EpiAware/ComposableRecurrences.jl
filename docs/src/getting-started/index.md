@@ -310,7 +310,7 @@ maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι
 One line gives the gradient of all reports with respect to every town's reproduction number on every day.
 
 ```@example overview
-∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed))), R)
+∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
 size(∂R)
 ```
 

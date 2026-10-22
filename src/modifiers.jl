@@ -209,14 +209,16 @@ o = f_{\mathrm{role}}(u),
 
 with ``f_{\mathrm{role}}`` the map each role's docstring gives:
 [`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
-[`ComposableRecurrences.Init`](@ref) an initial state from the history and
-[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t``.
+[`ComposableRecurrences.Init`](@ref) an initial state from the history,
+[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t`` and
+[`ComposableRecurrences.Trace`](@ref) a modifier's record
+``r_t = R_M(v_t, s_{t-1}, v'_t, s_t)``.
 The outputs are written into the leading array arguments, and the method
 returns `nothing`; returning anything else is an error.
 To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
-coupling.
+coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's record.
 [Roles](@ref extending-roles) gives each role's arguments.
 
 A pointwise step runs on a [`ComposableRecurrences.Device`](@ref) when it
@@ -224,7 +226,7 @@ reads and writes only `eachindex(v)` entries, and allocates nothing.
 
 # Arguments
 - `x`: the coupling, modifier or variant.
-- `role`: `Step()`, `Init()` or `Pressure()`.
+- `role`: `Step()`, `Init()`, `Pressure()` or `Trace()`.
 - `args`: the role's arguments.
 
 # Examples
@@ -550,14 +552,9 @@ end
 
 forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
 
-# Whether `m`'s step is an internal scalar kernel, `_step` and
-# `_step_back`, rather than its `forward!` and `pullback!`: only a
-# `Depletion`'s pointwise steps, which hold no `forward!` of their own.
-_kernel(m) = false
-
 # The step of a pointwise modifier on stratum `k`'s value and state, as new
 # scalars: its `forward!` on one-entry views of local slots, which a fully
-# inlined step keeps in registers, or a `Depletion`'s kernel.
+# inlined step keeps in registers.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
     _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
@@ -640,15 +637,12 @@ function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
-    _kernel(m) || throw(
+    throw(
         ArgumentError(
             "$(typeof(m)) has no forward!(m, Step(), v, s, t), and is not " *
                 "blockwise (see blocks)"
         )
     )
-    n = length(eachindex(v, s))
-    _each!(_pointwise_body!, Serial(), v, n, n, v, s, m, t)
-    return nothing
 end
 
 function _pointwise_body!(k, v, s, m, t)
@@ -656,10 +650,9 @@ function _pointwise_body!(k, v, s, m, t)
     return nothing
 end
 
-# The vector step's pullback: the modifier's own, or for a built-in
-# pointwise or a blockwise modifier the kernel or group pullback per
-# stratum or group. Not a `pullback!` method, which would count as every
-# modifier's own.
+# The vector step's pullback: the modifier's own, or per stratum or group
+# for a pointwise or a blockwise modifier without one. Not a `pullback!`
+# method, which would count as every modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
     return pullback!(grads, m, Step(), v, s, t)

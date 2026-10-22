@@ -124,6 +124,58 @@ end
     @test !Interfaces.test(CR.PieceInterface, Returning, (obj,); show = false)
 end
 
+@testitem "Interfaces: a trace writes in place and keeps its inputs" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # A pointwise trace: a tuple of one series per value, by stratum.
+    struct Gap end
+    CR.ispointwise(::Gap) = true
+    CR.ntrace(::Gap, S) = S
+    function CR.forward!(::Gap, ::CR.Trace, r, v, s, v′, s′, t)
+        gap = only(r)
+        for k in eachindex(v)
+            gap[k] = v[k] - v′[k]
+        end
+        return nothing
+    end
+    pointwise = ((zeros(2),), [2.0, 3.0], [0.0, 0.0], [1.5, 2.0], [0.0, 0.0], 1)
+    obj = Interfaces.Arguments(; piece = Gap(), role = CR.Trace(), args = pointwise)
+    @test Interfaces.test(CR.PieceInterface, Gap, (obj,); show = false)
+    # A blockwise group's trace, on one-entry values read as `x[]`.
+    struct GroupGap end
+    CR.blocks(::GroupGap) = Val((1, 1))
+    function CR.forward!(
+            ::GroupGap, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple,
+            s′::Tuple, t, g
+        )
+        r[1][] = v[1][] - v′[1][]
+        return nothing
+    end
+    group = ((Ref(0.0),), (Ref(2.0),), (Ref(0.0),), (Ref(1.5),), (Ref(0.0),), 1, 1)
+    obj = Interfaces.Arguments(; piece = GroupGap(), role = CR.Trace(), args = group)
+    @test Interfaces.test(CR.PieceInterface, GroupGap, (obj,); show = false)
+    # A trace that returns its record instead of writing it fails.
+    struct ReturnedGap end
+    CR.forward!(::ReturnedGap, ::CR.Trace, r, v, s, v′, s′, t) = v .- v′
+    whole = (zeros(2), [2.0, 3.0], [0.0, 0.0], [1.5, 2.0], [0.0, 0.0], 1)
+    obj = Interfaces.Arguments(; piece = ReturnedGap(), role = CR.Trace(), args = whole)
+    @test !Interfaces.test(CR.PieceInterface, ReturnedGap, (obj,); show = false)
+    # A trace that writes into the step's values fails.
+    struct WritingGap end
+    function CR.forward!(::WritingGap, ::CR.Trace, r, v, s, v′, s′, t)
+        r .= v .- v′
+        v′ .= v
+        return nothing
+    end
+    obj = Interfaces.Arguments(; piece = WritingGap(), role = CR.Trace(), args = whole)
+    @test !Interfaces.test(CR.PieceInterface, WritingGap, (obj,); show = false)
+    # The default trace, the state after the step, passes.
+    obj = Interfaces.Arguments(;
+        piece = CR.Clamp(0.0, 1.0), role = CR.Trace(), args = whole
+    )
+    @test Interfaces.test(CR.PieceInterface, CR.Clamp, (obj,); show = false)
+end
+
 @testitem "Interfaces: a pointwise step may broadcast" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
@@ -190,6 +242,14 @@ end
     """
     cmd = `$(Base.julia_cmd()) --startup-file=no --check-bounds=yes --project=$(Base.active_project()) -e $script`
     @test readchomp(cmd) == "2.0 4.0 4.0 [1.0, 4.0, 3.0] true"
+end
+
+@testitem "Interfaces: eachindex of two one-entry views" begin
+    const CR = ComposableRecurrences
+    a, b = CR._At([1.0, 2.0, 3.0], 2), CR._At(Ref(0.0), 2)
+    @test eachindex(a, b) == 2:2
+    @test collect(eachindex(a, b)) == collect(eachindex(a))
+    @test_throws DimensionMismatch eachindex(a, CR._At(Ref(0.0), 3))
 end
 
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
@@ -310,16 +370,20 @@ end
     CR = ComposableRecurrences
     # The built-in pointwise modifiers and forms implement forward! and
     # pullback! as a user's pieces do, and the operators reach them through
-    # the same step on one stratum's view; a Depletion keeps its own kernels.
+    # the same step on one stratum's view.
     pool = CR.Depletion(
         100.0; pools = (:S,), form = CR.Hazard(),
         flows = (CR.Flow(0 => 1, 2.0; form = CR.Truncate()),)
     )
-    for m in (CR.Add(1.0), CR.Clamp(0.0, 1.0), CR.Transform(*, 2.0))
-        @test !CR._kernel(m)
-    end
-    for m in (CR.Depletion(100.0), pool)
-        @test CR._kernel(m)
+    for m in (CR.Depletion(PerStratum([100.0, 80.0])), pool)
+        v, s = [2.0, 3.0], [70.0, 60.0]
+        CR.forward!(m, CR.Step(), v, s, 1)
+        @test (v[2], s[2]) == CR._step(m, 3.0, 60.0, 1, 2)
+        g = (; piece = nothing, v = [1.0, 1.0], s = [0.5, 0.5])
+        CR.pullback!(g, m, CR.Step(), [2.0, 3.0], [70.0, 60.0], 1)
+        @test (g.v[2], g.s[2]) == CR._step_back(
+            (; piece = nothing, v = 1.0, s = 0.5), m, 3.0, 60.0, 1, 2
+        )
     end
     grads = (; piece = (; b = Ref(0.0)), v = 1.0, s = 0.5)
     @test CR._step_back(grads, CR.Add(1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
@@ -364,7 +428,7 @@ end
         end
         return nothing
     end
-    @test !CR._kernel(Halve())
+    @test CR.uses_adjoint(Halve(), CR.Step())
     @test CR._step(Halve(), 2.0, 1.0, 1, 3) == (1.0, 2.0)
     pointwise = (; piece = nothing, v = 1.0, s = 1.0)
     @test CR._step_back(pointwise, Halve(), 2.0, 1.0, 1, 3) == (1.0, 1.0)
@@ -433,4 +497,15 @@ end
     end
     @test err isa ArgumentError
     @test occursin("eachindex(v)", err.msg)
+end
+
+@testitem "Interfaces: a modifier with no step says it needs forward!" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A type made a modifier without a `forward!` for `Step()`, and not
+    # blockwise, has no step to run.
+    struct NoStep end
+    @test_throws "has no forward!(m, Step(), v, s, t)" CR.forward!(
+        NoStep(), CR.Step(), [1.0, 2.0], [0.0, 0.0], 1
+    )
 end

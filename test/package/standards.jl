@@ -190,11 +190,12 @@ end
     @test sections_missing_maths("# ## [A](@id a)\nAdd(1)\n", calls) == ["A"]
 end
 
-@testitem "Standards: the nav lists every page docs_config registers" tags = [
+@testitem "Standards: the nav lists every page the docs build" tags = [
     :quality,
 ] begin
     include(joinpath(@__DIR__, "standards_helpers.jl"))
     docs = joinpath(STANDARDS_ROOT, "docs")
+    src = joinpath(docs, "src")
     load(file) = (m = Module(); Base.include(m, joinpath(docs, file)); m)
     cfg, nav = load("docs_config.jl"), load("pages.jl")
     paths(x::AbstractString) = [x]
@@ -210,8 +211,33 @@ end
         isdefined(cfg, name) && append!(registered, paths(getfield(cfg, name)))
     end
     @test !isempty(registered)
+    # Every authored page: Documenter builds each Markdown file under
+    # docs/src, so one missing from the nav is published but unreachable.
+    # Pages that make.jl writes (gitignored) are left to the rendered list.
+    generated(rel) = rel in ("index.md", "release-notes.md") ||
+        startswith(rel, "lib/") || startswith(rel, "benchmarks/") ||
+        startswith(rel, cfg.TUTORIALS_SUBDIR)
+    authored = String[]
+    for (dir, _, files) in walkdir(src)
+        occursin("node_modules", dir) && continue
+        for file in files
+            endswith(file, ".md") || continue
+            rel = replace(relpath(joinpath(dir, file), src), '\\' => '/')
+            generated(rel) || push!(authored, rel)
+        end
+    end
+    # Every Literate page the build renders.
+    md(dir, file) = string(dir, "/", splitext(file)[1], ".md")
+    rendered = [
+        [md(cfg.TUTORIALS_SUBDIR, f) for f in cfg.LIGHT_TUTORIALS];
+        [md(cfg.TUTORIALS_SUBDIR, f) for f in cfg.HEAVY_TUTORIALS];
+        [md("benchmarks", f) for f in cfg.HEAVY_BENCHMARKS]
+    ]
+    @test "extensions/distributions.md" in authored
+    @test !isempty(rendered)
     # Regenerate `docs/pages.jl` with the kit's `update` when this fails.
-    @test setdiff(registered, paths(nav.pages)) == String[]
+    built = unique([registered; authored; rendered])
+    @test setdiff(built, paths(nav.pages)) == String[]
 end
 
 @testitem "Standards: recorded item times fit the time budget" tags = [:quality] begin
