@@ -255,6 +255,14 @@ end
                 CR.Allocate([1:3, 4:7], TimeVarying(PerStratum(fill(5.0, 2, T)))),
             )
         ),
+        # An empty group between the groups.
+        Recurrence(
+            g; modifiers = (
+                CR.Allocate(
+                    [1:3, 4:3, 4:7], TimeVarying(PerStratum(fill(5.0, 3, T)))
+                ),
+            )
+        ),
         # Both in one call: a protected pool, then grouped totals.
         Recurrence(
             g; modifiers = (

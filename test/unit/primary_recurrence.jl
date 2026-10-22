@@ -107,8 +107,8 @@ end
     for (wrap, K, R, h, C) in values(shapes)
         r = Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C)
         long = r(R; history = h, start = m + 1)
-        y1, st = CR.with_state(r, R; history = h, start = m + 1, stop = 7)
-        y2 = r(R; state = st)
+        y1, st = r(R; history = h, start = m + 1, stop = 7, state = true)
+        y2, _ = r(R; state = st)
         @test cat(y1, y2; dims = ndims(h)) ≈ long
     end
 end
@@ -122,7 +122,7 @@ end
     @test_throws "not start = 2" r(ones(6); history = ones(2), start = 2)
     @test length(r(ones(6); history = ones(2), start = 3)) == 4
     # Both a seed and a state is refused as such, before the seed check.
-    _, st = CR.with_state(r, ones(6); history = ones(2), start = 3, stop = 4)
+    _, st = r(ones(6); history = ones(2), start = 3, stop = 4, state = true)
     @test_throws "not both" r(ones(6); history = ones(2), state = st)
     # Without a seed there is nothing earlier to read.
     @test r(ones(6)) == zeros(6)

@@ -2,4 +2,4 @@
 
 `ComposableRecurrencesEnzymeTestUtilsExt` is loaded automatically when ADTypes, Enzyme and EnzymeTestUtils are available alongside ComposableRecurrences.
 
-It adds [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) for `AutoEnzyme`.
+It adds [`ComposableRecurrences.test_adjoint`](@ref) for `AutoEnzyme`: `test_adjoint(AutoEnzyme(), op, ComposableRecurrences.Run(), args...)` runs `EnzymeTestUtils.test_reverse` on the rule of operator `op` at its positional arguments `args`.

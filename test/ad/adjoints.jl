@@ -17,7 +17,7 @@
     struct Hazard{T}
         N::T
     end
-    CR.ispointwise(::Hazard) = true
+    CR.blocks(::Hazard) = (1, 1)
     CR.uses_adjoint(::Hazard, ::CR.Step) = true
     CR.forward!(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
     function CR.forward!(m::Hazard, ::CR.Step, v, s, t)
@@ -47,7 +47,7 @@
     struct PoolDepletion{P}
         pop::P
     end
-    CR.ispointwise(::PoolDepletion) = true
+    CR.blocks(::PoolDepletion) = (1, 1)
     CR.forward!(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
     function CR.forward!(m::PoolDepletion, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
@@ -67,9 +67,6 @@
         seen::Base.RefValue{Any}
     end
     (c::Capture)(args...; kwargs...) = CR._invoke(c.op, c, args...; kwargs...)
-    function CR.with_state(c::Capture, args...; kwargs...)
-        return CR._with_state(c.op, c, args...; kwargs...)
-    end
     function CR.contributions(c::Capture, args...; kwargs...)
         return CR._contributions(c.op, c, args...; kwargs...)
     end
@@ -794,7 +791,7 @@ end
         f::F
         a::T
     end
-    CR.ispointwise(::MapBy) = true
+    CR.blocks(::MapBy) = (1, 1)
     function CR.forward!(m::MapBy, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = m.a * m.f(v[k])
@@ -809,7 +806,7 @@ end
         idx::I
         a::T
     end
-    CR.ispointwise(::Pick) = true
+    CR.blocks(::Pick) = (1, 1)
     _in(k, idx) = k in idx
     _in(k, idx::AbstractVector{<:AbstractVector}) = any(i -> k in i, idx)
     function CR.forward!(m::Pick, ::CR.Step, v, s, t)
@@ -847,7 +844,7 @@ end
         Doubled(a::T) where {T} = new{T}(2a)
     end
     for M in (ScaleKw, ScaleF, Doubled)
-        @eval CR.ispointwise(::$M) = true
+        @eval CR.blocks(::$M) = (1, 1)
         @eval function CR.forward!(m::$M, ::CR.Step, v, s, t)
             for k in eachindex(v, s)
                 v[k] = m.a * v[k]
@@ -1059,7 +1056,7 @@ end
 
         mods(b) = (CR.Depletion(pool; form = CR.Floor()), CR.Add(b))
         op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
-        ws(r) = CR.with_state(r, R; history = h, stop = 4)
+        ws(r) = r(R; history = h, stop = 4, state = true)
         # The operator built from `b` inside the loss.
         for f in (
                 b -> sum(W .* op(b[1])(R; history = h)),
@@ -1072,7 +1069,7 @@ end
         for f in (
                 r -> sum(W .* r(R; history = h)),
                 r -> sum(abs2, ws(r)[2].history),
-                r -> sum(W[:, 1:4] .* r(R; state = ws(r)[2])),
+                r -> sum(W[:, 1:4] .* first(r(R; state = ws(r)[2]))),
             )
             ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
             @test ḡ.modifiers[2].b ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
@@ -1368,7 +1365,7 @@ end
         pop::P
     end
     CR.forward!(m::PoolDep, ::CR.Init, s, history) = (s .= m.pop; nothing)
-    CR.ispointwise(::PoolDep) = true
+    CR.blocks(::PoolDep) = (1, 1)
     function CR.forward!(m::PoolDep, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
@@ -1572,7 +1569,7 @@ end
         a::Float64
     end
     for M in (ScaleM, ScaleE)
-        @eval CR.ispointwise(::$M) = true
+        @eval CR.blocks(::$M) = (1, 1)
         @eval function CR.forward!(m::$M, ::CR.Step, v, s, t)
             for k in eachindex(v, s)
                 v[k] = m.a * v[k]
@@ -1631,7 +1628,7 @@ end
     struct Direct{K}
         κ::K
     end
-    CR.ispointwise(::Direct) = true
+    CR.blocks(::Direct) = (1, 1)
     function CR.forward!(m::Direct, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] / (1 + v[k] / m.κ.x[k])
@@ -1647,7 +1644,7 @@ end
     struct Plain{K}
         κ::K
     end
-    CR.ispointwise(::Plain) = true
+    CR.blocks(::Plain) = (1, 1)
     function CR.forward!(m::Plain, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] / (1 + v[k] / CR.param(m.κ, k, t))
@@ -1861,7 +1858,7 @@ end
     struct Weights{W}
         w::W
     end
-    CR.ispointwise(::Weights) = true
+    CR.blocks(::Weights) = (1, 1)
     function CR.forward!(m::Weights, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] *= m.w[mod1(t, length(m.w))]
@@ -1890,7 +1887,7 @@ end
     struct Move{A}
         a::A
     end
-    CR.blocks(::Move) = Val((2, 1))
+    CR.blocks(::Move) = (2, 1)
     function CR.forward!(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2 = v[1][], v[2][]
         x = CR.param(m.a, g, t) * v1
@@ -1909,7 +1906,7 @@ end
     struct Keep{A}
         a::A
     end
-    CR.blocks(::Keep) = Val((2, 2))
+    CR.blocks(::Keep) = (2, 2)
     function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
         v[1][], v[2][] = v1 * m.a, v2 + s1
