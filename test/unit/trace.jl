@@ -125,9 +125,9 @@ end
                 CR.Device(KernelAbstractions.CPU()),
             )
             yt, trt = with(CR.EXECUTOR => ex) do
-                r(Rx; history = hx, start = L + 1, trace = true)
+                r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
             end
-            @test same(yt, y)
+            @test same(yt, yp)
             @test same(trt.modifiers, tr.modifiers)
         end
     end
