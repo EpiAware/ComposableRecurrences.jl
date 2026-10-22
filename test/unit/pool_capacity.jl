@@ -204,7 +204,7 @@ end
         @test vec(sum(y; dims = 1)) ≈ d
         @test all(>=(0), y)
         r = Recurrence([0.0]; modifiers = (mode(:queue),))
-        y, st = CR.with_state(r; history = zeros(1, 1), add = reshape(d, 1, :))
+        y, st = r(; history = zeros(1, 1), add = reshape(d, 1, :), state = true)
         queue = st.states[1][2]
         @test sum(y) + queue ≈ sum(d)
         @test queue > 0
@@ -259,8 +259,8 @@ end
     for cap in (beds(5.0, 0.2), budget(5.0, 5, 12; overflow = :queue))
         r = Recurrence(PerStratum(G); modifiers = (cap,))
         whole = r(R; history = h)
-        first7, st = CR.with_state(r, R; history = h, stop = 7)
-        @test hcat(first7, r(R; state = st, stop = 12)) ≈ whole
+        first7, st = r(R; history = h, stop = 7, state = true)
+        @test hcat(first7, first(r(R; state = st, stop = 12))) ≈ whole
     end
 end
 
@@ -440,14 +440,17 @@ end
     )(
         ones(2, 3); history = ones(2, 1)
     )
-    @test CR.blocks(m) == Val((2, 1))
+    @test CR.blocks(m) == (2, 1)
     @test CR.nstate(m, 6) == 3
     queued = fill_into(:O; overflow = :queue)
-    @test CR.blocks(queued) == Val((1, 2))
+    @test CR.blocks(queued) == (1, 2)
     @test CR.nstate(queued, 5) == 10
     dropped = fill_into(:O)
-    @test CR.blocks(dropped) == Val((1, 1))
-    @test !CR.ispointwise(dropped)
+    @test CR.blocks(dropped) == (1, 1)
+    # Pointwise in its maths, it runs its group kernel rather than a loop
+    # per stratum.
+    @test CR.ispointwise(dropped)
+    @test !CR._strata_loop(dropped)
     @test CR.nstate(dropped, 5) == 5
     @test CR.param_eltype(fill_into(:O; flows = CR.Flow(:O => 0, 0.1f0))) == Float64
     @test CR.param_eltype(

@@ -421,10 +421,10 @@ end
         δ1 = level(z_level, σ_level)
         c = innovations(z_drift, σ_δ)
         ar = Recurrence([φ])
-        fitted, state = ComposableRecurrences.with_state(
-            ar, 1.0; history = reshape(δ1, :, 1), add = c, stop = 3
+        fitted, state = ar(
+            1.0; history = reshape(δ1, :, 1), add = c, stop = 3, state = true
         )
-        return hcat(δ1, fitted, ar(1.0; state, add = c))
+        return hcat(δ1, fitted, first(ar(1.0; state, add = c)))
     end
     @test forecast(unpack(θ0)...) ≈ ref(unpack(θ0)...)
     @test ReferenceAD.gradient(θ -> sum(W .* forecast(unpack(θ)...)), θ0) ≈ ∇ref

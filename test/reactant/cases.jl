@@ -7,7 +7,7 @@ module ReactantCases
 using ComposableRecurrences
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
     Hazard, Primary, Redistribute, Secondary, SoftTruncate, Step,
-    Transform, Truncate, with_state
+    Transform, Truncate
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -40,7 +40,7 @@ const WS = reshape(collect(range(0.5, 2.0; length = S * T)), S, T)
 struct Lower
     lo::Float64
 end
-ComposableRecurrences.ispointwise(::Lower) = true
+ComposableRecurrences.blocks(::Lower) = (1, 1)
 function ComposableRecurrences.forward!(m::Lower, ::Step, v, s, t)
     for k in eachindex(v, s)
         v[k] = max(v[k], m.lo)
@@ -114,8 +114,8 @@ end
 function rec_resume(θ)
     r = Recurrence(θ[1:L])
     R = θ[(L + 1):end]
-    y1, state = with_state(r, R; history = H1, stop = T₁)
-    y2 = r(R; state)
+    y1, state = r(R; history = H1, stop = T₁, state = true)
+    y2, _ = r(R; state)
     return vcat(y1, y2)
 end
 

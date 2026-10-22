@@ -121,14 +121,13 @@ A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRe
 ## [Checking a rule](@id adjoint-checks)
 
 [Testing and benchmarking](@ref compare-plain-ad) compares a rule with plain AD through [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint).
-[`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator's rule.
+With Mooncake, or Enzyme and EnzymeTestUtils, loaded, [`ComposableRecurrences.test_adjoint`](@ref) runs that backend's own rule tester on an operator's rule; the [Mooncake](@ref extension-mooncake) and [EnzymeTestUtils](@ref extension-enzyme-test-utils) extensions add it.
 
 ## [Executors](@id executors)
 
 An executor sets how an operator's loops over strata, series or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Device`](@ref ComposableRecurrences.Device) runs it as a kernel on a GPU.
-A new executor is a subtype of [`Executor`](@ref ComposableRecurrences.Executor) with a method of [`each!`](@ref ComposableRecurrences.each!).
 
 | Executor | Forward | ForwardDiff | ReverseDiff | Mooncake, Enzyme forward | Mooncake, Enzyme reverse |
 |---|---|---|---|---|---|

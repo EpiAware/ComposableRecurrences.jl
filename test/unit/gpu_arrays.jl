@@ -6,7 +6,7 @@
     using ComposableRecurrences
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
-        contributions, movement, with_state
+        contributions, movement
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -282,8 +282,8 @@
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
             )
         )
-        y1, state = with_state(r, d(RS); history = d(HS), stop = 8)
-        return y1, state, r(d(RS); state)
+        y1, state = r(d(RS); history = d(HS), stop = 8, state = true)
+        return y1, state, first(r(d(RS); state))
     end
 end
 
@@ -559,7 +559,7 @@ end
     struct DeepPass
         w::Int
     end
-    CR.ispointwise(::DeepPass) = true
+    CR.blocks(::DeepPass) = (1, 1)
     CR.forward!(::DeepPass, ::CR.Step, v, s, t) = nothing
     CR.depth(m::DeepPass) = m.w
     S, L, T, D = 3, 3, 9, 7
@@ -574,9 +574,9 @@ end
         y = rd(JLArray(R); history = JLArray(h))
         @test y isa JLArray
         @test Array(y) ≈ r(R; history = h)
-        y1, st = CR.with_state(rd, JLArray(R); history = JLArray(h), stop = 4)
+        y1, st = rd(JLArray(R); history = JLArray(h), stop = 4, state = true)
         @test st.history isa JLArray
         @test size(st.history) == (S, D)
-        @test hcat(Array(y1), Array(rd(JLArray(R); state = st))) ≈ r(R; history = h)
+        @test hcat(Array(y1), Array(first(rd(JLArray(R); state = st)))) ≈ r(R; history = h)
     end
 end
