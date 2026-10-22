@@ -4,6 +4,8 @@
 
 @testitem "Interfaces: package pieces" begin
     using ComposableRecurrences, Interfaces, LinearAlgebra, SparseArrays
+    # Loaded so the pullback component compares with a Jacobian.
+    using ForwardDiff
     CR = ComposableRecurrences
     @test Interfaces.test(ComposableRecurrences; show = false)
     for T in (
@@ -19,7 +21,89 @@
     obj = Interfaces.Arguments(;
         piece = K, role = CR.Pressure(), args = (zeros(3), [1.0, 2.0, 3.0], 1)
     )
-    @test Interfaces.test(CR.PieceInterface, typeof(K), (obj,); show = false)
+    @test Interfaces.test(
+        CR.PieceInterface{(:pullback,)}, typeof(K), (obj,); show = false
+    )
+end
+
+@testitem "Interfaces: a wrong pullback! fails the pullback check" begin
+    using ComposableRecurrences, Interfaces, ForwardDiff
+    CR = ComposableRecurrences
+    check(T, obj) = Interfaces.test(
+        CR.PieceInterface{(:pullback,)}, T, (obj,); show = false
+    )
+    # A modifier's step: `v′ = a v`, with the parameter's cotangent off by
+    # `scale`.
+    struct Gain{A, S}
+        a::A
+        scale::S
+    end
+    CR.ispointwise(::Gain) = true
+    function CR.forward!(m::Gain, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] = m.a * v[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::Gain, ::CR.Step, v, s, t)
+        ā = CR.cotangent(grads.piece, :a)
+        for k in eachindex(v)
+            CR.add_cotangent!(ā, m.scale * grads.v[k] * v[k])
+            grads.v[k] *= m.a
+        end
+        return nothing
+    end
+    gain(scale) = Interfaces.Arguments(;
+        piece = Gain(0.5, scale), role = CR.Step(),
+        args = ([1.0, 2.0], [0.0, 0.0], 1)
+    )
+    @test check(Gain, gain(1.0))
+    @test !check(Gain, gain(1.01))
+    # A depletion form whose `α` cotangent is missing.
+    struct Share{B} end
+    function CR.forward!(::Share, ::CR.Step, v, s, N, α)
+        for k in eachindex(v, s)
+            y = v[k] * (s[k] / N)^α
+            v[k], s[k] = y, s[k] - y
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, ::Share{B}, ::CR.Step, v, s, N, α) where {B}
+        for k in eachindex(v, s)
+            ȳ, s̄′ = grads.v[k], grads.s[k]
+            r = s[k] / N
+            f = r^α
+            ḡ = ȳ - s̄′
+            grads.v[k] = ḡ * f
+            grads.s[k] = s̄′ + ḡ * v[k] * α * r^(α - 1) / N
+            grads.N[k] -= ḡ * v[k] * α * f / N
+            B && (grads.α[k] += ḡ * v[k] * f * log(r))
+        end
+        return nothing
+    end
+    share(B) = Interfaces.Arguments(;
+        piece = Share{B}(), role = CR.Step(), args = ([2.0], [60.0], 80.0, 1.5)
+    )
+    @test check(Share{true}, share(true))
+    @test !check(Share{false}, share(false))
+    # A coupling whose pullback forgets the transpose.
+    struct Mix{M}
+        M::M
+    end
+    function CR.forward!(C::Mix, ::CR.Pressure, q, p, t)
+        q .= C.M * p
+        return nothing
+    end
+    function CR.pullback!(grads, C::Mix, ::CR.Pressure, q, p, t)
+        grads.p .+= C.M * grads.q
+        grads.piece.M .+= grads.q * p'
+        return nothing
+    end
+    mix(M) = Interfaces.Arguments(;
+        piece = Mix(M), role = CR.Pressure(), args = (zeros(2), [1.0, 2.0], 1)
+    )
+    @test check(Mix, mix([0.9 0.2; 0.2 0.8]))
+    @test !check(Mix, mix([0.9 0.1; 0.3 0.8]))
 end
 
 @testitem "Interfaces: user pieces" setup = [TestModifiers] begin
