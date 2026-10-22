@@ -117,7 +117,7 @@ end
 # A `pullback!` for a modifier's or a depletion form's `Step()`, or a
 # coupling's `Pressure()`, gives the transpose Jacobian of its `forward!`
 # times a fixed cotangent, in the type's float parameters and the role's
-# inputs. The Jacobian is ForwardDiff's, from the dual-number extension;
+# inputs. The Jacobian is `ForwardDiff`'s, from the dual-number extension;
 # without it the check passes with a note. A role or a type without a
 # `pullback!` passes, as does a blockwise group step on tuples, which the
 # vector step's check covers.
@@ -263,7 +263,7 @@ end
             a -> _blocks_ok(a.piece, a.role, a.args),
         nstate = "Init and Step keep the state at nstate(m, S) entries" =>
             a -> _nstate_ok(a.piece, a.role, a.args),
-        pullback = "pullback! matches the ForwardDiff Jacobian of forward!" =>
+        pullback = "pullback! matches the `ForwardDiff` Jacobian of forward!" =>
             a -> _pullback_ok(a.piece, a.role, a.args),
     ),
 ) "An operator, coupling, modifier or variant with `forward` or `forward!`
@@ -308,7 +308,7 @@ Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
 # Examples
 
 ```jldoctest
-using ComposableRecurrences, Interfaces
+using ComposableRecurrences, Interfaces, ForwardDiff
 CR = ComposableRecurrences
 Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
 
