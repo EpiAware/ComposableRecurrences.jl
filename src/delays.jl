@@ -11,7 +11,10 @@ vector of length `lags`:
 where ``D`` is the delay in whole steps and ``L`` = `lags`.
 A [`Convolution`](@ref) kernel is this vector.
 A [`Recurrence`](@ref) kernel starts at lag 1, so it is the vector without
-``p_0``.
+``p_0``, and its sum ``\sum_{l=1}^{L-1} p_l`` scales the gain.
+`lags` has no default, since where a delay is cut is a modelling choice:
+a kernel of delays without `lags` is an error, and so is `lags` on a kernel
+with no delays.
 
 The method for a vector returns it as it is, whatever `lags`.
 A package that owns a delay type adds a method for that type:

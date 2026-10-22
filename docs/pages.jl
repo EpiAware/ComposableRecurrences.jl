@@ -46,6 +46,7 @@ pages = [
         "ADTypes + Enzyme + EnzymeTestUtils" => "extensions/enzyme-test-utils.md",
         "ADTypes + Mooncake + Random" => "extensions/mooncake.md",
         "Adapt + KernelAbstractions" => "extensions/kernel-abstractions.md",
+        "CensoredDistributions + Distributions" => "extensions/censored-distributions.md",
         "Distributions" => "extensions/distributions.md",
         "Enzyme" => "extensions/enzyme.md",
         "FFTW" => "extensions/fftw.md",
