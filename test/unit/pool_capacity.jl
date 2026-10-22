@@ -447,8 +447,10 @@ end
     @test CR.nstate(queued, 5) == 10
     dropped = fill_into(:O)
     @test CR.blocks(dropped) == (1, 1)
+    # Pointwise in its maths, it runs its group kernel rather than a loop
+    # per stratum.
     @test CR.ispointwise(dropped)
-    @test !CR._pointwise(dropped)
+    @test !CR._strata_loop(dropped)
     @test CR.nstate(dropped, 5) == 5
     @test CR.param_eltype(fill_into(:O; flows = CR.Flow(:O => 0, 0.1f0))) == Float64
     @test CR.param_eltype(

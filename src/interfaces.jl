@@ -46,7 +46,7 @@ _finite(x::AbstractArray) = all(isfinite, x)
 # Step on the whole vectors.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
-    _pointwise(m) || return true
+    _strata_loop(m) || return true
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
     # A step that broadcasts against a length-S field cannot run on one

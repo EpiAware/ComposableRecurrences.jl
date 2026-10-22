@@ -626,7 +626,8 @@ function blocks(m::Depletion)
     return (1 + (m.overflow isa _ToStratum), n + (m.overflow isa _Queue))
 end
 # One pool drawn from before its flows, with nothing left over, steps per
-# stratum; any other runs the group kernel, a group of one included.
+# stratum; any other runs the group kernel, a group of one included. The
+# shape needs no check here: `blocks` above always gives positive integers.
 _blocks(m::_OnePool) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
 

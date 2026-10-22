@@ -375,8 +375,9 @@ Both return `nothing`, and the default vector
 [`ComposableRecurrences.Step`](@ref) loops the groups.
 The group step reads parameters at group `g`, so a [`PerStratum`](@ref)
 parameter has ``G`` entries.
-`blocks` should follow from the type of `m`, so the loops are compiled for
-its shape.
+`blocks` should follow from the type of `m`, not from the value of a field,
+so the loops are compiled for its shape; a shape read from a field is known
+only at run time.
 [`ComposableRecurrences.ispointwise`](@ref) and
 [`ComposableRecurrences.nstate`](@ref) follow from it.
 The default is `nothing`.
@@ -438,9 +439,12 @@ nstate(m, S) = _blocks_nstate(_blocks(m), S)
 _blocks_nstate(::Nothing, S) = S
 _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 
-# The group shape as a static value, for the loops compiled for it:
-# `Val((nv, ns))` for a blockwise modifier and `nothing` for a pointwise or
-# a whole-vector one. `blocks` follows from the type, so this folds.
+# How the operator runs a modifier's step, as a static value the loops are
+# compiled for: `Val((nv, ns))` runs the group kernel per group, `nothing`
+# runs the step per stratum (pointwise) or on the whole vectors. It follows
+# from `blocks`, which follows from the type, so this folds. A built-in may
+# run a pointwise shape on its group kernel instead: `Depletion` does, for a
+# one-pool kind without a step of its own (see `pool.jl`).
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))
@@ -455,8 +459,10 @@ _group_shape(::Val{(1, 1)}) = nothing
 _group_shape(b::Val) = b
 
 # Whether the operator runs a modifier's step per stratum, on one-entry
-# views: a pointwise modifier without a group kernel of its own.
-_pointwise(m) = blocks(m) === (1, 1) && _blocks(m) === nothing
+# views: an execution choice, not a property of the maths, which is
+# `ispointwise`. A pointwise modifier that runs a group kernel, such as a
+# `Depletion` filling one pool, is pointwise but not looped per stratum.
+_strata_loop(m) = blocks(m) === (1, 1) && _blocks(m) === nothing
 
 # The number of groups of a blockwise modifier over `S` strata.
 function _ngroups(::Val{B}, S) where {B}
@@ -677,7 +683,7 @@ function _vector_pullback!(grads, m, v, s, t)
     return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
-    _pointwise(m) && return _strata_pullback!(grads, m, v, s, t)
+    _strata_loop(m) && return _strata_pullback!(grads, m, v, s, t)
     uses_adjoint(m, Step()) && return pullback!(grads, m, Step(), v, s, t)
     return _local_step_back!(grads, m, v, s, t)
 end
@@ -718,7 +724,7 @@ end
 # stratum, as in the loops that thread one stratum's value, so the strata
 # loop runs where the executor puts it, on a device too; any other on the
 # whole vectors.
-_stage!(m, v, s, t) = _stage!(Val(_pointwise(m)), m, v, s, t)
+_stage!(m, v, s, t) = _stage!(Val(_strata_loop(m)), m, v, s, t)
 _stage!(::Val{false}, m, v, s, t) = forward!(m, Step(), v, s, t)
 function _stage!(::Val{true}, m, v, s, t)
     n = length(eachindex(v, s))

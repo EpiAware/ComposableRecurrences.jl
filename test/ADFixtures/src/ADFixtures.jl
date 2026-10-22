@@ -59,9 +59,11 @@ _as_forward(x::QuoteNode) = x.value === :forward! ? QuoteNode(:forward) : x
 _as_forward(x::Expr) = Expr(x.head, map(_as_forward, x.args)...)
 
 # A pointwise modifier, declared as the loaded release takes it: `blocks`
-# `(1, 1)` since `ispointwise` follows from `blocks`, and `ispointwise`
-# before.
-const POINTWISE_BLOCKS = isdefined(ComposableRecurrences, :_pointwise)
+# `(1, 1)` where `ispointwise` follows from `blocks`, and `ispointwise`
+# before. The probe asks the release itself.
+struct _BlocksProbe end
+ComposableRecurrences.blocks(::_BlocksProbe) = (1, 1)
+const POINTWISE_BLOCKS = ComposableRecurrences.ispointwise(_BlocksProbe())
 macro pointwise(T)
     POINTWISE_BLOCKS && return :($ComposableRecurrences.blocks(::$(esc(T))) = (1, 1))
     return :($ComposableRecurrences.ispointwise(::$(esc(T))) = true)
@@ -69,8 +71,9 @@ end
 
 # A call that also returns its state, as the loaded release spells it:
 # `state = true` on the call, and `with_state` before.
+const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
-    POINTWISE_BLOCKS && return op(args...; kwargs..., state = true)
+    STATE_KEYWORD && return op(args...; kwargs..., state = true)
     return ComposableRecurrences.with_state(op, args...; kwargs...)
 end
 

@@ -128,7 +128,7 @@ end
 # one-entry views, and any other's as the whole column.
 _trace!(col, m, v, s, v′, s′, t) = _trace!(_blocks(m), col, m, v, s, v′, s′, t)
 function _trace!(::Nothing, col, m, v, s, v′, s′, t)
-    r = _pointwise(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
+    r = _strata_loop(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
     _written(m, forward!(m, Trace(), r, v, s, v′, s′, t))
     return nothing
 end

@@ -366,7 +366,7 @@ end
         @test r.M == M
         @test CR.Redistribute(M; leak) isa CR.Redistribute{leak}
     end
-    @test_throws "leak is true or false" CR.Redistribute(M; leak = 1)
+    @test_throws TypeError CR.Redistribute(M; leak = 1)
     # The matrix is checked against the strata and its columns once per
     # call, in Init, and on a resumed state.
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))

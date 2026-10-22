@@ -717,10 +717,10 @@ function _modifier_adjoint(m)
     _local_step_kind(m) && _array_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
-_local_step_kind(m) = _pointwise(m) || _whole_step(m)
+_local_step_kind(m) = _strata_loop(m) || _whole_step(m)
 # A modifier whose step reads and writes the whole step's values at once:
 # neither pointwise nor blockwise.
-_whole_step(m) = !_pointwise(m) && _blocks(m) === nothing
+_whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing
 # A whole-step modifier the rule differentiates with its local derivative.
 _whole_local(m) = _whole_step(m) && _modifier_adjoint(m) === :local
 
@@ -882,7 +882,7 @@ _couplings_fit(h, C) = _coupling_fit(C, h)
 _couplings_fit(h, C, Cs...) = _worse(_coupling_fit(C, h), _couplings_fit(h, Cs...))
 function _any_reads(ms::Tuple)
     return any(ms) do m
-        _pointwise(m) && _modifier_adjoint(m) === :local && !_local_params(m)
+        _strata_loop(m) && _modifier_adjoint(m) === :local && !_local_params(m)
     end
 end
 # The parameters a coupling's local step seeds: its float scalars, folded
@@ -1062,7 +1062,7 @@ end
 _pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 
 _all_pointwise(::Tuple{}) = true
-_all_pointwise(ms::Tuple) = _pointwise(first(ms)) && _all_pointwise(Base.tail(ms))
+_all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
 # Thread one stratum's value through pointwise modifiers in tuple order,
 # recording each modifier's input value and state when `rec` holds records.

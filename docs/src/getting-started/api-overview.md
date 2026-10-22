@@ -222,5 +222,6 @@ A model built from the package's own parts needs none of them.
 | Name | What it does | Returns |
 |---|---|---|
 | [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its hand-written gradient, to check or time one against the other | an operator |
+| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the backend's own rule tester on an operator's hand-written gradient; it needs Mooncake, or Enzyme and EnzymeTestUtils, loaded | a test result |
 
 [Adjoints and backends](@ref adjoints-backends) says when each backend uses the hand-written gradient.

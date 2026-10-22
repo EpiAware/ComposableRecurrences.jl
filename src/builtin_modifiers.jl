@@ -509,11 +509,9 @@ struct Redistribute{L, A}
         return new{L, A}(M)
     end
 end
-Redistribute(M; leak = false) = _redistribute(M, leak)
 # A branch on a literal `leak` names the type parameter in each arm, so the
 # call is inferred.
-_redistribute(M, leak::Bool) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
-_redistribute(M, leak) = Redistribute{leak}(M)
+Redistribute(M; leak::Bool = false) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
 ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
 
 function _check_movement_shape(M::AbstractMatrix)

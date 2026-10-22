@@ -125,7 +125,7 @@ end
 function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
-    r = _pointwise(m) ? _trace_series(r̄, Val(ntrace(m, 1)), length(v)) : r̄
+    r = _strata_loop(m) ? _trace_series(r̄, Val(ntrace(m, 1)), length(v)) : r̄
     grads = (; piece = m̄, trace = r, v = R.V̄, s = R.S̄, v′ = v̄, s′ = s̄)
     _written(m, pullback!(grads, m, Trace(), v, s, τ))
     return nothing

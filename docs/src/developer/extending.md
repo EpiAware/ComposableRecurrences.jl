@@ -462,7 +462,8 @@ gradient(loss(r), backend, [0.3]) ≈
     gradient(loss(CR.NoAdjoint ∘ r), backend, [0.3])
 ```
 
-[Checking a rule](@ref adjoint-checks) runs a backend's own rule tester on an operator.
+For a new operator, `ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)` then runs the backend's own rule tester on its rule, with `args` its positional arguments.
+It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded; [Checking a rule](@ref adjoint-checks) says more.
 [Testing and benchmarking](@ref testing) covers timing.
 
 ## [Performance](@id extending-performance)
