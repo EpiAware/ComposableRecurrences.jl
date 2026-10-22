@@ -5,7 +5,7 @@ The [modifiers table](@ref overview-modifiers) lists the built-ins, and each one
 
 ```@example modifiers
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Clamp, Add, with_state
+using ComposableRecurrences: Depletion, Clamp, Add
 ```
 
 ## [Order](@id explanation-modifier-order)
@@ -54,17 +54,17 @@ It is carried in the [`State`](@ref ComposableRecurrences.State) a call returns,
 
 ```@example modifiers
 r = Recurrence(k; modifiers = (pool(100.0),))
-y, state = with_state(r, gain; history = seed)
+y, state = r(gain; history = seed, state = true)
 state.states
 ```
 
-A modifier's state is one entry per series unless [`nstate`](@ref ComposableRecurrences.nstate) says otherwise.
+A modifier's state is one entry per series unless its [`blocks`](@ref ComposableRecurrences.blocks) gives another count, which [`nstate`](@ref ComposableRecurrences.nstate) reads.
 A modifier that needs no state leaves it at zero.
 
 ## [Scope](@id explanation-modifier-scope)
 
 A modifier's step reads one series, one group of series or every series.
-[`ispointwise`](@ref ComposableRecurrences.ispointwise) marks the first and [`blocks`](@ref ComposableRecurrences.blocks) the second; any other modifier reads every series.
+[`blocks`](@ref ComposableRecurrences.blocks) says which: `(1, 1)` for the first, the values and state entries of each group for the second, and `nothing` for a modifier that reads every series.
 The scope sets how much the step can do, and how well it runs under [`Threaded`](@ref ComposableRecurrences.Threaded): strata run apart only when every modifier is pointwise.
 
 | Built-in | Step reads | State holds | Place it |

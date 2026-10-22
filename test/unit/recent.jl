@@ -182,9 +182,9 @@ end
     R = fill(1.4, 2, 12)
     h = ones(2, 6)
     y = r(R; history = h)
-    y1, st = CR.with_state(r, R; history = h, stop = 5)
+    y1, st = r(R; history = h, stop = 5, state = true)
     @test size(st.history) == (2, 6)
-    @test hcat(y1, r(R; state = st)) ≈ y
+    @test hcat(y1, first(r(R; state = st))) ≈ y
 end
 
 @testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck, RecentSpill] begin
@@ -218,7 +218,7 @@ end
     struct Scale{U}
         u::U
     end
-    CR.ispointwise(::Scale) = true
+    CR.blocks(::Scale) = (1, 1)
     function CR.forward!(m::Scale, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] * CR.param(m.u, k, t), s[k]

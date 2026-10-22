@@ -11,7 +11,7 @@
     struct Move{A}
         a::A
     end
-    CR.blocks(::Move) = Val((2, 1))
+    CR.blocks(::Move) = (2, 1)
     function CR.forward!(m::Move, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2 = v[1][], v[2][]
         x = CR.param(m.a, g, t) * v1
@@ -33,7 +33,7 @@
     struct MovePlain{A}
         a::A
     end
-    CR.blocks(::MovePlain) = Val((2, 1))
+    CR.blocks(::MovePlain) = (2, 1)
     function CR.forward!(m::MovePlain, ::CR.Step, v::Tuple, s::Tuple, t, g)
         return CR.forward!(Move(m.a), CR.Step(), v, s, t, g)
     end
@@ -84,7 +84,7 @@ end
     @test !CR.uses_adjoint(Recurrence(g; modifiers = (MovePlain(0.1),)), CR.Run())
     # The state keeps what moved at the last step.
     moved = Recurrence([1.0]; modifiers = (Move(0.25),))
-    _, st = CR.with_state(moved; history = [4.0, 0.0][:, :], stop = 1)
+    _, st = moved(; history = [4.0, 0.0][:, :], stop = 1, state = true)
     @test only(st.states) == [1.0]
     r = Recurrence(g; modifiers = (Move(0.1),))
     @test_throws "needs a multiple of 2 strata, got 3" r(ones(3, 4); history = ones(3, 3))
@@ -137,8 +137,9 @@ end
         100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
         flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
     )
-    @test CR.blocks(d) == Val((1, 2))
-    @test CR.blocks(CR.Depletion(100.0)) === nothing
+    @test CR.blocks(d) == (1, 2)
+    @test CR.blocks(CR.Depletion(100.0)) === (1, 1)
+    @test CR._blocks(CR.Depletion(100.0)) === nothing
     @test CR.nstate(d, 3) == 6
     @test !CR.ispointwise(d)
     obj = Interfaces.Arguments(;
@@ -163,7 +164,7 @@ end
     struct Swap{A}
         a::A
     end
-    CR.blocks(::Swap) = Val((2, 0))
+    CR.blocks(::Swap) = (2, 0)
     function CR.forward!(m::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2 = v[1][], v[2][]
         x = m.a * (v1 - v2)
@@ -179,7 +180,7 @@ end
     struct Keep{A}
         a::A
     end
-    CR.blocks(::Keep) = Val((2, 2))
+    CR.blocks(::Keep) = (2, 2)
     function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
         v[1][], v[2][] = v1 * m.a, v2 + s1
@@ -203,8 +204,8 @@ end
     h = ones(4, 2)
     r = Recurrence(g; modifiers = (Keep(0.9),))
     y = r(R; history = h)
-    y1, st = CR.with_state(r, R[:, 1:3]; history = h)
-    @test hcat(y1, r(R; state = st)) ≈ y
+    y1, st = r(R[:, 1:3]; history = h, state = true)
+    @test hcat(y1, first(r(R; state = st))) ≈ y
     bad = CR.State(st.history, (zeros(3),), st.t)
     @test_throws "expected nstate" r(R; state = bad)
     # Blockwise, pointwise and vector modifiers together: the pullback
@@ -222,6 +223,20 @@ end
     @test pullback_matches(Recurrence(g; modifiers = ms), recargs(R, nothing, h)...)
     # A malformed shape is named.
     struct Odd end
-    CR.blocks(::Odd) = Val((0, 1))
-    @test_throws "got Val((0, 1))" CR.nstate(Odd(), 2)
+    CR.blocks(::Odd) = (0, 1)
+    @test_throws "got (0, 1)" CR.nstate(Odd(), 2)
+    # A shape that is not a tuple, such as a `Val`, is named too.
+    struct ValShape end
+    CR.blocks(::ValShape) = Val((2, 1))
+    @test_throws "blocks(m) is nothing or a tuple (nv, ns), got Val{(2, 1)}()" CR.nstate(
+        ValShape(), 2
+    )
+    @test !CR.ispointwise(ValShape())
+    # A `(1, 1)` shape is pointwise, so a group step alone is not called.
+    struct GroupOnly end
+    CR.blocks(::GroupOnly) = (1, 1)
+    CR.forward!(::GroupOnly, ::CR.Step, v::Tuple, s::Tuple, t, g) = nothing
+    @test_throws "has blocks (1, 1), so it is pointwise" CR.forward!(
+        GroupOnly(), CR.Step(), [1.0], [0.0], 1
+    )
 end
