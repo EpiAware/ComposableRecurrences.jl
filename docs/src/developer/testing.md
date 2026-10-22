@@ -153,7 +153,7 @@ Run them with `julia --project=test test/runtests.jl usecase_only`.
 ## Threads and Reactant in CI
 
 The `Threads` workflow runs the tests with four threads, so `Threaded` loops run on separate threads.
-Run `julia --threads=4 --project=test test/runtests.jl skip_quality` to do the same locally.
+To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq).
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
 After a change, rerun it on Julia 1.12 from the repository root:
