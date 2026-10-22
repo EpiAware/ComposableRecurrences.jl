@@ -2258,6 +2258,22 @@ end
     end
 end
 
+@testitem "Adjoint: the default-Init check sees a method defined later" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # The check is cached per signature and world age, so an `Init` method
+    # defined after the first check is found by the next.
+    struct LateInit end
+    s, h = zeros(2), ones(2, 3)
+    @test CR._default_init(LateInit(), s, h)
+    @test CR._default_init(LateInit(), s, h)
+    @eval function CR.forward!(::LateInit, ::CR.Init, s, history)
+        s .= 1
+        return nothing
+    end
+    @test !Base.invokelatest(CR._default_init, LateInit(), s, h)
+end
+
 @testitem "Adjoint: local pullbacks take the step's branch at a tie" setup = [
     ReferenceAD,
     AdjointCheck,
