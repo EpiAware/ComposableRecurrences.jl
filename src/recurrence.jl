@@ -821,6 +821,7 @@ function _failed(ps::Tuple, oks::Tuple)
     rest = _failed(Base.tail(ps), Base.tail(oks))
     return first(oks) ? rest : (first(ps), rest...)
 end
+_rebuild_why(p::_FormPart) = _rebuild_why(p.form)
 function _rebuild_why(p)
     name = nameof(typeof(p))
     _reads_too_many(p) &&
@@ -841,7 +842,7 @@ end
 _local_modifier(m::Depletion) = _rebuilt_forms(_forms(m.pieces)...)
 _rebuilt_forms() = ()
 function _rebuilt_forms(f, fs...)
-    return (_rebuilt_form(f) ? (f,) : ())..., _rebuilt_forms(fs...)...
+    return (_rebuilt_form(f) ? (_FormPart(f),) : ())..., _rebuilt_forms(fs...)...
 end
 function _rebuilt_form(f)
     return !uses_adjoint(f, Step()) && _scalar_params(f) && _param_tuple(f) !== ()

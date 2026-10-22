@@ -401,7 +401,11 @@ end
 
 # Inlined, so that a differentiated function that builds a `Depletion`
 # holds no call returning it.
-const _Population = Union{Real, PerStratum, TimeVarying, Derived, Recent}
+# A first argument that is a parameter, or an array given where one was
+# meant, is the population.
+const _Population = Union{
+    Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
+}
 @inline function Depletion(N::_Population, pieces...; pools = nothing)
     return _depletion(_population(N), pieces, pools)
 end
@@ -410,14 +414,15 @@ end
 @inline function _depletion(N, pieces::Tuple, pools)
     starts = _pool_starts(pools)
     placed = _tuple_map(p -> _place_piece(p, N, starts), _or_hazard(pieces))
+    runs = _runs(placed)
     _check_each_nonnegative(:pools, values(starts))
-    _ndraws(placed) == 0 && any(!isnothing, values(starts)) && throw(
+    _ndraws(runs) == 0 && any(!isnothing, values(starts)) && throw(
         ArgumentError(
             "a Depletion without a draw holds its pools in the step's values, " *
                 "so the history gives their start, not pools"
         )
     )
-    return _Depletion(N, map(_initial_param, starts), _runs(placed))
+    return _Depletion(N, map(_initial_param, starts), runs)
 end
 _or_hazard(::Tuple{}) = (Hazard(),)
 _or_hazard(pieces::Tuple) = pieces
@@ -584,15 +589,22 @@ _initial_param(::Nothing) = nothing
 _initial_param(x) = _float_param(_check_constant(:pools, x))
 
 # The placed pieces with each run of flows given one after another as one
-# tuple, as they act together.
-_runs(::Tuple{}) = ()
-_runs(ps::Tuple) = _runs_from(first(ps), Base.tail(ps))
-_runs_from(p, rest) = (p, _runs(rest)...)
-_runs_from(f::Flow, rest) = _flow_run((f,), rest)
-_flow_run(run, ::Tuple{}) = (run,)
-_flow_run(run, rest::Tuple) = _flow_run_next(run, first(rest), Base.tail(rest))
-_flow_run_next(run, f::Flow, rest) = _flow_run((run..., f), rest)
-_flow_run_next(run, p, rest) = (run, p, _runs(rest)...)
+# tuple, as they act together. Generated from the pieces' types, so a run
+# of more flows than inference's tuple recursion follows still infers.
+@generated function _runs(ps::Tuple)
+    out, run = Any[], Any[]
+    for (i, P) in enumerate(ps.parameters)
+        if P <: Flow
+            push!(run, :(ps[$i]))
+        else
+            isempty(run) || push!(out, Expr(:tuple, run...))
+            run = Any[]
+            push!(out, :(ps[$i]))
+        end
+    end
+    isempty(run) || push!(out, Expr(:tuple, run...))
+    return Expr(:tuple, out...)
+end
 
 # One pool drawn from once with nothing left over, then a run of flows or
 # none: a pointwise step.
@@ -1093,6 +1105,12 @@ _forms(::Tuple{}) = ()
 _forms(ps::Tuple) = (_piece_form(first(ps))..., _forms(Base.tail(ps))...)
 _piece_form(p) = ()
 _piece_form(d::_Drawing) = (d.form,)
+
+# A draw's form among the parts the local step rebuilds, marked as a form:
+# its step takes the same arguments as a modifier's.
+struct _FormPart{F}
+    form::F
+end
 
 # Trace ---------------------------------------------------------------------
 

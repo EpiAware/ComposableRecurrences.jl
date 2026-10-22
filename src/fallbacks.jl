@@ -484,7 +484,8 @@ _probe_reads(x, args...) = nothing
 _steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
 # One step of a part rebuilt with dual numbers, a pointwise modifier's or a
 # depletion form's.
-_any_step(m, x) = _is_form(m) ? _draw(m, x, x, 1, 1) : _step(m, x, x, 1, 1)
+_any_step(m, x) = _step(m, x, x, 1, 1)
+_any_step(m::_FormPart, x) = _draw(m.form, x, x, 1)
 # A pointwise modifier with other float arrays, rebuilt as its read step
 # does: the scalars must come back unchanged, each array must stay its
 # `_ReadArray`, and one step must run on the rebuild, reading at most

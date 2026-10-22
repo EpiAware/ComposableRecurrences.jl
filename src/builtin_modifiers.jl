@@ -289,9 +289,13 @@ function _is_form(::Type{F}) where {F}
     return _form_step_for(F, Real) || _form_step_for(F, Float64) ||
         _form_step_for(F, Float32)
 end
+# A modifier's step takes the same arguments, with the time in place of
+# `N`, so the default vector step, which takes any type, is not a form's.
 function _form_step_for(::Type{F}, ::Type{T}) where {F, T}
     V = _At{T, Base.RefValue{T}}
-    return hasmethod(forward!, Tuple{F, Step, V, V, T})
+    sig = Tuple{F, Step, V, V, T}
+    hasmethod(forward!, sig) || return false
+    return Base.unwrap_unionall(which(forward!, sig).sig).parameters[2] !== Any
 end
 
 # The starting pool is per stratum, not over time.
