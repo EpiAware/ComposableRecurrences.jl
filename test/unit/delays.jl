@@ -244,6 +244,58 @@ end
     @test_throws ArgumentError Recurrence(arrays; lags = 4)
 end
 
+@testitem "Discrete delays: a step sums whole lags" setup = [DelayCases] begin
+    for (d, n) in ((Poisson(6.0), 7), (NegativeBinomial(3, 0.4), 2))
+        by_hand = [sum(pdf(d, n * l + j) for j in 0:(n - 1)) for l in 0:4]
+        m = @inferred CR.delay_masses(d, 5; step = n)
+        @test m ≈ by_hand
+        @test CR.delay_masses(d, 5; step = float(n)) ≈ by_hand
+        @test Convolution(d; lags = 5, step = n).kernel ≈ by_hand
+        @test Recurrence(d; lags = 5, step = n).kernel ≈ by_hand[2:end]
+    end
+    @test CR.delay_masses(Poisson(2.0), 4; step = 1) == masses(Poisson(2.0), 4)
+    for step in (0.25, 1.5, 0, -2)
+        @test_throws ArgumentError CR.delay_masses(Poisson(2.0), 4; step)
+    end
+    err = try
+        Convolution(Poisson(2.0); lags = 4, step = 0.25)
+    catch e
+        e
+    end
+    @test occursin("whole number", sprint(showerror, err))
+end
+
+@testitem "Delay distributions: step is checked" setup = [DelayCases] begin
+    k = [0.2, 0.5, 0.3]
+    @test CR.delay_masses(k, 3; step = 7) === k
+    d = Poisson(1.0)
+    for step in (0, -1, :week, nothing)
+        @test_throws ArgumentError Convolution(d; lags = 3, step)
+        @test_throws ArgumentError Recurrence(d; lags = 3, step)
+    end
+    # A step needs a kernel of delays and `lags`.
+    @test_throws ArgumentError Convolution(k; step = 7)
+    @test_throws ArgumentError Recurrence(k; step = 7)
+    @test_throws ArgumentError Recurrence(d; step = 7)
+    @test_throws ArgumentError Recurrence(k; lags = 3, step = 7)
+    err = try
+        Recurrence(k; step = 7)
+    catch e
+        e
+    end
+    @test occursin("lags", sprint(showerror, err))
+    @test Convolution(k; step = 1).kernel === k
+end
+
+@testitem "Discrete delays: gradients reach the parameters on a step" setup = [ReferenceAD, DelayCases] begin
+    x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0]
+    conv(λ) = sum(Convolution(Poisson(λ); lags = 4, step = 2)(x))
+    g = ReferenceAD.derivative(conv, 1.5)
+    ϵ = 1.0e-6
+    @test g ≈ (conv(1.5 + ϵ) - conv(1.5 - ϵ)) / 2ϵ rtol = 1.0e-6
+    @test g != 0
+end
+
 @testitem "Delay distributions: gradients reach the parameters" setup = [ReferenceAD, DelayCases] begin
     using ForwardDiff
     x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0]
@@ -336,6 +388,28 @@ end
     @test_throws ArgumentError Recurrence(ds; lags = 3)
 end
 
+@testitem "A delay type of its own: a step" setup = [OwnDelay] begin
+    # A method with `step`: the masses of `step` units summed for a lag.
+    struct SteppedDelay
+        p::Float64
+    end
+    function CR.delay_masses(d::SteppedDelay, lags; step = 1)
+        q = (1 - d.p)^step
+        return map(l -> (1 - q) * q^l, 0:(lags - 1))
+    end
+    units = CR.delay_masses(SteppedDelay(0.3), 12)
+    c = @inferred Convolution(SteppedDelay(0.3); lags = 4, step = 3)
+    @test c.kernel ≈ vec(sum(reshape(units, 3, :); dims = 1))
+    r = Recurrence(SteppedDelay(0.3); lags = 4, step = 3)
+    @test r.kernel ≈ c.kernel[2:end]
+    # A method without `step` serves a step of 1 only.
+    @test Convolution(GeometricDelay(0.4); lags = 4, step = 1).kernel ≈
+        masses(GeometricDelay(0.4), 4)
+    @test_throws MethodError Convolution(
+        GeometricDelay(0.4); lags = 4, step = 2
+    )
+end
+
 @testitem "A delay type of its own: gradients reach the parameter" setup = [ReferenceAD, OwnDelay] begin
     x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0]
     conv(p) = sum(Convolution(GeometricDelay(p); lags = 4)(x))
@@ -353,8 +427,15 @@ end
 @testsnippet CensoredDelays begin
     using ComposableRecurrences, Distributions, CensoredDistributions
     CR = ComposableRecurrences
-    censored(d, lags; interval = 1) =
-        [pdf(double_interval_censored(d; interval), l) for l in 0:(lags - 1)]
+    censored(d, lags) =
+        [pdf(double_interval_censored(d; interval = 1), l) for l in 0:(lags - 1)]
+    # The double interval censored mass on lag `l`, by hand: the primary
+    # event uniform on `[0, Δ)`, the delay read on `[lΔ, (l + 1)Δ)`, the
+    # average over the primary event by the midpoint rule.
+    function by_hand(d, l, Δ; n = 4000)
+        us = ((1:n) .- 0.5) .* (Δ / n)
+        return sum(u -> cdf(d, (l + 1) * Δ - u) - cdf(d, l * Δ - u), us) / n
+    end
 end
 
 @testitem "Continuous delays: double interval censored with the defaults" setup = [CensoredDelays] begin
@@ -362,10 +443,9 @@ end
         m = @inferred CR.delay_masses(d, 30)
         @test m isa Vector{Float64}
         @test m ≈ censored(d, 30)
-        @test CR.delay_masses(d, 30; interval = 1) ≈ m
+        @test CR.delay_masses(d, 30; step = 1) ≈ m
+        @test m ≈ [by_hand(d, l, 1) for l in 0:29] atol = 1.0e-8
     end
-    @test CR.delay_masses(Gamma(2.0, 3.0), 10; interval = 2) ≈
-        censored(Gamma(2.0, 3.0), 10; interval = 2)
     @test CR._isdelay(LogNormal{Float64})
 end
 
@@ -387,6 +467,45 @@ end
 @testitem "Continuous delays: gradients reach the parameters" setup = [ReferenceAD, CensoredDelays] begin
     x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0, 2.0, 3.0]
     conv(μ) = sum(Convolution(LogNormal(μ, 0.75); lags = 8)(x))
+    g = ReferenceAD.derivative(conv, 1.2)
+    ϵ = 1.0e-6
+    @test g ≈ (conv(1.2 + ϵ) - conv(1.2 - ϵ)) / 2ϵ rtol = 1.0e-5
+    @test g != 0
+end
+
+@testitem "Continuous delays: a weekly step on a daily delay" setup = [CensoredDelays] begin
+    d = Gamma(2.0, 3.0)
+    m = @inferred CR.delay_masses(d, 5; step = 7)
+    @test m ≈ [by_hand(d, l, 7) for l in 0:4] atol = 1.0e-8
+    # Censoring on weeks by hand with CensoredDistributions.
+    weeks = double_interval_censored(d; primary_event = Uniform(0, 7), interval = 7)
+    @test m ≈ [pdf(weeks, 7l) for l in 0:4]
+    @test CR.delay_masses(d, 5; step = 7.0) ≈ m
+    c = @inferred Convolution(d; lags = 5, step = 7)
+    @test c.kernel ≈ m
+    r = @inferred Recurrence(d; lags = 5, step = 7)
+    @test r.kernel ≈ m[2:end]
+    ps = Recurrence(PerStratum([d, Gamma(3.0, 2.0)]); lags = 5, step = 7)
+    @test ps.kernel.x[1, :] ≈ m[2:end]
+end
+
+@testitem "Continuous delays: a quarter-day step on a daily delay" setup = [CensoredDelays] begin
+    d = LogNormal(1.5, 0.75)
+    m = CR.delay_masses(d, 80; step = 0.25)
+    @test m ≈ [by_hand(d, l, 0.25) for l in 0:79] atol = 1.0e-8
+    @test Convolution(d; lags = 80, step = 0.25).kernel ≈ m
+    # Lags count steps, so 80 quarter days cover the 20 days of 20 daily
+    # lags. The primary event spans one step, a quarter day here, so the
+    # sums of four quarter days are not the daily masses, whose primary
+    # event spans a day.
+    daily = CR.delay_masses(d, 20)
+    @test sum(m) ≈ sum(daily) atol = 0.01
+    @test !(vec(sum(reshape(m, 4, :); dims = 1)) ≈ daily)
+end
+
+@testitem "Continuous delays: gradients reach the parameters on a step" setup = [ReferenceAD, CensoredDelays] begin
+    x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0, 2.0, 3.0]
+    conv(μ) = sum(Convolution(LogNormal(μ, 0.75); lags = 4, step = 7)(x))
     g = ReferenceAD.derivative(conv, 1.2)
     ϵ = 1.0e-6
     @test g ≈ (conv(1.2 + ϵ) - conv(1.2 - ϵ)) / 2ϵ rtol = 1.0e-5

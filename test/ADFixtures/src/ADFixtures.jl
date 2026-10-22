@@ -58,6 +58,28 @@ _as_forward(x) = x
 _as_forward(x::QuoteNode) = x.value === :forward! ? QuoteNode(:forward) : x
 _as_forward(x::Expr) = Expr(x.head, map(_as_forward, x.args)...)
 
+# A pointwise modifier, declared as the loaded release takes it: `blocks`
+# `(1, 1)` where `ispointwise` follows from `blocks`, and `ispointwise`
+# before. The probe asks the release itself; a release without `blocks`
+# takes `ispointwise`.
+struct _BlocksProbe end
+const POINTWISE_BLOCKS = isdefined(ComposableRecurrences, :blocks) && begin
+    @eval ComposableRecurrences.blocks(::_BlocksProbe) = (1, 1)
+    Base.invokelatest(ComposableRecurrences.ispointwise, _BlocksProbe())
+end
+macro pointwise(T)
+    POINTWISE_BLOCKS && return :($ComposableRecurrences.blocks(::$(esc(T))) = (1, 1))
+    return :($ComposableRecurrences.ispointwise(::$(esc(T))) = true)
+end
+
+# A call that also returns its state, as the loaded release spells it:
+# `state = true` on the call, and `with_state` before.
+const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
+function returning_state(op, args...; kwargs...)
+    STATE_KEYWORD && return op(args...; kwargs..., state = true)
+    return ComposableRecurrences.with_state(op, args...; kwargs...)
+end
+
 # ForwardDiff reference gradient for a scenario function.
 function _reference(f, θ)
     return DifferentiationInterface.gradient(f, AutoForwardDiff(), θ)
@@ -77,7 +99,7 @@ end
     s .= m.pop
     return nothing
 end
-ComposableRecurrences.ispointwise(::FlooredDepletion) = true
+@pointwise FlooredDepletion
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t
@@ -110,7 +132,7 @@ end
     fill!(s, m.N)
     return nothing
 end
-ComposableRecurrences.ispointwise(::ScalarDepletion) = true
+@pointwise ScalarDepletion
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t
@@ -350,7 +372,7 @@ function _with_state(w, θ)
     g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
     dep = ComposableRecurrences.Depletion(PerStratum(POP))
     r = Recurrence(g; coupling = K0, modifiers = (dep,))
-    y, st = ComposableRecurrences.with_state(w(r), exp.(logR); history = exp.(logh))
+    y, st = returning_state(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y)) + sum(st.history) + 0.01 * sum(only(st.states))
 end
 
@@ -378,7 +400,7 @@ end
 function _with_state_prepend(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
     r = Recurrence(G0; coupling = K0)
-    y, st = ComposableRecurrences.with_state(
+    y, st = returning_state(
         w(r), exp.(logR); history = exp.(logh), start = L + 1, prepend = true
     )
     return sum(WS .* log.(y)) + sum(st.history)
@@ -852,7 +874,7 @@ end
 struct DeepBuffer
     w::Int
 end
-ComposableRecurrences.ispointwise(::DeepBuffer) = true
+@pointwise DeepBuffer
 if IN_PLACE
     function ComposableRecurrences.forward!(
             ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t
@@ -960,7 +982,7 @@ struct TracedSmooth{A}
     a::A
 end
 if isdefined(ComposableRecurrences, :_trace_series)
-    ComposableRecurrences.ispointwise(::TracedSmooth) = true
+    @pointwise TracedSmooth
     function ComposableRecurrences.forward!(
             m::TracedSmooth, ::ComposableRecurrences.Step, v, s, t
         )
@@ -1418,6 +1440,13 @@ function _delay_distribution(w, θ)
     return sum(W1 .* w(c)(ϵ; history = w0))
 end
 
+# The same delay on lags two units wide: each lag sums two whole units.
+function _delay_distribution_step(w, θ)
+    logλ, w0, ϵ = _unpack(θ, (1,), (L,), (T,))
+    c = Convolution(Poisson(exp(only(logλ))); lags = L + 1, step = 2)
+    return sum(W1 .* w(c)(ϵ; history = w0))
+end
+
 function _generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
@@ -1431,6 +1460,11 @@ push!(
     _SCENARIOS,
     (
         "Convolution Poisson delay distribution", _delay_distribution,
+        () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Convolution Poisson delay distribution on a step of two units",
+        _delay_distribution_step,
         () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
     ),
     (
@@ -1543,6 +1577,10 @@ const _PROBES = Dict{Symbol, Function}(
     :depletion_pools => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
     ),
+    # Delays on lags of a width other than one unit.
+    :delay_step => () -> _accepts(
+        () -> Convolution(Poisson(1.0); lags = 2, step = 2)
+    ),
 )
 
 # The features each scenario needs beyond the first release, by scenario
@@ -1652,7 +1690,7 @@ struct StrataCap{K, B}
     κ::K
     β::B
 end
-ComposableRecurrences.ispointwise(::StrataCap) = true
+@pointwise StrataCap
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::StrataCap, ::ComposableRecurrences.Step, v, s, t
@@ -1705,7 +1743,7 @@ end
 struct ByTime{A}
     a::A
 end
-ComposableRecurrences.ispointwise(::ByTime) = true
+@pointwise ByTime
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::ByTime, ::ComposableRecurrences.Step, v, s, t
@@ -1894,6 +1932,8 @@ _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
+_REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
+    (:delay_masses, :delay_step)
 
 _requires(name) = get(_REQUIRES, name, ())
 
