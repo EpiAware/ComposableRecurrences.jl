@@ -451,8 +451,11 @@ end
 @testitem "Recent: a coupled read allocates nothing per step" begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
-    # An integer coupling is held as floats, so no read promotes it.
-    @test Recent(1; coupling = [0 1; 1 0]).coupling isa Matrix{Float64}
+    # An integer coupling keeps the run's float type.
+    βi = Derived(exp, -0.1f0 * Recent(2; coupling = [0 1; 1 0]))
+    ri = Recurrence(Float32[0.3, 0.2]; modifiers = (CR.Transform(*, βi),))
+    @test eltype(ri(ones(Float32, 2, 5); history = ones(Float32, 2, 2))) ==
+        Float32
     C = [0.0 1.0; 0.5 0.0]
     β = Derived(exp, -0.1 * Recent(2; coupling = C))
     ms = (CR.Transform(*, β), CR.Transform(*, 0.9 + 0.01 * β))

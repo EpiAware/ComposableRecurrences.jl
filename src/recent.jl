@@ -106,11 +106,6 @@ struct Recent{W <: AbstractVector{<:Real}, C}
         return new{W, C}(w, coupling)
     end
 end
-# An integer coupling as floats, converted once here rather than promoted
-# at each read.
-function Recent(w::AbstractVector{<:Real}, coupling::AbstractMatrix{<:Integer})
-    return Recent(w, float(coupling))
-end
 Recent(w::AbstractVector{<:Real}; coupling = nothing) = Recent(w, coupling)
 Recent(n::Integer; coupling = nothing) = Recent(n, coupling)
 function Recent(n::Integer, coupling)
