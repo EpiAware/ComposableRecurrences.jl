@@ -38,7 +38,7 @@ end
         a::A
         scale::S
     end
-    CR.ispointwise(::Gain) = true
+    CR.blocks(::Gain) = (1, 1)
     function CR.forward!(m::Gain, ::CR.Step, v, s, t)
         for k in eachindex(v)
             v[k] = m.a * v[k]
