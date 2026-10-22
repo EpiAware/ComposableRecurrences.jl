@@ -7,33 +7,56 @@
 # registry. This starter seed covers every backend the kit knows about; add
 # or trim backends and categories to match the package afterwards.
 
-@testitem "ForwardDiff gradients (marginal)" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
-    test_working_backend("ForwardDiff")
+@testitem "ForwardDiff gradients" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
+    test_working_backend("ForwardDiff"; category = :tests)
 end
 
-@testitem "ReverseDiff (tape) gradients (marginal)" tags = [:ad, :reversediff] setup = [ADHelpers] begin
-    test_working_backend("ReverseDiff (tape)")
+@testitem "ReverseDiff (tape) gradients" tags = [:ad, :reversediff] setup = [ADHelpers] begin
+    test_working_backend("ReverseDiff (tape)"; category = :tests)
 end
 
-@testitem "ReverseDiff (compiled) gradients (marginal)" tags = [:ad, :reversediff_compiled] setup = [ADHelpers] begin
-    test_working_backend("ReverseDiff (compiled)")
+@testitem "ReverseDiff (compiled) gradients" tags = [:ad, :reversediff_compiled] setup = [ADHelpers] begin
+    test_working_backend("ReverseDiff (compiled)"; category = :tests)
 end
 
-@testitem "Enzyme forward gradients (marginal)" tags = [:ad, :enzyme, :enzyme_forward] setup = [ADHelpers] begin
-    test_working_backend("Enzyme forward")
+@testitem "Enzyme forward gradients" tags = [:ad, :enzyme, :enzyme_forward] setup = [ADHelpers] begin
+    test_working_backend("Enzyme forward"; category = :tests)
 end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse gradients (marginal)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers] begin
-    test_working_backend("Enzyme reverse")
+@testitem "Enzyme reverse gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers] begin
+    test_working_backend("Enzyme reverse"; category = :tests)
 end
 
-@testitem "Mooncake reverse gradients (marginal)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers] begin
-    test_working_backend("Mooncake reverse")
+@testitem "Mooncake reverse gradients" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers] begin
+    test_working_backend("Mooncake reverse"; category = :tests)
 end
 
-@testitem "Mooncake forward gradients (marginal)" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers] begin
-    test_working_backend("Mooncake forward")
+@testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers] begin
+    test_working_backend("Mooncake forward"; category = :tests)
+end
+
+# Each registry scenario's gradient on a reverse-mode backend runs the
+# analytic reverse pass, and no `NoAdjoint` twin's does. Test items run in
+# file order, so these follow the registry items and reuse the gradients
+# they compiled.
+@testitem "Mooncake reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake
+    import Mooncake
+    test_rules_fire("Mooncake reverse", AutoMooncake(; config = nothing))
+end
+
+# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
+@testitem "Enzyme reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
+    using ADTypes: AutoEnzyme
+    import Enzyme
+    test_rules_fire(
+        "Enzyme reverse",
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        )
+    )
 end
 
 # Add latent (or other) scenario groups as the package needs, e.g.:
@@ -51,4 +74,9 @@ end
     @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in MatrixCases.arms(c))
     @test MatrixCases.LOCAL_CASES ⊆ Set(c.name for c in MatrixCases.CASES)
     @test length(ADFixtures.scenarios()) == 2 * length(ADFixtures._SCENARIOS)
+    # Each twin the gradient tests run names a scenario.
+    names = Set(first.(ADFixtures._SCENARIOS))
+    @test all(in(names), ADFixtures._TESTED_TWINS)
+    @test length(ADFixtures.scenarios(; category = :tests)) ==
+        length(ADFixtures._SCENARIOS) + length(ADFixtures._TESTED_TWINS)
 end

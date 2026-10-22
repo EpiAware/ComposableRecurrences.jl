@@ -127,6 +127,26 @@ A scenario is a name, a scalar loss of a flat parameter vector and its starting 
 
 Run one backend with `TAG=mooncake_reverse task test-ad-backend`.
 
+### [Where a new gradient test goes](@id gradient-test-placement)
+
+Each backend job compiles every scenario and test item it runs, so a check in the AD jobs costs minutes on each backend.
+Put each check at the cheapest level that runs its code path.
+
+- The maths of a `pullback!` goes in `test/unit`, against a ForwardDiff Jacobian on small inputs.
+  Use `ModifierChecks.check_pullback` (`test/unit/snippets.jl`) for a step and `pullback_matches` (`test/unit/adjoints.jl`) for a whole call.
+  These need no AD backend.
+- A new rule path, such as a new operator, a new kind of field or a new wrapper of the call, gets one small scenario in `_SCENARIOS`.
+  Every backend job runs it through its rule against ForwardDiff.
+- The gradient tests run the `NoAdjoint` twin of a scenario only when the plain route takes a call of its own, such as a new keyword or wrapper.
+  Add such a scenario's name to `_TESTED_TWINS`.
+  The benchmarks time every twin.
+- `test_adjoint` checks one registry operator of each kind of field and wrapper, listed in `ADJOINT_SCENARIOS` in `test/ad/adjoints.jl`.
+  Add a scenario there only when it brings a kind of field or wrapper the list lacks.
+- A failure on one backend gets an item tagged for that backend only, at the smallest size that shows it.
+  Name the failure in a comment, so the item stays while the failure can come back.
+- Do not add a scenario that repeats a covered path at a larger size or in another combination.
+  The benchmark matrix times realistic sizes.
+
 `test/usecases` rebuilds real models from modelling packages with the operators and compares values and gradients with reference code in `test/usecases/references`.
 Run them with `julia --project=test test/runtests.jl usecase_only`.
 

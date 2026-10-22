@@ -1816,20 +1816,52 @@ const _TWINS = Tuple{String, Any, Any}[
         if supports(_requires(name)..., extra...)
 ]
 
+# The scenarios whose `NoAdjoint` twin the gradient tests run, one for each
+# call the plain route takes on its own: a recurrence's call, its state,
+# its seed joined to the output with and without its state, its trace, a
+# convolution's call and lag contributions, the automatic method's choice
+# of the direct sum, a sparse coupling, and the check made at the call.
+# The Clamp twin is marked broken on Enzyme reverse on Julia 1.11, so it
+# stays to show when that is fixed. Every other twin differentiates the
+# same plain route through a modifier or kernel whose primal code its own
+# scenario already runs; the benchmarks time them all.
+const _TESTED_TWINS = (
+    "Recurrence renewal",
+    "Recurrence strata, coupling and depletion",
+    "Recurrence returning its state",
+    "Recurrence seeded on a growth path",
+    "Recurrence returning its state after its seed",
+    "Recurrence trace of a weekly budget with a queue",
+    "Recurrence sparse coupling",
+    "Recurrence Redistribute, Add and Clamp",
+    "Recurrence checked at the call",
+    "Convolution delay with history",
+    "Convolution lag contributions",
+    "Convolution long kernel by the automatic method",
+)
+function _tested(name)
+    startswith(name, "NoAdjoint ") || return true
+    return chopprefix(name, "NoAdjoint ") in _TESTED_TWINS
+end
+
 """
     scenarios(; with_reference = false, category = :marginal)
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
-There is one category, `:marginal`.
+The category `:marginal` holds every scenario and its `NoAdjoint` twin,
+which the benchmarks time.
+The category `:tests` holds every scenario and the twins of
+`_TESTED_TWINS`, which the gradient tests run on every backend.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
-    category === :marginal || throw(
-        ArgumentError("unknown category $(repr(category)); choose :marginal")
+    category in (:marginal, :tests) || throw(
+        ArgumentError("unknown category $(repr(category)); choose :marginal or :tests")
     )
-    return map(_TWINS) do (name, f, θ0)
+    twins = category === :tests ? filter(t -> _tested(first(t)), _TWINS) : _TWINS
+    return map(twins) do (name, f, θ0)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
