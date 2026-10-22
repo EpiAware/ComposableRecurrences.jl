@@ -182,6 +182,7 @@ end
 # ## Clinical outcomes
 #
 # A reporting delay is a `Convolution` with the ascertainment as its gain, as in [Getting started](@ref overview-build).
+# Its masses are on whole days, the model's step; [Time units](@ref time-units) covers delays and data at another cadence.
 # Each clinical transition is the same: a delay that happens with some probability.
 # Onsets ``O_t`` follow infections.
 # Admissions follow onsets with probability ``h``.

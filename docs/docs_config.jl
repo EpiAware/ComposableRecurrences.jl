@@ -222,6 +222,7 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
     "API overview" => "getting-started/api-overview.md",
+    "Time units" => "getting-started/time-units.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
     "Latent processes driving R_t" =>
