@@ -98,9 +98,12 @@
 
     # `(name, op, args, rtol)` for each AD registry scenario at its starting
     # parameters: the operator the scenario calls, its Run arguments and the
-    # tolerance the entry gives Enzyme's rule tester.
+    # tolerance the entry gives Enzyme's rule tester. A scenario that starts
+    # at a kink is left out, as finite differences cannot check it there.
     function registry_cases()
-        return map(ADFixtures._SCENARIOS) do entry
+        kinks = ADFixtures.kink_scenarios()
+        entries = filter(entry -> !(first(entry) in kinks), ADFixtures._SCENARIOS)
+        return map(entries) do entry
             name, f, θ0 = entry
             seen = Ref{Any}(nothing)
             f(op -> Capture(op, seen), θ0())

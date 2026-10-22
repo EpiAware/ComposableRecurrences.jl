@@ -50,5 +50,6 @@ end
     @test isempty(ADFixtures.unsupported_scenarios())
     @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in MatrixCases.arms(c))
     @test MatrixCases.LOCAL_CASES ⊆ Set(c.name for c in MatrixCases.CASES)
+    @test ADFixtures.kink_scenarios() ⊆ Set(first.(ADFixtures._SCENARIOS))
     @test length(ADFixtures.scenarios()) == 2 * length(ADFixtures._SCENARIOS)
 end

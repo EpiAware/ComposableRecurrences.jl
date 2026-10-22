@@ -2010,6 +2010,23 @@ end
 broken_scenario_names() = String[]
 
 """
+    kink_scenarios()
+
+Scenario names that start at a kink on purpose: their first step's values
+tie where a part branches. Finite differences there step onto either
+branch, so the rule testers, which compare with them, leave these out; the
+gradient items check them against the ForwardDiff reference instead.
+"""
+function kink_scenarios()
+    return Set(
+        [
+            "Recurrence whole-step modifier branching at a tie (occupancy)",
+            "Recurrence parts without a pullback branching at a tie",
+        ]
+    )
+end
+
+"""
 Per-backend broken scenario names (`Dict{String, Set{String}}`).
 
 On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
