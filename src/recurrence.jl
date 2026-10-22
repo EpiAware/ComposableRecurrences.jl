@@ -442,20 +442,23 @@ Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 # Stratum `a`'s kernel convolution of the window `H[t:(t + L - 1), :]`,
 # for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
-@inline _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
-@inline _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
+_kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
+_kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
 # A run of independent strata with no modifiers waits each step on its
 # kernel convolution alone (`_Chained`). The newest lag, the previous step's
 # value, is then added last, after the vector loop over the older lags,
 # which do not wait on that step; so each step waits on one fused
 # multiply-add. Sums start from `-0.0`, the exact additive identity, so a
-# one-lag kernel's convolution can compile to one product. Elsewhere one
-# loop is as fast and costs `Enzyme` less.
+# one-lag kernel's convolution can compile to one product. This holds for
+# hardware floats; dual numbers keep one out-of-line loop, as do other runs,
+# where the split gains nothing and costs `Enzyme` more.
 struct _Chained{G}
     g::G
 end
-_chain(g, ms) = g
-_chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}) = _Chained(g)
+_chain(g, ms, ::Type) = g
+function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:_IEEEFloat})
+    return _Chained(g)
+end
 @inline _kdot(c::_Chained{<:AbstractVector}, H, t, τ, L, a) = _window_dot(c.g, H, t, L, a)
 @inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
     return _window_dot(view(c.g.x, a, :), H, t, L, a)
@@ -470,7 +473,7 @@ _sum_start(::Type{T}) where {T} = -zero(T)
     return @inbounds muladd(g[L], H[t + L - 1, a], acc)
 end
 # A window's convolution in one loop over the lags.
-@inline function _window_sum(g, H, t, L, a)
+function _window_sum(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
     @inbounds @simd for i in 1:L
         acc += g[i] * H[t + i - 1, a]
@@ -1321,8 +1324,8 @@ function _series_body!(
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
             _series_step!, ex, ts, T,
-            ks, H, pr, gain, add, coupling, _chain(g, ms), p, q, ms, states, rec,
-            τ0, L, D
+            ks, H, pr, gain, add, coupling, _chain(g, ms, eltype(H)), p, q, ms,
+            states, rec, τ0, L, D
         )
     end
     return nothing
