@@ -122,9 +122,17 @@ survival ``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
 admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
 indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
 [`ComposableRecurrences.Clamp`](@ref) or a `Depletion` that fills a pool.
-A `Depletion` holds the fields `N`, `pools` (each pool's starting value,
-`nothing` for its default) and `pieces`, the draws with each pool named by
-its position and the flows given one after another as one tuple.
+A `Depletion` holds the fields `pools` (each pool's starting value,
+`nothing` for its default) and `pieces`: the draws, each with `N` and its
+pools named by position, and the flows given one after another as one
+tuple.
+Each piece is a modifier on the pools it shares with the others: its group
+step `forward!(piece, Step(), v, s, t, g)` takes the group's values and
+its pools, then the queue, as tuples of one-entry views, with
+`pullback!` and [`ComposableRecurrences.Trace`](@ref) alike, and the
+`Depletion` runs them in order.
+A draw's trace is the value it passes on and what it leaves, and a run of
+flows' the amount each moves.
 
 # Arguments
 - `N`: the population a draw reads, or the capacity a draw fills up to,
@@ -297,36 +305,36 @@ round.(y; digits = 3)
  2.157  5.181  8.449  11.67
 ```
 """
-struct Depletion{P, I <: NamedTuple, C <: Tuple}
-    "The population the draws read, a parameter, or `nothing`."
-    N::P
+struct Depletion{I <: NamedTuple, C <: Tuple}
     "Each pool's starting value by name, `nothing` for its default."
     pools::I
     "The draws and the runs of flows, in the order they act."
     pieces::C
-    function Depletion{P, I, C}(N, pools, pieces) where {P, I, C}
+    function Depletion{I, C}(pools, pieces) where {I, C}
         _check_pieces(pieces, length(pools))
-        return new{P, I, C}(N, pools, pieces)
+        return new{I, C}(pools, pieces)
     end
 end
 
 # Rebuilt from its fields, as `constructorof` gives it.
-function _Depletion(N::P, pools::I, pieces::C) where {P, I, C}
-    return Depletion{P, I, C}(N, pools, pieces)
+function _Depletion(pools::I, pieces::C) where {I, C}
+    return Depletion{I, C}(pools, pieces)
 end
 ConstructionBase.constructorof(::Type{<:Depletion}) = _Depletion
 
 # A draw from the weighted pools, with `first` the pool it takes from when
-# they are empty, and a draw into pool `pool`; each with where what it
-# leaves goes.
-struct _DrawFrom{F, W, O}
+# they are empty, and a draw into pool `pool`; each with the population its
+# form reads, or `nothing`, and where what it leaves goes.
+struct _DrawFrom{F, P, W, O}
     form::F
+    N::P
     weights::W
     first::Int
     overflow::O
 end
-struct _DrawInto{F, O}
+struct _DrawInto{F, P, O}
     form::F
+    N::P
     pool::Int
     overflow::O
 end
@@ -422,7 +430,7 @@ end
                 "so the history gives their start, not pools"
         )
     )
-    return _Depletion(N, map(_initial_param, starts), runs)
+    return _Depletion(map(_initial_param, starts), runs)
 end
 _or_hazard(::Tuple{}) = (Hazard(),)
 _or_hazard(pieces::Tuple) = pieces
@@ -474,7 +482,7 @@ function _place_draw(form, w, ::Nothing, overflow, N, starts)
     drawn = _drawn_weights(w, starts)
     ws = _aligned_weights(drawn, starts)
     i = _drawn_place(first(keys(drawn)), keys(starts))
-    return _DrawFrom(_exponent_form(form, N), ws, i, overflow)
+    return _DrawFrom(_exponent_form(form, N), N, ws, i, overflow)
 end
 function _place_draw(form, w, into, overflow, N, starts)
     w === nothing || throw(
@@ -483,7 +491,7 @@ function _place_draw(form, w, into, overflow, N, starts)
     _check_drawn_population(form, N, into)
     _check_fill(form, N)
     i = _drawn_place(into, keys(starts))
-    return _DrawInto(_exponent_form(form, N), i, overflow)
+    return _DrawInto(_exponent_form(form, N), N, i, overflow)
 end
 
 # A draw reads `N` unless it truncates what its pools hold.
@@ -608,14 +616,14 @@ end
 
 # One pool drawn from once with nothing left over, then a run of flows or
 # none: a pointwise step.
-const _OnePool{C} = Depletion{<:Any, <:NamedTuple{<:Any, <:Tuple{Any}}, C}
-const _PointDraw = _DrawFrom{<:Any, <:Any, _Drop}
+const _OnePool{C} = Depletion{<:NamedTuple{<:Any, <:Tuple{Any}}, C}
+const _PointDraw = _DrawFrom{<:Any, <:Any, <:Any, _Drop}
 const _Depleting = _OnePool{<:Tuple{_PointDraw}}
 const _Flowing = _OnePool{<:Tuple{_PointDraw, _Flows}}
 const _Pointwise = Union{_Depleting, _Flowing}
 
 # A `Depletion` without a draw: one run of flows.
-const _Drawless = Depletion{<:Any, <:NamedTuple, <:Tuple{_Flows}}
+const _Drawless = Depletion{<:NamedTuple, <:Tuple{_Flows}}
 
 # The population a form reads, one where the `Depletion` has none.
 _pop(N, k, t) = param(N, k, t)
@@ -646,16 +654,16 @@ _pool_groups(b::Val, S) = _ngroups(b, S)
 
 function _check_modifier_strata(m::Depletion, S)
     G = _pool_groups(m, S)
-    _check_param_strata(:N, m.N, G)
     _check_each_strata(:pools, values(m.pools), G)
     foreach(p -> _check_piece_groups(p, G), m.pieces)
     return nothing
 end
 _check_piece_groups(fs::Tuple, G) = _check_flow_groups(fs, G)
 function _check_piece_groups(d::_DrawFrom, G)
+    _check_param_strata(:N, d.N, G)
     return _check_each_strata(:weight, _by_position(d.weights), G)
 end
-_check_piece_groups(d::_DrawInto, G) = nothing
+_check_piece_groups(d::_DrawInto, G) = _check_param_strata(:N, d.N, G)
 
 # Each parameter of a tuple against the groups, unrolled so each check is
 # compiled for its type.
@@ -669,29 +677,37 @@ end
 _by_position(x::NamedTuple) = values(x)
 _by_position(x) = x
 
-# The pool the first draw from the pools takes from when they are empty,
-# or zero.
-_first_drawn(::Tuple{}) = 0
-_first_drawn(ps::Tuple) = _first_drawn(first(ps), Base.tail(ps))
-_first_drawn(d::_DrawFrom, rest) = d.first
-_first_drawn(p, rest) = _first_drawn(rest)
+# The first draw from the pools, its position among the pieces, or zero.
+_first_from(ps::Tuple) = _first_from(ps, 1)
+_first_from(::Tuple{}, j) = 0
+function _first_from(ps::Tuple, j)
+    return first(ps) isa _DrawFrom ? j : _first_from(Base.tail(ps), j + 1)
+end
 
 # Pool `i`'s value before the first step at group `k`, and its cotangent:
-# by default `N` at time 1 for the pool the first draw takes from first,
-# else zero.
+# by default the first draw's `N` at time 1 for the pool it takes from
+# first, else zero.
 _initial(x, m, i, k) = param(x, k, 1)
 function _initial(::Nothing, m, i, k)
-    N = m.N === nothing ? false : param(m.N, k, 1)
-    return ifelse(_starts_full(m, i), N, zero(N))
+    j = _first_from(m.pieces)
+    j == 0 && return false
+    d = m.pieces[j]
+    N = d.N === nothing ? false : param(d.N, k, 1)
+    return ifelse(i == d.first, N, zero(N))
 end
-_starts_full(m, i) = i == _first_drawn(m.pieces)
 function _add_initial!(m̄, x, x̄s, m, i, x̄, k)
     return add_param!(x̄s, x, x̄, k, 1)
 end
 function _add_initial!(m̄, ::Nothing, x̄s, m, i, x̄, k)
-    _starts_full(m, i) || return nothing
-    return _add_pop!(cotangent(m̄, :N), m.N, x̄, k, 1)
+    j = _first_from(m.pieces)
+    j == 0 && return nothing
+    d = m.pieces[j]
+    i == d.first || return nothing
+    d̄ = _nth(cotangent(m̄, :pieces), j)
+    return _add_pop!(cotangent(d̄, :N), d.N, x̄, k, 1)
 end
+_nth(::Nothing, j) = nothing
+_nth(x̄::Tuple, j) = x̄[j]
 
 # Every pool's value before the first step at group `k`, and their
 # cotangents from the state cotangent `s̄` of `G` groups, mapped over the
@@ -754,31 +770,18 @@ _run_mirror(m̄) = _head(_tail(cotangent(m̄, :pieces)))
 
 # One pool drawn from once: the form's draw from each stratum's pool.
 function forward!(m::_Depleting, ::Step, v, s, t)
-    form = only(m.pieces).form
-    for k in eachindex(v, s)
-        v[k], s[k] = _draw(form, v[k], s[k], _pop(m.N, k, t))
-    end
-    return nothing
+    return forward!(only(m.pieces), Step(), v, s, t)
 end
-
 function pullback!(grads, m::_Depleting, ::Step, v, s, t)
-    m̄, v̄, s̄ = grads.piece, grads.v, grads.s
-    form = only(m.pieces).form
-    f̄ = cotangent(_draw_mirror(m̄), :form)
-    for k in eachindex(v, s)
-        v̄[k], s̄[k], N̄ = _form_pullback(
-            (; piece = f̄, v = v̄[k], s = s̄[k]), form, v[k], s[k], _pop(m.N, k, t)
-        )
-        _add_pop!(cotangent(m̄, :N), m.N, N̄, k, t)
-    end
-    return nothing
+    g = (; piece = _draw_mirror(grads.piece), v = grads.v, s = grads.s)
+    return pullback!(g, only(m.pieces), Step(), v, s, t)
 end
 
 # One pool drawn from, then flows on the pool.
 function forward!(m::_Flowing, ::Step, v, s, t)
     d, fs = m.pieces
     for k in eachindex(v, s)
-        y, s′ = _draw(d.form, v[k], s[k], _pop(m.N, k, t))
+        y, s′ = _draw(d.form, v[k], s[k], _pop(d.N, k, t))
         (s″,) = _flow_only(fs, (s′,), k, t)
         v[k], s[k] = y, s″
     end
@@ -788,16 +791,17 @@ end
 function pullback!(grads, m::_Flowing, ::Step, v, s, t)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
     d, fs = m.pieces
-    f̄ = cotangent(_draw_mirror(m̄), :form)
+    d̄ = _draw_mirror(m̄)
+    f̄ = cotangent(d̄, :form)
     f̄s = _run_mirror(m̄)
     for k in eachindex(v, s)
-        N = _pop(m.N, k, t)
+        N = _pop(d.N, k, t)
         _, s′ = _draw(d.form, v[k], s[k], N)
         s̄′ = only(_flows_pullback(fs, f̄s, (s′,), (s̄[k],), (zero(s̄[k]),), k, t))
         v̄[k], s̄[k], N̄ = _form_pullback(
             (; piece = f̄, v = v̄[k], s = s̄′), d.form, v[k], s[k], N
         )
-        _add_pop!(cotangent(m̄, :N), m.N, N̄, k, t)
+        _add_pop!(cotangent(d̄, :N), d.N, N̄, k, t)
     end
     return nothing
 end
@@ -820,7 +824,7 @@ end
     q, st = _queue_of(m), _stratum_of(m)
     x, Q = _pools_queue(q, s, Val(_npools(m)))
     c = (first(v), _second(st, v), x, Q)
-    a, b, x′, Q′ = _pieces_step(m.pieces, m, c, t, g)
+    a, b, x′, Q′ = _pieces_step(m.pieces, c, t, g)
     return _out_values(st, a, b), _with_queue(q, x′, Q′)
 end
 
@@ -836,24 +840,24 @@ _out_values(st, a, b) = (a,)
 _out_values(::_ToStratum, a, b) = (a, b)
 
 # Each piece on `(a, b, x, Q)` in turn.
-@inline _pieces_step(::Tuple{}, m, c, t, g) = c
-@inline function _pieces_step(ps::Tuple, m, c, t, g)
-    return _pieces_step(Base.tail(ps), m, _piece_step(first(ps), m, c, t, g), t, g)
+@inline _pieces_step(::Tuple{}, c, t, g) = c
+@inline function _pieces_step(ps::Tuple, c, t, g)
+    return _pieces_step(Base.tail(ps), _piece_step(first(ps), c, t, g), t, g)
 end
 
 # A run of flows moves the pools.
-@inline function _piece_step(fs::_Flows, m, c, t, g)
+@inline function _piece_step(fs::_Flows, c, t, g)
     a, b, x, Q = c
     return a, b, _flow_only(fs, x, g, t), Q
 end
 
 # A draw takes its value, with the queue for the draw that holds it, from
 # the pools or into one, and sends what it leaves to its overflow.
-@inline function _piece_step(p::_Drawing, m, c, t, g)
+@inline function _piece_step(p::_Drawing, c, t, g)
     a, b, x, Q = c
     o = p.overflow
     d = _demand(o, a, Q)
-    y, x′ = _take(p, m, d, x, t, g)
+    y, x′ = _take(p, d, x, t, g)
     u = d - y
     return y, _to_stratum(o, b, u), x′, _to_queue(o, Q, u)
 end
@@ -880,26 +884,26 @@ end
 
 # The draw from the pools: out of the weighted pools, or into one pool
 # up to `N`. Returns the value drawn and the pools after it.
-@inline _take(p::_DrawFrom, m, d, x, t, g) = _draw_pools(p, m, d, x, t, g)
-@inline function _take(p::_DrawInto, m, d, x::NTuple{n}, t, g) where {n}
+@inline _take(p::_DrawFrom, d, x, t, g) = _draw_pools(p, d, x, t, g)
+@inline function _take(p::_DrawInto, d, x::NTuple{n}, t, g) where {n}
     f = p.pool
-    N = _pop(m.N, g, t)
+    N = _pop(p.N, g, t)
     y, _ = _draw(p.form, d, N - x[f], N)
     return y, ntuple(i -> i == f ? x[i] + y : x[i], Val(n))
 end
 
 # One pool: it loses the draw.
-@inline function _draw_pools(p, m, v, x::Tuple{Any}, t, g)
+@inline function _draw_pools(p, v, x::Tuple{Any}, t, g)
     w = param(only(p.weights), g, t)
-    y, _ = _draw(p.form, v, w * only(x), _pop(m.N, g, t))
+    y, _ = _draw(p.form, v, w * only(x), _pop(p.N, g, t))
     return y, (only(x) - y,)
 end
 
 # Several pools: each loses the draw in proportion to its weighted pool.
-@inline function _draw_pools(p, m, v, x::NTuple{n}, t, g) where {n}
+@inline function _draw_pools(p, v, x::NTuple{n}, t, g) where {n}
     w = _weights_at(p, Val(n), g, t)
     P = _weighted(w, x)
-    y, _ = _draw(p.form, v, P, _pop(m.N, g, t))
+    y, _ = _draw(p.form, v, P, _pop(p.N, g, t))
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
     # division keeps the unused arm finite. The arm follows the primal `P`,
     # so a dual `P` with value zero takes the arm without the division.
@@ -948,25 +952,25 @@ end
     c = (first(v), _second(st, v), x, Q)
     c̄ = (first(grads.v), _second(st, grads.v), x̄, Q̄)
     p̄s = cotangent(grads.piece, :pieces)
-    ā, b̄, x̄0, Q̄0 = _pieces_back(m.pieces, p̄s, grads.piece, m, c, c̄, t, g)
+    ā, b̄, x̄0, Q̄0 = _pieces_back(m.pieces, p̄s, c, c̄, t, g)
     return _out_values(st, ā, b̄), _with_queue(q, x̄0, Q̄0)
 end
 
 # The fold in reverse: each piece's step forward, so the pieces after it
 # read what it gives, then its pullback, last first. The last piece's step
 # is not run: its pullback reads what it gives only where it says so.
-@inline function _pieces_back(ps::Tuple{Any}, p̄s, m̄, m, c, c̄, t, g)
-    return _piece_back(first(ps), _head(p̄s), m̄, m, c, nothing, c̄, t, g)
+@inline function _pieces_back(ps::Tuple{Any}, p̄s, c, c̄, t, g)
+    return _piece_back(first(ps), _head(p̄s), c, nothing, c̄, t, g)
 end
-@inline function _pieces_back(ps::Tuple, p̄s, m̄, m, c, c̄, t, g)
+@inline function _pieces_back(ps::Tuple, p̄s, c, c̄, t, g)
     p = first(ps)
-    c′ = _piece_step(p, m, c, t, g)
-    c̄′ = _pieces_back(Base.tail(ps), _tail(p̄s), m̄, m, c′, c̄, t, g)
-    return _piece_back(p, _head(p̄s), m̄, m, c, c′, c̄′, t, g)
+    c′ = _piece_step(p, c, t, g)
+    c̄′ = _pieces_back(Base.tail(ps), _tail(p̄s), c′, c̄, t, g)
+    return _piece_back(p, _head(p̄s), c, c′, c̄′, t, g)
 end
 
 # A run of flows: the cotangent of the pools before it.
-@inline function _piece_back(fs::_Flows, f̄s, m̄, m, c, c′, c̄, t, g)
+@inline function _piece_back(fs::_Flows, f̄s, c, c′, c̄, t, g)
     x = c[3]
     ā, b̄, x̄′, Q̄ = c̄
     z = map(_ -> zero(ā), x)
@@ -976,15 +980,15 @@ end
 # A draw: the cotangents of its value, with the queue's for the draw that
 # holds it, and of the pools before it, from those of the value it passes
 # on, its overflow and the pools after it.
-@inline function _piece_back(p::_Drawing, p̄, m̄, m, c, c′, c̄, t, g)
+@inline function _piece_back(p::_Drawing, p̄, c, c′, c̄, t, g)
     a, b, x, Q = c
     ā′, b̄′, x̄′, Q̄′ = c̄
     o = p.overflow
     d = _demand(o, a, Q)
     ū = _left_back(o, ā′, b̄′, Q̄′)
     ȳ = ā′ - ū
-    y = _drawn_value(p, c′, m, d, x, t, g)
-    d̄, x̄ = _take_back(p, p̄, m̄, m, d, x, y, ȳ, x̄′, t, g)
+    y = _drawn_value(p, c′, d, x, t, g)
+    d̄, x̄ = _take_back(p, p̄, d, x, y, ȳ, x̄′, t, g)
     d̄ += ū
     return d̄, b̄′, x̄, _queue_back(o, Q̄′, d̄)
 end
@@ -998,46 +1002,46 @@ _queue_back(::_Queue, Q̄, d̄) = d̄
 
 # The value drawn, where the draw's pullback reads it: from several pools.
 # The last piece's is drawn again.
-_drawn_value(p, c′, m, d, x, t, g) = nothing
-function _drawn_value(p::_DrawFrom, c′, m, d, x::NTuple{n, Any}, t, g) where {n}
-    return n > 1 ? _drawn_again(c′, p, m, d, x, t, g) : nothing
+_drawn_value(p, c′, d, x, t, g) = nothing
+function _drawn_value(p::_DrawFrom, c′, d, x::NTuple{n, Any}, t, g) where {n}
+    return n > 1 ? _drawn_again(c′, p, d, x, t, g) : nothing
 end
-_drawn_again(c′::Tuple, p, m, d, x, t, g) = first(c′)
-_drawn_again(::Nothing, p, m, d, x, t, g) = first(_take(p, m, d, x, t, g))
+_drawn_again(c′::Tuple, p, d, x, t, g) = first(c′)
+_drawn_again(::Nothing, p, d, x, t, g) = first(_take(p, d, x, t, g))
 
 # The draw's pullback: the cotangents of the value it takes and of the
 # pools before it, from those of the value drawn `y`, `ȳ`, and of the
-# pools after it, `x̄′`; the parameters' are added into the mirrors of the
-# draw `p̄` and of the `Depletion` `m̄`.
+# pools after it, `x̄′`; the parameters' are added into the draw's mirror
+# `p̄`.
 @inline function _take_back(
-        p::_DrawInto, p̄, m̄, m, d, x::NTuple{n}, y, ȳ, x̄′, t, g
+        p::_DrawInto, p̄, d, x::NTuple{n}, y, ȳ, x̄′, t, g
     ) where {n}
     f = p.pool
-    N = _pop(m.N, g, t)
+    N = _pop(p.N, g, t)
     d̄, P̄, N̄ = _form_pullback(
         (; piece = cotangent(p̄, :form), v = ȳ + x̄′[f], s = zero(ȳ)), p.form,
         d, N - x[f], N
     )
-    _add_pop!(cotangent(m̄, :N), m.N, N̄ + P̄, g, t)
+    _add_pop!(cotangent(p̄, :N), p.N, N̄ + P̄, g, t)
     return d̄, ntuple(i -> i == f ? x̄′[i] - P̄ : x̄′[i], Val(n))
 end
 @inline function _take_back(
-        p::_DrawFrom, p̄, m̄, m, v, x::Tuple{Any}, y, ȳ, x̄′, t, g
+        p::_DrawFrom, p̄, v, x::Tuple{Any}, y, ȳ, x̄′, t, g
     )
     w = param(only(p.weights), g, t)
-    N = _pop(m.N, g, t)
+    N = _pop(p.N, g, t)
     v̄, P̄, N̄ = _form_pullback(
         (; piece = cotangent(p̄, :form), v = ȳ - only(x̄′), s = zero(ȳ)), p.form,
         v, w * only(x), N
     )
-    _add_pop!(cotangent(m̄, :N), m.N, N̄, g, t)
+    _add_pop!(cotangent(p̄, :N), p.N, N̄, g, t)
     _add_weights!(cotangent(p̄, :weights), p.weights, (only(x) * P̄,), g, t)
     return v̄, (only(x̄′) + w * P̄,)
 end
 @inline function _take_back(
-        p::_DrawFrom, p̄, m̄, m, vk, x::NTuple{n}, y, ȳ, x̄′, t, g
+        p::_DrawFrom, p̄, vk, x::NTuple{n}, y, ȳ, x̄′, t, g
     ) where {n}
-    N = _pop(m.N, g, t)
+    N = _pop(p.N, g, t)
     w = _weights_at(p, Val(n), g, t)
     P = _weighted(w, x)
     on = _primal_value(P) > 0
@@ -1051,7 +1055,7 @@ end
         (; piece = cotangent(p̄, :form), v = ȳd, s = zero(ȳ)), p.form, vk, P, N
     )
     P̄ = P̄d + P̄f
-    _add_pop!(cotangent(m̄, :N), m.N, N̄, g, t)
+    _add_pop!(cotangent(p̄, :N), p.N, N̄, g, t)
     _add_weights!(
         cotangent(p̄, :weights), p.weights, ntuple(i -> w̄[i] + x[i] * P̄, Val(n)),
         g, t
@@ -1090,6 +1094,161 @@ _add_weights!(w̄s, ::Tuple{}, vals, g, t) = nothing
 function _add_weights!(w̄s, ws::Tuple, vals, g, t)
     add_param!(_head(w̄s), first(ws), first(vals), g, t)
     return _add_weights!(_tail(w̄s), Base.tail(ws), Base.tail(vals), g, t)
+end
+
+# The pieces as modifiers --------------------------------------------------
+#
+# Each piece is a modifier on the values of a group and the pools the
+# `Depletion` shares among its pieces: its group step takes the group's
+# values `v`, with the overflow stratum's second, and its state `s`, the
+# pools with the queue last, as tuples of one-entry views; a piece on one
+# pool takes vectors of one value and one pool per stratum. The
+# `Depletion` folds the same steps over the group's scalars.
+const _Piece = Union{_Drawing, Flow, _Flows}
+
+# A lone flow is a run of one.
+_as_run(p) = p
+_as_run(f::Flow) = (f,)
+_as_run_mirror(p, p̄) = p̄
+_as_run_mirror(::Flow, ::Nothing) = nothing
+_as_run_mirror(::Flow, f̄) = (f̄,)
+
+function forward!(p::_Piece, ::Step, v::Tuple, s::Tuple, t, g)
+    v′, s′ = _piece_group(_as_run(p), map(getindex, v), map(getindex, s), t, g)
+    foreach(setindex!, v, v′)
+    foreach(setindex!, s, s′)
+    return nothing
+end
+function pullback!(grads, p::_Piece, ::Step, v::Tuple, s::Tuple, t, g)
+    v̄, s̄ = _piece_group_back(
+        _as_run(p), _as_run_mirror(p, grads.piece), map(getindex, grads.v),
+        map(getindex, grads.s), map(getindex, v), map(getindex, s), t, g
+    )
+    foreach(setindex!, grads.v, v̄)
+    foreach(setindex!, grads.s, s̄)
+    return nothing
+end
+
+# One value and one pool per stratum.
+function forward!(p::_Piece, ::Step, v, s, t)
+    for k in eachindex(v, s)
+        (v[k],), (s[k],) = _piece_group(_as_run(p), (v[k],), (s[k],), t, k)
+    end
+    return nothing
+end
+function pullback!(grads, p::_Piece, ::Step, v, s, t)
+    q, v̄, s̄ = _as_run_mirror(p, grads.piece), grads.v, grads.s
+    for k in eachindex(v, s)
+        (v̄[k],), (s̄[k],) = _piece_group_back(
+            _as_run(p), q, (v̄[k],), (s̄[k],), (v[k],), (s[k],), t, k
+        )
+    end
+    return nothing
+end
+
+# A draw from one pool with nothing left over, the step of one-pool
+# `Depletion`s, on each stratum's scalars.
+function forward!(p::_PointDraw, ::Step, v, s, t)
+    for k in eachindex(v, s)
+        v[k], s[k] = _draw(p.form, v[k], s[k], _pop(p.N, k, t))
+    end
+    return nothing
+end
+function pullback!(grads, p::_PointDraw, ::Step, v, s, t)
+    p̄, v̄, s̄ = grads.piece, grads.v, grads.s
+    f̄ = cotangent(p̄, :form)
+    for k in eachindex(v, s)
+        v̄[k], s̄[k], N̄ = _form_pullback(
+            (; piece = f̄, v = v̄[k], s = s̄[k]), p.form, v[k], s[k], _pop(p.N, k, t)
+        )
+        _add_pop!(cotangent(p̄, :N), p.N, N̄, k, t)
+    end
+    return nothing
+end
+
+# A run of flows moves the pools; any entry after them, such as a queue,
+# is a pool no flow names, which they keep exactly.
+_piece_group(fs::_Flows, v, s, t, g) = v, _flow_only(fs, s, g, t)
+function _piece_group_back(fs::_Flows, f̄s, v̄, s̄, v, s, t, g)
+    z = map(_ -> zero(first(s̄)), s)
+    return v̄, _flows_pullback(fs, f̄s, s, s̄, z, g, t)
+end
+
+# A draw reads the group's first value and its own pools and queue; any
+# other entry passes through.
+function _piece_group(p::_Drawing, v, s, t, g)
+    x, rest = _pools_rest(p, s)
+    c = (first(v), _second_of(v), x, _own_queue(p.overflow, rest))
+    a, b, x′, Q′ = _piece_step(p, c, t, g)
+    return _values_of(v, a, b), (x′..., _rest_after(p.overflow, rest, Q′)...)
+end
+function _piece_group_back(p::_Drawing, p̄, v̄, s̄, v, s, t, g)
+    x, rest = _pools_rest(p, s)
+    x̄, r̄est = _pools_rest(p, s̄)
+    c = (first(v), _second_of(v), x, _own_queue(p.overflow, rest))
+    c̄ = (first(v̄), _second_of(v̄), x̄, _own_queue(p.overflow, r̄est))
+    ā, b̄, x̄0, Q̄ = _piece_back(p, p̄, c, nothing, c̄, t, g)
+    return _values_of(v̄, ā, b̄), (x̄0..., _rest_after(p.overflow, r̄est, Q̄)...)
+end
+
+# A draw's pools and the entries after them: a draw from the pools weighs
+# each, and a draw into one takes every entry but its own queue.
+_pools_rest(p::_DrawFrom, s) = _split_at(s, Val(length(p.weights)))
+_pools_rest(p::_DrawInto, s) = _pools_rest(p.overflow, s)
+_pools_rest(o, s::Tuple) = s, ()
+_pools_rest(::_Queue, s::Tuple) = Base.front(s), (last(s),)
+function _split_at(s::Tuple, ::Val{n}) where {n}
+    return ntuple(i -> s[i], Val(n)), ntuple(i -> s[n + i], Val(length(s) - n))
+end
+_own_queue(o, rest) = nothing
+_own_queue(::_Queue, rest) = only(rest)
+_rest_after(o, rest, Q) = rest
+_rest_after(::_Queue, rest, Q) = (Q,)
+_second_of(v::Tuple{Any}) = nothing
+_second_of(v::Tuple{Any, Any}) = v[2]
+_values_of(v::Tuple{Any}, a, b) = (a,)
+_values_of(v::Tuple{Any, Any}, a, b) = (a, b)
+
+# Each piece's trace: a draw records the value it passes on and what it
+# leaves of the value it takes, and a run of flows the amount each moves.
+function forward!(
+        p::_Piece, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g
+    )
+    vals = _piece_trace(
+        _as_run(p), _view_entries(v), _view_entries(s), _view_entries(v′), t, g
+    )
+    foreach((x, y) -> x[] = y, r, vals)
+    return nothing
+end
+function pullback!(grads, p::_Piece, ::Trace, v::Tuple, s::Tuple, t, g)
+    a, b, c = _piece_trace_back(
+        _as_run(p), _as_run_mirror(p, grads.piece), _view_entries(grads.trace),
+        _view_entries(v), _view_entries(s), t, g
+    )
+    foreach((x̄, y) -> x̄[] += y, grads.v, a)
+    foreach((x̄, y) -> x̄[] += y, grads.s, b)
+    foreach((x̄, y) -> x̄[] += y, grads.v′, c)
+    return nothing
+end
+_piece_trace(fs::_Flows, v, s, v′, t, g) = _amounts(fs, s, g, t)
+function _piece_trace(p::_Drawing, v, s, v′, t, g)
+    _, rest = _pools_rest(p, s)
+    y = first(v′)
+    return (y, _demand(p.overflow, first(v), _own_queue(p.overflow, rest)) - y)
+end
+function _piece_trace_back(fs::_Flows, f̄s, r̄, v, s, t, g)
+    s̄ = _amounts_pullback(fs, f̄s, r̄, s, g, t)
+    z = zero(eltype(s̄))
+    return map(_ -> z, v), s̄, map(_ -> z, v)
+end
+function _piece_trace_back(p::_Drawing, p̄, r̄, v, s, t, g)
+    ȳ, ū = r̄
+    z = zero(ū)
+    x, rest = _pools_rest(p, s)
+    v̄ = ntuple(i -> i == 1 ? ū : z, Val(length(v)))
+    v̄′ = ntuple(i -> i == 1 ? ȳ - ū : z, Val(length(v)))
+    r̄est = _rest_after(p.overflow, map(_ -> z, rest), ū)
+    return v̄, (map(_ -> z, x)..., r̄est...), v̄′
 end
 
 # A `Depletion` uses its own pullback when each draw's form has one or the
