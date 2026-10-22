@@ -97,7 +97,8 @@ The local step of a whole-step modifier runs its `forward!` on the step's values
 Past one pass it stays faster than plain AD on Mooncake at any size, and is level with it on Enzyme.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 The local step's dual numbers, and those of a `Transform` without a `derivative`, compare by value only, as plain floats do.
-So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes, and gives the derivative plain AD gives.
+So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.
+Where ForwardDiff or the backend has a derivative rule of its own for a function, that rule picks the side of its kink, so the local step and plain AD can differ there, as for `abs` at zero and, on Mooncake, `clamp` at a bound.
 
 ## [Backends](@id adjoint-backends)
 

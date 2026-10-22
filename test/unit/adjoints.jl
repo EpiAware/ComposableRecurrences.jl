@@ -2223,27 +2223,32 @@ end
     using ComposableRecurrences
     using ForwardDiff: ForwardDiff, Dual, Partials, Tag
     const CR = ComposableRecurrences
-    # A seeded zero is zero to the local step, whatever its partials.
+    # A seeded zero is zero to the local step, whatever its partials. Each
+    # check here fails where a tie is broken by the partials.
     D = Dual{typeof(Tag(CR._local_step!, Float64)), Float64, 2}
-    x, z = D(0.0, Partials((1.0, 0.0))), zero(D)
+    z = zero(D)
+    x, x⁻ = D(0.0, Partials((1.0, 0.0))), D(0.0, Partials((-1.0, 0.0)))
+    y = D(0.0, Partials((0.0, 1.0)))
     @test !(x > z)
     @test !(x > 0)
     @test !(0.0 < x)
-    @test x >= z
+    @test !(x⁻ < z)
+    @test x⁻ >= z
     @test x <= 0.0
     @test x == z
     @test x == 0
+    @test x == y
+    @test !(y < x)
     @test isequal(x, 0.0)
     @test iszero(x)
     @test !isless(z, x)
-    # `max` and `clamp` choose their branches by the values.
-    @test ForwardDiff.partials(max(x, z)) == Partials((0.0, 0.0))
-    @test ForwardDiff.partials(clamp(x, z, one(D))) == Partials((1.0, 0.0))
-    y = D(0.0, Partials((0.0, 1.0)))
-    @test x == y
-    @test !(x < y)
+    # `clamp` takes `Base`'s branch, the value itself, at either bound.
+    @test ForwardDiff.partials(clamp(x⁻, z, one(D))) == Partials((-1.0, 0.0))
+    u = D(1.0, Partials((1.0, 0.0)))
+    @test ForwardDiff.partials(clamp(u, z, one(D))) == Partials((1.0, 0.0))
     # Against a dual number of another tag a local one reads as its value,
-    # and the other compares as `ForwardDiff` compares it with a float.
+    # and the other compares as `ForwardDiff` compares it with a float; these
+    # guard the mixed-tag methods rather than the tie.
     O = Dual{typeof(Tag(sin, Float64))}
     for o in (O(0.0, 1.0), O(0.0, -1.0), O(1.0, 0.0))
         @test (x < o) == (0.0 < o)

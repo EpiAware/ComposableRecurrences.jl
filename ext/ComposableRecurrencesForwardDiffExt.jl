@@ -21,11 +21,10 @@ using ForwardDiff: ForwardDiff, Dual, value
 # The local derivatives, `Transform`'s among them, seed each input with a
 # partial of its own.
 # `ForwardDiff` breaks a tie between values by the partials, so at a tie a
-# seeded step would take the branch its seed points into: `max(x, 0)` and
-# `x > 0 ? y / x : 0` at `x = 0` would read `x` as positive, and the second
-# would divide by zero where the step does not. Their dual numbers compare
-# by value only, as plain floats do, so each local derivative is that of the
-# branch the step takes, as plain AD's is.
+# seeded step would take the branch its seed points into: `x > 0 ? y / x : 0`
+# at `x = 0` would read `x` as positive and divide zero by zero, where the
+# step does not. Their dual numbers compare by value only, as plain floats
+# do, so each local derivative is that of the branch the step takes.
 const _LocalTag = ForwardDiff.Tag{
     <:Union{
         typeof(_value_pullback), typeof(_jacobian_pullback),
