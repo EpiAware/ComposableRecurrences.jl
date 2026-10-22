@@ -469,8 +469,8 @@ end
 # that indexes such a parameter's array fails. Checked once, when a
 # `Recurrence` is built, for each part with float scalars.
 function _check_rebuild(x)
-    _scalar_params(x) || (ispointwise(x) && _local_params(x)) ||
-        return ispointwise(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
+    _scalar_params(x) || (_strata_loop(x) && _local_params(x)) ||
+        return _strata_loop(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
     return _check_rebuild(Val(true), x)
 end
 _check_rebuild(::Val{true}, x) = _check_scalars(x, _param_tuple(x, (1, 1)))
@@ -498,7 +498,7 @@ _reads_within(n::Int) = 0 <= n <= _READ_CAP
 # Whether a part's read step reads more than `_READ_CAP` entries, as the
 # reason it takes plain AD.
 function _reads_too_many(x)
-    (_scalar_params(x) || !ispointwise(x) || _local_params(x)) && return false
+    (_scalar_params(x) || !_strata_loop(x) || _local_params(x)) && return false
     n = _probe_reads(x)
     return n !== nothing && n > _READ_CAP
 end

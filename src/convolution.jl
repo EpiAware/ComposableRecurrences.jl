@@ -69,7 +69,7 @@ It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
 number type (dual numbers, say) and other arrays (device or traced) take
 [`ComposableRecurrences.Direct`](@ref).
-It does not use the set [`ComposableRecurrences.Executor`](@ref).
+It does not use the set [`ComposableRecurrences.EXECUTOR`](@ref).
 
 The transform's error in each sum is about the machine epsilon times the
 size of the inputs and kernel in its block, not times the sum itself.
@@ -203,9 +203,10 @@ The output has the layout of `x` and length `stop - start + 1`.
   [`ComposableRecurrences.delay_masses`](@ref)).
 
 # Keyword Arguments
-- `method`: how the lag sum is computed, a
-  [`ComposableRecurrences.ConvolutionMethod`](@ref);
-  [`ComposableRecurrences.Auto`](@ref) by default.
+- `method`: how the lag sum is computed,
+  [`ComposableRecurrences.Auto`](@ref) (the default),
+  [`ComposableRecurrences.Direct`](@ref) or
+  [`ComposableRecurrences.FFTMethod`](@ref).
 - `lags`: for a kernel of delays only, the number of lags from lag 0.
 - `step`: for a kernel of delays only, the width of a lag in the delays'
   own unit; `1` by default.
@@ -249,8 +250,8 @@ struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
         )
         _is_method(method) || throw(
             ArgumentError(
-                "method must be a ComposableRecurrences.ConvolutionMethod, " *
-                    "Auto(), Direct() or FFTMethod(); got $(repr(method))"
+                "method must be Auto(), Direct() or FFTMethod(); " *
+                    "got $(repr(method))"
             )
         )
         _check_kernel_shape(kernel)

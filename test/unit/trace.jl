@@ -14,8 +14,8 @@
         cols = map(_ -> Vector{Vector{Float64}}(), r.modifiers)
         st = nothing
         for t in 1:T
-            _, st = st === nothing ? CR.with_state(r, R; history, stop = t) :
-                CR.with_state(r, R; state = st, stop = t)
+            _, st = st === nothing ? r(R; history, stop = t, state = true) :
+                r(R; state = st, stop = t)
             foreach((c, s) -> push!(c, copy(s)), cols, st.states)
         end
         return map(c -> reduce(hcat, c), cols)
@@ -44,10 +44,10 @@ end
     @test keys(tr) == (:modifiers,)
     @test length(tr.modifiers) == 1
     @test size(only(tr.modifiers)) == (3, 8)
-    (y3, tr3), st = CR.with_state(r, R; history = [5.0], trace = true)
+    (y3, tr3), st = r(R; history = [5.0], trace = true, state = true)
     @test y3 == y
     @test tr3.modifiers == tr.modifiers
-    @test st.states == CR.with_state(r, R; history = [5.0])[2].states
+    @test st.states == r(R; history = [5.0], state = true)[2].states
     (y4, tr4), _ = CR.forward(r, CR.Run(), R; history = [5.0], trace = true)
     @test y4 == y
     @test tr4.modifiers == tr.modifiers
@@ -182,7 +182,7 @@ end
     end
     z = [4.0, 3.0, 0.0, 0.0, 2.6, 4.1, 0.0, 0.0, θ...]
     col = zeros(n)
-    CR._group_trace!(m, CR.blocks(m), col, z[1:2], z[3:4], z[5:6], z[7:8], 1, 1, 1)
+    CR._group_trace!(m, CR._blocks(m), col, z[1:2], z[3:4], z[5:6], z[7:8], 1, 1, 1)
     @test trace(z) ≈ col
     r̄ = [0.7, -0.4, 1.1][1:n]
     ref = ReferenceAD.gradient(x -> sum(r̄ .* trace(x)), z)
@@ -237,7 +237,7 @@ end
     struct Decay{A}
         a::A
     end
-    CR.ispointwise(::Decay) = true
+    CR.blocks(::Decay) = (1, 1)
     CR.uses_adjoint(::Decay, ::CR.Step) = true
     CR.forward!(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
     function CR.forward!(m::Decay, ::CR.Step, v, s, t)
@@ -258,7 +258,7 @@ end
     struct Keep{A}
         a::A
     end
-    CR.blocks(::Keep) = Val((2, 2))
+    CR.blocks(::Keep) = (2, 2)
     function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
         v[1][], v[2][] = v1 * m.a, v2 + s1
@@ -346,7 +346,7 @@ end
     struct Smoothing{A}
         a::A
     end
-    CR.ispointwise(::Smoothing) = true
+    CR.blocks(::Smoothing) = (1, 1)
     function CR.forward!(m::Smoothing, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             s[k] = m.a * s[k] + (1 - m.a) * v[k]
@@ -375,7 +375,7 @@ end
     struct Pairs{A}
         a::A
     end
-    CR.blocks(::Pairs) = Val((2, 2))
+    CR.blocks(::Pairs) = (2, 2)
     function CR.forward!(m::Pairs, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
         v[1][], v[2][] = v1 * m.a, v2 + s1
@@ -458,7 +458,7 @@ end
     end
     # A trace that returns its values rather than writing them is an error.
     struct Returns end
-    CR.ispointwise(::Returns) = true
+    CR.blocks(::Returns) = (1, 1)
     CR.forward!(::Returns, ::CR.Step, v, s, t) = nothing
     CR.nstate(::Returns, S) = S
     CR.forward!(::Returns, ::CR.Trace, r, v, s, v′, s′, t) = (s′,)
