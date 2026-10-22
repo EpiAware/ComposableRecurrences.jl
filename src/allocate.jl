@@ -50,7 +50,8 @@ It is meant for non-negative values: a group sum at or below zero is
 floored to ``\epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
-A group may be empty, such as `3:2`: it holds no strata, so its total and
+A group may be empty, given as `Int[]` or a range such as `3:2` (an untyped
+`[]` holds `Any` and is rejected): it holds no strata, so its total and
 import fraction are not used and their gradients are zero.
 The groups are stored flat, in the fields `strata` (each group's strata in
 turn) and `offsets` (where each group starts), so the analytic adjoint sees
