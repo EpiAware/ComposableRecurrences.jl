@@ -600,6 +600,9 @@ _initial_param(x) = _float_param(_check_constant(:pools, x))
 # tuple, as they act together. Generated from the parts' types, so a run
 # of more flows than inference's tuple recursion follows still infers.
 @generated function _runs(ps::Tuple)
+    # A tuple whose length is not in its type, as static analysis may pass,
+    # is grouped by the recursion.
+    any(P -> P isa Core.TypeofVararg, ps.parameters) && return :(_runs_any(ps))
     out, run = Any[], Any[]
     for (i, P) in enumerate(ps.parameters)
         if P <: Flow
@@ -613,6 +616,14 @@ _initial_param(x) = _float_param(_check_constant(:pools, x))
     isempty(run) || push!(out, Expr(:tuple, run...))
     return Expr(:tuple, out...)
 end
+_runs_any(::Tuple{}) = ()
+_runs_any(ps::Tuple) = _runs_from(first(ps), Base.tail(ps))
+_runs_from(p, rest) = (p, _runs_any(rest)...)
+_runs_from(f::Flow, rest) = _flow_run((f,), rest)
+_flow_run(run, ::Tuple{}) = (run,)
+_flow_run(run, rest::Tuple) = _flow_run_next(run, first(rest), Base.tail(rest))
+_flow_run_next(run, f::Flow, rest) = _flow_run((run..., f), rest)
+_flow_run_next(run, p, rest) = (run, p, _runs_any(rest)...)
 
 # One pool drawn from once with nothing left over, then a run of flows or
 # none: a pointwise step.
