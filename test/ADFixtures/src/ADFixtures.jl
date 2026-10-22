@@ -1375,6 +1375,13 @@ function _delay_distribution(w, θ)
     return sum(W1 .* w(c)(ϵ; history = w0))
 end
 
+# The same delay on lags two units wide: each lag sums two whole units.
+function _delay_distribution_step(w, θ)
+    logλ, w0, ϵ = _unpack(θ, (1,), (L,), (T,))
+    c = Convolution(Poisson(exp(only(logλ))); lags = L + 1, step = 2)
+    return sum(W1 .* w(c)(ϵ; history = w0))
+end
+
 function _generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
@@ -1388,6 +1395,11 @@ push!(
     _SCENARIOS,
     (
         "Convolution Poisson delay distribution", _delay_distribution,
+        () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Convolution Poisson delay distribution on a step of two units",
+        _delay_distribution_step,
         () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
     ),
     (
@@ -1440,6 +1452,10 @@ const _PROBES = Dict{Symbol, Function}(
     # A `Depletion` holding its pools' names and starting values together.
     :depletion_pools => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
+    ),
+    # Delays on lags of a width other than one unit.
+    :delay_step => () -> _accepts(
+        () -> Convolution(Poisson(1.0); lags = 2, step = 2)
     ),
 )
 
@@ -1784,6 +1800,8 @@ _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
+_REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
+    (:delay_masses, :delay_step)
 
 _requires(name) = get(_REQUIRES, name, ())
 

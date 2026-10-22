@@ -207,6 +207,8 @@ The output has the layout of `x` and length `stop - start + 1`.
   [`ComposableRecurrences.ConvolutionMethod`](@ref);
   [`ComposableRecurrences.Auto`](@ref) by default.
 - `lags`: for a kernel of delays only, the number of lags from lag 0.
+- `step`: for a kernel of delays only, the width of a lag in the delays'
+  own unit; `1` by default.
 
 # Examples
 ```jldoctest
@@ -231,9 +233,12 @@ Convolution(delay)(ones(8); history = ones(3), gain = 0.4, add = 1.0)
 struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     "The kernel, lag 0 first."
     kernel::K
-    function Convolution(kernel::K; method = Auto(), lags = nothing) where {K}
+    function Convolution(
+            kernel::K; method = Auto(), lags = nothing, step = 1
+        ) where {K}
         lags === nothing ||
-            return Convolution(_delay_kernel(kernel, lags, 0); method)
+            return Convolution(_delay_kernel(kernel, lags, 0, step); method)
+        _check_no_step(step)
         _check_no_delays(kernel)
         kernel isa Union{_PairwiseKernel, Routes} && throw(
             ArgumentError(

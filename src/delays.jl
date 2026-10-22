@@ -1,24 +1,32 @@
 @doc raw"""
-    delay_masses(k, lags)
+    delay_masses(k, lags; step = 1)
 
 The masses of a delay `k` on lags `0` to `lags - 1`, lag 0 first, as a
 vector of length `lags`:
 
 ```math
-\big(p_0, p_1, \dots, p_{L-1}\big), \qquad p_l = P(D = l),
+\big(p_0, p_1, \dots, p_{L-1}\big), \qquad
+p_l = P\big(l \Delta \le D < (l + 1) \Delta\big),
 ```
 
-where ``D`` is the delay in whole steps and ``L`` = `lags`.
+where ``D`` is the delay in its own unit, ``\Delta`` = `step` is the width
+of a lag in that unit and ``L`` = `lags`.
+With the default `step = 1` a lag is one unit of the delay.
 A [`Convolution`](@ref) kernel is this vector.
 A [`Recurrence`](@ref) kernel starts at lag 1, so it is the vector without
 ``p_0``, and its sum ``\sum_{l=1}^{L-1} p_l`` scales the gain.
 `lags` has no default: a kernel of delays without `lags` is an error, and
 so is `lags` on a kernel with no delays.
+Both operators pass `step` on, and `step` without `lags` is an error.
+[Time units](@ref time-units) says when a step other than 1 is the choice.
 
-The method for a vector returns it as it is, whatever `lags`.
+The method for a vector returns it as it is, whatever `lags` and `step`.
 A package that owns a delay type adds a method for that type:
 
   - it returns an `AbstractVector` of length `lags`, lag 0 first;
+  - it takes `step` as a keyword, defaulting to 1, and gives lag `l` the
+    mass on ``[l \Delta, (l + 1) \Delta)``; a method without the keyword
+    serves `step = 1` only, and the operators call it without it then;
   - it builds the masses from the delay's parameters with differentiable
     operations, so that gradients reach those parameters through the
     kernel;
@@ -40,6 +48,9 @@ into one on whole steps, so a method for it belongs with that choice.
 - `k`: the delay, or a vector of masses.
 - `lags`: the number of lags, from lag 0.
 
+# Keyword Arguments
+- `step`: the width of a lag in the delay's own unit; `1` by default.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -51,25 +62,27 @@ ComposableRecurrences.delay_masses(k, 3) === k
 true
 ```
 
-A delay type of its own, with masses ``p (1 - p)^l``:
+A delay type of its own, with masses ``p (1 - p)^l`` on whole units, and
+the masses of `step` units summed for a lag:
 
 ```jldoctest
 using ComposableRecurrences
 struct GeometricDelay
     p::Float64
 end
-function ComposableRecurrences.delay_masses(d::GeometricDelay, lags)
-    return map(l -> d.p * (1 - d.p)^l, 0:(lags - 1))
+function ComposableRecurrences.delay_masses(d::GeometricDelay, lags; step = 1)
+    q = (1 - d.p)^step
+    return map(l -> (1 - q) * q^l, 0:(lags - 1))
 end
 Convolution(GeometricDelay(0.5); lags = 3).kernel,
-Recurrence(GeometricDelay(0.5); lags = 3).kernel
+Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
 
 # output
 
-([0.5, 0.25, 0.125], [0.25, 0.125])
+([0.5, 0.25, 0.125], [0.1875, 0.046875])
 ```
 """
-delay_masses(k::AbstractVector, lags) = k
+delay_masses(k::AbstractVector, lags; step = 1) = k
 
 # The masses of a continuous delay, from the extension that makes the
 # censoring choice; until it loads, the error says which package to load.
@@ -115,6 +128,27 @@ function _check_no_delays(kernel)
     return nothing
 end
 
+# `step` is the width of a lag in a delay's own unit, so it is positive,
+# and it has meaning only where `lags` turns delays into masses.
+function _check_step(step)
+    step isa Real && step > 0 || throw(
+        ArgumentError(
+            "step is the width of a lag in the delay's unit and must be a " *
+                "positive number; got $(repr(step))"
+        )
+    )
+    return nothing
+end
+function _check_no_step(step)
+    step isa Real && isone(step) || throw(
+        ArgumentError(
+            "step sets the width of a lag for a kernel of delays, so it " *
+                "needs `lags`; got step = $(repr(step)) without it"
+        )
+    )
+    return nothing
+end
+
 function _check_lags(lags, origin)
     lags isa Integer && lags > origin || throw(
         ArgumentError(
@@ -127,23 +161,25 @@ function _check_lags(lags, origin)
 end
 
 # The kernel with each delay replaced by its masses from lag `origin`, the
-# lag axis where the wrapper reads it. Arrays of masses, such as a route
-# kernel beside a route of delays, stay as they are, but a kernel with no
-# delays at all takes no `lags`.
-function _delay_kernel(kernel, lags, origin)
+# lag axis where the wrapper reads it, on lags `step` units wide. Arrays of
+# masses, such as a route kernel beside a route of delays, stay as they
+# are, but a kernel with no delays at all takes no `lags`.
+function _delay_kernel(kernel, lags, origin, step)
     _check_lags(lags, origin)
+    _check_step(step)
     _has_delays(typeof(kernel)) || throw(
         ArgumentError(
             "`lags` turns delays into masses, and $(_describe(kernel)) holds " *
                 "no delays; build the operator without `lags`"
         )
     )
-    return _masses_kernel(kernel, lags, origin)
+    return _masses_kernel(kernel, lags, origin, step)
 end
 
-# The masses of `d` from lag `origin`.
-function _masses(d, lags, origin)
-    m = delay_masses(d, lags)
+# The masses of `d` from lag `origin`. A step of 1 calls the method without
+# `step`, so a method that only serves whole units still works.
+function _masses(d, lags, origin, step)
+    m = isone(step) ? delay_masses(d, lags) : delay_masses(d, lags; step)
     length(m) == lags || throw(
         ArgumentError(
             "delay_masses($(nameof(typeof(d))), $(lags)) returned " *
@@ -153,12 +189,14 @@ function _masses(d, lags, origin)
     return m[(firstindex(m) + origin):end]
 end
 
-_stack_masses(A, lags, origin) = stack(d -> _masses(d, lags, origin), A)
-
-function _masses_kernel(x, lags, origin)
-    return _isdelay(typeof(x)) ? _masses(x, lags, origin) : x
+function _stack_masses(A, lags, origin, step)
+    return stack(d -> _masses(d, lags, origin, step), A)
 end
-function _masses_kernel(A::AbstractArray, lags, origin)
+
+function _masses_kernel(x, lags, origin, step)
+    return _isdelay(typeof(x)) ? _masses(x, lags, origin, step) : x
+end
+function _masses_kernel(A::AbstractArray, lags, origin, step)
     _isdelay(eltype(A)) && throw(
         ArgumentError(
             "an array of delays needs a wrapper to say what its axes are: " *
@@ -167,35 +205,37 @@ function _masses_kernel(A::AbstractArray, lags, origin)
     )
     return A
 end
-function _masses_kernel(x::PerStratum{<:AbstractVector}, lags, origin)
+function _masses_kernel(x::PerStratum{<:AbstractVector}, lags, origin, step)
     _isdelay(eltype(x.x)) || return x
-    return PerStratum(permutedims(_stack_masses(x.x, lags, origin)))
+    return PerStratum(permutedims(_stack_masses(x.x, lags, origin, step)))
 end
-function _masses_kernel(x::Pairwise{<:AbstractMatrix}, lags, origin)
+function _masses_kernel(x::Pairwise{<:AbstractMatrix}, lags, origin, step)
     _isdelay(eltype(x.x)) || return x
-    return Pairwise(permutedims(_stack_masses(x.x, lags, origin), (2, 3, 1)))
+    M = _stack_masses(x.x, lags, origin, step)
+    return Pairwise(permutedims(M, (2, 3, 1)))
 end
 function _masses_kernel(
-        x::TimeVarying{I, <:AbstractVector}, lags, origin
+        x::TimeVarying{I, <:AbstractVector}, lags, origin, step
     ) where {I}
     _isdelay(eltype(x.x)) || return x
-    return TimeVarying{I}(_stack_masses(x.x, lags, origin))
+    return TimeVarying{I}(_stack_masses(x.x, lags, origin, step))
 end
 function _masses_kernel(
-        x::TimeVarying{I, <:PerStratum{<:AbstractMatrix}}, lags, origin
+        x::TimeVarying{I, <:PerStratum{<:AbstractMatrix}}, lags, origin, step
     ) where {I}
     _isdelay(eltype(x.x.x)) || return x
-    G = permutedims(_stack_masses(x.x.x, lags, origin), (2, 1, 3))
+    G = permutedims(_stack_masses(x.x.x, lags, origin, step), (2, 1, 3))
     return TimeVarying{I}(PerStratum(G))
 end
 function _masses_kernel(
-        x::TimeVarying{I, <:Pairwise{<:AbstractArray{<:Any, 3}}}, lags, origin
+        x::TimeVarying{I, <:Pairwise{<:AbstractArray{<:Any, 3}}},
+        lags, origin, step
     ) where {I}
     _isdelay(eltype(x.x.x)) || return x
-    A = permutedims(_stack_masses(x.x.x, lags, origin), (2, 3, 1, 4))
+    A = permutedims(_stack_masses(x.x.x, lags, origin, step), (2, 3, 1, 4))
     return TimeVarying{I}(Pairwise(A))
 end
-function _masses_kernel(R::Routes, lags, origin)
-    kernels = map(g -> _masses_kernel(g, lags, origin), R.kernels)
+function _masses_kernel(R::Routes, lags, origin, step)
+    kernels = map(g -> _masses_kernel(g, lags, origin, step), R.kernels)
     return Routes(map(tuple, R.couplings, kernels)...)
 end

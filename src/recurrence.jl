@@ -109,6 +109,8 @@ and each call that takes the rule checks instead.
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
 - `lags`: for a kernel of delays only, the number of lags from lag 0.
+- `step`: for a kernel of delays only, the width of a lag in the delays'
+  own unit; `1` by default.
 
 # Examples
 ```jldoctest
@@ -173,9 +175,13 @@ end
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
-function Recurrence(kernel; coupling = I, modifiers = (), lags = nothing)
-    lags === nothing ||
-        return Recurrence(_delay_kernel(kernel, lags, 1); coupling, modifiers)
+function Recurrence(
+        kernel; coupling = I, modifiers = (), lags = nothing, step = 1
+    )
+    lags === nothing || return Recurrence(
+        _delay_kernel(kernel, lags, 1, step); coupling, modifiers
+    )
+    _check_no_step(step)
     _check_no_delays(kernel)
     k, C = _fold(kernel, coupling)
     return Recurrence(k, C, Tuple(modifiers))
