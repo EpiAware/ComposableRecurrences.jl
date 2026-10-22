@@ -263,6 +263,30 @@ function _allocate_imports(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The same groups with an empty group between them and one after them: their
+# totals and fractions are in `θ` but unused, so their gradients are zero.
+const GROUPS_EMPTY = [1:2, 3:2, 3:3, 4:3]
+function _allocate_empty(w, θ)
+    g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (4, T))
+    split = ComposableRecurrences.Allocate(
+        GROUPS_EMPTY, TimeVarying(PerStratum(exp.(logtot)))
+    )
+    y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+function _allocate_empty_imports(w, θ)
+    g, logh, logR, logtot, φ, P, K, ε = _unpack(
+        θ, (L,), (S, L), (S, T), (4, T), (4, T), (S, S), (S, S), (S,)
+    )
+    split = ComposableRecurrences.Allocate(
+        GROUPS_EMPTY, TimeVarying(PerStratum(exp.(logtot)));
+        imports = (TimeVarying(PerStratum(φ)), P),
+        spill = _leaky(ComposableRecurrences.movement(K, ε))
+    )
+    y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Dense matrices held as `Matrix`, as `collect` gives them, so the dense
 # pullbacks of the coupling, `Redistribute` and the import pattern run.
 function _dense_matrices(w, θ)
@@ -1130,6 +1154,25 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence grouped totals with empty groups (Allocate)",
+        _allocate_empty,
+        () -> _flat(
+            G0, fill(log(5.0), S, L), LOGR,
+            [log(8.0 + p + t) for p in 1:4, t in 1:T],
+        ),
+    ),
+    (
+        "Recurrence grouped totals with empty groups and imports (Allocate)",
+        _allocate_empty_imports,
+        () -> _flat(
+            G0, fill(log(5.0), S, L), LOGR,
+            [log(8.0 + p + t) for p in 1:4, t in 1:T],
+            [0.1 + 0.05 * p + 0.01 * t for p in 1:4, t in 1:T],
+            [0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0],
+            [0.0 0.8 0.0; 0.9 0.0 0.0; 0.1 0.2 0.0], [0.1, 0.2, 0.3],
+        ),
+    ),
+    (
         "Recurrence Redistribute of a time-varying movement",
         _movement_time_varying,
         () -> _flat(
@@ -1459,6 +1502,10 @@ const _PROBES = Dict{Symbol, Function}(
             1.0; pools = (:O,), form = ComposableRecurrences.Truncate(), fill = :O
         )
     ),
+    # An `Allocate` group with no strata.
+    :allocate_empty_group => () -> _accepts(
+        () -> ComposableRecurrences.Allocate([1:1, 2:1], PerStratum([1.0, 1.0]))
+    ),
     # A `Depletion` holding its pools' names and starting values together.
     :depletion_pools => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
@@ -1475,6 +1522,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:_AllocateImports,),
     "Recurrence grouped totals with time-varying imports (Allocate)" =>
         (:_AllocateImports,),
+    "Recurrence grouped totals with empty groups (Allocate)" =>
+        (:Allocate, :allocate_empty_group),
+    "Recurrence grouped totals with empty groups and imports (Allocate)" =>
+        (:_AllocateImports, :allocate_empty_group),
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:movement,),
