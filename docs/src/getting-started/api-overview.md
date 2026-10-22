@@ -206,6 +206,7 @@ A model built from the package's own parts needs none of them.
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the job a `forward!` method does: one step, the starting state, a coupling's mixing, a modifier's record for a call with `trace = true` | singletons for dispatch |
+| [`Run()`](@ref ComposableRecurrences.Run) | an operator's whole call, the role `uses_adjoint`, `PieceInterface` and `test_adjoint` take for an operator | a singleton for dispatch |
 | [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
 | [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of series: `(nv, ns)` values and state entries per group, `(1, 1)` for one that acts on each series separately | a tuple, or `nothing` for one that reads every series |

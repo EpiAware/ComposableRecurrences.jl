@@ -99,7 +99,7 @@ public Depletion, Flow, Share, Redistribute, movement,
     Add, Clamp, Allocate,
     Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
     exponential_history, State, contributions, forward!, pullback!, Step,
-    Init, Pressure, Trace, ispointwise, blocks, nstate, ntrace, depth,
+    Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
     Auto, Direct, FFTMethod, delay_masses

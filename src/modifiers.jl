@@ -16,6 +16,9 @@ y = f_{\mathrm{op}}(u), \qquad y = (y_{t_0}, \dots, y_{t_1}),
 with ``f_{\mathrm{op}}`` the operator's own maths (see [`Recurrence`](@ref)
 and [`Convolution`](@ref)); `cache` holds what the reverse pass needs, such
 as the [`ComposableRecurrences.State`](@ref).
+It is the role an operator is asked about, as in
+`uses_adjoint(op, Run())`, `PieceInterface` with `role = Run()` and
+`test_adjoint(backend, op, Run(), args...)`.
 
 # Examples
 ```jldoctest
