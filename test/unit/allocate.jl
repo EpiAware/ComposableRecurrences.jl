@@ -430,9 +430,10 @@ end
     CR = ComposableRecurrences
     @test_throws ArgumentError CR.Allocate([1:2, 2:3], 1.0)
     @test_throws "stratum 2 is in two groups" CR.Allocate([1:2, 2:3], 1.0)
-    @test_throws ArgumentError CR.Allocate([1:2, Int[]], 1.0)
-    @test_throws "got 0-element Vector{Int64}" CR.Allocate([1:2, Int[]], 1.0)
+    @test_throws "stratum 2 is in two groups" CR.Allocate([1:2, 3:2, 2:3], 1.0)
     @test_throws "got 2-element Vector{Float64}" CR.Allocate([[1.0, 2.0]], 1.0)
+    @test_throws "got 0-element Vector{Any}" CR.Allocate([1:2, []], 1.0)
+    @test_throws "got 0 in group 0:1" CR.Allocate([3:2, 0:1], 1.0)
     @test_throws ArgumentError CR.Allocate([0:1], 1.0)
     @test_throws "got 0 in group 0:1" CR.Allocate([0:1], 1.0)
     @test_throws ArgumentError CR.Allocate(UnitRange{Int}[], 1.0)
@@ -451,6 +452,106 @@ end
     )
     r = Recurrence([0.5]; modifiers = (CR.Allocate([1:2], TimeVarying([1.0, 2.0])),))
     @test_throws DimensionMismatch r(ones(2, 3); history = ones(2, 1))
+    # Empty groups still have to leave the others to partition the strata.
+    for (gs, msg) in (
+            ([1:2, 3:2], "cover 2 strata with indices up to 2"),
+            ([3:2], "cover 0 strata with indices up to 0"),
+            ([1:2, 3:2, 4:4], "cover 3 strata with indices up to 4"),
+        )
+        uncovered = Recurrence([0.5]; modifiers = (CR.Allocate(gs, 1.0),))
+        @test_throws msg uncovered(ones(3, 2); history = ones(3, 1))
+    end
+    @test_throws DimensionMismatch CR.Allocate(
+        [1:2, 3:2, 3:3], PerStratum([1.0, 2.0])
+    )
+end
+
+@testitem "Allocate: an empty group's total is unused" setup = [
+    ReferenceAD, ModifierChecks, AllocateChecks,
+] begin
+    using ComposableRecurrences, ForwardDiff
+    using Base.ScopedValues: with
+    CR = ComposableRecurrences
+    (; g, R, h, groups, TT, FF, P0, K0) = AllocateChecks
+    W = reshape(range(0.2, 1.4; length = 40), 5, 8)
+    # The groups with empty groups first, between them and last; the empty
+    # groups take rows of the totals and fractions of their own.
+    padded = [3:2, groups[1], Int[], groups[2], 6:5, groups[3], 1:0]
+    kept, empty = [2, 4, 6], [1, 3, 5, 7]
+    function pad(X)
+        Y = [100.0 + p + t for p in 1:7, t in axes(X, 2)]
+        Y[kept, :] .= X
+        return Y
+    end
+    M0 = CR.movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
+    # Without imports, with them, and with a spill too.
+    function split(gs, tot, fr, case)
+        total = TimeVarying(PerStratum(tot))
+        case === :plain && return CR.Allocate(gs, total)
+        spill = case === :spill ? CR.Redistribute(M0) : nothing
+        fraction = TimeVarying(PerStratum(fr))
+        return CR.Allocate(gs, total; imports = (fraction, P0), spill)
+    end
+    recurrence(gs, tot, fr, case) = Recurrence(
+        g; modifiers = (split(gs, tot, fr, case),)
+    )
+    # The pattern and the spill are held fixed in the local pullback.
+    function fixed_mirror(m)
+        m̄ = ModifierChecks.mirror(m)
+        m.imports === nothing && return m̄
+        fixed = (; pattern = nothing, spill = nothing)
+        return merge(m̄, (; imports = merge(m̄.imports, fixed)))
+    end
+    v = [0.8, 1.3, 0.4, 2.0, 0.9]
+    ex = CR.Threaded(; min_work = 0, ntasks = 3)
+    for case in (:plain, :imports, :spill)
+        r = recurrence(padded, pad(TT), pad(FF), case)
+        r0 = recurrence(groups, TT, FF, case)
+        # The empty groups leave the split as it is without them.
+        y = r0(R; history = h)
+        @test r(R; history = h) ≈ y
+        # Their totals and fractions get zero gradients, and the others the
+        # gradients they get without them.
+        loss(gs, tot, fr, R) = sum(
+            W .* recurrence(gs, tot, fr, case)(R; history = h)
+        )
+        grad(f, x) = ReferenceAD.gradient(f, x)
+        gT = grad(x -> loss(padded, x, pad(FF), R), pad(TT))
+        @test all(iszero, gT[empty, :])
+        @test gT[kept, :] ≈ grad(x -> loss(groups, x, FF, R), TT)
+        gF = grad(x -> loss(padded, pad(TT), x, R), pad(FF))
+        @test all(iszero, gF[empty, :])
+        if case === :plain
+            @test all(iszero, gF)
+        else
+            @test gF[kept, :] ≈ grad(x -> loss(groups, TT, x, R), FF)
+        end
+        @test grad(x -> loss(padded, pad(TT), pad(FF), x), R) ≈
+            grad(x -> loss(groups, TT, FF, x), R)
+        # A threaded executor and a trace see the same split.
+        threaded = with(() -> r(R; history = h), CR.EXECUTOR => ex)
+        @test threaded == r(R; history = h)
+        yt, tr = r(R; history = h, trace = true)
+        _, tr0 = r0(R; history = h, trace = true)
+        @test yt ≈ y
+        @test only(tr.modifiers) ≈ only(tr0.modifiers)
+        # The pullback of a step against a local Jacobian; the empty groups'
+        # totals and fractions get zero cotangents.
+        θ = case === :plain ? vec(pad(TT)) : vcat(vec(pad(TT)), vec(pad(FF)))
+        function build(x)
+            fr = case === :plain ? pad(FF) : reshape(x[57:end], 7, 8)
+            return split(padded, reshape(x[1:56], 7, 8), fr, case)
+        end
+        c = ModifierChecks.check_pullback(
+            build, θ, v, zeros(case === :spill ? 10 : 5), 5;
+            mirror_of = fixed_mirror
+        )
+        @test c.v
+        @test c.s
+        @test c.θ
+        θ̄ = reshape(c.θ̄, 7, :)
+        @test all(iszero, θ̄[empty, :])
+    end
 end
 
 @testitem "Allocate: Float32 stays Float32" begin
