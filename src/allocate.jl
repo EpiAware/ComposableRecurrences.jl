@@ -50,6 +50,8 @@ It is meant for non-negative values: a group sum at or below zero is
 floored to ``\epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
+A group may be empty, such as `3:2`: it holds no strata, so its total and
+import fraction are not used and their gradients are zero.
 The groups are stored flat, in the fields `strata` (each group's strata in
 turn) and `offsets` (where each group starts), so the analytic adjoint sees
 only integer arrays and the parameters.
@@ -239,8 +241,8 @@ end
 _ngroups(m::Allocate) = length(m.offsets) - 1
 _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
 
-# The groups are disjoint, non-empty vectors of positive indices; that they
-# cover every stratum is checked once the strata are known.
+# The groups are disjoint vectors of positive indices, some possibly empty;
+# that they cover every stratum is checked once the strata are known.
 function _check_groups(groups)
     isempty(groups) && throw(
         ArgumentError(
@@ -248,20 +250,20 @@ function _check_groups(groups)
         )
     )
     for zs in groups
-        zs isa AbstractVector{<:Integer} && !isempty(zs) || throw(
+        zs isa AbstractVector{<:Integer} || throw(
             ArgumentError(
-                "each group is a non-empty vector of stratum indices, got " *
+                "each group is a vector of stratum indices, got " *
                     "$(_describe(zs))"
             )
         )
-        minimum(zs) >= 1 || throw(
+        isempty(zs) || minimum(zs) >= 1 || throw(
             ArgumentError(
                 "stratum indices start at 1, got $(minimum(zs)) in group " *
                     _describe(zs)
             )
         )
     end
-    seen = zeros(Bool, maximum(maximum, groups))
+    seen = zeros(Bool, maximum(zs -> maximum(zs; init = 0), groups))
     for zs in groups, k in zs
         seen[k] && throw(
             ArgumentError(
@@ -275,10 +277,11 @@ end
 
 function _check_partition(m::Allocate, S)
     n = length(m.strata)
-    n == S && maximum(m.strata) <= S || throw(
+    top = maximum(m.strata; init = 0)
+    n == S && top <= S || throw(
         ArgumentError(
-            "the groups cover $n strata with indices up to " *
-                "$(maximum(m.strata)); they must partition 1:$S"
+            "the groups cover $n strata with indices up to $top; they " *
+                "must partition 1:$S"
         )
     )
     return S
