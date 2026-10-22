@@ -41,8 +41,8 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input        | `add =`, before the modifiers                                |
 | seed and resume       | `history =`, `prepend = true`, `with_state`, `state =`       |
 | modifiers             | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Transform`     |
-| pools and flows       | `Depletion(N; pools, weights, flows)`, `Flow(from => to, d)` |
-| filling a pool        | `Depletion(C; form = Truncate(), fill = :O)`                 |
+| pools and flows       | `Depletion(N, Hazard(), Flow(from => to, d); pools)`         |
+| filling a pool        | `Depletion(C, Truncate(; into = :O); pools)`                 |
 | variants              | structs: `Hazard()`, `Floor()`, `Primary()`                  |
 | extension             | a type with a `forward!` method for a role                   |
 

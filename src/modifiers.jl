@@ -64,8 +64,8 @@ A pointwise modifier acts on each stratum ``i`` separately,
   - `forward!(m, Step(), v, s, t, g)` is the group step of a blockwise
     modifier ([`ComposableRecurrences.blocks`](@ref)), with `v` and `s`
     tuples of one-entry views of group `g`'s values and state.
-  - `forward!(form, Step(), v, s, N, α)` draws `v` from pool `s` in place
-    for a depletion form, with `v` and `s` views and `N` and `α` numbers.
+  - `forward!(form, Step(), v, s, N)` draws `v` from pool `s` in place
+    for a depletion form, with `v` and `s` views and `N` a number.
 
 A step writes its outputs and returns `nothing`; one that returns anything
 else is an error.
@@ -77,7 +77,7 @@ else is an error.
 using ComposableRecurrences
 CR = ComposableRecurrences
 v, s = [2.0], [80.0]
-CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, 1.0)
+CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0)
 round.(v; digits = 3), round.(s; digits = 3)
 
 # output
@@ -387,7 +387,8 @@ The default is `nothing`.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Depletion(100.0; protected = 0.3)
+weights = (S = 1, V = 0.3)
+leaky = CR.Depletion(100.0, CR.Hazard(; weights); pools = (:S, :V))
 CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
 
 # output
@@ -425,7 +426,8 @@ one entry per stratum, so it must have ``n(m, S) = S``.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Depletion(100.0; protected = 0.3)
+weights = (S = 1, V = 0.3)
+leaky = CR.Depletion(100.0, CR.Hazard(; weights); pools = (:S, :V))
 CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 
 # output

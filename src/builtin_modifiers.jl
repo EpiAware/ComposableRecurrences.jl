@@ -162,15 +162,32 @@ s' = s\, e^{-\lambda},
 where ``v`` is the value asked for, ``s`` the pool before the step, ``N`` the
 population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
 ``v'`` the value drawn and ``s'`` the pool after the step.
+`α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 
-The default form of [`ComposableRecurrences.Depletion`](@ref).
+The default draw of a [`ComposableRecurrences.Depletion`](@ref), which
+sets out the keywords a draw takes.
+As the form of a [`ComposableRecurrences.Flow`](@ref) it takes no
+exponent.
+
+# Arguments
+- `α`: the heterogeneity exponent; `nothing`, the default, or `true` for
+  an exponent of exactly one that is not a parameter, so the step skips
+  the power and its derivative.
+  `false` is a fixed exponent of zero.
+  In a `Depletion` any other integer takes the population's float type;
+  pass a float to differentiate the exponent.
+
+# Keyword Arguments
+- `weights`, `into`, `overflow`: the draw's, as
+  [`ComposableRecurrences.Depletion`](@ref) sets out; with any of them
+  `Hazard` returns a draw piece rather than the form.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 v, s = [2.0], [80.0]
-CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, 1.0)
+CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0)
 round.(v; digits = 3), round.(s; digits = 3)
 
 # output
@@ -178,7 +195,11 @@ round.(v; digits = 3), round.(s; digits = 3)
 ([1.584], [78.416])
 ```
 """
-struct Hazard end
+struct Hazard{A}
+    "The heterogeneity exponent α, or `nothing` for one."
+    α::A
+    Hazard{A}(α) where {A} = new{A}(α)
+end
 
 @doc raw"""
 The floored depletion form: the value is scaled by the share of the pool
@@ -196,12 +217,20 @@ population, ``\alpha`` the heterogeneity exponent, ``f`` the scaling, ``v'``
 the value drawn and ``s'`` the pool after the step.
 The pool can go negative, and then the floor applies.
 
+# Arguments
+- `α`: the heterogeneity exponent, as for
+  [`ComposableRecurrences.Hazard`](@ref).
+
+# Keyword Arguments
+- `weights`, `into`, `overflow`: the draw's, as
+  [`ComposableRecurrences.Depletion`](@ref) sets out.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 v, s = [2.0], [80.0]
-CR.forward!(CR.Floor(), CR.Step(), v, s, 100.0, 1.0)
+CR.forward!(CR.Floor(), CR.Step(), v, s, 100.0)
 v, s
 
 # output
@@ -209,18 +238,48 @@ v, s
 ([1.6], [78.4])
 ```
 """
-struct Floor end
+struct Floor{A}
+    "The heterogeneity exponent α, or `nothing` for one."
+    α::A
+    Floor{A}(α) where {A} = new{A}(α)
+end
+
+# A form with its exponent: `true` is the default exponent of one. With a
+# draw's keywords, the draw piece.
+const _ExponentForm = Union{Hazard, Floor}
+for F in (:Hazard, :Floor)
+    @eval function $F(α = nothing; weights = nothing, into = nothing, overflow = nothing)
+        return _drawn(_with_exponent($F, α), weights, into, overflow)
+    end
+end
+_with_exponent(::Type{F}, α::Union{Nothing, Real}) where {F} = F{typeof(α)}(α)
+_with_exponent(::Type{F}, α::Bool) where {F} = α ? F{Nothing}(nothing) : F{Bool}(α)
+function _with_exponent(::Type{F}, α) where {F}
+    throw(
+        ArgumentError(
+            "the heterogeneity exponent is a number or nothing, got " * _describe(α)
+        )
+    )
+end
+
+# Printed as written.
+function Base.show(io::IO, form::_ExponentForm)
+    show(io, typeof(form).name.wrapper)
+    form.α === nothing ? print(io, "()") : print(io, "(", form.α, ")")
+    return nothing
+end
 
 # The population: any parameter, read at each step's stratum and time.
 _population(N) = _float_param(_check_param(:N, N))
 
-# A form is a type with an in-place Step on one-entry views, for scalar
-# `N` and `α` of any real type or of one float type.
+# A form is a type with an in-place Step on one-entry views, for a scalar
+# `N` of any real type or of one float type.
 function _check_form(form::F) where {F}
     _is_form(F) || throw(
         ArgumentError(
-            "$(_describe(form)) is not a depletion form: a form implements " *
-                "forward!(form, Step(), v, s, N, α), writing v and s in place"
+            "$(_describe(form)) is not a draw or a Flow: a draw's form " *
+                "implements forward!(form, Step(), v, s, N), writing v and s " *
+                "in place, and the population N comes first"
         )
     )
     return nothing
@@ -232,7 +291,7 @@ function _is_form(::Type{F}) where {F}
 end
 function _form_step_for(::Type{F}, ::Type{T}) where {F, T}
     V = _At{T, Base.RefValue{T}}
-    return hasmethod(forward!, Tuple{F, Step, V, V, T, T})
+    return hasmethod(forward!, Tuple{F, Step, V, V, T})
 end
 
 # The starting pool is per stratum, not over time.
@@ -246,31 +305,27 @@ function _float_param(x::TimeVarying{I, <:PerStratum}) where {I}
     return TimeVarying{I}(_float_param(x.x))
 end
 
-# An integer exponent takes the population's float type, so it has a
-# cotangent and a Float32 population stays Float32. A dual population gives
-# its primal type: a dual exponent with zero partials makes
-# `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty pool. The built-in
-# forms keep a `Bool` exponent as a fixed one, without a cotangent.
-_exponent(α::Integer, N, form) = convert(float(_primal_type(param_eltype(N))), α)
-_exponent(α::Bool, N, ::Union{Hazard, Floor}) = _FixedExponent{α}()
-_exponent(α, N, form) = α
+# A form's exponent in a `Depletion`: an integer takes the population's
+# float type, so it has a cotangent and a Float32 population stays Float32.
+# A dual population gives its primal type: a dual exponent with zero
+# partials makes `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty
+# pool. `nothing` and `false` stay fixed, without a cotangent.
+_exponent_form(form, N) = form
+function _exponent_form(form::F, N) where {F <: _ExponentForm}
+    return _with_exponent(typeof(form).name.wrapper, _exponent(form.α, N))
+end
+_exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
+_exponent(α::Bool, N) = α
+_exponent(α, N) = α
 
-# A fixed `Bool` exponent held in the type, so a `Depletion` stores no byte
-# for it. An AD tool's type analysis can reject a `Bool` field stored into a
-# tuple of modifiers when the construction is compiled into the loss. The
-# steps read it back as the `Bool` constant `B`.
+# The exponent a step reads: `true` for `nothing`, an exponent of exactly
+# one that the powers below branch on, without a cotangent.
 # A float exponent with an `isone` branch in the steps was measured in its
 # place: the reverse passes were up to 16% slower and allocated more, as
 # they still take the exponent's `log` term, so the fixed form stays.
-struct _FixedExponent{B} end
-_exponent_value(::_FixedExponent{B}) where {B} = B
-_exponent_value(α) = α
-
-# The default exponent: a fixed exponent of one for the built-in forms, not
-# a parameter, so their steps skip the power and its derivative; `1` for
-# other forms, which may type their exponent as a float.
-_unit_exponent(form) = 1
-_unit_exponent(::Union{Hazard, Floor}) = _FixedExponent{true}()
+_alpha(form) = _alpha_value(form.α)
+_alpha_value(::Nothing) = true
+_alpha_value(α) = α
 
 # The powers of the share of the pool left `r`: `r^(α - 1)` scales the
 # hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
@@ -285,7 +340,8 @@ _floor_power(r, α::Bool) = α ? r : one(r)
 _times_log(α, r, c) = c * log(r)
 _times_log(::Bool, r, c) = zero(c)
 
-function forward!(::Hazard, ::Step, v, s, N, α)
+function forward!(form::Hazard, ::Step, v, s, N)
+    α = _alpha(form)
     for k in eachindex(v, s)
         x = v[k] / N * _share_power(s[k] / N, α)
         e, em = _exp_neg(x)
@@ -319,7 +375,9 @@ end
 # NaN reaches the tangent.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
 
-function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
+function pullback!(grads, form::Hazard, ::Step, v, s, N)
+    α = _alpha(form)
+    ᾱs = cotangent(grads.piece, :α)
     for k in eachindex(v, s)
         ȳ, s̄′ = grads.v[k], grads.s[k]
         r = s[k] / N
@@ -332,14 +390,15 @@ function pullback!(grads, ::Hazard, ::Step, v, s, N, α)
         ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
         grads.v[k], grads.s[k] = x̄ * h / N, s̄
         grads.N[k] += -x̄ * α * x / N
-        grads.α[k] += ᾱ
+        add_cotangent!(ᾱs, ᾱ)
     end
     return nothing
 end
 
 const _DEPLETION_FLOOR = 1.0e-6
 
-function forward!(::Floor, ::Step, v, s, N, α)
+function forward!(form::Floor, ::Step, v, s, N)
+    α = _alpha(form)
     for k in eachindex(v, s)
         r = s[k] / N
         f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
@@ -349,7 +408,9 @@ function forward!(::Floor, ::Step, v, s, N, α)
     return nothing
 end
 
-function pullback!(grads, ::Floor, ::Step, v, s, N, α)
+function pullback!(grads, form::Floor, ::Step, v, s, N)
+    α = _alpha(form)
+    ᾱs = cotangent(grads.piece, :α)
     for k in eachindex(v, s)
         ȳ, s̄′ = grads.v[k], grads.s[k]
         r = s[k] / N
@@ -361,7 +422,7 @@ function pullback!(grads, ::Floor, ::Step, v, s, N, α)
             ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
             grads.v[k], grads.s[k] = ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N
             grads.N[k] += -f̄ * α * p / N
-            grads.α[k] += ᾱ
+            add_cotangent!(ᾱs, ᾱ)
         else
             grads.v[k] = ḡ * fl
         end

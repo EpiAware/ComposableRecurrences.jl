@@ -22,7 +22,7 @@ An operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurre
 | blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
 | initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
 | coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
-| depletion form | `forward!(form, Step(), v, s, N, α)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N, α)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, and add those of `N` and `α` into `N` and `α`, which are indexed as `v` is |
+| depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
 | modifier trace | `forward!(m, Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
 | blockwise modifier group trace | `forward!(m, Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
 
@@ -417,8 +417,8 @@ One whose trace is not linear in the step's outputs computes them with the step'
 
 ## [A depletion form](@id extending-form)
 
-A depletion form draws value `v` from pool `s` with population `N` and exponent `α`.
-It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion) as its `form`.
+A depletion form draws value `v` from pool `s` with population `N`; its parameters, such as the exponent of [`Hazard`](@ref ComposableRecurrences.Hazard), are its fields.
+It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion) as a draw, which takes from the first pool.
 This one takes what is asked, up to the pool:
 
 ```math
@@ -427,19 +427,19 @@ v' = \min(v, s), \qquad s' = s - v',
 
 where ``v'`` is the value drawn and ``s'`` the pool after the step.
 Its pullback overwrites `grads.v` and `grads.s` with the cotangents of `v` and `s`.
-This form reads neither `N` nor `α`, so it adds nothing into `grads.N` and `grads.α`; `Depletion` adds what a form puts there into its own mirror.
-Its `grads.piece` is the mirror of the form's own fields.
+This form reads no `N`, so it adds nothing into `grads.N`; `Depletion` adds what a form puts there into its own mirror.
+Its `grads.piece` is the mirror of the form's own fields, which takes their cotangents.
 
 ```@example extending
 struct Capped end
-function CR.forward!(::Capped, ::CR.Step, v, s, N, α)
+function CR.forward!(::Capped, ::CR.Step, v, s, N)
     for k in eachindex(v, s)
         y = min(v[k], s[k])
         v[k], s[k] = y, s[k] - y
     end
     return nothing
 end
-function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N, α)
+function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N)
     v̄, s̄ = grads.v, grads.s
     for k in eachindex(v, s)
         if v[k] <= s[k]
@@ -451,7 +451,7 @@ function CR.pullback!(grads, ::Capped, ::CR.Step, v, s, N, α)
     return nothing
 end
 
-d = CR.Depletion(10.0; form = Capped())
+d = CR.Depletion(10.0, Capped())
 Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 ```
 
@@ -463,7 +463,7 @@ Here `args` are the arguments after the role:
 - `(s, history)` for `Init()`;
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
-- `(v, s, N, α)`, with vectors `v` and `s`, for a depletion form.
+- `(v, s, N)`, with vectors `v` and `s`, for a depletion form.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 
@@ -556,7 +556,7 @@ A method for a narrower type replaces the general one for that type alone, so a 
 |---|---|
 | a coupling with structure, such as low rank or banded | `forward!(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
 | a modifier at one parameter form | `forward!(m::MyModifier{<:PerStratum}, Step(), v, s, t)` |
-| a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32, α::Float32)` |
+| a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32)` |
 | how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
 
 A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
