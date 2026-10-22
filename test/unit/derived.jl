@@ -70,8 +70,12 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     @test_throws ArgumentError Derived(exp)
-    @test_throws ArgumentError Derived(exp, [1.0, 2.0])
-    @test_throws ArgumentError Derived(exp, TimeVarying([1.0], CR.Primary()))
+    @test_throws ArgumentError Derived(exp, "a")
+    # A vector of lag weights or a `Primary()` argument makes a kernel, which
+    # is not a modifier parameter.
+    @test_throws ArgumentError CR.Add(Derived(exp, [1.0, 2.0]))
+    @test_throws ArgumentError CR.Add(Derived(exp, TimeVarying([1.0], CR.Primary())))
+    @test_throws ArgumentError CR.Add(2.0 * Derived(exp, [1.0, 2.0]))
     # A population may vary over time; a starting pool is constant.
     @test CR.Depletion(Derived(exp, TimeVarying([1.0, 2.0]))).N isa Derived
     @test_throws ArgumentError CR.Depletion(

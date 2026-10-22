@@ -102,7 +102,7 @@ public Depletion, Flow, Share, Redistribute, movement,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
     Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Auto,
-    Direct, FFTMethod, delay_masses, Weights, Survival, kernel_weights
+    Direct, FFTMethod, delay_masses, Survival, kernel_weights
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -118,12 +118,12 @@ include("trace.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
-# Kernels computed from coefficients.
-include("weights.jl")
-# Parameters computed from other parameters.
+# Values computed from other values.
 include("derived.jl")
 # Parameters read from the recurrence's own recent outputs.
 include("recent.jl")
+# Kernels computed from coefficients.
+include("weights.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
 # Flows between the pools of a `Depletion`.

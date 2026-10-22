@@ -1,7 +1,7 @@
-# Kernels computed from coefficients (`Weights`, `Survival`): values against
+# Kernels computed from coefficients (`Derived`, `Survival`): values against
 # naive loops over cohorts and lags, the operators against the dense kernel
-# of the same weights, gradients against ForwardDiff of the naive loops, the
-# arithmetic sugar and the construction checks.
+# of the same weights, each rule's pullback against a ForwardDiff Jacobian,
+# the arithmetic sugar and the construction checks.
 
 @testmodule WeightsChecks begin
     using ComposableRecurrences
@@ -73,7 +73,7 @@
         return K
     end
     function reported(a0, γ)
-        η = CR.Weights((a, g) -> logistic(a + g), a0, TimeVarying(γ))
+        η = Derived((a, g) -> logistic(a + g), a0, TimeVarying(γ))
         return 1 - CR.Survival(η)
     end
 
@@ -127,7 +127,7 @@ end
         (TimeVarying(PerStratum(G), CR.Primary()), (k, i, u) -> G[k, i, u]),
     )
     for (x, ref) in forms
-        K = kw(CR.Weights(*, p, x))
+        K = kw(Derived(*, p, x))
         if ndims(K) == 2
             @test K ≈ [p[i] * ref(1, i, u) for i in 1:L, u in 1:n]
         else
@@ -170,47 +170,21 @@ end
     @test CR.NoAdjoint(c)(A) ≈ c(A)
 end
 
-@testitem "Computed kernels: gradients against the naive loops" setup = [WeightsChecks] begin
-    using ComposableRecurrences, ForwardDiff
-    CR = ComposableRecurrences
-    (; T, L, p, P, h, A, AS, a0, γ, primary) = WeightsChecks
-    W = WeightsChecks
-    w = [cos(t) for t in 1:T]
-    ws = [sin(k + t) for k in 1:2, t in 1:T]
-    # ForwardDiff through the computed kernel against ForwardDiff through
-    # the dense kernel of the naive loop.
-    conv(K, x) = Convolution(K)(x)
-    computed(x) = TimeVarying(x, CR.Primary())
-    f1(θ) = sum(w .* conv(computed(W.confirmed(θ[1:L], θ[(L + 1):end])), A))
-    g1(θ) = sum(w .* conv(primary(W.confirmed_loop(θ[1:L], θ[(L + 1):end], T)), A))
-    θ1 = vcat(p, h)
-    @test ForwardDiff.gradient(f1, θ1) ≈ ForwardDiff.gradient(g1, θ1)
-    f2(θ) = sum(ws .* conv(computed(W.nested(P, θ[1], θ[2:end])), AS))
-    g2(θ) = sum(ws .* conv(primary(W.nested_loop(P, θ[1], θ[2:end], T)), AS))
-    θ2 = vcat(0.4, h)
-    @test ForwardDiff.gradient(f2, θ2) ≈ ForwardDiff.gradient(g2, θ2)
-    k(θ) = CR.kernel_weights(computed(W.reported(θ[1:L], θ[(L + 1):end])), T)
-    f3(θ) = sum(sin.(1:(L * T)) .* vec(k(θ)))
-    g3(θ) = sum(sin.(1:(L * T)) .* vec(W.reported_loop(θ[1:L], θ[(L + 1):end], T)))
-    θ3 = vcat(a0, γ)
-    @test ForwardDiff.gradient(f3, θ3) ≈ ForwardDiff.gradient(g3, θ3)
-end
-
-@testitem "Computed kernels: arithmetic lowers to Weights" setup = [WeightsChecks] begin
+@testitem "Computed kernels: arithmetic lowers to Derived" setup = [WeightsChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; p, h) = WeightsChecks
     s = CR.Survival(TimeVarying(h))
     pairs = (
-        (2.0 * s, CR.Weights(*, 2.0, s)), (s * 2.0, CR.Weights(*, s, 2.0)),
-        (1 - s, CR.Weights(-, 1, s)), (s + p, CR.Weights(+, s, p)),
-        (p * s, CR.Weights(*, p, s)), (s / PerStratum([1.0, 2.0]), nothing),
-        (s^2, CR.Weights(^, s, 2)), (-s, CR.Weights(-, s)),
-        (s * s, CR.Weights(*, s, s)), (TimeVarying(h) * s, nothing),
+        (2.0 * s, Derived(*, 2.0, s)), (s * 2.0, Derived(*, s, 2.0)),
+        (1 - s, Derived(-, 1, s)), (s + p, Derived(+, s, p)),
+        (p * s, Derived(*, p, s)), (s / PerStratum([1.0, 2.0]), nothing),
+        (s^2, Derived(^, s, 2)), (-s, Derived(-, s)),
+        (s * s, Derived(*, s, s)), (TimeVarying(h) * s, nothing),
         ((1 - s) * s, nothing),
     )
     for (sugar, explicit) in pairs
-        @test sugar isa CR.Weights
+        @test sugar isa Derived
         explicit === nothing || @test typeof(sugar) == typeof(explicit)
     end
     # Plain numbers and wrappers keep their own arithmetic.
@@ -222,8 +196,8 @@ end
     CR = ComposableRecurrences
     (; p, P, h, A, T) = WeightsChecks
     s = CR.Survival(TimeVarying(h))
-    @test_throws ArgumentError CR.Weights(*)
-    @test_throws ArgumentError CR.Weights(*, p, "a")
+    @test_throws ArgumentError Derived(*)
+    @test_throws ArgumentError Derived(*, p, "a")
     @test_throws ArgumentError CR.Survival(TimeVarying(h); from = -1)
     @test_throws ArgumentError CR.Survival(ones(2, 2))
     # A computed kernel is indexed by cohort.
@@ -231,7 +205,7 @@ end
     # Its lags come from an argument with a lag axis, all of one length.
     @test_throws ArgumentError Convolution(TimeVarying(s, CR.Primary()))
     @test_throws DimensionMismatch Convolution(TimeVarying(p * (s * ones(3)), CR.Primary()))
-    @test_throws DimensionMismatch CR.Weights(*, PerStratum(P), PerStratum(ones(3)))
+    @test_throws DimensionMismatch Derived(*, PerStratum(P), PerStratum(ones(3)))
     # The strata of the kernel and the input agree.
     k = TimeVarying(PerStratum(P) * s, CR.Primary())
     @test_throws DimensionMismatch Convolution(k)(ones(3, T))
@@ -245,4 +219,96 @@ end
     @test_throws ArgumentError c(A; history = [1.0])
     # A computed kernel is not a modifier parameter.
     @test_throws ArgumentError CR.Add(p * s)
+end
+
+# Each rule's pullback against the Jacobian of the plain call. The float
+# leaves (arrays and scalars) of an operator and its arguments are found in
+# field order; the reference rebuilds the call with dual leaves, and the
+# rule's mirrors are built and read back in the same order.
+@testmodule PullbackChecks begin
+    using ComposableRecurrences, ConstructionBase
+    const CR = ComposableRecurrences
+
+    _leaf(x) = x isa Float64 || x isa AbstractArray{Float64}
+    function _rebuildable(x)
+        x isa Union{Number, AbstractArray, Function, Symbol, Nothing} && return false
+        return x isa Tuple || fieldcount(typeof(x)) > 0
+    end
+
+    leaves(x) = _leaf(x) ? Any[x] : _rebuildable(x) ? _leaves_of(x) : Any[]
+    _leaves_of(x::Tuple) = reduce(vcat, map(leaves, x); init = Any[])
+    _leaves_of(x) = reduce(vcat, map(leaves, ConstructionBase.getfields(x)); init = Any[])
+    flat(x) = reduce(vcat, map(l -> l isa Number ? [l] : vec(l), leaves(x)); init = Float64[])
+
+    # `x` with its float leaves taken in order from `θ`.
+    rebuild(x, θ) = first(_rebuild(x, θ, 0))
+    function _rebuild(x, θ, i)
+        x isa Float64 && return θ[i + 1], i + 1
+        x isa AbstractArray{Float64} && return reshape(θ[(i + 1):(i + length(x))], size(x)), i + length(x)
+        _rebuildable(x) || return x, i
+        vals = Any[]
+        for f in (x isa Tuple ? x : ConstructionBase.getfields(x))
+            v, i = _rebuild(f, θ, i)
+            push!(vals, v)
+        end
+        x isa Tuple && return Tuple(vals), i
+        return ConstructionBase.constructorof(typeof(x))(vals...), i
+    end
+
+    # Zero mirrors, and their values in leaf order.
+    mirror(x) = x isa Float64 ? Ref(0.0) : x isa AbstractArray{Float64} ? zero(x) :
+        _rebuildable(x) ? _mirror_of(x) : nothing
+    _mirror_of(x::Tuple) = map(mirror, x)
+    function _mirror_of(x)
+        names = fieldnames(typeof(x))
+        return NamedTuple{names}(map(n -> mirror(getfield(x, n)), names))
+    end
+    values_of(m::Base.RefValue) = [m[]]
+    values_of(m::AbstractArray) = vec(m)
+    values_of(::Nothing) = Float64[]
+    values_of(m::Union{Tuple, NamedTuple}) = reduce(vcat, map(values_of, values(m)); init = Float64[])
+
+    # The rule's vector-Jacobian product for the output cotangent `ȳ`, and
+    # the reference from the Jacobian of the plain call.
+    function rule_vjp(op, args, ȳ)
+        y, cache = CR._run_forward(op, args...)
+        m = mirror(op)
+        ms = map(mirror, args)
+        CR.pullback!((; piece = m, y = ȳ, args = ms), op, CR.Run(), cache)
+        return vcat(values_of(m), values_of(ms))
+    end
+    function reference_vjp(jacobian, op, args, ȳ)
+        θ = vcat(flat(op), flat(args))
+        n = length(flat(op))
+        f(θ) = vec(CR._primal(rebuild(op, θ[1:n]), rebuild(args, θ[(n + 1):end])...))
+        return jacobian(f, θ)' * vec(ȳ)
+    end
+end
+
+@testitem "Computed kernels: each rule's pullback against a Jacobian" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    (; p, P, h, a0, γ) = WeightsChecks
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    W = WeightsChecks
+    # Small inputs: five lags, eight times.
+    T, L = 8, 5
+    q, hs, Ps = p[1:L], h[1:(T + L)], P[:, 1:L]
+    computed(x) = TimeVarying(x, CR.Primary())
+    x, xs = [1.0 + 0.1 * t for t in 1:T], [1.0 + 0.1 * k * t for k in 1:2, t in 1:T]
+    check(op, args, ȳ) = @test rule_vjp(op, args, ȳ) ≈ reference_vjp(ReferenceAD.jacobian, op, args, ȳ)
+    conv(k) = Convolution(computed(k))
+    # Convolution, shared and per-stratum kernels, a late start and a gain.
+    check(conv(W.confirmed(q, hs)), (x, true, nothing, nothing, 1, T), sin.(1:T))
+    check(conv(W.confirmed(q, hs)), (x, 0.7, nothing, nothing, 3, T), sin.(1:(T - 2)))
+    check(conv(W.nested(Ps, 0.4, hs)), (xs, true, nothing, nothing, 1, T), sin.(xs))
+    # The terms of a convolution.
+    terms = CR._Contributions(conv(W.confirmed(q, hs)))
+    check(terms, (x, true, nothing, 1, T), reshape(sin.(1:(L * T)), L, T))
+    # The weights as an array, with a map the rule differentiates locally.
+    kw = CR._KernelWeights(computed(W.reported(a0[1:L], γ[1:(T + L)])))
+    check(kw, (T,), reshape(sin.(1:(L * T)), L, T))
+    # A recurrence with a computed kernel.
+    r = Recurrence(computed(0.3 * W.confirmed(q, hs)))
+    check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
 end

@@ -135,11 +135,11 @@ Every entry is computed, so a `TimeVarying(h)` argument read at the time
 ``\tau + l`` a weight lands covers the times up to `n + L - 1`, and a
 `TimeVarying(c, Primary())` one the times up to `n`.
 It is differentiable, with the reverse pass of
-[`ComposableRecurrences.Weights`](@ref) and
+[`Derived`](@ref) and
 [`ComposableRecurrences.Survival`](@ref).
 
 # Arguments
-- `kernel`: the kernel, `TimeVarying(w, Primary())` with `w` a `Weights` or
+- `kernel`: the kernel, `TimeVarying(w, Primary())` with `w` a `Derived` or
   a `Survival`.
 - `n`: the number of cohorts.
 
@@ -151,7 +151,7 @@ CR = ComposableRecurrences
 # hazard that falls with the delay and rises with the calendar time.
 base = [0.2, 0.3, 0.4]
 level = TimeVarying([1.0, 1.0, 1.2, 1.2])
-reported = 1 - CR.Survival(CR.Weights(*, base, level))
+reported = 1 - CR.Survival(Derived(*, base, level))
 round.(CR.kernel_weights(TimeVarying(reported, CR.Primary()), 2); digits = 3)
 
 # output

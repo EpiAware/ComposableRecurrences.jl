@@ -14,12 +14,12 @@ A slot is a place an operator reads a coefficient from: a kernel, a coupling or 
 Data (inputs, history and outputs) are not slots, and are always series × time.
 Each slot accepts its own set of wrappers.
 
-| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref) | [`Derived`](@ref) | [`Recent`](@ref) | [`Weights`](@ref ComposableRecurrences.Weights), [`Survival`](@ref ComposableRecurrences.Survival) |
-|---|---|---|---|---|---|---|---|---|
-| `Recurrence` kernel | lags | yes | yes | yes | yes | no | no | in `TimeVarying(w, Primary())` |
-| `Convolution` kernel | lags | yes | yes | no | no | no | no | in `TimeVarying(w, Primary())` |
-| coupling | `S × S` or `λI` | no | yes | no | no | no | no | no |
-| modifier parameter | one value | yes | yes | no | no | yes | yes | no |
+| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref) | [`Derived`](@ref) | [`Recent`](@ref) |
+|---|---|---|---|---|---|---|---|
+| `Recurrence` kernel | lags | yes | yes | yes | yes | in `TimeVarying(d, Primary())` | no |
+| `Convolution` kernel | lags | yes | yes | no | no | in `TimeVarying(d, Primary())` | no |
+| coupling | `S × S` or `λI` | no | yes | no | no | no | no |
+| modifier parameter | one value | yes | yes | no | no | yes | yes |
 
 [`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only, as the [time-varying tutorial](@ref tutorial-time-varying-kernels) explains.
 
@@ -28,6 +28,7 @@ Each slot accepts its own set of wrappers.
 Wrappers nest from the outside in: time, then strata, then the slot's own axes.
 So `TimeVarying(PerStratum(G))` is an `S × L × T` kernel and `TimeVarying(Pairwise(A))` is `S × S × L × T`.
 A `Derived` or `Recent` parameter sits inside arithmetic, as in `κ * Recent(7)`, and its arguments may be any other parameter.
+A `Derived` kernel's arguments may also be vectors of lag weights, `Primary()` coefficients and [`Survival`](@ref ComposableRecurrences.Survival).
 
 Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.param), which takes every form.
 So a new wrapper or parameter form works with every modifier that reads through `param`, with no change to the modifier.

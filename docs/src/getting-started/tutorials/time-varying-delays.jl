@@ -190,7 +190,7 @@ end
 # ```
 #
 # [`Survival`](@ref ComposableRecurrences.Survival) is the product, against `TimeVarying(h)`, which a cohort's lag ``j`` reads on the day ``u + j`` it lands, from lag `from = 1`.
-# Arithmetic with it builds [`Weights`](@ref ComposableRecurrences.Weights), so the kernel is written as the formula.
+# Arithmetic with it builds a [`Derived`](@ref), so the kernel is written as the formula.
 # The operator computes the weights it reads inside its own call and reverse pass, so the kernel is never built entry by entry in the code being differentiated.
 
 using ComposableRecurrences: Survival

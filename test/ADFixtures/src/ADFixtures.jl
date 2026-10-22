@@ -1397,9 +1397,11 @@ push!(
 )
 
 # Kernels computed from their coefficients: a cohort's weight on each lag
-# from a hazard over calendar time and a profile over the lags.
+# from a hazard over calendar time and a profile over the lags. One small
+# scenario for each operator's rule; the unit tests check each pullback.
 const CR_P = ComposableRecurrences.Primary()
-const _Survival = ComposableRecurrences.Survival
+# Read when called, so the fixtures load on releases without it.
+_Survival(args...; kwargs...) = ComposableRecurrences.Survival(args...; kwargs...)
 _logistic(x) = inv(1 + exp(-x))
 _reported_hazard(a, g) = _logistic(a + g)
 
@@ -1411,19 +1413,11 @@ function _computed_confirmed(w, θ)
     return sum(WS .* w(Convolution(TimeVarying(confirmed, CR_P)))(X))
 end
 
-# A per-stratum pmf times the survival against `κ` times a survival.
-function _computed_nested(w, θ)
-    P, z, κ, X = _unpack(θ, (S, L), (T,), (1,), (S, T))
-    unconf = _Survival(TimeVarying(_logistic.(z)); from = 1)
-    surv = _Survival(only(κ) * unconf; from = 1)
-    return sum(WS .* w(Convolution(TimeVarying(PerStratum(P) * surv, CR_P)))(X))
-end
-
 # The probability each cohort is reported by each delay, against a hazard of
 # the delay and the calendar time, as an array.
 function _computed_table(w, θ)
     a, g = _unpack(θ, (L,), (T + L - 1,))
-    η = ComposableRecurrences.Weights(_reported_hazard, a, TimeVarying(g))
+    η = Derived(_reported_hazard, a, TimeVarying(g))
     reported = TimeVarying(1 - _Survival(η), CR_P)
     K = ComposableRecurrences.kernel_weights(reported, T)
     return sum(WT[1, :, :] .* K)
@@ -1443,12 +1437,6 @@ push!(
     (
         "Convolution kernel from a hazard and a survival", _computed_confirmed,
         () -> _flat(reverse(G0), -1 .+ 0.3 .* W1, 1 .+ LOGR),
-    ),
-    (
-        "Convolution per-stratum kernel of nested survivals", _computed_nested,
-        () -> _flat(
-            repeat(G0', S) .* [0.9, 1.0, 1.1], -1 .+ 0.3 .* W1, [0.4], 1 .+ LOGR
-        ),
     ),
     (
         "Kernel weights of a survival against a delay and calendar hazard",
@@ -1579,7 +1567,6 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence coupling from change points" => (:_Piecewise,),
     "Recurrence parameters from change points" => (:_Piecewise,),
     "Convolution kernel from a hazard and a survival" => (:Survival,),
-    "Convolution per-stratum kernel of nested survivals" => (:Survival,),
     "Kernel weights of a survival against a delay and calendar hazard" => (:Survival,),
     "Recurrence kernel shortened by a survival" => (:Survival,),
 )

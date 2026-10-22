@@ -1,98 +1,7 @@
-# Kernels computed from coefficients: `Weights` maps coefficients entry by
-# entry and `Survival` takes each cohort's survival through the lags against
-# a hazard. A call fills the weights it reads once, and its reverse pass takes
-# their cotangent back to the coefficients.
-
-@doc raw"""
-Kernel weights computed entry by entry from coefficients by a function `f`.
-
-Inside a kernel `TimeVarying(w, Primary())`, the weight on lag ``l`` of
-cohort ``\tau`` (the input at time ``\tau``) in stratum ``k`` is
-
-```math
-w_{k,l}(\tau) = f\big(a_{1,k,l}(\tau), \dots, a_{n,k,l}(\tau)\big),
-```
-
-where ``a_{j,k,l}(\tau)`` is argument ``j`` read at that entry:
-
-| argument                            | read at entry ``(k, l, \tau)``      |
-|:----------------------------------- |:----------------------------------- |
-| a number `c`                        | `c`                                 |
-| a vector `p` of lag weights         | `p[i]`, the kernel's `i`th lag      |
-| `PerStratum(v)`, `PerStratum(P)`    | `v[k]`, `P[k, i]`                   |
-| `TimeVarying(x, Primary())`         | at time ``\tau``                    |
-| `TimeVarying(x)`                    | at time ``\tau + l``                |
-| `Weights`, [`ComposableRecurrences.Survival`](@ref) | its own weight   |
-
-`i` is the lag's index in the kernel: lag ``l = i - 1`` in a
-[`Convolution`](@ref) and ``l = i`` in a [`Recurrence`](@ref).
-A `TimeVarying` argument has the shape of a modifier parameter (a vector of
-times, or `PerStratum` strata × times) or of a kernel (lags × times, or
-`PerStratum` strata × lags × times).
-With `Primary()` it is read at the cohort's own time, and with the default
-`Secondary()` at the time ``\tau + l`` the weight lands, so a
-calendar-time series such as a hazard is `TimeVarying(h)`.
-Every argument with a lag axis has the kernel's number of lags, and every
-argument with a strata axis the call's strata; a kernel with any of them is
-per stratum.
-
-A call computes the weights it reads inside its own call, a block of
-cohorts at a time, and runs as with the dense kernel of those weights, on
-the calling task and on host arrays.
-Its reverse pass takes the weights' cotangent back to the arguments, with
-the partial derivatives of `f` in closed form for `+`, `-`, `*` and `/`,
-and from one local forward-mode derivative otherwise, which needs
-ForwardDiff loaded.
-Values captured inside `f` (a closure, or a callable struct with float
-fields) are not arguments: an operator with such a map is differentiated by
-the AD backend instead, so they keep their gradients.
-
-Arithmetic with a `Weights` or `Survival` on either side builds another
-`Weights`, with a number, a vector of lag weights, `PerStratum` or
-`TimeVarying` on the other side: `p * (1 - s)` is
-`Weights(*, p, Weights(-, 1, s))`.
-[`ComposableRecurrences.kernel_weights`](@ref) returns the weights as an
-array.
-
-# Arguments
-- `f`: the function, called as `f(a_1, ..., a_n)` on the arguments' values.
-- `args`: the arguments, at least one.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-# A delay pmf whose mass is scaled down for cohorts from time 3 on.
-p = [0.5, 0.3, 0.2]
-scale = TimeVarying([1.0, 1.0, 0.5, 0.5], CR.Primary())
-K = TimeVarying(CR.Weights(*, p, scale), CR.Primary())
-round.(Convolution(K)(ones(4)); digits = 3)
-
-# output
-
-4-element Vector{Float64}:
- 0.5
- 0.8
- 0.75
- 0.6
-```
-"""
-struct Weights{F, A <: Tuple}
-    "The function, called on the arguments' values."
-    f::F
-    "The arguments."
-    args::A
-    function Weights(f::F, args::A) where {F, A <: Tuple}
-        isempty(args) && throw(
-            ArgumentError("Weights($f) needs at least one argument")
-        )
-        map(_check_coefficient, args)
-        _joined(_coef_lags, args, "lags")
-        _joined(_coef_strata, args, "strata")
-        return new{F, A}(f, args)
-    end
-end
-Weights(f, args...) = Weights(f, args)
+# Kernels computed from coefficients: a `Derived` maps coefficients entry by
+# entry and a `Survival` takes each cohort's survival through the lags
+# against a hazard. A call fills the weights it reads, and its reverse pass
+# takes their cotangent back to the coefficients.
 
 @doc raw"""
 The survival of each cohort through each lag of a kernel against a hazard.
@@ -105,7 +14,7 @@ s_{k,l}(\tau) = \prod_{j = \max(f, l_0)}^{l} \big(1 - \eta_{k,j}(\tau)\big),
 ```
 
 where ``\eta_{k,j}(\tau)`` is the hazard at lag ``j``, read as an argument
-of [`ComposableRecurrences.Weights`](@ref) is, ``f`` = `from` is the first
+of a [`Derived`](@ref) kernel is, ``f`` = `from` is the first
 lag the hazard acts at and ``l_0`` is the kernel's first lag (0 in a
 [`Convolution`](@ref), 1 in a [`Recurrence`](@ref)).
 So it is the probability that a cohort has not left by the end of lag
@@ -119,7 +28,7 @@ and a history of one, run over each cohort's lags, computed as part of the
 kernel: one pass per cohort forward, and one back.
 
 # Arguments
-- `hazard`: the hazard, any argument of `Weights`.
+- `hazard`: the hazard, any argument of a `Derived` kernel.
 
 # Keyword Arguments
 - `from`: the first lag the hazard acts at, `0` by default.
@@ -161,7 +70,7 @@ end
 Survival(hazard; from::Integer = 0) = Survival(hazard, from)
 
 # A kernel computed from coefficients, and the kernel it is part of.
-const _Computed = Union{Weights, Survival}
+const _Computed = Union{Derived, Survival}
 const _ComputedKernel = TimeVarying{Primary, <:_Computed}
 _over_time(::_Computed) = true
 
@@ -184,12 +93,23 @@ _check_coefficient(x::Real) = nothing
 @noinline function _check_coefficient(x)
     throw(
         ArgumentError(
-            "a computed kernel reads numbers, vectors of lag weights, " *
-                "PerStratum values, TimeVarying values or kernels, Weights " *
-                "and Survival; got $(_describe(x))"
+            "a Derived reads numbers, vectors of lag weights, PerStratum " *
+                "values, TimeVarying values or kernels, Recent, Derived and " *
+                "Survival; got $(_describe(x))"
         )
     )
 end
+
+# An argument of a `Derived`: a coefficient a kernel reads, or a modifier
+# parameter. Which use it is checked where the `Derived` is used.
+_check_argument(x) = _check_coefficient(x)
+_check_argument(x::Recent) = nothing
+_check_argument(x::TimeVarying{Secondary, <:_Piecewise}) = nothing
+
+# Every argument of a computed kernel is a coefficient it reads.
+_check_kernel_args(x) = _check_coefficient(x)
+_check_kernel_args(x::Derived) = (map(_check_kernel_args, x.args); nothing)
+_check_kernel_args(x::Survival) = _check_kernel_args(x.hazard)
 
 # The time a coefficient is read at for lag `l` of cohort `τ`: the cohort's
 # own time, or the time the weight lands.
@@ -202,19 +122,19 @@ _coef_lags(x::AbstractVector) = length(x)
 _coef_lags(x::PerStratum{<:AbstractMatrix}) = size(x.x, 2)
 _coef_lags(x::TimeVarying{<:Any, <:AbstractMatrix}) = size(x.x, 1)
 _coef_lags(x::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}) = size(x.x.x, 2)
-_coef_lags(x::Weights) = _joined(_coef_lags, x.args, "lags")
+_coef_lags(x::Derived) = _joined(_coef_lags, x.args, "lags")
 _coef_lags(x::Survival) = _coef_lags(x.hazard)
 _coef_strata(x) = 0
 _coef_strata(x::PerStratum) = size(x.x, 1)
 _coef_strata(x::TimeVarying{<:Any, <:PerStratum}) = size(x.x.x, 1)
-_coef_strata(x::Weights) = _joined(_coef_strata, x.args, "strata")
+_coef_strata(x::Derived) = _joined(_coef_strata, x.args, "strata")
 _coef_strata(x::Survival) = _coef_strata(x.hazard)
 # One tuple entry at a time, so arguments of mixed types infer.
 _joined(f::F, ::Tuple{}, what) where {F} = 0
 function _joined(f::F, args::Tuple, what) where {F}
     n, m = f(first(args)), _joined(f, Base.tail(args), what)
     n == 0 || m == 0 || n == m || throw(
-        DimensionMismatch("the arguments of Weights have $n and $m $what")
+        DimensionMismatch("the arguments of a Derived have $n and $m $what")
     )
     return max(n, m)
 end
@@ -225,12 +145,13 @@ _typed_strata(::Type) = false
 _typed_strata(::Type{<:PerStratum}) = true
 _typed_strata(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
 _typed_strata(::Type{<:Survival{H}}) where {H} = _typed_strata(H)
-function _typed_strata(::Type{<:Weights{F, A}}) where {F, A}
+function _typed_strata(::Type{<:Derived{F, A}}) where {F, A}
     return any(_typed_strata, fieldtypes(A))
 end
 @generated _has_strata(x) = _typed_strata(x)
 
 function _check_kernel_shape(k::_ComputedKernel)
+    _check_kernel_args(k.x)
     _coef_lags(k.x) > 0 || throw(
         ArgumentError(
             "a computed kernel takes its lags from an argument with a lag " *
@@ -266,7 +187,7 @@ end
 function _check_coef_times(x::TimeVarying{Secondary}, n, last)
     return _check_covers(:kernel, _extent(_array(x)), last)
 end
-function _check_coef_times(x::Weights, n, last)
+function _check_coef_times(x::Derived, n, last)
     map(a -> _check_coef_times(a, n, last), x.args)
     return nothing
 end
@@ -277,7 +198,7 @@ _check_coef_times(x::Survival, n, last) = _check_coef_times(x.hazard, n, last)
 _kernel_adjoint(k::_ComputedKernel) = _derived_local(k)
 function _no_adjoint_kernel(k::_ComputedKernel)
     _derived_local(k) && return ()
-    return ("the kernel has a Weights map that holds floats",)
+    return ("the kernel has a Derived map that holds floats",)
 end
 
 # ---- the weights, a block of cohorts at a time --------------------------------
@@ -301,7 +222,7 @@ struct _SurvivalScratch{C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
     acc::V
 end
 _scratch(x, ::Type, L, B = _BLOCK) = nothing
-function _scratch(x::Weights, ::Type{Tp}, L, B = _BLOCK) where {Tp}
+function _scratch(x::Derived, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     return map(a -> _scratch(a, Tp, L, B), x.args)
 end
 function _scratch(x::Survival, ::Type{Tp}, L, B = _BLOCK) where {Tp}
@@ -325,7 +246,7 @@ _bmax(τ0, nb, i, o, last) = clamp(last - o - i - τ0 + 2, 0, nb)
 # Fill the scratch of every `Survival` in `x` for the block, inner ones
 # first.
 _block!(x, sc, τ0, nb, o, last) = nothing
-function _block!(x::Weights, sc, τ0, nb, o, last)
+function _block!(x::Derived, sc, τ0, nb, o, last)
     _block_args!(x.args, sc, τ0, nb, o, last)
     return nothing
 end
@@ -400,7 +321,7 @@ Base.@propagate_inbounds function _value(
     )
     return x.x.x[k, i, _time(x, τ, l)]
 end
-@inline function _value(x::Weights, sc, k, i, τ, l, b)
+@inline function _value(x::Derived, sc, k, i, τ, l, b)
     return x.f(@inbounds(_values_at(x.args, sc, k, i, τ, l, b))...)
 end
 Base.@propagate_inbounds function _value(x::Survival, sc, k, i, τ, l, b)
@@ -463,7 +384,7 @@ _add_value!(::Nothing, x::_Computed, sc, v, k, i, τ, l, b) = nothing
 end
 # Unrolled over the arguments, so each reads its own mirror and scratch
 # with a constant index.
-@generated function _add_value!(x̄, x::Weights{F, A}, sc, v, k, i, τ, l, b) where {F, A}
+@generated function _add_value!(x̄, x::Derived{F, A}, sc, v, k, i, τ, l, b) where {F, A}
     calls = (
         :(@inbounds _add_value!(ā[$j], x.args[$j], sc[$j], v * ∂[$j], k, i, τ, l, b))
             for j in 1:fieldcount(A)
@@ -492,7 +413,7 @@ _partials(::typeof(/), (a, b)::Tuple{Real, Real}) = (inv(b), -a / b^2)
 # `a` the cotangent of the survival from lag `i` on carried back to it,
 # `η̄_i = -s_{i-1} a_i`. It clears its cotangents for the next block.
 _block_back!(x̄, x, sc, τ0, nb, o, last) = nothing
-function _block_back!(x̄, x::Weights, sc, τ0, nb, o, last)
+function _block_back!(x̄, x::Derived, sc, τ0, nb, o, last)
     ā = _arg_mirrors(cotangent(x̄, :args), x.args)
     ā === nothing && return nothing
     _block_back_args!(ā, x.args, sc, τ0, nb, o, last)
@@ -625,7 +546,7 @@ end
 # `/`, from the type.
 const _Arithmetic = Union{typeof(+), typeof(-), typeof(*), typeof(/)}
 _keeps_fill_type(::Type) = false
-function _keeps_fill_type(::Type{<:Weights{F, A}}) where {F, A}
+function _keeps_fill_type(::Type{<:Derived{F, A}}) where {F, A}
     return !(F <: _Arithmetic) || any(_keeps_fill_type, fieldtypes(A))
 end
 _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
@@ -662,12 +583,12 @@ _weights_cotangent(x̄, K) = zero(K)
 
 # ---- arithmetic --------------------------------------------------------------
 
-# Arithmetic with a computed coefficient on either side lowers to `Weights`.
-const _CoefOperand = Union{Real, AbstractVector{<:Real}, PerStratum, TimeVarying}
+# Arithmetic with a `Survival` on either side lowers to `Derived`, as with
+# a `Derived`.
 for op in (:+, :-, :*, :/, :^)
     @eval begin
-        Base.$op(a::_Computed, b::Union{_CoefOperand, _Computed}) = Weights($op, a, b)
-        Base.$op(a::_CoefOperand, b::_Computed) = Weights($op, a, b)
+        Base.$op(a::Survival, b::Union{_Operand, _Computed}) = Derived($op, a, b)
+        Base.$op(a::Union{_Operand, Derived}, b::Survival) = Derived($op, a, b)
     end
 end
-Base.:-(a::_Computed) = Weights(-, a)
+Base.:-(a::Survival) = Derived(-, a)
