@@ -115,7 +115,7 @@ end
     )
     r = Recurrence(g; modifiers = (d,))
     for stop in (1, 7, 20, 40)
-        y, st = CR.with_state(r, R; history = h, stop)
+        y, st = r(R; history = h, stop, state = true)
         pools = only(st.states)
         @test sum(pools) + sum(y) ≈ N - sum(h)
     end
@@ -298,9 +298,9 @@ end
         )
         r = run(p)
         @test eltype(@inferred r(R; history = h)) == Float32
-        y, st = CR.with_state(r, R; history = h, stop = 10)
+        y, st = r(R; history = h, stop = 10, state = true)
         @test eltype(y) == Float32
-        @test eltype(r(R; state = st)) == Float32
+        @test eltype(first(r(R; state = st))) == Float32
     end
     # The empty default gives the same values as an explicit empty pool.
     @test run(pool(0.5f0, nothing))(R; history = h) ==
@@ -480,7 +480,7 @@ end
     d = CR.Depletion(100.0, CR.Hazard(; weights = (V = 0.5, S = 1)); pools = (:S, :V, :R))
     @test d.pieces[1].weights === (S = 1, V = 0.5, R = 0)
     @test d.pieces[1].first == 2
-    @test CR.blocks(d) === Val((1, 3))
+    @test CR.blocks(d) === (1, 3)
     # A protected pool, and a pool that fills.
     d = CR.Depletion(
         100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
@@ -497,14 +497,14 @@ end
     @test d.pieces[2] isa CR._DrawInto && d.pieces[2].pool == 1
     @test d.pieces[1] isa Tuple
     @test d.pieces[2].overflow === CR._ToStratum()
-    @test CR.blocks(d) === Val((2, 1))
-    @test CR.blocks(CR.Depletion(10.0, CR.Hazard(; overflow = :queue))) === Val((1, 2))
+    @test CR.blocks(d) === (2, 1)
+    @test CR.blocks(CR.Depletion(10.0, CR.Hazard(; overflow = :queue))) === (1, 2)
     @test CR.Depletion(10.0, CR.Hazard(; overflow = :queue)).pieces[1].overflow ===
         CR._Queue()
     # Without a draw.
     d = CR.Depletion(CR.Flow(:A => :B, 0.3); pools = (:A, :B))
     @test !CR._draws(d) && d.pieces isa Tuple{Tuple} && CR._forms(d.pieces) === ()
-    @test CR.blocks(d) === Val((2, 2))
+    @test CR.blocks(d) === (2, 2)
 end
 
 @testitem "Depletion: the decided spellings infer" begin
@@ -523,7 +523,7 @@ end
     end
     d = @inferred protected(1000.0, 0.3, 5.0)
     @test d.pieces[1].weights === (S = 1, V = 0.3)
-    @test @inferred(blocks(d)) === Val((1, 2))
+    @test @inferred(blocks(d)) === (1, 2)
     beds(C) = Depletion(C, Truncate(; into = :O, overflow = :stratum); pools = (:O,))
     @test (@inferred beds(10.0)).pieces[1] isa _DrawInto
     ward() = Depletion(Flow(:U => :C, 0.3); pools = (:U, :C))

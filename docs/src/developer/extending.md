@@ -14,7 +14,6 @@ const CR = ComposableRecurrences
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
 For a step, an initial state, a coupling's mixing or a modifier's trace, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
 A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
-An operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
@@ -35,11 +34,11 @@ The arguments mean the same in every role:
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
   Read them, but do not write to them.
 - Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
-- A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise), and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
+- A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
   The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
   A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
   Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
-- A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
+- A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to its `(nv, ns)` and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
 - Any other modifier implements the step on whole vectors and may read every stratum.
 - A depletion form is pointwise: it draws each entry of `v` from the same entry of `s`.
 
@@ -73,99 +72,7 @@ Call `add_param!` for every parameter, even with a `nothing` mirror; [`add_param
 
 A type without a `pullback!` still takes the rule when the local step can rebuild it; [What the local step needs](@ref adjoint-local-step) gives the conditions.
 
-## [A first modifier](@id extending-first)
-
-This modifier caps each value smoothly at ``\kappa``:
-
-```math
-v' = \frac{v \, \kappa}{\kappa + v},
-```
-
-where ``v`` is the value it receives and ``v'`` the value it passes on.
-It acts on each series alone, so it is pointwise and writes each entry from its own.
-It keeps no state, so it leaves its state unchanged.
-The field has a type parameter so that a dual number can take its place.
-
-```@example extending
-struct Saturation{K}
-    κ::K
-end
-CR.ispointwise(::Saturation) = true
-function CR.forward!(m::Saturation, ::CR.Step, v, s, t)
-    for k in eachindex(v)
-        v[k] = v[k] * m.κ / (m.κ + v[k])
-    end
-    return nothing
-end
-```
-
-It goes in the modifier tuple with the package's own.
-Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it caps the infections drawn from the pool.
-With ``f`` the saturation and ``h`` the depletion draw, each step gives
-
-```math
-y_t = h\Big(f\big(g_t \sum_{l} k_l \, y_{t-l},\ \kappa\big)\Big),
-```
-
-where ``k_l`` is the kernel, ``g_t`` the gain and ``y_t`` the output.
-A lower cap gives fewer infections over the run.
-
-```@example extending
-seed = [1.0, 2.0, 3.0]
-N = 10_000.0
-pool = CR.Depletion(N; pools = (S = N - sum(seed),))
-model(κ) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Saturation(κ), pool))
-[round(sum(model(κ)(fill(1.8, 80); history = seed))) for κ in (50.0, 150.0, 1.0e6)]
-```
-
-Without a `pullback!` the operator still takes its rule; [Rules and plain AD](@ref adjoint-routing) gives the route.
-
-```@example extending
-using ForwardDiff
-
-loss(κ) = sum(model(κ)(fill(1.8, 80); history = seed))
-ForwardDiff.derivative(loss, 100.0), CR.uses_adjoint(model(100.0), CR.Run())
-```
-
-A `pullback!` gives the derivative in closed form instead of the local step.
-With ``\bar v'`` the cotangent of ``v'``, the cotangents are
-
-```math
-\bar v = \bar v' \, \frac{\kappa^2}{(\kappa + v)^2}, \qquad
-\bar\kappa \mathrel{+}= \bar v' \, \frac{v^2}{(\kappa + v)^2}.
-```
-
-[`cotangent`](@ref ComposableRecurrences.cotangent) reads the mirror of the field ``\kappa``, and [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!) adds to it.
-Both skip a field the backend holds constant.
-The method is defined on a second type here so that the two can be timed against each other.
-
-```@example extending
-struct SaturationPullback{K}
-    κ::K
-end
-CR.ispointwise(::SaturationPullback) = true
-function CR.forward!(m::SaturationPullback, ::CR.Step, v, s, t)
-    for k in eachindex(v)
-        v[k] = v[k] * m.κ / (m.κ + v[k])
-    end
-    return nothing
-end
-function CR.pullback!(grads, m::SaturationPullback, ::CR.Step, v, s, t)
-    v̄ = grads.v
-    for k in eachindex(v, v̄)
-        d = inv(m.κ + v[k])^2
-        CR.add_cotangent!(CR.cotangent(grads.piece, :κ), v̄[k] * v[k]^2 * d)
-        v̄[k] *= m.κ^2 * d
-    end
-    return nothing
-end
-
-CR.uses_adjoint(Saturation(100.0), CR.Step()), CR.uses_adjoint(SaturationPullback(100.0), CR.Step())
-```
-
-[Checking a new type](@ref extending-checks) tests a `pullback!` against ForwardDiff, and [Performance](@ref extending-performance) gives the timings of the two.
-
-## [A pointwise modifier with state](@id extending-pointwise)
+## [A first modifier](@id extending-pointwise)
 
 This modifier smooths each series exponentially:
 
@@ -174,13 +81,15 @@ s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
 ```
 
 where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
+It acts on each series alone, so it is pointwise and writes each entry from its own.
 Its state starts at the last value of the history.
+The field has a type parameter so that a dual number can take its place.
 
 ```@example extending
 struct Smooth{A}
     a::A
 end
-CR.ispointwise(::Smooth) = true
+CR.blocks(::Smooth) = (1, 1)
 function CR.forward!(m::Smooth, ::CR.Init, s, history)
     H = reshape(history, length(s), :)
     s .= view(H, :, size(H, 2))
@@ -197,8 +106,37 @@ end
 Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))(2.0; history = [1.0, 2.0], stop = 5)
 ```
 
+It goes in the modifier tuple with the package's own.
+Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it smooths the infections drawn from the pool.
+With ``f`` the smoothing and ``h`` the depletion draw, each step gives
+
+```math
+y_t = h\Big(f\big(g_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
+```
+
+where ``k_l`` is the kernel, ``g_t`` the gain and ``y_t`` the output.
+More smoothing delays the peak.
+
+```@example extending
+seed = [1.0, 2.0, 3.0]
+N = 10_000.0
+pool = CR.Depletion(N; pools = (S = N - sum(seed),))
+model(a) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Smooth(a), pool))
+[argmax(model(a)(fill(1.8, 80); history = seed)) for a in (0.0, 0.5, 0.8)]
+```
+
+Without a `pullback!` the operator still takes its rule; [Rules and plain AD](@ref adjoint-routing) gives the route.
+
+```@example extending
+using ForwardDiff
+
+loss(a) = sum(model(a)(fill(1.8, 80); history = seed))
+ForwardDiff.derivative(loss, 0.5), CR.uses_adjoint(model(0.5), CR.Run())
+```
+
 ## [Its pullback](@id extending-pullback)
 
+A `pullback!` gives the derivative in closed form instead of the local step.
 The new value and state are both ``s'``, so their cotangents add:
 
 ```math
@@ -209,7 +147,13 @@ The new value and state are both ``s'``, so their cotangents add:
 ```
 
 where a bar marks a cotangent, ``\bar g`` is the summed cotangent and ``s`` is the state before the step.
+[`cotangent`](@ref ComposableRecurrences.cotangent) reads the mirror of the field ``a``, and [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!) adds to it.
+Both skip a field the backend holds constant.
 The `Init` pullback adds the state's cotangent into the last column of the history.
+
+```@example extending
+CR.uses_adjoint(Smooth(0.5), CR.Step())
+```
 
 ```@example extending
 function CR.pullback!(grads, m::Smooth, ::CR.Step, v, s, t)
@@ -230,8 +174,10 @@ end
 
 grads = (; piece = (; a = Ref(0.0)), v = [1.0], s = [0.5])
 CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
-grads.v, grads.s, grads.piece.a[]
+(grads.v, grads.s, grads.piece.a[]), CR.uses_adjoint(Smooth(0.5), CR.Step())
 ```
+
+[Checking a new type](@ref extending-checks) tests a `pullback!` against ForwardDiff, and [Performance](@ref extending-performance) gives what a `pullback!` saves.
 
 ## [A per-stratum parameter](@id extending-param)
 
@@ -248,7 +194,7 @@ For a `PerStratum` `b` the mirror entry is `(; x)`, and the cotangent of entry `
 struct Shift{B}
     b::B
 end
-CR.ispointwise(::Shift) = true
+CR.blocks(::Shift) = (1, 1)
 function CR.forward!(m::Shift, ::CR.Step, v, s, t)
     for k in eachindex(v)
         v[k] += CR.param(m.b, k, t)
@@ -358,7 +304,7 @@ where ``v_t`` is the value at step ``t`` and ``v'_t`` the value passed on.
 
 ```@example extending
 struct AddMean end
-CR.blocks(::AddMean) = Val((1, 2))
+CR.blocks(::AddMean) = (1, 2)
 function CR.forward!(::AddMean, ::CR.Step, v::Tuple, s::Tuple, t, g)
     total, n = s[1][] + v[1][], s[2][] + 1
     v[1][] += total / n
@@ -398,10 +344,10 @@ function CR.forward!(m::Smooth, ::CR.Trace, r, v, s, v′, s′, t)
     return nothing
 end
 function CR.pullback!(grads, m::Smooth, ::CR.Trace, v, s, t)
-    s̄′, r̄ = grads.trace
+    r̄₁, r̄₂ = grads.trace
     for k in eachindex(v)
-        grads.v[k] += r̄[k]
-        grads.s′[k] += s̄′[k] - r̄[k]
+        grads.v[k] += r̄₂[k]
+        grads.s′[k] += r̄₁[k] - r̄₂[k]
     end
     return nothing
 end
@@ -463,7 +409,10 @@ Here `args` are the arguments after the role:
 - `(s, history)` for `Init()`;
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
-- `(v, s, N)`, with vectors `v` and `s`, for a depletion form.
+- `(v, s, N)`, with vectors `v` and `s`, for a depletion form;
+- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` in the shape the [Roles](@ref extending-roles) table gives, and `g` after `t` for a blockwise group, whose arguments are then tuples of `Ref`s.
+
+For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 
@@ -475,6 +424,10 @@ Interfaces.test(
     [
         Arguments(; piece = Smooth(0.3), role = CR.Init(), args = (zeros(2), ones(2, 3))),
         Arguments(; piece = Smooth(0.3), role = CR.Step(), args = ([1.0, 2.0], [0.5, 0.5], 1)),
+        Arguments(;
+            piece = Smooth(0.3), role = CR.Trace(),
+            args = ((zeros(2), zeros(2)), [1.0, 2.0], [0.5, 0.5], [0.85, 1.55], [0.85, 1.55], 1),
+        ),
     ]
 )
 ```
@@ -509,7 +462,8 @@ gradient(loss(r), backend, [0.3]) ≈
     gradient(loss(CR.NoAdjoint ∘ r), backend, [0.3])
 ```
 
-[`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator.
+For a new operator, `ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)` then runs the backend's own rule tester on its rule, with `args` its positional arguments.
+It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded; [Checking a rule](@ref adjoint-checks) says more.
 [Testing and benchmarking](@ref testing) covers timing.
 
 ## [Performance](@id extending-performance)
@@ -517,10 +471,10 @@ gradient(loss(r), backend, [0.3]) ≈
 - Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
-- [Which rules are kept](@ref rule-policy) gives the cost of a missing `pullback!`.
+- [Rule timings](@ref rule-timings) gives the cost of a missing `pullback!`.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
-The [benchmark matrix](@ref testing) times the gradient of a renewal with the [first modifier](@ref extending-first), under Mooncake and Enzyme in reverse mode.
+The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
 It times plain AD of the whole operator, the rule with `forward!` only, and the rule with the `pullback!`.
 
 ```@example extending
@@ -544,7 +498,7 @@ end # hide
 ```
 
 The local step evaluates `forward!` once per step with dual numbers, so its cost follows the cost of `forward!`.
-For a map as cheap as this one there is little for a `pullback!` to save.
+For a map as cheap as the saturation there is little for a `pullback!` to save.
 Write `forward!` first, and add a `pullback!` when timing shows the modifier's local step matters.
 
 ## [Specialising for speed](@id specialising)
@@ -557,7 +511,6 @@ A method for a narrower type replaces the general one for that type alone, so a 
 | a coupling with structure, such as low rank or banded | `forward!(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
 | a modifier at one parameter form | `forward!(m::MyModifier{<:PerStratum}, Step(), v, s, t)` |
 | a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32)` |
-| how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
 
 A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
 

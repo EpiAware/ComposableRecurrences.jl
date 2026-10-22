@@ -15,7 +15,7 @@
     )
     r = Recurrence([1.0]; modifiers = (ward,))
     admitted = [fill(10.0, 1, 4); zeros(1, 4)]
-    y, st = CR.with_state(r; history = zeros(2, 1), add = admitted)
+    y, st = r(; history = zeros(2, 1), add = admitted, state = true)
     @test y[1, :] ≈ [
         4.965853037914095, 7.431822677330159, 8.65638695985998, 9.264487586112159,
     ] rtol = 1.0e-12
@@ -105,7 +105,7 @@ end
         CR.Flow(:V => 0, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
-    y, st = CR.with_state(r, fill(2.0, 8); history = [5.0])
+    y, st = r(fill(2.0, 8); history = [5.0], state = true)
     @test y ≈ [
         3.0, 6.8, 9.08, 13.448, 19.8688, 29.00128, 5.902108198293716,
         1.179962360341256,
@@ -138,7 +138,7 @@ end
     # Was `Depletion(1000.0; removals = 5.0, protected = Protected(0.3),
     # flows = Flow(2 => 1, 0.1))`.
     d = leaky(1000.0, 0.3, 5.0, CR.Flow(:V => :S, 0.1))
-    y, st = CR.with_state(Recurrence(g; modifiers = (d,)), fill(2.0, 6); history = [5.0])
+    y, st = Recurrence(g; modifiers = (d,))(fill(2.0, 6); history = [5.0], state = true)
     @test y ≈ [
         2.9955044966270243, 6.730251097454152, 8.845613154354453,
         12.779376124126909, 18.196111201531917, 25.150708995762596,
@@ -189,7 +189,7 @@ end
     @test y ≈ [4.0 3.0 4.06 1.0 1.0; 0.0 0.0 0.94 5.0 1.0] rtol = 1.0e-12
     # Was `Capacity(2.0, Beds(0.5); pairs = [1], overflow = Hold())`.
     r = Recurrence([0.0]; modifiers = (beds(2.0, 0.5; overflow = :queue),))
-    y, st = CR.with_state(r; history = [0.0], add = [3.0, 1.0, 4.0, 0.0, 0.5, 0.0])
+    y, st = r(; history = [0.0], add = [3.0, 1.0, 4.0, 0.0, 0.5, 0.0], state = true)
     @test y ≈ [2.0, 1.0, 1.0, 1.0, 1.0, 1.0] rtol = 1.0e-12
     @test st.states[1] ≈ [2.0, 1.5] rtol = 1.0e-12
     # Was `Capacity(TimeVarying(PerStratum(C)), Beds(PerStratum([0.2, 0.3]));

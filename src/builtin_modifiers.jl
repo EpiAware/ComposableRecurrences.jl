@@ -480,7 +480,7 @@ struct Add{B}
     Add(b::B) where {B} = new{B}(_check_param(:b, b))
 end
 
-ispointwise(::Add) = true
+blocks(::Add) = (1, 1)
 _stateless(::Add) = true
 forward!(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
 pullback!(grads, ::Add, ::Init, s, history) = nothing
@@ -544,10 +544,10 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
 # Keyword Arguments
 - `leak`: `false` (the default), or `true` to allow columns summing to less
   than one.
-  It sets a type parameter, so pass it as a literal, where it is folded at
-  compile time, or as `Val(true)` or `Val(false)`.
-  A `Bool` read from a variable leaves the operator's type unknown until
-  run time.
+  It sets the type parameter `L` of `Redistribute{L}`, so pass it as a
+  literal, which is folded at compile time.
+  For a flag read from a variable, `Redistribute{leak}(M)` names the type
+  directly.
 
 # Examples
 ```jldoctest
@@ -574,19 +574,9 @@ struct Redistribute{L, A}
         return new{L, A}(M)
     end
 end
-Redistribute(M; leak::Union{Bool, Val} = false) = _redistribute(M, leak)
 # A branch on a literal `leak` names the type parameter in each arm, so the
-# call is inferred; a `Val` names it directly.
-_redistribute(M, leak::Bool) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
-_redistribute(M, ::Val{L}) where {L} = Redistribute{L}(M)
-function Redistribute(K, ε)
-    throw(
-        ArgumentError(
-            "Redistribute takes one movement matrix; for a kernel K and an " *
-                "intensity ε use Redistribute(movement(K, ε))"
-        )
-    )
-end
+# call is inferred.
+Redistribute(M; leak::Bool = false) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
 ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
 
 function _check_movement_shape(M::AbstractMatrix)
@@ -994,7 +984,7 @@ struct Clamp{L, H}
     end
 end
 
-ispointwise(::Clamp) = true
+blocks(::Clamp) = (1, 1)
 _stateless(::Clamp) = true
 forward!(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
 pullback!(grads, ::Clamp, ::Init, s, history) = nothing

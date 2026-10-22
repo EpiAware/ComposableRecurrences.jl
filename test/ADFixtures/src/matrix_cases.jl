@@ -15,7 +15,7 @@ using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, depletion
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -967,7 +967,7 @@ end
 # Older releases, which the history workflow loads, have no adjoints.
 if supports(_TWIN_REQUIRES...)
     _inner(grads) = merge(grads, (; piece = CR.cotangent(grads.piece, :m)))
-    CR.ispointwise(::LocalStep) = true
+    @pointwise LocalStep
     # Releases that read the adjoint off `pullback!` methods differentiate
     # a step without one locally; earlier ones needed it declared.
     supports(:_local_pullback) || (CR.uses_adjoint(::LocalStep, ::CR.Step) = true)
@@ -1390,7 +1390,7 @@ if supports(:_local_pressure!)
     end
     _hide_coupling(C::ToFirst) = LocalPressure(C)
 
-    CR.ispointwise(::StrataSaturation) = true
+    @pointwise StrataSaturation
     if IN_PLACE
         function CR.forward!(m::StrataSaturation, ::CR.Step, v, s, t)
             for k in eachindex(v, s)
@@ -1526,7 +1526,7 @@ struct MatrixPressure{M}
     K::M
 end
 if supports(:_read_pullback)
-    CR.ispointwise(::Seasonal) = true
+    @pointwise Seasonal
     if IN_PLACE
         function CR.forward!(m::Seasonal, ::CR.Step, v, s, t)
             for k in eachindex(v, s)

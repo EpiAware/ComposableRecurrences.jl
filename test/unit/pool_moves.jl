@@ -132,7 +132,7 @@ end
         CR.Flow(1 => 0, 0.4); pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (flows,))
-    _, st = CR.with_state(r; history = [5.0, 0.0][:, :], stop = 1)
+    _, st = r(; history = [5.0, 0.0][:, :], stop = 1, state = true)
     @test only(st.states)[1] == 0
     @test only(st.states)[2] ≈ 5 * 0.3 / 0.7 * (1 - exp(-0.7))
 end
@@ -317,9 +317,9 @@ end
     r = Recurrence([1.0]; modifiers = (flows,))
     A = [fill(3.0, 2, 10); zeros(2, 10)]
     y = r(; history = zeros(4, 1), add = A, stop = 10)
-    y1, st = CR.with_state(r; history = zeros(4, 1), add = A, stop = 4)
-    @test hcat(y1, r(; state = st, add = A, stop = 10)) ≈ y
-    @test CR.blocks(flows) == Val((2, 2))
+    y1, st = r(; history = zeros(4, 1), add = A, stop = 4, state = true)
+    @test hcat(y1, first(r(; state = st, add = A, stop = 10))) ≈ y
+    @test CR.blocks(flows) == (2, 2)
     @test CR.nstate(flows, 6) == 6
     @test CR.uses_adjoint(r, CR.Run())
     f32 = CR.Depletion(
@@ -363,7 +363,7 @@ end
     @test_throws "names pool :R, but the pools are (:S, :V)" moving(
         (:S, :V), CR.Flow(:S => :R, 0.1)
     )
-    @test CR.blocks(moving((:A, :B, :C), CR.Flow(1 => 2, 0.1))) == Val((3, 3))
+    @test CR.blocks(moving((:A, :B, :C), CR.Flow(1 => 2, 0.1))) == (3, 3)
     @test_throws "pools is a named tuple of starting values" moving(
         2.5, CR.Flow(1 => 2, 0.1)
     )

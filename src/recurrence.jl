@@ -68,9 +68,12 @@ the call covers the absolute times `start:stop`:
     The recursion reads the last `L` (or more, see
     [`ComposableRecurrences.depth`](@ref)), and a shorter history is
     zero-padded. A modifier's `Init` sees all of it.
-  - `state`: a [`ComposableRecurrences.State`](@ref) from
-    [`ComposableRecurrences.with_state`](@ref), to resume from it; not with
-    `history`.
+  - `state`: `true` to return `(y, state)`, with `state` the
+    [`ComposableRecurrences.State`](@ref) after the last step, or such a
+    `State` to resume from it, which returns the next one in the same way;
+    not a `State` with `history`. With `trace = true` as well the call
+    returns `((y, trace), state)`. Pass `true` as a literal, so that the
+    return type infers.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
     With `start = m + 1` the seed sits at times `1:m`, and the
@@ -109,6 +112,8 @@ and each call that takes the rule checks instead.
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
 - `modifiers`: a tuple of modifiers applied after the core of each step.
 - `lags`: for a kernel of delays only, the number of lags from lag 0.
+- `step`: for a kernel of delays only, the width of a lag in the delays'
+  own unit; `1` by default.
 
 # Examples
 ```jldoctest
@@ -123,8 +128,8 @@ y = r(R; history = ones(2, 3))
 r(hcat(ones(2, 3), R); history = ones(2, 3), start = 4, prepend = true)
 
 # Resume from the returned state over the same inputs.
-y1, state = ComposableRecurrences.with_state(r, R; history = ones(2, 3), stop = 5)
-y2 = r(R; state)
+y1, state = r(R; history = ones(2, 3), stop = 5, state = true)
+y2, _ = r(R; state)
 y ≈ hcat(y1, y2)
 
 # output
@@ -173,9 +178,13 @@ end
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
 
-function Recurrence(kernel; coupling = I, modifiers = (), lags = nothing)
-    lags === nothing ||
-        return Recurrence(_delay_kernel(kernel, lags, 1); coupling, modifiers)
+function Recurrence(
+        kernel; coupling = I, modifiers = (), lags = nothing, step = 1
+    )
+    lags === nothing || return Recurrence(
+        _delay_kernel(kernel, lags, 1, step); coupling, modifiers
+    )
+    _check_no_step(step)
     _check_no_delays(kernel)
     k, C = _fold(kernel, coupling)
     return Recurrence(k, C, Tuple(modifiers))
@@ -186,8 +195,8 @@ end
 _fold(kernel, coupling) = (kernel, coupling)
 
 @doc raw"""
-The state [`ComposableRecurrences.with_state`](@ref) returns with an
-operator's output, passed back as `state` to resume.
+The state a [`Recurrence`](@ref) call with `state = true` returns with its
+output, passed back as `state` to resume.
 
 After a call that ended at absolute time ``t_1`` it carries
 
@@ -208,8 +217,8 @@ A call with `state` continues exactly as one call over both ranges would.
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.5, 0.5])
-y, state = CR.with_state(r, fill(1.1, 6); history = ones(2), stop = 3)
-state.t, round.(r(fill(1.1, 6); state); digits = 3)
+y, state = r(fill(1.1, 6); history = ones(2), stop = 3, state = true)
+state.t, round.(first(r(fill(1.1, 6); state)); digits = 3)
 
 # output
 
@@ -223,50 +232,6 @@ struct State{H, M, T}
     states::M
     "The time of the next step."
     t::T
-end
-
-@doc raw"""
-Call operator `op` and return its output with the
-[`ComposableRecurrences.State`](@ref) to resume from, `(y, state)`.
-
-For a call over absolute times ``t_0, \dots, t_1`` it returns
-
-```math
-\big((y_{t_0}, \dots, y_{t_1}),\ \ \sigma_{t_1}\big),
-```
-
-where ``y_t`` is the output at time ``t`` and ``\sigma_{t_1}`` the state
-after the last step (the last ``D`` outputs, ``D`` the buffer depth of
-[`ComposableRecurrences.depth`](@ref), each modifier's state and
-``t_1 + 1``).
-
-Takes the same arguments as calling `op`; resume with `op(...; state)`.
-With `trace = true` it returns `((y, trace), state)`.
-
-# Arguments
-- `op`: the operator.
-- `args`, `kwargs`: the call's arguments.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-r = Recurrence([0.6, 0.4])
-R = fill(1.1, 8)
-y1, state = CR.with_state(r, R; history = ones(2), stop = 4)
-vcat(y1, r(R; state)) ≈ r(R; history = ones(2))
-
-# output
-
-true
-```
-"""
-function with_state(op, args...; kwargs...)
-    y, cache = forward(op, Run(), args...; kwargs...)
-    hasproperty(cache, :state) || throw(
-        ArgumentError("$(nameof(typeof(op))) has no state to return")
-    )
-    return y, cache.state
 end
 
 # A Primary() kernel reads the column of each value's own time, so a seed
@@ -579,7 +544,7 @@ _empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
 # The first time of a call: the step after the history or the state.
-_start(::Nothing) = 1
+_start(::Union{Nothing, Bool}) = 1
 _start(state::State) = state.t
 
 _check_start(start) = nothing
@@ -594,7 +559,7 @@ end
 
 # The history, modifier states and first time of a call: seeded from
 # `history`, or resumed from `state`.
-function _resume(history, state::Nothing, start, gain, add)
+function _resume(history, state::Union{Nothing, Bool}, start, gain, add)
     h = history === nothing ? _empty_history(gain, add) : history
     return h, nothing, start
 end
@@ -667,22 +632,29 @@ Base.@constprop :aggressive function _invoke(
         trace::Union{Nothing, Bool} = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
-    return _call(_traced(trace), r, route, history, prepend, args, stop)
+    traced, stated = _traced(trace), _stated(state)
+    op = _call_op(traced, stated, r)
+    out = prepend ? _prepended_call(route, history, op, args..., stop) :
+        adjoint_call(_reroute(route, op), args..., stop)
+    return _unwrap(traced, stated, out)
 end
-# `trace` is `nothing` unless given, so that a call without it compiles
-# without the traced arm.
+# `trace` and `state` are `nothing` unless given, so that a call without
+# them compiles without their arms; a `State` to resume from returns the
+# next one.
 _traced(::Nothing) = Val(false)
 _traced(trace::Bool) = Val(trace)
-# Without a trace, the output; with one, `(y, trace)`.
-function _call(::Val{false}, r, route, history, prepend, args, stop)
-    prepend && return _prepended_call(route, history, r, args..., stop)
-    return adjoint_call(route, args..., stop)
-end
-function _call(::Val{true}, r, route, history, prepend, args, stop)
-    op = _WithTrace(r)
-    prepend && return _prepended_call(route, history, op, args..., stop)
-    return adjoint_call(_reroute(route, op), args..., stop)
-end
+_stated(::Nothing) = Val(false)
+_stated(state::Bool) = Val(state)
+_stated(::State) = Val(true)
+# The operator a call routes: the recurrence, with its state, its trace or
+# both in its output.
+_call_op(::Val{false}, ::Val{false}, r) = r
+_call_op(::Val{true}, ::Val{false}, r) = _WithTrace(r)
+_call_op(::Val{false}, ::Val{true}, r) = _WithState(r)
+_call_op(::Val{true}, ::Val{true}, r) = _WithTrace(_WithState(r))
+# A call with a trace and a state returns `((y, trace), state)`.
+_unwrap(traced, stated, out) = out
+_unwrap(::Val{true}, ::Val{true}, ((y, st), tr)) = ((y, tr), st)
 
 function _run_args(r, gain, history, state, add, start)
     _check_start(start)
@@ -704,36 +676,12 @@ end
 _trace_op(::Val{false}, r) = r
 _trace_op(::Val{true}, r) = _WithTrace(r)
 
-# `with_state` routes through the rules too: a recurrence whose output is
-# `(y, state)`.
+# A call with `state` routes through the rules too: a recurrence whose
+# output is `(y, state)`.
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
 _prepend_output(::_WithState, h, (y, st), join = _join) = (join(h, y), st)
-with_state(r::Recurrence, args...; kwargs...) = _with_state(r, r, args...; kwargs...)
-function with_state(n::NoAdjoint{<:Recurrence}, args...; kwargs...)
-    return _with_state(n.op, n, args...; kwargs...)
-end
-Base.@constprop :aggressive function _with_state(
-        r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false,
-        trace::Union{Nothing, Bool} = nothing
-    )
-    args = _run_args(r, gain, history, state, add, start)
-    return _state_call(_traced(trace), r, route, history, prepend, args, stop)
-end
-# Without a trace, `(y, state)`; with one, `((y, trace), state)`.
-function _state_call(::Val{false}, r, route, history, prepend, args, stop)
-    op = _WithState(r)
-    prepend && return _prepended_call(route, history, op, args..., stop)
-    return adjoint_call(_reroute(route, op), args..., stop)
-end
-function _state_call(::Val{true}, r, route, history, prepend, args, stop)
-    op = _WithTrace(_WithState(r))
-    (y, st), tr = prepend ? _prepended_call(route, history, op, args..., stop) :
-        adjoint_call(_reroute(route, op), args..., stop)
-    return (y, tr), st
-end
 
 # The rule applies when the kernel, the coupling and each modifier carry
 # their adjoint or are differentiated locally, read off the types (which
@@ -775,10 +723,10 @@ function _modifier_adjoint(m)
     _local_step_kind(m) && _array_params(m) && !_reads_outputs(m) && return :local
     return :none
 end
-_local_step_kind(m) = ispointwise(m) || _whole_step(m)
+_local_step_kind(m) = _strata_loop(m) || _whole_step(m)
 # A modifier whose step reads and writes the whole step's values at once:
 # neither pointwise nor blockwise.
-_whole_step(m) = !ispointwise(m) && blocks(m) === nothing
+_whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing
 # A whole-step modifier the rule differentiates with its local derivative.
 _whole_local(m) = _whole_step(m) && _modifier_adjoint(m) === :local
 
@@ -941,7 +889,7 @@ _couplings_fit(h, C) = _coupling_fit(C, h)
 _couplings_fit(h, C, Cs...) = _worse(_coupling_fit(C, h), _couplings_fit(h, Cs...))
 function _any_reads(ms::Tuple)
     return any(ms) do m
-        ispointwise(m) && _modifier_adjoint(m) === :local && !_local_params(m)
+        _strata_loop(m) && _modifier_adjoint(m) === :local && !_local_params(m)
     end
 end
 # The parameters a coupling's local step seeds: its float scalars, folded
@@ -1121,7 +1069,7 @@ end
 _pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 
 _all_pointwise(::Tuple{}) = true
-_all_pointwise(ms::Tuple) = ispointwise(first(ms)) && _all_pointwise(Base.tail(ms))
+_all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
 # Thread one stratum's value through pointwise modifiers in tuple order,
 # recording each modifier's input value and state when `rec` holds records.

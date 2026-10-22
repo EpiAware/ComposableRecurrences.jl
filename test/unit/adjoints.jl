@@ -106,7 +106,7 @@ end
     struct PoolDepletion{P}
         pop::P
     end
-    CR.ispointwise(::PoolDepletion) = true
+    CR.blocks(::PoolDepletion) = (1, 1)
     CR.forward!(m::PoolDepletion, ::CR.Init, s, history) = (s .= m.pop; nothing)
     function CR.forward!(m::PoolDepletion, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
@@ -120,7 +120,7 @@ end
     struct Hazard{T}
         N::T
     end
-    CR.ispointwise(::Hazard) = true
+    CR.blocks(::Hazard) = (1, 1)
     CR.uses_adjoint(::Hazard, ::CR.Step) = true
     CR.forward!(m::Hazard, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
     function CR.forward!(m::Hazard, ::CR.Step, v, s, t)
@@ -173,7 +173,7 @@ end
     struct Shift{B}
         b::B
     end
-    CR.ispointwise(::Shift) = true
+    CR.blocks(::Shift) = (1, 1)
     function CR.forward!(m::Shift, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] += m.b[t]
@@ -183,7 +183,7 @@ end
 
     # Adds a tenth of each stratum's history total, set once by its Init.
     struct HistoryTotal end
-    CR.ispointwise(::HistoryTotal) = true
+    CR.blocks(::HistoryTotal) = (1, 1)
     function CR.forward!(::HistoryTotal, ::CR.Init, s, history)
         s .= vec(sum(history; dims = ndims(history)))
         return nothing
@@ -199,7 +199,7 @@ end
     struct Slope{A}
         a::A
     end
-    CR.ispointwise(::Slope) = true
+    CR.blocks(::Slope) = (1, 1)
     function CR.forward!(m::Slope, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = ForwardDiff.derivative(x -> m.a * x^2, v[k])
@@ -836,7 +836,7 @@ end
     struct NestedPool
         pop::Vector{Vector{Float64}}
     end
-    CR.ispointwise(::NestedPool) = true
+    CR.blocks(::NestedPool) = (1, 1)
     function CR.forward!(m::NestedPool, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] *= m.pop[k][1]
@@ -927,7 +927,7 @@ end
     struct Typed{A}
         a::A
     end
-    CR.ispointwise(::Typed) = true
+    CR.blocks(::Typed) = (1, 1)
     function CR.forward!(m::Typed, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] *= m.a
@@ -971,7 +971,7 @@ end
         f::F
         a::T
     end
-    CR.ispointwise(::MapBy) = true
+    CR.blocks(::MapBy) = (1, 1)
     function CR.forward!(m::MapBy, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = m.a * m.f(v[k])
@@ -996,7 +996,7 @@ end
         idx::I
         a::T
     end
-    CR.ispointwise(::Pick) = true
+    CR.blocks(::Pick) = (1, 1)
     function CR.forward!(m::Pick, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = k in m.idx ? m.a * v[k] : v[k]
@@ -1033,7 +1033,7 @@ end
         Kept(a::T) where {T} = new{T}(abs(a))
     end
     for M in (ScaleKw, ScaleF, Doubled, Kept)
-        @eval CR.ispointwise(::$M) = true
+        @eval CR.blocks(::$M) = (1, 1)
         @eval function CR.forward!(m::$M, ::CR.Step, v, s, t)
             for k in eachindex(v, s)
                 v[k] = m.a * v[k]
@@ -1085,7 +1085,7 @@ end
     struct Loose
         a::Any
     end
-    CR.ispointwise(::Loose) = true
+    CR.blocks(::Loose) = (1, 1)
     @test CR._modifier_adjoint(Loose(0.5)) === :none
     # A constructor that throws is taken as not rebuilding, but an interrupt
     # is not swallowed.
@@ -1182,7 +1182,7 @@ end
     # Declared for a role with no `pullback!` method: the reverse pass
     # throws the `MethodError` of the missing method.
     struct Halved end
-    CR.ispointwise(::Halved) = true
+    CR.blocks(::Halved) = (1, 1)
     function CR.forward!(::Halved, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] /= 2
@@ -1279,7 +1279,7 @@ end
         c::T
         Doubled(c::T) where {T} = new{T}(2c)
     end
-    CR.ispointwise(::Doubled) = true
+    CR.blocks(::Doubled) = (1, 1)
     function CR.forward!(m::Doubled, ::CR.Step, v, s, t)
         v .*= m.c
         return nothing
@@ -1306,7 +1306,7 @@ end
     end
     @test_logs Recurrence([0.2, 0.3]; modifiers = (Mapped(quartered),))
     @test_logs r(ones(4); history = ones(2))
-    @test_logs CR.with_state(r, ones(4); history = ones(2))
+    @test_logs r(ones(4); history = ones(2), state = true)
 end
 
 @testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
@@ -1342,8 +1342,8 @@ end
     r = Recurrence([0.2, 0.3])
     n0 = CR._PULLBACK_CALLS[]
     @test NoAdjoint(r)(ones(4); history = ones(2)) == r(ones(4); history = ones(2))
-    y, st = CR.with_state(NoAdjoint(r), ones(4); history = ones(2))
-    y2, st2 = CR.with_state(r, ones(4); history = ones(2))
+    y, st = NoAdjoint(r)(ones(4); history = ones(2), state = true)
+    y2, st2 = r(ones(4); history = ones(2), state = true)
     @test y == y2 && st.history == st2.history && st.t == st2.t
     c = Convolution([0.5, 0.5])
     @test NoAdjoint(c)(ones(3)) == c(ones(3))
@@ -1399,7 +1399,7 @@ end
         a::A
         inner::B
     end
-    CR.ispointwise(::Outer) = true
+    CR.blocks(::Outer) = (1, 1)
     function CR.forward!(m::Outer, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v′ = m.a * max(s[k] / m.inner.N, 1.0e-6) * v[k] * m.inner.k
@@ -1456,7 +1456,7 @@ end
     struct Capped{K}
         κ::K
     end
-    CR.ispointwise(::Capped) = true
+    CR.blocks(::Capped) = (1, 1)
     # Counts the Init calls on dual numbers, which only the Jacobian makes.
     const DUAL_INITS = Ref(0)
     function CR.forward!(::Capped, ::CR.Init, s, history)
@@ -1578,7 +1578,7 @@ end
         nt::N
         tp::P
     end
-    CR.ispointwise(::Mixed) = true
+    CR.blocks(::Mixed) = (1, 1)
     function CR.forward!(m::Mixed, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             w = m.D.diag[k] + m.K[k, k] + m.nt.a + m.tp[1] + m.tp[2][k]
@@ -1605,7 +1605,7 @@ end
         nt::N
         tp::P
     end
-    CR.ispointwise(::Nested) = true
+    CR.blocks(::Nested) = (1, 1)
     function CR.forward!(m::Nested, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] * (m.nt.a + m.nt.b * m.tp[2]), s[k] + m.tp[1] * v[k]
@@ -1626,7 +1626,7 @@ end
     struct Start
         s0
     end
-    CR.ispointwise(::Start) = true
+    CR.blocks(::Start) = (1, 1)
     CR.forward!(m::Start, ::CR.Init, s, h) = (s .= m.s0; nothing)
     @test CR._rebuild(Start(1.5), [9.0]) == Start(9.0)
     grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
@@ -1642,7 +1642,7 @@ end
         s0::Union{Nothing, Float64}
     end
     for M in (StartReal, StartUnion)
-        @eval CR.ispointwise(::$M) = true
+        @eval CR.blocks(::$M) = (1, 1)
         @eval CR.forward!(m::$M, ::CR.Init, s, h) = (s .= m.s0; nothing)
     end
     grads = (; piece = (; s0 = Ref(0.0)), s = [1.0, 1.0], history = nothing)
@@ -1662,7 +1662,7 @@ end
         κ::K
         b::B
     end
-    CR.ispointwise(::Cap) = true
+    CR.blocks(::Cap) = (1, 1)
     function CR.forward!(m::Cap, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             κ = CR.param(m.κ, k, t)
@@ -1714,7 +1714,7 @@ end
     struct Direct{K}
         κ::K
     end
-    CR.ispointwise(::Direct) = true
+    CR.blocks(::Direct) = (1, 1)
     function CR.forward!(m::Direct, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] / (1 + v[k] / m.κ.x[k])
@@ -1731,7 +1731,7 @@ end
     struct Root{K}
         κ::K
     end
-    CR.ispointwise(::Root) = true
+    CR.blocks(::Root) = (1, 1)
     function CR.forward!(m::Root, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] * sqrt(CR.param(m.κ, k, t) - 1)
@@ -1747,7 +1747,7 @@ end
     struct Raw{K}
         κ::K
     end
-    CR.ispointwise(::Raw) = true
+    CR.blocks(::Raw) = (1, 1)
     function CR.forward!(m::Raw, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] / (1 + v[k] / m.κ[k])
@@ -1768,7 +1768,7 @@ end
     # Pointwise modifiers that read their float arrays directly: the local
     # step records each entry read and seeds it alone, up to four a step.
     abstract type Reader end
-    CR.ispointwise(::Reader) = true
+    CR.blocks(::Reader) = (1, 1)
     struct ByT{A} <: Reader
         a::A
     end
@@ -1971,7 +1971,7 @@ end
     struct ByTime{A}
         a::A
     end
-    CR.ispointwise(::ByTime) = true
+    CR.blocks(::ByTime) = (1, 1)
     function CR.forward!(m::ByTime, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] * m.a[t], s[k] + v[k]
@@ -2396,12 +2396,12 @@ end
 @testitem "Adjoint: a call with its trace against ForwardDiff" setup = [AdjointCheck] begin
     using ComposableRecurrences
     # The trace's cotangent through the records, for each modifier's own
-    # trace and the default, with `with_state` too.
+    # trace and the default, with `state = true` too.
     # A pointwise modifier whose state decays and gathers what passes it.
     struct Decay{A}
         a::A
     end
-    CR.ispointwise(::Decay) = true
+    CR.blocks(::Decay) = (1, 1)
     CR.uses_adjoint(::Decay, ::CR.Step) = true
     CR.forward!(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
     function CR.forward!(m::Decay, ::CR.Step, v, s, t)
@@ -2422,7 +2422,7 @@ end
     struct Keep{A}
         a::A
     end
-    CR.blocks(::Keep) = Val((2, 2))
+    CR.blocks(::Keep) = (2, 2)
     function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
         v[1][], v[2][] = v1 * m.a, v2 + s1

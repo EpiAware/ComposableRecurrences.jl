@@ -35,6 +35,7 @@ A new operator, modifier or coupling adds a use case when it replaces code in a 
 Pages follow the org's writing style: UK English, one sentence per line, short sentences.
 Docstrings describe the maths and name no other package.
 Tutorials are Literate scripts under `docs/src/getting-started/tutorials/`, registered in `docs/docs_config.jl`.
+A heavy tutorial runs on its own with `julia --project=docs docs/run_literate_tutorial.jl <tutorial.jl> <outdir>`.
 Navigation is generated into `docs/pages.jl`, which is not edited by hand.
 
 ### Maths before code

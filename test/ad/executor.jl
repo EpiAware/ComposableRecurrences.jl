@@ -38,6 +38,9 @@
         )
         totals = TimeVarying(PerStratum(fill(8.0, 2, T)))
         ra = Recurrence(g; modifiers = (CR.Allocate([1:3, 4:6], totals),))
+        # The same groups with an empty group between them.
+        padded = TimeVarying(PerStratum(fill(8.0, 3, T)))
+        rae = Recurrence(g; modifiers = (CR.Allocate([1:3, 4:3, 4:6], padded),))
         rva = Recurrence(
             g; modifiers = (
                 CR.Depletion(
@@ -48,7 +51,7 @@
             )
         )
         losses = Any[]
-        for op in (r, rc, c, rv, ra, rva), route in (op, CR.NoAdjoint(op))
+        for op in (r, rc, c, rv, ra, rae, rva), route in (op, CR.NoAdjoint(op))
             push!(
                 losses, op isa Convolution ?
                     θ -> sum(w .* route(reshape(θ, S, T))) :

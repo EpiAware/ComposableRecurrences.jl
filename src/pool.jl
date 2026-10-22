@@ -7,7 +7,7 @@
 # The step is a fold of the parts, and its pullback the fold in reverse.
 # The number of pools and the parts are in the type, so each kind has
 # methods of its own: one pool drawn from before its flows, with nothing
-# left over, is a pointwise step; any other is blockwise.
+# left over, steps per stratum; any other runs a group kernel.
 
 @doc raw"""
 Depletion of pools: each group of strata holds pools, and parts act on
@@ -77,8 +77,8 @@ The draw's `Hazard()` takes its hazard from the value over the population,
 [Rules and plain AD](@ref adjoint-routing) gives the gradient of a form
 without a `pullback!`.
 
-One pool drawn from once, then flows, with nothing left over, is a
-pointwise step whose state is the pool.
+One pool, with draws that leave nothing over, is a pointwise step,
+`blocks` `(1, 1)`, whose state is the pool.
 Any other is blockwise ([`ComposableRecurrences.blocks`](@ref)): each group
 has one value, or two with `overflow = :stratum`, value ``(j - 1) G + g``
 being value ``j`` of group ``g`` for ``G`` groups, and the state holds
@@ -93,7 +93,7 @@ For groups that share one overflow stratum, a
 shared one, moves their values into it.
 
 Without a draw the pools are the step's values: the values hold ``n``
-pools of ``G`` groups each, pool by pool (`blocks` is `Val((n, n))`), so
+pools of ``G`` groups each, pool by pool (`blocks` is `(n, n)`), so
 value ``(i - 1) G + g`` is pool ``i`` of group ``g``.
 On a [`Recurrence`](@ref) with kernel `[1.0]` the core carries the
 previous step's pools forward, and the `Depletion` applies the step's
@@ -639,16 +639,20 @@ _stratum_of(m::Depletion) = _kind_of(m.pieces, _ToStratum)
 # The values and state entries of each group: with a draw, one value (two
 # with an overflow into a stratum) and one entry per pool (and the queue);
 # without, the pools are both.
-blocks(m::_Pointwise) = nothing
 function blocks(m::Depletion)
     n = _npools(m)
-    _draws(m) || return Val((n, n))
-    return Val((1 + (_stratum_of(m) isa _ToStratum), n + (_queue_of(m) isa _Queue)))
+    _draws(m) || return (n, n)
+    return (1 + (_stratum_of(m) isa _ToStratum), n + (_queue_of(m) isa _Queue))
 end
-ispointwise(m::Depletion) = blocks(m) === nothing
+# One pool drawn from once, then flows or none, with nothing left over,
+# steps per stratum; any other runs the group kernel, a group of one
+# included. The shape needs no check here: `blocks` above always gives
+# positive integers.
+_blocks(m::_Pointwise) = nothing
+_blocks(m::Depletion) = Val(blocks(m))
 
 # The groups of `S` strata.
-_pool_groups(m::Depletion, S) = _pool_groups(blocks(m), S)
+_pool_groups(m::Depletion, S) = _pool_groups(_blocks(m), S)
 _pool_groups(::Nothing, S) = S
 _pool_groups(b::Val, S) = _ngroups(b, S)
 
@@ -737,13 +741,13 @@ _nentries(m::Depletion) = _npools(m) + (_queue_of(m) isa _Queue)
 
 function forward!(m::Depletion, ::Init, s, history)
     G = length(s) ÷ _nentries(m)
-    _check_modifier_strata(m, _nvalues(blocks(m)) * G)
+    _check_modifier_strata(m, _nvalues(_blocks(m)) * G)
     _each!(_initial_body!, Serial(), s, G, length(s), s, m, G)
     return nothing
 end
 function forward!(m::_Drawless, ::Init, s, history)
     G = length(s) ÷ _nentries(m)
-    _check_modifier_strata(m, _nvalues(blocks(m)) * G)
+    _check_modifier_strata(m, _nvalues(_blocks(m)) * G)
     fill!(s, zero(eltype(s)))
     return nothing
 end
@@ -1277,7 +1281,7 @@ end
 # on and what the draws leave of the demand, per stratum for one pool and
 # per group otherwise; without one, the amount each flow moves, per group.
 function ntrace(m::Depletion, S)
-    B = blocks(m)
+    B = _blocks(m)
     B === nothing && return 3S
     return (_npools(m) + 2) * _ngroups(B, S)
 end

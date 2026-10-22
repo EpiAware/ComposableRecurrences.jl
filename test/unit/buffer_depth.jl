@@ -9,7 +9,7 @@
     struct Deep
         w::Int
     end
-    CR.ispointwise(::Deep) = true
+    CR.blocks(::Deep) = (1, 1)
     CR.forward!(::Deep, ::CR.Step, v, s, t) = nothing
     CR.depth(m::Deep) = m.w
 
@@ -113,19 +113,19 @@ end
     R = 0.5 .+ rand(rng, S, T)
     r = Recurrence(g; modifiers = (Deep(D),))
     y = r(R; history = h)
-    y1, st = CR.with_state(r, R; history = h, stop = 4)
+    y1, st = r(R; history = h, stop = 4, state = true)
     @test size(st.history) == (S, D)
     @test st.history ≈ hcat(h, y1)[:, (end - D + 1):end]
-    @test hcat(y1, r(R; state = st)) ≈ y
+    @test hcat(y1, first(r(R; state = st))) ≈ y
     # Without a deeper modifier the state holds the kernel length.
-    _, st = CR.with_state(Recurrence(g), R; history = h, stop = 4)
+    _, st = Recurrence(g)(R; history = h, stop = 4, state = true)
     @test size(st.history) == (S, L)
 end
 
 @testitem "depth: an invalid depth names the value" setup = [DeepBuffer] begin
     using ComposableRecurrences
     struct BadDepth end
-    CR.ispointwise(::BadDepth) = true
+    CR.blocks(::BadDepth) = (1, 1)
     CR.forward!(::BadDepth, ::CR.Step, v, s, t) = nothing
     CR.depth(::BadDepth) = -2
     r = Recurrence([0.5, 0.5]; modifiers = (BadDepth(),))
@@ -196,7 +196,7 @@ end
     K = [0.9 0.1; 0.2 0.8]
     R = fill(1.1, 2, 8)
     h = ones(2, 7)
-    y, st = CR.with_state(Recurrence([0.5, 0.3]; coupling = DeepCoupling(K)), R; history = h)
+    y, st = Recurrence([0.5, 0.3]; coupling = DeepCoupling(K))(R; history = h, state = true)
     @test size(st.history) == (2, 6)
     @test y ≈ Recurrence([0.5, 0.3]; coupling = K)(R; history = h)
 end
