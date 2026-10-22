@@ -5,8 +5,8 @@
 # Saturation caps each value smoothly at `κ`: `y = v κ / (κ + v)`. It is
 # pointwise and keeps no state. `Saturation` implements `forward!` only, so
 # automatic differentiation goes through it; `SaturationPullback` is the
-# same modifier with a hand-written `pullback!`. The tutorial "Writing your
-# own modifier" shows this code; keep the two the same.
+# same modifier with a hand-written `pullback!`. The Performance section of
+# "Writing new types" reports these timings.
 using ComposableRecurrences
 using ComposableRecurrences: ComposableRecurrences as CR
 

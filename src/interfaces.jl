@@ -26,6 +26,21 @@ function _forward_ok(C, ::Pressure, args, kwargs)
     out = forward!(C, Pressure(), q, p, args[3])
     return out === nothing && p == args[2] && all(isfinite, q)
 end
+# A trace writes into `r` (a vector, a tuple of vectors, or a group's
+# one-entry values read as `x[]`) and leaves the step's values and state
+# as they were.
+function _forward_ok(m, ::Trace, args, kwargs)
+    r, ins = deepcopy(args[1]), _snapshot(args[2:end])
+    out = forward!(m, Trace(), r, args[2:end]...)
+    return out === nothing && _snapshot(args[2:end]) == ins && _finite(r)
+end
+_snapshot(x::Tuple) = map(_snapshot, x)
+_snapshot(x::Ref) = x[]
+_snapshot(x::AbstractArray) = copy(x)
+_snapshot(x) = x
+_finite(x::Tuple) = all(_finite, x)
+_finite(x::Ref) = isfinite(x[])
+_finite(x::AbstractArray) = all(isfinite, x)
 
 # A pointwise modifier's Step on each stratum's one-entry views matches its
 # Step on the whole vectors.

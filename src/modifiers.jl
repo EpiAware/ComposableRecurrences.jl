@@ -207,14 +207,16 @@ o = f_{\mathrm{role}}(u),
 
 with ``f_{\mathrm{role}}`` the map each role's docstring gives:
 [`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
-[`ComposableRecurrences.Init`](@ref) an initial state from the history and
-[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t``.
+[`ComposableRecurrences.Init`](@ref) an initial state from the history,
+[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t`` and
+[`ComposableRecurrences.Trace`](@ref) a modifier's record
+``r_t = R_M(v_t, s_{t-1}, v'_t, s_t)``.
 The outputs are written into the leading array arguments, and the method
 returns `nothing`; returning anything else is an error.
 To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
-coupling.
+coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's record.
 [Roles](@ref extending-roles) gives each role's arguments.
 
 A pointwise step runs on a [`ComposableRecurrences.Device`](@ref) when it
@@ -222,7 +224,7 @@ reads and writes only `eachindex(v)` entries, and allocates nothing.
 
 # Arguments
 - `x`: the coupling, modifier or variant.
-- `role`: `Step()`, `Init()` or `Pressure()`.
+- `role`: `Step()`, `Init()`, `Pressure()` or `Trace()`.
 - `args`: the role's arguments.
 
 # Examples
