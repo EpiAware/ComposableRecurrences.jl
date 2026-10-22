@@ -102,7 +102,7 @@ public Depletion, Flow, Share, Redistribute, movement,
     Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses
+    Auto, Direct, FFTMethod, delay_masses, Survival, kernel_weights
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -118,10 +118,12 @@ include("trace.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
-# Parameters computed from other parameters.
+# Values computed from other values.
 include("derived.jl")
 # Parameters read from the recurrence's own recent outputs.
 include("recent.jl")
+# Kernels computed from coefficients.
+include("weights.jl")
 # Depletion forms that draw up to what the pool holds.
 include("truncate.jl")
 # Flows between the pools of a `Depletion`.
@@ -145,6 +147,8 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
+# Operators with a kernel computed from coefficients.
+include("computed.jl")
 # Default pullbacks of modifiers and couplings without one, whose dual-number
 # code is in an extension.
 include("fallbacks.jl")

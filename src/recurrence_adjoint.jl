@@ -68,6 +68,9 @@ _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 # abstractly typed executor. Parameters that read across strata share one
 # window cache per step, so their reverse pass runs serially.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+    return _reverse_computed!(_computed(c), c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+end
+function _reverse_run!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
     (; r, H, D, S, T, τ0) = c
     H̄ = _zeros(H, eltype(H), D + T, S)

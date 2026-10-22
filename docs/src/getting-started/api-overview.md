@@ -106,7 +106,8 @@ Wrappers add axes, and data (inputs, history and outputs) are series × time and
 | [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
 | [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths, or of `start => value` change points |
-| [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
+| [`Derived(f, args...)`](@ref Derived) | a value computed from others: a modifier parameter, as in `κ * Derived(exp, TimeVarying(x))`, or a cohort kernel computed inside the operator, `TimeVarying(Derived(f, args...), Primary())` | the value `f` returns |
+| [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a kernel's lags against a hazard, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())`; [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns a computed kernel's weights | the survival on each lag |
 | [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
 
 Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
