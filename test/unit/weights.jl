@@ -308,6 +308,9 @@ end
     # Convolution, shared and per-stratum kernels, a late start and a gain.
     check(conv(W.confirmed(q, hs)), (x, true, nothing, nothing, 1, T), sin.(1:T))
     check(conv(W.confirmed(q, hs)), (x, 0.7, nothing, nothing, 3, T), sin.(1:(T - 2)))
+    # The closed-form partials of the other arithmetic.
+    mixed = (q + -W.confirmed(q, hs)) / 2.0
+    check(conv(mixed), (x, true, nothing, nothing, 1, T), sin.(1:T))
     check(conv(W.nested(Ps, 0.4, hs)), (xs, true, nothing, nothing, 1, T), sin.(xs))
     # Per-stratum coefficients, one value per stratum and one per stratum
     # and calendar time.
