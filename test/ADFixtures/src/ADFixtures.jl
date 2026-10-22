@@ -1761,8 +1761,12 @@ const RECOVER = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.0, 0.8, 0.6, 0.4]
 const RULEOUT = fill(0.8, TO)
 const CONF_HAZARD = [0.2, 0.3, 0.4, 0.5, 0.5, 0.5, 0.4, 0.4, 0.3, 0.3]
 const WO = collect(range(0.5, 2.0; length = TO))
+# The parameters are offsets from `OCC0`, so the scenario starts at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const OCC0 = _flat(A_BVD, [0.1], CONF_HAZARD)
 function _occupancy(w, θ)
-    A_bvd, κ, conf_hazard = _unpack(θ, (TO,), (1,), (TO,))
+    A_bvd, κ, conf_hazard = _unpack(OCC0 .+ θ, (TO,), (1,), (TO,))
     m = OccupancyBalance(
         A_bvd, A_BG, DEATHS, RECOVER, RULEOUT, only(κ), conf_hazard
     )
@@ -1884,7 +1888,7 @@ push!(
     ),
     (
         "Recurrence whole-step modifier branching at a tie (occupancy)",
-        _occupancy, () -> _flat(A_BVD, [0.1], CONF_HAZARD),
+        _occupancy, () -> zero(OCC0),
     ),
     (
         "Recurrence parts without a pullback branching at a tie",
