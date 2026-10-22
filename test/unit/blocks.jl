@@ -225,4 +225,11 @@ end
     struct Odd end
     CR.blocks(::Odd) = (0, 1)
     @test_throws "got (0, 1)" CR.nstate(Odd(), 2)
+    # A shape that is not a tuple, such as a `Val`, is named too.
+    struct ValShape end
+    CR.blocks(::ValShape) = Val((2, 1))
+    @test_throws "blocks(m) is nothing or a tuple (nv, ns), got Val{(2, 1)}()" CR.nstate(
+        ValShape(), 2
+    )
+    @test !CR.ispointwise(ValShape())
 end

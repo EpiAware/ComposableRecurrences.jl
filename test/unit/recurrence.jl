@@ -616,5 +616,7 @@ end
         @test (@inferred CR.forward(r, CR.Run(), R; history = h)) isa Tuple
         @test (@inferred stated(r, R)) isa Tuple
         @test (@inferred stated(r, R; history = h)) isa Tuple
+        # `state = false` is the plain call.
+        @test r(R; history = h, state = false) == r(R; history = h)
     end
 end
