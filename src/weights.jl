@@ -36,8 +36,9 @@ Every argument with a lag axis has the kernel's number of lags, and every
 argument with a strata axis the call's strata; a kernel with any of them is
 per stratum.
 
-A call computes each weight it reads once, a block of cohorts at a time,
-and runs as with the dense kernel of those weights.
+A call computes the weights it reads inside its own call, a block of
+cohorts at a time, and runs as with the dense kernel of those weights, on
+the calling task and on host arrays.
 Its reverse pass takes the weights' cotangent back to the arguments, with
 the partial derivatives of `f` in closed form for `+`, `-`, `*` and `/`,
 and from one local forward-mode derivative otherwise, which needs
@@ -150,7 +151,9 @@ struct Survival{H}
     function Survival(hazard::H, from::Integer) where {H}
         _check_coefficient(hazard)
         from >= 0 || throw(
-            ArgumentError("from is the first lag the hazard acts at, at least 0; got $from")
+            ArgumentError(
+                "from is the first lag the hazard acts at, at least 0; got $from"
+            )
         )
         return new{H}(hazard, Int(from))
     end
@@ -285,8 +288,9 @@ end
 # keeps the block's values `S`, hazards `H` and cotangents `S̄` (cohorts ×
 # lags × the strata of its hazard, or one) in a scratch tree that mirrors
 # the kernel, and the reverse pass recomputes a block before taking its
-# cotangent back. So no weight is stored past its block, and a call
-# allocates `O(L)` beyond the arrays it returns.
+# cotangent back. So no weight is stored past its block, and a convolution
+# allocates `O(L)` beyond the arrays it returns; `_fill_kernel` says when a
+# dense kernel keeps every block instead.
 const _BLOCK = 32
 
 struct _SurvivalScratch{C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
@@ -366,10 +370,14 @@ end
 # block. The call's checks fix every shape, so reads skip bounds checks.
 Base.@propagate_inbounds _value(x::Real, sc, k, i, τ, l, b) = x
 Base.@propagate_inbounds _value(x::AbstractVector, sc, k, i, τ, l, b) = x[i]
-Base.@propagate_inbounds function _value(x::PerStratum{<:AbstractVector}, sc, k, i, τ, l, b)
+Base.@propagate_inbounds function _value(
+        x::PerStratum{<:AbstractVector}, sc, k, i, τ, l, b
+    )
     return x.x[k]
 end
-Base.@propagate_inbounds function _value(x::PerStratum{<:AbstractMatrix}, sc, k, i, τ, l, b)
+Base.@propagate_inbounds function _value(
+        x::PerStratum{<:AbstractMatrix}, sc, k, i, τ, l, b
+    )
     return x.x[k, i]
 end
 Base.@propagate_inbounds function _value(
@@ -447,7 +455,9 @@ Base.@propagate_inbounds function _add_value!(
     return add_cotangent!(cotangent(cotangent(x̄, :x), :x), v, k, i, _time(x, τ, l))
 end
 _add_value!(::Nothing, x::_Computed, sc, v, k, i, τ, l, b) = nothing
-@inline Base.@propagate_inbounds function _add_value!(x̄, x::Survival, sc, v, k, i, τ, l, b)
+@inline Base.@propagate_inbounds function _add_value!(
+        x̄, x::Survival, sc, v, k, i, τ, l, b
+    )
     sc.S̄[b, i, _row(sc, k)] += v
     return nothing
 end
@@ -491,7 +501,8 @@ end
 _block_back_args!(::Tuple{}, ::Tuple{}, ::Tuple{}, τ0, nb, o, last) = nothing
 function _block_back_args!(ā::Tuple, args::Tuple, sc::Tuple, τ0, nb, o, last)
     _block_back!(first(ā), first(args), first(sc), τ0, nb, o, last)
-    return _block_back_args!(Base.tail(ā), Base.tail(args), Base.tail(sc), τ0, nb, o, last)
+    rest = (Base.tail(ā), Base.tail(args), Base.tail(sc))
+    return _block_back_args!(rest..., τ0, nb, o, last)
 end
 _block_back!(::Nothing, x::Survival, sc, τ0, nb, o, last) = nothing
 function _block_back!(x̄, x::Survival, sc, τ0, nb, o, last)
@@ -511,7 +522,8 @@ function _block_back!(x̄, x::Survival, sc, τ0, nb, o, last)
             l >= x.from || continue
             @inbounds for b in 1:bm
                 prev = i == 1 ? one(T) : S[b, i - 1, k]
-                _add_value!(h̄, x.hazard, sc.hazard, -prev * acc[b], k, i, τ0 + b - 1, l, b)
+                v = -prev * acc[b]
+                _add_value!(h̄, x.hazard, sc.hazard, v, k, i, τ0 + b - 1, l, b)
                 acc[b] *= one(T) - H[b, i, k]
             end
         end
@@ -524,8 +536,8 @@ end
 # cotangents `W̄` back to the mirror `x̄`.
 function _fill_block!(W, x, sc, τ0, nb, o, last)
     _block!(x, sc, τ0, nb, o, last)
-    for k in axes(W, 3)
-        for i in axes(W, 2)
+    for k in _strata_axis(W)
+        for i in _lag_axis(W)
             bm = _bmax(τ0, nb, i, o, last)
             bm == 0 && break
             @inbounds for b in 1:bm
@@ -538,8 +550,8 @@ end
 function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     # Each cohort's lags in turn, so no two adds in a row hit one lag's
     # cotangent.
-    for k in axes(W̄, 3), b in 1:nb
-        @inbounds for i in 1:_imax(τ0 + b - 1, length(axes(W̄, 2)), o, last)
+    for k in _strata_axis(W̄), b in 1:nb
+        @inbounds for i in 1:_imax(τ0 + b - 1, length(_lag_axis(W̄)), o, last)
             _add_value!(x̄, x, sc, W̄[b, i, k], k, i, τ0 + b - 1, i - 1 + o, b)
         end
     end
@@ -583,16 +595,24 @@ struct _KernelBlock{A <: AbstractArray}
     K::A
     τ0::Int
 end
-Base.axes(W::_KernelBlock{<:AbstractMatrix}) = (Base.OneTo(0), axes(W.K, 1), Base.OneTo(1))
-Base.axes(W::_KernelBlock{<:AbstractArray{<:Any, 3}}) = (Base.OneTo(0), axes(W.K, 2), axes(W.K, 1))
-Base.axes(W::_KernelBlock, d) = axes(W)[d]
+# The lag and strata axes of a block of weights.
+_lag_axis(W::AbstractArray{<:Any, 3}) = axes(W, 2)
+_strata_axis(W::AbstractArray{<:Any, 3}) = axes(W, 3)
+_lag_axis(W::_KernelBlock{<:AbstractMatrix}) = axes(W.K, 1)
+_strata_axis(W::_KernelBlock{<:AbstractMatrix}) = Base.OneTo(1)
+_lag_axis(W::_KernelBlock{<:AbstractArray{<:Any, 3}}) = axes(W.K, 2)
+_strata_axis(W::_KernelBlock{<:AbstractArray{<:Any, 3}}) = axes(W.K, 1)
 Base.@propagate_inbounds function Base.getindex(W::_KernelBlock{<:AbstractMatrix}, b, i, k)
     return W.K[i, W.τ0 + b - 1]
 end
-Base.@propagate_inbounds function Base.getindex(W::_KernelBlock{<:AbstractArray{<:Any, 3}}, b, i, k)
+Base.@propagate_inbounds function Base.getindex(
+        W::_KernelBlock{<:AbstractArray{<:Any, 3}}, b, i, k
+    )
     return W.K[k, i, W.τ0 + b - 1]
 end
-Base.@propagate_inbounds function Base.setindex!(W::_KernelBlock{<:AbstractMatrix}, v, b, i, k)
+Base.@propagate_inbounds function Base.setindex!(
+        W::_KernelBlock{<:AbstractMatrix}, v, b, i, k
+    )
     return W.K[i, W.τ0 + b - 1] = v
 end
 Base.@propagate_inbounds function Base.setindex!(

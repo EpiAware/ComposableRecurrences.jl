@@ -179,15 +179,17 @@ end
     ws = [sin(k + t) for k in 1:2, t in 1:T]
     # ForwardDiff through the computed kernel against ForwardDiff through
     # the dense kernel of the naive loop.
-    f1(θ) = sum(w .* Convolution(TimeVarying(W.confirmed(θ[1:L], θ[(L + 1):end]), CR.Primary()))(A))
-    g1(θ) = sum(w .* Convolution(primary(W.confirmed_loop(θ[1:L], θ[(L + 1):end], T)))(A))
+    conv(K, x) = Convolution(K)(x)
+    computed(x) = TimeVarying(x, CR.Primary())
+    f1(θ) = sum(w .* conv(computed(W.confirmed(θ[1:L], θ[(L + 1):end])), A))
+    g1(θ) = sum(w .* conv(primary(W.confirmed_loop(θ[1:L], θ[(L + 1):end], T)), A))
     θ1 = vcat(p, h)
     @test ForwardDiff.gradient(f1, θ1) ≈ ForwardDiff.gradient(g1, θ1)
-    f2(θ) = sum(ws .* Convolution(TimeVarying(W.nested(P, θ[1], θ[2:end]), CR.Primary()))(AS))
-    g2(θ) = sum(ws .* Convolution(primary(W.nested_loop(P, θ[1], θ[2:end], T)))(AS))
+    f2(θ) = sum(ws .* conv(computed(W.nested(P, θ[1], θ[2:end])), AS))
+    g2(θ) = sum(ws .* conv(primary(W.nested_loop(P, θ[1], θ[2:end], T)), AS))
     θ2 = vcat(0.4, h)
     @test ForwardDiff.gradient(f2, θ2) ≈ ForwardDiff.gradient(g2, θ2)
-    k(θ) = CR.kernel_weights(TimeVarying(W.reported(θ[1:L], θ[(L + 1):end]), CR.Primary()), T)
+    k(θ) = CR.kernel_weights(computed(W.reported(θ[1:L], θ[(L + 1):end])), T)
     f3(θ) = sum(sin.(1:(L * T)) .* vec(k(θ)))
     g3(θ) = sum(sin.(1:(L * T)) .* vec(W.reported_loop(θ[1:L], θ[(L + 1):end], T)))
     θ3 = vcat(a0, γ)
@@ -239,7 +241,8 @@ end
     @test_throws DimensionMismatch CR.kernel_weights(short, 10)
     @test size(CR.kernel_weights(short, 5)) == (length(p), 5)
     # A Primary() kernel takes no history.
-    @test_throws ArgumentError Convolution(TimeVarying(p * s, CR.Primary()))(A; history = [1.0])
+    c = Convolution(TimeVarying(p * s, CR.Primary()))
+    @test_throws ArgumentError c(A; history = [1.0])
     # A computed kernel is not a modifier parameter.
     @test_throws ArgumentError CR.Add(p * s)
 end

@@ -1,5 +1,5 @@
 # Operators with a computed kernel (see `weights.jl`). A convolution fills
-# one cohort's column at a time inside its own loops; a recurrence, the
+# a block of cohorts at a time inside its own loops; a recurrence, the
 # terms of a convolution and `kernel_weights` fill the weights as a dense
 # `Primary()` kernel and take its cotangent back to the coefficients.
 
