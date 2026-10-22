@@ -25,11 +25,11 @@ end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
 @testitem "Enzyme reverse gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers] begin
-    test_working_backend("Enzyme reverse"; category = :tests)
+    test_working_backend("Enzyme reverse"; category = :reverse_tests)
 end
 
 @testitem "Mooncake reverse gradients" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers] begin
-    test_working_backend("Mooncake reverse"; category = :tests)
+    test_working_backend("Mooncake reverse"; category = :reverse_tests)
 end
 
 @testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers] begin
@@ -74,9 +74,14 @@ end
     @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in MatrixCases.arms(c))
     @test MatrixCases.LOCAL_CASES ⊆ Set(c.name for c in MatrixCases.CASES)
     @test length(ADFixtures.scenarios()) == 2 * length(ADFixtures._SCENARIOS)
-    # Each twin the gradient tests run names a scenario.
+    # Each twin the gradient tests run names a scenario, once.
     names = Set(first.(ADFixtures._SCENARIOS))
-    @test all(in(names), ADFixtures._TESTED_TWINS)
+    tested, rev = ADFixtures._TESTED_TWINS, ADFixtures._REVERSE_TWINS
+    @test all(in(names), tested)
+    @test all(in(names), rev)
+    @test isempty(intersect(tested, rev))
     @test length(ADFixtures.scenarios(; category = :tests)) ==
-        length(ADFixtures._SCENARIOS) + length(ADFixtures._TESTED_TWINS)
+        length(ADFixtures._SCENARIOS) + length(tested)
+    @test length(ADFixtures.scenarios(; category = :reverse_tests)) ==
+        length(ADFixtures._SCENARIOS) + length(tested) + length(rev)
 end

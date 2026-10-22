@@ -137,11 +137,13 @@ Put each check at the cheapest level that runs its code path.
   These need no AD backend.
 - A new rule path, such as a new operator, a new kind of field or a new wrapper of the call, gets one small scenario in `_SCENARIOS`.
   Every backend job runs it through its rule against ForwardDiff.
-- The gradient tests run the `NoAdjoint` twin of a scenario only when the plain route takes a call of its own, such as a new keyword or wrapper.
+- The gradient tests run the `NoAdjoint` twin of a scenario on every backend only when the plain route takes a call of its own, such as a new keyword or wrapper.
   Add such a scenario's name to `_TESTED_TWINS`.
+- On Mooncake reverse and Enzyme reverse the twin is the only check that the backend differentiates a built-in's own forward code, so those jobs also run one twin for each kind of built-in.
+  A new kind of modifier, kernel or coupling adds its scenario's name to `_REVERSE_TWINS`.
   The benchmarks time every twin.
 - `test_adjoint` checks one registry operator of each kind of field and wrapper, listed in `ADJOINT_SCENARIOS` in `test/ad/adjoints.jl`.
-  Add a scenario there only when it brings a kind of field or wrapper the list lacks.
+  Add a scenario there only when it brings a kind of field or wrapper the list lacks, or a branch for a constant part that Enzyme's pass with the operator constant reaches.
 - A failure on one backend gets an item tagged for that backend only, at the smallest size that shows it.
   Name the failure in a comment, so the item stays while the failure can come back.
 - Do not add a scenario that repeats a covered path at a larger size or in another combination.

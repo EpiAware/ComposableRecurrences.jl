@@ -107,7 +107,11 @@
     # `Derived`, a capacity, a seed joined to the output with and without
     # state, traces of pointwise and grouped steps, change points, the
     # automatic convolution, the local steps of user types, routes, and an
-    # operator checked at the call. `extra_cases` adds the shapes the
+    # operator checked at the call. Enzyme's pass with the operator constant
+    # reaches branches for a constant part that only some operators have,
+    # so their scenarios are here too: a constant movement, `Clamp`, a
+    # traced movement, change-point kernels, ragged columns held as given
+    # and outputs read by a parameter. `extra_cases` adds the shapes the
     # registry lacks.
     const ADJOINT_SCENARIOS = (
         "Recurrence renewal",
@@ -138,6 +142,12 @@
         "Recurrence whole-step modifier without a pullback",
         "Recurrence routes with a user coupling without a pullback",
         "Recurrence checked at the call",
+        "Recurrence Redistribute, Add and Clamp",
+        "Recurrence trace of the importation (Redistribute)",
+        "Recurrence Primary per-stratum kernel from change points",
+        "Convolution kernel from change points with history",
+        "Convolution ragged kernel of views into the parameters",
+        "Recurrence feedback from recent outputs",
     )
 
     # `(name, op, args, rtol)` for each scenario of `ADJOINT_SCENARIOS` at
@@ -462,7 +472,7 @@
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
         plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
-        for scen in ADFixtures.scenarios(; category = :tests)
+        for scen in ADFixtures.scenarios(; category = :reverse_tests)
             scen.name in skip && continue
             rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
             scenario_testset(name, scen.name) do
@@ -1839,8 +1849,10 @@ end
         @test CR._PULLBACK_CALLS[] > 0
         return nothing
     end
-    # At and past the 32 entries where inference stopped. The unit tests
-    # check that larger pools and tuples infer.
+    # At and past the 32 entries where inference stopped: 33 flows and 35
+    # scalars are past it, so these sizes cover the Enzyme gradient there.
+    # The unit tests check only that larger pools and tuples infer in the
+    # primal.
     for v in (Val(32), Val(33))
         n = typeof(v).parameters[1]
         check(flows_loss, [0.005 + 0.0005 * i for i in 1:n], v)
