@@ -102,7 +102,7 @@ public Depletion, Flow, Share, Redistribute, movement,
     depth, param_eltype, NoAdjoint, PieceInterface, uses_adjoint,
     test_adjoint, cotangent, add_cotangent!, Executor, Serial, Threaded,
     Device, EXECUTOR, each!, param, add_param!, ConvolutionMethod, Auto,
-    Direct, FFTMethod, delay_masses
+    Direct, FFTMethod, delay_masses, Weights, Survival, kernel_weights
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -118,6 +118,8 @@ include("trace.jl")
 include("adjoints.jl")
 # The built-in modifiers and depletion forms.
 include("builtin_modifiers.jl")
+# Kernels computed from coefficients.
+include("weights.jl")
 # Parameters computed from other parameters.
 include("derived.jl")
 # Parameters read from the recurrence's own recent outputs.
@@ -145,6 +147,8 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
+# Operators with a kernel computed from coefficients.
+include("computed.jl")
 # Default pullbacks of modifiers and couplings without one, whose dual-number
 # code is in an extension.
 include("fallbacks.jl")

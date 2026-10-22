@@ -116,7 +116,7 @@ _float_param(x::Derived) = x
 # fields of its own, so its local derivative covers every parameter. A
 # closed function of the type, evaluated once per type so the route folds.
 function _derived_local_type(::Type{T}) where {T}
-    T <: Derived &&
+    T <: Union{Derived, Weights} &&
         return _fieldfree_type(fieldtype(T, :f)) && _derived_local_type(fieldtype(T, :args))
     T <: Union{Real, AbstractArray, Nothing, Symbol, AbstractString} && return true
     isconcretetype(T) && isstructtype(T) || return true
