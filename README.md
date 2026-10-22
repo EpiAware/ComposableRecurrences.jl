@@ -51,7 +51,7 @@ K_{ij} = 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}},
 G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j.
 ```
 
-Here $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
+Here $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise, and $G_{ii} = 0$.
 
 ```julia
 pop = [60_000.0, 25_000.0, 10_000.0]
