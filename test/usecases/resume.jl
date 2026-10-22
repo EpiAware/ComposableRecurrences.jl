@@ -27,10 +27,10 @@
     # The state carries the last `L` values, the susceptible pool and the
     # next day, so both calls read the same full-length R_t.
     function split_run(N, Rt)
-        fitted, state = ComposableRecurrences.with_state(
-            renewal(N), Rt; history = window, stop = T₁
+        fitted, state = renewal(N)(
+            Rt; history = window, stop = T₁, state = true
         )
-        forecast = renewal(N)(Rt; state)
+        forecast, _ = renewal(N)(Rt; state)
         return vcat(fitted, forecast)
     end
     @test renewal(N)(Rt; history = window) ≈ ref
@@ -54,10 +54,10 @@ end
 
     function split_run(ρ, ϵ)
         ar = Recurrence(ρ)
-        fitted, state = ComposableRecurrences.with_state(
-            ar, 1.0; history = init, add = ϵ, stop = T₁
+        fitted, state = ar(
+            1.0; history = init, add = ϵ, stop = T₁, state = true
         )
-        forecast = ar(1.0; state, add = ϵ)
+        forecast, _ = ar(1.0; state, add = ϵ)
         return vcat(init, fitted, forecast)
     end
     @test split_run(ρ, ϵ) ≈ ref
@@ -95,10 +95,10 @@ end
     )
     patch = Recurrence(g; modifiers = (importation, depletion))
     function split_run(Rt)
-        fitted, state = ComposableRecurrences.with_state(
-            patch, Rt; history = seeds, start = L + 1, stop = T₁
+        fitted, state = patch(
+            Rt; history = seeds, start = L + 1, stop = T₁, state = true
         )
-        forecast = patch(Rt; state)
+        forecast, _ = patch(Rt; state)
         return hcat(seeds, fitted, forecast)
     end
     @test split_run(Rt) ≈ ref

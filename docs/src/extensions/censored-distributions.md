@@ -2,7 +2,8 @@
 
 `ComposableRecurrencesCensoredDistributionsExt` loads when CensoredDistributions, Distributions and ComposableRecurrences are all loaded.
 It gives a continuous delay distribution its masses on whole lags, so `Recurrence` and `Convolution` take it as a kernel with the number of lags.
-The masses are those of `double_interval_censored(d; interval)`, with CensoredDistributions' defaults: a uniform primary event window and `interval = 1`.
+On lags `step` units wide the masses are those of `double_interval_censored(d; primary_event = Uniform(0, step), interval = step)`, read at each lag's interval.
+With the default `step = 1` these are CensoredDistributions' defaults: a uniform primary event window of one unit and `interval = 1`.
 The censoring arithmetic stays in CensoredDistributions.
 [Delay distributions](@ref overview-delays) says how kernels of delays work.
 
@@ -17,4 +18,4 @@ delay.kernel ≈ [pdf(double_interval_censored(d; interval = 1), l) for l in 0:2
 true
 ```
 
-To see the censoring choice on the page, pass `interval` to [`delay_masses`](@ref ComposableRecurrences.delay_masses) and build the operator from the masses.
+For another censoring choice, build the masses with CensoredDistributions and pass them to the operator.

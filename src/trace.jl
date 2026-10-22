@@ -126,9 +126,9 @@ end
 # `v` and `s` and outputs `v′` and `s′`: a pointwise modifier's as one
 # series per value over the strata, a blockwise one's per group from
 # one-entry views, and any other's as the whole column.
-_trace!(col, m, v, s, v′, s′, t) = _trace!(blocks(m), col, m, v, s, v′, s′, t)
+_trace!(col, m, v, s, v′, s′, t) = _trace!(_blocks(m), col, m, v, s, v′, s′, t)
 function _trace!(::Nothing, col, m, v, s, v′, s′, t)
-    r = ispointwise(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
+    r = _strata_loop(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
     _written(m, forward!(m, Trace(), r, v, s, v′, s′, t))
     return nothing
 end

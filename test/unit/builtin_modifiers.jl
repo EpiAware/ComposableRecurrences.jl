@@ -352,26 +352,27 @@ end
     @test_throws DimensionMismatch CR.Redistribute(TimeVarying(ones(2, 3, 4)))
     @test_throws "M is an S × S matrix" CR.Redistribute([0.5, 0.5])
     @test_throws "a TimeVarying coupling" CR.Redistribute(TimeVarying(ones(2, 2)))
-    @test_throws "Redistribute(movement(K, ε))" CR.Redistribute(M, 0.1)
+    @test_throws MethodError CR.Redistribute(M, 0.1)
     @test_throws "leak is true or false" CR.Redistribute{1}(M)
     # The leak flag is a type parameter; the constructor is still inferred,
     # so a scalar held in the matrix keeps its gradient under Enzyme.
     @test @inferred(CR.Redistribute(M)) isa CR.Redistribute{false}
     leaky_redistribute(M) = ComposableRecurrences.Redistribute(M; leak = true)
     @test @inferred(leaky_redistribute(M)) isa CR.Redistribute{true}
-    # A leak flag from a variable goes in as a `Val`.
+    # A leak flag from a variable goes in as the type parameter.
     for leak in (false, true)
-        r = @inferred CR.Redistribute(M; leak = Val(leak))
+        r = @inferred CR.Redistribute{leak}(M)
         @test r isa CR.Redistribute{leak}
         @test r.M == M
+        @test CR.Redistribute(M; leak) isa CR.Redistribute{leak}
     end
-    @test_throws "leak is true or false" CR.Redistribute(M; leak = Val(1))
+    @test_throws TypeError CR.Redistribute(M; leak = 1)
     # The matrix is checked against the strata and its columns once per
     # call, in Init, and on a resumed state.
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
     @test_throws "coupling is (3, 3), expected (2, 2)" r(ones(2, 4); history = ones(2, 2))
     r2 = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M[1:2, 1:2] ./ [1.0 0.9]),))
-    _, state = CR.with_state(r2, ones(2, 4); history = ones(2, 2), stop = 2)
+    _, state = r2(ones(2, 4); history = ones(2, 2), stop = 2, state = true)
     @test_throws DimensionMismatch r(ones(2, 4); state)
     # Columns that do not sum to one are an error unless they may leak, and
     # a leaky column may still not sum to more than one.

@@ -213,8 +213,8 @@ end
     d = CR.Depletion(500.0; protected = 0.3, removals = 3.0, flows = CR.Flow(2 => 1, ω))
     r = Recurrence(g; modifiers = (d,))
     y = r(R; history = h)
-    y1, st = CR.with_state(r, R[1:5]; history = h)
-    @test vcat(y1, r(R; state = st)) ≈ y
+    y1, st = r(R[1:5]; history = h, state = true)
+    @test vcat(y1, first(r(R; state = st))) ≈ y
     # Inside a function the pool names are constants, so the `Depletion`
     # infers.
     build() = ComposableRecurrences.Depletion(

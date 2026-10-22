@@ -16,6 +16,9 @@ y = f_{\mathrm{op}}(u), \qquad y = (y_{t_0}, \dots, y_{t_1}),
 with ``f_{\mathrm{op}}`` the operator's own maths (see [`Recurrence`](@ref)
 and [`Convolution`](@ref)); `cache` holds what the reverse pass needs, such
 as the [`ComposableRecurrences.State`](@ref).
+It is the role an operator is asked about, as in
+`uses_adjoint(op, Run())`, `PieceInterface` with `role = Run()` and
+`test_adjoint(backend, op, Run(), args...)`.
 
 # Examples
 ```jldoctest
@@ -56,11 +59,9 @@ A pointwise modifier acts on each stratum ``i`` separately,
     modifier's state `s` in place (one entry per stratum, or one per pool
     for a [`ComposableRecurrences.Depletion`](@ref) with several) and
     returns `nothing`.
-    A modifier with [`ComposableRecurrences.ispointwise`](@ref) writes
-    entry `k` from entry `k` only, for each `k` in `eachindex(v)`.
-    The operator may call it on a one-entry view of stratum `k`, whose
-    axes are `k:k`, so parameters read at `k` through
-    [`ComposableRecurrences.param`](@ref) read the right entry.
+    A pointwise modifier, with [`ComposableRecurrences.blocks`](@ref)
+    `(1, 1)`, writes entry `k` from entry `k` only, and may be called on
+    a one-entry view of stratum `k`.
   - `forward!(m, Step(), v, s, t, g)` is the group step of a blockwise
     modifier ([`ComposableRecurrences.blocks`](@ref)), with `v` and `s`
     tuples of one-entry views of group `g`'s values and state.
@@ -209,14 +210,16 @@ o = f_{\mathrm{role}}(u),
 
 with ``f_{\mathrm{role}}`` the map each role's docstring gives:
 [`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
-[`ComposableRecurrences.Init`](@ref) an initial state from the history and
-[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t``.
+[`ComposableRecurrences.Init`](@ref) an initial state from the history,
+[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t`` and
+[`ComposableRecurrences.Trace`](@ref) a modifier's record
+``r_t = R_M(v_t, s_{t-1}, v'_t, s_t)``.
 The outputs are written into the leading array arguments, and the method
 returns `nothing`; returning anything else is an error.
 To extend the package, define a type and add this method for its role:
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
-coupling.
+coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's record.
 [Roles](@ref extending-roles) gives each role's arguments.
 
 A pointwise step runs on a [`ComposableRecurrences.Device`](@ref) when it
@@ -224,7 +227,7 @@ reads and writes only `eachindex(v)` entries, and allocates nothing.
 
 # Arguments
 - `x`: the coupling, modifier or variant.
-- `role`: `Step()`, `Init()` or `Pressure()`.
+- `role`: `Step()`, `Init()`, `Pressure()` or `Trace()`.
 - `args`: the role's arguments.
 
 # Examples
@@ -234,7 +237,7 @@ CR = ComposableRecurrences
 struct Offset{T}
     b::T
 end
-CR.ispointwise(::Offset) = true
+CR.blocks(::Offset) = (1, 1)
 function CR.forward!(m::Offset, ::CR.Step, v, s, t)
     for k in eachindex(v)
         v[k] += m.b
@@ -309,7 +312,8 @@ grads.v, grads.piece.hi[]
 function pullback! end
 
 @doc raw"""
-Whether modifier `m` acts on each stratum separately.
+Whether modifier `m` acts on each stratum separately: whether its
+[`ComposableRecurrences.blocks`](@ref) is `(1, 1)`.
 
 A pointwise modifier's step factorises over the ``S`` strata
 (see [`PerStratum`](@ref)): at absolute time ``t``, stratum ``i``'s new
@@ -319,17 +323,7 @@ value and state depend only on its own,
 (v'_i, s'_i) = M_i(v_i, s_i, t), \qquad i = 1, \dots, S .
 ```
 
-This sets which [`ComposableRecurrences.Step`](@ref) a modifier implements:
-a per-stratum map sets `ispointwise(m) = true`, and its
-`forward!(m, Step(), v, s, t)` writes entry `k` of `v` and `s` from entry
-`k` only, so the operator may run it on a one-entry view of each stratum;
-a modifier that couples strata leaves it `false` and reads the whole
-vectors.
-A pointwise step reads a per-stratum parameter through
-[`ComposableRecurrences.param`](@ref) at `k`: a broadcast against a field
-with one entry per stratum, such as `v .*= m.w`, cannot run on a one-entry
-view.
-The default is `false`.
+It follows from `blocks`, which is the trait to define.
 
 # Arguments
 - `m`: the modifier.
@@ -337,21 +331,22 @@ The default is `false`.
 # Examples
 ```jldoctest
 using ComposableRecurrences
-ComposableRecurrences.ispointwise(nothing)
+CR = ComposableRecurrences
+CR.ispointwise(CR.Clamp(0.0, 1.0)), CR.ispointwise(nothing)
 
 # output
 
-false
+(true, false)
 ```
 """
-ispointwise(m) = false
+ispointwise(m) = blocks(m) === (1, 1)
 
 @doc raw"""
-The group shape of modifier `m`: `Val((nv, ns))`, its values and state
-entries per group, or `nothing` when it is not blockwise.
+The group shape of modifier `m`: `(nv, ns)`, its values and state entries
+per group, or `nothing` when its step reads the whole vectors.
 
-A blockwise modifier holds ``n_v`` compartments of ``G`` groups each in its
-values and ``n_s`` in its state, compartment by compartment: with
+A modifier with `(nv, ns)` holds ``n_v`` compartments of ``G`` groups each
+in its values and ``n_s`` in its state, compartment by compartment: with
 ``S = n_v G`` strata, value ``(i - 1) G + g`` is compartment ``i`` of group
 ``g`` and state entry ``(j - 1) G + g`` is state compartment ``j`` of group
 ``g``.
@@ -364,20 +359,30 @@ M_g\big(v_{1:n_v,\,g},\ s_{1:n_s,\,g},\ t\big),
 \qquad g = 1, \dots, G .
 ```
 
-A blockwise modifier implements `forward!(m, Step(), v, s, t, g)` with `v`
-and `s` tuples of one-entry views of the group's ``n_v`` values and ``n_s``
-state entries, writing them in place, and optionally
-`pullback!(grads, m, Step(), v, s, t, g)` with `grads.v` and `grads.s`
-tuples of views, overwritten with the input cotangents.
-Both return `nothing`.
-The default vector [`ComposableRecurrences.Step`](@ref) loops the groups,
-and [`ComposableRecurrences.nstate`](@ref) is ``n_s G``.
+`(1, 1)` is a pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)),
+whose groups are the strata: it implements `forward!(m, Step(), v, s, t)`
+writing entry `k` of `v` and `s` from entry `k` only, for each `k` in
+`eachindex(v)`.
+The operator may call it on a one-entry view of stratum `k`, whose axes are
+`k:k`, so a parameter read at `k` through
+[`ComposableRecurrences.param`](@ref) reads the right entry; a broadcast
+against a field with one entry per stratum, such as `v .*= m.w`, cannot run
+on such a view.
+Any other shape is blockwise: the modifier implements
+`forward!(m, Step(), v, s, t, g)` with `v` and `s` tuples of one-entry views
+of group `g`'s ``n_v`` values and ``n_s`` state entries, writing them in
+place, and optionally `pullback!(grads, m, Step(), v, s, t, g)` with
+`grads.v` and `grads.s` tuples of views, overwritten with the input
+cotangents.
+Both return `nothing`, and the default vector
+[`ComposableRecurrences.Step`](@ref) loops the groups.
 The group step reads parameters at group `g`, so a [`PerStratum`](@ref)
 parameter has ``G`` entries.
-`blocks` should follow from the type of `m`, so the group loop is
-compiled for its shape.
-A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) is the
-case ``n_v = n_s = 1``, and is not blockwise.
+`blocks` should follow from the type of `m`, not from the value of a field,
+so the loops are compiled for its shape; a shape read from a field is known
+only at run time.
+[`ComposableRecurrences.ispointwise`](@ref) and
+[`ComposableRecurrences.nstate`](@ref) follow from it.
 The default is `nothing`.
 
 # Arguments
@@ -388,34 +393,34 @@ The default is `nothing`.
 using ComposableRecurrences
 CR = ComposableRecurrences
 leaky = CR.Depletion(100.0; protected = 0.3)
-CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0))
+CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0)), CR.blocks(nothing)
 
 # output
 
-(Val{(1, 2)}(), nothing)
+((1, 2), (1, 1), nothing)
 ```
 """
 blocks(m) = nothing
 
 @doc raw"""
 The number of state entries modifier `m` keeps for `S` strata
-(see [`PerStratum`](@ref)).
+(see [`PerStratum`](@ref)), from its [`ComposableRecurrences.blocks`](@ref).
 
 The recurrence allocates each modifier's state ``s`` with
 
 ```math
-|s| = n(m, S), \qquad n(m, S) = S \text{ by default},
+|s| = n(m, S), \qquad
+n(m, S) = \begin{cases} n_s S / n_v & \text{for blocks } (n_v, n_s), \\
+S & \text{otherwise}, \end{cases}
 ```
 
 passes it to the modifier's [`ComposableRecurrences.Init`](@ref) and
 [`ComposableRecurrences.Step`](@ref), and checks a resumed state against it.
-This is the extension point for a modifier that holds more than one value
-per stratum.
-A blockwise modifier ([`ComposableRecurrences.blocks`](@ref)) keeps
-``n_s`` entries per group, ``n(m, S) = n_s S / n_v``: a `Depletion` with two
+A pointwise modifier keeps one entry per stratum, and a `Depletion` with two
 pools keeps the first pool then the second, ``n(m, S) = 2S``.
-A pointwise modifier ([`ComposableRecurrences.ispointwise`](@ref)) keeps
-one entry per stratum, so it must have ``n(m, S) = S``.
+Of the built-ins with `blocks` `nothing`, an
+[`ComposableRecurrences.Allocate`](@ref) with imports keeps its import
+pattern as well, as its docstring sets out.
 
 # Arguments
 - `m`: the modifier.
@@ -433,9 +438,34 @@ CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 (3, 6)
 ```
 """
-nstate(m, S) = _blocks_nstate(blocks(m), S)
+nstate(m, S) = _blocks_nstate(_blocks(m), S)
 _blocks_nstate(::Nothing, S) = S
 _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
+
+# How the operator runs a modifier's step, as a static value the loops are
+# compiled for: `Val((nv, ns))` runs the group kernel per group, `nothing`
+# runs the step per stratum (pointwise) or on the whole vectors. It follows
+# from `blocks`, which follows from the type, so this folds. A built-in may
+# run a pointwise shape on its group kernel instead: `Depletion` does, for a
+# one-pool kind without a step of its own (see `pool.jl`).
+_blocks(m) = _static_blocks(blocks(m))
+_static_blocks(::Nothing) = nothing
+_static_blocks(b::Tuple) = _group_shape(Val(b))
+@noinline function _static_blocks(b)
+    throw(
+        ArgumentError(
+            "blocks(m) is nothing or a tuple (nv, ns), got $(repr(b))"
+        )
+    )
+end
+_group_shape(::Val{(1, 1)}) = nothing
+_group_shape(b::Val) = b
+
+# Whether the operator runs a modifier's step per stratum, on one-entry
+# views: an execution choice, not a property of the maths, which is
+# `ispointwise`. A pointwise modifier that runs a group kernel, such as a
+# `Depletion` filling one pool, is pointwise but not looped per stratum.
+_strata_loop(m) = blocks(m) === (1, 1) && _blocks(m) === nothing
 
 # The number of groups of a blockwise modifier over `S` strata.
 function _ngroups(::Val{B}, S) where {B}
@@ -456,8 +486,8 @@ end
 function _check_blocks(::Val{B}) where {B}
     B isa Tuple{Int, Int} && B[1] >= 1 && B[2] >= 0 || throw(
         ArgumentError(
-            "blocks(m) is Val((nv, ns)) with integers nv >= 1 and ns >= 0, " *
-                "got Val($(repr(B)))"
+            "blocks(m) is (nv, ns) with integers nv >= 1 and ns >= 0, " *
+                "got $(repr(B))"
         )
     )
     return B[1]
@@ -548,7 +578,7 @@ function forward!(m, ::Init, s, history)
     return nothing
 end
 
-forward!(m, ::Step, v, s, t) = _vector_step!(blocks(m), m, v, s, t)
+forward!(m, ::Step, v, s, t) = _vector_step!(_blocks(m), m, v, s, t)
 
 # The step of a pointwise modifier on stratum `k`'s value and state, as new
 # scalars: its `forward!` on one-entry views of local slots, which a fully
@@ -635,6 +665,14 @@ function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
+    blocks(m) === (1, 1) && throw(
+        ArgumentError(
+            "$(typeof(m)) has blocks (1, 1), so it is pointwise and " *
+                "needs forward!(m, Step(), v, s, t); a group step " *
+                "forward!(m, Step(), v, s, t, g) is called only for " *
+                "another shape"
+        )
+    )
     throw(
         ArgumentError(
             "$(typeof(m)) has no forward!(m, Step(), v, s, t), and is not " *
@@ -652,11 +690,11 @@ end
 # for a pointwise or a blockwise modifier without one. Not a `pullback!`
 # method, which would count as every modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
-    _has_vector_pullback(m) || return _split_pullback!(blocks(m), grads, m, v, s, t)
+    _has_vector_pullback(m) || return _split_pullback!(_blocks(m), grads, m, v, s, t)
     return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
-    ispointwise(m) && return _strata_pullback!(grads, m, v, s, t)
+    _strata_loop(m) && return _strata_pullback!(grads, m, v, s, t)
     uses_adjoint(m, Step()) && return pullback!(grads, m, Step(), v, s, t)
     return _local_step_back!(grads, m, v, s, t)
 end
@@ -697,7 +735,7 @@ end
 # stratum, as in the loops that thread one stratum's value, so the strata
 # loop runs where the executor puts it, on a device too; any other on the
 # whole vectors.
-_stage!(m, v, s, t) = _stage!(Val(ispointwise(m)), m, v, s, t)
+_stage!(m, v, s, t) = _stage!(Val(_strata_loop(m)), m, v, s, t)
 _stage!(::Val{false}, m, v, s, t) = forward!(m, Step(), v, s, t)
 function _stage!(::Val{true}, m, v, s, t)
     n = length(eachindex(v, s))

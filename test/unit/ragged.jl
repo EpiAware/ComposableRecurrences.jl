@@ -74,8 +74,8 @@ end
         C isa UniformScaling && @test ragged(R[1, :]; history = h[1, :], seed.start) ≈
             dense(R[1, :]; history = h[1, :], seed.start)
         # A resumed call carries on through the same columns.
-        y1, st = CR.with_state(ragged, R; seed..., stop = 7)
-        @test hcat(y1, ragged(R; state = st)) ≈ ragged(R; seed...)
+        y1, st = ragged(R; seed..., stop = 7, state = true)
+        @test hcat(y1, first(ragged(R; state = st))) ≈ ragged(R; seed...)
     end
 end
 
