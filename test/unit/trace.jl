@@ -67,9 +67,11 @@ end
     CR = ComposableRecurrences
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], collect(range(1.5, 3.0; length = 10)), [5.0]
-    r = Recurrence(g; modifiers = (
-        CR.Depletion(60.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate())),
-    ))
+    r = Recurrence(
+        g; modifiers = (
+            CR.Depletion(60.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate())),
+        )
+    )
     y, tr = r(R; history = h, trace = true)
     M = only(tr.modifiers)
     @test M[1, :] ≈ vec(only(states_by_step(r, R; history = h)))
