@@ -1402,6 +1402,8 @@ push!(
 const CR_P = ComposableRecurrences.Primary()
 # Read when called, so the fixtures load on releases without it.
 _Survival(args...; kwargs...) = ComposableRecurrences.Survival(args...; kwargs...)
+# The operator behind `kernel_weights`, so a scenario can wrap it.
+_KernelWeights(kernel) = ComposableRecurrences._KernelWeights(kernel)
 _logistic(x) = inv(1 + exp(-x))
 _reported_hazard(a, g) = _logistic(a + g)
 
@@ -1419,7 +1421,7 @@ function _computed_table(w, θ)
     a, g = _unpack(θ, (L,), (T + L - 1,))
     η = Derived(_reported_hazard, a, TimeVarying(g))
     reported = TimeVarying(1 - _Survival(η), CR_P)
-    K = ComposableRecurrences.kernel_weights(reported, T)
+    K = w(_KernelWeights(reported))(T)
     return sum(WT[1, :, :] .* K)
 end
 
@@ -1567,7 +1569,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence coupling from change points" => (:_Piecewise,),
     "Recurrence parameters from change points" => (:_Piecewise,),
     "Convolution kernel from a hazard and a survival" => (:Survival,),
-    "Kernel weights of a survival against a delay and calendar hazard" => (:Survival,),
+    "Kernel weights of a survival against a delay and calendar hazard" =>
+        (:Survival, :_KernelWeights),
     "Recurrence kernel shortened by a survival" => (:Survival,),
 )
 
