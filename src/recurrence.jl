@@ -693,7 +693,6 @@ function _joined_output(H::Matrix, D, T, h::AbstractMatrix)
     size(h) == (1, D) && return reshape(H, 1, D + T)
     return _joined_copy(H, D, T, h)
 end
-_joined_output(H, D, T, h) = _joined_copy(H, D, T, h)
 function _joined_copy(H, D, T, h::AbstractVector)
     m = length(h)
     Y = similar(H, m + T)
