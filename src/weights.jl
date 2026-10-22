@@ -86,6 +86,8 @@ struct Weights{F, A <: Tuple}
             ArgumentError("Weights($f) needs at least one argument")
         )
         map(_check_coefficient, args)
+        _joined(_coef_lags, args, "lags")
+        _joined(_coef_strata, args, "strata")
         return new{F, A}(f, args)
     end
 end
@@ -294,13 +296,15 @@ struct _SurvivalScratch{C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
     S̄::A
     acc::V
 end
-_scratch(x, ::Type, L) = nothing
-_scratch(x::Weights, ::Type{Tp}, L) where {Tp} = map(a -> _scratch(a, Tp, L), x.args)
-function _scratch(x::Survival, ::Type{Tp}, L) where {Tp}
+_scratch(x, ::Type, L, B = _BLOCK) = nothing
+function _scratch(x::Weights, ::Type{Tp}, L, B = _BLOCK) where {Tp}
+    return map(a -> _scratch(a, Tp, L, B), x.args)
+end
+function _scratch(x::Survival, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     ns = max(_coef_strata(x.hazard), 1)
     return _SurvivalScratch(
-        _scratch(x.hazard, Tp, L), Array{Tp}(undef, _BLOCK, L, ns),
-        Array{Tp}(undef, _BLOCK, L, ns), zeros(Tp, _BLOCK, L, ns), zeros(Tp, _BLOCK)
+        _scratch(x.hazard, Tp, L, B), Array{Tp}(undef, B, L, ns),
+        Array{Tp}(undef, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
     )
 end
 _row(sc::_SurvivalScratch, k) = size(sc.S, 3) == 1 ? 1 : k
@@ -535,7 +539,7 @@ function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     # Each cohort's lags in turn, so no two adds in a row hit one lag's
     # cotangent.
     for k in axes(W̄, 3), b in 1:nb
-        @inbounds for i in 1:_imax(τ0 + b - 1, size(W̄, 2), o, last)
+        @inbounds for i in 1:_imax(τ0 + b - 1, length(axes(W̄, 2)), o, last)
             _add_value!(x̄, x, sc, W̄[b, i, k], k, i, τ0 + b - 1, i - 1 + o, b)
         end
     end
@@ -543,57 +547,83 @@ function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     return nothing
 end
 # The block of weights of a kernel with `L` lags and `ns` strata.
-_block_weights(::Type{Tp}, L, ns) where {Tp} = zeros(Tp, _BLOCK, L, ns)
+_block_weights(::Type{Tp}, L, ns, B = _BLOCK) where {Tp} = zeros(Tp, B, L, ns)
 
 # The weights of a computed kernel for cohorts `1:n`, lags from `o`, each
 # one whose weight lands by `last`, as an array (lags × cohorts, or strata
-# × lags × cohorts); unfilled weights are zero.
-function _fill_kernel(kernel::_ComputedKernel, o, n, last)
+# × lags × cohorts; unfilled weights are zero), and the scratch of its last
+# block. A kernel whose maps are only arithmetic is filled in blocks of
+# `_BLOCK` cohorts, and its reverse pass recomputes each block, which costs
+# less than keeping them; any other map is costly enough to recompute that
+# a call that `keep`s its fill for the reverse pass fills every cohort in
+# one block, which the reverse pass reuses.
+function _fill_kernel(kernel::_ComputedKernel, o, n, last, keep::Val = Val(true))
     x = kernel.x
     n = max(n, 0)
     _check_coef_times(x, n, last)
     Tp = float(param_eltype(x))
     L = _coef_lags(x)
     ns = max(_coef_strata(x), 1)
-    sc = _scratch(x, Tp, L)
-    W = _block_weights(Tp, L, ns)
+    B = _block_size(x, n, keep)
+    sc = _scratch(x, Tp, L, B)
     K = _weights_array(Val(_has_strata(x)), Tp, ns, L, n)
-    for τ0 in 1:_BLOCK:n
-        nb = min(_BLOCK, n - τ0 + 1)
-        _fill_block!(W, x, sc, τ0, nb, o, last)
-        for b in 1:nb, i in 1:L, k in 1:ns
-            b <= _bmax(τ0, nb, i, o, last) || continue
-            @inbounds _setweight!(K, W[b, i, k], k, i, τ0 + b - 1)
-        end
+    for τ0 in 1:B:n
+        _fill_block!(_KernelBlock(K, τ0), x, sc, τ0, min(B, n - τ0 + 1), o, last)
     end
-    return K
+    return K, sc
 end
+_block_size(x, n, ::Val{keep}) where {keep} = keep && _keeps_fill(x) ? max(n, 1) : _BLOCK
 _weights_array(::Val{false}, ::Type{Tp}, ns, L, n) where {Tp} = zeros(Tp, L, n)
 _weights_array(::Val{true}, ::Type{Tp}, ns, L, n) where {Tp} = zeros(Tp, ns, L, n)
-Base.@propagate_inbounds _setweight!(K::AbstractMatrix, v, k, i, τ) = (K[i, τ] = v; nothing)
-Base.@propagate_inbounds _setweight!(K::AbstractArray{<:Any, 3}, v, k, i, τ) = (K[k, i, τ] = v; nothing)
-Base.@propagate_inbounds _getweight(K::AbstractMatrix, k, i, τ) = K[i, τ]
-Base.@propagate_inbounds _getweight(K::AbstractArray{<:Any, 3}, k, i, τ) = K[k, i, τ]
+
+# The weights array `K` read and written as the block of cohorts from `τ0`:
+# entry `[b, i, k]` is stratum `k`'s weight on lag index `i` of cohort
+# `τ0 + b - 1`, so a block is filled, or its cotangent read, in place.
+struct _KernelBlock{A <: AbstractArray}
+    K::A
+    τ0::Int
+end
+Base.axes(W::_KernelBlock{<:AbstractMatrix}) = (Base.OneTo(0), axes(W.K, 1), Base.OneTo(1))
+Base.axes(W::_KernelBlock{<:AbstractArray{<:Any, 3}}) = (Base.OneTo(0), axes(W.K, 2), axes(W.K, 1))
+Base.axes(W::_KernelBlock, d) = axes(W)[d]
+Base.@propagate_inbounds function Base.getindex(W::_KernelBlock{<:AbstractMatrix}, b, i, k)
+    return W.K[i, W.τ0 + b - 1]
+end
+Base.@propagate_inbounds function Base.getindex(W::_KernelBlock{<:AbstractArray{<:Any, 3}}, b, i, k)
+    return W.K[k, i, W.τ0 + b - 1]
+end
+Base.@propagate_inbounds function Base.setindex!(W::_KernelBlock{<:AbstractMatrix}, v, b, i, k)
+    return W.K[i, W.τ0 + b - 1] = v
+end
+Base.@propagate_inbounds function Base.setindex!(
+        W::_KernelBlock{<:AbstractArray{<:Any, 3}}, v, b, i, k
+    )
+    return W.K[k, i, W.τ0 + b - 1] = v
+end
+
+# Whether a coefficient of type `T` has a map other than `+`, `-`, `*` and
+# `/`, from the type.
+const _Arithmetic = Union{typeof(+), typeof(-), typeof(*), typeof(/)}
+_keeps_fill_type(::Type) = false
+function _keeps_fill_type(::Type{<:Weights{F, A}}) where {F, A}
+    return !(F <: _Arithmetic) || any(_keeps_fill_type, fieldtypes(A))
+end
+_keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
+@generated _keeps_fill(x) = _keeps_fill_type(x)
 
 # Take the cotangent `K̄` of the weights `_fill_kernel` returned back to the
-# kernel coefficients' mirror `x̄`, one recomputed block at a time.
-_weights_back!(::Nothing, kernel, K̄, o, last) = nothing
-function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last)
+# kernel coefficients' mirror `x̄`, with the scratch `sc` it returned when it
+# kept its fill: each
+# block is recomputed, unless one block holds every cohort.
+_weights_back!(::Nothing, kernel, K̄, o, last, sc) = nothing
+function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x
     n = size(K̄, ndims(K̄))
-    Tp = eltype(K̄)
-    L = _coef_lags(x)
-    ns = max(_coef_strata(x), 1)
-    sc = _scratch(x, Tp, L)
-    W̄ = _block_weights(Tp, L, ns)
-    for τ0 in 1:_BLOCK:n
-        nb = min(_BLOCK, n - τ0 + 1)
-        _block!(x, sc, τ0, nb, o, last)
-        for b in 1:nb, i in 1:L, k in 1:ns
-            @inbounds W̄[b, i, k] = b <= _bmax(τ0, nb, i, o, last) ?
-                _getweight(K̄, k, i, τ0 + b - 1) : zero(Tp)
-        end
-        _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
+    B = _block_size(x, n, Val(true))
+    for τ0 in 1:B:n
+        nb = min(B, n - τ0 + 1)
+        B < n && _block!(x, sc, τ0, nb, o, last)
+        _back_block!(x̄, x, sc, _KernelBlock(K̄, τ0), τ0, nb, o, last)
     end
     return nothing
 end

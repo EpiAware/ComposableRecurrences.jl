@@ -12,6 +12,7 @@
 # 3. Check which indexing conserves the total.
 # 4. Run a renewal process with a generation interval that shortens.
 # 5. Model an isolation policy that starts on a set day.
+# 6. Build a cohort kernel from a hazard and a survival.
 #
 # ### What might I need to know before starting
 #
@@ -177,6 +178,37 @@ end
 # Read by calendar day, every case infectious on day 30 is thinned at once, as if isolated from infection, so infections halve that day.
 # Read by infection day, cases infected shortly before day 30 keep most of their transmission, because their isolation would fall before the policy starts.
 # Infections then peak on day 31, and the extra cases seed later generations, so infections stay nearly twice as high.
+
+# ## A kernel from a hazard and a survival
+#
+# Some cohort kernels are products of a profile over the lags and a cohort's survival against a hazard over calendar days.
+# Here patients admitted on day ``u`` stay in care for at least ``l`` days with probability ``S_l``, and are confirmed at a daily hazard ``h_t`` from the day after admission.
+# Cohort ``u``'s weight on lag ``l`` is the probability that it is in care and confirmed:
+#
+# ```math
+# w_l(u) = S_l \Big(1 - \prod_{j=1}^{l} \big(1 - h_{u+j}\big)\Big).
+# ```
+#
+# [`Survival`](@ref ComposableRecurrences.Survival) is the product, against `TimeVarying(h)`, which a cohort's lag ``j`` reads on the day ``u + j`` it lands, from lag `from = 1`.
+# Arithmetic with it builds [`Weights`](@ref ComposableRecurrences.Weights), so the kernel is written as the formula.
+# The operator computes the weights it reads inside its own call and reverse pass, so the kernel is never built entry by entry in the code being differentiated.
+
+using ComposableRecurrences: Survival
+stay = [exp(-l / 8) for l in 0:(D - 1)]
+testing = [0.05 + 0.25 / (1 + exp(-(t - 35) / 5)) for t in 1:T]
+in_care = Convolution(stay)
+confirmed = Convolution(TimeVarying(stay * (1 - Survival(TimeVarying(testing); from = 1)), Primary()))
+admissions = [20 * exp(-((t - 40) / 15)^2) for t in 1:T]
+@chain DataFrame(
+    "day" => 1:T, "In care" => in_care(admissions), "Confirmed in care" => confirmed(admissions),
+) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
+end
+
+# Few patients in care are confirmed while testing is scarce; once it scales up after day 35, most patients are confirmed within a few days of admission.
+# [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns such weights as an array when they are an output in their own right, such as the probability that each onset date is reported by each delay.
 
 # ## Learning more
 #

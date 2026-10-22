@@ -14,12 +14,12 @@ A slot is a place an operator reads a coefficient from: a kernel, a coupling or 
 Data (inputs, history and outputs) are not slots, and are always series × time.
 Each slot accepts its own set of wrappers.
 
-| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref) | [`Derived`](@ref) | [`Recent`](@ref) |
-|---|---|---|---|---|---|---|---|
-| `Recurrence` kernel | lags | yes | yes | yes | yes | no | no |
-| `Convolution` kernel | lags | yes | yes | no | no | no | no |
-| coupling | `S × S` or `λI` | no | yes | no | no | no | no |
-| modifier parameter | one value | yes | yes | no | no | yes | yes |
+| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref) | [`Derived`](@ref) | [`Recent`](@ref) | [`Weights`](@ref ComposableRecurrences.Weights), [`Survival`](@ref ComposableRecurrences.Survival) |
+|---|---|---|---|---|---|---|---|---|
+| `Recurrence` kernel | lags | yes | yes | yes | yes | no | no | in `TimeVarying(w, Primary())` |
+| `Convolution` kernel | lags | yes | yes | no | no | no | no | in `TimeVarying(w, Primary())` |
+| coupling | `S × S` or `λI` | no | yes | no | no | no | no | no |
+| modifier parameter | one value | yes | yes | no | no | yes | yes | no |
 
 [`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only, as the [time-varying tutorial](@ref tutorial-time-varying-kernels) explains.
 

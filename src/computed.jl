@@ -66,18 +66,19 @@ end
 # run with the dense kernel.
 const _ComputedContributions = _Contributions{<:_ComputedConvolution}
 uses_adjoint(op::_ComputedContributions, ::Run) = _derived_local(op.c.kernel)
-function _dense_contributions(op, x, gain, history, start, stop)
+function _dense_contributions(op, x, gain, history, start, stop, keep)
     kernel = op.c.kernel
     n = last(_check_conv(kernel, x, gain, nothing, history, start, stop))
-    return _Contributions(_with_kernel(op.c, _fill_kernel(kernel, 0, n, n))), n
+    K, sc = _fill_kernel(kernel, 0, n, n, keep)
+    return _Contributions(_with_kernel(op.c, K)), n, sc
 end
 function _run_forward(op::_ComputedContributions, x, gain, history, start, stop)
-    d, n = _dense_contributions(op, x, gain, history, start, stop)
+    d, n, sc = _dense_contributions(op, x, gain, history, start, stop, Val(true))
     y, cache = _run_forward(d, x, gain, history, start, stop)
-    return y, (; d, inner = cache, n)
+    return y, (; d, inner = cache, n, sc)
 end
 function _primal(op::_ComputedContributions, x, gain, history, start, stop)
-    d, _ = _dense_contributions(op, x, gain, history, start, stop)
+    d, _, _ = _dense_contributions(op, x, gain, history, start, stop, Val(false))
     return _primal(d, x, gain, history, start, stop)
 end
 function pullback!(grads, op::_ComputedContributions, ::Run, cache)
@@ -85,7 +86,7 @@ function pullback!(grads, op::_ComputedContributions, ::Run, cache)
     K̄ = _weights_cotangent(x̄, _array(cache.d.c.kernel))
     piece = (; c = (; kernel = _dense_mirror(K̄)))
     pullback!((; piece, y = grads.y, args = grads.args), cache.d, Run(), cache.inner)
-    _weights_back!(x̄, op.c.kernel, K̄, 0, cache.n)
+    _weights_back!(x̄, op.c.kernel, K̄, 0, cache.n, cache.sc)
     return nothing
 end
 
@@ -98,12 +99,12 @@ end
 # with them as its kernel; its cache keeps the computed kernel.
 function _recur(r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, record::Val)
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
-    d = _with_kernel(r, _fill_kernel(r.kernel, 1, n, n))
-    Y, H, states, cache = _recur(d, gain, add, h, s0, τ0, stop, record)
-    return Y, H, states, _with_computed(cache, r.kernel, n)
+    K, sc = _fill_kernel(r.kernel, 1, n, n, record)
+    Y, H, states, cache = _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, record)
+    return Y, H, states, _with_computed(cache, r.kernel, n, sc)
 end
-_with_computed(::Nothing, kernel, n) = nothing
-_with_computed(cache, kernel, n) = merge(cache, (; computed = (; kernel, n)))
+_with_computed(::Nothing, kernel, n, sc) = nothing
+_with_computed(cache, kernel, n, sc) = merge(cache, (; computed = (; kernel, n, sc)))
 _computed(c::NamedTuple) = hasfield(typeof(c), :computed) ? c.computed : nothing
 
 # The reverse pass of a recurrence with a computed kernel: the dense
@@ -116,7 +117,7 @@ function _reverse_computed!(comp, c, Ȳ, r̄, args::Vararg{Any, N}) where {N}
     K̄ = _weights_cotangent(x̄, _array(c.r.kernel))
     r̄d = r̄ === nothing ? nothing : merge(r̄, (; kernel = _dense_mirror(K̄)))
     _reverse_run!(c, Ȳ, r̄d, args...)
-    _weights_back!(x̄, comp.kernel, K̄, 1, comp.n)
+    _weights_back!(x̄, comp.kernel, K̄, 1, comp.n, comp.sc)
     return nothing
 end
 
@@ -173,12 +174,15 @@ uses_adjoint(op::_KernelWeights, ::Run) = _derived_local(op.kernel)
 # Every weight of the cohorts `1:n` lands by this time.
 _last_time(op::_KernelWeights, n) = n + _nlags(op.kernel) - 1
 function _run_forward(op::_KernelWeights, n)
-    return _primal(op, n), (; n)
+    K, sc = _fill_kernel(op.kernel, 0, n, _last_time(op, n))
+    return K, (; n, sc)
 end
-_primal(op::_KernelWeights, n) = _fill_kernel(op.kernel, 0, n, _last_time(op, n))
+function _primal(op::_KernelWeights, n)
+    return first(_fill_kernel(op.kernel, 0, n, _last_time(op, n), Val(false)))
+end
 function pullback!(grads, op::_KernelWeights, ::Run, cache)
     _count_pullback()
     x̄ = cotangent(cotangent(grads.piece, :kernel), :x)
-    _weights_back!(x̄, op.kernel, grads.y, 0, _last_time(op, cache.n))
+    _weights_back!(x̄, op.kernel, grads.y, 0, _last_time(op, cache.n), cache.sc)
     return nothing
 end

@@ -1396,6 +1396,66 @@ push!(
     ),
 )
 
+# Kernels computed from their coefficients: a cohort's weight on each lag
+# from a hazard over calendar time and a profile over the lags.
+const CR_P = ComposableRecurrences.Primary()
+_logistic(x) = inv(1 + exp(-x))
+_reported_hazard(a, g) = _logistic(a + g)
+
+# Present with probability `p`, and confirmed against the calendar hazard
+# `logistic(z)` from the day after entry.
+function _computed_confirmed(w, θ)
+    p, z, X = _unpack(θ, (L,), (T,), (S, T))
+    confirmed = p * (1 - ComposableRecurrences.Survival(TimeVarying(_logistic.(z)); from = 1))
+    return sum(WS .* w(Convolution(TimeVarying(confirmed, CR_P)))(X))
+end
+
+# A per-stratum pmf times the survival against `κ` times a survival.
+function _computed_nested(w, θ)
+    P, z, κ, X = _unpack(θ, (S, L), (T,), (1,), (S, T))
+    unconf = ComposableRecurrences.Survival(TimeVarying(_logistic.(z)); from = 1)
+    surv = ComposableRecurrences.Survival(only(κ) * unconf; from = 1)
+    return sum(WS .* w(Convolution(TimeVarying(PerStratum(P) * surv, CR_P)))(X))
+end
+
+# The probability each cohort is reported by each delay, against a hazard of
+# the delay and the calendar time, as an array.
+function _computed_table(w, θ)
+    a, g = _unpack(θ, (L,), (T + L - 1,))
+    η = ComposableRecurrences.Weights(_reported_hazard, a, TimeVarying(g))
+    K = ComposableRecurrences.kernel_weights(TimeVarying(1 - ComposableRecurrences.Survival(η), CR_P), T)
+    return sum(WT[1, :, :] .* K)
+end
+
+# A generation interval that a cohort's survival shortens, in a recurrence.
+function _computed_recurrence(w, θ)
+    g, z, logh, logR = _unpack(θ, (L,), (T,), (S, L), (S, T))
+    surv = ComposableRecurrences.Survival(TimeVarying(_logistic.(z)))
+    r = Recurrence(TimeVarying(g * surv, CR_P); coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh), start = L + 1)
+    return sum(WS[:, (L + 1):end] .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Convolution kernel from a hazard and a survival", _computed_confirmed,
+        () -> _flat(reverse(G0), -1 .+ 0.3 .* W1, 1 .+ LOGR),
+    ),
+    (
+        "Convolution per-stratum kernel of nested survivals", _computed_nested,
+        () -> _flat(repeat(G0', S) .* [0.9, 1.0, 1.1], -1 .+ 0.3 .* W1, [0.4], 1 .+ LOGR),
+    ),
+    (
+        "Kernel weights of a survival against a delay and calendar hazard",
+        _computed_table, () -> _flat(-1 .+ 0.2 .* (1:L), 0.3 .* sin.(1:(T + L - 1))),
+    ),
+    (
+        "Recurrence kernel shortened by a survival", _computed_recurrence,
+        () -> _flat(G0, -2 .+ 0.3 .* W1, fill(log(5.0), S, L), LOGR),
+    ),
+)
+
 """
     supports(features...)
 
@@ -1513,6 +1573,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution Primary kernel from change points" => (:_Piecewise,),
     "Recurrence coupling from change points" => (:_Piecewise,),
     "Recurrence parameters from change points" => (:_Piecewise,),
+    "Convolution kernel from a hazard and a survival" => (:Survival,),
+    "Convolution per-stratum kernel of nested survivals" => (:Survival,),
+    "Kernel weights of a survival against a delay and calendar hazard" => (:Survival,),
+    "Recurrence kernel shortened by a survival" => (:Survival,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same
