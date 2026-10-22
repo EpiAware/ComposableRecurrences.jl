@@ -660,5 +660,17 @@ end
     # A resumed call loads its history from the state.
     r = Recurrence(g; coupling = K, modifiers = (pool,))
     _, st = CR.with_state(r, R; history = Poison(h), stop = 5)
+    st = CR.State(Poison(st.history), st.states, st.t)
     @test r(R; state = st) ≈ r(R; history = h)[:, 6:end]
+end
+
+@testitem "Recurrence: a zero sum is +0.0 for every run form" begin
+    using ComposableRecurrences
+    # The convolution's sum starts from `+0.0` for a series, for strata and
+    # through a modifier alike.
+    r = Recurrence([1.0])
+    @test !any(signbit, r(1.0; history = [-0.0], add = [-0.0, -0.0]))
+    @test !any(signbit, r(1.0; history = fill(-0.0, 2, 1), add = fill(-0.0, 2, 2)))
+    m = Recurrence([1.0]; modifiers = (ComposableRecurrences.Transform(*, 1.0),))
+    @test !any(signbit, m(1.0; history = [-0.0], add = [-0.0, -0.0]))
 end

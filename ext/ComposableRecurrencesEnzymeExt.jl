@@ -50,9 +50,20 @@ end
 # mode is read here rather than in `_ezs`, whose methods for structured
 # arrays it would make ambiguous.
 _unshared(x, dx, ::_Shared) = dx === x ? nothing : dx
-_unshared(x, dx, ::_Distinct) = dx
+_unshared(x, dx, ::_Distinct) = (_distinct(x, dx); dx)
 _unshared(x, m, dx, ::_Shared) = dx === x ? nothing : m
-_unshared(x, m, dx, ::_Distinct) = m
+_unshared(x, m, dx, ::_Distinct) = (_distinct(x, dx); m)
+# Without runtime activity no shadow is its primal; if one were, the pullback
+# would write cotangents into the primal, so refuse instead.
+function _distinct(x, dx)
+    dx === x && throw(
+        ArgumentError(
+            "Enzyme passed a shadow that is its primal without runtime " *
+                "activity; use set_runtime_activity"
+        )
+    )
+    return nothing
+end
 function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC, mode)
     return (; nzval = _ezs(nonzeros(x), nonzeros(dx), mode))
 end

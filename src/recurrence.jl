@@ -448,10 +448,9 @@ _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
 # kernel convolution alone (`_Chained`). The newest lag, the previous step's
 # value, is then added last, after the vector loop over the older lags,
 # which do not wait on that step; so each step waits on one fused
-# multiply-add. Sums start from `-0.0`, the exact additive identity, so a
-# one-lag kernel's convolution can compile to one product. This holds for
-# hardware floats; dual numbers keep one out-of-line loop, as do other runs,
-# where the split gains nothing and costs `Enzyme` more.
+# multiply-add. This holds for hardware floats; dual numbers keep one
+# out-of-line loop, as do other runs, where the split gains nothing and costs
+# `Enzyme` more. Both forms start from `+0.0`, so they agree on signed zeros.
 struct _Chained{G}
     g::G
 end
@@ -463,9 +462,8 @@ end
 @inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
     return _window_dot(view(c.g.x, a, :), H, t, L, a)
 end
-_sum_start(::Type{T}) where {T} = -zero(T)
 @inline function _window_dot(g, H, t, L, a)
-    acc = _sum_start(promote_type(eltype(g), eltype(H)))
+    acc = zero(promote_type(eltype(g), eltype(H)))
     L >= 1 || return acc
     @inbounds @simd for i in 1:(L - 1)
         acc += g[i] * H[t + i - 1, a]
