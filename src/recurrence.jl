@@ -678,8 +678,8 @@ end
 
 # The history, then the buffer rows after it, in the public layout. A
 # buffer that is the output's transpose is the output, past any rows of
-# zeros before a shorter history; one series' buffer column is the output
-# when the history fills its rows.
+# zeros before a shorter history; one stratum's buffer column is the
+# output when the history fills its rows.
 function _joined_output(H::Transpose{<:Any, <:Matrix}, D, T, h::AbstractMatrix)
     Y = parent(H)
     m = size(h, 2)
@@ -687,6 +687,10 @@ function _joined_output(H::Transpose{<:Any, <:Matrix}, D, T, h::AbstractMatrix)
 end
 function _joined_output(H::Matrix, D, T, h::AbstractVector)
     length(h) == D && return vec(H)
+    return _joined_copy(H, D, T, h)
+end
+function _joined_output(H::Matrix, D, T, h::AbstractMatrix)
+    size(h) == (1, D) && return reshape(H, 1, D + T)
     return _joined_copy(H, D, T, h)
 end
 _joined_output(H, D, T, h) = _joined_copy(H, D, T, h)
