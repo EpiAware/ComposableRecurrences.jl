@@ -2241,14 +2241,15 @@ end
     y = D(0.0, Partials((0.0, 1.0)))
     @test x == y
     @test !(x < y)
-    # A dual number of another tag still breaks a tie by its partials, and
-    # against a local one reads the local one's value.
-    o = Dual{typeof(Tag(sin, Float64))}(0.0, 1.0)
-    @test o > 0
-    @test x < o
-    @test !(o < x)
-    @test o != x
-    @test !(x <= Dual{typeof(Tag(sin, Float64))}(0.0, -1.0))
+    # Against a dual number of another tag a local one reads as its value,
+    # and the other compares as `ForwardDiff` compares it with a float.
+    O = Dual{typeof(Tag(sin, Float64))}
+    for o in (O(0.0, 1.0), O(0.0, -1.0), O(1.0, 0.0))
+        @test (x < o) == (0.0 < o)
+        @test (o < x) == (o < 0.0)
+        @test (x <= o) == (0.0 <= o)
+        @test (o == x) == (o == 0.0)
+    end
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin
