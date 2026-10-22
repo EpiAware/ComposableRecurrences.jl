@@ -71,7 +71,7 @@ the [extension API](@ref overview-extending), which includes
 | Name | What it does | Returns |
 |---|---|---|
 | [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
-| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Auto()`](@ref ComposableRecurrences.Auto) (the default), [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
+| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is a [`ConvolutionMethod`](@ref ComposableRecurrences.ConvolutionMethod): [`Auto()`](@ref ComposableRecurrences.Auto) (the default), [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
 
 A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) says why.
 
@@ -117,20 +117,10 @@ The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 
 ## [Delay distributions](@id overview-delays)
 
-A kernel can hold delays, and the operator turns them into masses when it is built with the number of lags `lags`.
-A delay is a value whose type has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method.
-`delay_masses(d, lags)` gives the masses on lags `0` to `lags - 1`:
-
-```math
-k_l = P(D = l), \qquad l = 0, \dots, L - 1,
-```
-
-where ``D`` is the delay in whole steps and ``L`` = `lags`.
-`lags` counts from lag 0 for both operators, and each operator keeps the masses from its own [lag origin](@ref explanation-lag-origin): a convolution from ``k_0`` and a recurrence from ``k_1``.
-So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
-The masses are not renormalised after this cut, so a recurrence kernel sums to ``\sum_{l=1}^{L-1} k_l``, which scales the gain.
-Loading Distributions adds `delay_masses` for any discrete distribution.
-A package that owns a delay type adds a method for it, as the `delay_masses` docstring shows, and its delays then work as kernels too.
+A kernel can hold delays, values whose type has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method giving their masses on lags `0` to `lags - 1`.
+`Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any kernel below.
+Each keeps the masses from its own [lag origin](@ref explanation-lag-origin), so `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
+The [Distributions](@ref extension-distributions) and [CensoredDistributions](@ref extension-censored-distributions) extension pages say which distributions have masses.
 
 | Kernel | Holds |
 |---|---|
@@ -139,41 +129,6 @@ A package that owns a delay type adds a method for it, as the `delay_masses` doc
 | `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
 | `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
-
-`Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any of these.
-An array of delays is read by its element type, so that type needs a `delay_masses` method.
-`lags` has no default, since where a delay is cut is a modelling choice.
-A kernel of delays without `lags` is an error, and so is `lags` on a kernel with no delays.
-A continuous distribution has masses once a censoring choice discretises it.
-Loading [CensoredDistributions](https://censoreddistributions.epiaware.org) as well makes that choice with its defaults: `delay_masses(d, lags; interval = 1)` takes the masses of `double_interval_censored(d; interval)`.
-Without it, a continuous distribution is an error that names it.
-The [CensoredDistributions extension](@ref extension-censored-distributions) page has an example.
-Gradients reach the delays' parameters through their masses.
-
-```jldoctest
-using ComposableRecurrences, Distributions
-delay = Convolution(Poisson(1.5); lags = 4)
-generation = Recurrence(Poisson(1.5); lags = 4)
-length(delay.kernel), length(generation.kernel)
-
-# output
-
-(4, 3)
-```
-
-```jldoctest
-using ComposableRecurrences, Distributions
-delay = Convolution(Poisson(1.5); lags = 4)
-round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
-
-# output
-
-4-element Vector{Float64}:
-  2.231
-  7.81
- 18.129
- 37.514
-```
 
 ## [Couplings](@id overview-couplings)
 
@@ -194,7 +149,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 
 | Name | What it does | Recurrence | Per series | Parameters |
 |---|---|---|---|---|
-| [`Depletion(N; pools, form, weights, flows)`](@ref ComposableRecurrences.Depletion) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool, else blockwise | `N`, `heterogeneity`, each starting pool, each draw weight and each flow's demand |
+| [`Depletion(N; pools, form, weights, fill, heterogeneity, removals, protected, flows, flows_first, overflow)`](@ref ComposableRecurrences.Depletion) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool drawn from, its flows after the draw and no `overflow`, else blockwise | `N`, `heterogeneity`, each starting pool, each draw weight and each flow's demand |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | `lo`, `hi` |
@@ -245,7 +200,7 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 
 These names are for writing a new coupling, modifier, depletion form or executor, and for checking its gradient.
 A model built from the package's own parts needs none of them.
-[Writing new types](@ref extending) gives the contract and an example for each role.
+[Writing new types](@ref extending) gives the contract and an example for each role, and the [`each!`](@ref ComposableRecurrences.each!) docstring gives the contract of an executor.
 
 | Name | What it does | Returns |
 |---|---|---|

@@ -124,6 +124,58 @@ end
     @test !Interfaces.test(CR.PieceInterface, Returning, (obj,); show = false)
 end
 
+@testitem "Interfaces: a trace writes in place and keeps its inputs" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # A pointwise trace: a tuple of one series per value, by stratum.
+    struct Gap end
+    CR.ispointwise(::Gap) = true
+    CR.ntrace(::Gap, S) = S
+    function CR.forward!(::Gap, ::CR.Trace, r, v, s, v′, s′, t)
+        gap = only(r)
+        for k in eachindex(v)
+            gap[k] = v[k] - v′[k]
+        end
+        return nothing
+    end
+    pointwise = ((zeros(2),), [2.0, 3.0], [0.0, 0.0], [1.5, 2.0], [0.0, 0.0], 1)
+    obj = Interfaces.Arguments(; piece = Gap(), role = CR.Trace(), args = pointwise)
+    @test Interfaces.test(CR.PieceInterface, Gap, (obj,); show = false)
+    # A blockwise group's trace, on one-entry values read as `x[]`.
+    struct GroupGap end
+    CR.blocks(::GroupGap) = Val((1, 1))
+    function CR.forward!(
+            ::GroupGap, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple,
+            s′::Tuple, t, g
+        )
+        r[1][] = v[1][] - v′[1][]
+        return nothing
+    end
+    group = ((Ref(0.0),), (Ref(2.0),), (Ref(0.0),), (Ref(1.5),), (Ref(0.0),), 1, 1)
+    obj = Interfaces.Arguments(; piece = GroupGap(), role = CR.Trace(), args = group)
+    @test Interfaces.test(CR.PieceInterface, GroupGap, (obj,); show = false)
+    # A trace that returns its record instead of writing it fails.
+    struct ReturnedGap end
+    CR.forward!(::ReturnedGap, ::CR.Trace, r, v, s, v′, s′, t) = v .- v′
+    whole = (zeros(2), [2.0, 3.0], [0.0, 0.0], [1.5, 2.0], [0.0, 0.0], 1)
+    obj = Interfaces.Arguments(; piece = ReturnedGap(), role = CR.Trace(), args = whole)
+    @test !Interfaces.test(CR.PieceInterface, ReturnedGap, (obj,); show = false)
+    # A trace that writes into the step's values fails.
+    struct WritingGap end
+    function CR.forward!(::WritingGap, ::CR.Trace, r, v, s, v′, s′, t)
+        r .= v .- v′
+        v′ .= v
+        return nothing
+    end
+    obj = Interfaces.Arguments(; piece = WritingGap(), role = CR.Trace(), args = whole)
+    @test !Interfaces.test(CR.PieceInterface, WritingGap, (obj,); show = false)
+    # The default trace, the state after the step, passes.
+    obj = Interfaces.Arguments(;
+        piece = CR.Clamp(0.0, 1.0), role = CR.Trace(), args = whole
+    )
+    @test Interfaces.test(CR.PieceInterface, CR.Clamp, (obj,); show = false)
+end
+
 @testitem "Interfaces: a pointwise step may broadcast" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
