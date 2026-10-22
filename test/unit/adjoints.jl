@@ -2219,6 +2219,38 @@ end
         nothing
 end
 
+@testitem "Adjoint: the local step's dual numbers compare by value" begin
+    using ComposableRecurrences
+    using ForwardDiff: ForwardDiff, Dual, Partials, Tag
+    const CR = ComposableRecurrences
+    # A seeded zero is zero to the local step, whatever its partials.
+    D = Dual{typeof(Tag(CR._local_step!, Float64)), Float64, 2}
+    x, z = D(0.0, Partials((1.0, 0.0))), zero(D)
+    @test !(x > z)
+    @test !(x > 0)
+    @test !(0.0 < x)
+    @test x >= z
+    @test x <= 0.0
+    @test x == z
+    @test x == 0
+    @test isequal(x, 0.0)
+    @test !isless(z, x)
+    # `max` and `clamp` choose their branches by the values.
+    @test ForwardDiff.partials(max(x, z)) == Partials((0.0, 0.0))
+    @test ForwardDiff.partials(clamp(x, z, one(D))) == Partials((1.0, 0.0))
+    y = D(0.0, Partials((0.0, 1.0)))
+    @test x == y
+    @test !(x < y)
+    # A dual number of another tag still breaks a tie by its partials, and
+    # against a local one reads the local one's value.
+    o = Dual{typeof(Tag(sin, Float64))}(0.0, 1.0)
+    @test o > 0
+    @test x < o
+    @test !(o < x)
+    @test o != x
+    @test !(x <= Dual{typeof(Tag(sin, Float64))}(0.0, -1.0))
+end
+
 @testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     # A coupling without a pullback: a share `a` of every other stratum's
