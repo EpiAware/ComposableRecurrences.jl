@@ -117,7 +117,8 @@ The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
 ## [Delay distributions](@id overview-delays)
 
 A kernel can hold delays, values whose type has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method giving their masses on lags `0` to `lags - 1`.
-`Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any kernel below, and each keeps the masses from its own [lag origin](@ref explanation-lag-origin), so `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
+`Recurrence(kernel; lags, coupling, modifiers)` and `Convolution(kernel; lags, method)` take any kernel below.
+Each keeps the masses from its own [lag origin](@ref explanation-lag-origin), so `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
 The [Distributions](@ref extension-distributions) and [CensoredDistributions](@ref extension-censored-distributions) extension pages say which distributions have masses.
 
 | Kernel | Holds |
