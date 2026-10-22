@@ -139,8 +139,8 @@ end
             @test rp(R; seed...) ≈ rd(R; seed...)
             # A resumed call carries on through the change points.
             for stop in (6, 8, 12)
-                y1, st = CR.with_state(rp, R; seed..., stop)
-                @test hcat(y1, rp(R; state = st)) ≈ rd(R; seed...)
+                y1, st = rp(R; seed..., stop, state = true)
+                @test hcat(y1, first(rp(R; state = st))) ≈ rd(R; seed...)
             end
             with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
                 @test rp(R; seed...) ≈ rd(R; seed...)

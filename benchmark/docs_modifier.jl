@@ -22,7 +22,7 @@ end
 
 const _Saturating = Union{Saturation, SaturationPullback}
 
-CR.ispointwise(::_Saturating) = true
+CR.blocks(::_Saturating) = (1, 1)
 function CR.forward!(m::_Saturating, ::CR.Step, v, s, t)
     for k in eachindex(v)
         v[k] = v[k] * m.κ / (m.κ + v[k])

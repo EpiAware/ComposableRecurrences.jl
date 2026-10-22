@@ -58,6 +58,22 @@ _as_forward(x) = x
 _as_forward(x::QuoteNode) = x.value === :forward! ? QuoteNode(:forward) : x
 _as_forward(x::Expr) = Expr(x.head, map(_as_forward, x.args)...)
 
+# A pointwise modifier, declared as the loaded release takes it: `blocks`
+# `(1, 1)` since `ispointwise` follows from `blocks`, and `ispointwise`
+# before.
+const POINTWISE_BLOCKS = isdefined(ComposableRecurrences, :_pointwise)
+macro pointwise(T)
+    POINTWISE_BLOCKS && return :($ComposableRecurrences.blocks(::$(esc(T))) = (1, 1))
+    return :($ComposableRecurrences.ispointwise(::$(esc(T))) = true)
+end
+
+# A call that also returns its state, as the loaded release spells it:
+# `state = true` on the call, and `with_state` before.
+function returning_state(op, args...; kwargs...)
+    POINTWISE_BLOCKS && return op(args...; kwargs..., state = true)
+    return ComposableRecurrences.with_state(op, args...; kwargs...)
+end
+
 # ForwardDiff reference gradient for a scenario function.
 function _reference(f, θ)
     return DifferentiationInterface.gradient(f, AutoForwardDiff(), θ)
@@ -77,7 +93,7 @@ end
     s .= m.pop
     return nothing
 end
-ComposableRecurrences.ispointwise(::FlooredDepletion) = true
+@pointwise FlooredDepletion
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t
@@ -110,7 +126,7 @@ end
     fill!(s, m.N)
     return nothing
 end
-ComposableRecurrences.ispointwise(::ScalarDepletion) = true
+@pointwise ScalarDepletion
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::ScalarDepletion, ::ComposableRecurrences.Step, v, s, t
@@ -326,7 +342,7 @@ function _with_state(w, θ)
     g, logh, logR = _unpack(θ, (L,), (S, L), (S, T))
     dep = ComposableRecurrences.Depletion(PerStratum(POP))
     r = Recurrence(g; coupling = K0, modifiers = (dep,))
-    y, st = ComposableRecurrences.with_state(w(r), exp.(logR); history = exp.(logh))
+    y, st = returning_state(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y)) + sum(st.history) + 0.01 * sum(only(st.states))
 end
 
@@ -354,7 +370,7 @@ end
 function _with_state_prepend(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
     r = Recurrence(G0; coupling = K0)
-    y, st = ComposableRecurrences.with_state(
+    y, st = returning_state(
         w(r), exp.(logR); history = exp.(logh), start = L + 1, prepend = true
     )
     return sum(WS .* log.(y)) + sum(st.history)
@@ -828,7 +844,7 @@ end
 struct DeepBuffer
     w::Int
 end
-ComposableRecurrences.ispointwise(::DeepBuffer) = true
+@pointwise DeepBuffer
 if IN_PLACE
     function ComposableRecurrences.forward!(
             ::DeepBuffer, ::ComposableRecurrences.Step, v, s, t
@@ -936,7 +952,7 @@ struct TracedSmooth{A}
     a::A
 end
 if isdefined(ComposableRecurrences, :_trace_series)
-    ComposableRecurrences.ispointwise(::TracedSmooth) = true
+    @pointwise TracedSmooth
     function ComposableRecurrences.forward!(
             m::TracedSmooth, ::ComposableRecurrences.Step, v, s, t
         )
@@ -1542,7 +1558,7 @@ struct StrataCap{K, B}
     κ::K
     β::B
 end
-ComposableRecurrences.ispointwise(::StrataCap) = true
+@pointwise StrataCap
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::StrataCap, ::ComposableRecurrences.Step, v, s, t
@@ -1595,7 +1611,7 @@ end
 struct ByTime{A}
     a::A
 end
-ComposableRecurrences.ispointwise(::ByTime) = true
+@pointwise ByTime
 if IN_PLACE
     function ComposableRecurrences.forward!(
             m::ByTime, ::ComposableRecurrences.Step, v, s, t

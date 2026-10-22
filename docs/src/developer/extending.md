@@ -14,7 +14,6 @@ const CR = ComposableRecurrences
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
 For a step, an initial state, a coupling's mixing or a modifier's trace, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
 A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
-An operator's whole call, [`forward(op, Run(), args...)`](@ref ComposableRecurrences.forward), returns `(y, cache)`, so [`Run()`](@ref ComposableRecurrences.Run) is not in this table.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
@@ -35,11 +34,11 @@ The arguments mean the same in every role:
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
   Read them, but do not write to them.
 - Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
-- A pointwise modifier sets [`ispointwise`](@ref ComposableRecurrences.ispointwise), and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
+- A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
   The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
   A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
   Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
-- A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
+- A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to its `(nv, ns)` and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
 - Any other modifier implements the step on whole vectors and may read every stratum.
 - A depletion form is pointwise: it draws each entry of `v` from the same entry of `s`.
 
@@ -90,7 +89,7 @@ The field has a type parameter so that a dual number can take its place.
 struct Saturation{K}
     κ::K
 end
-CR.ispointwise(::Saturation) = true
+CR.blocks(::Saturation) = (1, 1)
 function CR.forward!(m::Saturation, ::CR.Step, v, s, t)
     for k in eachindex(v)
         v[k] = v[k] * m.κ / (m.κ + v[k])
@@ -143,7 +142,7 @@ The method is defined on a second type here so that the two can be timed against
 struct SaturationPullback{K}
     κ::K
 end
-CR.ispointwise(::SaturationPullback) = true
+CR.blocks(::SaturationPullback) = (1, 1)
 function CR.forward!(m::SaturationPullback, ::CR.Step, v, s, t)
     for k in eachindex(v)
         v[k] = v[k] * m.κ / (m.κ + v[k])
@@ -180,7 +179,7 @@ Its state starts at the last value of the history.
 struct Smooth{A}
     a::A
 end
-CR.ispointwise(::Smooth) = true
+CR.blocks(::Smooth) = (1, 1)
 function CR.forward!(m::Smooth, ::CR.Init, s, history)
     H = reshape(history, length(s), :)
     s .= view(H, :, size(H, 2))
@@ -248,7 +247,7 @@ For a `PerStratum` `b` the mirror entry is `(; x)`, and the cotangent of entry `
 struct Shift{B}
     b::B
 end
-CR.ispointwise(::Shift) = true
+CR.blocks(::Shift) = (1, 1)
 function CR.forward!(m::Shift, ::CR.Step, v, s, t)
     for k in eachindex(v)
         v[k] += CR.param(m.b, k, t)
@@ -358,7 +357,7 @@ where ``v_t`` is the value at step ``t`` and ``v'_t`` the value passed on.
 
 ```@example extending
 struct AddMean end
-CR.blocks(::AddMean) = Val((1, 2))
+CR.blocks(::AddMean) = (1, 2)
 function CR.forward!(::AddMean, ::CR.Step, v::Tuple, s::Tuple, t, g)
     total, n = s[1][] + v[1][], s[2][] + 1
     v[1][] += total / n
@@ -509,7 +508,7 @@ gradient(loss(r), backend, [0.3]) ≈
     gradient(loss(CR.NoAdjoint ∘ r), backend, [0.3])
 ```
 
-[`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs a backend's own rule tester on an operator.
+[Checking a rule](@ref adjoint-checks) runs a backend's own rule tester on an operator.
 [Testing and benchmarking](@ref testing) covers timing.
 
 ## [Performance](@id extending-performance)
@@ -557,7 +556,6 @@ A method for a narrower type replaces the general one for that type alone, so a 
 | a coupling with structure, such as low rank or banded | `forward!(C::MyCoupling, Pressure(), q, p, t)`, and its `pullback!` |
 | a modifier at one parameter form | `forward!(m::MyModifier{<:PerStratum}, Step(), v, s, t)` |
 | a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32, α::Float32)` |
-| how a loop over strata runs | an [`Executor`](@ref ComposableRecurrences.Executor) and its [`each!`](@ref ComposableRecurrences.each!) |
 
 A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
 

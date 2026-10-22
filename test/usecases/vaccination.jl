@@ -102,8 +102,8 @@ end
         d = CR.Depletion(
             N; pools = (S = rest - protected0, V = protected0), weights = (S = 1, V = σ)
         )
-        y, state = CR.with_state(
-            Recurrence(g; modifiers = (d,)), R; history = [float(n0)]
+        y, state = Recurrence(g; modifiers = (d,))(
+            R; history = [float(n0)], state = true
         )
         u∞, w∞ = state.states[1]
         @test y[end] < 1.0e-6

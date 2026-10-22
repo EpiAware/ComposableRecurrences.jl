@@ -62,7 +62,7 @@ end
     struct Cap{T}
         c::T
     end
-    CR.ispointwise(::Cap) = true
+    CR.blocks(::Cap) = (1, 1)
     function CR.forward!(m::Cap, ::CR.Step, v, s, t)
         for k in eachindex(v)
             v[k] = m.c * v[k] / (m.c + v[k])

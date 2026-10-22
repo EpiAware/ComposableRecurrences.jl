@@ -294,15 +294,15 @@ end
         TimeVarying(ones(5)); history = ones(3)
     )
     # A seed or a state, and a resumed call starts where it left off.
-    y, state = ComposableRecurrences.with_state(
-        Recurrence(g), ones(5); history = ones(3), stop = 2
+    y, state = Recurrence(g)(
+        ones(5); history = ones(3), stop = 2, state = true
     )
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), state)
     @test_throws "not both; got history = 3-element" Recurrence(g)(
         ones(5); history = ones(3), state
     )
     @test_throws "state.t = 3, not start = 4" Recurrence(g)(ones(5); state, start = 4)
-    @test Recurrence(g)(ones(5); state, start = 3) == Recurrence(g)(ones(5); state)
+    @test first(Recurrence(g)(ones(5); state, start = 3)) == first(Recurrence(g)(ones(5); state))
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), start = 0)
     @test_throws DimensionMismatch Recurrence(g; coupling = ones(3, 3))(
         ones(2, 5); history = ones(2, 3)
@@ -327,28 +327,28 @@ end
     R = 1 .+ rand(rng, S, T)
     ϵ = rand(rng, S, T)
     full = r(R; history = h, add = ϵ)
-    y1, state = CR.with_state(r, R; history = h, add = ϵ, stop = 4)
+    y1, state = r(R; history = h, add = ϵ, stop = 4, state = true)
     @test state isa ComposableRecurrences.State
     @test y1 ≈ full[:, 1:4]
     @test state.history ≈ full[:, 1:4]
     @test length(state.states) == 2
     @test state.t == 5
     # The resumed call reads the same full-length inputs from `state.t`.
-    y2 = r(R; state, add = ϵ)
+    y2, _ = r(R; state, add = ϵ)
     @test y2 ≈ full[:, 5:end]
 
     # Resuming twice matches as well, and a single series keeps its shape.
-    y2a, state2 = CR.with_state(r, R; state, add = ϵ, stop = 7)
-    y2b = r(R; state = state2, add = ϵ)
+    y2a, state2 = r(R; state, add = ϵ, stop = 7)
+    y2b, _ = r(R; state = state2, add = ϵ)
     @test hcat(y2a, y2b) ≈ full[:, 5:end]
 
     r1 = Recurrence([0.1, 0.2, 0.3, 0.4])
     h1 = rand(rng, 4)
     full1 = r1(R[1, :]; history = h1)
-    y, st = CR.with_state(r1, R[1, :]; history = h1, stop = 6)
+    y, st = r1(R[1, :]; history = h1, stop = 6, state = true)
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
-    @test r1(R[1, :]; state = st) ≈ full1[7:end]
+    @test first(r1(R[1, :]; state = st)) ≈ full1[7:end]
 end
 
 @testitem "Recurrence: a resumed state has nstate entries per modifier" begin
@@ -362,9 +362,9 @@ end
     @test CR.nstate(d, 2) == 4
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
     R, h = fill(1.1, 2, 6), ones(2, 2)
-    y, state = CR.with_state(r, R; history = h, stop = 3)
+    y, state = r(R; history = h, stop = 3, state = true)
     @test length.(state.states) == (2, 4)
-    @test r(R; state) ≈ r(R; history = h)[:, 4:end]
+    @test first(r(R; state)) ≈ r(R; history = h)[:, 4:end]
     # A state of the wrong length names the modifier and both lengths.
     bad = CR.State(state.history, (state.states[1], state.states[2][1:2]), state.t)
     err = try
@@ -397,9 +397,9 @@ end
     @test full ≈ vec(ref)
 
     # A resumed call continues at the state's next time.
-    y1, state = ComposableRecurrences.with_state(r, R; history = h, stop = 5)
+    y1, state = r(R; history = h, stop = 5, state = true)
     @test state.t == 6
-    @test r(R; state) ≈ full[6:end]
+    @test first(r(R; state)) ≈ full[6:end]
 
     # An explicit start reads the gain and time-varying slots from that
     # time, with the history holding the outputs just before it.
@@ -480,10 +480,12 @@ end
         seeded(h, R) = r(R; history = h, start, prepend = true)
         @test seeded(h, R) == expansion(h, R)
         @test CR.NoAdjoint(r)(R; history = h, start, prepend = true) ≈ expansion(h, R)
-        y, st = CR.with_state(r, R; history = h, start, prepend = true)
+        y, st = r(R; history = h, start, prepend = true, state = true)
         @test y == expansion(h, R)
         @test st.t == size(R, ndims(R)) + 1
-        yn, stn = @inferred CR.with_state(CR.NoAdjoint(r), R; history = h, start, prepend = true)
+        # `state = true` folds as a literal inside a function.
+        stated(op, R; kw...) = op(R; kw..., state = true)
+        yn, stn = @inferred stated(CR.NoAdjoint(r), R; history = h, start, prepend = true)
         @test yn ≈ y
         @test stn.history ≈ st.history && stn.t == st.t
         loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
@@ -495,7 +497,7 @@ end
         (2, 7)
     @test length(@inferred r(fill(1.8, 7); history = [1, 2], prepend = true)) == 9
     # There is nothing to prepend to a resumed call.
-    _, st = CR.with_state(r, ones(8); history = ones(3), stop = 4)
+    _, st = r(ones(8); history = ones(3), stop = 4, state = true)
     @test_throws "needs a history" r(ones(8); state = st, prepend = true)
     @test_throws TypeError r(ones(8); history = ones(3), prepend = 1)
 end
@@ -504,11 +506,11 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     r = Recurrence([0.5, 0.5])
-    _, st = CR.with_state(r, ones(6); history = ones(2), stop = 3)
+    _, st = r(ones(6); history = ones(2), stop = 3, state = true)
     for call in (
             () -> r(ones(6); history = ones(2), start = nothing),
             () -> r(ones(6); state = st, start = nothing),
-            () -> CR.with_state(r, ones(6); history = ones(2), start = nothing),
+            () -> r(ones(6); history = ones(2), start = nothing, state = true),
             () -> CR.forward(r, CR.Run(), ones(6); start = nothing),
         )
         @test_throws ArgumentError call()
@@ -597,7 +599,7 @@ end
     @test qv == [5.0, 11.0]
 end
 
-@testitem "Recurrence: forward(r, Run(), R) and with_state infer" begin
+@testitem "Recurrence: forward(r, Run(), R) and state = true infer" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences
     # The two entry points beside `r(R)`, with and without a history, for
@@ -607,10 +609,12 @@ end
         (Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]), fill(1.1, 2, 6), ones(2, 2)),
         (Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(100.0),)), fill(1.1, 6), ones(2)),
     )
+    # `state = true` folds as a literal inside a function.
+    stated(r, R; kw...) = r(R; kw..., state = true)
     for (r, R, h) in cases
         @test (@inferred CR.forward(r, CR.Run(), R)) isa Tuple
         @test (@inferred CR.forward(r, CR.Run(), R; history = h)) isa Tuple
-        @test (@inferred CR.with_state(r, R)) isa Tuple
-        @test (@inferred CR.with_state(r, R; history = h)) isa Tuple
+        @test (@inferred stated(r, R)) isa Tuple
+        @test (@inferred stated(r, R; history = h)) isa Tuple
     end
 end

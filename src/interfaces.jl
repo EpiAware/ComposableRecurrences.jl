@@ -31,7 +31,7 @@ end
 # Step on the whole vectors.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
-    ispointwise(m) || return true
+    _pointwise(m) || return true
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
     # A step that broadcasts against a length-S field cannot run on one
@@ -48,7 +48,7 @@ end
 
 # The vector Step of a blockwise modifier matches its group Step per group.
 _blocks_ok(piece, role, args) = true
-_blocks_ok(m, ::Step, args) = _groups_ok(blocks(m), m, args)
+_blocks_ok(m, ::Step, args) = _groups_ok(_blocks(m), m, args)
 _groups_ok(::Nothing, m, args) = true
 function _groups_ok(::Val{B}, m, args) where {B}
     nv, ns = B

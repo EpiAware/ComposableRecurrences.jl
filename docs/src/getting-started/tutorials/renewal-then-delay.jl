@@ -22,7 +22,7 @@
 
 using ComposableRecurrences
 using ComposableRecurrences: Depletion, Flow, Floor,
-    Add, exponential_history, with_state
+    Add, exponential_history
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 
@@ -203,13 +203,13 @@ round.((sum(admissions), sum(deaths)) ./ sum(infections); digits = 3)
 
 # ## Forecasting by continuing a run
 #
-# `with_state(renewal, R; history, stop = 50)` runs to day 50 and also returns a `State`.
+# `renewal(R; history, stop = 50, state = true)` runs to day 50 and also returns a `State`.
 # Here the state holds the infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
-# Passing it back as `state` continues the run; [History and state](@ref explanation-history-state) explains what a `State` holds.
+# Passing it back as `state` continues the run, and returns the next `State`; [History and state](@ref explanation-history-state) explains what a `State` holds.
 
 split = 50
-fitted, state = with_state(renewal, R; history = [5.0], stop = split)
-forecast = renewal(R; state)
+fitted, state = renewal(R; history = [5.0], stop = split, state = true)
+forecast, _ = renewal(R; state)
 @chain DataFrame(day = 1:T, count = vcat(fitted, forecast)) begin
     @transform(:series = ifelse.(:day .<= split, "Fitted", "Forecast"))
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2) +
