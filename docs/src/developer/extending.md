@@ -427,7 +427,7 @@ Interfaces.test(
         Arguments(; piece = Smooth(0.3), role = CR.Step(), args = ([1.0, 2.0], [0.5, 0.5], 1)),
         Arguments(;
             piece = Smooth(0.3), role = CR.Trace(),
-            args = ((zeros(2), zeros(2)), [1.0, 2.0], [0.5, 0.5], [0.65, 0.95], [0.65, 0.95], 1),
+            args = ((zeros(2), zeros(2)), [1.0, 2.0], [0.5, 0.5], [0.85, 1.55], [0.85, 1.55], 1),
         ),
     ]
 )
@@ -474,7 +474,7 @@ gradient(loss(r), backend, [0.3]) ≈
 - [Rule timings](@ref rule-timings) gives the cost of a missing `pullback!`.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
-The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
+The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
 It times plain AD of the whole operator, the rule with `forward!` only, and the rule with the `pullback!`.
 
 ```@example extending
@@ -498,7 +498,7 @@ end # hide
 ```
 
 The local step evaluates `forward!` once per step with dual numbers, so its cost follows the cost of `forward!`.
-For a map as cheap as that one there is little for a `pullback!` to save.
+For a map as cheap as the saturation there is little for a `pullback!` to save.
 Write `forward!` first, and add a `pullback!` when timing shows the modifier's local step matters.
 
 ## [Specialising for speed](@id specialising)
