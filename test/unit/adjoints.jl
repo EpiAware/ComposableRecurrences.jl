@@ -2379,7 +2379,7 @@ end
 @testitem "Adjoint: a call with its trace against ForwardDiff" setup = [AdjointCheck] begin
     using ComposableRecurrences
     # The trace's cotangent through the records, for each modifier's own
-    # trace and the default, with `with_state` too.
+    # trace and the default, with `state = true` too.
     # A pointwise modifier whose state decays and gathers what passes it.
     struct Decay{A}
         a::A

@@ -232,4 +232,11 @@ end
         ValShape(), 2
     )
     @test !CR.ispointwise(ValShape())
+    # A `(1, 1)` shape is pointwise, so a group step alone is not called.
+    struct GroupOnly end
+    CR.blocks(::GroupOnly) = (1, 1)
+    CR.forward!(::GroupOnly, ::CR.Step, v::Tuple, s::Tuple, t, g) = nothing
+    @test_throws "has blocks (1, 1), so it is pointwise" CR.forward!(
+        GroupOnly(), CR.Step(), [1.0], [0.0], 1
+    )
 end

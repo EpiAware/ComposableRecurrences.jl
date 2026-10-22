@@ -199,7 +199,7 @@ The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each
 
 These names are for writing a new coupling, modifier or depletion form, and for checking its gradient.
 A model built from the package's own parts needs none of them.
-[Writing new types](@ref extending) gives the contract and an example for each role, and the [`each!`](@ref ComposableRecurrences.each!) docstring gives the contract of an executor.
+[Writing new types](@ref extending) gives the contract and an example for each role.
 
 | Name | What it does | Returns |
 |---|---|---|

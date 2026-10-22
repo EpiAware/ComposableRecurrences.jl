@@ -662,6 +662,14 @@ function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
+    blocks(m) === (1, 1) && throw(
+        ArgumentError(
+            "$(typeof(m)) has blocks (1, 1), so it is pointwise and " *
+                "needs forward!(m, Step(), v, s, t); a group step " *
+                "forward!(m, Step(), v, s, t, g) is called only for " *
+                "another shape"
+        )
+    )
     throw(
         ArgumentError(
             "$(typeof(m)) has no forward!(m, Step(), v, s, t), and is not " *
