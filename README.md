@@ -41,7 +41,7 @@ one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
 
 ### Three towns and a gravity coupling
 
-A gravity coupling $K$ mixes the towns, from populations $N_j$ and distances $d_{ij}$:
+A gravity coupling $K$ mixes the towns through gravity weights $G_{ij}$, from populations $N_j$ and distances $d_{ij}$:
 
 ```math
 I_{t,i} = R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j},
@@ -50,6 +50,8 @@ K_{ij} = 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}},
 \qquad
 G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j.
 ```
+
+Here $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
 
 ```julia
 pop = [60_000.0, 25_000.0, 10_000.0]
@@ -60,13 +62,15 @@ K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; di
 
 ### Depletion
 
-Each town's pool $s_{t,i}$ starts at $N_i$, and $v_{t,i}$, the right-hand side of the coupled equation, draws from it:
+Each town's pool $s_{t,i}$ starts at $N_i$, and $v_{t,i}$, the right-hand side of the coupled equation, draws from it at hazard $\lambda_{t,i}$:
 
 ```math
 \lambda_{t,i} = \frac{v_{t,i}}{N_i}, \qquad
 I_{t,i} = s_{t-1,i} \big(1 - e^{-\lambda_{t,i}}\big), \qquad
 s_{t,i} = s_{t-1,i} \, e^{-\lambda_{t,i}}.
 ```
+
+The `seed` history gives town A 10 infections on each of the six days before the run, and the other towns none.
 
 ```julia
 using ComposableRecurrences: Depletion
