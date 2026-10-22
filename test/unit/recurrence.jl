@@ -355,8 +355,8 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     d = CR.Depletion(
-        100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+        100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
     @test CR.nstate(d, 2) == 4

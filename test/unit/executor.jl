@@ -243,10 +243,9 @@ end
         Recurrence(
             g; modifiers = (
                 CR.Depletion(
-                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-                    flows = (
-                        CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
-                    )
+                    1.0e3, CR.Hazard(; weights = (S = 1, V = 0.3)),
+                    CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate());
+                    pools = (:S, :V)
                 ),
             )
         ),
@@ -259,10 +258,9 @@ end
         Recurrence(
             g; modifiers = (
                 CR.Depletion(
-                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-                    flows = (
-                        CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate()),
-                    )
+                    1.0e3, CR.Hazard(; weights = (S = 1, V = 0.3)),
+                    CR.Flow(1 => 2, TimeVarying(fill(2.0, T)); form = CR.Truncate());
+                    pools = (:S, :V)
                 ),
                 CR.Allocate([1:3, 4:7], TimeVarying(PerStratum(fill(5.0, 2, T)))),
             )
