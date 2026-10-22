@@ -9,9 +9,9 @@
     # Was `Flows(Flow(1 => 2, 0.3), Flow(1 => 0, 0.4), Flow(2 => 0, 0.1))`,
     # each a `Rate`, then `Pool(; pools = (:U, :C), draw = nothing, ...)`; a
     # bare demand is still a hazard rate.
-    ward = CR.Depletion(;
-        pools = (:U, :C), form = nothing,
-        flows = (CR.Flow(:U => :C, 0.3), CR.Flow(:U => 0, 0.4), CR.Flow(:C => 0, 0.1))
+    ward = CR.Depletion(
+        CR.Flow(:U => :C, 0.3), CR.Flow(:U => 0, 0.4), CR.Flow(:C => 0, 0.1);
+        pools = (:U, :C)
     )
     r = Recurrence([1.0]; modifiers = (ward,))
     admitted = [fill(10.0, 1, 4); zeros(1, 4)]
@@ -31,16 +31,13 @@ end
     # Was `Flows` with `Flow(1 => 0, Linear(TimeVarying(fill(0.1, 6))))` and
     # `Flow(2 => 0, Amount(TimeVarying(PerStratum(fill(0.5, 2, 6)))))`, then
     # `Pool(; pools = 2, draw = nothing, ...)`.
-    ward = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, PerStratum([0.3, 0.2])),
-            CR.Flow(1 => 0, TimeVarying(fill(0.1, 6)); form = CR.Share()),
-            CR.Flow(2 => 0, 0.1),
-            CR.Flow(
-                2 => 0, TimeVarying(PerStratum(fill(0.5, 2, 6)));
-                form = CR.Truncate()
-            ),
-        )
+    ward = CR.Depletion(
+        CR.Flow(1 => 2, PerStratum([0.3, 0.2])),
+        CR.Flow(1 => 0, TimeVarying(fill(0.1, 6)); form = CR.Share()),
+        CR.Flow(2 => 0, 0.1),
+        CR.Flow(
+            2 => 0, TimeVarying(PerStratum(fill(0.5, 2, 6))); form = CR.Truncate()
+        ); pools = (:A, :B)
     )
     adm = [
         10.0 8.0 6.0 4.0 2.0 1.0; 5.0 5.0 5.0 5.0 5.0 5.0;
@@ -71,11 +68,10 @@ end
     end
     # Was `Flow(1 => 0, Linear(θ[2]))` and `Flow(2 => 0, Amount(θ[4]))`.
     function run(θ)
-        fl = CR.Depletion(;
-            pools = (:A, :B), form = nothing, flows = (
-                CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                CR.Flow(2 => 0, θ[3]), CR.Flow(2 => 0, θ[4]; form = CR.Truncate()),
-            )
+        fl = CR.Depletion(
+            CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+            CR.Flow(2 => 0, θ[3]), CR.Flow(2 => 0, θ[4]; form = CR.Truncate());
+            pools = (:A, :B)
         )
         r = Recurrence([1.0]; modifiers = (fl,))
         return r(; history = zeros(2, 1), add = [fill(10.0, 1, 8); zeros(1, 8)])
@@ -86,10 +82,10 @@ end
     ] rtol = 1.0e-10
     # Was `Depletion(1000.0; removals = 3.0, flows = (Flow(1 => 0, 0.01),
     # Flow(1 => 0, Linear(0.002))))`, then a `Pool` with the removals as its
-    # first flow.
+    # first flow, then the keyword `removals`.
     d = CR.Depletion(
-        1000.0; removals = 3.0,
-        flows = (CR.Flow(:S => 0, 0.01), CR.Flow(:S => 0, 0.002; form = CR.Share()))
+        1000.0, CR.Hazard(), CR.Flow(:S => 0, 3.0; form = CR.Truncate()),
+        CR.Flow(:S => 0, 0.01), CR.Flow(:S => 0, 0.002; form = CR.Share())
     )
     y = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))(fill(2.0, 8); history = [5.0])
     @test y ≈ [
@@ -99,14 +95,14 @@ end
     # Was `Depletion(100.0, Truncate(); removals = 3.0, protected =
     # Protected(0.2), flows = (Flow(2 => 1, Linear(0.05)),
     # Flow(2 => 0, Amount(1.0))))`, then a `Pool` with the removals as a
-    # flow into its second pool. The pool is small enough that the draw binds
-    # from the seventh step.
+    # flow into its second pool, then the keywords `protected` and
+    # `removals`. The pool is small enough that the draw binds from the
+    # seventh step.
     d = CR.Depletion(
-        100.0; form = CR.Truncate(), protected = 0.2, removals = 3.0,
-        flows = (
-            CR.Flow(:V => :S, 0.05; form = CR.Share()),
-            CR.Flow(:V => 0, 1.0; form = CR.Truncate()),
-        )
+        100.0, CR.Truncate(; weights = (S = 1, V = 0.2)),
+        CR.Flow(:S => :V, 3.0; form = CR.Truncate()),
+        CR.Flow(:V => :S, 0.05; form = CR.Share()),
+        CR.Flow(:V => 0, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
     y, st = CR.with_state(r, fill(2.0, 8); history = [5.0])
@@ -121,10 +117,13 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     # Each was then a `Pool` with two pools and the removals as a flow into
-    # the second.
-    leaky(N, σ, doses, flows...; pools = nothing, form = CR.Hazard()) = CR.Depletion(
-        N; pools, form, protected = σ, removals = doses, flows
-    )
+    # the second, then the keywords `protected` and `removals`.
+    function leaky(N, σ, doses, flows...; pools = (:S, :V), form = CR.Hazard)
+        return CR.Depletion(
+            N, form(; weights = (S = 1, V = σ)),
+            CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...; pools
+        )
+    end
     g = [0.3, 0.5, 0.2]
     # Was `Depletion(1000.0; removals = TimeVarying(fill(5.0, 10)),
     # protected = Protected(0.3))`.
@@ -150,7 +149,7 @@ end
     # pool0 = PerStratum([50.0, 100.0])))`.
     d = leaky(
         PerStratum([500.0, 800.0]), PerStratum([0.0, 0.5]), PerStratum([4.0, 6.0]);
-        pools = (S = nothing, V = PerStratum([50.0, 100.0])), form = CR.Floor()
+        pools = (S = nothing, V = PerStratum([50.0, 100.0])), form = CR.Floor
     )
     y = Recurrence(g; modifiers = (d,))(fill(2.0, 2, 8); history = [5.0 4.0; 3.0 2.0])
     @test y[1, :] ≈ [
@@ -175,11 +174,12 @@ end
 @testitem "Use case: a Depletion filling a pool gives the values of Capacity with Beds" tags = [:usecase] setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
-    # Each was then a `Pool` with the draw `form => :O`.
-    function beds(C, δ; overflow = :stratum, form = CR.Truncate(), initial = nothing)
+    # Each was then a `Pool` with the draw `form => :O`, then the keywords
+    # `fill`, `flows_first` and `overflow`.
+    function beds(C, δ; overflow = :stratum, form = CR.Truncate, initial = nothing)
         return CR.Depletion(
-            C; pools = (O = initial,), form, fill = :O,
-            flows = CR.Flow(:O => 0, δ; form = CR.Share()), flows_first = true, overflow
+            C, CR.Flow(:O => 0, δ; form = CR.Share()), form(; into = :O, overflow);
+            pools = (O = initial,)
         )
     end
     # Was `Capacity(10.0, Beds(0.1); pairs = [1 => 2])`.
@@ -198,7 +198,8 @@ end
     C = [5.0 5.0 4.0 4.0 6.0 6.0; 3.0 3.0 3.0 2.0 2.0 2.0]
     m = beds(
         TimeVarying(PerStratum(C)), PerStratum([0.2, 0.3]);
-        form = CR.SoftTruncate(0.1), initial = PerStratum([2.0, 1.0])
+        form = (; kw...) -> CR.SoftTruncate(0.1; kw...),
+        initial = PerStratum([2.0, 1.0])
     )
     dem = [
         4.0 3.0 5.0 6.0 2.0 1.0; 2.0 2.0 2.0 2.0 2.0 2.0;
@@ -256,9 +257,10 @@ end
     starts = [rem(t - 1, 7) == 0 for t in 1:14]
     grant = CR.Flow(0 => :B, TimeVarying(5.0 .* starts); form = CR.Truncate())
     reset = CR.Flow(:B => 0, TimeVarying(float.(starts)); form = CR.Share())
-    # Each was then a `Pool` with the draw `:B => Truncate()`.
-    budget(flows; pools = (:B,)) = CR.Depletion(;
-        pools, form = CR.Truncate(), flows, flows_first = true, overflow = :stratum
+    # Each was then a `Pool` with the draw `:B => Truncate()`, then the
+    # keywords `flows_first` and `overflow`.
+    budget(flows...; pools = (:B,)) = CR.Depletion(
+        flows..., CR.Truncate(; overflow = :stratum); pools
     )
     demand = [fill(0.5, 1, 7) fill(2.0, 1, 7); zeros(1, 14)]
     run(m) = Recurrence([0.0]; modifiers = (m,))(; history = zeros(2, 1), add = demand)
@@ -268,17 +270,17 @@ end
         0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.5 2.0 2.0 2.0
     ]
     # Was `Capacity(5.0, Budget(7; carry_over = false); pairs = [1 => 2])`.
-    @test run(budget((reset, grant))) == [
+    @test run(budget(reset, grant)) == [
         0.5 0.5 0.5 0.5 0.5 0.5 0.5 2.0 2.0 1.0 0.0 0.0 0.0 0.0;
         0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0 2.0 2.0 2.0 2.0
     ]
     # Was `Capacity(5.0, Budget(Inf); pairs = [1 => 2])`.
-    @test run(budget((); pools = (B = 5.0,))) == [
+    @test run(budget(; pools = (B = 5.0,))) == [
         0.5 0.5 0.5 0.5 0.5 0.5 0.5 1.5 0.0 0.0 0.0 0.0 0.0 0.0;
         0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.5 2.0 2.0 2.0 2.0 2.0 2.0
     ]
     # Was `Capacity(2.0, Budget(Inf); pairs = [1], overflow = Drop())`.
-    doses = CR.Depletion(; pools = (B = 2.0,), form = CR.Truncate())
+    doses = CR.Depletion(CR.Truncate(); pools = (B = 2.0,))
     @test Recurrence([0.0]; modifiers = (doses,))(; history = [0.0], add = [1.5, 1.5]) ==
         [1.5, 0.5]
 end

@@ -31,8 +31,8 @@
         rv = Recurrence(
             g; modifiers = (
                 CR.Depletion(
-                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-                    flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
+                    1.0e3, CR.Hazard(; weights = (S = 1, V = 0.3)),
+                    CR.Flow(1 => 2, doses; form = CR.Truncate()); pools = (:S, :V)
                 ),
             )
         )
@@ -41,8 +41,8 @@
         rva = Recurrence(
             g; modifiers = (
                 CR.Depletion(
-                    1.0e3; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-                    flows = (CR.Flow(1 => 2, doses; form = CR.Truncate()),)
+                    1.0e3, CR.Hazard(; weights = (S = 1, V = 0.3)),
+                    CR.Flow(1 => 2, doses; form = CR.Truncate()); pools = (:S, :V)
                 ),
                 CR.Allocate([1:3, 4:6], totals),
             )
@@ -71,7 +71,7 @@
             g, R = split(θ, L + 1)
             r = Recurrence(
                 g[1:L]; modifiers = (
-                    CR.Depletion(1.0e3; form = CR.Floor()), CR.Add(g[L + 1]),
+                    CR.Depletion(1.0e3, CR.Floor()), CR.Add(g[L + 1]),
                 )
             )
             return sum(w .* r(R; history = seed))

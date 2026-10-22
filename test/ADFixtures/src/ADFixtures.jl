@@ -36,17 +36,31 @@ export scenarios, backends, broken_scenario_names,
 const IN_PLACE = isdefined(ComposableRecurrences, :forward!)
 
 # A `Depletion` with a form and a starting pool, spelled as the loaded release
-# takes it: by keyword since `Depletion` became the one pool type, and as a
-# positional form with `pool0` before.
-const KEYWORD_DEPLETION = try
-    ComposableRecurrences.Depletion(1.0; form = ComposableRecurrences.Hazard())
-    true
-catch
-    false
-end
+# takes it: as a draw and flows since `Depletion` took its pieces, with the
+# exponent held by the form and removals a count out of the pool after the
+# draw, and as a positional form with `pool0` before.
+const PIECE_DEPLETION =
+    :α in fieldnames(Base.unwrap_unionall(ComposableRecurrences.Hazard))
 function depletion(N; form = ComposableRecurrences.Hazard(), pool0 = nothing, kw...)
-    KEYWORD_DEPLETION || return ComposableRecurrences.Depletion(N, form; pool0, kw...)
-    return ComposableRecurrences.Depletion(N; form, pools = (S = pool0,), kw...)
+    PIECE_DEPLETION || return ComposableRecurrences.Depletion(N, form; pool0, kw...)
+    return _piece_depletion(N, form, pool0; kw...)
+end
+function _piece_depletion(
+        N, form, pool0; heterogeneity = nothing, removals = nothing
+    )
+    return ComposableRecurrences.Depletion(
+        N, _with_exponent(form, heterogeneity), _removals(removals)...;
+        pools = (S = pool0,)
+    )
+end
+_with_exponent(form, α) = _exponent_of(form, α)
+_with_exponent(form, ::Nothing) = form
+_exponent_of(::ComposableRecurrences.Hazard, α) = ComposableRecurrences.Hazard(α)
+_exponent_of(::ComposableRecurrences.Floor, α) = ComposableRecurrences.Floor(α)
+_removals(::Nothing) = ()
+function _removals(r)
+    CR = ComposableRecurrences
+    return (CR.Flow(:S => 0, r; form = CR.Truncate()),)
 end
 
 # A `forward!` method that writes in place on every release, an `Init` or a
@@ -434,8 +448,8 @@ end
 function _leaky(N, doses, σ, flows...)
     CR = ComposableRecurrences
     return CR.Depletion(
-        N; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = σ),
-        flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
+        N, CR.Hazard(; weights = (S = 1, V = σ)),
+        CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...; pools = (:S, :V)
     )
 end
 
@@ -454,9 +468,10 @@ end
 # as negative removals. The default pool is the population at time 1.
 function _turnover(w, θ)
     logh, logR, logN, births = _unpack(θ, (S, L), (S, T), (S, L + T), (S, L + T))
-    d = ComposableRecurrences.Depletion(
-        TimeVarying(PerStratum(exp.(logN)));
-        removals = TimeVarying(PerStratum(-births))
+    CR = ComposableRecurrences
+    d = CR.Depletion(
+        TimeVarying(PerStratum(exp.(logN))), CR.Hazard(),
+        CR.Flow(:S => 0, TimeVarying(PerStratum(-births)); form = CR.Truncate())
     )
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -495,11 +510,28 @@ function _many_flows(w, θ)
     logh, logR, logρ = _unpack(θ, (S, L), (S, T), (NFLOWS,))
     fs = ntuple(i -> _ring_flow(logρ, i), Val(NFLOWS))
     d = ComposableRecurrences.Depletion(
-        PerStratum(POP); pools = NamedTuple{RING}(RING0), flows = fs
+        PerStratum(POP), ComposableRecurrences.Hazard(), fs...;
+        pools = NamedTuple{RING}(RING0)
     )
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
+end
+
+# Two draws on one pool with a share leaving it between them: the hazard
+# draw at a differentiated exponent passes its value on to a floored draw.
+# The parameters are offsets from `TWOD0`, so the scenario starts at zero.
+const TWOD0 = _flat([1.2, 0.05], fill(log(5.0), L), 0.3 .+ LOGR[1, :])
+function _two_draws(w, θ)
+    x = TWOD0 .+ θ
+    logh, logR = _unpack(view(x, 3:length(x)), (L,), (T,))
+    CR = ComposableRecurrences
+    d = CR.Depletion(
+        60.0, CR.Hazard(x[1]), CR.Flow(:S => 0, x[2]; form = CR.Share()), CR.Floor();
+        pools = (S = 50.0,)
+    )
+    y = w(Recurrence(G0; modifiers = (d,)))(exp.(logR); history = exp.(logh))
+    return sum(W1 .* log.(y))
 end
 
 # Wards in each stratum: suspected patients (compartment 1) are confirmed
@@ -616,16 +648,15 @@ end
 function _beds(C, δ, κ)
     CR = ComposableRecurrences
     return CR.Depletion(
-        C; pools = (:O,), form = CR.SoftTruncate(κ), fill = :O, flows_first = true,
-        flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow = :stratum
+        C, CR.Flow(:O => 0, δ; form = CR.Share()),
+        CR.SoftTruncate(κ; into = :O, overflow = :stratum); pools = (:O,)
     )
 end
 function _budget(init, grants)
     CR = ComposableRecurrences
-    return CR.Depletion(;
-        pools = (B = PerStratum(init),), form = CR.Truncate(),
-        flows_first = true, overflow = :queue,
-        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    return CR.Depletion(
+        CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate()),
+        CR.Truncate(; overflow = :queue); pools = (B = PerStratum(init),)
     )
 end
 
@@ -663,9 +694,8 @@ function _capacity_drop(w, θ)
     CR = ComposableRecurrences
     pool = depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
     beds = CR.Depletion(
-        PerStratum(exp.(x[(n - 2):n])); pools = (:O,),
-        form = CR.SoftTruncate(0.2), fill = :O, flows_first = true,
-        flows = CR.Flow(:O => 0, 0.3; form = CR.Share())
+        PerStratum(exp.(x[(n - 2):n])), CR.Flow(:O => 0, 0.3; form = CR.Share()),
+        CR.SoftTruncate(0.2; into = :O); pools = (:O,)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -868,11 +898,13 @@ end
 # Ring vaccination: removals from the susceptible pool scale with the sum of
 # the last week's cases. The scale is read from `θ` directly: Enzyme reverse
 # finds no shadow for a scalar read from a reshaped view of `θ` and passed
-# through the `Depletion` keyword constructor.
+# through the `Depletion` constructor.
 function _recent_removals(w, θ)
     logh, logR = _unpack(view(θ, 2:length(θ)), (S, 7), (S, T))
-    dep = ComposableRecurrences.Depletion(
-        PerStratum(10 .* POP); removals = θ[1] * ComposableRecurrences.Recent(7)
+    CR = ComposableRecurrences
+    dep = CR.Depletion(
+        PerStratum(10 .* POP), CR.Hazard(),
+        CR.Flow(:S => 0, θ[1] * CR.Recent(7); form = CR.Truncate())
     )
     r = Recurrence(G0; coupling = K0, modifiers = (dep,))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -990,16 +1022,13 @@ end
 # The ward, built behind a call as the capacity pools are.
 function _ward(confirm, ruleout, discharge, transfer)
     CR = ComposableRecurrences
-    return CR.Depletion(;
-        pools = (:suspected, :confirmed), form = nothing, flows = (
-            CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
-            CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
-            CR.Flow(:confirmed => 0, discharge),
-            CR.Flow(
-                :confirmed => 0, TimeVarying(PerStratum(transfer));
-                form = CR.Truncate()
-            ),
-        )
+    return CR.Depletion(
+        CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
+        CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
+        CR.Flow(:confirmed => 0, discharge),
+        CR.Flow(
+            :confirmed => 0, TimeVarying(PerStratum(transfer)); form = CR.Truncate()
+        ); pools = (:suspected, :confirmed)
     )
 end
 
@@ -1009,10 +1038,9 @@ function _trace_budget(w, θ)
     logh, logR, logb, init = _unpack(CAPB0 .+ θ, (S, L), (S, T), (S, L + T), (S,))
     CR = ComposableRecurrences
     grants = WEEKS .* exp.(logb)
-    doses = CR.Depletion(;
-        pools = (B = PerStratum(collect(init)),), form = CR.Truncate(),
-        flows_first = true, overflow = :queue,
-        flows = CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate())
+    doses = CR.Depletion(
+        CR.Flow(0 => :B, TimeVarying(PerStratum(grants)); form = CR.Truncate()),
+        CR.Truncate(; overflow = :queue); pools = (B = PerStratum(collect(init)),)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
     y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
@@ -1077,6 +1105,10 @@ const _SCENARIOS = [
     (
         "Recurrence pool with twelve flows (over 32 leaves)", _many_flows,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, log.(0.02 .+ 0.01 .* (1:NFLOWS))),
+    ),
+    (
+        "Recurrence two draws on one pool with a flow between", _two_draws,
+        () -> zeros(length(TWOD0)),
     ),
     (
         "Recurrence ward with competing flows (Depletion without a draw)", _ward,
@@ -1429,12 +1461,23 @@ const _PROBES = Dict{Symbol, Function}(
         () -> Recurrence(TimeVarying(ones(1, 2), ComposableRecurrences.Primary()))
     ),
     :removals => () -> _accepts(
-        () -> ComposableRecurrences.Depletion(1.0; removals = 1.0)
+        () -> ComposableRecurrences.Depletion(
+            1.0, ComposableRecurrences.Hazard(),
+            ComposableRecurrences.Flow(
+                :S => 0, 1.0; form = ComposableRecurrences.Truncate()
+            )
+        )
     ),
     # A `Depletion` whose draw fills a pool up to a capacity.
     :pool_fill => () -> _accepts(
         () -> ComposableRecurrences.Depletion(
-            1.0; pools = (:O,), form = ComposableRecurrences.Truncate(), fill = :O
+            1.0, ComposableRecurrences.Truncate(; into = :O); pools = (:O,)
+        )
+    ),
+    # A `Depletion` built from its pieces, two draws among them.
+    :depletion_pieces => () -> _accepts(
+        () -> ComposableRecurrences.Depletion(
+            1.0, ComposableRecurrences.Hazard(), ComposableRecurrences.Floor()
         )
     ),
     # A `Depletion` holding its pools' names and starting values together.
@@ -1476,6 +1519,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence waning protection (Depletion flows)" => (:depletion_pools,),
     "Recurrence protected pool in Float32" => (:depletion_pools,),
     "Recurrence pool with twelve flows (over 32 leaves)" => (:depletion_pools,),
+    "Recurrence two draws on one pool with a flow between" => (:depletion_pieces,),
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
