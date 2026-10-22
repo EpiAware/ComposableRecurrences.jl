@@ -127,7 +127,6 @@ function _pullback_ok(x, role::Union{Step, Pressure}, args)
     first(args) isa AbstractVector || return true
     return _pullback_matches(x, role, args)
 end
-_pullback_matches(x, role, args) = true
 # A modifier's step: inputs and outputs `v` and `s`, with the pullback
 # the rule calls on the whole vectors (per group for a blockwise one).
 function _pullback_matches(m, ::Step, args::Tuple{Any, Any, Any})
@@ -147,7 +146,7 @@ function _pullback_matches(m, ::Step, args::Tuple{Any, Any, Any})
 end
 # A depletion form's draw: inputs `v`, `s`, `N` and `α`, outputs `v` and
 # `s`; the cotangents of the scalars `N` and `α` arrive indexed as `v`.
-function _pullback_matches(f, ::Step, args::Tuple{Any, Any, Real, Real})
+function _pullback_matches(f, ::Step, args::Tuple{Any, Any, Any, Any})
     v, s, N, α = float(copy(args[1])), float(copy(args[2])), args[3], args[4]
     θ, n = _params(f), length(v)
     P = length(θ)
@@ -195,17 +194,18 @@ end
 # A cotangent with distinct entries of both signs, the same on every call.
 _probe_cotangent(n) = [cospi(0.37 * i + 0.1) for i in 1:n]
 
+# The float matrices whose mirror holds their fields' mirrors.
+const _StructMatrix = Union{
+    Diagonal{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat},
+}
+
 # A zeroed mirror of `x`, as the extending guide's gradient mirror gives
 # it: a `Ref` for a float scalar, an array for a float array, a NamedTuple of
 # its fields' mirrors for a struct (a sparse or `Diagonal` matrix included)
 # and `nothing` for anything without a cotangent.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
-function _zero_mirror(
-        x::Union{Diagonal{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat}}
-    )
-    return _struct_mirror(x)
-end
+_zero_mirror(x::_StructMatrix) = _struct_mirror(x)
 _zero_mirror(::_Leafless) = nothing
 _zero_mirror(x::Union{Tuple, NamedTuple}) = map(_zero_mirror, x)
 _zero_mirror(x) = isstructtype(typeof(x)) ? _struct_mirror(x) : nothing
