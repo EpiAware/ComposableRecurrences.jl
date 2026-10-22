@@ -60,10 +60,13 @@ _as_forward(x::Expr) = Expr(x.head, map(_as_forward, x.args)...)
 
 # A pointwise modifier, declared as the loaded release takes it: `blocks`
 # `(1, 1)` where `ispointwise` follows from `blocks`, and `ispointwise`
-# before. The probe asks the release itself.
+# before. The probe asks the release itself; a release without `blocks`
+# takes `ispointwise`.
 struct _BlocksProbe end
-ComposableRecurrences.blocks(::_BlocksProbe) = (1, 1)
-const POINTWISE_BLOCKS = ComposableRecurrences.ispointwise(_BlocksProbe())
+const POINTWISE_BLOCKS = isdefined(ComposableRecurrences, :blocks) && begin
+    @eval ComposableRecurrences.blocks(::_BlocksProbe) = (1, 1)
+    Base.invokelatest(ComposableRecurrences.ispointwise, _BlocksProbe())
+end
 macro pointwise(T)
     POINTWISE_BLOCKS && return :($ComposableRecurrences.blocks(::$(esc(T))) = (1, 1))
     return :($ComposableRecurrences.ispointwise(::$(esc(T))) = true)
