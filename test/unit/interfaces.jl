@@ -147,7 +147,7 @@ end
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     struct Halving end
-    CR.ispointwise(::Halving) = true
+    CR.blocks(::Halving) = (1, 1)
     function CR.forward!(::Halving, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] / 2, s[k]
@@ -171,7 +171,7 @@ end
     CR.uses_adjoint(::Halving, ::CR.Step) = true
     @test Interfaces.test(CR.PieceInterface, Halving, (obj,); show = false)
     struct Third end
-    CR.ispointwise(::Third) = true
+    CR.blocks(::Third) = (1, 1)
     function CR.forward!(::Third, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] / 3, s[k]
@@ -194,7 +194,7 @@ end
     CR = ComposableRecurrences
     # A step that returns its new value and state instead of writing them.
     struct Returning end
-    CR.ispointwise(::Returning) = true
+    CR.blocks(::Returning) = (1, 1)
     CR.forward!(::Returning, ::CR.Step, v, s, t) = (2 * first(v), first(s))
     r = Recurrence([0.5, 0.5]; modifiers = (Returning(),))
     @test_throws ArgumentError r(ones(4); history = ones(2))
@@ -213,7 +213,7 @@ end
     CR = ComposableRecurrences
     # A pointwise trace: a tuple of one series per value, by stratum.
     struct Gap end
-    CR.ispointwise(::Gap) = true
+    CR.blocks(::Gap) = (1, 1)
     CR.ntrace(::Gap, S) = S
     function CR.forward!(::Gap, ::CR.Trace, r, v, s, v′, s′, t)
         gap = only(r)
@@ -227,7 +227,7 @@ end
     @test Interfaces.test(CR.PieceInterface, Gap, (obj,); show = false)
     # A blockwise group's trace, on one-entry values read as `x[]`.
     struct GroupGap end
-    CR.blocks(::GroupGap) = Val((1, 1))
+    CR.blocks(::GroupGap) = (1, 1)
     function CR.forward!(
             ::GroupGap, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple,
             s′::Tuple, t, g
@@ -270,7 +270,7 @@ end
     struct Looping{A}
         a::A
     end
-    CR.ispointwise(::Union{Broadcasting, Looping}) = true
+    CR.blocks(::Union{Broadcasting, Looping}) = (1, 1)
     function CR.forward!(m::Broadcasting, ::CR.Step, v, s, t)
         w = m.a .* v
         s .+= w
@@ -305,7 +305,7 @@ end
     b .= 2 .* a
     fill!(a, 4.0)
     struct Broadcasting end
-    CR.ispointwise(::Broadcasting) = true
+    CR.blocks(::Broadcasting) = (1, 1)
     function CR.forward!(::Broadcasting, ::CR.Step, v, s, t)
         w = 0.5 .* v
         s .+= w
@@ -313,7 +313,7 @@ end
         return nothing
     end
     struct Looping end
-    CR.ispointwise(::Looping) = true
+    CR.blocks(::Looping) = (1, 1)
     function CR.forward!(::Looping, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] *= 0.5
@@ -345,7 +345,7 @@ end
     struct Weights{W}
         w::W
     end
-    CR.ispointwise(::Weights) = true
+    CR.blocks(::Weights) = (1, 1)
     function CR.forward!(m::Weights, ::CR.Step, v, s, t)
         v .*= m.w
         return nothing
@@ -375,7 +375,7 @@ end
     @test Interfaces.test(CR.PieceInterface{(:nstate,)}, CR.Depletion, objs; show = false)
     # A pointwise modifier that claims more than one entry per stratum fails.
     struct DoubleState end
-    CR.ispointwise(::DoubleState) = true
+    CR.blocks(::DoubleState) = (1, 1)
     CR.nstate(::DoubleState, S) = 2S
     function CR.forward!(m::DoubleState, ::CR.Step, v, s, t)
         for k in eachindex(v)
@@ -499,7 +499,7 @@ end
     # A pointwise modifier, a blockwise one and a depletion form, each with
     # an in-place step and pullback, run through the generic kernels.
     struct Halve end
-    CR.ispointwise(::Halve) = true
+    CR.blocks(::Halve) = (1, 1)
     function CR.forward!(::Halve, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] / 2, s[k] + v[k] / 2
@@ -517,7 +517,7 @@ end
     pointwise = (; piece = nothing, v = 1.0, s = 1.0)
     @test CR._step_back(pointwise, Halve(), 2.0, 1.0, 1, 3) == (1.0, 1.0)
     struct Swap end
-    CR.blocks(::Swap) = Val((2, 0))
+    CR.blocks(::Swap) = (2, 0)
     function CR.forward!(::Swap, ::CR.Step, v::Tuple, s::Tuple, t, g)
         v[1][], v[2][] = v[2][], v[1][]
         return nothing
@@ -566,7 +566,7 @@ end
     # A step on one stratum's view sees the index `k`, not `1`, so a loop
     # over `1:length(v)` reaches outside it for every stratum but the first.
     struct OneBased end
-    CR.ispointwise(::OneBased) = true
+    CR.blocks(::OneBased) = (1, 1)
     function CR.forward!(::OneBased, ::CR.Step, v, s, t)
         for i in 1:length(v)
             v[i] *= 2

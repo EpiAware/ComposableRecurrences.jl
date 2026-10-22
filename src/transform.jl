@@ -113,7 +113,7 @@ _check_theta(θ) = (_check_param(:θ, θ); nothing)
 _local_derivative(m::Transform) = m.derivative !== nothing || _fieldfree(m.f)
 _fieldfree(f) = param_eltype(f) <: Union{Bool, Integer}
 
-ispointwise(::Transform) = true
+blocks(::Transform) = (1, 1)
 _stateless(::Transform) = true
 # The reverse pass below covers every parameter type when the derivative
 # is local. A map with float fields of its own is left to plain AD, not to
