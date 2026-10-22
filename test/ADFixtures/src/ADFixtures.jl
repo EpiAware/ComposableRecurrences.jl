@@ -1721,10 +1721,10 @@ function _strata_modifier_piecewise(w, θ)
     return sum(WS .* log.(y))
 end
 
-# Parts without a pullback that branch where a value is zero, run from an
-# empty history, so the first step's values sit at the tie. The local
-# derivative must take the branch the step takes: the other divides zero
-# by zero.
+# A whole-step modifier without a pullback that branches where a value is
+# zero, run from an empty history, so the first step's values sit at the
+# tie. The local derivative must take the branch the step takes: the other
+# divides zero by zero.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -1775,73 +1775,6 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
-# A denominator that is one where `x` is not positive, so a quotient by it
-# is zero at a tie. Plain AD reads the branch the value takes; a local
-# derivative that took the other would divide zero by zero.
-@inline _or_one(x) = x > 0 ? x : one(x)
-"Each stratum's pressure plus a share `a` of it weighted by its part of the total."
-struct TieShare{A}
-    a::A
-end
-@in_place function ComposableRecurrences.forward!(
-        C::TieShare, ::ComposableRecurrences.Pressure, q, p, t
-    )
-    tot = _or_one(sum(p))
-    for k in eachindex(p)
-        q[k] = p[k] + C.a * p[k] * p[k] / tot
-    end
-    return nothing
-end
-"The value damped by a share `a` of its stratum's past total, kept as the state, over that total and the value."
-struct TieDamp{A}
-    a::A
-end
-ComposableRecurrences.ispointwise(::TieDamp) = true
-@inline _tie_damp(a, v, s) = v * (1 - a * s / _or_one(s + v))
-if IN_PLACE
-    function ComposableRecurrences.forward!(
-            m::TieDamp, ::ComposableRecurrences.Step, v, s, t
-        )
-        for k in eachindex(v, s)
-            v[k] = _tie_damp(m.a, v[k], s[k])
-            s[k] += v[k]
-        end
-        return nothing
-    end
-else
-    function ComposableRecurrences.forward(
-            m::TieDamp, ::ComposableRecurrences.Step, v, s, t, k
-        )
-        v′ = _tie_damp(m.a, v, s)
-        return v′, s + v′
-    end
-end
-"A share `b` of the values moved to the strata by their part of the total."
-struct TieMix{B}
-    b::B
-end
-@in_place function ComposableRecurrences.forward!(
-        m::TieMix, ::ComposableRecurrences.Step, v, s, t
-    )
-    tot = _or_one(sum(v))
-    for k in eachindex(v)
-        v[k] = (1 - m.b) * v[k] + m.b * v[k] * v[k] / tot
-    end
-    return nothing
-end
-# The add input is zero on the first step, so each part's quotient starts
-# at a tie.
-const ADD0 = [t == 1 ? 0.0 : 0.5 + 0.1 * a for a in 1:S, t in 1:T]
-function _parts_at_a_tie(w, θ)
-    logR, p = _unpack(θ, (S, T), (3,))
-    r = Recurrence(
-        G0; coupling = TieShare(p[1]),
-        modifiers = (TieDamp(p[2]), TieMix(p[3]))
-    )
-    y = w(r)(exp.(logR); history = zeros(S, L), add = ADD0)
-    return sum(WS .* y)
-end
-
 push!(
     _SCENARIOS,
     (
@@ -1890,10 +1823,6 @@ push!(
         "Recurrence whole-step modifier branching at a tie (occupancy)",
         _occupancy, () -> zero(OCC0),
     ),
-    (
-        "Recurrence parts without a pullback branching at a tie",
-        _parts_at_a_tie, () -> _flat(LOGR, [0.4, 0.3, 0.3]),
-    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
@@ -1919,12 +1848,8 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 # The local derivatives took the step's branch at a tie later.
-let names = (
-        "Recurrence whole-step modifier branching at a tie (occupancy)",
-        "Recurrence parts without a pullback branching at a tie",
-    )
-    foreach(name -> _REQUIRES[name] = (:_StepDuals, :local_ties), names)
-end
+_REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
+    (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 
@@ -2025,7 +1950,6 @@ function kink_scenarios()
     return Set(
         [
             "Recurrence whole-step modifier branching at a tie (occupancy)",
-            "Recurrence parts without a pullback branching at a tie",
         ]
     )
 end

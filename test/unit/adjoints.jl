@@ -2252,6 +2252,106 @@ end
     end
 end
 
+@testitem "Adjoint: local pullbacks take the step's branch at a tie" setup = [
+    ReferenceAD,
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    # Parts without a pullback that divide by a value guarded at zero. At a
+    # tie the step takes the guard, and a local derivative that read its
+    # seeded zero as positive would divide zero by zero. The reference is
+    # ForwardDiff's Jacobian just below the tie, where its dual numbers take
+    # the guard as the floats do.
+    or_one(x) = x > 0 ? x : one(x)
+    δ = 1.0e-10
+    # Pointwise: the value damped by a share of its stratum's past total,
+    # kept as the state, with the share a scalar, per stratum or by time.
+    struct Damp{A}
+        a::A
+    end
+    CR.ispointwise(::Damp) = true
+    share(a::Real, k, t) = a
+    share(a::AbstractVector, k, t) = a[t]
+    share(a, k, t) = CR.param(a, k, t)
+    function CR.forward!(m::Damp, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= 1 - share(m.a, k, t) * s[k] / or_one(s[k] + v[k])
+            s[k] += v[k]
+        end
+        return nothing
+    end
+    CR.nstate(::Damp, S) = S
+    for m in (Damp(0.4), Damp(PerStratum([0.4, 0.6])), Damp([0.4, 0.5, 0.6]))
+        θ = CR._param_tuple(m, (2, 3))
+        J = ReferenceAD.jacobian([-δ; 0.0; θ...]) do x
+            mm = isempty(θ) ? m : first(CR._rebuild_scalar(m, Tuple(x[3:end])))
+            v′, s′ = CR._step(mm, x[1], x[2], 3, 2)
+            return [v′, s′]
+        end
+        m̄ = zero_mirror(m)
+        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 0.0, 0.0, 3, 2)
+        @test all(isfinite, got)
+        @test collect(got) ≈ transpose(J)[1:2, :] * [0.3, 0.7] atol = 1.0e-8
+    end
+    # Whole-step: a share `b` of the values moved to the strata by their
+    # part of the total, `b` a scalar or one per stratum.
+    struct Mix{B}
+        b::B
+    end
+    rate(b::Real, k) = b
+    rate(b::AbstractVector, k) = b[k]
+    function CR.forward!(m::Mix, ::CR.Step, v, s, t)
+        tot = or_one(sum(v))
+        w = copy(v)
+        for k in eachindex(v)
+            v[k] = (1 - rate(m.b, k)) * w[k] + rate(m.b, k) * w[k]^2 / tot
+        end
+        return nothing
+    end
+    for m in (Mix(0.3), Mix([0.2, 0.3, 0.4]))
+        θ = CR._params(m)
+        J = ReferenceAD.jacobian([fill(-δ, 3); θ]) do x
+            vv = collect(x[1:3])
+            CR.forward!(CR._rebuild(m, x[4:end]), CR.Step(), vv, eltype(x)[], 1)
+            return vv
+        end
+        v̄ = [0.3, -0.2, 0.5]
+        ref = transpose(J) * v̄
+        m̄ = zero_mirror(m)
+        grads = (; piece = m̄, v = copy(v̄), s = Float64[])
+        CR._local_step_back!(grads, m, zeros(3), Float64[], 1)
+        @test all(isfinite, grads.v)
+        @test grads.v ≈ ref[1:3] atol = 1.0e-8
+        @test mirror_vec(m̄, m) ≈ ref[4:end] atol = 1.0e-8
+    end
+    # Coupling: each pressure plus a share `a` of it weighted by its part of
+    # the total, `a` a scalar or one per stratum.
+    struct Share{A}
+        a::A
+    end
+    function CR.forward!(C::Share, ::CR.Pressure, q, p, t)
+        tot = or_one(sum(p))
+        for k in eachindex(p)
+            q[k] = p[k] + rate(C.a, k) * p[k]^2 / tot
+        end
+        return nothing
+    end
+    for C in (Share(0.4), Share([0.2, 0.3, 0.4]))
+        θ = CR._params(C)
+        q̄ = [0.3, -0.2, 0.5]
+        ref = ReferenceAD.gradient([fill(-δ, 3); θ]) do x
+            q = zeros(eltype(x), 3)
+            CR.forward!(CR._rebuild(C, x[4:end]), CR.Pressure(), q, x[1:3], 1)
+            return sum(q̄ .* q)
+        end
+        p̄, C̄ = zeros(3), zero_mirror(C)
+        CR._pressure_back!(p̄, C̄, C, q̄, zeros(3), 1)
+        @test all(isfinite, p̄)
+        @test p̄ ≈ ref[1:3] atol = 1.0e-8
+        @test mirror_vec(C̄, C) ≈ ref[4:end] atol = 1.0e-8
+    end
+end
+
 @testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     # A coupling without a pullback: a share `a` of every other stratum's
