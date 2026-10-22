@@ -36,8 +36,6 @@ with each argument read at that entry:
 So a `TimeVarying(x)` argument is read, in both uses, at the time the value
 acts: the step ``t`` of a modifier, or the time ``\tau + l`` a weight lands,
 and a calendar-time series such as a hazard is `TimeVarying(h)`.
-A `TimeVarying` argument of a kernel may also have a lag axis (lags ×
-times, or `PerStratum` strata × lags × times).
 Every argument with a lag axis has the kernel's number of lags, and every
 argument with a strata axis the call's strata; a kernel with any of them is
 per stratum.
@@ -57,7 +55,7 @@ The reverse pass, for the cotangent ``\bar u`` of a value read, is
 
 with the partial derivatives in closed form for `+`, `-`, `*` and `/` in a
 kernel, and otherwise from one local forward-mode derivative of `f`, which
-needs ForwardDiff loaded.
+needs the dual-number extension loaded.
 Values captured inside `f` (a closure, or a callable struct with float
 fields) are not arguments: an operator with such a map is differentiated by
 the AD backend instead, so they keep their gradients.

@@ -76,10 +76,7 @@ _over_time(::_Computed) = true
 
 # The coefficients a computed kernel reads: numbers, lag weights, values per
 # stratum or per time, and other computed weights.
-const _TimeAxis = Union{
-    AbstractVector{<:Real}, AbstractMatrix{<:Real},
-    PerStratum{<:AbstractMatrix{<:Real}}, PerStratum{<:AbstractArray{<:Real, 3}},
-}
+const _TimeAxis = Union{AbstractVector{<:Real}, PerStratum{<:AbstractMatrix{<:Real}}}
 const _Coefficient = Union{
     Real, AbstractVector{<:Real}, PerStratum{<:AbstractVecOrMat{<:Real}},
     TimeVarying{<:Any, <:_TimeAxis}, _Computed,
@@ -102,9 +99,8 @@ end
 
 # An argument of a `Derived`: a coefficient a kernel reads, or a modifier
 # parameter. Which use it is checked where the `Derived` is used.
-_check_argument(x) = _check_coefficient(x)
-_check_argument(x::Recent) = nothing
-_check_argument(x::TimeVarying{Secondary, <:_Piecewise}) = nothing
+_check_argument(x::_Coefficient) = _check_coefficient(x)
+_check_argument(x) = (_check_param(:args, x); nothing)
 
 # Every argument of a computed kernel is a coefficient it reads.
 _check_kernel_args(x) = _check_coefficient(x)
@@ -120,8 +116,6 @@ _time(::TimeVarying{Secondary}, τ, l) = τ + l
 _coef_lags(x) = 0
 _coef_lags(x::AbstractVector) = length(x)
 _coef_lags(x::PerStratum{<:AbstractMatrix}) = size(x.x, 2)
-_coef_lags(x::TimeVarying{<:Any, <:AbstractMatrix}) = size(x.x, 1)
-_coef_lags(x::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}) = size(x.x.x, 2)
 _coef_lags(x::Derived) = _joined(_coef_lags, x.args, "lags")
 _coef_lags(x::Survival) = _coef_lags(x.hazard)
 _coef_strata(x) = 0
@@ -307,19 +301,9 @@ Base.@propagate_inbounds function _value(
     return x.x[_time(x, τ, l)]
 end
 Base.@propagate_inbounds function _value(
-        x::TimeVarying{<:Any, <:AbstractMatrix}, sc, k, i, τ, l, b
-    )
-    return x.x[i, _time(x, τ, l)]
-end
-Base.@propagate_inbounds function _value(
         x::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}, sc, k, i, τ, l, b
     )
     return x.x.x[k, _time(x, τ, l)]
-end
-Base.@propagate_inbounds function _value(
-        x::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}, sc, k, i, τ, l, b
-    )
-    return x.x.x[k, i, _time(x, τ, l)]
 end
 @inline function _value(x::Derived, sc, k, i, τ, l, b)
     return x.f(@inbounds(_values_at(x.args, sc, k, i, τ, l, b))...)
@@ -360,22 +344,12 @@ Base.@propagate_inbounds function _add_value!(
     return add_cotangent!(cotangent(x̄, :x), v, _time(x, τ, l))
 end
 Base.@propagate_inbounds function _add_value!(
-        x̄, x::TimeVarying{<:Any, <:AbstractMatrix}, sc, v, k, i, τ, l, b
-    )
-    return add_cotangent!(cotangent(x̄, :x), v, i, _time(x, τ, l))
-end
-Base.@propagate_inbounds function _add_value!(
         x̄, x::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}, sc, v, k, i, τ, l, b
     )
     return add_cotangent!(cotangent(cotangent(x̄, :x), :x), v, k, _time(x, τ, l))
 end
-Base.@propagate_inbounds function _add_value!(
-        x̄, x::TimeVarying{<:Any, <:PerStratum{<:AbstractArray{<:Any, 3}}}, sc, v,
-        k, i, τ, l, b
-    )
-    return add_cotangent!(cotangent(cotangent(x̄, :x), :x), v, k, i, _time(x, τ, l))
-end
-_add_value!(::Nothing, x::_Computed, sc, v, k, i, τ, l, b) = nothing
+_add_value!(::Nothing, x::Derived, sc, v, k, i, τ, l, b) = nothing
+_add_value!(::Nothing, x::Survival, sc, v, k, i, τ, l, b) = nothing
 @inline Base.@propagate_inbounds function _add_value!(
         x̄, x::Survival, sc, v, k, i, τ, l, b
     )
@@ -473,7 +447,8 @@ function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     # cotangent.
     for k in _strata_axis(W̄), b in 1:nb
         @inbounds for i in 1:_imax(τ0 + b - 1, length(_lag_axis(W̄)), o, last)
-            _add_value!(x̄, x, sc, W̄[b, i, k], k, i, τ0 + b - 1, i - 1 + o, b)
+            v = W̄[b, i, k]
+            iszero(v) || _add_value!(x̄, x, sc, v, k, i, τ0 + b - 1, i - 1 + o, b)
         end
     end
     _block_back!(x̄, x, sc, τ0, nb, o, last)
@@ -556,7 +531,7 @@ _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
 # kernel coefficients' mirror `x̄`, with the scratch `sc` it returned when it
 # kept its fill: each
 # block is recomputed, unless one block holds every cohort.
-_weights_back!(::Nothing, kernel, K̄, o, last, sc) = nothing
+_weights_back!(::Nothing, kernel::_ComputedKernel, K̄, o, last, sc) = nothing
 function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x
     n = size(K̄, ndims(K̄))

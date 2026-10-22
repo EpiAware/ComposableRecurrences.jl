@@ -9,8 +9,14 @@ uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 # The input at time `σ`, buffer row `m + σ`, spreads forward through its
 # cohort's weights, as a `Primary()` kernel's does, filled a block of
 # cohorts at a time and shared by the strata. The strata share each block,
-# so they run in one loop on the calling task.
+# so they run in one loop; another executor takes the dense kernel of the
+# same weights, whose loops it splits by stratum.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
+    stop = start + size(Y, 1) - 1
+    K, _ = _fill_kernel(c, 0, stop, stop, Val(false))
+    return _convolve!(ex, Y, _dense_kernel(K), X, m, start)
+end
+function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     x = c.x
     L = _nlags(c)
     stop = start + size(Y, 1) - 1
@@ -34,6 +40,15 @@ end
 # Its reverse pass recomputes each block, adds each input's cotangent and
 # the weights', and takes the weights' back to the coefficients.
 function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
+    stop = start + size(Ȳ, 1) - 1
+    K, sc = _fill_kernel(c, 0, stop, stop)
+    x̄ = cotangent(c̄, :x)
+    K̄ = _weights_cotangent(x̄, K)
+    _convolve_back!(ex, X̄, _dense_mirror(K̄), _dense_kernel(K), X, Ȳ, m, start)
+    _weights_back!(x̄, c, K̄, 0, stop, sc)
+    return nothing
+end
+function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
     x = c.x
     x̄ = cotangent(c̄, :x)
     L = _nlags(c)
@@ -128,8 +143,14 @@ end
 
 The weights of a computed kernel `TimeVarying(w, Primary())` for the
 cohorts at times `1` to `n`, as an array: `L × n`, or `S × L × n` with
-strata, lag 0 first, so entry `[l + 1, τ]` is the weight on lag ``l`` of
-cohort ``\tau``.
+strata, lag 0 first,
+
+```math
+K_{l + 1, \tau} = w_l(\tau), \qquad l = 0, \dots, L - 1, \quad \tau = 1, \dots, n,
+```
+
+where ``w_l(\tau)`` is the weight on lag ``l`` of cohort ``\tau`` and ``L``
+the kernel's number of lags.
 
 Every entry is computed, so a `TimeVarying(h)` argument read at the time
 ``\tau + l`` a weight lands covers the times up to `n + L - 1`, and a

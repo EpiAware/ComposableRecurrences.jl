@@ -112,9 +112,7 @@ end
     # Every coefficient form reads its own axis.
     v = [1.0 + 0.1 * t for t in 1:(n + L)]
     c = [2.0 + 0.1 * t for t in 1:n]
-    M = [0.1 * i + 0.01 * t for i in 1:L, t in 1:n]
     B = [k + 0.1 * t for k in 1:2, t in 1:(n + L)]
-    G = [k + 0.1 * i + 0.01 * t for k in 1:2, i in 1:L, t in 1:n]
     forms = (
         (2.5, (k, i, u) -> 2.5),
         (p, (k, i, u) -> p[i]),
@@ -122,9 +120,7 @@ end
         (PerStratum(P), (k, i, u) -> P[k, i]),
         (TimeVarying(v), (k, i, u) -> v[u + i - 1]),
         (TimeVarying(c, CR.Primary()), (k, i, u) -> c[u]),
-        (TimeVarying(M, CR.Primary()), (k, i, u) -> M[i, u]),
         (TimeVarying(PerStratum(B)), (k, i, u) -> B[k, u + i - 1]),
-        (TimeVarying(PerStratum(G), CR.Primary()), (k, i, u) -> G[k, i, u]),
     )
     for (x, ref) in forms
         K = kw(Derived(*, p, x))
@@ -198,6 +194,8 @@ end
     s = CR.Survival(TimeVarying(h))
     @test_throws ArgumentError Derived(*)
     @test_throws ArgumentError Derived(*, p, "a")
+    # A coefficient with a lag axis of its own is not one a kernel reads.
+    @test_throws ArgumentError Derived(*, p, TimeVarying(ones(length(p), 4), CR.Primary()))
     @test_throws ArgumentError CR.Survival(TimeVarying(h); from = -1)
     @test_throws ArgumentError CR.Survival(ones(2, 2))
     # A computed kernel is indexed by cohort.
@@ -302,6 +300,13 @@ end
     check(conv(W.confirmed(q, hs)), (x, true, nothing, nothing, 1, T), sin.(1:T))
     check(conv(W.confirmed(q, hs)), (x, 0.7, nothing, nothing, 3, T), sin.(1:(T - 2)))
     check(conv(W.nested(Ps, 0.4, hs)), (xs, true, nothing, nothing, 1, T), sin.(xs))
+    # Another executor takes the dense kernel of the same weights.
+    threaded = CR.Threaded(; min_work = 0, ntasks = 2)
+    Base.ScopedValues.with(CR.EXECUTOR => threaded) do
+        c = conv(W.nested(Ps, 0.4, hs))
+        @test c(xs) ≈ Base.ScopedValues.with(() -> c(xs), CR.EXECUTOR => CR.Serial())
+        check(c, (xs, true, nothing, nothing, 1, T), sin.(xs))
+    end
     # The terms of a convolution.
     terms = CR._Contributions(conv(W.confirmed(q, hs)))
     check(terms, (x, true, nothing, 1, T), reshape(sin.(1:(L * T)), L, T))
