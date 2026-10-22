@@ -63,7 +63,7 @@ function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
         n = ntrace(m, S)
         _stateless(m) && return _TraceSink(_zeros(h, Tp, n, T), nothing, nothing, S)
         out = similar(h, Tp, n, T)
-        ispointwise(m) && return _TraceSink(out, nothing, nothing, S)
+        _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
         return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
     end
 end
@@ -90,7 +90,7 @@ end
 # its inputs, then writes its trace.
 function _stage_rec!(R::_TraceSink, m, v, s, τ, t)
     _stateless(m) && return _stage!(m, v, s, τ)
-    return _stage_trace!(Val(ispointwise(m)), R, m, v, s, τ, t)
+    return _stage_trace!(Val(_strata_loop(m)), R, m, v, s, τ, t)
 end
 function _stage_trace!(::Val{true}, R, m, v, s, τ, t)
     for k in eachindex(v, s)
@@ -198,7 +198,7 @@ _trace_in(a, x̄) = x̄ + a
 _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t) = nothing
 function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
     _stateless(m) && return nothing
-    _trace_back!(blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
+    _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
     return nothing
 end
 _trace_in!(R, v̄, s̄) = nothing
@@ -215,7 +215,7 @@ end
 function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
-    r = ispointwise(m) ? _trace_series(r̄, Val(ntrace(m, 1)), length(v)) : r̄
+    r = _strata_loop(m) ? _trace_series(r̄, Val(ntrace(m, 1)), length(v)) : r̄
     grads = (; piece = m̄, trace = r, v = R.V̄, s = R.S̄, v′ = v̄, s′ = s̄)
     _written(m, pullback!(grads, m, Trace(), v, s, τ))
     return nothing

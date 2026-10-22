@@ -21,7 +21,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, Allocate, movement, with_state
+using ComposableRecurrences: Depletion, Redistribute, Allocate, movement
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 
@@ -122,7 +122,7 @@ end
 
 ε = [t < 40 ? e : e / 2 for e in [0.05, 0.03, 0.02], t in 1:T]
 patch = Recurrence(gi; modifiers = (Redistribute(movement(K, ε)), depletion))
-infections, state = with_state(patch, 1.6; history = seed, stop = T);
+infections, state = patch(1.6; history = seed, stop = T, state = true);
 
 # The importation series is not recorded, but the infections give it.
 # Each patch's value before the modifiers is ``R`` times a [`Convolution`](@ref).

@@ -5,7 +5,7 @@ The [API overview](@ref api-overview) gives the full step and the calls, and [`R
 
 ```@example operators
 using ComposableRecurrences
-using ComposableRecurrences: with_state, exponential_history, Depletion
+using ComposableRecurrences: exponential_history, Depletion
 ```
 
 ## [A recurrence is a convolution of its own outputs](@id explanation-lag-origin)
@@ -71,8 +71,8 @@ A forecast is then a second call, not a second model.
 modifiers = (Depletion(50.0; pools = (S = 50.0 - sum(seed),)),)
 r = Recurrence(k; modifiers)
 whole = r(fill(1.6, 20); history = seed)
-fit, state = with_state(r, fill(1.6, 20); history = seed, stop = 12)
-forecast = r(fill(1.6, 20); state)
+fit, state = r(fill(1.6, 20); history = seed, stop = 12, state = true)
+forecast, _ = r(fill(1.6, 20); state)
 whole ≈ vcat(fit, forecast)
 ```
 

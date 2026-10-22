@@ -39,7 +39,7 @@
     <line x1="860" y1="90" x2="888" y2="90"/>
     <path d="M 915 110 L 915 160 L 95 160 L 95 132"/>
   </g>
-  <text x="505" y="178" text-anchor="middle" font-size="12" fill="#555">y(t) joins the past values for the next step; with_state returns the last L values and the modifier states</text>
+  <text x="505" y="178" text-anchor="middle" font-size="12" fill="#555">y(t) joins the past values for the next step; state = true returns the last L values and the modifier states</text>
   <text x="20" y="228" font-weight="bold" fill="#222">Convolution: one output at time t</text>
   <g stroke="#444" stroke-width="1.5" fill="#f4f4f4">
     <rect x="20" y="245" width="170" height="60" rx="8"/>

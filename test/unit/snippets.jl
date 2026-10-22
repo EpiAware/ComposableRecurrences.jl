@@ -53,7 +53,7 @@ end
         s .= m.pop
         return nothing
     end
-    ComposableRecurrences.ispointwise(::FlooredDepletion) = true
+    ComposableRecurrences.blocks(::FlooredDepletion) = (1, 1)
     function ComposableRecurrences.forward!(m::FlooredDepletion, ::ComposableRecurrences.Step, v, s, t)
         for k in eachindex(v, s)
             v′ = max(s[k] / m.pop[k], 1.0e-6) * v[k]
@@ -77,7 +77,7 @@ end
         a
         params::NamedTuple
     end
-    ComposableRecurrences.ispointwise(::LooseScale) = true
+    ComposableRecurrences.blocks(::LooseScale) = (1, 1)
     function ComposableRecurrences.forward!(m::LooseScale, ::ComposableRecurrences.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = m.a * v[k] + m.params.b, s[k]
@@ -91,7 +91,7 @@ end
         s .= vec(sum(history; dims = ndims(history)))
         return nothing
     end
-    ComposableRecurrences.ispointwise(::HistoryTotal) = true
+    ComposableRecurrences.blocks(::HistoryTotal) = (1, 1)
     function ComposableRecurrences.forward!(::HistoryTotal, ::ComposableRecurrences.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] + s[k], s[k]
@@ -103,7 +103,7 @@ end
     struct Shift{B}
         b::B
     end
-    ComposableRecurrences.ispointwise(::Shift) = true
+    ComposableRecurrences.blocks(::Shift) = (1, 1)
     function ComposableRecurrences.forward!(m::Shift, ::ComposableRecurrences.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = v[k] + m.b[t], s[k]
