@@ -133,7 +133,8 @@ Each backend job compiles every scenario and test item it runs, so a check in th
 Put each check at the cheapest level that runs its code path.
 
 - The maths of a `pullback!` goes in `test/unit`, against a ForwardDiff Jacobian on small inputs.
-  Use `ModifierChecks.check_pullback` (`test/unit/snippets.jl`) for a step and `pullback_matches` (`test/unit/adjoints.jl`) for a whole call.
+  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`, as [Checking a new type](@ref extending-checks) shows.
+  For a whole call, use `pullback_matches` (`test/unit/adjoints.jl`).
   These need no AD backend.
 - A new rule path, such as a new operator, a new kind of field or a new wrapper of the call, gets one small scenario in `_SCENARIOS`.
   Every backend job runs it through its rule against ForwardDiff.
