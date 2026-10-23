@@ -6,7 +6,7 @@ module ComposableRecurrencesForwardDiffExt
 
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
-import ComposableRecurrences: _array_pressure, _local_step!, _step_duals, _check_scalars, _check_views,
+import ComposableRecurrences: _array_pressure, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
@@ -403,6 +403,14 @@ function _probe_reads(x)
         e isa InterruptException && rethrow()
         -1
     end
+end
+
+# The Jacobian `PieceInterface`'s pullback check compares with. One tag and
+# chunk for every piece, so the dual type is compiled once.
+function _check_jacobian(f, x::AbstractVector{<:Real})
+    tag = ForwardDiff.Tag(_check_jacobian, eltype(x))
+    cfg = ForwardDiff.JacobianConfig(nothing, x, ForwardDiff.Chunk{1}(), tag)
+    return ForwardDiff.jacobian(f, x, cfg, Val(false))
 end
 
 # The Jacobian of the Init in the modifier's `P` active parameters and the
