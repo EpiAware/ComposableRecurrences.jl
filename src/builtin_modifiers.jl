@@ -284,10 +284,14 @@ _floor_power(r, α) = r^α
 _floor_power(r, α::Bool) = α ? r : one(r)
 _times_log(α, r, c) = c * log(r)
 _times_log(::Bool, r, c) = zero(c)
+# The hazard's rate, `v / N` scaled by the share power. A `Bool` exponent
+# of `true` scales by one, which dual numbers would still multiply out.
+@inline _hazard(v, s, N, α) = v / N * _share_power(s / N, α)
+@inline _hazard(v, s, N, α::Bool) = α ? v / N : v / N * inv(s / N)
 
 function forward!(::Hazard, ::Step, v, s, N, α)
     for k in eachindex(v, s)
-        x = v[k] / N * _share_power(s[k] / N, α)
+        x = _hazard(v[k], s[k], N, α)
         e, em = _exp_neg(x)
         v[k], s[k] = -s[k] * em, s[k] * e
     end

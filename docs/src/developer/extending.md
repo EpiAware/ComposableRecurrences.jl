@@ -13,7 +13,7 @@ const CR = ComposableRecurrences
 
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
 For a step, an initial state, a coupling's mixing or a modifier's trace, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
-A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from the step's records rather than computed in it.
+A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function of the step's inputs and outputs, written after the step rather than computed in it.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
