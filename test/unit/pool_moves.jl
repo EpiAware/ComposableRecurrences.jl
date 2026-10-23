@@ -90,13 +90,12 @@ end
     for (build, at, θc) in values(forms)
         n = length(θc)
         function run(θ, adm)
-            flows = CR.Depletion(;
-                pools = (:A, :B), form = nothing, flows = (
-                    CR.Flow(1 => 2, build(θ[1:n])),
-                    CR.Flow(1 => 0, TimeVarying(θ[(n + 1):(n + 6)]); form = CR.Share()),
-                    CR.Flow(2 => 0, θ[n + 7]),
-                    CR.Flow(2 => 0, PerStratum(θ[(n + 8):(n + 9)]); form = CR.Truncate()),
-                )
+            flows = CR.Depletion(
+                CR.Flow(1 => 2, build(θ[1:n])),
+                CR.Flow(1 => 0, TimeVarying(θ[(n + 1):(n + 6)]); form = CR.Share()),
+                CR.Flow(2 => 0, θ[n + 7]),
+                CR.Flow(2 => 0, PerStratum(θ[(n + 8):(n + 9)]); form = CR.Truncate());
+                pools = (:A, :B)
             )
             r = Recurrence([1.0]; modifiers = (flows,))
             return r(; history = zeros(4, 1), add = [adm; zero(adm)], stop = 6)
@@ -121,20 +120,16 @@ end
     CR = ComposableRecurrences
     A = [30 * exp(-((t - 15) / 6)^2) for t in 1:40]
     d = 0.15
-    flows = CR.Depletion(;
-        pools = (:A,), form = nothing, flows = (
-            CR.Flow(1 => 0, d; form = CR.Share()),
-        )
+    flows = CR.Depletion(
+        CR.Flow(1 => 0, d; form = CR.Share()); pools = (:A,)
     )
     r = Recurrence([1.0]; modifiers = (flows,))
     y = r(; history = [0.0][:, :], add = A', stop = 40)
     @test vec(y) ≈ Recurrence([1 - d])(; history = [0.0], add = A) .* (1 - d)
     # The state holds the arrivals: a rate flow's confirmations.
-    flows = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, 0.3),
-            CR.Flow(1 => 0, 0.4),
-        )
+    flows = CR.Depletion(
+        CR.Flow(1 => 2, 0.3),
+        CR.Flow(1 => 0, 0.4); pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (flows,))
     _, st = r(; history = [5.0, 0.0][:, :], stop = 1, state = true)
@@ -145,12 +140,10 @@ end
 @testitem "Depletion without a draw: counts are capped and act in order" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    flows = CR.Depletion(;
-        pools = (:A, :B, :C), form = nothing, flows = (
-            CR.Flow(1 => 2, 4.0; form = CR.Truncate()),
-            CR.Flow(1 => 3, 4.0; form = CR.Truncate()),
-            CR.Flow(3 => 0, -1.0; form = CR.Truncate()),
-        )
+    flows = CR.Depletion(
+        CR.Flow(1 => 2, 4.0; form = CR.Truncate()),
+        CR.Flow(1 => 3, 4.0; form = CR.Truncate()),
+        CR.Flow(3 => 0, -1.0; form = CR.Truncate()); pools = (:A, :B, :C)
     )
     v = [6.0, 0.0, 0.0]
     CR.forward!(flows, CR.Step(), v, zeros(3), 1)
@@ -164,11 +157,9 @@ end
     CR = ComposableRecurrences
     adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
     function run(θ)
-        flows = CR.Depletion(;
-            pools = (:A, :B), form = nothing, flows = (
-                CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
-                CR.Flow(2 => 0, 0.2; form = CR.Share()),
-            )
+        flows = CR.Depletion(
+            CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
+            CR.Flow(2 => 0, 0.2; form = CR.Share()); pools = (:A, :B)
         )
         r = Recurrence([1.0]; modifiers = (flows,))
         return r(; history = zeros(2, 1), add = [adm'; zero(adm')], stop = 6)
@@ -200,16 +191,14 @@ end
     using DifferentiationInterface: gradient, AutoMooncake
     CR = ComposableRecurrences
     function flows(θ)
-        return CR.Depletion(;
-            pools = (:U, :C), form = nothing, flows = (
-                CR.Flow(:U => :C, PerStratum(θ[1:2])),
-                CR.Flow(:U => 0, TimeVarying(θ[3:8]); form = CR.Share()),
-                CR.Flow(:C => 0, θ[9]),
-                CR.Flow(
-                    :C => 0, TimeVarying(PerStratum(reshape(θ[10:21], 2, 6)));
-                    form = CR.Truncate()
-                ),
-            )
+        return CR.Depletion(
+            CR.Flow(:U => :C, PerStratum(θ[1:2])),
+            CR.Flow(:U => 0, TimeVarying(θ[3:8]); form = CR.Share()),
+            CR.Flow(:C => 0, θ[9]),
+            CR.Flow(
+                :C => 0, TimeVarying(PerStratum(reshape(θ[10:21], 2, 6)));
+                form = CR.Truncate()
+            ); pools = (:U, :C)
         )
     end
     θ = vcat([0.3, 0.2], fill(0.1, 6), 0.1, fill(0.5, 12))
@@ -237,16 +226,14 @@ end
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
     # Two groups of three compartments with a cycle, exits and every form.
-    build(θ) = CR.Depletion(;
-        pools = (:A, :B, :C), form = nothing, flows = (
-            CR.Flow(1 => 2, PerStratum(θ[1:2])),
-            CR.Flow(1 => 0, θ[3]; form = CR.Share()),
-            CR.Flow(2 => 3, TimeVarying(θ[4:5])),
-            CR.Flow(3 => 1, θ[6]),
-            CR.Flow(2 => 0, θ[7]),
-            CR.Flow(3 => 2, PerStratum(θ[8:9]); form = CR.Truncate()),
-            CR.Flow(1 => 0, θ[10]; form = CR.Truncate()),
-        )
+    build(θ) = CR.Depletion(
+        CR.Flow(1 => 2, PerStratum(θ[1:2])),
+        CR.Flow(1 => 0, θ[3]; form = CR.Share()),
+        CR.Flow(2 => 3, TimeVarying(θ[4:5])),
+        CR.Flow(3 => 1, θ[6]),
+        CR.Flow(2 => 0, θ[7]),
+        CR.Flow(3 => 2, PerStratum(θ[8:9]); form = CR.Truncate()),
+        CR.Flow(1 => 0, θ[10]; form = CR.Truncate()); pools = (:A, :B, :C)
     )
     v = [4.0, 2.0, 3.0, 0.5, 1.0, 6.0]
     θs = (
@@ -259,13 +246,11 @@ end
     end
     # Derived and group-by-time parameters, and a count into a compartment
     # followed by a count out of it whose cap binds.
-    chained(θ) = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, Derived(exp, PerStratum(θ[1:2]))),
-            CR.Flow(2 => 0, TimeVarying(PerStratum(reshape(θ[3:6], 2, 2))); form = CR.Share()),
-            CR.Flow(1 => 2, θ[7]; form = CR.Truncate()),
-            CR.Flow(2 => 0, θ[8]; form = CR.Truncate()),
-        )
+    chained(θ) = CR.Depletion(
+        CR.Flow(1 => 2, Derived(exp, PerStratum(θ[1:2]))),
+        CR.Flow(2 => 0, TimeVarying(PerStratum(reshape(θ[3:6], 2, 2))); form = CR.Share()),
+        CR.Flow(1 => 2, θ[7]; form = CR.Truncate()),
+        CR.Flow(2 => 0, θ[8]; form = CR.Truncate()); pools = (:A, :B)
     )
     v = [4.0, 2.0, 1.0, 0.5]
     # The second count's cap binds, then the first's.
@@ -276,11 +261,9 @@ end
     end
     # Counts only: a negative count, a capped one and one that adds; without
     # a mirror the input cotangents are unchanged.
-    counts(θ) = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate()),
-            CR.Flow(2 => 0, θ[3]; form = CR.Truncate()),
-        )
+    counts(θ) = CR.Depletion(
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate()),
+        CR.Flow(2 => 0, θ[3]; form = CR.Truncate()); pools = (:A, :B)
     )
     for θ in ([1.5, -0.5, 9.0], [1.5, 0.2, 50.0], [3.0, 0.5, -1.0]), t in (1, 2)
         c = check_pullback(counts, θ, v, zeros(4), t)
@@ -288,11 +271,9 @@ end
     end
     # Smooth counts, with the softness as a parameter: one below what the
     # compartment holds, one above it and one out of an empty compartment.
-    soft(θ) = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
-            CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5])),
-        )
+    soft(θ) = CR.Depletion(
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
+        CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5])); pools = (:A, :B)
     )
     for θ in ([1.5, 0.3, 0.1, 9.0, 0.2], [3.0, 0.5, 0.4, -1.0, 0.1]), t in (1, 2)
         c = check_pullback(soft, θ, [4.0, 0.0, 1.0, 0.5], zeros(4), t)
@@ -329,11 +310,9 @@ end
 @testitem "Depletion without a draw: resume, Float32 and the adjoint route" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    flows = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, 0.3),
-            CR.Flow(2 => 0, 0.1; form = CR.Share()),
-        )
+    flows = CR.Depletion(
+        CR.Flow(1 => 2, 0.3),
+        CR.Flow(2 => 0, 0.1; form = CR.Share()); pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (flows,))
     A = [fill(3.0, 2, 10); zeros(2, 10)]
@@ -343,11 +322,9 @@ end
     @test CR.blocks(flows) == (2, 2)
     @test CR.nstate(flows, 6) == 6
     @test CR.uses_adjoint(r, CR.Run())
-    f32 = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, 0.3f0),
-            CR.Flow(2 => 0, 0.5f0; form = CR.Truncate()),
-        )
+    f32 = CR.Depletion(
+        CR.Flow(1 => 2, 0.3f0),
+        CR.Flow(2 => 0, 0.5f0; form = CR.Truncate()); pools = (:A, :B)
     )
     y = Recurrence(Float32[1.0]; modifiers = (f32,))(
         ; history = zeros(Float32, 2, 1), add = Float32[1 1 1; 0 0 0], stop = 3
@@ -377,8 +354,9 @@ end
     @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )
-    moving(names, flows) = CR.Depletion(; pools = names, form = nothing, flows)
-    @test_throws "expected a Flow, got 0.3" moving((:A, :B), (CR.Flow(1 => 2, 0.1), 0.3))
+    moving(names, f::CR.Flow) = moving(names, (f,))
+    moving(names, flows::Tuple) = CR.Depletion(flows...; pools = names)
+    @test_throws "0.3 is not a draw or a Flow" moving((:A, :B), (CR.Flow(1 => 2, 0.1), 0.3))
     @test_throws "Flow(1 => 2) names pool 2, but the pools are (:A,)" moving(
         (:A,), CR.Flow(1 => 2, 0.1)
     )
@@ -390,11 +368,12 @@ end
         2.5, CR.Flow(1 => 2, 0.1)
     )
     @test_throws "pools is a named tuple of starting values" moving((:S, :S), ())
-    @test_throws "the history gives their start" CR.Depletion(;
-        pools = (A = 1.0, B = nothing), form = nothing
+    @test_throws "the history gives their start" CR.Depletion(
+        CR.Flow(:A => :B, 0.1); pools = (A = 1.0, B = nothing)
     )
-    @test_throws "shape a draw, and form = nothing has none" CR.Depletion(;
-        form = nothing, heterogeneity = 2.0
+    # The exponent shapes a draw, not a flow.
+    @test_throws "a flow's form is Hazard(), Share(), Truncate() or" CR.Flow(
+        :A => :B, 0.1; form = CR.Hazard(2.0)
     )
     # A third pool without flows is named by `pools`.
     flows = moving((:A, :B, :C), CR.Flow(1 => 2, 0.5; form = CR.Share()))

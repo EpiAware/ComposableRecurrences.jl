@@ -377,45 +377,42 @@ function _rebuild_views(x, θ, o)
     return constructorof(typeof(x))(fs...), o
 end
 
-# The draw of a depletion form, `(v, s, N, α) -> (y, s′)`, and its pullback,
-# which returns the cotangents of `(v, s, N, α)`: a built-in's kernel, or
-# the form's `forward!` and `pullback!` on one-entry views of local slots,
-# with `grads.N` and `grads.α` the views its pullback adds into.
-@inline function _draw(form, v, s, N, α)
-    T = promote_type(typeof(v), typeof(s), typeof(N), typeof(α), param_eltype(form))
+# The draw of a depletion form, `(v, s, N) -> (y, s′)`, and its pullback,
+# which returns the cotangents of `(v, s, N)`: a built-in's kernel, or the
+# form's `forward!` and `pullback!` on one-entry views of local slots, with
+# `grads.N` the view its pullback adds into and `grads.piece` the form's
+# mirror, which takes the cotangents of its own parameters.
+@inline function _draw(form, v, s, N)
+    T = promote_type(typeof(v), typeof(s), typeof(N), param_eltype(form))
     vr, sr = Base.RefValue{T}(v), Base.RefValue{T}(s)
-    _written(form, @inline forward!(form, Step(), _At(vr, 1), _At(sr, 1), N, α))
+    _written(form, @inline forward!(form, Step(), _At(vr, 1), _At(sr, 1), N))
     return vr[], sr[]
 end
-@inline function _draw_back(grads, form, v, s, N, α)
+@inline function _draw_back(grads, form, v, s, N)
     T = promote_type(
         typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), typeof(N),
-        typeof(α), param_eltype(form)
+        param_eltype(form)
     )
     v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
-    N̄r, ᾱr = Base.RefValue{T}(zero(T)), Base.RefValue{T}(zero(T))
-    g = (;
-        piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
-        α = _At(ᾱr, 1),
-    )
+    N̄r = Base.RefValue{T}(zero(T))
+    g = (; piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1))
     vv, sv = _At(Ref(v), 1), _At(Ref(s), 1)
-    _written(form, @inline pullback!(g, form, Step(), vv, sv, N, α))
-    return v̄r[], s̄r[], N̄r[], ᾱr[]
+    _written(form, @inline pullback!(g, form, Step(), vv, sv, N))
+    return v̄r[], s̄r[], N̄r[]
 end
-# The pullback of a depletion form's step `(v, s, N, α) -> (y, s′)`: its own
+# The pullback of a depletion form's step `(v, s, N) -> (y, s′)`: its own
 # when it declares one, else a local derivative that seeds the value, the
-# pool, the population, the exponent and the form's float scalars as one
-# tuple of dual numbers.
+# pool, the population and the form's float scalars as one tuple of dual
+# numbers.
 _form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
-_form_adjoint(::Nothing) = true
-function _form_pullback(grads, form, v, s, N, α)
-    return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N, α)
+function _form_pullback(grads, form, v, s, N)
+    return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N)
 end
-function _form_pullback(::Val{true}, grads, form, v, s, N, α)
-    return _draw_back(grads, form, v, s, N, α)
+function _form_pullback(::Val{true}, grads, form, v, s, N)
+    return _draw_back(grads, form, v, s, N)
 end
-function _form_pullback(::Val{false}, grads, form, v, s, N, α)
-    return _local_form_pullback(grads, form, v, s, N, α)
+function _form_pullback(::Val{false}, grads, form, v, s, N)
+    return _local_form_pullback(grads, form, v, s, N)
 end
 # The float scalars of `x` in the order `_getparams!` reads them, as a tuple,
 # with the entry of each `_EntryParam` read at `at = (k, t)` (a zero for
@@ -487,7 +484,8 @@ _probe_reads(x, args...) = nothing
 _steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
 # One step of a part rebuilt with dual numbers, a pointwise modifier's or a
 # depletion form's.
-_any_step(m, x) = _is_form(m) ? _draw(m, x, x, 1, 1) : _step(m, x, x, 1, 1)
+_any_step(m, x) = _step(m, x, x, 1, 1)
+_any_step(m::_FormPart, x) = _draw(m.form, x, x, 1)
 # A pointwise modifier with other float arrays, rebuilt as its read step
 # does: the scalars must come back unchanged, each array must stay its
 # `_ReadArray`, and one step must run on the rebuild, reading at most

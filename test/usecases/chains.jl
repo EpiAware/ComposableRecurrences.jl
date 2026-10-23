@@ -27,7 +27,7 @@
     function chain(ρ, ϵ)
         log_Rt = Recurrence(ρ)(1.0; history = init, add = ϵ, prepend = true)
         depletion = ComposableRecurrences.Depletion(
-            N; form = ComposableRecurrences.Floor()
+            N, ComposableRecurrences.Floor()
         )
         renewal = Recurrence(g; modifiers = (depletion,))
         infections = renewal(exp.(log_Rt); history = window)

@@ -273,8 +273,8 @@ end
 # `V`, with the doses moving `S` into `V` and any further `flows`.
 function _leaky(N, doses, σ, flows...)
     return CR.Depletion(
-        N; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = σ),
-        flows = (CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...)
+        N, CR.Hazard(; weights = (S = 1, V = σ)),
+        CR.Flow(:S => :V, doses; form = CR.Truncate()), flows...; pools = (:S, :V)
     )
 end
 
@@ -329,16 +329,14 @@ function ward_flows(wrap, z::Size)
         adm, confirm, ruleout, discharge, transfer = _unpack(
             θ, (2S, T), (S,), (T,), (1,), (S, T)
         )
-        flows = CR.Depletion(;
-            pools = (:suspected, :confirmed), form = nothing, flows = (
-                CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
-                CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
-                CR.Flow(:confirmed => 0, only(discharge)),
-                CR.Flow(
-                    :confirmed => 0, TimeVarying(PerStratum(transfer));
-                    form = CR.Truncate()
-                ),
-            )
+        flows = CR.Depletion(
+            CR.Flow(:suspected => :confirmed, PerStratum(confirm)),
+            CR.Flow(:suspected => 0, TimeVarying(ruleout); form = CR.Share()),
+            CR.Flow(:confirmed => 0, only(discharge)),
+            CR.Flow(
+                :confirmed => 0, TimeVarying(PerStratum(transfer));
+                form = CR.Truncate()
+            ); pools = (:suspected, :confirmed)
         )
         r = Recurrence([1.0]; modifiers = (flows,))
         return sum(W .* wrap(r)(; history = zeros(2S, 1), add = adm, stop = T))
@@ -380,9 +378,8 @@ function capacity_beds(wrap, z::Size)
     f = function (θ)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
         beds = CR.Depletion(
-            PerStratum(exp.(logC)); pools = (:O,), form = CR.SoftTruncate(0.1), fill = :O,
-            flows_first = true, flows = CR.Flow(:O => 0, 0.1; form = CR.Share()),
-            overflow = :stratum
+            PerStratum(exp.(logC)), CR.Flow(:O => 0, 0.1; form = CR.Share()),
+            CR.SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
         )
         r = Recurrence(G; modifiers = (beds,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))

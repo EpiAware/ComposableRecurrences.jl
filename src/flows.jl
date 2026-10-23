@@ -34,7 +34,7 @@ struct Share end
 
 # The forms a flow takes.
 const _TruncateForm = Union{Truncate, SoftTruncate}
-const _FlowForm = Union{Hazard, Share, _TruncateForm}
+const _FlowForm = Union{Hazard{Nothing}, Share, _TruncateForm}
 
 @doc raw"""
 A flow from pool `from` into pool `to` of a
@@ -219,7 +219,7 @@ function _flow_tuple(fs)
 end
 
 # The hazard rate and share of a flow, zero for another form.
-_rate(f::Flow{<:Any, Hazard}, g, t) = param(f.demand, g, t)
+_rate(f::Flow{<:Any, Hazard{Nothing}}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
 _share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
 _share(f::Flow, g, t) = false
@@ -502,7 +502,7 @@ function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
     )
 end
 _amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
-function _amount_rate_back!(f::Flow{<:Any, Hazard}, f̄, q, x, L, H, B, ȳ, g, t)
+function _amount_rate_back!(f::Flow{<:Any, Hazard{Nothing}}, f̄, q, x, L, H, B, ȳ, g, t)
     i = f.from
     E, gH, _ = L[i]
     r̄ = x[i] * (gH * q + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
@@ -599,7 +599,7 @@ function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
     return _rates_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
 end
 _rate_back!(f::_Count, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
-function _rate_back!(f::Flow{<:Any, Hazard}, f̄, x, L, H, B, ȳ, ā, g, t)
+function _rate_back!(f::Flow{<:Any, Hazard{Nothing}}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = f.from
     E, gH, _ = L[i]
     āto = f.to > 0 ? ā[f.to] : zero(eltype(ā))
