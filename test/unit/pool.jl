@@ -768,3 +768,104 @@ end
         @test pullback_matches(r, recargs(R, nothing, h)...)
     end
 end
+
+@testitem "Depletion: parts on vectors, their traces' pullbacks and their checks" setup = [
+    ReferenceAD, ModifierChecks,
+] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    (; mirror) = ModifierChecks
+    refs(x) = map(Ref, Tuple(x))
+    vals(r) = collect(map(x -> x[], r))
+    t = 2
+    # A part's vector step on one value and one pool per stratum is its
+    # group step on each stratum, and its pullback matches forward mode.
+    d = CR.Depletion(100.0, CR.Hazard(1.2), CR.Floor(), CR.Truncate(; into = :S))
+    # Each part as the `Depletion` holds it, its pools named by position.
+    parts = (
+        CR.Flow(1 => 0, 0.2),
+        (CR.Flow(1 => 0, 0.2), CR.Flow(1 => 0, 1.0; form = CR.Truncate())),
+        d.pieces[2], d.pieces[3],
+    )
+    v, s = [2.0, 3.0], [40.0, 7.0]
+    for p in parts
+        v′, s′ = copy(v), copy(s)
+        CR.forward!(p, CR.Step(), v′, s′, t)
+        for k in eachindex(v)
+            vk, sk = refs([v[k]]), refs([s[k]])
+            CR.forward!(p, CR.Step(), vk, sk, t, k)
+            @test (only(vals(vk)), only(vals(sk))) == (v′[k], s′[k])
+        end
+        function step(x)
+            a, b = x[1:2], x[3:4]
+            CR.forward!(p, CR.Step(), a, b, t)
+            return [a; b]
+        end
+        J = ReferenceAD.jacobian(step, [v; s])
+        v̄, s̄ = [0.4, -1.1], [0.3, 0.8]
+        grads = (; piece = mirror(p), v = copy(v̄), s = copy(s̄))
+        CR.pullback!(grads, p, CR.Step(), copy(v), copy(s), t)
+        @test [grads.v; grads.s] ≈ transpose(J) * [v̄; s̄]
+    end
+    # The pullback of each part's trace against forward mode on the trace.
+    q = CR.Depletion(
+        CR.Flow(0 => :B, 2.0; form = CR.Truncate()), CR.Flow(:B => 0, 0.1),
+        CR.Truncate(; overflow = :queue); pools = (:B,)
+    )
+    for p in q.pieces
+        v, s, n = [3.0], [1.0, 0.5], 2
+        function trace(x)
+            vin, sin = refs(x[1:1]), refs(x[2:3])
+            vout, sout = refs(x[1:1]), refs(x[2:3])
+            CR.forward!(p, CR.Step(), vout, sout, t, 1)
+            r = refs(zeros(eltype(x), n))
+            CR.forward!(p, CR.Trace(), r, vin, sin, vout, sout, t, 1)
+            return vals(r)
+        end
+        x = [v; s]
+        J = ReferenceAD.jacobian(trace, x)
+        r̄ = [0.6, -0.9][1:n]
+        grads = (;
+            piece = mirror(p), trace = refs(r̄), v = refs(zeros(1)), s = refs(zeros(2)),
+            v′ = refs(zeros(1)), s′ = refs(zeros(2)),
+        )
+        CR.pullback!(grads, p, CR.Trace(), refs(v), refs(s), t, 1)
+        # The trace reads the step's inputs and its outputs; the pullback
+        # gives each, so their sum through the step is the trace's.
+        function step(x)
+            vr, sr = refs(x[1:1]), refs(x[2:3])
+            CR.forward!(p, CR.Step(), vr, sr, t, 1)
+            return [vals(vr); vals(sr)]
+        end
+        Js = ReferenceAD.jacobian(step, x)
+        ins = [vals(grads.v); vals(grads.s)]
+        total = ins + transpose(Js) * [vals(grads.v′); vals(grads.s′)]
+        @test total ≈ transpose(J) * r̄
+    end
+    # The recursion that groups runs of flows for static analysis gives the
+    # generated grouping.
+    f1, f2 = CR.Flow(1 => 0, 0.1), CR.Flow(1 => 0, 0.2)
+    ps = (f1, f2, d.pieces[1], f1, d.pieces[2], f2)
+    @test CR._runs_any(ps) === CR._runs(ps)
+    @test CR._runs_any(()) === CR._runs(()) === ()
+    # The checks of the pools, the exponent and the overflow.
+    @test_throws "pools is a named tuple" CR.Depletion(100.0; pools = (;))
+    @test_throws "pools is a named tuple" CR.Depletion(100.0; pools = (:S, :S))
+    @test_throws "pools is a named tuple" CR.Depletion(100.0; pools = [:S])
+    @test_throws "the heterogeneity exponent is a number" CR.Hazard("2")
+    @test_throws "overflow is nothing, :queue or :stratum" CR.Truncate(; overflow = :spill)
+    @test_throws "overflow is nothing, :queue or :stratum" CR.Truncate(; overflow = 1)
+    @test_throws "a draw fills a pool or takes from weighted pools" CR.Depletion(
+        10.0, CR.Truncate(; into = :S, weights = (S = 1,))
+    )
+    @test_throws "the draw names pool :X" CR.Depletion(10.0, CR.Truncate(; into = :X))
+    @test_throws "splat a collection" CR.Depletion(10.0, (f1, f2))
+    # A form among the parts the local step rebuilds runs as a draw and
+    # explains itself as the form.
+    part = CR._FormPart(CR.Hazard(1.5))
+    @test CR._any_step(part, 2.0) === CR._draw(CR.Hazard(1.5), 2.0, 2.0, 1)
+    @test CR._rebuild_why(part) == CR._rebuild_why(CR.Hazard(1.5))
+    # A form prints as written.
+    @test repr(CR.Hazard()) == "ComposableRecurrences.Hazard()"
+    @test repr(CR.Floor(1.5)) == "ComposableRecurrences.Floor(1.5)"
+end
