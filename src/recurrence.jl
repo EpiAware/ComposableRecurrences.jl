@@ -619,7 +619,7 @@ end
 # For a joined output of dual numbers (or any but hardware floats) over
 # strata on the host, the buffer is a transposed view of the output, which
 # holds the whole history when it is deeper than `D`, so the output is not
-# copied out of the buffer: at S = 5 this is a quarter of a ForwardDiff
+# copied out of the buffer: at S = 5 this is a quarter of a dual-number
 # call's bytes, and one stratum's floats reshape their buffer instead.
 # Hardware floats over strata keep each stratum's times contiguous, which
 # their kernel convolution needs.
