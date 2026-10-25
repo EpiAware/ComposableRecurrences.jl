@@ -1789,13 +1789,18 @@ end
     b = AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
     )
+    # The parts written out as the call's arguments. Under coverage a splat
+    # of 33 or more arguments stays a call resolved at run time, whose boxed
+    # result Enzyme's type analysis reads only to its first 512 bytes.
+    @generated function pool_of(N, pools, fs::Tuple)
+        args = [:(fs[$i]) for i in 1:fieldcount(fs)]
+        return :(Depletion(N, Hazard(), $(args...); pools = pools))
+    end
     # A pool with a scalar rate on each of `n` flows, built in the loss.
     function flows_loss(θ, ::Val{n}) where {n}
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(n))
-        d = Depletion(
-            1000.0, Hazard(), fs...; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0))
-        )
+        d = pool_of(1000.0, NamedTuple{ring}((900.0, 50.0, 30.0, 20.0)), fs)
         r = Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
         return sum(log.(r(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
     end
