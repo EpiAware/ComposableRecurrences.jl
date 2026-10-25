@@ -804,7 +804,9 @@ end
 
 # With a draw: the parts fold over the group's value, the value of its
 # overflow stratum, its pools and its queue, `(a, b, x, Q)`, with
-# `nothing` for an overflow it lacks.
+# `nothing` for an overflow it lacks. The parts' modifier-role steps
+# below reshape views into this tuple and call the same `_piece_step`;
+# folding those on views instead was 9-13% slower on the stratified cases.
 @inline function _group_step(m, v, s, t, g)
     q, st = _queue_of(m), _stratum_of(m)
     x, Q = _pools_queue(q, s, Val(_npools(m)))
