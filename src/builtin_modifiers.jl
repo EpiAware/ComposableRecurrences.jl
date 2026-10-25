@@ -178,9 +178,8 @@ exponent.
   pass a float to differentiate the exponent.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the draw's, as
-  [`ComposableRecurrences.Depletion`](@ref) sets out; with any of them
-  `Hazard` returns a draw rather than the form.
+- `weights`, `into`, `overflow`: the form's arguments as a draw, which
+  [`ComposableRecurrences.Depletion`](@ref) sets out.
 
 # Examples
 ```jldoctest
@@ -195,10 +194,18 @@ round.(v; digits = 3), round.(s; digits = 3)
 ([1.584], [78.416])
 ```
 """
-struct Hazard{A}
+struct Hazard{A, W, I, O}
     "The heterogeneity exponent α, or `nothing` for one."
     α::A
-    Hazard{A}(α) where {A} = new{A}(α)
+    "As a draw, each pool's weight by name, or `nothing`."
+    weights::W
+    "As a draw, the pool it fills, or `nothing`."
+    into::I
+    "As a draw, where what it leaves goes."
+    overflow::O
+    function Hazard{A, W, I, O}(α, weights, into, overflow) where {A, W, I, O}
+        return new{A, W, I, O}(α, weights, into, overflow)
+    end
 end
 
 @doc raw"""
@@ -222,7 +229,7 @@ The pool can go negative, and then the floor applies.
   [`ComposableRecurrences.Hazard`](@ref).
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the draw's, as
+- `weights`, `into`, `overflow`: the form's arguments as a draw, which
   [`ComposableRecurrences.Depletion`](@ref) sets out.
 
 # Examples
@@ -238,23 +245,59 @@ v, s
 ([1.6], [78.4])
 ```
 """
-struct Floor{A}
+struct Floor{A, W, I, O}
     "The heterogeneity exponent α, or `nothing` for one."
     α::A
-    Floor{A}(α) where {A} = new{A}(α)
+    "As a draw, each pool's weight by name, or `nothing`."
+    weights::W
+    "As a draw, the pool it fills, or `nothing`."
+    into::I
+    "As a draw, where what it leaves goes."
+    overflow::O
+    function Floor{A, W, I, O}(α, weights, into, overflow) where {A, W, I, O}
+        return new{A, W, I, O}(α, weights, into, overflow)
+    end
 end
 
-# A form with its exponent: `true` is the default exponent of one. With a
-# draw's keywords, the draw.
+# Where what a draw leaves goes: nowhere, to the group's second value or
+# to a queue that joins its value at the next step.
+struct _Drop end
+struct _ToStratum end
+struct _Queue end
+_overflow(::Nothing) = _Drop()
+function _overflow(x::Symbol)
+    x === :stratum && return _ToStratum()
+    x === :queue && return _Queue()
+    return _bad_overflow(x)
+end
+_overflow(x) = _bad_overflow(x)
+@noinline function _bad_overflow(x)
+    throw(
+        ArgumentError(
+            "overflow is nothing, :queue or :stratum, got " * _describe(x)
+        )
+    )
+end
+_overflow_name(::_Drop) = nothing
+_overflow_name(::_ToStratum) = :stratum
+_overflow_name(::_Queue) = :queue
+
+# A form with its exponent and its arguments as a draw: `true` is the
+# default exponent of one. The positional method rebuilds a form from its
+# fields.
 const _ExponentForm = Union{Hazard, Floor}
 for F in (:Hazard, :Floor)
     @eval function $F(α = nothing; weights = nothing, into = nothing, overflow = nothing)
-        return _drawn(_with_exponent($F, α), weights, into, overflow)
+        return $F(_unit_exponent(α), weights, into, _overflow(overflow))
+    end
+    @eval function $F(α::A, weights::W, into::I, overflow::O) where {A, W, I, O}
+        return $F{A, W, I, O}(_check_exponent(α), weights, into, overflow)
     end
 end
-_with_exponent(::Type{F}, α::Union{Nothing, Real}) where {F} = F{typeof(α)}(α)
-_with_exponent(::Type{F}, α::Bool) where {F} = α ? F{Nothing}(nothing) : F{Bool}(α)
-function _with_exponent(::Type{F}, α) where {F}
+_unit_exponent(α) = α
+_unit_exponent(α::Bool) = α ? nothing : α
+_check_exponent(α::Union{Nothing, Real}) = α
+@noinline function _check_exponent(α)
     throw(
         ArgumentError(
             "the heterogeneity exponent is a number or nothing, got " * _describe(α)
@@ -262,10 +305,30 @@ function _with_exponent(::Type{F}, α) where {F}
     )
 end
 
+# A built-in form's arguments as a draw, and the form without them, which
+# a draw holds; a form of another type is drawn from the first pool alone.
+_draw_args(form) = (nothing, nothing, _Drop())
+_draw_args(form::_ExponentForm) = (form.weights, form.into, form.overflow)
+_bare(form) = form
+_bare(form::_ExponentForm) = typeof(form).name.wrapper(form.α)
+
 # Printed as written.
 function Base.show(io::IO, form::_ExponentForm)
     show(io, typeof(form).name.wrapper)
-    form.α === nothing ? print(io, "()") : print(io, "(", form.α, ")")
+    print(io, "(")
+    form.α === nothing || print(io, form.α)
+    _show_draw_args(io, form)
+    print(io, ")")
+    return nothing
+end
+function _show_draw_args(io, form)
+    w, i, o = _draw_args(form)
+    args = filter(
+        p -> p.second !== nothing,
+        (:weights => w, :into => i, :overflow => _overflow_name(o))
+    )
+    isempty(args) && return nothing
+    print(io, "; ", join(("$(k) = $(repr(v))" for (k, v) in args), ", "))
     return nothing
 end
 
@@ -316,7 +379,7 @@ end
 # pool. `nothing` and `false` stay fixed, without a cotangent.
 _exponent_form(form, N) = form
 function _exponent_form(form::F, N) where {F <: _ExponentForm}
-    return _with_exponent(typeof(form).name.wrapper, _exponent(form.α, N))
+    return typeof(form).name.wrapper(_exponent(form.α, N))
 end
 _exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
 _exponent(α::Bool, N) = α

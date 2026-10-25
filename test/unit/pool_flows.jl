@@ -199,7 +199,7 @@ end
         100.0, CR.Hazard(), CR.Flow(2 => 1, 0.1)
     )
     @test_throws "0.1 is not a draw or a Flow" CR.Depletion(100.0, CR.Hazard(), 0.1)
-    @test_throws "the pieces of a Depletion are given one by one" CR.Depletion(
+    @test_throws "the parts of a Depletion are given one by one" CR.Depletion(
         100.0, CR.Hazard(), (CR.Flow(:S => 0, 0.1),)
     )
     # A vector of flows splats into the pieces.

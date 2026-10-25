@@ -372,7 +372,7 @@ end
         CR.Flow(:A => :B, 0.1); pools = (A = 1.0, B = nothing)
     )
     # The exponent shapes a draw, not a flow.
-    @test_throws "a flow's form is Hazard(), Share(), Truncate() or" CR.Flow(
+    @test_throws "a flow's Hazard() takes no exponent" CR.Flow(
         :A => :B, 0.1; form = CR.Hazard(2.0)
     )
     # A third pool without flows is named by `pools`.

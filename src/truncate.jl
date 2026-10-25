@@ -20,9 +20,8 @@ A NaN pool gives a NaN draw.
 [`ComposableRecurrences.SoftTruncate`](@ref) is a smooth version.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the draw's, as
-  [`ComposableRecurrences.Depletion`](@ref) sets out; with any of them
-  `Truncate` returns a draw rather than the form.
+- `weights`, `into`, `overflow`: the form's arguments as a draw, which
+  [`ComposableRecurrences.Depletion`](@ref) sets out.
 
 # Examples
 ```jldoctest
@@ -37,10 +36,22 @@ v, s
 ([2.0, 1.5], [78.0, 0.0])
 ```
 """
-struct Truncate
-    function Truncate(; weights = nothing, into = nothing, overflow = nothing)
-        return _drawn(new(), weights, into, overflow)
+struct Truncate{W, I, O}
+    "As a draw, each pool's weight by name, or `nothing`."
+    weights::W
+    "As a draw, the pool it fills, or `nothing`."
+    into::I
+    "As a draw, where what it leaves goes."
+    overflow::O
+    function Truncate{W, I, O}(weights, into, overflow) where {W, I, O}
+        return new{W, I, O}(weights, into, overflow)
     end
+end
+function Truncate(; weights = nothing, into = nothing, overflow = nothing)
+    return Truncate(weights, into, _overflow(overflow))
+end
+function Truncate(weights::W, into::I, overflow::O) where {W, I, O}
+    return Truncate{W, I, O}(weights, into, overflow)
 end
 
 @doc raw"""
@@ -67,7 +78,7 @@ The floor at ``s = 0`` keeps its kink.
 - `κ`: the softness, with ``0 < \kappa < 1``.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the draw's, as
+- `weights`, `into`, `overflow`: the form's arguments as a draw, which
   [`ComposableRecurrences.Depletion`](@ref) sets out.
 
 # Examples
@@ -83,17 +94,49 @@ round.(v; digits = 3), round.(s; digits = 3)
 ([1.866], [0.134])
 ```
 """
-struct SoftTruncate{K <: Real}
+struct SoftTruncate{K <: Real, W, I, O}
     "The softness κ."
     κ::K
+    "As a draw, each pool's weight by name, or `nothing`."
+    weights::W
+    "As a draw, the pool it fills, or `nothing`."
+    into::I
+    "As a draw, where what it leaves goes."
+    overflow::O
     function SoftTruncate(
-            κ::K; weights = nothing, into = nothing, overflow = nothing
-        ) where {K <: Real}
+            κ::K, weights::W, into::I, overflow::O
+        ) where {K <: Real, W, I, O}
         0 < κ < 1 || throw(
             ArgumentError("the softness κ is between 0 and 1, got $κ")
         )
-        return _drawn(new{K}(κ), weights, into, overflow)
+        return new{K, W, I, O}(κ, weights, into, overflow)
     end
+end
+function SoftTruncate(κ; weights = nothing, into = nothing, overflow = nothing)
+    return SoftTruncate(κ, weights, into, _overflow(overflow))
+end
+
+const _TruncateForm = Union{Truncate, SoftTruncate}
+# The built-in forms, without a method lookup at run time.
+_is_form(::Type{<:Union{_ExponentForm, _TruncateForm}}) = true
+_draw_args(form::_TruncateForm) = (form.weights, form.into, form.overflow)
+_bare(::Truncate) = Truncate()
+_bare(form::SoftTruncate) = SoftTruncate(form.κ)
+
+# Printed as written.
+function Base.show(io::IO, form::Truncate)
+    show(io, Truncate)
+    print(io, "(")
+    _show_draw_args(io, form)
+    print(io, ")")
+    return nothing
+end
+function Base.show(io::IO, form::SoftTruncate)
+    show(io, SoftTruncate)
+    print(io, "(", form.κ)
+    _show_draw_args(io, form)
+    print(io, ")")
+    return nothing
 end
 
 function forward!(::Truncate, ::Step, v, s, N)

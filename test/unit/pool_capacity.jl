@@ -421,7 +421,7 @@ end
         CR.Truncate(; into = :O); pools = (:O,)
     )
     # The overflow shapes a draw, not a flow.
-    @test_throws "a flow's form is Hazard(), Share(), Truncate() or" CR.Flow(
+    @test_throws "a draw's arguments, which a flow does not take" CR.Flow(
         :S => 0, 0.1; form = CR.Truncate(; overflow = :queue)
     )
     @test_throws "from is a pool from 1, or 0 for outside the Depletion, got from = -1" CR.Flow(

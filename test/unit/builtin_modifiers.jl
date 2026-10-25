@@ -806,7 +806,7 @@ end
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
     @test (@inferred default_depletion()) isa
-        CR.Depletion{<:Any, <:Tuple{CR._DrawFrom{CR.Hazard{Nothing}, Float64}}}
+        CR.Depletion{<:Any, <:Tuple{CR._DrawFrom{typeof(CR.Hazard()), Float64}}}
 end
 
 @testitem "Built-in modifiers: a Recurrence infers its return type" begin

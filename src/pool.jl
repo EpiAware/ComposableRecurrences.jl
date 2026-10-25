@@ -340,21 +340,6 @@ struct _DrawInto{F, P, O}
 end
 const _Drawing = Union{_DrawFrom, _DrawInto}
 
-# Where what a draw leaves goes: nowhere, to the group's second value or
-# to a queue that joins its value at the next step.
-struct _Drop end
-struct _ToStratum end
-struct _Queue end
-
-# A draw as its form's keywords give it, its pools still by name.
-struct _Draw{F, W, I, O}
-    form::F
-    weights::W
-    into::I
-    overflow::O
-end
-_drawn(form, ::Nothing, ::Nothing, ::Nothing) = form
-_drawn(form, weights, into, overflow) = _Draw(form, weights, into, _overflow(overflow))
 
 # A run of flows that act together.
 const _Flows = Tuple{Flow, Vararg{Flow}}
@@ -455,21 +440,20 @@ _pool_starts(pools) = _bad_pools(pools)
     )
 end
 
-# A part with its pools as positions among `starts`: a flow, a draw, or a
-# form drawn from the first pool alone.
+# A part with its pools as positions among `starts`: a flow, or a draw by
+# its form's arguments, a form of another type drawn from the first pool
+# alone. The draw holds the form without its arguments.
 _place_piece(f::Flow, N, starts) = _placed(f, keys(starts))
-function _place_piece(d::_Draw, N, starts)
-    return _place_draw(d.form, d.weights, d.into, d.overflow, N, starts)
-end
 function _place_piece(form, N, starts)
     _check_piece(form)
-    return _place_draw(form, nothing, nothing, _Drop(), N, starts)
+    w, into, overflow = _draw_args(form)
+    return _place_draw(_bare(form), w, into, overflow, N, starts)
 end
 _check_piece(form) = _check_form(form)
 @noinline function _check_piece(fs::Union{Tuple, AbstractVector})
     throw(
         ArgumentError(
-            "the pieces of a Depletion are given one by one, so splat a " *
+            "the parts of a Depletion are given one by one, so splat a " *
                 "collection of them, got " * _describe(fs)
         )
     )
@@ -576,22 +560,6 @@ _check_fill_form(::_TruncateForm) = nothing
     )
 end
 _check_each_nonnegative(name, xs::Tuple) = foreach(x -> _check_nonnegative(name, x), xs)
-
-# Where the value a draw leaves goes.
-_overflow(::Nothing) = _Drop()
-function _overflow(x::Symbol)
-    x === :stratum && return _ToStratum()
-    x === :queue && return _Queue()
-    return _bad_overflow(x)
-end
-_overflow(x) = _bad_overflow(x)
-@noinline function _bad_overflow(x)
-    throw(
-        ArgumentError(
-            "overflow is nothing, :queue or :stratum, got " * _describe(x)
-        )
-    )
-end
 
 _initial_param(::Nothing) = nothing
 _initial_param(x) = _float_param(_check_constant(:pools, x))
@@ -784,10 +752,12 @@ _draw_mirror(m̄) = _head(cotangent(m̄, :pieces))
 _run_mirror(m̄) = _head(_tail(cotangent(m̄, :pieces)))
 
 # One pool drawn from once: the form's draw from each stratum's pool.
-function forward!(m::_Depleting, ::Step, v, s, t)
+# Inlined, as the per-stratum loop's views would otherwise be passed
+# through a call and allocated.
+@inline function forward!(m::_Depleting, ::Step, v, s, t)
     return forward!(only(m.pieces), Step(), v, s, t)
 end
-function pullback!(grads, m::_Depleting, ::Step, v, s, t)
+@inline function pullback!(grads, m::_Depleting, ::Step, v, s, t)
     g = (; piece = _draw_mirror(grads.piece), v = grads.v, s = grads.s)
     return pullback!(g, only(m.pieces), Step(), v, s, t)
 end
@@ -1163,13 +1133,13 @@ end
 
 # A draw from one pool with nothing left over, the step of one-pool
 # `Depletion`s, on each stratum's scalars.
-function forward!(p::_PointDraw, ::Step, v, s, t)
+@inline function forward!(p::_PointDraw, ::Step, v, s, t)
     for k in eachindex(v, s)
         v[k], s[k] = _draw(p.form, v[k], s[k], _pop(p.N, k, t))
     end
     return nothing
 end
-function pullback!(grads, p::_PointDraw, ::Step, v, s, t)
+@inline function pullback!(grads, p::_PointDraw, ::Step, v, s, t)
     p̄, v̄, s̄ = grads.piece, grads.v, grads.s
     f̄ = cotangent(p̄, :form)
     for k in eachindex(v, s)
