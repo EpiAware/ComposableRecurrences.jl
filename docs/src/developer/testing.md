@@ -140,7 +140,7 @@ Put each check at the cheapest level that runs its code path.
   Every backend job runs it through its rule against ForwardDiff.
 - Every scenario has a `NoAdjoint` twin, which Mooncake reverse and Enzyme reverse run: there the twin is the only check that the backend differentiates a built-in's own forward code.
   ForwardDiff, ReverseDiff and the forward modes take the same plain path for a scenario and its twin, so they run the scenarios alone (`category = :rules`).
-  A new method of a call on `NoAdjoint` itself needs a check on each of these backends; ReverseDiff runs two twins for the ones there now.
+  A new method of a call on `NoAdjoint` itself needs a check on each of these backends, as the item "Without a rule: the NoAdjoint wrapper's own calls" gives the ones there now.
   The benchmarks time every twin.
 - `test_adjoint` checks one registry operator of each kind of field and wrapper, listed in `ADJOINT_SCENARIOS` in `test/ad/adjoints.jl`.
   Add a scenario there only when it brings a kind of field or wrapper the list lacks, or a branch for a constant part that Enzyme's pass with the operator constant reaches.

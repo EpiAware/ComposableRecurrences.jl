@@ -59,16 +59,19 @@ end
     )
 end
 
-# ReverseDiff runs the scenarios without their twins, and no other item there
-# calls `NoAdjoint`, so these two twins run the wrapper's own call and its
-# `contributions` method.
-@testitem "ReverseDiff: the NoAdjoint wrapper's own calls" tags = [:ad, :reversediff, :reversediff_compiled] setup = [ADHelpers, JobBackends] begin
+# The backends without a rule of their own run the scenarios without their
+# twins, so these two twins run the `NoAdjoint` wrapper's own call and its
+# `contributions` method there.
+@testitem "Without a rule: the NoAdjoint wrapper's own calls" tags = [:ad, :forwarddiff, :reversediff, :reversediff_compiled, :enzyme, :enzyme_forward, :mooncake, :mooncake_forward] setup = [ADHelpers, JobBackends] begin
     twins = ("NoAdjoint Recurrence renewal", "NoAdjoint Convolution lag contributions")
     scens = filter(s -> s.name in twins, ADFixtures.scenarios(; with_reference = true))
     @test length(scens) == length(twins)
     names = job_backends(
+        :forwarddiff => "ForwardDiff",
         :reversediff => "ReverseDiff (tape)",
         :reversediff_compiled => "ReverseDiff (compiled)",
+        :enzyme_forward => "Enzyme forward",
+        :mooncake_forward => "Mooncake forward",
     )
     backends = [b.backend for b in ADFixtures.backends() if b.name in names]
     DIT.test_differentiation(
