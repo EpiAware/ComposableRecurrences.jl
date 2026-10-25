@@ -615,14 +615,16 @@ end
 function _primal(p::_Prepended{<:Recurrence}, gain, add, h::_CPUArray, s0, τ0, stop)
     return first(_recur(p.op, gain, add, h, s0, τ0, stop, Val(false), Val(true)))
 end
-# The run's buffer, `D + T` rows by `S` strata, with the history loaded,
-# and its depth. For a joined output of dual numbers (or any but hardware
-# floats) over strata on the host, the buffer is the transpose of the
-# output, as deep as the history if that is deeper, so the output is not
-# copied out of it; hardware floats keep each stratum's times contiguous,
-# which their kernel convolution needs.
+# The run's buffer, `D + T` rows by `S` strata, with the history loaded.
+# For a joined output of dual numbers (or any but hardware floats) over
+# strata on the host, the buffer is a transposed view of the output, which
+# holds the whole history when it is deeper than `D`, so the output is not
+# copied out of the buffer: at S = 5 this is a quarter of a ForwardDiff
+# call's bytes, and one stratum's floats reshape their buffer instead.
+# Hardware floats over strata keep each stratum's times contiguous, which
+# their kernel convolution needs.
 function _history_buffer(joined, h, ::Type{Tp}, D, T, S) where {Tp}
-    return _load_history!(_zeros(h, Tp, D + T, S), h, D), D
+    return _load_history!(_zeros(h, Tp, D + T, S), h, D)
 end
 function _history_buffer(
         ::Val{true}, h::AbstractMatrix, ::Type{Tp}, D, T, S
@@ -638,17 +640,19 @@ function _history_buffer(
     for j in 1:m, k in 1:S
         Y[k, Dh - m + j] = h[k, j]
     end
-    return transpose(Y), Dh
+    return transpose(view(Y, :, (Dh - D + 1):(Dh + T)))
 end
 
 # The history, then the buffer rows after it, in the public layout. A
-# buffer that is the output's transpose is the output, past any rows of
-# zeros before a shorter history; one stratum's buffer column is the
-# output when the history fills its rows.
-function _joined_output(H::Transpose{<:Any, <:Matrix}, D, T, h::AbstractMatrix)
-    Y = parent(H)
+# buffer that is a transposed view of the output is the output, past any
+# columns of zeros before a history shorter than the buffer; one stratum's
+# buffer column is the output when the history fills its rows.
+function _joined_output(
+        H::Transpose{<:Any, <:SubArray{<:Any, 2, <:Matrix}}, D, T, h::AbstractMatrix
+    )
+    Y = parent(parent(H))
     m = size(h, 2)
-    return m == D ? Y : Y[:, (D - m + 1):(D + T)]
+    return m >= D ? Y : Y[:, (D - m + 1):(D + T)]
 end
 function _joined_output(H::Matrix, D, T, h::AbstractVector)
     length(h) == D && return vec(H)
@@ -1397,7 +1401,7 @@ function _run(
     keep = record === true
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
-    H, D = _history_buffer(joined, h, Tp, D, T, S)
+    H = _history_buffer(joined, h, Tp, D, T, S)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     p = _zeros(h, Tp, S)
