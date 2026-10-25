@@ -8,32 +8,32 @@
 # or trim backends and categories to match the package afterwards.
 
 @testitem "ForwardDiff gradients" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
-    test_working_backend("ForwardDiff"; category = :tests)
+    test_working_backend("ForwardDiff"; category = :rules)
 end
 
 @testitem "ReverseDiff (tape) gradients" tags = [:ad, :reversediff] setup = [ADHelpers] begin
-    test_working_backend("ReverseDiff (tape)"; category = :tests)
+    test_working_backend("ReverseDiff (tape)"; category = :rules)
 end
 
 @testitem "ReverseDiff (compiled) gradients" tags = [:ad, :reversediff_compiled] setup = [ADHelpers] begin
-    test_working_backend("ReverseDiff (compiled)"; category = :tests)
+    test_working_backend("ReverseDiff (compiled)"; category = :rules)
 end
 
 @testitem "Enzyme forward gradients" tags = [:ad, :enzyme, :enzyme_forward] setup = [ADHelpers] begin
-    test_working_backend("Enzyme forward"; category = :tests)
+    test_working_backend("Enzyme forward"; category = :rules)
 end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
 @testitem "Enzyme reverse gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers] begin
-    test_working_backend("Enzyme reverse"; category = :reverse_tests)
+    test_working_backend("Enzyme reverse"; category = :marginal)
 end
 
 @testitem "Mooncake reverse gradients" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers] begin
-    test_working_backend("Mooncake reverse"; category = :reverse_tests)
+    test_working_backend("Mooncake reverse"; category = :marginal)
 end
 
 @testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers] begin
-    test_working_backend("Mooncake forward"; category = :tests)
+    test_working_backend("Mooncake forward"; category = :rules)
 end
 
 # Each registry scenario's gradient on a reverse-mode backend runs the
@@ -74,14 +74,9 @@ end
     @test all(MatrixCases.available(c, arm) for c in MatrixCases.CASES for arm in MatrixCases.arms(c))
     @test MatrixCases.LOCAL_CASES ⊆ Set(c.name for c in MatrixCases.CASES)
     @test length(ADFixtures.scenarios()) == 2 * length(ADFixtures._SCENARIOS)
-    # Each twin the gradient tests run names a scenario, once.
-    names = Set(first.(ADFixtures._SCENARIOS))
-    tested, rev = ADFixtures._TESTED_TWINS, ADFixtures._REVERSE_TWINS
-    @test all(in(names), tested)
-    @test all(in(names), rev)
-    @test isempty(intersect(tested, rev))
-    @test length(ADFixtures.scenarios(; category = :tests)) ==
-        length(ADFixtures._SCENARIOS) + length(tested)
-    @test length(ADFixtures.scenarios(; category = :reverse_tests)) ==
-        length(ADFixtures._SCENARIOS) + length(tested) + length(rev)
+    # The forward modes, ForwardDiff and ReverseDiff test the scenarios
+    # without their twins.
+    rules = ADFixtures.scenarios(; category = :rules)
+    @test length(rules) == length(ADFixtures._SCENARIOS)
+    @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
 end

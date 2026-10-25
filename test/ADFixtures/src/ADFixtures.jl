@@ -1907,76 +1907,12 @@ const _TWINS = Tuple{String, Any, Any}[
         if supports(_requires(name)..., extra...)
 ]
 
-# The scenarios whose `NoAdjoint` twin the gradient tests run on every
-# backend, one for each call the plain route takes on its own: a
-# recurrence's call, its state, its seed joined to the output with and
-# without its state, its trace, a convolution's call and lag
-# contributions, the automatic method's choice of the direct sum, a sparse
-# coupling, and the check made at the call. The Clamp twin is marked
-# broken on Enzyme reverse on Julia 1.11, so it stays to show when that is
-# fixed. On ForwardDiff, ReverseDiff and the forward modes there is no
-# reverse rule, so every other twin differentiates the same code as its
-# scenario; the benchmarks time them all.
-const _TESTED_TWINS = (
-    "Recurrence renewal",
-    "Recurrence strata, coupling and depletion",
-    "Recurrence returning its state",
-    "Recurrence seeded on a growth path",
-    "Recurrence returning its state after its seed",
-    "Recurrence trace of a weekly budget with a queue",
-    "Recurrence sparse coupling",
-    "Recurrence Redistribute, Add and Clamp",
-    "Recurrence checked at the call",
-    "Convolution delay with history",
-    "Convolution lag contributions",
-    "Convolution long kernel by the automatic method",
-)
-
-# On a reverse-mode backend with its own rule, the twin is the only check
-# that the backend differentiates a built-in's forward code itself, as
-# `NoAdjoint` asks and as an operator holding a piece without a rule
-# needs. These twins add one for each kind of built-in the twins above
-# leave out: the `Allocate` imports, `Depletion` flows, draws, protection
-# and steps without a draw, `Transform`, `Derived`, each kind of kernel
-# and coupling, routes, recent outputs, change points, delay
-# distributions and a buffer deeper than the kernel. A protected pool in
-# Float32 has an item of its own.
-const _REVERSE_TWINS = (
-    "Recurrence grouped totals with imports and a spill (Allocate)",
-    "Recurrence waning protection (Depletion flows)",
-    "Recurrence ward with competing flows (Depletion without a draw)",
-    "Recurrence vaccination into a protected pool",
-    "Recurrence floored depletion with a differentiated heterogeneity",
-    "Recurrence depletion with truncated draws",
-    "Recurrence depletion with smoothly truncated draws",
-    "Recurrence Transform with per-stratum parameters",
-    "Recurrence Derived modifier parameters",
-    "Recurrence per-stratum kernel, Diagonal coupling",
-    "Recurrence pairwise kernel",
-    "Recurrence time-varying kernel and coupling",
-    "Recurrence Primary time-varying kernel",
-    "Recurrence ragged Primary kernel",
-    "Recurrence routes folded on scaled identities",
-    "Recurrence routes, dense and sparse",
-    "Recurrence feedback from recent outputs",
-    "Recurrence removals from recent outputs",
-    "Recurrence kernel from change points",
-    "Recurrence coupling from change points",
-    "Recurrence parameters from change points",
-    "Convolution Poisson delay distribution",
-    "Recurrence negative binomial generation interval per stratum",
-    "Recurrence with a buffer deeper than the kernel",
-)
-
-# Whether the gradient tests of `category` run the scenario named `name`.
-function _tested(name, category)
-    startswith(name, "NoAdjoint ") || return true
-    base = chopprefix(name, "NoAdjoint ")
-    base in _TESTED_TWINS && return true
-    return category === :reverse_tests && base in _REVERSE_TWINS
-end
-
-const _CATEGORIES = (:marginal, :tests, :reverse_tests)
+# Each scenario runs once through its call, and a twin once more through
+# `NoAdjoint`. Only a reverse-mode backend with its own rule tells the two
+# apart: under ForwardDiff and ReverseDiff the dual or tracked fields fail
+# `_gate`, and the forward modes have no rule, so both take the same plain
+# path there and the twin repeats its scenario.
+const _CATEGORIES = (:marginal, :rules)
 
 """
     scenarios(; with_reference = false, category = :marginal)
@@ -1984,12 +1920,9 @@ const _CATEGORIES = (:marginal, :tests, :reverse_tests)
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
 The category `:marginal` holds every scenario and its `NoAdjoint` twin,
-which the benchmarks time.
-The category `:tests` holds every scenario and the twins of
-`_TESTED_TWINS`, which the gradient tests run on ForwardDiff, ReverseDiff
-and the forward modes.
-The category `:reverse_tests` adds the twins of `_REVERSE_TWINS`, which
-the gradient tests also run on Mooncake reverse and Enzyme reverse.
+which the benchmarks time and the reverse-mode backends with a rule test.
+The category `:rules` holds every scenario without its twin, for the
+backends where the twin takes the same path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
@@ -2000,7 +1933,7 @@ function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
         )
     )
     twins = category === :marginal ? _TWINS :
-        filter(t -> _tested(first(t), category), _TWINS)
+        filter(t -> !startswith(first(t), "NoAdjoint "), _TWINS)
     return map(twins) do (name, f, θ0)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(

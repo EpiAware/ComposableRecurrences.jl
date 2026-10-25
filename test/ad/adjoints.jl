@@ -469,7 +469,7 @@
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
         plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
-        for scen in ADFixtures.scenarios(; category = :reverse_tests)
+        for scen in ADFixtures.scenarios()
             scen.name in skip && continue
             rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
             scenario_testset(name, scen.name) do
@@ -1846,11 +1846,7 @@ end
         @test CR._PULLBACK_CALLS[] > 0
         return nothing
     end
-    # At and past the 32 entries where inference stopped: 33 flows and 35
-    # scalars are past it, so these sizes cover the Enzyme gradient there.
-    # The unit tests check only that larger pools and tuples infer in the
-    # primal.
-    for v in (Val(32), Val(33))
+    for v in (Val(32), Val(33), Val(64))
         n = typeof(v).parameters[1]
         check(flows_loss, [0.005 + 0.0005 * i for i in 1:n], v)
     end
@@ -1870,7 +1866,7 @@ end
         r = Recurrence([0.3, 0.2]; modifiers = (m,))
         return sum(r(fill(1.5, 20); history = [1.0, 1.0]))
     end
-    for v in (Val(35),)
+    for v in (Val(35), Val(40))
         n = typeof(v).parameters[1]
         check(weights_loss, [1.0 + 0.01 * i for i in 1:n], v)
     end
