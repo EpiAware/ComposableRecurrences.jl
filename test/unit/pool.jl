@@ -847,6 +847,7 @@ end
     f1, f2 = CR.Flow(1 => 0, 0.1), CR.Flow(1 => 0, 0.2)
     ps = (f1, f2, d.pieces[1], f1, d.pieces[2], f2)
     @test CR._runs_any(ps) === CR._runs(ps)
+    @test CR._runs_any(ps[3:end]) === CR._runs(ps[3:end])
     @test CR._runs_any(()) === CR._runs(()) === ()
     # The checks of the pools, the exponent and the overflow.
     @test_throws "pools is a named tuple" CR.Depletion(100.0; pools = (;))
