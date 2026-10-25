@@ -860,6 +860,16 @@ end
     )
     @test_throws "the draw names pool :X" CR.Depletion(10.0, CR.Truncate(; into = :X))
     @test_throws "splat a collection" CR.Depletion(10.0, (f1, f2))
+    @test_throws "splat a collection" CR.Depletion(10.0, [f1, f2])
+    # `pools` is its one keyword, with a population or without.
+    @test_throws "takes the keyword pools alone, got pool" CR.Depletion(
+        10.0; pool = (:S,)
+    )
+    @test_throws "takes the keyword pools alone, got pools, N" CR.Depletion(
+        f1; pools = (:A, :B), N = 1.0
+    )
+    @test CR.Depletion(10.0; pools = (:S,)) == CR.Depletion(10.0)
+    @test CR.Depletion(f1; pools = (:A, :B)) isa CR.Depletion
     # A form among the parts the local step rebuilds runs as a draw and
     # explains itself as the form.
     part = CR._FormPart(CR.Hazard(1.5))

@@ -399,15 +399,36 @@ end
 const _Population = Union{
     Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
 }
-@inline function Depletion(N::_Population, pieces...; pools = nothing)
-    return _depletion(_population(N), pieces, pools)
+@inline Depletion(N::_Population, pieces...) = _depletion(_population(N), pieces, nothing)
+@inline Depletion(pieces...) = _depletion(nothing, pieces, nothing)
+# The keyword `pools`, taken here rather than by a keyword method, whose
+# body would take the parts splatted again: past 32 parts that splat is
+# left to run time, which reverse-mode AD may not differentiate through.
+@inline function Core.kwcall(kw::NamedTuple, ::Type{Depletion}, N::_Population, pieces...)
+    return _depletion(_population(N), pieces, _pools_keyword(kw))
 end
-@inline Depletion(pieces...; pools = nothing) = _depletion(nothing, pieces, pools)
+@inline function Core.kwcall(kw::NamedTuple, ::Type{Depletion}, pieces...)
+    return _depletion(nothing, pieces, _pools_keyword(kw))
+end
+_pools_keyword(kw::NamedTuple{()}) = nothing
+_pools_keyword(kw::NamedTuple{(:pools,)}) = kw.pools
+@noinline function _pools_keyword(kw::NamedTuple)
+    throw(
+        ArgumentError(
+            "a Depletion takes the keyword pools alone, got " *
+                join(keys(kw), ", ")
+        )
+    )
+end
 
 @inline function _depletion(N, pieces::Tuple, pools)
     starts = _pool_starts(pools)
-    placed = _tuple_map(p -> _place_piece(p, N, starts), _or_hazard(pieces))
-    runs = _runs(placed)
+    given = _or_hazard(pieces)
+    _tuple_map(_check_given, given)
+    # Grouped before they are placed, so each run is placed as one tuple of
+    # flows: regrouped after, a run of 32 or more flows defeated the type
+    # analysis of reverse-mode AD.
+    runs = _tuple_map(r -> _place_run(r, N, starts), _runs(given))
     _check_each_nonnegative(:pools, values(starts))
     _ndraws(runs) == 0 && any(!isnothing, values(starts)) && throw(
         ArgumentError(
@@ -440,16 +461,19 @@ _pool_starts(pools) = _bad_pools(pools)
     )
 end
 
-# A part with its pools as positions among `starts`: a flow, or a draw by
-# its form's arguments, a form of another type drawn from the first pool
-# alone. The draw holds the form without its arguments.
-_place_piece(f::Flow, N, starts) = _placed(f, keys(starts))
+# A run or a part with its pools as positions among `starts`: each flow of
+# a run, or a draw by its form's arguments, a form of another type drawn
+# from the first pool alone. The draw holds the form without its arguments.
+_place_run(fs::_Flows, N, starts) = _tuple_map(f -> _placed(f, keys(starts)), fs)
+_place_run(form, N, starts) = _place_piece(form, N, starts)
 function _place_piece(form, N, starts)
     _check_piece(form)
     w, into, overflow = _draw_args(form)
     return _place_draw(_bare(form), w, into, overflow, N, starts)
 end
 _check_piece(form) = _check_form(form)
+_check_given(p) = nothing
+_check_given(fs::Union{Tuple, AbstractVector}) = _check_piece(fs)
 @noinline function _check_piece(fs::Union{Tuple, AbstractVector})
     throw(
         ArgumentError(
