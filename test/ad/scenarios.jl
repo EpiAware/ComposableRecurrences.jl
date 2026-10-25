@@ -59,6 +59,24 @@ end
     )
 end
 
+# ReverseDiff runs the scenarios without their twins, and no other item there
+# calls `NoAdjoint`, so these two twins run the wrapper's own call and its
+# `contributions` method.
+@testitem "ReverseDiff: the NoAdjoint wrapper's own calls" tags = [:ad, :reversediff, :reversediff_compiled] setup = [ADHelpers, JobBackends] begin
+    twins = ("NoAdjoint Recurrence renewal", "NoAdjoint Convolution lag contributions")
+    scens = filter(s -> s.name in twins, ADFixtures.scenarios(; with_reference = true))
+    @test length(scens) == length(twins)
+    names = job_backends(
+        :reversediff => "ReverseDiff (tape)",
+        :reversediff_compiled => "ReverseDiff (compiled)",
+    )
+    backends = [b.backend for b in ADFixtures.backends() if b.name in names]
+    DIT.test_differentiation(
+        backends, scens; correctness = true, type_stability = :none,
+        logging = false, rtol = 5.0e-2, atol = 1.0e-6
+    )
+end
+
 # Add latent (or other) scenario groups as the package needs, e.g.:
 # @testitem "ForwardDiff gradients (latent)" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
 #     test_working_backend("ForwardDiff"; category = :latent)
