@@ -813,7 +813,7 @@ end
         CR.Truncate(; overflow = :queue); pools = (:B,)
     )
     for p in q.pieces
-        v, s, n = [3.0], [1.0, 0.5], 2
+        local v, s, n = [3.0], [1.0, 0.5], 2
         function trace(x)
             vin, sin = refs(x[1:1]), refs(x[2:3])
             vout, sout = refs(x[1:1]), refs(x[2:3])
@@ -868,4 +868,12 @@ end
     # A form prints as written.
     @test repr(CR.Hazard()) == "ComposableRecurrences.Hazard()"
     @test repr(CR.Floor(1.5)) == "ComposableRecurrences.Floor(1.5)"
+    @test repr(CR.Truncate()) == "ComposableRecurrences.Truncate()"
+    @test repr(CR.SoftTruncate(0.1)) == "ComposableRecurrences.SoftTruncate(0.1)"
+    @test repr(CR.Truncate(; into = :B, overflow = :queue)) ==
+        "ComposableRecurrences.Truncate(; into = :B, overflow = :queue)"
+    @test repr(CR.Hazard(2.0; weights = (S = 1, V = 0.3))) ==
+        "ComposableRecurrences.Hazard(2.0; weights = (S = 1, V = 0.3))"
+    @test repr(CR.SoftTruncate(0.1; overflow = :stratum)) ==
+        "ComposableRecurrences.SoftTruncate(0.1; overflow = :stratum)"
 end
