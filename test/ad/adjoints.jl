@@ -1748,7 +1748,7 @@ end
 
 @testitem "Enzyme reverse: the rule returns a typed tuple past 32 leaves" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
-    using ComposableRecurrences: Flow, Depletion
+    using ComposableRecurrences: Flow, Depletion, Hazard
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
@@ -1765,7 +1765,7 @@ end
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(8))
         d = Depletion(
-            1000.0, CR.Hazard(), fs...; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0))
+            1000.0, Hazard(), fs...; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0))
         )
         return Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
     end
@@ -1783,7 +1783,7 @@ end
 
 @testitem "Enzyme reverse: a field of 32 or more entries" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
-    using ComposableRecurrences: Flow, Depletion
+    using ComposableRecurrences: Flow, Depletion, Hazard
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     b = AutoEnzyme(;
@@ -1794,7 +1794,7 @@ end
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(n))
         d = Depletion(
-            1000.0, CR.Hazard(), fs...; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0))
+            1000.0, Hazard(), fs...; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0))
         )
         r = Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
         return sum(log.(r(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
