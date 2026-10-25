@@ -39,8 +39,8 @@ end
 
 # Without `ForwardDiff` loaded, built-in pieces keep their rules, a piece
 # without a `pullback!` runs forward but its gradient says to load
-# `ForwardDiff`, and once loaded the operator built before it checks its
-# parts at the call.
+# `ForwardDiff`, `PieceInterface`'s pullback check passes with a note, and
+# once loaded the operator built before it checks its parts at the call.
 @testitem "Loading: gradients without ForwardDiff" tags = [:quality] begin
     script = raw"""
     using ComposableRecurrences, Mooncake, DifferentiationInterface
@@ -83,11 +83,14 @@ end
     end
     println(occursin("Cap has no `pullback!`", msg), " ",
         occursin("add `using ForwardDiff`", msg))
+    using Interfaces
+    unchecked = Interfaces.test(CR.PieceInterface{(:pullback,)}, CR.Clamp; show = false)
     using ForwardDiff
     n0 = CR._PULLBACK_CALLS[]
     g = gradient(h, backend, x)
     println(CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(h, x); rtol = 1.0e-5))
     println(Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),)).rebuilds)
+    println(unchecked)
     """
     project = Base.active_project()
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
@@ -99,4 +102,5 @@ end
     @test lines[5] == "true true"
     @test lines[6] == "true true"
     @test lines[7] == "true"
+    @test lines[8] == "true"
 end

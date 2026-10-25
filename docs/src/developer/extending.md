@@ -415,12 +415,13 @@ Here `args` are the arguments after the role:
 For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
+The optional `:pullback` check compares each `pullback!` for `Step()` or `Pressure()` with the ForwardDiff Jacobian of `forward!` on the same inputs, so it needs `using ForwardDiff`.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments
 
 Interfaces.test(
-    CR.PieceInterface{(:pointwise, :nstate)}, Smooth,
+    CR.PieceInterface{(:pointwise, :nstate, :pullback)}, Smooth,
     [
         Arguments(; piece = Smooth(0.3), role = CR.Init(), args = (zeros(2), ones(2, 3))),
         Arguments(; piece = Smooth(0.3), role = CR.Step(), args = ([1.0, 2.0], [0.5, 0.5], 1)),
@@ -430,22 +431,6 @@ Interfaces.test(
         ),
     ]
 )
-```
-
-Then check each `pullback!` against ForwardDiff of `forward!` on the same inputs.
-
-```@example extending
-using ForwardDiff
-
-function smooth_step(x)
-    v, s = [x[2]], [x[3]]
-    CR.forward!(Smooth(x[1]), CR.Step(), v, s, 1)
-    return [v[1], s[1]]
-end
-J = ForwardDiff.jacobian(smooth_step, [0.5, 2.0, 1.0])
-grads = (; piece = (; a = Ref(0.0)), v = [1.0], s = [0.5])
-CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
-J' * [1.0, 0.5] ≈ [grads.piece.a[], grads.v[1], grads.s[1]]
 ```
 
 Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
