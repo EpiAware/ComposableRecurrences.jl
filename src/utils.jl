@@ -279,7 +279,10 @@ end
 # `map` over a tuple, unrolled so that the result is concretely typed at
 # any length: `map` over a tuple of 32 or more entries returns a `Tuple` of
 # unknown type. The generator reads only the length.
+# A tuple whose length is not in its type, as static analysis may pass, is
+# mapped by `map`.
 @generated function _tuple_map(f, xs::Tuple{Vararg{Any, N}}) where {N}
+    N isa Int || return :(map(f, xs))
     return :(($((:(f(xs[$i])) for i in 1:N)...),))
 end
 

@@ -379,16 +379,16 @@ _dual_modifier(m̄, m, θd, θsd::Tuple{Any, Vararg}) = first(_rebuild_scalar(m,
 _dual_modifier(m̄, m, θd, ::Tuple{}) = _rebuild_views(m, θd)
 _dual_modifier(::Nothing, m, θd, ::Tuple{}) = m
 
-function _local_form_pullback(grads, form, v, s, N, α)
-    x = (v, s, N, α, _param_tuple(form)...)
+function _local_form_pullback(grads, form, v, s, N)
+    x = (v, s, N, _param_tuple(form)...)
     T = promote_type(map(typeof, x)...)
     xd = _seed(ForwardDiff.Tag(_local_form_pullback, T), map(T, x))
-    θd = Base.tail(Base.tail(Base.tail(Base.tail(xd))))
+    θd = Base.tail(Base.tail(Base.tail(xd)))
     fd = first(_rebuild_scalar(form, θd))
-    y, s′ = _draw(fd, xd[1], xd[2], xd[3], xd[4])
+    y, s′ = _draw(fd, xd[1], xd[2], xd[3])
     g = _vjp(y, s′, grads.v, grads.s, xd)
-    _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(Base.tail(g)))), nothing)
-    return g[1], g[2], g[3], g[4]
+    _add_scalar!(grads.piece, form, Base.tail(Base.tail(Base.tail(g))), nothing)
+    return g[1], g[2], g[3]
 end
 
 # Dual numbers with one unit partial each, for the values in `x` (the value
