@@ -157,7 +157,7 @@ adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 # A `NoAdjoint` call passes the wrapper to the plain-AD hook, so a backend
 # tells it apart from the operator's own plain call.
 function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
-    _plain_hook(n, args...)
+    _gate(n, args...) && _plain_hook(n, args...)
     return _plain(n.op, args...)
 end
 function _route_val(op, args...)
@@ -247,10 +247,12 @@ _plain(op, args...) = _primal(op, args...)
 # hook, which does nothing; the `Enzyme` extension's reverse rule for it
 # warns of a gradient `Enzyme` can lose on Julia 1.11. It takes the operator
 # and its arguments so that the backend sees their activity, and
-# `donotdelete` keeps the call.
+# `donotdelete` keeps the call. Its call boxes them, so a call whose floats
+# are not all IEEE (dual numbers, say), which no backend with a rule for
+# the hook runs, skips it (`_gate`, read from the types).
 @noinline _plain_hook(op, args...) = (Base.donotdelete(op, args...); nothing)
 function _hooked_plain(op, args::Vararg{Any, N}) where {N}
-    _plain_hook(op, args...)
+    _gate(op, args...) && _plain_hook(op, args...)
     return _plain(op, args...)
 end
 
