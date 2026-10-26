@@ -284,6 +284,12 @@
 2.0	Recurrence: time-varying kernels
 4.9	Redistribute pullback matches the local Jacobian
 3.4	Redistribute: conserving, against a naive loop
+0.3	Reproduction: a zero renewal sum gives no value
+5.6	Reproduction: effective R_t under depletion
+4.0	Reproduction: gradients against ForwardDiff
+8.6	Reproduction: instantaneous R_t recovers the gain
+3.4	Reproduction: per stratum with a coupling
+0.8	Reproduction: the first steps need the history
 1.8	Routes: argument validation
 3.9	Routes: arrays alone take the core method with Distributions loaded
 2.4	Routes: delay distributions on routes

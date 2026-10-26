@@ -1076,6 +1076,19 @@ function _trace_budget(w, θ)
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
+# The effective reproduction number of a depleted run: the values drawn,
+# read from the trace, over the coupled renewal sum, a `Convolution` with a
+# zero on lag 0 over the output and its history.
+function _effective_reproduction(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    h = exp.(logh)
+    d = ComposableRecurrences.Depletion(PerStratum(POP))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y, tr = w(r)(exp.(logR); history = h, trace = true)
+    drawn = only(tr.modifiers)[(S + 1):(2S), :]
+    return sum(WS .* drawn ./ (K0 * Convolution(vcat(0, G0))(y; history = h)))
+end
+
 # The relative tolerance of Enzyme's rule tester in `test_adjoint`.
 # EnzymeTestUtils compares the rule with finite differences taken in the
 # arguments' precision. In single precision these differ from the rule by up
@@ -1352,6 +1365,10 @@ const _SCENARIOS = [
     (
         "Recurrence trace of a weekly budget with a queue", _trace_budget,
         () -> zero(CAPB0),
+    ),
+    (
+        "Recurrence effective reproduction number from its trace",
+        _effective_reproduction, () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
     ),
     (
         "Recurrence capacity, dropped overflow after a truncated draw",

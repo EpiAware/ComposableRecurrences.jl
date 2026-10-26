@@ -33,7 +33,8 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # my-anchor)"`) so cross-references still resolve in a fast build.
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
-        "# [Renewal then delay](@id tutorial-renewal-delay)\n\n## [Imported cases](@id tutorial-imports)",
+        "# [Renewal then delay](@id tutorial-renewal-delay)\n\n## [Imported cases](@id tutorial-imports)\n\n" *
+        "## [The reproduction number from a run](@id tutorial-reproduction-number)",
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
     "spatial-strata.md" =>

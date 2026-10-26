@@ -11,8 +11,9 @@
 # 2. Deplete a finite susceptible pool with the hazard and floored forms.
 # 3. Vaccinate with all-or-nothing, leaky and waning protection.
 # 4. Add imported cases before or after depletion.
-# 5. Chain delays for clinical outcomes.
-# 6. Forecast by continuing from the last fitted day.
+# 5. Recover the instantaneous and effective reproduction numbers from a run.
+# 6. Chain delays for clinical outcomes.
+# 7. Forecast by continuing from the last fitted day.
 #
 # ### What might I need to know before starting
 #
@@ -178,6 +179,69 @@ end
 
 # Imports added after depletion are not drawn from the pool.
 # More susceptibles remain and the total is larger.
+
+# ## [The reproduction number from a run](@id tutorial-reproduction-number)
+#
+# The instantaneous reproduction number of town ``i`` divides its infections by the renewal sum they come from:
+#
+# ```math
+# \hat R_{t,i} = \frac{I_{t,i}}{\sum_{j} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}}.
+# ```
+#
+# The denominator is a `Convolution` with a zero on lag 0, mixed by the coupling ``K``.
+# Passing the run's `history` to the convolution gives the first ``L`` days the seed terms they need.
+# Where the denominator is zero, as in a town no infection has reached, the ratio is not defined: `NaN` with no infections and `Inf` otherwise.
+# The three towns of [Getting started](@ref overview-build), without depletion, recover the gain to round-off.
+
+towns = ["A", "B", "C"]
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
+gi_towns = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+R_towns = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:75]
+
+renewal_sum(y) = K * Convolution(vcat(0, gi_towns))(y; history = seed)
+coupled = Recurrence(gi_towns; coupling = K)(R_towns; history = seed)
+maximum(abs, coupled ./ renewal_sum(coupled) .- R_towns)
+
+# With depletion the same ratio is the effective reproduction number.
+# The hazard form draws ``I_{t,i} = s_{t-1,i} \big(1 - e^{-\lambda_{t,i}}\big)``, with ``\lambda_{t,i}`` the renewal sum times ``R_{t,i} / N_i``, so
+#
+# ```math
+# \hat R_{t,i} = R_{t,i} \, \frac{s_{t-1,i}}{N_i} \, \frac{1 - e^{-\lambda_{t,i}}}{\lambda_{t,i}}.
+# ```
+#
+# A call with `trace = true` also returns what each modifier recorded.
+# For `Depletion` the first three rows are the pools ``s_{t,i}`` after each day and the next three the values drawn; [`Trace`](@ref ComposableRecurrences.Trace) gives the layout.
+
+depleted = Recurrence(gi_towns; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+y, tr = depleted(R_towns; history = seed, trace = true)
+R_eff = y ./ renewal_sum(y)
+pools = hcat(pop, only(tr.modifiers)[1:3, 1:(end - 1)])
+λ = R_towns .* renewal_sum(y) ./ pop
+maximum(abs, R_eff .- R_towns .* pools ./ pop .* (1 .- exp.(-λ)) ./ λ)
+
+#-
+
+@chain [("Gain", R_towns), ("Effective", R_eff)] begin
+    map(_) do (series, x)
+        @chain DataFrame(permutedims(x), towns) begin
+            @transform(:day = 1:size(x, 2), :series = series)
+            stack(Not([:day, :series]); variable_name = :town, value_name = :R)
+        end
+    end
+    reduce(vcat, _)
+    data(_) * mapping(:day, :R => "Reproduction number", color = :series => "", col = :town) *
+        visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day",))
+end
+
+# The effective reproduction number falls below the gain as each town's pool runs down.
+# A modifier after the depletion, such as `Add` for imports, changes the output but not the values drawn.
+# The drawn rows of the trace over the renewal sum then give the depleted value.
+# Both ratios are differentiable as the run is.
 
 # ## Clinical outcomes
 #
