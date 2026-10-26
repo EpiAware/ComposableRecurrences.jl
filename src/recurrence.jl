@@ -8,15 +8,15 @@ of its own past values.
 At absolute time ``t``, each stratum's kernel convolution of its last ``L``
 values is mixed by the coupling, scaled by the gain (a multiplier on each
 step's value, such as a reproduction number) and shifted by the add input,
-then passed through the modifiers ``M_1, \dots, M_R`` in tuple order:
+then passed through the modifiers ``M_1, \dots, M_m`` in tuple order:
 
 ```math
 \begin{aligned}
 p_{t,i} &= \sum_{l=1}^{L} k_{i,l}(t)\, y_{t-l,i}, \\
-v^{(0)}_t &= g_t \odot C_t\, p_t + a_t, \\
+v^{(0)}_t &= \gamma_t \odot K_t\, p_t + a_t, \\
 \big(v^{(n)}_t,\ s^{(n)}_t\big) &= M_n\big(v^{(n-1)}_t,\ s^{(n)}_{t-1},\ t\big),
-\quad n = 1, \dots, R, \\
-y_t &= v^{(R)}_t,
+\quad n = 1, \dots, m, \\
+y_t &= v^{(m)}_t,
 \end{aligned}
 ```
 
@@ -27,16 +27,16 @@ for ``t = t_0, \dots, t_1`` (`start`, `stop`), where
   - ``k_{i,l}(t)`` is the kernel's weight on lag ``l``, `kernel[l]`, the
     same for every ``i`` and ``t`` unless the kernel is
     [`PerStratum`](@ref) or [`TimeVarying`](@ref);
-  - ``p_t`` holds each stratum's kernel convolution and ``C_t`` is the
-    ``S \times S`` coupling, ``C_{t,ij}`` weighting stratum ``j`` in
+  - ``p_t`` holds each stratum's kernel convolution and ``K_t`` is the
+    ``S \times S`` coupling, ``K_{t,ij}`` weighting stratum ``j`` in
     stratum ``i``;
-  - ``g_t`` is the gain and ``a_t`` the add input, and ``\odot`` is the
+  - ``\gamma_t`` is the gain and ``a_t`` the add input, and ``\odot`` is the
     element-wise product;
   - ``v^{(0)}_t`` is the value entering the modifiers, ``v^{(n)}_t`` the
     value after the ``n``-th and ``s^{(n)}_t`` that modifier's state after
     step ``t``; with no modifiers ``y_t = v^{(0)}_t``.
 
-A [`Pairwise`](@ref) kernel replaces ``C_t p_t`` with
+A [`Pairwise`](@ref) kernel replaces ``K_t p_t`` with
 ``\sum_{j} \sum_{l} k_{ij,l}(t)\, y_{t-l,j}``.
 `kernel[l]` weights ``y_{t-l}``, as a generation interval or AR
 coefficients are written: a recurrence has no lag 0.
@@ -63,8 +63,8 @@ the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`, read at absolute time `t`; one when left out.
-  - `history`: the outputs at times `start - m` to `start - 1`, oldest
-    first, length `m` for a single series or `S × m`; zeros when left out.
+  - `history`: the outputs at times `start - h` to `start - 1`, oldest
+    first, length `h` for a single series or `S × h`; zeros when left out.
     The recursion reads the last ``D`` outputs, with ``D`` at least `L`
     and at least the [`ComposableRecurrences.depth`](@ref) of each part,
     and a shorter history is zero-padded. A modifier's `Init` sees all of it.
@@ -76,12 +76,12 @@ the call covers the absolute times `start:stop`:
     return type infers.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
-    With `start = m + 1` the seed sits at times `1:m`, and the
+    With `start = h + 1` the seed sits at times `1:h`, and the
     time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
   - `prepend`: `false`, or `true` to return `history` followed by the
-    output, covering the times `start - m` to `stop`.
+    output, covering the times `start - h` to `stop`.
   - `trace`: `false`, or `true` to return `(y, trace)`, with
     `trace.modifiers` holding each modifier's series per step, a
     [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of its
@@ -202,12 +202,12 @@ After a call that ended at absolute time ``t_1`` it carries
 
 ```math
 \big(\, (y_{t_1 - L + 1}, \dots, y_{t_1}),\ \
-(s^{(1)}_{t_1}, \dots, s^{(R)}_{t_1}),\ \ t_1 + 1 \,\big),
+(s^{(1)}_{t_1}, \dots, s^{(m)}_{t_1}),\ \ t_1 + 1 \,\big),
 ```
 
 where ``y_t`` is the output at time ``t`` (one entry per stratum),
 ``L`` the number of kernel weights and ``s^{(n)}_{t_1}`` the state of the
-``n``-th of ``R`` modifiers after the last step.
+``n``-th of ``m`` modifiers after the last step.
 `history` holds the last ``L`` outputs, `states` each modifier's state and
 `t` the time of the next step, ``t_1 + 1``.
 A call with `state` continues exactly as one call over both ranges would.

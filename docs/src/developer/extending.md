@@ -110,10 +110,10 @@ Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it smooths th
 With ``f`` the smoothing and ``h`` the depletion draw, each step gives
 
 ```math
-y_t = h\Big(f\big(g_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
+y_t = h\Big(f\big(\gamma_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
 ```
 
-where ``k_l`` is the kernel, ``g_t`` the gain and ``y_t`` the output.
+where ``k_l`` is the kernel, ``\gamma_t`` the gain and ``y_t`` the output.
 More smoothing delays the peak.
 
 ```@example extending
@@ -497,7 +497,7 @@ A method for a narrower type replaces the general one for that type alone, so a 
 | a modifier at one parameter form | `forward!(m::MyModifier{<:PerStratum}, Step(), v, s, t)` |
 | a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32, α::Float32)` |
 
-A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
+A rank-one coupling ``K = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
 
 ```math
 q_a = u_a \sum_{b=1}^{S} w_b \, p_b,

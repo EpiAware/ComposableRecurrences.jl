@@ -130,15 +130,15 @@ and returns `nothing`.
 For the built-in couplings
 
 ```math
-q_{t,i} = \sum_{j=1}^{S} C_{t,ij}\, p_{t,j},
+q_{t,i} = \sum_{j=1}^{S} K_{t,ij}\, p_{t,j},
 ```
 
 where ``p_{t,j}`` is stratum ``j``'s kernel convolution of its past values,
-``q_{t,i}`` the pressure on stratum ``i`` and ``C_{t,ij}`` the weight of
+``q_{t,i}`` the pressure on stratum ``i`` and ``K_{t,ij}`` the weight of
 stratum ``j`` in stratum ``i``, with ``S`` [strata](@ref PerStratum).
-`λ * I` gives ``C_{t,ij} = \lambda \delta_{ij}``, a matrix `C` gives
-``C_{t,ij}`` = `C[i, j]` at every ``t``, and a [`TimeVarying`](@ref)
-coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
+`λ * I` gives ``K_{t,ij} = \lambda \delta_{ij}``, a matrix `C` gives
+``K_{t,ij}`` = `C[i, j]` at every ``t``, and a [`TimeVarying`](@ref)
+coupling gives ``K_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
 Add a [`ComposableRecurrences.pullback!`](@ref) method for a hand-written
@@ -211,7 +211,7 @@ o = f_{\mathrm{role}}(u),
 with ``f_{\mathrm{role}}`` the map of the role:
 [`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
 [`ComposableRecurrences.Init`](@ref) an initial state from the history,
-[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t`` and
+[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = K_t p_t`` and
 [`ComposableRecurrences.Trace`](@ref) a modifier's record
 ``r_t = R_M(v_t, s_{t-1}, v'_t, s_t)``.
 The outputs are written into the leading array arguments, and the method
@@ -506,11 +506,11 @@ the current step.
 A [`Recurrence`](@ref) keeps
 
 ```math
-D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_R)\big)
+D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_m)\big)
 ```
 
 past outputs per stratum, where ``L`` is the kernel length, ``d`` is
-`depth` and ``M_1, \dots, M_R`` are the modifiers.
+`depth` and ``M_1, \dots, M_m`` are the modifiers.
 The kernel reads the last ``L`` of them; the deeper rows are kept for
 objects that read further back than the kernel.
 A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a

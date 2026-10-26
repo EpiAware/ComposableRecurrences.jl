@@ -466,7 +466,7 @@ intensity, flows through that construction
 intensity).
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
 stratum's pool by what it realises; a modifier sees
-``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
+``\gamma_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
 input, so the `add` values move too.
 The step is the coupling product ``M_t v``, and its reverse pass the
 transposed product, ``\bar v = M_t^\top \bar v'`` and

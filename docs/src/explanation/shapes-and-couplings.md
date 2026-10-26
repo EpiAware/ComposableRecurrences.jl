@@ -39,11 +39,11 @@ It has no lag of its own: it mixes each stratum's kernel-weighted past at the cu
 For ``S`` strata, before the modifiers, a step computes
 
 ```math
-v_{t,i} = g_{t,i} \sum_{j=1}^{S} C_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},
+v_{t,i} = \gamma_{t,i} \sum_{j=1}^{S} K_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},
 ```
 
 where ``y_{t,j}`` is the value of stratum ``j`` on day ``t`` and ``k_{j,l}`` its kernel weight on lag ``l``.
-``C_{ij}`` is the coupling's weight of stratum ``j`` in stratum ``i``, and ``g_{t,i}`` and ``a_{t,i}`` the gain and `add` of stratum ``i``.
+``K_{ij}`` is the coupling's weight of stratum ``j`` in stratum ``i``, and ``\gamma_{t,i}`` and ``a_{t,i}`` the gain and `add` of stratum ``i``.
 
 This order sets what a per-stratum coefficient means.
 
@@ -52,7 +52,7 @@ This order sets what a per-stratum coefficient means.
 - A row of the coupling is the stratum receiving, and a column the stratum sending.
 
 So a sender's transmissibility goes in the kernel or the columns of the coupling, and a receiver's susceptibility in the gain or the rows.
-Scaling ``k_{j,l}`` by a transmissibility ``\sigma_j`` gives the same step as scaling ``C_{ij}`` by ``\sigma_j``.
+Scaling ``k_{j,l}`` by a transmissibility ``\sigma_j`` gives the same step as scaling ``K_{ij}`` by ``\sigma_j``.
 
 ```@example shapes
 k = [0.4, 0.4, 0.2]
@@ -71,11 +71,11 @@ A coupling with a shared kernel assumes every pair of strata has the same lag sh
 A [`Pairwise`](@ref) kernel gives each pair its own lag shape, so it does the coupling's job and the coupling stays `I`:
 
 ```math
-v_{t,i} = g_{t,i} \sum_{j=1}^{S} \sum_{l=1}^{L} A_{ij,l} \, y_{t-l,j} + a_{t,i},
+v_{t,i} = \gamma_{t,i} \sum_{j=1}^{S} \sum_{l=1}^{L} A_{ij,l} \, y_{t-l,j} + a_{t,i},
 ```
 
 where ``A_{ij,l}`` weights stratum ``j`` in stratum ``i`` at lag ``l``.
-When every pair shares the shape, ``A_{ij,l} = C_{ij} k_l``, the two give the same values, and the coupling is cheaper.
+When every pair shares the shape, ``A_{ij,l} = K_{ij} k_l``, the two give the same values, and the coupling is cheaper.
 
 ```@example shapes
 A = reshape(C, 2, 2, 1) .* reshape(k, 1, 1, :)
@@ -85,10 +85,10 @@ pairwise ≈ coupled
 ```
 
 [`Routes`](@ref) sits between the two: a sum of a few kernels, each with its own coupling, such as household and community contacts with different generation intervals.
-With routes ``r``, each a coupling ``C^{(r)}`` and a kernel ``k^{(r)}``,
+With routes ``r``, each a coupling ``K^{(r)}`` and a kernel ``k^{(r)}``,
 
 ```math
-v_{t,i} = g_{t,i} \sum_{r} \sum_{j=1}^{S} C^{(r)}_{ij} \sum_{l=1}^{L} k^{(r)}_l \, y_{t-l,j} + a_{t,i}.
+v_{t,i} = \gamma_{t,i} \sum_{r} \sum_{j=1}^{S} K^{(r)}_{ij} \sum_{l=1}^{L} k^{(r)}_l \, y_{t-l,j} + a_{t,i}.
 ```
 
 Use a coupling when one lag shape fits, `Routes` for a few shapes, and `Pairwise` when the shape differs by pair.
@@ -97,4 +97,4 @@ Use a coupling when one lag shape fits, `Routes` for a few shapes, and `Pairwise
 
 Write your own coupling type when the mixing has structure a matrix wastes, such as low rank or a formula in time.
 The type needs a [`forward!`](@ref ComposableRecurrences.forward!) method that writes the [pressure](@ref extending-coupling) `q` on each stratum from each stratum's kernel-weighted past `p`, and may add a `pullback!` for a hand-written gradient.
-A [rank-one coupling](@ref specialising) ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``.
+A [rank-one coupling](@ref specialising) ``K = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``.

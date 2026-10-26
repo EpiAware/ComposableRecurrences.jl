@@ -8,12 +8,12 @@ using ComposableRecurrences: Depletion, Clamp, Add
 ## [Order](@id explanation-modifier-order)
 
 The modifiers of a [`Recurrence`](@ref) act on each step's value in tuple order, after the gain and `add`.
-With modifiers ``M_1, \dots, M_R``, each with its own state ``s^{(n)}``, a step computes
+With modifiers ``M_1, \dots, M_m``, each with its own state ``s^{(n)}``, a step computes
 
 ```math
 u^{(0)}_t = v_t, \qquad
 \big(u^{(n)}_t,\ s^{(n)}_t\big) = M_n\big(u^{(n-1)}_t,\ s^{(n)}_{t-1}\big), \qquad
-y_t = u^{(R)}_t,
+y_t = u^{(m)}_t,
 ```
 
 where ``v_t`` is the value after the gain and `add`, ``u^{(n)}_t`` the value modifier ``n`` passes on, and ``y_t`` the output.

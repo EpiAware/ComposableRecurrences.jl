@@ -153,14 +153,14 @@ A convolution whose kernel starts at lag 0: each output weights the current
 and past inputs, then is scaled by the gain and shifted by the add input,
 
 ```math
-y_{t,i} = g_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
+y_{t,i} = \gamma_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
 \qquad t = t_0, \dots, t_1,
 ```
 
 where ``y_{t,i}`` is the output of [stratum](@ref PerStratum) ``i``
 at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
 ``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l``, ``L`` the
-kernel length, ``g_{t,i}`` the gain and ``a_{t,i}`` the add input.
+kernel length, ``\gamma_{t,i}`` the gain and ``a_{t,i}`` the add input.
 ``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.
 Strata do not mix.
 [`ComposableRecurrences.contributions`](@ref) returns the terms of the sum
@@ -988,7 +988,7 @@ The lag contributions of a [`Convolution`](@ref): the terms of its sum over
 lags, before the sum,
 
 ```math
-c_{t,i,l} = g_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
+c_{t,i,l} = \gamma_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
 \qquad l = 0, \dots, L - 1, \quad t = t_0, \dots, t_1,
 ```
 

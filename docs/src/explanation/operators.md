@@ -8,10 +8,10 @@ using ComposableRecurrences: exponential_history, Depletion
 ## [A recurrence is a convolution of its own outputs](@id explanation-lag-origin)
 
 A recurrence reads its own past outputs, and a convolution reads an input series.
-So a recurrence with kernel ``k`` is a convolution of its outputs with ``k`` shifted by one lag, times the gain ``g_t``:
+So a recurrence with kernel ``k`` is a convolution of its outputs with ``k`` shifted by one lag, times the gain ``\gamma_t``:
 
 ```math
-y_t = g_t \sum_{l=1}^{L} k_l \, y_{t-l} = g_t \sum_{l=0}^{L} \tilde k_l \, y_{t-l},
+y_t = \gamma_t \sum_{l=1}^{L} k_l \, y_{t-l} = \gamma_t \sum_{l=0}^{L} \tilde k_l \, y_{t-l},
 \qquad \tilde k = (0, k_1, \dots, k_L),
 ```
 

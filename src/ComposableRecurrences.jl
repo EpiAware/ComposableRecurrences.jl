@@ -10,12 +10,12 @@ from earlier infections.
 For a single series the two are
 
 ```math
-y_t = g_t \sum_{l=1}^{L} k_l\, y_{t-l}
+y_t = \gamma_t \sum_{l=1}^{L} k_l\, y_{t-l}
 \qquad \text{and} \qquad
 y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 ```
 
-where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
+where ``y_t`` is the output at time ``t``, ``\gamma_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
 Every operator is differentiable with forward- and reverse-mode
 [automatic differentiation backends](@ref adjoint-backends).
