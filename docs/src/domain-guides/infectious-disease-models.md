@@ -39,5 +39,6 @@ This table maps common model parts to the code that builds them, with the tutori
 | Forecast after a fit | continue ``I_t`` from the fitted days | [`r(R; history, state = true)`](@ref Recurrence), then `r(R; state)` | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | [`r(R; history, prepend = true)`](@ref Recurrence) | [What a call returns](@ref explanation-returns) |
 | Seed on an exponential growth path | ``h_l = I_0 e^{r (l - L)}``, with ``r`` matching ``R`` | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Growth rate matching a reproduction number, and the inverse | ``1 = R \sum_{l \ge 1} w_l e^{-r l}`` | [`growth_rate(R, w)`](@ref ComposableRecurrences.growth_rate), [`reproduction_number(r, w)`](@ref ComposableRecurrences.reproduction_number) | [Renewal then delay](@ref tutorial-renewal-delay) |
 
 Random walks, autoregressions and moving averages are listed with the [time-series processes](@ref overview-time-series) on the [API overview](@ref api-overview).
