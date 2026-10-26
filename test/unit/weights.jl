@@ -7,7 +7,7 @@
     using ComposableRecurrences
     const CR = ComposableRecurrences
 
-    const T = 30
+    const T = 40
     const L = 6
     const h = [0.1 + 0.3 * abs(sin(t)) for t in 1:(T + L)]
     const p = [1.0, 0.9, 0.7, 0.5, 0.3, 0.1]

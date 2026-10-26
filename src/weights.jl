@@ -13,12 +13,11 @@ cohort ``\tau`` in stratum ``k`` is
 s_{k,l}(\tau) = \prod_{j = \max(f, l_0)}^{l} \big(1 - \eta_{k,j}(\tau)\big),
 ```
 
-where ``\eta_{k,j}(\tau)`` is the hazard at lag ``j``, read as an argument
-of a [`Derived`](@ref) kernel is, ``f`` = `from` is the first
-lag the hazard acts at and ``l_0`` is the kernel's first lag (0 in a
-[`Convolution`](@ref), 1 in a [`Recurrence`](@ref)).
-So it is the probability that a cohort has not left by the end of lag
-``l``, and lags before `from` have survival one.
+where ``\eta_{k,j}(\tau)`` is the hazard at lag ``j``, read as in a
+[`Derived`](@ref) kernel, ``f`` = `from` is the first lag the hazard acts
+at and ``l_0`` is the kernel's first lag (0 in a [`Convolution`](@ref), 1
+in a [`Recurrence`](@ref)).
+Lags before `from` have survival one.
 A hazard that changes with calendar time is `TimeVarying(h)`, read at the
 time ``\tau + j`` each lag lands; one that changes with the lag is a vector
 of lag weights.
@@ -541,10 +540,9 @@ end
 _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
 @generated _keeps_fill(x) = _keeps_fill_type(x)
 
-# Take the cotangent `K̄` of the weights `_fill_kernel` returned back to the
-# kernel coefficients' mirror `x̄`, with the scratch `sc` it returned when it
-# kept its fill: each
-# block is recomputed, unless one block holds every cohort.
+# Take the cotangent `K̄` of the weights back to the coefficients' mirror
+# `x̄`. Blocks are recomputed, unless `_fill_kernel` kept one block of every
+# cohort, in which case its scratch `sc` is reused.
 _weights_back!(::Nothing, kernel::_ComputedKernel, K̄, o, last, sc) = nothing
 function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x
