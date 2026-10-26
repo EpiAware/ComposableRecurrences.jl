@@ -184,7 +184,7 @@ function _BoundRecent(x::Recent, H, H̄, o)
     _check_recent_strata(C, size(H, 2))
     return _BoundRecent(
         x, H, H̄, o, _window_cache(C, H), _row_slot(C), _window_cache(C, H),
-        _mirror_slot(C)
+        _mirror_slot(C, x.w)
     )
 end
 _window_cache(::Nothing, H) = nothing
@@ -192,8 +192,16 @@ _window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
 _row_slot(::Nothing) = nothing
 _row_slot(C) = Ref(0)
 # The weights' mirror is first seen when a read's cotangent arrives.
-_mirror_slot(::Nothing) = nothing
-_mirror_slot(C) = Ref{Any}(nothing)
+# Integer weights, such as those of `Recent(n)`, take no cotangent, so
+# they keep no slot and the step's flush makes no dynamic call.
+_mirror_slot(::Nothing, w) = nothing
+_mirror_slot(C, w) = _weights_slot(w)
+_weights_slot(w) = Ref{Any}(nothing)
+_weights_slot(::AbstractVector{<:Integer}) = nothing
+_keep_mirror!(::Nothing, w̄) = nothing
+_keep_mirror!(slot, w̄) = (slot[] = w̄; nothing)
+_kept_mirror(::Nothing) = nothing
+_kept_mirror(slot) = slot[]
 _check_recent_strata(::Nothing, S) = nothing
 function _check_recent_strata(C, S)
     size(C) == (S, S) || throw(
@@ -250,7 +258,7 @@ function _read_back!(x̄, C, b, v, k, i)
     b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
     C̄ = cotangent(x̄, :coupling)
     u, z = b.u, b.z
-    b.w̄[] = cotangent(x̄, :w)
+    _keep_mirror!(b.w̄, cotangent(x̄, :w))
     for j in axes(b.H, 2)
         _add_entry!(C̄, C, v * u[j], k, j)
         z[j] += v * C[k, j]
@@ -281,7 +289,7 @@ _flush!(x) = _each_coupled(_flush_one!, x)
 function _flush_one!(b::_BoundRecent)
     z, i = b.z, b.row[]
     i > 0 || return nothing
-    _flush_weights!(b.w̄[], z, b.x.w, b.H, i)
+    _flush_weights!(_kept_mirror(b.w̄), z, b.x.w, b.H, i)
     for j in eachindex(z)
         _recent_back!(nothing, b.x.w, b.H, b.H̄, z[j], i, j)
         z[j] = zero(eltype(z))
@@ -298,19 +306,9 @@ function _flush_weights!(w̄, z, w, H, i)
     return nothing
 end
 
-# Apply `f` to every bound `Recent` with a coupling inside `x`, walking only
-# values whose type holds one.
-_each_coupled(f, x) = _each_coupled(Val(_reads_across(x)), f, x)
-_each_coupled(::Val{false}, f, x) = nothing
-_each_coupled(::Val{true}, f, x::_BoundRecent) = (f(x); nothing)
-function _each_coupled(::Val{true}, f, x::Union{Tuple, NamedTuple})
-    foreach(y -> _each_coupled(f, y), values(x))
-    return nothing
-end
-function _each_coupled(::Val{true}, f, x)
-    foreach(y -> _each_coupled(f, y), Tuple(ConstructionBase.getfields(x)))
-    return nothing
-end
+# Apply `f` to every bound `Recent` with a coupling inside `x`, as a tuple
+# found from the type so the loop is unrolled with no dynamic calls.
+_each_coupled(f, x) = (foreach(f, _coupled_reads(x)); nothing)
 function _recent_back!(w̄, w, H, H̄, v, i, j)
     @inbounds for l in eachindex(w)
         add_cotangent!(w̄, v * H[i - l, j], l)
@@ -375,6 +373,22 @@ function _across_leaf(::Type{T}) where {T}
 end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _reads_across(x) = _holds_type(_across_leaf, x)
+
+# The field paths from `ex`, a value of type `T`, to each bound `Recent`
+# with a coupling inside it, walking only the fields `_holds_type` walks.
+function _coupled_paths(::Type{T}, ex) where {T}
+    T <: _BoundRecent && return _across_leaf(fieldtype(T, :x)) ? Any[ex] : Any[]
+    T <: Recent && return Any[]
+    _holds_type(_across_leaf, T) || return Any[]
+    paths = Any[]
+    for (i, F) in enumerate(fieldtypes(T))
+        append!(paths, _coupled_paths(F, :(getfield($ex, $i))))
+    end
+    return paths
+end
+# The bound `Recent`s with a coupling inside `x`, as a tuple. After its
+# helpers: a generator sees only the methods defined before it.
+@generated _coupled_reads(x) = Expr(:tuple, _coupled_paths(x, :x)...)
 
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
 # rebuilding only the values that hold one.
