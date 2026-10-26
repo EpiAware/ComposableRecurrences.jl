@@ -44,24 +44,25 @@ function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return (Y, _state(Y, H, states, h, τ0)), (; modifiers = tr)
 end
 
-# A modifier's trace as the run writes it: the trace `out`, `ntrace` rows
-# by steps, and, for a step on the whole vectors that is not pointwise,
-# copies `v` and `s` of the step's inputs (else `nothing`). Each step
-# writes the column `_traces` builds from the records after a recorded
-# run, so `out` starts unset, and each step zeroes its entries before the
-# modifier's trace writes them, as `_traces` starts from zeros. A modifier
-# whose state never changes has no trace written, so its `out` is zeros.
+# A modifier's trace as the run writes it, with copies `v` and `s` of the
+# step's inputs for a step on the whole vectors that is not pointwise.
+# `out` starts unset, as each step writes its column.
 struct _TraceSink{O, V, W}
     out::O
     v::V
     s::W
     S::Int
 end
+# A modifier whose state never changes writes no trace, so its trace is
+# zeros.
+struct _NoTrace{O}
+    out::O
+end
 _sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T) where {Tp} = nothing
 function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
     return map(ms, states) do m, s
         n = ntrace(m, S)
-        _stateless(m) && return _TraceSink(_zeros(h, Tp, n, T), nothing, nothing, S)
+        _stateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
         out = similar(h, Tp, n, T)
         _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
         return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
@@ -70,11 +71,13 @@ end
 _sink_traces(::Nothing) = nothing
 _sink_traces(rec::Tuple) = map(R -> R.out, rec)
 
-_record!(::_TraceSink, v, s, t, k) = nothing
+# A trace sink keeps no records.
+_record!(::Union{_TraceSink, _NoTrace}, v, s, t, k) = nothing
+@inline _trace_step!(::_NoTrace, m, v, s, v′, s′, τ, t, k) = nothing
+_stage_rec!(::_NoTrace, m, v, s, τ, t) = _stage!(m, v, s, τ)
 # Stratum `k`'s trace of a pointwise modifier at step `t`, on one-entry
 # views as `_step` runs the step. Inlined, so the slots stay off the heap.
 @inline function _trace_step!(R::_TraceSink, m, v, s, v′, s′, τ, t, k)
-    _stateless(m) && return nothing
     at = x -> _At(x, k)
     r = map(at, _trace_series(view(R.out, :, t), Val(ntrace(m, 1)), R.S))
     foreach(x -> x[] = zero(eltype(x)), r)
@@ -89,7 +92,6 @@ end
 # writes its trace stratum by stratum, as `_thread` does; any other keeps
 # its inputs, then writes its trace.
 function _stage_rec!(R::_TraceSink, m, v, s, τ, t)
-    _stateless(m) && return _stage!(m, v, s, τ)
     return _stage_trace!(Val(_strata_loop(m)), R, m, v, s, τ, t)
 end
 function _stage_trace!(::Val{true}, R, m, v, s, τ, t)

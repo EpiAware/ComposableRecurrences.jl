@@ -62,9 +62,8 @@ end
     @test @inferred(run(r, R, [5.0])) == (y2, tr)
 end
 
-@testitem "Trace: a call without records writes the rule's trace in each step" begin
-    using ComposableRecurrences, ForwardDiff, KernelAbstractions
-    using Base.ScopedValues: with
+@testsnippet InStepTraces begin
+    using ComposableRecurrences, ForwardDiff
     using LinearAlgebra: I
     CR = ComposableRecurrences
     S, T, L = 3, 9, 3
@@ -81,8 +80,6 @@ end
     # A draw that fills one pool: one value and one state entry per stratum,
     # but stepped by its group kernel, so not on the per-stratum loop.
     beds = CR.Depletion(N; pools = (O = 0.0,), form = CR.Truncate(), fill = :O)
-    @test CR.blocks(beds) == (1, 1)
-    @test !CR._strata_loop(beds)
     # Independent strata, coupled strata with pointwise modifiers, a
     # vector step before a pointwise one, a blockwise step, a modifier
     # whose state never changes, and the one-pool fill.
@@ -106,6 +103,13 @@ end
             isapprox(ForwardDiff.partials.(a, 1), ForwardDiff.partials.(b, 1); rtol = 1.0e-13)
     end
     same(a::Tuple, b::Tuple) = all(map(same, a, b))
+end
+
+@testitem "Trace: a call without records writes the rule's trace in each step" setup = [InStepTraces] begin
+    @test CR.blocks(beds) == (1, 1)
+    @test !CR._strata_loop(beds)
+    # The rule builds the trace from its records after the run; the call
+    # without records writes it in each step.
     for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
         args = CR._run_args(r, Rx, hx, nothing, nothing, L + 1)
         w = CR._WithTrace(r)
@@ -117,6 +121,19 @@ end
         @test y == yw
         @test tr.modifiers == trw.modifiers
         @test y == r(Rx; history = hx, start = L + 1)
+    end
+    # One series, with its seed in front.
+    r = Recurrence(g; modifiers = (CR.Depletion(70.0),))
+    args = CR._run_args(r, R[1, :], h[1, :], nothing, nothing, L + 1)
+    yr, trr = first(CR._run_forward(CR._WithTrace(r), args..., nothing))
+    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, prepend = true, trace = true)
+    @test y == vcat(h[1, :], yr)
+    @test tr.modifiers == trr.modifiers
+end
+
+@testitem "Trace: prepend and state with a trace written in each step" setup = [InStepTraces] begin
+    for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
+        y, tr = r(Rx; history = hx, start = L + 1, trace = true)
         # With the seed in front, as the rule's forward pass joins it.
         yp, trp = r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
         @test yp == CR._join(hx, y)
@@ -126,6 +143,14 @@ end
         @test ys == y
         @test trs.modifiers == tr.modifiers
         @test st.states == r(Rx; history = hx, start = L + 1, state = true)[2].states
+    end
+end
+
+@testitem "Trace: a trace written in each step under other executors" setup = [InStepTraces] begin
+    using Base.ScopedValues: with
+    using KernelAbstractions
+    for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
+        yp, tr = r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
         for ex in (
                 CR.Threaded(; min_work = 0, ntasks = 3),
                 CR.Device(KernelAbstractions.CPU()),
@@ -137,6 +162,9 @@ end
             @test same(trt.modifiers, tr.modifiers)
         end
     end
+end
+
+@testitem "Trace: a trace written in each step with a short or long history" setup = [InStepTraces] begin
     # A history shorter or longer than the kernel, which the joined output
     # holds whole, over strata and for one series.
     for r in cases[[1, 3]], hx in (h[:, 2:3], hcat(h, h)), x in (identity, dual)
@@ -150,13 +178,6 @@ end
         y1 = r1(Rx[1, :]; history = hx[1, :])
         @test r1(Rx[1, :]; history = hx[1, :], prepend = true) == vcat(hx[1, :], y1)
     end
-    # One series.
-    r = Recurrence(g; modifiers = (CR.Depletion(70.0),))
-    args = CR._run_args(r, R[1, :], h[1, :], nothing, nothing, L + 1)
-    yr, trr = first(CR._run_forward(CR._WithTrace(r), args..., nothing))
-    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, prepend = true, trace = true)
-    @test y == vcat(h[1, :], yr)
-    @test tr.modifiers == trr.modifiers
 end
 
 @testitem "Trace: a depletion's pool, draw and overflow" setup = [TraceChecks] begin

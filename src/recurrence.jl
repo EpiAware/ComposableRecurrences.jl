@@ -579,13 +579,9 @@ function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
 end
 
 # The output of a run that keeps no cache: the buffer rows after the
-# history or, `joined` (`prepend`), the history then those rows. A single
-# series of plain values takes over the buffer's memory rather than copying
-# it, as nothing writes the buffer after the run; joined, so does one whose
-# history fits the buffer, which holds it right aligned. A joined output of
-# strata whose buffer is a transposed view of it (`_history_buffer`) is that
-# output, past any columns of zeros before a history shorter than the
-# buffer.
+# history or, `joined` (`prepend`), the history then those rows. Nothing
+# writes the buffer after the run, so the output takes over its memory where
+# the layouts agree: the buffer holds the history right aligned.
 _output(H, D, T, h, ::Val{false}) = _public(H, (D + 1):(D + T), h)
 function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{false}) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
@@ -724,13 +720,9 @@ function _primal(p::_Prepended{<:Recurrence}, gain, add, h::_CPUArray, s0, τ0, 
     return first(_recur(p.op, gain, add, h, s0, τ0, stop, Val(false), Val(true)))
 end
 # The run's buffer, `D + T` rows by `S` strata, with the history loaded.
-# For a joined output of dual numbers (or any but hardware floats) over
-# strata on the host, the buffer is a transposed view of the output, which
-# holds the whole history when it is deeper than `D`, so the output is not
-# copied out of the buffer: at S = 5 this is a quarter of a dual-number
-# call's bytes, and one stratum's floats reshape their buffer instead.
-# Hardware floats over strata keep each stratum's times contiguous, which
-# their kernel convolution needs.
+# A joined output of strata on the host runs in a transposed view of the
+# output, so the output is not copied out of the buffer. Hardware floats
+# keep each stratum's times contiguous for their kernel convolution.
 function _history_buffer(joined, h, ::Type{Tp}, D, T, S) where {Tp}
     return _load_history!(_buffer(h, Tp, D, T, S), h, D)
 end
@@ -1237,9 +1229,8 @@ function _record!(rec, v, s, t, k)
     _record_state!(rec.S, s, t, k)
     return nothing
 end
-# Records write no trace in the step: the traced rule builds it after the
-# run, from the records.
-@inline _trace_step!(rec, m, v, s, v′, s′, τ, t, k) = nothing
+# Records write no trace in the step: the rule builds it from them.
+@inline _trace_step!(::NamedTuple, m, v, s, v′, s′, τ, t, k) = nothing
 
 # A modifier's records: its input values, its states entering each step
 # (state entries × steps, or for a modifier whose state never changes the
