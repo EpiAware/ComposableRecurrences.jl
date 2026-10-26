@@ -376,8 +376,12 @@ end
 
 # The field paths from `ex`, a value of type `T`, to each bound `Recent`
 # with a coupling inside it, walking only the fields `_holds_type` walks.
+# `_across_leaf` is `nothing` for a type that is not a `Recent`, so compare
+# with `true`.
 function _coupled_paths(::Type{T}, ex) where {T}
-    T <: _BoundRecent && return _across_leaf(fieldtype(T, :x)) ? Any[ex] : Any[]
+    if T <: _BoundRecent
+        return _across_leaf(fieldtype(T, :x)) === true ? Any[ex] : Any[]
+    end
     T <: Recent && return Any[]
     _holds_type(_across_leaf, T) || return Any[]
     paths = Any[]
