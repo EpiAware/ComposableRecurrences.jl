@@ -162,14 +162,15 @@ function mod_depletion(θ)
 end
 
 function mod_depletion_floor(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0; form = Floor()),))
+    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0, Floor()),))
     return r(θ[(L + 1):end]; history = H1)
 end
 
 # Removals traced as a `TimeVarying` parameter after the kernel and `R`.
 function mod_depletion_removals(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
-    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0; removals = rm),))
+    d = Depletion(N0, Hazard(), Flow(:S => 0, rm; form = Truncate()))
+    r = Recurrence(θ[1:L]; modifiers = (d,))
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
 
@@ -180,8 +181,8 @@ const σ0 = 0.3
 function mod_depletion_protected(θ)
     rm = TimeVarying(θ[(L + T + 1):end])
     d = Depletion(
-        N0; pools = (:S, :V), form = Hazard(), weights = (S = 1, V = σ0),
-        flows = (Flow(1 => 2, rm; form = Truncate()),)
+        N0, Hazard(; weights = (S = 1, V = σ0)), Flow(1 => 2, rm; form = Truncate());
+        pools = (:S, :V)
     )
     r = Recurrence(θ[1:L]; modifiers = (d,))
     return r(θ[(L + 1):(L + T)]; history = H1)
@@ -228,10 +229,9 @@ end
 # with the smooth draw: the budget is granted at each week's start.
 const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
 function mod_capacity(θ)
-    c = Depletion(;
-        pools = (:B,), form = SoftTruncate(0.5), flows_first = true,
-        flows = Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
-        overflow = :queue
+    c = Depletion(
+        Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
+        SoftTruncate(0.5; overflow = :queue); pools = (:B,)
     )
     r = Recurrence(g0; modifiers = (c,))
     return r(reshape(θ, S, T); history = HS)
@@ -239,9 +239,8 @@ end
 
 # Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
 function mod_flows(θ)
-    fs = Depletion(;
-        pools = (:A, :B, :C), form = nothing,
-        flows = (Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1))
+    fs = Depletion(
+        Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1); pools = (:A, :B, :C)
     )
     r = Recurrence(g0; modifiers = (fs,))
     return r(reshape(θ, S, T); history = HS)

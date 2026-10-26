@@ -67,7 +67,11 @@ end
     CR = ComposableRecurrences
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], collect(range(1.5, 3.0; length = 10)), [5.0]
-    r = Recurrence(g; modifiers = (CR.Depletion(60.0; removals = 1.0),))
+    r = Recurrence(
+        g; modifiers = (
+            CR.Depletion(60.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate())),
+        )
+    )
     y, tr = r(R; history = h, trace = true)
     M = only(tr.modifiers)
     @test M[1, :] ≈ vec(only(states_by_step(r, R; history = h)))
@@ -81,8 +85,9 @@ end
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
     leaky = CR.Depletion(
-        PerStratum([80.0, 120.0]); pools = (:S, :V), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
+        PerStratum([80.0, 120.0]), CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1);
+        pools = (:S, :V)
     )
     r = Recurrence(g; modifiers = (leaky,))
     y, tr = r(R; history = h, trace = true)
@@ -105,11 +110,10 @@ end
     # counts that bind on the third step.
     c, p, d, a = 0.3, 0.2, 0.1, [1.0, 1.0, 5.0, 1.0, 0.5, 0.0]
     adm = [4.0, 6.0, 2.0, 0.0, 3.0, 1.0]
-    ward = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, c), CR.Flow(1 => 0, p; form = CR.Share()),
-            CR.Flow(2 => 0, d), CR.Flow(2 => 0, TimeVarying(a); form = CR.Truncate()),
-        )
+    ward = CR.Depletion(
+        CR.Flow(1 => 2, c), CR.Flow(1 => 0, p; form = CR.Share()),
+        CR.Flow(2 => 0, d), CR.Flow(2 => 0, TimeVarying(a); form = CR.Truncate());
+        pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (ward,))
     y, tr = r(; history = zeros(2, 1), add = [adm'; zero(adm')], trace = true)
@@ -162,11 +166,9 @@ end
     # The group methods a caller reaches directly, which the run passes by
     # for the gathered values: a ward of two pools, one group, against the
     # run's own group trace and forward mode.
-    build(θ) = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-            CR.Flow(2 => 0, θ[3]),
-        )
+    build(θ) = CR.Depletion(
+        CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+        CR.Flow(2 => 0, θ[3]); pools = (:A, :B)
     )
     θ = [0.3, 0.2, 0.1]
     m = build(θ)
@@ -186,14 +188,16 @@ end
     @test trace(z) ≈ col
     r̄ = [0.7, -0.4, 1.1][1:n]
     ref = ReferenceAD.gradient(x -> sum(r̄ .* trace(x)), z)
-    piece = (; flows = map(_ -> (; demand = Ref(0.0), form = nothing), m.flows))
+    piece = (;
+        pieces = (map(_ -> (; demand = Ref(0.0), form = nothing), only(m.pieces)),),
+    )
     grads = (;
         piece, trace = refs(r̄), v = refs(zeros(2)), s = refs(zeros(2)),
         v′ = refs(zeros(2)), s′ = refs(zeros(2)),
     )
     @test CR.pullback!(grads, m, CR.Trace(), refs(z[1:2]), refs(z[3:4]), 1, 1) === nothing
     x̄ = [map(x -> x[], (grads.v..., grads.s..., grads.v′..., grads.s′...))...]
-    d̄ = [f̄.demand[] for f̄ in piece.flows]
+    d̄ = [f̄.demand[] for f̄ in only(piece.pieces)]
     @test [x̄; d̄] ≈ ref
 end
 
@@ -279,11 +283,9 @@ end
         K = [0.0 0.3; 0.2 0.0]
         function loss(θ)
             leaky = CR.Depletion(
-                PerStratum(θ[1:2]); pools = (:S, :V),
-                form = CR.Hazard(), weights = (S = 1, V = θ[3]),
-                flows = (
-                    CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
-                )
+                PerStratum(θ[1:2]), CR.Hazard(; weights = (S = 1, V = θ[3])),
+                CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]);
+                pools = (:S, :V)
             )
             # `Add` keeps no state, so its trace is empty and takes no cotangent.
             mods = (CR.Redistribute(CR.movement(K, θ[6])), CR.Add(θ[7]), leaky)
@@ -298,13 +300,11 @@ end
         # The flows' amounts, with a smooth count whose softness is a
         # parameter.
         function ward(θ)
-            flows = CR.Depletion(;
-                pools = (:A, :B), form = nothing, flows = (
-                    CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                    CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
-                    CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
-                    CR.Flow(0 => 2, θ[6]; form = CR.Truncate()),
-                )
+            flows = CR.Depletion(
+                CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+                CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
+                CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
+                CR.Flow(0 => 2, θ[6]; form = CR.Truncate()); pools = (:A, :B)
             )
             r = Recurrence([1.0]; modifiers = (flows,))
             adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]

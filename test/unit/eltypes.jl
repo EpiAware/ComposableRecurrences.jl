@@ -104,26 +104,24 @@ end
     K = Float32[0.0 0.3; 0.2 0.0]
     for m in (
             CR.Depletion(100.0f0),
-            CR.Depletion(PerStratum(Float32[100, 50]); form = CR.Floor()),
-            CR.Depletion(100.0f0; pools = (S = 97.0f0,), heterogeneity = 1.5f0),
+            CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
+            CR.Depletion(100.0f0, CR.Hazard(1.5f0); pools = (S = 97.0f0,)),
             CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
             CR.Redistribute(CR.movement(K, 0.1f0)),
             CR.Redistribute(CR.movement(K, fill(0.1f0, 2, 5))),
             CR.Clamp(0.0f0, 5.0f0),
             CR.Depletion(
-                0.8f0; pools = (:O,), form = CR.SoftTruncate(0.1f0), fill = :O,
-                flows_first = true, overflow = :stratum,
-                flows = CR.Flow(:O => 0, 0.1f0; form = CR.Share())
+                0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
+                CR.SoftTruncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
             ),
-            CR.Depletion(;
-                pools = (:B,), form = CR.Truncate(), flows_first = true,
-                flows = CR.Flow(
+            CR.Depletion(
+                CR.Flow(
                     0 => :B, TimeVarying(repeat(Float32[0.8, 0.0], 5)); form = CR.Truncate()
                 ),
-                overflow = :queue
+                CR.Truncate(; overflow = :queue); pools = (:B,)
             ),
-            CR.Depletion(0.8f0; pools = (:O,), form = CR.Truncate(), fill = :O),
-            CR.Depletion(5.0f0; form = CR.SoftTruncate(0.1f0)),
+            CR.Depletion(0.8f0, CR.Truncate(; into = :O); pools = (:O,)),
+            CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
@@ -132,15 +130,12 @@ end
     @test CR.param_eltype(CR.movement(K, fill(0.1f0, 2, 5))) == Float32
     # The constructor infers with a form struct.
     floor_depletion() = ComposableRecurrences.Depletion(
-        1.0; form = ComposableRecurrences.Floor()
+        1.0, ComposableRecurrences.Floor()
     )
     @test (@inferred floor_depletion()) isa CR.Depletion
     beds() = ComposableRecurrences.Depletion(
-        1.0; pools = (:O,), form = ComposableRecurrences.Truncate(), fill = :O,
-        flows_first = true, overflow = :stratum,
-        flows = ComposableRecurrences.Flow(
-            :O => 0, 0.1; form = ComposableRecurrences.Share()
-        )
+        1.0, ComposableRecurrences.Flow(:O => 0, 0.1; form = ComposableRecurrences.Share()),
+        ComposableRecurrences.Truncate(; into = :O, overflow = :stratum); pools = (:O,)
     )
     @test (@inferred beds()) isa CR.Depletion
 end

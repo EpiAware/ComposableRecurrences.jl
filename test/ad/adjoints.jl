@@ -370,8 +370,11 @@
                     Recurrence(
                         g; modifiers = (
                             CR.Depletion(
-                                PerStratum(fill(80.0, S));
-                                removals = TimeVarying(PerStratum(0.5 .+ rand(rng, S, T)))
+                                PerStratum(fill(80.0, S)), CR.Hazard(),
+                                CR.Flow(
+                                    :S => 0, TimeVarying(PerStratum(0.5 .+ rand(rng, S, T)));
+                                    form = CR.Truncate()
+                                )
                             ),
                         )
                     ),
@@ -383,12 +386,14 @@
                         g; coupling = 0.3 .* rand(rng, S, S),
                         modifiers = (
                             CR.Depletion(
-                                PerStratum(fill(80.0, S));
-                                pools = (S = pool(80.0, h), V = 1.0),
-                                weights = (S = 1, V = PerStratum([0.2, 0.3, 0.4])),
-                                flows = (
-                                    CR.Flow(1 => 2, TimeVarying(PerStratum(0.5 .+ rand(rng, S, T))); form = CR.Truncate()),
-                                )
+                                PerStratum(fill(80.0, S)),
+                                CR.Hazard(;
+                                    weights = (S = 1, V = PerStratum([0.2, 0.3, 0.4]))
+                                ),
+                                CR.Flow(
+                                    1 => 2, TimeVarying(PerStratum(0.5 .+ rand(rng, S, T)));
+                                    form = CR.Truncate()
+                                ); pools = (S = pool(80.0, h), V = 1.0)
                             ),
                         )
                     ),
@@ -854,19 +859,20 @@ end
     end
     # Depletion forms with no pullback: the local derivative covers them.
     struct Linear end
-    function CR.forward!(::Linear, ::CR.Step, v, s, N, α)
+    function CR.forward!(::Linear, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             y = v[i] * max(s[i], 0) / N
             v[i], s[i] = y, s[i] - y
         end
         return nothing
     end
-    struct LinearRate{T}
+    struct LinearRate{T, A}
         c::T
+        α::A
     end
-    function CR.forward!(f::LinearRate, ::CR.Step, v, s, N, α)
+    function CR.forward!(f::LinearRate, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
-            y = f.c * v[i] * max(s[i], 0)^α / N
+            y = f.c * v[i] * max(s[i], 0)^f.α / N
             v[i], s[i] = y, s[i] - y
         end
         return nothing
@@ -875,8 +881,8 @@ end
         c::T
         DoubledRate(c::T) where {T} = new{T}(2c)
     end
-    function CR.forward!(f::DoubledRate, ::CR.Step, v, s, N, α)
-        return CR.forward!(LinearRate(f.c), CR.Step(), v, s, N, α)
+    function CR.forward!(f::DoubledRate, ::CR.Step, v, s, N)
+        return CR.forward!(LinearRate(f.c, 1.0), CR.Step(), v, s, N)
     end
     # `(modifier, uses_adjoint, rule fires)`.
     cases = (
@@ -889,10 +895,13 @@ end
         (θ -> ScaleKw(; a = θ), false, false),
         (θ -> ScaleF(θ), false, false),
         (θ -> Doubled(θ), false, false),
-        (θ -> CR.Depletion(100 * θ; form = Linear()), true, true),
-        (θ -> CR.Depletion(100.0; form = LinearRate(θ), heterogeneity = 1.1), true, true),
-        (θ -> CR.Depletion(100.0; form = Linear(), removals = θ), true, true),
-        (θ -> CR.Depletion(100.0; form = DoubledRate(θ)), false, false),
+        (θ -> CR.Depletion(100 * θ, Linear()), true, true),
+        (θ -> CR.Depletion(100.0, LinearRate(θ, 1.1)), true, true),
+        (
+            θ -> CR.Depletion(100.0, Linear(), CR.Flow(:S => 0, θ; form = CR.Truncate())),
+            true, true,
+        ),
+        (θ -> CR.Depletion(100.0, DoubledRate(θ)), false, false),
     )
     # Where the rule does not fire the operator already takes plain AD, so
     # its `NoAdjoint` would repeat that call.
@@ -1054,7 +1063,7 @@ end
             R = 1.0 .+ 0.05 .* [sin(a + t) for a in 1:3, t in 1:8],
             pool = PerStratum([60.0, 90.0, 70.0])
 
-        mods(b) = (CR.Depletion(pool; form = CR.Floor()), CR.Add(b))
+        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Add(b))
         op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
         ws(r) = r(R; history = h, stop = 4, state = true)
         # The operator built from `b` inside the loss.
@@ -1406,7 +1415,7 @@ end
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
         d = CR.Depletion(
-            100.0; pools = (S = θ[1], V = θ[3]), weights = (S = 1, V = θ[2])
+            100.0, CR.Hazard(; weights = (S = 1, V = θ[2])); pools = (S = θ[1], V = θ[3])
         )
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
@@ -1440,21 +1449,23 @@ end
     # pool stays at zero with a tangent from `σ`, a tie in the removal.
     by_removals(θ) = total(
         CR.Depletion(
-            100.0; pools = (S = θ[1], V = nothing), weights = (S = 1, V = θ[3]),
-            flows = (CR.Flow(1 => 2, TimeVarying(fill(θ[2], 6)); form = CR.Truncate()),)
+            100.0, CR.Hazard(; weights = (S = 1, V = θ[3])),
+            CR.Flow(1 => 2, TimeVarying(fill(θ[2], 6)); form = CR.Truncate());
+            pools = (S = θ[1], V = nothing)
         )
     )
     # An empty pool with a dual population and an integer heterogeneity,
     # alone and with a protected pool.
-    by_population(θ) = total(CR.Depletion(θ[1]; heterogeneity = 2, pools = (S = θ[2],)))
+    by_population(θ) = total(CR.Depletion(θ[1], CR.Hazard(2); pools = (S = θ[2],)))
     by_protected(θ) = total(
         CR.Depletion(
-            θ[1]; pools = (S = θ[2], V = nothing), weights = (S = 1, V = θ[3])
+            θ[1], CR.Hazard(; weights = (S = 1, V = θ[3]));
+            pools = (S = θ[2], V = nothing)
         )
     )
     # A differentiated heterogeneity at an empty pool.
     by_heterogeneity(θ) = total(
-        CR.Depletion(100.0; heterogeneity = θ[1], pools = (S = θ[2],))
+        CR.Depletion(100.0, CR.Hazard(θ[1]); pools = (S = θ[2],))
     )
     cases = (
         (by_removals, [3.0, 4.0, 0.0]), (by_population, [100.0, 0.0]),
@@ -1485,7 +1496,7 @@ end
     # empty pool must not give the exponent a `log(0)` tangent.
     W = collect(range(0.5, 1.5; length = 6))
     function f(θ)
-        d = CR.Depletion(100.0; heterogeneity = θ[1], pools = (S = θ[2],))
+        d = CR.Depletion(100.0, CR.Hazard(θ[1]); pools = (S = θ[2],))
         r = Recurrence([0.3, 0.5, 0.2]; modifiers = (d,))
         return sum(W .* r(fill(2.0, 6); history = [5.0]))
     end
@@ -1701,9 +1712,9 @@ end
         logR = reshape(view(θ, (S * L + 1):(S * L + S * T)), S, T)
         doses = reshape(view(θ, (S * L + S * T + 1):n), S, T)
         d = CR.Depletion(
-            PerStratum(POP); pools = (:S, :V),
-            form = CR.Hazard(), weights = (S = 1, V = θ[n + 1]),
-            flows = (CR.Flow(1 => 2, TimeVarying(PerStratum(doses)); form = CR.Truncate()),)
+            PerStratum(POP), CR.Hazard(; weights = (S = 1, V = θ[n + 1])),
+            CR.Flow(1 => 2, TimeVarying(PerStratum(doses)); form = CR.Truncate());
+            pools = (:S, :V)
         )
         r = Recurrence(G0; coupling = K0, modifiers = (d,))
         return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
@@ -1787,7 +1798,7 @@ end
 
 @testitem "Enzyme reverse: the rule returns a typed tuple past 32 leaves" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
-    using ComposableRecurrences: Flow, Depletion
+    using ComposableRecurrences: Flow, Depletion, Hazard
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
@@ -1804,7 +1815,7 @@ end
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(8))
         d = Depletion(
-            1000.0; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0)), flows = fs
+            1000.0, Hazard(), fs...; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0))
         )
         return Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
     end
@@ -1822,19 +1833,24 @@ end
 
 @testitem "Enzyme reverse: a field of 32 or more entries" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ADTypes, Enzyme, ForwardDiff
-    using ComposableRecurrences: Flow, Depletion
+    using ComposableRecurrences: Flow, Depletion, Hazard
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     b = AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
     )
+    # The parts written out as the call's arguments. Under coverage a splat
+    # of 33 or more arguments stays a call resolved at run time, whose boxed
+    # result Enzyme's type analysis reads only to its first 512 bytes.
+    @generated function pool_of(N, pools, fs::Tuple)
+        args = [:(fs[$i]) for i in 1:fieldcount(fs)]
+        return :(Depletion(N, Hazard(), $(args...); pools = pools))
+    end
     # A pool with a scalar rate on each of `n` flows, built in the loss.
     function flows_loss(θ, ::Val{n}) where {n}
         ring = (:A, :B, :C, :D)
         fs = ntuple(i -> Flow(ring[mod1(i, 4)] => ring[mod1(i + 1, 4)], θ[i]), Val(n))
-        d = Depletion(
-            1000.0; pools = NamedTuple{ring}((900.0, 50.0, 30.0, 20.0)), flows = fs
-        )
+        d = pool_of(1000.0, NamedTuple{ring}((900.0, 50.0, 30.0, 20.0)), fs)
         r = Recurrence([0.3, 0.2, 0.1]; modifiers = (d,))
         return sum(log.(r(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
     end
