@@ -164,6 +164,9 @@ at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
 kernel length, ``g_{t,i}`` the gain and ``a_{t,i}`` the add input.
 ``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.
 Strata do not mix.
+A zero weight multiplies its input rather than skipping it, so
+``0 \cdot \infty`` gives `NaN`, as `sum(k .* x)` does, and a non-finite
+input reaches every output its lags feed.
 [`ComposableRecurrences.contributions`](@ref) returns the terms of the sum
 over ``l`` before it is taken.
 
