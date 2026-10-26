@@ -36,10 +36,10 @@ module DocsPerformance
         revision = join(unique(rows.revision), ", ")
         reverse = ["Mooncake reverse", "Enzyme reverse"]
         rules = unique(@subset(rows, in.(:target, Ref(reverse))).rules)
-        text = "Minimum times at revision $revision, " *
-            (rules == ["true"] ? "with" : "without") *
-            " the package's Mooncake and Enzyme rules loaded; " *
-            "the forward run and ForwardDiff do not use them."
+        text = "Minimum times at revision $revision. " *
+            "The Mooncake and Enzyme bars run " *
+            (rules == ["true"] ? "with" : "without") * " the package's rules. " *
+            "The forward run and ForwardDiff do not use them."
         failed = @subset(rows, :status .== "error")
         isempty(failed) && return text
         return text * "\nNo bar: " * join(unique(failed.target), ", ") *
