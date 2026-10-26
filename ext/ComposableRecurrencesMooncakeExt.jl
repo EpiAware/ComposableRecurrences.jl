@@ -158,18 +158,27 @@ function Mooncake.rrule!!(::CoDual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
 end
 
 # Primitive so a chain of delays' convolution is not traced loop by loop.
+# It takes vectors and views of them, whose mirrors `_mc` reads.
+const _MassVector{P} = Union{
+    Vector{P}, SubArray{P, 1, <:Array{P}},
+    Base.ReshapedArray{P, 1, <:Union{Array{P}, SubArray{P, 1, <:Array{P}}}},
+}
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode,
-    Tuple{typeof(_convolve_masses), Vector{P}, Vector{P}, Int} where {P <: _IEEEFloat}
+    Tuple{typeof(_convolve_masses), A, B, Int} where {
+        P <: _IEEEFloat, A <: _MassVector{P}, B <: _MassVector{P},
+    }
 )
 function Mooncake.rrule!!(
-        ::CoDual{typeof(_convolve_masses)}, a::CoDual{Vector{P}},
-        b::CoDual{Vector{P}}, lags::CoDual{Int}
+        ::CoDual{typeof(_convolve_masses)}, a::CoDual{<:_MassVector{P}},
+        b::CoDual{<:_MassVector{P}}, lags::CoDual{Int}
     ) where {P <: _IEEEFloat}
-    c = _convolve_masses(primal(a), primal(b), primal(lags))
+    pa, pb = primal(a), primal(b)
+    c = _convolve_masses(pa, pb, primal(lags))
     c̄ = zero(c)
     function _convolve_masses_pullback(::NoRData)
-        _convolve_masses_back!(tangent(a), tangent(b), c̄, primal(a), primal(b))
+        ā, b̄ = _mc(pa, tangent(a)), _mc(pb, tangent(b))
+        _convolve_masses_back!(ā, b̄, c̄, pa, pb)
         return NoRData(), NoRData(), NoRData(), NoRData()
     end
     return CoDual(c, c̄), _convolve_masses_pullback

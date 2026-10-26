@@ -149,7 +149,7 @@ end
 # Floats take each entry of `a` times `b` in turn, which vectorises; other
 # numbers, such as dual numbers, take each lag's sum in one accumulator,
 # which keeps it out of memory.
-function _convolve_masses!(c::AbstractVector{<:Base.IEEEFloat}, a, b)
+function _convolve_masses!(c::AbstractVector{<:_IEEEFloat}, a, b)
     i₀, j₀, k₀ = firstindex(a), firstindex(b), firstindex(c)
     L, nb = length(c), length(b)
     @inbounds for i in 0:(min(length(a), L) - 1)

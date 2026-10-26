@@ -369,6 +369,9 @@ end
     @test !CR._isdelay(Tuple{Float64, Float64})
     @test !CR._isdelay(Tuple{Vector{Float64}, Symbol})
     @test !CR._isdelay(Tuple{Vararg{Vector{Float64}}})
+    # A union of tuple types is a delay when each member is.
+    @test CR._isdelay(Union{Tuple{Vector{Float64}}, Tuple{Vector{Float64}, Vector{Float64}}})
+    @test !CR._isdelay(Union{Tuple{Vector{Float64}}, Tuple{Float64}})
     @test !CR._isdelay(Tuple{Vector{Poisson{Float64}}, Vector{Float64}})
     @test_throws ArgumentError Convolution(
         (Poisson.([1.0, 2.0]), [0.5, 0.5]); lags = 3
@@ -454,6 +457,18 @@ end
             is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
         )
     end
+    # Views of one parameter vector, as a model hands them over.
+    θ = [a; b]
+    split(θ) = CR._convolve_masses(view(θ, 1:3), view(θ, 4:7), 6)
+    c̄ = collect(1.0:6.0)
+    J = ReferenceAD.jacobian(split, θ)
+    cache = Mooncake.prepare_pullback_cache(split, θ)
+    _, (_, θ̄) = Mooncake.value_and_pullback!!(cache, c̄, split, θ)
+    @test θ̄ ≈ J' * c̄
+    Mooncake.TestUtils.test_rule(
+        Xoshiro(1), CR._convolve_masses, view(θ, 1:3), view(θ, 4:7), 6;
+        is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
+    )
 end
 
 @testsnippet OwnDelay begin
