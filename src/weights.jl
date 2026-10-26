@@ -102,7 +102,6 @@ end
 # parameter. Which use it is checked where the `Derived` is used; a value
 # that is neither is named against both.
 struct _DerivedArg end
-Base.show(io::IO, ::_DerivedArg) = print(io, "args")
 @noinline function _param_error(::_DerivedArg, x)
     throw(
         ArgumentError(
