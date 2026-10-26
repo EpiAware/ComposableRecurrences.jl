@@ -27,6 +27,10 @@ end
 
 function main(committed, fresh, subset = false)
     old, new = statuses(committed), statuses(fresh)
+    if subset && isempty(new)
+        println("The run recorded no cells.")
+        return 1
+    end
     cells = subset ? collect(keys(new)) : union(keys(old), keys(new))
     changed = sort!(
         [k for k in cells if get(old, k, "missing") != get(new, k, "missing")]
@@ -45,4 +49,6 @@ function main(committed, fresh, subset = false)
     return 1
 end
 
-exit(main(ARGS[1], ARGS[2], "--subset" in ARGS[3:end]))
+if abspath(PROGRAM_FILE) == @__FILE__
+    exit(main(ARGS[1], ARGS[2], "--subset" in ARGS[3:end]))
+end

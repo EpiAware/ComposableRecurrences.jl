@@ -1,19 +1,14 @@
 # Package-owned: not part of the kit's managed workflows.
 name: Reactant
 
-# Runs the Reactant support matrix in test/reactant/ on the CPU backend.
-# The full matrix takes over an hour, so it runs weekly and on main, where
-# a Reactant or Enzyme release that changes what works also shows up
-# without a package change. Pull requests that change the recurrence, the
-# convolution or an extension run a smoke subset: three cases, forward and
-# reverse, at 20 steps.
-# Each job fails when a cell it ran has a status that differs from the
-# committed results.tsv (test/reactant/compare.jl), with the changed cells
-# in the job summary. The test step only records results, so it may fail
-# without failing the job; the comparison is the gate. The committed
-# results are checked against expected.jl in the main test suite.
-# The steps are the commands in the header of test/reactant/runtests.jl, so
-# the job does not depend on the managed Taskfile.
+# Runs the Reactant support matrix in test/reactant/ on the CPU backend:
+# the full matrix weekly and on main, and a three-case smoke subset on pull
+# requests that change the recurrence, the convolution or an extension.
+# Each job fails when a cell it ran differs from the committed results.tsv
+# (test/reactant/compare.jl); the main test suite checks results.tsv against
+# expected.jl. The steps are the commands in the header of
+# test/reactant/runtests.jl, so the job does not depend on the managed
+# Taskfile.
 
 on:
   push:
