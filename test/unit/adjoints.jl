@@ -231,6 +231,25 @@ end
     @test pullback_matches(r, recargs(R, nothing, rand(rng, L); start = 4)...)
 end
 
+@testitem "Adjoint: Recurrence, unit lag-1" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(5)
+    S, T = 3, 9
+    # A random walk or cumulative sum, AR(1) with a coefficient per step
+    # (the gain) or one differentiated coefficient (the kernel), and
+    # independent strata with a shared or per-stratum coefficient.
+    r = Recurrence([1.0])
+    @test pullback_matches(r, recargs(1.0, randn(rng, T), [0.2])...)
+    @test pullback_matches(r, recargs(true, randn(rng, T), [0.2])...)
+    @test pullback_matches(r, recargs(0.8 .+ 0.1 .* rand(rng, T), randn(rng, T), [0.3])...)
+    @test pullback_matches(Recurrence([0.7]), recargs(1.0, randn(rng, T), [0.3])...)
+    @test pullback_matches(r, recargs(1.0, randn(rng, S, T), rand(rng, S, 1))...)
+    @test pullback_matches(
+        Recurrence(PerStratum(rand(rng, S, 1))),
+        recargs(0.5 .+ rand(rng, S, T), randn(rng, S, T), rand(rng, S, 1))...
+    )
+end
+
 @testitem "Adjoint: Recurrence couplings and kernels" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(4)
@@ -258,6 +277,14 @@ end
     pw = Recurrence(Pairwise(rand(rng, S, S, L) ./ 3))
     @test pullback_matches(pw, recargs(R, nothing, h[:, 1:2]; start = 3)...)
     @test constant_kernel_matches(pw, recargs(R, ϵ, h)...)
+    # A Diagonal coupling with a vector modifier takes the coupled steps, and
+    # a fixed kernel held constant sends back only the window's cotangent.
+    D = Diagonal(rand(rng, S))
+    move = CR.Redistribute(CR.movement(rand(rng, S, S) ./ 2, [0.3, 0.2, 0.1]))
+    @test pullback_matches(
+        Recurrence(g; coupling = D, modifiers = (move,)), recargs(R, ϵ, h)...
+    )
+    @test constant_kernel_matches(Recurrence(g; coupling = D), recargs(R, ϵ, h)...)
 end
 
 @testitem "Adjoint: Recurrence time-varying slots at absolute time" setup = [AdjointCheck] begin
@@ -2470,5 +2497,51 @@ end
     adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
     for op in (CR._WithTrace(r), CR._WithTrace(CR._WithState(r)))
         @test pullback_matches(op, recargs(true, adm, zeros(2, 1); stop = 6)...)
+    end
+end
+
+@testitem "Adjoint: Recurrence window pullbacks against a naive loop" begin
+    using ComposableRecurrences, LinearAlgebra, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(3)
+    L, S, t, a = 4, 2, 3, 0.7
+    H = rand(rng, L + 6, S)
+    g = rand(rng, L)
+    G = rand(rng, S, L)
+    for k in 1:S
+        # The window's and the kernel's cotangents, one lag at a time.
+        H̄0, kbuf0 = rand(rng, size(H)...), rand(rng, L)
+        H̄, kbuf = copy(H̄0), copy(kbuf0)
+        CR._window_back!(kbuf, g, a, H, H̄, t, L, k)
+        @test kbuf ≈ kbuf0 .+ a .* H[t:(t + L - 1), k]
+        @test H̄[t:(t + L - 1), k] ≈ H̄0[t:(t + L - 1), k] .+ a .* g
+        H̄ = copy(H̄0)
+        CR._window_back!(nothing, g, a, H, H̄, t, L, k)
+        @test H̄[t:(t + L - 1), k] ≈ H̄0[t:(t + L - 1), k] .+ a .* g
+        # An empty kernel leaves both untouched.
+        H̄ = copy(H̄0)
+        CR._window_back!(kbuf, g, a, H, H̄, t, 0, k)
+        @test H̄ == H̄0
+        # A shared kernel's cotangent has a column per stratum, a
+        # per-stratum kernel's a row.
+        H̄, Kb = copy(H̄0), zeros(L, S)
+        CR._kernel_back_at!(Kb, nothing, g, a, H, H̄, t, t, L, k)
+        @test Kb[:, k] ≈ a .* H[t:(t + L - 1), k]
+        @test H̄[t:(t + L - 1), k] ≈ H̄0[t:(t + L - 1), k] .+ a .* g
+        H̄, Kb = copy(H̄0), zeros(S, L)
+        CR._kernel_back_at!(Kb, nothing, PerStratum(G), a, H, H̄, t, t, L, k)
+        @test Kb[k, :] ≈ a .* H[t:(t + L - 1), k]
+        @test H̄[t:(t + L - 1), k] ≈ H̄0[t:(t + L - 1), k] .+ a .* G[k, :]
+    end
+end
+
+@testitem "Recurrence: the run buffer zeroes only its history rows" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A generic array allocates by `similar`, a CPU array directly.
+    for h in (1:3, [1.0, 2.0, 3.0])
+        H = CR._buffer(h, Float64, 2, 3, 2)
+        @test size(H) == (5, 2)
+        @test all(iszero, H[1:2, :])
     end
 end

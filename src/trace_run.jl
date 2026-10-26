@@ -31,7 +31,7 @@ end
 function _traces(r, c)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
-    return (; modifiers = _traces(ms, rec, c.state.states, H, D, S, T, τ0))
+    return (; modifiers = _traces(ms, rec, c.states, H, D, S, T, τ0))
 end
 _traces(::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
 function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)
