@@ -56,6 +56,17 @@ function ComposableRecurrences._zeros(
     ) where {T <: TracedRNumber}
     return Reactant.Ops.fill(zero(unwrapped_eltype(T)), dims)
 end
+# The same for a recurrence's buffer, which the loop also carries.
+function ComposableRecurrences._buffer(
+        h, ::Type{Tp}, D, T, S
+    ) where {Tp <: TracedRNumber}
+    return ComposableRecurrences._zeros(h, Tp, D + T, S)
+end
+function ComposableRecurrences._buffer(
+        h::_CPUArray, ::Type{Tp}, D, T, S
+    ) where {Tp <: TracedRNumber}
+    return ComposableRecurrences._zeros(h, Tp, D + T, S)
+end
 
 # A traced array's eltype is a traced number, which is not a `Real`, so the
 # generic array method would reduce over its entries' types; the eltype
