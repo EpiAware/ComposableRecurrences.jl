@@ -41,11 +41,12 @@ R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
 ```
 
 where $I_{t,i}$ is the number of infections in town $i$ on day $t$, $C_{t,i}$ the number of reports and $R_{t,i}$ the reproduction number.
-The infection pressure is $v_{t,i}$, and the susceptible pool $s_{t,i}$ starts at the population $N_i$.
-The generation interval has weight $g_l$ on lag $l$, the reporting delay has weight $w_l$, and a share $\rho = 0.4$ of infections is reported.
+The value $v_{t,i}$ is the number of new infections before depletion, and the susceptible pool $s_{t,i}$ starts at the population $N_i$.
+The generation interval has weight $g_l$ on lag $l$ over $L$ lags, the reporting delay has weight $w_l$ over $L_w$ lags, and a share $\rho = 0.4$ of infections is reported.
 The gravity coupling $K_{ij}$ comes from the populations and the distances $d_{ij}$ between towns, with $G_{ii} = 0$.
 The term $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
+In the code, `PerStratum(pop)` gives each town its own population, and the run covers $T = 75$ days.
 
 <!-- INDEX_REWRITES in docs/docs_config.jl matches the last line of this block to hide its output on the docs home page; keep the two in step. -->
 ```julia

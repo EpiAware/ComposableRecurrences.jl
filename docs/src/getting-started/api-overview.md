@@ -21,7 +21,7 @@ The gain, such as the reproduction number, scales the result.
 The values given as `add` are then added.
 Each modifier then changes the value in turn.
 A modifier can keep a state from day to day, such as the people left to infect.
-A convolution takes the same weighted sum of an input series, scales it by the gain and adds `add`.
+A convolution takes a weighted sum of an input series, from the current day back, scales it by the gain and adds `add`.
 It has no coupling and no modifiers.
 
 ![One recurrence step and one convolution output](../assets/recurrence-step.svg)
@@ -44,7 +44,8 @@ y_t = \gamma_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t ,
 ```
 
 where ``y_t`` is the output, with one entry per stratum.
-The outputs before `start` are the `history`.
+For a recurrence, the outputs before `start` are the `history`.
+For a convolution, the `history` holds the inputs before day 1.
 The input of a convolution is ``x_t``.
 The kernel has weight ``k_l`` on lag ``l``, and ``L`` lags.
 The weighted sum of past outputs is ``p_t``.
@@ -132,7 +133,7 @@ Each route has its own kernel and its own coupling.
 | [`Derived(f, args...)`](@ref Derived) | a parameter computed by `f` from other parameters |
 | [`Recent(n)`](@ref Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and day |
 
-A `Pairwise` or `Routes` kernel mixes the strata itself, so the coupling is left as the identity, `I`.
+A `Pairwise` or `Routes` kernel mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
 A `TimeVarying` kernel can be given as a vector with one kernel per day, each of any length.
 It can also be given as change points: `start => value` pairs, each value holding from its start day.
 By default, column ``\tau`` of a time-varying kernel belongs to output day ``\tau``, [`Secondary()`](@ref ComposableRecurrences.Secondary).
@@ -141,8 +142,8 @@ With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` belongs 
 It holds how the value on day ``\tau`` spreads over later days, such as the delays of the infections on day ``\tau``.
 For a recurrence, the value on day ``\tau`` is its own output.
 The parameter `Derived(exp, TimeVarying(x))` is the exponential of a parameter that changes by day.
-The parameter `Recent(7)` sums the last seven outputs, and `κ * Recent(7)` is that sum times a number `κ`.
-The parameter `Recent(7; coupling = C)` mixes the recent outputs between strata.
+The parameter `Recent(7)` sums the last seven outputs, and `β * Recent(7)` is that sum times a number `β`.
+The parameter `Recent(7; coupling = K)` mixes the recent outputs between strata.
 Wrappers combine: `TimeVarying(PerStratum(G))` is a strata × lags × days kernel.
 Most wrappers hold the stored array without copying it.
 A bare vector where a single value is expected is an error that names the wrapper to use.
@@ -157,7 +158,7 @@ The operator turns it into masses: the probability that the delay falls on each 
 Recurrence(Gamma(2.0, 2.5); lags = 15)
 ```
 
-`Gamma` comes from the Distributions.jl package.
+`Gamma` comes from the Distributions.jl package, and a continuous delay such as it needs CensoredDistributions.jl loaded.
 A type works as a delay when it has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method, which gives its masses on lags `0` to `lags - 1`.
 With [Distributions.jl](@ref extension-distributions) loaded, discrete distributions have masses.
 With [CensoredDistributions.jl](@ref extension-censored-distributions) loaded, continuous distributions have them too.
@@ -193,10 +194,10 @@ The coupling [acts](@ref explanation-coupling) on the weighted sums of past outp
 
 | Name | What it does |
 |:--|:--|
-| `I`, the identity | no mixing |
-| `λI`, the identity times a number `λ` | every sum scaled by `λ` |
+| `LinearAlgebra.I`, the identity matrix | no mixing |
+| `λ * LinearAlgebra.I`, the identity times a number `λ` | every sum scaled by `λ` |
 | strata × strata matrix | mixing such as contact or travel |
-| [`TimeVarying(C)`](@ref TimeVarying), with `C` strata × strata × days | mixing that changes by day |
+| [`TimeVarying(K)`](@ref TimeVarying), with `K` strata × strata × days | mixing that changes by day |
 | a type you write | a [new coupling](@ref extending-coupling) |
 
 The matrix can be dense, `Diagonal` or sparse.
@@ -221,7 +222,7 @@ The value a step asks for is drawn from the pools.
 | Name | What it does | Parameters |
 |:--|:--|:--|
 | [`Depletion(N; pools, form)`](@ref ComposableRecurrences.Depletion) | draws each day's value from a pool | `N` and each starting pool |
-| [`Depletion(C; fill)`](@ref ComposableRecurrences.Depletion) | fills the pool named by `fill` up to a capacity `C` | the capacity |
+| [`Depletion(cap; fill)`](@ref ComposableRecurrences.Depletion) | fills the pool named by `fill` up to a capacity `cap` | the capacity |
 | [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | moves values from pool `from` to pool `to` each day | the rate |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves a share of each stratum's value to other strata | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | `b` |
@@ -238,7 +239,7 @@ With `form = nothing` a `Depletion` draws nothing, and only its flows move value
 A `Redistribute` moves whatever it receives, including values from `add`.
 Its matrix `M` has columns that sum to one, so the total is kept.
 With `leak = true` a column can sum to less than one, for a share lost on the way.
-The function [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds `M` from a kernel `K` and the share `ε` of each stratum's value that moves.
+The function [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds `M` from a kernel `K` and an intensity `ε`, moving a share `ε[q] * K[p, q]` of stratum `q`'s value to stratum `p`.
 An `Allocate` keeps each stratum's share of its group.
 With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
 Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
@@ -263,7 +264,7 @@ Depletion(N; form = Floor())
 | [`Hazard()`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
 | [`Floor()`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N; form = Floor())` |
 | [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(B; form = Truncate())` for a budget `B` |
-| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(C; form = SoftTruncate(0.1), fill = :S)` |
+| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(cap; form = SoftTruncate(0.1), fill = :S)` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool each day | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
 | a type you write | a new depletion form | `Depletion(N; form = MyForm())` |
 
@@ -322,6 +323,7 @@ A role is one job, chosen by a type with no fields.
 The role `Step()` computes one step, and `Init()` the starting state.
 The role `Pressure()` is a coupling's mixing, and `Trace()` a modifier's record for a call with `trace = true`.
 The role `Run()` is an operator's whole call.
+An operator's hand-written gradient is its rule.
 
 | Name | What it does | Returns |
 |:--|:--|:--|
@@ -329,7 +331,7 @@ The role `Run()` is an operator's whole call.
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | adds to the cotangents: the gradients of the result with respect to each input |
 | [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace), [`Run()`](@ref ComposableRecurrences.Run) | the roles | types with no fields |
 | [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the operator's hand-written gradient calls `m`'s `pullback!` for `role` | `Bool` |
+| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
 | [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each stratum on its own | `Bool` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
@@ -349,13 +351,12 @@ A run keeps at least `depth` past outputs, even when the kernel is shorter.
 
 ### [Checking gradients](@id overview-gradients)
 
-An adjoint is an operator's hand-written gradient.
-It can be checked against the gradient that automatic differentiation computes from the operator's code.
+A rule can be checked against the gradient that automatic differentiation computes from the operator's code.
 
 | Name | What it does | Returns |
 |:--|:--|:--|
-| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its [adjoint](@ref adjoints-backends) | an operator |
-| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the rule tester of an automatic differentiation package on an operator's adjoint | a test result |
+| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its [rule](@ref adjoints-backends) | an operator |
+| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the rule tester of an automatic differentiation package on an operator's rule | a test result |
 
 The gradient through `NoAdjoint(op)` checks the gradient through `op`, and timing both compares their cost.
 `backend` names the automatic differentiation package, such as Mooncake or Enzyme.
