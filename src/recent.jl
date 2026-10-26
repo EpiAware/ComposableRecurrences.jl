@@ -369,15 +369,16 @@ _outputs_leaf(::Type{T}) where {T} = T <: Union{Recent, _BoundRecent} || nothing
 # other strata's outputs, so the strata cannot run on their own.
 function _across_leaf(::Type{T}) where {T}
     T <: Recent || return nothing
-    return !(fieldtype(T, :coupling) <: Nothing)
+    return _has_coupling(T)
 end
+_has_coupling(::Type{R}) where {R <: Recent} =
+    !(fieldtype(R, :coupling) <: Nothing)
 # After its helpers: a generator sees only the methods defined before it.
 @generated _reads_across(x) = _holds_type(_across_leaf, x)
 
 # The field paths from `ex`, a value of type `T`, to each bound `Recent`
 # with a coupling inside it, walking only the fields `_holds_type` walks.
 function _coupled_paths(::Type{T}, ex) where {T}
-    T <: _BoundRecent && return _across_leaf(fieldtype(T, :x)) ? Any[ex] : Any[]
     T <: Recent && return Any[]
     _holds_type(_across_leaf, T) || return Any[]
     paths = Any[]
@@ -385,6 +386,9 @@ function _coupled_paths(::Type{T}, ex) where {T}
         append!(paths, _coupled_paths(F, :(getfield($ex, $i))))
     end
     return paths
+end
+function _coupled_paths(::Type{<:_BoundRecent{R}}, ex) where {R}
+    return _has_coupling(R) ? Any[ex] : Any[]
 end
 # The bound `Recent`s with a coupling inside `x`, as a tuple. After its
 # helpers: a generator sees only the methods defined before it.
