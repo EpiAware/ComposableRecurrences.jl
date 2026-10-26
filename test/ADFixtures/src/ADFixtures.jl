@@ -1553,6 +1553,13 @@ const _PROBES = Dict{Symbol, Function}(
     :chained_delays => () -> _accepts(
         () -> Convolution(([1.0], [1.0]); lags = 1)
     ),
+    # Local derivatives whose dual numbers compare by value.
+    :local_ties => function ()
+        ext = Base.get_extension(
+            ComposableRecurrences, :ComposableRecurrencesForwardDiffExt
+        )
+        return ext !== nothing && isdefined(ext, :_LocalTag)
+    end,
     # Delays on lags of a width other than one unit.
     :delay_step => () -> _accepts(
         () -> Convolution(Poisson(1.0); lags = 2, step = 2)
@@ -1837,6 +1844,62 @@ function _strata_modifier_piecewise(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A whole-step modifier without a pullback that branches where a value is
+# zero, run from an empty history, so the first step's values sit at the
+# tie. The local derivative must take the branch the step takes: the other
+# divides zero by zero.
+"A bed occupancy balance over four pools, each field typed."
+struct OccupancyBalance{A, B, D, R, O, K, H}
+    A_bvd::A
+    A_bg::B
+    deaths::D
+    recover::R
+    ruleout::O
+    κ::K
+    conf_hazard::H
+end
+@in_place function ComposableRecurrences.forward!(
+        m::OccupancyBalance, ::ComposableRecurrences.Step, v, s, t
+    )
+    z = zero(eltype(v))
+    ε = eps(eltype(v))
+    Obvd, Obg, Oconf, Osusp = v
+    bvd_out = m.deaths[t] + m.recover[t]
+    ab = m.κ * Osusp
+    unconf = max(Obvd - Oconf, z)
+    denom = max(Osusp, ε)
+    Obvd_t = max(Obvd + m.A_bvd[t] - bvd_out - ab * (unconf / denom), z)
+    Obg_t = max(Obg + m.A_bg[t] - m.ruleout[t] - ab * (Obg / denom), z)
+    share = Obvd > z ? Oconf / Obvd : z
+    x_conf = Oconf + m.conf_hazard[t] * unconf - bvd_out * share
+    Oconf_t = clamp(x_conf, z, Obvd_t)
+    v .= (Obvd_t, Obg_t, Oconf_t, max(Obvd_t + Obg_t - Oconf_t, z))
+    return nothing
+end
+const TO = 10
+const A_BVD = [3.0, 4.0, 5.0, 2.0, 1.0, 0.0, 2.0, 3.0, 1.0, 0.0]
+const A_BG = [1.0, 2.0, 2.0, 1.0, 1.0, 1.0, 0.0, 1.0, 2.0, 1.0]
+const DEATHS = fill(0.3, TO)
+const RECOVER = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.0, 0.8, 0.6, 0.4]
+const RULEOUT = fill(0.8, TO)
+const CONF_HAZARD = [0.2, 0.3, 0.4, 0.5, 0.5, 0.5, 0.4, 0.4, 0.3, 0.3]
+const WO = collect(range(0.5, 2.0; length = TO))
+# The parameters are offsets from `OCC0`, so the scenario starts at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters. Its first step's
+# values tie where the balance branches, so it stays out of the rule
+# testers' list: finite differences there step onto either branch.
+const OCC0 = _flat(A_BVD, [0.1], CONF_HAZARD)
+function _occupancy(w, θ)
+    A_bvd, κ, conf_hazard = _unpack(OCC0 .+ θ, (TO,), (1,), (TO,))
+    m = OccupancyBalance(
+        A_bvd, A_BG, DEATHS, RECOVER, RULEOUT, only(κ), conf_hazard
+    )
+    r = Recurrence([1.0]; modifiers = (m,))
+    Y = w(r)(; history = zeros(4, 1), stop = TO)
+    return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
+end
+
 push!(
     _SCENARIOS,
     (
@@ -1881,6 +1944,10 @@ push!(
         "Recurrence checked at the call", _unchecked_parts,
         () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
+    (
+        "Recurrence whole-step modifier branching at a tie (occupancy)",
+        _occupancy, () -> zero(OCC0),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
@@ -1905,6 +1972,9 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 # The local derivative of a whole-step modifier.
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
+# The local derivatives took the step's branch at a tie later.
+_REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
+    (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
@@ -2048,8 +2118,9 @@ end
 """
 Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
-passes of dual numbers is a rule on Mooncake only, as is a modifier's
-local derivative that records its reads of float arrays.
+passes of dual numbers is a rule on Mooncake only, as are a modifier's
+local derivative that records its reads of float arrays and a whole-step
+modifier's that takes more than one pass.
 """
 function backend_plain_scenarios()
     return Dict(
@@ -2057,6 +2128,7 @@ function backend_plain_scenarios()
             [
                 "Recurrence user coupling across 30 strata",
                 "Recurrence modifier with a vector field read by time",
+                "Recurrence whole-step modifier branching at a tie (occupancy)",
             ]
         )
     )
