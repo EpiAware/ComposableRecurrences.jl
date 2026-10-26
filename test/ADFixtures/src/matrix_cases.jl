@@ -1003,15 +1003,16 @@ const TUTORIAL_CASES = [
     name => [(T = 200, L = 20, S = S)] for (name, S) in (
             "renewal_depletion" => 1, "strata_waning" => 1, "renewal_imports" => 1,
             "outcome_chain" => 1, "renewal_forecast" => 1, "reproduction" => 3,
-            "strata_routes" => 5, "ward_flows" => 1, "ar" => 1,
-            "delay_primary" => 1, "transform" => 5,
+            "strata_routes" => 5, "ward_flows" => 1, "ar" => 1, "transform" => 5,
         )
 ]
+# The tutorial's 15-day delay, so ForwardDiff takes all its parameters.
+push!(TUTORIAL_CASES, "delay_primary" => [(T = 200, L = 15, S = 1)])
 
 """
 The size tiers. `smoke` checks every case at a tiny size; `docs` is the
 getting-started model at the page's size and at T 200, L 20, the
-tutorials' models at T 200, L 20 with their own strata, and the backend
+tutorials' models at T 200 with their own lags and strata, and the backend
 kernels of the case study at their own sizes; `convolved`
 holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
 `realistic` spans T 200-400, L 20-60 and S 1 to 50; `large` is S = 500,
