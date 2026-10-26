@@ -396,6 +396,17 @@ function _growth_seed(w, θ)
     return sum(WSL .* log.(y))
 end
 
+# A history read straight from the parameters is a view, as a probabilistic
+# model hands it over: a random walk (a unit lag-1 kernel) with its seed
+# prepended, and strata whose history is a reshaped view, prepended too. The
+# unit lag-1 pullbacks are checked against ForwardDiff in the unit tests.
+function _prepend_view(w, θ)
+    z0, H, ϵ, E = _unpack(θ, (1,), (S, 2), (T,), (S, T))
+    y = w(Recurrence([1.0]))(1.0; history = z0, add = ϵ, prepend = true)
+    Y = w(Recurrence([0.5, 0.2]))(ones(S, T); history = H, add = E, prepend = true)
+    return sum(abs2, y) + sum(W1 .* y[2:end]) + sum(WS .* Y[:, 3:end])
+end
+
 # The state returned after the seed and the run, with the seed prepended.
 function _with_state_prepend(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
@@ -1249,6 +1260,10 @@ const _SCENARIOS = [
         () -> _flat(log.([5.0, 2.0, 1.0]), [0.1], LOGR),
     ),
     (
+        "Recurrence random walk and strata prepending a view history", _prepend_view,
+        () -> _flat([0.2], fill(0.2, S, 2), 0.1 .* LOGR[1, :], 0.1 .* LOGR),
+    ),
+    (
         "Recurrence returning its state after its seed", _with_state_prepend,
         () -> _flat(fill(log(5.0), S, L), LOGR),
     ),
@@ -1605,6 +1620,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
+    # A view history joined without `vcat` of the view came with `_join_series`.
+    "Recurrence random walk and strata prepending a view history" =>
+        (:_join_series,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
     # growth-path seed but before any release with it.
     "Recurrence returning its state after its seed" => (:exponential_history,),
@@ -1923,20 +1941,34 @@ const _TWINS = Tuple{String, Any, Any}[
         if supports(_requires(name)..., extra...)
 ]
 
+# Each scenario runs once through its call, and a twin once more through
+# `NoAdjoint`. Only a reverse-mode backend with its own rule tells the two
+# apart: under ForwardDiff and ReverseDiff the dual or tracked fields fail
+# `_gate`, and the forward modes have no rule, so both take the same plain
+# path there and the twin repeats its scenario.
+const _CATEGORIES = (:marginal, :rules)
+
 """
     scenarios(; with_reference = false, category = :marginal)
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
-There is one category, `:marginal`.
+The category `:marginal` holds every scenario and its `NoAdjoint` twin,
+which the benchmarks time and the reverse-mode backends with a rule test.
+The category `:rules` holds every scenario without its twin, for the
+backends where the twin takes the same path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
-    category === :marginal || throw(
-        ArgumentError("unknown category $(repr(category)); choose :marginal")
+    category in _CATEGORIES || throw(
+        ArgumentError(
+            "unknown category $(repr(category)); choose one of $(join(_CATEGORIES, ", "))"
+        )
     )
-    return map(_TWINS) do (name, f, θ0)
+    twins = category === :marginal ? _TWINS :
+        filter(t -> !startswith(first(t), "NoAdjoint "), _TWINS)
+    return map(twins) do (name, f, θ0)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
