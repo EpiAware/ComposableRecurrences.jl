@@ -507,3 +507,418 @@ BASELINES["ar1"] = [
         (φ, z0, ϵ) -> accumulate((z, e) -> φ * z + e, ϵ; init = z0)
     ),
 ]
+
+# ---- the tutorials' models -----------------------------------------------------
+
+# Hand loops for the tutorials' models, as a user would write each one
+# without the package: one preallocated buffer holding the seed and the
+# run, scalar loops, and the pools as scalars or one vector per pool.
+
+# `θ` and the loss of case `c` at size `z`, with the operators replaced by
+# `run(z)`, a function of `θ` returning the loss.
+function _tutorial_baseline(case, run)
+    return function (z::Size)
+        _, θ = case(identity, z)
+        return run(z), θ
+    end
+end
+
+# The renewal sum of stratum `k` at step `t` of a buffer whose first `m`
+# columns are the seed.
+function _renewal_sum(g, y, k, m, t)
+    acc = zero(eltype(y))
+    for l in eachindex(g)
+        acc += g[l] * y[k, m + t - l]
+    end
+    return acc
+end
+
+# A buffer of `S` rows holding the seed `h` then `T` steps.
+function _seeded(V, h, T)
+    y = zeros(V, size(h, 1), size(h, 2) + T)
+    y[:, 1:size(h, 2)] .= h
+    return y
+end
+
+# Seeded renewal with hazard depletion from a pool less the seed.
+function loop_renewal_depletion(g, seed, R, N)
+    m, T = length(seed), length(R)
+    V = promote_type(eltype(g), eltype(seed), eltype(R))
+    y = _seeded(V, reshape(seed, 1, m), T)
+    pool = max(N - sum(seed), zero(V))
+    for t in 1:T
+        drawn = -pool * expm1(-R[t] * _renewal_sum(g, y, 1, m, t) / N)
+        pool -= drawn
+        y[1, m + t] = drawn
+    end
+    return view(y, 1, (m + 1):(m + T))
+end
+
+BASELINES["renewal_depletion"] = [
+    "loop" => _tutorial_baseline(
+        renewal_depletion, function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                y = loop_renewal_depletion(g, exp.(logh), exp.(logR), 1.0e5)
+                return sum(W .* log.(y))
+            end
+        end
+    ),
+]
+
+# Leaky vaccination with waning: infections drawn by hazard from `S + σV`,
+# then waning moves `V` back to `S` at rate `ω`, then the doses move `S`
+# into `V`, capped by what `S` holds.
+function loop_waning(g, h, R, doses, σ, ω, N)
+    S, T = size(R)
+    m = size(h, 2)
+    V = promote_type(eltype(g), eltype(h), eltype(R), eltype(doses), typeof(σ), eltype(ω))
+    y = _seeded(V, h, T)
+    sus = V.(N)
+    pro = zeros(V, S)
+    for t in 1:T, k in 1:S
+        P = sus[k] + σ * pro[k]
+        drawn = -P * expm1(-R[k, t] * _renewal_sum(g, y, k, m, t) / N[k])
+        s = sus[k] - drawn * sus[k] / P
+        v = pro[k] - drawn * σ * pro[k] / P
+        waned = -v * expm1(-ω[k, t])
+        s += waned
+        v -= waned
+        moved = min(doses[k, t], max(s, zero(V)))
+        sus[k] = s - moved
+        pro[k] = v + moved
+        y[k, m + t] = drawn
+    end
+    return view(y, :, (m + 1):(m + T))
+end
+
+BASELINES["strata_waning"] = [
+    "loop" => _tutorial_baseline(
+        strata_waning, function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            N = fill(1.0e5, S)
+            return function (θ)
+                g, logh, logR, doses, σ, ω = _unpack(
+                    θ, (L,), (S, L), (S, T), (S, T), (1,), (S, T)
+                )
+                y = loop_waning(g, exp.(logh), exp.(logR), doses, only(σ), ω, N)
+                return sum(W .* log.(y))
+            end
+        end
+    ),
+]
+
+# Hazard depletion with imports before the draw, taken from the pool, and
+# after it, added on top.
+function loop_imports(g, seed, R, before, after, N)
+    m, T = length(seed), length(R)
+    V = promote_type(eltype(g), eltype(seed), eltype(R), eltype(before), eltype(after))
+    y = _seeded(V, reshape(seed, 1, m), T)
+    pool = V(N)
+    for t in 1:T
+        drawn = -pool * expm1(-(R[t] * _renewal_sum(g, y, 1, m, t) + before[t]) / N)
+        pool -= drawn
+        y[1, m + t] = drawn + after[t]
+    end
+    return view(y, 1, (m + 1):(m + T))
+end
+
+BASELINES["renewal_imports"] = [
+    "loop" => _tutorial_baseline(
+        renewal_imports, function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR, before, after = _unpack(
+                    θ, (L,), (L,), (T,), (T,), (T,)
+                )
+                y = loop_imports(g, exp.(logh), exp.(logR), before, after, 1.0e5)
+                return sum(W .* log.(y))
+            end
+        end
+    ),
+]
+
+# A delay, lag 0 first, scaled by `gain`, written into `y`.
+function _delay!(y, d, x, gain)
+    for t in eachindex(y)
+        acc = zero(eltype(y))
+        for i in 1:min(length(d), t)
+            acc += d[i] * x[t - i + 1]
+        end
+        y[t] = gain * acc
+    end
+    return y
+end
+
+function loop_outcomes(d1, d2, d3, p, x)
+    V = promote_type(eltype(d1), eltype(d2), eltype(d3), eltype(p), eltype(x))
+    onsets = _delay!(zeros(V, length(x)), d1, x, one(V))
+    admissions = _delay!(zeros(V, length(x)), d2, onsets, p[1])
+    deaths = _delay!(zeros(V, length(x)), d3, admissions, p[2])
+    return admissions, deaths
+end
+
+BASELINES["outcome_chain"] = [
+    "loop" => _tutorial_baseline(
+        outcome_chain, function (z)
+            (; T, L) = z
+            W = _weights(T)
+            V = [_noise(t, 15) for t in 1:T]
+            return function (θ)
+                d1, d2, d3, p, x = _unpack(θ, (L,), (L,), (L,), (2,), (T,))
+                admissions, deaths = loop_outcomes(d1, d2, d3, p, x)
+                return sum(W .* admissions) + sum(V .* deaths)
+            end
+        end
+    ),
+]
+
+# A renewal over every day in one loop: the forecast needs no state.
+function loop_renewal(g, seed, R)
+    m, T = length(seed), length(R)
+    V = promote_type(eltype(g), eltype(seed), eltype(R))
+    y = _seeded(V, reshape(seed, 1, m), T)
+    for t in 1:T
+        y[1, m + t] = R[t] * _renewal_sum(g, y, 1, m, t)
+    end
+    return view(y, 1, (m + 1):(m + T))
+end
+
+BASELINES["renewal_forecast"] = [
+    "loop" => _tutorial_baseline(
+        renewal_forecast, function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                return sum(W .* log.(loop_renewal(g, exp.(logh), exp.(logR))))
+            end
+        end
+    ),
+]
+
+# The towns' depleted run, keeping each day's infections over the renewal
+# sum as it goes.
+function loop_reproduction(g, R, seed, K, pop)
+    S, T = size(R)
+    m = size(seed, 2)
+    V = promote_type(eltype(g), eltype(R))
+    y = _seeded(V, seed, T)
+    Reff = zeros(V, S, T)
+    pool = V.(pop)
+    p = zeros(V, S)
+    for t in 1:T
+        for k in 1:S
+            p[k] = _renewal_sum(g, y, k, m, t)
+        end
+        for a in 1:S
+            q = zero(V)
+            for b in 1:S
+                q += K[a, b] * p[b]
+            end
+            drawn = -pool[a] * expm1(-R[a, t] * q / pop[a])
+            pool[a] -= drawn
+            y[a, m + t] = drawn
+            Reff[a, t] = drawn / q
+        end
+    end
+    return Reff
+end
+
+BASELINES["reproduction"] = [
+    "loop" => _tutorial_baseline(
+        reproduction, function (z)
+            (; T, L, S) = z
+            pop, K = towns()
+            seed = overview_seed(S, L)
+            W = _weights(S, T)
+            return function (θ)
+                g, logR = _unpack(θ, (L,), (S, T))
+                return sum(W .* loop_reproduction(g, exp.(logR), seed, K, pop))
+            end
+        end
+    ),
+]
+
+# Two routes, a dense coupling on kernel `g1` and a sparse one held as its
+# column pointers, row indices and values on kernel `g2`, then floored
+# depletion.
+function loop_routes(K1, g1, colptr, rowval, v, g2, h, R, pop)
+    S, T = size(R)
+    m = size(h, 2)
+    V = promote_type(eltype(K1), eltype(g1), eltype(v), eltype(g2), eltype(h), eltype(R))
+    y = _seeded(V, h, T)
+    pool = V.(pop)
+    p1, p2, q = zeros(V, S), zeros(V, S), zeros(V, S)
+    for t in 1:T
+        for k in 1:S
+            p1[k] = _renewal_sum(g1, y, k, m, t)
+            p2[k] = _renewal_sum(g2, y, k, m, t)
+        end
+        for a in 1:S
+            acc = zero(V)
+            for b in 1:S
+                acc += K1[a, b] * p1[b]
+            end
+            q[a] = acc
+        end
+        for b in 1:S, j in colptr[b]:(colptr[b + 1] - 1)
+            q[rowval[j]] += v[j] * p2[b]
+        end
+        for a in 1:S
+            drawn = max(max(pool[a] / pop[a], zero(V)), 1.0e-6) * R[a, t] * q[a]
+            pool[a] -= drawn
+            y[a, m + t] = drawn
+        end
+    end
+    return view(y, :, (m + 1):(m + T))
+end
+
+BASELINES["strata_routes"] = [
+    "loop" => _tutorial_baseline(
+        strata_routes, function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            K2 = _ring(S)
+            n2 = length(nonzeros(K2))
+            L1 = cld(L, 2)
+            pop = fill(1.0e5, S)
+            return function (θ)
+                K1, g1, v, g2, logh, logR = _unpack(
+                    θ, (S, S), (L1,), (n2,), (L,), (S, L), (S, T)
+                )
+                y = loop_routes(
+                    K1, g1, K2.colptr, K2.rowval, v, g2, exp.(logh), exp.(logR), pop
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    ),
+]
+
+# Suspected patients confirmed at a rate or ruled out as a share, confirmed
+# patients discharged at a rate and transferred out in counts, after each
+# day's admissions.
+function loop_ward(adm, confirm, ruleout, discharge, transfer)
+    S, T = size(transfer)
+    V = promote_type(
+        eltype(adm), eltype(confirm), eltype(ruleout), typeof(discharge), eltype(transfer)
+    )
+    y = zeros(V, 2S, T)
+    for t in 1:T, k in 1:S
+        sus = (t > 1 ? y[k, t - 1] : zero(V)) + adm[k, t]
+        con = (t > 1 ? y[S + k, t - 1] : zero(V)) + adm[S + k, t]
+        stay = exp(-confirm[k])
+        con = exp(-discharge) * con + (1 - stay) * sus
+        sus = (stay - ruleout[t]) * sus
+        con -= min(transfer[k, t], max(con, zero(V)))
+        y[k, t] = sus
+        y[S + k, t] = con
+    end
+    return y
+end
+
+BASELINES["ward_flows"] = [
+    "loop" => _tutorial_baseline(
+        ward_flows, function (z)
+            (; T, S) = z
+            W = _weights(2S, T)
+            return function (θ)
+                adm, confirm, ruleout, discharge, transfer = _unpack(
+                    θ, (2S, T), (S,), (T,), (1,), (S, T)
+                )
+                return sum(W .* loop_ward(adm, confirm, ruleout, only(discharge), transfer))
+            end
+        end
+    ),
+]
+
+# An AR(2) process from two past values, the latest last.
+function loop_ar2(φ, h, ϵ)
+    V = promote_type(eltype(φ), eltype(h), eltype(ϵ))
+    y = similar(ϵ, V)
+    a, b = V(h[1]), V(h[2])
+    for t in eachindex(ϵ)
+        a, b = b, φ[1] * b + φ[2] * a + ϵ[t]
+        y[t] = b
+    end
+    return y
+end
+
+BASELINES["ar"] = [
+    "loop" => _tutorial_baseline(
+        ar, function (z)
+            W = _weights(z.T)
+            return θ -> sum(W .* loop_ar2(view(θ, 1:2), view(θ, 3:4), view(θ, 5:length(θ))))
+        end
+    ),
+]
+
+# A delay per stratum and input time: `G[k, d + 1, s]` weights stratum
+# `k`'s input at time `s` reaching time `s + d`.
+function loop_delay_primary(G, X)
+    S, L, T = size(G)
+    y = zeros(promote_type(eltype(G), eltype(X)), S, T)
+    for t in 1:T, k in 1:S
+        acc = zero(eltype(y))
+        for d in 0:min(L - 1, t - 1)
+            acc += G[k, d + 1, t - d] * X[k, t - d]
+        end
+        y[k, t] = acc
+    end
+    return y
+end
+
+BASELINES["delay_primary"] = [
+    "loop" => _tutorial_baseline(
+        delay_primary, function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            return function (θ)
+                G, X = _unpack(θ, (S, L, T), (S, T))
+                return sum(W .* loop_delay_primary(G, X))
+            end
+        end
+    ),
+]
+
+# Multi-type extinction by generation: each stratum's mixed renewal sum
+# through its negative binomial probability generating function.
+function loop_transform(g, K, r, p, T)
+    S, L = length(r), length(g)
+    V = promote_type(eltype(g), eltype(r), eltype(p))
+    y = zeros(V, S, L + T)
+    q = zeros(V, S)
+    for t in 1:T
+        for k in 1:S
+            q[k] = _renewal_sum(g, y, k, L, t)
+        end
+        for a in 1:S
+            v = zero(V)
+            for b in 1:S
+                v += K[a, b] * q[b]
+            end
+            y[a, L + t] = _nb_pgf(v, (; r = r[a], p = p[a]))
+        end
+    end
+    return view(y, :, (L + 1):(L + T))
+end
+
+BASELINES["transform"] = [
+    "loop" => _tutorial_baseline(
+        transform, function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            K = S == 1 ? ones(1, 1) :
+                fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
+            return function (θ)
+                g, r, p = _unpack(θ, (L,), (S,), (S,))
+                return sum(W .* loop_transform(g, K, r, p, T))
+            end
+        end
+    ),
+]

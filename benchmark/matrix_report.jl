@@ -516,12 +516,13 @@ function report(dir, prevdir = nothing)
     return String(take!(io))
 end
 
-# The docs table: the getting-started model against code written without the
-# package, the user modifier under plain AD and through the rule with and
-# without its `pullback!`, and the case study's backend kernels against
-# their hand loops with and without hand-written rules. Each row is one
-# method on one target; `ratio` is its median over the reference method's
-# (the package, or the modifier with `forward` only).
+# The docs table: the getting-started model and the tutorials' models
+# against code written without the package, the user modifier under plain
+# AD and through the rule with and without its `pullback!`, and the case
+# study's backend kernels against their hand loops with and without
+# hand-written rules. Each row is one method on one target; `ratio` is its
+# median over the reference method's (the package, or the modifier with
+# `forward` only).
 const DOCS_BLOCKS = [
     (
         "naive vs package", "overview", "ComposableRecurrences",
@@ -568,6 +569,25 @@ const DOCS_BLOCKS = [
         ],
     ),
 ]
+# The tutorials' models against their hand loops, one block per page.
+for (block, case) in (
+        "renewal" => "renewal_depletion", "vaccination" => "strata_waning",
+        "imports" => "renewal_imports", "clinical outcomes" => "outcome_chain",
+        "forecasting" => "renewal_forecast", "reproduction number" => "reproduction",
+        "spatial strata" => "strata_routes", "occupancy" => "ward_flows",
+        "latent processes" => "ar", "time-varying delays" => "delay_primary",
+        "transform" => "transform",
+    )
+    push!(
+        DOCS_BLOCKS, (
+            block, case, "ComposableRecurrences",
+            [
+                (case, "rule") => "ComposableRecurrences",
+                (case, "loop") => "hand loop",
+            ],
+        )
+    )
+end
 const DOCS_COLUMNS = [
     "block", "size", "method", "target", "status", "median_us", "min_us",
     "allocs",
