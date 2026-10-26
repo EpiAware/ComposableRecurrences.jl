@@ -221,7 +221,7 @@ end
 # |:--|:--|:--|
 # | `RenewalStep` with `UniformScaling` mixing | `Recurrence(g)`, one series or one row per stratum | `renewal`, `strata with identity mixing` |
 # | `RenewalStep` with matrix mixing `K` | `Recurrence(g; coupling = K)` | `strata with a mixing matrix` |
-# | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N; form = Floor())` in `modifiers` | `renewal with susceptible depletion` |
+# | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N, Floor())` in `modifiers` | `renewal with susceptible depletion` |
 # | `LDStep` in `LatentDelay` | `Convolution(pmf)(Y)[d:end]` | `fixed reporting delay (LatentDelay)` |
 # | `TimeVaryingLDStep` in `LatentDelay` | `Convolution(TimeVarying(P))(Y)[d:end]`, one pmf per column | `time-varying reporting delay` |
 #

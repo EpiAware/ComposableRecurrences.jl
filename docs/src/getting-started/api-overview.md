@@ -221,21 +221,22 @@ The value a step asks for is drawn from the pools.
 
 | Name | What it does | Parameters |
 |:--|:--|:--|
-| [`Depletion(N; pools, form)`](@ref ComposableRecurrences.Depletion) | draws each day's value from a pool | `N` and each starting pool |
-| [`Depletion(cap; fill)`](@ref ComposableRecurrences.Depletion) | fills the pool named by `fill` up to a capacity `cap` | the capacity |
-| [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | moves values from pool `from` to pool `to` each day | the rate |
+| [`Depletion(N, parts...; pools)`](@ref ComposableRecurrences.Depletion) | draws each day's value from a pool | `N`, each starting pool and each part's parameters |
+| [`Depletion(cap, Truncate(; into = :O); pools = (:O,))`](@ref ComposableRecurrences.Depletion) | fills pool `:O` up to a capacity `cap` | the capacity |
+| [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | a part that moves values from pool `from` to pool `to` each day | the rate |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves a share of each stratum's value to other strata | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | `lo`, `hi` |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of strata to a known total | `total` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
 
+The parts of a `Depletion` are draws and flows, and they act in the order given.
+A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with `Hazard()`.
 A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
-A `Depletion` also takes `flows`, a tuple of `Flow`s, and `weights`, each pool's share of the draw.
-With `flows_first = true` the flows act before the draw; by default they act after it.
+A draw takes each pool's share of the draw as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
 A small pool cannot give all a step asks for.
-`overflow` sends what it leaves to a second stratum (`:stratum`), to a queue that joins the next day's demand (`:queue`), or nowhere (the default).
-With `form = nothing` a `Depletion` draws nothing, and only its flows move values between pools, as for patients moving between wards.
+A draw's `overflow` keyword sends what it leaves to a second stratum (`:stratum`), to a queue that joins the next day's demand (`:queue`), or nowhere (the default).
+A `Depletion` with flows and no draw only moves values between pools, as for patients moving between wards.
 A `Redistribute` moves whatever it receives, including values from `add`.
 Its matrix `M` has columns that sum to one, so the total is kept.
 With `leak = true` a column can sum to less than one, for a share lost on the way.
@@ -245,7 +246,7 @@ With `imports = (fraction, pattern)`, a fraction of each total is shared out by 
 Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
 A [pointwise](@ref explanation-modifier-scope) modifier acts on each stratum on its own.
 `Add`, `Clamp` and `Transform` are pointwise.
-So is a `Depletion` with one pool drawn from, `flows_first = false` and no `overflow`.
+So is a `Depletion` with one pool whose draws leave nothing over.
 `Redistribute` and `Allocate` act on several strata.
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).
 A `Transform` has one when it is given a `derivative`, or when `f` holds no numbers of its own.
@@ -256,18 +257,19 @@ A depletion form sets how a pool gives up what a step asks for.
 Each form is a type, passed as an instance.
 
 ```julia
-Depletion(N; form = Floor())
+Depletion(N, Floor())
 ```
 
 | Name | What it does | Example |
 |:--|:--|:--|
-| [`Hazard()`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
-| [`Floor()`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N; form = Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(B; form = Truncate())` for a budget `B` |
-| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(cap; form = SoftTruncate(0.1), fill = :S)` |
+| [`Hazard(α)`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
+| [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N, Floor())` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(Truncate(); pools = (S = B,))` for a budget `B` |
+| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(cap, SoftTruncate(0.1; into = :S))` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool each day | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
-| a type you write | a new depletion form | `Depletion(N; form = MyForm())` |
+| a type you write | a new depletion form | `Depletion(N, MyForm())` |
 
+The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, the pool depletes faster as it shrinks.
 A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
 With `Truncate()` or `SoftTruncate(κ)` a flow is a count, capped by what remains.
 A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, `Step()`.
