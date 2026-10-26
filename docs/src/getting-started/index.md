@@ -38,7 +38,8 @@ I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l},
 ```
 
 where ``I_t`` is the number of infections on day ``t``.
-``R_t`` is the reproduction number, the gain of the [`Recurrence`](@ref).
+``R_t`` is the reproduction number.
+The [`Recurrence`](@ref) takes it as its gain, the number it multiplies each day's weighted sum by.
 ``g_l`` is the generation interval's weight on lag ``l``, and ``L`` is its length.
 Infections before the first day are the history.
 
@@ -101,7 +102,8 @@ G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j,
 where ``K_{ij}`` weights town ``j`` in town ``i``.
 ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 ``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
-The gravity weight ``G_{ii}`` of a town on itself is 0, so larger and nearer towns contribute more.
+The gravity weight ``G_{ij}`` grows with the population of town ``j`` and falls with its distance, so larger and nearer towns contribute more.
+The weight ``G_{ii}`` of a town on itself is 0.
 The towns are [strata](@ref overview-step), and only town A is seeded.
 
 ```@example overview
@@ -133,7 +135,7 @@ They then grow at about the same rate as town A.
 Each infection removes a person from the pool of people who can be infected.
 A finite pool stops an outbreak growing without limit.
 In town A alone, the susceptible pool ``s_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
-The default hazard form, with its exponent at the default of 1, draws
+The default hazard form draws
 
 ```math
 \lambda_t = \frac{v_t}{N}, \qquad
@@ -180,7 +182,7 @@ end
 
 The plot uses a log scale.
 The two runs match until day 50.
-Infections peak on day 53, because infections from the days before still cause new ones.
+Infections peak on day 53, when the reproduction number has fallen to 1.3.
 Once the reproduction number is below one, infections fall by about 6% a day.
 
 ### [Putting it all together](@id overview-together)
@@ -202,11 +204,12 @@ R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
 ```
 
 where ``I_{t,i}`` is the number of infections in town ``i`` on day ``t``, ``C_{t,i}`` the number of reports and ``R_{t,i}`` the reproduction number.
-The infection pressure is ``v_{t,i}``, and the susceptible pool ``s_{t,i}`` starts at the population ``N_i``.
-The generation interval has weight ``g_l`` on lag ``l``, the reporting delay has weight ``w_l``, and a share ``\rho = 0.4`` of infections is reported.
+The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``s_{t,i}`` starts at the population ``N_i``.
+The generation interval has weight ``g_l`` on lag ``l`` over ``L`` lags, the reporting delay has weight ``w_l`` over ``L_w`` lags, and a share ``\rho = 0.4`` of infections is reported.
 The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
 The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
+In the code, `PerStratum(pop)` gives each town its own population, and the run covers ``T = 75`` days.
 
 ```@example overview
 using ComposableRecurrences
@@ -229,7 +232,6 @@ reports = delay(infections; gain = 0.4)
 nothing # hide
 ```
 
-The reports use the delay from the second step.
 The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
 
 ```@example overview
@@ -248,7 +250,7 @@ end
 ```
 
 Town A peaks on day 36, before the intervention, because its susceptible pool runs down.
-Towns B and C are still growing on day 50, and the intervention turns them.
+The intervention brings the peaks of towns B and C forward to day 50, from days 53 and 51 without it.
 About 49% of town B and 54% of town C are infected, against 73% without the intervention.
 
 ## [Performance](@id overview-performance)
@@ -322,7 +324,7 @@ I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
 where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the imported infections.
-[Imported cases](@ref tutorial-imports) compares imports before and after depletion.
+Imports added after the `Depletion` do not draw down the pool, unlike [imports added before it](@ref tutorial-imports).
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))

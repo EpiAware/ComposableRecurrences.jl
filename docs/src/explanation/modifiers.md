@@ -61,8 +61,8 @@ A modifier that needs no state leaves it at zero.
 
 A modifier's step reads one [stratum](@ref overview-step), one group of strata or every stratum.
 The trait [`blocks`](@ref ComposableRecurrences.blocks) is `(1, 1)` for the first, the values and state entries of each group for the second, and `nothing` for the third.
-The scope sets how much the step can do, and how well it runs under [`Threaded`](@ref ComposableRecurrences.Threaded): strata run apart only when every modifier is pointwise.
 A pointwise modifier reads and writes each stratum on its own.
+The scope sets how much the step can do, and how well it runs under [`Threaded`](@ref ComposableRecurrences.Threaded): strata run apart only when every modifier is pointwise.
 
 | Built-in | Step reads | State holds | Place it |
 |---|---|---|---|

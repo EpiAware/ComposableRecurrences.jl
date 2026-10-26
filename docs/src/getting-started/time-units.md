@@ -35,7 +35,8 @@ It is 1 by default, so a delay in days gives masses on days.
 Recurrence(gi; lags = 15).kernel ≈ ComposableRecurrences.delay_masses(gi, 15)[2:end]
 ```
 
-A [discrete distribution](@ref extension-distributions) sums the masses of the whole units in each step, and a [continuous one](@ref extension-censored-distributions) takes double interval-censored masses.
+A [discrete distribution](@ref extension-distributions) sums the masses of the whole units in each step, as in the formula above.
+A [continuous one](@ref extension-censored-distributions) also takes the delay's start as uniform within its step, and then censors where it ends to whole steps.
 
 ## [Parameters coarser than the step](@id time-units-parameters)
 

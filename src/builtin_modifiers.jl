@@ -164,8 +164,7 @@ population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
 ``v'`` the value drawn and ``s'`` the pool after the step.
 `α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
 
-The default draw of a [`ComposableRecurrences.Depletion`](@ref), which
-sets out the keywords a draw takes.
+The default draw of a [`ComposableRecurrences.Depletion`](@ref).
 As the form of a [`ComposableRecurrences.Flow`](@ref) it takes no
 exponent.
 
@@ -178,8 +177,9 @@ exponent.
   pass a float to differentiate the exponent.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
@@ -229,8 +229,9 @@ The pool can go negative, and then the floor applies.
   [`ComposableRecurrences.Hazard`](@ref).
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
