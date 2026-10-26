@@ -162,7 +162,8 @@ s' = s\, e^{-\lambda},
 where ``v`` is the value asked for, ``s`` the pool before the step, ``N`` the
 population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
 ``v'`` the value drawn and ``s'`` the pool after the step.
-`α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
+With `α > 1`, infections slow sooner as the pool shrinks, as when the most
+susceptible are infected first.
 
 The default draw of a [`ComposableRecurrences.Depletion`](@ref).
 As the form of a [`ComposableRecurrences.Flow`](@ref) it takes no

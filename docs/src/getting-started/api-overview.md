@@ -269,7 +269,7 @@ Depletion(N, Floor())
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool each day | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
 | a type you write | a new depletion form | `Depletion(N, MyForm())` |
 
-The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, the pool depletes faster as it shrinks.
+The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
 With `Truncate()` or `SoftTruncate(κ)` a flow is a count, capped by what remains.
 A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, `Step()`.
