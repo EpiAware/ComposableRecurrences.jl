@@ -1907,20 +1907,34 @@ const _TWINS = Tuple{String, Any, Any}[
         if supports(_requires(name)..., extra...)
 ]
 
+# Each scenario runs once through its call, and a twin once more through
+# `NoAdjoint`. Only a reverse-mode backend with its own rule tells the two
+# apart: under ForwardDiff and ReverseDiff the dual or tracked fields fail
+# `_gate`, and the forward modes have no rule, so both take the same plain
+# path there and the twin repeats its scenario.
+const _CATEGORIES = (:marginal, :rules)
+
 """
     scenarios(; with_reference = false, category = :marginal)
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
-There is one category, `:marginal`.
+The category `:marginal` holds every scenario and its `NoAdjoint` twin,
+which the benchmarks time and the reverse-mode backends with a rule test.
+The category `:rules` holds every scenario without its twin, for the
+backends where the twin takes the same path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
-    category === :marginal || throw(
-        ArgumentError("unknown category $(repr(category)); choose :marginal")
+    category in _CATEGORIES || throw(
+        ArgumentError(
+            "unknown category $(repr(category)); choose one of $(join(_CATEGORIES, ", "))"
+        )
     )
-    return map(_TWINS) do (name, f, θ0)
+    twins = category === :marginal ? _TWINS :
+        filter(t -> !startswith(first(t), "NoAdjoint "), _TWINS)
+    return map(twins) do (name, f, θ0)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
