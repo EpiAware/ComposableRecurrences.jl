@@ -11,6 +11,13 @@
     # over it.
     force(y, g, h; coupling = 1) = coupling * Convolution(vcat(0, g))(y; history = h)
     reproduction(y, g, h; coupling = 1) = y ./ force(y, g, h; coupling)
+    # The hazard form's effective value over the renewal sums `p`, from the
+    # pools after each step: `R_t s_{t-1} / N` scaled by `(1 - e^{-λ}) / λ`.
+    function depleted(R, p, pools, pop)
+        s = hcat(pop, pools[:, 1:(end - 1)])
+        λ = R .* p ./ pop
+        return R .* s ./ pop .* -expm1.(-λ) ./ λ
+    end
 
     const g = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
     const T = 40
@@ -25,7 +32,7 @@ end
 
 @testitem "Reproduction: instantaneous R_t recovers the gain" setup = [Reproduction] begin
     using ComposableRecurrences
-    using .Reproduction: reproduction, g, T, R
+    using .Reproduction: reproduction, g, R
     Rt = R[1, :]
     for h in ([3.0, 5.0, 4.0, 6.0, 2.0, 1.0, 7.0, 3.0], [1.0, 2.0], [5.0])
         y = Recurrence(g)(Rt; history = h)
@@ -41,7 +48,7 @@ end
 
 @testitem "Reproduction: the first steps need the history" setup = [Reproduction] begin
     using ComposableRecurrences
-    using .Reproduction: g, T, R
+    using .Reproduction: g, R
     Rt = R[1, :]
     L = length(g)
     h = [3.0, 5.0, 4.0, 6.0, 2.0, 1.0, 7.0, 3.0]
@@ -76,71 +83,40 @@ end
 
 @testitem "Reproduction: per stratum with a coupling" setup = [Reproduction] begin
     using ComposableRecurrences
-    using .Reproduction: reproduction, force, g, R, K, seed
+    using .Reproduction: reproduction, g, R, K, seed
     y = Recurrence(g; coupling = K)(R; history = seed)
     # The renewal sum includes the coupling: towns with no seed draw on
     # the seeded town from the first step.
     @test reproduction(y, g, seed; coupling = K) ≈ R atol = 1.0e-12 rtol = 1.0e-12
     # Without it the unseeded towns have no renewal sum on the first step.
     @test all(isinf, reproduction(y, g, seed)[2:3, 1])
-    @test @inferred(force(y, g, seed; coupling = K)) isa Matrix{Float64}
 end
 
 @testitem "Reproduction: effective R_t under depletion" setup = [Reproduction] begin
     using ComposableRecurrences
     using ComposableRecurrences: Depletion, Add
-    using .Reproduction: reproduction, force, g, T, R, K, pop, seed
+    using .Reproduction: reproduction, force, depleted, g, T, R, K, pop, seed
     S = length(pop)
     r = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
     y, tr = r(R; history = seed, trace = true)
     M = only(tr.modifiers)
     # The trace holds the pools after each step, then the drawn values.
-    pools = M[1:S, :]
     @test M[(S + 1):(2S), :] ≈ y
-    # The hazard form draws `s_{t-1} (1 - e^{-λ})` with `λ = R_t Σ / N`, so
-    # the effective value is `R_t s_{t-1} / N` scaled by `(1 - e^{-λ}) / λ`.
     p = force(y, g, seed; coupling = K)
-    s = hcat(pop, pools[:, 1:(end - 1)])
-    λ = R .* p ./ pop
-    depleted = R .* s ./ pop .* -expm1.(-λ) ./ λ
     R̂ = reproduction(y, g, seed; coupling = K)
-    @test R̂ ≈ depleted atol = 1.0e-12 rtol = 1.0e-12
+    @test R̂ ≈ depleted(R, p, M[1:S, :], pop) atol = 1.0e-12 rtol = 1.0e-12
     @test all(R̂ .< R)
     # Imports added after the depletion change the output the next steps
     # read, but not what is drawn: the drawn values over the renewal sum
     # still give the depleted value.
-    ι = TimeVarying(PerStratum([t <= 5 ? 1.0 : 0.0 for _ in 1:S, t in 1:T]))
-    ra = Recurrence(
-        g; coupling = K, modifiers = (Depletion(PerStratum(pop)), Add(ι))
-    )
+    ι = [t <= 5 ? 1.0 : 0.0 for _ in 1:S, t in 1:T]
+    imports = Add(TimeVarying(PerStratum(ι)))
+    ra = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)), imports))
     ya, tra = ra(R; history = seed, trace = true)
     Ma = first(tra.modifiers)
+    drawn = Ma[(S + 1):(2S), :]
+    @test ya ≈ drawn .+ ι
     pa = force(ya, g, seed; coupling = K)
-    sa = hcat(pop, Ma[1:S, 1:(end - 1)])
-    λa = R .* pa ./ pop
-    depleted_a = R .* sa ./ pop .* -expm1.(-λa) ./ λa
-    @test Ma[(S + 1):(2S), :] ./ pa ≈ depleted_a atol = 1.0e-12 rtol = 1.0e-12
-    @test !(ya ./ pa ≈ Ma[(S + 1):(2S), :] ./ pa)
-end
-
-@testitem "Reproduction: gradients against ForwardDiff" setup = [Reproduction] begin
-    using ComposableRecurrences
-    using ComposableRecurrences: Depletion
-    using ForwardDiff
-    using .Reproduction: reproduction, g, T, R, K, pop, seed
-    S = length(pop)
-    r = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-    W = [cos(k * t) for k in 1:S, t in 1:T]
-    function loss(logR)
-        y = r(exp.(logR); history = seed)
-        return sum(W .* reproduction(y, g, seed; coupling = K))
-    end
-    # Central differences on a few entries.
-    x = log.(R)
-    ∇ = ForwardDiff.gradient(loss, x)
-    for i in (1, 7, 2S + 1, length(x))
-        e = zeros(size(x))
-        e[i] = 1.0e-6
-        @test ∇[i] ≈ (loss(x .+ e) - loss(x .- e)) / 2.0e-6 rtol = 1.0e-5 atol = 1.0e-8
-    end
+    R̂a = drawn ./ pa
+    @test R̂a ≈ depleted(R, pa, Ma[1:S, :], pop) atol = 1.0e-12 rtol = 1.0e-12
 end

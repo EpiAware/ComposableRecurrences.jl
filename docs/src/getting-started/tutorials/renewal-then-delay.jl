@@ -213,13 +213,13 @@ maximum(abs, coupled ./ renewal_sum(coupled) .- R_towns)
 # \hat R_{t,i} = R_{t,i} \, \frac{s_{t-1,i}}{N_i} \, \frac{1 - e^{-\lambda_{t,i}}}{\lambda_{t,i}}.
 # ```
 #
-# A call with `trace = true` also returns what each modifier recorded.
-# For `Depletion` the first three rows are the pools ``s_{t,i}`` after each day and the next three the values drawn; [`Trace`](@ref ComposableRecurrences.Trace) gives the layout.
+# A call with `trace = true` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace), whose first rows for `Depletion` are the pools ``s_{t,i}`` after each day.
 
 depleted = Recurrence(gi_towns; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 y, tr = depleted(R_towns; history = seed, trace = true)
 R_eff = y ./ renewal_sum(y)
-pools = hcat(pop, only(tr.modifiers)[1:3, 1:(end - 1)])
+S = length(towns)
+pools = hcat(pop, only(tr.modifiers)[1:S, 1:(end - 1)])
 λ = R_towns .* renewal_sum(y) ./ pop
 maximum(abs, R_eff .- R_towns .* pools ./ pop .* -expm1.(-λ) ./ λ)
 
@@ -239,10 +239,13 @@ maximum(abs, R_eff .- R_towns .* pools ./ pop .* -expm1.(-λ) ./ λ)
 end
 
 # The effective reproduction number falls below the gain as each town's pool runs down.
-# In town A it falls below 1 before the intervention on day 50, which is why town A turns first.
+# Town A's falls below 1 on this day, before the intervention on day 50:
+
+findfirst(<(1), R_eff[1, :])
+
+# This is why town A turns first.
 # A modifier after the depletion, such as `Add` for imports, changes the output but not the values drawn.
-# The drawn rows of the trace over the renewal sum then give the depleted value.
-# Both ratios are differentiable as the run is.
+# The drawn rows of the trace, after the pools, over the renewal sum then give the depleted value.
 
 # ## Clinical outcomes
 #
