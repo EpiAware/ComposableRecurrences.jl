@@ -162,13 +162,23 @@ _own(x̄::_Owned) = x̄.x
 function _series_back!(
         ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
+    # A block of one stratum runs with the stratum fixed, as in
+    # `_series_body!`.
+    if ks isa AbstractUnitRange && length(ks) == 1
+        return _series_back!(
+            (first(ks),), acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms,
+            H, τ0, L, D, T
+        )
+    end
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         for t in reverse(_run_steps(ts, T))
             τ = τ0 + t - 1
             for k in ks
-                q̄k = _value_back!(acc, s̄s, rec, pr, gain, coupling, ms, H̄, t, τ, D, k)
-                p̄k = _coupling_back_at(acc.C̄, coupling, q̄k, pr, t, k)
+                v̄k = _thread_back(
+                    ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k
+                )
+                p̄k = _core_back!(acc, v̄k, pr, gain, coupling, t, τ, k)
                 _kernel_back_at!(kb, acc.ḡ, g, p̄k, H, H̄, t + D - L, τ, L, k)
             end
         end
@@ -179,17 +189,33 @@ end
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, then `_gain_add_back!`.
 @inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
-    v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, H̄[D + t, k], τ, t, k)
+    v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k)
     return _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
 end
 
 # The value's cotangent `v̄k` back through the add input and the gain;
-# returns the pressure's cotangent.
+# returns the pressure's cotangent. The mirrors have their inputs' shapes
+# and the records the call's, so the slots skip bounds checks.
 @inline function _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
-    _add_slot!(acc.ādd, v̄k, k, τ)
-    _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
-    return _at(gain, k, τ) * v̄k
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
+    @inbounds _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
+    return @inbounds _at(gain, k, τ) * v̄k
 end
+
+# The pullback of `_core` for a pointwise coupling: the value's cotangent
+# `v̄k` into the add input, the gain and the coupling; returns the kernel
+# convolution's. As in the forward step, the coefficient joins the gain, so
+# the cotangent passed back waits on one product.
+@inline function _core_back!(acc, v̄k, pr, gain, C::_PointwiseCoupling, t, τ, k)
+    Pk = @inbounds pr.P[k, t]
+    gk = @inbounds _at(gain, k, τ)
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
+    @inbounds _add_slot!(acc.ḡain, v̄k * (_coef(C, k) * Pk), k, τ)
+    _coef_back!(acc.C̄, C, gk * v̄k * Pk, k)
+    return (gk * _coef(C, k)) * v̄k
+end
+_coef_back!(C̄, C::UniformScaling, v, k) = add_cotangent!(cotangent(C̄, :λ), v)
+_coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
 
 # The reverse steps of strata that mix, last first. Each step's loops over
 # strata run in blocks of the executor where each stratum writes only its
@@ -282,9 +308,9 @@ _mirrors(m̄s, ms) = m̄s
 # A gain or add slot's cotangent at stratum `k`, step `t`.
 _add_slot!(::Nothing, v, k, t) = nothing
 _add_slot!(x̄::Base.RefValue, v, k, t) = (x̄[] += v; nothing)
-_add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
-_add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
-_add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
+Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
+Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
+Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
 # One stratum's value cotangent back through pointwise modifiers, last
 # first, with each one's scalar step pullback; returns the cotangent of the
@@ -367,12 +393,12 @@ function _coupling_back!(p̄, C̄, C, q̄, pr, t, τ, pbufs)
 end
 
 function _coupling_back_at(C̄, C::UniformScaling, q̄k, pr, t, k)
-    add_cotangent!(cotangent(C̄, :λ), q̄k * pr.P[k, t])
+    add_cotangent!(cotangent(C̄, :λ), q̄k * @inbounds(pr.P[k, t]))
     return C.λ * q̄k
 end
 function _coupling_back_at(C̄, C::Diagonal, q̄k, pr, t, k)
-    add_cotangent!(cotangent(C̄, :diag), q̄k * pr.P[k, t], k)
-    return C.diag[k] * q̄k
+    @inbounds add_cotangent!(cotangent(C̄, :diag), q̄k * pr.P[k, t], k)
+    return @inbounds C.diag[k] * q̄k
 end
 
 # A buffer for the kernel cotangent in the oldest-first order the forward
@@ -393,12 +419,12 @@ end
 # Correlate stratum `k`'s `a` with the kernel into the window's cotangent,
 # and the window with `a` into the kernel's, in one native loop; a pairwise
 # kernel's strata read every stratum's window, so it runs over all of them.
-function _kernel_back_at!(kbuf, ḡ, g::AbstractVector, a, H, H̄, t, τ, L, k)
+@inline function _kernel_back_at!(kbuf, ḡ, g::AbstractVector, a, H, H̄, t, τ, L, k)
     kb = kbuf === nothing ? nothing : view(kbuf, :, k)
     _window_back!(kb, g, a, H, H̄, t, L, k)
     return nothing
 end
-function _kernel_back_at!(kbuf, ḡ, g::PerStratum, a, H, H̄, t, τ, L, k)
+@inline function _kernel_back_at!(kbuf, ḡ, g::PerStratum, a, H, H̄, t, τ, L, k)
     kb = kbuf === nothing ? nothing : view(kbuf, k, :)
     _window_back!(kb, view(g.x, k, :), a, H, H̄, t, L, k)
     return nothing
@@ -419,15 +445,23 @@ function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L
 end
 # `kbuf`, `g`, `H` and `H̄` are distinct arrays, so the updates are
 # independent (`ivdep`).
-function _window_back!(kbuf, g, a, H, H̄, t, L, k)
-    @inbounds @simd ivdep for i in 1:L
+#
+# The newest lag's row is the next step's cotangent, so it is updated first,
+# outside the vector loop, as the forward pass adds it last.
+@inline function _window_back!(kbuf, g, a, H, H̄, t, L, k)
+    L >= 1 || return nothing
+    @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
+    @inbounds kbuf[L] = muladd(a, H[t + L - 1, k], kbuf[L])
+    @inbounds @simd ivdep for i in 1:(L - 1)
         kbuf[i] += a * H[t + i - 1, k]
         H̄[t + i - 1, k] += a * g[i]
     end
     return nothing
 end
-function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
-    @inbounds @simd ivdep for i in 1:L
+@inline function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
+    L >= 1 || return nothing
+    @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
+    @inbounds @simd ivdep for i in 1:(L - 1)
         H̄[t + i - 1, k] += a * g[i]
     end
     return nothing

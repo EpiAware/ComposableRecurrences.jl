@@ -396,6 +396,17 @@ function _growth_seed(w, θ)
     return sum(WSL .* log.(y))
 end
 
+# A history read straight from the parameters is a view, as a probabilistic
+# model hands it over: a random walk (a unit lag-1 kernel) with its seed
+# prepended, and strata whose history is a reshaped view, prepended too. The
+# unit lag-1 pullbacks are checked against ForwardDiff in the unit tests.
+function _prepend_view(w, θ)
+    z0, H, ϵ, E = _unpack(θ, (1,), (S, 2), (T,), (S, T))
+    y = w(Recurrence([1.0]))(1.0; history = z0, add = ϵ, prepend = true)
+    Y = w(Recurrence([0.5, 0.2]))(ones(S, T); history = H, add = E, prepend = true)
+    return sum(abs2, y) + sum(W1 .* y[2:end]) + sum(WS .* Y[:, 3:end])
+end
+
 # The state returned after the seed and the run, with the seed prepended.
 function _with_state_prepend(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
@@ -1240,6 +1251,10 @@ const _SCENARIOS = [
         () -> _flat(log.([5.0, 2.0, 1.0]), [0.1], LOGR),
     ),
     (
+        "Recurrence random walk and strata prepending a view history", _prepend_view,
+        () -> _flat([0.2], fill(0.2, S, 2), 0.1 .* LOGR[1, :], 0.1 .* LOGR),
+    ),
+    (
         "Recurrence returning its state after its seed", _with_state_prepend,
         () -> _flat(fill(log(5.0), S, L), LOGR),
     ),
@@ -1647,6 +1662,9 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution epidemic curve by the automatic method" => (:Auto,),
     # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
+    # A view history joined without `vcat` of the view came with `_join_series`.
+    "Recurrence random walk and strata prepending a view history" =>
+        (:_join_series,),
     # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
     # growth-path seed but before any release with it.
     "Recurrence returning its state after its seed" => (:exponential_history,),
