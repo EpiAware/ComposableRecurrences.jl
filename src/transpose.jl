@@ -101,6 +101,48 @@ function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     return out, (; A, n, o, start, stop, last)
 end
 
+# A call without a rule takes the path `_conv_path` picks. For numbers that
+# do not vectorise, a fixed kernel's transpose is the gather body of the
+# convolution with the kernel reversed, `z_σ = Σ_l k_{L-1-l} x_{σ+L-1-l}`,
+# read `L - 1` times later, over the series and tail padded with zeros.
+function _primal(t::_TransposedConvolution, x, tail, start, stop)
+    kernel = t.c.kernel
+    Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
+    return _transpose_public(
+        _conv_path(Tp, kernel, x), t, Tp, x, tail, S, n, start, stop
+    )
+end
+function _transpose_public(
+        ::_Buffered, t, ::Type{Tp}, x, tail, S, n, start, stop
+    ) where {Tp}
+    return first(_run_forward(t, x, tail, start, stop))
+end
+function _transpose_public(
+        ::_Gathered, t, ::Type{Tp}, x, tail, S, n, start, stop
+    ) where {Tp}
+    kernel = t.c.kernel
+    L = _nlags(kernel)
+    series = _padded(x, tail, stop + L - 1)
+    return _convolve_public(
+        _Gathered(), Tp, _oldest_first(kernel), series, true, nothing,
+        nothing, 0, S, start + L - 1, stop + L - 1
+    )
+end
+
+# The series and tail joined, with zeros after them up to time `N`.
+function _padded(x, tail, N)
+    E = promote_type(eltype(x), tail === nothing ? Bool : eltype(tail))
+    X = x isa AbstractVector ? zeros(E, N) : zeros(E, size(x, 1), N)
+    n = _extent(x)
+    m = tail === nothing ? 0 : min(_extent(tail), N - n)
+    selectdim(X, ndims(X), 1:min(n, N)) .= selectdim(x, ndims(x), 1:min(n, N))
+    m > 0 && (
+        selectdim(X, ndims(X), (n + 1):(n + m)) .=
+            selectdim(tail, ndims(tail), 1:m)
+    )
+    return X
+end
+
 # The forward pass of the convolution takes the output cotangent back to
 # the series, and its reverse pass, with the series as its output
 # cotangent, gives the kernel's.

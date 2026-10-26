@@ -164,3 +164,25 @@ end
     @test ForwardDiff.gradient(f -> sum(w .* weights(f)), f) ≈
         ForwardDiff.gradient(f -> sum(w .* hand(f)), f)
 end
+
+@testitem "Transpose: numbers that do not vectorise take the gather body" begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using Random
+    rng = Xoshiro(4)
+    S, L, n, m = 2, 4, 9, 3
+    X, tail = rand(rng, S, n), rand(rng, S, m)
+    for k in (rand(rng, L), PerStratum(rand(rng, S, L)))
+        t = transpose(Convolution(k))
+        kb = k isa PerStratum ? PerStratum(big.(k.x)) : big.(k)
+        tb = transpose(Convolution(kb))
+        @test CR._conv_path(BigFloat, kb, X) isa CR._Gathered
+        for (start, stop) in ((1, n), (3, 8), (n - 1, n + m), (2, 1))
+            @test tb(X; tail, start, stop) ≈ t(X; tail, start, stop)
+            s = min(stop, n)
+            @test tb(X; start, stop = s) ≈ t(X; start, stop = s)
+        end
+        k isa PerStratum && continue
+        x, tl = X[1, :], tail[1, :]
+        @test tb(x; tail = tl) ≈ t(x; tail = tl)
+    end
+end
