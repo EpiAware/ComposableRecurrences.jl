@@ -11,12 +11,8 @@ z_{\sigma,i} = \sum_{l=0}^{L-1} k_{i,l}(\sigma)\, x_{\sigma+l,i},
 ```
 
 for a [`ComposableRecurrences.Primary`](@ref) or fixed kernel, in the
-notation of [`Convolution`](@ref).
-If `c` without a gain or add input computes ``y = A u`` from its inputs
-``u``, the transpose computes ``z = A^\top x``.
-So column ``\sigma`` of a `Primary()` kernel weights the series from
-time ``\sigma`` on: with the delay pmf of a cohort in that column, ``z``
-is the expectation of the series at the end of each cohort's delay.
+notation of [`Convolution`](@ref): if `c` without a gain or add input
+computes ``y = A u``, the transpose computes ``z = A^\top x``.
 A [`ComposableRecurrences.Secondary`](@ref) kernel (the default for a
 [`TimeVarying`](@ref) kernel) weights ``x_{\sigma+l,i}`` by
 ``k_{i,l}(\sigma + l)``, the column of the time it reads.
@@ -36,9 +32,6 @@ The output has the layout of `x` and length `stop - start + 1`.
 A `Primary()` kernel covers times up to `stop`, and any other
 `TimeVarying` kernel the last time it reads, `min(stop + L - 1, n + m)`.
 
-Its forward pass is the reverse pass of `c` and its reverse pass the
-forward pass of `c`, so it costs what `c` costs, and its rules are those
-of `c`.
 It takes the direct method whatever the method of `c`.
 
 # Examples
@@ -81,12 +74,9 @@ function forward(
     return _run_forward(t, x, tail, start, stop)
 end
 
-# The series times `start:last` go in the time-first buffer `A`, row `j`
-# holding time `start + j - 1`, as the output cotangent of the convolution.
-# Its input cotangent is the output `Z`, whose row `o + σ` holds time `σ`
-# from `σ = 1 - o`. The convolution's reverse body reads its inputs only
-# for the kernel's cotangent, which is not taken here, so `Z` stands in for
-# them.
+# The convolution's reverse body with the series `A` as its output
+# cotangent. It reads its inputs only for the kernel's cotangent, not taken
+# here, so the output `Z` stands in for them.
 function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
@@ -101,10 +91,9 @@ function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     return out, (; A, n, o, start, stop, last)
 end
 
-# A call without a rule takes the path `_conv_path` picks. For numbers that
-# do not vectorise, a fixed kernel's transpose is the gather body of the
-# convolution with the kernel reversed, `z_σ = Σ_l k_{L-1-l} x_{σ+L-1-l}`,
-# read `L - 1` times later, over the series and tail padded with zeros.
+# Without a rule, numbers that do not vectorise take the gather body: a
+# fixed kernel's transpose is its convolution with the kernel reversed,
+# read `L - 1` times later.
 function _primal(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
@@ -143,9 +132,8 @@ function _padded(x, tail, N)
     return X
 end
 
-# The forward pass of the convolution takes the output cotangent back to
-# the series, and its reverse pass, with the series as its output
-# cotangent, gives the kernel's.
+# The convolution's forward body takes the output cotangent back to the
+# series; its reverse body gives the kernel's.
 function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     _count_pullback()
     (; A, n, o, start, stop, last) = cache
@@ -154,12 +142,7 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     Z̄ = _zeros(A, eltype(A), o + last, size(A, 2))
     _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
     Ā = zero(A)
-    cur = _current()
-    if cur.ex isa Serial
-        _convolve!(Serial(), Ā, kernel, Z̄, o, start)
-    else
-        _convolve!(cur, Ā, kernel, Z̄, o, start)
-    end
+    _transpose_forward!(Ā, kernel, Z̄, o, start)
     k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
     k̄ === nothing ||
         _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
@@ -168,6 +151,16 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     return nothing
 end
 
+# The convolution's bodies with the set executor.
+function _transpose_forward!(Y, kernel, X, o, start)
+    cur = _current()
+    if cur.ex isa Serial
+        _convolve!(Serial(), Y, kernel, X, o, start)
+    else
+        _convolve!(cur, Y, kernel, X, o, start)
+    end
+    return nothing
+end
 function _transpose_back!(X̄, k̄, kernel, X, Ȳ, o, start)
     cur = _current()
     if cur.ex isa Serial

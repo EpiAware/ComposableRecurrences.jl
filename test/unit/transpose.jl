@@ -137,11 +137,8 @@ end
     end
 end
 
-# A forward sum of BVD's: what one infection on day `k` adds to each
-# reporting window `[a, b]` through the delay `f`, `Σ_{j=a}^{b} f[j - k]`.
-# It is a difference of the cumulative sum of `f`, so the transpose is not
-# the cheaper way to write it; it is the transpose of the convolution of
-# the windows' indicators.
+# Window weights `Σ_{j=a}^{b} f[j - k]` as the transpose of the convolution
+# of the windows' indicators, against a hand loop.
 @testitem "Transpose: window weights against a hand loop" begin
     using ForwardDiff
     nd, L = 30, 8
@@ -185,5 +182,10 @@ end
         k isa PerStratum && continue
         x, tl = X[1, :], tail[1, :]
         @test tb(x; tail = tl) ≈ t(x; tail = tl)
+        # A series shorter than the kernel.
+        for (start, stop) in ((1, 2), (2, 2), (1, 4), (3, 5))
+            @test tb(x[1:2]; tail = tl, start, stop) ≈
+                t(x[1:2]; tail = tl, start, stop)
+        end
     end
 end
