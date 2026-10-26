@@ -87,20 +87,35 @@ function _check_coefficient(x::_Coefficient)
 end
 _check_coefficient(x::_Computed) = nothing
 _check_coefficient(x::Real) = nothing
+const _COEFFICIENTS = "a number, a vector of lag weights, a PerStratum " *
+    "vector or matrix, a TimeVarying vector or PerStratum matrix (with or " *
+    "without Primary()), a Derived or a Survival"
 @noinline function _check_coefficient(x)
     throw(
         ArgumentError(
-            "a Derived reads numbers, vectors of lag weights, PerStratum " *
-                "values, TimeVarying values or kernels, Recent, Derived and " *
-                "Survival; got $(_describe(x))"
+            "a computed kernel reads $_COEFFICIENTS; got $(_describe(x))"
         )
     )
 end
 
 # An argument of a `Derived`: a coefficient a kernel reads, or a modifier
-# parameter. Which use it is checked where the `Derived` is used.
+# parameter. Which use it is checked where the `Derived` is used; a value
+# that is neither is named against both.
+struct _DerivedArg end
+Base.show(io::IO, ::_DerivedArg) = print(io, "args")
+@noinline function _param_error(::_DerivedArg, x)
+    throw(
+        ArgumentError(
+            "a Derived argument is a kernel coefficient ($_COEFFICIENTS) " *
+                "or a modifier parameter (one value, PerStratum, " *
+                "TimeVarying, TimeVarying(PerStratum), Derived or Recent); " *
+                "got $(_describe(x))"
+        )
+    )
+end
+_check_param(n::_DerivedArg, x::TimeVarying{Primary}) = _param_error(n, x)
 _check_argument(x::_Coefficient) = _check_coefficient(x)
-_check_argument(x) = (_check_param(:args, x); nothing)
+_check_argument(x) = (_check_param(_DerivedArg(), x); nothing)
 
 # Every argument of a computed kernel is a coefficient it reads.
 _check_kernel_args(x) = _check_coefficient(x)

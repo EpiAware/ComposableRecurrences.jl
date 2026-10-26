@@ -193,7 +193,13 @@ end
     (; p, P, h, A, T) = WeightsChecks
     s = CR.Survival(TimeVarying(h))
     @test_throws ArgumentError Derived(*)
-    @test_throws ArgumentError Derived(*, p, "a")
+    # A value that is neither a coefficient nor a parameter is named
+    # against both uses; a kernel refuses a parameter it cannot read.
+    @test_throws "kernel coefficient" Derived(*, p, "a")
+    @test_throws "kernel coefficient" Derived(*, p, TimeVarying(ones(2, 5)))
+    @test_throws "computed kernel reads" CR.Survival(Recent(7))
+    k7 = TimeVarying(Derived(*, [0.5, 0.5], Recent(7)), CR.Primary())
+    @test_throws "computed kernel reads" Convolution(k7)
     # A coefficient with a lag axis of its own is not one a kernel reads.
     @test_throws ArgumentError Derived(*, p, TimeVarying(ones(length(p), 4), CR.Primary()))
     @test_throws ArgumentError CR.Survival(TimeVarying(h); from = -1)
