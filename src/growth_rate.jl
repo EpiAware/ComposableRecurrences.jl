@@ -159,34 +159,29 @@ function _mass_span(g::AbstractVector)
     lo, hi = 0, 0
     for (l, i) in enumerate(eachindex(g))
         gl = _primal_value(g[i])
-        0 <= gl < Inf || _bad_mass(l, gl)
+        0 <= gl < Inf ||
+            _mass_error("must have finite, non-negative masses; got $gl on lag $l")
         gl > 0 || continue
         lo == 0 && (lo = l)
         hi = l
     end
-    lo > 0 || _no_mass(length(g))
+    lo > 0 || _mass_error(
+        "needs positive mass on some lag; " *
+            (isempty(g) ? "it has no lags" : "all $(length(g)) lags are zero")
+    )
     return lo:hi
 end
-@noinline function _no_mass(n)
-    throw(
-        ArgumentError(
-            "the generation interval g needs positive mass on some lag; " *
-                (n == 0 ? "it has no lags" : "all $n lags are zero")
-        )
-    )
-end
-@noinline function _bad_mass(l, gl)
-    throw(
-        ArgumentError(
-            "the generation interval g must have finite, non-negative masses; " *
-                "got $gl on lag $l"
-        )
-    )
+@noinline function _mass_error(problem)
+    throw(ArgumentError("the generation interval g " * problem))
 end
 
 # The log of `∑ g_l e^{-r l}` over the lags `over`, and the mean lag, minus
-# its derivative in `r`. Scaling by `e^{r a}` keeps the terms with mass from
-# overflowing, and the cap keeps the derivative on a lag without mass finite.
+# its derivative in `r`. `over` is the lags with mass for the root and every
+# lag for the derivative, which lags without mass carry too; `v` maps each
+# mass, to its primal value for the root. Scaling by `e^{r a}` keeps the
+# terms with mass from overflowing, and the cap keeps the derivative on a
+# lag without mass finite, though below its true value once `r` times the
+# distance to the nearest lag with mass passes the cap, about 354 in Float64.
 function _lotka(r, g, lags, over = Base.OneTo(length(g)), v = identity)
     o = firstindex(g) - 1
     a = _primal_value(r) < 0 ? last(lags) : first(lags)
