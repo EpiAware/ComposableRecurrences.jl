@@ -38,7 +38,8 @@ concurrency:
 
 jobs:
   ad:
-    uses: EpiAware/.github/.github/workflows/ad.yml@00d30434df0edff7bbcc0b488d505a0a9ac1c36b
+    uses: EpiAware/.github/.github/workflows/ad.yml@25424fb7f3b6bec94209bab86a42971bd01621ea
     with:
       backends: '[{"name":"ForwardDiff","tag":"forwarddiff","flag":"ad-forwarddiff"},{"name":"ReverseDiff (tape)","tag":"reversediff","flag":"ad-reversediff"},{"name":"ReverseDiff (compiled)","tag":"reversediff_compiled","flag":"ad-reversediff-compiled"},{"name":"Enzyme forward","tag":"enzyme_forward","flag":"ad-enzyme-forward"},{"name":"Enzyme reverse","tag":"enzyme_reverse","flag":"ad-enzyme-reverse"},{"name":"Mooncake reverse","tag":"mooncake_reverse","flag":"ad-mooncake-reverse"},{"name":"Mooncake forward","tag":"mooncake_forward","flag":"ad-mooncake-forward"}]'
+      timeout_minutes: 75
     secrets: inherit  # pragma: allowlist secret
