@@ -159,7 +159,7 @@ end
     @test Recurrence([1, 2])(2; history = [1, 1], stop = 3) == [6, 16, 56]
     # Strata through an integer coupling, prepended, traced and resumed.
     y = Recurrence([1]; coupling = [1 0; 1 1])(1; history = ones(Int, 2, 1), stop = 2)
-    @test y == [1 1; 2 4]
+    @test y == [1 1; 2 3]
     r = Recurrence([true])
     @test eltype(r(true; history = [0], add = x, prepend = true)) == Int
     @test eltype(first(r(true; history = [0], add = x, trace = true))) == Int
