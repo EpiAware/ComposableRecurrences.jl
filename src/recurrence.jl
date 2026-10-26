@@ -591,7 +591,6 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{false}) where {Tp
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-_output(H, D, T, h, ::Val{true}) = _join(h, _rows(H, D, T, h))
 function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{true}) where {Tp}
     m = length(h)
     isbitstype(Tp) && m <= D || return _join(h, _rows(H, D, T, h))

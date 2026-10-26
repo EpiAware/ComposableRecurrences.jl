@@ -502,6 +502,23 @@ end
     @test_throws TypeError r(ones(8); history = ones(3), prepend = 1)
 end
 
+@testitem "prepend joins the output in the run's buffer for each layout" begin
+    using ComposableRecurrences, ForwardDiff
+    g = [0.3, 0.5, 0.2]
+    r = Recurrence(g)
+    dual(x) = ForwardDiff.Dual(x, 1.0)
+    # Histories shorter than, as deep as and deeper than the buffer, for a
+    # series, one stratum and two strata, of floats, dual numbers and a type
+    # that is not bits.
+    for m in (2, 3, 5), S in (0, 1, 2), f in (identity, dual, big)
+        h = f.(S == 0 ? collect(1.0:m) : reshape(collect(1.0:(S * m)), S, m))
+        R = f.(S == 0 ? fill(1.5, 6) : fill(1.5, S, 6))
+        y = r(R; history = h, prepend = true)
+        @test y == cat(h, r(R; history = h); dims = ndims(h))
+        @test typeof(y) == typeof(cat(h, r(R; history = h); dims = ndims(h)))
+    end
+end
+
 @testitem "start = nothing names the default to use" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
