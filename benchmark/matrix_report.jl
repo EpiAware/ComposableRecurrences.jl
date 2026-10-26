@@ -569,22 +569,25 @@ const DOCS_BLOCKS = [
         ],
     ),
 ]
-# The tutorials' models against their hand loops, one block per page.
-for (block, case) in (
-        "renewal" => "renewal_depletion", "vaccination" => "strata_waning",
-        "imports" => "renewal_imports", "clinical outcomes" => "outcome_chain",
-        "forecasting" => "renewal_forecast", "reproduction number" => "reproduction",
-        "spatial strata" => "strata_routes", "occupancy" => "ward_flows",
-        "latent processes" => "ar", "time-varying delays" => "delay_primary",
-        "transform" => "transform",
+# The tutorials' models against their hand loops, one block per page. The
+# forecast's loop runs every day in one pass, with no state to resume.
+for (block, case, loop) in (
+        ("renewal", "renewal_depletion", "hand loop"),
+        ("vaccination", "strata_waning", "hand loop"),
+        ("imports", "renewal_imports", "hand loop"),
+        ("clinical outcomes", "outcome_chain", "hand loop"),
+        ("forecasting", "renewal_forecast", "hand loop (one pass)"),
+        ("reproduction number", "reproduction", "hand loop"),
+        ("spatial strata", "strata_routes", "hand loop"),
+        ("occupancy", "ward_flows", "hand loop"),
+        ("latent processes", "ar", "hand loop"),
+        ("time-varying delays", "delay_primary", "hand loop"),
+        ("transform", "transform", "hand loop"),
     )
     push!(
         DOCS_BLOCKS, (
             block, case, "ComposableRecurrences",
-            [
-                (case, "rule") => "ComposableRecurrences",
-                (case, "loop") => "hand loop",
-            ],
+            [(case, "rule") => "ComposableRecurrences", (case, "loop") => loop],
         )
     )
 end

@@ -49,8 +49,7 @@ _weights(T) = [_noise(t, 1) for t in 1:T]
 _weights(S, T) = [_noise(t, k + 1) for k in 1:S, t in 1:T]
 _gi(L) = (g = exp.(-0.2 .* (1:L)); g ./ sum(g))
 
-# Consecutive blocks of `θ` with the given shapes; the offsets are a tuple,
-# not a captured counter, so the result's type is inferred.
+# Consecutive blocks of `θ` with the given shapes.
 function _unpack(θ, shapes...)
     ends = cumsum(map(prod, shapes))
     return map(shapes, ends) do sh, e
@@ -938,6 +937,9 @@ const CASES = [
         reproduction, [3], false,
     ),
 ]
+
+"Sparse cases whose `loop` arm reads the coupling's arrays itself, with no sparse `mul!`."
+const DIRECT_SPARSE_LOOPS = Set(["strata_routes"])
 
 "Cases not yet on `main`, listed so the report shows them as pending."
 pending_cases() = Tuple{String, String}[]

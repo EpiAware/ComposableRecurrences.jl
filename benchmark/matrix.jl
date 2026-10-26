@@ -176,9 +176,8 @@ function skip_reason(c, target, arm, θ, rules)
         arm in ("NoAdjoint", "local") && return "rules do not apply to dual numbers"
         length(θ) > FD_MAX && return "over $FD_MAX parameters"
     end
-    # A `loop` baseline reads the sparse coupling's arrays itself, with no
-    # sparse `mul!`.
-    if target == "Enzyme reverse" && c.sparse && arm != "loop" &&
+    direct = arm == "loop" && c.name in MatrixCases.DIRECT_SPARSE_LOOPS
+    if target == "Enzyme reverse" && c.sparse && !direct &&
             (!(arm in ("rule", "local")) || !rules)
         return "known wrong: plain Enzyme on a repeated sparse mul!"
     end

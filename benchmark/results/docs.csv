@@ -160,13 +160,13 @@ clinical outcomes,T200_L20_S1,hand loop,Mooncake reverse,ok,235.08,194.96,85,5.7
 clinical outcomes,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,38.97,34.81,130,1.000,1.0566346140943077e-16,ForwardDiff,a005817a,true
 clinical outcomes,T200_L20_S1,hand loop,Enzyme reverse,ok,866.54,520.04,1640,22.237,4.2265384563772307e-16,ForwardDiff,a005817a,true
 forecasting,T200_L20_S1,ComposableRecurrences,primal,ok,5.07,4.23,22,1.000,,,a005817a,false
-forecasting,T200_L20_S1,hand loop,primal,ok,9.83,9.07,13,1.938,,,a005817a,false
+forecasting,T200_L20_S1,hand loop (one pass),primal,ok,9.83,9.07,13,1.938,,,a005817a,false
 forecasting,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,4903.71,4611.10,640,1.000,0.0,ForwardDiff,a005817a,true
-forecasting,T200_L20_S1,hand loop,ForwardDiff,ok,762.16,634.40,340,0.155,0.0,ForwardDiff,a005817a,true
+forecasting,T200_L20_S1,hand loop (one pass),ForwardDiff,ok,762.16,634.40,340,0.155,0.0,ForwardDiff,a005817a,true
 forecasting,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,48.65,23.03,94,1.000,1.4169774885112988e-15,ForwardDiff,a005817a,true
-forecasting,T200_L20_S1,hand loop,Mooncake reverse,ok,116.81,107.78,83,2.401,2.267163981618078e-15,ForwardDiff,a005817a,true
+forecasting,T200_L20_S1,hand loop (one pass),Mooncake reverse,ok,116.81,107.78,83,2.401,2.267163981618078e-15,ForwardDiff,a005817a,true
 forecasting,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,35.06,26.30,133,1.000,9.91884241957909e-16,ForwardDiff,a005817a,true
-forecasting,T200_L20_S1,hand loop,Enzyme reverse,ok,28.50,26.08,28,0.813,1.5586752373624288e-15,ForwardDiff,a005817a,true
+forecasting,T200_L20_S1,hand loop (one pass),Enzyme reverse,ok,28.50,26.08,28,0.813,1.5586752373624288e-15,ForwardDiff,a005817a,true
 reproduction number,T200_L20_S3,ComposableRecurrences,primal,ok,74.43,31.46,35,1.000,,,a005817a,false
 reproduction number,T200_L20_S3,hand loop,primal,ok,32.93,29.71,20,0.442,,,a005817a,false
 reproduction number,T200_L20_S3,ComposableRecurrences,ForwardDiff,ok,45213.60,41580.19,1612,1.000,0.0,ForwardDiff,a005817a,true
