@@ -13,14 +13,14 @@ using Distributions: ContinuousUnivariateDistribution,
 function ComposableRecurrences.delay_masses(
         d::DiscreteUnivariateDistribution, lags; step = 1
     )
-    n = _whole_step(step)
+    n = _units_per_lag(step)
     isone(n) && return map(l -> pdf(d, l), 0:(lags - 1))
     return map(l -> sum(j -> pdf(d, l * n + j), 0:(n - 1)), 0:(lags - 1))
 end
 
 # A discrete delay has mass on whole units only, so a lag holds a whole
 # number of them.
-function _whole_step(step)
+function _units_per_lag(step)
     step isa Real && step > 0 && isinteger(step) || throw(
         ArgumentError(
             "a discrete delay has mass on whole units only, so step must " *
