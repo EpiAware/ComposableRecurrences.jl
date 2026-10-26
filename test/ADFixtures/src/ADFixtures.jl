@@ -1076,9 +1076,9 @@ function _trace_budget(w, θ)
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
-# The effective reproduction number of a depleted run: the values drawn,
-# read from the trace, over the coupled renewal sum, a `Convolution` with a
-# zero on lag 0 over the output and its history.
+# The effective reproduction number of a depleted run. The numerator is the
+# drawn values read from the trace, not `y`, so the gradient also flows
+# through the trace's pullback.
 function _effective_reproduction(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
     h = exp.(logh)
