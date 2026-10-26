@@ -19,23 +19,20 @@ const SUITE = BenchmarkGroup()
 # Setting `evals` marks an entry as tuned, so the `tune!` pass of the
 # history workflow skips it rather than spending seconds per entry
 # estimating an evaluation count.
-# The pull request workflow already measures with one evaluation and
-# `seconds = 1`, but keeps each entry's sample cap.
-# Most gradients take well under a millisecond, so without the cap each
-# entry ran for the full second: about 10 minutes of each workflow.
+# The pull request workflow measures with `seconds = 1` and keeps each
+# entry's sample cap, so a fast entry stops after 100 samples rather than
+# running for the full second.
 # `gctrial = false` drops the full garbage collections before each entry.
 # With every AD backend loaded the heap is large, each collection takes
 # seconds, and the minimum time reported is not sensitive to it.
 
-# BenchmarkTools before 1.9 also runs full garbage collections (`gcscrub`)
-# before every group it tunes or runs, whatever the entries set.
-# The AD grid has a group per scenario, and with the AD backends' live heap
-# of about 5 GiB these collections took about 15 s a group on the history
-# runner, once in `tune!` and once in `run`: over an hour and a half of the
-# job (#301).
-# BenchmarkTools 1.9 (JuliaCI/BenchmarkTools.jl#431) collects only once
-# enough has been allocated since the last collection; older versions follow
-# the same rule here.
+# BenchmarkTools before 1.9 runs full garbage collections (`gcscrub`) before
+# every group it tunes or runs, whatever the entries set. The AD grid has a
+# group per scenario, and with the AD backends loaded each collection takes
+# seconds. This `gcscrub` collects only once enough has been allocated since
+# the last collection, as `maybe_gcscrub` does from 1.9. The benchmark
+# workflows install the newest BenchmarkTools, so this applies until 1.9 is
+# released and stops once it is.
 if !isdefined(BenchmarkTools, :maybe_gcscrub)
     function BenchmarkTools.gcscrub()
         g = Base.gc_num()
