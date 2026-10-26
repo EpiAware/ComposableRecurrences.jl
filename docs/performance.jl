@@ -31,19 +31,26 @@ module DocsPerformance
     end
 
     # The revision, whether the reverse backends ran with the package's rules,
-    # and the methods a backend could not differentiate.
+    # and the methods a backend could not differentiate, one sentence a line.
     function caption(rows)
         revision = join(unique(rows.revision), ", ")
         reverse = ["Mooncake reverse", "Enzyme reverse"]
         rules = unique(@subset(rows, in.(:target, Ref(reverse))).rules)
-        text = "Minimum times at revision $revision. " *
+        lines = [
+            "Minimum times at revision $revision.",
             "The Mooncake and Enzyme bars run " *
-            (rules == ["true"] ? "with" : "without") * " the package's rules. " *
-            "The forward run and ForwardDiff do not use them."
+                (rules == ["true"] ? "with" : "without") * " the package's rules.",
+            "The forward run and ForwardDiff do not use them.",
+        ]
         failed = @subset(rows, :status .== "error")
-        isempty(failed) && return text
-        return text * "\nNo bar: " * join(unique(failed.target), ", ") *
-            " could not differentiate " * join(unique(failed.method), " or ") * "."
+        if !isempty(failed)
+            names = Dict(TARGETS)
+            push!(
+                lines, "No bar: " * join(unique(getindex.(Ref(names), failed.target)), ", ") *
+                    " could not differentiate " * join(unique(failed.method), " or ") * "."
+            )
+        end
+        return join(lines, '\n')
     end
 
     """
