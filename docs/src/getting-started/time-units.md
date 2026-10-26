@@ -39,6 +39,25 @@ Recurrence(gi; lags = 15).kernel ≈ ComposableRecurrences.delay_masses(gi, 15)[
 
 The [Distributions](@ref extension-distributions) and [CensoredDistributions](@ref extension-censored-distributions) extension pages say how a distribution gives its masses on a step.
 
+## [Delays in sequence](@id time-units-chained)
+
+A delay made of several delays in sequence, such as incubation then onset to report, has two forms, and each is a different model.
+
+- When each delay is a discrete step, rounded to whole steps before the next one starts, the chain's masses are the full linear convolution of the delays' masses.
+  A tuple gives this, as in `Convolution((incubation, report); lags)`, through the [`delay_masses`](@ref ComposableRecurrences.delay_masses) method for a tuple.
+  This is also the form for delays that are already masses, such as fitted PMFs.
+- When the delays add in continuous time, the sum is one continuous delay, censored once.
+  Compose the distributions as distributions, for example with ConvolvedDistributions, and pass the sum as one delay, which the [CensoredDistributions](@ref extension-censored-distributions) extension discretises.
+
+A tuple of two continuous delays is the first form: each is censored on its own and then the masses are convolved.
+The two forms give different masses, since each censored delay carries its own rounding.
+
+```@example time-units
+incubation, report = Gamma(5.0, 1.0), Gamma(2.0, 1.5)
+chained = Convolution((incubation, report); lags = 20)
+round(sum(chained.kernel); digits = 2)
+```
+
 ## [Parameters coarser than the step](@id time-units-parameters)
 
 A weekly reproduction number in a daily model holds each week's value over the days of that week:

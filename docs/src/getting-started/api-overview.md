@@ -129,20 +129,7 @@ The [Distributions](@ref extension-distributions) and [CensoredDistributions](@r
 | `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
 | `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
-| `(d₁, d₂)` | a chain of delays or mass vectors, one after another; a delay itself, so it fits wherever `d` does |
-
-### [Chained delays](@id overview-chained-delays)
-
-A delay made of several delays in sequence, such as incubation then onset to report, has two forms, and each is a different model.
-
-- When each delay is a discrete step, rounded to whole lags before the next one starts, the chain's masses are the full linear convolution of the delays' masses.
-  A tuple gives this, as in `Convolution((incubation, report); lags)`, and the [tuple method](@ref ComposableRecurrences.delay_masses) of `delay_masses` says how its masses are built.
-  This is also the form for delays that are already masses, such as fitted PMFs.
-- When the delays add in continuous time, the sum is one continuous delay, censored once.
-  Compose the distributions as distributions, for example with ConvolvedDistributions, and pass the sum as one delay, which the [CensoredDistributions](@ref extension-censored-distributions) extension discretises.
-
-A tuple of two continuous delays is the first form: each is censored on its own and then the masses are convolved.
-The two forms give different masses, since each censored delay carries its own rounding.
+| `(d₁, d₂)` | a [chain of delays](@ref time-units-chained) or mass vectors, one after another; a delay itself, so it fits wherever `d` does |
 
 ## [Couplings](@id overview-couplings)
 

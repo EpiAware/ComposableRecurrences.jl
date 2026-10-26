@@ -104,9 +104,9 @@ the cut loses nothing before lag `lags - 1`.
 A tuple is a delay, so `Convolution((a, b); lags)` and
 `Recurrence((a, b); lags)` take one, and the masses are built once, when
 the operator is.
-[Chained delays](@ref overview-chained-delays) says when a chain of
-discretised delays is the model, and when a sum of continuous delays
-discretised once is.
+A chain of discretised delays and a
+[sum of continuous delays discretised once](@ref time-units-chained) are
+different models.
 
 # Examples
 ```jldoctest
