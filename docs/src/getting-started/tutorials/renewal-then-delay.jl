@@ -221,7 +221,7 @@ y, tr = depleted(R_towns; history = seed, trace = true)
 R_eff = y ./ renewal_sum(y)
 pools = hcat(pop, only(tr.modifiers)[1:3, 1:(end - 1)])
 λ = R_towns .* renewal_sum(y) ./ pop
-maximum(abs, R_eff .- R_towns .* pools ./ pop .* (1 .- exp.(-λ)) ./ λ)
+maximum(abs, R_eff .- R_towns .* pools ./ pop .* -expm1.(-λ) ./ λ)
 
 #-
 
@@ -239,6 +239,7 @@ maximum(abs, R_eff .- R_towns .* pools ./ pop .* (1 .- exp.(-λ)) ./ λ)
 end
 
 # The effective reproduction number falls below the gain as each town's pool runs down.
+# In town A it falls below 1 before the intervention on day 50, which is why town A turns first.
 # A modifier after the depletion, such as `Add` for imports, changes the output but not the values drawn.
 # The drawn rows of the trace over the renewal sum then give the depleted value.
 # Both ratios are differentiable as the run is.

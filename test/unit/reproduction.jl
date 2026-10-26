@@ -102,7 +102,7 @@ end
     p = force(y, g, seed; coupling = K)
     s = hcat(pop, pools[:, 1:(end - 1)])
     λ = R .* p ./ pop
-    depleted = R .* s ./ pop .* (1 .- exp.(-λ)) ./ λ
+    depleted = R .* s ./ pop .* -expm1.(-λ) ./ λ
     R̂ = reproduction(y, g, seed; coupling = K)
     @test R̂ ≈ depleted atol = 1.0e-12 rtol = 1.0e-12
     @test all(R̂ .< R)
@@ -118,7 +118,7 @@ end
     pa = force(ya, g, seed; coupling = K)
     sa = hcat(pop, Ma[1:S, 1:(end - 1)])
     λa = R .* pa ./ pop
-    depleted_a = R .* sa ./ pop .* (1 .- exp.(-λa)) ./ λa
+    depleted_a = R .* sa ./ pop .* -expm1.(-λa) ./ λa
     @test Ma[(S + 1):(2S), :] ./ pa ≈ depleted_a atol = 1.0e-12 rtol = 1.0e-12
     @test !(ya ./ pa ≈ Ma[(S + 1):(2S), :] ./ pa)
 end
