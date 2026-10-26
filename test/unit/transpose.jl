@@ -87,6 +87,7 @@ end
     @test transpose(transpose(c)) === c
     @test (c')' === c
     @test CR.NoAdjoint(c')(x; tail = [8.0]) ≈ c'(x; tail = [8.0])
+    @test first(CR.forward(c', CR.Run(), x; tail = [8.0])) == c'(x; tail = [8.0])
     @test c'(x; tail = [8.0]) ≈ [0.5 + 1.0, 0.4 + 3.2, 0.4 + 7.2]
     # An empty call, and one past the series that reads the tail alone.
     @test c'(x; start = 2, stop = 1) == Float64[]
