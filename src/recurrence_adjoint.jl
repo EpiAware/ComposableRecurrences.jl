@@ -62,7 +62,6 @@ function _split_steps(ȳ::AbstractMatrix, T)
     return view(ȳ, :, (n + 1):(n + T)), view(ȳ, :, 1:n)
 end
 _add_history!(::Nothing, ȳh) = nothing
-_add_history!(h̄::AbstractArray, ::Nothing) = nothing
 _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 
 # The reverse pass runs under the executor set when it runs. The default
