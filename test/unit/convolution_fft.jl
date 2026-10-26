@@ -60,6 +60,16 @@ end
     @test any(isnan, Convolution(k; method = CR.FFTMethod())(X)[1, 1:39])
 end
 
+@testitem "Convolution FFT: an Inf input makes its block NaN" begin
+    using ComposableRecurrences, FFTW
+    # The direct sum keeps an Inf to the outputs its lags feed; the
+    # transform spreads it to every output of its block.
+    k = [0.5, 0.0, 0.5]
+    x = [1.0, Inf, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+    fft = ComposableRecurrences.FFTMethod()
+    @test all(isnan, Convolution(k; method = fft)(x))
+end
+
 @testitem "Convolution FFT: Float32 is kept" begin
     using ComposableRecurrences, FFTW
     const CR = ComposableRecurrences
