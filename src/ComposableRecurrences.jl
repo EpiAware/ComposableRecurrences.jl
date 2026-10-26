@@ -104,55 +104,49 @@ public Depletion, Flow, Share, Redistribute, movement,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
     Auto, Direct, FFTMethod, delay_masses
 
-# Slot wrappers: time-varying, per-stratum and pairwise coefficients.
-include("wrappers.jl")
-# Shape and eltype helpers shared by the operators.
-include("utils.jl")
-# Executors: how loops over independent strata, series or times run.
-include("executor.jl")
-# The role interface: roles, `forward!`, `pullback!` and the stage loop.
-include("modifiers.jl")
-# The trace role: what a call with `trace = true` records per modifier.
-include("trace.jl")
-# The operator supertype, `NoAdjoint` and the routing to the native rules.
-include("adjoints.jl")
-# The built-in modifiers and depletion forms.
-include("builtin_modifiers.jl")
-# Parameters computed from other parameters.
-include("derived.jl")
-# Parameters read from the recurrence's own recent outputs.
-include("recent.jl")
-# Depletion forms that draw up to what the pool holds.
-include("truncate.jl")
-# Flows between the pools of a `Depletion`.
-include("flows.jl")
-# `Depletion`: pools drawn from by a depletion form and moved by flows.
-include("pool.jl")
+# interface: roles, `forward!`, `pullback!` and the trace role.
+include("interface/modifiers.jl")
+include("interface/trace.jl")
 
-# Rescaling groups of strata to exogenous totals.
-include("allocate.jl")
-# The built-in couplings, `forward!` and `pullback!` on `Pressure()`.
-include("couplings.jl")
-# The recurrence operator and its buffer loop.
-include("recurrence.jl")
-# A call with its trace, built from the records after the run.
-include("trace_run.jl")
-# The analytic reverse pass of the recurrence.
-include("recurrence_adjoint.jl")
-# The routes kernel: a sum of (coupling, kernel) routes.
-include("routes.jl")
-# The causal convolution operator and its reverse pass.
-include("convolution.jl")
-# `TimeVarying` coefficients given by change points.
-include("piecewise.jl")
-# Default pullbacks of modifiers and couplings without one, whose dual-number
-# code is in an extension.
-include("fallbacks.jl")
-# The masses of a delay on whole lags, the hook delay types extend.
-include("delays.jl")
-# Interfaces.jl declaration of the role interface.
-include("interfaces.jl")
-# The Transform modifier, a pointwise map with parameters.
-include("transform.jl")
+# shapes: slot wrappers, shape and eltype helpers, and couplings.
+include("shapes/wrappers.jl")
+include("shapes/utils.jl")
+include("shapes/couplings.jl")
+
+# adjoints: executors and the routing to the native rules.
+include("adjoints/executor.jl")
+include("adjoints/adjoints.jl")
+
+# modifiers: the built-in modifiers.
+include("modifiers/builtin_modifiers.jl")
+include("modifiers/allocate.jl")
+
+# parameters: computed from parameters, recent outputs or change points.
+include("parameters/derived.jl")
+include("parameters/recent.jl")
+include("parameters/piecewise.jl")
+
+# depletion: `Depletion` forms, flows and pools.
+include("depletion/truncate.jl")
+include("depletion/flows.jl")
+include("depletion/pool.jl")
+
+# operators: `Recurrence` and `Convolution`, their loops and reverse passes.
+include("operators/recurrence.jl")
+include("operators/trace_run.jl")
+include("operators/recurrence_adjoint.jl")
+include("operators/convolution.jl")
+
+# kernels: routes kernels and delay masses.
+include("kernels/routes.jl")
+include("kernels/delays.jl")
+
+# Files below need the operators' types, so load after them.
+# adjoints: default pullbacks of modifiers and couplings without one.
+include("adjoints/fallbacks.jl")
+# interface: the Interfaces.jl declaration of the role interface.
+include("interface/interfaces.jl")
+# modifiers: `Transform`, which declares its own `PieceInterface`.
+include("modifiers/transform.jl")
 
 end # module ComposableRecurrences
