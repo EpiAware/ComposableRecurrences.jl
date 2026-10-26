@@ -1,8 +1,7 @@
 # The native Mooncake and Enzyme rules: each backend's own rule tester via
 # `test_adjoint` on one AD registry operator of each kind and on shapes the
 # registry lacks, proof that the rule fires, user-defined types with no
-# AD code of their own, and the guard on plain Enzyme AD of a sparse
-# coupling.
+# AD code of their own, and plain Enzyme AD of a sparse coupling.
 
 @testsnippet AdjointCases begin
     using ADFixtures
@@ -971,62 +970,50 @@ end
     end
 end
 
-@testitem "Enzyme: NoAdjoint on an active sparse coupling throws" tags = [:ad, :enzyme, :enzyme_reverse] begin
+@testitem "Enzyme: NoAdjoint on a sparse coupling matches ForwardDiff" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: NoAdjoint
     using SparseArrays
-    import Enzyme
-    K = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
-    r = Recurrence([0.3, 0.2]; coupling = K)
-    h, R = ones(3, 2), ones(3, 5)
+    import Enzyme, ForwardDiff
     mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
-    f(r) = sum(NoAdjoint(r)(R; history = h))
-    @test_throws ArgumentError Enzyme.gradient(mode, Enzyme.Const(f), r)
-    # The rule path is correct.
-    import ForwardDiff
-    g(r) = sum(r(R; history = h))
-    fnz(nz) = g(
-        Recurrence(
-            [0.3, 0.2];
-            coupling = SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz)
-        )
+    patterns = (
+        sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4]),
+        sparse([0.0 0.5 0.0; 0.0 0.0 0.5; 0.5 0.0 0.0]),
+        sparse([0.3 0.3 0.3; 0.0 0.0 0.0; 0.2 0.1 0.4]),
     )
-    @test Enzyme.gradient(mode, Enzyme.Const(g), r)[1].coupling.nzval ≈
-        ForwardDiff.gradient(fnz, copy(K.nzval))
-    # A sparse route coupling, after a dense route, is refused too.
-    rr = Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, [0.3, 0.2])))
-    @test_throws "plain Enzyme reverse AD of a sparse coupling" Enzyme.gradient(
-        mode, Enzyme.Const(f), rr
-    )
-    froutes(nz) = g(
-        Recurrence(
-            Routes(
-                (fill(0.2, 3, 3), [0.1]),
-                (SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz), [0.3, 0.2])
-            )
-        )
-    )
-    @test Enzyme.gradient(mode, Enzyme.Const(g), rr)[1].kernel.couplings[2].nzval ≈
-        ForwardDiff.gradient(froutes, copy(K.nzval))
-    # In any route, here the ninth.
-    r9 = Recurrence(Routes(ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)..., (K, [0.3, 0.2])))
-    @test_throws "plain Enzyme reverse AD of a sparse coupling" Enzyme.gradient(
-        mode, Enzyme.Const(f), r9
-    )
-    # A constant sparse route coupling is differentiated by plain AD.
-    fk(gk) = sum(NoAdjoint(Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, gk))))(R; history = h))
-    @test Enzyme.gradient(mode, Enzyme.Const(fk), [0.3, 0.2])[1] ≈
-        ForwardDiff.gradient(fk, [0.3, 0.2])
-    # The same as the ninth route, with the gain and history active too, so
-    # the cotangent reaches the buffer through the constant coupling.
     dense8 = ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)
-    function f9(θ)
-        gk, Rθ, hθ = θ[1:2], reshape(θ[3:17], 3, 5), reshape(θ[18:23], 3, 2)
-        r = NoAdjoint(Recurrence(Routes(dense8..., (K, gk))))
-        return sum(abs2, r(Rθ; history = hθ))
+    # The coupling, a second route and a ninth route, each sparse.
+    ops = (
+        K -> Recurrence([0.3, 0.2]; coupling = K),
+        K -> Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, [0.3, 0.2]))),
+        K -> Recurrence(Routes(dense8..., (K, [0.3, 0.2]))),
+    )
+    sparse_of(K, nz) = SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz)
+    @testset "pattern $i, op $j, $T steps" for (i, K) in enumerate(patterns),
+            (j, op) in enumerate(ops), T in (1, 40)
+        h, R = ones(3, 2), 0.9 .+ 0.1 .* cos.((1:3) .+ (1:T)')
+        W = sin.((1:3) .* (1:T)')
+        f(r) = sum(W .* NoAdjoint(r)(R; history = h))
+        ref = ForwardDiff.gradient(nz -> f(op(sparse_of(K, nz))), copy(K.nzval))
+        dr = Enzyme.gradient(mode, Enzyme.Const(f), op(K))[1]
+        dK = j == 1 ? dr.coupling : last(dr.kernel.couplings)
+        @test dK.nzval ≈ ref
     end
-    θ9 = [0.3; 0.2; vec(0.5 .+ 0.1 .* R); vec(h)]
-    @test Enzyme.gradient(mode, Enzyme.Const(f9), θ9)[1] ≈ ForwardDiff.gradient(f9, θ9)
+    # A constant coupling with the gain and history active, over a resumed
+    # call, so the cotangent reaches the buffer through the coupling. The
+    # data is bound in a `let`: read as test-item variables, the call is
+    # not inferred and Enzyme cannot type it.
+    fs = let K = first(patterns), dense8 = dense8
+        function (θ)
+            R, h = reshape(θ[1:120], 3, 40), reshape(θ[121:126], 3, 2)
+            r = NoAdjoint(Recurrence(Routes(dense8..., (K, [0.3, 0.2]))))
+            y1, s = r(R[:, 1:20]; history = h, state = true)
+            y2, _ = r(R; state = s)
+            return sum(abs2, y1) + sum(abs2, y2)
+        end
+    end
+    θ = [vec(0.5 .+ 0.01 .* (1:120)); ones(6)]
+    @test Enzyme.gradient(mode, Enzyme.Const(fs), θ)[1] ≈ ForwardDiff.gradient(fs, θ)
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
