@@ -103,3 +103,24 @@ end
             -R^2 .* e
     end
 end
+
+@testitem "growth_rate: second derivatives match differences of the first" setup = [ReferenceAD] begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ForwardDiff
+    # The first derivative from the implicit function theorem.
+    function ift(θ)
+        R, g = θ[1], θ[2:end]
+        r = CR.growth_rate(R, g)
+        e = exp.(-r .* eachindex(g))
+        τ = R * sum(eachindex(g) .* g .* e)
+        return [1 / (R * τ); R .* e ./ τ]
+    end
+    f(θ) = CR.growth_rate(θ[1], θ[2:end])
+    h = 1.0e-5
+    for θ in ([1.5, 0.1, 0.3, 0.3, 0.2, 0.1], [0.5, 0.01, 0.4, 0.6, 0.01])
+        n = length(θ)
+        δ(j) = h .* (1:n .== j)
+        H = reduce(hcat, [(ift(θ .+ δ(j)) .- ift(θ .- δ(j))) ./ 2h for j in 1:n])
+        @test ForwardDiff.hessian(f, θ) ≈ H rtol = 1.0e-6
+    end
+end

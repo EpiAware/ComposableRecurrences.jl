@@ -20,13 +20,7 @@ A seed on the renewal's own growth path at ``R`` is
 masses and `L = lags - 1` for a delay (see
 [`ComposableRecurrences.exponential_history`](@ref)).
 
-A Newton iteration on ``\log\big(R \sum_l g_l e^{-r l}\big)``, which is
-convex and falling in ``r``, finds the root.
-It starts from a lower bound on the root, so each step rises towards it
-and stays below an upper bound.
-The iteration runs on the primal values and is not differentiated.
-One more Newton step from the root, on the inputs as given, carries the
-derivative of the implicit function theorem,
+The derivatives are those of the implicit function theorem,
 
 ```math
 \frac{\partial r}{\partial R} = \frac{1}{R \bar{\tau}},
@@ -117,10 +111,17 @@ function reproduction_number(r::Real, g; lags = nothing, step = 1)
     return _reproduction_number(r, g)
 end
 
+# The root is found on the primal values and carries no derivative. Newton
+# steps from it on the inputs as given carry the derivative of the implicit
+# function theorem: one step gets the first derivative exact and each step
+# doubles the order, so two get the Hessian exact too.
 function _growth_rate(R::Real, g::AbstractVector{<:Real})
     _check_reproduction(R)
     lags = _mass_span(g)
     r = _growth_root(R, g, lags)
+    return _newton_step(_newton_step(r, R, g, lags), R, g, lags)
+end
+function _newton_step(r, R, g, lags)
     f, τ = _lotka(r, g, lags)
     return r + (log(R) + f) / τ
 end
@@ -210,7 +211,8 @@ end
 _exp_cap(::Type{T}) where {T <: AbstractFloat} = log(floatmax(T)) / 2
 _exp_cap(::Type) = _exp_cap(Float64)
 
-# The root on the primal values. By Jensen's inequality the log of
+# The root on the primal values, by Newton steps on `log(R ∑ g_l e^{-r l})`,
+# which is convex and falling in `r`. By Jensen's inequality the log of
 # `∑ g_l e^{-r l}` is at least `log ∑ g_l - r μ`, with `μ` the mean lag, so
 # `log(R ∑ g_l) / μ` is below the root. The log is at most
 # `log ∑ g_l - r l` for the first lag with mass where `r > 0`, and the last

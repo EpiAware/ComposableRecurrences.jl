@@ -1488,25 +1488,6 @@ push!(
     ),
 )
 
-# A seed on the growth path of the first reproduction number: the gradient
-# reaches the kernel and that number through `growth_rate` as well.
-function _seeded_renewal(w, θ)
-    g, logR = _unpack(θ, (L,), (T,))
-    R = exp.(logR)
-    r = ComposableRecurrences.growth_rate(R[1], g)
-    h = ComposableRecurrences.exponential_history(5.0, r, L)
-    y = w(Recurrence(g))(R; history = h)
-    return sum(W1 .* log.(y))
-end
-
-push!(
-    _SCENARIOS,
-    (
-        "Recurrence renewal seeded at the growth rate of R", _seeded_renewal,
-        () -> _flat(G0, 0.3 .+ LOGR[1, :]),
-    ),
-)
-
 """
     supports(features...)
 
@@ -1620,7 +1601,6 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # A population that varies over time came with `_population`.
     "Recurrence population varying over time with births" => (:_population,),
     "Recurrence Primary time-varying kernel" => (:primary_recurrence,),
-    "Recurrence renewal seeded at the growth rate of R" => (:growth_rate,),
     # Kernels as vectors of columns came with `_Ragged`.
     "Convolution ragged kernel truncated at the horizon" => (:_Ragged,),
     "Recurrence ragged Primary kernel" => (:_Ragged,),
