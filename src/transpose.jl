@@ -75,8 +75,10 @@ function forward(
 end
 
 # The convolution's reverse body with the series `A` as its output
-# cotangent. It reads its inputs only for the kernel's cotangent, not taken
-# here, so the output `Z` stands in for them.
+# cotangent. The convolution is linear in its inputs, so their cotangent
+# does not read them: they enter only the kernel's cotangent, which is
+# `nothing` here, and the output `Z` stands in for them. A body that reads
+# its inputs for anything else must not be called this way.
 function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
