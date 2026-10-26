@@ -26,23 +26,15 @@ const SUITE = BenchmarkGroup()
 # With every AD backend loaded the heap is large, each collection takes
 # seconds, and the minimum time reported is not sensitive to it.
 
-# BenchmarkTools before 1.9 runs full garbage collections (`gcscrub`) before
-# every group it tunes or runs, whatever the entries set. The AD grid has a
-# group per scenario, and with the AD backends loaded each collection takes
-# seconds. This `gcscrub` collects only once enough has been allocated since
-# the last collection, as `maybe_gcscrub` does from 1.9. The benchmark
-# workflows install the newest BenchmarkTools, so this applies until 1.9 is
-# released and stops once it is.
-if !isdefined(BenchmarkTools, :maybe_gcscrub)
-    function BenchmarkTools.gcscrub()
-        g = Base.gc_num()
-        limit = max(16 << 20, Base.gc_live_bytes() ÷ 10)
-        if g.allocd + g.deferred_alloc > limit
-            GC.gc()
-            GC.gc()
-        end
-        return nothing
-    end
+# BenchmarkTools runs full garbage collections (`gcscrub`) before every
+# group it tunes or runs, whatever the entries set. The AD grid has a group
+# per scenario, and with the AD backends loaded each collection takes
+# seconds. Compiling a group allocates more than a tenth of the live heap,
+# so the allocation threshold BenchmarkTools 1.9 adds would not skip them.
+# A collection before a group does not change the minimum time reported,
+# and Julia still collects as it allocates, so they are skipped here.
+if isdefined(BenchmarkTools, :gcscrub)
+    BenchmarkTools.gcscrub() = nothing
 end
 
 # The AD gradient grid, read from the package-owned `test/ADFixtures`
