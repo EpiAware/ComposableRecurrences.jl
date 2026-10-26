@@ -22,7 +22,7 @@ R = fill(1.4, 60)
 )
 ```
 
-Time a rule on a reverse-mode backend; [Backends](@ref adjoint-backends) says why.
+Time a rule on a reverse-mode backend, as forward-mode [backends](@ref adjoint-backends) never take it.
 
 ## [Rule timings](@id rule-timings)
 
@@ -113,7 +113,7 @@ task -t benchmark/Taskfile.yml matrix -- --tier=realistic --targets=primal \
 The report adds an executor table with each threaded run's speed-up over the serial one-thread run of the same target.
 Run the serial one-thread run into the same directory first; without it the report says so and leaves the table out.
 Serial runs on more than one thread are labelled `<target> @ t<n>` and stay out of the executor table.
-[Executors](@ref executors) says which passes run threaded under each backend.
+Under the `Threaded()` [executor](@ref executors), ForwardDiff gradients run threaded, and Mooncake and Enzyme thread only a rule's forward and reverse passes.
 Each row records the load average when its cell started, so a busy machine shows in the results.
 
 ## Gradient tests and use-case tests
@@ -133,7 +133,7 @@ Each backend job compiles every scenario and test item it runs, so a check in th
 Put each check at the cheapest level that runs its code path.
 
 - The maths of a `pullback!` goes in `test/unit`, against a ForwardDiff Jacobian on small inputs.
-  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`, as [Checking a new type](@ref extending-checks) shows.
+  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`.
   For a whole call, use `pullback_matches` (`test/unit/adjoints.jl`).
   These need no AD backend.
 - A new rule path, such as a new operator, a new kind of field or a new wrapper of the call, gets one small scenario in `_SCENARIOS`.

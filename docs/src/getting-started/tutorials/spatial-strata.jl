@@ -2,8 +2,8 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, the [strata](@ref glossary-stratum), one per place, mixed within each step.
-# Series as types rather than places are in [Branching processes](@ref tutorial-branching).
+# A model can run several series side by side, the [strata](@ref overview-step), one per place, mixed within each step.
+# Strata can also be types, as for the case types of a [branching process](@ref tutorial-branching).
 #
 # ### What are we going to do in this exercise
 #
@@ -16,7 +16,6 @@
 # ### What might I need to know before starting
 #
 # This extends the three-town example in [Getting started](@ref overview-build).
-# No fitting is involved.
 
 # ## Packages used
 

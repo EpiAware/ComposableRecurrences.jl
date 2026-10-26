@@ -40,4 +40,4 @@ This table maps common model parts to the code that builds them, with the tutori
 | Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | [`r(R; history, prepend = true)`](@ref Recurrence) | [What a call returns](@ref explanation-returns) |
 | Seed on an exponential growth path | ``h_l = I_0 e^{r (l - L)}``, with ``r`` matching ``R`` | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | [Renewal then delay](@ref tutorial-renewal-delay) |
 
-Random walks, autoregressions and moving averages are listed with the [time-series processes](@ref overview-time-series) on the [API overview](@ref api-overview).
+Random walks and autoregressions are [recurrences](@ref overview-time-series), and moving averages are convolutions.

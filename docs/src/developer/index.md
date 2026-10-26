@@ -7,4 +7,3 @@
 - [Developer FAQ](@ref developer-faq): common questions while working on the package.
 
 This repository takes its shared configuration and test infrastructure from [EpiAwarePackageTools](https://github.com/EpiAware/EpiAwarePackageTools.jl), whose documentation lists which files are managed.
-For using the package, see [Getting started](@ref getting-started).

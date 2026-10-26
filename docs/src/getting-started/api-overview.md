@@ -1,215 +1,360 @@
 # [API overview](@id api-overview)
 
-A recurrence steps a series forward from its own past values.
-A convolution weights past inputs.
-Both take a kernel, and a recurrence also takes a coupling and modifiers.
+[Getting started](@ref overview-build) builds a model of three towns one part at a time.
+The model has two operators: the renewal, a `Recurrence`, and the reporting delay, a `Convolution`.
+Each operator is built from a kernel, the weights it puts on past values, and runs when it is called.
+A coupling and modifiers change how a recurrence steps.
+
+Some public names are not exported, so `using ComposableRecurrences` does not bring them in.
+They are written without the package prefix on this page.
+Load them with `using ComposableRecurrences: Depletion, Floor, State`, and so on.
+The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
+
+## [A step](@id overview-step)
+
+A model can run several series side by side, such as one per town.
+Each of these series is a stratum, and together they are the strata.
+
+Each day, a recurrence takes a weighted sum of each stratum's recent outputs.
+The coupling then mixes these sums between strata.
+The gain, such as the reproduction number, scales the result.
+The values given as `add` are then added.
+Each modifier then changes the value in turn.
+A modifier can keep a state from day to day, such as the people left to infect.
+A convolution takes the same weighted sum of an input series, scales it by the gain and adds `add`.
+It has no coupling and no modifiers.
 
 ![One recurrence step and one convolution output](../assets/recurrence-step.svg)
 
-For each time ``t`` from `start` to `stop`, a recurrence computes
+A call runs from day `start` to day `stop`.
+For each day ``t`` of that range, a recurrence computes
 
 ```math
 \begin{aligned}
 p_t &= \sum_{l=1}^{L} k_l \, y_{t-l} \\
-v_t &= g_t \odot C_t \, p_t + a_t \\
-y_t &= M_R \circ \dots \circ M_1 (v_t)
+v_t &= \gamma_t \odot K_t \, p_t + a_t \\
+y_t &= M_m \circ \dots \circ M_1 (v_t)
 \end{aligned}
 ```
 
 and a convolution computes
 
 ```math
-y_t = g_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t .
+y_t = \gamma_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t ,
 ```
 
-- ``y_t`` is the output and ``x_t`` the convolution input; each has one entry per [series](@ref glossary-series), and the values before `start` are the `history`.
-- ``k_l`` is the [kernel](@ref overview-shapes) weight on lag ``l``.
-- ``C_t`` is the [coupling](@ref overview-couplings), which mixes the series.
-- ``g_t`` is the gain and ``a_t`` the additive input, the arguments `gain` and `add` of the [call](@ref overview-calls).
-- ``M_1, \dots, M_R`` are the [modifiers](@ref overview-modifiers), each with its own state carried from step to step.
-- ``\odot`` multiplies element by element.
-
-Names that are public but not exported are written unqualified below.
-Load them with `using ComposableRecurrences: Depletion, Floor, State`, and so on.
-Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
-For models from infectious disease epidemiology, see [Infectious disease models](@ref infectious-disease-models).
-
-## [Words used on these pages](@id glossary)
-
-### [Series](@id glossary-series)
-
-One sequence of values over time, such as the infections in one region or age group.
-
-### [Stratum](@id glossary-stratum)
-
-One of several series run side by side (plural strata); see [`PerStratum`](@ref).
-
-### [Pointwise](@id glossary-pointwise)
-
-Acting on each series separately; [`ispointwise`](@ref ComposableRecurrences.ispointwise) says whether a modifier does.
-
-### [Pool](@id glossary-pool)
-
-A quantity carried from one step to the next that a step draws from or adds to; a [`Depletion`](@ref ComposableRecurrences.Depletion) holds one or more.
+where ``y_t`` is the output, with one entry per stratum.
+The outputs before `start` are the `history`.
+The input of a convolution is ``x_t``.
+The kernel has weight ``k_l`` on lag ``l``, and ``L`` lags.
+The weighted sum of past outputs is ``p_t``.
+The coupling is ``K_t``, and ``v_t`` is the value before the modifiers.
+The gain is ``\gamma_t``, and ``a_t`` is `add`.
+The modifiers are ``M_1, \dots, M_m``, applied in order.
+The symbol ``\odot`` multiplies element by element.
 
 ## [Operators](@id overview-operators)
 
+`Recurrence` and `Convolution` are the two [operators](@ref explanation-operators).
+Each is built once from a kernel and then called like a function.
+A recurrence computes each value from its own past values, such as infections from earlier infections.
+A convolution weights the past values of another series, such as reported cases from earlier infections.
+
+```julia
+renewal = Recurrence(gi)
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+```
+
 | Name | What it does | Returns |
 |---|---|---|
-| [`Recurrence(kernel; coupling, modifiers)`](@ref Recurrence) | steps a series forward from its own last ``L`` values; `kernel[1]` weights lag 1 | a callable `Recurrence` |
-| [`Convolution(kernel; method)`](@ref Convolution) | weights the current and past inputs; `kernel[1]` weights lag 0; `method` is [`Auto()`](@ref ComposableRecurrences.Auto) (the default), [`Direct()`](@ref ComposableRecurrences.Direct) or [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) | a callable `Convolution` |
+| [`Recurrence(kernel; lags, step, coupling, modifiers)`](@ref Recurrence) | computes each value from its own last ``L`` values; `kernel[1]` weights lag 1 | a `Recurrence` to call |
+| [`Convolution(kernel; lags, step, method)`](@ref Convolution) | computes each value from the current and past inputs; `kernel[1]` weights lag 0 | a `Convolution` to call |
 
-A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@ref explanation-lag-origin) says why.
+`lags` and `step` apply when the kernel is a [delay distribution](@ref overview-delays).
+The keyword `method` sets how a convolution sums its lags.
+The method [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one.
+The method [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
+The method [`Auto()`](@ref ComposableRecurrences.Auto), the default, takes the transform for a kernel of at least 300 lags over at least 1000 days.
 
 ## [Calls](@id overview-calls)
 
+A call runs an operator over a range of days.
+A recurrence takes its gain first, and a convolution takes its input first and its gain as a keyword.
+In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in Getting started.
+
+```julia
+infections = renewal(R; history = seed)
+reports = delay(infections; gain = 0.4)
+```
+
+A [`State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the day the next step computes.
+
 | Call | What it does | Returns |
 |---|---|---|
-| [`(r::Recurrence)(gain; history, add, start, stop)`](@ref Recurrence) | runs `r` over times `start:stop`, multiplying each step by `gain` and adding `add` before the modifiers | a `Vector` of length `T`, or an `S × T` `Matrix` for `S` series |
-| [`(c::Convolution)(x; gain, add, history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop`, then multiplies by `gain` and adds `add` | an array shaped like `x` |
-| [`contributions(c, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | the terms of `c(x; gain)` before the sum over lags, such as a reporting triangle | `L × T`, or `S × L × T` for `S` series |
-| [`(r::Recurrence)(gain; history, state = true)`](@ref Recurrence) | runs `r` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
-| [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t`, and returns the next `State` | a `(y, state)` tuple, with the values from `state.t` on |
-| [`(r::Recurrence)(gain; history, trace = true)`](@ref Recurrence) | runs `r` and records what each modifier did at each step | a `(y, trace)` tuple, with one matrix per modifier in `trace.modifiers` |
-| [`(r::Recurrence)(gain; history, prepend = true)`](@ref Recurrence) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |
-| [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | an `L`-step seed growing at rate `r` up to `I0` | a `Vector`, or `S × L` for a vector `I0` |
-| [`State`](@ref ComposableRecurrences.State) | holds the last ``L`` values ``y_{t-L}, \dots, y_{t-1}``, each modifier's state ``s^{(n)}_{t-1}`` (such as the remaining pool) and the next time ``t`` | a struct |
+| [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | runs the recurrence from day `start` to day `stop` | a vector for one stratum, or strata × days |
+| [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from day `start` to day `stop` | an array shaped like `x` |
+| [`contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as each day's reports split by delay | lags × days, or strata × lags × days |
+| [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
+| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from day `state.t` | `(y, state)` |
+| [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did each day | `(y, trace)` |
+| [`renewal(gain; history, prepend = true)`](@ref Recurrence) | runs the recurrence and returns the history followed by the run | the history and run joined along time |
+| [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` days growing at `rate` per day up to `I0` | a vector, or strata × `L` |
 
-A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` coefficient) at absolute time ``t``; see [Time base](@ref explanation-time-base).
-`stop` defaults to the common length of those inputs, and inputs of different lengths without a `stop` are an error.
-[History and state](@ref explanation-history-state), [Seeding](@ref explanation-seeding) and [What a call returns](@ref explanation-returns) cover short histories, resuming, where a seed sits and `prepend`.
-The [Renewal then delay](@ref tutorial-renewal-delay) tutorial forecasts by continuing from a `State`.
+Days are counted from 1 for every input that changes over time, whatever `start` is.
+So the gain on day ``t`` is always `gain[t]`, on an [absolute time base](@ref explanation-time-base).
+`stop` defaults to the common length of those inputs.
+Inputs of different lengths without a `stop` are an error.
+Without a gain, a recurrence takes a gain of 1.
+A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per day.
 
 ## [Shapes](@id overview-shapes)
 
-A bare array has the slot's own axes only: a kernel's lags, a coupling's `S × S` or a parameter's single value.
-Wrappers add axes, and data (inputs, history and outputs) are series × time and never wrapped.
+A [slot](@ref explanation-slots) is a place an operator reads numbers from: a kernel, a coupling or a modifier parameter.
+A plain array gives one set of numbers for every stratum and day.
+A wrapper gives one set per stratum, per pair of strata or per day.
+In Getting started, `PerStratum(pop)` gives each town its own population.
 
-| Name | What it does | Returns |
+```julia
+Depletion(PerStratum(pop))
+```
+
+| Name | What it does | Axes |
 |---|---|---|
-| vector | one kernel shared by every series | ``L`` lags |
-| [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter per series | adds a leading `S` axis |
-| [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of series, which mixes the series itself, so the coupling stays `I` | `S × S × L` |
-| [`Routes((C₁, g₁), (C₂, g₂))`](@ref Routes) | a kernel that sums routes, each a kernel with its own coupling, such as community and funeral contacts; the coupling stays `I` | one kernel and one `S × S` coupling per route |
-| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds a trailing `T` axis, or takes a vector of `T` kernel columns of any lengths, or of `start => value` change points |
-| [`Derived(f, args...)`](@ref Derived) | a modifier parameter computed from other parameters, as in `κ * Derived(exp, TimeVarying(x))` | the parameter `f` returns |
-| [`Recent(w)`](@ref Recent) | a modifier parameter read from the recurrence's own last outputs, as in `κ * Recent(7)`, or mixed across series with `Recent(7; coupling = C)` | a weighted sum of past outputs |
+| vector | one kernel for every stratum | lags |
+| [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter per stratum | adds strata first |
+| [`Pairwise(A)`](@ref Pairwise) | one kernel per pair of strata | strata × strata × lags |
+| [`Routes((K₁, k₁), (K₂, k₂))`](@ref Routes) | a sum of routes | one kernel and one coupling per route |
+| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day | adds days last |
+| [`Derived(f, args...)`](@ref Derived) | a parameter computed from other parameters by `f` | what `f` returns |
+| [`Recent(n)`](@ref Recent) | a parameter read from the recurrence's own last `n` outputs | one value per stratum and day |
 
-Wrappers combine: `TimeVarying(PerStratum(G))` is an `S × L × T` kernel.
-They tag one stored array and make no copies, apart from the exceptions listed under [`TimeVarying`](@ref).
+A route is one way infection passes between strata, with its own kernel and its own coupling.
+Routes can be contact in the community and contact at funerals.
+A `Pairwise` or `Routes` kernel mixes the strata itself, so the coupling is left as the identity, `I`.
+A `TimeVarying` kernel can be given as a vector with one kernel per day, each of any length.
+It can also be given as change points: `start => value` pairs, each value holding from its start day.
+The parameter `Derived(exp, TimeVarying(x))` is the exponential of a parameter that changes by day.
+The parameter `Recent(7)` sums the last seven outputs, and `κ * Recent(7)` is that sum times a number `κ`.
+The parameter `Recent(7; coupling = C)` mixes the recent outputs between strata.
+Wrappers combine: `TimeVarying(PerStratum(G))` is a strata × lags × days kernel.
+They wrap the stored array without copying it, apart from cases the [`TimeVarying`](@ref) docstring names.
 A bare vector where a single value is expected is an error that names the wrapper to use.
-The [Spatial models](@ref tutorial-spatial-strata) tutorial uses each wrapper.
+Inputs and outputs are strata × days arrays, histories are strata × days before the run, and none of them is wrapped.
 
 ## [Delay distributions](@id overview-delays)
 
-A kernel can hold delays, values whose type has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method giving their masses on lags `0` to `lags - 1`.
-`Recurrence(kernel; lags, step, coupling, modifiers)` and `Convolution(kernel; lags, step, method)` take any kernel below.
-Each keeps the masses from its own [lag origin](@ref explanation-lag-origin), so `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
-`step` is the width of a lag in the delays' own unit, 1 by default; [Time units](@ref time-units) says when to change it.
-The [Distributions](@ref extension-distributions) and [CensoredDistributions](@ref extension-censored-distributions) extension pages say which distributions have masses.
+A delay distribution, such as a gamma generation interval, can stand in for a kernel.
+The operator turns it into masses: the probability that the delay falls on each whole lag.
+
+```julia
+Recurrence(Gamma(2.0, 2.5); lags = 15)
+```
+
+`Gamma` comes from the Distributions.jl package.
+A type works as a delay when it has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method, which gives its masses on lags `0` to `lags - 1`.
+With [Distributions.jl](@ref extension-distributions) loaded, discrete distributions have masses.
+With [CensoredDistributions.jl](@ref extension-censored-distributions) loaded, continuous distributions have them too.
+Each operator keeps the masses from its own [first lag](@ref explanation-lag-origin): lag 0 for a convolution and lag 1 for a recurrence.
+So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
+The keyword `step` is the width of one lag in the delay's unit, 1 by default.
+A model with a weekly [time unit](@ref time-units) and delays in days takes `step = 7`.
 
 | Kernel | Holds |
 |---|---|
 | `d` | one delay |
-| `PerStratum(ds)` | a vector of delays, one per series |
-| `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
-| `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
-| `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
+| `PerStratum(ds)` | a vector of delays, one per stratum |
+| `Pairwise(D)` | a matrix of delays, with `D[i, j]` the delay of stratum `j` in stratum `i` |
+| `TimeVarying(ds, indexing)` | a vector of delays, one per day |
+| `Routes((K₁, d₁), (K₂, d₂))` | delays or arrays as route kernels |
+
+`indexing` is [`Secondary()`](@ref ComposableRecurrences.Secondary) or [`Primary()`](@ref ComposableRecurrences.Primary), which set which day each delay belongs to.
+`TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
+`Pairwise` and `Routes` kernels work with `Recurrence` only.
 
 ## [Couplings](@id overview-couplings)
 
-[Where the coupling acts](@ref explanation-coupling) gives where a coupling mixes the series, and what a row and a column of ``C`` mean.
+A coupling says how much each town's infections drive the others'.
+In Getting started, `K` is a gravity coupling.
 
-| Name | What it does | Returns |
-|---|---|---|
-| `I`, `λI` | no mixing, or a uniform scaling | – |
-| `S × S` matrix (dense, `Diagonal`, sparse) | contact, mobility or type-to-type mixing | – |
-| [`TimeVarying(C)`](@ref TimeVarying) with `C` `S × S × T` | mixing that changes by day | – |
-| your type | see [A coupling](@ref extending-coupling) | – |
+```julia
+Recurrence(gi; coupling = K)
+```
+
+Row ``i`` of a coupling is the stratum that receives, and column ``j`` the stratum that gives.
+The coupling [acts](@ref explanation-coupling) on the weighted sums of past outputs, before the gain.
+
+| Name | What it does |
+|---|---|
+| `I`, the identity | no mixing |
+| `λI`, the identity times a number `λ` | every sum scaled by `λ` |
+| strata × strata matrix | mixing such as contact or travel |
+| [`TimeVarying(C)`](@ref TimeVarying), with `C` strata × strata × days | mixing that changes by day |
+| a type you write | a [new coupling](@ref extending-coupling) |
+
+The matrix can be dense, `Diagonal` or sparse.
 
 ## [Modifiers](@id overview-modifiers)
 
-[Order](@ref explanation-modifier-order) gives the order modifiers act in, with each modifier's state.
-The `add` input enters before every modifier, and `Add` enters where it sits in the tuple; [Imported cases](@ref tutorial-imports) compares the two for imports.
-`Redistribute` moves whatever it receives, including values from `add`.
+A modifier changes each day's value after the gain.
+In Getting started, `Depletion(PerStratum(pop))` draws each town's infections from the people left to infect.
 
-| Name | What it does | Recurrence | Per series | Parameters |
-|---|---|---|---|---|
-| [`Depletion(N; pools, form, weights, fill, heterogeneity, removals, protected, flows, flows_first, overflow)`](@ref ComposableRecurrences.Depletion) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool drawn from, its flows after the draw and no `overflow`, else blockwise | `N`, `heterogeneity`, each starting pool, each draw weight and each flow's demand |
-| [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | `M` |
-| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | `b` |
-| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | `lo`, `hi` |
-| [`Allocate(groups, total; imports, spill)`](@ref ComposableRecurrences.Allocate) | rescales each group of series to an exogenous total, keeping each series' share, with a fraction placed by an import pattern | yes, with several series | no | `total` and `fraction`, one per group; `pattern` |
-| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | yes | yes | `θ` |
+```julia
+Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+```
 
-Every parameter is a scalar, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a [`Recent`](@ref) read from the outputs, or a [`Derived`](@ref) of these, read through [`param`](@ref ComposableRecurrences.param).
-Each modifier here has a hand-written gradient, except a `Transform` whose `f` holds floats and has no `derivative`; [Rules and plain AD](@ref adjoint-routing) gives the route a call takes.
-The [Occupancy and capacity](@ref tutorial-occupancy) tutorial uses `Clamp` and a `Depletion` as a capacity and without a draw.
+Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
+The `add` input enters before every modifier, and an `Add` enters where it sits in the tuple.
+A [`Convolution`](@ref) has no modifiers.
+
+A `Depletion` holds pools, such as the people left to infect.
+Each pool has a name and a starting size, given as `pools`, such as `(S = N, V = 0.0)`.
+The value a step asks for is drawn from the pools.
+
+| Name | What it does | Parameters |
+|---|---|---|
+| [`Depletion(N; pools, form)`](@ref ComposableRecurrences.Depletion) | draws each day's value from a pool | `N` and each starting pool |
+| [`Depletion(C; fill)`](@ref ComposableRecurrences.Depletion) | fills the pool named by `fill` up to a capacity `C` | the capacity |
+| [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | moves values from pool `from` to pool `to` each day | the rate |
+| [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves a share of each stratum's value to other strata | `M` |
+| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | `b` |
+| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | `lo`, `hi` |
+| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of strata to a known total | `total` |
+| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
+
+A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
+A `Depletion` also takes `flows`, a tuple of `Flow`s, and `weights`, each pool's share of the draw.
+With `flows_first = true` the flows act before the draw; by default they act after it.
+A small pool cannot give all a step asks for.
+`overflow` sends what it leaves to a second stratum (`:stratum`), to a queue that joins the next day's demand (`:queue`), or nowhere (the default).
+With `form = nothing` a `Depletion` draws nothing, and only its flows move values between pools, as for patients moving between wards.
+A `Redistribute` moves whatever it receives, including values from `add`.
+Its matrix `M` has columns that sum to one, so the total is kept.
+With `leak = true` a column can sum to less than one, for a share lost on the way.
+The function [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds `M` from a kernel `K` and the share `ε` of each stratum's value that moves.
+An `Allocate` keeps each stratum's share of its group.
+With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
+Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
+A [pointwise](@ref explanation-modifier-scope) modifier acts on each stratum on its own.
+`Add`, `Clamp` and `Transform` are pointwise.
+So is a `Depletion` with one pool drawn from, `flows_first = false` and no `overflow`.
+`Redistribute` and `Allocate` act on several strata.
+Each modifier here has a [hand-written gradient](@ref adjoint-routing).
+A `Transform` whose `f` captures numbers of its own, as a closure does, is the exception unless it is given a `derivative`.
 
 ## [Depletion forms and indexing](@id overview-variants)
 
-Depletion forms, flow forms and time indexing are types, and you pass an instance.
+A depletion form sets how a pool gives up what a step asks for.
+A time index sets which day each column of a time-varying kernel belongs to.
+Each is a type, passed as an instance.
+
+```julia
+Depletion(N; form = Floor())
+```
 
 | Name | What it does | Example |
 |---|---|---|
-| [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N; form = Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(b; form = Truncate())`, `Depletion(C; form = SoftTruncate(0.1), fill = :S)` |
-| [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
-| [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
-| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N; form = MyForm())` |
-| [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its pool; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(:S => :V, p; form = Share())` |
+| [`Hazard()`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
+| [`Floor()`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N; form = Floor())` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(B; form = Truncate())` for a budget `B` |
+| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(C; form = SoftTruncate(0.1), fill = :S)` |
+| [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool each day | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
+| [`Secondary()`](@ref ComposableRecurrences.Secondary) | column ``\tau`` is the kernel of output day ``\tau``; the default | `TimeVarying(P)` |
+| [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` is the kernel of input day ``\tau`` | `TimeVarying(P, Primary())` |
+| a type you write | a new depletion form | `Depletion(N; form = MyForm())` |
 
-The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.
+A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
+With `Truncate()` or `SoftTruncate(κ)` a flow is a count, capped by what remains.
+With `Secondary()`, column ``\tau`` holds the weights the output on day ``\tau`` puts on earlier days, such as the delays of the reports on day ``\tau``.
+With `Primary()`, column ``\tau`` holds how the value on day ``\tau`` spreads over later days, such as the delays of the infections on day ``\tau``.
+For a recurrence, the value on day ``\tau`` is its own output.
+A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, `Step()`.
 
 ## [Time-series processes](@id overview-time-series)
+
+A latent process is one that is not observed, such as a random walk on the log reproduction number.
+It is also a recurrence or a convolution, driven by noise ``\epsilon_t``.
+A recurrence takes the noise as `add`, and a convolution as its input.
+
+```julia
+Recurrence([1.0])(; history = [0.0], add = ϵ)
+```
 
 | Process | Maths | Code |
 |---|---|---|
 | Random walk | ``z_t = z_{t-1} + \epsilon_t`` | `Recurrence([1.0])(; history = [z0], add = ϵ)` |
-| AR(p) | ``z_t = \sum_{l=1}^{p} \rho_l z_{t-l} + \epsilon_t`` | `Recurrence(ρ)(; history, add = ϵ)` |
-| Time-varying AR(1) | ``z_t = \rho_t z_{t-1} + \epsilon_t`` | `Recurrence(TimeVarying(reshape(ρ, 1, :)))(; history, add = ϵ)` |
-| MA(q) | ``z_t = \epsilon_t + \sum_{l=1}^{q} \theta_l \epsilon_{t-l}`` | `Convolution(vcat(1, θ))(ϵ)` |
-| Values before the gain | ``p_t = \sum_{l=1}^{L} k_l y_{t-l}`` | `Convolution(vcat(0, k))(y; history)` |
+| Autoregression, AR(p) | ``z_t = \sum_{l=1}^{p} \phi_l z_{t-l} + \epsilon_t`` | `Recurrence(φ)(; history, add = ϵ)` |
+| Autoregression with a coefficient that changes by day | ``z_t = \phi_t z_{t-1} + \epsilon_t`` | `Recurrence(TimeVarying(reshape(φ, 1, :)))(; history, add = ϵ)` |
+| Moving average, MA(q) | ``z_t = \epsilon_t + \sum_{l=1}^{q} \theta_l \epsilon_{t-l}`` | `Convolution(vcat(1, θ))(ϵ)` |
+| Weighted sum of a recurrence's past outputs | ``p_t = \sum_{l=1}^{L} k_l y_{t-l}`` | `Convolution(vcat(0, k))(y; history)` |
 
-The [Latent processes driving R_t](@ref tutorial-latent-rt) tutorial builds each process.
+These calls have no gain, and the run is as long as `ϵ`.
+`reshape(φ, 1, :)` makes a kernel of one lag with a column per day.
+The last row recomputes ``p_t`` from a recurrence's output `y`, as operators return only their outputs.
 
 ## [Executors](@id overview-executors)
 
+An [executor](@ref executors) sets where an operator's loops run: in order, on threads or on a device such as a GPU.
+The default runs in order.
+
+```julia
+with(EXECUTOR => Threaded()) do
+    renewal(R; history = seed)
+end
+```
+
 | Name | What it does | Returns |
 |---|---|---|
-| [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor operator calls use, set for a block with `with` | a scoped value |
-| [`Serial()`](@ref ComposableRecurrences.Serial), [`Threaded()`](@ref ComposableRecurrences.Threaded), [`Device(backend)`](@ref ComposableRecurrences.Device) | the built-in executors | an executor |
+| [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor every call inside a `with` block uses | a setting |
+| [`Serial()`](@ref ComposableRecurrences.Serial) | runs the loops in order; the default | an executor |
+| [`Threaded()`](@ref ComposableRecurrences.Threaded) | runs the loops on threads | an executor |
+| [`Device(backend)`](@ref ComposableRecurrences.Device) | runs the loops on a device, such as a GPU's KernelAbstractions.jl backend | an executor |
 
-[Executors](@ref executors) says what each does and supports under each AD backend.
+`with` comes from `Base.ScopedValues`, and the setting holds inside its block only.
 
 ## [Extension API](@id overview-extending)
 
-These names are for writing a new coupling, modifier or depletion form, and for checking its gradient.
+These names are for writing a [new coupling, modifier or depletion form](@ref extending), and for checking its gradient.
 A model built from the package's own parts needs none of them.
-[Writing new types](@ref extending) gives the contract and an example for each role.
+A role is the job a method does: `Step()` is one step, `Init()` the starting state, `Pressure()` a coupling's mixing and `Trace()` a modifier's record for a call with `trace = true`.
+`Run()` is the role of an operator's whole call.
+The rule is the hand-written gradient of an operator call.
+A cotangent is the gradient of the result with respect to a value, passed backwards through the call.
+The buffer is the store of past outputs a run keeps.
 
 | Name | What it does | Returns |
 |---|---|---|
-| [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one job | writes in place, returns `nothing` |
-| [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | accumulates cotangents |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the job a `forward!` method does: one step, the starting state, a coupling's mixing, a modifier's record for a call with `trace = true` | singletons for dispatch |
-| [`Run()`](@ref ComposableRecurrences.Run) | an operator's whole call, the role `uses_adjoint`, `PieceInterface` and `test_adjoint` take for an operator | a singleton for dispatch |
+| [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one role | writes in place, returns `nothing` |
+| [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | adds to the cotangents |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace), [`Run()`](@ref ComposableRecurrences.Run) | the roles | types with no fields, which pick a method |
 | [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role`; see [Rules and plain AD](@ref adjoint-routing) | `Bool` |
-| [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of series: `(nv, ns)` values and state entries per group, `(1, 1)` for one that acts on each series separately | a tuple, or `nothing` for one that reads every series |
-| [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each series separately, from `blocks` | `Bool` |
-| [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` series, from `blocks` | `Int` |
-| [`param(x, k, t)`](@ref ComposableRecurrences.param), [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | read a parameter for series `k` at time `t`, and add to its cotangent | a value, or `nothing` |
-| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent), [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | the cotangent of a field, and an addition to it | a cotangent, or `nothing` |
-| [`depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads, to deepen the buffer past the kernel | `Int` |
-| [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the element type a type's parameters promote the buffer to | a type |
-| [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the Interfaces.jl conformance test for a new type | a test result |
+| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
+| [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
+| [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each stratum on its own | `Bool` |
+| [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
+| [`param(x, k, t)`](@ref ComposableRecurrences.param) | reads a parameter for stratum `k` on day `t` | a value |
+| [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | adds to a parameter's cotangent | `nothing` |
+| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent) | the cotangent of a field | a cotangent, or `nothing` |
+| [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
+| [`depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads | `Int` |
+| [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the number type a type's parameters need in the buffer | a type |
+| [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the conformance test for a new type, built on the Interfaces.jl package | a test result |
+
+`uses_adjoint`, `PieceInterface` and `test_adjoint` take `Run()` for an operator.
+`blocks` gives `(nv, ns)`, the number of values and of state entries in each group.
+It is `(1, 1)` for a pointwise modifier and `nothing` for one that reads every stratum.
+`ispointwise` and `nstate` are read from `blocks`.
+A run keeps at least `depth` past outputs, even when the kernel is shorter.
 
 ### [Checking gradients](@id overview-gradients)
 
+An adjoint is an operator's hand-written gradient.
+It can be checked against the gradient that automatic differentiation computes from the operator's code.
+
 | Name | What it does | Returns |
 |---|---|---|
-| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its hand-written gradient, to check or time one against the other | an operator |
-| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the backend's own rule tester on an operator's hand-written gradient; it needs Mooncake, or Enzyme and EnzymeTestUtils, loaded | a test result |
+| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its [adjoint](@ref adjoints-backends) | an operator |
+| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the rule tester of an automatic differentiation package on an operator's adjoint | a test result |
 
-[Adjoints and backends](@ref adjoints-backends) says when each backend uses the hand-written gradient.
+The gradient through `NoAdjoint(op)` checks the gradient through `op`, and timing both compares their cost.
+`backend` names the automatic differentiation package, such as Mooncake or Enzyme.
+`test_adjoint` needs the Mooncake package, or the Enzyme and EnzymeTestUtils packages, loaded.

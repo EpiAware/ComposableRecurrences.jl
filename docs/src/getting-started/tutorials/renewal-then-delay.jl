@@ -15,7 +15,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on the [Getting started](@ref getting-started) example, with no fitting.
+# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 
@@ -47,7 +47,7 @@ end
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
-# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r` (see [Seeding](@ref explanation-seeding)).
+# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a [seed](@ref explanation-seeding) already growing at rate `r`.
 # Its docstring gives the equation linking `r` to `R`, and a few Newton steps solve it.
 
 euler_lotka(r, R, gi) = R * sum(gi[l] * exp(-r * l) for l in eachindex(gi)) - 1
@@ -188,7 +188,7 @@ end
 # ## Clinical outcomes
 #
 # A reporting delay is a `Convolution` with the ascertainment as its gain, as in [Getting started](@ref overview-build).
-# Its masses are on whole days, the model's step; [Time units](@ref time-units) covers delays and data at another cadence.
+# Its masses are on whole days, the model's [step](@ref time-units).
 # Each clinical transition is the same: a delay that happens with some probability.
 # Onsets ``O_t`` follow infections.
 # Admissions follow onsets with probability ``h``.
@@ -212,7 +212,7 @@ round.((sum(admissions), sum(deaths)) ./ sum(infections); digits = 3)
 #
 # `renewal(R; history, stop = 50, state = true)` runs to day 50 and also returns a `State`.
 # Here the state holds the infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
-# Passing it back as `state` continues the run, and returns the next `State`; [History and state](@ref explanation-history-state) explains what a `State` holds.
+# Passing it back as `state` continues the run, and returns the next [`State`](@ref explanation-history-state).
 
 split = 50
 fitted, state = renewal(R; history = [5.0], stop = split, state = true)

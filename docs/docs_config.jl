@@ -164,6 +164,9 @@ const INDEX_REWRITES = Pair{String, String}[
         "](@ref api-overview)",
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/)" =>
         "](@ref adjoints-backends)",
+    # The README's model block prints nothing on the home page.
+    "reports = delay(infections; gain = 0.4)" =>
+        "reports = delay(infections; gain = 0.4)\nnothing # hide",
 ]
 
 # Whether README ```julia blocks become runnable `@example readme` blocks on

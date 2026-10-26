@@ -20,7 +20,7 @@ Each slot accepts its own set of wrappers.
 | coupling | `S × S` or `λI` | no | yes | no | no | no | no |
 | modifier parameter | one value | yes | yes | no | no | yes | yes |
 
-[`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only, as the [time-varying tutorial](@ref tutorial-time-varying-kernels) explains.
+[`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only; anywhere else it is an `ArgumentError`.
 
 ## [Nesting](@id explanation-nesting)
 
@@ -29,8 +29,8 @@ So `TimeVarying(PerStratum(G))` is an `S × L × T` kernel and `TimeVarying(Pair
 A `Derived` or `Recent` parameter sits inside arithmetic, as in `κ * Recent(7)`, and its arguments may be any other parameter.
 
 Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.param), which takes every form.
-So a new wrapper or parameter form works with every modifier that reads through `param`, with no change to the modifier.
-[The gradient mirror](@ref extending-mirror) gives the matching rule for gradients.
+So a new wrapper or parameter form works with every modifier that reads through `param`.
+A parameter's cotangent goes back through [`add_param!`](@ref ComposableRecurrences.add_param!), which also takes every form.
 
 ## [Where the coupling acts](@id explanation-coupling)
 

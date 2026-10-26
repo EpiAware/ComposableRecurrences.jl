@@ -104,7 +104,7 @@ where ``K_{ij}`` weights town ``j`` in town ``i``.
 ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 ``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
 The gravity weight ``G_{ii}`` of a town on itself is 0, so larger and nearer towns contribute more.
-The towns are [strata](@ref glossary-stratum), and only town A is seeded.
+The towns are [strata](@ref overview-step), and only town A is seeded.
 
 ```@example overview
 towns = ["A", "B", "C"]
@@ -227,7 +227,8 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4);
+reports = delay(infections; gain = 0.4)
+nothing # hide
 ```
 
 The reports use the delay from the second step.

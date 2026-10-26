@@ -15,7 +15,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay), with no fitting.
+# It builds on [Renewal then delay](@ref tutorial-renewal-delay).
 
 # ## Packages used
 
@@ -151,7 +151,7 @@ end
 #
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
 # The run starts at `start = 7` after six seed values.
-# `prepend = true` returns the seed with the run (see [`Recurrence`](@ref)).
+# With `prepend = true`, a [`Recurrence`](@ref) returns the seed with the run.
 # The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30

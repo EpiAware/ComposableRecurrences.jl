@@ -15,7 +15,6 @@
 # ### What might I need to know before starting
 #
 # This builds on [Getting started](@ref getting-started) and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
-# No fitting is involved.
 
 # ## Packages used
 

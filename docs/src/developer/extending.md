@@ -27,7 +27,7 @@ A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is read from 
 The arguments mean the same in every role:
 
 - `t` is the absolute time, counted from 1 as `start` and `stop` are.
-- `v` holds one value per [stratum](@ref glossary-stratum), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
+- `v` holds one value per [stratum](@ref overview-step), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
 - `history` is the call's `history` as given: a vector for one series, else strata × time.
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
@@ -67,9 +67,9 @@ Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), wh
 Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).
 Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 These accept every parameter form, including [`Derived`](@ref) and [`Recent`](@ref).
-Call `add_param!` for every parameter, even with a `nothing` mirror; [`add_param!`](@ref ComposableRecurrences.add_param!) says why.
+Call [`add_param!`](@ref ComposableRecurrences.add_param!) for every parameter, even with a `nothing` mirror, as a [`Recent`](@ref) parameter still sends its cotangent to the outputs it read.
 
-A type without a `pullback!` still takes the rule when the local step can rebuild it; [What the local step needs](@ref adjoint-local-step) gives the conditions.
+A type without a `pullback!` still takes the rule when the [local step](@ref adjoint-local-step) can rebuild it.
 
 ## [A first modifier](@id extending-pointwise)
 
@@ -124,7 +124,7 @@ model(a) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Smooth(a), pool))
 [argmax(model(a)(fill(1.8, 80); history = seed)) for a in (0.0, 0.5, 0.8)]
 ```
 
-Without a `pullback!` the operator still takes its rule; [Rules and plain AD](@ref adjoint-routing) gives the route.
+Without a `pullback!` the operator still takes its [rule](@ref adjoint-routing).
 
 ```@example extending
 using ForwardDiff
@@ -434,7 +434,7 @@ Interfaces.test(
 
 Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
 Use Mooncake or Enzyme, and a loss that changes with every parameter.
-[Backends](@ref adjoint-backends) says why it must be reverse mode.
+Forward-mode [backends](@ref adjoint-backends) never take the rule.
 
 ```julia
 using DifferentiationInterface, Mooncake
@@ -447,8 +447,7 @@ gradient(loss(r), backend, [0.3]) ≈
 ```
 
 For a new operator, `ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)` then runs the backend's own rule tester on its rule, with `args` its positional arguments.
-It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded; [Checking a rule](@ref adjoint-checks) says more.
-[Testing and benchmarking](@ref testing) covers timing.
+It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded.
 
 ## [Performance](@id extending-performance)
 

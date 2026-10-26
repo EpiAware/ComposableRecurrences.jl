@@ -67,7 +67,7 @@ inputs = (; gi, delay, K, seeds);
 
 # The model is two modifiers on one `Recurrence`, then a `Convolution`.
 # [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves each origin's share, and [`Depletion`](@ref ComposableRecurrences.Depletion) draws from each patch's pool.
-# The seeds are the history, so the run starts on the day after them (see [Seeding](@ref explanation-seeding)).
+# The seeds are the [history](@ref explanation-seeding), so the run starts on the day after them.
 # The fixed inputs come in as one named tuple, so the function reads no globals.
 
 function backend_model(R, ε, N, inputs)
@@ -171,7 +171,7 @@ DataFrame(
 )
 
 # Each reverse-mode gradient matches the ForwardDiff reference to rounding.
-# The package's gradient needs no rule written for the model; [Rules and plain AD](@ref adjoint-routing) says which code each operator runs.
+# The package's gradient needs no rule written for the model: each operator call takes its own [rule](@ref adjoint-routing) or plain AD.
 #
 # ## Timing against the backend loops
 #
@@ -227,13 +227,13 @@ end
 #
 # Four conventions differ between the loops and the package:
 #
-# - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as [the lag origin](@ref explanation-lag-origin) explains.
+# - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as a recurrence's first weight is on the [previous value](@ref explanation-lag-origin).
 # - `BVDOutbreakSize` reads `Rt` on the seed days and returns them first: `start` skips them and `prepend` returns them.
 # - `ComposableTuringIDModels` seeds on a growth path: [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives the same window.
 # - `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.
 
 # ## Learning more
 #
-# - [Adjoints and backends](@ref adjoints-backends) says which code each backend runs.
-# - [Testing and benchmarking](@ref testing) describes the use-case tests and the benchmark matrix.
+# - [Adjoints and backends](@ref adjoints-backends): which code each backend runs.
+# - [Testing and benchmarking](@ref testing): the use-case tests and the benchmark matrix.
 # - Want the full interface? See the [Public API](@ref public-api).

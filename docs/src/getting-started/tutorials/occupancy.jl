@@ -14,7 +14,7 @@
 #
 # ### What might I need to know before starting
 #
-# The [Getting started](@ref getting-started) overview; no fitting is involved.
+# The [Getting started](@ref getting-started) overview.
 
 # ## Packages used
 

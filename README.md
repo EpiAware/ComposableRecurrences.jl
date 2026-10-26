@@ -65,7 +65,7 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4);
+reports = delay(infections; gain = 0.4)
 ```
 
 ![Infections, reports and the remaining susceptible share in each town, with the intervention from day 50 to 56 shaded](docs/src/assets/readme-example.png)
