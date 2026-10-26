@@ -1,7 +1,5 @@
 # [Developer documentation](@id developer)
 
-This section is for contributors and maintainers.
-
 - [Contributing guide](@ref contributing): how to propose and test a change.
 - [Writing new types](@ref extending): the roles, gradients and checks for a new modifier, coupling or depletion form.
 - [Testing and benchmarking](@ref testing): conformance tests, comparing with plain automatic differentiation, and the benchmark matrix.

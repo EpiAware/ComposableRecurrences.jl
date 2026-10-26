@@ -1,6 +1,5 @@
 # [Adjoints and backends](@id adjoints-backends)
 
-This page says which code runs when an AD backend differentiates an operator call, and how executors interact with each backend.
 For which backend to choose, see [Choosing a backend](@ref ad-backends).
 
 ## [Rules and plain AD](@id adjoint-routing)

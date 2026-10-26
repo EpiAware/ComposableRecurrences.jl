@@ -31,6 +31,7 @@ y_t = g_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t .
 
 Names that are public but not exported are written unqualified below.
 Load them with `using ComposableRecurrences: Depletion, Floor, State`, and so on.
+Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
 For models from infectious disease epidemiology, see [Infectious disease models](@ref infectious-disease-models).
 
 ## [Words used on these pages](@id glossary)
@@ -50,21 +51,6 @@ Acting on each series separately; [`ispointwise`](@ref ComposableRecurrences.isp
 ### [Pool](@id glossary-pool)
 
 A quantity carried from one step to the next that a step draws from or adds to; a [`Depletion`](@ref ComposableRecurrences.Depletion) holds one or more.
-
-## Tables
-
-Each table below lists one part of the package:
-[operators](@ref overview-operators),
-[calls](@ref overview-calls),
-[shapes](@ref overview-shapes),
-[delay distributions](@ref overview-delays),
-[couplings](@ref overview-couplings),
-[modifiers](@ref overview-modifiers),
-[depletion forms and indexing](@ref overview-variants),
-[time-series processes](@ref overview-time-series),
-[executors](@ref overview-executors) and
-the [extension API](@ref overview-extending), which includes
-[checking gradients](@ref overview-gradients).
 
 ## [Operators](@id overview-operators)
 

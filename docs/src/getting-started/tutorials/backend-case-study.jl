@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) backend models an outbreak across 11 patches, writing its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
-# This page builds the same model from the package's operators and compares the two.
 # The inputs are invented and nothing is fitted.
 #
 # ### What are we going to do in this exercise
@@ -206,8 +205,7 @@ end
 #
 # A hand-written loop maps to one operator call per kernel.
 # The [domain guide](@ref infectious-disease-models) gives the operator for each model part.
-# The tables below give the call for each loop in two backends, and the use-case test that checks it.
-# Each test matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
+# Each use-case test in the tables matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
 #
 # `BVDOutbreakSize` writes its kernels as functions over the whole series:
 #

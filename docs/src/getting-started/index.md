@@ -9,10 +9,8 @@ Computational efficiency is a main focus; see [Performance](@ref overview-perfor
 
 ## [Building the model](@id overview-build)
 
-Three towns share an outbreak.
-This section builds a model of it in five steps.
-Each step gives the equation, then the code, then a plot of what the step adds.
-The model and numbers are those of the README.
+The example is an outbreak in three towns.
+People travel between the towns, each town has a finite population, infections are reported after a delay, and an intervention lowers transmission from day 50.
 The equations follow the [`Recurrence`](@ref), [`Convolution`](@ref) and [`Depletion`](@ref ComposableRecurrences.Depletion) docstrings.
 
 ```@example overview
@@ -34,7 +32,8 @@ nothing # hide
 
 ### One town
 
-Infections follow a renewal process:
+Each infection causes new infections some days later.
+A renewal process models this: new infections are a weighted sum of earlier infections,
 
 ```math
 I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l},
@@ -56,11 +55,13 @@ one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
 end
 ```
 
-Nothing limits growth yet, so infections grow exponentially.
+The reproduction number stays at 1.8 and nothing limits growth.
+Infections grow by about 20% a day, so the curve bends upwards.
 
 ### A reporting delay
 
-A share ``\rho`` of infections is reported, after a delay:
+Infections are not observed directly.
+Reports are a share ``\rho`` of infections, recorded after a delay:
 
 ```math
 C_t = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l},
@@ -82,14 +83,14 @@ one_report = delay(one_town; gain = 0.4)
 end
 ```
 
-The gain reports 40% of infections, spread over the days that follow by the delay.
-While infections grow, reports lag them, so each day's reports are about a quarter of that day's infections.
-These two steps are the usual model of infections and their reports.
-Each later step adds one part to it.
+Reports follow infections, later and lower.
+The gain reports 40% of infections.
+While infections grow, each day's reports come from the smaller numbers of earlier days, so they are about a quarter of that day's infections.
 
 ### Three towns and a gravity coupling
 
-Each town now has its own infections ``I_{t,i}``, and a coupling ``K`` mixes the towns:
+People travel between towns, so infections in one town cause infections in the others.
+Each town now has its own infections ``I_{t,i}``, and a gravity coupling ``K`` mixes the towns:
 
 ```math
 I_{t,i} = R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j},
@@ -102,7 +103,7 @@ G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j,
 where ``K_{ij}`` weights town ``j`` in town ``i``.
 ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 ``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
-The gravity weight ``G_{ii}`` of a town on itself is 0.
+The gravity weight ``G_{ii}`` of a town on itself is 0, so larger and nearer towns contribute more.
 The towns are [strata](@ref glossary-stratum), and only town A is seeded.
 
 ```@example overview
@@ -125,60 +126,114 @@ coupled = Recurrence(gi; coupling = K)(fill(1.8, 3, T); history = seed)
 end
 ```
 
-Towns B and C start from infections that town A passes on.
+The plot uses a log scale.
+Towns B and C start from the infections town A passes on, so they start lower.
 They then grow at about the same rate as town A.
 
 ### Depletion
 
-Each town's susceptible pool ``s_{t,i}`` starts at ``N_i`` and shrinks by the infections drawn from it.
+Each infection removes a person from the pool of people who can be infected.
+A finite pool stops an outbreak growing without limit.
+In town A alone, the susceptible pool ``s_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
 The default hazard form, with its exponent at the default of 1, draws
 
 ```math
-\lambda_{t,i} = \frac{v_{t,i}}{N_i}, \qquad
-I_{t,i} = s_{t-1,i} \big(1 - e^{-\lambda_{t,i}}\big), \qquad
-s_{t,i} = s_{t-1,i} \, e^{-\lambda_{t,i}},
+\lambda_t = \frac{v_t}{N}, \qquad
+I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
+s_t = s_{t-1} \, e^{-\lambda_t},
 ```
 
-where ``v_{t,i}`` is the right-hand side of the coupled equation above.
-``\lambda_{t,i}`` is the hazard.
-[`PerStratum`](@ref) gives each town its own population.
+where ``v_t`` is the right-hand side of the renewal equation and ``\lambda_t`` is the hazard.
 
 ```@example overview
-renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-depleted = renewal(fill(1.8, 3, T); history = seed)
+one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = fill(10.0, 6))
 
-@chain long(depleted, towns) begin
-    data(_) * mapping(:day, :count, color = :town => "Town") *
-        visual(Lines, linewidth = 2)
+@chain DataFrame(day = 1:T, count = one_depleted) begin
+    data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"), figure = small)
 end
 ```
 
-Each outbreak now peaks and declines as its pool runs down.
-Town A peaks first, and towns B and C about two weeks later.
-About 73% of each town is infected by the end.
-The delay from the second step gives each town's total reports over the 75 days:
-
-```@example overview
-round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
-```
+Infections rise as before, then peak on day 36 and decline as the pool runs down.
+About 73% of the town is infected by day 75.
 
 ### An intervention
 
-An intervention from day 50 lowers the reproduction number over six days:
+An intervention such as distancing lowers the reproduction number.
+From day 50 it falls from 1.8 to 0.8 over six days:
 
 ```math
-R_{t,i} = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
+R_t = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
 ```
 
-The reports are those of the delay above, applied to each town.
+```@example overview
+intervention = [1.8 - clamp((t - 50) / 6, 0, 1) for t in 1:T]
+one_intervened = Recurrence(gi)(intervention; history = fill(10.0, 6))
+
+@chain long([one_town one_intervened]', ["No intervention", "Intervention"]; name = :series) begin
+    data(_) * mapping(:day, :count, color = :series => "") *
+        visual(Lines, linewidth = 2)
+    draw(
+        _; axis = (xlabel = "Day", ylabel = "Infections", yscale = log10),
+        figure = small
+    )
+end
+```
+
+The plot uses a log scale.
+The two runs match until day 50.
+Infections peak on day 53, because infections from the days before still cause new ones.
+Once the reproduction number is below one, infections fall by about 6% a day.
+
+### [Putting it all together](@id overview-together)
+
+Three towns share an outbreak.
+Infections in each town come from earlier infections in that town and, through travel, in the other towns.
+Each town has a finite number of people who can be infected.
+A share of infections is reported after a delay.
+An intervention from day 50 lowers the reproduction number in every town.
+
+```math
+\begin{aligned}
+v_{t,i} &= R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}, \\
+I_{t,i} &= s_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad s_{t,i} = s_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
+C_{t,i} &= \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}, \\
+K_{ij} &= 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \\
+R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
+\end{aligned}
+```
+
+where ``I_{t,i}`` is the number of infections in town ``i`` on day ``t``, ``C_{t,i}`` the number of reports and ``R_{t,i}`` the reproduction number.
+The infection pressure is ``v_{t,i}``, and the susceptible pool ``s_{t,i}`` starts at the population ``N_i``.
+The generation interval has weight ``g_l`` on lag ``l``, the reporting delay has weight ``w_l``, and a share ``\rho = 0.4`` of infections is reported.
+The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
+The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
+Town A has 10 infections on each of the six days before day 1, and the other towns none.
+
+```@example overview
+using ComposableRecurrences
+using ComposableRecurrences: Depletion
+
+gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+T = 75
+towns = ["A", "B", "C"]
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
+
+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+infections = renewal(R; history = seed)
+reports = delay(infections; gain = 0.4);
+```
+
+The reports use the delay from the second step.
 The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
 
 ```@example overview
-R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
-infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
-
 susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
 @chain [
         ("Infections", "Daily count") => infections,
@@ -193,7 +248,9 @@ susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
 end
 ```
 
-Town A turns before the intervention because its susceptible pool runs down.
+Town A peaks on day 36, before the intervention, because its susceptible pool runs down.
+Towns B and C are still growing on day 50, and the intervention turns them.
+About 49% of town B and 54% of town C are infected, against 73% without the intervention.
 
 ## [Performance](@id overview-performance)
 

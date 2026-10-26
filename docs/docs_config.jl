@@ -274,4 +274,4 @@ const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
 
 # An optional Getting-started FAQ page, listed right after Overview, e.g.
 # `"getting-started/faq.md"`. Leave `nothing` to omit it.
-const GETTING_STARTED_FAQ = "getting-started/faq.md"
+const GETTING_STARTED_FAQ = nothing

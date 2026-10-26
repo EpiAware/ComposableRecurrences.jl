@@ -1,8 +1,6 @@
 # [Time units](@id time-units)
 
 A model has one time unit, its step.
-This page says what is read at that step, and what to do when parameters, data or delays come at another cadence.
-Each section gives the maths, then the line of code.
 
 ```@example time-units
 using ComposableRecurrences, Distributions, CensoredDistributions

@@ -1,6 +1,5 @@
 # [Operators](@id explanation-operators)
 
-This page explains how the two operators handle time.
 The [API overview](@ref api-overview) gives the full step and the calls, and [`Recurrence`](@ref) and [`Convolution`](@ref) give every argument.
 
 ```@example operators

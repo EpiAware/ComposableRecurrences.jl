@@ -1,6 +1,5 @@
 # [Modifiers](@id explanation-modifiers)
 
-This page explains how modifiers compose: their order, their state and their scope.
 The [modifiers table](@ref overview-modifiers) lists the built-ins, and each one's docstring gives its maths.
 
 ```@example modifiers

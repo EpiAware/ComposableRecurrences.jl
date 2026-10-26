@@ -3,7 +3,7 @@
 # ## Introduction
 #
 # A branching process follows the offspring of each case, and its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
-# This tutorial computes these expectations; it does not simulate chains.
+# The operators compute these expectations; they do not simulate chains.
 #
 # ### What are we going to do in this exercise
 #

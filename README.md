@@ -26,94 +26,51 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
 ## Getting started
 
 Three towns share an outbreak.
-Each part below gives what an operator computes, then the call that computes it.
-
-### Renewal
-
-Infections $I_t$ renew with reproduction number $R_t$ and generation interval $g_l$:
+Infections in each town come from earlier infections in that town and, through travel, in the other towns.
+Each town has a finite number of people who can be infected.
+A share of infections is reported after a delay.
+An intervention from day 50 lowers the reproduction number in every town.
 
 ```math
-I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
+\begin{aligned}
+v_{t,i} &= R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}, \\
+I_{t,i} &= s_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad s_{t,i} = s_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
+C_{t,i} &= \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}, \\
+K_{ij} &= 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \\
+R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
+\end{aligned}
 ```
+
+where $I_{t,i}$ is the number of infections in town $i$ on day $t$, $C_{t,i}$ the number of reports and $R_{t,i}$ the reproduction number.
+The infection pressure is $v_{t,i}$, and the susceptible pool $s_{t,i}$ starts at the population $N_i$.
+The generation interval has weight $g_l$ on lag $l$, the reporting delay has weight $w_l$, and a share $\rho = 0.4$ of infections is reported.
+The gravity coupling $K_{ij}$ comes from the populations and the distances $d_{ij}$ between towns, with $G_{ii} = 0$.
+The term $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
+Town A has 10 infections on each of the six days before day 1, and the other towns none.
 
 ```julia
 using ComposableRecurrences
+using ComposableRecurrences: Depletion
+
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 T = 75
-one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
-```
-
-### Three towns and a gravity coupling
-
-A gravity coupling $K$ mixes the towns through gravity weights $G_{ij}$, from populations $N_j$ and distances $d_{ij}$:
-
-```math
-I_{t,i} = R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j},
-\qquad
-K_{ij} = 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}},
-\qquad
-G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j.
-```
-
-Here $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise, and $G_{ii} = 0$.
-
-```julia
+towns = ["A", "B", "C"]
 pop = [60_000.0, 25_000.0, 10_000.0]
 dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
 gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
 K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
-```
-
-### Depletion
-
-Each town's pool $s_{t,i}$ starts at $N_i$, and $v_{t,i}$, the right-hand side of the coupled equation, draws from it at hazard $\lambda_{t,i}$:
-
-```math
-\lambda_{t,i} = \frac{v_{t,i}}{N_i}, \qquad
-I_{t,i} = s_{t-1,i} \big(1 - e^{-\lambda_{t,i}}\big), \qquad
-s_{t,i} = s_{t-1,i} \, e^{-\lambda_{t,i}}.
-```
-
-The `seed` history gives town A 10 infections on each of the six days before the run, and the other towns none.
-
-```julia
-using ComposableRecurrences: Depletion
-renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
-depleted = renewal(fill(1.8, 3, T); history = seed)
-```
-
-### A reporting delay
-
-A share $\rho$ of infections is reported as $C_{t,i}$, after a delay with weights $w_l$:
-
-```math
-C_{t,i} = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}.
-```
-
-```julia
-delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
-round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
-```
-
-### An intervention
-
-An intervention from day 50 lowers the reproduction number over six days:
-
-```math
-R_{t,i} = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
-```
-
-```julia
-towns = ["A", "B", "C"]
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
+
+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4);
 ```
 
-![Infections, reports and the remaining susceptible share in each town](docs/src/assets/readme-example.png)
+![Infections, reports and the remaining susceptible share in each town, with the intervention from day 50 to 56 shaded](docs/src/assets/readme-example.png)
 
-The [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-build) names every symbol, and adds the plot code, performance and gradients.
+The [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-build) builds the model one part at a time, and adds the plot code, performance and gradients.
 
 ## Related packages
 

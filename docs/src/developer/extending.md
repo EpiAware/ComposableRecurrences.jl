@@ -2,7 +2,6 @@
 
 A new modifier, coupling or depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for its role.
 Add a [`pullback!`](@ref ComposableRecurrences.pullback!) method for a hand-written gradient.
-This page gives the contract for each role, then one worked example for each kind of type.
 
 ```@example extending
 using ComposableRecurrences

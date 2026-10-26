@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
-# This tutorial adds the parts it leaves out.
 #
 # ### What are we going to do in this exercise
 #
@@ -37,6 +36,13 @@ renewal = Recurrence(gi)
 T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 infections = renewal(R; history = [5.0])
+
+@chain DataFrame(day = 1:T, count = infections) begin
+    data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Infections grow while ``R_t`` is above one and fall while it is below one.
 
 # ### Seeding on a growth path
 #

@@ -1,6 +1,5 @@
 # [Shapes and couplings](@id explanation-shapes-couplings)
 
-This page explains which slot takes which shape, how wrappers nest, and how a coupling mixes series.
 The [shapes](@ref overview-shapes) and [couplings](@ref overview-couplings) tables list the names, and each wrapper's docstring gives its axes.
 
 ```@example shapes

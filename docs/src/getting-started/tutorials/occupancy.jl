@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
-# This tutorial models occupancy, bed capacity and the movement of patients within a ward.
 #
 # ### What are we going to do in this exercise
 #
