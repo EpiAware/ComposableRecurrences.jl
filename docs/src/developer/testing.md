@@ -158,7 +158,7 @@ The `Threads` workflow runs the tests with four threads, so `Threaded` loops run
 To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq).
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-On pull requests that change `src/recurrence*.jl`, `src/convolution.jl` or `ext/`, a smoke run checks three cases, forward and reverse at 20 steps, against the same file.
+On pull requests that change `src/` or `ext/`, a smoke run checks four cases, forward and reverse at 20 steps, against the same file.
 After a change, rerun it on Julia 1.12 from the repository root:
 
 ```bash
