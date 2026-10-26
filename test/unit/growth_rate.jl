@@ -27,6 +27,7 @@ end
 
 @testitem "growth_rate: element types and inference" begin
     using ComposableRecurrences: ComposableRecurrences as CR
+    using ForwardDiff: Dual
     g = [0.1, 0.3, 0.3, 0.2, 0.1]
     @test (@inferred CR.growth_rate(1.4, g)) isa Float64
     @test (@inferred CR.growth_rate(1.4f0, Float32.(g))) isa Float32
@@ -35,6 +36,10 @@ end
     @test (@inferred CR.reproduction_number(0.1, g)) isa Float64
     @test (@inferred CR.reproduction_number(0.1f0, Float32.(g))) isa Float32
     @test CR.growth_rate(1.4, view([0.0; g], 2:6)) == CR.growth_rate(1.4, g)
+    D = Dual{Nothing}
+    @test (@inferred CR.growth_rate(D(1.4, 1.0), D.(g, 1.0))) isa D{Float64, 1}
+    @test (@inferred CR.growth_rate(1.4, D.(g, 1.0))) isa D{Float64, 1}
+    @test (@inferred CR.reproduction_number(D(0.1, 1.0), g)) isa D{Float64, 1}
 end
 
 @testitem "growth_rate: a renewal seeded at the rate grows by e^r each step" begin
