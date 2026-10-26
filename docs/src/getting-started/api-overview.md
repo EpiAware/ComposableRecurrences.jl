@@ -81,6 +81,7 @@ A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@r
 |---|---|---|
 | [`(r::Recurrence)(gain; history, add, start, stop)`](@ref Recurrence) | runs `r` over times `start:stop`, multiplying each step by `gain` and adding `add` before the modifiers | a `Vector` of length `T`, or an `S × T` `Matrix` for `S` series |
 | [`(c::Convolution)(x; gain, add, history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop`, then multiplies by `gain` and adds `add` | an array shaped like `x` |
+| [`transpose(c)(x; tail, start, stop)`](@ref Base.transpose(::Convolution)), or `c'` | the sum that reads `x` forward from each time, the transpose of `c`; `tail` holds the values after the end of `x` | an array shaped like `x` |
 | [`contributions(c, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | the terms of `c(x; gain)` before the sum over lags, such as a reporting triangle | `L × T`, or `S × L × T` for `S` series |
 | [`(r::Recurrence)(gain; history, state = true)`](@ref Recurrence) | runs `r` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
 | [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t`, and returns the next `State` | a `(y, state)` tuple, with the values from `state.t` on |

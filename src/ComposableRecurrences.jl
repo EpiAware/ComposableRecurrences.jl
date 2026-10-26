@@ -145,6 +145,8 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
+# The transpose of a convolution, a sum that reads the series forward.
+include("transpose.jl")
 # Default pullbacks of modifiers and couplings without one, whose dual-number
 # code is in an extension.
 include("fallbacks.jl")
