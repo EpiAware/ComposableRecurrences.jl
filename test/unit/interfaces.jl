@@ -59,6 +59,12 @@ end
     )
     @test check(Gain, gain(1.0))
     @test !check(Gain, gain(1.01))
+    # An object marked `pullback = false` passes without the check.
+    skipped = Interfaces.Arguments(;
+        piece = Gain(0.5, 1.01), role = CR.Step(),
+        args = ([1.0, 2.0], [0.0, 0.0], 1), pullback = false
+    )
+    @test check(Gain, skipped)
     # A depletion form whose `α` cotangent is missing.
     struct Share{B} end
     function CR.forward!(::Share, ::CR.Step, v, s, N, α)

@@ -1,7 +1,9 @@
 # Interfaces.jl declaration of the role interface. Test objects are
-# `Arguments(; piece, role, args)`, with `kwargs` for a `Run`.
+# `Arguments(; piece, role, args)`, with `kwargs` for a `Run` and
+# `pullback = false` to skip the pullback check.
 
 _kwargs(a) = haskey(a, :kwargs) ? a.kwargs : (;)
+_checks_pullback(a) = !haskey(a, :pullback) || a.pullback
 
 # `forward!` runs and keeps to the role's conventions: outputs written into
 # the leading arrays and `nothing` returned, inputs unchanged; a `Run`
@@ -131,15 +133,14 @@ end
 # the rule calls on the whole vectors (per group for a blockwise one).
 function _pullback_matches(m, ::Step, args::Tuple{Any, Any, Any})
     v, s, t = float(copy(args[1])), float(copy(args[2])), args[3]
-    θ, nv = _params(m), length(v)
-    P = length(θ)
-    J = _check_jacobian([θ; v; s]) do z
+    P, nv = _nparams(m), length(v)
+    J = _check_jacobian([_params(m); v; s]) do z
         vz, sz = z[(P + 1):(P + nv)], z[(P + nv + 1):end]
         forward!(_rebuild(m, view(z, 1:P)), Step(), vz, sz, t)
         return [vz; sz]
     end
     J === nothing && return _no_jacobian()
-    w = _probe_cotangent(length(v) + length(s))
+    w = _probe_cotangent(nv + length(s))
     grads = (; piece = _zero_mirror(m), v = w[1:nv], s = w[(nv + 1):end])
     _vector_pullback!(grads, m, v, s, t)
     return _close(J, w, [_mirror_params(grads.piece, m); grads.v; grads.s])
@@ -148,9 +149,8 @@ end
 # `s`; the cotangents of the scalars `N` and `α` arrive indexed as `v`.
 function _pullback_matches(f, ::Step, args::Tuple{Any, Any, Any, Any})
     v, s, N, α = float(copy(args[1])), float(copy(args[2])), args[3], args[4]
-    θ, n = _params(f), length(v)
-    P = length(θ)
-    J = _check_jacobian([θ; v; s; N; α]) do z
+    P, n = _nparams(f), length(v)
+    J = _check_jacobian([_params(f); v; s; N; α]) do z
         vz, sz = z[(P + 1):(P + n)], z[(P + n + 1):(end - 2)]
         forward!(_rebuild(f, view(z, 1:P)), Step(), vz, sz, z[end - 1], z[end])
         return [vz; sz]
@@ -168,9 +168,8 @@ end
 # A coupling: input `p`, output `q`.
 function _pullback_matches(C, ::Pressure, args)
     q, p, t = float(copy(args[1])), float(copy(args[2])), args[3]
-    θ = _params(C)
-    P = length(θ)
-    J = _check_jacobian([θ; p]) do z
+    P = _nparams(C)
+    J = _check_jacobian([_params(C); p]) do z
         qz = similar(z, length(q))
         forward!(_rebuild(C, view(z, 1:P)), Pressure(), qz, z[(P + 1):end], t)
         return qz
@@ -191,25 +190,22 @@ function _no_jacobian()
     return true
 end
 
-# A cotangent with distinct entries of both signs, the same on every call.
-_probe_cotangent(n) = [cospi(0.37 * i + 0.1) for i in 1:n]
-
-# The float matrices whose mirror holds their fields' mirrors.
-const _StructMatrix = Union{
-    Diagonal{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat},
-}
+# A fixed, non-degenerate seed: entries of both signs and none zero.
+_probe_cotangent(n) = [cospi(0.37 * i + 0.105) for i in 1:n]
 
 # A zeroed mirror of `x`, as the extending guide's gradient mirror gives
-# it: a `Ref` for a float scalar, an array for a float array, a NamedTuple of
-# its fields' mirrors for a struct (a sparse or `Diagonal` matrix included)
-# and `nothing` for anything without a cotangent.
+# it: a `Ref` for a float scalar, an array for a float array, `(; nzval)`
+# or `(; diag)` for a sparse or `Diagonal` matrix, a NamedTuple of its
+# fields' mirrors for a struct and `nothing` for anything without a
+# cotangent.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
-_zero_mirror(x::_StructMatrix) = _struct_mirror(x)
+_zero_mirror(x::SparseMatrixCSC{<:AbstractFloat}) = (; nzval = zero(nonzeros(x)))
+_zero_mirror(x::Diagonal{<:AbstractFloat}) = (; diag = zero(x.diag))
 _zero_mirror(::_Leafless) = nothing
 _zero_mirror(x::Union{Tuple, NamedTuple}) = map(_zero_mirror, x)
-_zero_mirror(x) = isstructtype(typeof(x)) ? _struct_mirror(x) : nothing
-function _struct_mirror(x)
+function _zero_mirror(x)
+    isstructtype(typeof(x)) || return nothing
     names = fieldnames(typeof(x))
     return NamedTuple{names}(map(n -> _zero_mirror(getfield(x, n)), names))
 end
@@ -217,36 +213,13 @@ end
 # The entries of mirror `x̄` in the order of `_params(x)`.
 function _mirror_params(x̄, x)
     θ̄ = zeros(float(param_eltype(x)), _nparams(x))
-    _mirror_params!(θ̄, x̄, x, 0)
+    _walkparams!(_read_leaf!, x̄, x, θ̄, 0)
     return θ̄
 end
-function _mirror_params!(θ̄, x̄, ::AbstractFloat, o)
-    x̄ === nothing || (θ̄[o + 1] = x̄[])
-    return o + 1
-end
-function _mirror_params!(θ̄, x̄, x::AbstractArray{<:AbstractFloat}, o)
+_read_leaf!(x̄, ::AbstractFloat, θ̄, o) = (x̄ === nothing || (θ̄[o + 1] = x̄[]); o + 1)
+function _read_leaf!(x̄, x::AbstractArray, θ̄, o)
     x̄ === nothing || copyto!(θ̄, o + 1, vec(x̄), 1, length(x))
     return o + length(x)
-end
-function _mirror_params!(θ̄, x̄, x::SparseMatrixCSC{<:AbstractFloat}, o)
-    return _mirror_params!(θ̄, cotangent(x̄, :nzval), nonzeros(x), o)
-end
-function _mirror_params!(θ̄, x̄, x::Diagonal{<:AbstractFloat}, o)
-    return _mirror_params!(θ̄, cotangent(x̄, :diag), x.diag, o)
-end
-_mirror_params!(θ̄, x̄, ::_Leafless, o) = o
-function _mirror_params!(θ̄, x̄, x::Union{Tuple, NamedTuple}, o)
-    for i in 1:length(x)
-        o = _mirror_params!(θ̄, x̄ === nothing ? nothing : x̄[i], x[i], o)
-    end
-    return o
-end
-function _mirror_params!(θ̄, x̄, x, o)
-    isstructtype(typeof(x)) || return o
-    for n in fieldnames(typeof(x))
-        o = _mirror_params!(θ̄, _field_mirror(x̄, n), getfield(x, n), o)
-    end
-    return o
 end
 
 @interface PieceInterface Any (
@@ -264,7 +237,7 @@ end
         nstate = "Init and Step keep the state at nstate(m, S) entries" =>
             a -> _nstate_ok(a.piece, a.role, a.args),
         pullback = "pullback! matches the `ForwardDiff` Jacobian of forward!" =>
-            a -> _pullback_ok(a.piece, a.role, a.args),
+            a -> !_checks_pullback(a) || _pullback_ok(a.piece, a.role, a.args),
     ),
 ) "An operator, coupling, modifier or variant with `forward` or `forward!`
 for a role.
@@ -303,7 +276,9 @@ parameters and the role's inputs with ``J^\\top \\bar o`` at
 It needs `using ForwardDiff`, and passes with a note without it; it passes
 any other role and a type without a `pullback!`.
 
-Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`.
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`
+and `pullback = false` for an object the `pullback` component passes
+without a check.
 
 # Examples
 
@@ -345,8 +320,14 @@ true
     ),
 ]
 
+# An object on the same `pullback!` route as another of its type skips the
+# pullback check (`pullback = false`): its branches have their own tests
+# against a local Jacobian.
 @implements PieceInterface{(:pullback,)} UniformScaling [
-    Arguments(; piece = I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)),
+    Arguments(;
+        piece = I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1),
+        pullback = false
+    ),
     Arguments(; piece = 0.5I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)),
 ]
 
@@ -385,15 +366,18 @@ true
     ),
     Arguments(;
         piece = Depletion(80.0; removals = TimeVarying([4.0, 6.0])),
-        role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2)
+        role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(100.0; flows = Flow(1 => 0, 0.01)), role = Step(),
-        args = ([2.0, 3.0], [80.0, 60.0], 2)
+        args = ([2.0, 3.0], [80.0, 60.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(100.0; protected = 0.3, removals = 1.0),
-        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2)
+        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(
@@ -408,11 +392,13 @@ true
             weights = (V = PerStratum([0.5, 0.2]), S = 1),
             flows = (Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share()))
         ),
-        role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2)
+        role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(100.0; form = Truncate()), role = Step(),
-        args = ([2.0, 3.0], [80.0, 1.0], 2)
+        args = ([2.0, 3.0], [80.0, 1.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(;
@@ -436,7 +422,8 @@ true
             flows = Flow(:O => 0, 0.2; form = Share()), flows_first = true,
             overflow = :stratum
         ),
-        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2)
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(;
@@ -450,11 +437,13 @@ true
             ),
             overflow = :queue
         ),
-        role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1)
+        role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(; pools = (B = 1.0,), form = Truncate()),
-        role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2)
+        role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Depletion(
@@ -498,7 +487,8 @@ true
 @implements PieceInterface{(:nstate, :pullback)} Allocate [
     Arguments(;
         piece = Allocate([1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))),
-        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2)
+        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2),
+        pullback = false
     ),
     Arguments(;
         piece = Allocate([1:2, 3:3], 1.0), role = Init(),
