@@ -1009,9 +1009,10 @@ end
         @test dK.nzval ≈ ref
     end
     # A constant coupling with the gain and history active, over a resumed
-    # call, so the cotangent reaches the buffer through the coupling. The
-    # data is bound in a `let`: read as test-item variables, the call is
-    # not inferred and Enzyme cannot type it.
+    # call, so the cotangent reaches the buffer through the coupling. Its
+    # data is bound in a `let`, as the closures in the loop above capture
+    # only loop variables: read as test-item globals, the call is not
+    # inferred and Enzyme cannot type it.
     fs = let K = first(patterns), dense8 = dense8
         function (θ)
             R, h = reshape(θ[1:120], 3, 40), reshape(θ[121:126], 3, 2)

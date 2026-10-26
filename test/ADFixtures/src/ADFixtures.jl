@@ -2108,19 +2108,14 @@ end
 broken_scenario_names() = String[]
 
 """
-Per-backend broken scenario names (`Dict{String, Set{String}}`).
-
-Every scenario and its `NoAdjoint` twin passes on every backend, so there
-are none.
+Per-backend broken scenario names (`Dict{String, Set{String}}`): the
+scenarios expected to fail on a backend, by backend name.
 """
 backend_broken_scenarios() = Dict{String, Set{String}}()
 
 """
-Per-backend scenario names too unstable to run at all
-(`Dict{String, Set{String}}`).
-
-Every scenario and its `NoAdjoint` twin runs on every backend, so there are
-none.
+Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
+scenarios too unstable to run at all on a backend, by backend name.
 """
 backend_skip_scenarios() = Dict{String, Set{String}}()
 
