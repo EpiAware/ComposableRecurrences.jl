@@ -95,6 +95,10 @@ the first `lags` masses of their full linear convolution,
 \qquad l = 0, \dots, L - 1.
 ```
 
+Each delay's masses come from its own method, on lags `step` units wide.
+A vector of masses is read as given, whatever its length and `step`, so
+it must already be on lags of that width.
+
 A chain of discretised delays and a
 [sum of continuous delays discretised once](@ref time-units-chained) are
 different models.
@@ -221,7 +225,7 @@ end
 _links(::Type{Tuple{}}) = true
 function _links(::Type{T}) where {T <: Tuple}
     H = Base.tuple_type_head(T)
-    return (H <: AbstractVector || _isdelay(H)) &&
+    return (H <: AbstractVector{<:Real} || _isdelay(H)) &&
         _links(Base.tuple_type_tail(T))
 end
 

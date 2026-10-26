@@ -73,6 +73,8 @@ summed = Convolution(Gamma(7.0, 1.0); lags = 20).kernel
 round(maximum(abs, chained .- summed); digits = 3)
 ```
 
+The largest difference in mass, 0.002, is the rounding that each separately censored delay carries.
+
 ## [Parameters coarser than the step](@id time-units-parameters)
 
 A weekly reproduction number in a daily model holds each week's value over the days of that week:

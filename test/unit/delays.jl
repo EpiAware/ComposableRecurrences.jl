@@ -369,6 +369,10 @@ end
     @test !CR._isdelay(Tuple{Float64, Float64})
     @test !CR._isdelay(Tuple{Vector{Float64}, Symbol})
     @test !CR._isdelay(Tuple{Vararg{Vector{Float64}}})
+    @test !CR._isdelay(Tuple{Vector{Poisson{Float64}}, Vector{Float64}})
+    @test_throws ArgumentError Convolution(
+        (Poisson.([1.0, 2.0]), [0.5, 0.5]); lags = 3
+    )
 end
 
 @testitem "Chained delays: as kernels" setup = [ChainedDelays] begin
