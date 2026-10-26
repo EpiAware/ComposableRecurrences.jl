@@ -24,6 +24,16 @@
     @test Interfaces.test(
         CR.PieceInterface{(:pullback,)}, typeof(K), (obj,); show = false
     )
+    # A built-in form's pullback check takes the population as any real.
+    for form in (CR.Hazard(1.5), CR.Floor(1.5), CR.Truncate(), CR.SoftTruncate(0.1)),
+            N in (100, 100.0)
+        obj = Interfaces.Arguments(;
+            piece = form, role = CR.Step(), args = ([2.0, 3.0], [80.0, 60.0], N)
+        )
+        @test Interfaces.test(
+            CR.PieceInterface{(:pullback,)}, typeof(form), (obj,); show = false
+        )
+    end
 end
 
 @testitem "Interfaces: a wrong pullback! fails the pullback check" begin

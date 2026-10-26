@@ -816,14 +816,20 @@ function pullback!(grads, m::_Flowing, ::Step, v, s, t)
 end
 
 # Any other with one value and one pool per stratum: its group step and
-# trace on each stratum's entries.
+# trace on each stratum's entries. Any other shape steps by group.
 function forward!(m::Depletion, ::Step, v, s, t)
+    return _vector_step!(_blocks(m), m, v, s, t)
+end
+function _vector_step!(::Nothing, m::Depletion, v, s, t)
     for k in eachindex(v, s)
         (v[k],), (s[k],) = _group_step(m, (v[k],), (s[k],), t, k)
     end
     return nothing
 end
 function pullback!(grads, m::Depletion, ::Step, v, s, t)
+    return _split_pullback!(_blocks(m), grads, m, v, s, t)
+end
+function _split_pullback!(::Nothing, grads, m::Depletion, v, s, t)
     v̄, s̄ = grads.v, grads.s
     for k in eachindex(v, s)
         g = (; piece = grads.piece, v = (v̄[k],), s = (s̄[k],))
@@ -1329,6 +1335,13 @@ function pullback!(grads, m::_Pointwise, ::Trace, v, s, t)
 end
 
 function forward!(m::Depletion, ::Trace, r, v, s, v′, s′, t)
+    return _strata_trace!(_blocks(m), m, r, v, s, v′, s′, t)
+end
+function _strata_trace!(b::Val, m, r, v, s, v′, s′, t)
+    sig = Tuple{Any, Trace, Any, Any, Any, Any, Any, Any}
+    return invoke(forward!, sig, m, Trace(), r, v, s, v′, s′, t)
+end
+function _strata_trace!(::Nothing, m, r, v, s, v′, s′, t)
     for k in eachindex(v, s)
         vals = _pool_trace(m, (v[k],), (s[k],), (v′[k],), (s′[k],), t, k)
         foreach((x, y) -> x[k] = y, r, vals)
@@ -1336,6 +1349,13 @@ function forward!(m::Depletion, ::Trace, r, v, s, v′, s′, t)
     return nothing
 end
 function pullback!(grads, m::Depletion, ::Trace, v, s, t)
+    return _strata_trace_back!(_blocks(m), grads, m, v, s, t)
+end
+function _strata_trace_back!(b::Val, grads, m, v, s, t)
+    sig = Tuple{Any, Any, Trace, Any, Any, Any}
+    return invoke(pullback!, sig, grads, m, Trace(), v, s, t)
+end
+function _strata_trace_back!(::Nothing, grads, m, v, s, t)
     for k in eachindex(v, s)
         inner = (; piece = grads.piece, trace = map(x -> x[k], grads.trace))
         a, b, c, d = _pool_trace_back(inner, m, (v[k],), (s[k],), t, k)
