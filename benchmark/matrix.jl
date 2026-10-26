@@ -77,8 +77,9 @@ const PENDING_TARGETS = [
     ("Reactant GPU gradient", "a Reactant target and a GPU runner"),
 ]
 
-# ForwardDiff costs one primal per chunk of parameters: above this many it
-# is skipped, and gradients are checked against the other arm instead.
+# ForwardDiff costs one primal per chunk of parameters: above this many
+# parameters gradients are checked against the rule arm, not ForwardDiff.
+# Every forward-mode cell is still timed.
 const FD_MAX = 4000
 
 const COLUMNS = [
@@ -172,15 +173,8 @@ function skip_reason(c, target, arm, θ, rules)
     # The hand rules are Mooncake reverse rules: every other target runs the
     # same code as the `loop` arm.
     target != "Mooncake reverse" && arm == "handrule" && return "same as loop arm"
-    if startswith(target, "ForwardDiff")
-        arm in ("NoAdjoint", "local") && return "rules do not apply to dual numbers"
-        length(θ) > FD_MAX && return "over $FD_MAX parameters"
-    end
     if target == "Enzyme reverse" && c.sparse && (!(arm in ("rule", "local")) || !rules)
         return "known wrong: plain Enzyme on a repeated sparse mul!"
-    end
-    if target in ("Enzyme forward", "Mooncake forward") && length(θ) > FD_MAX
-        return "over $FD_MAX parameters"
     end
     # The overview's hand-written baselines do not compile under forward
     # Enzyme: one calls BLAS, which has no forward rule with runtime

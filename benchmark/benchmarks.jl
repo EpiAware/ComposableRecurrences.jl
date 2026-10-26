@@ -39,7 +39,8 @@ const SUITE = BenchmarkGroup()
 if !isdefined(BenchmarkTools, :maybe_gcscrub)
     function BenchmarkTools.gcscrub()
         g = Base.gc_num()
-        if g.allocd + g.deferred_alloc > max(16 << 20, Base.gc_live_bytes() ÷ 10)
+        limit = max(16 << 20, Base.gc_live_bytes() ÷ 10)
+        if g.allocd + g.deferred_alloc > limit
             GC.gc()
             GC.gc()
         end
@@ -94,11 +95,18 @@ let grad = BenchmarkGroup()
 end
 
 # The `ci` tier of the benchmark matrix (`matrix.jl` runs the full grid):
-# each case's primal, and its gradient on the reverse backends with the
-# operator as users call it and under `NoAdjoint`, so the comparison comment
-# shows the rule gain. ForwardDiff times the operator and, where the case
-# has one, the hand-written `loop` baseline, so the ratio between them is
-# tracked. The history workflow runs this script, and the
+# each case's primal, and its gradient on every benchmarked backend in three
+# arms: the operator as users call it, under `NoAdjoint`, and, where the
+# case has one, the hand-written `loop` baseline. The comparison comment
+# then shows each backend's rule gain and its ratio to the loop.
+# On the forward modes and ForwardDiff the rule and `NoAdjoint` arms run the
+# same code, as the rules are reverse rules; both are timed so every backend
+# covers the same cells.
+# Plain Enzyme reverse is wrong on a repeated sparse `mul!`, so it skips the
+# sparse cases' operator arms; the `loop` baseline makes no such call.
+# Each gradient is taken once here, so an arm a backend cannot run is left
+# out with a warning rather than failing the whole run.
+# The history workflow runs this script, and the
 # registry, against older releases: a case or arm needing a feature the
 # loaded version lacks is left out (`MatrixCases.available`, and
 # `ADFixtures.supports` for the scenarios above), and one that still fails
@@ -106,11 +114,6 @@ end
 using ADFixtures: MatrixCases
 
 let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
-    reverse = filter(
-        e -> e.name in ("Mooncake reverse", "Enzyme reverse"),
-        ADFixtures.backends()
-    )
-    forward = filter(e -> e.name == "ForwardDiff", ADFixtures.backends())
     for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
         MatrixCases.available(c) || continue
         label = "Matrix $(c.name) $(z)"
@@ -125,33 +128,22 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
         eval_group[label] = @benchmarkable(
             $f($θ), evals = 1, samples = 100, seconds = 1, gctrial = false
         )
-        for arm in ("rule", "NoAdjoint"), entry in reverse
-            MatrixCases.available(c, arm) || continue
-            c.sparse && entry.name == "Enzyme reverse" && continue
+        for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
+            arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
+                continue
+            c.sparse && entry.name == "Enzyme reverse" && arm != "loop" &&
+                continue
             f, θ = MatrixCases.build(c, z, arm)
             prep = try
-                DI.prepare_gradient(f, entry.backend, copy(θ))
+                p = DI.prepare_gradient(f, entry.backend, copy(θ))
+                DI.gradient(f, p, entry.backend, θ)
+                p
             catch
-                @warn "no gradient prep" label arm entry.name
+                @warn "no gradient" label arm entry.name
                 continue
             end
-            name = arm == "rule" ? label : "NoAdjoint $label"
-            haskey(grad, name) || (grad[name] = BenchmarkGroup())
-            grad[name][entry.name] = @benchmarkable(
-                DI.gradient($f, $prep, $(entry.backend), $θ),
-                evals = 1, samples = 100, seconds = 1, gctrial = false
-            )
-        end
-        for arm in ("rule", "loop"), entry in forward
-            arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) || continue
-            f, θ = MatrixCases.build(c, z, arm)
-            prep = try
-                DI.prepare_gradient(f, entry.backend, copy(θ))
-            catch
-                @warn "no gradient prep" label arm entry.name
-                continue
-            end
-            name = arm == "rule" ? label : "$(titlecase(arm)) $label"
+            name = arm == "rule" ? label :
+                arm == "loop" ? "Loop $label" : "NoAdjoint $label"
             haskey(grad, name) || (grad[name] = BenchmarkGroup())
             grad[name][entry.name] = @benchmarkable(
                 DI.gradient($f, $prep, $(entry.backend), $θ),
