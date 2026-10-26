@@ -32,7 +32,7 @@ const _LocalTag = ForwardDiff.Tag{
         typeof(_local_pressure!), typeof(_local_step!),
         typeof(_local_form_pullback), typeof(_init_jacobian),
         typeof(_check_scalars), typeof(_check_views), typeof(_probe_reads),
-        _TransformTag,
+        typeof(_check_jacobian), _TransformTag,
     },
 }
 # `iszero` by value too: `ForwardDiff`'s also reads the partials.

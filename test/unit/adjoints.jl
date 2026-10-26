@@ -2378,6 +2378,8 @@ end
     @test collect(CR._forward_derivative(f, 0.0, 0.4)) == [0.8, 0.0]
     g(v, a) = iszero(v) ? 2 * a * v : a * v^2 / v
     @test collect(CR._forward_derivative(g, 0.0, 0.4)) == [0.8, 0.0]
+    # The Jacobian a piece's pullback is checked against.
+    @test CR._check_jacobian(z -> [f(z[1], z[2])], [0.0, 0.4]) == [0.8 0.0]
 end
 
 @testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin
