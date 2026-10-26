@@ -87,23 +87,14 @@ delay_masses(k::AbstractVector, lags; step = 1) = k
 @doc raw"""
     delay_masses(ds::Tuple, lags; step = 1)
 
-The masses of a chain of delays `ds`, each a delay or a vector of masses,
-that follow one another in whole lags: the full linear convolution of
-their masses,
+The masses of a chain of delays `ds`, each a delay or a vector of masses:
+the first `lags` masses of their full linear convolution,
 
 ```math
 (a \circledast b)_l = \sum_{j=0}^{l} a_j\, b_{l-j},
-\qquad l = 0, \dots, L - 1,
+\qquad l = 0, \dots, L - 1.
 ```
 
-applied in turn along the chain and cut at ``L`` = `lags`.
-Each delay's masses come from its own method, on lags `step` units wide,
-and a vector of masses of any length is read as it is.
-Lag ``l`` of the chain needs only lags ``0`` to ``l`` of each delay, so
-the cut loses nothing before lag `lags - 1`.
-A tuple is a delay, so `Convolution((a, b); lags)` and
-`Recurrence((a, b); lags)` take one, and the masses are built once, when
-the operator is.
 A chain of discretised delays and a
 [sum of continuous delays discretised once](@ref time-units-chained) are
 different models.
@@ -121,7 +112,7 @@ Convolution((a, b); lags = 4).kernel
 ```
 """
 function delay_masses(ds::Tuple{Any, Vararg{Any}}, lags; step = 1)
-    return _chain(map(d -> _link_masses(d, lags, step), ds), lags)
+    return _chain_masses(map(d -> _link_masses(d, lags, step), ds), lags)
 end
 
 # A vector in a chain is its masses whatever its length; a delay's masses
@@ -129,11 +120,13 @@ end
 _link_masses(k::AbstractVector, lags, step) = k
 _link_masses(d, lags, step) = _masses(d, lags, 0, step)
 
-_chain(ms::Tuple{Any}, lags) = _cut(only(ms), lags)
-_chain(ms::Tuple{Any, Any}, lags) = _convolve_masses(ms[1], ms[2], lags)
-function _chain(ms::Tuple, lags)
+_chain_masses(ms::Tuple{Any}, lags) = _cut(only(ms), lags)
+function _chain_masses(ms::Tuple{Any, Any}, lags)
+    return _convolve_masses(ms[1], ms[2], lags)
+end
+function _chain_masses(ms::Tuple, lags)
     m = _convolve_masses(ms[1], ms[2], lags)
-    return _chain((m, Base.tail(Base.tail(ms))...), lags)
+    return _chain_masses((m, Base.tail(Base.tail(ms))...), lags)
 end
 
 # The masses of `a` on lags `0` to `lags - 1`, with zeros past its end.
@@ -216,6 +209,20 @@ end
 function _isdelay(::Type{T}) where {T}
     return !(T <: AbstractArray) &&
         Core._hasmethod(Tuple{typeof(delay_masses), T, Int})
+end
+# A tuple is a delay when each of its links is a delay or a vector of
+# masses, so a tuple of anything else keeps the kernel-shape error.
+_isdelay(::Type{Tuple{}}) = false
+function _isdelay(::Type{T}) where {T <: Tuple}
+    T isa Union && return _isdelay(T.a) && _isdelay(T.b)
+    (T isa DataType && !Base.isvatuple(T)) || return false
+    return _links(T)
+end
+_links(::Type{Tuple{}}) = true
+function _links(::Type{T}) where {T <: Tuple}
+    H = Base.tuple_type_head(T)
+    return (H <: AbstractVector || _isdelay(H)) &&
+        _links(Base.tuple_type_tail(T))
 end
 
 # Whether a kernel holds delays, from its type.

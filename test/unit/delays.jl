@@ -365,6 +365,10 @@ end
     @test CR.delay_masses(([1, 2], [3, 4]), 3) == [3, 10, 8]
     @test !CR._isdelay(Tuple{})
     @test CR._isdelay(Tuple{Vector{Float64}, Vector{Float64}})
+    @test CR._isdelay(Tuple{Vector{Float64}, Tuple{Vector{Float64}}})
+    @test !CR._isdelay(Tuple{Float64, Float64})
+    @test !CR._isdelay(Tuple{Vector{Float64}, Symbol})
+    @test !CR._isdelay(Tuple{Vararg{Vector{Float64}}})
 end
 
 @testitem "Chained delays: as kernels" setup = [ChainedDelays] begin
@@ -390,8 +394,9 @@ end
     @test ps.kernel.x[2, :] ≈ cut(full(m(d2), m(e2)), 4)[2:end]
     @test_throws ArgumentError Convolution((a, b))
     @test_throws ArgumentError Recurrence((a, b))
-    # A link that is neither a delay nor masses has no method.
-    @test_throws MethodError Convolution((a, :not_a_delay); lags = 3)
+    # A tuple of anything else is no delay, so it keeps the kernel errors.
+    @test_throws ArgumentError Convolution((a, :not_a_delay); lags = 3)
+    @test_throws ArgumentError Convolution((0.5, 0.5))
 end
 
 @testitem "Chained delays: the Jacobian is the convolution transposed" setup = [ReferenceAD, ChainedDelays] begin
@@ -432,10 +437,19 @@ end
         @test ā ≈ Ja' * c̄
         @test b̄ ≈ Jb' * c̄
     end
-    Mooncake.TestUtils.test_rule(
-        Xoshiro(1), CR._convolve_masses, a, b, 6;
-        is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
-    )
+    # The same vector as both links, in traced code, takes both cotangents.
+    c̄ = collect(1.0:5.0)
+    square(a) = CR._convolve_masses(a, a, 5)
+    J = ReferenceAD.jacobian(square, a)
+    cache = Mooncake.prepare_pullback_cache(square, a)
+    _, (_, ā) = Mooncake.value_and_pullback!!(cache, c̄, square, a)
+    @test ā ≈ J' * c̄
+    for lags in (4, 6)
+        Mooncake.TestUtils.test_rule(
+            Xoshiro(1), CR._convolve_masses, a, b, lags;
+            is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
+        )
+    end
 end
 
 @testsnippet OwnDelay begin

@@ -395,9 +395,8 @@ function EnzymeRules.reverse(
     throw(ErrorException(_FFT_TRACED))
 end
 
-# The full convolution of two float mass vectors, `c += a ⊛ b`, which a
-# chain of delays builds: its reverse pass is the convolution transposed, in
-# place of differentiating its loop. `c̄` passes through unchanged.
+# A rule so a chain of delays' convolution, `c += a ⊛ b`, is not
+# differentiated loop by loop; `c̄` passes through unchanged.
 const _Floats = AbstractVector{<:_IEEEFloat}
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_convolve_masses!)},

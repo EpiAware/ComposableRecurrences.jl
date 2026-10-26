@@ -157,9 +157,7 @@ function Mooncake.rrule!!(::CoDual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
     throw(ErrorException(_FFT_TRACED))
 end
 
-# The full convolution of two float mass vectors, which a chain of delays
-# builds: one rule whose pullback is the convolution transposed, in place of
-# tracing its loop.
+# Primitive so a chain of delays' convolution is not traced loop by loop.
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode,
     Tuple{typeof(_convolve_masses), Vector{P}, Vector{P}, Int} where {P <: _IEEEFloat}
