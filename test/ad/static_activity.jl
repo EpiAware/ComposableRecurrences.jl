@@ -53,3 +53,17 @@
         @test g ≈ ForwardDiff.gradient(f, θ)
     end
 end
+
+@testitem "Enzyme mirror modes" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, Enzyme
+    ext = Base.get_extension(ComposableRecurrences, :ComposableRecurrencesEnzymeExt)
+    x = rand(3)
+    dx = zero(x)
+    # Under runtime activity a shadow that is its primal gets no mirror;
+    # without it, such a shadow is refused.
+    @test ext._unshared(x, x, ext._Shared()) === nothing
+    @test ext._unshared(x, dx, ext._Shared()) === dx
+    @test ext._unshared(x, dx, ext._Distinct()) === dx
+    @test_throws ArgumentError ext._unshared(x, x, ext._Distinct())
+    @test_throws ArgumentError ext._unshared(x, dx, x, ext._Distinct())
+end

@@ -468,3 +468,34 @@ end
     @test x̄.w ≈ w̄e
     @test x̄.coupling ≈ C̄e
 end
+
+@testitem "Recent: a coupled read allocates nothing per step" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # An integer coupling keeps the run's float type.
+    βi = Derived(exp, -0.1f0 * Recent(2; coupling = [0 1; 1 0]))
+    ri = Recurrence(Float32[0.3, 0.2]; modifiers = (CR.Transform(*, βi),))
+    @test eltype(ri(ones(Float32, 2, 5); history = ones(Float32, 2, 2))) ==
+        Float32
+    C = [0.0 1.0; 0.5 0.0]
+    β = Derived(exp, -0.1 * Recent(2; coupling = C))
+    ms = (CR.Transform(*, β), CR.Transform(*, 0.9 + 0.01 * β))
+    H, H̄ = rand(8, 2), zeros(8, 2)
+    # The step's window fill and flush find the coupled reads from the type.
+    b = CR._bind(ms, H, H̄, 0)
+    @test length(@inferred(CR._coupled_reads(b))) == 2
+    CR._refresh!(b, 5)
+    CR._flush!(b)
+    @test @allocated(CR._refresh!(b, 5)) == 0
+    @test @allocated(CR._flush!(b)) == 0
+    # A run grows with its steps by what an uncoupled read's run grows by.
+    function growth(m)
+        r = Recurrence([0.3, 0.2]; modifiers = (CR.Transform(*, m),))
+        f = T -> r(ones(2, T); history = ones(2, 2))
+        f(10)
+        f(110)
+        return @allocated(f(110)) - @allocated(f(10))
+    end
+    @test growth(Derived(exp, -0.1 * Recent(2; coupling = C))) ==
+        growth(Derived(exp, -0.1 * Recent(2)))
+end
