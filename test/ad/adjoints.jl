@@ -1008,6 +1008,15 @@ end
         dK = j == 1 ? dr.coupling : last(dr.kernel.couplings)
         @test dK.nzval ≈ ref
     end
+    # The history joined in front of the output, by coupling and by route.
+    @testset "prepend, op $j" for (j, op) in enumerate(ops[1:2])
+        K, h, R = first(patterns), ones(3, 2), fill(0.9, 3, 10)
+        fp = r -> sum(abs2, NoAdjoint(r)(R; history = h, prepend = true))
+        ref = ForwardDiff.gradient(nz -> fp(op(sparse_of(K, nz))), copy(K.nzval))
+        dr = Enzyme.gradient(mode, Enzyme.Const(fp), op(K))[1]
+        dK = j == 1 ? dr.coupling : last(dr.kernel.couplings)
+        @test dK.nzval ≈ ref
+    end
     # A constant coupling with the gain and history active, over a resumed
     # call, so the cotangent reaches the buffer through the coupling. Its
     # data is bound in a `let`, as the closures in the loop above capture
@@ -1024,6 +1033,48 @@ end
     end
     θ = [vec(0.5 .+ 0.01 .* (1:120)); ones(6)]
     @test Enzyme.gradient(mode, Enzyme.Const(fs), θ)[1] ≈ ForwardDiff.gradient(fs, θ)
+end
+
+@testitem "Enzyme: a sparse route coupling's rule against a ForwardDiff Jacobian" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences
+    using SparseArrays
+    import Enzyme, ForwardDiff
+    using Enzyme: Const, Duplicated
+    CR = ComposableRecurrences
+    # A stored zero and an empty row, so every entry's place is checked.
+    K = sparse([1, 3, 1, 2, 3], [1, 1, 2, 3, 3], [0.5, 0.2, 0.0, 0.7, 0.4], 3, 3)
+    n = nnz(K)
+    z, w̄0 = [0.3, -1.2, 2.0], [1.0, -0.5, 0.25]
+    Kof(nz) = SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz)
+    J = ForwardDiff.jacobian(θ -> Kof(θ[1:n]) * θ[(n + 1):end], [K.nzval; z])
+    ref = J' * w̄0
+    # The pressure written, and the cotangents of an active coupling and of `z`.
+    function back(mode, Ka)
+        w, w̄, z̄ = zeros(3), copy(w̄0), zeros(3)
+        Enzyme.autodiff(
+            mode, CR._route_forward!, Const, Ka, Duplicated(w, w̄),
+            Duplicated(copy(z), z̄), Const(1)
+        )
+        return w, w̄, z̄
+    end
+    K̄ = Kof(zeros(n))
+    w, w̄, z̄ = back(Enzyme.Reverse, Duplicated(K, K̄))
+    @test w ≈ K * z
+    @test iszero(w̄)
+    @test z̄ ≈ ref[(n + 1):end]
+    @test K̄.nzval ≈ ref[1:n]
+    # A constant coupling, and one whose shadow is its primal under runtime
+    # activity, give `z` its cotangent and leave the coupling as it was.
+    nz0 = copy(K.nzval)
+    for (mode, Ka) in (
+            (Enzyme.Reverse, Const(K)),
+            (Enzyme.set_runtime_activity(Enzyme.Reverse), Duplicated(K, K)),
+        )
+        _, w̄, z̄ = back(mode, Ka)
+        @test iszero(w̄)
+        @test z̄ ≈ ref[(n + 1):end]
+        @test K.nzval == nz0
+    end
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
