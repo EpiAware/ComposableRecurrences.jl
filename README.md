@@ -18,9 +18,8 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
 - A recurrence computes each value from its own past values, such as infections from earlier infections.
   A convolution weights the past values of another series, such as reported cases from earlier infections.
 - Both are usually hand-written loops, rewritten for each model.
-  `Recurrence` and `Convolution` express them as two operators, for one series or many coupled series.
-- Coupling between series, finite pools and bounds are added by composing small couplings and modifiers.
-  Users can write their own.
+  `Recurrence` and `Convolution` express them as two operators, for one series or for many strata, such as towns, run side by side.
+- Coupling between strata, finite pools and bounds are added by composing small couplings and modifiers.
 - The forward run and gradients under ForwardDiff, Mooncake and Enzyme are close to or faster than a hand-written loop; see the [performance figure](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-performance).
 
 ## Getting started
@@ -48,6 +47,7 @@ The gravity coupling $K_{ij}$ comes from the populations and the distances $d_{i
 The term $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
 
+<!-- INDEX_REWRITES in docs/docs_config.jl matches the last line of this block to hide its output on the docs home page; keep the two in step. -->
 ```julia
 using ComposableRecurrences
 using ComposableRecurrences: Depletion
@@ -70,7 +70,7 @@ reports = delay(infections; gain = 0.4)
 
 ![Infections, reports and the remaining susceptible share in each town, with the intervention from day 50 to 56 shaded](docs/src/assets/readme-example.png)
 
-The [getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-build) builds the model one part at a time, and adds the plot code, performance and gradients.
+[Getting started guide](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-build)
 
 ## Related packages
 

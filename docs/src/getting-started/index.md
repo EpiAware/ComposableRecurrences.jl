@@ -3,15 +3,13 @@
 A recurrence computes each value from its own past values, such as infections from earlier infections.
 A convolution weights the past values of another series, such as reported cases from earlier infections.
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the two operators.
-Couplings link series, and modifiers add behaviour such as finite pools to each step.
+Couplings link strata, such as towns, and modifiers add behaviour such as finite pools to each step.
 Every operator is differentiable.
-Computational efficiency is a main focus; see [Performance](@ref overview-performance).
 
 ## [Building the model](@id overview-build)
 
 The example is an outbreak in three towns.
 People travel between the towns, each town has a finite population, infections are reported after a delay, and an intervention lowers transmission from day 50.
-The equations follow the [`Recurrence`](@ref), [`Convolution`](@ref) and [`Depletion`](@ref ComposableRecurrences.Depletion) docstrings.
 
 ```@example overview
 using ComposableRecurrences
@@ -255,6 +253,8 @@ About 49% of town B and 54% of town C are infected, against 73% without the inte
 
 ## [Performance](@id overview-performance)
 
+The chart compares the time the operators take with three hand-written versions of the same model.
+
 ```@example overview
 using ComposableRecurrences: Floor, Add # hide
 results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv") # hide
@@ -298,13 +298,14 @@ if bench !== nothing # hide
         ).rules # hide
     ) # hide
     Markdown.parse( # hide
-        "The three-town model above over 200 days with a 20-day generation interval: " * # hide
-            "the operators, a preallocated hand-written loop, a loop that copies its window every step, " * # hide
-            "and `accumulate` over a `NamedTuple` state, for the forward run and each gradient backend; " * # hide
-            "minimum times at revision `" * first(bench.revision) * "`, " * # hide
+        "The model is the three-town model above, run over 200 days with a 20-day generation interval. " * # hide
+            "The hand-written versions are a preallocated loop, a loop that copies its window every step, " * # hide
+            "and `accumulate` over a `NamedTuple` state. " * # hide
+            "Each bar is the minimum time at revision `" * first(bench.revision) * "`. " * # hide
+            "The Mooncake and Enzyme times are " * # hide
             (reverse_rules == ["true"] ? "with" : "without") * # hide
-            " the package's Mooncake and Enzyme rules loaded; " * # hide
-            "the forward run and ForwardDiff do not use them." * missing_note # hide
+            " the package's rules loaded. " * # hide
+            "The forward run and ForwardDiff do not use the rules." * missing_note # hide
     ) # hide
 end # hide
 ```
@@ -370,7 +371,7 @@ One line gives the gradient of all reports with respect to every town's reproduc
 
 ```@example overview
 ∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
-size(∂R)
+nothing # hide
 ```
 
 ```@example overview
