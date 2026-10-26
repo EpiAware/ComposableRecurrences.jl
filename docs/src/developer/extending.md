@@ -416,6 +416,7 @@ For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchan
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 The optional `:pullback` check compares each `pullback!` for `Step()` or `Pressure()` with the ForwardDiff Jacobian of `forward!` on the same inputs, so it needs `using ForwardDiff`.
+At a tie that Jacobian takes the branch `forward!` takes, as the local step does.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments
