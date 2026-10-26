@@ -438,7 +438,7 @@ end
 # A window's convolution in one loop over the lags.
 function _window_sum(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
-    @inbounds @simd for i in 1:L
+    @inbounds @_float_simd typeof(acc) for i in 1:L
         acc += g[i] * H[t + i - 1, a]
     end
     return acc
@@ -446,7 +446,7 @@ end
 function _kdot(g::_TVColumns{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
     acc = zero(eltype(H))
-    @inbounds @simd for i in 1:length(w)
+    @inbounds @_float_simd typeof(acc) for i in 1:length(w)
         acc += w[i] * H[t + L - i, a]
     end
     return acc
@@ -461,7 +461,7 @@ function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
 end
 function _kdot(g::Union{_TVColumns{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
-    @inbounds @simd for i in _lags(g, τ, L)
+    @inbounds @_float_simd typeof(acc) for i in _lags(g, τ, L)
         acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
@@ -478,7 +478,7 @@ function _kdot(g::TimeVarying{<:Any, <:Pairwise}, H, t, τ, L, a)
     acc = zero(eltype(H))
     lags = _lags(g, τ, L)
     for b in axes(H, 2)
-        @inbounds @simd for i in lags
+        @inbounds @_float_simd typeof(acc) for i in lags
             acc += _weight(g, a, b, i, _column(g, τ, i)) * H[t + L - i, b]
         end
     end

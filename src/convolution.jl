@@ -671,7 +671,7 @@ end
 # than through one call per output.
 @inline function _lag_dot(c, X, k, r)
     acc = zero(eltype(X))
-    @inbounds @simd for d in 0:(min(length(c), r) - 1)
+    @inbounds @_float_simd typeof(acc) for d in 0:(min(length(c), r) - 1)
         acc += c[d + 1] * X[r - d, k]
     end
     return acc
