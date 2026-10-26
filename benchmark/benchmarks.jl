@@ -45,9 +45,30 @@ import DifferentiationInterface as DI
 # The backends the package targets: ForwardDiff, and Enzyme and Mooncake in
 # forward and reverse mode. The registry also lists ReverseDiff, which the AD
 # tests still run, but the suite does not time it.
-const BENCHMARK_BACKENDS = filter(
+#
+# `BENCHMARK_BACKENDS`, a comma-separated list of these backend names and
+# `primal`, limits the suite to those parts, so a workflow can split it
+# across jobs: each backend's gradients, and `primal` for the primal
+# timings and the convolution groups, whose gradients are all Mooncake's.
+# Unset or empty, the suite times everything.
+const _ALL_BACKENDS = filter(
     e -> !startswith(e.name, "ReverseDiff"), ADFixtures.backends()
 )
+const _SELECTED = let spec = strip(get(ENV, "BENCHMARK_BACKENDS", ""))
+    if isempty(spec)
+        nothing
+    else
+        names = Set(String.(strip.(split(spec, ","))))
+        known = Set(["primal"; [e.name for e in _ALL_BACKENDS]])
+        unknown = setdiff(names, known)
+        isempty(unknown) || error(
+            "unknown BENCHMARK_BACKENDS $(join(sort!(collect(unknown)), ", "))"
+        )
+        names
+    end
+end
+_selected(name) = _SELECTED === nothing || name in _SELECTED
+const BENCHMARK_BACKENDS = filter(e -> _selected(e.name), _ALL_BACKENDS)
 
 let grad = BenchmarkGroup()
     broken = Set(ADFixtures.broken_scenario_names())
@@ -114,8 +135,10 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             @warn "matrix case not built" c.name
             continue
         end
-        eval_group[label] = @benchmarkable(
-            $f($θ), evals = 1, samples = 100, seconds = 1, gctrial = false
+        _selected("primal") && (
+            eval_group[label] = @benchmarkable(
+                $f($θ), evals = 1, samples = 100, seconds = 1, gctrial = false
+            )
         )
         for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
             arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
@@ -139,7 +162,7 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             )
         end
     end
-    SUITE["Evaluation"] = eval_group
+    isempty(eval_group) || (SUITE["Evaluation"] = eval_group)
 end
 
 # The fixed-kernel convolution body against the forms it replaced, at
@@ -163,7 +186,7 @@ function _bench_native_axpy!(α, x, y)
     return y
 end
 
-let body = BenchmarkGroup(), T = 200, L = 20
+_selected("primal") && let body = BenchmarkGroup(), T = 200, L = 20
     c = fill(1 / L, L)
     X = ones(L + T, 1)
     y = zeros(T)
@@ -191,7 +214,7 @@ using FFTW: FFTW
 using Mooncake: Mooncake
 using ADTypes: AutoMooncake
 
-if isdefined(ComposableRecurrences, :FFTMethod)
+if _selected("primal") && isdefined(ComposableRecurrences, :FFTMethod)
     let methods = BenchmarkGroup()
         backend = AutoMooncake(; config = nothing)
         sizes = (
