@@ -1076,17 +1076,15 @@ function _trace_budget(w, θ)
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
-# The effective reproduction number of a depleted run. The numerator is the
-# drawn values read from the trace, not `y`, so the gradient also flows
-# through the trace's pullback.
+# The effective reproduction number of a depleted run: its outputs over
+# the pressure each step drew against.
 function _effective_reproduction(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
     h = exp.(logh)
     d = ComposableRecurrences.Depletion(PerStratum(POP))
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
-    y, tr = w(r)(exp.(logR); history = h, trace = true)
-    drawn = only(tr.modifiers)[(S + 1):(2S), :]
-    return sum(WS .* drawn ./ (K0 * Convolution(vcat(0, G0))(y; history = h)))
+    y = w(r)(exp.(logR); history = h)
+    return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
 end
 
 # The relative tolerance of Enzyme's rule tester in `test_adjoint`.
@@ -1367,7 +1365,7 @@ const _SCENARIOS = [
         () -> zero(CAPB0),
     ),
     (
-        "Recurrence effective reproduction number from its trace",
+        "Recurrence effective reproduction number from its pressure",
         _effective_reproduction, () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
     ),
     (
@@ -1907,6 +1905,8 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+# The pressure recomputed from given outputs.
+_REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
     (:delay_masses, :delay_step)

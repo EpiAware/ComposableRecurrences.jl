@@ -16,6 +16,7 @@ const LIGHT_TUTORIALS = String[]
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
+    "reproduction-number.jl",
     "latent-processes.jl",
     "spatial-strata.jl",
     "time-varying-delays.jl",
@@ -33,8 +34,9 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # my-anchor)"`) so cross-references still resolve in a fast build.
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
-        "# [Renewal then delay](@id tutorial-renewal-delay)\n\n## [Imported cases](@id tutorial-imports)\n\n" *
-        "## [The reproduction number from a run](@id tutorial-reproduction-number)",
+        "# [Renewal then delay](@id tutorial-renewal-delay)\n\n## [Imported cases](@id tutorial-imports)",
+    "reproduction-number.md" =>
+        "# [The reproduction number from a run](@id tutorial-reproduction-number)",
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
     "spatial-strata.md" =>
@@ -226,6 +228,8 @@ const PACKAGE_TUTORIALS = [
     "Time units" => "getting-started/time-units.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
+    "Reproduction number from a run" =>
+        "getting-started/tutorials/reproduction-number.md",
     "Latent processes driving R_t" =>
         "getting-started/tutorials/latent-processes.md",
     "Spatial models" =>

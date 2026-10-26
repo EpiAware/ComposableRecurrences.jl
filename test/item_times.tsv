@@ -284,11 +284,6 @@
 2.0	Recurrence: time-varying kernels
 4.9	Redistribute pullback matches the local Jacobian
 3.4	Redistribute: conserving, against a naive loop
-0.3	Reproduction: a zero renewal sum gives no value
-5.6	Reproduction: effective R_t under depletion
-8.6	Reproduction: instantaneous R_t recovers the gain
-3.4	Reproduction: per stratum with a coupling
-0.8	Reproduction: the first steps need the history
 1.8	Routes: argument validation
 3.9	Routes: arrays alone take the core method with Distributions loaded
 2.4	Routes: delay distributions on routes
@@ -420,6 +415,11 @@
 0.7	exponential_history
 0.0	param_eltype infers through nested structs
 0.1	param_eltype recurses through fields
+19.5	pressure: every kernel and coupling recovers the gain
+1.7	pressure: the history, start and a resumed state
+0.6	pressure: a zero pressure gives no value
+5.8	pressure: the effective value under depletion
+3.7	pressure: argument checks and inference
 11.2	prepend returns the history then the run
 0.2	start = nothing names the default to use
 147.3	JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments
