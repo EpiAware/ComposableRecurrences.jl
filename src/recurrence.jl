@@ -100,7 +100,8 @@ every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
 With integer and `Bool` inputs and fields alone and no modifiers, the
 output keeps that integer type promoted with `Int`, as `cumsum` does;
-otherwise it is the float type.
+otherwise it is the float type. A user coupling whose pressure is not an
+integer then needs a float input.
 The constructor checks once whether the local step can rebuild every
 part it differentiates and stores the result in the field `rebuilds`; see
 [Rules and plain AD](@ref adjoint-routing) for the route this sets.
@@ -589,9 +590,10 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-# The output of a recorded run, whose cache keeps the buffer: a copy of the
-# buffer rows after the history. No backend differentiates it, so a single
-# CPU series copies its column's memory in one call.
+# The output of a recorded run: the cache keeps the buffer, so the output
+# copies the rows after the history rather than taking them over as
+# `_output` does. A single series (`h` a vector) is the buffer's one column,
+# copied in one call.
 _recorded_output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
 function _recorded_output(H::Matrix, D, T, h::AbstractVector)
     return copyto!(similar(H, T), 1, H, D + 1, T)
@@ -1461,8 +1463,10 @@ function _run(
         end
     end
     Y = record ? _recorded_output(H, D, T, h) : _output(H, D, T, h)
-    # The cache holds copies of the inputs the reverse pass reads, so a
-    # caller overwriting them after the call cannot change the gradient.
+    # The cache holds copies of the inputs whose values the reverse pass
+    # reads, so a caller overwriting them after the call cannot change the
+    # gradient; of the history it reads only the shape unless a modifier's
+    # `Init` pullback runs (`_tape_history`).
     cache = record ?
         (;
             r, kernel, gain = _tape(gain), add,

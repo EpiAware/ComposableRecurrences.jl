@@ -70,7 +70,10 @@ _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 # window cache per step, so their reverse pass runs serially.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
-    # An integer output has no cotangent, and then no part of the call does.
+    # Only an integer output has no cotangent. Its buffer is integer only
+    # when every input and part is, so then no state, history or other input
+    # has a cotangent either. A float output's cotangent is an array, zero or
+    # not.
     Ȳ === nothing && return nothing
     (; r, H, D, S, T, τ0) = c
     H̄ = _seeded(H, Ȳ, D)
@@ -283,29 +286,18 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
     return nothing
 end
 
-# The buffer's cotangent, `D` zero rows and then the output's cotangent `Ȳ`.
-_seeded(H, Ȳ, D) = _seed_rows!(_zeros(H, eltype(H), size(H)...), Ȳ, D)
-# A CPU buffer's is written in one pass.
-function _seeded(H::Array, Ȳ, D)
-    S, T = size(H, 2), size(H, 1) - D
-    size(Ȳ) == _public_size(Ȳ, S, T) || throw(
-        DimensionMismatch("output cotangent of size $(size(Ȳ)) for $S × $T outputs")
-    )
+# The buffer's cotangent, `D` zero rows and then the output's cotangent
+# `Ȳ`, each row written once.
+function _seeded(H, Ȳ, D)
     H̄ = similar(H)
-    @inbounds for k in 1:S
-        for i in 1:D
-            H̄[i, k] = zero(eltype(H̄))
-        end
-        for t in 1:T
-            H̄[D + t, k] = _seed_at(Ȳ, k, t)
-        end
-    end
+    fill!(view(H̄, 1:D, :), zero(eltype(H̄)))
+    return _set_rows!(H̄, Ȳ, D)
+end
+_set_rows!(H̄, x̄::AbstractVector, o) = (view(H̄, (o + 1):size(H̄, 1), 1) .= x̄; H̄)
+function _set_rows!(H̄, x̄::AbstractMatrix, o)
+    view(H̄, (o + 1):size(H̄, 1), :) .= transpose(x̄)
     return H̄
 end
-_public_size(::AbstractVector, S, T) = (T,)
-_public_size(::AbstractMatrix, S, T) = (S, T)
-Base.@propagate_inbounds _seed_at(Ȳ::AbstractVector, k, t) = Ȳ[t]
-Base.@propagate_inbounds _seed_at(Ȳ::AbstractMatrix, k, t) = Ȳ[k, t]
 
 # Add the public-layout cotangent `x̄` (length n, or S × n) into buffer rows
 # `o + 1` to `o + n`.

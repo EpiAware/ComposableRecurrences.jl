@@ -156,6 +156,7 @@ end
     # `Bool` and narrow integers promote with `Int`, as Base's sums do.
     @test eltype(Recurrence([true])(true; history = [false], add = [true])) == Int
     @test eltype(Recurrence([true])(true; history = Int8[0], add = Int8[1])) == Int
+    @test Recurrence([true])(true; history = Int8[0], add = Int8[100, 100]) == [100, 200]
     @test Recurrence([1, 2])(2; history = [1, 1], stop = 3) == [6, 16, 56]
     # Strata through an integer coupling, prepended, traced and resumed.
     y = Recurrence([1]; coupling = [1 0; 1 1])(1; history = ones(Int, 2, 1), stop = 2)
@@ -173,6 +174,4 @@ end
     @test eltype(Recurrence([1 // 2])(1; history = [1], stop = 2)) == Float64
     d = Recurrence([1]; modifiers = (CR.Depletion(100),))
     @test eltype(d(1; history = [1], stop = 2)) == Float64
-    @test CR._buffer_eltype(Int, ()) == Int
-    @test CR._buffer_eltype(Bool, (CR.Add(1),)) == Float64
 end
