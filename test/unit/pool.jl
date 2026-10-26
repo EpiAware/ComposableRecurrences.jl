@@ -589,6 +589,14 @@ end
             ),
             [4.0, 1.0], [7.0], x -> [0.1 * x[1]],
         ),
+        # Beds whose turned-away demand queues for the next step.
+        (
+            CR.Depletion(
+                10.0, CR.Flow(:O => 0, 0.2; form = CR.Share()),
+                CR.Truncate(; into = :O, overflow = :queue); pools = (:O,)
+            ),
+            [4.0], [7.0, 1.5], x -> [0.2 * x[1]],
+        ),
         # A budget: a grant, then a draw whose remainder queues.
         (
             CR.Depletion(

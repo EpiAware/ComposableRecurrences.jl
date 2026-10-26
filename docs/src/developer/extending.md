@@ -409,7 +409,7 @@ Here `args` are the arguments after the role:
 - `(s, history)` for `Init()`;
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
-- `(v, s, N)`, with vectors `v` and `s`, for a depletion form;
+- `(v, s, N)`, with vectors `v` and `s` and a float `N`, for a depletion form, as a float `N` is what tells a form's step from a modifier's;
 - `(r, v, s, v′, s′, t)` for `Trace()`, with `r` in the shape the [Roles](@ref extending-roles) table gives, and `g` after `t` for a blockwise group, whose arguments are then tuples of `Ref`s.
 
 For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.

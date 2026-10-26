@@ -98,7 +98,7 @@ function _nstate_ok(m, ::Step, args)
     n = nstate(m, S)
     length(s) == n || return false
     forward!(m, Step(), v, s, args[3:end]...)
-    return length(s) == n && (!ispointwise(m) || n == S)
+    return length(s) == n && (blocks(m) !== (1, 1) || n == S)
 end
 
 # A `pullback!` method for the type in a role the rule calls is
@@ -146,10 +146,20 @@ function _pullback_matches(m, ::Step, args::Tuple{Any, Any, Any})
 end
 # A depletion form's draw: inputs `v`, `s` and `N`, outputs `v` and `s`;
 # the cotangent of the scalar `N` arrives indexed as `v`. A form's step
-# takes a float `N` where a modifier's takes an integer time, so the two
-# are told apart by the type of the third argument.
+# takes `N` where a modifier's takes an integer time, so a form of another
+# type is told apart by a float `N`; a built-in form takes any real `N`.
+const _BuiltinForm = Union{_ExponentForm, _TruncateForm}
 function _pullback_matches(f, ::Step, args::Tuple{Any, Any, AbstractFloat})
-    v, s, N = float(copy(args[1])), float(copy(args[2])), args[3]
+    return _form_pullback_matches(f, args)
+end
+function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, Any})
+    return _form_pullback_matches(f, args)
+end
+function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, AbstractFloat})
+    return _form_pullback_matches(f, args)
+end
+function _form_pullback_matches(f, args)
+    v, s, N = float(copy(args[1])), float(copy(args[2])), float(args[3])
     θ, n = _params(f), length(v)
     P = length(θ)
     J = _check_jacobian([θ; v; s; N]) do z

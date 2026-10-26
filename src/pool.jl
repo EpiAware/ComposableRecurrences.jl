@@ -647,12 +647,12 @@ function blocks(m::Depletion)
     _draws(m) || return (n, n)
     return (1 + (_stratum_of(m) isa _ToStratum), n + (_queue_of(m) isa _Queue))
 end
-# One pool drawn from once, then flows or none, with nothing left over,
-# steps per stratum; any other runs the group kernel, a group of one
-# included. The shape needs no check here: `blocks` above always gives
+# One value and one pool per stratum steps per stratum; any other runs the
+# group kernel. The shape needs no check here: `blocks` above always gives
 # positive integers.
-_blocks(m::_Pointwise) = nothing
-_blocks(m::Depletion) = Val(blocks(m))
+_blocks(m::Depletion) = _blocks_of(Val(blocks(m)))
+_blocks_of(::Val{(1, 1)}) = nothing
+_blocks_of(b::Val) = b
 
 # The groups of `S` strata.
 _pool_groups(m::Depletion, S) = _pool_groups(_blocks(m), S)
@@ -811,6 +811,23 @@ function pullback!(grads, m::_Flowing, ::Step, v, s, t)
             (; piece = f̄, v = v̄[k], s = s̄′), d.form, v[k], s[k], N
         )
         _add_pop!(cotangent(d̄, :N), d.N, N̄, k, t)
+    end
+    return nothing
+end
+
+# Any other with one value and one pool per stratum: its group step and
+# trace on each stratum's entries.
+function forward!(m::Depletion, ::Step, v, s, t)
+    for k in eachindex(v, s)
+        (v[k],), (s[k],) = _group_step(m, (v[k],), (s[k],), t, k)
+    end
+    return nothing
+end
+function pullback!(grads, m::Depletion, ::Step, v, s, t)
+    v̄, s̄ = grads.v, grads.s
+    for k in eachindex(v, s)
+        g = (; piece = grads.piece, v = (v̄[k],), s = (s̄[k],))
+        (v̄[k],), (s̄[k],) = _group_pullback(g, m, (v[k],), (s[k],), t, k)
     end
     return nothing
 end
@@ -1307,6 +1324,25 @@ function pullback!(grads, m::_Pointwise, ::Trace, v, s, t)
         grads.v[k] += ū[k]
         grads.v′[k] += ȳ[k] - ū[k]
         grads.s′[k] += p̄[k]
+    end
+    return nothing
+end
+
+function forward!(m::Depletion, ::Trace, r, v, s, v′, s′, t)
+    for k in eachindex(v, s)
+        vals = _pool_trace(m, (v[k],), (s[k],), (v′[k],), (s′[k],), t, k)
+        foreach((x, y) -> x[k] = y, r, vals)
+    end
+    return nothing
+end
+function pullback!(grads, m::Depletion, ::Trace, v, s, t)
+    for k in eachindex(v, s)
+        inner = (; piece = grads.piece, trace = map(x -> x[k], grads.trace))
+        a, b, c, d = _pool_trace_back(inner, m, (v[k],), (s[k],), t, k)
+        grads.v[k] += only(a)
+        grads.s[k] += only(b)
+        grads.v′[k] += only(c)
+        grads.s′[k] += only(d)
     end
     return nothing
 end
