@@ -442,15 +442,23 @@ function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L
 end
 # `kbuf`, `g`, `H` and `H̄` are distinct arrays, so the updates are
 # independent (`ivdep`).
+#
+# The newest lag's row is the next step's cotangent, so it is updated first,
+# outside the vector loop, as the forward pass adds it last.
 @inline function _window_back!(kbuf, g, a, H, H̄, t, L, k)
-    @inbounds @simd ivdep for i in 1:L
+    L >= 1 || return nothing
+    @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
+    @inbounds kbuf[L] = muladd(a, H[t + L - 1, k], kbuf[L])
+    @inbounds @simd ivdep for i in 1:(L - 1)
         kbuf[i] += a * H[t + i - 1, k]
         H̄[t + i - 1, k] += a * g[i]
     end
     return nothing
 end
 @inline function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
-    @inbounds @simd ivdep for i in 1:L
+    L >= 1 || return nothing
+    @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
+    @inbounds @simd ivdep for i in 1:(L - 1)
         H̄[t + i - 1, k] += a * g[i]
     end
     return nothing

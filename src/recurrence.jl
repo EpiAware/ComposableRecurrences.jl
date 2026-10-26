@@ -409,6 +409,32 @@ Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
 _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
 _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
+# A run of independent strata with no modifiers waits each step on its
+# kernel convolution alone (`_Chained`). The newest lag, the previous step's
+# value, is then added last, after the vector loop over the older lags,
+# which do not wait on that step; so each step waits on one fused
+# multiply-add. This holds for hardware floats; dual numbers keep one
+# out-of-line loop, as do other runs, where the split gains nothing and costs
+# `Enzyme` more. Both forms start from `+0.0`, so they agree on signed zeros.
+struct _Chained{G}
+    g::G
+end
+_chain(g, ms, ::Type) = g
+function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:_IEEEFloat})
+    return _Chained(g)
+end
+@inline _kdot(c::_Chained{<:AbstractVector}, H, t, τ, L, a) = _window_dot(c.g, H, t, L, a)
+@inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
+    return _window_dot(view(c.g.x, a, :), H, t, L, a)
+end
+@inline function _window_dot(g, H, t, L, a)
+    acc = zero(promote_type(eltype(g), eltype(H)))
+    L >= 1 || return acc
+    @inbounds @simd for i in 1:(L - 1)
+        acc += g[i] * H[t + i - 1, a]
+    end
+    return @inbounds muladd(g[L], H[t + L - 1, a], acc)
+end
 # A window's convolution in one loop over the lags.
 function _window_sum(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
@@ -1245,7 +1271,7 @@ function _series_body!(
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
             _series_step!, ex, ts, T,
-            ks, H, pr, gain, add, coupling, g, p, q, ms,
+            ks, H, pr, gain, add, coupling, _chain(g, ms, eltype(H)), p, q, ms,
             states, rec, τ0, L, D
         )
     end
