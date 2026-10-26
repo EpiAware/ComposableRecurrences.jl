@@ -61,10 +61,7 @@ round(r; digits = 4), all(y[2:end] ./ y[1:(end - 1)] .≈ exp(r))
 ```
 """
 function growth_rate(R::Real, g; lags = nothing, step = 1)
-    lags === nothing || return growth_rate(R, _delay_kernel(g, lags, 1, step))
-    _check_no_step(step)
-    _check_no_delays(g)
-    return _growth_rate(R, g)
+    return _growth_rate(R, _interval(g, lags, step))
 end
 
 @doc raw"""
@@ -82,13 +79,7 @@ takes the same `g`, `lags` and `step`.
 
 # Arguments
 - `r`: the growth rate per step, a finite number.
-- `g`: the generation interval, lag 1 first, as a vector of masses or a
-  delay (see [`ComposableRecurrences.delay_masses`](@ref)).
-
-# Keyword Arguments
-- `lags`: for a delay only, the number of lags from lag 0.
-- `step`: for a delay only, the width of a lag in the delay's own unit;
-  `1` by default.
+- `g`: the generation interval, as for `growth_rate`.
 
 # Examples
 ```jldoctest
@@ -104,11 +95,16 @@ round(R; digits = 4), CR.growth_rate(R, g) ≈ 0.1
 ```
 """
 function reproduction_number(r::Real, g; lags = nothing, step = 1)
-    lags === nothing ||
-        return reproduction_number(r, _delay_kernel(g, lags, 1, step))
+    return _reproduction_number(r, _interval(g, lags, step))
+end
+
+# The generation interval as masses from lag 1: a delay's masses with
+# `lags`, or `g` as it is without.
+function _interval(g, lags, step)
+    lags === nothing || return _delay_kernel(g, lags, 1, step)
     _check_no_step(step)
     _check_no_delays(g)
-    return _reproduction_number(r, g)
+    return g
 end
 
 # The root is found on the primal values and carries no derivative. Newton
@@ -188,13 +184,9 @@ end
     )
 end
 
-# The log of `∑ g_l e^{-r l}` and the mean lag under the weights
-# `g_l e^{-r l}`, which is minus its derivative in `r`, summed over the lags
-# `over`. Each term is scaled by `e^{r a}`, with `a` the first lag with mass
-# where `r >= 0` and the last where `r < 0`, so no term with mass
-# overflows. A lag without mass adds nothing to either but carries the
-# derivative in its mass, so its exponent is capped to keep that finite.
-# `v` maps each mass before use.
+# The log of `∑ g_l e^{-r l}` over the lags `over`, and the mean lag, minus
+# its derivative in `r`. Scaling by `e^{r a}` keeps the terms with mass from
+# overflowing, and the cap keeps the derivative on a lag without mass finite.
 function _lotka(r, g, lags, over = Base.OneTo(length(g)), v = identity)
     o = firstindex(g) - 1
     a = _primal_value(r) < 0 ? last(lags) : first(lags)
@@ -212,14 +204,7 @@ _exp_cap(::Type{T}) where {T <: AbstractFloat} = log(floatmax(T)) / 2
 _exp_cap(::Type) = _exp_cap(Float64)
 
 # The root on the primal values, by Newton steps on `log(R ∑ g_l e^{-r l})`,
-# which is convex and falling in `r`. By Jensen's inequality the log of
-# `∑ g_l e^{-r l}` is at least `log ∑ g_l - r μ`, with `μ` the mean lag, so
-# `log(R ∑ g_l) / μ` is below the root. The log is at most
-# `log ∑ g_l - r l` for the first lag with mass where `r > 0`, and the last
-# where `r < 0`, which bounds the root above. Newton steps on a convex,
-# falling function rise from below the root towards it, so the iteration
-# stops once a step no longer rises or would leave the bounds. Steps
-# converge quadratically, so the cap on their number is only a guard.
+# which is convex and falling in `r`.
 const _NEWTON_STEPS = 100
 function _growth_root(R, g, lags)
     logR = log(_primal_value(R))
@@ -232,6 +217,9 @@ function _growth_root(R, g, lags)
     end
     μ /= s
     c = logR + log(s)
+    # Jensen's inequality puts `c / μ` below the root, and the first or last
+    # lag with mass bounds it above. From below, each step rises towards the
+    # root, so the loop stops once a step does not rise or passes the bound.
     r = c / μ
     upper = c / (c > 0 ? first(lags) : last(lags))
     for _ in 1:_NEWTON_STEPS

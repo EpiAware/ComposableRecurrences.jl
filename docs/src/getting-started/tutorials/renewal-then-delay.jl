@@ -24,7 +24,6 @@ using ComposableRecurrences
 using ComposableRecurrences: Depletion, Flow, Floor,
     Add, exponential_history
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
-using ForwardDiff
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
@@ -42,7 +41,7 @@ infections = renewal(R; history = [5.0])
 #
 # A single seed day makes the first generations uneven.
 # [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r` (see [Seeding](@ref explanation-seeding)).
-# Its docstring gives the equation linking `r` to `R`, and a few Newton steps solve it.
+# [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves the equation linking `r` to `R` for the generation interval.
 
 r0 = ComposableRecurrences.growth_rate(R[1], gi)
 y0 = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
