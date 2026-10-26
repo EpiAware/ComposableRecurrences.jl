@@ -7,7 +7,7 @@
 #   julia --project=benchmark benchmark/matrix.jl [options]
 #
 # Options:
-#   --tier=ci|realistic|large   size tier (default realistic)
+#   --tier=ci|realistic|large|lag1   size tier (default realistic)
 #   --targets=a,b               targets (default: primal and the gradients)
 #   --cases=a,b                 cases (default: every case in the tier)
 #   --out=DIR                   result directory (default matrix-results)

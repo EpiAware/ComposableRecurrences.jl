@@ -407,9 +407,36 @@ Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 # Stratum `a`'s kernel convolution of the window `H[t:(t + L - 1), :]`,
 # for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
-_kdot(g::AbstractVector, H, t, τ, L, a) = _window_dot(g, H, t, L, a)
-_kdot(g::PerStratum, H, t, τ, L, a) = _window_dot(view(g.x, a, :), H, t, L, a)
-function _window_dot(g, H, t, L, a)
+_kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
+_kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
+# A run of independent strata with no modifiers waits each step on its
+# kernel convolution alone (`_Chained`). The newest lag, the previous step's
+# value, is then added last, after the vector loop over the older lags,
+# which do not wait on that step; so each step waits on one fused
+# multiply-add. This holds for hardware floats; dual numbers keep one
+# out-of-line loop, as do other runs, where the split gains nothing and costs
+# `Enzyme` more. Both forms start from `+0.0`, so they agree on signed zeros.
+struct _Chained{G}
+    g::G
+end
+_chain(g, ms, ::Type) = g
+function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:_IEEEFloat})
+    return _Chained(g)
+end
+@inline _kdot(c::_Chained{<:AbstractVector}, H, t, τ, L, a) = _window_dot(c.g, H, t, L, a)
+@inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
+    return _window_dot(view(c.g.x, a, :), H, t, L, a)
+end
+@inline function _window_dot(g, H, t, L, a)
+    acc = zero(promote_type(eltype(g), eltype(H)))
+    L >= 1 || return acc
+    @inbounds @simd for i in 1:(L - 1)
+        acc += g[i] * H[t + i - 1, a]
+    end
+    return @inbounds muladd(g[L], H[t + L - 1, a], acc)
+end
+# A window's convolution in one loop over the lags.
+function _window_sum(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
     @inbounds @simd for i in 1:L
         acc += g[i] * H[t + i - 1, a]
@@ -442,7 +469,7 @@ end
 function _kdot(g::_OldestFirstPairwise, H, t, τ, L, a)
     acc = zero(eltype(H))
     for b in axes(H, 2)
-        acc += _window_dot(view(g.x, :, b, a), H, t, L, b)
+        acc += _window_sum(view(g.x, :, b, a), H, t, L, b)
     end
     return acc
 end
@@ -485,6 +512,22 @@ end
 # The inner operations of one stratum's kernel convolution.
 _kwork(g, S, L) = L
 _kwork(g::_PairwiseKernel, S, L) = S * L
+
+# The run's buffer, `D + T` rows by `S` strata. Only the `D` history rows
+# start at zero, for a history shorter than `D`; each later row is written
+# by its step before any step reads it.
+function _buffer(h, ::Type{Tp}, D, T, S) where {Tp}
+    H = similar(h, Tp, D + T, S)
+    fill!(view(H, 1:D, :), zero(Tp))
+    return H
+end
+function _buffer(::_CPUArray, ::Type{Tp}, D, T, S) where {Tp}
+    H = Matrix{Tp}(undef, D + T, S)
+    for k in 1:S, i in 1:D
+        H[i, k] = zero(Tp)
+    end
+    return H
+end
 
 # Load the last `D` values of a public-layout history into the buffer,
 # right aligned; a shorter history leaves the earlier rows zero.
@@ -535,6 +578,43 @@ function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
     return Y
 end
 
+# The output of a run that keeps no cache: the buffer rows after the
+# history or, `joined` (`prepend`), the history then those rows. A single
+# series of plain values takes over the buffer's memory rather than copying
+# it, as nothing writes the buffer after the run; joined, so does one whose
+# history fits the buffer, which holds it right aligned. A joined output of
+# strata whose buffer is a transposed view of it (`_history_buffer`) is that
+# output, past any columns of zeros before a history shorter than the
+# buffer.
+_output(H, D, T, h, ::Val{false}) = _public(H, (D + 1):(D + T), h)
+function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{false}) where {Tp}
+    isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
+    return deleteat!(vec(H), 1:D)
+end
+_output(H, D, T, h, ::Val{true}) = _join(h, _rows(H, D, T, h))
+function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{true}) where {Tp}
+    m = length(h)
+    isbitstype(Tp) && m <= D || return _join(h, _rows(H, D, T, h))
+    return deleteat!(vec(H), 1:(D - m))
+end
+function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix, ::Val{true}) where {Tp}
+    m = size(h, 2)
+    isbitstype(Tp) && size(h, 1) == 1 && m <= D ||
+        return _join(h, _rows(H, D, T, h))
+    return reshape(deleteat!(vec(H), 1:(D - m)), 1, m + T)
+end
+function _output(
+        H::Transpose{<:Any, <:SubArray{<:Any, 2, <:Matrix}}, D, T,
+        h::AbstractMatrix, ::Val{true}
+    )
+    Y = parent(parent(H))
+    m = size(h, 2)
+    return m >= D ? Y : Y[:, (D - m + 1):(D + T)]
+end
+# The buffer rows after the history, a view in the public layout of `h`.
+_rows(H, D, T, h::AbstractVector) = view(H, (D + 1):(D + T), 1)
+_rows(H, D, T, h::AbstractMatrix) = transpose(view(H, (D + 1):(D + T), :))
+
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
 function _empty_history(gain, add)
@@ -583,9 +663,38 @@ end
 # routed call (`_Prepended`): a rule returns the joined output and its
 # pullback hands the history's columns of the cotangent to the history, so
 # no backend differentiates the join itself.
-_join(history::AbstractVector, y) = vcat(history, y)
+_join(history::AbstractVector, y) = _join_series(history, y)
+_join(history::AbstractMatrix, y) = _join_strata(history, y)
+_join_series(history, y) = vcat(history, y)
 # `cat` rather than `hcat`, which is ambiguous for some tracked array types.
-_join(history::AbstractMatrix, y) = cat(history, y; dims = 2)
+_join_strata(history, y) = cat(history, y; dims = 2)
+# CPU arrays join by loop, as `_load_history!` loads them: `Enzyme` cannot
+# analyse the types in `vcat` of a view and an array. The output may be the
+# run's buffer rows (`_rows`), joined with no copy of their own.
+function _join_series(history::_CPUArray, y::_CPUArray)
+    m = length(history)
+    out = Vector{promote_type(eltype(history), eltype(y))}(undef, m + length(y))
+    for i in 1:m
+        out[i] = history[i]
+    end
+    for i in eachindex(y)
+        out[m + i] = y[i]
+    end
+    return out
+end
+function _join_strata(
+        history::_CPUArray, y::Union{Array, Transpose{<:Any, <:_CPUArray}}
+    )
+    S, m = size(history)
+    out = Matrix{promote_type(eltype(history), eltype(y))}(undef, S, m + size(y, 2))
+    for j in 1:m, k in 1:S
+        out[k, j] = history[k, j]
+    end
+    for j in axes(y, 2), k in 1:S
+        out[k, m + j] = y[k, j]
+    end
+    return out
+end
 # The call joins the history to the output when `prepend` is set, branching
 # on the `Bool`: a backend's interpreter may not fold it into a type, and
 # both branches return the output's type.
@@ -624,7 +733,7 @@ end
 # Hardware floats over strata keep each stratum's times contiguous, which
 # their kernel convolution needs.
 function _history_buffer(joined, h, ::Type{Tp}, D, T, S) where {Tp}
-    return _load_history!(_zeros(h, Tp, D + T, S), h, D)
+    return _load_history!(_buffer(h, Tp, D, T, S), h, D)
 end
 function _history_buffer(
         ::Val{true}, h::AbstractMatrix, ::Type{Tp}, D, T, S
@@ -643,47 +752,6 @@ function _history_buffer(
     return transpose(view(Y, :, (Dh - D + 1):(Dh + T)))
 end
 
-# The history, then the buffer rows after it, in the public layout. A
-# buffer that is a transposed view of the output is the output, past any
-# columns of zeros before a history shorter than the buffer; one stratum's
-# buffer column is the output when the history fills its rows.
-function _joined_output(
-        H::Transpose{<:Any, <:SubArray{<:Any, 2, <:Matrix}}, D, T, h::AbstractMatrix
-    )
-    Y = parent(parent(H))
-    m = size(h, 2)
-    return m >= D ? Y : Y[:, (D - m + 1):(D + T)]
-end
-function _joined_output(H::Matrix, D, T, h::AbstractVector)
-    length(h) == D && return vec(H)
-    return _joined_copy(H, D, T, h)
-end
-function _joined_output(H::Matrix, D, T, h::AbstractMatrix)
-    size(h) == (1, D) && return reshape(H, 1, D + T)
-    return _joined_copy(H, D, T, h)
-end
-function _joined_copy(H, D, T, h::AbstractVector)
-    m = length(h)
-    Y = similar(H, m + T)
-    for i in 1:m
-        Y[i] = h[i]
-    end
-    for i in 1:T
-        Y[m + i] = H[D + i, 1]
-    end
-    return Y
-end
-function _joined_copy(H, D, T, h::AbstractMatrix)
-    S, m = size(h)
-    Y = similar(H, S, m + T)
-    for j in 1:m, k in 1:S
-        Y[k, j] = h[k, j]
-    end
-    for j in 1:T, k in 1:S
-        Y[k, m + j] = H[D + j, k]
-    end
-    return Y
-end
 # The history joins the series part of each operator's output: by `_join`,
 # which plain AD differentiates, or, in a rule's forward pass, which no
 # backend differentiates, by `_copy_join` into one array.
@@ -734,6 +802,9 @@ function _run_args(r, gain, history, state, add, start)
     _check_start(start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
+    # The step loop reads them without bounds checks.
+    _require_one_based(gain)
+    _require_one_based(add)
     h, s0, τ0 = _resume(history, state, start, gain, add)
     _check_primary_seed(r.kernel, history, start)
     return gain, add, h, s0, τ0
@@ -1049,7 +1120,8 @@ end
 end
 
 # The positional Run: the output and the cache the reverse pass reads,
-# including the state to resume from.
+# including each modifier's final state; `_WithState` builds the state to
+# resume from, which a plain call does not need.
 function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop)
     Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, Val(true))
     return Y, cache
@@ -1057,8 +1129,8 @@ end
 _primal(r::Recurrence, args...) = first(_recur(r, args..., Val(false)))
 
 function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop)
-    Y, _, _, cache = _recur(w.r, gain, add, h, s0, τ0, stop, Val(true))
-    return (Y, cache.state), cache
+    Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, stop, Val(true))
+    return (Y, _state(Y, H, states, h, τ0)), cache
 end
 function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
     Y, H, states = _recur(w.r, gain, add, h, s0, τ0, stop, Val(false))
@@ -1137,7 +1209,7 @@ function _prepare!(ex, p, q, C, kernel, H, t, τ, L)
 end
 
 # Stratum `k`'s kernel convolution and coupled pressure at step `t`.
-function _pressure_at(C::_PointwiseCoupling, kernel, p, q, H, t, τ, L, k)
+@inline function _pressure_at(C::_PointwiseCoupling, kernel, p, q, H, t, τ, L, k)
     pk = _kdot(kernel, H, t, τ, L, k)
     return pk, _coef(C, k) * pk
 end
@@ -1237,7 +1309,15 @@ end
 @inline function _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
     pk, xk = _pressure_at(coupling, kernel, p, q, H, t + D - L, τ, L, k)
     _record_pressure!(pr, pk, xk, t, k)
-    return _affine(gain, add, k, τ, xk)
+    return @inbounds _core(coupling, gain, add, k, τ, pk, xk)
+end
+# The value before the modifiers. A pointwise coupling's coefficient joins
+# the gain, which does not depend on the step's convolution, so each step
+# waits on one fused multiply-add after it rather than two products and a
+# sum.
+Base.@propagate_inbounds _core(C, gain, add, k, τ, pk, xk) = _affine(gain, add, k, τ, xk)
+Base.@propagate_inbounds function _core(C::_PointwiseCoupling, gain, add, k, τ, pk, xk)
+    return muladd(_at(gain, k, τ) * _coef(C, k), pk, _at(add, k, τ))
 end
 # The records `(; P, X)` of the kernel convolutions and the pressures. A
 # pointwise coupling's pressure is its coefficient times the convolution,
@@ -1253,8 +1333,9 @@ _record_pressure!(::Nothing, pk, xk, t, k) = nothing
     return nothing
 end
 # Stratum `k`'s pressure at step `t` from the records.
-_pressure(C, pr, k, t) = pr.X[k, t]
-_pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * pr.P[k, t]
+# The records are sized by the call, so they are read without bounds checks.
+_pressure(C, pr, k, t) = @inbounds pr.X[k, t]
+_pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata
@@ -1267,7 +1348,8 @@ function _series_body!(
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
             _series_step!, ex, ts, T,
-            ks, H, pr, gain, add, coupling, g, p, q, ms, states, rec, τ0, L, D
+            ks, H, pr, gain, add, coupling, _chain(g, ms, eltype(H)), p, q, ms,
+            states, rec, τ0, L, D
         )
     end
     return nothing
@@ -1404,9 +1486,6 @@ function _run(
     H = _history_buffer(joined, h, Tp, D, T, S)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
-    p = _zeros(h, Tp, S)
-    q = _zeros(h, Tp, S)
-    v = _zeros(h, Tp, S)
     states = if s0 === nothing
         map(m -> _init_state(Tp, m, h, S), modifiers)
     else
@@ -1418,12 +1497,18 @@ function _run(
         _sinks(Val(record), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
+        # A stratum on its own reads only its kernel convolution, so the run
+        # needs no pressure vectors.
         _blocks!(
             _series_body!, ex, H, S, _work(_RunLoop(), H, T * work),
-            ex, H, pr, gain, add, coupling, kernel, p, q, modifiers, states, rec,
-            τ0, L, D, T
+            ex, H, pr, gain, add, coupling, kernel, nothing, nothing, modifiers,
+            states, rec, τ0, L, D, T
         )
     else
+        # The pressure vectors and the step's values for the modifiers.
+        p = _zeros(h, Tp, S)
+        q = _zeros(h, Tp, S)
+        v = _zeros(h, Tp, S)
         # Parameters that read across strata fill their windows once per
         # step; the check is made once, outside the loop.
         across = _reads_across(modifiers)
@@ -1435,15 +1520,13 @@ function _run(
             )
         end
     end
-    Y = joined === Val(true) ? _joined_output(H, D, T, h) :
-        _public(H, (D + 1):(D + T), h)
+    Y = keep ? _public(H, (D + 1):(D + T), h) : _output(H, D, T, h, joined)
     # The cache holds copies of the inputs the reverse pass reads, so a
     # caller overwriting them after the call cannot change the gradient.
     cache = keep ?
         (;
             r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S, T,
-            H, pr, rec, init,
-            state = State(_public(H, (T + 1):(T + D), h), states, τ0 + T),
+            H, pr, rec, init, states,
         ) : _sink_traces(rec)
     return Y, H, states, cache
 end

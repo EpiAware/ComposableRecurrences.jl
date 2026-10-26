@@ -22,30 +22,58 @@ const _Inert = Union{
     AbstractArray{<:AbstractArray{<:Integer}},
 }
 
+# Under runtime activity a constant array's shadow is the primal itself,
+# and it gets no mirror. The mirrors are built in one of two modes, read
+# from the rule's configuration so each call compiles one: `_Shared()`, under
+# runtime activity, checks each array and gives `nothing` for a shared one,
+# so a mirror's type is a `Union`; `_Distinct()`, otherwise, uses every
+# shadow as given, so the mirrors and the pullback they reach infer.
+struct _Shared end
+struct _Distinct end
+
 # The mirror of an annotated argument.
-_ez(::Const) = nothing
-_ez(a::Active) = _ezs(a.val, Enzyme.make_zero(a.val))
-_ez(a::Union{Duplicated, DuplicatedNoNeed}) = _ezs(a.val, a.dval)
-_ez(a::MixedDuplicated) = _ezs(a.val, a.dval[])
+_ez(::Const, mode) = nothing
+_ez(a::Active, mode) = _ezs(a.val, Enzyme.make_zero(a.val), mode)
+_ez(a::Union{Duplicated, DuplicatedNoNeed}, mode) = _ezs(a.val, a.dval, mode)
+_ez(a::MixedDuplicated, mode) = _ezs(a.val, a.dval[], mode)
 
 # The mirror of primal `x` from its shadow `dx`.
-_ezs(x::_IEEEFloat, dx) = Ref(zero(x))
-_ezs(::_Inert, dx) = nothing
-_ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx) = nothing
-# Under runtime activity a constant array's shadow is the primal itself.
-_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x ? nothing : dx
+_ezs(x::_IEEEFloat, dx, mode) = Ref(zero(x))
+_ezs(::_Inert, dx, mode) = nothing
+_ezs(::Union{AbstractString, Char, Type, Module, Ptr}, dx, mode) = nothing
+_ezs(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray, mode) = _unshared(x, dx, mode)
 # A kernel's columns: each column's mirror from its own shadow.
-function _ezs(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
-    return dx === x ? nothing : map(_ezs, x, dx)
+function _ezs(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector, mode)
+    return _unshared(x, map((a, b) -> _ezs(a, b, mode), x, dx), dx, mode)
 end
-function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC)
-    return (; nzval = _ezs(nonzeros(x), nonzeros(dx)))
+# A shadow, or `nothing` where it is the primal in the `_Shared` mode. The
+# mode is read here rather than in `_ezs`, whose methods for structured
+# arrays it would make ambiguous.
+_unshared(x, dx, ::_Shared) = dx === x ? nothing : dx
+_unshared(x, dx, ::_Distinct) = (_distinct(x, dx); dx)
+_unshared(x, m, dx, ::_Shared) = dx === x ? nothing : m
+_unshared(x, m, dx, ::_Distinct) = (_distinct(x, dx); m)
+# Without runtime activity no shadow is its primal; if one were, the pullback
+# would write cotangents into the primal, so refuse instead.
+function _distinct(x, dx)
+    dx === x && throw(
+        ArgumentError(
+            "Enzyme passed a shadow that is its primal without runtime " *
+                "activity; use set_runtime_activity"
+        )
+    )
+    return nothing
 end
-_ezs(x::Diagonal, dx::Diagonal) = (; diag = _ezs(x.diag, dx.diag))
-_ezs(x::Union{Tuple, NamedTuple}, dx) = map(_ezs, x, dx)
-function _ezs(x, dx)
+function _ezs(x::SparseMatrixCSC, dx::SparseMatrixCSC, mode)
+    return (; nzval = _ezs(nonzeros(x), nonzeros(dx), mode))
+end
+_ezs(x::Diagonal, dx::Diagonal, mode) = (; diag = _ezs(x.diag, dx.diag, mode))
+_ezs(x::Union{Tuple, NamedTuple}, dx, mode) = map((a, b) -> _ezs(a, b, mode), x, dx)
+function _ezs(x, dx, mode)
     names = fieldnames(typeof(x))
-    return NamedTuple{names}(map(n -> _ezs(getfield(x, n), getfield(dx, n)), names))
+    return NamedTuple{names}(
+        map(n -> _ezs(getfield(x, n), getfield(dx, n), mode), names)
+    )
 end
 
 # Whether a mirror holds a nonzero scalar cotangent.
@@ -407,15 +435,19 @@ function EnzymeRules.augmented_primal(
 end
 
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}}, ::Type{<:Annotation},
+        config::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}}, ::Type{<:Annotation},
         tape, leaves::Vararg{Annotation, N}
     ) where {X, N}
     cache, y, dy = tape
     # An unused output still owes each `Active` leaf a zero cotangent.
     dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
-    lms = _map_leaves(_ez, leaves)
+    mode = EnzymeRules.runtime_activity(config) ? _Shared() : _Distinct()
+    return _reverse_leaves(mode, X, cache, y, dy, leaves)
+end
+function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
+    lms = _map_leaves(a -> _ez(a, mode), leaves)
     ms = _assemble(X, typeof(leaves), lms)
-    grads = (; piece = first(ms), y = _ezs(y, dy), args = Base.tail(ms))
+    grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
     _run_pullback!(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)
