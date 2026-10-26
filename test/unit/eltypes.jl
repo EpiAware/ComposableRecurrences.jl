@@ -144,3 +144,35 @@ end
     )
     @test (@inferred beds()) isa CR.Depletion
 end
+
+@testitem "Eltypes: integer inputs keep an integer output, as cumsum does" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # A running total of integers is Base's `cumsum`, type and values.
+    x = [1, 2, 3, 4]
+    total(x) = Recurrence([true])(true; history = [0], add = x)
+    @test (@inferred total(x)) == cumsum(x)
+    @test eltype(total(x)) == eltype(cumsum(x)) == Int
+    # `Bool` and narrow integers promote with `Int`, as Base's sums do.
+    @test eltype(Recurrence([true])(true; history = [false], add = [true])) == Int
+    @test eltype(Recurrence([true])(true; history = Int8[0], add = Int8[1])) == Int
+    @test Recurrence([1, 2])(2; history = [1, 1], stop = 3) == [6, 16, 56]
+    # Strata through an integer coupling, prepended, traced and resumed.
+    y = Recurrence([1]; coupling = [1 0; 1 1])(1; history = ones(Int, 2, 1), stop = 2)
+    @test y == [1 1; 2 4]
+    r = Recurrence([true])
+    @test eltype(r(true; history = [0], add = x, prepend = true)) == Int
+    @test eltype(first(r(true; history = [0], add = x, trace = true))) == Int
+    y, st = r(true; history = [0], add = x, stop = 2, state = true)
+    @test eltype(y) == eltype(st.history) == Int
+    @test first(r(true; add = x, state = st)) == cumsum(x)[3:4]
+    # A float anywhere, a rational, or a modifier, whose step may divide,
+    # gives the float type.
+    @test eltype(r(true; history = [0.0], add = x)) == Float64
+    @test eltype(r(0.5f0; history = [0], add = x)) == Float32
+    @test eltype(Recurrence([1 // 2])(1; history = [1], stop = 2)) == Float64
+    d = Recurrence([1]; modifiers = (CR.Depletion(100),))
+    @test eltype(d(1; history = [1], stop = 2)) == Float64
+    @test CR._buffer_eltype(Int, ()) == Int
+    @test CR._buffer_eltype(Bool, (CR.Add(1),)) == Float64
+end

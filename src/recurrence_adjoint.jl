@@ -52,6 +52,7 @@ function _split_prepended(w::_WithTrace, (Ȳ, tr̄), T)
     ȳ, ȳh = _split_prepended(w.op, Ȳ, T)
     return (ȳ, tr̄), ȳh
 end
+_split_steps(::Nothing, T) = nothing, nothing
 function _split_steps(ȳ::AbstractVector, T)
     n = length(ȳ) - T
     return view(ȳ, (n + 1):(n + T)), view(ȳ, 1:n)
@@ -61,6 +62,7 @@ function _split_steps(ȳ::AbstractMatrix, T)
     return view(ȳ, :, (n + 1):(n + T)), view(ȳ, :, 1:n)
 end
 _add_history!(::Nothing, ȳh) = nothing
+_add_history!(h̄::AbstractArray, ::Nothing) = nothing
 _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 
 # The reverse pass runs under the executor set when it runs. The default
@@ -69,8 +71,10 @@ _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 # window cache per step, so their reverse pass runs serially.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
+    # An integer output has no cotangent, and then no part of the call does.
+    Ȳ === nothing && return nothing
     (; r, H, D, S, T, τ0) = c
-    H̄ = _zeros(H, eltype(H), D + T, S)
+    H̄ = _seeded(H, Ȳ, D)
     # Parameters that read the outputs send their cotangents into `H̄`. The
     # bound modifiers enter the step loop through a function barrier.
     modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
@@ -86,7 +90,6 @@ end
 function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     (; r, kernel, gain, h, s0, τ0, L, D, S, T, H, pr, rec, init) = c
     coupling = r.coupling
-    _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
     ḡ = cotangent(r̄, :kernel)
@@ -280,6 +283,30 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
     end
     return nothing
 end
+
+# The buffer's cotangent, `D` zero rows and then the output's cotangent `Ȳ`.
+_seeded(H, Ȳ, D) = _seed_rows!(_zeros(H, eltype(H), size(H)...), Ȳ, D)
+# A CPU buffer's is written in one pass.
+function _seeded(H::Array, Ȳ, D)
+    S, T = size(H, 2), size(H, 1) - D
+    size(Ȳ) == _public_size(Ȳ, S, T) || throw(
+        DimensionMismatch("output cotangent of size $(size(Ȳ)) for $S × $T outputs")
+    )
+    H̄ = similar(H)
+    @inbounds for k in 1:S
+        for i in 1:D
+            H̄[i, k] = zero(eltype(H̄))
+        end
+        for t in 1:T
+            H̄[D + t, k] = _seed_at(Ȳ, k, t)
+        end
+    end
+    return H̄
+end
+_public_size(::AbstractVector, S, T) = (T,)
+_public_size(::AbstractMatrix, S, T) = (S, T)
+Base.@propagate_inbounds _seed_at(Ȳ::AbstractVector, k, t) = Ȳ[t]
+Base.@propagate_inbounds _seed_at(Ȳ::AbstractMatrix, k, t) = Ȳ[k, t]
 
 # Add the public-layout cotangent `x̄` (length n, or S × n) into buffer rows
 # `o + 1` to `o + n`.

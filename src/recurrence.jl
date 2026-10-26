@@ -98,6 +98,9 @@ it; the history sets which, and the number of strata.
 The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
+With integer and `Bool` inputs and fields alone and no modifiers, the
+output keeps that integer type promoted with `Int`, as `cumsum` does;
+otherwise it is the float type.
 The constructor checks once whether the local step can rebuild every
 part it differentiates and stores the result in the field `rebuilds`; see
 [Rules and plain AD](@ref adjoint-routing) for the route this sets.
@@ -585,6 +588,13 @@ _output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
 function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
+end
+# The output of a recorded run, whose cache keeps the buffer: a copy of the
+# buffer rows after the history. No backend differentiates it, so a single
+# CPU series copies its column's memory in one call.
+_recorded_output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
+function _recorded_output(H::Matrix, D, T, h::AbstractVector)
+    return copyto!(similar(H, T), 1, H, D + 1, T)
 end
 
 # Without a history the run starts from zeros, with the strata of a
@@ -1081,6 +1091,11 @@ end
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
+# The reverse pass reads the history's values only in the modifiers' `Init`
+# pullbacks, which a call without modifiers or resumed from a state does not
+# run; otherwise it reads only the history's shape.
+_tape_history(h, s0, ::Tuple{}) = h
+_tape_history(h, s0, modifiers) = s0 === nothing ? _tape(h) : h
 
 # A resumed state must have each modifier's `nstate` entries, as an
 # `Init` would have written, and the modifiers must fit the strata, as
@@ -1124,9 +1139,15 @@ function _recur(r::Recurrence, gain, add, h, s0, τ0, stop, record::Val)
     _check_times(:modifiers, modifiers, stop)
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
-    Tp = float(param_eltype((r, gain, add, h, s0)))
+    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
     return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
 end
+
+# The buffer eltype from the promoted eltype `E` of every input and part:
+# its float type, or with integers alone and no modifier, whose step may
+# divide, `E` promoted with `Int`, as Base's sums promote it.
+_buffer_eltype(::Type{E}, modifiers) where {E} = float(E)
+_buffer_eltype(::Type{E}, ::Tuple{}) where {E <: Integer} = promote_type(E, Int)
 
 # `I` and `Diagonal` scale each stratum's own convolution, so their steps
 # skip the pressure vectors.
@@ -1172,10 +1193,11 @@ end
 # A modifier's records: its input values, its states entering each step
 # (state entries × steps, or for a modifier whose state never changes the
 # state vector it started from) and, for a vector modifier that asks with
-# `_keeps_after`, its states after each step (`A`, else `nothing`).
+# `_keeps_after`, its states after each step (`A`, else `nothing`). Every
+# step writes its column of each, so they start unset.
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
-    A = _keeps_after(m) ? _zeros(h, Tp, length(s), T) : nothing
-    return (; V = _zeros(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
+    A = _keeps_after(m) ? similar(h, Tp, length(s), T) : nothing
+    return (; V = similar(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
 end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
@@ -1183,7 +1205,7 @@ _keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
-    return _stateless(m) ? s : _zeros(h, Tp, length(s), T)
+    return _stateless(m) ? s : similar(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
@@ -1244,9 +1266,10 @@ end
 # The records `(; P, X)` of the kernel convolutions and the pressures. A
 # pointwise coupling's pressure is its coefficient times the convolution,
 # so it records no `X`.
+# Every step writes its column of both, so they start unset.
 function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
-    X = C isa _PointwiseCoupling ? nothing : _zeros(h, Tp, S, T)
-    return (; P = _zeros(h, Tp, S, T), X)
+    X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
+    return (; P = similar(h, Tp, S, T), X)
 end
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
 @inline function _record_pressure!(pr, pk, xk, t, k)
@@ -1437,13 +1460,14 @@ function _run(
             )
         end
     end
-    Y = record ? _public(H, (D + 1):(D + T), h) : _output(H, D, T, h)
+    Y = record ? _recorded_output(H, D, T, h) : _output(H, D, T, h)
     # The cache holds copies of the inputs the reverse pass reads, so a
     # caller overwriting them after the call cannot change the gradient.
     cache = record ?
         (;
-            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S, T,
-            H, pr, rec, init, states,
+            r, kernel, gain = _tape(gain), add,
+            h = _tape_history(h, s0, r.modifiers), s0, τ0, L, D, S, T, H, pr,
+            rec, init, states,
         ) : nothing
     return Y, H, states, cache
 end

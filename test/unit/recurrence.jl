@@ -660,6 +660,16 @@ end
         y = r(R; history = h, kw...)
         @test r(R; history = Poison(h), kw...) ≈ y
     end
+    # A recorded run's records start unset too, as every step writes its
+    # column of each: with a vector modifier as well.
+    move = CR.Redistribute(CR.movement(K ./ 2, 0.1))
+    unset(x) = x isa AbstractArray && any(isnan, x)
+    for (r, kw) in (cases..., (Recurrence(g; modifiers = (move, pool)), (;)))
+        start = get(kw, :start, 1)
+        _, c = CR._run_forward(r, R, nothing, Poison(h), nothing, start, nothing)
+        @test !any(unset, values(c.pr))
+        @test !any(R -> any(unset, values(R)), c.rec)
+    end
     # One series, which takes over the buffer for its output.
     r = Recurrence(g)
     @test r(R[1, :]; history = Poison(h[1, :])) ≈ r(R[1, :]; history = h[1, :])
