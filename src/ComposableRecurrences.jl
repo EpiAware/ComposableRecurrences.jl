@@ -121,9 +121,12 @@ include("adjoints/adjoints.jl")
 include("modifiers/builtin_modifiers.jl")
 include("modifiers/allocate.jl")
 
-# parameters: computed from parameters, recent outputs or change points.
+# parameters: computed parameters.
+# Parameters computed from other parameters.
 include("parameters/derived.jl")
+# Parameters read from the recurrence's own recent outputs.
 include("parameters/recent.jl")
+# `TimeVarying` coefficients given by change points.
 include("parameters/piecewise.jl")
 
 # depletion: `Depletion` forms, flows and pools.
@@ -133,20 +136,23 @@ include("depletion/pool.jl")
 
 # operators: `Recurrence` and `Convolution`, their loops and reverse passes.
 include("operators/recurrence.jl")
+# A call with its trace, built from the records after the run.
 include("operators/trace_run.jl")
 include("operators/recurrence_adjoint.jl")
 include("operators/convolution.jl")
 
 # kernels: routes kernels and delay masses.
 include("kernels/routes.jl")
+# The masses of a delay on whole lags, the hook delay types extend.
 include("kernels/delays.jl")
 
-# Files below need the operators' types, so load after them.
-# adjoints: default pullbacks of modifiers and couplings without one.
+# Files that load after the operators.
+# Default pullbacks of modifiers and couplings without one; reads
+# `_EntryParam` from `operators/recurrence.jl`.
 include("adjoints/fallbacks.jl")
-# interface: the Interfaces.jl declaration of the role interface.
+# The Interfaces.jl declaration of the role interface, for every type above.
 include("interface/interfaces.jl")
-# modifiers: `Transform`, which declares its own `PieceInterface`.
+# `Transform`, which declares its own `PieceInterface`.
 include("modifiers/transform.jl")
 
 end # module ComposableRecurrences
