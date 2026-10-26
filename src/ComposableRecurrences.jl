@@ -1,11 +1,12 @@
 @doc raw"""
     ComposableRecurrences
 
-Fast, composable and differentiable recurrences and causal convolutions.
+Fast, composable and differentiable recurrences and convolutions.
 
-A recurrence steps a value forward from a window of its own past values, as in
-an autoregression.
-A causal convolution weights past inputs by a kernel, as in a delay.
+A recurrence computes each value from its own past values, such as infections
+from earlier infections.
+A convolution weights the past values of another series, such as reported cases
+from earlier infections.
 For a single series the two are
 
 ```math
@@ -33,7 +34,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | concept              | one way                                                              |
 |:---------------------|:---------------------------------------------------------------------|
 | feedback recursion   | `Recurrence(kernel; coupling, modifiers)`, lag 1 first               |
-| causal convolution   | `Convolution(kernel)`, lag 0 first                                   |
+| convolution          | `Convolution(kernel)`, lag 0 first                                   |
 | strata               | `PerStratum(x)`, `Pairwise(x)`                                       |
 | time variation       | `TimeVarying(x, Secondary())`                                        |
 | strata and time      | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))`             |
@@ -141,7 +142,7 @@ include("trace_run.jl")
 include("recurrence_adjoint.jl")
 # The routes kernel: a sum of (coupling, kernel) routes.
 include("routes.jl")
-# The causal convolution operator and its reverse pass.
+# The convolution operator and its reverse pass.
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")

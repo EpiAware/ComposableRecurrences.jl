@@ -11,12 +11,16 @@
 <!-- badges:end -->
 [![Reactant](https://github.com/EpiAware/ComposableRecurrences.jl/actions/workflows/reactant.yaml/badge.svg?branch=main)](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md)
 
-Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/) and [differentiable](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/) recurrences and causal convolutions in Julia.
+Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/) and [differentiable](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/) recurrences and convolutions in Julia.
 
 ## Why ComposableRecurrences?
 
-- Recurrences and causal convolutions are usually hand-written loops, rewritten for each model; `Recurrence` and `Convolution` express them as two operators, for one series or many coupled series.
-- Extra behaviour such as coupling between series, finite pools or bounds is added by composing small couplings and modifiers, and you can extend it with your own.
+- A recurrence computes each value from its own past values, such as infections from earlier infections.
+  A convolution weights the past values of another series, such as reported cases from earlier infections.
+- Both are usually hand-written loops, rewritten for each model.
+  `Recurrence` and `Convolution` express them as two operators, for one series or many coupled series.
+- Coupling between series, finite pools and bounds are added by composing small couplings and modifiers.
+  Users can write their own.
 - The forward run and gradients under ForwardDiff, Mooncake and Enzyme are close to or faster than a hand-written loop; see the [performance figure](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-performance).
 
 ## Getting started

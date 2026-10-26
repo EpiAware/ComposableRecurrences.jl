@@ -149,9 +149,8 @@ const _AUTO_MIN_TIMES = 1000
 _auto_fft(L, T) = L >= _AUTO_MIN_LAGS && T >= _AUTO_MIN_TIMES
 
 @doc raw"""
-A causal convolution whose kernel starts at lag 0: each output weights the
-current and past inputs, then is scaled by the gain and shifted by the add
-input,
+A convolution whose kernel starts at lag 0: each output weights the current
+and past inputs, then is scaled by the gain and shifted by the add input,
 
 ```math
 y_{t,i} = g_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},

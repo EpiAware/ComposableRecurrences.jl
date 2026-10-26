@@ -1,7 +1,8 @@
 # [Getting started](@id getting-started)
 
-[`Recurrence`](@ref) steps a series forward from a kernel-weighted window of its own past.
-[`Convolution`](@ref) weights past inputs by a kernel.
+A recurrence computes each value from its own past values, such as infections from earlier infections.
+A convolution weights the past values of another series, such as reported cases from earlier infections.
+[`Recurrence`](@ref) and [`Convolution`](@ref) are the two operators.
 Couplings link series, and modifiers add behaviour such as finite pools to each step.
 Every operator is differentiable.
 Computational efficiency is a main focus; see [Performance](@ref overview-performance).
