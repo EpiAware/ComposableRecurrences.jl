@@ -83,8 +83,9 @@ end
 
 findfirst(<(1), R_eff)
 
-# A modifier after the depletion, such as `Add` for imports, changes the output but not the values drawn.
-# The drawn values, the trace's second row, over the pressure then give the depleted value.
+# Imports ``\iota_t`` added after the depletion by `Add` are not multiplied by the gain.
+# With them, ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
+# An `add` input enters before the depletion and is drawn with the rest, so the ratio then includes its share.
 
 # ## Learning more
 #

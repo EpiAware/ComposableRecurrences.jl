@@ -117,7 +117,8 @@ end
     @test R̂ ≈ depleted(q, only(tr.modifiers)[1:S, :]) atol = 1.0e-12 rtol = 1.0e-12
     @test all(R̂ .< R)
     # Imports after the depletion change the output but not what is drawn:
-    # the drawn values, after the pools in the trace, give the depleted value.
+    # the output less the imports gives the depleted value, as do the drawn
+    # values after the pools in the trace.
     ι = [t <= 5 ? 1.0 : 0.0 for _ in 1:S, t in 1:T]
     imports = Add(TimeVarying(PerStratum(ι)))
     ra = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)), imports))
@@ -127,6 +128,7 @@ end
     @test ya ≈ drawn .+ ι
     qa = pressure(ra, ya; history = seed)
     @test drawn ./ qa ≈ depleted(qa, M[1:S, :]) atol = 1.0e-12 rtol = 1.0e-12
+    @test (ya .- ι) ./ qa ≈ drawn ./ qa atol = 1.0e-12 rtol = 1.0e-12
 end
 
 @testitem "pressure: argument checks and inference" setup = [PressureCases] begin

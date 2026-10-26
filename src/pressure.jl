@@ -24,6 +24,21 @@ With modifiers the same ratio is their realised effect on each step, such
 as the effective reproduction number under
 [`ComposableRecurrences.Depletion`](@ref).
 Where ``q_{t,i}`` is zero the ratio is `NaN` or `Inf`.
+For one series with kernel ``k`` and no coupling,
+``q_t = \sum_{l=1}^{L} k_l\, y_{t-l}``, the convolution of ``y`` with
+``k`` lagged by one step.
+
+Added values are not multiplied by the gain, so with them the ratio is not
+the effective reproduction number.
+With imports ``\iota_t`` added after the modifiers by
+[`ComposableRecurrences.Add`](@ref),
+
+```math
+\hat R_{t,i} = \frac{y_{t,i} - \iota_{t,i}}{q_{t,i}};
+```
+
+an `add` input enters before the modifiers and is drawn with the rest, so
+the ratio then includes its share.
 
 # Arguments
 - `r`: the recurrence.
@@ -88,15 +103,19 @@ function _pressure_run(::Type{Tp}, r, y, h, τ0, L, D, S, T) where {Tp}
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
-        for t in _run_steps(ts, T)
-            τ = τ0 + t - 1
-            _prepare!(Serial(), p, q, coupling, g, H, t + D - L, τ, L)
-            for k in 1:S
-                out[k, t] = last(_pressure_at(coupling, g, p, q, H, t + D - L, τ, L, k))
-            end
-        end
+        _steps_in!(_pressure_step!, Serial(), ts, T, out, coupling, g, p, q, H, τ0, L, D, S)
     end
     return out
+end
+
+# Step `t`'s pressure on every stratum, read as the run's step reads it.
+@inline function _pressure_step!(t, out, coupling, g, p, q, H, τ0, L, D, S)
+    τ = τ0 + t - 1
+    _step_prepare!(Serial(), p, q, coupling, g, H, t, τ, L, D)
+    for k in 1:S
+        out[k, t] = last(_step_pressure(coupling, g, p, q, H, t, τ, L, D, k))
+    end
+    return nothing
 end
 
 # The outputs into the buffer rows after the history, by loop as the
