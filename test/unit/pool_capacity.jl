@@ -68,12 +68,16 @@
     const W = reshape(range(0.2, 1.4; length = 48), 4, 12)
     const ROUTE = [1 => 3, 2 => 4]
 
+    # The truncated form `form` as a draw with the keywords `kw`.
+    drawn(::CR.Truncate; kw...) = CR.Truncate(; kw...)
+    drawn(form::CR.SoftTruncate; kw...) = CR.SoftTruncate(form.κ; kw...)
+
     # Beds: the pool is the occupancy, a share `δ` leaves before the draw
     # and the admissions fill it up to `C`.
     function beds(C, δ; overflow = :stratum, form = CR.Truncate(), initial = nothing)
         return CR.Depletion(
-            C; pools = (O = initial,), form, fill = :O, flows_first = true,
-            flows = CR.Flow(:O => 0, δ; form = CR.Share()), overflow
+            C, CR.Flow(:O => 0, δ; form = CR.Share()),
+            drawn(form; into = :O, overflow); pools = (O = initial,)
         )
     end
 
@@ -91,9 +95,7 @@
         grant = CR.Flow(0 => :B, Derived(granted, C, starts); form = CR.Truncate())
         flows = carry_over ? (grant,) :
             (CR.Flow(:B => 0, starts; form = CR.Share()), grant)
-        return CR.Depletion(;
-            pools = (B = initial,), form, flows_first = true, flows, overflow
-        )
+        return CR.Depletion(flows..., drawn(form; overflow); pools = (B = initial,))
     end
 end
 
@@ -162,7 +164,7 @@ end
     )
     for (build, kw, θ) in values(cases)
         r(θ, R) = Recurrence(PerStratum(G); modifiers = (build(θ),))(R; history = h)
-        pairs = build(θ).overflow isa CR._ToStratum ? ROUTE : collect(1:4)
+        pairs = CR._stratum_of(build(θ)) isa CR._ToStratum ? ROUTE : collect(1:4)
         ref(θ, R) = first(naive(G, R, h, pairs; kw(θ)...))
         @test r(θ, R) ≈ ref(θ, R)
         @test ReferenceAD.gradient(θ -> sum(W .* r(θ, R)), θ) ≈
@@ -241,7 +243,7 @@ end
     @test run(nothing, d; initial = 2.0)[4] == 3.0
     @test run(nothing, d; initial = 2.0, carry_over = false) == run(nothing, d)
     # A lifetime budget is also a starting allowance alone.
-    lifetime = CR.Depletion(; pools = (B = 4.0,), form = CR.Truncate())
+    lifetime = CR.Depletion(CR.Truncate(); pools = (B = 4.0,))
     @test Recurrence([0.0]; modifiers = (lifetime,))(; history = [0.0], add = d) ==
         run(nothing, d)
     # The demand left goes to the second stratum: it never returns to the
@@ -267,7 +269,7 @@ end
 @testitem "Depletion capacity: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, d, f) = first(CR._draw(CR.SoftTruncate(κ), d, f, 1.0, 1.0))
+    draw(κ, d, f) = first(CR._draw(CR.SoftTruncate(κ), d, f, 1.0))
     for κ in (0.05, 0.2)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0
@@ -291,8 +293,9 @@ end
     CR = ComposableRecurrences
     (; beds, budget) = CapacityChecks
     v = [2.0, 0.5, 3.0, 1.0]
-    # The state is each group's pool, then each queue. The mirror holds the
-    # parameters of `θ` in order: `N`, the softness, `pools`, the flows'.
+    # The state is each group's pool, then each queue. `flat_pool` gives the
+    # mirror's parameters in the order of `θ`: `N`, the softness, `pools`,
+    # the flows'.
     builds = (
         (x -> beds(x[1], x[3]; initial = x[2]), [4.0, 0.0, 0.2], [2.0, 3.5], (3, 4)),
         (
@@ -303,26 +306,23 @@ end
             [4.0, 2.0, 0.2, 0.0, 0.2, 0.4], [2.0, 1.0], (1,),
         ),
         (
-            x -> CR.Depletion(;
-                pools = (B = x[1],), form = CR.Truncate(), flows_first = true,
-                overflow = :queue,
-                flows = CR.Flow(0 => :B, TimeVarying(x[2:7]); form = CR.Truncate())
+            x -> CR.Depletion(
+                CR.Flow(0 => :B, TimeVarying(x[2:7]); form = CR.Truncate()),
+                CR.Truncate(; overflow = :queue); pools = (B = x[1],)
             ),
             [0.0; collect(range(2.0, 4.0; length = 6))],
             [1.2, 0.5, 1.0, 2.0, 0.3, 0.0, 1.0, 0.4], (1, 3, 4),
         ),
         (
-            x -> CR.Depletion(;
-                pools = (B = x[2],), form = CR.SoftTruncate(x[1]), flows_first = true,
-                overflow = :stratum, flows = (
-                    CR.Flow(:B => 0, TimeVarying(x[3:5]); form = CR.Share()),
-                    CR.Flow(0 => :B, x[6]; form = CR.Truncate()),
-                )
+            x -> CR.Depletion(
+                CR.Flow(:B => 0, TimeVarying(x[3:5]); form = CR.Share()),
+                CR.Flow(0 => :B, x[6]; form = CR.Truncate()),
+                CR.SoftTruncate(x[1]; overflow = :stratum); pools = (B = x[2],)
             ),
             [0.1, 0.0, 1.0, 0.0, 1.0, 2.5], [1.0, 0.4], (1, 2),
         ),
         (
-            x -> CR.Depletion(; pools = (B = x[1],), form = CR.Truncate()),
+            x -> CR.Depletion(CR.Truncate(); pools = (B = x[1],)),
             [2.5], [4.0, 0.5, 1.0, 0.0], (1, 2),
         ),
         (
@@ -333,9 +333,9 @@ end
             [2.0, 4.0, 1.0, 3.0, 0.15, 0.3], [1.5, 2.5, 0.0, 1.0], (1,),
         ),
         (
-            x -> CR.Depletion(;
-                pools = (:B,), form = CR.Truncate(), flows_first = true,
-                flows = CR.Flow(0 => :B, x[1]; form = CR.Truncate()), overflow = :queue
+            x -> CR.Depletion(
+                CR.Flow(0 => :B, x[1]; form = CR.Truncate()),
+                CR.Truncate(; overflow = :queue); pools = (:B,)
             ),
             [0.3], [0.6, 0.1, 0.0, 0.2, 1.0, 0.0, 0.5, 0.0], (1, 2),
         ),
@@ -351,16 +351,16 @@ end
         # second and a hazard flow between them after it.
         (
             x -> CR.Depletion(
-                x[1]; pools = (A = x[2], O = x[3]), form = CR.Truncate(), fill = :O,
-                overflow = :stratum,
-                flows = CR.Flow(:O => :A, x[4])
+                x[1], CR.Truncate(; into = :O, overflow = :stratum),
+                CR.Flow(:O => :A, x[4]);
+                pools = (A = x[2], O = x[3])
             ),
             [5.0, 1.0, 2.0, 0.3], [1.0, 0.5, 2.0, 3.0], (1,),
         ),
     )
     for (build, θ, s, ts) in builds, t in ts
         c = ModifierChecks.check_pullback(
-            build, θ, v, s, t; s̄ = 0.7 .* s .- 0.9
+            build, θ, v, s, t; s̄ = 0.7 .* s .- 0.9, flatten = ModifierChecks.flat_pool
         )
         @test c.v
         @test c.s
@@ -373,9 +373,7 @@ end
     CR = ComposableRecurrences
     # Wards 1 and 2 overflow into strata 3 and 4, and the Redistribute moves
     # all of stratum 4 into stratum 3, as two pairs `1 => 3, 2 => 3` did.
-    beds = CR.Depletion(
-        1.0; pools = (:O,), form = CR.Truncate(), fill = :O, overflow = :stratum
-    )
+    beds = CR.Depletion(1.0, CR.Truncate(; into = :O, overflow = :stratum); pools = (:O,))
     K = zeros(4, 4)
     K[3, 4] = 1.0
     shared = CR.Redistribute(CR.movement(K, PerStratum([0.0, 0.0, 0.0, 1.0])))
@@ -389,9 +387,9 @@ end
 @testitem "Depletion capacity: checks its arguments" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    fill_into(o; pools = (:O,), kw...) = CR.Depletion(
-        1.0; pools, form = CR.Truncate(), fill = o, kw...
-    )
+    function fill_into(o; pools = (:O,), overflow = nothing, flows = ())
+        return CR.Depletion(1.0, CR.Truncate(; into = o, overflow), flows...; pools)
+    end
     @test_throws "overflow is nothing, :queue or :stratum, got :hold" fill_into(
         :O; overflow = :hold
     )
@@ -400,30 +398,31 @@ end
     )
     @test_throws "the draw names pool :X, but the pools are (:O,)" fill_into(:X)
     @test_throws "the draw names pool \"O\", but the pools are (:O,)" fill_into("O")
-    @test fill_into(1).draw === CR._DrawInto(1)
+    @test fill_into(1).pieces[1] === CR._DrawInto(CR.Truncate(), 1.0, 1, CR._Drop())
     # A draw into a pool is truncated, from a capacity that is not negative.
     @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Depletion(
-        1.0; pools = (:O,), form = CR.Hazard(), fill = :O
+        1.0, CR.Hazard(; into = :O); pools = (:O,)
     )
     @test_throws "N is non-negative, got -1.0" CR.Depletion(
-        PerStratum([1.0, -1.0]); pools = (:O,), form = CR.Truncate(), fill = :O
+        PerStratum([1.0, -1.0]), CR.Truncate(; into = :O); pools = (:O,)
     )
     @test_throws "pools is non-negative, got -2.0" fill_into(:O; pools = (O = -2.0,))
     # Every pool starts from a level that is not negative, filled or not.
-    @test_throws "pools is non-negative, got -1.0" CR.Depletion(;
-        pools = (B = -1.0,), form = CR.Truncate()
+    @test_throws "pools is non-negative, got -1.0" CR.Depletion(
+        CR.Truncate(); pools = (B = -1.0,)
     )
     @test_throws "pools is non-negative, got -1.0" CR.Depletion(
         1.0; pools = (S = 1.0, R = -1.0)
     )
     @test fill_into(:O; pools = (O = 0.5,)).pools == (O = 0.5,)
-    # A truncated draw reads no exponent; `true` and `false` stay fixed.
-    @test fill_into(:O; heterogeneity = false).heterogeneity isa CR._FixedExponent{false}
-    @test_throws "a draw into a pool fills it up to N, so give N" CR.Depletion(;
-        pools = (:O,), form = CR.Truncate(), fill = :O
+    # A truncated draw reads no exponent, so holds none.
+    @test !hasproperty(fill_into(:O).pieces[1].form, :α)
+    @test_throws "a draw into a pool fills it up to N, so give N" CR.Depletion(
+        CR.Truncate(; into = :O); pools = (:O,)
     )
-    @test_throws "shape a draw, and form = nothing has none" CR.Depletion(;
-        form = nothing, overflow = :queue
+    # The overflow shapes a draw, not a flow.
+    @test_throws "a draw's arguments, which a flow does not take" CR.Flow(
+        :S => 0, 0.1; form = CR.Truncate(; overflow = :queue)
     )
     @test_throws "from is a pool from 1, or 0 for outside the Depletion, got from = -1" CR.Flow(
         -1 => 1, 0.1
@@ -452,11 +451,11 @@ end
     @test CR.ispointwise(dropped)
     @test !CR._strata_loop(dropped)
     @test CR.nstate(dropped, 5) == 5
-    @test CR.param_eltype(fill_into(:O; flows = CR.Flow(:O => 0, 0.1f0))) == Float64
+    @test CR.param_eltype(fill_into(:O; flows = (CR.Flow(:O => 0, 0.1f0),))) == Float64
     @test CR.param_eltype(
         CR.Depletion(
-            1.0f0; pools = (:O,), form = CR.Truncate(), fill = :O,
-            flows = CR.Flow(:O => 0, 0.1f0; form = CR.Share())
+            1.0f0, CR.Truncate(; into = :O), CR.Flow(:O => 0, 0.1f0; form = CR.Share());
+            pools = (:O,)
         )
     ) == Float32
 end

@@ -9,10 +9,8 @@ name: Threads
 # (tag `executor`) on every backend, and the allocation counts (tag
 # `allocations`), which skip under the coverage the managed AD workflow
 # collects. Neither job here collects coverage.
-# Both jobs run on the current release and the prerelease channel. `pre`
-# resolves to the current release when no prerelease exists, and is allowed
-# to fail, as in the managed Test workflow. Both also run on the compat
-# floor (1.11), which the managed Test and AD workflows do not cover. There
+# Both jobs run on the current release and on the compat floor (1.11),
+# which the managed Test and AD workflows do not cover. On 1.11
 # `ad` also runs the items tagged `compat_floor`: the registry gradients,
 # `test_adjoint` and the rule-fires check on every registry operator under
 # Enzyme reverse, and checks of the Enzyme rule, since Enzyme differs
@@ -20,6 +18,9 @@ name: Threads
 # On 1.11 `unit` drops Runic from the test environment first: JET for 1.11
 # needs a JuliaSyntax that Runic does not allow, and only the quality checks
 # use Runic.
+# The prerelease channel `pre` is dropped until a Mooncake release allows
+# Julia 1.14 (#310). To restore it, add 'pre' back to both matrices, where
+# `continue-on-error` already lets it fail.
 
 on:
   push:
@@ -51,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.11', '1', 'pre']
+        version: ['1.11', '1']
     env:
       JULIA_NUM_THREADS: '4'
     steps:
@@ -74,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.11', '1', 'pre']
+        version: ['1.11', '1']
     env:
       JULIA_NUM_THREADS: '4'
     steps:

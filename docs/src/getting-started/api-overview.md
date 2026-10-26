@@ -150,7 +150,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 
 | Name | What it does | Recurrence | Per series | Parameters |
 |---|---|---|---|---|
-| [`Depletion(N; pools, form, weights, fill, heterogeneity, removals, protected, flows, flows_first, overflow)`](@ref ComposableRecurrences.Depletion) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool drawn from, its flows after the draw and no `overflow`, else blockwise | `N`, `heterogeneity`, each starting pool, each draw weight and each flow's demand |
+| [`Depletion(N, pieces...; pools)`](@ref ComposableRecurrences.Depletion) | holds pools per group, and its parts act on them in order: a draw takes each step's value from them by a depletion form, or fills one up to a capacity, and [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s move between them; sends what a draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool drawn from once, else blockwise | `N`, each form's parameters, each starting pool, each draw weight and each flow's demand |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | `lo`, `hi` |
@@ -167,11 +167,11 @@ Depletion forms, flow forms and time indexing are types, and you pass an instanc
 
 | Name | What it does | Example |
 |---|---|---|
-| [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N; form = Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(b; form = Truncate())`, `Depletion(C; form = SoftTruncate(0.1), fill = :S)` |
+| [`Hazard(α)`](@ref ComposableRecurrences.Hazard), [`Floor(α)`](@ref ComposableRecurrences.Floor) | depletion forms, with a heterogeneity exponent of one by default | `Depletion(N)`, `Depletion(N, Floor(1.5))` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(Truncate(); pools = (S = b,))`, `Depletion(C, SoftTruncate(0.1; into = :S))` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
-| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N; form = MyForm())` |
+| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N, MyForm())` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its pool; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(:S => :V, p; form = Share())` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.

@@ -65,7 +65,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function independent(N, Rt)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N); form = ComposableRecurrences.Floor()
+            PerStratum(N), ComposableRecurrences.Floor()
         )
         renewal = Recurrence(g; coupling = I, modifiers = (depletion,))
         return renewal(Rt; history = window)
@@ -108,7 +108,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function coupled(θ)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N); form = ComposableRecurrences.Floor()
+            PerStratum(N), ComposableRecurrences.Floor()
         )
         r = Recurrence(g; coupling = gravity(θ), modifiers = (depletion,))
         return r(Rt; history = window)
@@ -335,7 +335,7 @@ end
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function after(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N); form = ComposableRecurrences.Floor()
+            PerStratum(N), ComposableRecurrences.Floor()
         )
         imports = ComposableRecurrences.Add(TimeVarying(PerStratum(ι)))
         renewal = Recurrence(g; coupling = K, modifiers = (depletion, imports))
@@ -343,7 +343,7 @@ end
     end
     function before(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
-            PerStratum(N); form = ComposableRecurrences.Floor()
+            PerStratum(N), ComposableRecurrences.Floor()
         )
         renewal = Recurrence(g; coupling = K, modifiers = (depletion,))
         return renewal(Rt; history = window, add = ι)

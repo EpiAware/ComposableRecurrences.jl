@@ -28,7 +28,7 @@
     end
     form(κ) = κ == 0 ? CR.Truncate() : CR.SoftTruncate(κ)
     run(R, b, κ) = Recurrence(
-        g; modifiers = (CR.Depletion(b; form = form(κ)),)
+        g; modifiers = (CR.Depletion(b, form(κ)),)
     )(R; history = h)
     for κ in (0.0, 0.1), b in (40.0, 300.0)
         y = run(R, b, κ)
@@ -56,24 +56,24 @@ end
     for κ in (nothing, 0.1, 0.4), (v, s) in points
         form(κ) = κ === nothing ? CR.Truncate() : CR.SoftTruncate(κ)
         θ = κ === nothing ? Float64[] : [κ]
-        J = ReferenceAD.jacobian([v, s, 100.0, 1.0, θ...]) do x
-            f = κ === nothing ? CR.Truncate() : CR.SoftTruncate(x[5])
-            collect(CR._draw(f, x[1], x[2], x[3], x[4]))
+        J = ReferenceAD.jacobian([v, s, 100.0, θ...]) do x
+            f = κ === nothing ? CR.Truncate() : CR.SoftTruncate(x[4])
+            collect(CR._draw(f, x[1], x[2], x[3]))
         end
         ȳ, s̄ = 0.7, -0.3
         κ̄ = Ref(0.0)
         grads = (; piece = (; κ = κ̄), v = ȳ, s = s̄)
-        back = CR._draw_back(grads, form(κ), v, s, 100.0, 1.0)
+        back = CR._draw_back(grads, form(κ), v, s, 100.0)
         expected = transpose(J) * [ȳ, s̄]
-        @test collect(back) ≈ expected[1:4]
-        κ === nothing || @test κ̄[] ≈ expected[5] atol = 1.0e-12
+        @test collect(back) ≈ expected[1:3]
+        κ === nothing || @test κ̄[] ≈ expected[4] atol = 1.0e-12
     end
 end
 
 @testitem "Truncate: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, v, s) = first(CR._draw(CR.SoftTruncate(κ), v, s, 1.0, 1.0))
+    draw(κ, v, s) = first(CR._draw(CR.SoftTruncate(κ), v, s, 1.0))
     for κ in (0.05, 0.3)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0
@@ -88,10 +88,10 @@ end
     @test draw(0.01, 1.0, 2.0) ≈ 1.0
     # The exact form takes the value asked for on a tie and returns a NaN
     # pool's NaN, as a depletion's removals do.
-    y, s = CR._draw(CR.Truncate(), 2.0, 2.0, 1.0, 1.0)
+    y, s = CR._draw(CR.Truncate(), 2.0, 2.0, 1.0)
     @test (y, s) == (2.0, 0.0)
-    @test isnan(first(CR._draw(CR.Truncate(), 2.0, NaN, 1.0, 1.0)))
-    @test isnan(first(CR._draw(CR.Truncate(), NaN, 2.0, 1.0, 1.0)))
+    @test isnan(first(CR._draw(CR.Truncate(), 2.0, NaN, 1.0)))
+    @test isnan(first(CR._draw(CR.Truncate(), NaN, 2.0, 1.0)))
     # Smooth through the tie: the derivatives match on either side.
     lo = CR._soft_min_back(0.2, 3.0 - 1.0e-9, 3.0, 1.0)
     hi = CR._soft_min_back(0.2, 3.0 + 1.0e-9, 3.0, 1.0)
@@ -106,19 +106,20 @@ end
     @test CR.SoftTruncate(0.1f0).κ isa Float32
     # Mixed argument types promote, so the step infers one type.
     for form in (CR.Truncate(), CR.SoftTruncate(0.1), CR.SoftTruncate(0.1f0))
-        @inferred CR._draw(form, 2.0, 1.5f0, 1.0, 1.0)
-        @inferred CR._draw(form, 2.0f0, 1.5f0, 1.0, 1.0)
-        @inferred CR._draw(form, 0.0f0, 1.5, 1.0, 1.0)
+        @inferred CR._draw(form, 2.0, 1.5f0, 1.0)
+        @inferred CR._draw(form, 2.0f0, 1.5f0, 1.0)
+        @inferred CR._draw(form, 0.0f0, 1.5, 1.0)
     end
     for form in (CR.Truncate(), CR.SoftTruncate(0.2))
-        d = CR.Depletion(50.0; form = form)
+        d = CR.Depletion(50.0, form)
         @test CR.uses_adjoint(d, CR.Step())
         @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
     end
     # A protected pool draws through the form too.
     d = CR.Depletion(
-        20.0; pools = (:S, :V), form = CR.Truncate(), weights = (S = 1, V = 0.5),
-        flows = (CR.Flow(1 => 2, TimeVarying(fill(2.0, 6)); form = CR.Truncate()),)
+        20.0, CR.Truncate(; weights = (S = 1, V = 0.5)),
+        CR.Flow(1 => 2, TimeVarying(fill(2.0, 6)); form = CR.Truncate());
+        pools = (:S, :V)
     )
     y = Recurrence([1.0]; modifiers = (d,))(fill(3.0, 6); history = [2.0])
     @test sum(y) <= 20.0 + 1.0e-9
@@ -132,7 +133,7 @@ end
     for form in (CR.Truncate(), CR.SoftTruncate(0.2)), (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0))
         κ = CR._softness(form)
         y = CR._soft_min(κ, v, s)
-        @test y == first(CR._draw(form, v, s, 1.0, 1.0))
+        @test y == first(CR._draw(form, v, s, 1.0))
         back = CR._soft_min_back(κ, v, s, 0.7)
         @test collect(back[1:2]) ≈ 0.7 .* ReferenceAD.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
     end

@@ -40,7 +40,7 @@
             (β[1] .* K_community, community), (β[2] * I, household),
             (β[3] .* K_funeral, funeral)
         )
-        depletion = CR.Depletion(PerStratum(pop); form = CR.Floor())
+        depletion = CR.Depletion(PerStratum(pop), CR.Floor())
         return Recurrence(routes; modifiers = (depletion,))
     end
     run(β) = model(β)(R; history = seed)
@@ -81,7 +81,7 @@
         for (K, g) in zip(Ks, (community, household, funeral)), l in eachindex(g)
             A[:, :, l] .+= K .* g[l]
         end
-        depletion = CR.Depletion(PerStratum(pop); form = CR.Floor())
+        depletion = CR.Depletion(PerStratum(pop), CR.Floor())
         return Recurrence(Pairwise(A); modifiers = (depletion,))(R; history = seed)
     end
     @test run(β) ≈ pairwise(β)

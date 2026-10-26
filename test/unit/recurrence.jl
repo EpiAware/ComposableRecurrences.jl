@@ -355,8 +355,8 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     d = CR.Depletion(
-        100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+        100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
     @test CR.nstate(d, 2) == 4
@@ -645,7 +645,10 @@ end
     P = rand(rng, S, S, L) ./ 6
     K = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
     pool = CR.Depletion(PerStratum(fill(50.0, S)))
-    removals = CR.Depletion(PerStratum(fill(50.0, S)); removals = 0.1 * CR.Recent(7))
+    removals = CR.Depletion(
+        PerStratum(fill(50.0, S)), CR.Hazard(),
+        CR.Flow(:S => 0, 0.1 * CR.Recent(7); form = CR.Truncate())
+    )
     feedback = CR.Transform(*, Derived(exp, -0.02 * CR.Recent(6; coupling = K)))
     cases = (
         (Recurrence(g), (;)),
