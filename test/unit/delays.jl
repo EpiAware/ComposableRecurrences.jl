@@ -331,6 +331,113 @@ end
     @test @inferred CR._has_delays(typeof(Routes((I, Poisson(1.0)), (I, [0.1]))))
 end
 
+@testsnippet ChainedDelays begin
+    using ComposableRecurrences, Distributions, LinearAlgebra
+    CR = ComposableRecurrences
+    # The full linear convolution of `a` and `b`, by the definition.
+    function full(a, b)
+        c = zeros(promote_type(eltype(a), eltype(b)), length(a) + length(b) - 1)
+        for i in eachindex(a), j in eachindex(b)
+            c[i + j - 1] += a[i] * b[j]
+        end
+        return c
+    end
+    cut(c, lags) = [l < length(c) ? c[l + 1] : zero(eltype(c)) for l in 0:(lags - 1)]
+end
+
+@testitem "delay_masses: a chain of mass vectors is their full convolution" setup = [ChainedDelays] begin
+    a = [0.1 * l for l in 1:6] ./ 2.1
+    b = [0.4, 0.3, 0.2, 0.1]
+    @test (@inferred CR.delay_masses((a, b), 9)) ≈ full(a, b)
+    # Cut before the end, and zeros past it.
+    @test CR.delay_masses((a, b), 4) ≈ full(a, b)[1:4]
+    @test CR.delay_masses((a, b), 12) ≈ cut(full(a, b), 12)
+    @test CR.delay_masses((b, a), 9) ≈ CR.delay_masses((a, b), 9)
+    # Three links, and one.
+    c = [0.7, 0.3]
+    @test (@inferred CR.delay_masses((a, b, c), 10)) ≈ full(full(a, b), c)
+    @test CR.delay_masses((a,), 8) == cut(a, 8)
+    @test CR.delay_masses((a, (b, c)), 10) ≈ full(full(a, b), c)
+    # The convolution of `b` padded with zeros, as a series.
+    padded = Convolution(a)(vcat(b, zeros(length(a) - 1)))
+    @test CR.delay_masses((a, b), 9) ≈ padded
+    # Integer masses keep their type.
+    @test CR.delay_masses(([1, 2], [3, 4]), 3) == [3, 10, 8]
+    @test !CR._isdelay(Tuple{})
+    @test CR._isdelay(Tuple{Vector{Float64}, Vector{Float64}})
+end
+
+@testitem "Chained delays: as kernels" setup = [ChainedDelays] begin
+    a, b = [0.5, 0.3, 0.2], [0.6, 0.4]
+    c = @inferred Convolution((a, b); lags = 4)
+    @test c.kernel ≈ full(a, b)
+    r = @inferred Recurrence((a, b); lags = 4, coupling = [0.9 0.1; 0.2 0.8])
+    @test r.kernel ≈ full(a, b)[2:end]
+    x = [1.0, 3.0, 2.0, 5.0, 4.0]
+    @test c(x) ≈ Convolution(full(a, b))(x)
+    # Delays chain through their own masses.
+    d, e = Poisson(1.5), Geometric(0.4)
+    m(d) = pdf.(d, 0:5)
+    @test Convolution((d, e); lags = 6).kernel ≈ cut(full(m(d), m(e)), 6)
+    @test Convolution((d, b); lags = 6).kernel ≈ cut(full(m(d), b), 6)
+    # On a step, each delay's masses are on lags of that width.
+    @test Convolution((d, e); lags = 3, step = 2).kernel ≈ cut(
+        full(CR.delay_masses(d, 3; step = 2), CR.delay_masses(e, 3; step = 2)), 3
+    )
+    # A chain per stratum.
+    d2, e2 = Poisson(2.5), Geometric(0.6)
+    ps = @inferred Recurrence(PerStratum([(d, e), (d2, e2)]); lags = 4)
+    @test ps.kernel.x[2, :] ≈ cut(full(m(d2), m(e2)), 4)[2:end]
+    @test_throws ArgumentError Convolution((a, b))
+    @test_throws ArgumentError Recurrence((a, b))
+    # A link that is neither a delay nor masses has no method.
+    @test_throws MethodError Convolution((a, :not_a_delay); lags = 3)
+end
+
+@testitem "Chained delays: the Jacobian is the convolution transposed" setup = [ReferenceAD, ChainedDelays] begin
+    a = [0.5, 0.3, 0.2]
+    b = [0.6, 0.3, 0.1, 0.05]
+    function toeplitz(v, lags, n)
+        return [0 <= l - j < length(v) ? v[l - j + 1] : 0.0 for l in 0:(lags - 1), j in 0:(n - 1)]
+    end
+    for lags in (3, 6, 8)
+        Ja = ReferenceAD.jacobian(a -> CR.delay_masses((a, b), lags), a)
+        Jb = ReferenceAD.jacobian(b -> CR.delay_masses((a, b), lags), b)
+        # Entry `(l, j)` of the Jacobian in `a` is `b[l - j]`, and in `b` it
+        # is `a[l - j]`.
+        @test Ja == toeplitz(b, lags, length(a))
+        @test Jb == toeplitz(a, lags, length(b))
+    end
+    # Through a distribution's parameter, and the operator built from it.
+    x = [1.0, 3.0, 2.0, 5.0, 4.0, 1.0]
+    conv(λ) = sum(Convolution((Poisson(λ), b); lags = 5)(x))
+    g = ReferenceAD.derivative(conv, 1.5)
+    ϵ = 1.0e-6
+    @test g ≈ (conv(1.5 + ϵ) - conv(1.5 - ϵ)) / 2ϵ rtol = 1.0e-6
+    @test g != 0
+end
+
+@testitem "Chained delays: the Mooncake rule's pullback" setup = [ReferenceAD] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using Random: Xoshiro
+    CR = ComposableRecurrences
+    a, b = [0.5, 0.3, 0.2], [0.6, 0.3, 0.1, 0.05]
+    for lags in (3, 6, 8)
+        c̄ = collect(1.0:lags) ./ lags
+        Ja = ReferenceAD.jacobian(a -> CR._convolve_masses(a, b, lags), a)
+        Jb = ReferenceAD.jacobian(b -> CR._convolve_masses(a, b, lags), b)
+        f = CR._convolve_masses
+        cache = Mooncake.prepare_pullback_cache(f, a, b, lags)
+        _, (_, ā, b̄, _) = Mooncake.value_and_pullback!!(cache, c̄, f, a, b, lags)
+        @test ā ≈ Ja' * c̄
+        @test b̄ ≈ Jb' * c̄
+    end
+    Mooncake.TestUtils.test_rule(
+        Xoshiro(1), CR._convolve_masses, a, b, 6;
+        is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
+    )
+end
+
 @testsnippet OwnDelay begin
     using ComposableRecurrences, LinearAlgebra
     CR = ComposableRecurrences

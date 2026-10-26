@@ -7,8 +7,9 @@ module ComposableRecurrencesMooncakeExt
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
     _FixedExponent, _ad, _ad_wide, _check_form, _check_now, _check_parts,
-    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
-    _plain_hook, _run_forward, _run_pullback!, _untraced
+    _check_secondary, _convolve_masses, _convolve_masses_back!, _current,
+    _fft_convolve!, _fft_convolve_back!, _plain_hook, _run_forward,
+    _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -149,6 +150,26 @@ function Mooncake.frule!!(::Mooncake.Dual{<:_FFTCall}, args::Vararg{Any, N}) whe
 end
 function Mooncake.rrule!!(::CoDual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
     throw(ErrorException(_FFT_TRACED))
+end
+
+# The full convolution of two float mass vectors, which a chain of delays
+# builds: one rule whose pullback is the convolution transposed, in place of
+# tracing its loop.
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode,
+    Tuple{typeof(_convolve_masses), Vector{P}, Vector{P}, Int} where {P <: _IEEEFloat}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(_convolve_masses)}, a::CoDual{Vector{P}},
+        b::CoDual{Vector{P}}, lags::CoDual{Int}
+    ) where {P <: _IEEEFloat}
+    c = _convolve_masses(primal(a), primal(b), primal(lags))
+    c̄ = zero(c)
+    function _convolve_masses_pullback(::NoRData)
+        _convolve_masses_back!(tangent(a), tangent(b), c̄, primal(a), primal(b))
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(c, c̄), _convolve_masses_pullback
 end
 
 Mooncake.@is_primitive(

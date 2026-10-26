@@ -1447,6 +1447,14 @@ function _delay_distribution_step(w, θ)
     return sum(W1 .* w(c)(ϵ; history = w0))
 end
 
+# A chain of two delays given as masses: the kernel is their full linear
+# convolution, built with the operator, so the gradient reaches both.
+function _chained_delay(w, θ)
+    a, b, ϵ = _unpack(θ, (3,), (L,), (T,))
+    c = Convolution((a, b); lags = L + 2)
+    return sum(W1 .* w(c)(ϵ))
+end
+
 function _generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
@@ -1466,6 +1474,10 @@ push!(
         "Convolution Poisson delay distribution on a step of two units",
         _delay_distribution_step,
         () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Convolution chain of two delays as masses", _chained_delay,
+        () -> _flat([0.5, 0.3, 0.2], G0, 1 .+ LOGR[1, :]),
     ),
     (
         "Recurrence negative binomial generation interval per stratum", _generation_distribution,
@@ -1521,6 +1533,10 @@ const _PROBES = Dict{Symbol, Function}(
     # A `Depletion` holding its pools' names and starting values together.
     :depletion_pools => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
+    ),
+    # A chain of delays as one delay.
+    :chained_delays => () -> _accepts(
+        () -> Convolution(([1.0], [1.0]); lags = 1)
     ),
     # Delays on lags of a width other than one unit.
     :delay_step => () -> _accepts(
@@ -1873,6 +1889,7 @@ _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
+_REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
     (:delay_masses, :delay_step)
 
