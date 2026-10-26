@@ -123,6 +123,9 @@ Each row records the load average when its cell started, so a busy machine shows
 ## Gradient tests and use-case tests
 
 `test/ADFixtures` holds the scenarios the gradient tests run on every backend, each checked against a ForwardDiff reference.
+Each gradient entry must match its reference to a relative `1e-8`, or `1e-4` for a scenario with single-precision values, with an absolute floor of `1e-12` of the largest entry for entries that are zero in exact arithmetic.
+The ForwardDiff job also checks each reference against central differences to a relative `1e-5`, so a wrong reference cannot pass every backend.
+The rule testers that `test_adjoint` runs use a relative `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
 A scenario is a name, a scalar loss of a flat parameter vector and its starting value, added to `_SCENARIOS`.
 
 ```julia
@@ -156,10 +159,14 @@ Put each check at the cheapest level that runs its code path.
 `test/usecases` rebuilds real models from modelling packages with the operators and compares values and gradients with reference code in `test/usecases/references`.
 Run them with `julia --project=test test/runtests.jl usecase_only`.
 
-## Threads and Reactant in CI
+## Threads, older Julia versions and Reactant in CI
 
 The `Threads` workflow runs the tests with four threads, so `Threaded` loops run on separate threads.
 To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq).
+
+The `AD` workflow runs every backend on the current Julia release only.
+The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item on Julia 1.11 and 1.12, on pushes to `main`, weekly and on demand.
+To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
 On pull requests that change `src/` or `ext/`, a smoke run checks six cases, forward and reverse at 20 steps, against the same file.

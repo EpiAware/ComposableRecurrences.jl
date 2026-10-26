@@ -1124,27 +1124,46 @@ function _effective_reproduction(w, θ)
     return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
 end
 
-# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
-# EnzymeTestUtils compares the rule with finite differences taken in the
-# arguments' precision. In single precision these differ from the rule by up
-# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
-# entry with Float32 values carries `FLOAT32_RTOL`.
-const ENZYME_RTOL = 1.0e-7
+# The relative tolerance of the rule testers in `test_adjoint`. They compare
+# the rule with finite differences taken in the arguments' precision. In
+# single precision these differ from the rule by up to about 5e-4 relative
+# (on a Float32 history with Float64 gains), so an entry with Float32 values
+# carries `FLOAT32_RTOL`.
+const RULE_RTOL = 1.0e-8
 const FLOAT32_RTOL = 1.0e-3
-const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
+const _F32 = (; single = true)
+
+# The relative tolerance, entry by entry, of each backend's gradient
+# against the ForwardDiff reference.
+const GRADIENT_RTOL = 1.0e-8
+const FLOAT32_GRADIENT_RTOL = 1.0e-4
+
+"Whether `entry` has single-precision values: its optional fourth element."
+single_precision(entry) = length(entry) > 3 && entry[4].single
 
 """
-    enzyme_rtol(entry)
+    rule_rtol(entry)
 
-The tolerance `test_adjoint` gives Enzyme's rule tester on the operator of
-`entry`: its optional fourth element's `enzyme_rtol`, else `ENZYME_RTOL`.
+The tolerance `test_adjoint` gives the rule testers on the operator of
+`entry`: `FLOAT32_RTOL` where it has single-precision values, else
+`RULE_RTOL`.
 """
-enzyme_rtol(entry) = length(entry) > 3 ? entry[4].enzyme_rtol : ENZYME_RTOL
+rule_rtol(entry) = single_precision(entry) ? FLOAT32_RTOL : RULE_RTOL
 
-# `(name, loss, θ0)`, with an optional fourth element of test options (see
-# `enzyme_rtol`); every scenario also runs as its `NoAdjoint` twin.
-# test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
-# and checks that its rule fires, so a scenario added here is covered there.
+"""
+    gradient_rtol(precision)
+
+The tolerance of the gradient checks on the scenarios of `precision`
+(`:double` or `:single`; see `scenarios`).
+"""
+gradient_rtol(precision::Symbol) =
+    precision === :single ? FLOAT32_GRADIENT_RTOL : GRADIENT_RTOL
+
+# `(name, loss, θ0)`, with an optional fourth element `_F32` for a scenario
+# with single-precision values; every scenario also runs as its `NoAdjoint`
+# twin. test/ad/adjoints.jl checks that every scenario's rule fires, and
+# runs the operators of the scenarios in its `ADJOINT_SCENARIOS` through
+# `test_adjoint`.
 const _SCENARIOS = [
     ("Recurrence renewal", _renewal, () -> _flat(G0, zeros(L), LOGR[1, :])),
     (
@@ -2088,13 +2107,16 @@ end
 # scenario itself, from its parameter blocks on, is inferred.
 _dynamic(f) = θ -> Base.inferencebarrier(f)(θ)
 
-const _TWINS = Tuple{String, Any, Any}[
-    (prefix * name, _dynamic(Base.Fix1(f, wrap)), θ0)
+const _TWINS = Tuple{String, Any, Any, Bool}[
+    (
+        prefix * entry[1], _dynamic(Base.Fix1(entry[2], wrap)), entry[3],
+        single_precision(entry),
+    )
         for (prefix, wrap, extra) in (
             ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
         )
-        for (name, f, θ0) in _SCENARIOS
-        if supports(_requires(name)..., extra...)
+        for entry in _SCENARIOS
+        if supports(_requires(entry[1])..., extra...)
 ]
 
 # Each scenario runs once through its call, and a twin once more through
@@ -2104,8 +2126,10 @@ const _TWINS = Tuple{String, Any, Any}[
 # path there and the twin repeats its scenario.
 const _CATEGORIES = (:marginal, :rules)
 
+const _PRECISIONS = (:all, :double, :single)
+
 """
-    scenarios(; with_reference = false, category = :marginal)
+    scenarios(; with_reference = false, category = :marginal, precision = :all)
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
@@ -2113,18 +2137,31 @@ The category `:marginal` holds every scenario and its `NoAdjoint` twin,
 which the benchmarks time and the reverse-mode backends with a rule test.
 The category `:rules` holds every scenario without its twin, for the
 backends where the twin takes the same path as its scenario.
+`precision = :single` keeps the scenarios with single-precision values and
+`:double` the others, so each set is checked at its own tolerance (see
+`gradient_rtol`).
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
-function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
+function scenarios(;
+        with_reference::Bool = false, category::Symbol = :marginal,
+        precision::Symbol = :all
+    )
     category in _CATEGORIES || throw(
         ArgumentError(
             "unknown category $(repr(category)); choose one of $(join(_CATEGORIES, ", "))"
         )
     )
-    twins = category === :marginal ? _TWINS :
-        filter(t -> !startswith(first(t), "NoAdjoint "), _TWINS)
-    return map(twins) do (name, f, θ0)
+    precision in _PRECISIONS || throw(
+        ArgumentError(
+            "unknown precision $(repr(precision)); choose one of $(join(_PRECISIONS, ", "))"
+        )
+    )
+    twins = filter(_TWINS) do (name, _, _, single)
+        (category === :marginal || !startswith(name, "NoAdjoint ")) &&
+            (precision === :all || single == (precision === :single))
+    end
+    return map(twins) do (name, f, θ0, _)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
