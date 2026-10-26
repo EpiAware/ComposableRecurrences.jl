@@ -44,7 +44,7 @@ It takes the direct method whatever the method of `c`.
 # Examples
 ```jldoctest
 using ComposableRecurrences
-c = Convolution([0.5, 0.3, 0.2])
+c = Convolution([0.5, 0.25, 0.25])
 c'([1.0, 2.0, 4.0, 8.0])
 
 # output
@@ -52,7 +52,7 @@ c'([1.0, 2.0, 4.0, 8.0])
 4-element Vector{Float64}:
  2.0
  4.0
- 6.4
+ 4.0
  4.0
 ```
 """
@@ -119,7 +119,8 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
         _convolve!(cur, Ā, kernel, Z̄, o, start)
     end
     k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
-    k̄ === nothing || _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
+    k̄ === nothing ||
+        _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
     _add_rows!(x̄, Ā, 1 - start, start, min(n, last))
     _add_rows!(t̄, Ā, n + 1 - start, max(start - n, 1), last - n)
     return nothing

@@ -797,8 +797,8 @@ function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
 end
 # The last input time a `Primary()` kernel has a column for, and the first
 # lag at output time `t` whose input has one. A call's kernel covers its
-# last time, so these bound only the loops of its transpose, whose outputs
-# read inputs past the kernel's last column.
+# last time, so these bound only the transpose's calls of these bodies,
+# which run them to outputs past the kernel's last column.
 _last_column(c::TimeVarying) = _extent(_array(c))
 _last_column(c::TimeVarying{<:Any, <:_AnyRagged}) = _ncols(c.x)
 _first_lag(c, t) = 0

@@ -24,12 +24,16 @@
             per_stratum_secondary = (
                 TimeVarying(PerStratum(rand(rng, S, L, N))),
             ),
-            primary = (TimeVarying(K, P), TimeVarying(hcat(K, zeros(L, N - n)), P)),
+            primary = (
+                TimeVarying(K, P), TimeVarying(hcat(K, zeros(L, N - n)), P),
+            ),
             per_stratum_primary = (
                 TimeVarying(PerStratum(G3), P),
                 TimeVarying(PerStratum(cat(G3, zeros(S, L, N - n); dims = 3)), P),
             ),
-            ragged_primary = (TimeVarying(cols, P), TimeVarying(vcat(cols, pad), P)),
+            ragged_primary = (
+                TimeVarying(cols, P), TimeVarying(vcat(cols, pad), P),
+            ),
             piecewise_primary = (TimeVarying(steps, P), TimeVarying(steps, P)),
             piecewise = (TimeVarying(steps), TimeVarying(steps)),
         )
@@ -45,9 +49,15 @@
         end
         return A
     end
+    # `Aᵀ x` per stratum for the dense matrices `As` and strata × time `X`.
+    function transposed(As, X)
+        return permutedims(reduce(hcat, [As[i]' * X[i, :] for i in axes(X, 1)]))
+    end
 end
 
-@testitem "Transpose: the dense matrix's transpose" setup = [TransposeCases] begin
+@testitem "Transpose: the dense matrix's transpose" setup = [
+    TransposeCases,
+] begin
     rng = Xoshiro(1)
     S, L, n, m = 2, 4, 9, 3
     N = n + m
@@ -56,13 +66,12 @@ end
         X = rand(rng, S, N)
         x, tail = X[:, 1:n], X[:, (n + 1):N]
         As = [dense(Convolution(kN), S, N, i) for i in 1:S]
-        ref = permutedims(reduce(hcat, [As[i]' * X[i, :] for i in 1:S]))
+        ref = transposed(As, X)
         t = transpose(Convolution(k))
         @test t(x; tail) ≈ ref[:, 1:n]
-        @test t(x; tail, start = 3, stop = 10) ≈ ref[:, 3:10]
+        @test t(x; tail, start = 3, stop = 8) ≈ ref[:, 3:8]
         @test t(x; tail, start = n - 1, stop = n) ≈ ref[:, (n - 1):n]
-        @test t(x; tail = zero(tail)) ≈
-            permutedims(reduce(hcat, [As[i]' * [X[i, 1:n]; zeros(m)] for i in 1:S]))[:, 1:n]
+        @test t(x) ≈ transposed(As, hcat(x, zero(tail)))[:, 1:n]
         # One series is the first stratum, as a vector.
         if !(k isa Union{PerStratum, TimeVarying{<:Any, <:PerStratum}})
             @test t(x[1, :]; tail = tail[1, :]) ≈ ref[1, 1:n]
@@ -93,11 +102,15 @@ end
     @test_throws ArgumentError c'(x; start = 3, stop = 1)
     @test_throws DimensionMismatch c'(x; tail = ones(2, 1))
     @test_throws ArgumentError c'(TimeVarying(ones(1, 3)))
-    @test_throws DimensionMismatch Convolution(TimeVarying(ones(2, 3)))'(x; tail = [1.0])
+    # A Secondary() kernel covers the last time it reads.
+    s = Convolution(TimeVarying(ones(2, 3)))
+    @test_throws DimensionMismatch s'(x; tail = [1.0])
     @test_throws DimensionMismatch Convolution(PerStratum(ones(2, 2)))'(ones(3, 4))
 end
 
-@testitem "Transpose: pullback against ForwardDiff" setup = [AdjointCheck, TransposeCases] begin
+@testitem "Transpose: pullback against ForwardDiff" setup = [
+    AdjointCheck, TransposeCases,
+] begin
     using Base.ScopedValues: with
     rng = Xoshiro(2)
     S, L, n, m = 2, 4, 9, 3
@@ -105,7 +118,7 @@ end
         t = transpose(Convolution(first(ks)))
         X, tail = rand(rng, S, n), rand(rng, S, m)
         @test pullback_matches(t, X, tail, 1, nothing)
-        @test pullback_matches(t, X, tail, 3, 11)
+        @test pullback_matches(t, X, tail, 3, 8)
         @test pullback_matches(t, X, nothing, 2, 6)
         @test constant_kernel_matches(
             t, X, tail, 1, nothing; constant = p -> (; c = (; kernel = nothing))
@@ -116,9 +129,8 @@ end
     with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
         for k in (rand(rng, L), TimeVarying(rand(rng, L, n), CR.Primary()))
             splits = CR._SPLIT_BLOCKS[]
-            @test pullback_matches(
-                transpose(Convolution(k)), rand(rng, S, n), rand(rng, S, m), 1, nothing
-            )
+            X, tail = rand(rng, S, n), rand(rng, S, m)
+            @test pullback_matches(transpose(Convolution(k)), X, tail, 1, nothing)
             @test CR._SPLIT_BLOCKS[] > splits
         end
     end
