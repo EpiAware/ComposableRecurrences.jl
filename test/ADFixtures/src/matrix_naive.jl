@@ -574,7 +574,9 @@ BASELINES["renewal_depletion"] = [
 function loop_waning(g, h, R, doses, σ, ω, N)
     S, T = size(R)
     m = size(h, 2)
-    V = promote_type(eltype(g), eltype(h), eltype(R), eltype(doses), typeof(σ), eltype(ω))
+    V = promote_type(
+        eltype(g), eltype(h), eltype(R), eltype(doses), typeof(σ), eltype(ω)
+    )
     y = _seeded(V, h, T)
     sus = V.(N)
     pro = zeros(V, S)
@@ -615,7 +617,9 @@ BASELINES["strata_waning"] = [
 # after it, added on top.
 function loop_imports(g, seed, R, before, after, N)
     m, T = length(seed), length(R)
-    V = promote_type(eltype(g), eltype(seed), eltype(R), eltype(before), eltype(after))
+    V = promote_type(
+        eltype(g), eltype(seed), eltype(R), eltype(before), eltype(after)
+    )
     y = _seeded(V, reshape(seed, 1, m), T)
     pool = V(N)
     for t in 1:T
@@ -677,8 +681,9 @@ BASELINES["outcome_chain"] = [
     ),
 ]
 
-# A renewal over every day in one loop: the forecast needs no state.
-function loop_renewal(g, seed, R)
+# A renewal over every day in one pass: the loop needs no state to
+# continue from.
+function loop_renewal_forecast(g, seed, R)
     m, T = length(seed), length(R)
     V = promote_type(eltype(g), eltype(seed), eltype(R))
     y = _seeded(V, reshape(seed, 1, m), T)
@@ -695,7 +700,8 @@ BASELINES["renewal_forecast"] = [
             W = _weights(T)
             return function (θ)
                 g, logh, logR = _unpack(θ, (L,), (L,), (T,))
-                return sum(W .* log.(loop_renewal(g, exp.(logh), exp.(logR))))
+                y = loop_renewal_forecast(g, exp.(logh), exp.(logR))
+                return sum(W .* log.(y))
             end
         end
     ),
@@ -750,7 +756,9 @@ BASELINES["reproduction"] = [
 function loop_routes(K1, g1, colptr, rowval, v, g2, h, R, pop)
     S, T = size(R)
     m = size(h, 2)
-    V = promote_type(eltype(K1), eltype(g1), eltype(v), eltype(g2), eltype(h), eltype(R))
+    V = promote_type(
+        eltype(K1), eltype(g1), eltype(v), eltype(g2), eltype(h), eltype(R)
+    )
     y = _seeded(V, h, T)
     pool = V.(pop)
     p1, p2, q = zeros(V, S), zeros(V, S), zeros(V, S)
@@ -770,7 +778,7 @@ function loop_routes(K1, g1, colptr, rowval, v, g2, h, R, pop)
             q[rowval[j]] += v[j] * p2[b]
         end
         for a in 1:S
-            drawn = max(max(pool[a] / pop[a], zero(V)), 1.0e-6) * R[a, t] * q[a]
+            drawn = max(pool[a] / pop[a], 1.0e-6) * R[a, t] * q[a]
             pool[a] -= drawn
             y[a, m + t] = drawn
         end
@@ -806,7 +814,8 @@ BASELINES["strata_routes"] = [
 function loop_ward(adm, confirm, ruleout, discharge, transfer)
     S, T = size(transfer)
     V = promote_type(
-        eltype(adm), eltype(confirm), eltype(ruleout), typeof(discharge), eltype(transfer)
+        eltype(adm), eltype(confirm), eltype(ruleout), typeof(discharge),
+        eltype(transfer),
     )
     y = zeros(V, 2S, T)
     for t in 1:T, k in 1:S
@@ -831,7 +840,8 @@ BASELINES["ward_flows"] = [
                 adm, confirm, ruleout, discharge, transfer = _unpack(
                     θ, (2S, T), (S,), (T,), (1,), (S, T)
                 )
-                return sum(W .* loop_ward(adm, confirm, ruleout, only(discharge), transfer))
+                y = loop_ward(adm, confirm, ruleout, only(discharge), transfer)
+                return sum(W .* y)
             end
         end
     ),
@@ -853,7 +863,10 @@ BASELINES["ar"] = [
     "loop" => _tutorial_baseline(
         ar, function (z)
             W = _weights(z.T)
-            return θ -> sum(W .* loop_ar2(view(θ, 1:2), view(θ, 3:4), view(θ, 5:length(θ))))
+            return function (θ)
+                φ, h, ϵ = _unpack(θ, (2,), (2,), (z.T,))
+                return sum(W .* loop_ar2(φ, h, ϵ))
+            end
         end
     ),
 ]

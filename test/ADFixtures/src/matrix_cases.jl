@@ -49,14 +49,12 @@ _weights(T) = [_noise(t, 1) for t in 1:T]
 _weights(S, T) = [_noise(t, k + 1) for k in 1:S, t in 1:T]
 _gi(L) = (g = exp.(-0.2 .* (1:L)); g ./ sum(g))
 
-# Consecutive blocks of `θ` with the given shapes.
+# Consecutive blocks of `θ` with the given shapes; the offsets are a tuple,
+# not a captured counter, so the result's type is inferred.
 function _unpack(θ, shapes...)
-    o = 0
-    return map(shapes) do sh
-        n = prod(sh)
-        x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        o += n
-        x
+    ends = cumsum(map(prod, shapes))
+    return map(shapes, ends) do sh, e
+        reshape(view(θ, (e - prod(sh) + 1):e), sh...)
     end
 end
 
@@ -923,7 +921,8 @@ const CASES = [
         recent_coupled, [20, 50], false,
     ),
     Case(
-        "renewal_imports", "seeded renewal, hazard depletion, imports before and after",
+        "renewal_imports",
+        "seeded renewal, hazard depletion, imports before and after",
         renewal_imports, [1], false,
     ),
     Case(
