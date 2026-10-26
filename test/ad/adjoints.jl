@@ -1,6 +1,6 @@
 # The native Mooncake and Enzyme rules: each backend's own rule tester via
-# `test_adjoint` on the operator of every AD registry scenario and on shapes
-# the registry lacks, proof that the rule fires, user-defined types with no
+# `test_adjoint` on one AD registry operator of each kind and on shapes the
+# registry lacks, proof that the rule fires, user-defined types with no
 # AD code of their own, and the guard on plain Enzyme AD of a sparse
 # coupling.
 
@@ -93,13 +93,67 @@
         return CR.constructorof(T)(fields...)
     end
 
-    # `(name, op, args, rtol)` for each AD registry scenario at its starting
-    # parameters: the operator the scenario calls, its Run arguments and the
-    # tolerance the entry gives Enzyme's rule tester. A scenario that starts
-    # at a kink is left out, as finite differences cannot check it there.
+    # The AD registry scenarios whose operators `test_adjoint` checks. Every
+    # scenario's gradient runs through its rule on every backend in the
+    # registry item; the rule tester adds the operator as an argument of
+    # its own (active and constant on Enzyme) and the backend's own checks
+    # of the rule's tangents. Those depend on the kinds of field the rule
+    # reads and on the call's wrapper, so one operator of each is checked:
+    # scalar, mixed-eltype and Float32 fields, pools and flows (past 32
+    # leaves), a population over time, imports, movements, dense matrices,
+    # `Derived`, a capacity, a seed joined to the output with and without
+    # state, traces of pointwise and grouped steps, change points, the
+    # automatic convolution, the local steps of user types, routes, and an
+    # operator checked at the call. Enzyme's pass with the operator constant
+    # reaches branches for a constant part that only some operators have,
+    # so their scenarios are here too: a constant movement, `Clamp`, a
+    # traced movement, change-point kernels, ragged columns held as given
+    # and outputs read by a parameter. `extra_cases` adds the shapes the
+    # registry lacks.
+    const ADJOINT_SCENARIOS = (
+        "Recurrence renewal",
+        "Recurrence strata, coupling and depletion",
+        "Recurrence scalar modifier field, mixed eltypes",
+        "Recurrence array-field and scalar-field modifiers",
+        "Recurrence vaccination into a protected pool",
+        "Recurrence pool with twelve flows (over 32 leaves)",
+        "Recurrence protected pool in Float32",
+        "Recurrence population varying over time with births",
+        "Recurrence grouped totals with imports and a spill (Allocate)",
+        "Recurrence Redistribute of a time-varying movement",
+        "Recurrence Redistribute of a movement read from recent outputs",
+        "Recurrence dense coupling, Redistribute and imports as Matrix",
+        "Recurrence Derived modifier parameters",
+        "Recurrence capacity, beds with overflow",
+        "Recurrence seeded on a growth path",
+        "Recurrence returning its state after its seed",
+        "Recurrence trace of pointwise modifiers",
+        "Recurrence trace of a protected pool",
+        "Recurrence coupling from change points",
+        "Recurrence parameters from change points",
+        "Convolution long kernel by the automatic method",
+        "Recurrence user coupling without a pullback",
+        "Recurrence per-stratum modifier without a pullback",
+        "Recurrence modifier with a vector field read by time",
+        "Recurrence user coupling holding a matrix",
+        "Recurrence whole-step modifier without a pullback",
+        "Recurrence routes with a user coupling without a pullback",
+        "Recurrence checked at the call",
+        "Recurrence Redistribute, Add and Clamp",
+        "Recurrence trace of the importation (Redistribute)",
+        "Recurrence Primary per-stratum kernel from change points",
+        "Convolution kernel from change points with history",
+        "Convolution ragged kernel of views into the parameters",
+        "Recurrence feedback from recent outputs",
+    )
+
+    # `(name, op, args, rtol)` for each scenario of `ADJOINT_SCENARIOS` at
+    # its starting parameters: the operator the scenario calls, its Run
+    # arguments and the tolerance the entry gives Enzyme's rule tester.
     function registry_cases()
-        kinks = ADFixtures.kink_scenarios()
-        entries = filter(entry -> !(first(entry) in kinks), ADFixtures._SCENARIOS)
+        entries = filter(e -> first(e) in ADJOINT_SCENARIOS, ADFixtures._SCENARIOS)
+        length(entries) == length(ADJOINT_SCENARIOS) ||
+            error("an entry of `ADJOINT_SCENARIOS` names no registry scenario")
         return map(entries) do entry
             name, f, θ0 = entry
             seen = Ref{Any}(nothing)
@@ -409,8 +463,9 @@
     # reverse pass, and no `NoAdjoint` twin's does, nor a scenario that
     # takes plain AD on the backend by design. The counter is reset per
     # scenario. In one CI job the gradients reuse the code the backend's
-    # registry item compiled. A scenario marked broken on the backend is
-    # recorded as broken while it fails, as in `test_adjoint_case`.
+    # registry item compiled, so this checks the same scenarios. A
+    # scenario marked broken on the backend is recorded as broken while it
+    # fails, as in `test_adjoint_case`.
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
         plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
@@ -582,7 +637,7 @@ end
     end
 end
 
-@testitem "Mooncake: test_adjoint on each operator" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+@testitem "Mooncake: test_adjoint on one operator of each kind" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
     for case in adjoint_cases()
@@ -591,32 +646,13 @@ end
 end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme: test_adjoint on each operator" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
+@testitem "Enzyme: test_adjoint on one operator of each kind" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
     for case in adjoint_cases()
         rtol = last(case)
         test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
     end
-end
-
-@testitem "Mooncake reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
-    using ADTypes: AutoMooncake
-    import Mooncake
-    test_rules_fire("Mooncake reverse", AutoMooncake(; config = nothing))
-end
-
-# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
-    using ADTypes: AutoEnzyme
-    import Enzyme
-    test_rules_fire(
-        "Enzyme reverse",
-        AutoEnzyme(;
-            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-            function_annotation = Enzyme.Const
-        )
-    )
 end
 
 @testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
@@ -690,7 +726,10 @@ end
     shift(b) = (v, a) -> a * v + b
     cm(θ) = CR.Transform(shift(θ[1]), θ[2])
     θ0 = [0.5, 0.8, collect(range(0.2, 0.6; length = 8))...]
-    for (m, θ, fires) in ((θm, θ0, true), (cm, [0.1, 0.9], false)), w in (identity, NoAdjoint)
+    # Without the rule the map already takes plain AD, so its `NoAdjoint`
+    # would repeat that call.
+    for (m, θ, fires) in ((θm, θ0, true), (cm, [0.1, 0.9], false)),
+            w in (fires ? (identity, NoAdjoint) : (identity,))
         f(θ) = run(w, m(θ))
         ref = gradient(f, AutoForwardDiff(), θ)
         for backend in backends
@@ -725,7 +764,10 @@ end
     scaled(c) = x -> c * exp(x)
     cm(θ) = CR.Add(Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
     θ0 = [0.5, collect(range(-0.2, 0.6; length = 8))...]
-    for (m, fires) in ((θm, true), (cm, false)), w in (identity, NoAdjoint)
+    # Without the rule the map already takes plain AD, so its `NoAdjoint`
+    # would repeat that call.
+    for (m, fires) in ((θm, true), (cm, false)),
+            w in (fires ? (identity, NoAdjoint) : (identity,))
         f(θ) = run(w, m(θ))
         ref = gradient(f, AutoForwardDiff(), θ0)
         for backend in backends
@@ -852,7 +894,9 @@ end
         (θ -> CR.Depletion(100.0; form = Linear(), removals = θ), true, true),
         (θ -> CR.Depletion(100.0; form = DoubledRate(θ)), false, false),
     )
-    for (m, adj, fires) in cases, w in (identity, NoAdjoint)
+    # Where the rule does not fire the operator already takes plain AD, so
+    # its `NoAdjoint` would repeat that call.
+    for (m, adj, fires) in cases, w in (fires ? (identity, NoAdjoint) : (identity,))
         @test CR.uses_adjoint(Recurrence([0.3]; modifiers = (m(0.8),)), CR.Run()) == adj
         f(θ) = run(w, m(θ[1]), θ[2])
         θ = [0.8, 1.1]
@@ -1620,12 +1664,15 @@ end
         (loss_param, 24, (true, false)), (loss_param, 47, (true, false)),
         (loss_param, 48, (false, false)), (loss, 3, (false, false)),
     )
+    # Where the rule does not fire on a backend the operator already takes
+    # plain AD there, so its `NoAdjoint` would repeat that call.
     for (L, S, fires) in cases
         θ = [0.4; fill(5.0, S)]
         for w in (identity, NoAdjoint)
             f(θ) = L(w, θ, S)
             ref = gradient(f, AutoForwardDiff(), θ)
             for (i, backend) in backends
+                w === NoAdjoint && !fires[i] && continue
                 n0 = CR._PULLBACK_CALLS[]
                 @test gradient(f, backend, θ) ≈ ref
                 @test (CR._PULLBACK_CALLS[] > n0) == (fires[i] && w === identity)

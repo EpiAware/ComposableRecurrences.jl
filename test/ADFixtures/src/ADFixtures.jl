@@ -1852,7 +1852,9 @@ const CONF_HAZARD = [0.2, 0.3, 0.4, 0.5, 0.5, 0.5, 0.4, 0.4, 0.3, 0.3]
 const WO = collect(range(0.5, 2.0; length = TO))
 # The parameters are offsets from `OCC0`, so the scenario starts at zero:
 # compiled ReverseDiff tapes keep the branches taken where they are
-# recorded, which the harness does at zero parameters.
+# recorded, which the harness does at zero parameters. Its first step's
+# values tie where the balance branches, so it stays out of the rule
+# testers' list: finite differences there step onto either branch.
 const OCC0 = _flat(A_BVD, [0.1], CONF_HAZARD)
 function _occupancy(w, θ)
     A_bvd, κ, conf_hazard = _unpack(OCC0 .+ θ, (TO,), (1,), (TO,))
@@ -1975,20 +1977,34 @@ const _TWINS = Tuple{String, Any, Any}[
         if supports(_requires(name)..., extra...)
 ]
 
+# Each scenario runs once through its call, and a twin once more through
+# `NoAdjoint`. Only a reverse-mode backend with its own rule tells the two
+# apart: under ForwardDiff and ReverseDiff the dual or tracked fields fail
+# `_gate`, and the forward modes have no rule, so both take the same plain
+# path there and the twin repeats its scenario.
+const _CATEGORIES = (:marginal, :rules)
+
 """
     scenarios(; with_reference = false, category = :marginal)
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
-There is one category, `:marginal`.
+The category `:marginal` holds every scenario and its `NoAdjoint` twin,
+which the benchmarks time and the reverse-mode backends with a rule test.
+The category `:rules` holds every scenario without its twin, for the
+backends where the twin takes the same path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
-    category === :marginal || throw(
-        ArgumentError("unknown category $(repr(category)); choose :marginal")
+    category in _CATEGORIES || throw(
+        ArgumentError(
+            "unknown category $(repr(category)); choose one of $(join(_CATEGORIES, ", "))"
+        )
     )
-    return map(_TWINS) do (name, f, θ0)
+    twins = category === :marginal ? _TWINS :
+        filter(t -> !startswith(first(t), "NoAdjoint "), _TWINS)
+    return map(twins) do (name, f, θ0)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
@@ -2028,22 +2044,6 @@ end
 
 "Scenario names broken on every backend."
 broken_scenario_names() = String[]
-
-"""
-    kink_scenarios()
-
-Scenario names that start at a kink on purpose: their first step's values
-tie where a part branches. Finite differences there step onto either
-branch, so the rule testers, which compare with them, leave these out; the
-gradient items check them against the ForwardDiff reference instead.
-"""
-function kink_scenarios()
-    return Set(
-        [
-            "Recurrence whole-step modifier branching at a tie (occupancy)",
-        ]
-    )
-end
 
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`).

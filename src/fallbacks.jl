@@ -595,9 +595,10 @@ function pullback!(grads, m, ::Init, s, history)
 end
 
 # Whether modifier `m` uses the default zero initial state. The method
-# lookup runs once per signature and is kept with the world age it was made
-# in, so a method defined later is still seen; a lookup on every reverse
-# pass cost more than the rest of a short run's gradient on Julia 1.13.
+# lookup runs at run time, once per signature, and its answer is cached
+# with the world age it was found in, so a method defined later is still
+# seen; a lookup on every reverse pass cost more than the rest of a short
+# run's gradient on Julia 1.13.
 const _DEFAULT_INIT = Dict{Type, Tuple{UInt, Bool}}()
 const _DEFAULT_INIT_LOCK = ReentrantLock()
 function _default_init(m, s, history)
