@@ -169,8 +169,8 @@
 51.0	Flows: wards against a naive loop
 0.3	Hazard: one exponential gives exp(-x) and expm1(-x)
 0.6	Interfaces: a pullback! the rule cannot find fails
-4.4	Interfaces: a wrong pullback! fails the pullback check
-42.1	Interfaces: package pieces
+3.7	Interfaces: a wrong pullback! fails the pullback check
+26.8	Interfaces: package pieces
 0.6	Interfaces: state length
 1.6	Interfaces: user pieces
 6.0	JLArrays: a buffer deeper than the kernel runs and resumes on the device
