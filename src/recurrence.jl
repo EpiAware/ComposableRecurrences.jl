@@ -22,7 +22,7 @@ y_t &= v^{(R)}_t,
 
 for ``t = t_0, \dots, t_1`` (`start`, `stop`), where
 
-  - ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+  - ``y_{t,i}`` is the output of [stratum](@ref PerStratum) ``i``
     at time ``t``, one of ``S`` strata; for ``t < t_0`` it is the history;
   - ``k_{i,l}(t)`` is the kernel's weight on lag ``l``, `kernel[l]`, the
     same for every ``i`` and ``t`` unless the kernel is
@@ -65,9 +65,9 @@ the call covers the absolute times `start:stop`:
     `S × T`, read at absolute time `t`; one when left out.
   - `history`: the outputs at times `start - m` to `start - 1`, oldest
     first, length `m` for a single series or `S × m`; zeros when left out.
-    The recursion reads the last `L` (or more, see
-    [`ComposableRecurrences.depth`](@ref)), and a shorter history is
-    zero-padded. A modifier's `Init` sees all of it.
+    The recursion reads the last ``D`` outputs, with ``D`` at least `L`
+    and at least the [`ComposableRecurrences.depth`](@ref) of each part,
+    and a shorter history is zero-padded. A modifier's `Init` sees all of it.
   - `state`: `true` to return `(y, state)`, with `state` the
     [`ComposableRecurrences.State`](@ref) after the last step, or such a
     `State` to resume from it, which returns the next one in the same way;
@@ -84,10 +84,9 @@ the call covers the absolute times `start:stop`:
     output, covering the times `start - m` to `stop`.
   - `trace`: `false`, or `true` to return `(y, trace)`, with
     `trace.modifiers` holding each modifier's series per step, a
-    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix
-    ([`ComposableRecurrences.Trace`](@ref) says what each records). It is
-    differentiable as the output is. Pass it as a literal, so that the
-    return type infers.
+    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of its
+    [`ComposableRecurrences.Trace`](@ref) records. It is differentiable as
+    the output is. Pass it as a literal, so that the return type infers.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -99,14 +98,15 @@ The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
 The constructor checks once whether the local step can rebuild every
-part it differentiates and stores the result in the field `rebuilds`; see
-[Rules and plain AD](@ref adjoint-routing) for the route this sets.
+part it differentiates and stores the result in the field `rebuilds`; a
+part it cannot rebuild sends the operator to
+[plain AD](@ref adjoint-routing).
 Built before the local step's dual numbers are loaded, it stores `nothing`
 and each call that takes the rule checks instead.
 
 # Arguments
-- `kernel`: the kernel, lag 1 first, or a kernel of delays (see
-  [`ComposableRecurrences.delay_masses`](@ref)).
+- `kernel`: the kernel, lag 1 first, or a kernel of
+  [delays](@ref ComposableRecurrences.delay_masses).
 
 # Keyword Arguments
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.

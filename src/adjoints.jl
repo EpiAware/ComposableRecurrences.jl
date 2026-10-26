@@ -88,8 +88,8 @@ By default it is `true` when `pullback!` has a method for the type of
 method is enough.
 The lookup is read from the types, so the route costs nothing per call.
 A method with a typed `grads` or typed arguments is not found, apart from a
-blockwise group step's with `v::Tuple, s::Tuple` (see
-[`ComposableRecurrences.blocks`](@ref)); declare
+[blockwise](@ref ComposableRecurrences.blocks) group step's with
+`v::Tuple, s::Tuple`; declare
 `uses_adjoint(::T, role) = true` for any other, which
 [`ComposableRecurrences.PieceInterface`](@ref) checks.
 A method of `uses_adjoint` also overrides the default, for example when
@@ -98,8 +98,9 @@ If it is `true` but no `pullback!` method fits the arguments, the reverse
 pass throws a `MethodError`.
 An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
 has one.
-A [`Recurrence`](@ref) does when its coupling and modifiers allow it;
-[Rules and plain AD](@ref adjoint-routing) gives the conditions.
+A [`Recurrence`](@ref) does when every float it holds is a `Float16`,
+`Float32` or `Float64` and each part has a `pullback!` or a
+[local step](@ref adjoint-routing) within its limits.
 
 # Arguments
 - `piece`: the operator, coupling, modifier or variant.
@@ -299,9 +300,10 @@ For a struct with fields ``\theta_1, \dots, \theta_n`` and a scalar loss
 and this returns ``\bar\theta_j`` for the field named `name`.
 
 A mirror holds a struct's cotangents for a
-[`ComposableRecurrences.pullback!`](@ref);
-[The gradient mirror](@ref extending-mirror) gives its entry for each field
-type.
+[`ComposableRecurrences.pullback!`](@ref), one
+[entry](@ref extending-mirror) per field: a `Ref` for a float scalar, an
+array of the same shape for a float array, and `nothing` for an integer,
+range or function.
 
 # Arguments
 - `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.

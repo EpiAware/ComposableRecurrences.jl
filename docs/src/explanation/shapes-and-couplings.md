@@ -1,6 +1,6 @@
 # [Shapes and couplings](@id explanation-shapes-couplings)
 
-The [shapes](@ref overview-shapes) and [couplings](@ref overview-couplings) tables list the names, and each wrapper's docstring gives its axes.
+Each [wrapper](@ref overview-shapes) adds axes to a slot: [`PerStratum`](@ref) a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
 
 ```@example shapes
 using ComposableRecurrences
@@ -10,7 +10,7 @@ using LinearAlgebra: I
 ## [Slots](@id explanation-slots)
 
 A slot is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
-Data (inputs, history and outputs) are not slots, and are always series × time.
+Data (inputs, history and outputs) are not slots, and are always strata × time.
 Each slot accepts its own set of wrappers.
 
 | Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref) | [`Derived`](@ref) | [`Recent`](@ref) |
@@ -34,22 +34,22 @@ A parameter's cotangent goes back through [`add_param!`](@ref ComposableRecurren
 
 ## [Where the coupling acts](@id explanation-coupling)
 
-The coupling mixes the series after the kernel and before the gain.
-It has no lag of its own: it mixes each series' kernel-weighted past at the current step.
-For ``S`` series, before the modifiers, a step computes
+The coupling mixes the strata after the kernel and before the gain.
+It has no lag of its own: it mixes each stratum's kernel-weighted past at the current step.
+For ``S`` strata, before the modifiers, a step computes
 
 ```math
 v_{t,i} = g_{t,i} \sum_{j=1}^{S} C_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},
 ```
 
-where ``y_{t,j}`` is series ``j`` on day ``t`` and ``k_{j,l}`` its kernel weight on lag ``l``.
-``C_{ij}`` is the coupling's weight of series ``j`` in series ``i``, and ``g_{t,i}`` and ``a_{t,i}`` the gain and `add` of series ``i``.
+where ``y_{t,j}`` is the value of stratum ``j`` on day ``t`` and ``k_{j,l}`` its kernel weight on lag ``l``.
+``C_{ij}`` is the coupling's weight of stratum ``j`` in stratum ``i``, and ``g_{t,i}`` and ``a_{t,i}`` the gain and `add` of stratum ``i``.
 
-This order sets what a per-series coefficient means.
+This order sets what a per-stratum coefficient means.
 
-- A [`PerStratum`](@ref) kernel belongs to the series sending, since the kernel weights each series' own past.
-- A gain of `S` rows belongs to the series receiving, since it multiplies the mixed value.
-- A row of the coupling is the series receiving, and a column the series sending.
+- A [`PerStratum`](@ref) kernel belongs to the stratum sending, since the kernel weights each stratum's own past.
+- A gain of `S` rows belongs to the stratum receiving, since it multiplies the mixed value.
+- A row of the coupling is the stratum receiving, and a column the stratum sending.
 
 So a sender's transmissibility goes in the kernel or the columns of the coupling, and a receiver's susceptibility in the gain or the rows.
 Scaling ``k_{j,l}`` by a transmissibility ``\sigma_j`` gives the same step as scaling ``C_{ij}`` by ``\sigma_j``.
@@ -67,14 +67,14 @@ by_kernel ≈ by_columns
 
 ## [Coupling or pairwise kernel](@id explanation-pairwise)
 
-A coupling with a shared kernel assumes every pair of series has the same lag shape, scaled by the coupling.
+A coupling with a shared kernel assumes every pair of strata has the same lag shape, scaled by the coupling.
 A [`Pairwise`](@ref) kernel gives each pair its own lag shape, so it does the coupling's job and the coupling stays `I`:
 
 ```math
 v_{t,i} = g_{t,i} \sum_{j=1}^{S} \sum_{l=1}^{L} A_{ij,l} \, y_{t-l,j} + a_{t,i},
 ```
 
-where ``A_{ij,l}`` weights series ``j`` in series ``i`` at lag ``l``.
+where ``A_{ij,l}`` weights stratum ``j`` in stratum ``i`` at lag ``l``.
 When every pair shares the shape, ``A_{ij,l} = C_{ij} k_l``, the two give the same values, and the coupling is cheaper.
 
 ```@example shapes
@@ -95,4 +95,6 @@ Use a coupling when one lag shape fits, `Routes` for a few shapes, and `Pairwise
 
 ## [Your own coupling](@id explanation-own-coupling)
 
-Write your own coupling type when the mixing has structure a matrix wastes, such as low rank or a formula in time; [A coupling](@ref extending-coupling) gives the contract and [Specialising for speed](@ref specialising) a low-rank example.
+Write your own coupling type when the mixing has structure a matrix wastes, such as low rank or a formula in time.
+The type needs a [`forward!`](@ref ComposableRecurrences.forward!) method that writes the [pressure](@ref extending-coupling) `q` on each stratum from each stratum's kernel-weighted past `p`, and may add a `pullback!` for a hand-written gradient.
+A [rank-one coupling](@ref specialising) ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``.

@@ -1,7 +1,5 @@
 # [Operators](@id explanation-operators)
 
-The [API overview](@ref api-overview) gives the full step and the calls, and [`Recurrence`](@ref) and [`Convolution`](@ref) give every argument.
-
 ```@example operators
 using ComposableRecurrences
 using ComposableRecurrences: exponential_history, Depletion

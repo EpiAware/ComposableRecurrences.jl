@@ -18,7 +18,9 @@ A [`Recurrence`](@ref) kernel starts at lag 1, so it is the vector without
 `lags` has no default: a kernel of delays without `lags` is an error, and
 so is `lags` on a kernel with no delays.
 Both operators pass `step` on, and `step` without `lags` is an error.
-[Time units](@ref time-units) says when a step other than 1 is the choice.
+A step other than 1 suits a model whose [time unit](@ref time-units)
+differs from the delay's unit, such as `step = 7` for weekly steps and
+delays in days.
 
 The method for a vector returns it as it is, whatever `lags` and `step`.
 A package that owns a delay type adds a method for that type:
@@ -37,12 +39,11 @@ A type with a method is a delay, whatever its supertype, so
 `Recurrence(kernel; lags)` and `Convolution(kernel; lags)` take it.
 An array of delays is read by its element type, so that type, or a
 supertype of it, needs the method.
-[Delay distributions](@ref overview-delays) lists the kernels that hold
-delays.
 
 A delay on continuous time has masses only once a censoring choice turns it
 into one on whole steps, so a method for it belongs with that choice.
-[Delay distributions](@ref overview-delays) says which extension makes it.
+A [package extension](@ref overview-delays) adds one that double interval
+censors the delay.
 
 # Arguments
 - `k`: the delay, or a vector of masses.

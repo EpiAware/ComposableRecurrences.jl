@@ -23,7 +23,7 @@ A `Recent` goes wherever a modifier takes a parameter, alone or inside a
 Arithmetic with a `Recent` on either side builds a `Derived`, so
 `κ * Recent(7)` and `Derived(exp, -κ * Recent(7))` work.
 The [`Recurrence`](@ref) binds it to its outputs once per call and keeps at
-least ``W`` past outputs (see [`ComposableRecurrences.depth`](@ref)).
+least ``W`` past outputs, its [`ComposableRecurrences.depth`](@ref).
 Outside a recurrence it has no outputs to read, and
 [`ComposableRecurrences.param`](@ref) throws.
 

@@ -376,7 +376,7 @@ Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
 
-For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
+For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
 ```math
 v'_{t,i} = v_{t,i} + b_{t,i},
@@ -440,7 +440,7 @@ end
 Moves a share of each stratum's value to others through a movement matrix
 whose columns sum to one, so the total is conserved.
 
-For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
+For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
 ```math
 \begin{aligned}
@@ -877,7 +877,7 @@ end
 @doc raw"""
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
-For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
+For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
 ```math
 v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),

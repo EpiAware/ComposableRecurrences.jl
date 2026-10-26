@@ -73,14 +73,14 @@ A type without a `pullback!` still takes the rule when the [local step](@ref adj
 
 ## [A first modifier](@id extending-pointwise)
 
-This modifier smooths each series exponentially:
+This modifier smooths each stratum exponentially:
 
 ```math
 s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
 ```
 
 where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
-It acts on each series alone, so it is pointwise and writes each entry from its own.
+It acts on each stratum alone, so it is pointwise and writes each entry from its own.
 Its state starts at the last value of the history.
 The field has a type parameter so that a dual number can take its place.
 
@@ -176,7 +176,7 @@ CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
 (grads.v, grads.s, grads.piece.a[]), CR.uses_adjoint(Smooth(0.5), CR.Step())
 ```
 
-[Checking a new type](@ref extending-checks) tests a `pullback!` against ForwardDiff, and [Performance](@ref extending-performance) gives what a `pullback!` saves.
+The `:pullback` [check](@ref extending-checks) compares a `pullback!` with the ForwardDiff Jacobian of `forward!` on the same inputs.
 
 ## [A per-stratum parameter](@id extending-param)
 
@@ -289,17 +289,17 @@ Recurrence([0.5, 0.5]; modifiers = (ToMean(0.5),))(1.0; history = [1.0 2.0; 3.0 
 
 ## [A blockwise step](@id extending-blockwise)
 
-A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
+A modifier whose step acts on fixed groups of strata, each with a fixed number of values and state entries, is blockwise.
 [`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group.
 The step takes them as tuples of one-entry views, read and written as `x[]`.
-This one keeps a running total and a step count per series, and adds their mean to the value:
+This one keeps a running total and a step count per stratum, and adds their mean to the value:
 
 ```math
 a_t = a_{t-1} + v_t, \qquad n_t = n_{t-1} + 1, \qquad v'_t = v_t + \frac{a_t}{n_t},
 ```
 
 where ``v_t`` is the value at step ``t`` and ``v'_t`` the value passed on.
-``a_t`` is the running total and ``n_t`` the step count, the series' two state entries.
+``a_t`` is the running total and ``n_t`` the step count, the stratum's two state entries.
 
 ```@example extending
 struct AddMean end
@@ -316,7 +316,8 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 
 ## [A trace](@id extending-trace)
 
-A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps; [`Trace`](@ref ComposableRecurrences.Trace) gives the default, the built-in traces and the layout of the rows.
+A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
+By default a modifier's [trace](@ref ComposableRecurrences.Trace) is its state after each step, and a modifier whose state never changes records nothing.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 
@@ -409,7 +410,8 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - `(v, s, N, α)`, with vectors `v` and `s`, for a depletion form;
-- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` in the shape the [Roles](@ref extending-roles) table gives, and `g` after `t` for a blockwise group, whose arguments are then tuples of `Ref`s.
+- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` a tuple of vectors for a pointwise modifier and a column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows for any other.
+  A blockwise group takes `g` after `t`, and its arguments are tuples of `Ref`s.
 
 For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
@@ -454,7 +456,7 @@ It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded.
 - Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
-- [Rule timings](@ref rule-timings) gives the cost of a missing `pullback!`.
+- Without a `pullback!`, the [rule](@ref rule-timings) of a pointwise modifier takes 0.64 times the plain AD time on Mooncake and 1.12 times on Enzyme.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
 The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.

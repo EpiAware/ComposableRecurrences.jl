@@ -57,13 +57,13 @@ Lags from ``n`` on reach no input and are dropped first.
 A block of the whole series is one transform.
 For a series much longer than the kernel the cost is ``O(n \log L)``
 rather than ``O(T L)``.
-[`ComposableRecurrences.Auto`](@ref) gives the sizes from which it is
-faster than the direct method; time both on the sizes of a model before
-choosing it.
+It is faster than the direct method from about 300 lags and 1000 outputs,
+the sizes from which [`ComposableRecurrences.Auto`](@ref) takes it; time
+both on the sizes of a model before choosing it.
 The reverse pass uses the same transforms.
 
-It runs once its weak dependency is loaded, as the
-[FFT extension](@ref extension-fftw) page sets out; without it, a call with
+It runs once the weak dependency of the
+[FFT extension](@ref extension-fftw) is loaded; without it, a call with
 this method is refused.
 It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
@@ -157,7 +157,7 @@ y_{t,i} = g_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
 \qquad t = t_0, \dots, t_1,
 ```
 
-where ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+where ``y_{t,i}`` is the output of [stratum](@ref PerStratum) ``i``
 at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
 ``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l``, ``L`` the
 kernel length, ``g_{t,i}`` the gain and ``a_{t,i}`` the add input.
@@ -198,8 +198,8 @@ call covers the absolute times `start:stop`:
 The output has the layout of `x` and length `stop - start + 1`.
 
 # Arguments
-- `kernel`: the kernel, lag 0 first, or a kernel of delays (see
-  [`ComposableRecurrences.delay_masses`](@ref)).
+- `kernel`: the kernel, lag 0 first, or a kernel of
+  [delays](@ref ComposableRecurrences.delay_masses).
 
 # Keyword Arguments
 - `method`: how the lag sum is computed,

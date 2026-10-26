@@ -34,7 +34,7 @@ With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` co
 where ``s_t`` is the modifiers' state and ``M^{*}_t`` their `pullback!` methods in reverse tuple order.
 ``\bar y_t`` holds the cotangent of the output plus what later steps added to it.
 The coupling's `pullback!` for [`Pressure()`](@ref ComposableRecurrences.Pressure) gives ``\bar p_t`` and ``\bar C_t``.
-The last line is for a kernel shared by every series.
+The last line is for a kernel shared by every stratum.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
@@ -110,21 +110,20 @@ A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rathe
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
 The AD tests also run ReverseDiff, which is not a target; the README's coverage badges include it because those tests run.
-The [AD comparison](@ref ad-comparison) page compares the gradient times.
 
 ## [Which rules are kept](@id rule-policy)
 
 A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme; it then runs on both, unless the route table above splits by backend.
-[Rule timings](@ref rule-timings) gives the ratio behind each rule, and the [AD comparison](@ref ad-comparison) the gradient times by backend.
+The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `T` 200 and `L` 20 where a benchmark case covers it.
 
 ## [Checking a rule](@id adjoint-checks)
 
-[Testing and benchmarking](@ref compare-plain-ad) compares a rule with plain AD through [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint).
+A rule is checked against [plain AD](@ref compare-plain-ad) through its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
 With Mooncake, or Enzyme and EnzymeTestUtils, loaded, [`ComposableRecurrences.test_adjoint`](@ref) runs that backend's own rule tester on an operator's rule; the [Mooncake](@ref extension-mooncake) and [EnzymeTestUtils](@ref extension-enzyme-test-utils) extensions add it.
 
 ## [Executors](@id executors)
 
-An executor sets how an operator's loops over strata, series or output times run.
+An executor sets how an operator's loops over strata or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Device`](@ref ComposableRecurrences.Device) runs it as a kernel on a GPU.
 
@@ -145,9 +144,9 @@ The `Device(backend)` row was checked on JLArrays only, which run kernels on the
 
 ### [GPU arrays](@id gpu-arrays)
 
-A call on arrays that live on a GPU runs each loop over strata, series or output times as one kernel.
+A call on arrays that live on a GPU runs each loop over strata or output times as one kernel.
 Independent strata are one kernel per call, each thread stepping its stratum through time.
-Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata or many series.
+Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata.
 Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
 A call with device inputs and a host float array among these is an error.
 `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.
