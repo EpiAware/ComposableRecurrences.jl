@@ -44,14 +44,7 @@ infections = renewal(R; history = [5.0])
 # [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r` (see [Seeding](@ref explanation-seeding)).
 # Its docstring gives the equation linking `r` to `R`, and a few Newton steps solve it.
 
-euler_lotka(r, R, gi) = R * sum(gi[l] * exp(-r * l) for l in eachindex(gi)) - 1
-function growth_rate(R, gi; r = 0.0)
-    for _ in 1:20
-        r -= euler_lotka(r, R, gi) / ForwardDiff.derivative(x -> euler_lotka(x, R, gi), r)
-    end
-    return r
-end
-r0 = growth_rate(R[1], gi)
+r0 = ComposableRecurrences.growth_rate(R[1], gi)
 y0 = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
 round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
