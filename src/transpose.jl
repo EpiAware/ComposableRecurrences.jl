@@ -12,8 +12,8 @@ z_{\sigma,i} = \sum_{l=0}^{L-1} k_{i,l}(\sigma)\, x_{\sigma+l,i},
 
 for a [`ComposableRecurrences.Primary`](@ref) or fixed kernel, in the
 notation of [`Convolution`](@ref).
-It is the transpose of the linear map ``x \mapsto y`` that `c` computes
-without a gain or add input, ``z = A^\top x`` for ``y = A x``.
+If `c` without a gain or add input computes ``y = A u`` from its inputs
+``u``, the transpose computes ``z = A^\top x``.
 So column ``\sigma`` of a `Primary()` kernel weights the series from
 time ``\sigma`` on: with the delay pmf of a cohort in that column, ``z``
 is the expectation of the series at the end of each cohort's delay.
