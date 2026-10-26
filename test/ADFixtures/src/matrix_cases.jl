@@ -963,6 +963,9 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),
     "conv_gain" => (:contributions,),
+    # A gain on a `Convolution` came with `contributions`.
+    "outcome_chain" => (:contributions,),
+    "renewal_forecast" => (:resume_state,),
     "triangle" => (:contributions,),
     # `prepend` came with the growth-path seed.
     "random_walk" => (:exponential_history,),

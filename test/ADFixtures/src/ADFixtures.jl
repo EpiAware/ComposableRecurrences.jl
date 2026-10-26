@@ -1544,6 +1544,14 @@ const _PROBES = Dict{Symbol, Function}(
         )
         return ext !== nothing && isdefined(ext, :_LocalTag)
     end,
+    # A call resumed from a returned state also returns the next state.
+    :resume_state => () -> _accepts(
+        function ()
+            r = Recurrence([0.5])
+            _, st = returning_state(r, ones(2); history = [1.0], stop = 1)
+            return _, _ = r(ones(2); state = st)
+        end
+    ),
     # Delays on lags of a width other than one unit.
     :delay_step => () -> _accepts(
         () -> Convolution(Poisson(1.0); lags = 2, step = 2)
