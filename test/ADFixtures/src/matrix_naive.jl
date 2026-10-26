@@ -453,3 +453,57 @@ BASELINES["conv_secondary"] = [
         )
     ),
 ]
+
+# ---- unit lag-1 processes ------------------------------------------------------
+
+# The case's loss with the walk built by `run(z0, ϵ)`.
+function _random_walk_baseline(run)
+    return function (z::Size)
+        (; T) = z
+        W = [_noise(t, 9) for t in 1:(T + 1)]
+        _, θ = random_walk(identity, z)
+        return θ -> sum(W .* run(θ[1], θ[2:end])), θ
+    end
+end
+
+function loop_random_walk(z0, ϵ)
+    y = similar(ϵ, promote_type(typeof(z0), eltype(ϵ)), length(ϵ) + 1)
+    y[1] = z0
+    for t in eachindex(ϵ)
+        y[t + 1] = y[t] + ϵ[t]
+    end
+    return y
+end
+
+BASELINES["random_walk"] = [
+    "loop" => _random_walk_baseline(loop_random_walk),
+    "accumulate" => _random_walk_baseline(
+        (z0, ϵ) -> vcat(z0, accumulate(+, ϵ; init = z0))
+    ),
+]
+
+function _ar1_baseline(run)
+    return function (z::Size)
+        (; T) = z
+        W = _weights(T)
+        _, θ = ar1(identity, z)
+        return θ -> sum(W .* run(θ[1], θ[2], θ[3:end])), θ
+    end
+end
+
+function loop_ar1(φ, z0, ϵ)
+    y = similar(ϵ, promote_type(typeof(φ), typeof(z0), eltype(ϵ)))
+    z = z0
+    for t in eachindex(ϵ)
+        z = φ * z + ϵ[t]
+        y[t] = z
+    end
+    return y
+end
+
+BASELINES["ar1"] = [
+    "loop" => _ar1_baseline(loop_ar1),
+    "accumulate" => _ar1_baseline(
+        (φ, z0, ϵ) -> accumulate((z, e) -> φ * z + e, ϵ; init = z0)
+    ),
+]
