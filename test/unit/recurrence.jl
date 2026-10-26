@@ -645,7 +645,10 @@ end
     P = rand(rng, S, S, L) ./ 6
     K = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
     pool = CR.Depletion(PerStratum(fill(50.0, S)))
-    removals = CR.Depletion(PerStratum(fill(50.0, S)); removals = 0.1 * CR.Recent(7))
+    removals = CR.Depletion(
+        PerStratum(fill(50.0, S)), CR.Hazard(),
+        CR.Flow(:S => 0, 0.1 * CR.Recent(7); form = CR.Truncate())
+    )
     feedback = CR.Transform(*, Derived(exp, -0.02 * CR.Recent(6; coupling = K)))
     cases = (
         (Recurrence(g), (;)),
