@@ -100,7 +100,7 @@ end
 # same code, as the rules are reverse rules; both are timed so every backend
 # covers the same cells.
 # Plain Enzyme reverse is wrong on a repeated sparse `mul!`, so it skips the
-# sparse cases' operator arms; the `loop` baseline makes no such call.
+# sparse cases.
 # Each gradient is taken once here, so an arm a backend cannot run is left
 # out with a warning rather than failing the whole run.
 # The history workflow runs this script, and the
@@ -128,8 +128,7 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
         for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
             arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
                 continue
-            c.sparse && entry.name == "Enzyme reverse" && arm != "loop" &&
-                continue
+            c.sparse && entry.name == "Enzyme reverse" && continue
             f, θ = MatrixCases.build(c, z, arm)
             prep = try
                 p = DI.prepare_gradient(f, entry.backend, copy(θ))
