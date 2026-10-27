@@ -70,11 +70,6 @@ _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 # window cache per step, so their reverse pass runs serially.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
-    # Only an integer output has no cotangent. Its buffer is integer only
-    # when every input and part is, so then no state, history or other input
-    # has a cotangent either. A float output's cotangent is an array, zero or
-    # not.
-    Ȳ === nothing && return nothing
     (; r, H, D, S, T, τ0) = c
     H̄ = _seeded(H, Ȳ, D)
     # Parameters that read the outputs send their cotangents into `H̄`. The
@@ -287,7 +282,12 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
 end
 
 # The buffer's cotangent, `D` zero rows and then the output's cotangent
-# `Ȳ`, each row written once.
+# `Ȳ`, each row written once. Only an integer output has no cotangent; its
+# buffer is integer only when every input and part is, so no other part has
+# one either and the pass adds zeros. This is a method, not an early return
+# in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme` under runtime
+# activity), that branch slowed the whole reverse pass by about 8%.
+_seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
 function _seeded(H, Ȳ, D)
     H̄ = similar(H)
     fill!(view(H̄, 1:D, :), zero(eltype(H̄)))
