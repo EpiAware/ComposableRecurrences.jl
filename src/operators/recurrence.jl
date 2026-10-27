@@ -418,10 +418,9 @@ _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
 # kernel convolution alone (`_Chained`). The newest lag, the previous step's
 # value, is then added last, after the loop over the older lags, which do
 # not wait on that step; so each step waits on one fused multiply-add. This
-# holds for hardware floats and dual numbers (the ForwardDiff extension);
-# other runs keep one out-of-line loop, where the split gains nothing and
-# costs `Enzyme` more. Both forms start from `+0.0`, so they agree on signed
-# zeros.
+# holds for hardware floats and, through an extension, dual numbers; other
+# runs keep one out-of-line loop, where the split gains nothing and costs
+# `Enzyme` more. Both forms start from `+0.0`, so they agree on signed zeros.
 struct _Chained{G}
     g::G
 end

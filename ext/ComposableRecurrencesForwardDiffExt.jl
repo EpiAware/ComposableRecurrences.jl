@@ -528,8 +528,7 @@ end
 
 # Dual numbers branch on their value, as plain floats do.
 _exp_neg(x::ForwardDiff.Dual) = _exp_neg_branch(x)
-# `exp(-H)` and `g(H)` from their values and slopes: on the partials, the
-# series and the closed form of `g` would each cost a dual product per term.
+# `exp(-H)` and `g(H)` from the value and slope: one multiply per partial.
 function _leave(H::Dual{T}) where {T}
     v = value(H)
     E, g = _leave(v)
