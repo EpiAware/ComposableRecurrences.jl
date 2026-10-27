@@ -9,9 +9,8 @@ name: AD versions
 # Enzyme's bugs differ between Julia versions, so the full registry runs
 # here too.
 # Each backend runs in two jobs, the registry items in `scenarios.jl` and
-# the rest: Enzyme reverse in one process on Julia 1.11 outgrew a runner's
-# memory, and Mooncake reverse in one process on 1.12 came close to the
-# time limit.
+# the rest: in one process, Enzyme reverse on Julia 1.11 outgrows a
+# runner's memory and Mooncake reverse on 1.12 nears the time limit.
 # It runs on pushes to main, weekly, on demand, and on a pull request that
 # changes this file, not on every pull request.
 
