@@ -603,9 +603,16 @@ end
 # Wards in each stratum: suspected patients (compartment 1) are confirmed
 # at a rate or ruled out as a share; confirmed patients (compartment 2) are
 # discharged at a rate and transferred out in counts. Admissions enter both.
+# The parameters are offsets from `WARD0`, so the scenario starts at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const WARD0 = _flat(
+    [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+    0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+)
 function _ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
-        θ, (2S, T), (S,), (T,), (1,), (S, T)
+        WARD0 .+ θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
@@ -1077,7 +1084,7 @@ end
 # The ward's flows, each flow's amount per stratum and step.
 function _trace_ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
-        θ, (2S, T), (S,), (T,), (1,), (S, T)
+        WARD0 .+ θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
@@ -1208,10 +1215,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence ward with competing flows (Depletion without a draw)", _ward,
-        () -> _flat(
-            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
-            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
-        ),
+        () -> zero(WARD0),
     ),
     (
         "Recurrence protected pool in Float32", _protected_float32,
@@ -1419,10 +1423,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence trace of a ward's flows", _trace_ward,
-        () -> _flat(
-            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
-            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
-        ),
+        () -> zero(WARD0),
     ),
     (
         "Recurrence trace of a weekly budget with a queue", _trace_budget,
