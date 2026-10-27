@@ -114,7 +114,7 @@ changes: arrivals enter it only through the flows.
 Here `starts` is a `TimeVarying` share of one at each period start and
 zero otherwise, and a lifetime allowance is a starting pool alone.
 A second pool gives
-[leaky, all-or-nothing and waning protection](@ref tutorial-renewal-delay);
+[leaky, all-or-nothing and waning protection](@ref tutorial-vaccination);
 a delay
 from dose to protection is a [`Convolution`](@ref) of the doses before the
 call.

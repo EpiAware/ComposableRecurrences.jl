@@ -157,6 +157,8 @@ include("operators/trace_run.jl")
 include("operators/recurrence_adjoint.jl")
 # The convolution operator and its reverse pass.
 include("operators/convolution.jl")
+# The transpose of a convolution, a sum that reads the series forward.
+include("operators/transpose.jl")
 # The pressure a recurrence's steps draw against, from given outputs.
 include("operators/pressure.jl")
 
