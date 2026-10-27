@@ -4,14 +4,6 @@
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
 #
-# ### What are we going to do in this exercise
-#
-# 1. Turn admissions into occupancy with a convolution and with a recurrence.
-# 2. Compare a log-normal stay with the same mean.
-# 3. Cap occupancy at the number of beds with `Clamp`.
-# 4. Admit up to the free beds with a `Depletion` and keep the rest.
-# 5. Move suspected and confirmed patients between two compartments.
-#
 # ### What might I need to know before starting
 #
 # The [Getting started](@ref getting-started) overview.
@@ -33,8 +25,9 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # O_t = \sum_{k \ge 0} S_k \, A_{t-k}, \qquad S_k = \Pr(\text{stay} > k),
 # ```
 #
-# where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``, and ``S_k`` the survival, lag 0 first.
-# This is `Convolution(S)(admissions)`.
+# where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``.
+# The survival ``S_k`` is the convolution kernel, lag 0 first.
+# The code is `Convolution(S)(admissions)`.
 # A geometric stay, in which each patient leaves with probability ``\delta`` each day, has ``S_k = (1 - \delta)^k``.
 # Because the geometric distribution is memoryless, only this stay collapses the sum to a recurrence of order one:
 #
@@ -42,7 +35,8 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # O_t = (1 - \delta) \, O_{t-1} + A_t, \qquad O_0 = 0.
 # ```
 #
-# The admissions enter the recurrence as `add`.
+# In the recurrence the kernel weight on lag 1 is ``k_1 = 1 - \delta``.
+# The admissions are the add input ``a_t = A_t``, passed as `add`.
 
 T = 90
 admissions = [30 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -60,9 +54,9 @@ by_recurrence = Recurrence([1 - δ])(; history = [0.0], add = admissions)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
 end
 
-# Occupancy peaks a few days after admissions at nearly six times their height, because each patient stays about ``1 / \delta`` days.
-
-maximum(abs, by_convolution .- by_recurrence)
+# The convolution and the recurrence agree to rounding error, so their lines overlap.
+# Occupancy peaks on day 39, four days after admissions, at 5.7 times their height.
+# Each patient stays ``1 / \delta \approx 6.7`` days on average.
 
 # ## A stay that is not geometric
 #
@@ -75,8 +69,9 @@ maximum(abs, by_convolution .- by_recurrence)
 # ```
 #
 # where ``p_k`` is the probability of a stay of ``k`` whole days and ``F`` the log-normal distribution function.
-# The survival is `1 .- cumsum(pmf)`, lag 0 first.
-# Here ``\sigma = 1.2``, and ``\mu`` is chosen so that the mean days in bed, ``\sum_k S_k``, match the geometric stay's ``1 / \delta``.
+# The survival ``S_k`` is `1 .- cumsum(pmf)`, lag 0 first, and occupancy is again ``O_t = \sum_k S_k A_{t-k}``.
+# Here ``\sigma = 1.2``.
+# The log-mean ``\mu`` is chosen so that the mean days in bed, ``\sum_k S_k``, match the geometric stay's ``1 / \delta``.
 
 σ = 1.2
 function survival(μ)
@@ -93,9 +88,6 @@ function matched_mu(target; lo = 0.0, hi = 3.0)
 end
 S = survival(matched_mu(1 / δ))
 by_lognormal = Convolution(S)(admissions)
-round.((sum(S), 1 / δ); digits = 2)
-
-#-
 
 @chain DataFrame(
     "day" => 1:T, "Admissions" => admissions,
@@ -106,8 +98,10 @@ round.((sum(S), 1 / δ); digits = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
 end
 
-# The log-normal stay gives a lower, later peak and a longer tail.
-# For the same mean, more patients leave within two days and more stay beyond two weeks than with the geometric stay.
+# Both stays have a mean of 6.67 days, with ``\mu = 1.27``.
+# The log-normal stay gives a lower, later peak, 140 patients on day 40 against 171 on day 39, and a longer tail.
+# With the log-normal stay 31% of patients stay at most one day, against 15% with the geometric stay.
+# Also 12% stay more than 14 days, against 10%.
 # The rest of this tutorial uses the geometric stay, as a pool's share exit flow and the hazard flows do.
 
 # ## A bed cap
@@ -119,6 +113,7 @@ end
 # O_t = \min\big(\max\big((1 - \delta) \, O_{t-1} + A_t,\ 0\big),\ B\big).
 # ```
 #
+# The one modifier ``M_1`` is the `Clamp` with bounds 0 and ``B``.
 # The cap applies before occupancy carries over to the next day, so patients turned away never occupy a bed later.
 
 beds = 120.0
@@ -131,16 +126,14 @@ capped = Recurrence([1 - δ]; modifiers = (Clamp(0.0, beds),))(; history = [0.0]
     draw(_; axis = (xlabel = "Day", ylabel = "Occupied beds"))
 end
 
-# Capped occupancy holds at 120 beds for about ten days, then falls before the uncapped one.
-# The bed-days lost to the cap are
-
-round(sum(by_recurrence .- capped))
+# Capped occupancy holds at 120 beds for 12 days, days 32 to 43, then falls before the uncapped one.
+# The cap removes 670 bed-days.
 
 # ## Admitted and turned away
 #
 # The cap deletes the patients it turns away.
 # A [`Depletion`](@ref ComposableRecurrences.Depletion) that fills a pool keeps them instead.
-# It admits each day's demand up to the free beds and routes the rest to a second series:
+# It admits each day's demand up to the free beds and routes the rest to a second stratum:
 #
 # ```math
 # f_t = \max\big(B - (1 - \delta) \, O_{t-1},\ 0\big), \qquad
@@ -148,13 +141,14 @@ round(sum(by_recurrence .- capped))
 # O_t = (1 - \delta) \, O_{t-1} + x_t,
 # ```
 #
-# where ``f_t`` is the number of free beds and ``x_t`` the admissions.
-# The second series receives the ``A_t - x_t`` patients turned away.
+# where ``B`` is the number of beds, ``f_t`` the number of free beds and ``x_t`` the admissions.
+# Here ``A_t`` is the demand for beds.
+# A second stratum receives the ``A_t - x_t`` patients turned away.
 # Its one pool `:O` is the occupancy, and its state.
 # A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as it comes before the draw.
 # The draw `Truncate(; into = :O)` then fills it with the admissions, up to `beds`.
-# `overflow = :stratum` sends what is turned away to the second series.
-# Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
+# The setting `overflow = :stratum` sends what is turned away to the second stratum.
+# Stratum 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
 routing = Depletion(
     beds, Flow(:O => 0, δ; form = Share()),
@@ -173,9 +167,17 @@ turned = DataFrame("day" => 1:T, "Admitted" => routed[1, :], "Turned away" => ro
 end
 
 # Admissions fall to the beds freed each day while the ward is full.
-# The occupancy of those admitted never passes the number of beds, and no patient is lost:
+# Over the 90 days 101 patients are turned away.
+# Admitted and turned-away patients add up to the demand, so no patient is lost.
+# The occupancy of those admitted is the pool ``O_t``:
 
-maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
+@chain DataFrame(day = 1:T, occupancy = admitted_occupancy) begin
+    data(_) * mapping(:day, :occupancy) * visual(Lines, linewidth = 2) +
+        mapping([beds]) * visual(HLines, color = :grey, linestyle = :dash)
+    draw(_; axis = (xlabel = "Day", ylabel = "Occupied beds"))
+end
+
+# Occupancy reaches the 120 beds and never passes them.
 
 # An allowance granted each period works the same way, with a pool drawn from rather than filled.
 # Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B` of a [`Depletion`](@ref ComposableRecurrences.Depletion).
@@ -219,8 +221,8 @@ patients = ward(; history = zeros(2, 1), add = [admissions'; zero(admissions')],
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
 end
 
-# Suspected patients peak first.
-# Confirmed patients peak about a week later and stay longer, as they leave more slowly.
+# Suspected patients peak first, on day 36.
+# Confirmed patients peak six days later, on day 42, and stay longer, as they leave more slowly.
 #
 # A flow with `form = Share()` moves a share, like the daily discharge probability ``\delta`` above, except that the day's admissions can also leave that day.
 # A flow with `form = Truncate()` moves a count capped by what the compartment holds, such as a fixed number of transfers a day.
