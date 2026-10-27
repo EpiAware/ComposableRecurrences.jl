@@ -198,12 +198,14 @@ const FORWARD_TARGETS = ("ForwardDiff", "Enzyme forward", "Mooncake forward")
 _width(::DI.BatchSizeSettings{B}) where {B} = B
 
 # A forward-mode gradient takes one pass per batch of parameters, and each
-# pass costs at least one primal. When that lower bound, for the gradient
-# taken while preparing and the one timed, exceeds the worker's timeout, the
-# cell is skipped with the estimate rather than left to time the worker out.
+# pass costs at least one primal, timed as the fastest of five calls so a
+# garbage collection does not inflate it. When that lower bound, for the
+# gradient taken while preparing and the one timed, exceeds the worker's
+# timeout, the cell is skipped with the estimate rather than left to time
+# the worker out.
 function forward_too_slow(f, θ, backend, opts)
     f(θ)
-    t = @elapsed f(θ)
+    t = minimum(@elapsed(f(θ)) for _ in 1:5)
     width = try
         _width(DI.pick_batchsize(backend, θ))
     catch
