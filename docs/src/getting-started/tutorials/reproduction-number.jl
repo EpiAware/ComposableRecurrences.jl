@@ -21,7 +21,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on the [Getting started](@ref getting-started) example, with no fitting.
+# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 
@@ -50,7 +50,7 @@ maximum(abs, infections ./ pressure(renewal, infections; history = seed) .- R)
 
 # ## The effective reproduction number
 #
-# A pool of ``N`` susceptibles, ``s_t`` after day ``t``, depleted by the hazard form of [Getting started](@ref overview-build), draws
+# A pool of ``N`` susceptibles, ``s_t`` after day ``t``, depleted by the [hazard form](@ref ComposableRecurrences.Hazard), draws
 #
 # ```math
 # I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad \lambda_t = \frac{R_t q_t}{N},
