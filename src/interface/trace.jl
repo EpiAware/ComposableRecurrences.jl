@@ -18,10 +18,10 @@ with ``R_M`` the modifier's own map: by default its state after the step,
 ``r_t = s_t``, and a modifier whose state never changes, such as
 [`ComposableRecurrences.Add`](@ref), records nothing.
 A [`ComposableRecurrences.Depletion`](@ref) with a draw records its pools after
-the step, the value drawn ``y_t`` and the overflow
-``d_t + Q_{t-1} - y_t``, what the draw leaves of the demand ``d_t`` and
+the step, the value it passes on ``y_t`` and the overflow
+``d_t + Q_{t-1} - y_t``, what its draws leave of the demand ``d_t`` and
 the queue ``Q_{t-1}`` (zero without one), with rows for each pool, then
-the drawn values, then the overflows, each over the strata or groups;
+the values passed on, then the overflows, each over the strata or groups;
 without a draw it records the amount each flow moves, a row per flow over
 the groups.
 [`ComposableRecurrences.Redistribute`](@ref) records its arrivals, its
@@ -43,7 +43,6 @@ group), is given `grads = (; piece, trace, v, s, v′, s′)`: `trace` holds
 the cotangent of `r`, in its shape, and the pullback adds the cotangents
 of the step's inputs and outputs into `v`, `s`, `v′` and `s′` and those of
 the modifier's parameters into `piece`.
-[A trace](@ref extending-trace) writes one.
 
 # Examples
 ```jldoctest
@@ -111,9 +110,16 @@ function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
     return nothing
 end
 # A pointwise modifier's trace is a tuple of series, one per value, and a
-# whole-step modifier's one vector.
-_copy_trace!(r::Tuple, s′) = (copyto!(first(r), s′); nothing)
+# whole-step modifier's one vector. On the host a step's few entries are
+# copied by a loop, which costs less than setting up `copyto!` of views.
+_copy_trace!(r::Tuple, s′) = _copy_trace!(first(r), s′)
 _copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
+function _copy_trace!(r::_CPUArray, s′::_CPUArray)
+    for k in eachindex(r, s′)
+        r[k] = s′[k]
+    end
+    return nothing
+end
 _add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))
 function _add_trace!(s̄′, r̄::AbstractVector)
     for k in eachindex(s̄′, r̄)

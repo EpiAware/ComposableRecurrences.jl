@@ -1,18 +1,15 @@
 # [Getting started](@id getting-started)
 
-[`Recurrence`](@ref) steps a series forward from a kernel-weighted window of its own past.
-[`Convolution`](@ref) weights past inputs by a kernel.
-Couplings link series, and modifiers add behaviour such as finite pools to each step.
+A recurrence computes each value from its own past values, such as infections from earlier infections.
+A convolution weights the past values of another series, such as reported cases from earlier infections.
+[`Recurrence`](@ref) and [`Convolution`](@ref) are the two operators.
+Couplings link strata, such as towns, and modifiers add behaviour such as finite pools to each step.
 Every operator is differentiable.
-Computational efficiency is a main focus; see [Performance](@ref overview-performance).
 
 ## [Building the model](@id overview-build)
 
-Three towns share an outbreak.
-This section builds a model of it in five steps.
-Each step gives the equation, then the code, then a plot of what the step adds.
-The model and numbers are those of the README.
-The equations follow the [`Recurrence`](@ref), [`Convolution`](@ref) and [`Depletion`](@ref ComposableRecurrences.Depletion) docstrings.
+The example is an outbreak in three towns.
+People travel between the towns, each town has a finite population, infections are reported after a delay, and an intervention lowers transmission from day 50.
 
 ```@example overview
 using ComposableRecurrences
@@ -33,14 +30,16 @@ nothing # hide
 
 ### One town
 
-Infections follow a renewal process:
+Each infection causes new infections some days later.
+A renewal process models this: new infections are a weighted sum of earlier infections,
 
 ```math
 I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l},
 ```
 
 where ``I_t`` is the number of infections on day ``t``.
-``R_t`` is the reproduction number, the gain of the [`Recurrence`](@ref).
+``R_t`` is the reproduction number.
+The [`Recurrence`](@ref) takes it as its gain, the number it multiplies each day's weighted sum by.
 ``g_l`` is the generation interval's weight on lag ``l``, and ``L`` is its length.
 Infections before the first day are the history.
 
@@ -55,11 +54,13 @@ one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
 end
 ```
 
-Nothing limits growth yet, so infections grow exponentially.
+The reproduction number stays at 1.8 and nothing limits growth.
+Infections grow by about 20% a day, so the curve bends upwards.
 
 ### A reporting delay
 
-A share ``\rho`` of infections is reported, after a delay:
+Infections are not observed directly.
+Reports are a share ``\rho`` of infections, recorded after a delay:
 
 ```math
 C_t = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l},
@@ -81,14 +82,14 @@ one_report = delay(one_town; gain = 0.4)
 end
 ```
 
-The gain reports 40% of infections, spread over the days that follow by the delay.
-While infections grow, reports lag them, so each day's reports are about a quarter of that day's infections.
-These two steps are the usual model of infections and their reports.
-Each later step adds one part to it.
+Reports follow infections, later and lower.
+The gain reports 40% of infections.
+While infections grow, each day's reports come from the smaller numbers of earlier days, so they are about a quarter of that day's infections.
 
 ### Three towns and a gravity coupling
 
-Each town now has its own infections ``I_{t,i}``, and a coupling ``K`` mixes the towns:
+People travel between towns, so infections in one town cause infections in the others.
+Each town now has its own infections ``I_{t,i}``, and a gravity coupling ``K`` mixes the towns:
 
 ```math
 I_{t,i} = R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j},
@@ -101,8 +102,9 @@ G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j,
 where ``K_{ij}`` weights town ``j`` in town ``i``.
 ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 ``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
-The gravity weight ``G_{ii}`` of a town on itself is 0.
-The towns are [strata](@ref glossary-stratum), and only town A is seeded.
+The gravity weight ``G_{ij}`` grows with the population of town ``j`` and falls with its distance, so larger and nearer towns contribute more.
+The weight ``G_{ii}`` of a town on itself is 0.
+The towns are [strata](@ref overview-step), and only town A is seeded.
 
 ```@example overview
 towns = ["A", "B", "C"]
@@ -124,60 +126,115 @@ coupled = Recurrence(gi; coupling = K)(fill(1.8, 3, T); history = seed)
 end
 ```
 
-Towns B and C start from infections that town A passes on.
+The plot uses a log scale.
+Towns B and C start from the infections town A passes on, so they start lower.
 They then grow at about the same rate as town A.
 
 ### Depletion
 
-Each town's susceptible pool ``s_{t,i}`` starts at ``N_i`` and shrinks by the infections drawn from it.
-The default hazard form, with its exponent at the default of 1, draws
+Each infection removes a person from the pool of people who can be infected.
+A finite pool stops an outbreak growing without limit.
+In town A alone, the susceptible pool ``s_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
+The default hazard form draws
 
 ```math
-\lambda_{t,i} = \frac{v_{t,i}}{N_i}, \qquad
-I_{t,i} = s_{t-1,i} \big(1 - e^{-\lambda_{t,i}}\big), \qquad
-s_{t,i} = s_{t-1,i} \, e^{-\lambda_{t,i}},
+\lambda_t = \frac{v_t}{N}, \qquad
+I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
+s_t = s_{t-1} \, e^{-\lambda_t},
 ```
 
-where ``v_{t,i}`` is the right-hand side of the coupled equation above.
-``\lambda_{t,i}`` is the hazard.
-[`PerStratum`](@ref) gives each town its own population.
+where ``v_t`` is the right-hand side of the renewal equation and ``\lambda_t`` is the hazard.
 
 ```@example overview
-renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-depleted = renewal(fill(1.8, 3, T); history = seed)
+one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = fill(10.0, 6))
 
-@chain long(depleted, towns) begin
-    data(_) * mapping(:day, :count, color = :town => "Town") *
-        visual(Lines, linewidth = 2)
+@chain DataFrame(day = 1:T, count = one_depleted) begin
+    data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"), figure = small)
 end
 ```
 
-Each outbreak now peaks and declines as its pool runs down.
-Town A peaks first, and towns B and C about two weeks later.
-About 73% of each town is infected by the end.
-The delay from the second step gives each town's total reports over the 75 days:
-
-```@example overview
-round.(vec(sum(delay(depleted; gain = 0.4); dims = 2)))
-```
+Infections rise as before, then peak on day 36 and decline as the pool runs down.
+About 73% of the town is infected by day 75.
 
 ### An intervention
 
-An intervention from day 50 lowers the reproduction number over six days:
+An intervention such as distancing lowers the reproduction number.
+From day 50 it falls from 1.8 to 0.8 over six days:
 
 ```math
-R_{t,i} = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
+R_t = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
 ```
 
-The reports are those of the delay above, applied to each town.
+```@example overview
+intervention = [1.8 - clamp((t - 50) / 6, 0, 1) for t in 1:T]
+one_intervened = Recurrence(gi)(intervention; history = fill(10.0, 6))
+
+@chain long([one_town one_intervened]', ["No intervention", "Intervention"]; name = :series) begin
+    data(_) * mapping(:day, :count, color = :series => "") *
+        visual(Lines, linewidth = 2)
+    draw(
+        _; axis = (xlabel = "Day", ylabel = "Infections", yscale = log10),
+        figure = small
+    )
+end
+```
+
+The plot uses a log scale.
+The two runs match until day 50.
+Infections peak on day 53, when the reproduction number has fallen to 1.3.
+Once the reproduction number is below one, infections fall by about 6% a day.
+
+### [Putting it all together](@id overview-together)
+
+Three towns share an outbreak.
+Infections in each town come from earlier infections in that town and, through travel, in the other towns.
+Each town has a finite number of people who can be infected.
+A share of infections is reported after a delay.
+An intervention from day 50 lowers the reproduction number in every town.
+
+```math
+\begin{aligned}
+v_{t,i} &= R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}, \\
+I_{t,i} &= s_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad s_{t,i} = s_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
+C_{t,i} &= \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}, \\
+K_{ij} &= 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \\
+R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
+\end{aligned}
+```
+
+where ``I_{t,i}`` is the number of infections in town ``i`` on day ``t``, ``C_{t,i}`` the number of reports and ``R_{t,i}`` the reproduction number.
+The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``s_{t,i}`` starts at the population ``N_i``.
+The generation interval has weight ``g_l`` on lag ``l`` over ``L`` lags, the reporting delay has weight ``w_l`` over ``L_w`` lags, and a share ``\rho = 0.4`` of infections is reported.
+The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
+The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
+Town A has 10 infections on each of the six days before day 1, and the other towns none.
+In the code, `PerStratum(pop)` gives each town its own population, and the run covers ``T = 75`` days.
+
+```@example overview
+using ComposableRecurrences
+using ComposableRecurrences: Depletion
+
+gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+T = 75
+towns = ["A", "B", "C"]
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
+
+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+infections = renewal(R; history = seed)
+reports = delay(infections; gain = 0.4)
+nothing # hide
+```
+
 The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
 
 ```@example overview
-R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
-infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
-
 susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
 @chain [
         ("Infections", "Daily count") => infections,
@@ -192,62 +249,20 @@ susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
 end
 ```
 
-Town A turns before the intervention because its susceptible pool runs down.
+Town A peaks on day 36, before the intervention, because its susceptible pool runs down.
+The intervention brings the peaks of towns B and C forward to day 50, from days 53 and 51 without it.
+About 49% of town B and 54% of town C are infected, against 73% without the intervention.
 
 ## [Performance](@id overview-performance)
 
-```@example overview
-using ComposableRecurrences: Floor, Add # hide
-results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv") # hide
-bench = if isfile(results) # hide
-    lines = readlines(results) # hide
-    header = Symbol.(split(first(lines), ',')) # hide
-    rows = split.(lines[2:end], ',') # hide
-    DataFrame([h => getindex.(rows, i) for (i, h) in enumerate(header)]) # hide
-else # hide
-    nothing # hide
-end # hide
-methods_order = ["ComposableRecurrences", "hand loop", "hand loop (window copies)", "accumulate"] # hide
-targets = ["primal" => "Forward run", "ForwardDiff" => "ForwardDiff", "Mooncake reverse" => "Mooncake", "Enzyme reverse" => "Enzyme"] # hide
-if bench === nothing # hide
-    Markdown.parse("The benchmark results are not available in this build.") # hide
-else # hide
-    @chain bench begin # hide
-        @subset(:block .== "naive vs package", :size .== "T200_L20_S3", :status .== "ok") # hide
-        @transform(:min_us = parse.(Float64, :min_us)) # hide
-        data(_) * mapping( # hide
-            :target => renamer(targets...) => "", # hide
-            :min_us => "Minimum time (μs)", # hide
-            color = :method => sorter(methods_order...) => "", # hide
-            dodge = :method => sorter(methods_order...) => "", # hide
-        ) * visual(BarPlot, fillto = 1) # hide
-        draw(_; axis = (yscale = log10,), figure = (size = (800, 420),), legend = (position = :bottom,)) # hide
-    end # hide
-end # hide
-```
+The chart compares the time the operators take with three hand-written versions of the same model.
+Each bar times the three-town model over 200 days with a 20-day generation interval.
+The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
 
 ```@example overview
-if bench !== nothing # hide
-    failed = @subset(bench, :block .== "naive vs package", :size .== "T200_L20_S3", :status .== "error") # hide
-    missing_note = isempty(failed.method) ? "" : # hide
-        " No bar: " * join(unique(failed.target), ", ") * " could not differentiate " * # hide
-        join(unique(failed.method), " or ") * "." # hide
-    reverse_rules = unique( # hide
-        @subset( # hide
-            bench, :block .== "naive vs package", :size .== "T200_L20_S3", # hide
-            in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"])) # hide
-        ).rules # hide
-    ) # hide
-    Markdown.parse( # hide
-        "The three-town model above over 200 days with a 20-day generation interval: " * # hide
-            "the operators, a preallocated hand-written loop, a loop that copies its window every step, " * # hide
-            "and `accumulate` over a `NamedTuple` state, for the forward run and each gradient backend; " * # hide
-            "minimum times at revision `" * first(bench.revision) * "`, " * # hide
-            (reverse_rules == ["true"] ? "with" : "without") * # hide
-            " the package's Mooncake and Enzyme rules loaded; " * # hide
-            "the forward run and ForwardDiff do not use them." * missing_note # hide
-    ) # hide
-end # hide
+using ComposableRecurrences: Floor, Add # hide
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
+performance_plot("naive vs package")
 ```
 
 ### Changing the model
@@ -262,11 +277,11 @@ I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
 where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the imported infections.
-[Imported cases](@ref tutorial-imports) compares imports before and after depletion.
+Imports added after the `Depletion` do not draw down the pool, unlike [imports added before it](@ref tutorial-imports).
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop); form = Floor()), Add(TimeVarying(PerStratum(ι)))))
++renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι)))))
 ```
 
 ::: details The same change in the hand-written loop
@@ -298,7 +313,7 @@ end
 ι[3, 1:10] .= 5.0
 extended = Recurrence(
     gi; coupling = K,
-    modifiers = (Depletion(PerStratum(pop); form = Floor()), Add(TimeVarying(PerStratum(ι))))
+    modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι))))
 )
 maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι))
 ```
@@ -311,7 +326,7 @@ One line gives the gradient of all reports with respect to every town's reproduc
 
 ```@example overview
 ∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
-size(∂R)
+nothing # hide
 ```
 
 ```@example overview

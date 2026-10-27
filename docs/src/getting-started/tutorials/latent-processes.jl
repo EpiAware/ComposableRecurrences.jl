@@ -15,12 +15,12 @@
 #
 # ### What might I need to know before starting
 #
-# The [Getting started](@ref getting-started) example and AR processes; no fitting is involved.
+# The [Getting started](@ref getting-started) example and AR processes.
 
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Transform, Depletion
+using ComposableRecurrences: Transform, Depletion, Flow, Hazard, Truncate
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 using Random
@@ -178,7 +178,7 @@ ForwardDiff.gradient(total_infections, [100.0, 1.5])
 N = 5_000.0
 κr = 10.0
 response = Transform(*, Derived(exp, -κr / N * Recent(7)))
-ring = Depletion(N; removals = 0.5 * Recent(7))
+ring = Depletion(N, Hazard(), Flow(:S => 0, 0.5 * Recent(7); form = Truncate()))
 feedback = [
     "Depletion only" => (Depletion(N),),
     "Response to the last week" => (response, Depletion(N)),
@@ -204,6 +204,13 @@ function total_with_response(x)
     return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
 end
 ForwardDiff.gradient(total_with_response, [κr, 1.5])
+
+# ## Performance
+#
+# Each bar times an AR(2) process over 200 days, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("latent processes")
 
 # ## References
 #

@@ -16,6 +16,7 @@ const LIGHT_TUTORIALS = String[]
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
+    "reproduction-number.jl",
     "latent-processes.jl",
     "spatial-strata.jl",
     "time-varying-delays.jl",
@@ -34,6 +35,8 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
         "# [Renewal then delay](@id tutorial-renewal-delay)\n\n## [Imported cases](@id tutorial-imports)",
+    "reproduction-number.md" =>
+        "# [The reproduction number from a run](@id tutorial-reproduction-number)",
     "latent-processes.md" =>
         "# [Latent processes driving R_t](@id tutorial-latent-rt)",
     "spatial-strata.md" =>
@@ -164,6 +167,9 @@ const INDEX_REWRITES = Pair{String, String}[
         "](@ref api-overview)",
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/)" =>
         "](@ref adjoints-backends)",
+    # The README's model block prints nothing on the home page.
+    "reports = delay(infections; gain = 0.4)" =>
+        "reports = delay(infections; gain = 0.4)\nnothing # hide",
 ]
 
 # Whether README ```julia blocks become runnable `@example readme` blocks on
@@ -225,6 +231,8 @@ const PACKAGE_TUTORIALS = [
     "Time units" => "getting-started/time-units.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
+    "Reproduction number from a run" =>
+        "getting-started/tutorials/reproduction-number.md",
     "Latent processes driving R_t" =>
         "getting-started/tutorials/latent-processes.md",
     "Spatial models" =>
@@ -274,4 +282,4 @@ const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
 
 # An optional Getting-started FAQ page, listed right after Overview, e.g.
 # `"getting-started/faq.md"`. Leave `nothing` to omit it.
-const GETTING_STARTED_FAQ = "getting-started/faq.md"
+const GETTING_STARTED_FAQ = nothing

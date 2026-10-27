@@ -169,8 +169,8 @@
 51.0	Flows: wards against a naive loop
 0.3	Hazard: one exponential gives exp(-x) and expm1(-x)
 0.6	Interfaces: a pullback! the rule cannot find fails
-4.4	Interfaces: a wrong pullback! fails the pullback check
-42.1	Interfaces: package pieces
+3.7	Interfaces: a wrong pullback! fails the pullback check
+26.8	Interfaces: package pieces
 0.6	Interfaces: state length
 1.6	Interfaces: user pieces
 6.0	JLArrays: a buffer deeper than the kernel runs and resumes on the device
@@ -415,6 +415,11 @@
 0.7	exponential_history
 0.0	param_eltype infers through nested structs
 0.1	param_eltype recurses through fields
+19.5	pressure: every kernel and coupling recovers the gain
+1.7	pressure: the history, start and a resumed state
+0.6	pressure: a zero pressure gives no value
+5.8	pressure: the effective value under depletion
+3.7	pressure: argument checks and inference
 11.2	prepend returns the history then the run
 0.2	start = nothing names the default to use
 147.3	JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments

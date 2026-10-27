@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
-# This tutorial adds the parts it leaves out.
 #
 # ### What are we going to do in this exercise
 #
@@ -16,15 +15,14 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on the [Getting started](@ref getting-started) example, with no fitting.
+# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Flow, Floor,
+using ComposableRecurrences: Depletion, Flow, Floor, Hazard, Truncate,
     Add, exponential_history
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
-using ForwardDiff
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
@@ -38,20 +36,20 @@ T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 infections = renewal(R; history = [5.0])
 
+@chain DataFrame(day = 1:T, count = infections) begin
+    data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Infections grow while ``R_t`` is above one and fall while it is below one.
+
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
-# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r` (see [Seeding](@ref explanation-seeding)).
-# Its docstring gives the equation linking `r` to `R`, and a few Newton steps solve it.
+# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a [seed](@ref explanation-seeding) already growing at rate `r`.
+# [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves the equation linking `r` to `R` for the generation interval.
 
-euler_lotka(r, R, gi) = R * sum(gi[l] * exp(-r * l) for l in eachindex(gi)) - 1
-function growth_rate(R, gi; r = 0.0)
-    for _ in 1:20
-        r -= euler_lotka(r, R, gi) / ForwardDiff.derivative(x -> euler_lotka(x, R, gi), r)
-    end
-    return r
-end
-r0 = growth_rate(R[1], gi)
+r0 = ComposableRecurrences.growth_rate(R[1], gi)
 y0 = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
 round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
@@ -59,8 +57,8 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 # ## Susceptible depletion
 #
-# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the hazard form, which [Getting started](@ref overview-build) gives.
-# `Depletion(N; form = Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
+# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the [hazard form](@ref ComposableRecurrences.Hazard).
+# `Depletion(N, Floor())` draws them by the [floored form](@ref ComposableRecurrences.Floor).
 
 N = 2_000.0
 R_high = fill(1.8, T)
@@ -71,7 +69,7 @@ plot_infections(runs) = @chain runs begin
     data(_) * mapping(:day, :count, color = :model => "") * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
-forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N; form = Floor())]
+forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N, Floor())]
 plot_infections(forms)
 
 #-
@@ -99,9 +97,8 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 # where ``v_t = R_t \sum_{l} g_l I_{t-l}`` is the renewal value, ``S_t`` the susceptible pool and ``V_t`` the protected pool.
 # ``\sigma`` is the protected pool's relative susceptibility, ``r_t`` the doses on day ``t`` and ``m_t`` the doses moved.
 # The doses are capped by what remains of ``S``.
-# A [`Depletion`](@ref ComposableRecurrences.Depletion) with `protected = σ` holds both pools, `:S` and `:V`.
-# It draws from ``S + \sigma V``, and its `removals` are the doses, moved from `:S` to `:V` up to what remains.
-# The `Depletion` docstring gives the general form, with `weights = (S = 1, V = σ)` and the doses as a count [`Flow`](@ref ComposableRecurrences.Flow).
+# A [`Depletion`](@ref ComposableRecurrences.Depletion) holds both pools, `:S` and `:V`.
+# Its `Hazard(; weights = (S = 1, V = σ))` draws from ``S + \sigma V``, and a count [`Flow`](@ref ComposableRecurrences.Flow) after it moves the doses from `:S` to `:V` up to what remains.
 # Let ``e`` be the efficacy.
 # An all-or-nothing vaccine fully protects a share ``e`` of the vaccinated.
 # This gives ``\sigma = 0``, with ``e`` times the doses moved.
@@ -111,10 +108,14 @@ round.(N .- [sum(run_with(d)) for (_, d) in forms])
 
 e = 0.7
 doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
-leaky = Depletion(N; protected = 1 - e, removals = TimeVarying(doses))
+vaccinated(σ, d, flows...) = Depletion(
+    N, Hazard(; weights = (S = 1, V = σ)),
+    Flow(:S => :V, TimeVarying(d); form = Truncate()), flows...; pools = (:S, :V)
+)
+leaky = vaccinated(1 - e, doses)
 vaccines = [
     "None" => Depletion(N),
-    "All-or-nothing" => Depletion(N; protected = 0.0, removals = TimeVarying(e .* doses)),
+    "All-or-nothing" => vaccinated(0.0, e .* doses),
     "Leaky" => leaky,
 ]
 plot_infections(vaccines)
@@ -140,9 +141,7 @@ plot_infections(vaccines)
 # with ``S_t`` and ``V_t`` the pools after the day's infections.
 # Here protection lasts about 20 days on average.
 
-waning = Depletion(
-    N; protected = 1 - e, removals = TimeVarying(doses), flows = Flow(:V => :S, 1 / 20)
-)
+waning = vaccinated(1 - e, doses, Flow(:V => :S, 1 / 20))
 plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # Waning raises the peak a little and adds about 8% more infections over the outbreak, because people protected early return to the susceptible pool while the epidemic runs.
@@ -182,7 +181,7 @@ end
 # ## Clinical outcomes
 #
 # A reporting delay is a `Convolution` with the ascertainment as its gain, as in [Getting started](@ref overview-build).
-# Its masses are on whole days, the model's step; [Time units](@ref time-units) covers delays and data at another cadence.
+# Its masses are on whole days, the model's [step](@ref time-units).
 # Each clinical transition is the same: a delay that happens with some probability.
 # Onsets ``O_t`` follow infections.
 # Admissions follow onsets with probability ``h``.
@@ -206,7 +205,7 @@ round.((sum(admissions), sum(deaths)) ./ sum(infections); digits = 3)
 #
 # `renewal(R; history, stop = 50, state = true)` runs to day 50 and also returns a `State`.
 # Here the state holds the infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
-# Passing it back as `state` continues the run, and returns the next `State`; [History and state](@ref explanation-history-state) explains what a `State` holds.
+# Passing it back as `state` continues the run, and returns the next [`State`](@ref explanation-history-state).
 
 split = 50
 fitted, state = renewal(R; history = [5.0], stop = split, state = true)
@@ -221,6 +220,13 @@ end
 # The two calls together match one call over all 80 days exactly.
 
 maximum(abs, vcat(fitted, forecast) .- infections)
+
+# ## Performance
+#
+# Each bar times a seeded renewal with hazard depletion over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("renewal")
 
 # ## Learning more
 #

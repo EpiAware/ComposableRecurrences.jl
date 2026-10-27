@@ -24,6 +24,13 @@ _primal_value(x) = x
 # The type `_primal_value` returns for a number of type `T`.
 _primal_type(::Type{T}) where {T} = T
 
+# `@simd` on a loop whose sum has type `T` only when `T` is an IEEE float:
+# on other numbers, such as dual numbers, it slows the loop.
+macro _float_simd(T, loop)
+    simd = Expr(:macrocall, Symbol("@simd"), __source__, loop)
+    return esc(:($T <: _IEEEFloat ? $simd : $loop))
+end
+
 # A gain or add slot at stratum `k`, absolute time `t`. A missing add is
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x
@@ -279,7 +286,10 @@ end
 # `map` over a tuple, unrolled so that the result is concretely typed at
 # any length: `map` over a tuple of 32 or more entries returns a `Tuple` of
 # unknown type. The generator reads only the length.
+# A tuple whose length is not in its type, as static analysis may pass, is
+# mapped by `map`.
 @generated function _tuple_map(f, xs::Tuple{Vararg{Any, N}}) where {N}
+    N isa Int || return :(map(f, xs))
     return :(($((:(f(xs[$i])) for i in 1:N)...),))
 end
 
@@ -391,3 +401,9 @@ function Base.similar(::_At, ::Type{T}, ax::Tuple{Base.IdentityUnitRange}) where
         throw(DimensionMismatch("a one-entry view has one entry, not $(length(r))"))
     return _At(Ref{T}(), first(r))
 end
+
+# Objects without float parameters.
+const _Leafless = Union{
+    Real, AbstractArray, Nothing, Symbol, AbstractString, Function, Type,
+    Module,
+}

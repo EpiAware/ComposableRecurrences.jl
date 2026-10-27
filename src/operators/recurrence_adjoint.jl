@@ -265,7 +265,7 @@ function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D)
 end
 
 # The kernel's pullback at step `t`: per stratum in blocks, or for a
-# pairwise kernel or routes (`routes.jl`), whose strata read every
+# pairwise kernel or routes (`kernels/routes.jl`), whose strata read every
 # stratum's window, on one block.
 function _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
     _reduce_blocks!(

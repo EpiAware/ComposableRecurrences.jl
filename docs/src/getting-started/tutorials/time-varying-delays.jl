@@ -16,7 +16,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay), with no fitting.
+# It builds on [Renewal then delay](@ref tutorial-renewal-delay).
 
 # ## Packages used
 
@@ -152,7 +152,7 @@ end
 #
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
 # The run starts at `start = 7` after six seed values.
-# `prepend = true` returns the seed with the run (see [`Recurrence`](@ref)).
+# With `prepend = true`, a [`Recurrence`](@ref) returns the seed with the run.
 # The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
@@ -209,6 +209,13 @@ end
 
 # Few patients in care are confirmed while testing is scarce; once it scales up after day 35, most patients are confirmed within a few days of admission.
 # [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns such weights as an array when they are an output in their own right, such as the probability that each onset date is reported by each delay.
+
+# ## Performance
+#
+# Each bar times a 15-day delay indexed by infection day over 200 days, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("time-varying delays")
 
 # ## Learning more
 #

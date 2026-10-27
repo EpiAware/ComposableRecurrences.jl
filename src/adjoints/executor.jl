@@ -64,8 +64,7 @@ Call `body(k, args...)` for every `k` in `1:n` with executor `ex`:
 \operatorname{body}(k, \ldots) \quad \text{for } k = 1, \ldots, n,
 ```
 
-where each index `k` is one stratum (see [`PerStratum`](@ref)), one series
-or one output time.
+where each index `k` is one [stratum](@ref PerStratum) or one output time.
 
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
@@ -152,9 +151,9 @@ hundred strata, or a coupling over tens of thousands, so with a sparse or
 dense coupling at the sizes usually fitted they do not split.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
-A reverse pass sums some parameter cotangents per chunk, so those agree
-with [`Serial`](@ref) up to rounding; [Executors](@ref executors) says
-which.
+A reverse pass sums per chunk the cotangents of parameters that chunks of
+strata share, such as a scalar modifier parameter, so those agree with
+[`Serial`](@ref) up to rounding.
 Errors inside a split loop arrive wrapped in a `CompositeException`.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Device`](@ref) there.
@@ -255,7 +254,9 @@ An operator `op` gives the same output under any two executors `e_1` and
 Each operator call reads it once.
 `Threaded` needs every modifier the loops run, including user-defined ones,
 to write only its own stratum's slots.
-[Executors](@ref executors) says which passes use it under each AD backend.
+Some AD backends do not differentiate tasks, so code they trace runs
+serially; a rule's [forward and reverse passes](@ref executors) use the set
+executor.
 
 # Examples
 ```jldoctest
@@ -290,7 +291,8 @@ Under the default [`Serial`](@ref) executor, operator calls on arrays that
 live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
 without being asked.
 Every array a call reads must live on the device.
-[GPU arrays](@ref gpu-arrays) says how each part runs there.
+Independent strata run as [one kernel per call](@ref gpu-arrays), and
+strata that mix as one kernel per step with the time loop on the host.
 
 # Examples
 ```jldoctest; setup = :(using JLArrays, KernelAbstractions)

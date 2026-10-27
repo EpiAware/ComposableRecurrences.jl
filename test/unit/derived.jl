@@ -77,7 +77,7 @@ end
     @test_throws ArgumentError CR.Add(Derived(exp, TimeVarying([1.0], CR.Primary())))
     @test_throws ArgumentError CR.Add(2.0 * Derived(exp, [1.0, 2.0]))
     # A population may vary over time; a starting pool is constant.
-    @test CR.Depletion(Derived(exp, TimeVarying([1.0, 2.0]))).N isa Derived
+    @test CR.Depletion(Derived(exp, TimeVarying([1.0, 2.0]))).pieces[1].N isa Derived
     @test_throws ArgumentError CR.Depletion(
         10.0; pools = (S = 2.0 * Derived(exp, TimeVarying([1.0])),)
     )

@@ -24,7 +24,7 @@
     end
     for α in (1.0, 0.7, 1.6), seeded in (false, true)
         pool0 = seeded ? max(N - sum(h), 0.0) : N
-        m = CR.Depletion(N; form = CR.Hazard(), pools = (S = pool0,), heterogeneity = α)
+        m = CR.Depletion(N, CR.Hazard(α); pools = (S = pool0,))
         @test Recurrence(g; modifiers = (m,))(R; history = h) ≈ naive(α; seeded)
     end
     # The default form is the hazard form, starting from N.
@@ -54,7 +54,7 @@ end
     end
     # A small pool drives S negative, so the floor binds.
     for N in (500.0, 60.0), α in (1.0, 1.4)
-        m = CR.Depletion(N; form = CR.Floor(), heterogeneity = α)
+        m = CR.Depletion(N, CR.Floor(α))
         @test Recurrence(g; modifiers = (m,))(R; history = h) ≈ naive(N, α)
     end
 end
@@ -64,34 +64,36 @@ end
     CR = ComposableRecurrences
     # Pools above, at and below zero, with values on both sides of the
     # hazard's switch between `expm1` and `exp`.
-    for form in (CR.Hazard(), CR.Floor()), s in (80.0, 0.0, -3.0), v in (0.5, 150.0)
-        s < 0 && form isa CR.Hazard && continue
+    for F in (CR.Hazard, CR.Floor), s in (80.0, 0.0, -3.0), v in (0.5, 150.0)
+        s < 0 && F === CR.Hazard && continue
         @test all(
-            CR._draw(form, v, s, 100.0, true) .≈ CR._draw(form, v, s, 100.0, 1.0)
+            CR._draw(F(true), v, s, 100.0) .≈ CR._draw(F(1.0), v, s, 100.0)
         )
-        grads = (; piece = nothing, v = 0.7, s = -0.2)
-        fixed = CR._draw_back(grads, form, v, s, 100.0, true)
-        float = CR._draw_back(grads, form, v, s, 100.0, 1.0)
+        ᾱ = Ref(0.0)
+        grads(ᾱ) = (; piece = (; α = ᾱ), v = 0.7, s = -0.2)
+        fixed = CR._draw_back(grads(ᾱ), F(true), v, s, 100.0)
+        float = CR._draw_back(grads(Ref(0.0)), F(1.0), v, s, 100.0)
         @test all(fixed[1:3] .≈ float[1:3])
-        @test iszero(fixed[4])
+        @test iszero(ᾱ[])
     end
     g = [0.3, 0.5, 0.2]
     h = [5.0, 6.0, 7.0]
-    for form in (CR.Hazard(), CR.Floor())
-        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0; form = form),))
-        float = Recurrence(
-            g; modifiers = (CR.Depletion(60.0; form = form, heterogeneity = 1.0),)
-        )
+    for F in (CR.Hazard, CR.Floor)
+        fixed = Recurrence(g; modifiers = (CR.Depletion(60.0, F()),))
+        float = Recurrence(g; modifiers = (CR.Depletion(60.0, F(1.0)),))
         @test fixed(fill(3.0, 12); history = h) ≈ float(fill(3.0, 12); history = h)
     end
     # With removals and with a protected pool.
     R = fill(3.0, 12)
     doses = TimeVarying(fill(0.5, 12))
     leaky(α) = CR.Depletion(
-        60.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-        heterogeneity = α, flows = CR.Flow(:S => :V, doses; form = CR.Truncate())
+        60.0, CR.Hazard(α; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, doses; form = CR.Truncate()); pools = (:S, :V)
     )
-    for m in (α -> CR.Depletion(60.0; removals = doses, heterogeneity = α), leaky)
+    removals(α) = CR.Depletion(
+        60.0, CR.Hazard(α), CR.Flow(:S => 0, doses; form = CR.Truncate())
+    )
+    for m in (removals, leaky)
         fixed = Recurrence(g; modifiers = (m(nothing),))
         float = Recurrence(g; modifiers = (m(1.0),))
         @test fixed(R; history = h) ≈ float(R; history = h)
@@ -102,33 +104,50 @@ end
     # A dual population differentiates as with a float exponent.
     using ForwardDiff
     total(N, α) = sum(
-        Recurrence(g; modifiers = (CR.Depletion(N; heterogeneity = α),))(R; history = h)
+        Recurrence(g; modifiers = (CR.Depletion(N, CR.Hazard(α)),))(R; history = h)
     )
     @test ReferenceAD.derivative(N -> total(N, true), 60.0) ≈
         ReferenceAD.derivative(N -> total(N, 1.0), 60.0)
     # `false` is a fixed exponent of zero for the built-in forms.
-    @test CR.Depletion(60.0; heterogeneity = false).heterogeneity ===
-        CR._FixedExponent{false}()
-    for form in (CR.Hazard(), CR.Floor())
+    @test CR.Depletion(60.0, CR.Hazard(false)).pieces[1].form.α === false
+    for F in (CR.Hazard, CR.Floor)
         @test all(
-            CR._draw(form, 2.0, 80.0, 100.0, false) .≈
-                CR._draw(form, 2.0, 80.0, 100.0, 0.0)
+            CR._draw(F(false), 2.0, 80.0, 100.0) .≈ CR._draw(F(0.0), 2.0, 80.0, 100.0)
         )
     end
-    # Other forms take a `Bool` as a float, as they may type their exponent.
+    # Other forms hold no exponent, so a form typed for floats is drawn as
+    # it is.
     struct Float64Form end
     function CR.forward!(
             ::Float64Form, ::CR.Step, v::AbstractVector{Float64},
-            s::AbstractVector{Float64}, N::Float64, α::Float64
+            s::AbstractVector{Float64}, N::Float64
         )
         for i in eachindex(v, s)
             v[i], s[i] = v[i], s[i] - v[i]
         end
         return nothing
     end
-    @test CR.Depletion(60.0; form = Float64Form()).heterogeneity === 1.0
-    @test CR.Depletion(60.0; form = Float64Form(), heterogeneity = true).heterogeneity ===
-        1.0
+    @test CR.Depletion(60.0, Float64Form()).pieces[1].form === Float64Form()
+    @test CR._draw(Float64Form(), 2.0, 80.0, 60.0) === (2.0, 78.0)
+end
+
+@testitem "Depletion: a Bool exponent's hazard step on dual numbers" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # The step with `α = true` or `false` against the exponent 1.0 or 0.0,
+    # for floats and for dual numbers carrying the inputs' derivatives.
+    v0, s0 = [0.5, 150.0, 20.0], [80.0, 60.0, 5.0]
+    function step(v, s, α)
+        v, s = copy(v), copy(s)
+        CR.forward!(CR.Hazard(α), CR.Step(), v, s, 100.0)
+        return vcat(v, s)
+    end
+    for (α, a) in ((true, 1.0), (false, 0.0))
+        @test step(v0, s0, α) ≈ step(v0, s0, a)
+        θ = vcat(v0, s0)
+        J = ForwardDiff.jacobian(x -> step(x[1:3], x[4:6], α), θ)
+        @test J ≈ ForwardDiff.jacobian(x -> step(x[1:3], x[4:6], a), θ)
+    end
 end
 
 @testitem "Depletion: one population per stratum" begin
@@ -161,7 +180,7 @@ end
         PerStratum([80.0, 80.0]); pools = (S = PerStratum([1.0, -2.0]),)
     )
     # A share is a form for flows only.
-    @test_throws "Share() is not a depletion form" CR.Depletion(80.0; form = CR.Share())
+    @test_throws "Share() is not a draw or a Flow" CR.Depletion(80.0, CR.Share())
     r = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
     y = r(fill(1.5, 2, 6); history = h)
     @test size(y) == (2, 6)
@@ -204,7 +223,7 @@ end
     CR = ComposableRecurrences
     g = [1.0]
     b = [0.5, 1.0, 2.0]
-    d = CR.Depletion(10.0; form = CR.Floor())
+    d = CR.Depletion(10.0, CR.Floor())
     y = Recurrence(g; modifiers = (d, CR.Add(TimeVarying(b))))(1.0; history = [2.0], stop = 3)
     function naive()
         S, prev, out = 10.0, 2.0, Float64[]
@@ -424,28 +443,28 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [3.0, 0.5, 8.0], [150.0, 40.0, 90.0]
-    for form in (CR.Hazard(), CR.Floor()), α in (1.0, 0.8, 1.3)
+    for F in (CR.Hazard, CR.Floor), α in (1.0, 0.8, 1.3)
         # Scalar N and per-stratum N, each with the exponent as a parameter.
         c = ModifierChecks.check_pullback(
-            θ -> CR.Depletion(θ[1]; form = form, heterogeneity = θ[2]),
-            [200.0, α], v, s, 3
+            θ -> CR.Depletion(θ[2], F(θ[1])),
+            [α, 200.0], v, s, 3
         )
         @test c.v && c.s && c.θ
         @test all(!iszero, c.θ̄)
         c = ModifierChecks.check_pullback(
-            θ -> CR.Depletion(PerStratum(θ[1:3]); form = form, heterogeneity = θ[4]),
-            [200.0, 60.0, 100.0, α], v, s, 3
+            θ -> CR.Depletion(PerStratum(θ[2:4]), F(θ[1])),
+            [α, 200.0, 60.0, 100.0], v, s, 3
         )
         @test c.v && c.s && c.θ
     end
     # The floor binds on the second stratum (negative pool).
     c = ModifierChecks.check_pullback(
-        θ -> CR.Depletion(PerStratum(θ[1:3]); form = CR.Floor(), heterogeneity = θ[4]),
-        [200.0, 60.0, 100.0, 1.0], v, [150.0, -5.0, 90.0], 1
+        θ -> CR.Depletion(PerStratum(θ[2:4]), CR.Floor(θ[1])),
+        [1.0, 200.0, 60.0, 100.0], v, [150.0, -5.0, 90.0], 1
     )
     @test c.v && c.s && c.θ
     # An exhausted pool (a seed larger than N) has a finite hazard pullback.
-    m = CR.Depletion(200.0; heterogeneity = 1.3)
+    m = CR.Depletion(200.0, CR.Hazard(1.3))
     v̄, s̄ = [0.5, 1.0, 0.2], [0.3, -0.2, 0.1]
     CR._vector_pullback!(
         (; piece = ModifierChecks.mirror(m), v = v̄, s = s̄), m, v,
@@ -487,8 +506,8 @@ end
     grow = Derived((a, b) -> a + b, PerStratum([105.0, 110.0]), TimeVarying(2.0 .* (1:T)))
     @test run(CR.Depletion(grow)) ≈ naive(Nt, Nt[:, 1])
     # An integer population is stored as floats.
-    @test CR.Depletion(TimeVarying(1:T)).N.x == float.(1:T)
-    @test CR.Depletion(TimeVarying(PerStratum(round.(Int, Nt)))).N.x.x == Nt
+    @test CR.Depletion(TimeVarying(1:T)).pieces[1].N.x == float.(1:T)
+    @test CR.Depletion(TimeVarying(PerStratum(round.(Int, Nt)))).pieces[1].N.x.x == Nt
     # Shapes are checked against the strata and the times.
     @test_throws DimensionMismatch run(CR.Depletion(TimeVarying(PerStratum(Nt[1:1, :]))))
     @test_throws DimensionMismatch run(CR.Depletion(TimeVarying(Nt[1, 1:4])))
@@ -517,7 +536,9 @@ end
     end
     function run(R, births)
         d = CR.Depletion(
-            TimeVarying(N); pools = (S = 40.0,), removals = TimeVarying(-births)
+            TimeVarying(N), CR.Hazard(),
+            CR.Flow(:S => 0, TimeVarying(-births); form = CR.Truncate());
+            pools = (S = 40.0,)
         )
         return Recurrence(g; modifiers = (d,))(R; history = h, start = length(h) + 1)
     end
@@ -533,8 +554,8 @@ end
     # protected one, and a negative removal adds to the unprotected pool only.
     function step(r)
         d = CR.Depletion(
-            20.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.5),
-            flows = (CR.Flow(1 => 2, r; form = CR.Truncate()),)
+            20.0, CR.Hazard(; weights = (S = 1, V = 0.5)),
+            CR.Flow(1 => 2, r; form = CR.Truncate()); pools = (:S, :V)
         )
         return CR._block_step(d, (0.0,), (10.0, 4.0), 1, 1)
     end
@@ -546,19 +567,19 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [3.0, 0.5, 8.0], [150.0, 40.0, 90.0]
-    for form in (CR.Hazard(), CR.Floor()), t in (1, 2)
+    for F in (CR.Hazard, CR.Floor), t in (1, 2)
         c = ModifierChecks.check_pullback(
-            θ -> CR.Depletion(TimeVarying(θ[1:2]); form = form, heterogeneity = θ[3]),
-            [200.0, 180.0, 1.2], v, s, t
+            θ -> CR.Depletion(TimeVarying(θ[2:3]), F(θ[1])),
+            [1.2, 200.0, 180.0], v, s, t
         )
         @test c.v && c.s && c.θ
-        @test iszero(c.θ̄[3 - t])
+        @test iszero(c.θ̄[4 - t])
         c = ModifierChecks.check_pullback(
             θ -> CR.Depletion(
-                TimeVarying(PerStratum(reshape(θ[1:6], 3, 2)));
-                form = form, heterogeneity = θ[7], removals = TimeVarying(θ[8:9])
+                TimeVarying(PerStratum(reshape(θ[2:7], 3, 2))), F(θ[1]),
+                CR.Flow(:S => 0, TimeVarying(θ[8:9]); form = CR.Truncate())
             ),
-            [200.0, 60.0, 100.0, 210.0, 70.0, 90.0, 1.0, -3.0, 2.0], v, s, t
+            [1.0, 200.0, 60.0, 100.0, 210.0, 70.0, 90.0, -3.0, 2.0], v, s, t
         )
         @test c.v && c.s && c.θ
     end
@@ -570,7 +591,7 @@ end
         (; piece = m̄, s = [0.7, -1.2], history = nothing), m, CR.Init(),
         zeros(2), ones(2, 1)
     )
-    @test m̄.N.x.x == [0.7 0.0; -1.2 0.0]
+    @test m̄.pieces[1].N.x.x == [0.7 0.0; -1.2 0.0]
 end
 
 @testitem "Depletion init pullback matches ForwardDiff" setup = [ReferenceAD, ModifierChecks] begin
@@ -594,7 +615,8 @@ end
         m = build(θ)
         m̄ = ModifierChecks.mirror(m)
         CR.pullback!((; piece = m̄, s = s̄, history = nothing), m, CR.Init(), zeros(3), h)
-        @test vcat(ModifierChecks.flat(m̄.N), ModifierChecks.flat(m̄.pools)) ≈ expected
+        N̄ = ModifierChecks.flat(m̄.pieces[1].N)
+        @test vcat(N̄, ModifierChecks.flat(m̄.pools)) ≈ expected
     end
 end
 
@@ -677,9 +699,8 @@ end
         mods = (
             CR.Redistribute(CR.movement(K, θ[1])),
             CR.Depletion(
-                PerStratum(θ[2:4]);
-                pools = (S = PerStratum(max.(θ[2:4] .- vec(sum(h; dims = 2)), 0)),),
-                heterogeneity = θ[5]
+                PerStratum(θ[2:4]), CR.Hazard(θ[5]);
+                pools = (S = PerStratum(max.(θ[2:4] .- vec(sum(h; dims = 2)), 0)),)
             ),
             CR.Add(θ[6]),
             CR.Clamp(0.0, θ[7]),
@@ -741,16 +762,16 @@ end
     CR = ComposableRecurrences
     struct NotAForm end
     err = try
-        CR.Depletion(1.0; form = NotAForm())
+        CR.Depletion(1.0, NotAForm())
         nothing
     catch e
         e
     end
     @test err isa ArgumentError
     @test occursin("NotAForm", err.msg) &&
-        occursin("forward!(form, Step(), v, s, N, α)", err.msg)
-    @test_throws ArgumentError CR.Depletion(1.0; form = :floor)
-    @test_throws ":floor is not a depletion form" CR.Depletion(1.0; form = :floor)
+        occursin("forward!(form, Step(), v, s, N)", err.msg)
+    @test_throws ArgumentError CR.Depletion(1.0, :floor)
+    @test_throws ":floor is not a draw or a Flow" CR.Depletion(1.0, :floor)
     # A form for one float type, or for any real, is a form.
     function take_all!(v, s)
         for i in eachindex(v, s)
@@ -761,49 +782,50 @@ end
     struct Float32Form end
     function CR.forward!(
             ::Float32Form, ::CR.Step, v::AbstractVector{Float32},
-            s::AbstractVector{Float32}, N::Float32, α::Float32
+            s::AbstractVector{Float32}, N::Float32
         )
         return take_all!(v, s)
     end
     struct RealForm end
     function CR.forward!(
             ::RealForm, ::CR.Step, v::AbstractVector{<:Real}, s::AbstractVector{<:Real},
-            N::Real, α::Real
+            N::Real
         )
         return take_all!(v, s)
     end
     struct SameTypeForm end
     function CR.forward!(
             ::SameTypeForm, ::CR.Step, v::AbstractVector{T}, s::AbstractVector{T},
-            N::T, α::T
+            N::T
         ) where {T <: Real}
         return take_all!(v, s)
     end
-    m = CR.Depletion(100.0f0; form = Float32Form())
-    @test m.N isa Float32 && m.heterogeneity isa Float32
+    m = CR.Depletion(100.0f0, Float32Form())
+    @test m.pieces[1].N isa Float32 && m.pieces[1].form === Float32Form()
     y = Recurrence(Float32[0.5, 0.5]; modifiers = (m,))(
         fill(1.0f0, 3); history = Float32[1, 1]
     )
     @test eltype(y) == Float32
-    @test CR.Depletion(1.0; form = RealForm()).form === RealForm()
-    @test CR.Depletion(1.0; form = SameTypeForm()).form === SameTypeForm()
+    @test CR.Depletion(1.0, RealForm()).pieces[1].form === RealForm()
+    @test CR.Depletion(1.0, SameTypeForm()).pieces[1].form === SameTypeForm()
 end
 
 @testitem "Variants: one path per step" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
-        m = CR.Depletion(100.0; form = form)
-        @test m isa CR.Depletion{Float64, typeof(form)}
+        m = CR.Depletion(100.0, form)
+        @test m isa CR.Depletion{<:Any, <:Tuple{CR._DrawFrom{typeof(form), Float64}}}
         # The built-in maths is the form's Step.
-        @test CR._step(m, 2.0, 80.0, 1, 1) == CR._draw(form, 2.0, 80.0, 100.0, 1.0)
+        @test CR._step(m, 2.0, 80.0, 1, 1) == CR._draw(form, 2.0, 80.0, 100.0)
         # A step compiles to one path: no dispatch on the form at run time.
         # Its check for runtime dispatch runs with JET, in test/jet.
         @test (@inferred CR._step(m, 2.0, 80.0, 1, 1)) isa
             Tuple{Float64, Float64}
     end
     default_depletion() = ComposableRecurrences.Depletion(1.0)
-    @test (@inferred default_depletion()) isa CR.Depletion{Float64, CR.Hazard}
+    @test (@inferred default_depletion()) isa
+        CR.Depletion{<:Any, <:Tuple{CR._DrawFrom{typeof(CR.Hazard()), Float64}}}
 end
 
 @testitem "Built-in modifiers: a Recurrence infers its return type" begin
@@ -814,10 +836,10 @@ end
     # a depth that inference's recursion limit can widen to `Any`.
     for m in (
             CR.Depletion(100.0),
-            CR.Depletion(100.0; form = CR.Floor()),
+            CR.Depletion(100.0, CR.Floor()),
             CR.Depletion(
-                PerStratum([100.0, 50.0]); pools = (S = PerStratum([97.0, 46.0]),),
-                heterogeneity = 1.5
+                PerStratum([100.0, 50.0]), CR.Hazard(1.5);
+                pools = (S = PerStratum([97.0, 46.0]),)
             ),
             CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(CR.movement(K, 0.1)),
         )
@@ -838,29 +860,33 @@ end
     CR = ComposableRecurrences
     # Take what is asked, up to the pool.
     struct Linear end
-    function CR.forward!(::Linear, ::CR.Step, v, s, N, α)
+    function CR.forward!(::Linear, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             y = min(v[i], s[i])
             v[i], s[i] = y, s[i] - y
         end
         return nothing
     end
-    struct LinearWithPullback end
-    function CR.forward!(::LinearWithPullback, ::CR.Step, v, s, N, α)
+    # It holds an exponent it does not read, whose cotangent is zero.
+    struct LinearWithPullback{A}
+        α::A
+    end
+    LinearWithPullback() = LinearWithPullback(1.0)
+    function CR.forward!(::LinearWithPullback, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             y = min(v[i], s[i])
             v[i], s[i] = y, s[i] - y
         end
         return nothing
     end
-    function CR.pullback!(ḡ, ::LinearWithPullback, ::CR.Step, v, s, N, α)
+    function CR.pullback!(ḡ, f::LinearWithPullback, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             take = v[i] < s[i]
             v̄ = take ? ḡ.v[i] - ḡ.s[i] : zero(v[i])
             s̄ = take ? ḡ.s[i] : ḡ.v[i]
             ḡ.v[i], ḡ.s[i] = v̄, s̄
             ḡ.N[i] += zero(N)
-            ḡ.α[i] += zero(α)
+            CR.add_cotangent!(CR.cotangent(ḡ.piece, :α), zero(f.α))
         end
         return nothing
     end
@@ -877,20 +903,20 @@ end
     R = fill(2.0, 8)
     ∇ref = ReferenceAD.gradient(θ -> sum(naive(θ[2:end], θ[1])), vcat(100.0, R))
     for form in (Linear(), LinearWithPullback())
-        d = CR.Depletion(100.0; form = form)
+        d = CR.Depletion(100.0, form)
         y = Recurrence([0.5, 0.5]; modifiers = (d,))(R; history = h)
         @test y ≈ naive(R, 100.0)
         # The pool runs out, so both branches of the form are used.
         @test y[end] < R[end] * (0.5 * y[end - 1] + 0.5 * y[end - 2])
-        run(θ) = Recurrence([0.5, 0.5]; modifiers = (CR.Depletion(θ[1]; form = form),))(
+        run(θ) = Recurrence([0.5, 0.5]; modifiers = (CR.Depletion(θ[1], form),))(
             θ[2:end]; history = h
         )
         @test ReferenceAD.gradient(θ -> sum(run(θ)), vcat(100.0, R)) ≈ ∇ref
     end
     # The pullback matches the local Jacobian on both branches.
     c = ModifierChecks.check_pullback(
-        θ -> CR.Depletion(θ[1]; form = LinearWithPullback(), heterogeneity = θ[2]),
-        [100.0, 1.0], [2.0, 5.0], [4.0, 3.0], 1
+        θ -> CR.Depletion(θ[2], LinearWithPullback(θ[1])),
+        [1.0, 100.0], [2.0, 5.0], [4.0, 3.0], 1
     )
     @test c.v && c.s && c.θ
 end
@@ -899,19 +925,17 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     using ForwardDiff: Dual
-    @test CR.Depletion(Dual(100.0, 1.0); heterogeneity = 1).heterogeneity === 1.0
-    @test CR.Depletion(Dual(100.0f0, 1.0f0); heterogeneity = 2).heterogeneity ===
-        2.0f0
-    @test CR.Depletion(Dual(Dual(100.0, 1.0), 1.0); heterogeneity = 1).heterogeneity ===
-        1.0
-    @test CR.Depletion(100.0f0; heterogeneity = 1).heterogeneity === 1.0f0
-    # The built-in forms default to a fixed exponent of one, held in the
-    # type so the modifier stores no byte for it.
-    @test CR.Depletion(Dual(100.0, 1.0)).heterogeneity === CR._FixedExponent{true}()
-    @test CR.Depletion(100.0f0; form = CR.Floor()).heterogeneity ===
-        CR._FixedExponent{true}()
-    @test sizeof(CR._FixedExponent{true}()) == 0
-    @test CR._exponent_value(CR._FixedExponent{true}()) === true
+    exponent_of(m) = m.pieces[1].form.α
+    @test exponent_of(CR.Depletion(Dual(100.0, 1.0), CR.Hazard(1))) === 1.0
+    @test exponent_of(CR.Depletion(Dual(100.0f0, 1.0f0), CR.Hazard(2))) === 2.0f0
+    @test exponent_of(CR.Depletion(Dual(Dual(100.0, 1.0), 1.0), CR.Hazard(1))) === 1.0
+    @test exponent_of(CR.Depletion(100.0f0, CR.Hazard(1))) === 1.0f0
+    # The built-in forms default to a fixed exponent of one, held as
+    # `nothing` so the form stores no byte for it.
+    @test exponent_of(CR.Depletion(Dual(100.0, 1.0))) === nothing
+    @test exponent_of(CR.Depletion(100.0f0, CR.Floor())) === nothing
+    @test sizeof(CR.Hazard()) == 0
+    @test CR._alpha(CR.Hazard()) === true
     # A dual exponent at an empty pool takes the primal exponent, as the
     # pullback gives the exponent no cotangent there.
     @test (@inferred CR._pool_power(0.0, Dual(0.0, 1.0))) === Dual(1.0, 0.0)
@@ -926,23 +950,25 @@ end
     # A NaN share or exponent stays NaN in the value and the tangent.
     @test all(isnan, ForwardDiff.partials(CR._pool_power(NaN, Dual(1.0, 1.0))))
     @test isnan(ForwardDiff.value(CR._pool_power(0.0, Dual(NaN, 1.0))))
-    grads = (; piece = nothing, v = 1.0, s = 0.0)
-    @test isnan(CR._draw_back(grads, CR.Hazard(), 1.0, NaN, 1.0, 2.0)[4])
-    @test CR._draw_back(grads, CR.Hazard(), 1.0, 0.0, 1.0, 2.0)[4] == 0
+    grads(ᾱ) = (; piece = (; α = ᾱ), v = 1.0, s = 0.0)
+    ᾱ = Ref(0.0)
+    CR._draw_back(grads(ᾱ), CR.Hazard(2.0), 1.0, NaN, 1.0)
+    @test isnan(ᾱ[])
+    ᾱ = Ref(0.0)
+    CR._draw_back(grads(ᾱ), CR.Hazard(2.0), 1.0, 0.0, 1.0)
+    @test ᾱ[] == 0
     # At an empty pool a dual exponent would give `log(0) * 0 = NaN`.
     g, h, R = [0.3, 0.5, 0.2], [5.0], fill(2.0, 6)
     W = collect(range(0.5, 1.5; length = 6))
     pools = (
-        (θ, form, α) -> CR.Depletion(
-            θ[1]; form = form, heterogeneity = α, pools = (S = θ[2],)
-        ),
-        (θ, form, α) -> CR.Depletion(
-            θ[1]; pools = (S = θ[2], V = nothing), form = form, weights = (S = 1, V = 0.3), heterogeneity = α
+        (θ, F, α) -> CR.Depletion(θ[1], F(α); pools = (S = θ[2],)),
+        (θ, F, α) -> CR.Depletion(
+            θ[1], F(α; weights = (S = 1, V = 0.3)); pools = (S = θ[2], V = nothing)
         ),
     )
-    for form in (CR.Hazard(), CR.Floor()), α in (1, 2), pool in pools
+    for F in (CR.Hazard, CR.Floor), α in (1, 2), pool in pools
         function f(θ)
-            d = pool(θ, form, α)
+            d = pool(θ, F, α)
             return sum(W .* Recurrence(g; modifiers = (d,))(R; history = h))
         end
         θ = [100.0, 0.0]

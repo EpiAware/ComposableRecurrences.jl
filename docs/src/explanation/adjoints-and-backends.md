@@ -1,32 +1,31 @@
 # [Adjoints and backends](@id adjoints-backends)
 
-This page says which code runs when an AD backend differentiates an operator call, and how executors interact with each backend.
-For which backend to choose, see [Choosing a backend](@ref ad-backends).
+[Forward mode](@ref ad-backends) costs one pass per parameter, so it suits a model with few parameters, and reverse mode one with many.
 
 ## [Rules and plain AD](@id adjoint-routing)
 
 Each operator call takes one of two routes:
 
-- the rule, a reverse pass written for the operator (see the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions);
+- the rule, a reverse pass written for the operator, which the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions register;
 - plain AD, where the backend differentiates the operator's forward loop.
 
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
 Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
-The route is read from types, apart from the rebuild check and the [strata](@ref glossary-stratum) limit below.
+The route is read from types, apart from the rebuild check and the [strata](@ref overview-step) limit below.
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 It runs the step of the [API overview](@ref api-overview) backwards in time.
-That step computes ``p_t = \sum_{l} k_l \, y_{t-l}`` from the kernel ``k``, then ``v_t = g_t \odot C_t \, p_t + a_t`` from the gain ``g_t``, the coupling ``C_t`` and the `add` ``a_t``.
+That step computes ``p_t = \sum_{l} k_l \, y_{t-l}`` from the kernel ``k``, then ``v_t = \gamma_t \odot K_t \, p_t + a_t`` from the gain ``\gamma_t``, the coupling ``K_t`` and the `add` ``a_t``.
 The modifiers then map ``v_t`` to the output ``y_t``.
 With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` computes
 
 ```math
 \begin{aligned}
 \big(\bar v_t,\ \bar s_{t-1}\big) &= M^{*}_t\big(\bar y_t,\ \bar s_t\big), \\
-\bar g_t &= \bar v_t \odot C_t \, p_t, \qquad \bar a_t = \bar v_t, \\
-\bar p_t &= C_t^{\top} \big(g_t \odot \bar v_t\big), \qquad
-\bar C_t = \big(g_t \odot \bar v_t\big) \, p_t^{\top}, \\
+\bar \gamma_t &= \bar v_t \odot K_t \, p_t, \qquad \bar a_t = \bar v_t, \\
+\bar p_t &= K_t^{\top} \big(\gamma_t \odot \bar v_t\big), \qquad
+\bar K_t = \big(\gamma_t \odot \bar v_t\big) \, p_t^{\top}, \\
 \bar y_{t-l} &\mathrel{+}= k_l \, \bar p_t, \qquad
 \bar k_l \mathrel{+}= \bar p_t^{\top} y_{t-l}, \qquad l = 1, \dots, L,
 \end{aligned}
@@ -34,8 +33,8 @@ With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` co
 
 where ``s_t`` is the modifiers' state and ``M^{*}_t`` their `pullback!` methods in reverse tuple order.
 ``\bar y_t`` holds the cotangent of the output plus what later steps added to it.
-The coupling's `pullback!` for [`Pressure()`](@ref ComposableRecurrences.Pressure) gives ``\bar p_t`` and ``\bar C_t``.
-The last line is for a kernel shared by every series.
+The coupling's `pullback!` for [`Pressure()`](@ref ComposableRecurrences.Pressure) gives ``\bar p_t`` and ``\bar K_t``.
+The last line is for a kernel shared by every stratum.
 `uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
 A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
@@ -59,7 +58,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
-The local step rebuilds a part with dual numbers in place of its float parameters; [What the local step needs](@ref adjoint-local-step) lists the conditions.
+The [local step](@ref adjoint-local-step) rebuilds a part with dual numbers in place of its float parameters.
 The `Recurrence` constructor checks the rebuild once and stores the result.
 Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
@@ -116,21 +115,20 @@ So the local step and plain AD can differ there, as for `abs` at zero and, on Mo
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
 The AD tests also run ReverseDiff, which is not a target; the README's coverage badges include it because those tests run.
-The [AD comparison](@ref ad-comparison) page compares the gradient times.
 
 ## [Which rules are kept](@id rule-policy)
 
 A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme; it then runs on both, unless the route table above splits by backend.
-[Rule timings](@ref rule-timings) gives the ratio behind each rule, and the [AD comparison](@ref ad-comparison) the gradient times by backend.
+The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `T` 200 and `L` 20 where a benchmark case covers it.
 
 ## [Checking a rule](@id adjoint-checks)
 
-[Testing and benchmarking](@ref compare-plain-ad) compares a rule with plain AD through [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint).
+A rule is checked against [plain AD](@ref compare-plain-ad) through its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
 With Mooncake, or Enzyme and EnzymeTestUtils, loaded, [`ComposableRecurrences.test_adjoint`](@ref) runs that backend's own rule tester on an operator's rule; the [Mooncake](@ref extension-mooncake) and [EnzymeTestUtils](@ref extension-enzyme-test-utils) extensions add it.
 
 ## [Executors](@id executors)
 
-An executor sets how an operator's loops over strata, series or output times run.
+An executor sets how an operator's loops over strata or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Device`](@ref ComposableRecurrences.Device) runs it as a kernel on a GPU.
 
@@ -151,9 +149,9 @@ The `Device(backend)` row was checked on JLArrays only, which run kernels on the
 
 ### [GPU arrays](@id gpu-arrays)
 
-A call on arrays that live on a GPU runs each loop over strata, series or output times as one kernel.
+A call on arrays that live on a GPU runs each loop over strata or output times as one kernel.
 Independent strata are one kernel per call, each thread stepping its stratum through time.
-Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata or many series.
+Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata.
 Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
 A call with device inputs and a host float array among these is an error.
 `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.

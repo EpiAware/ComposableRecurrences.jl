@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) backend models an outbreak across 11 patches, writing its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
-# This page builds the same model from the package's operators and compares the two.
 # The inputs are invented and nothing is fitted.
 #
 # ### What are we going to do in this exercise
@@ -68,7 +67,7 @@ inputs = (; gi, delay, K, seeds);
 
 # The model is two modifiers on one `Recurrence`, then a `Convolution`.
 # [`Redistribute`](@ref ComposableRecurrences.Redistribute) moves each origin's share, and [`Depletion`](@ref ComposableRecurrences.Depletion) draws from each patch's pool.
-# The seeds are the history, so the run starts on the day after them (see [Seeding](@ref explanation-seeding)).
+# The seeds are the [history](@ref explanation-seeding), so the run starts on the day after them.
 # The fixed inputs come in as one named tuple, so the function reads no globals.
 
 function backend_model(R, ε, N, inputs)
@@ -172,7 +171,7 @@ DataFrame(
 )
 
 # Each reverse-mode gradient matches the ForwardDiff reference to rounding.
-# The package's gradient needs no rule written for the model; [Rules and plain AD](@ref adjoint-routing) says which code each operator runs.
+# The package's gradient needs no rule written for the model: each operator call takes its own [rule](@ref adjoint-routing) or plain AD.
 #
 # ## Timing against the backend loops
 #
@@ -205,9 +204,7 @@ end
 # ## [Porting from a hand-written loop](@id porting-hand-loops)
 #
 # A hand-written loop maps to one operator call per kernel.
-# The [domain guide](@ref infectious-disease-models) gives the operator for each model part.
-# The tables below give the call for each loop in two backends, and the use-case test that checks it.
-# Each test matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
+# Each use-case test in the tables matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
 #
 # `BVDOutbreakSize` writes its kernels as functions over the whole series:
 #
@@ -223,19 +220,19 @@ end
 # |:--|:--|:--|
 # | `RenewalStep` with `UniformScaling` mixing | `Recurrence(g)`, one series or one row per stratum | `renewal`, `strata with identity mixing` |
 # | `RenewalStep` with matrix mixing `K` | `Recurrence(g; coupling = K)` | `strata with a mixing matrix` |
-# | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N; form = Floor())` in `modifiers` | `renewal with susceptible depletion` |
+# | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N, Floor())` in `modifiers` | `renewal with susceptible depletion` |
 # | `LDStep` in `LatentDelay` | `Convolution(pmf)(Y)[d:end]` | `fixed reporting delay (LatentDelay)` |
 # | `TimeVaryingLDStep` in `LatentDelay` | `Convolution(TimeVarying(P))(Y)[d:end]`, one pmf per column | `time-varying reporting delay` |
 #
 # Four conventions differ between the loops and the package:
 #
-# - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as [the lag origin](@ref explanation-lag-origin) explains.
+# - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as a recurrence's first weight is on the [previous value](@ref explanation-lag-origin).
 # - `BVDOutbreakSize` reads `Rt` on the seed days and returns them first: `start` skips them and `prepend` returns them.
 # - `ComposableTuringIDModels` seeds on a growth path: [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives the same window.
 # - `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.
 
 # ## Learning more
 #
-# - [Adjoints and backends](@ref adjoints-backends) says which code each backend runs.
-# - [Testing and benchmarking](@ref testing) describes the use-case tests and the benchmark matrix.
+# - [Adjoints and backends](@ref adjoints-backends): which code each backend runs.
+# - [Testing and benchmarking](@ref testing): the use-case tests and the benchmark matrix.
 # - Want the full interface? See the [Public API](@ref public-api).
