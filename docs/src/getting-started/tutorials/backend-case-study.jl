@@ -204,7 +204,6 @@ end
 # ## [Porting from a hand-written loop](@id porting-hand-loops)
 #
 # A hand-written loop maps to one operator call per kernel.
-# The [domain guide](@ref infectious-disease-models) gives the operator for each model part.
 # Each use-case test in the tables matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
 #
 # `BVDOutbreakSize` writes its kernels as functions over the whole series:
