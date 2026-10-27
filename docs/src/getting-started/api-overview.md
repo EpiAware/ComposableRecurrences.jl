@@ -130,6 +130,7 @@ The [Distributions](@ref extension-distributions) and [CensoredDistributions](@r
 | `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
 | `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
+| `(d₁, d₂)` | a [chain of delays](@ref time-units-chained) or mass vectors, one after another; a delay itself, so it fits wherever `d` does |
 
 ## [Couplings](@id overview-couplings)
 
