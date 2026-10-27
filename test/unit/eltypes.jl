@@ -104,26 +104,24 @@ end
     K = Float32[0.0 0.3; 0.2 0.0]
     for m in (
             CR.Depletion(100.0f0),
-            CR.Depletion(PerStratum(Float32[100, 50]); form = CR.Floor()),
-            CR.Depletion(100.0f0; pools = (S = 97.0f0,), heterogeneity = 1.5f0),
+            CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
+            CR.Depletion(100.0f0, CR.Hazard(1.5f0); pools = (S = 97.0f0,)),
             CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
             CR.Redistribute(CR.movement(K, 0.1f0)),
             CR.Redistribute(CR.movement(K, fill(0.1f0, 2, 5))),
             CR.Clamp(0.0f0, 5.0f0),
             CR.Depletion(
-                0.8f0; pools = (:O,), form = CR.SoftTruncate(0.1f0), fill = :O,
-                flows_first = true, overflow = :stratum,
-                flows = CR.Flow(:O => 0, 0.1f0; form = CR.Share())
+                0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
+                CR.SoftTruncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
             ),
-            CR.Depletion(;
-                pools = (:B,), form = CR.Truncate(), flows_first = true,
-                flows = CR.Flow(
+            CR.Depletion(
+                CR.Flow(
                     0 => :B, TimeVarying(repeat(Float32[0.8, 0.0], 5)); form = CR.Truncate()
                 ),
-                overflow = :queue
+                CR.Truncate(; overflow = :queue); pools = (:B,)
             ),
-            CR.Depletion(0.8f0; pools = (:O,), form = CR.Truncate(), fill = :O),
-            CR.Depletion(5.0f0; form = CR.SoftTruncate(0.1f0)),
+            CR.Depletion(0.8f0, CR.Truncate(; into = :O); pools = (:O,)),
+            CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
@@ -132,15 +130,12 @@ end
     @test CR.param_eltype(CR.movement(K, fill(0.1f0, 2, 5))) == Float32
     # The constructor infers with a form struct.
     floor_depletion() = ComposableRecurrences.Depletion(
-        1.0; form = ComposableRecurrences.Floor()
+        1.0, ComposableRecurrences.Floor()
     )
     @test (@inferred floor_depletion()) isa CR.Depletion
     beds() = ComposableRecurrences.Depletion(
-        1.0; pools = (:O,), form = ComposableRecurrences.Truncate(), fill = :O,
-        flows_first = true, overflow = :stratum,
-        flows = ComposableRecurrences.Flow(
-            :O => 0, 0.1; form = ComposableRecurrences.Share()
-        )
+        1.0, ComposableRecurrences.Flow(:O => 0, 0.1; form = ComposableRecurrences.Share()),
+        ComposableRecurrences.Truncate(; into = :O, overflow = :stratum); pools = (:O,)
     )
     @test (@inferred beds()) isa CR.Depletion
 end
@@ -177,4 +172,17 @@ end
     @test eltype(Recurrence([1 // 2])(1; history = [1], stop = 2)) == Float64
     d = Recurrence([1]; modifiers = (CR.Depletion(100),))
     @test eltype(d(1; history = [1], stop = 2)) == Float64
+end
+
+@testitem "Eltypes: kernel sums of dual numbers add the lags in order" begin
+    using ComposableRecurrences, ForwardDiff
+    using ComposableRecurrences: _window_sum, _lag_dot
+    # `@simd` reorders these sums, and slows them, so they take the plain loop.
+    D = ForwardDiff.Dual{Nothing, Float64, 12}
+    dual(i, a) = D(sin(i + 3a), ForwardDiff.Partials(ntuple(j -> cos(i * j + a), 12)))
+    H = [dual(i, a) for i in 1:40, a in 1:2]
+    g = [exp(-0.3i) for i in 1:20]
+    ordered(f, r) = foldl((acc, i) -> acc + f(i), r; init = zero(D))
+    @test _window_sum(g, H, 5, 20, 2) === ordered(i -> g[i] * H[4 + i, 2], 1:20)
+    @test _lag_dot(g, H, 2, 30) === ordered(d -> g[d + 1] * H[30 - d, 2], 0:19)
 end

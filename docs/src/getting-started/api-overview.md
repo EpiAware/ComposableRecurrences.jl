@@ -82,11 +82,13 @@ A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@r
 | [`(r::Recurrence)(gain; history, add, start, stop)`](@ref Recurrence) | runs `r` over times `start:stop`, multiplying each step by `gain` and adding `add` before the modifiers | a `Vector` of length `T`, or an `S × T` `Matrix` for `S` series |
 | [`(c::Convolution)(x; gain, add, history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop`, then multiplies by `gain` and adds `add` | an array shaped like `x` |
 | [`contributions(c, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | the terms of `c(x; gain)` before the sum over lags, such as a reporting triangle | `L × T`, or `S × L × T` for `S` series |
+| [`pressure(r, y; history, start)`](@ref ComposableRecurrences.pressure) | the sum each step of `r` draws against, after the coupling and before the gain, recomputed from outputs `y`; `y ./ pressure(r, y; history)` is the reproduction number | shaped like `y` |
 | [`(r::Recurrence)(gain; history, state = true)`](@ref Recurrence) | runs `r` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
 | [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t`, and returns the next `State` | a `(y, state)` tuple, with the values from `state.t` on |
 | [`(r::Recurrence)(gain; history, trace = true)`](@ref Recurrence) | runs `r` and records what each modifier did at each step | a `(y, trace)` tuple, with one matrix per modifier in `trace.modifiers` |
 | [`(r::Recurrence)(gain; history, prepend = true)`](@ref Recurrence) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |
 | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | an `L`-step seed growing at rate `r` up to `I0` | a `Vector`, or `S × L` for a vector `I0` |
+| [`growth_rate(R, g)`](@ref ComposableRecurrences.growth_rate) | the growth rate per step of a renewal with reproduction number `R` and generation interval `g`; [`reproduction_number(r, g)`](@ref ComposableRecurrences.reproduction_number) is the inverse | a number |
 | [`State`](@ref ComposableRecurrences.State) | holds the last ``L`` values ``y_{t-L}, \dots, y_{t-1}``, each modifier's state ``s^{(n)}_{t-1}`` (such as the remaining pool) and the next time ``t`` | a struct |
 
 A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` coefficient) at absolute time ``t``; see [Time base](@ref explanation-time-base).
@@ -129,6 +131,7 @@ The [Distributions](@ref extension-distributions) and [CensoredDistributions](@r
 | `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
 | `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
+| `(d₁, d₂)` | a [chain of delays](@ref time-units-chained) or mass vectors, one after another; a delay itself, so it fits wherever `d` does |
 
 ## [Couplings](@id overview-couplings)
 
@@ -149,7 +152,7 @@ The `add` input enters before every modifier, and `Add` enters where it sits in 
 
 | Name | What it does | Recurrence | Per series | Parameters |
 |---|---|---|---|---|
-| [`Depletion(N; pools, form, weights, fill, heterogeneity, removals, protected, flows, flows_first, overflow)`](@ref ComposableRecurrences.Depletion) | holds pools per group: draws each step's value from them by a depletion form, or fills one up to a capacity, and moves between them by [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s; sends what the draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool drawn from, its flows after the draw and no `overflow`, else blockwise | `N`, `heterogeneity`, each starting pool, each draw weight and each flow's demand |
+| [`Depletion(N, pieces...; pools)`](@ref ComposableRecurrences.Depletion) | holds pools per group, and its parts act on them in order: a draw takes each step's value from them by a depletion form, or fills one up to a capacity, and [`Flow(from => to, demand; form)`](@ref ComposableRecurrences.Flow)s move between them; sends what a draw leaves to a second series, a queue or nowhere; without a draw, moves the values themselves | yes | yes with one pool drawn from once, else blockwise | `N`, each form's parameters, each starting pool, each draw weight and each flow's demand |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) | moves each series' value to others through a movement matrix whose columns sum to one; [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds one from a kernel and an intensity | yes, with several series | no | `M` |
 | [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | yes | yes | `b` |
 | [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | yes | yes | `lo`, `hi` |
@@ -166,11 +169,11 @@ Depletion forms, flow forms and time indexing are types, and you pass an instanc
 
 | Name | What it does | Example |
 |---|---|---|
-| [`Hazard()`](@ref ComposableRecurrences.Hazard), [`Floor()`](@ref ComposableRecurrences.Floor) | depletion forms | `Depletion(N)`, `Depletion(N; form = Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(b; form = Truncate())`, `Depletion(C; form = SoftTruncate(0.1), fill = :S)` |
+| [`Hazard(α)`](@ref ComposableRecurrences.Hazard), [`Floor(α)`](@ref ComposableRecurrences.Floor) | depletion forms, with a heterogeneity exponent of one by default | `Depletion(N)`, `Depletion(N, Floor(1.5))` |
+| [`Truncate()`](@ref ComposableRecurrences.Truncate), [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | draw forms: what is asked for, up to what is left, exactly or smoothly | `Depletion(Truncate(); pools = (S = b,))`, `Depletion(C, SoftTruncate(0.1; into = :S))` |
 | [`Secondary()`](@ref ComposableRecurrences.Secondary) | a time-varying kernel's column ``\tau`` belongs to output day ``\tau``; the default | `TimeVarying(P)` |
 | [`Primary()`](@ref ComposableRecurrences.Primary) | column ``\tau`` belongs to input day ``\tau``: a convolution's input, or a recurrence's output, so each keeps its own kernel | `TimeVarying(P, Primary())` |
-| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N; form = MyForm())` |
+| your type | a new depletion form, with a `forward!` method for `Step()` | `Depletion(N, MyForm())` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow form: the flow moves a share of its pool; a flow's form is otherwise `Hazard()` (a competing rate, the default), `Truncate()` or `SoftTruncate(κ)` (a count capped by what remains) | `Flow(:S => :V, p; form = Share())` |
 
 The [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) tutorial compares the two indexings.

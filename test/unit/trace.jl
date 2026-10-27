@@ -62,12 +62,134 @@ end
     @test @inferred(run(r, R, [5.0])) == (y2, tr)
 end
 
+@testsnippet InStepTraces begin
+    using ComposableRecurrences, ForwardDiff
+    using LinearAlgebra: I
+    CR = ComposableRecurrences
+    S, T, L = 3, 9, 3
+    g = [0.3, 0.5, 0.2]
+    R = [1.5 + 0.2 * sin(k + t) for k in 1:S, t in 1:(L + T)]
+    h = [4.0 + k + l for k in 1:S, l in 1:L]
+    N = PerStratum([60.0, 80.0, 100.0])
+    K = [0.0 0.2 0.1; 0.1 0.0 0.2; 0.2 0.1 0.0]
+    ε = [0.3 + 0.1 * cos(k * t) for k in 1:S, t in 1:(L + T)]
+    leaky = CR.Depletion(
+        N, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 2.0; form = CR.Truncate()); pools = (:S, :V)
+    )
+    # A draw that fills one pool: one value and one state entry per stratum,
+    # but stepped by its group kernel, so not on the per-stratum loop.
+    beds = CR.Depletion(N, CR.Truncate(; into = :O); pools = (O = 0.0,))
+    # Independent strata, coupled strata with pointwise modifiers, a
+    # vector step before a pointwise one, a blockwise step, a modifier
+    # whose state never changes, and the one-pool fill.
+    cases = (
+        Recurrence(g; modifiers = (CR.Depletion(N),)),
+        Recurrence(g; coupling = K + I, modifiers = (CR.Depletion(N),)),
+        Recurrence(
+            g; modifiers = (CR.Redistribute(CR.movement(K, ε)), CR.Depletion(N))
+        ),
+        Recurrence(g; modifiers = (leaky,)),
+        Recurrence(g; modifiers = (CR.Clamp(0.0, 9.0), CR.Depletion(N))),
+        Recurrence(g; modifiers = (beds,)),
+    )
+    dual(x) = ForwardDiff.Dual{Nothing}.(x, 0.5 .* x)
+    # Floats match the rule's trace exactly. Dual numbers match it to a few
+    # rounding errors, as the plain and recorded runs of dual numbers
+    # already do: the compiler sums their lags in a different order.
+    same(a, b) = a == b
+    function same(a::AbstractArray{<:ForwardDiff.Dual}, b)
+        return isapprox(ForwardDiff.value.(a), ForwardDiff.value.(b); rtol = 1.0e-13) &&
+            isapprox(ForwardDiff.partials.(a, 1), ForwardDiff.partials.(b, 1); rtol = 1.0e-13)
+    end
+    same(a::Tuple, b::Tuple) = all(map(same, a, b))
+end
+
+@testitem "Trace: a call without records writes the rule's trace in each step" setup = [InStepTraces] begin
+    @test CR.blocks(beds) == (1, 1)
+    @test !CR._strata_loop(beds)
+    # The rule builds the trace from its records after the run; the call
+    # without records writes it in each step.
+    for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
+        args = CR._run_args(r, Rx, hx, nothing, nothing, L + 1)
+        w = CR._WithTrace(r)
+        yr, trr = first(CR._run_forward(w, args..., nothing))
+        yw, trw = CR._primal(w, args..., nothing)
+        @test same(yw, yr)
+        @test same(trw.modifiers, trr.modifiers)
+        y, tr = r(Rx; history = hx, start = L + 1, trace = true)
+        @test y == yw
+        @test tr.modifiers == trw.modifiers
+        @test y == r(Rx; history = hx, start = L + 1)
+    end
+    # One series, with its seed in front.
+    r = Recurrence(g; modifiers = (CR.Depletion(70.0),))
+    args = CR._run_args(r, R[1, :], h[1, :], nothing, nothing, L + 1)
+    yr, trr = first(CR._run_forward(CR._WithTrace(r), args..., nothing))
+    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, prepend = true, trace = true)
+    @test y == vcat(h[1, :], yr)
+    @test tr.modifiers == trr.modifiers
+end
+
+@testitem "Trace: prepend and state with a trace written in each step" setup = [InStepTraces] begin
+    for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
+        y, tr = r(Rx; history = hx, start = L + 1, trace = true)
+        # With the seed in front, as the rule's forward pass joins it.
+        yp, trp = r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
+        @test yp == CR._join(hx, y)
+        @test trp.modifiers == tr.modifiers
+        @test r(Rx; history = hx, start = L + 1, prepend = true) == yp
+        (ys, trs), st = r(Rx; history = hx, start = L + 1, trace = true, state = true)
+        @test ys == y
+        @test trs.modifiers == tr.modifiers
+        @test st.states == r(Rx; history = hx, start = L + 1, state = true)[2].states
+    end
+end
+
+@testitem "Trace: a trace written in each step under other executors" setup = [InStepTraces] begin
+    using Base.ScopedValues: with
+    using KernelAbstractions
+    for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
+        yp, tr = r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
+        for ex in (
+                CR.Threaded(; min_work = 0, ntasks = 3),
+                CR.Device(KernelAbstractions.CPU()),
+            )
+            yt, trt = with(CR.EXECUTOR => ex) do
+                r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
+            end
+            @test same(yt, yp)
+            @test same(trt.modifiers, tr.modifiers)
+        end
+    end
+end
+
+@testitem "Trace: a trace written in each step with a short or long history" setup = [InStepTraces] begin
+    # A history shorter or longer than the kernel, which the joined output
+    # holds whole, over strata and for one series.
+    for r in cases[[1, 3]], hx in (h[:, 2:3], hcat(h, h)), x in (identity, dual)
+        Rx, hx = x(R[:, 1:T]), x(hx)
+        y = r(Rx; history = hx)
+        @test r(Rx; history = hx, prepend = true) == CR._join(hx, y)
+        yp, tr = r(Rx; history = hx, prepend = true, trace = true)
+        @test yp == CR._join(hx, y)
+        @test tr.modifiers == last(r(Rx; history = hx, trace = true)).modifiers
+        r1 = Recurrence(g; modifiers = (CR.Depletion(70.0),))
+        y1 = r1(Rx[1, :]; history = hx[1, :])
+        @test r1(Rx[1, :]; history = hx[1, :], prepend = true) == vcat(hx[1, :], y1)
+    end
+end
+
 @testitem "Trace: a depletion's pool, draw and overflow" setup = [TraceChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], collect(range(1.5, 3.0; length = 10)), [5.0]
-    r = Recurrence(g; modifiers = (CR.Depletion(60.0; removals = 1.0),))
+    r = Recurrence(
+        g; modifiers = (
+            CR.Depletion(60.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate())),
+        )
+    )
     y, tr = r(R; history = h, trace = true)
     M = only(tr.modifiers)
     @test M[1, :] ≈ vec(only(states_by_step(r, R; history = h)))
@@ -81,8 +203,9 @@ end
     (; states_by_step, pressures) = TraceChecks
     g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
     leaky = CR.Depletion(
-        PerStratum([80.0, 120.0]); pools = (:S, :V), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
+        PerStratum([80.0, 120.0]), CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1);
+        pools = (:S, :V)
     )
     r = Recurrence(g; modifiers = (leaky,))
     y, tr = r(R; history = h, trace = true)
@@ -105,11 +228,10 @@ end
     # counts that bind on the third step.
     c, p, d, a = 0.3, 0.2, 0.1, [1.0, 1.0, 5.0, 1.0, 0.5, 0.0]
     adm = [4.0, 6.0, 2.0, 0.0, 3.0, 1.0]
-    ward = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, c), CR.Flow(1 => 0, p; form = CR.Share()),
-            CR.Flow(2 => 0, d), CR.Flow(2 => 0, TimeVarying(a); form = CR.Truncate()),
-        )
+    ward = CR.Depletion(
+        CR.Flow(1 => 2, c), CR.Flow(1 => 0, p; form = CR.Share()),
+        CR.Flow(2 => 0, d), CR.Flow(2 => 0, TimeVarying(a); form = CR.Truncate());
+        pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (ward,))
     y, tr = r(; history = zeros(2, 1), add = [adm'; zero(adm')], trace = true)
@@ -162,11 +284,9 @@ end
     # The group methods a caller reaches directly, which the run passes by
     # for the gathered values: a ward of two pools, one group, against the
     # run's own group trace and forward mode.
-    build(θ) = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-            CR.Flow(2 => 0, θ[3]),
-        )
+    build(θ) = CR.Depletion(
+        CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+        CR.Flow(2 => 0, θ[3]); pools = (:A, :B)
     )
     θ = [0.3, 0.2, 0.1]
     m = build(θ)
@@ -186,14 +306,16 @@ end
     @test trace(z) ≈ col
     r̄ = [0.7, -0.4, 1.1][1:n]
     ref = ReferenceAD.gradient(x -> sum(r̄ .* trace(x)), z)
-    piece = (; flows = map(_ -> (; demand = Ref(0.0), form = nothing), m.flows))
+    piece = (;
+        pieces = (map(_ -> (; demand = Ref(0.0), form = nothing), only(m.pieces)),),
+    )
     grads = (;
         piece, trace = refs(r̄), v = refs(zeros(2)), s = refs(zeros(2)),
         v′ = refs(zeros(2)), s′ = refs(zeros(2)),
     )
     @test CR.pullback!(grads, m, CR.Trace(), refs(z[1:2]), refs(z[3:4]), 1, 1) === nothing
     x̄ = [map(x -> x[], (grads.v..., grads.s..., grads.v′..., grads.s′...))...]
-    d̄ = [f̄.demand[] for f̄ in piece.flows]
+    d̄ = [f̄.demand[] for f̄ in only(piece.pieces)]
     @test [x̄; d̄] ≈ ref
 end
 
@@ -279,11 +401,9 @@ end
         K = [0.0 0.3; 0.2 0.0]
         function loss(θ)
             leaky = CR.Depletion(
-                PerStratum(θ[1:2]); pools = (:S, :V),
-                form = CR.Hazard(), weights = (S = 1, V = θ[3]),
-                flows = (
-                    CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]),
-                )
+                PerStratum(θ[1:2]), CR.Hazard(; weights = (S = 1, V = θ[3])),
+                CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]);
+                pools = (:S, :V)
             )
             # `Add` keeps no state, so its trace is empty and takes no cotangent.
             mods = (CR.Redistribute(CR.movement(K, θ[6])), CR.Add(θ[7]), leaky)
@@ -298,13 +418,11 @@ end
         # The flows' amounts, with a smooth count whose softness is a
         # parameter.
         function ward(θ)
-            flows = CR.Depletion(;
-                pools = (:A, :B), form = nothing, flows = (
-                    CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                    CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
-                    CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
-                    CR.Flow(0 => 2, θ[6]; form = CR.Truncate()),
-                )
+            flows = CR.Depletion(
+                CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
+                CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
+                CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
+                CR.Flow(0 => 2, θ[6]; form = CR.Truncate()); pools = (:A, :B)
             )
             r = Recurrence([1.0]; modifiers = (flows,))
             adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]

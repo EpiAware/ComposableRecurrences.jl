@@ -5,10 +5,11 @@
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
-using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current,
-    _FixedExponent, _ad, _ad_wide, _check_form, _check_now, _check_parts,
-    _check_secondary, _current, _fft_convolve!, _fft_convolve_back!,
-    _plain_hook, _run_forward, _run_pullback!, _untraced
+using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
+    _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
+    _convolve_masses, _convolve_masses_back!, _current,
+    _fft_convolve!, _fft_convolve_back!, _fit, _growth_root, _plain_hook,
+    _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -16,7 +17,6 @@ using Random: Xoshiro
 const _IEEEFloat = Union{Float16, Float32, Float64}
 const _Inert = Union{
     Nothing, Integer, Symbol, AbstractArray{<:Integer},
-    _FixedExponent,
     AbstractArray{<:AbstractArray{<:Integer}},
 }
 
@@ -103,6 +103,16 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
 # method lookups carry no derivative, and traced they cost more than the
 # rest of a short run's gradient.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
+# The route a call takes, read from the sizes of its parts, carries no
+# derivative either. Traced, its walk over a part's fields dispatches on
+# each field's type, and for a field that is a view Julia 1.13 crashed
+# compiling the derived rule.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_fit), Vararg}
+# Nor is the Newton iteration of `growth_rate`: the step from its root on
+# the inputs carries the derivative.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_growth_root), Any, Any, Any,
+}
 # The plain-AD hook carries no derivative.
 Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_plain_hook), Vararg}
 function Mooncake.frule!!(
@@ -149,6 +159,33 @@ function Mooncake.frule!!(::Mooncake.Dual{<:_FFTCall}, args::Vararg{Any, N}) whe
 end
 function Mooncake.rrule!!(::CoDual{<:_FFTCall}, args::Vararg{Any, N}) where {N}
     throw(ErrorException(_FFT_TRACED))
+end
+
+# Primitive so a chain of delays' convolution is not traced loop by loop.
+# It takes vectors and views of them, whose mirrors `_mc` reads.
+const _MassVector{P} = Union{
+    Vector{P}, SubArray{P, 1, <:Array{P}},
+    Base.ReshapedArray{P, 1, <:Union{Array{P}, SubArray{P, 1, <:Array{P}}}},
+}
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode,
+    Tuple{typeof(_convolve_masses), A, B, Int} where {
+        P <: _IEEEFloat, A <: _MassVector{P}, B <: _MassVector{P},
+    }
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(_convolve_masses)}, a::CoDual{<:_MassVector{P}},
+        b::CoDual{<:_MassVector{P}}, lags::CoDual{Int}
+    ) where {P <: _IEEEFloat}
+    pa, pb = primal(a), primal(b)
+    c = _convolve_masses(pa, pb, primal(lags))
+    c̄ = zero(c)
+    function _convolve_masses_pullback(::NoRData)
+        ā, b̄ = _mc(pa, tangent(a)), _mc(pb, tangent(b))
+        _convolve_masses_back!(ā, b̄, c̄, pa, pb)
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(c, c̄), _convolve_masses_pullback
 end
 
 Mooncake.@is_primitive(

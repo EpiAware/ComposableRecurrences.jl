@@ -325,7 +325,7 @@ end
             (Shift(randn(rng, T)), Hazard(60.0)),
             (Slope(0.3),),
             (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
-            (CR.Depletion(50.0; form = CR.Floor(), heterogeneity = 1.5),),
+            (CR.Depletion(50.0, CR.Floor(1.5)),),
             (CR.Redistribute(CR.movement(K, [0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
@@ -348,29 +348,28 @@ end
             ),
             (
                 CR.Depletion(
-                    1.5; pools = (:O,), form = CR.SoftTruncate(0.1), fill = :O,
-                    flows_first = true, flows = CR.Flow(:O => 0, 0.3; form = CR.Share()),
-                    overflow = :queue
+                    1.5, CR.Flow(:O => 0, 0.3; form = CR.Share()),
+                    CR.SoftTruncate(0.1; into = :O, overflow = :queue); pools = (:O,)
                 ),
             ),
             (
-                CR.Depletion(;
-                    pools = (B = PerStratum([0.5, 0.0, 1.0]),), form = CR.Truncate(),
-                    flows_first = true, overflow = :queue,
-                    flows = CR.Flow(
+                CR.Depletion(
+                    CR.Flow(
                         0 => :B, TimeVarying(repeat([1.2, 0.0, 0.0], T));
                         form = CR.Truncate()
-                    )
+                    ),
+                    CR.Truncate(; overflow = :queue);
+                    pools = (B = PerStratum([0.5, 0.0, 1.0]),)
                 ),
                 CR.Add(0.2),
             ),
             (
-                CR.Depletion(30.0; form = CR.Truncate()),
-                CR.Depletion(;
-                    pools = (:B,), form = CR.Truncate(), flows_first = true,
-                    flows = CR.Flow(
+                CR.Depletion(30.0, CR.Truncate()),
+                CR.Depletion(
+                    CR.Flow(
                         0 => :B, TimeVarying(repeat([1.2, 0.0], T)); form = CR.Truncate()
-                    )
+                    ),
+                    CR.Truncate(); pools = (:B,)
                 ),
             ),
         )
@@ -386,8 +385,8 @@ end
     @test pullback_matches(r, recargs(R, nothing, h; states = ([20.0, 25.0, 30.0],))...)
     # Beds with the overflow in a second stratum, resumed.
     beds = CR.Depletion(
-        2.0; pools = (:O,), form = CR.Truncate(), fill = :O, flows_first = true,
-        flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow = :stratum
+        2.0, CR.Flow(:O => 0, 0.2; form = CR.Share()),
+        CR.Truncate(; into = :O, overflow = :stratum); pools = (:O,)
     )
     r = Recurrence(g; coupling = K[1:2, 1:2], modifiers = (beds,))
     @test pullback_matches(r, recargs(R[1:2, :], nothing, h[1:2, :]; states = ([1.0],))...)
@@ -469,7 +468,7 @@ end
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     ϵ = randn(rng, S, T)
-    mods = (CR.Depletion(PerStratum(fill(60.0, S)); form = CR.Floor()), CR.Add(0.2))
+    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Add(0.2))
     ops = (
         Recurrence(g; modifiers = mods),
         Recurrence(g; coupling = 0.8I, modifiers = (CR.Clamp(0.0, 4.0),)),
@@ -630,19 +629,21 @@ end
     # group's values and state, `t` a step and `g` the group.
     rng = Xoshiro(5)
     t, g = 3, 1
-    ward = CR.Depletion(; pools = (:A, :B), form = nothing, flows = CR.Flow(1 => 2, 0.3))
-    out_of(form) = CR.Depletion(
-        5.0; pools = (:S, :V), form = form, weights = (S = 1, V = 0.4),
-        flows = CR.Flow(:S => :V, 0.1)
+    ward = CR.Depletion(CR.Flow(1 => 2, 0.3); pools = (:A, :B))
+    out_of(F) = CR.Depletion(
+        5.0, F(; weights = (S = 1, V = 0.4)), CR.Flow(:S => :V, 0.1);
+        pools = (:S, :V)
     )
     into(overflow) = CR.Depletion(
-        2.0; pools = (:O,), form = CR.Truncate(), fill = :O, flows_first = true,
-        flows = CR.Flow(:O => 0, 0.2; form = CR.Share()), overflow
+        2.0, CR.Flow(:O => 0, 0.2; form = CR.Share()),
+        CR.Truncate(; into = :O, overflow); pools = (:O,)
     )
+    # The position of a Depletion's draw among its pieces.
+    drawn(m) = findfirst(p -> p isa CR._Drawing, m.pieces)
     cases = (
         (ward, (1.5, 0.5), (0.0, 0.0)),
-        (CR.Depletion(5.0; form = CR.Floor()), (1.3,), (4.0,)),
-        (out_of(CR.Hazard()), (1.3,), (3.0, 1.0)),
+        (CR.Depletion(5.0, CR.Floor()), (1.3,), (4.0,)),
+        (out_of(CR.Hazard), (1.3,), (3.0, 1.0)),
         (into(nothing), (1.3,), (0.5,)),
         (into(:stratum), (1.3, 0.2), (0.5,)),
         (into(:queue), (1.3,), (0.5, 0.4)),
@@ -677,7 +678,7 @@ end
         for back in (
                 inplace,
                 (m̄, grads) -> CR._block_back(grads, m, v, s, t, g),
-                (m̄, grads) -> CR._group_pullback(m.draw, grads, m, v, s, t, g),
+                (m̄, grads) -> CR._group_pullback(grads, m, v, s, t, g),
             )
             m̄ = zero_mirror(m)
             v̄in, s̄in = back(m̄, (; piece = m̄, v = v̄, s = s̄))
@@ -686,22 +687,25 @@ end
         CR._draws(m) || continue
         # The draw alone, from the demand `d` and the pools `x`.
         d, x = first(v), Tuple(s[1:n])
-        y, x′ = CR._take(m.draw, m, d, x, t, g)
+        i = drawn(m)
+        y, x′ = CR._take(m.pieces[i], d, x, t, g)
         ȳ, x̄′ = randn(rng), Tuple(randn(rng, n))
         function draw(z)
             p = only(CR._rebuild((m,), z[(n + 2):end]))
-            a, b = CR._take(p.draw, p, z[1], Tuple(z[2:(n + 1)]), t, g)
+            a, b = CR._take(p.pieces[i], z[1], Tuple(z[2:(n + 1)]), t, g)
             return ȳ * a + dot(collect(x̄′), collect(b))
         end
         ref = ReferenceAD.gradient(draw, [d, x..., θ...])
         m̄ = zero_mirror(m)
-        d̄, x̄ = CR._take_back(m.draw, m̄, m, d, x, y, ȳ, x̄′, t, g)
+        d̄, x̄ = CR._take_back(m.pieces[i], m̄.pieces[i], d, x, y, ȳ, x̄′, t, g)
         @test [d̄, x̄..., mirror_vec(m̄, m)...] ≈ ref rtol = 1.0e-10
     end
     # The queue's cotangent is the state's last entry; the pools' are the
     # rest.
-    @test CR._left_back(CR._Queue(), (1.0,), (2.0, 3.0, 4.0), Val(2)) ==
-        (4.0, (2.0, 3.0))
+    @test (
+        CR._left_back(CR._Queue(), 1.0, nothing, 4.0),
+        first(CR._pools_queue(CR._Queue(), (2.0, 3.0, 4.0), Val(2))),
+    ) == (4.0, (2.0, 3.0))
 end
 
 @testitem "Adjoint: Depletion with a population that varies over time" setup = [AdjointCheck] begin
@@ -717,13 +721,16 @@ end
     births = TimeVarying(PerStratum(-rand(rng, S, stop)))
     for d in (
             CR.Depletion(TimeVarying(PerStratum(N))),
-            CR.Depletion(TimeVarying(N[1, :]); form = CR.Floor(), pools = (S = 30.0,)),
-            CR.Depletion(TimeVarying(PerStratum(N)); removals = births),
+            CR.Depletion(TimeVarying(N[1, :]), CR.Floor(); pools = (S = 30.0,)),
+            CR.Depletion(
+                TimeVarying(PerStratum(N)), CR.Hazard(),
+                CR.Flow(:S => 0, births; form = CR.Truncate())
+            ),
             CR.Depletion(Derived(+, PerStratum([30.0, 40.0]), TimeVarying(N[1, :]))),
             CR.Depletion(
-                TimeVarying(PerStratum(N)); pools = (S = nothing, V = 5.0),
-                weights = (S = 1, V = 0.3),
-                flows = (CR.Flow(1 => 2, births; form = CR.Truncate()),)
+                TimeVarying(PerStratum(N)), CR.Hazard(; weights = (S = 1, V = 0.3)),
+                CR.Flow(1 => 2, births; form = CR.Truncate());
+                pools = (S = nothing, V = 5.0)
             ),
         )
         r = Recurrence(g; coupling = K, modifiers = (d,))
@@ -963,14 +970,14 @@ end
     struct VecForm
         w::Vector{Float64}
     end
-    function CR.forward!(f::VecForm, ::CR.Step, v, s, N, α)
+    function CR.forward!(f::VecForm, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             y = min(v[i] * f.w[1], s[i])
             v[i], s[i] = y, s[i] - y
         end
         return nothing
     end
-    @test CR._part_why(CR.Depletion(50.0; form = VecForm([1.0]))) ==
+    @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
         "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
     @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
@@ -1171,28 +1178,37 @@ end
     @test_throws InterruptException CR._check_rebuild(Halt(0.5))
 
     # A depletion form without a pullback takes the rule through the local
-    # derivative of its step in `(v, s, N, α)` and its own float scalars.
-    struct LinearRate{T}
+    # derivative of its step in `(v, s, N)` and its own float scalars, its
+    # exponent among them.
+    struct LinearRate{T, A}
         c::T
+        α::A
     end
-    function CR.forward!(f::LinearRate, ::CR.Step, v, s, N, α)
+    function CR.forward!(f::LinearRate, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
-            y = f.c * v[i] * max(s[i], 0)^α / N
+            y = f.c * v[i] * max(s[i], 0)^f.α / N
             v[i], s[i] = y, s[i] - y
         end
         return nothing
     end
-    f = LinearRate(0.7)
-    grads = (; piece = (; c = Ref(0.0)), v = 0.3, s = 0.6)
-    got = CR._form_pullback(grads, f, 2.0, 40.0, 50.0, 1.2)
+    f = LinearRate(0.7, 1.2)
+    grads = (; piece = (; c = Ref(0.0), α = Ref(0.0)), v = 0.3, s = 0.6)
+    got = CR._form_pullback(grads, f, 2.0, 40.0, 50.0)
     ref = ReferenceAD.gradient(collect((2.0, 40.0, 50.0, 1.2, 0.7))) do x
-        y, s′ = CR._draw(LinearRate(x[5]), x[1], x[2], x[3], x[4])
+        y, s′ = CR._draw(LinearRate(x[5], x[4]), x[1], x[2], x[3])
         return 0.3 * y + 0.6 * s′
     end
-    @test [got..., grads.piece.c[]] ≈ ref
+    @test [got..., grads.piece.α[], grads.piece.c[]] ≈ ref
     for op in (
-            Recurrence(g; modifiers = (CR.Depletion(50.0; form = f, heterogeneity = 1.2),)),
-            Recurrence(g; modifiers = (CR.Depletion(50.0; form = f, removals = 0.5),)),
+            Recurrence(g; modifiers = (CR.Depletion(50.0, f),)),
+            Recurrence(
+                g; modifiers = (
+                    CR.Depletion(
+                        50.0, LinearRate(0.7, 1.0),
+                        CR.Flow(:S => 0, 0.5; form = CR.Truncate())
+                    ),
+                )
+            ),
         )
         @test CR.uses_adjoint(op, CR.Run())
         @test val(op) == [Val{:rule}]
@@ -1203,17 +1219,17 @@ end
         c::T
         DoubledRate(c::T) where {T} = new{T}(2c)
     end
-    function CR.forward!(f::DoubledRate, ::CR.Step, v, s, N, α)
-        return CR.forward!(LinearRate(f.c), CR.Step(), v, s, N, α)
+    function CR.forward!(f::DoubledRate, ::CR.Step, v, s, N)
+        return CR.forward!(LinearRate(f.c, 1.0), CR.Step(), v, s, N)
     end
     empty!(CR._PLAIN_NOTED)
     op = @test_logs (:info, r"DoubledRate cannot be rebuilt") Recurrence(
-        g; modifiers = (CR.Depletion(50.0; form = DoubledRate(0.7)),)
+        g; modifiers = (CR.Depletion(50.0, DoubledRate(0.7)),)
     )
     @test !CR.uses_adjoint(op, CR.Run())
     @test op.rebuilds === false
     @test CR.uses_adjoint(
-        Recurrence(g; modifiers = (CR.Depletion(50.0; form = f),)), CR.Run()
+        Recurrence(g; modifiers = (CR.Depletion(50.0, LinearRate(0.7, 1.0)),)), CR.Run()
     )
 
     # Dual numbers and BigFloat take the plain path.
@@ -1306,12 +1322,13 @@ end
     # with it loaded, each call checks the parts and takes the same route as
     # an operator checked at construction.
     unchecked(r) = CR.Recurrence(CR._Checked(), r.kernel, r.coupling, r.modifiers, nothing)
-    struct Rate{T}
+    struct Rate{T, A}
         c::T
+        α::A
     end
-    function CR.forward!(f::Rate, ::CR.Step, v, s, N, α)
+    function CR.forward!(f::Rate, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
-            y = f.c * v[i] * max(s[i], 0)^α / N
+            y = f.c * v[i] * max(s[i], 0)^f.α / N
             v[i], s[i] = y, s[i] - y
         end
         return nothing
@@ -1320,7 +1337,7 @@ end
     for parts in (
             (; modifiers = (PoolDepletion([40.0, 50.0]),)),
             (; coupling = Mix([0.5 0.1; 0.2 0.4], [1.0, 0.9])),
-            (; modifiers = (CR.Depletion(50.0; form = Rate(0.7)),)),
+            (; modifiers = (CR.Depletion(50.0, Rate(0.7, 1.0)),)),
         )
         r0 = Recurrence([0.3, 0.2]; parts...)
         r = unchecked(r0)
@@ -2296,6 +2313,169 @@ end
         nothing
 end
 
+@testitem "Adjoint: the local step's dual numbers compare by value" begin
+    using ComposableRecurrences
+    using ForwardDiff: ForwardDiff, Dual, Partials, Tag
+    const CR = ComposableRecurrences
+    # A seeded zero is zero to the local step, whatever its partials. Each
+    # check here fails where a tie is broken by the partials.
+    D = Dual{typeof(Tag(CR._local_step!, Float64)), Float64, 2}
+    z = zero(D)
+    x, x⁻ = D(0.0, Partials((1.0, 0.0))), D(0.0, Partials((-1.0, 0.0)))
+    y = D(0.0, Partials((0.0, 1.0)))
+    @test !(x > z)
+    @test !(x > 0)
+    @test !(0.0 < x)
+    @test !(x⁻ < z)
+    @test x⁻ >= z
+    @test x <= 0.0
+    @test x == z
+    @test x == 0
+    @test x == y
+    @test !(y < x)
+    @test isequal(x, 0.0)
+    @test iszero(x)
+    @test !isless(z, x)
+    # `clamp` takes `Base`'s branch, the value itself, at either bound.
+    @test ForwardDiff.partials(clamp(x⁻, z, one(D))) == Partials((-1.0, 0.0))
+    u = D(1.0, Partials((1.0, 0.0)))
+    @test ForwardDiff.partials(clamp(u, z, one(D))) == Partials((1.0, 0.0))
+    # Against a dual number of another tag a local one reads as its value,
+    # and the other compares as `ForwardDiff` compares it with a float; these
+    # guard the mixed-tag methods rather than the tie.
+    O = Dual{typeof(Tag(sin, Float64))}
+    for o in (O(0.0, 1.0), O(0.0, -1.0), O(1.0, 0.0))
+        @test (x < o) == (0.0 < o)
+        @test (o < x) == (o < 0.0)
+        @test (x <= o) == (0.0 <= o)
+        @test (o == x) == (o == 0.0)
+    end
+end
+
+@testitem "Adjoint: the default-Init check sees a method defined later" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # The check is cached per signature and world age, so an `Init` method
+    # defined after the first check is found by the next.
+    struct LateInit end
+    s, h = zeros(2), ones(2, 3)
+    @test CR._default_init(LateInit(), s, h)
+    @test CR._default_init(LateInit(), s, h)
+    @eval function CR.forward!(::LateInit, ::CR.Init, s, history)
+        s .= 1
+        return nothing
+    end
+    @test !Base.invokelatest(CR._default_init, LateInit(), s, h)
+end
+
+@testitem "Adjoint: local pullbacks take the step's branch at a tie" setup = [
+    ReferenceAD,
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    # Parts without a pullback that divide by a value guarded at zero. At a
+    # tie the step takes the guard, and a local derivative that read its
+    # seeded zero as positive would divide zero by zero. The reference is
+    # ForwardDiff's Jacobian just below the tie, where its dual numbers take
+    # the guard as the floats do.
+    or_one(x) = x > 0 ? x : one(x)
+    δ = 1.0e-10
+    # Pointwise: the value damped by a share of its stratum's past total,
+    # kept as the state, with the share a scalar, per stratum or by time.
+    struct Damp{A}
+        a::A
+    end
+    CR.blocks(::Damp) = (1, 1)
+    share(a::Real, k, t) = a
+    share(a::AbstractVector, k, t) = a[t]
+    share(a, k, t) = CR.param(a, k, t)
+    function CR.forward!(m::Damp, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] *= 1 - share(m.a, k, t) * s[k] / or_one(s[k] + v[k])
+            s[k] += v[k]
+        end
+        return nothing
+    end
+    for m in (Damp(0.4), Damp(PerStratum([0.4, 0.6])), Damp([0.4, 0.5, 0.6]))
+        @test CR.ispointwise(m)
+        θ = CR._param_tuple(m, (2, 3))
+        J = ReferenceAD.jacobian([-δ; 0.0; θ...]) do x
+            mm = isempty(θ) ? m : first(CR._rebuild_scalar(m, Tuple(x[3:end])))
+            v′, s′ = CR._step(mm, x[1], x[2], 3, 2)
+            return [v′, s′]
+        end
+        m̄ = zero_mirror(m)
+        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 0.0, 0.0, 3, 2)
+        @test all(isfinite, got)
+        @test collect(got) ≈ transpose(J)[1:2, :] * [0.3, 0.7] atol = 1.0e-8
+    end
+    # Whole-step: a share `b` of the values moved to the strata by their
+    # part of the total, `b` a scalar or one per stratum.
+    struct Mix{B}
+        b::B
+    end
+    rate(b::Real, k) = b
+    rate(b::AbstractVector, k) = b[k]
+    function CR.forward!(m::Mix, ::CR.Step, v, s, t)
+        tot = or_one(sum(v))
+        w = copy(v)
+        for k in eachindex(v)
+            v[k] = (1 - rate(m.b, k)) * w[k] + rate(m.b, k) * w[k]^2 / tot
+        end
+        return nothing
+    end
+    for m in (Mix(0.3), Mix([0.2, 0.3, 0.4]))
+        θ = CR._params(m)
+        J = ReferenceAD.jacobian([fill(-δ, 3); θ]) do x
+            vv = collect(x[1:3])
+            CR.forward!(CR._rebuild(m, x[4:end]), CR.Step(), vv, eltype(x)[], 1)
+            return vv
+        end
+        v̄ = [0.3, -0.2, 0.5]
+        ref = transpose(J) * v̄
+        m̄ = zero_mirror(m)
+        grads = (; piece = m̄, v = copy(v̄), s = Float64[])
+        CR._local_step_back!(grads, m, zeros(3), Float64[], 1)
+        @test all(isfinite, grads.v)
+        @test grads.v ≈ ref[1:3] atol = 1.0e-8
+        @test mirror_vec(m̄, m) ≈ ref[4:end] atol = 1.0e-8
+    end
+    # Coupling: each pressure plus a share `a` of it weighted by its part of
+    # the total, `a` a scalar or one per stratum.
+    struct Share{A}
+        a::A
+    end
+    function CR.forward!(C::Share, ::CR.Pressure, q, p, t)
+        tot = or_one(sum(p))
+        for k in eachindex(p)
+            q[k] = p[k] + rate(C.a, k) * p[k]^2 / tot
+        end
+        return nothing
+    end
+    for C in (Share(0.4), Share([0.2, 0.3, 0.4]))
+        θ = CR._params(C)
+        q̄ = [0.3, -0.2, 0.5]
+        ref = ReferenceAD.gradient([fill(-δ, 3); θ]) do x
+            q = zeros(eltype(x), 3)
+            CR.forward!(CR._rebuild(C, x[4:end]), CR.Pressure(), q, x[1:3], 1)
+            return sum(q̄ .* q)
+        end
+        p̄, C̄ = zeros(3), zero_mirror(C)
+        CR._pressure_back!(p̄, C̄, C, q̄, zeros(3), 1)
+        @test all(isfinite, p̄)
+        @test p̄ ≈ ref[1:3] atol = 1.0e-8
+        @test mirror_vec(C̄, C) ≈ ref[4:end] atol = 1.0e-8
+    end
+    # A `Transform` without a `derivative`, through its own local
+    # derivative, and a guard written with `iszero`.
+    f(v, a) = v > 0 ? a * v^2 / v : 2 * a * v
+    @test collect(CR._forward_derivative(f, 0.0, 0.4)) == [0.8, 0.0]
+    g(v, a) = iszero(v) ? 2 * a * v : a * v^2 / v
+    @test collect(CR._forward_derivative(g, 0.0, 0.4)) == [0.8, 0.0]
+    # The Jacobian a piece's pullback is checked against.
+    @test CR._check_jacobian(z -> [f(z[1], z[2])], [0.0, 0.4]) == [0.8 0.0]
+end
+
 @testitem "Adjoint: local coupling pullback" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
     # A coupling without a pullback: a share `a` of every other stratum's
@@ -2500,9 +2680,9 @@ end
     g, R, h = [0.5, 0.3], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
     K = [0.0 0.2 0.1 0.0; 0.1 0.0 0.0 0.2; 0.2 0.1 0.0 0.1; 0.0 0.1 0.2 0.0]
     leaky = CR.Depletion(
-        PerStratum([80.0, 120.0, 90.0, 100.0]); pools = (:S, :V),
-        form = CR.Hazard(), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1))
+        PerStratum([80.0, 120.0, 90.0, 100.0]), CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1);
+        pools = (:S, :V)
     )
     cases = (
         Recurrence(g; modifiers = (Decay(0.6), CR.Add(0.1), CR.Depletion(80.0))),
@@ -2535,13 +2715,11 @@ end
         @test mirror_vec(ms, (w, args...)) ≈ mirror_vec(plain, (r, args...))
     end
     # A ward without a draw: each flow's amount, with every form.
-    ward = CR.Depletion(;
-        pools = (:A, :B), form = nothing, flows = (
-            CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
-            CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
-            CR.Flow(2 => 1, 0.4; form = CR.Truncate()),
-            CR.Flow(0 => 2, 0.6; form = CR.Truncate()),
-        )
+    ward = CR.Depletion(
+        CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
+        CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
+        CR.Flow(2 => 1, 0.4; form = CR.Truncate()),
+        CR.Flow(0 => 2, 0.6; form = CR.Truncate()); pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (ward,))
     adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]

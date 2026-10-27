@@ -41,8 +41,8 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input       | `add =`, before the modifiers                                        |
 | seed and resume      | `history =`, `prepend = true`, `state =`                             |
 | modifiers            | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Allocate`, `Transform` |
-| pools and flows      | `Depletion(N; pools, weights, flows)`, `Flow(from => to, d)`         |
-| filling a pool       | `Depletion(C; form = Truncate(), fill = :O)`                         |
+| pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
+| filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
 | variants             | structs: `Hazard()`, `Floor()`, `Primary()`                          |
 | extension            | a type with a `forward!` method for a role                           |
 
@@ -84,7 +84,7 @@ using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling, mul!
+using LinearAlgebra: Diagonal, I, Transpose, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
@@ -102,7 +102,8 @@ public Depletion, Flow, Share, Redistribute, movement,
     Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses
+    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number,
+    pressure
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -145,11 +146,15 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
+# The pressure a recurrence's steps draw against, from given outputs.
+include("pressure.jl")
 # Default pullbacks of modifiers and couplings without one, whose dual-number
 # code is in an extension.
 include("fallbacks.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("delays.jl")
+# The growth rate that matches a reproduction number, and its inverse.
+include("growth_rate.jl")
 # Interfaces.jl declaration of the role interface.
 include("interfaces.jl")
 # The Transform modifier, a pointwise map with parameters.
