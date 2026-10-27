@@ -35,7 +35,7 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The extension reverses a copy, for vector and `PerStratum` kernels.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
-This lives in the package for the draw of a `Depletion` with several pools (`_draw_pools`, `src/pool.jl`).
+This lives in the package for the draw of a `Depletion` with several pools (`_draw_pools`, `src/depletion/pool.jl`).
 The soft minimum of `SoftTruncate` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
 
 Things to keep in mind when reading the tables.

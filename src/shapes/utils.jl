@@ -401,3 +401,9 @@ function Base.similar(::_At, ::Type{T}, ax::Tuple{Base.IdentityUnitRange}) where
         throw(DimensionMismatch("a one-entry view has one entry, not $(length(r))"))
     return _At(Ref{T}(), first(r))
 end
+
+# Objects without float parameters.
+const _Leafless = Union{
+    Real, AbstractArray, Nothing, Symbol, AbstractString, Function, Type,
+    Module,
+}
