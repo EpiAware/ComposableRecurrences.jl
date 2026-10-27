@@ -16,6 +16,9 @@ const LIGHT_TUTORIALS = String[]
 # instead, so this list starts empty and is yours to fill.
 const HEAVY_TUTORIALS = [
     "renewal-then-delay.jl",
+    "vaccination.jl",
+    "imported-cases.jl",
+    "clinical-outcomes.jl",
     "reproduction-number.jl",
     "latent-processes.jl",
     "spatial-strata.jl",
@@ -34,7 +37,11 @@ const TUTORIALS_SUBDIR = joinpath("getting-started", "tutorials")
 # my-anchor)"`) so cross-references still resolve in a fast build.
 const TUTORIAL_STUBS = [
     "renewal-then-delay.md" =>
-        "# [Renewal then delay](@id tutorial-renewal-delay)\n\n## [Imported cases](@id tutorial-imports)",
+        "# [Renewal then delay](@id tutorial-renewal-delay)",
+    "vaccination.md" => "# [Vaccination](@id tutorial-vaccination)",
+    "imported-cases.md" => "# [Imported cases](@id tutorial-imports)",
+    "clinical-outcomes.md" =>
+        "# [Clinical outcomes](@id tutorial-clinical-outcomes)",
     "reproduction-number.md" =>
         "# [The reproduction number from a run](@id tutorial-reproduction-number)",
     "latent-processes.md" =>
@@ -231,6 +238,10 @@ const PACKAGE_TUTORIALS = [
     "Time units" => "getting-started/time-units.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
+    "Vaccination" => "getting-started/tutorials/vaccination.md",
+    "Imported cases" => "getting-started/tutorials/imported-cases.md",
+    "Clinical outcomes" =>
+        "getting-started/tutorials/clinical-outcomes.md",
     "Reproduction number from a run" =>
         "getting-started/tutorials/reproduction-number.md",
     "Latent processes driving R_t" =>
