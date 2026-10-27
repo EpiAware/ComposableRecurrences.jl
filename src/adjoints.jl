@@ -24,8 +24,6 @@ by a different route: the backend's derivative of the forward loop rather
 than the hand-written pullback.
 Useful to time a hand-written adjoint against plain AD, and to check the two
 gradients agree.
-Plain `Enzyme` reverse AD of a sparse coupling is wrong, so an active sparse
-coupling under `NoAdjoint` throws an `ArgumentError` with `Enzyme`.
 
 # Examples
 ```jldoctest
