@@ -147,7 +147,7 @@ end
 
 @testitem "delay_masses: a method of the wrong length is caught" setup = [DelayCases] begin
     struct ShortDelay <: DiscreteUnivariateDistribution end
-    CR.delay_masses(::ShortDelay, lags) = [1.0]
+    CR.delay_masses(::ShortDelay, lags; step = 1) = [1.0]
     @test_throws ArgumentError Convolution(ShortDelay(); lags = 3)
 end
 
@@ -474,11 +474,13 @@ end
 @testsnippet OwnDelay begin
     using ComposableRecurrences, LinearAlgebra
     CR = ComposableRecurrences
-    # A delay type that is not a Distributions type, with its own method.
+    # A delay type that is not a Distributions type, with its own method,
+    # which serves a step of 1 only.
     struct GeometricDelay{T}
         p::T
     end
-    function CR.delay_masses(d::GeometricDelay, lags)
+    function CR.delay_masses(d::GeometricDelay, lags; step = 1)
+        isone(step) || throw(ArgumentError("whole units only"))
         return map(l -> d.p * (1 - d.p)^l, 0:(lags - 1))
     end
     masses(d, lags) = CR.delay_masses(d, lags)
@@ -542,12 +544,18 @@ end
     @test c.kernel ≈ vec(sum(reshape(units, 3, :); dims = 1))
     r = Recurrence(SteppedDelay(0.3); lags = 4, step = 3)
     @test r.kernel ≈ c.kernel[2:end]
-    # A method without `step` serves a step of 1 only.
+    # A method that serves a step of 1 only still takes the keyword.
     @test Convolution(GeometricDelay(0.4); lags = 4, step = 1).kernel ≈
         masses(GeometricDelay(0.4), 4)
-    @test_throws MethodError Convolution(
+    @test_throws ArgumentError Convolution(
         GeometricDelay(0.4); lags = 4, step = 2
     )
+    # The operators always pass `step`, so a method without it is a
+    # MethodError, even at a step of 1.
+    struct UnitDelay end
+    CR.delay_masses(::UnitDelay, lags) = fill(0.25, lags)
+    @test CR._isdelay(UnitDelay)
+    @test_throws MethodError Convolution(UnitDelay(); lags = 4)
 end
 
 @testitem "A delay type of its own: gradients reach the parameter" setup = [ReferenceAD, OwnDelay] begin
