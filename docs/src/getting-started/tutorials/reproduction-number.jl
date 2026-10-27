@@ -13,10 +13,7 @@
 # The ratio ``\hat R_{t,i} = I_{t,i} / q_{t,i}`` recovers the reproduction number.
 # Without modifiers it is the gain ``\gamma_t``, the instantaneous reproduction number.
 # With depletion it is the effective reproduction number.
-#
-# ### What might I need to know before starting
-#
-# The [Getting started](@ref getting-started) example.
+# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 

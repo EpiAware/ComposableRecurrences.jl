@@ -4,9 +4,6 @@
 #
 # Each clinical transition is a delay that happens with some probability.
 # Here symptom onsets follow infections, hospital admissions follow onsets and deaths follow admissions.
-#
-# ### What might I need to know before starting
-#
 # It builds on the reporting delay of [Getting started](@ref overview-build).
 
 # ## Packages used

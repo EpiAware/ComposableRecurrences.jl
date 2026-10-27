@@ -4,10 +4,7 @@
 #
 # A model can run several [strata](@ref overview-step) side by side, one per place, mixed within each step.
 # Strata can also be types, as for the case types of a [branching process](@ref tutorial-branching).
-#
-# ### What might I need to know before starting
-#
-# The three-town example in [Getting started](@ref overview-build).
+# It builds on the three-town example in [Getting started](@ref overview-build).
 
 # ## Packages used
 
@@ -138,19 +135,16 @@ end
 
 ε = [t < 40 ? e : e / 2 for e in [0.05, 0.03, 0.02], t in 1:T]
 patch = Recurrence(gi; modifiers = (Redistribute(movement(K, ε)), depletion))
-infections, state = patch(1.6; history = seed, stop = T, state = true);
+infections, tr = patch(1.6; history = seed, stop = T, trace = true)
+nothing #hide
 
-# The arrivals ``u_{t,i}`` in patch ``i`` are not recorded, but the infections give them:
+# The `Redistribute` records the arrivals ``u_{t,i}`` in patch ``i`` in its trace, `tr.modifiers[1]`, one column per day:
 #
 # ```math
 # u_{t,i} = \sum_{j \ne i} K_{ij} \, \varepsilon_{t,j} \, v_{t,j}.
 # ```
-#
-# ``v_{t,j}`` is ``\gamma`` times a [`Convolution`](@ref) of the infections with the generation interval, with a zero at lag 0.
 
-force = Convolution(vcat(0.0, gi))(hcat(seed, infections))[:, (size(seed, 2) + 1):end]
-K_off = K - Diagonal(diag(K))
-arrivals = K_off * (ε .* (1.6 .* force))
+arrivals = tr.modifiers[1]
 @chain long(arrivals) begin
     @transform(:series = "Imported infections")
     data(_) * mapping(:day, :count, color = :series, layout = :patch) *
@@ -160,9 +154,6 @@ end
 
 # B receives the most, 106 infections over the 120 days, from its large neighbour A.
 # A receives the least, 19 infections.
-# The modifier's state holds the last day's arrivals, and they match the recomputed ones:
-
-@assert state.states[1] ≈ arrivals[:, end]
 
 # ## Sharing a total fixed elsewhere
 #

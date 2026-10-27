@@ -3,10 +3,7 @@
 # ## Introduction
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
-#
-# ### What might I need to know before starting
-#
-# The [Getting started](@ref getting-started) overview.
+# It builds on the [Getting started](@ref getting-started) overview.
 
 # ## Packages used
 

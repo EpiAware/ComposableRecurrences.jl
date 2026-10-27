@@ -4,10 +4,7 @@
 #
 # A branching process follows the offspring of each case, and its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
 # The operators compute these expectations; they do not simulate chains.
-#
-# ### What might I need to know before starting
-#
-# The [Getting started](@ref getting-started) overview, and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
+# It builds on the [Getting started](@ref getting-started) overview, and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
 
 # ## Packages used
 
@@ -20,6 +17,7 @@ using LinearAlgebra
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
+nothing #hide
 
 # ## A multi-type process
 #

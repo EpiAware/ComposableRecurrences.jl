@@ -4,9 +4,6 @@
 #
 # Imported cases are infections that arrive from outside the population.
 # They can enter a renewal process with susceptible depletion before the depletion or after it.
-#
-# ### What might I need to know before starting
-#
 # It builds on [Renewal then delay](@ref tutorial-renewal-delay), whose depletion section introduces the pool of susceptibles.
 
 # ## Packages used

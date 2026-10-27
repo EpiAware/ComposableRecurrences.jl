@@ -4,10 +4,7 @@
 #
 # A smoothly changing reproduction number is often a latent process on the log scale.
 # Random walks, AR and MA processes are recurrences or convolutions of innovations, and they can drive a renewal process.
-#
-# ### What might I need to know before starting
-#
-# The [Getting started](@ref getting-started) example and AR processes.
+# It builds on the [Getting started](@ref getting-started) example and AR processes.
 
 # ## Packages used
 

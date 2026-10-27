@@ -10,10 +10,7 @@
 #
 # [Strata](@ref overview-step) that do not mix within a step, and the strata of a convolution, can be computed at the same time.
 # An [executor](@ref executors), chosen for a block of code, sets how, so the model code does not change.
-#
-# ### What might I need to know before starting
-#
-# The [Spatial models](@ref tutorial-spatial-strata) tutorial.
+# It builds on the [Spatial models](@ref tutorial-spatial-strata) tutorial.
 # Start Julia with more than one thread, for example `julia --threads=4`, to see a speed-up.
 
 # ## Packages used

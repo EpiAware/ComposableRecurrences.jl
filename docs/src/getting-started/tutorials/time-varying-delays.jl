@@ -4,10 +4,7 @@
 #
 # Reporting delays and generation intervals often change as testing or behaviour changes.
 # A [`TimeVarying`](@ref) kernel models this with one column per day.
-#
-# ### What might I need to know before starting
-#
-# The [Renewal then delay](@ref tutorial-renewal-delay) tutorial.
+# It builds on the [Renewal then delay](@ref tutorial-renewal-delay) tutorial.
 
 # ## Packages used
 

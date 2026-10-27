@@ -4,9 +4,6 @@
 #
 # A forecast continues a run past the last day with data.
 # The run returns its [state](@ref explanation-history-state), and a second call starts from it.
-#
-# ### What might I need to know before starting
-#
 # It builds on [Renewal then delay](@ref tutorial-renewal-delay).
 
 # ## Packages used
@@ -36,12 +33,12 @@ renewal = Recurrence(gi)
 T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 last_day = 50
-fitted, state = renewal(R; history = [5.0], stop = last_day, state = true)
+to_day_50, state = renewal(R; history = [5.0], stop = last_day, state = true)
 forecast, _ = renewal(R; state)
-@assert vcat(fitted, forecast) ≈ renewal(R; history = [5.0]) #hide
+@assert vcat(to_day_50, forecast) ≈ renewal(R; history = [5.0]) #hide
 
-@chain DataFrame("day" => 1:T, "count" => vcat(fitted, forecast)) begin
-    @transform(:part = ifelse.(:day .<= last_day, "Fitted", "Forecast"))
+@chain DataFrame("day" => 1:T, "count" => vcat(to_day_50, forecast)) begin
+    @transform(:part = ifelse.(:day .<= last_day, "Run to day 50", "Forecast"))
     data(_) * mapping(:day, :count, color = :part => "") * visual(Lines, linewidth = 2) +
         mapping([last_day + 0.5]) * visual(VLines, color = :grey, linestyle = :dash)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))

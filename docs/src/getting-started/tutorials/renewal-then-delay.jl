@@ -4,9 +4,6 @@
 #
 # [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
 # Here the reproduction number changes over time, the seed grows from the first day and the population is finite.
-#
-# ### What might I need to know before starting
-#
 # It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
@@ -60,7 +57,7 @@ end
 r0 = growth_rate(R[1], gi)
 seeded = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
 single = renewal(R; history = [5.0], prepend = true)
-# The ratio of each day's infections to the day before's, on days 1 to 25.
+## The ratio of each day's infections to the day before's, on days 1 to 25.
 ratio(y) = (y[2:end] ./ y[1:(end - 1)])[(end - T + 1):(end - T + 25)]
 
 @chain DataFrame("day" => 1:25, "Growing seed" => ratio(seeded), "Single seed day" => ratio(single)) begin
