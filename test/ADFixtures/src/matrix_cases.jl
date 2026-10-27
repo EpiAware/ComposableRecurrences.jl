@@ -483,8 +483,8 @@ function random_walk(wrap, z::Size)
     (; T) = z
     W = [_noise(t, 9) for t in 1:(T + 1)]
     f = function (θ)
-        z = wrap(Recurrence([1.0]))(1.0; history = θ[1:1], add = θ[2:end])
-        y = cat(θ[1:1], z; dims = 1)
+        walk = wrap(Recurrence([1.0]))(1.0; history = θ[1:1], add = θ[2:end])
+        y = cat(θ[1:1], walk; dims = 1)
         return sum(W .* y)
     end
     return f, _flat([0.1], [0.1 * _noise(t, 10) for t in 1:T])
