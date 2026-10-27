@@ -94,7 +94,7 @@ Above 24 the local step is slower than plain AD, so such a modifier takes plain 
 A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
 The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
-Past one pass it stays faster than plain AD on Mooncake at any size, and is slower than it on Enzyme on the current release.
+Past one pass it stays faster than plain AD on Mooncake at any size, and is slower than plain AD on Enzyme.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 The local step's dual numbers, and those of a `Transform` without a `derivative`, compare by value only, as plain floats do.
 So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.
