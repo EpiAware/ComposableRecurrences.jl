@@ -45,7 +45,7 @@
             pools = (S = pool0,)
         )
         y = Recurrence(g; modifiers = (herd,))(R; history = seed, start = t0)
-        return cat(seed, y; dims = 1)
+        return vcat(seed, y)
     end
 
     @test model(R, births) ≈ naive(R, births)

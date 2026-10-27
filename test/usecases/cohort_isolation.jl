@@ -36,7 +36,7 @@
     end
     function model(K, R)
         y = Recurrence(TimeVarying(K, CR.Primary()))(R; history = seed, start = 4)
-        return cat(seed, y; dims = 1)
+        return vcat(seed, y)
     end
     K = kernel(p, b)
     @test model(K, R) ≈ naive(K, R)

@@ -25,7 +25,7 @@
 
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function chain(ρ, ϵ)
-        log_Rt = cat(init, Recurrence(ρ)(1.0; history = init, add = ϵ); dims = 1)
+        log_Rt = vcat(init, Recurrence(ρ)(1.0; history = init, add = ϵ))
         depletion = ComposableRecurrences.Depletion(
             N, ComposableRecurrences.Floor()
         )
@@ -59,7 +59,7 @@ end
         )
         renewal = Recurrence(g; modifiers = (depletion,))
         run = renewal(Rt; history = seed, start = length(seed) + 1)
-        infections = cat(seed, run; dims = 1)
+        infections = vcat(seed, run)
         return Convolution(delay)(infections)
     end
     @test chain(Rt) ≈ ref

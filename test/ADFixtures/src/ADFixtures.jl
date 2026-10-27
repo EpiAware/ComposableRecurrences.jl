@@ -415,8 +415,8 @@ end
 # model hands it over: a random walk (a unit lag-1 kernel) with its seed
 # joined in front, and strata whose history is a reshaped view, joined too.
 # The unit lag-1 pullbacks are checked against ForwardDiff in the unit tests.
-# The join is `cat` with `dims`, as the docs give it: ReverseDiff cannot
-# `hcat` its tracked arrays and Enzyme cannot `vcat` a view and an array.
+# The join is `cat` with `dims`, as ReverseDiff cannot `hcat` its tracked
+# arrays and Enzyme cannot `vcat` a view and an array.
 function _joined_view(w, θ)
     z0, H, ϵ, E = _unpack(θ, (1,), (S, 2), (T,), (S, T))
     y = cat(z0, w(Recurrence([1.0]))(1.0; history = z0, add = ϵ); dims = 1)

@@ -70,7 +70,7 @@ Convolution(TimeVarying(P, CR.Primary()))(ones(3))
 K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
 r = Recurrence(TimeVarying(K, CR.Primary()))
 h = [1.0, 1.0]
-round.(cat(h, r(fill(1.5, 6); history = h, start = 3); dims = 1); digits = 3)
+round.(vcat(h, r(fill(1.5, 6); history = h, start = 3)); digits = 3)
 
 # output
 

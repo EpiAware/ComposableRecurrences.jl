@@ -51,7 +51,7 @@ end
 
 r0 = ComposableRecurrences.growth_rate(R[1], gi)
 h0 = exponential_history(5.0, r0, length(gi))
-y0 = cat(h0, renewal(R; history = h0); dims = 1)
+y0 = vcat(h0, renewal(R; history = h0))
 round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 # Every daily growth ratio, seed days included, equals ``e^{r}`` until `R` changes.

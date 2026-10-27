@@ -50,7 +50,7 @@
     )
     function model(R, d)
         y = Recurrence(g; modifiers = (d,))(R; history = seed, start = length(seed) + 1)
-        return cat(seed, y; dims = 1)
+        return vcat(seed, y)
     end
 
     aon(e, doses) = vaccinated(0.0, e .* doses)

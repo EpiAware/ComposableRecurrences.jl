@@ -124,7 +124,7 @@ y = r(R; history = ones(2, 3))
 
 # The seed followed by the run, with the seed at times 1 to 3.
 h = ones(2, 3)
-cat(h, r(hcat(h, R); history = h, start = 4); dims = 2)
+hcat(h, r(hcat(h, R); history = h, start = 4))
 
 # Resume from the returned state over the same inputs.
 y1, state = r(R; history = ones(2, 3), stop = 5, state = true)
@@ -1436,7 +1436,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 g = [0.2, 0.5, 0.3]
 h = CR.exponential_history(5.0, 0.1, length(g))
-round.(cat(h, Recurrence(g)(fill(1.2, 6); history = h); dims = 1); digits = 3)
+round.(vcat(h, Recurrence(g)(fill(1.2, 6); history = h)); digits = 3)
 
 # output
 

@@ -13,11 +13,11 @@ y = (Reactant.@compile f(R))(R)
 ```
 
 To [join the history in front](@ref explanation-returns) of a traced output, pass the history in as a traced array too.
-`cat` of a host array and a traced one is a scalar-indexing error.
+Joining a host array to a traced one is a scalar-indexing error.
 
 ```julia
 h = Reactant.to_rarray([1.0, 1.0])
-joined(R, h) = cat(h, r(R; history = h); dims = 1)
+joined(R, h) = vcat(h, r(R; history = h))
 y = (Reactant.@compile joined(R, h))(R, h)
 ```
 

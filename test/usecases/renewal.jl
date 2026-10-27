@@ -164,7 +164,7 @@ end
     end
     function bvd_renewal(Rt, g, seed, N)
         r = renewal(g, seed, N)
-        return cat(seed, r(Rt; history = seed, start = length(seed) + 1); dims = 1)
+        return vcat(seed, r(Rt; history = seed, start = length(seed) + 1))
     end
 
     # Seed as long as the generation interval, shorter, then longer.

@@ -151,7 +151,7 @@ end
 #
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
 # The run starts at `start = 7` after six seed values.
-# `cat` joins the seed in front of the run.
+# `vcat` joins the seed in front of the run.
 # The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
@@ -163,7 +163,7 @@ R_iso = fill(1.8, T)
 seed_iso = fill(10.0, 6)
 function seeded_iso(kernel)
     y = Recurrence(kernel)(R_iso; history = seed_iso, start = 7)
-    return cat(seed_iso, y; dims = 1)
+    return vcat(seed_iso, y)
 end
 @chain DataFrame(
     "day" => 1:T,
