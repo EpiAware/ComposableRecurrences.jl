@@ -438,7 +438,7 @@ end
 # A window's convolution in one loop over the lags.
 function _window_sum(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
-    @inbounds @simd for i in 1:L
+    @inbounds @_float_simd typeof(acc) for i in 1:L
         acc += g[i] * H[t + i - 1, a]
     end
     return acc
@@ -446,7 +446,7 @@ end
 function _kdot(g::_TVColumns{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
     acc = zero(eltype(H))
-    @inbounds @simd for i in 1:length(w)
+    @inbounds @_float_simd typeof(acc) for i in 1:length(w)
         acc += w[i] * H[t + L - i, a]
     end
     return acc
@@ -461,7 +461,7 @@ function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
 end
 function _kdot(g::Union{_TVColumns{Primary}, _TVPerStratum{Primary}}, H, t, τ, L, a)
     acc = zero(eltype(H))
-    @inbounds @simd for i in _lags(g, τ, L)
+    @inbounds @_float_simd typeof(acc) for i in _lags(g, τ, L)
         acc += _weight(g, a, a, i, _column(g, τ, i)) * H[t + L - i, a]
     end
     return acc
@@ -478,7 +478,7 @@ function _kdot(g::TimeVarying{<:Any, <:Pairwise}, H, t, τ, L, a)
     acc = zero(eltype(H))
     lags = _lags(g, τ, L)
     for b in axes(H, 2)
-        @inbounds @simd for i in lags
+        @inbounds @_float_simd typeof(acc) for i in lags
             acc += _weight(g, a, b, i, _column(g, τ, i)) * H[t + L - i, b]
         end
     end
@@ -1150,6 +1150,15 @@ end
 end
 _pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 
+# The same at call step `t`, whose window is the `L` buffer rows before row
+# `D + t`; the run and `pressure` both read a step's pressure through these.
+@inline function _step_prepare!(ex, p, q, C, kernel, H, t, τ, L, D)
+    return _prepare!(ex, p, q, C, kernel, H, t + D - L, τ, L)
+end
+@inline function _step_pressure(C, kernel, p, q, H, t, τ, L, D, k)
+    return _pressure_at(C, kernel, p, q, H, t + D - L, τ, L, k)
+end
+
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
@@ -1230,7 +1239,7 @@ end
 # convolution and, unless the coupling is pointwise, its pressure in `pr`
 # when it is not `nothing`.
 @inline function _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
-    pk, xk = _pressure_at(coupling, kernel, p, q, H, t + D - L, τ, L, k)
+    pk, xk = _step_pressure(coupling, kernel, p, q, H, t, τ, L, D, k)
     _record_pressure!(pr, pk, xk, t, k)
     return @inbounds _core(coupling, gain, add, k, τ, pk, xk)
 end
@@ -1346,7 +1355,7 @@ end
     )
     τ = τ0 + t - 1
     across && _refresh!(modifiers, D + t)
-    _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
+    _step_prepare!(ex, p, q, coupling, kernel, H, t, τ, L, D)
     if _all_pointwise(modifiers)
         _each!(
             _step_body!, ex, H, S, work,

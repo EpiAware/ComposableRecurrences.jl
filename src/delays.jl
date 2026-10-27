@@ -84,6 +84,116 @@ Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
 """
 delay_masses(k::AbstractVector, lags; step = 1) = k
 
+@doc raw"""
+    delay_masses(ds::Tuple, lags; step = 1)
+
+The masses of a chain of delays `ds`, each a delay or a vector of masses:
+the first `lags` masses of their full linear convolution,
+
+```math
+(a \circledast b)_l = \sum_{j=0}^{l} a_j\, b_{l-j},
+\qquad l = 0, \dots, L - 1.
+```
+
+Each delay's masses come from its own method, on lags `step` units wide.
+A vector of masses is read as given, whatever its length and `step`, so
+it must already be on lags of that width.
+
+A chain of discretised delays and a
+[sum of continuous delays discretised once](@ref time-units-chained) are
+different models.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+a, b = [0.5, 0.5], [0.2, 0.8]
+ComposableRecurrences.delay_masses((a, b), 3),
+Convolution((a, b); lags = 4).kernel
+
+# output
+
+([0.1, 0.5, 0.4], [0.1, 0.5, 0.4, 0.0])
+```
+"""
+function delay_masses(ds::Tuple{Any, Vararg{Any}}, lags; step = 1)
+    return _chain_masses(map(d -> _link_masses(d, lags, step), ds), lags)
+end
+
+# A vector in a chain is its masses whatever its length; a delay's masses
+# are checked to have `lags` entries.
+_link_masses(k::AbstractVector, lags, step) = k
+_link_masses(d, lags, step) = _masses(d, lags, 0, step)
+
+_chain_masses(ms::Tuple{Any}, lags) = _cut(only(ms), lags)
+function _chain_masses(ms::Tuple{Any, Any}, lags)
+    return _convolve_masses(ms[1], ms[2], lags)
+end
+function _chain_masses(ms::Tuple, lags)
+    m = _convolve_masses(ms[1], ms[2], lags)
+    return _chain_masses((m, Base.tail(Base.tail(ms))...), lags)
+end
+
+# The masses of `a` on lags `0` to `lags - 1`, with zeros past its end.
+function _cut(a, lags)
+    i, n = firstindex(a), length(a)
+    return map(l -> l < n ? a[i + l] : zero(eltype(a)), 0:(lags - 1))
+end
+
+# The full linear convolution of `a` and `b` on lags `0` to `lags - 1`,
+# added to `c`: only the products of entries that both exist are taken.
+function _convolve_masses(a, b, lags)
+    c = zeros(promote_type(eltype(a), eltype(b)), lags)
+    return _convolve_masses!(c, a, b)
+end
+
+# Floats take each entry of `a` times `b` in turn, which vectorises; other
+# numbers, such as dual numbers, take each lag's sum in one accumulator,
+# which keeps it out of memory.
+function _convolve_masses!(c::AbstractVector{<:_IEEEFloat}, a, b)
+    i₀, j₀, k₀ = firstindex(a), firstindex(b), firstindex(c)
+    L, nb = length(c), length(b)
+    @inbounds for i in 0:(min(length(a), L) - 1)
+        aᵢ = a[i₀ + i]
+        @simd for j in 0:(min(nb, L - i) - 1)
+            c[k₀ + i + j] += aᵢ * b[j₀ + j]
+        end
+    end
+    return c
+end
+function _convolve_masses!(c, a, b)
+    i₀, j₀, k₀ = firstindex(a), firstindex(b), firstindex(c)
+    na, nb = length(a), length(b)
+    @inbounds for l in 0:(length(c) - 1)
+        s = c[k₀ + l]
+        for m in max(0, l - nb + 1):min(l, na - 1)
+            s += a[i₀ + m] * b[j₀ + l - m]
+        end
+        c[k₀ + l] = s
+    end
+    return c
+end
+
+# The reverse pass of `c += a ⊛ b` for the rules: `ā` and `b̄` take the
+# cotangent `c̄` correlated with `b` and with `a`, and either may be
+# `nothing`. The cotangent of `c` passes through unchanged.
+function _convolve_masses_back!(ā, b̄, c̄, a, b)
+    ā === nothing || _correlate_masses!(ā, c̄, b)
+    b̄ === nothing || _correlate_masses!(b̄, c̄, a)
+    return nothing
+end
+function _correlate_masses!(x̄, c̄, y)
+    i₀, j₀, k₀ = firstindex(x̄), firstindex(y), firstindex(c̄)
+    L, ny = length(c̄), length(y)
+    @inbounds for i in 0:(min(length(x̄), L) - 1)
+        s = zero(eltype(x̄))
+        @simd for j in 0:(min(ny, L - i) - 1)
+            s += c̄[k₀ + i + j] * y[j₀ + j]
+        end
+        x̄[i₀ + i] += s
+    end
+    return x̄
+end
+
 # The masses of a continuous delay, from the extension that makes the
 # censoring choice; until it loads, the error says which package to load.
 _continuous_masses(d, lags; kwargs...) = _no_censoring(d)
@@ -103,6 +213,20 @@ end
 function _isdelay(::Type{T}) where {T}
     return !(T <: AbstractArray) &&
         Core._hasmethod(Tuple{typeof(delay_masses), T, Int})
+end
+# A tuple is a delay when each of its links is a delay or a vector of
+# masses, so a tuple of anything else keeps the kernel-shape error.
+_isdelay(::Type{Tuple{}}) = false
+function _isdelay(::Type{T}) where {T <: Tuple}
+    T isa Union && return _isdelay(T.a) && _isdelay(T.b)
+    (T isa DataType && !Base.isvatuple(T)) || return false
+    return _links(T)
+end
+_links(::Type{Tuple{}}) = true
+function _links(::Type{T}) where {T <: Tuple}
+    H = Base.tuple_type_head(T)
+    return (H <: AbstractVector{<:Real} || _isdelay(H)) &&
+        _links(Base.tuple_type_tail(T))
 end
 
 # Whether a kernel holds delays, from its type.

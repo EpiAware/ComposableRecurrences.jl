@@ -24,6 +24,13 @@ _primal_value(x) = x
 # The type `_primal_value` returns for a number of type `T`.
 _primal_type(::Type{T}) where {T} = T
 
+# `@simd` on a loop whose sum has type `T` only when `T` is an IEEE float:
+# on other numbers, such as dual numbers, it slows the loop.
+macro _float_simd(T, loop)
+    simd = Expr(:macrocall, Symbol("@simd"), __source__, loop)
+    return esc(:($T <: _IEEEFloat ? $simd : $loop))
+end
+
 # A gain or add slot at stratum `k`, absolute time `t`. A missing add is
 # `false`, the additive identity for every `Real`.
 _at(x::Real, k, t) = x

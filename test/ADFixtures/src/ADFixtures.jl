@@ -1104,6 +1104,17 @@ function _trace_budget(w, θ)
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
+# The effective reproduction number of a depleted run: its outputs over
+# the pressure each step drew against.
+function _effective_reproduction(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    h = exp.(logh)
+    d = ComposableRecurrences.Depletion(PerStratum(POP))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y = w(r)(exp.(logR); history = h)
+    return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
+end
+
 # The relative tolerance of Enzyme's rule tester in `test_adjoint`.
 # EnzymeTestUtils compares the rule with finite differences taken in the
 # arguments' precision. In single precision these differ from the rule by up
@@ -1386,6 +1397,10 @@ const _SCENARIOS = [
         () -> zero(CAPB0),
     ),
     (
+        "Recurrence effective reproduction number from its pressure",
+        _effective_reproduction, () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
         "Recurrence capacity, dropped overflow after a truncated draw",
         _capacity_drop, () -> zero(CAPD0),
     ),
@@ -1494,6 +1509,14 @@ function _delay_distribution_step(w, θ)
     return sum(W1 .* w(c)(ϵ; history = w0))
 end
 
+# A chain of two delays given as masses: the kernel is their full linear
+# convolution, built with the operator, so the gradient reaches both.
+function _chained_delay(w, θ)
+    a, b, ϵ = _unpack(θ, (3,), (L,), (T,))
+    c = Convolution((a, b); lags = L + 2)
+    return sum(W1 .* w(c)(ϵ))
+end
+
 function _generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
@@ -1513,6 +1536,10 @@ push!(
         "Convolution Poisson delay distribution on a step of two units",
         _delay_distribution_step,
         () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Convolution chain of two delays as masses", _chained_delay,
+        () -> _flat([0.5, 0.3, 0.2], G0, 1 .+ LOGR[1, :]),
     ),
     (
         "Recurrence negative binomial generation interval per stratum", _generation_distribution,
@@ -1579,6 +1606,10 @@ const _PROBES = Dict{Symbol, Function}(
     # A `Depletion` holding its pools' names and starting values together.
     :depletion_pools => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
+    ),
+    # A chain of delays as one delay.
+    :chained_delays => () -> _accepts(
+        () -> Convolution(([1.0], [1.0]); lags = 1)
     ),
     # Local derivatives whose dual numbers compare by value.
     :local_ties => function ()
@@ -2012,7 +2043,10 @@ _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
     (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+# The pressure recomputed from given outputs.
+_REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
+_REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
     (:delay_masses, :delay_step)
 
