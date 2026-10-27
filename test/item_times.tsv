@@ -82,6 +82,11 @@
 5.2	Change points: one segment, a change after stop, a change every step
 2.1	Clamp pullback matches the local Jacobian
 1.6	Clamp: bounds, scalar and per stratum
+0.3	Computed kernels: arithmetic lowers to Derived
+2.4	Computed kernels: construction and call checks
+14.3	Computed kernels: each rule's pullback against a Jacobian
+8.2	Computed kernels: operators equal the dense kernel
+7.9	Computed kernels: weights against naive loops
 2.6	Convolution Auto: direct without FFTW
 3.0	Convolution Auto: matches direct
 1.1	Convolution Auto: which method it picks with FFTW
