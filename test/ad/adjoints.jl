@@ -1070,9 +1070,9 @@ end
             (Enzyme.Reverse, Const(K)),
             (Enzyme.set_runtime_activity(Enzyme.Reverse), Duplicated(K, K)),
         )
-        _, w̄, z̄ = back(mode, Ka)
-        @test iszero(w̄)
-        @test z̄ ≈ ref[(n + 1):end]
+        _, w̄c, z̄c = back(mode, Ka)
+        @test iszero(w̄c)
+        @test z̄c ≈ ref[(n + 1):end]
         @test K.nzval == nz0
     end
 end
