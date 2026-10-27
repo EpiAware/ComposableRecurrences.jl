@@ -107,17 +107,24 @@ end
     # A depletion with a protected pool steps each stratum's value and two
     # pools; its group pullback runs through the default loop.
     pmirror(m) = (;
-        N = (; x = zero(m.N.x)), heterogeneity = Ref(0.0),
-        flows = ((; demand = Ref(0.0), form = nothing),),
-        weights = (nothing, (; x = zero(m.weights[2].x))),
+        pools = nothing,
+        pieces = (
+            (;
+                form = (; α = Ref(0.0)), N = (; x = zero(m.pieces[1].N.x)),
+                weights = (nothing, (; x = zero(m.pieces[1].weights[2].x))),
+                first = nothing, overflow = nothing,
+            ),
+            ((; demand = Ref(0.0), form = nothing),),
+        ),
     )
     pflat(m̄) = vcat(
-        m̄.N.x, m̄.heterogeneity[], only(m̄.flows).demand[], m̄.weights[2].x
+        m̄.pieces[1].N.x, m̄.pieces[1].form.α[], only(m̄.pieces[2]).demand[],
+        m̄.pieces[1].weights[2].x
     )
     build(θ) = CR.Depletion(
-        PerStratum(θ[1:2]); pools = (:S, :V),
-        weights = (S = 1, V = PerStratum(θ[5:6])), heterogeneity = θ[3],
-        flows = (CR.Flow(1 => 2, θ[4]; form = CR.Truncate()),)
+        PerStratum(θ[1:2]),
+        CR.Hazard(θ[3]; weights = (S = 1, V = PerStratum(θ[5:6]))),
+        CR.Flow(1 => 2, θ[4]; form = CR.Truncate()); pools = (:S, :V)
     )
     for removals in (2.0, 70.0, -1.0), heterogeneity in (1.0, 1.4)
         pc = check_pullback(
@@ -134,8 +141,8 @@ end
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     d = CR.Depletion(
-        100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+        100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     @test CR.blocks(d) == (1, 2)
     @test CR.blocks(CR.Depletion(100.0)) === (1, 1)
@@ -154,7 +161,9 @@ end
     # declaration covers a type with both kinds.
     @test CR._blocks_ok(CR.Clamp(0.0, 1.0), CR.Step(), ([1.0], [0.0], 1))
     # A depletion is pointwise unless its pools make it blockwise.
-    @test CR.ispointwise(CR.Depletion(100.0; removals = 1.0))
+    @test CR.ispointwise(
+        CR.Depletion(100.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate()))
+    )
 end
 
 @testitem "Blocks: shapes, resume and mixed modifiers" setup = [AdjointCheck, BlockChecks] begin

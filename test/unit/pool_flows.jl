@@ -42,8 +42,9 @@
     for (build, at, θ) in (forms.groups_time, forms.derived)
         function run(θ, R)
             d = CR.Depletion(
-                N; protected = σ, removals = TimeVarying(PerStratum(doses)),
-                flows = CR.Flow(2 => 1, build(θ))
+                N, CR.Hazard(; weights = (S = 1, V = σ)),
+                CR.Flow(:S => :V, TimeVarying(PerStratum(doses)); form = CR.Truncate()),
+                CR.Flow(2 => 1, build(θ)); pools = (:S, :V)
             )
             return Recurrence(g; modifiers = (d,))(R; history = h)
         end
@@ -57,12 +58,19 @@
     # Removals are the first count flow, and no waning is the depletion
     # without flows.
     removals = TimeVarying(PerStratum(doses))
-    d = CR.Depletion(N; protected = σ, removals)
-    explicit = CR.Depletion(
-        N; pools = (:S, :V), weights = (S = 1, V = σ),
-        flows = (CR.Flow(:S => :V, removals; form = CR.Truncate()),)
+    d = CR.Depletion(
+        N, CR.Hazard(; weights = (S = 1, V = σ)),
+        CR.Flow(1 => 2, removals; form = CR.Truncate()); pools = (:S, :V)
     )
-    still = CR.Depletion(N; protected = σ, removals, flows = CR.Flow(2 => 1, 0.0))
+    explicit = CR.Depletion(
+        N, CR.Hazard(; weights = (S = 1, V = σ)),
+        CR.Flow(:S => :V, removals; form = CR.Truncate()); pools = (:S, :V)
+    )
+    still = CR.Depletion(
+        N, CR.Hazard(; weights = (S = 1, V = σ)),
+        CR.Flow(1 => 2, removals; form = CR.Truncate()), CR.Flow(2 => 1, 0.0);
+        pools = (:S, :V)
+    )
     y = Recurrence(g; modifiers = (d,))(R; history = h)
     @test Recurrence(g; modifiers = (explicit,))(R; history = h) == y
     @test Recurrence(g; modifiers = (still,))(R; history = h) ≈ y
@@ -87,22 +95,23 @@ end
         end
         return y[(L + 1):end]
     end
-    run(R, μ) = Recurrence(g; modifiers = (CR.Depletion(N; flows = (CR.Flow(1 => 0, μ),)),))(
-        R; history = h
-    )
+    run(R, μ) = Recurrence(
+        g; modifiers = (CR.Depletion(N, CR.Hazard(), CR.Flow(1 => 0, μ)),)
+    )(R; history = h)
     @test run(R, 0.05) ≈ naive(R, 0.05, 0.0)
     @test ReferenceAD.derivative(μ -> sum(run(R, μ)), 0.05) ≈
         ReferenceAD.derivative(μ -> sum(naive(R, μ, 0.0)), 0.05)
     @test ReferenceAD.gradient(R -> sum(run(R, 0.05)), R) ≈
         ReferenceAD.gradient(R -> sum(naive(R, 0.05, 0.0)), R)
-    d = CR.Depletion(N; flows = (CR.Flow(1 => 0, 0.05),))
+    d = CR.Depletion(N, CR.Hazard(), CR.Flow(1 => 0, 0.05))
     @test CR.ispointwise(d)
     @test CR.uses_adjoint(Recurrence(g; modifiers = (d,)), CR.Run())
     # Removals of any parameter form, a Derived one included, are the first
     # count flow's count.
-    removed(r) = Recurrence(g; modifiers = (CR.Depletion(N; removals = r),))(
-        R; history = h
-    )
+    removals(r) = CR.Flow(:S => 0, r; form = CR.Truncate())
+    removed(r) = Recurrence(
+        g; modifiers = (CR.Depletion(N, CR.Hazard(), removals(r)),)
+    )(R; history = h)
     @test removed(3.0) ≈ naive(R, 0.0, 3.0)
     @test removed(2 * Derived(identity, 1.5)) ≈ naive(R, 0.0, 3.0)
     @test ReferenceAD.derivative(r -> sum(removed(r)), 3.0) ≈
@@ -113,49 +122,49 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
-    # Each builder reads its parameters in the pool's mirror order: N,
-    # heterogeneity, the protected pool's start, its weight, then the flows'
-    # parameters in order. `a` is the count each flow set carries and `α`
-    # the heterogeneity.
+    flatten = ModifierChecks.flat_pool
+    # Each builder reads its parameters in the order `flat_pool` gives the
+    # pool's mirror: N, heterogeneity, the protected pool's start, its
+    # weight, then the flows' parameters in order. `a` is the count each
+    # flow set carries and `α` the heterogeneity.
     flow_sets = (
         # Waning, a share leaving the protected pool and a count into it.
         (
             x -> CR.Depletion(
-                PerStratum(x[1:2]); pools = (S = nothing, V = x[4]),
-                weights = (S = 1, V = PerStratum(x[5:6])), heterogeneity = x[3],
-                flows = (
-                    CR.Flow(1 => 2, x[7]; form = CR.Truncate()),
-                    CR.Flow(2 => 1, PerStratum(x[8:9])),
-                    CR.Flow(2 => 0, TimeVarying(x[10:11]); form = CR.Share()),
-                )
+                PerStratum(x[1:2]),
+                CR.Hazard(x[3]; weights = (S = 1, V = PerStratum(x[5:6]))),
+                CR.Flow(1 => 2, x[7]; form = CR.Truncate()),
+                CR.Flow(2 => 1, PerStratum(x[8:9])),
+                CR.Flow(2 => 0, TimeVarying(x[10:11]); form = CR.Share());
+                pools = (S = nothing, V = x[4])
             ),
             (a, α) -> [100.0, 80.0, α, 0.0, 0.3, 0.5, a, 0.1, 1.0e-9, 0.0, 0.05],
         ),
         # A rate out of the pool, waning and a count into the protected pool.
         (
             x -> CR.Depletion(
-                PerStratum(x[1:2]); pools = (S = nothing, V = x[4]),
-                weights = (S = 1, V = x[5]), heterogeneity = x[3],
-                flows = (
-                    CR.Flow(1 => 0, x[6]),
-                    CR.Flow(2 => 1, x[7]),
-                    CR.Flow(1 => 2, x[8]; form = CR.Truncate()),
-                )
+                PerStratum(x[1:2]), CR.Hazard(x[3]; weights = (S = 1, V = x[5])),
+                CR.Flow(1 => 0, x[6]),
+                CR.Flow(2 => 1, x[7]),
+                CR.Flow(1 => 2, x[8]; form = CR.Truncate());
+                pools = (S = nothing, V = x[4])
             ),
             (a, α) -> [100.0, 80.0, α, 0.0, 0.3, 0.02, 0.1, a],
         ),
         # Removals alone, and a single count out of the system.
         (
             x -> CR.Depletion(
-                x[1]; pools = (S = nothing, V = x[3]), protected = x[4],
-                heterogeneity = x[2], removals = x[5]
+                x[1], CR.Hazard(x[2]; weights = (S = 1, V = x[4])),
+                CR.Flow(:S => :V, x[5]; form = CR.Truncate());
+                pools = (S = nothing, V = x[3])
             ),
             (a, α) -> [100.0, α, 0.0, 0.3, a],
         ),
         (
             x -> CR.Depletion(
-                x[1]; pools = (S = nothing, V = x[3]), weights = (S = 1, V = x[4]),
-                heterogeneity = x[2], flows = (CR.Flow(1 => 0, x[5]; form = CR.Truncate()),)
+                x[1], CR.Hazard(x[2]; weights = (S = 1, V = x[4])),
+                CR.Flow(1 => 0, x[5]; form = CR.Truncate());
+                pools = (S = nothing, V = x[3])
             ),
             (a, α) -> [100.0, α, 0.0, 0.3, a],
         ),
@@ -168,17 +177,17 @@ end
         ([60.0, 50.0, 20.0, 10.0], (1.0, 1.4)), ([0.0, 50.0, 0.0, 10.0], (1.0,)),
     )
     for (build, θ) in flow_sets, (s, αs) in pools, α in αs, a in (2.0, 70.0, -3.0)
-        c = check_pullback(build, θ(a, α), [3.0, 1.5], s, 2)
+        c = check_pullback(build, θ(a, α), [3.0, 1.5], s, 2; flatten)
         @test c.v && c.s && c.θ
     end
     # A rate and a count out of the one pool, pointwise.
     pointwise(x) = CR.Depletion(
-        x[1]; heterogeneity = x[2],
-        flows = (CR.Flow(1 => 0, x[3]), CR.Flow(1 => 0, x[4]; form = CR.Truncate()))
+        x[1], CR.Hazard(x[2]), CR.Flow(1 => 0, x[3]),
+        CR.Flow(1 => 0, x[4]; form = CR.Truncate())
     )
     for (s, αs) in (([60.0, 50.0], (1.0, 1.2)), ([0.0, 50.0], (1.0,))), α in αs,
             a in (2.0, 70.0, -3.0)
-        c = check_pullback(pointwise, [100.0, α, 0.05, a], [3.0, 1.5], s, 1)
+        c = check_pullback(pointwise, [100.0, α, 0.05, a], [3.0, 1.5], s, 1; flatten)
         @test c.v && c.s && c.θ
     end
 end
@@ -187,17 +196,19 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     @test_throws "Flow(2 => 1) names pool 2, but the pools are (:S,)" CR.Depletion(
-        100.0; flows = CR.Flow(2 => 1, 0.1)
+        100.0, CR.Hazard(), CR.Flow(2 => 1, 0.1)
     )
-    @test_throws "expected a Flow, got 0.1" CR.Depletion(100.0; flows = (0.1,))
-    @test_throws "a Flow, or a tuple or vector of Flows, got 0.1" CR.Depletion(
-        100.0; flows = 0.1
+    @test_throws "0.1 is not a draw or a Flow" CR.Depletion(100.0, CR.Hazard(), 0.1)
+    @test_throws "the parts of a Depletion are given one by one" CR.Depletion(
+        100.0, CR.Hazard(), (CR.Flow(:S => 0, 0.1),)
     )
-    # A vector of flows is a tuple of them.
-    @test CR.Depletion(100.0; flows = [CR.Flow(:S => 0, 0.1)]).flows ==
-        CR.Depletion(100.0; flows = CR.Flow(:S => 0, 0.1)).flows
-    @test_throws ArgumentError CR.Depletion(100.0; removals = [1.0, 2.0])
-    d = CR.Depletion(100.0; flows = (CR.Flow(1 => 0, PerStratum([0.1, 0.2, 0.3])),))
+    # A vector of flows splats into the pieces.
+    @test CR.Depletion(100.0, CR.Hazard(), [CR.Flow(:S => 0, 0.1)]...).pieces ==
+        CR.Depletion(100.0, CR.Hazard(), CR.Flow(:S => 0, 0.1)).pieces
+    @test_throws ArgumentError CR.Depletion(
+        100.0, CR.Hazard(), CR.Flow(:S => 0, [1.0, 2.0]; form = CR.Truncate())
+    )
+    d = CR.Depletion(100.0, CR.Hazard(), CR.Flow(1 => 0, PerStratum([0.1, 0.2, 0.3])))
     r = Recurrence([0.5]; modifiers = (d,))
     @test_throws "demand of Flow(1 => 0) has 3 strata, expected 2" r(
         ones(2, 3); history = ones(2, 1)
@@ -210,7 +221,10 @@ end
     g, h = [0.3, 0.5, 0.2], [5.0]
     R = fill(2.0, 12)
     ω = TimeVarying(collect(range(0.0, 0.2; length = 12)))
-    d = CR.Depletion(500.0; protected = 0.3, removals = 3.0, flows = CR.Flow(2 => 1, ω))
+    d = CR.Depletion(
+        500.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 3.0; form = CR.Truncate()), CR.Flow(2 => 1, ω); pools = (:S, :V)
+    )
     r = Recurrence(g; modifiers = (d,))
     y = r(R; history = h)
     y1, st = r(R[1:5]; history = h, state = true)
@@ -218,15 +232,16 @@ end
     # Inside a function the pool names are constants, so the `Depletion`
     # infers.
     build() = ComposableRecurrences.Depletion(
-        500.0; pools = (:S, :V), weights = (S = 1, V = 0.3),
-        flows = ComposableRecurrences.Flow(:V => :S, 0.1)
+        500.0, ComposableRecurrences.Hazard(; weights = (S = 1, V = 0.3)),
+        ComposableRecurrences.Flow(:V => :S, 0.1); pools = (:S, :V)
     )
     @inferred build()
     @inferred CR._block_step(d, (2.0,), (400.0, 50.0), 3, 1)
     # Float32 throughout gives the Float64 values in Float32.
     d32 = CR.Depletion(
-        500.0f0; protected = 0.3f0, heterogeneity = 1.0f0, removals = 3.0f0,
-        flows = CR.Flow(2 => 1, TimeVarying(Float32.(ω.x)))
+        500.0f0, CR.Hazard(1.0f0; weights = (S = 1, V = 0.3f0)),
+        CR.Flow(:S => :V, 3.0f0; form = CR.Truncate()),
+        CR.Flow(2 => 1, TimeVarying(Float32.(ω.x))); pools = (:S, :V)
     )
     y32 = Recurrence(Float32.(g); modifiers = (d32,))(Float32.(R); history = Float32.(h))
     @test y32 isa Vector{Float32}

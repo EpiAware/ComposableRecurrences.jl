@@ -1,8 +1,6 @@
 # [Time units](@id time-units)
 
 A model has one time unit, its step.
-This page says what is read at that step, and what to do when parameters, data or delays come at another cadence.
-Each section gives the maths, then the line of code.
 
 ```@example time-units
 using ComposableRecurrences, Distributions, CensoredDistributions
@@ -38,7 +36,43 @@ A delay on continuous time is censored with both windows one step wide, its prim
 Recurrence(gi; lags = 15).kernel ≈ ComposableRecurrences.delay_masses(gi, 15)[2:end]
 ```
 
-The [Distributions](@ref extension-distributions) and [CensoredDistributions](@ref extension-censored-distributions) extension pages say how a distribution gives its masses on a step.
+A [discrete distribution](@ref extension-distributions) sums the masses of the whole units in each step, as in the formula above.
+A [continuous one](@ref extension-censored-distributions) also takes the delay's start as uniform within its step, and then censors where it ends to whole steps.
+
+## [Delays in sequence](@id time-units-chained)
+
+A delay made of two delays in sequence, such as incubation then onset to report, has two forms.
+Each is a different model.
+
+When each delay rounds to whole steps before the next one starts, the chain's masses are the full linear convolution of the two delays' masses ``a_l`` and ``b_l``:
+
+```math
+(a \circledast b)_l = \sum_{j=0}^{l} a_j\, b_{l-j}, \qquad l = 0, \dots, L - 1.
+```
+
+A tuple of delays gives this, through the [`delay_masses`](@ref ComposableRecurrences.delay_masses) method for a tuple.
+It also composes delays that are already masses, such as fitted PMFs.
+
+When the delays add in continuous time, the sum ``D = D_1 + D_2`` is one continuous delay, censored once:
+
+```math
+p_l = P\big(l \Delta \le D_1 + D_2 < (l + 1) \Delta\big), \qquad l = 0, \dots, L - 1.
+```
+
+Compose the distributions as distributions, for example with ConvolvedDistributions, and pass the sum as one delay, whose masses come from the [CensoredDistributions](@ref extension-censored-distributions) extension.
+
+A tuple of two continuous delays is the first form: each delay is censored on its own, then the masses are convolved.
+The two forms give different masses, since each censored delay carries its own rounding.
+
+Two gamma delays with the same scale sum to a gamma delay, so the two forms can be compared directly:
+
+```@example time-units
+chained = Convolution((Gamma(5.0, 1.0), Gamma(2.0, 1.0)); lags = 20).kernel
+summed = Convolution(Gamma(7.0, 1.0); lags = 20).kernel
+round(maximum(abs, chained .- summed); digits = 3)
+```
+
+The difference is the rounding that each separately censored delay carries.
 
 ## [Parameters coarser than the step](@id time-units-parameters)
 

@@ -1,25 +1,24 @@
 @doc raw"""
     ComposableRecurrences
 
-Fast, composable and differentiable recurrences and causal convolutions.
+Fast, composable and differentiable recurrences and convolutions.
 
-A recurrence steps a value forward from a window of its own past values, as in
-an autoregression.
-A causal convolution weights past inputs by a kernel, as in a delay.
+A recurrence computes each value from its own past values, such as infections
+from earlier infections.
+A convolution weights the past values of another series, such as reported cases
+from earlier infections.
 For a single series the two are
 
 ```math
-y_t = g_t \sum_{l=1}^{L} k_l\, y_{t-l}
+y_t = \gamma_t \sum_{l=1}^{L} k_l\, y_{t-l}
 \qquad \text{and} \qquad
 y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 ```
 
-where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
+where ``y_t`` is the output at time ``t``, ``\gamma_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
-Every operator is differentiable, and [Backends](@ref adjoint-backends)
-lists the automatic differentiation backends it is tested with.
-The [performance figure](@ref overview-performance) compares run and
-gradient times with a hand-written loop.
+Every operator is differentiable with forward- and reverse-mode
+[automatic differentiation backends](@ref adjoint-backends).
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
 A plain array holds one set of coefficients: a kernel's lag weights, a
@@ -33,7 +32,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | concept              | one way                                                              |
 |:---------------------|:---------------------------------------------------------------------|
 | feedback recursion   | `Recurrence(kernel; coupling, modifiers)`, lag 1 first               |
-| causal convolution   | `Convolution(kernel)`, lag 0 first                                   |
+| convolution          | `Convolution(kernel)`, lag 0 first                                   |
 | strata               | `PerStratum(x)`, `Pairwise(x)`                                       |
 | time variation       | `TimeVarying(x, Secondary())`                                        |
 | strata and time      | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))`             |
@@ -41,8 +40,8 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input       | `add =`, before the modifiers                                        |
 | seed and resume      | `history =`, `prepend = true`, `state =`                             |
 | modifiers            | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Allocate`, `Transform` |
-| pools and flows      | `Depletion(N; pools, weights, flows)`, `Flow(from => to, d)`         |
-| filling a pool       | `Depletion(C; form = Truncate(), fill = :O)`                         |
+| pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
+| filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
 | variants             | structs: `Hazard()`, `Floor()`, `Primary()`                          |
 | extension            | a type with a `forward!` method for a role                           |
 
@@ -84,7 +83,7 @@ using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling, mul!
+using LinearAlgebra: Diagonal, I, Transpose, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
@@ -102,57 +101,79 @@ public Depletion, Flow, Share, Redistribute, movement,
     Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses
+    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number,
+    pressure
 
-# Slot wrappers: time-varying, per-stratum and pairwise coefficients.
-include("wrappers.jl")
+# shapes: slot wrappers and shape and eltype helpers.
+# Time-varying, per-stratum and pairwise coefficients.
+include("shapes/wrappers.jl")
 # Shape and eltype helpers shared by the operators.
-include("utils.jl")
-# Executors: how loops over independent strata, series or times run.
-include("executor.jl")
-# The role interface: roles, `forward!`, `pullback!` and the stage loop.
-include("modifiers.jl")
-# The trace role: what a call with `trace = true` records per modifier.
-include("trace.jl")
-# The operator supertype, `NoAdjoint` and the routing to the native rules.
-include("adjoints.jl")
-# The built-in modifiers and depletion forms.
-include("builtin_modifiers.jl")
-# Parameters computed from other parameters.
-include("derived.jl")
-# Parameters read from the recurrence's own recent outputs.
-include("recent.jl")
-# Depletion forms that draw up to what the pool holds.
-include("truncate.jl")
-# Flows between the pools of a `Depletion`.
-include("flows.jl")
-# `Depletion`: pools drawn from by a depletion form and moved by flows.
-include("pool.jl")
+include("shapes/utils.jl")
 
-# Rescaling groups of strata to exogenous totals.
-include("allocate.jl")
+# interface: roles, the trace role and `PieceInterface`.
+# Roles, `forward!`, `pullback!` and the stage loop.
+include("interface/roles.jl")
+# The trace role: what a call with `trace = true` records per modifier.
+include("interface/trace.jl")
+# `PieceInterface` and its checks; each type declares it beside its methods.
+include("interface/declarations.jl")
+
+# couplings: how strata mix.
 # The built-in couplings, `forward!` and `pullback!` on `Pressure()`.
-include("couplings.jl")
-# The recurrence operator and its buffer loop.
-include("recurrence.jl")
-# A call with its trace, built from the records after the run.
-include("trace_run.jl")
-# The analytic reverse pass of the recurrence.
-include("recurrence_adjoint.jl")
-# The routes kernel: a sum of (coupling, kernel) routes.
-include("routes.jl")
-# The causal convolution operator and its reverse pass.
-include("convolution.jl")
+include("couplings/builtin.jl")
+
+# adjoints: executors and the routing to the native rules.
+# How loops over independent strata, series or times run.
+include("adjoints/executor.jl")
+# The operator supertype, `NoAdjoint` and the routing to the native rules.
+include("adjoints/adjoints.jl")
+
+# modifiers: the built-in modifiers.
+# The built-in modifiers and the exponent depletion forms.
+include("modifiers/builtin.jl")
+# Rescaling groups of strata to exogenous totals.
+include("modifiers/allocate.jl")
+# A pointwise map with parameters.
+include("modifiers/transform.jl")
+
+# parameters: computed, recent-output and change-point parameters.
+# Parameters computed from other parameters.
+include("parameters/derived.jl")
+# Parameters read from the recurrence's own recent outputs.
+include("parameters/recent.jl")
 # `TimeVarying` coefficients given by change points.
-include("piecewise.jl")
-# Default pullbacks of modifiers and couplings without one, whose dual-number
-# code is in an extension.
-include("fallbacks.jl")
+include("parameters/piecewise.jl")
+
+# depletion: `Depletion` forms, flows and pools.
+# Depletion forms that draw up to what the pool holds.
+include("depletion/truncate.jl")
+# Flows between the pools of a `Depletion`.
+include("depletion/flows.jl")
+# `Depletion`: pools drawn from by a depletion form and moved by flows.
+include("depletion/pool.jl")
+
+# operators: `Recurrence` and `Convolution`, their loops and reverse passes.
+# The recurrence operator and its buffer loop.
+include("operators/recurrence.jl")
+# A call with its trace, built from the records after the run.
+include("operators/trace_run.jl")
+# The analytic reverse pass of the recurrence.
+include("operators/recurrence_adjoint.jl")
+# The convolution operator and its reverse pass.
+include("operators/convolution.jl")
+# The pressure a recurrence's steps draw against, from given outputs.
+include("operators/pressure.jl")
+
+# kernels: routes kernels, delay masses and growth rates.
+# The routes kernel: a sum of (coupling, kernel) routes.
+include("kernels/routes.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
-include("delays.jl")
-# Interfaces.jl declaration of the role interface.
-include("interfaces.jl")
-# The Transform modifier, a pointwise map with parameters.
-include("transform.jl")
+include("kernels/delays.jl")
+# The growth rate that matches a reproduction number, and its inverse.
+include("kernels/growth_rate.jl")
+
+# adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
+# Default pullbacks of modifiers and couplings without one.
+include("adjoints/fallbacks.jl")
 
 end # module ComposableRecurrences

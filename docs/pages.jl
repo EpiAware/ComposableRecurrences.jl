@@ -29,10 +29,10 @@ pages = [
     # docs_config.jl.
     "Getting started" => [
         "Overview" => "getting-started/index.md",
-        "FAQ" => "getting-started/faq.md",
         "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
+        "Reproduction number from a run" => "getting-started/tutorials/reproduction-number.md",
         "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
         "Spatial models" => "getting-started/tutorials/spatial-strata.md",
         "Time-varying delays and kernels" => "getting-started/tutorials/time-varying-delays.md",

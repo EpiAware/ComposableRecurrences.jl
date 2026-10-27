@@ -13,8 +13,8 @@ computes the output over the call's times ``t = t_0, \dots, t_1``,
 y = f_{\mathrm{op}}(u), \qquad y = (y_{t_0}, \dots, y_{t_1}),
 ```
 
-with ``f_{\mathrm{op}}`` the operator's own maths (see [`Recurrence`](@ref)
-and [`Convolution`](@ref)); `cache` holds what the reverse pass needs, such
+with ``f_{\mathrm{op}}`` the maths of the operator, a [`Recurrence`](@ref)
+or a [`Convolution`](@ref); `cache` holds what the reverse pass needs, such
 as the [`ComposableRecurrences.State`](@ref).
 It is the role an operator is asked about, as in
 `uses_adjoint(op, Run())`, `PieceInterface` with `role = Run()` and
@@ -49,9 +49,9 @@ A modifier ``M`` maps the step's values and its own state at absolute time
 (v', s') = M(v, s, t), \qquad v, v', s, s' \in \mathbb{R}^S,
 ```
 
-where ``v`` holds one value per stratum (see [`PerStratum`](@ref)), ``s``
-is the modifier's state after the previous step and ``s'`` its state after
-this one.
+where ``v`` holds one value per [stratum](@ref PerStratum), ``s`` is the
+modifier's state after the previous step and ``s'`` its state after this
+one.
 A pointwise modifier acts on each stratum ``i`` separately,
 ``(v'_i, s'_i) = M_i(v_i, s_i, t)``.
 
@@ -65,20 +65,20 @@ A pointwise modifier acts on each stratum ``i`` separately,
   - `forward!(m, Step(), v, s, t, g)` is the group step of a blockwise
     modifier ([`ComposableRecurrences.blocks`](@ref)), with `v` and `s`
     tuples of one-entry views of group `g`'s values and state.
-  - `forward!(form, Step(), v, s, N, α)` draws `v` from pool `s` in place
-    for a depletion form, with `v` and `s` views and `N` and `α` numbers.
+  - `forward!(form, Step(), v, s, N)` draws `v` from pool `s` in place
+    for a depletion form, with `v` and `s` views and `N` a number.
 
 A step writes its outputs and returns `nothing`; one that returns anything
 else is an error.
-[Roles](@ref extending-roles) gives the matching
-[`ComposableRecurrences.pullback!`](@ref) for each.
+The matching [`ComposableRecurrences.pullback!`](@ref) takes `grads` first
+and then the same arguments, as `pullback!(grads, m, Step(), v, s, t)`.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 v, s = [2.0], [80.0]
-CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, 1.0)
+CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0)
 round.(v; digits = 3), round.(s; digits = 3)
 
 # output
@@ -93,7 +93,7 @@ The role of a modifier's initial state: `forward!(m, Init(), s, history)`
 writes the state `s` (one entry per stratum, or one per pool for a
 [`ComposableRecurrences.Depletion`](@ref) with several, allocated
 by the operator at its buffer eltype) from the full history, and returns
-`nothing`; [Roles](@ref extending-roles) gives the arguments.
+`nothing`.
 
 It sets the state before the first step of the call at ``t_0``,
 
@@ -130,19 +130,19 @@ and returns `nothing`.
 For the built-in couplings
 
 ```math
-q_{t,i} = \sum_{j=1}^{S} C_{t,ij}\, p_{t,j},
+q_{t,i} = \sum_{j=1}^{S} K_{t,ij}\, p_{t,j},
 ```
 
 where ``p_{t,j}`` is stratum ``j``'s kernel convolution of its past values,
-``q_{t,i}`` the pressure on stratum ``i`` and ``C_{t,ij}`` the weight of
-stratum ``j`` in stratum ``i``, with ``S`` strata (see [`PerStratum`](@ref)).
-`λ * I` gives ``C_{t,ij} = \lambda \delta_{ij}``, a matrix `C` gives
-``C_{t,ij}`` = `C[i, j]` at every ``t``, and a [`TimeVarying`](@ref)
-coupling gives ``C_{t,ij}`` = `C.x[i, j, t]`.
+``q_{t,i}`` the pressure on stratum ``i`` and ``K_{t,ij}`` the weight of
+stratum ``j`` in stratum ``i``, with ``S`` [strata](@ref PerStratum).
+`λ * I` gives ``K_{t,ij} = \lambda \delta_{ij}``, a matrix `C` gives
+``K_{t,ij}`` = `C[i, j]` at every ``t``, and a [`TimeVarying`](@ref)
+coupling gives ``K_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
-[A coupling](@ref extending-coupling) writes one with its
-[`ComposableRecurrences.pullback!`](@ref).
+Add a [`ComposableRecurrences.pullback!`](@ref) method for a hand-written
+[gradient](@ref extending-coupling).
 
 # Examples
 ```jldoctest
@@ -208,19 +208,19 @@ For the role's inputs ``u`` it computes its outputs
 o = f_{\mathrm{role}}(u),
 ```
 
-with ``f_{\mathrm{role}}`` the map each role's docstring gives:
+with ``f_{\mathrm{role}}`` the map of the role:
 [`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
 [`ComposableRecurrences.Init`](@ref) an initial state from the history,
-[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = C_t p_t`` and
+[`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = K_t p_t`` and
 [`ComposableRecurrences.Trace`](@ref) a modifier's record
 ``r_t = R_M(v_t, s_{t-1}, v'_t, s_t)``.
 The outputs are written into the leading array arguments, and the method
 returns `nothing`; returning anything else is an error.
-To extend the package, define a type and add this method for its role:
+To extend the package, define a type and add this method for its
+[role](@ref extending-roles):
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's record.
-[Roles](@ref extending-roles) gives each role's arguments.
 
 A pointwise step runs on a [`ComposableRecurrences.Device`](@ref) when it
 reads and writes only `eachindex(v)` entries, and allocates nothing.
@@ -280,13 +280,15 @@ incoming value.
 It returns `nothing`.
 A pointwise or blockwise `Step` gets the same views as its `forward!`, with
 `grads.v` and `grads.s` views of the same entries.
-[Roles](@ref extending-roles) gives the signature and the `grads` fields for
-each role, and [The gradient mirror](@ref extending-mirror)
-the shape of `grads.piece`.
+The [mirror](@ref extending-mirror) `grads.piece` has one entry per field:
+a `Ref` for a float scalar, an array of the same shape for a float array
+and `nothing` for a field held constant.
 An operator's native rule calls a method whose `grads` and arguments after
-the role are untyped (see [`ComposableRecurrences.uses_adjoint`](@ref)).
-Without one, [Rules and plain AD](@ref adjoint-routing) says how the object
-is differentiated.
+the role are untyped, as only such a method sets
+[`ComposableRecurrences.uses_adjoint`](@ref).
+Without one, the object is differentiated by a
+[local dual-number step](@ref adjoint-local-step) inside the rule where that
+is cheap, and the whole operator takes plain AD otherwise.
 
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of
@@ -315,8 +317,8 @@ function pullback! end
 Whether modifier `m` acts on each stratum separately: whether its
 [`ComposableRecurrences.blocks`](@ref) is `(1, 1)`.
 
-A pointwise modifier's step factorises over the ``S`` strata
-(see [`PerStratum`](@ref)): at absolute time ``t``, stratum ``i``'s new
+A pointwise modifier's step factorises over the ``S``
+[strata](@ref PerStratum): at absolute time ``t``, stratum ``i``'s new
 value and state depend only on its own,
 
 ```math
@@ -392,7 +394,8 @@ The default is `nothing`.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Depletion(100.0; protected = 0.3)
+weights = (S = 1, V = 0.3)
+leaky = CR.Depletion(100.0, CR.Hazard(; weights); pools = (:S, :V))
 CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0)), CR.blocks(nothing)
 
 # output
@@ -403,8 +406,8 @@ CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0)), CR.blocks(nothing)
 blocks(m) = nothing
 
 @doc raw"""
-The number of state entries modifier `m` keeps for `S` strata
-(see [`PerStratum`](@ref)), from its [`ComposableRecurrences.blocks`](@ref).
+The number of state entries modifier `m` keeps for `S`
+[strata](@ref PerStratum), from its [`ComposableRecurrences.blocks`](@ref).
 
 The recurrence allocates each modifier's state ``s`` with
 
@@ -420,7 +423,7 @@ A pointwise modifier keeps one entry per stratum, and a `Depletion` with two
 pools keeps the first pool then the second, ``n(m, S) = 2S``.
 Of the built-ins with `blocks` `nothing`, an
 [`ComposableRecurrences.Allocate`](@ref) with imports keeps its import
-pattern as well, as its docstring sets out.
+pattern as well.
 
 # Arguments
 - `m`: the modifier.
@@ -430,7 +433,8 @@ pattern as well, as its docstring sets out.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-leaky = CR.Depletion(100.0; protected = 0.3)
+weights = (S = 1, V = 0.3)
+leaky = CR.Depletion(100.0, CR.Hazard(; weights); pools = (:S, :V))
 CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
 
 # output
@@ -447,7 +451,7 @@ _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 # runs the step per stratum (pointwise) or on the whole vectors. It follows
 # from `blocks`, which follows from the type, so this folds. A built-in may
 # run a pointwise shape on its group kernel instead: `Depletion` does, for a
-# one-pool kind without a step of its own (see `pool.jl`).
+# one-pool kind without a step of its own (see `depletion/pool.jl`).
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))
@@ -504,11 +508,11 @@ the current step.
 A [`Recurrence`](@ref) keeps
 
 ```math
-D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_R)\big)
+D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_m)\big)
 ```
 
 past outputs per stratum, where ``L`` is the kernel length, ``d`` is
-`depth` and ``M_1, \dots, M_R`` are the modifiers.
+`depth` and ``M_1, \dots, M_m`` are the modifiers.
 The kernel reads the last ``L`` of them; the deeper rows are kept for
 objects that read further back than the kernel.
 A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a

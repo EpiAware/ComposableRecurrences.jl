@@ -1,5 +1,5 @@
 @doc raw"""
-Rescales each group of strata (see [`PerStratum`](@ref)) to an exogenous
+Rescales each group of [strata](@ref PerStratum) to an exogenous
 total: the strata of a group keep their shares of the group's value and the
 group takes its total.
 With `imports`, a fraction of each total is shared instead by an import
@@ -565,3 +565,23 @@ function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, vc::AbstractVector, 
     fill!(ū, zero(eltype(ū)))
     return nothing
 end
+
+@implements PieceInterface{(:nstate, :pullback)} Allocate [
+    Arguments(;
+        piece = Allocate([1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))),
+        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Allocate([1:2, 3:3], 1.0), role = Init(),
+        args = (zeros(3), ones(3, 2))
+    ),
+    Arguments(;
+        piece = Allocate(
+            [1:2, 3:3], PerStratum([4.0, 1.0]);
+            imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
+            spill = Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
+        ),
+        role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
+    ),
+]
