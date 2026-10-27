@@ -1,4 +1,4 @@
-# elapsed_s	12751.46395387
+# elapsed_s	13611.915520933999
 status	relerr	compile_s	run_us	plain_us	error	frame	message	name	mode	config	backend	steps	wall
 works	0.0e+00	33.4	9.7	0.1				control	forward	extension	cpu	20	57.11817789077759
 works	0.0e+00	41.4	11.6	1.0				control	reverse	extension	cpu	20	67.13325500488281
@@ -136,3 +136,11 @@ works	2.4e-16	61.9	44.4	4.2				conv_cp_secondary	forward	extension	cpu	400	87.10
 works	3.5e-19	68.8	131.3	4034.5				conv_cp_secondary	reverse	extension	cpu	400	94.10965991020203
 works	4.6e-15	69.3	15.0	4.6				mod_add_cp	forward	extension	cpu	400	93.10856103897095
 works	3.7e-15	71.3	498.5	3962.9				mod_add_cp	reverse	extension	cpu	400	100.11626100540161
+works	1.8e-16	71.3	17.9	3.0				rec_prepend_strata	forward	extension	cpu	20	104.19255709648132
+works	4.2e-16	73.3	166.3	50.9				rec_prepend_strata	reverse	extension	cpu	20	107.13029503822327
+works	1.2e-16	72.0	25.1	1.6				rec_prepend_short	forward	extension	cpu	20	100.12830710411072
+works	1.5e-16	78.9	105.1	86.5				rec_prepend_short	reverse	extension	cpu	20	113.16608810424805
+works	2.2e-16	73.6	31.9	24.4				rec_prepend_strata	forward	extension	cpu	400	104.13126993179321
+works	2.1e-15	77.3	1667.5	18312.0				rec_prepend_strata	reverse	extension	cpu	400	114.14155411720276
+works	1.5e-15	69.8	20.9	23.7				rec_prepend_short	forward	extension	cpu	400	101.1861720085144
+works	1.3e-15	80.9	2047.6	25011.1				rec_prepend_short	reverse	extension	cpu	400	114.14706206321716
