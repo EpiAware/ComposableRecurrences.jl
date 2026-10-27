@@ -1464,8 +1464,9 @@ h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
 
 oldest first, so ``h_L = I_0``.
 For a renewal with generation interval `g` (lag 1 first) and constant
-reproduction number `R`, `r = growth_rate(R, g)` keeps the seed on the
-renewal's own path (see [`ComposableRecurrences.growth_rate`](@ref)).
+reproduction number `R`, the rate `r` from
+[`ComposableRecurrences.growth_rate`](@ref)`(R, g)` keeps the seed on the
+renewal's own path.
 
 # Arguments
 - `I0`: the value at the last time; a vector gives one per stratum.

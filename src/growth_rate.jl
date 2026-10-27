@@ -36,7 +36,7 @@ growth.
 # Arguments
 - `R`: the reproduction number, above 0.
 - `g`: the generation interval, lag 1 first, as a vector of masses or a
-  delay (see [`ComposableRecurrences.delay_masses`](@ref)); not
+  [delay](@ref ComposableRecurrences.delay_masses); not
   normalised.
 
 # Keyword Arguments
