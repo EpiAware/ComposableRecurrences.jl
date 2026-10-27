@@ -2,20 +2,10 @@
 #
 # ## Introduction
 #
-# The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) backend models an outbreak across 11 patches, writing its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
-# The inputs are invented and nothing is fitted.
-#
-# ### What are we going to do in this exercise
-#
-# 1. Build the backend model: a seeded renewal with depletion and movement between patches, then delayed.
-# 2. Check it against the backend-style loops.
-# 3. Take its gradient with Mooncake and Enzyme, checked against ForwardDiff.
-# 4. Compare gradient times with the loops and their hand-written rules.
-# 5. Map the hand-written loops in `BVDOutbreakSize` and `ComposableTuringIDModels` to the package.
-#
-# ### What might I need to know before starting
-#
-# This builds on [Renewal then delay](@ref tutorial-renewal-delay), [Spatial models](@ref tutorial-spatial-strata) and [Adjoints and backends](@ref adjoints-backends).
+# The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) backend models an outbreak across 11 patches.
+# It writes its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
+# The inputs here are invented.
+# It builds on the [Renewal then delay](@ref tutorial-renewal-delay), [Spatial models](@ref tutorial-spatial-strata) and [Adjoints and backends](@ref adjoints-backends) pages.
 
 # ## Packages used
 
@@ -46,7 +36,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # \end{aligned}
 # ```
 #
-# ``N_p`` is patch ``p``'s population, and its pool starts at ``s_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
+# Here ``N_p`` is patch ``p``'s population, and its pool starts at ``s_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
 # The model runs at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
 
 S, T, L, D = 11, 200, 20, 30
@@ -117,10 +107,11 @@ function loop_model(R, ε, N, inputs)
     return (; infections, reports)
 end
 z = loop_model(R, ε, N, inputs)
-maximum(abs, y.reports .- z.reports) / maximum(z.reports)
+report_error = maximum(abs, y.reports .- z.reports) / maximum(z.reports)
+nothing #hide
 
-# The two agree to rounding.
-# The use-case tests check each kernel against the backend's own code, as listed under [Porting from a hand-written loop](@ref porting-hand-loops).
+# The two agree to rounding: the largest difference in reports is ``2 \times 10^{-15}`` of the largest report.
+# The use-case tests check each kernel against the backend's own code, one test per row of the [porting tables](@ref porting-hand-loops).
 #
 # ## Gradients
 #
@@ -146,8 +137,9 @@ end
 loss = make_loss(backend_model, inputs, counts)
 loop_loss = make_loss(loop_model, inputs, counts)
 θ0 = vcat(vec(log.(R)), vec(ε), N)
-length(θ0)
+nothing #hide
 
+# The parameter vector ``\theta`` has 4411 entries: 2200 log reproduction numbers, 2200 importation shares and 11 populations.
 # Mooncake and Enzyme differentiate the model in reverse mode, ForwardDiff in forward mode as the reference.
 # Mooncake also differentiates the loops through their hand-written rules.
 
@@ -162,15 +154,13 @@ backends = [
 grads = Dict(name => DI.gradient(loss, b, θ0) for (name, b) in backends)
 grads["Mooncake, hand rules"] = DI.gradient(loop_loss, last(backends[2]), θ0)
 relerr(a, b) = maximum(abs, a .- b) / maximum(abs, b)
-DataFrame(
-    gradient = ["Mooncake", "Enzyme", "Mooncake, hand rules"],
-    relative_error = [
-        relerr(grads[k], grads["ForwardDiff"])
-            for k in ["Mooncake", "Enzyme", "Mooncake, hand rules"]
-    ]
-)
+@chain DataFrame(gradient = ["Mooncake", "Enzyme", "Mooncake, hand rules"]) begin
+    @transform(:relative_error = relerr.(getindex.(Ref(grads), :gradient), Ref(grads["ForwardDiff"])))
+    data(_) * mapping(:gradient => "", :relative_error) * visual(Scatter, markersize = 14)
+    draw(_; axis = (ylabel = "Relative error against ForwardDiff", yscale = log10, limits = (nothing, (1.0e-16, 1.0e-10))))
+end
 
-# Each reverse-mode gradient matches the ForwardDiff reference to rounding.
+# Each reverse-mode gradient matches the ForwardDiff reference to rounding, with relative errors below ``10^{-12}``.
 # The package's gradient needs no rule written for the model: each operator call takes its own [rule](@ref adjoint-routing) or plain AD.
 #
 # ## Timing against the backend loops
@@ -182,8 +172,8 @@ DataFrame(
 # - the backend-style loop differentiated by the backend, `hand loop`;
 # - the same loop with its hand-written Mooncake rules, `hand rules`.
 #
-# The table gives the minimum times in microseconds, read from `benchmark/results/docs.csv`, so this page times nothing itself.
-# The size gives the days `T`, the kernel length `L` and the patches `S`.
+# The bars are the minimum times in microseconds, read from `benchmark/results/docs.csv`, so this page times nothing itself.
+# Each case names the kernel and its size: the days `T`, the kernel length `L` and the patches `S`.
 # The hand rules are Mooncake rules, so Enzyme has no time for them.
 
 results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv")
@@ -196,8 +186,12 @@ timings = if isfile(results)
             startswith.(:block, "backend "), :status .== "ok",
             in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"]))
         )
-        @transform(:kernel = chopprefix.(:block, "backend "), :min_us = parse.(Float64, :min_us))
-        unstack([:kernel, :size, :target], :method, :min_us)
+        @transform(:case = chopprefix.(:block, "backend ") .* ", " .* :size, :min_us = parse.(Float64, :min_us))
+        data(_) * mapping(
+            :case => "", :min_us => "Minimum time (μs)",
+            color = :method => "", dodge = :method, row = :target
+        ) * visual(BarPlot, fillto = 1)
+        draw(_; axis = (yscale = log10, xticklabelrotation = π / 4), figure = (size = (800, 700),))
     end
 end
 
@@ -206,7 +200,7 @@ end
 # A hand-written loop maps to one operator call per kernel.
 # Each use-case test in the tables matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
 #
-# `BVDOutbreakSize` writes its kernels as functions over the whole series:
+# The backend `BVDOutbreakSize` writes its kernels as functions over the whole series:
 #
 # | Loop | Package | Test |
 # |:--|:--|:--|
@@ -214,11 +208,11 @@ end
 # | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)` | `BVD patch model` |
 # | `convolve_delay(x, delay)` | `Convolution(delay)(x)` | `BVD convolve_delay` |
 #
-# `ComposableTuringIDModels` writes each step for an `accumulate_scan`:
+# The package `ComposableTuringIDModels` writes each step for an `accumulate_scan`:
 #
 # | Step | Package | Test |
 # |:--|:--|:--|
-# | `RenewalStep` with `UniformScaling` mixing | `Recurrence(g)`, one series or one row per stratum | `renewal`, `strata with identity mixing` |
+# | `RenewalStep` with `UniformScaling` mixing | `Recurrence(g)`, one vector or one row per stratum | `renewal`, `strata with identity mixing` |
 # | `RenewalStep` with matrix mixing `K` | `Recurrence(g; coupling = K)` | `strata with a mixing matrix` |
 # | `RenewalStep` with `SusceptibleDepletion(N)` | `Depletion(N, Floor())` in `modifiers` | `renewal with susceptible depletion` |
 # | `LDStep` in `LatentDelay` | `Convolution(pmf)(Y)[d:end]` | `fixed reporting delay (LatentDelay)` |
@@ -226,10 +220,10 @@ end
 #
 # Four conventions differ between the loops and the package:
 #
-# - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as a recurrence's first weight is on the [previous value](@ref explanation-lag-origin).
-# - `BVDOutbreakSize` reads `Rt` on the seed days and returns them first: `start` skips them and `prepend` returns them.
-# - `ComposableTuringIDModels` seeds on a growth path: [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives the same window.
-# - `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.
+# - Generation interval: `ComposableTuringIDModels` stores it reversed, and the package takes it lag 1 first, as a recurrence's first weight is on the [previous value](@ref explanation-lag-origin).
+# - Seed days: `BVDOutbreakSize` reads `Rt` on them and returns them first, and `start` skips them and `prepend` returns them.
+# - Seeding: `ComposableTuringIDModels` seeds on a growth path, and [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds the same window.
+# - Reporting window: `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.
 
 # ## Learning more
 #
