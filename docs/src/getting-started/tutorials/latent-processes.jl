@@ -191,8 +191,10 @@ end
     data(_) * visual(Lines, linewidth = 2) * mapping(
         :value, :total; linestyle = :line => sorter(line_names) => "", layout = :parameter
     )
-    draw(_; axis = (xlabel = "Parameter value", ylabel = "Total infections"),
-        facet = (; linkxaxes = :none))
+    draw(
+        _; axis = (xlabel = "Parameter value", ylabel = "Total infections"),
+        facet = (; linkxaxes = :none)
+    )
 end
 
 # Each tangent touches its curve at the point, so the gradient matches the slope.
@@ -257,8 +259,10 @@ end
     data(_) * visual(Lines, linewidth = 2) * mapping(
         :value, :total; linestyle = :line => sorter(line_names) => "", layout = :parameter
     )
-    draw(_; axis = (xlabel = "Parameter value", ylabel = "Total infections"),
-        facet = (; linkxaxes = :none))
+    draw(
+        _; axis = (xlabel = "Parameter value", ylabel = "Total infections"),
+        facet = (; linkxaxes = :none)
+    )
 end
 
 # A stronger response lowers the total, and a higher ``R`` raises it.
