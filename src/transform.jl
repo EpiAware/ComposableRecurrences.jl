@@ -2,7 +2,7 @@
 Maps each stratum's value through a function `f`, with optional
 parameters `θ`.
 
-At time ``t``, for each stratum ``i`` (see [`PerStratum`](@ref)),
+At time ``t``, for each [stratum](@ref PerStratum) ``i``,
 
 ```math
 v'_i = f(v_i, \theta_{t,i}), \qquad s'_i = s_i,

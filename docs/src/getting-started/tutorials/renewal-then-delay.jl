@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
-# This tutorial adds the parts it leaves out.
 #
 # ### What are we going to do in this exercise
 #
@@ -16,7 +15,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on the [Getting started](@ref getting-started) example, with no fitting.
+# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 
@@ -37,10 +36,17 @@ T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 infections = renewal(R; history = [5.0])
 
+@chain DataFrame(day = 1:T, count = infections) begin
+    data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
+    draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
+end
+
+# Infections grow while ``R_t`` is above one and fall while it is below one.
+
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
-# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a seed already growing at rate `r` (see [Seeding](@ref explanation-seeding)).
+# [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a [seed](@ref explanation-seeding) already growing at rate `r`.
 # [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves the equation linking `r` to `R` for the generation interval.
 
 r0 = ComposableRecurrences.growth_rate(R[1], gi)
@@ -51,8 +57,8 @@ round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 # ## Susceptible depletion
 #
-# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the hazard form, which [Getting started](@ref overview-build) gives.
-# `Depletion(N, Floor())` draws them by the floored form, which [`Floor`](@ref ComposableRecurrences.Floor) gives.
+# `Depletion(N)` draws each day's infections from a pool of `N` susceptibles by the [hazard form](@ref ComposableRecurrences.Hazard).
+# `Depletion(N, Floor())` draws them by the [floored form](@ref ComposableRecurrences.Floor).
 
 N = 2_000.0
 R_high = fill(1.8, T)
@@ -175,7 +181,7 @@ end
 # ## Clinical outcomes
 #
 # A reporting delay is a `Convolution` with the ascertainment as its gain, as in [Getting started](@ref overview-build).
-# Its masses are on whole days, the model's step; [Time units](@ref time-units) covers delays and data at another cadence.
+# Its masses are on whole days, the model's [step](@ref time-units).
 # Each clinical transition is the same: a delay that happens with some probability.
 # Onsets ``O_t`` follow infections.
 # Admissions follow onsets with probability ``h``.
@@ -199,7 +205,7 @@ round.((sum(admissions), sum(deaths)) ./ sum(infections); digits = 3)
 #
 # `renewal(R; history, stop = 50, state = true)` runs to day 50 and also returns a `State`.
 # Here the state holds the infections ``I_{46}, \dots, I_{50}`` and the next day, 51.
-# Passing it back as `state` continues the run, and returns the next `State`; [History and state](@ref explanation-history-state) explains what a `State` holds.
+# Passing it back as `state` continues the run, and returns the next [`State`](@ref explanation-history-state).
 
 split = 50
 fitted, state = renewal(R; history = [5.0], stop = split, state = true)

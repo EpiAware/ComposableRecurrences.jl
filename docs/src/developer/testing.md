@@ -2,7 +2,7 @@
 
 These tools check a new modifier, coupling or depletion form, and time the package.
 
-[Checking a new type](@ref extending-checks) tests a new type's `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and its `pullback!` against ForwardDiff and plain AD.
+A new type's `forward!` is [checked](@ref extending-checks) against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), and its `pullback!` against ForwardDiff and plain AD.
 
 ## [Comparing with plain automatic differentiation](@id compare-plain-ad)
 
@@ -22,11 +22,11 @@ R = fill(1.4, 60)
 )
 ```
 
-Time a rule on a reverse-mode backend; [Backends](@ref adjoint-backends) says why.
+Time a rule on a reverse-mode backend, as forward-mode [backends](@ref adjoint-backends) never take it.
 
 ## [Rule timings](@id rule-timings)
 
-[Which rules are kept](@ref rule-policy) gives the policy these timings support.
+A rule is [kept](@ref rule-policy) only where it beats plain AD by about 10% in reverse mode on Mooncake or Enzyme.
 The table gives the rule time over the `NoAdjoint` time, from benchmark matrix cases at `T` 200 and `L` 20 where one covers it, else from the small CI scenarios (marked ¹).
 
 | Rule switched on by | Mooncake reverse | Enzyme reverse | Decision |
@@ -100,7 +100,7 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
 Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
-The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; the [backend case study](@ref tutorial-backend-case-study) builds the model they time.
+The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; they time the model of the [backend case study](@ref tutorial-backend-case-study).
 They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend, and a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
 The `handrule` arm runs on Mooncake reverse only, since on any other target it is the `loop` arm.
 
@@ -117,7 +117,7 @@ task -t benchmark/Taskfile.yml matrix -- --tier=realistic --targets=primal \
 The report adds an executor table with each threaded run's speed-up over the serial one-thread run of the same target.
 Run the serial one-thread run into the same directory first; without it the report says so and leaves the table out.
 Serial runs on more than one thread are labelled `<target> @ t<n>` and stay out of the executor table.
-[Executors](@ref executors) says which passes run threaded under each backend.
+Under the `Threaded()` [executor](@ref executors), ForwardDiff gradients run threaded, and Mooncake and Enzyme thread only a rule's forward and reverse passes.
 Each row records the load average when its cell started, so a busy machine shows in the results.
 
 ## Gradient tests and use-case tests
@@ -137,14 +137,14 @@ Each backend job compiles every scenario and test item it runs, so a check in th
 Put each check at the cheapest level that runs its code path.
 
 - The maths of a `pullback!` goes in `test/unit`, against a ForwardDiff Jacobian on small inputs.
-  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`, as [Checking a new type](@ref extending-checks) shows.
+  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`.
   For a whole call, use `pullback_matches` (`test/unit/adjoints.jl`).
   These need no AD backend.
 - A new rule path, such as a new operator, a new kind of field or a new wrapper of the call, gets one small scenario in `_SCENARIOS`.
   Every backend job runs it through its rule against ForwardDiff.
 - Every scenario has a `NoAdjoint` twin, which Mooncake reverse and Enzyme reverse run: there the twin is the only check that the backend differentiates a built-in's own forward code.
   ForwardDiff, ReverseDiff and the forward modes take the same plain path for a scenario and its twin, so they run the scenarios alone (`category = :rules`).
-  A new method of a call on `NoAdjoint` itself needs a check on each of these backends, as the item "Without a rule: the NoAdjoint wrapper's own calls" gives the ones there now.
+  A new method of a call on `NoAdjoint` itself needs a check on each of these backends, in the item "Without a rule: the NoAdjoint wrapper's own calls".
   The benchmarks time every twin.
 - `test_adjoint` checks one registry operator of each kind of field and wrapper, listed in `ADJOINT_SCENARIOS` in `test/ad/adjoints.jl`.
   Add a scenario there only when it brings a kind of field or wrapper the list lacks, or a branch for a constant part that Enzyme's pass with the operator constant reaches.

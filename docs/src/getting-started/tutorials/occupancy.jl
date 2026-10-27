@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
-# This tutorial models occupancy, bed capacity and the movement of patients within a ward.
 #
 # ### What are we going to do in this exercise
 #
@@ -15,7 +14,7 @@
 #
 # ### What might I need to know before starting
 #
-# The [Getting started](@ref getting-started) overview; no fitting is involved.
+# The [Getting started](@ref getting-started) overview.
 
 # ## Packages used
 
@@ -179,8 +178,7 @@ end
 maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
 # An allowance granted each period works the same way, with a pool drawn from rather than filled.
-# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B`.
-# The [`Depletion`](@ref ComposableRecurrences.Depletion) docstring gives it and the other models of pools and flows.
+# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B` of a [`Depletion`](@ref ComposableRecurrences.Depletion).
 
 # ## A ward with two linked compartments
 #

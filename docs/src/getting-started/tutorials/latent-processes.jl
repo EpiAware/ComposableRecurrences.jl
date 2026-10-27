@@ -15,7 +15,7 @@
 #
 # ### What might I need to know before starting
 #
-# The [Getting started](@ref getting-started) example and AR processes; no fitting is involved.
+# The [Getting started](@ref getting-started) example and AR processes.
 
 # ## Packages used
 
