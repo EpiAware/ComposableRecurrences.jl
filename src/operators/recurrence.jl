@@ -416,11 +416,12 @@ _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
 _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
 # A run of independent strata with no modifiers waits each step on its
 # kernel convolution alone (`_Chained`). The newest lag, the previous step's
-# value, is then added last, after the vector loop over the older lags,
-# which do not wait on that step; so each step waits on one fused
-# multiply-add. This holds for hardware floats; dual numbers keep one
-# out-of-line loop, as do other runs, where the split gains nothing and costs
-# `Enzyme` more. Both forms start from `+0.0`, so they agree on signed zeros.
+# value, is then added last, after the loop over the older lags, which do
+# not wait on that step; so each step waits on one fused multiply-add. This
+# holds for hardware floats and dual numbers (the ForwardDiff extension);
+# other runs keep one out-of-line loop, where the split gains nothing and
+# costs `Enzyme` more. Both forms start from `+0.0`, so they agree on signed
+# zeros.
 struct _Chained{G}
     g::G
 end
@@ -435,7 +436,7 @@ end
 @inline function _window_dot(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
     L >= 1 || return acc
-    @inbounds @simd for i in 1:(L - 1)
+    @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
         acc += g[i] * H[t + i - 1, a]
     end
     return @inbounds muladd(g[L], H[t + L - 1, a], acc)
