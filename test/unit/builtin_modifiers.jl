@@ -131,6 +131,25 @@ end
     @test CR._draw(Float64Form(), 2.0, 80.0, 60.0) === (2.0, 78.0)
 end
 
+@testitem "Depletion: a Bool exponent's hazard step on dual numbers" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # The step with `α = true` or `false` against the exponent 1.0 or 0.0,
+    # for floats and for dual numbers carrying the inputs' derivatives.
+    v0, s0 = [0.5, 150.0, 20.0], [80.0, 60.0, 5.0]
+    function step(v, s, α)
+        v, s = copy(v), copy(s)
+        CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, α)
+        return vcat(v, s)
+    end
+    for (α, a) in ((true, 1.0), (false, 0.0))
+        @test step(v0, s0, α) ≈ step(v0, s0, a)
+        θ = vcat(v0, s0)
+        J = ForwardDiff.jacobian(x -> step(x[1:3], x[4:6], α), θ)
+        @test J ≈ ForwardDiff.jacobian(x -> step(x[1:3], x[4:6], a), θ)
+    end
+end
+
 @testitem "Depletion: one population per stratum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences

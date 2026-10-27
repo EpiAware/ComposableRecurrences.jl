@@ -1,6 +1,6 @@
 # A call with its trace: the output of `op` (a `Recurrence` or its
 # `_WithState`) and each modifier's trace, built after the run from the
-# records the rule keeps.
+# records the rule keeps, or in each step of a run without records.
 struct _WithTrace{O <: AbstractOperator} <: AbstractOperator
     op::O
 end
@@ -19,7 +19,99 @@ end
 # a scalar field read back from a value that also holds arrays.
 _traced_recurrence(r::Recurrence) = r
 _traced_recurrence(w::_WithState) = w.r
+# A call that keeps no records writes each modifier's trace in its step
+# (`_TraceSink`) on host arrays. Elsewhere it runs the traced rule's forward
+# pass, which records the run and builds the trace after it.
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
+function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
+    return _traced_primal(w.op, gain, add, h, s0, τ0, stop)
+end
+# With `prepend` the run writes the joined output itself.
+function _primal(
+        p::_Prepended{<:_WithTrace{<:Recurrence}}, gain, add, h::_CPUArray, s0, τ0,
+        stop
+    )
+    return _traced_primal(p.op.op, gain, add, h, s0, τ0, stop, Val(true))
+end
+function _traced_primal(
+        r::Recurrence, gain, add, h, s0, τ0, stop, joined::Val = Val(false)
+    )
+    Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace), joined)
+    return Y, (; modifiers = tr)
+end
+function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
+    Y, H, states, tr = _recur(w.r, gain, add, h, s0, τ0, stop, Val(:trace))
+    return (Y, _state(Y, H, states, h, τ0)), (; modifiers = tr)
+end
+
+# A modifier's trace as the run writes it, with copies `v` and `s` of the
+# step's inputs for a step on the whole vectors that is not pointwise.
+# `out` starts unset, as each step writes its column.
+struct _TraceSink{O, V, W}
+    out::O
+    v::V
+    s::W
+    S::Int
+end
+# A modifier whose state never changes writes no trace, so its trace is
+# zeros.
+struct _NoTrace{O}
+    out::O
+end
+_sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T) where {Tp} = nothing
+function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
+    return map(ms, states) do m, s
+        n = ntrace(m, S)
+        _stateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
+        out = similar(h, Tp, n, T)
+        _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
+        return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
+    end
+end
+_sink_traces(::Nothing) = nothing
+_sink_traces(rec::Tuple) = map(R -> R.out, rec)
+
+# A trace sink keeps no records.
+_record!(::Union{_TraceSink, _NoTrace}, v, s, t, k) = nothing
+@inline _trace_step!(::_NoTrace, m, v, s, v′, s′, τ, t, k) = nothing
+_stage_rec!(::_NoTrace, m, v, s, τ, t) = _stage!(m, v, s, τ)
+# Stratum `k`'s trace of a pointwise modifier at step `t`, on one-entry
+# views as `_step` runs the step. Inlined, so the slots stay off the heap.
+@inline function _trace_step!(R::_TraceSink, m, v, s, v′, s′, τ, t, k)
+    at = x -> _At(x, k)
+    r = map(at, _trace_series(view(R.out, :, t), Val(ntrace(m, 1)), R.S))
+    foreach(x -> x[] = zero(eltype(x)), r)
+    _written(
+        m, @inline forward!(
+            m, Trace(), r, at(Ref(v)), at(Ref(s)), at(Ref(v′)), at(Ref(s′)), τ
+        )
+    )
+    return nothing
+end
+# A modifier's step on the whole vectors: a pointwise modifier's runs and
+# writes its trace stratum by stratum, as `_thread` does; any other keeps
+# its inputs, then writes its trace.
+function _stage_rec!(R::_TraceSink, m, v, s, τ, t)
+    return _stage_trace!(Val(_strata_loop(m)), R, m, v, s, τ, t)
+end
+function _stage_trace!(::Val{true}, R, m, v, s, τ, t)
+    for k in eachindex(v, s)
+        vk, sk = v[k], s[k]
+        v′, s′ = _step(m, vk, sk, τ, k)
+        v[k], s[k] = v′, s′
+        _trace_step!(R, m, vk, sk, v′, s′, τ, t, k)
+    end
+    return nothing
+end
+function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
+    _copy_trace!(R.v, v)
+    _copy_trace!(R.s, s)
+    _stage!(m, v, s, τ)
+    col = view(R.out, :, t)
+    fill!(col, zero(eltype(col)))
+    _trace!(col, m, R.v, R.s, v, s, τ)
+    return nothing
+end
 function _prepend_output(w::_WithTrace, h, (y, tr), join = _join)
     return (_prepend_output(w.op, h, y, join), tr)
 end
