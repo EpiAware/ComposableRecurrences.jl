@@ -139,3 +139,16 @@ end
     )
     @test (@inferred beds()) isa CR.Depletion
 end
+
+@testitem "Eltypes: kernel sums of dual numbers add the lags in order" begin
+    using ComposableRecurrences, ForwardDiff
+    using ComposableRecurrences: _window_sum, _lag_dot
+    # `@simd` reorders these sums, and slows them, so they take the plain loop.
+    D = ForwardDiff.Dual{Nothing, Float64, 12}
+    dual(i, a) = D(sin(i + 3a), ForwardDiff.Partials(ntuple(j -> cos(i * j + a), 12)))
+    H = [dual(i, a) for i in 1:40, a in 1:2]
+    g = [exp(-0.3i) for i in 1:20]
+    ordered(f, r) = foldl((acc, i) -> acc + f(i), r; init = zero(D))
+    @test _window_sum(g, H, 5, 20, 2) === ordered(i -> g[i] * H[4 + i, 2], 1:20)
+    @test _lag_dot(g, H, 2, 30) === ordered(d -> g[d + 1] * H[30 - d, 2], 0:19)
+end
