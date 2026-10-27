@@ -124,28 +124,34 @@
         ),
         "Depletion (Floor), PerStratum population" =>
             d -> Recurrence(
-            d(g0); modifiers = (Depletion(PerStratum(d(NS)); form = Floor()),)
+            d(g0); modifiers = (Depletion(PerStratum(d(NS)), Floor()),)
         )(d(RS); history = d(HS)),
         "Depletion, heterogeneity and starting pool" =>
             d -> Recurrence(
-            d(g0); modifiers = (Depletion(60.0; heterogeneity = 2.0, pools = (S = 50.0,)),)
+            d(g0); modifiers = (Depletion(60.0, Hazard(2.0); pools = (S = 50.0,)),)
         )(d(R0); history = d(H1)),
         "Depletion with removals" =>
             d -> Recurrence(
             d(g0);
-            modifiers = (Depletion(60.0; removals = TimeVarying(d(0.5 .+ 0.2 .* sin.(1:T)))),)
+            modifiers = (
+                Depletion(
+                    60.0, Hazard(),
+                    Flow(
+                        :S => 0, TimeVarying(d(0.5 .+ 0.2 .* sin.(1:T)));
+                        form = Truncate()
+                    )
+                ),
+            )
         )(d(1.5 .* R0); history = d(H1)),
         "Depletion with a protected pool" =>
             d -> Recurrence(
             d(g0);
             modifiers = (
                 Depletion(
-                    PerStratum(d(NS));
-                    pools = (S = nothing, V = PerStratum(d([1.0, 2.0, 3.0]))),
-                    weights = (S = 1, V = PerStratum(d([0.3, 0.2, 0.1]))),
-                    flows = (
-                        Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
-                    )
+                    PerStratum(d(NS)),
+                    Hazard(; weights = (S = 1, V = PerStratum(d([0.3, 0.2, 0.1])))),
+                    Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate());
+                    pools = (S = nothing, V = PerStratum(d([1.0, 2.0, 3.0])))
                 ),
             )
         )(d(RS); history = d(HS)),
@@ -153,13 +159,11 @@
             d -> Recurrence(
             d([1.0]);
             modifiers = (
-                Depletion(;
-                    pools = (:A, :B, :C), form = nothing, flows = (
-                        Flow(1 => 2, PerStratum(d([0.3]))),
-                        Flow(1 => 0, 0.05),
-                        Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
-                        Flow(3 => 0, 0.2; form = Truncate()),
-                    )
+                Depletion(
+                    Flow(1 => 2, PerStratum(d([0.3]))),
+                    Flow(1 => 0, 0.05),
+                    Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
+                    Flow(3 => 0, 0.2; form = Truncate()); pools = (:A, :B, :C)
                 ),
             )
         )(d(RS); history = d(HS[:, end:end])),
@@ -168,13 +172,11 @@
             d(g0);
             modifiers = (
                 Depletion(
-                    PerStratum(d(NS)); pools = (:S, :V),
-                    form = Hazard(), weights = (S = 1, V = PerStratum(d([0.3, 0.2, 0.1]))),
-                    flows = (
-                        Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
-                        Flow(2 => 1, PerStratum(d([0.05, 0.1, 0.2]))),
-                        Flow(1 => 0, 0.01; form = Share()),
-                    )
+                    PerStratum(d(NS)),
+                    Hazard(; weights = (S = 1, V = PerStratum(d([0.3, 0.2, 0.1])))),
+                    Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
+                    Flow(2 => 1, PerStratum(d([0.05, 0.1, 0.2]))),
+                    Flow(1 => 0, 0.01; form = Share()); pools = (:S, :V)
                 ),
             )
         )(d(RS); history = d(HS)),
@@ -183,8 +185,8 @@
             d(g0);
             modifiers = (
                 Depletion(
-                    PerStratum(d(NS));
-                    flows = (Flow(1 => 0, PerStratum(d([0.01, 0.02, 0.03]))),)
+                    PerStratum(d(NS)), Hazard(),
+                    Flow(1 => 0, PerStratum(d([0.01, 0.02, 0.03])))
                 ),
             )
         )(d(RS); history = d(HS)),
@@ -276,8 +278,8 @@
             modifiers = (
                 Depletion(PerStratum(d(NS))), Redistribute(d(movement(K0 - 0.5I, 0.1))),
                 Depletion(
-                    60.0; pools = (:S, :V), form = Hazard(), weights = (S = 1, V = 0.3),
-                    flows = (Flow(1 => 2, 0.2; form = Truncate()),)
+                    60.0, Hazard(; weights = (S = 1, V = 0.3)),
+                    Flow(1 => 2, 0.2; form = Truncate()); pools = (:S, :V)
                 ),
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
             )
@@ -388,7 +390,7 @@ end
     ka = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     m = CR.Depletion(PerStratum([60.0, 50.0]); pools = (S = PerStratum([50.0, 40.0]),))
     y = adapt(Array{Float32}, m)
-    println("RESULT ", gpu === nothing, " ", ka !== nothing, " ", eltype(y.N.x), " ", y isa CR.Depletion)
+    println("RESULT ", gpu === nothing, " ", ka !== nothing, " ", eltype(y.pieces[1].N.x), " ", y isa CR.Depletion)
     """
     out = read(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $code`, String)
     @test "RESULT true true Float32 true" in split(out, '\n')
@@ -492,22 +494,19 @@ end
             ComposableRecurrences._oldest_first(Pairwise(JLArray(ones(3, 3, 2)))),
             TimeVarying([JLArray([0.5, 0.5]), JLArray([1.0])]),
             Depletion(
-                PerStratum(v); pools = (:S, :V),
-                form = Hazard(), weights = (S = 1, V = PerStratum(v)),
-                flows = (Flow(1 => 2, tv; form = Truncate()),)
+                PerStratum(v), Hazard(; weights = (S = 1, V = PerStratum(v))),
+                Flow(1 => 2, tv; form = Truncate()); pools = (:S, :V)
             ),
             Add(tv), Clamp(PerStratum(v), tv), Redistribute(m),
             Transform(*, 0.8 * Derived(exp, tv)),
-            Depletion(;
-                pools = (:A, :B), form = nothing, flows = (
-                    Flow(1 => 2, PerStratum(v)),
-                    Flow(2 => 0, tv; form = Share()),
-                    Flow(1 => 0, tv; form = Truncate()),
-                )
+            Depletion(
+                Flow(1 => 2, PerStratum(v)),
+                Flow(2 => 0, tv; form = Share()),
+                Flow(1 => 0, tv; form = Truncate()); pools = (:A, :B)
             ),
             Depletion(
-                PerStratum(v); pools = (:S, :V), weights = (S = 1, V = 0.3),
-                flows = (Flow(2 => 1, PerStratum(v)),)
+                PerStratum(v), Hazard(; weights = (S = 1, V = 0.3)),
+                Flow(2 => 1, PerStratum(v)); pools = (:S, :V)
             ),
         )
         @test holds_host(x)
@@ -535,7 +534,7 @@ end
     @test rd isa Recurrence
     @test rd.kernel isa JLArray
     @test rd.coupling isa JLArray
-    @test rd.modifiers[1].N.x isa JLArray
+    @test rd.modifiers[1].pieces[1].N.x isa JLArray
     @test rd.modifiers[2].total.x isa JLArray
     @test Array(rd(JLArray(R); history = JLArray(H))) ≈ r(R; history = H)
     c = Convolution(PerStratum(repeat(g', 3)))

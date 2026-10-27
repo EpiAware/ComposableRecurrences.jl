@@ -850,6 +850,7 @@ function _failed(ps::Tuple, oks::Tuple)
     rest = _failed(Base.tail(ps), Base.tail(oks))
     return first(oks) ? rest : (first(ps), rest...)
 end
+_rebuild_why(p::_FormPart) = _rebuild_why(p.form)
 function _rebuild_why(p)
     name = nameof(typeof(p))
     _reads_too_many(p) &&
@@ -867,10 +868,11 @@ _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
     return _modifier_adjoint(m) === :local && _holds_floats(m) ? (m,) : ()
 end
-function _local_modifier(m::Depletion)
-    return _rebuilt_form(m.form) ? (m.form,) : ()
+_local_modifier(m::Depletion) = _rebuilt_forms(_forms(m.pieces)...)
+_rebuilt_forms() = ()
+function _rebuilt_forms(f, fs...)
+    return (_rebuilt_form(f) ? (_FormPart(f),) : ())..., _rebuilt_forms(fs...)...
 end
-_rebuilt_form(::Nothing) = false
 function _rebuilt_form(f)
     return !uses_adjoint(f, Step()) && _scalar_params(f) && _param_tuple(f) !== ()
 end
@@ -901,10 +903,9 @@ function _part_why(m)
     _derived_local(m) || return "$name has a Derived map that holds floats"
     return "$name has no pullback! the rule can use"
 end
-function _part_why(m::Depletion)
-    _form_adjoint(m.form) && return "Depletion has a Derived map that holds floats"
-    return _part_why(m.form)
-end
+_part_why(m::Depletion) = _form_why(_forms(m.pieces)...)
+_form_why() = "Depletion has a Derived map that holds floats"
+_form_why(f, fs...) = _form_adjoint(f) ? _form_why(fs...) : _part_why(f)
 
 # How many passes of dual numbers a coupling's local derivative needs per
 # step: one while the strata and its scalars fit in one (`_LOCAL_PRESSURE`),
@@ -1462,13 +1463,9 @@ h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
 ```
 
 oldest first, so ``h_L = I_0``.
-For a renewal with generation interval ``g`` (lag 1 first) and constant
-reproduction number ``R``, the growth rate that keeps the seed on the
-renewal's own path solves
-
-```math
-1 = R \sum_{l \ge 1} g_l\, e^{-r l}.
-```
+For a renewal with generation interval `g` (lag 1 first) and constant
+reproduction number `R`, `r = growth_rate(R, g)` keeps the seed on the
+renewal's own path (see [`ComposableRecurrences.growth_rate`](@ref)).
 
 # Arguments
 - `I0`: the value at the last time; a vector gives one per stratum.

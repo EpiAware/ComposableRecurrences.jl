@@ -24,6 +24,16 @@
     @test Interfaces.test(
         CR.PieceInterface{(:pullback,)}, typeof(K), (obj,); show = false
     )
+    # A built-in form's pullback check takes the population as any real.
+    for form in (CR.Hazard(1.5), CR.Floor(1.5), CR.Truncate(), CR.SoftTruncate(0.1)),
+            N in (100, 100.0)
+        obj = Interfaces.Arguments(;
+            piece = form, role = CR.Step(), args = ([2.0, 3.0], [80.0, 60.0], N)
+        )
+        @test Interfaces.test(
+            CR.PieceInterface{(:pullback,)}, typeof(form), (obj,); show = false
+        )
+    end
 end
 
 @testitem "Interfaces: a wrong pullback! fails the pullback check" begin
@@ -60,32 +70,36 @@ end
     @test check(Gain, gain(1.0))
     @test !check(Gain, gain(1.01))
     # A depletion form whose `α` cotangent is missing.
-    struct Share{B} end
-    function CR.forward!(::Share, ::CR.Step, v, s, N, α)
+    struct Share{A}
+        α::A
+        adds_α::Bool
+    end
+    function CR.forward!(f::Share, ::CR.Step, v, s, N)
         for k in eachindex(v, s)
-            y = v[k] * (s[k] / N)^α
+            y = v[k] * (s[k] / N)^f.α
             v[k], s[k] = y, s[k] - y
         end
         return nothing
     end
-    function CR.pullback!(grads, ::Share{B}, ::CR.Step, v, s, N, α) where {B}
+    function CR.pullback!(grads, f::Share, ::CR.Step, v, s, N)
+        α = f.α
         for k in eachindex(v, s)
             ȳ, s̄′ = grads.v[k], grads.s[k]
             r = s[k] / N
-            f = r^α
+            p = r^α
             ḡ = ȳ - s̄′
-            grads.v[k] = ḡ * f
+            grads.v[k] = ḡ * p
             grads.s[k] = s̄′ + ḡ * v[k] * α * r^(α - 1) / N
-            grads.N[k] -= ḡ * v[k] * α * f / N
-            B && (grads.α[k] += ḡ * v[k] * f * log(r))
+            grads.N[k] -= ḡ * v[k] * α * p / N
+            f.adds_α && CR.add_cotangent!(CR.cotangent(grads.piece, :α), ḡ * v[k] * p * log(r))
         end
         return nothing
     end
     share(B) = Interfaces.Arguments(;
-        piece = Share{B}(), role = CR.Step(), args = ([2.0], [60.0], 80.0, 1.5)
+        piece = Share(1.5, B), role = CR.Step(), args = ([2.0], [60.0], 80.0)
     )
-    @test check(Share{true}, share(true))
-    @test !check(Share{false}, share(false))
+    @test check(Share, share(true))
+    @test !check(Share, share(false))
     # A coupling whose pullback forgets the transpose.
     struct Mix{M}
         M::M
@@ -363,8 +377,8 @@ end
     CR = ComposableRecurrences
     # A protected pool keeps two entries per stratum.
     d = CR.Depletion(
-        100.0; pools = (:S, :V), form = CR.Hazard(), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(1 => 2, 1.0; form = CR.Truncate()),)
+        100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     objs = (
         Interfaces.Arguments(; piece = d, role = CR.Init(), args = (zeros(4), ones(2, 3))),
@@ -456,8 +470,7 @@ end
     # pullback! as a user's pieces do, and the operators reach them through
     # the same step on one stratum's view.
     pool = CR.Depletion(
-        100.0; pools = (:S,), form = CR.Hazard(),
-        flows = (CR.Flow(0 => 1, 2.0; form = CR.Truncate()),)
+        100.0, CR.Hazard(), CR.Flow(0 => 1, 2.0; form = CR.Truncate()); pools = (:S,)
     )
     for m in (CR.Depletion(PerStratum([100.0, 80.0])), pool)
         v, s = [2.0, 3.0], [70.0, 60.0]
@@ -475,17 +488,22 @@ end
     grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = 1.0, s = 0.0)
     @test CR._step_back(grads, CR.Clamp(0.0, 1.0), 2.0, 0.0, 1, 1) == (0.0, 0.0)
     @test grads.piece.hi[] == 1.0
-    # A form's public in-place step and pullback match its kernels.
-    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
+    # A form's public in-place step and pullback match its kernels; the
+    # exponent's cotangent, summed over the entries, goes to the form's
+    # mirror.
+    for form in (CR.Hazard(1.0), CR.Floor(1.0), CR.Truncate(), CR.SoftTruncate(0.1))
         v, s = [2.0, 3.0], [80.0, 1.5]
-        CR.forward!(form, CR.Step(), v, s, 100.0, 1.0)
-        @test (v[2], s[2]) == CR._draw(form, 3.0, 1.5, 100.0, 1.0)
-        g = (; piece = nothing, v = [1.0, 1.0], s = [0.5, 0.5], N = zeros(2), α = zeros(2))
-        CR.pullback!(g, form, CR.Step(), [2.0, 3.0], [80.0, 1.5], 100.0, 1.0)
-        v̄, s̄, N̄, ᾱ = CR._draw_back(
-            (; piece = nothing, v = 1.0, s = 0.5), form, 3.0, 1.5, 100.0, 1.0
+        CR.forward!(form, CR.Step(), v, s, 100.0)
+        @test (v[2], s[2]) == CR._draw(form, 3.0, 1.5, 100.0)
+        ᾱ = (; α = Ref(0.0))
+        g = (; piece = ᾱ, v = [1.0, 1.0], s = [0.5, 0.5], N = zeros(2))
+        CR.pullback!(g, form, CR.Step(), [2.0, 3.0], [80.0, 1.5], 100.0)
+        ᾱ1, ᾱ2 = (; α = Ref(0.0)), (; α = Ref(0.0))
+        CR._draw_back((; piece = ᾱ1, v = 1.0, s = 0.5), form, 2.0, 80.0, 100.0)
+        v̄, s̄, N̄ = CR._draw_back(
+            (; piece = ᾱ2, v = 1.0, s = 0.5), form, 3.0, 1.5, 100.0
         )
-        @test (g.v[2], g.s[2], g.N[2], g.α[2]) == (v̄, s̄, N̄, ᾱ)
+        @test (g.v[2], g.s[2], g.N[2], ᾱ.α[]) == (v̄, s̄, N̄, ᾱ1.α[] + ᾱ2.α[])
     end
     # A diagonal coupling scales each stratum's pressure.
     q = zeros(2)
@@ -530,21 +548,21 @@ end
     blockwise = (; piece = nothing, v = (3.0, 4.0), s = ())
     @test CR._block_back(blockwise, Swap(), (1.0, 2.0), (), 1, 2) == ((4.0, 3.0), ())
     struct Half end
-    function CR.forward!(::Half, ::CR.Step, v, s, N, α)
+    function CR.forward!(::Half, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             v[i], s[i] = v[i] / 2, s[i] - v[i] / 2
         end
         return nothing
     end
-    function CR.pullback!(grads, ::Half, ::CR.Step, v, s, N, α)
+    function CR.pullback!(grads, ::Half, ::CR.Step, v, s, N)
         for i in eachindex(v, s)
             grads.v[i] = (grads.v[i] - grads.s[i]) / 2
         end
         return nothing
     end
-    @test CR._draw(Half(), 2.0, 5.0, 100.0, 1.0) == (1.0, 4.0)
+    @test CR._draw(Half(), 2.0, 5.0, 100.0) == (1.0, 4.0)
     form = (; piece = nothing, v = 1.0, s = 0.5)
-    @test CR._draw_back(form, Half(), 2.0, 5.0, 100.0, 1.0) == (0.25, 0.5, 0.0, 0.0)
+    @test CR._draw_back(form, Half(), 2.0, 5.0, 100.0) == (0.25, 0.5, 0.0)
     # Copies, maps and broadcasts of a one-entry view are views of the same
     # entry.
     a = CR._At(Ref(2.0), 3)
