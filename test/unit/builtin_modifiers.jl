@@ -139,7 +139,7 @@ end
     v0, s0 = [0.5, 150.0, 20.0], [80.0, 60.0, 5.0]
     function step(v, s, α)
         v, s = copy(v), copy(s)
-        CR.forward!(CR.Hazard(), CR.Step(), v, s, 100.0, α)
+        CR.forward!(CR.Hazard(α), CR.Step(), v, s, 100.0)
         return vcat(v, s)
     end
     for (α, a) in ((true, 1.0), (false, 0.0))

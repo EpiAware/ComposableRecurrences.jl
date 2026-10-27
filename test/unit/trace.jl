@@ -74,12 +74,12 @@ end
     K = [0.0 0.2 0.1; 0.1 0.0 0.2; 0.2 0.1 0.0]
     ε = [0.3 + 0.1 * cos(k * t) for k in 1:S, t in 1:(L + T)]
     leaky = CR.Depletion(
-        N; pools = (:S, :V), weights = (S = 1, V = 0.3),
-        flows = (CR.Flow(:S => :V, 2.0; form = CR.Truncate()),)
+        N, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 2.0; form = CR.Truncate()); pools = (:S, :V)
     )
     # A draw that fills one pool: one value and one state entry per stratum,
     # but stepped by its group kernel, so not on the per-stratum loop.
-    beds = CR.Depletion(N; pools = (O = 0.0,), form = CR.Truncate(), fill = :O)
+    beds = CR.Depletion(N, CR.Truncate(; into = :O); pools = (O = 0.0,))
     # Independent strata, coupled strata with pointwise modifiers, a
     # vector step before a pointwise one, a blockwise step, a modifier
     # whose state never changes, and the one-pool fill.
