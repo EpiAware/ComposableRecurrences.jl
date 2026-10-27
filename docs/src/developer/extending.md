@@ -2,7 +2,6 @@
 
 A new modifier, coupling or depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for its role.
 Add a [`pullback!`](@ref ComposableRecurrences.pullback!) method for a hand-written gradient.
-This page gives the contract for each role, then one worked example for each kind of type.
 
 ```@example extending
 using ComposableRecurrences
@@ -28,7 +27,7 @@ A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function
 The arguments mean the same in every role:
 
 - `t` is the absolute time, counted from 1 as `start` and `stop` are.
-- `v` holds one value per [stratum](@ref glossary-stratum), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
+- `v` holds one value per [stratum](@ref overview-step), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
 - `history` is the call's `history` as given: a vector for one series, else strata × time.
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
@@ -68,20 +67,20 @@ Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), wh
 Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).
 Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
 These accept every parameter form, including [`Derived`](@ref) and [`Recent`](@ref).
-Call `add_param!` for every parameter, even with a `nothing` mirror; [`add_param!`](@ref ComposableRecurrences.add_param!) says why.
+Call [`add_param!`](@ref ComposableRecurrences.add_param!) for every parameter, even with a `nothing` mirror, as a [`Recent`](@ref) parameter still sends its cotangent to the outputs it read.
 
-A type without a `pullback!` still takes the rule when the local step can rebuild it; [What the local step needs](@ref adjoint-local-step) gives the conditions.
+A type without a `pullback!` still takes the rule when the [local step](@ref adjoint-local-step) can rebuild it.
 
 ## [A first modifier](@id extending-pointwise)
 
-This modifier smooths each series exponentially:
+This modifier smooths each stratum exponentially:
 
 ```math
 s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
 ```
 
 where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
-It acts on each series alone, so it is pointwise and writes each entry from its own.
+It acts on each stratum alone, so it is pointwise and writes each entry from its own.
 Its state starts at the last value of the history.
 The field has a type parameter so that a dual number can take its place.
 
@@ -111,10 +110,10 @@ Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it smooths th
 With ``f`` the smoothing and ``h`` the depletion draw, each step gives
 
 ```math
-y_t = h\Big(f\big(g_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
+y_t = h\Big(f\big(\gamma_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
 ```
 
-where ``k_l`` is the kernel, ``g_t`` the gain and ``y_t`` the output.
+where ``k_l`` is the kernel, ``\gamma_t`` the gain and ``y_t`` the output.
 More smoothing delays the peak.
 
 ```@example extending
@@ -125,7 +124,7 @@ model(a) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Smooth(a), pool))
 [argmax(model(a)(fill(1.8, 80); history = seed)) for a in (0.0, 0.5, 0.8)]
 ```
 
-Without a `pullback!` the operator still takes its rule; [Rules and plain AD](@ref adjoint-routing) gives the route.
+Without a `pullback!` the operator still takes its [rule](@ref adjoint-routing).
 
 ```@example extending
 using ForwardDiff
@@ -177,7 +176,7 @@ CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
 (grads.v, grads.s, grads.piece.a[]), CR.uses_adjoint(Smooth(0.5), CR.Step())
 ```
 
-[Checking a new type](@ref extending-checks) tests a `pullback!` against ForwardDiff, and [Performance](@ref extending-performance) gives what a `pullback!` saves.
+The `:pullback` [check](@ref extending-checks) compares a `pullback!` with the ForwardDiff Jacobian of `forward!` on the same inputs.
 
 ## [A per-stratum parameter](@id extending-param)
 
@@ -290,17 +289,17 @@ Recurrence([0.5, 0.5]; modifiers = (ToMean(0.5),))(1.0; history = [1.0 2.0; 3.0 
 
 ## [A blockwise step](@id extending-blockwise)
 
-A modifier whose step acts on fixed groups of series, each with a fixed number of values and state entries, is blockwise.
+A modifier whose step acts on fixed groups of strata, each with a fixed number of values and state entries, is blockwise.
 [`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group.
 The step takes them as tuples of one-entry views, read and written as `x[]`.
-This one keeps a running total and a step count per series, and adds their mean to the value:
+This one keeps a running total and a step count per stratum, and adds their mean to the value:
 
 ```math
 a_t = a_{t-1} + v_t, \qquad n_t = n_{t-1} + 1, \qquad v'_t = v_t + \frac{a_t}{n_t},
 ```
 
 where ``v_t`` is the value at step ``t`` and ``v'_t`` the value passed on.
-``a_t`` is the running total and ``n_t`` the step count, the series' two state entries.
+``a_t`` is the running total and ``n_t`` the step count, the stratum's two state entries.
 
 ```@example extending
 struct AddMean end
@@ -317,7 +316,8 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 
 ## [A trace](@id extending-trace)
 
-A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps; [`Trace`](@ref ComposableRecurrences.Trace) gives the default, the built-in traces and the layout of the rows.
+A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
+By default a modifier's [trace](@ref ComposableRecurrences.Trace) is its state after each step, and a modifier whose state never changes records nothing.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 
@@ -410,7 +410,8 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - `(v, s, N)`, with vectors `v` and `s` and a float `N`, for a depletion form, as a float `N` is what tells a form's step from a modifier's;
-- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` in the shape the [Roles](@ref extending-roles) table gives, and `g` after `t` for a blockwise group, whose arguments are then tuples of `Ref`s.
+- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` a tuple of vectors for a pointwise modifier and a column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows for any other.
+  A blockwise group takes `g` after `t`, and its arguments are tuples of `Ref`s.
 
 For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
@@ -436,7 +437,7 @@ Interfaces.test(
 
 Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
 Use Mooncake or Enzyme, and a loss that changes with every parameter.
-[Backends](@ref adjoint-backends) says why it must be reverse mode.
+Forward-mode [backends](@ref adjoint-backends) never take the rule.
 
 ```julia
 using DifferentiationInterface, Mooncake
@@ -449,15 +450,14 @@ gradient(loss(r), backend, [0.3]) ≈
 ```
 
 For a new operator, `ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)` then runs the backend's own rule tester on its rule, with `args` its positional arguments.
-It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded; [Checking a rule](@ref adjoint-checks) says more.
-[Testing and benchmarking](@ref testing) covers timing.
+It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded.
 
 ## [Performance](@id extending-performance)
 
 - Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
-- [Rule timings](@ref rule-timings) gives the cost of a missing `pullback!`.
+- Without a `pullback!`, the [rule](@ref rule-timings) of a pointwise modifier takes 0.64 times the plain AD time on Mooncake and 1.12 times on Enzyme.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
 The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
@@ -498,7 +498,7 @@ A method for a narrower type replaces the general one for that type alone, so a 
 | a modifier at one parameter form | `forward!(m::MyModifier{<:PerStratum}, Step(), v, s, t)` |
 | a depletion form at one number type | `forward!(form::MyForm, Step(), v::AbstractVector{Float32}, s::AbstractVector{Float32}, N::Float32)` |
 
-A rank-one coupling ``C = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
+A rank-one coupling ``K = u w^\top`` mixes the strata in ``2S`` operations, where a dense matrix takes ``S^2``:
 
 ```math
 q_a = u_a \sum_{b=1}^{S} w_b \, p_b,

@@ -8,11 +8,6 @@
 # sparse matrix or the diagonal of a `Diagonal`, found by recursing through
 # fields, tuples and named tuples.
 
-const _Leafless = Union{
-    Real, AbstractArray, Nothing, Symbol, AbstractString, Function, Type,
-    Module,
-}
-
 # The number of parameters of `x`.
 _nparams(::AbstractFloat) = 1
 _nparams(x::AbstractArray{<:AbstractFloat}) = length(x)

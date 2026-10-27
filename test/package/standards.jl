@@ -3,8 +3,8 @@
 # word "piece"; docstrings and src comments do not name other packages; and
 # Markdown prose keeps one sentence per line. On listed pages each section
 # that introduces a model gives its maths before the code, the README code
-# is taken from the getting started page, and each concept in `ONE_HOME` is
-# explained on its home page only. The README and docs pages also go
+# is taken from the getting started page and prints nothing on the home
+# page, and each concept in `ONE_HOME` is explained on its home page only. The README and docs pages also go
 # through the shared `test_readme_prose` (banned words, sentence length).
 # Inputs live in `standards_config.jl`.
 
@@ -123,6 +123,20 @@ end
     )
     @test !isempty(code)
     @test filter(!in(lines), code) == String[]
+end
+
+@testitem "Standards: README example prints nothing on the home page" tags = [
+    :quality,
+] begin
+    include(joinpath(@__DIR__, "standards_helpers.jl"))
+    config = read(joinpath(STANDARDS_ROOT, "docs", "docs_config.jl"), String)
+    readme = read(joinpath(STANDARDS_ROOT, "README.md"), String)
+    # `INDEX_REWRITES` hides the README example's output on the home page by
+    # matching its last line exactly, so the two must stay in step.
+    hide = match(r"\"([^\"]+)\" =>\s*\"\1\\nnothing # hide\"", config)
+    @test hide !== nothing
+    blocks = [only(b.captures) for b in eachmatch(r"```julia\n(.*?)```"s, readme)]
+    @test strip(last(split(strip(last(blocks)), '\n'))) == hide.captures[1]
 end
 
 @testitem "Standards: one home per concept" tags = [:quality] begin

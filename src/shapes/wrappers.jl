@@ -135,7 +135,7 @@ q_{t,i} = \sum_{j=1}^{S} \sum_{l=1}^{L} k_{ij,l}\, y_{t-l,j},
 
 where ``k_{ij,l}`` = `x[i, j, l]` weights stratum ``j``'s output at lag
 ``l`` in stratum ``i``, ``y_{t-l,j}`` is that output at absolute time
-``t - l``, and ``q_{t,i}`` replaces the coupled pressure ``C_t p_t`` of a
+``t - l``, and ``q_{t,i}`` replaces the coupled pressure ``K_t p_t`` of a
 [`Recurrence`](@ref).
 It is equivalent to [`Routes`](@ref) over all pairs, with a faster path: one route
 per pair `(i, j)`, with kernel `x[i, j, :]` and a coupling that is the unit

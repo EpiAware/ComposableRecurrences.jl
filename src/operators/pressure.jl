@@ -9,7 +9,7 @@ kernel convolution of the past values, mixed by the coupling, before the
 gain, add input and modifiers,
 
 ```math
-q_{t,i} = \sum_{j=1}^{S} C_{t,ij} \sum_{l=1}^{L} k_{j,l}(t)\, y_{t-l,j},
+q_{t,i} = \sum_{j=1}^{S} K_{t,ij} \sum_{l=1}^{L} k_{j,l}(t)\, y_{t-l,j},
 \qquad t = t_0, \dots, t_0 + T - 1,
 ```
 
@@ -18,7 +18,7 @@ with the symbols of [`Recurrence`](@ref): ``q_t`` is what the coupling's
 computes it, for any kernel and coupling a `Recurrence` takes.
 ``y_\tau`` for ``\tau < t_0`` comes from `history`, as in the call.
 For the outputs of `r(gain; history)` without modifiers or an add input,
-``y_t = g_t \odot q_t``, so `y ./ pressure(r, y; history)` returns the
+``y_t = \gamma_t \odot q_t``, so `y ./ pressure(r, y; history)` returns the
 gain, the instantaneous reproduction number of a renewal.
 With modifiers the same ratio is their realised effect on each step, such
 as the effective reproduction number under

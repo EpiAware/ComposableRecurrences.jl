@@ -6,12 +6,12 @@ At stratum ``k`` and absolute time ``t``,
 ```math
 u_{t,k} = \sum_{l=1}^{W} w_l\, y_{t-l,k}
 \qquad \text{or, with a coupling,} \qquad
-u_{t,k} = \sum_{j=1}^{S} C_{kj} \sum_{l=1}^{W} w_l\, y_{t-l,j},
+u_{t,k} = \sum_{j=1}^{S} K_{kj} \sum_{l=1}^{W} w_l\, y_{t-l,j},
 ```
 
 where ``y_{t-l,k}`` is the final output of stratum ``k`` at time ``t - l``,
 after every modifier, ``w_l`` the weight on lag ``l``, ``W`` the number of
-weights and ``C`` the `S × S` coupling, ``C_{kj}`` weighting stratum ``j``
+weights and ``K`` the `S × S` coupling, ``K_{kj}`` weighting stratum ``j``
 in stratum ``k``.
 A coupling of ones reads the total over strata, and a contact matrix the
 incidence each stratum sees.
@@ -23,7 +23,7 @@ A `Recent` goes wherever a modifier takes a parameter, alone or inside a
 Arithmetic with a `Recent` on either side builds a `Derived`, so
 `κ * Recent(7)` and `Derived(exp, -κ * Recent(7))` work.
 The [`Recurrence`](@ref) binds it to its outputs once per call and keeps at
-least ``W`` past outputs (see [`ComposableRecurrences.depth`](@ref)).
+least ``W`` past outputs, its [`ComposableRecurrences.depth`](@ref).
 Outside a recurrence it has no outputs to read, and
 [`ComposableRecurrences.param`](@ref) throws.
 
@@ -31,12 +31,12 @@ The reverse pass sends the cotangent ``\bar u_{t,k}`` of the value read to
 the outputs it read, the weights and the coupling,
 
 ```math
-\bar y_{t-l,j} \mathrel{+}= C_{kj}\, w_l\, \bar u_{t,k}, \qquad
-\bar w_l \mathrel{+}= \sum_{j} C_{kj}\, y_{t-l,j}\, \bar u_{t,k}, \qquad
-\bar C_{kj} \mathrel{+}= \sum_{l} w_l\, y_{t-l,j}\, \bar u_{t,k},
+\bar y_{t-l,j} \mathrel{+}= K_{kj}\, w_l\, \bar u_{t,k}, \qquad
+\bar w_l \mathrel{+}= \sum_{j} K_{kj}\, y_{t-l,j}\, \bar u_{t,k}, \qquad
+\bar K_{kj} \mathrel{+}= \sum_{l} w_l\, y_{t-l,j}\, \bar u_{t,k},
 ```
 
-with ``C = I`` without a coupling.
+with ``K = I`` without a coupling.
 These run inside the recurrence's own reverse pass, so the gradient
 follows the feedback through the outputs.
 

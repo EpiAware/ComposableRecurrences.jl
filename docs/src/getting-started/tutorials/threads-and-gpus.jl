@@ -6,7 +6,7 @@
 #
 # ## Introduction
 #
-# [Strata](@ref glossary-stratum) that do not mix within a step, and the strata of a convolution, can be computed at the same time.
+# [Strata](@ref overview-step) that do not mix within a step, and the strata of a convolution, can be computed at the same time.
 # An [executor](@ref executors), chosen for a block of code, sets how, so the model code does not change.
 #
 # ### What are we going to do in this exercise
@@ -58,7 +58,7 @@ Threads.nthreads()
 # ## When threads pay off
 #
 # Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work is below `min_work`.
-# [`Threaded`](@ref ComposableRecurrences.Threaded) gives the default and how each kind of loop counts its work.
+# [`Threaded`](@ref ComposableRecurrences.Threaded) sets `min_work` to 500 000 by default.
 #
 # The table gives the speed-up of four threads over one for whole losses, including the serial work outside the split loops.
 # The machine was a shared 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12, load about 2).
@@ -105,7 +105,7 @@ end == y_serial
 #
 # `Device(backend)` runs the same strata loops as one GPU kernel each.
 # Calls on arrays that live on a GPU use it by default.
-# Every array a call reads must be on the device; [GPU arrays](@ref gpu-arrays) lists them.
+# Every array a call reads must be on the [device](@ref gpu-arrays): the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
 # JLArrays.jl provides GPU-style arrays that run on the CPU, so this section runs anywhere.
 
 JLArrays.allowscalar(false)
@@ -121,10 +121,12 @@ Array(y_device) ≈ y_serial
 # y = r_cuda(CuArray(R); history = CuArray(seed))
 # ```
 #
-# [GPU arrays](@ref gpu-arrays) gives the cost of strata that mix on a GPU.
+# Strata that mix are one kernel per step, so a [GPU](@ref gpu-arrays) pays off only with many strata or many series.
 # On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the arrays from the host, so use `Device(backend)` there.
-# To compile a model with Reactant.jl instead, see the [Reactant extension](@ref extension-reactant).
+# A model can also compile with [Reactant.jl](@ref extension-reactant).
 
 # ## What each executor supports
 #
-# [Executors](@ref executors) lists what each executor supports under each AD backend.
+# Every [executor](@ref executors) runs every operator forward.
+# Under ForwardDiff, `Threaded()` runs threaded and `Device(backend)` takes dual-number inputs only.
+# Under Mooncake and Enzyme reverse mode, `Threaded()` threads a rule's forward and reverse passes and runs all else serially.

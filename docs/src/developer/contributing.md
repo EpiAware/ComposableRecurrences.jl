@@ -28,7 +28,7 @@ On a shared machine, run one Julia process at a time.
 ## Use-case tests
 
 A new operator, modifier or coupling adds a use case when it replaces code in a modelling package.
-[Testing and benchmarking](@ref testing) describes the use-case tests and how to run them.
+Run the [use-case tests](@ref testing) with `julia --project=test test/runtests.jl usecase_only`.
 
 ## Documentation
 

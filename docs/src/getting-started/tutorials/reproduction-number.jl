@@ -21,7 +21,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on the [Getting started](@ref getting-started) example, with no fitting.
+# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 
@@ -50,7 +50,7 @@ maximum(abs, infections ./ pressure(renewal, infections; history = seed) .- R)
 
 # ## The effective reproduction number
 #
-# A pool of ``N`` susceptibles, ``s_t`` after day ``t``, depleted by the hazard form of [Getting started](@ref overview-build), draws
+# A pool of ``N`` susceptibles, ``s_t`` after day ``t``, depleted by the [hazard form](@ref ComposableRecurrences.Hazard), draws
 #
 # ```math
 # I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad \lambda_t = \frac{R_t q_t}{N},
@@ -86,6 +86,13 @@ findfirst(<(1), R_eff)
 # Imports ``\iota_t`` added after the depletion by `Add` are not multiplied by the gain.
 # With them, ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
 # An `add` input enters before the depletion and is drawn with the rest, so the ratio then includes its share.
+
+# ## Performance
+#
+# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("reproduction number")
 
 # ## Learning more
 #

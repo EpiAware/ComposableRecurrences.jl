@@ -8,35 +8,35 @@ of its own past values.
 At absolute time ``t``, each stratum's kernel convolution of its last ``L``
 values is mixed by the coupling, scaled by the gain (a multiplier on each
 step's value, such as a reproduction number) and shifted by the add input,
-then passed through the modifiers ``M_1, \dots, M_R`` in tuple order:
+then passed through the modifiers ``M_1, \dots, M_m`` in tuple order:
 
 ```math
 \begin{aligned}
 p_{t,i} &= \sum_{l=1}^{L} k_{i,l}(t)\, y_{t-l,i}, \\
-v^{(0)}_t &= g_t \odot C_t\, p_t + a_t, \\
+v^{(0)}_t &= \gamma_t \odot K_t\, p_t + a_t, \\
 \big(v^{(n)}_t,\ s^{(n)}_t\big) &= M_n\big(v^{(n-1)}_t,\ s^{(n)}_{t-1},\ t\big),
-\quad n = 1, \dots, R, \\
-y_t &= v^{(R)}_t,
+\quad n = 1, \dots, m, \\
+y_t &= v^{(m)}_t,
 \end{aligned}
 ```
 
 for ``t = t_0, \dots, t_1`` (`start`, `stop`), where
 
-  - ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+  - ``y_{t,i}`` is the output of [stratum](@ref PerStratum) ``i``
     at time ``t``, one of ``S`` strata; for ``t < t_0`` it is the history;
   - ``k_{i,l}(t)`` is the kernel's weight on lag ``l``, `kernel[l]`, the
     same for every ``i`` and ``t`` unless the kernel is
     [`PerStratum`](@ref) or [`TimeVarying`](@ref);
-  - ``p_t`` holds each stratum's kernel convolution and ``C_t`` is the
-    ``S \times S`` coupling, ``C_{t,ij}`` weighting stratum ``j`` in
+  - ``p_t`` holds each stratum's kernel convolution and ``K_t`` is the
+    ``S \times S`` coupling, ``K_{t,ij}`` weighting stratum ``j`` in
     stratum ``i``;
-  - ``g_t`` is the gain and ``a_t`` the add input, and ``\odot`` is the
+  - ``\gamma_t`` is the gain and ``a_t`` the add input, and ``\odot`` is the
     element-wise product;
   - ``v^{(0)}_t`` is the value entering the modifiers, ``v^{(n)}_t`` the
     value after the ``n``-th and ``s^{(n)}_t`` that modifier's state after
     step ``t``; with no modifiers ``y_t = v^{(0)}_t``.
 
-A [`Pairwise`](@ref) kernel replaces ``C_t p_t`` with
+A [`Pairwise`](@ref) kernel replaces ``K_t p_t`` with
 ``\sum_{j} \sum_{l} k_{ij,l}(t)\, y_{t-l,j}``.
 `kernel[l]` weights ``y_{t-l}``, as a generation interval or AR
 coefficients are written: a recurrence has no lag 0.
@@ -63,11 +63,11 @@ the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`, read at absolute time `t`; one when left out.
-  - `history`: the outputs at times `start - m` to `start - 1`, oldest
-    first, length `m` for a single series or `S × m`; zeros when left out.
-    The recursion reads the last `L` (or more, see
-    [`ComposableRecurrences.depth`](@ref)), and a shorter history is
-    zero-padded. A modifier's `Init` sees all of it.
+  - `history`: the outputs at times `start - h` to `start - 1`, oldest
+    first, length `h` for a single series or `S × h`; zeros when left out.
+    The recursion reads the last ``D`` outputs, with ``D`` at least `L`
+    and at least the [`ComposableRecurrences.depth`](@ref) of each part,
+    and a shorter history is zero-padded. A modifier's `Init` sees all of it.
   - `state`: `true` to return `(y, state)`, with `state` the
     [`ComposableRecurrences.State`](@ref) after the last step, or such a
     `State` to resume from it, which returns the next one in the same way;
@@ -76,18 +76,17 @@ the call covers the absolute times `start:stop`:
     return type infers.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
-    With `start = m + 1` the seed sits at times `1:m`, and the
+    With `start = h + 1` the seed sits at times `1:h`, and the
     time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
   - `prepend`: `false`, or `true` to return `history` followed by the
-    output, covering the times `start - m` to `stop`.
+    output, covering the times `start - h` to `stop`.
   - `trace`: `false`, or `true` to return `(y, trace)`, with
     `trace.modifiers` holding each modifier's series per step, a
-    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix
-    ([`ComposableRecurrences.Trace`](@ref) says what each records). It is
-    differentiable as the output is. Pass it as a literal, so that the
-    return type infers.
+    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of its
+    [`ComposableRecurrences.Trace`](@ref) records. It is differentiable as
+    the output is. Pass it as a literal, so that the return type infers.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -104,14 +103,15 @@ running total has the eltype `cumsum` gives.
 Otherwise it is the float type.
 A user coupling whose pressure is not an integer needs a float input.
 The constructor checks once whether the local step can rebuild every
-part it differentiates and stores the result in the field `rebuilds`; see
-[Rules and plain AD](@ref adjoint-routing) for the route this sets.
+part it differentiates and stores the result in the field `rebuilds`; a
+part it cannot rebuild sends the operator to
+[plain AD](@ref adjoint-routing).
 Built before the local step's dual numbers are loaded, it stores `nothing`
 and each call that takes the rule checks instead.
 
 # Arguments
-- `kernel`: the kernel, lag 1 first, or a kernel of delays (see
-  [`ComposableRecurrences.delay_masses`](@ref)).
+- `kernel`: the kernel, lag 1 first, or a kernel of
+  [delays](@ref ComposableRecurrences.delay_masses).
 
 # Keyword Arguments
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
@@ -207,12 +207,12 @@ After a call that ended at absolute time ``t_1`` it carries
 
 ```math
 \big(\, (y_{t_1 - L + 1}, \dots, y_{t_1}),\ \
-(s^{(1)}_{t_1}, \dots, s^{(R)}_{t_1}),\ \ t_1 + 1 \,\big),
+(s^{(1)}_{t_1}, \dots, s^{(m)}_{t_1}),\ \ t_1 + 1 \,\big),
 ```
 
 where ``y_t`` is the output at time ``t`` (one entry per stratum),
 ``L`` the number of kernel weights and ``s^{(n)}_{t_1}`` the state of the
-``n``-th of ``R`` modifiers after the last step.
+``n``-th of ``m`` modifiers after the last step.
 `history` holds the last ``L`` outputs, `states` each modifier's state and
 `t` the time of the next step, ``t_1 + 1``.
 A call with `state` continues exactly as one call over both ranges would.
@@ -1575,8 +1575,9 @@ h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
 
 oldest first, so ``h_L = I_0``.
 For a renewal with generation interval `g` (lag 1 first) and constant
-reproduction number `R`, `r = growth_rate(R, g)` keeps the seed on the
-renewal's own path (see [`ComposableRecurrences.growth_rate`](@ref)).
+reproduction number `R`, the rate `r` from
+[`ComposableRecurrences.growth_rate`](@ref)`(R, g)` keeps the seed on the
+renewal's own path.
 
 # Arguments
 - `I0`: the value at the last time; a vector gives one per stratum.
@@ -1616,3 +1617,19 @@ function _steps_to_last(L)
     L >= 1 || throw(ArgumentError("a history needs L >= 1 steps, not L = $L"))
     return collect((1 - L):0)
 end
+
+@implements PieceInterface Recurrence [
+    Arguments(;
+        piece = Recurrence([0.2, 0.3, 0.5]), role = Run(),
+        args = ([1.1, 0.9, 1.2, 1.0],), kwargs = (; history = [1.0, 2.0, 3.0])
+    ),
+    Arguments(;
+        piece = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]),
+        role = Run(), args = ([1.1 0.9 1.2 1.0; 0.8 1.3 1.1 0.9],),
+        kwargs = (; history = [1.0 2.0; 3.0 1.0])
+    ),
+    Arguments(;
+        piece = Recurrence(Pairwise(fill(0.25, 2, 2, 2))), role = Run(),
+        args = ([1.1 0.9 1.2; 0.8 1.3 1.1],), kwargs = (; history = ones(2, 2))
+    ),
+]

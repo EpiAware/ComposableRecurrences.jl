@@ -43,7 +43,6 @@ group), is given `grads = (; piece, trace, v, s, v′, s′)`: `trace` holds
 the cotangent of `r`, in its shape, and the pullback adds the cotangents
 of the step's inputs and outputs into `v`, `s`, `v′` and `s′` and those of
 the modifier's parameters into `piece`.
-[A trace](@ref extending-trace) writes one.
 
 # Examples
 ```jldoctest
