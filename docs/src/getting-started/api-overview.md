@@ -95,6 +95,7 @@ A [`State`](@ref ComposableRecurrences.State) holds what a run needs to continue
 | [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | runs the recurrence from day `start` to day `stop` | a vector for one stratum, or strata × days |
 | [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from day `start` to day `stop` | an array shaped like `x` |
 | [`contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as each day's reports split by delay | lags × days, or strata × lags × days |
+| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` each day, recomputed from outputs `y` | shaped like `y` |
 | [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from day `state.t` | `(y, state)` |
 | [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did each day | `(y, trace)` |
@@ -109,6 +110,7 @@ So the gain on day ``t`` is always `gain[t]`.
 Inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per day.
+The outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the reproduction number each day.
 
 ## [Shapes](@id overview-shapes)
 
