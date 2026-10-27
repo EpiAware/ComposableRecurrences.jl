@@ -1,5 +1,5 @@
 @doc raw"""
-Rescales each group of strata (see [`PerStratum`](@ref)) to an exogenous
+Rescales each group of [strata](@ref PerStratum) to an exogenous
 total: the strata of a group keep their shares of the group's value and the
 group takes its total.
 With `imports`, a fraction of each total is shared instead by an import

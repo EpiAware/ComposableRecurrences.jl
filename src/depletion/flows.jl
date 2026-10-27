@@ -15,8 +15,8 @@ m_f = p_f\, x_i,
 ```
 
 with ``x_i`` the pool before the step's flows, alongside any
-[`ComposableRecurrences.Hazard`](@ref) flows; `Flow` says what happens
-when the shares out of one pool sum to more than it holds.
+[`ComposableRecurrences.Hazard`](@ref) flows.
+Shares out of one pool that sum to more than it holds leave it negative.
 `Share()` is a form for flows only, not a depletion form.
 
 # Examples
@@ -67,8 +67,8 @@ form, so together they move ``x (1 - e^{-H})``; with non-negative, finite
 rates a non-negative pool stays non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
 A constant rate out of a compartment is a geometric stay in it; for
-another stay, convolve the inflow with its survival, as
-[Occupancy and capacity](@ref tutorial-occupancy) does.
+another stay, convolve the inflow with its
+[survival](@ref tutorial-occupancy).
 A `Hazard()` flow's demand is the rate itself, with no population and no
 heterogeneity, where a `Hazard()` depletion draws the value divided by
 its population `N`.

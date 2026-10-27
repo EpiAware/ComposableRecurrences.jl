@@ -1,25 +1,24 @@
 @doc raw"""
     ComposableRecurrences
 
-Fast, composable and differentiable recurrences and causal convolutions.
+Fast, composable and differentiable recurrences and convolutions.
 
-A recurrence steps a value forward from a window of its own past values, as in
-an autoregression.
-A causal convolution weights past inputs by a kernel, as in a delay.
+A recurrence computes each value from its own past values, such as infections
+from earlier infections.
+A convolution weights the past values of another series, such as reported cases
+from earlier infections.
 For a single series the two are
 
 ```math
-y_t = g_t \sum_{l=1}^{L} k_l\, y_{t-l}
+y_t = \gamma_t \sum_{l=1}^{L} k_l\, y_{t-l}
 \qquad \text{and} \qquad
 y_t = \sum_{l=0}^{L-1} k_l\, x_{t-l},
 ```
 
-where ``y_t`` is the output at time ``t``, ``g_t`` a multiplicative input,
+where ``y_t`` is the output at time ``t``, ``\gamma_t`` a multiplicative input,
 ``x_t`` the convolved input and ``k_l`` the kernel weight on lag ``l``.
-Every operator is differentiable, and [Backends](@ref adjoint-backends)
-lists the automatic differentiation backends it is tested with.
-The [performance figure](@ref overview-performance) compares run and
-gradient times with a hand-written loop.
+Every operator is differentiable with forward- and reverse-mode
+[automatic differentiation backends](@ref adjoint-backends).
 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the operators.
 A plain array holds one set of coefficients: a kernel's lag weights, a
@@ -33,7 +32,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | concept              | one way                                                              |
 |:---------------------|:---------------------------------------------------------------------|
 | feedback recursion   | `Recurrence(kernel; coupling, modifiers)`, lag 1 first               |
-| causal convolution   | `Convolution(kernel)`, lag 0 first                                   |
+| convolution          | `Convolution(kernel)`, lag 0 first                                   |
 | strata               | `PerStratum(x)`, `Pairwise(x)`                                       |
 | time variation       | `TimeVarying(x, Secondary())`                                        |
 | strata and time      | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))`             |
@@ -160,7 +159,7 @@ include("operators/recurrence.jl")
 include("operators/trace_run.jl")
 # The analytic reverse pass of the recurrence.
 include("operators/recurrence_adjoint.jl")
-# The causal convolution operator and its reverse pass.
+# The convolution operator and its reverse pass.
 include("operators/convolution.jl")
 # The pressure a recurrence's steps draw against, from given outputs.
 include("operators/pressure.jl")

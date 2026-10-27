@@ -20,8 +20,9 @@ A NaN pool gives a NaN draw.
 [`ComposableRecurrences.SoftTruncate`](@ref) is a smooth version.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
@@ -78,8 +79,9 @@ The floor at ``s = 0`` keeps its kink.
 - `κ`: the softness, with ``0 < \kappa < 1``.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest

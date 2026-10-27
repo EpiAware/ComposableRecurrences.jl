@@ -15,9 +15,9 @@ the step's value and the pools in the order given.
 A draw takes the value from the pools, or fills one, and
 [`ComposableRecurrences.Flow`](@ref)s move between them.
 
-With one pool ``s`` drawn from, then flows, each stratum ``i`` (see
-[`PerStratum`](@ref)) at absolute time ``t`` from the call's first time
-``t_0`` steps as
+With one pool ``s`` drawn from, then flows, each
+[stratum](@ref PerStratum) ``i`` at absolute time ``t`` from the call's
+first time ``t_0`` steps as
 
 ```math
 s_{t_0 - 1, i} = s_{0,i}, \qquad
@@ -60,26 +60,26 @@ Each draw takes the value the parts before it pass on.
 The flows act on the pools where they stand among the parts, as when
 patients leave before the day's admissions or an allowance is granted at
 the start of a period.
-Flows given one after another act together, as
-[`ComposableRecurrences.Flow`](@ref) sets out, and a count flow from `0`
-brings its demand in from outside.
+Hazard and share [flows](@ref ComposableRecurrences.Flow) given one after
+another act together, then each count flow in the order given; a count
+flow from `0` brings its demand in from outside.
 
 A draw is a form, `Hazard()`, `Floor()`, `Truncate()`, `SoftTruncate(κ)`
-or a new type with a `forward!(form, Step(), v, s, N)` method
-([A depletion form](@ref extending-form)), which draws from the first pool
-alone.
+or a [new type](@ref extending-form) with a `forward!(form, Step(), v, s, N)`
+method, which draws from the first pool alone.
 A built-in form given `weights`, `into` or `overflow`, such as
 `Hazard(; weights = (S = 1, V = σ))` or `Truncate(; into = :O)`, is a draw
 with them.
 The draw's `Hazard()` takes its hazard from the value over the population,
-``v / N_t``; a `Hazard()` flow's demand is read as
-[`ComposableRecurrences.Flow`](@ref) sets out.
-[Rules and plain AD](@ref adjoint-routing) gives the gradient of a form
-without a `pullback!`.
+``v / N_t``; a `Hazard()` [flow](@ref ComposableRecurrences.Flow)'s demand
+is the rate itself.
+A form without a `pullback!` is differentiated by a
+[local step](@ref adjoint-routing) when its float parameters are scalars,
+and by plain AD otherwise.
 
 One pool, with draws that leave nothing over, is a pointwise step,
 `blocks` `(1, 1)`, whose state is the pool.
-Any other is blockwise ([`ComposableRecurrences.blocks`](@ref)): each group
+Any other is [blockwise](@ref ComposableRecurrences.blocks): each group
 has one value, or two with `overflow = :stratum`, value ``(j - 1) G + g``
 being value ``j`` of group ``g`` for ``G`` groups, and the state holds
 pool 1 of every group, then pool 2, and so on, then the queue.
@@ -113,8 +113,9 @@ The step reads `N` at its own time, and a pool is not rescaled when `N`
 changes: arrivals enter it only through the flows.
 Here `starts` is a `TimeVarying` share of one at each period start and
 zero otherwise, and a lifetime allowance is a starting pool alone.
-The [renewal then delay](@ref tutorial-renewal-delay) tutorial builds
-leaky, all-or-nothing and waning protection with a second pool; a delay
+A second pool gives
+[leaky, all-or-nothing and waning protection](@ref tutorial-renewal-delay);
+a delay
 from dose to protection is a [`Convolution`](@ref) of the doses before the
 call.
 A share ``\delta`` leaving the beds is a geometric length of stay, with

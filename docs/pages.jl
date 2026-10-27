@@ -29,7 +29,6 @@ pages = [
     # docs_config.jl.
     "Getting started" => [
         "Overview" => "getting-started/index.md",
-        "FAQ" => "getting-started/faq.md",
         "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
