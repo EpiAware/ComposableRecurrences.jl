@@ -8,9 +8,9 @@ module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
     _check_form, _check_now, _check_parts, _check_secondary, _current,
-    _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!, _is_leaf,
-    _leaf_paths, _plain_hook, _rebuild_leaves, _route_forward!, _run_forward,
-    _run_pullback!, _untraced
+    _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!, _growth_root,
+    _is_leaf, _leaf_paths, _plain_hook, _rebuild_leaves, _route_forward!,
+    _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -205,6 +205,9 @@ EnzymeRules.inactive(::typeof(_check_now), args...) = nothing
 EnzymeRules.inactive(::typeof(_check_secondary), args...) = nothing
 # Nor is the `Depletion` constructor's check that its form has a step.
 EnzymeRules.inactive(::typeof(_check_form), args...) = nothing
+# Nor is the Newton iteration of `growth_rate`: the step from its root on
+# the inputs carries the derivative.
+EnzymeRules.inactive(::typeof(_growth_root), args...) = nothing
 
 # The executor carries no derivative. Forward mode and plain reverse mode
 # (a `NoAdjoint` route) do not differentiate tasks or the scoped value
