@@ -1393,3 +1393,102 @@ function _amounts_back(grads, m, x, s, t, g)
     zs = map(_ -> z, s)
     return x̄, zs, map(_ -> z, x), zs
 end
+
+@implements PieceInterface{(:pointwise, :blocks, :nstate, :pullback)} Depletion [
+    Arguments(;
+        piece = Depletion(
+            PerStratum([100.0, 50.0]); pools = (S = PerStratum([97.0, 46.0]),)
+        ),
+        role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
+    ),
+    Arguments(;
+        piece = Depletion(80.0, Floor(1.5)), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 1)
+    ),
+    Arguments(;
+        piece = Depletion(
+            80.0, Hazard(), Flow(:S => 0, TimeVarying([4.0, 6.0]); form = Truncate())
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(100.0, Hazard(), Flow(1 => 0, 0.01)), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            100.0, Hazard(; weights = (S = 1, V = 0.3)),
+            Flow(:S => :V, 1.0; form = Truncate()); pools = (:S, :V)
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            100.0, Hazard(; weights = (S = 1, V = 0.3)), Flow(:V => :S, 0.1);
+            pools = (S = nothing, V = 4.0)
+        ),
+        role = Init(), args = (zeros(4), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Depletion(
+            PerStratum([100.0, 50.0]),
+            Floor(; weights = (V = PerStratum([0.5, 0.2]), S = 1)),
+            Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share());
+            pools = (:S, :V, :R)
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(100.0, Truncate()), role = Step(),
+        args = ([2.0, 3.0], [80.0, 1.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            Flow(1 => 2, PerStratum([0.3, 0.2])),
+            Flow(2 => 0, 0.1; form = Share()),
+            Flow(1 => 0, 0.5; form = Truncate()),
+            Flow(2 => 0, 0.2; form = SoftTruncate(0.1)); pools = (:A, :B)
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
+    ),
+    Arguments(;
+        piece = Depletion(Flow(:U => :C, 0.3); pools = (:U, :C)),
+        role = Init(), args = (zeros(4), ones(4, 2))
+    ),
+    Arguments(;
+        piece = Depletion(
+            4.0, Flow(:O => 0, 0.2; form = Share()),
+            SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            Flow(:B => 0, TimeVarying([1.0, 0.0, 0.0]); form = Share()),
+            Flow(
+                0 => :B, TimeVarying(PerStratum([3.0 0.0 0.0; 2.0 0.0 0.0]));
+                form = Truncate()
+            ),
+            Truncate(; overflow = :queue); pools = (:B,)
+        ),
+        role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(Truncate(); pools = (B = 1.0,)),
+        role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            2.0, Truncate(; into = :O, overflow = :queue); pools = (O = 1.0,)
+        ),
+        role = Init(), args = (zeros(4), ones(2, 2))
+    ),
+]

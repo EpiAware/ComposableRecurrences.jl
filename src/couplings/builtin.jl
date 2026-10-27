@@ -270,3 +270,36 @@ function _check_coupling_shape(C::TimeVarying)
     )
 end
 _check_coupling_shape(C::Pairwise) = _kernel_as_coupling_error(C, "Pairwise(A)")
+
+# An object on the same `pullback!` route as another of its type skips the
+# pullback check (`pullback = false`): its branches have their own tests
+# against a local Jacobian.
+@implements PieceInterface{(:pullback,)} UniformScaling [
+    Arguments(;
+        piece = I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1),
+        pullback = false
+    ),
+    Arguments(; piece = 0.5I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)),
+]
+
+@implements PieceInterface{(:pullback,)} AbstractMatrix [
+    Arguments(;
+        piece = [0.9 0.1; 0.2 0.8], role = Pressure(),
+        args = (zeros(2), [1.0, 2.0], 1)
+    ),
+    Arguments(;
+        piece = Diagonal([0.5, 2.0]), role = Pressure(),
+        args = (zeros(2), [1.0, 2.0], 1)
+    ),
+]
+
+@implements PieceInterface{(:pullback,)} TimeVarying [
+    Arguments(;
+        piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 2)
+    ),
+    Arguments(;
+        piece = TimeVarying([1 => [1.0 3.0; 2.0 4.0], 2 => [5.0 7.0; 6.0 8.0]]),
+        role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
+    ),
+]

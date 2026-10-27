@@ -221,3 +221,22 @@ function _soft_min_back(κ, a, b, ȳ)
     κ̄ = ȳ * lo * g * (q * log(r) / κ - log1p(rp))
     return first ? (l̄o, h̄i, κ̄) : (h̄i, l̄o, κ̄)
 end
+
+@implements PieceInterface{(:pullback,)} Truncate [
+    Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0)),
+]
+
+@implements PieceInterface{(:pullback,)} SoftTruncate [
+    Arguments(;
+        piece = SoftTruncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0)
+    ),
+]
+
+# The interface check of a built-in depletion form's draw takes any real `N`.
+const _BuiltinForm = Union{_ExponentForm, _TruncateForm}
+function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, Any})
+    return _form_pullback_matches(f, args)
+end
+function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, AbstractFloat})
+    return _form_pullback_matches(f, args)
+end

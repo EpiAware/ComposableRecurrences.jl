@@ -1077,3 +1077,34 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t)
     end
     return nothing
 end
+
+@implements PieceInterface{(:pullback,)} Hazard [
+    Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0)),
+]
+
+@implements PieceInterface{(:pullback,)} Floor [
+    Arguments(; piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)),
+]
+
+@implements PieceInterface{(:pointwise, :nstate, :pullback)} Add [
+    Arguments(;
+        piece = Add(TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))), role = Step(),
+        args = ([2.0, 3.0], [0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Add(0.5), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+]
+
+@implements PieceInterface{(:nstate, :pullback)} Redistribute [
+    Arguments(;
+        piece = Redistribute([0.98 0.06; 0.02 0.94]),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+]
+
+@implements PieceInterface{(:pointwise, :nstate, :pullback)} Clamp [
+    Arguments(;
+        piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+]
