@@ -2150,39 +2150,16 @@ end
 broken_scenario_names() = String[]
 
 """
-Per-backend broken scenario names (`Dict{String, Set{String}}`).
-
-On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
-"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
-rule is correct and runs. Every other scenario and its `NoAdjoint` twin
-passes on every backend.
+Per-backend broken scenario names (`Dict{String, Set{String}}`): the
+scenarios expected to fail on a backend, by backend name.
 """
-function backend_broken_scenarios()
-    VERSION < v"1.12" || return Dict{String, Set{String}}()
-    return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
-    )
-end
+backend_broken_scenarios() = Dict{String, Set{String}}()
 
 """
-Per-backend scenario names too unstable to run at all.
-
-Plain Enzyme reverse AD of a sparse coupling repeated over steps returns
-silently wrong gradients, so `NoAdjoint` on a sparse coupling, or a sparse
-route coupling, throws on Enzyme reverse; the analytic rule is correct and
-runs.
+Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
+scenarios too unstable to run at all on a backend, by backend name.
 """
-function backend_skip_scenarios()
-    return Dict(
-        "Enzyme reverse" => Set(
-            [
-                "NoAdjoint Recurrence sparse coupling",
-                "NoAdjoint Recurrence routes, dense and sparse",
-                "NoAdjoint Recurrence routes in a buffer deeper than the kernels",
-            ]
-        ),
-    )
-end
+backend_skip_scenarios() = Dict{String, Set{String}}()
 
 """
 Per-backend scenario names whose call takes plain AD by design, so the

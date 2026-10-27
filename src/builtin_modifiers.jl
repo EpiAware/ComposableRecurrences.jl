@@ -136,11 +136,11 @@ end
 _check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
 
 # A zero initial state, once the parameters are checked against the state's
-# strata.
+# strata. `foreach` unrolls the pairs, so each keeps its concrete type: in a
+# `for` loop a pair is a `Union`, which an AD backend on Julia 1.11 cannot
+# type.
 function _zero_state!(s, params::Pair...)
-    for (name, x) in params
-        _check_param_strata(name, x, length(s))
-    end
+    foreach(p -> _check_param_strata(first(p), last(p), length(s)), params)
     fill!(s, zero(eltype(s)))
     return nothing
 end
