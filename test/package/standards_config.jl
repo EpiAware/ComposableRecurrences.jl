@@ -53,12 +53,17 @@ const MATHS_FIRST_PAGES = (
     "docs/src/getting-started/index.md",
     "docs/src/developer/extending.md",
     "docs/src/getting-started/tutorials/backend-case-study.jl",
+    "docs/src/getting-started/tutorials/clinical-outcomes.jl",
+    "docs/src/getting-started/tutorials/forecasting.jl",
+    "docs/src/getting-started/tutorials/imported-cases.jl",
     "docs/src/getting-started/tutorials/latent-processes.jl",
     "docs/src/getting-started/tutorials/occupancy.jl",
     "docs/src/getting-started/tutorials/renewal-then-delay.jl",
+    "docs/src/getting-started/tutorials/reproduction-number.jl",
     "docs/src/getting-started/tutorials/spatial-strata.jl",
     "docs/src/getting-started/tutorials/time-varying-delays.jl",
     "docs/src/getting-started/tutorials/transform.jl",
+    "docs/src/getting-started/tutorials/vaccination.jl",
 )
 const MATHS_FIRST_CALLS = (
     "Recurrence", "Convolution", "Depletion", "Redistribute", "Add", "Clamp",
@@ -69,9 +74,6 @@ const MATHS_FIRST_CALLS = (
 const MATHS_FIRST_REUSE = (
     # Runs the smoothing modifier through the operator to check its rule.
     "docs/src/developer/extending.md" => "Checking a new type",
-    # Reuse the renewal and the depletion forms built in the overview.
-    "docs/src/getting-started/tutorials/renewal-then-delay.jl" => "A renewal process",
-    "docs/src/getting-started/tutorials/renewal-then-delay.jl" => "Susceptible depletion",
 )
 # Sections still giving prose before their code, as `page => heading`,
 # marked broken until they gain a ```math block.
@@ -98,7 +100,7 @@ const ONE_HOME = (
         ("Reactant.@compile", "Reactant.to_rarray"),
     ),
     "tutorial-imports" => (
-        "docs/src/getting-started/tutorials/renewal-then-delay.jl",
+        "docs/src/getting-started/tutorials/imported-cases.jl",
         ("drawn from the pool like local cases",),
     ),
     "explanation-seeding" => (

@@ -1,24 +1,16 @@
 # # [Threads and GPUs](@id tutorial-threads-gpus)
 #
 # !!! note "Draft"
-#     This tutorial is a draft and is not in the docs build yet: it is not listed in `docs/docs_config.jl` or the navigation in `docs/pages.jl`, and the docs environment does not have JLArrays.jl or KernelAbstractions.jl.
-#     Its timings come from a shared 4-core machine; before it is listed it needs speed-ups from 8 to 16 threads on a dedicated machine (`benchmark/threshold.jl`), with the hardware stated.
+#     The page is a draft and is not in the docs build yet.
+#     It is not listed in `docs/docs_config.jl` or the navigation in `docs/pages.jl`, and the docs environment does not have JLArrays.jl or KernelAbstractions.jl.
+#     Its timings come from a shared 4-core machine.
+#     Before it is listed it needs speed-ups from 8 to 16 threads on a dedicated machine (`benchmark/threshold.jl`), with the hardware stated.
 #
 # ## Introduction
 #
 # [Strata](@ref overview-step) that do not mix within a step, and the strata of a convolution, can be computed at the same time.
 # An [executor](@ref executors), chosen for a block of code, sets how, so the model code does not change.
-#
-# ### What are we going to do in this exercise
-#
-# 1. Run a many-strata renewal model on threads and check it matches the serial run.
-# 2. See when threads pay off.
-# 3. Run the same model on GPU-style arrays.
-# 4. See what each executor supports.
-#
-# ### What might I need to know before starting
-#
-# This builds on [Spatial models](@ref tutorial-spatial-strata).
+# It builds on the [Spatial models](@ref tutorial-spatial-strata) tutorial.
 # Start Julia with more than one thread, for example `julia --threads=4`, to see a speed-up.
 
 # ## Packages used
@@ -60,11 +52,12 @@ Threads.nthreads()
 # Starting and joining the tasks costs tens of microseconds, so `Threaded()` runs a loop in order when its work is below `min_work`.
 # [`Threaded`](@ref ComposableRecurrences.Threaded) sets `min_work` to 500 000 by default.
 #
-# The table gives the speed-up of four threads over one for whole losses, including the serial work outside the split loops.
+# Each entry is the speed-up of four threads over one for a whole loss, including the serial work outside the split loops.
 # The machine was a shared 4-core virtual machine (Intel Xeon at 2.1 GHz, Julia 1.12, load about 2).
 # Each range is the spread over three rounds that alternate the executors.
 # ForwardDiff is one pushforward of 8 tangents.
-# The work is that of the loop the executor splits, in multiply-adds: `S × T × L` for independent strata and a convolution, `S² × L` per step for a pairwise kernel and `S × L` per step for a sparse coupling.
+# The work is that of the loop the executor splits, in multiply-adds.
+# It is `S × T × L` for independent strata and a convolution, `S² × L` per step for a pairwise kernel and `S × L` per step for a sparse coupling.
 #
 # | Model | Work | Primal | Mooncake reverse | Enzyme reverse | ForwardDiff |
 # |---|---|---|---|---|---|
@@ -92,7 +85,7 @@ Threads.nthreads()
 # A convolution with a fixed kernel vectorises well, and its primal gained little at any size.
 # Much of a recurrence's call is serial: allocating its buffer and output and, in these losses, the transforms of its inputs and outputs.
 #
-# `min_work` moves the break-even point.
+# The setting `min_work` moves the break-even point.
 # This model's work is `S × T × L`, four million multiply-adds, so it splits under the default threshold but not under one twice as high:
 
 with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
@@ -103,7 +96,7 @@ end == y_serial
 
 # ## GPU arrays
 #
-# `Device(backend)` runs the same strata loops as one GPU kernel each.
+# The executor `Device(backend)` runs the same strata loops as one GPU kernel each.
 # Calls on arrays that live on a GPU use it by default.
 # Every array a call reads must be on the [device](@ref gpu-arrays): the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
 # JLArrays.jl provides GPU-style arrays that run on the CPU, so this section runs anywhere.
@@ -121,7 +114,7 @@ Array(y_device) ≈ y_serial
 # y = r_cuda(CuArray(R); history = CuArray(seed))
 # ```
 #
-# Strata that mix are one kernel per step, so a [GPU](@ref gpu-arrays) pays off only with many strata or many series.
+# Strata that mix are one kernel per step, so a [GPU](@ref gpu-arrays) pays off only with many strata.
 # On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the arrays from the host, so use `Device(backend)` there.
 # A model can also compile with [Reactant.jl](@ref extension-reactant).
 

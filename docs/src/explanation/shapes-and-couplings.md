@@ -37,7 +37,7 @@ A parameter's cotangent goes back through [`add_param!`](@ref ComposableRecurren
 
 The coupling mixes the strata after the kernel and before the gain.
 It has no lag of its own: it mixes each stratum's kernel-weighted past at the current step.
-For ``S`` strata, before the modifiers, a step computes
+For ``S`` strata, the [step](@ref overview-step) before the modifiers is, stratum by stratum,
 
 ```math
 v_{t,i} = \gamma_{t,i} \sum_{j=1}^{S} K_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},

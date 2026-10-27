@@ -465,6 +465,15 @@ function _triangle(w, θ)
     return sum(WT .* Y)
 end
 
+# A sum that reads forward from each time (`transpose`): each column is a
+# cohort's delay pmf, over a series extended past its end by its last value.
+function _forward_sum(w, θ)
+    G, X = _unpack(θ, (L, T), (S, T))
+    c = Convolution(TimeVarying(G, ComposableRecurrences.Primary()))
+    y = w(transpose(c))(X; tail = repeat(X[:, end], 1, L - 1), start = 2)
+    return sum(WS[:, 2:end] .* y)
+end
+
 # Kernels as vectors of columns of different lengths, cut from the flat
 # values `v`: column `τ` has `ns[τ]` entries.
 function _columns(v, ns)
@@ -1335,6 +1344,10 @@ const _SCENARIOS = [
         () -> _flat(fill(0.25, L, T), 1 .+ LOGR, [0.4]),
     ),
     (
+        "Convolution transpose of a Primary kernel with a tail", _forward_sum,
+        () -> _flat(fill(0.25, L, T), 1 .+ LOGR),
+    ),
+    (
         "Recurrence ragged Primary kernel", _primary_ragged,
         () -> _flat(
             [G0[i] * (1 + 0.1 * cos(τ)) for τ in 1:T for i in 1:NS_CYCLE[τ]],
@@ -2108,6 +2121,9 @@ _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:de
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
     (:delay_masses, :delay_step)
+
+_REQUIRES["Convolution transpose of a Primary kernel with a tail"] =
+    (:_TransposedConvolution,)
 
 _requires(name) = get(_REQUIRES, name, ())
 
