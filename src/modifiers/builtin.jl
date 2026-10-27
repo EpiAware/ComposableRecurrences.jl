@@ -162,10 +162,10 @@ s' = s\, e^{-\lambda},
 where ``v`` is the value asked for, ``s`` the pool before the step, ``N`` the
 population, ``\alpha`` the heterogeneity exponent, ``\lambda`` the hazard,
 ``v'`` the value drawn and ``s'`` the pool after the step.
-`α > 1` depletes faster as the pool shrinks (heterogeneous mixing).
+With `α > 1`, infections slow sooner as the pool shrinks, as when the most
+susceptible are infected first.
 
-The default draw of a [`ComposableRecurrences.Depletion`](@ref), which
-sets out the keywords a draw takes.
+The default draw of a [`ComposableRecurrences.Depletion`](@ref).
 As the form of a [`ComposableRecurrences.Flow`](@ref) it takes no
 exponent.
 
@@ -178,8 +178,9 @@ exponent.
   pass a float to differentiate the exponent.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
@@ -229,8 +230,9 @@ The pool can go negative, and then the floor applies.
   [`ComposableRecurrences.Hazard`](@ref).
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
@@ -508,7 +510,7 @@ Adds `b` to each stratum's value wherever the modifier sits in the tuple:
 after a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
 
-For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
+For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
 ```math
 v'_{t,i} = v_{t,i} + b_{t,i},
@@ -572,7 +574,7 @@ end
 Moves a share of each stratum's value to others through a movement matrix
 whose columns sum to one, so the total is conserved.
 
-For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
+For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
 ```math
 \begin{aligned}
@@ -598,7 +600,7 @@ intensity, flows through that construction
 intensity).
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
 stratum's pool by what it realises; a modifier sees
-``g_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
+``\gamma_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
 input, so the `add` values move too.
 The step is the coupling product ``M_t v``, and its reverse pass the
 transposed product, ``\bar v = M_t^\top \bar v'`` and
@@ -1009,7 +1011,7 @@ end
 @doc raw"""
 Clamps each stratum's value to `[lo, hi]`, as `clamp`.
 
-For each stratum ``i`` (see [`PerStratum`](@ref)) at absolute time ``t``,
+For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
 ```math
 v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),
@@ -1077,3 +1079,34 @@ function pullback!(grads, m::Clamp, ::Step, v, s, t)
     end
     return nothing
 end
+
+@implements PieceInterface{(:pullback,)} Hazard [
+    Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0)),
+]
+
+@implements PieceInterface{(:pullback,)} Floor [
+    Arguments(; piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)),
+]
+
+@implements PieceInterface{(:pointwise, :nstate, :pullback)} Add [
+    Arguments(;
+        piece = Add(TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))), role = Step(),
+        args = ([2.0, 3.0], [0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Add(0.5), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+]
+
+@implements PieceInterface{(:nstate, :pullback)} Redistribute [
+    Arguments(;
+        piece = Redistribute([0.98 0.06; 0.02 0.94]),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+]
+
+@implements PieceInterface{(:pointwise, :nstate, :pullback)} Clamp [
+    Arguments(;
+        piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+]

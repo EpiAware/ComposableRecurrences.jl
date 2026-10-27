@@ -74,7 +74,8 @@ module DocsPerformance
             @subset(:status .== "ok", in.(:target, Ref(first.(TARGETS))))
             @transform(:min_us = parse.(Float64, :min_us))
         end
-        floor_us = 10.0^floor(log10(minimum(timed.min_us)))
+        # The decade at or below half the shortest bar, so every bar shows.
+        floor_us = 10.0^floor(log10(minimum(timed.min_us) / 2))
         fg = @chain timed begin
             data(_) * mapping(
                 :target => renamer(TARGETS...) => "",

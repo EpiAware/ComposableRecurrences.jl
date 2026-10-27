@@ -15,7 +15,7 @@
 #
 # ### What might I need to know before starting
 #
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay), with no fitting.
+# It builds on [Renewal then delay](@ref tutorial-renewal-delay).
 
 # ## Packages used
 
@@ -151,7 +151,7 @@ end
 #
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
 # The run starts at `start = 7` after six seed values.
-# `prepend = true` returns the seed with the run (see [`Recurrence`](@ref)).
+# With `prepend = true`, a [`Recurrence`](@ref) returns the seed with the run.
 # The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
@@ -177,6 +177,13 @@ end
 # Read by calendar day, every case infectious on day 30 is thinned at once, as if isolated from infection, so infections halve that day.
 # Read by infection day, cases infected shortly before day 30 keep most of their transmission, because their isolation would fall before the policy starts.
 # Infections then peak on day 31, and the extra cases seed later generations, so infections stay nearly twice as high.
+
+# ## Performance
+#
+# Each bar times a 15-day delay indexed by infection day over 200 days, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("time-varying delays")
 
 # ## Learning more
 #
