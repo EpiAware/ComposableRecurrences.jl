@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
-# This tutorial models occupancy, bed capacity and the movement of patients within a ward.
 #
 # ### What are we going to do in this exercise
 #
@@ -15,7 +14,7 @@
 #
 # ### What might I need to know before starting
 #
-# The [Getting started](@ref getting-started) overview; no fitting is involved.
+# The [Getting started](@ref getting-started) overview.
 
 # ## Packages used
 
@@ -152,14 +151,14 @@ round(sum(by_recurrence .- capped))
 # where ``f_t`` is the number of free beds and ``x_t`` the admissions.
 # The second series receives the ``A_t - x_t`` patients turned away.
 # Its one pool `:O` is the occupancy, and its state.
-# The draw `form = Truncate()` with `fill = :O` fills it with the admissions, up to `beds`.
-# A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as `flows_first = true`.
+# A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as it comes before the draw.
+# The draw `Truncate(; into = :O)` then fills it with the admissions, up to `beds`.
 # `overflow = :stratum` sends what is turned away to the second series.
 # Series 1 holds the demand, and the zero kernel passes it straight to the modifier.
 
 routing = Depletion(
-    beds; pools = (:O,), form = Truncate(), fill = :O, flows_first = true,
-    flows = Flow(:O => 0, δ; form = Share()), overflow = :stratum
+    beds, Flow(:O => 0, δ; form = Share()),
+    Truncate(; into = :O, overflow = :stratum); pools = (:O,)
 )
 routed = Recurrence([0.0]; modifiers = (routing,))(;
     history = zeros(2, 1), add = [admissions'; zeros(1, T)]
@@ -179,8 +178,7 @@ end
 maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 
 # An allowance granted each period works the same way, with a pool drawn from rather than filled.
-# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B`.
-# The [`Depletion`](@ref ComposableRecurrences.Depletion) docstring gives it and the other models of pools and flows.
+# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B` of a [`Depletion`](@ref ComposableRecurrences.Depletion).
 
 # ## A ward with two linked compartments
 #
@@ -208,12 +206,9 @@ maximum(admitted_occupancy), sum(routed) ≈ sum(admissions)
 # Each rate is a parameter, so it can differ by ward or change over time.
 # Here ``c = 0.3``, ``r = 0.4`` and ``d = 0.1``.
 
-ward_flows = Depletion(;
-    pools = (:suspected, :confirmed), form = nothing,
-    flows = (
-        Flow(:suspected => :confirmed, 0.3), Flow(:suspected => 0, 0.4),
-        Flow(:confirmed => 0, 0.1),
-    )
+ward_flows = Depletion(
+    Flow(:suspected => :confirmed, 0.3), Flow(:suspected => 0, 0.4),
+    Flow(:confirmed => 0, 0.1); pools = (:suspected, :confirmed)
 )
 ward = Recurrence([1.0]; modifiers = (ward_flows,))
 patients = ward(; history = zeros(2, 1), add = [admissions'; zero(admissions')], stop = T)
@@ -230,6 +225,13 @@ end
 # A flow with `form = Share()` moves a share, like the daily discharge probability ``\delta`` above, except that the day's admissions can also leave that day.
 # A flow with `form = Truncate()` moves a count capped by what the compartment holds, such as a fixed number of transfers a day.
 # With ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
+
+# ## Performance
+#
+# Each bar times the two-compartment ward with rate, share and count flows over 200 days, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("occupancy")
 
 # ## Learning more
 #

@@ -2,7 +2,7 @@
 
 These tools check a new modifier, coupling or depletion form, and time the package.
 
-[Checking a new type](@ref extending-checks) tests a new type's `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and its `pullback!` against ForwardDiff and plain AD.
+A new type's `forward!` is [checked](@ref extending-checks) against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), and its `pullback!` against ForwardDiff and plain AD.
 
 ## [Comparing with plain automatic differentiation](@id compare-plain-ad)
 
@@ -22,11 +22,11 @@ R = fill(1.4, 60)
 )
 ```
 
-Time a rule on a reverse-mode backend; [Backends](@ref adjoint-backends) says why.
+Time a rule on a reverse-mode backend, as forward-mode [backends](@ref adjoint-backends) never take it.
 
 ## [Rule timings](@id rule-timings)
 
-[Which rules are kept](@ref rule-policy) gives the policy these timings support.
+A rule is [kept](@ref rule-policy) only where it beats plain AD by about 10% in reverse mode on Mooncake or Enzyme.
 The table gives the rule time over the `NoAdjoint` time, from benchmark matrix cases at `T` 200 and `L` 20 where one covers it, else from the small CI scenarios (marked ¹).
 
 | Rule switched on by | Mooncake reverse | Enzyme reverse | Decision |
@@ -42,13 +42,13 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | `Depletion` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Allocate` with `imports` and `spill`, 64 strata | 0.05 | 0.11 | keep |
-| `Depletion` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
+| `Depletion` filled up to a capacity, flows before the draw | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
-| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | plain AD is wrong | keep |
+| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | 0.45 | keep |
 | `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
-| sparse coupling | 0.75¹ | plain AD is wrong | keep |
+| sparse coupling | 0.75¹ | 0.28¹ | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
 | pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep, slower on Enzyme |
@@ -59,6 +59,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 | `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
+| a sparse route coupling under plain AD | plain AD | 0.48 to 0.57⁶ | keep on Enzyme |
 
 ² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
 The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
@@ -74,7 +75,10 @@ The model has two routes, a dense user coupling with one scalar and a dense matr
 It was timed at 5, 11, 20, 22 and 23 strata, one pass, and at 30, 46 and 47, two passes.
 At 60 strata the call takes plain AD, within noise of the time before: 1.02 times it on Mooncake and 0.98 on Enzyme.
 
-Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
+⁶ A local timing, not a matrix case: a `NoAdjoint` call of the `strata_routes` routes without the depletion, at `T` 200 and `L` 20, timed with and without the rule.
+It was timed at 5 and 50 strata, with the sparse route coupling constant and as a parameter.
+
+Every rule in the table is faster than plain AD on both backends, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
 On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
 The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
@@ -96,7 +100,7 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
 Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
-The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; the [backend case study](@ref tutorial-backend-case-study) builds the model they time.
+The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; they time the model of the [backend case study](@ref tutorial-backend-case-study).
 They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend, and a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
 The `handrule` arm runs on Mooncake reverse only, since on any other target it is the `loop` arm.
 
@@ -113,7 +117,7 @@ task -t benchmark/Taskfile.yml matrix -- --tier=realistic --targets=primal \
 The report adds an executor table with each threaded run's speed-up over the serial one-thread run of the same target.
 Run the serial one-thread run into the same directory first; without it the report says so and leaves the table out.
 Serial runs on more than one thread are labelled `<target> @ t<n>` and stay out of the executor table.
-[Executors](@ref executors) says which passes run threaded under each backend.
+Under the `Threaded()` [executor](@ref executors), ForwardDiff gradients run threaded, and Mooncake and Enzyme thread only a rule's forward and reverse passes.
 Each row records the load average when its cell started, so a busy machine shows in the results.
 
 ## Gradient tests and use-case tests
@@ -133,14 +137,14 @@ Each backend job compiles every scenario and test item it runs, so a check in th
 Put each check at the cheapest level that runs its code path.
 
 - The maths of a `pullback!` goes in `test/unit`, against a ForwardDiff Jacobian on small inputs.
-  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`, as [Checking a new type](@ref extending-checks) shows.
+  For a modifier step, depletion form or coupling, declare the `pullback` component of [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) and test it with `Interfaces.test(PieceInterface{(:pullback,)}, T, objs)`.
   For a whole call, use `pullback_matches` (`test/unit/adjoints.jl`).
   These need no AD backend.
 - A new rule path, such as a new operator, a new kind of field or a new wrapper of the call, gets one small scenario in `_SCENARIOS`.
   Every backend job runs it through its rule against ForwardDiff.
 - Every scenario has a `NoAdjoint` twin, which Mooncake reverse and Enzyme reverse run: there the twin is the only check that the backend differentiates a built-in's own forward code.
   ForwardDiff, ReverseDiff and the forward modes take the same plain path for a scenario and its twin, so they run the scenarios alone (`category = :rules`).
-  A new method of a call on `NoAdjoint` itself needs a check on each of these backends, as the item "Without a rule: the NoAdjoint wrapper's own calls" gives the ones there now.
+  A new method of a call on `NoAdjoint` itself needs a check on each of these backends, in the item "Without a rule: the NoAdjoint wrapper's own calls".
   The benchmarks time every twin.
 - `test_adjoint` checks one registry operator of each kind of field and wrapper, listed in `ADJOINT_SCENARIOS` in `test/ad/adjoints.jl`.
   Add a scenario there only when it brings a kind of field or wrapper the list lacks, or a branch for a constant part that Enzyme's pass with the operator constant reaches.

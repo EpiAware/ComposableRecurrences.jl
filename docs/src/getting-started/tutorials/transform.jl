@@ -3,7 +3,7 @@
 # ## Introduction
 #
 # A branching process follows the offspring of each case, and its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
-# This tutorial computes these expectations; it does not simulate chains.
+# The operators compute these expectations; they do not simulate chains.
 #
 # ### What are we going to do in this exercise
 #
@@ -15,7 +15,6 @@
 # ### What might I need to know before starting
 #
 # This builds on [Getting started](@ref getting-started) and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
-# No fitting is involved.
 
 # ## Packages used
 
@@ -194,6 +193,13 @@ end
 # The derivative of the probability of extinction by generation 30 with respect to ``k`` comes from the same call:
 
 ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
+
+# ## Performance
+#
+# Each bar times extinction by generation for five mixing types with a 20-lag generation interval over 200 steps, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("transform")
 
 # ## References
 #

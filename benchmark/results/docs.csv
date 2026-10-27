@@ -1,129 +1,217 @@
 block,size,method,target,status,median_us,min_us,allocs,ratio,relerr,check,revision,rules
-naive vs package,T100_L6_S3,ComposableRecurrences,primal,ok,12.84,10.29,28,1.000,,,ddc30ff3,false
-naive vs package,T100_L6_S3,hand loop,primal,ok,12.94,11.46,17,1.008,,,ddc30ff3,false
-naive vs package,T100_L6_S3,hand loop (window copies),primal,ok,70.55,54.62,3426,5.496,,,ddc30ff3,false
-naive vs package,T100_L6_S3,accumulate,primal,ok,73.97,63.67,3631,5.762,,,ddc30ff3,false
-naive vs package,T100_L6_S3,ComposableRecurrences,ForwardDiff,ok,977.08,832.77,550,1.000,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T100_L6_S3,hand loop,ForwardDiff,ok,1451.21,965.83,425,1.485,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T100_L6_S3,hand loop (window copies),ForwardDiff,ok,6553.10,4574.01,88175,6.707,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T100_L6_S3,accumulate,ForwardDiff,ok,8379.60,4937.18,93300,8.576,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T100_L6_S3,ComposableRecurrences,Mooncake reverse,ok,44.93,41.11,84,1.000,1.7919122396635673e-15,ForwardDiff,f6f6da11,true
-naive vs package,T100_L6_S3,hand loop,Mooncake reverse,ok,366.82,310.05,5437,8.164,4.031802539243086e-16,ForwardDiff,f6f6da11,true
-naive vs package,T100_L6_S3,hand loop (window copies),Mooncake reverse,ok,1842.62,798.75,11457,41.011,1.2543385677645163e-15,ForwardDiff,f6f6da11,true
-naive vs package,T100_L6_S3,accumulate,Mooncake reverse,ok,2315.14,1000.29,12819,51.528,1.2543385677645163e-15,ForwardDiff,f6f6da11,true
-naive vs package,T100_L6_S3,ComposableRecurrences,Enzyme reverse,ok,35.06,31.38,105,1.000,1.7919122396635673e-15,ForwardDiff,f6f6da11,true
-naive vs package,T100_L6_S3,hand loop,Enzyme reverse,ok,270.37,140.82,51,7.712,5.375736718990781e-16,ForwardDiff,f6f6da11,true
-naive vs package,T100_L6_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,f6f6da11,true
-naive vs package,T100_L6_S3,accumulate,Enzyme reverse,error,,,,,,,f6f6da11,true
-naive vs package,T200_L20_S3,ComposableRecurrences,primal,ok,33.80,25.47,28,1.000,,,ddc30ff3,false
-naive vs package,T200_L20_S3,hand loop,primal,ok,66.38,34.64,17,1.964,,,ddc30ff3,false
-naive vs package,T200_L20_S3,hand loop (window copies),primal,ok,290.06,161.59,6830,8.582,,,ddc30ff3,false
-naive vs package,T200_L20_S3,accumulate,primal,ok,294.55,177.48,7232,8.715,,,ddc30ff3,false
-naive vs package,T200_L20_S3,ComposableRecurrences,ForwardDiff,ok,6530.00,4427.34,1100,1.000,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T200_L20_S3,hand loop,ForwardDiff,ok,8395.86,6745.47,850,1.286,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T200_L20_S3,hand loop (window copies),ForwardDiff,ok,57035.24,48951.01,381600,8.734,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T200_L20_S3,accumulate,ForwardDiff,ok,84830.89,59388.84,401607,12.991,0.0,ForwardDiff,f6f6da11,false
-naive vs package,T200_L20_S3,ComposableRecurrences,Mooncake reverse,ok,111.87,78.50,84,1.000,2.706272175378407e-15,ForwardDiff,f6f6da11,true
-naive vs package,T200_L20_S3,hand loop,Mooncake reverse,ok,1021.99,896.47,10837,9.136,1.4175711394839578e-15,ForwardDiff,f6f6da11,true
-naive vs package,T200_L20_S3,hand loop (window copies),Mooncake reverse,ok,3256.81,2365.48,23207,29.113,1.0309608287156064e-15,ForwardDiff,f6f6da11,true
-naive vs package,T200_L20_S3,accumulate,Mooncake reverse,ok,3470.22,2717.42,24821,31.021,1.0309608287156064e-15,ForwardDiff,f6f6da11,true
-naive vs package,T200_L20_S3,ComposableRecurrences,Enzyme reverse,ok,76.50,60.29,105,1.000,2.706272175378407e-15,ForwardDiff,f6f6da11,true
-naive vs package,T200_L20_S3,hand loop,Enzyme reverse,ok,274.96,238.80,51,3.594,1.2887010358945072e-15,ForwardDiff,f6f6da11,true
-naive vs package,T200_L20_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,f6f6da11,true
-naive vs package,T200_L20_S3,accumulate,Enzyme reverse,error,,,,,,,f6f6da11,true
-custom modifier,T100_L6_S1,plain AD,Mooncake reverse,ok,107.37,93.23,914,1.293,1.1814345134830922e-15,ForwardDiff,f6f6da11,true
-custom modifier,T100_L6_S1,forward only,Mooncake reverse,ok,83.01,75.66,952,1.000,1.0337551992977057e-15,ForwardDiff,f6f6da11,true
-custom modifier,T100_L6_S1,with pullback!,Mooncake reverse,ok,144.05,74.82,952,1.735,1.8459914273173314e-15,ForwardDiff,f6f6da11,true
-custom modifier,T100_L6_S1,plain AD,Enzyme reverse,ok,78.49,57.41,254,1.128,1.6244724560392518e-15,ForwardDiff,f6f6da11,true
-custom modifier,T100_L6_S1,forward only,Enzyme reverse,ok,69.61,62.37,334,1.000,1.0337551992977057e-15,ForwardDiff,f6f6da11,true
-custom modifier,T100_L6_S1,with pullback!,Enzyme reverse,ok,115.81,96.25,329,1.664,1.5506327989465585e-15,ForwardDiff,f6f6da11,true
-custom modifier,T200_L20_S1,plain AD,Mooncake reverse,ok,214.37,173.39,914,1.707,9.79905792115161e-16,ForwardDiff,f6f6da11,true
-custom modifier,T200_L20_S1,forward only,Mooncake reverse,ok,125.56,90.72,952,1.000,1.1023940161295563e-15,ForwardDiff,f6f6da11,true
-custom modifier,T200_L20_S1,with pullback!,Mooncake reverse,ok,98.39,89.24,952,0.784,1.714835136201532e-15,ForwardDiff,f6f6da11,true
-custom modifier,T200_L20_S1,plain AD,Enzyme reverse,ok,129.16,98.93,254,1.657,9.79905792115161e-16,ForwardDiff,f6f6da11,true
-custom modifier,T200_L20_S1,forward only,Enzyme reverse,ok,77.96,72.79,334,1.000,1.1023940161295563e-15,ForwardDiff,f6f6da11,true
-custom modifier,T200_L20_S1,with pullback!,Enzyme reverse,ok,78.08,68.70,329,1.002,1.1023940161295563e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,ComposableRecurrences,primal,ok,11.38,10.65,30,1.000,,,ddc30ff3,false
-backend renewal,T200_L20_S1,hand loop,primal,ok,11.43,10.48,35,1.004,,,ddc30ff3,false
-backend renewal,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,957.68,743.65,720,1.000,0.0,ForwardDiff,f6f6da11,false
-backend renewal,T200_L20_S1,hand loop,ForwardDiff,ok,2665.02,2240.21,920,2.783,0.0,ForwardDiff,f6f6da11,false
-backend renewal,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,67.57,62.97,635,1.000,1.6342755943851798e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,plain AD,Mooncake reverse,ok,163.60,152.79,627,2.421,2.396937538431597e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,hand loop,Mooncake reverse,ok,170.24,146.32,2439,2.519,1.4163721818004912e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,hand rules,Mooncake reverse,ok,77.59,65.27,635,1.148,2.070082419554564e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,91.01,82.38,197,1.000,1.0895170629234532e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,plain AD,Enzyme reverse,ok,77.30,67.77,186,0.849,1.1984687692157985e-15,ForwardDiff,f6f6da11,true
-backend renewal,T200_L20_S1,hand loop,Enzyme reverse,ok,90.13,80.81,182,0.990,2.1790341258469095e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,ComposableRecurrences,primal,ok,22.96,20.93,36,1.000,,,ddc30ff3,false
-backend renewal,T400_L60_S1,hand loop,primal,ok,34.48,31.60,44,1.502,,,ddc30ff3,false
-backend renewal,T400_L60_S1,ComposableRecurrences,ForwardDiff,ok,6845.55,5418.19,1673,1.000,0.0,ForwardDiff,f6f6da11,false
-backend renewal,T400_L60_S1,hand loop,ForwardDiff,ok,29439.11,26754.88,2113,4.300,0.0,ForwardDiff,f6f6da11,false
-backend renewal,T400_L60_S1,ComposableRecurrences,Mooncake reverse,ok,125.53,99.00,650,1.000,1.5073831126389597e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,plain AD,Mooncake reverse,ok,808.41,581.28,638,6.440,1.5073831126389597e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,hand loop,Mooncake reverse,ok,355.96,304.03,4262,2.836,1.5450676904549352e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,hand rules,Mooncake reverse,ok,185.44,111.96,657,1.477,2.0349672020625977e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,ComposableRecurrences,Enzyme reverse,ok,99.87,80.53,213,1.000,1.6581214239028558e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,plain AD,Enzyme reverse,ok,159.98,133.80,198,1.602,3.0147662252779194e-15,ForwardDiff,f6f6da11,true
-backend renewal,T400_L60_S1,hand loop,Enzyme reverse,ok,180.43,164.89,200,1.807,1.8842288907987016e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,ComposableRecurrences,primal,ok,13.98,12.89,45,1.000,,,ddc30ff3,false
-backend patches,T200_L20_S1,hand loop,primal,ok,17.86,16.77,48,1.278,,,ddc30ff3,false
-backend patches,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,2034.20,1575.94,1887,1.000,0.0,ForwardDiff,f6f6da11,false
-backend patches,T200_L20_S1,hand loop,ForwardDiff,ok,2306.86,1590.74,2257,1.134,0.0,ForwardDiff,f6f6da11,false
-backend patches,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,114.82,103.44,946,1.000,2.5342493217145366e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,plain AD,Mooncake reverse,ok,259.43,229.99,929,2.260,2.2235994048592063e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,hand loop,Mooncake reverse,ok,251.54,209.81,928,2.191,3.7931989847598246e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,hand rules,Mooncake reverse,ok,124.72,110.17,926,1.086,3.139199159801234e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,95.87,87.27,280,1.000,2.7467992648260784e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,plain AD,Enzyme reverse,ok,726.72,418.66,2273,7.580,1.4387996149088981e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S1,hand loop,Enzyme reverse,ok,140.79,127.86,256,1.469,3.40079908978467e-15,ForwardDiff,f6f6da11,true
-backend patches,T200_L20_S11,ComposableRecurrences,primal,ok,139.96,104.02,58,1.000,,,ddc30ff3,false
-backend patches,T200_L20_S11,hand loop,primal,ok,134.61,123.14,66,0.962,,,ddc30ff3,false
-backend patches,T200_L20_S11,ComposableRecurrences,Mooncake reverse,ok,695.72,504.93,971,1.000,,none,f6f6da11,true
-backend patches,T200_L20_S11,plain AD,Mooncake reverse,ok,3009.57,2732.57,948,4.326,1.9030004678167658e-15,rule arm,f6f6da11,true
-backend patches,T200_L20_S11,hand loop,Mooncake reverse,ok,2537.89,2303.43,957,3.648,3.4254008420701783e-15,rule arm,f6f6da11,true
-backend patches,T200_L20_S11,hand rules,Mooncake reverse,ok,729.53,656.86,953,1.049,1.9030004678167658e-15,rule arm,f6f6da11,true
-backend patches,T200_L20_S11,ComposableRecurrences,Enzyme reverse,ok,799.17,374.84,308,1.000,,none,f6f6da11,true
-backend patches,T200_L20_S11,plain AD,Enzyme reverse,ok,2550.07,2292.54,3095,3.191,2.0933005145984428e-15,rule arm,f6f6da11,true
-backend patches,T200_L20_S11,hand loop,Enzyme reverse,ok,1412.65,1042.47,298,1.768,2.0933005145984428e-15,rule arm,f6f6da11,true
-backend patches,T400_L60_S1,ComposableRecurrences,primal,ok,29.48,26.64,54,1.000,,,ddc30ff3,false
-backend patches,T400_L60_S1,hand loop,primal,ok,42.34,38.20,62,1.436,,,ddc30ff3,false
-backend patches,T400_L60_S1,ComposableRecurrences,ForwardDiff,ok,12565.24,10840.39,4346,1.000,0.0,ForwardDiff,f6f6da11,false
-backend patches,T400_L60_S1,hand loop,ForwardDiff,ok,13258.87,11452.76,5116,1.055,0.0,ForwardDiff,f6f6da11,false
-backend patches,T400_L60_S1,ComposableRecurrences,Mooncake reverse,ok,193.93,164.29,971,1.000,1.9020354382658254e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S1,plain AD,Mooncake reverse,ok,873.94,762.29,948,4.506,1.9020354382658254e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S1,hand loop,Mooncake reverse,ok,780.62,704.22,957,4.025,4.517334165881304e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S1,hand rules,Mooncake reverse,ok,255.29,200.29,953,1.316,6.086513402450599e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S1,ComposableRecurrences,Enzyme reverse,ok,245.81,141.87,304,1.000,1.9020354382658254e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S1,plain AD,Enzyme reverse,ok,1190.13,769.33,4291,4.842,1.5216283506126603e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S1,hand loop,Enzyme reverse,ok,289.32,259.71,284,1.177,3.233460245051881e-15,ForwardDiff,f6f6da11,true
-backend patches,T400_L60_S11,ComposableRecurrences,primal,ok,302.62,239.60,64,1.000,,,ddc30ff3,false
-backend patches,T400_L60_S11,hand loop,primal,ok,359.43,314.72,72,1.188,,,ddc30ff3,false
-backend patches,T400_L60_S11,ComposableRecurrences,Mooncake reverse,ok,1953.30,1076.57,984,1.000,,none,f6f6da11,true
-backend patches,T400_L60_S11,plain AD,Mooncake reverse,ok,9250.48,8498.65,958,4.736,2.8526101166916913e-15,rule arm,f6f6da11,true
-backend patches,T400_L60_S11,hand loop,Mooncake reverse,ok,8259.58,7587.24,967,4.229,3.100663170317056e-15,rule arm,f6f6da11,true
-backend patches,T400_L60_S11,hand rules,Mooncake reverse,ok,1761.77,1500.35,963,0.902,3.2246896971297383e-15,rule arm,f6f6da11,true
-backend patches,T400_L60_S11,ComposableRecurrences,Enzyme reverse,ok,1163.87,770.26,321,1.000,,none,f6f6da11,true
-backend patches,T400_L60_S11,plain AD,Enzyme reverse,ok,7483.79,5103.80,5905,6.430,3.224689697129738e-15,rule arm,f6f6da11,true
-backend patches,T400_L60_S11,hand loop,Enzyme reverse,ok,3346.54,2775.99,308,2.875,3.7207958043804665e-15,rule arm,f6f6da11,true
-backend delay,T200_L20_S1,ComposableRecurrences,primal,ok,2.61,1.79,15,1.000,,,fd3b417c,false
-backend delay,T200_L20_S1,hand loop,primal,ok,1.73,1.26,15,0.663,,,fd3b417c,false
-backend delay,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,387.03,272.86,247,1.000,0.0,ForwardDiff,fd3b417c,false
-backend delay,T200_L20_S1,hand loop,ForwardDiff,ok,1231.43,981.07,361,3.182,0.0,ForwardDiff,fd3b417c,false
-backend delay,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,30.44,28.01,377,1.000,5.871371801939768e-16,ForwardDiff,fd3b417c,true
-backend delay,T200_L20_S1,plain AD,Mooncake reverse,ok,72.63,66.67,767,2.386,5.871371801939768e-16,ForwardDiff,fd3b417c,true
-backend delay,T200_L20_S1,hand loop,Mooncake reverse,ok,56.37,50.30,595,1.852,5.871371801939768e-16,ForwardDiff,fd3b417c,true
-backend delay,T200_L20_S1,hand rules,Mooncake reverse,ok,34.31,31.32,375,1.127,5.871371801939768e-16,ForwardDiff,fd3b417c,true
-backend delay,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,22.10,20.27,102,1.000,5.871371801939768e-16,ForwardDiff,fd3b417c,true
-backend delay,T200_L20_S1,plain AD,Enzyme reverse,ok,41.80,37.79,144,1.892,9.394194883103628e-16,ForwardDiff,fd3b417c,true
-backend delay,T200_L20_S1,hand loop,Enzyme reverse,ok,28.62,26.02,102,1.295,5.871371801939768e-16,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,ComposableRecurrences,primal,ok,6.09,4.50,19,1.000,,,fd3b417c,false
-backend delay,T400_L60_S1,hand loop,primal,ok,5.61,4.43,18,0.921,,,fd3b417c,false
-backend delay,T400_L60_S1,ComposableRecurrences,ForwardDiff,ok,3485.15,3029.28,507,1.000,0.0,ForwardDiff,fd3b417c,false
-backend delay,T400_L60_S1,hand loop,ForwardDiff,ok,13638.26,11487.94,741,3.913,0.0,ForwardDiff,fd3b417c,false
-backend delay,T400_L60_S1,ComposableRecurrences,Mooncake reverse,ok,52.03,42.19,385,1.000,1.1285046560687454e-15,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,plain AD,Mooncake reverse,ok,289.30,178.25,1605,5.560,1.24135512167562e-15,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,hand loop,Mooncake reverse,ok,152.23,134.70,1101,2.926,1.1285046560687454e-15,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,hand rules,Mooncake reverse,ok,56.11,48.65,381,1.078,1.1285046560687454e-15,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,ComposableRecurrences,Enzyme reverse,ok,34.63,30.58,110,1.000,1.1285046560687454e-15,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,plain AD,Enzyme reverse,ok,92.39,83.81,162,2.668,1.6927569841031183e-15,ForwardDiff,fd3b417c,true
-backend delay,T400_L60_S1,hand loop,Enzyme reverse,ok,75.66,47.47,108,2.185,1.1285046560687454e-15,ForwardDiff,fd3b417c,true
+naive vs package,T100_L6_S3,ComposableRecurrences,primal,ok,11.29,7.92,28,1.000,,,df005c52,false
+naive vs package,T100_L6_S3,hand loop,primal,ok,8.69,7.21,17,0.769,,,df005c52,false
+naive vs package,T100_L6_S3,hand loop (window copies),primal,ok,49.87,43.51,3426,4.416,,,df005c52,false
+naive vs package,T100_L6_S3,accumulate,primal,ok,55.81,48.43,3631,4.942,,,df005c52,false
+naive vs package,T100_L6_S3,ComposableRecurrences,ForwardDiff,ok,677.46,500.40,550,1.000,0.0,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,hand loop,ForwardDiff,ok,843.82,696.64,425,1.246,0.0,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,hand loop (window copies),ForwardDiff,ok,4781.03,2899.46,88175,7.057,0.0,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,accumulate,ForwardDiff,ok,5991.43,3650.53,93300,8.844,0.0,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,ComposableRecurrences,Mooncake reverse,ok,35.43,30.14,82,1.000,8.063605078486064e-16,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,hand loop,Mooncake reverse,ok,285.14,246.26,5437,8.049,3.583824479327189e-16,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,hand loop (window copies),Mooncake reverse,ok,1007.00,710.83,11457,28.425,3.58382447932719e-16,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,accumulate,Mooncake reverse,ok,1330.23,862.22,13823,37.548,3.58382447932719e-16,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,ComposableRecurrences,Enzyme reverse,ok,27.61,22.30,76,1.000,8.063605078486064e-16,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,hand loop,Enzyme reverse,ok,44.97,36.76,42,1.629,3.583824479327189e-16,ForwardDiff,df005c52,true
+naive vs package,T100_L6_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,df005c52,true
+naive vs package,T100_L6_S3,accumulate,Enzyme reverse,error,,,,,,,df005c52,true
+naive vs package,T200_L20_S3,ComposableRecurrences,primal,ok,27.06,22.27,28,1.000,,,df005c52,false
+naive vs package,T200_L20_S3,hand loop,primal,ok,23.65,21.66,17,0.874,,,df005c52,false
+naive vs package,T200_L20_S3,hand loop (window copies),primal,ok,134.52,109.40,6830,4.971,,,df005c52,false
+naive vs package,T200_L20_S3,accumulate,primal,ok,164.77,113.71,7232,6.089,,,df005c52,false
+naive vs package,T200_L20_S3,ComposableRecurrences,ForwardDiff,ok,4149.54,3133.27,1100,1.000,0.0,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,hand loop,ForwardDiff,ok,6732.66,5670.38,850,1.623,0.0,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,hand loop (window copies),ForwardDiff,ok,49790.85,44824.78,381600,11.999,0.0,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,accumulate,ForwardDiff,ok,55100.54,47979.59,401607,13.279,0.0,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,ComposableRecurrences,Mooncake reverse,ok,87.01,65.49,82,1.000,1.159830932305032e-15,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,hand loop,Mooncake reverse,ok,740.19,639.81,10837,8.507,6.201873735242319e-16,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,hand loop (window copies),Mooncake reverse,ok,2666.27,1922.66,23207,30.644,5.154804143578034e-16,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,accumulate,Mooncake reverse,ok,3215.30,2380.52,26825,36.954,5.154804143578034e-16,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,ComposableRecurrences,Enzyme reverse,ok,65.80,46.50,76,1.000,1.159830932305032e-15,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,hand loop,Enzyme reverse,ok,89.86,81.54,42,1.366,8.054381474340674e-16,ForwardDiff,df005c52,true
+naive vs package,T200_L20_S3,hand loop (window copies),Enzyme reverse,error,,,,,,,df005c52,true
+naive vs package,T200_L20_S3,accumulate,Enzyme reverse,error,,,,,,,df005c52,true
+custom modifier,T100_L6_S1,plain AD,Mooncake reverse,ok,23.07,20.83,97,1.731,5.168775996488531e-16,ForwardDiff,df005c52,true
+custom modifier,T100_L6_S1,forward only,Mooncake reverse,ok,13.33,10.71,108,1.000,1.6244724560392528e-15,ForwardDiff,df005c52,true
+custom modifier,T100_L6_S1,with pullback!,Mooncake reverse,ok,13.26,11.00,108,0.995,5.907172567415464e-16,ForwardDiff,df005c52,true
+custom modifier,T100_L6_S1,plain AD,Enzyme reverse,ok,9.11,7.33,46,1.445,1.3291138276684795e-15,ForwardDiff,df005c52,true
+custom modifier,T100_L6_S1,forward only,Enzyme reverse,ok,6.30,5.26,51,1.000,1.7721517702246393e-15,ForwardDiff,df005c52,true
+custom modifier,T100_L6_S1,with pullback!,Enzyme reverse,ok,5.52,4.67,49,0.875,5.907172567415464e-16,ForwardDiff,df005c52,true
+custom modifier,T200_L20_S1,plain AD,Mooncake reverse,ok,64.26,60.91,97,2.864,7.349293440863709e-16,ForwardDiff,df005c52,true
+custom modifier,T200_L20_S1,forward only,Mooncake reverse,ok,22.43,20.44,108,1.000,1.9598115842303225e-15,ForwardDiff,df005c52,true
+custom modifier,T200_L20_S1,with pullback!,Mooncake reverse,ok,21.92,19.66,108,0.977,1.9598115842303225e-15,ForwardDiff,df005c52,true
+custom modifier,T200_L20_S1,plain AD,Enzyme reverse,ok,18.99,17.32,46,1.496,1.1023940161295563e-15,ForwardDiff,df005c52,true
+custom modifier,T200_L20_S1,forward only,Enzyme reverse,ok,12.69,11.51,51,1.000,1.7148351362015322e-15,ForwardDiff,df005c52,true
+custom modifier,T200_L20_S1,with pullback!,Enzyme reverse,ok,12.56,11.21,49,0.990,2.0822998082447178e-15,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,ComposableRecurrences,primal,ok,8.52,7.92,13,1.000,,,df005c52,false
+backend renewal,T200_L20_S1,hand loop,primal,ok,8.42,7.01,22,0.989,,,df005c52,false
+backend renewal,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,524.81,412.35,360,1.000,0.0,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,hand loop,ForwardDiff,ok,1717.93,1607.93,660,3.273,0.0,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,25.22,23.34,46,1.000,1.1984687692157985e-15,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,plain AD,Mooncake reverse,ok,65.64,63.07,34,2.603,2.396937538431597e-15,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,hand loop,Mooncake reverse,ok,75.09,64.91,1663,2.977,1.6342755943851825e-15,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,hand rules,Mooncake reverse,ok,24.19,20.58,59,0.959,1.961130713262219e-15,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,17.80,16.05,49,1.000,8.716136503387625e-16,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,plain AD,Enzyme reverse,ok,25.97,24.12,50,1.459,9.805653566311079e-16,ForwardDiff,df005c52,true
+backend renewal,T200_L20_S1,hand loop,Enzyme reverse,ok,34.50,31.94,57,1.939,2.2879858321392558e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,ComposableRecurrences,primal,ok,18.66,16.79,16,1.000,,,df005c52,false
+backend renewal,T400_L60_S1,hand loop,primal,ok,28.39,26.45,29,1.521,,,df005c52,false
+backend renewal,T400_L60_S1,ComposableRecurrences,ForwardDiff,ok,3892.98,3417.09,792,1.000,0.0,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,hand loop,ForwardDiff,ok,20226.73,18996.63,1452,5.196,0.0,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,ComposableRecurrences,Mooncake reverse,ok,56.41,52.12,58,1.000,1.808859735166757e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,plain AD,Mooncake reverse,ok,293.04,264.82,40,5.195,2.2610746689584463e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,hand loop,Mooncake reverse,ok,189.60,155.96,3283,3.361,1.5073831126389623e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,hand rules,Mooncake reverse,ok,90.27,63.28,78,1.600,1.2059064901111698e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,ComposableRecurrences,Enzyme reverse,ok,44.12,40.40,61,1.000,2.11033635769455e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,plain AD,Enzyme reverse,ok,80.79,75.58,56,1.831,1.9595980464306534e-15,ForwardDiff,df005c52,true
+backend renewal,T400_L60_S1,hand loop,Enzyme reverse,ok,131.75,99.32,71,2.986,1.2059064901111698e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,ComposableRecurrences,primal,ok,13.67,10.01,25,1.000,,,df005c52,false
+backend patches,T200_L20_S1,hand loop,primal,ok,12.94,11.69,28,0.946,,,df005c52,false
+backend patches,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,1310.77,1069.29,1147,1.000,0.0,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,hand loop,ForwardDiff,ok,2358.26,2081.83,1443,1.799,0.0,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,45.03,40.27,137,1.000,1.7821495230121574e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,plain AD,Mooncake reverse,ok,95.84,91.97,125,2.128,2.0927994398674876e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,hand loop,Mooncake reverse,ok,106.18,100.51,132,2.358,2.7467992648260768e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,hand rules,Mooncake reverse,ok,52.27,48.74,126,1.161,2.223599404859205e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,32.55,29.21,89,1.000,1.7167495405162984e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,plain AD,Enzyme reverse,ok,136.50,96.66,479,4.194,1.1117997024296027e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S1,hand loop,Enzyme reverse,ok,91.44,56.84,95,2.809,2.354399369850923e-15,ForwardDiff,df005c52,true
+backend patches,T200_L20_S11,ComposableRecurrences,primal,ok,99.58,67.14,29,1.000,,,df005c52,false
+backend patches,T200_L20_S11,hand loop,primal,ok,110.93,97.48,37,1.114,,,df005c52,false
+backend patches,T200_L20_S11,ComposableRecurrences,Mooncake reverse,ok,400.30,318.13,151,1.000,,none,df005c52,true
+backend patches,T200_L20_S11,plain AD,Mooncake reverse,ok,1912.18,1731.47,133,4.777,1.7127004210350892e-15,rule arm,df005c52,true
+backend patches,T200_L20_S11,hand loop,Mooncake reverse,ok,1714.50,1573.49,150,4.283,3.615700888851855e-15,rule arm,df005c52,true
+backend patches,T200_L20_S11,hand rules,Mooncake reverse,ok,498.37,432.89,142,1.245,1.9030004678167658e-15,rule arm,df005c52,true
+backend patches,T200_L20_S11,ComposableRecurrences,Enzyme reverse,ok,280.67,201.78,103,1.000,,none,df005c52,true
+backend patches,T200_L20_S11,plain AD,Enzyme reverse,ok,1069.03,778.21,2487,3.809,1.5224003742534116e-15,rule arm,df005c52,true
+backend patches,T200_L20_S11,hand loop,Enzyme reverse,ok,957.89,863.14,123,3.413,2.973438230963694e-15,rule arm,df005c52,true
+backend patches,T400_L60_S1,ComposableRecurrences,primal,ok,28.78,21.22,29,1.000,,,df005c52,false
+backend patches,T400_L60_S1,hand loop,primal,ok,31.47,27.95,37,1.094,,,df005c52,false
+backend patches,T400_L60_S1,ComposableRecurrences,ForwardDiff,ok,8458.25,7179.27,2387,1.000,0.0,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,hand loop,ForwardDiff,ok,19375.94,17099.70,3003,2.291,0.0,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,ComposableRecurrences,Mooncake reverse,ok,176.16,82.99,151,1.000,1.3314248067860793e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,plain AD,Mooncake reverse,ok,386.03,334.99,133,2.191,1.2838739208294336e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,hand loop,Mooncake reverse,ok,425.18,368.30,150,2.414,4.5648850518379615e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,hand rules,Mooncake reverse,ok,118.57,111.93,142,0.673,3.804070876531635e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,ComposableRecurrences,Enzyme reverse,ok,70.88,63.99,103,1.000,1.4027511357210478e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,plain AD,Enzyme reverse,ok,349.60,263.63,887,4.932,3.804070876531655e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S1,hand loop,Enzyme reverse,ok,176.77,157.39,113,2.494,3.2334602450518895e-15,ForwardDiff,df005c52,true
+backend patches,T400_L60_S11,ComposableRecurrences,primal,ok,190.93,148.22,30,1.000,,,df005c52,false
+backend patches,T400_L60_S11,hand loop,primal,ok,315.70,254.48,38,1.653,,,df005c52,false
+backend patches,T400_L60_S11,ComposableRecurrences,Mooncake reverse,ok,768.44,633.86,155,1.000,,none,df005c52,true
+backend patches,T400_L60_S11,plain AD,Mooncake reverse,ok,5535.16,5232.00,135,7.203,2.54254379965999e-15,rule arm,df005c52,true
+backend patches,T400_L60_S11,hand loop,Mooncake reverse,ok,5929.07,5132.08,152,7.716,3.720795804380473e-15,rule arm,df005c52,true
+backend patches,T400_L60_S11,hand rules,Mooncake reverse,ok,1290.12,1146.80,144,1.679,3.4727427507551083e-15,rule arm,df005c52,true
+backend patches,T400_L60_S11,ComposableRecurrences,Enzyme reverse,ok,503.97,426.91,107,1.000,,none,df005c52,true
+backend patches,T400_L60_S11,plain AD,Enzyme reverse,ok,3198.17,2309.02,4889,6.346,3.038649906910719e-15,rule arm,df005c52,true
+backend patches,T400_L60_S11,hand loop,Enzyme reverse,ok,3703.10,2938.76,125,7.348,3.224689697129743e-15,rule arm,df005c52,true
+backend delay,T200_L20_S1,ComposableRecurrences,primal,ok,1.35,0.90,8,1.000,,,df005c52,false
+backend delay,T200_L20_S1,hand loop,primal,ok,1.25,0.81,8,0.925,,,df005c52,false
+backend delay,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,278.72,233.34,114,1.000,0.0,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,hand loop,ForwardDiff,ok,834.41,662.20,228,2.994,0.0,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,7.51,6.09,20,1.000,3.5228230811638614e-16,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,plain AD,Mooncake reverse,ok,34.32,30.37,374,4.571,3.5228230811638614e-16,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,hand loop,Mooncake reverse,ok,25.17,22.63,221,3.353,3.5228230811638614e-16,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,hand rules,Mooncake reverse,ok,10.50,9.41,21,1.399,3.5228230811638614e-16,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,4.09,2.54,22,1.000,3.5228230811638614e-16,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,plain AD,Enzyme reverse,ok,22.43,18.07,74,5.488,5.871371801939769e-16,ForwardDiff,df005c52,true
+backend delay,T200_L20_S1,hand loop,Enzyme reverse,ok,8.47,7.06,29,2.072,3.5228230811638614e-16,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,ComposableRecurrences,primal,ok,4.99,3.67,12,1.000,,,df005c52,false
+backend delay,T400_L60_S1,hand loop,primal,ok,4.63,3.62,11,0.928,,,df005c52,false
+backend delay,T400_L60_S1,ComposableRecurrences,ForwardDiff,ok,2364.49,2112.58,234,1.000,0.0,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,hand loop,ForwardDiff,ok,8167.83,7497.82,468,3.454,0.0,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,ComposableRecurrences,Mooncake reverse,ok,20.35,18.14,28,1.000,4.514018624274984e-16,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,plain AD,Mooncake reverse,ok,126.56,109.04,1142,6.220,2.257009312137492e-16,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,hand loop,Mooncake reverse,ok,103.37,89.68,687,5.080,2.257009312137492e-16,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,hand rules,Mooncake reverse,ok,24.75,22.53,27,1.217,2.257009312137492e-16,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,ComposableRecurrences,Enzyme reverse,ok,12.85,9.89,30,1.000,4.514018624274984e-16,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,plain AD,Enzyme reverse,ok,51.07,46.02,96,3.974,1.2413551216756206e-15,ForwardDiff,df005c52,true
+backend delay,T400_L60_S1,hand loop,Enzyme reverse,ok,25.50,22.49,35,1.984,2.257009312137492e-16,ForwardDiff,df005c52,true
+renewal,T200_L20_S1,ComposableRecurrences,primal,ok,8.43,7.82,13,1.000,,,df005c52,false
+renewal,T200_L20_S1,hand loop,primal,ok,10.06,8.93,13,1.194,,,df005c52,false
+renewal,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,557.58,415.92,360,1.000,0.0,ForwardDiff,df005c52,true
+renewal,T200_L20_S1,hand loop,ForwardDiff,ok,504.25,391.20,340,0.904,0.0,ForwardDiff,df005c52,true
+renewal,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,23.86,21.68,46,1.000,1.3931471668426873e-15,ForwardDiff,df005c52,true
+renewal,T200_L20_S1,hand loop,Mooncake reverse,ok,77.98,73.19,83,3.268,2.3882522860160316e-15,ForwardDiff,df005c52,true
+renewal,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,17.91,16.30,49,1.000,1.592168190677357e-15,ForwardDiff,df005c52,true
+renewal,T200_L20_S1,hand loop,Enzyme reverse,ok,24.61,22.95,28,1.374,2.5872733098507007e-15,ForwardDiff,df005c52,true
+vaccination,T200_L20_S1,ComposableRecurrences,primal,ok,17.23,16.16,19,1.000,,,df005c52,false
+vaccination,T200_L20_S1,hand loop,primal,ok,11.12,9.46,16,0.645,,,df005c52,false
+vaccination,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,4205.19,3908.05,1350,1.000,0.0,ForwardDiff,df005c52,true
+vaccination,T200_L20_S1,hand loop,ForwardDiff,ok,1740.75,1513.92,1080,0.414,0.0,ForwardDiff,df005c52,true
+vaccination,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,60.06,57.22,119,1.000,1.958427586377478e-15,ForwardDiff,df005c52,true
+vaccination,T200_L20_S1,hand loop,Mooncake reverse,ok,108.56,101.33,152,1.807,2.419234077289819e-15,ForwardDiff,df005c52,true
+vaccination,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,48.70,44.23,78,1.000,2.1888308318336515e-15,ForwardDiff,df005c52,true
+vaccination,T200_L20_S1,hand loop,Enzyme reverse,ok,37.55,35.72,39,0.771,2.3040324545617326e-15,ForwardDiff,df005c52,true
+imports,T200_L20_S1,ComposableRecurrences,primal,ok,9.14,8.00,22,1.000,,,df005c52,false
+imports,T200_L20_S1,hand loop,primal,ok,9.62,8.96,13,1.053,,,df005c52,false
+imports,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,1440.66,1297.12,1469,1.000,0.0,ForwardDiff,df005c52,true
+imports,T200_L20_S1,hand loop,ForwardDiff,ok,1338.93,1162.99,918,0.929,0.0,ForwardDiff,df005c52,true
+imports,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,36.64,33.86,260,1.000,1.2945587486057139e-15,ForwardDiff,df005c52,true
+imports,T200_L20_S1,hand loop,Mooncake reverse,ok,81.24,77.16,146,2.217,1.7800182793328686e-15,ForwardDiff,df005c52,true
+imports,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,35.33,31.67,108,1.000,2.5891174972114278e-15,ForwardDiff,df005c52,true
+imports,T200_L20_S1,hand loop,Enzyme reverse,ok,24.90,22.78,32,0.705,4.045496089392884e-15,ForwardDiff,df005c52,true
+clinical outcomes,T200_L20_S1,ComposableRecurrences,primal,ok,3.95,2.65,33,1.000,,,df005c52,false
+clinical outcomes,T200_L20_S1,hand loop,primal,ok,6.98,6.48,10,1.770,,,df005c52,false
+clinical outcomes,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,833.69,716.61,572,1.000,0.0,ForwardDiff,df005c52,true
+clinical outcomes,T200_L20_S1,hand loop,ForwardDiff,ok,900.17,756.23,330,1.080,0.0,ForwardDiff,df005c52,true
+clinical outcomes,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,28.47,26.11,327,1.000,1.0566346140943077e-16,ForwardDiff,df005c52,true
+clinical outcomes,T200_L20_S1,hand loop,Mooncake reverse,ok,138.21,128.25,85,4.855,4.2265384563772307e-16,ForwardDiff,df005c52,true
+clinical outcomes,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,25.41,21.14,130,1.000,1.0566346140943077e-16,ForwardDiff,df005c52,true
+clinical outcomes,T200_L20_S1,hand loop,Enzyme reverse,ok,487.07,362.25,1640,19.170,4.2265384563772307e-16,ForwardDiff,df005c52,true
+forecasting,T200_L20_S1,ComposableRecurrences,primal,ok,3.21,2.71,22,1.000,,,df005c52,false
+forecasting,T200_L20_S1,hand loop (one pass),primal,ok,5.93,4.91,13,1.849,,,df005c52,false
+forecasting,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,436.50,351.17,640,1.000,0.0,ForwardDiff,df005c52,true
+forecasting,T200_L20_S1,hand loop (one pass),ForwardDiff,ok,481.89,356.04,340,1.104,0.0,ForwardDiff,df005c52,true
+forecasting,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,19.65,17.21,96,1.000,1.133581990809039e-15,ForwardDiff,df005c52,true
+forecasting,T200_L20_S1,hand loop (one pass),Mooncake reverse,ok,76.42,70.05,83,3.889,2.267163981618078e-15,ForwardDiff,df005c52,true
+forecasting,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,14.87,13.27,133,1.000,7.084887442556494e-16,ForwardDiff,df005c52,true
+forecasting,T200_L20_S1,hand loop (one pass),Enzyme reverse,ok,19.99,18.48,28,1.345,1.5586752373624288e-15,ForwardDiff,df005c52,true
+reproduction number,T200_L20_S3,ComposableRecurrences,primal,ok,26.25,20.87,35,1.000,,,df005c52,false
+reproduction number,T200_L20_S3,hand loop,primal,ok,19.46,17.35,20,0.741,,,df005c52,false
+reproduction number,T200_L20_S3,ComposableRecurrences,ForwardDiff,ok,7153.83,6056.20,1612,1.000,0.0,ForwardDiff,df005c52,true
+reproduction number,T200_L20_S3,hand loop,ForwardDiff,ok,4892.64,3758.19,1040,0.684,0.0,ForwardDiff,df005c52,true
+reproduction number,T200_L20_S3,ComposableRecurrences,Mooncake reverse,ok,95.24,85.13,96,1.000,2.0368657510143474e-14,ForwardDiff,df005c52,true
+reproduction number,T200_L20_S3,hand loop,Mooncake reverse,ok,315.89,290.27,98,3.317,2.009707541000786e-14,ForwardDiff,df005c52,true
+reproduction number,T200_L20_S3,ComposableRecurrences,Enzyme reverse,ok,91.69,63.50,104,1.000,1.2356985556153709e-14,ForwardDiff,df005c52,true
+reproduction number,T200_L20_S3,hand loop,Enzyme reverse,ok,82.00,64.34,42,0.894,1.3714896056829688e-14,ForwardDiff,df005c52,true
+spatial strata,T200_L20_S5,ComposableRecurrences,primal,ok,36.43,30.16,30,1.000,,,df005c52,false
+spatial strata,T200_L20_S5,hand loop,primal,ok,42.84,39.37,23,1.176,,,df005c52,false
+spatial strata,T200_L20_S5,ComposableRecurrences,ForwardDiff,ok,18213.55,16924.04,3267,1.000,0.0,ForwardDiff,df005c52,true
+spatial strata,T200_L20_S5,hand loop,ForwardDiff,ok,17108.59,16461.67,2376,0.939,0.0,ForwardDiff,df005c52,true
+spatial strata,T200_L20_S5,ComposableRecurrences,Mooncake reverse,ok,135.40,121.85,141,1.000,1.1160478130824273e-14,ForwardDiff,df005c52,true
+spatial strata,T200_L20_S5,hand loop,Mooncake reverse,ok,981.56,885.53,167,7.249,3.9666235601370755e-15,ForwardDiff,df005c52,true
+spatial strata,T200_L20_S5,ComposableRecurrences,Enzyme reverse,ok,130.51,98.28,89,1.000,1.47878509917391e-14,ForwardDiff,df005c52,true
+spatial strata,T200_L20_S5,hand loop,Enzyme reverse,ok,1227.16,742.52,2057,9.403,4.453752769276716e-15,ForwardDiff,df005c52,true
+occupancy,T200_L20_S1,ComposableRecurrences,primal,ok,14.31,12.78,22,1.000,,,df005c52,false
+occupancy,T200_L20_S1,hand loop,primal,ok,5.14,4.34,6,0.359,,,df005c52,false
+occupancy,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,4283.41,3618.68,1474,1.000,0.0,ForwardDiff,df005c52,true
+occupancy,T200_L20_S1,hand loop,ForwardDiff,ok,963.91,825.15,402,0.225,0.0,ForwardDiff,df005c52,true
+occupancy,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,56.49,52.96,125,1.000,1.3980052023747637e-16,ForwardDiff,df005c52,true
+occupancy,T200_L20_S1,hand loop,Mooncake reverse,ok,36.67,34.42,77,0.649,3.531802616525719e-16,ForwardDiff,df005c52,true
+occupancy,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,46.18,41.14,93,1.000,1.3980052023747637e-16,ForwardDiff,df005c52,true
+occupancy,T200_L20_S1,hand loop,Enzyme reverse,ok,70.92,67.62,1622,1.536,1.1772675388419062e-16,ForwardDiff,df005c52,true
+latent processes,T200_L20_S1,ComposableRecurrences,primal,ok,1.17,0.88,7,1.000,,,df005c52,false
+latent processes,T200_L20_S1,hand loop,primal,ok,0.72,0.53,4,0.616,,,df005c52,false
+latent processes,T200_L20_S1,ComposableRecurrences,ForwardDiff,ok,126.30,93.64,153,1.000,0.0,ForwardDiff,df005c52,true
+latent processes,T200_L20_S1,hand loop,ForwardDiff,ok,105.06,71.74,102,0.832,0.0,ForwardDiff,df005c52,true
+latent processes,T200_L20_S1,ComposableRecurrences,Mooncake reverse,ok,7.79,6.23,24,1.000,2.9184174554477596e-16,ForwardDiff,df005c52,true
+latent processes,T200_L20_S1,hand loop,Mooncake reverse,ok,8.94,8.04,10,1.148,3.891223273930346e-16,ForwardDiff,df005c52,true
+latent processes,T200_L20_S1,ComposableRecurrences,Enzyme reverse,ok,4.33,3.53,28,1.000,2.9184174554477596e-16,ForwardDiff,df005c52,true
+latent processes,T200_L20_S1,hand loop,Enzyme reverse,ok,2.13,1.74,4,0.491,3.891223273930346e-16,ForwardDiff,df005c52,true
+time-varying delays,T200_L15_S1,ComposableRecurrences,primal,ok,3.57,3.13,8,1.000,,,df005c52,false
+time-varying delays,T200_L15_S1,hand loop,primal,ok,4.06,3.58,4,1.137,,,df005c52,false
+time-varying delays,T200_L15_S1,ComposableRecurrences,ForwardDiff,ok,6320.48,4863.56,3204,1.000,0.0,ForwardDiff,df005c52,true
+time-varying delays,T200_L15_S1,hand loop,ForwardDiff,ok,5589.79,4410.65,1602,0.884,0.0,ForwardDiff,df005c52,true
+time-varying delays,T200_L15_S1,ComposableRecurrences,Mooncake reverse,ok,15.06,13.30,20,1.000,1.480298301228001e-16,ForwardDiff,df005c52,true
+time-varying delays,T200_L15_S1,hand loop,Mooncake reverse,ok,59.24,57.90,10,3.935,7.401491506140005e-17,ForwardDiff,df005c52,true
+time-varying delays,T200_L15_S1,ComposableRecurrences,Enzyme reverse,ok,10.33,8.93,26,1.000,1.480298301228001e-16,ForwardDiff,df005c52,true
+time-varying delays,T200_L15_S1,hand loop,Enzyme reverse,ok,60.14,58.07,812,5.821,7.401491506140005e-17,ForwardDiff,df005c52,true
+transform,T200_L20_S5,ComposableRecurrences,primal,ok,36.78,32.19,24,1.000,,,df005c52,false
+transform,T200_L20_S5,hand loop,primal,ok,35.46,34.12,8,0.964,,,df005c52,false
+transform,T200_L20_S5,ComposableRecurrences,ForwardDiff,ok,474.48,403.95,72,1.000,0.0,ForwardDiff,df005c52,true
+transform,T200_L20_S5,hand loop,ForwardDiff,ok,453.18,400.44,24,0.955,0.0,ForwardDiff,df005c52,true
+transform,T200_L20_S5,ComposableRecurrences,Mooncake reverse,ok,141.22,128.37,61,1.000,7.690807994831542e-15,ForwardDiff,df005c52,true
+transform,T200_L20_S5,hand loop,Mooncake reverse,ok,604.65,517.03,18,4.282,4.071604232557867e-15,ForwardDiff,df005c52,true
+transform,T200_L20_S5,ComposableRecurrences,Enzyme reverse,ok,140.87,108.51,74,1.000,7.690807994831542e-15,ForwardDiff,df005c52,true
+transform,T200_L20_S5,hand loop,Enzyme reverse,ok,629.88,519.25,29,4.471,4.588633341454104e-15,ForwardDiff,df005c52,true

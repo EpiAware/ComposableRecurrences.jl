@@ -15,8 +15,8 @@ m_f = p_f\, x_i,
 ```
 
 with ``x_i`` the pool before the step's flows, alongside any
-[`ComposableRecurrences.Hazard`](@ref) flows; `Flow` says what happens
-when the shares out of one pool sum to more than it holds.
+[`ComposableRecurrences.Hazard`](@ref) flows.
+Shares out of one pool that sum to more than it holds leave it negative.
 `Share()` is a form for flows only, not a depletion form.
 
 # Examples
@@ -32,9 +32,13 @@ ComposableRecurrences.Share()
 """
 struct Share end
 
-# The forms a flow takes.
-const _TruncateForm = Union{Truncate, SoftTruncate}
-const _FlowForm = Union{Hazard, Share, _TruncateForm}
+# The forms a flow takes: without an exponent, and without a draw's
+# arguments.
+const _FlowHazard = Hazard{Nothing, Nothing, Nothing, _Drop}
+const _FlowCount = Union{
+    Truncate{Nothing, Nothing, _Drop}, SoftTruncate{<:Real, Nothing, Nothing, _Drop},
+}
+const _FlowForm = Union{_FlowHazard, Share, _FlowCount}
 
 @doc raw"""
 A flow from pool `from` into pool `to` of a
@@ -63,8 +67,8 @@ form, so together they move ``x (1 - e^{-H})``; with non-negative, finite
 rates a non-negative pool stays non-negative.
 A per-step probability ``p < 1`` is the rate ``-\log(1 - p)``.
 A constant rate out of a compartment is a geometric stay in it; for
-another stay, convolve the inflow with its survival, as
-[Occupancy and capacity](@ref tutorial-occupancy) does.
+another stay, convolve the inflow with its
+[survival](@ref tutorial-occupancy).
 A `Hazard()` flow's demand is the rate itself, with no population and no
 heterogeneity, where a `Hazard()` depletion draws the value divided by
 its population `N`.
@@ -135,12 +139,7 @@ struct Flow{D, F <: _FlowForm, E}
                 "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
             )
         )
-        form isa _FlowForm || throw(
-            ArgumentError(
-                "a flow's form is Hazard(), Share(), Truncate() or " *
-                    "SoftTruncate(κ), got $(_describe(form))"
-            )
-        )
+        form isa _FlowForm || _bad_flow_form(form)
         from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
             ArgumentError(
                 "a flow from outside the Depletion is a count, with form Truncate() " *
@@ -153,6 +152,28 @@ struct Flow{D, F <: _FlowForm, E}
         form isa Share && _check_unit(:demand, d)
         return new{D, F, E}(from, to, d, form)
     end
+end
+
+@noinline function _bad_flow_form(form)
+    form isa Union{_ExponentForm, _TruncateForm} &&
+        _draw_args(form) !== (nothing, nothing, _Drop()) && throw(
+        ArgumentError(
+            "weights, into and overflow are a draw's arguments, which a flow " *
+                "does not take, got $(_describe(form))"
+        )
+    )
+    form isa Hazard && throw(
+        ArgumentError(
+            "a flow's Hazard() takes no exponent: its demand is the rate, got " *
+                _describe(form)
+        )
+    )
+    throw(
+        ArgumentError(
+            "a flow's form is Hazard(), Share(), Truncate() or " *
+                "SoftTruncate(κ), got $(_describe(form))"
+        )
+    )
 end
 
 function Flow(pools::Pair, demand; form = Hazard())
@@ -207,7 +228,7 @@ end
 end
 
 # A count flow, which moves its demand up to what the pool holds.
-const _Count = Flow{<:Any, <:_TruncateForm}
+const _Count = Flow{<:Any, <:_FlowCount}
 
 # The flows as a non-empty tuple of `Flow`s.
 function _flow_tuple(fs)
@@ -219,7 +240,7 @@ function _flow_tuple(fs)
 end
 
 # The hazard rate and share of a flow, zero for another form.
-_rate(f::Flow{<:Any, Hazard}, g, t) = param(f.demand, g, t)
+_rate(f::Flow{<:Any, _FlowHazard}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
 _share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
 _share(f::Flow, g, t) = false
@@ -290,7 +311,7 @@ end
 # one, exactly as `_leave` gives them, without the exponentials. The shares
 # are summed in their own type, not the pools': under a dual number that
 # would make each share's product with a pool one of two duals.
-const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _TruncateForm}}}}
+const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
 _leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false)
 
 # Add each hazard and share flow's amount into the pool it enters, in
@@ -502,7 +523,7 @@ function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
     )
 end
 _amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
-function _amount_rate_back!(f::Flow{<:Any, Hazard}, f̄, q, x, L, H, B, ȳ, g, t)
+function _amount_rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, q, x, L, H, B, ȳ, g, t)
     i = f.from
     E, gH, _ = L[i]
     r̄ = x[i] * (gH * q + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
@@ -599,7 +620,7 @@ function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
     return _rates_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
 end
 _rate_back!(f::_Count, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
-function _rate_back!(f::Flow{<:Any, Hazard}, f̄, x, L, H, B, ȳ, ā, g, t)
+function _rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = f.from
     E, gH, _ = L[i]
     āto = f.to > 0 ? ā[f.to] : zero(eltype(ā))

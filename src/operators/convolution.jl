@@ -57,13 +57,13 @@ Lags from ``n`` on reach no input and are dropped first.
 A block of the whole series is one transform.
 For a series much longer than the kernel the cost is ``O(n \log L)``
 rather than ``O(T L)``.
-[`ComposableRecurrences.Auto`](@ref) gives the sizes from which it is
-faster than the direct method; time both on the sizes of a model before
-choosing it.
+It is faster than the direct method from about 300 lags and 1000 outputs,
+the sizes from which [`ComposableRecurrences.Auto`](@ref) takes it; time
+both on the sizes of a model before choosing it.
 The reverse pass uses the same transforms.
 
-It runs once its weak dependency is loaded, as the
-[FFT extension](@ref extension-fftw) page sets out; without it, a call with
+It runs once the weak dependency of the
+[FFT extension](@ref extension-fftw) is loaded; without it, a call with
 this method is refused.
 It runs for a fixed kernel (a vector or [`PerStratum`](@ref)) on
 `Float32` or `Float64` arrays; a [`TimeVarying`](@ref) kernel, any other
@@ -90,8 +90,8 @@ accuracy, and they cannot come out negative from a positive kernel and
 inputs.
 A series spanning many orders of magnitude, such as a long exponential
 growth, then costs up to both methods together.
-A `NaN` or `Inf` input can spread to every output of its block, including
-earlier ones.
+A `NaN` or `Inf` input makes every output its block's transform reaches
+`NaN`, including earlier ones.
 
 # Examples
 ```jldoctest; setup = :(using ComposableRecurrences, FFTW)
@@ -149,21 +149,24 @@ const _AUTO_MIN_TIMES = 1000
 _auto_fft(L, T) = L >= _AUTO_MIN_LAGS && T >= _AUTO_MIN_TIMES
 
 @doc raw"""
-A causal convolution whose kernel starts at lag 0: each output weights the
-current and past inputs, then is scaled by the gain and shifted by the add
-input,
+A convolution whose kernel starts at lag 0: each output weights the current
+and past inputs, then is scaled by the gain and shifted by the add input,
 
 ```math
-y_{t,i} = g_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
+y_{t,i} = \gamma_{t,i} \sum_{l=0}^{L-1} k_{i,l}(t)\, x_{t-l,i} + a_{t,i},
 \qquad t = t_0, \dots, t_1,
 ```
 
-where ``y_{t,i}`` is the output of stratum ``i`` (see [`PerStratum`](@ref))
+where ``y_{t,i}`` is the output of [stratum](@ref PerStratum) ``i``
 at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
 ``k_{i,l}(t)`` = `kernel[l + 1]` the weight on lag ``l``, ``L`` the
-kernel length, ``g_{t,i}`` the gain and ``a_{t,i}`` the add input.
+kernel length, ``\gamma_{t,i}`` the gain and ``a_{t,i}`` the add input.
 ``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.
 Strata do not mix.
+In the direct sum a zero weight multiplies its input rather than skipping
+it, so ``0 \cdot \infty`` gives `NaN`, as `sum(k .* x)` does, and a
+non-finite input reaches every output its lags feed; the transform of
+[`ComposableRecurrences.FFTMethod`](@ref) spreads it further.
 [`ComposableRecurrences.contributions`](@ref) returns the terms of the sum
 over ``l`` before it is taken.
 
@@ -201,8 +204,8 @@ call covers the absolute times `start:stop`:
 The output has the layout of `x` and length `stop - start + 1`.
 
 # Arguments
-- `kernel`: the kernel, lag 0 first, or a kernel of delays (see
-  [`ComposableRecurrences.delay_masses`](@ref)).
+- `kernel`: the kernel, lag 0 first, or a kernel of
+  [delays](@ref ComposableRecurrences.delay_masses).
 
 # Keyword Arguments
 - `method`: how the lag sum is computed,
@@ -673,7 +676,7 @@ end
 # than through one call per output.
 @inline function _lag_dot(c, X, k, r)
     acc = zero(eltype(X))
-    @inbounds @simd for d in 0:(min(length(c), r) - 1)
+    @inbounds @_float_simd typeof(acc) for d in 0:(min(length(c), r) - 1)
         acc += c[d + 1] * X[r - d, k]
     end
     return acc
@@ -999,7 +1002,7 @@ The lag contributions of a [`Convolution`](@ref): the terms of its sum over
 lags, before the sum,
 
 ```math
-c_{t,i,l} = g_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
+c_{t,i,l} = \gamma_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
 \qquad l = 0, \dots, L - 1, \quad t = t_0, \dots, t_1,
 ```
 
@@ -1142,3 +1145,15 @@ function pullback!(grads, op::_Contributions, ::Run, cache)
     _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
 end
+
+@implements PieceInterface Convolution [
+    Arguments(;
+        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
+        args = ([1.0, 2.0, 3.0, 4.0],)
+    ),
+    Arguments(;
+        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
+        args = ([1.0 2.0 3.0; 4.0 5.0 6.0],),
+        kwargs = (; history = [1.0 1.0; 2.0 2.0])
+    ),
+]

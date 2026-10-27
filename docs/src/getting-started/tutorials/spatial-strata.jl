@@ -2,8 +2,8 @@
 #
 # ## Introduction
 #
-# A model can run several series side by side, the [strata](@ref glossary-stratum), one per place, mixed within each step.
-# Series as types rather than places are in [Branching processes](@ref tutorial-branching).
+# A model can run several series side by side, the [strata](@ref overview-step), one per place, mixed within each step.
+# Strata can also be types, as for the case types of a [branching process](@ref tutorial-branching).
 #
 # ### What are we going to do in this exercise
 #
@@ -16,7 +16,6 @@
 # ### What might I need to know before starting
 #
 # This extends the three-town example in [Getting started](@ref overview-build).
-# No fitting is involved.
 
 # ## Packages used
 
@@ -234,6 +233,13 @@ end
 # Together they do, and 40% to 57% of each patch is infected.
 # The funeral force peaks a few days after the community force.
 # Its mean lag is about five days longer.
+
+# ## Performance
+#
+# Each bar times five strata with a dense route and a sparse route and floored depletion over 200 days with a 20-day kernel, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("spatial strata")
 
 # ## Learning more
 #

@@ -20,7 +20,7 @@
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function renewal(N)
         depletion = ComposableRecurrences.Depletion(
-            N; form = ComposableRecurrences.Floor()
+            N, ComposableRecurrences.Floor()
         )
         return Recurrence(g; modifiers = (depletion,))
     end

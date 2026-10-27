@@ -8,19 +8,19 @@ result with its own coupling:
 ```math
 z^{(r)}_{t,j} = \sum_{l=1}^{L_r} k^{(r)}_{j,l}(t)\, y_{t-l,j},
 \qquad
-q_t = \sum_{r=1}^{R} C^{(r)}_t\, z^{(r)}_t,
+q_t = \sum_{r=1}^{R} K^{(r)}_t\, z^{(r)}_t,
 ```
 
 where ``y_{t,j}`` is the output of stratum ``j`` at absolute time ``t``,
 ``k^{(r)}_{j,l}(t)`` the weight of route ``r``'s kernel on lag ``l``,
-``L_r`` its length, ``C^{(r)}_t`` its ``S \times S`` coupling and ``q_t``
-the pressure, in place of the coupled pressure ``C_t p_t`` of a
+``L_r`` its length, ``K^{(r)}_t`` its ``S \times S`` coupling and ``q_t``
+the pressure, in place of the coupled pressure ``K_t p_t`` of a
 [`Recurrence`](@ref), that the gain scales.
 A [`Pairwise`](@ref) route kernel replaces ``z^{(r)}_{t,j}`` with
 ``\sum_{b} \sum_{l} k^{(r)}_{jb,l}(t)\, y_{t-l,b}``.
 
 This is the [`Pairwise`](@ref) kernel
-``A_{ij,l} = \sum_r C^{(r)}_{ij} k^{(r)}_l`` held as its routes.
+``A_{ij,l} = \sum_r K^{(r)}_{ij} k^{(r)}_l`` held as its routes.
 Each step costs ``R`` kernel convolutions and ``R`` coupling products, and
 a sparse route coupling stays sparse.
 The routes mix strata, so the recurrence's coupling is `I`.
@@ -222,8 +222,8 @@ function _pressure_at(C::UniformScaling, k::_RouteKernels, p, q, H, t, τ, L, a)
     return p[a], C.λ * p[a]
 end
 _routes_pressure!(ex, p, z, w, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, t, τ, L) = nothing
-# One route's coupled pressure; its own function so an AD backend can
-# refuse a route coupling it differentiates wrongly.
+# One route's coupled pressure; its own function so an AD backend can give
+# it a rule.
 _route_forward!(C, w, z, τ) = forward!(C, Pressure(), w, z, τ)
 function _routes_pressure!(ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, τ, L)
     Lr = first(Ls)
