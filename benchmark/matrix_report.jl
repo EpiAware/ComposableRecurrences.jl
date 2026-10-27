@@ -75,6 +75,7 @@ function _short(status)
     startswith(status, "skipped") && return "skip"
     startswith(status, "error") && return "error"
     startswith(status, "pending") && return "pending"
+    startswith(status, "not reached") && return "not reached"
     return status
 end
 
