@@ -566,6 +566,54 @@ end
     # A resumed stateless modifier reads the state it was given.
     r = Recurrence([0.4, 0.3]; modifiers = (CR.Add(0.1),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
+    # A caller overwriting the history after the call does not change the
+    # gradient: the history is copied for the modifiers' `Init` pullbacks,
+    # which read it, and otherwise only its shape is read.
+    rm = Recurrence([0.4, 0.3]; modifiers = mods)
+    ȳ = randn(Xoshiro(3), S, T)
+    function history_gradient(op, states, overwrite)
+        hc = copy(h)
+        xs = (op, recargs(R, nothing, hc; states)...)
+        _, c = CR._run_forward(xs...)
+        overwrite && (hc .= -7.0)
+        ms = zero_mirror(xs)
+        CR._run_pullback!((; piece = first(ms), y = ȳ, args = Base.tail(ms)), op, c)
+        return mirror_vec(ms, xs)
+    end
+    for (op, states) in ((Recurrence([0.4, 0.3]), nothing), (rm, nothing), (r, ([0.5, 1.0, 2.0],)))
+        @test history_gradient(op, states, true) == history_gradient(op, states, false)
+    end
+end
+
+@testitem "Adjoint: the buffer's cotangent starts as the output's" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(9)
+    H, Ȳ = rand(rng, 5, 2), rand(rng, 2, 3)
+    @test CR._seeded(H, Ȳ, 2) == CR._seed_rows!(zeros(5, 2), Ȳ, 2)
+    H1, ȳ = rand(rng, 5, 1), rand(rng, 3)
+    @test CR._seeded(H1, ȳ, 2) == CR._seed_rows!(zeros(5, 1), ȳ, 2)
+    @test CR._seeded(H1, view(rand(rng, 4), 2:4), 2)[3:5] isa Vector{Float64}
+    @test_throws DimensionMismatch CR._seeded(H, rand(rng, 2, 4), 2)
+    @test_throws DimensionMismatch CR._seeded(H1, rand(rng, 2), 2)
+end
+
+@testitem "Adjoint: an integer output sends no cotangent" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    # Integer parts with a float input take the float type and the full
+    # pullback.
+    @test pullback_matches(Recurrence([1, 1]), recargs(1, randn(Xoshiro(4), 5), [1, 0])...)
+    # A backend gives an integer output no cotangent, and no part of an
+    # integer call has one.
+    r = Recurrence([1, 1])
+    args = recargs(1, [1, 2, 3], [1, 0])
+    none = map(_ -> nothing, args)
+    for (op, ȳ) in (
+            (r, nothing), (CR._WithState(r), (nothing, nothing)),
+        )
+        _, cache = CR._run_forward(op, args...)
+        @test CR._run_pullback!((; piece = nothing, y = ȳ, args = none), op, cache) ===
+            nothing
+    end
 end
 
 @testitem "Adjoint: a Depletion's group step and draw against ForwardDiff" setup = [
