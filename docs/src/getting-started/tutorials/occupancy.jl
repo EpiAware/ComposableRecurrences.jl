@@ -228,6 +228,13 @@ end
 # A flow with `form = Truncate()` moves a count capped by what the compartment holds, such as a fixed number of transfers a day.
 # With ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
 
+# ## Performance
+#
+# Each bar times the two-compartment ward with rate, share and count flows over 200 days, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("occupancy")
+
 # ## Learning more
 #
 # - See every operator, coupling and modifier on the [API overview](@ref api-overview).

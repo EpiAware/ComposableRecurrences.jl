@@ -235,6 +235,13 @@ end
 # The funeral force peaks a few days after the community force.
 # Its mean lag is about five days longer.
 
+# ## Performance
+#
+# Each bar times five strata with a dense route and a sparse route and floored depletion over 200 days with a 20-day kernel, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("spatial strata")
+
 # ## Learning more
 #
 # - See every operator, coupling and modifier on the [API overview](@ref api-overview).

@@ -87,6 +87,13 @@ findfirst(<(1), R_eff)
 # With them, ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
 # An `add` input enters before the depletion and is drawn with the rest, so the ratio then includes its share.
 
+# ## Performance
+#
+# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("reproduction number")
+
 # ## Learning more
 #
 # - [Renewal then delay](@ref tutorial-renewal-delay) adds vaccination, imports and clinical outcomes to the renewal.
