@@ -36,6 +36,8 @@ const HX = [0.5, 1.0, 1.5]
 # Loss weights, one per output entry.
 const W1 = collect(range(0.5, 2.0; length = T))
 const WS = reshape(collect(range(0.5, 2.0; length = S * T)), S, T)
+# A joined output holds the history before the steps.
+weights_after(m) = reshape(collect(range(0.5, 2.0; length = S * (m + T))), S, m + T)
 
 # A pointwise modifier: a floor on each stratum's value.
 struct Lower
@@ -92,6 +94,15 @@ function rec_dense_K(θ)
     K = reshape(θ[1:(S * S)], S, S)
     R = reshape(θ[(S * S + 1):end], S, T)
     return Recurrence(g0; coupling = K)(R; history = HS)
+end
+
+# The history joined before the output. It is read from the traced
+# parameters: joining a host array to a traced output is an error.
+function rec_joined(θ)
+    K = reshape(θ[1:(S * S)], S, S)
+    h = reshape(θ[(S * S + 1):(S * S + S * L)], S, L)
+    R = reshape(θ[(S * S + S * L + 1):end], S, T)
+    return hcat(h, Recurrence(g0; coupling = K)(R; history = h))
 end
 
 function rec_per_stratum(θ)
@@ -318,6 +329,10 @@ const CASES = [
     Case(
         "rec_dense_K", "Recurrence, $S strata, dense K coupling",
         rec_dense_K, vcat(vec(K0), vec(RS0)), WS
+    ),
+    Case(
+        "rec_joined", "Recurrence, $S strata, dense K, traced history joined",
+        rec_joined, vcat(vec(K0), vec(HS), vec(RS0)), weights_after(L)
     ),
     Case(
         "rec_per_stratum", "Recurrence, PerStratum kernel",

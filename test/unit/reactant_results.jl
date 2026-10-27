@@ -45,3 +45,26 @@
     nworks = count(r -> r[:status] == "works", rows)
     @test count("| works |", md) == nworks
 end
+
+@testitem "Reactant: compare.jl gates on changed cells" begin
+    using ComposableRecurrences
+    dir = joinpath(pkgdir(ComposableRecurrences), "test", "reactant")
+    mod = Module(:ReactantCompare)
+    Base.include(mod, joinpath(dir, "compare.jl"))
+    head = "# elapsed_s\t1\nstatus\tname\tmode\tconfig\tbackend\tsteps\n"
+    row(s, n) = "$s\t$n\tforward\textension\tcpu\t20\n"
+    function tsv(rows...)
+        path = tempname()
+        write(path, head * join(rows))
+        return path
+    end
+    committed = tsv(row("works", "a"), row("works", "b"))
+    gate(fresh, subset) = redirect_stdout(devnull) do
+        mod.main(committed, fresh, subset)
+    end
+    @test gate(tsv(row("works", "a"), row("works", "b")), false) == 0
+    @test gate(tsv(row("works", "a")), false) == 1
+    @test gate(tsv(row("works", "a")), true) == 0
+    @test gate(tsv(row("error", "a")), true) == 1
+    @test gate(tsv(), true) == 1
+end

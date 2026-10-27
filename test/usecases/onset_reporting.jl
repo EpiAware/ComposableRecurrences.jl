@@ -36,8 +36,8 @@
     @test ReferenceAD.gradient(θ -> sum(W .* cdf_table(unpack(θ)...)), θ0) ≈ ∇ref
 
     # anchor(u) = Σ_d g(u, d) a[min(u + d, na)] reads forward from u, so it is
-    # a causal convolution in reversed time: onset date u is reversed time
-    # na + 1 - u, and the days past the end repeat a[na] as history.
+    # the transpose of a convolution with onset date u's pmf in column u of
+    # a Primary() kernel, and the days past the end repeat a[na] as tail.
     a = [0.2, 0.25, 0.3, 0.3, 0.35, 0.4, 0.38, 0.36, 0.34, 0.3, 0.28]
     na = length(a)
     refa = B.onset_report_anchor_series(ref, u_lo, a)
@@ -53,13 +53,9 @@
         F = cdf_table(logit_h0, γ)
         G = F ./ F[end:end, :]
         g = vcat(G[1:1, :], diff(G; dims = 1))
-        K = zeros(eltype(g), D, na)
-        for (k, u) in enumerate(u_lo:u_hi)
-            K[:, na + 1 - u] = g[:, k]
-        end
-        c = Convolution(TimeVarying(K))
-        y = reverse(c(reverse(a); history = fill(a[end], D - 1)))
-        return y[u_lo:u_hi]
+        K = hcat(zeros(eltype(g), D, u_lo - 1), g)
+        c = Convolution(TimeVarying(K, ComposableRecurrences.Primary()))
+        return c'(a; tail = fill(a[end], D - 1), start = u_lo, stop = u_hi)
     end
     @test anchor(logit_h0, γ, a) ≈ refa
     @test ReferenceAD.gradient(θ -> sum(wa .* anchor(unpacka(θ)...)), θa) ≈ ∇refa
