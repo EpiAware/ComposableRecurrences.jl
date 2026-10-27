@@ -4,7 +4,6 @@
 
 It registers the rule of every operator as an Enzyme reverse-mode rule.
 [Rules and plain AD](@ref adjoint-routing) says when a call takes the rule.
-It refuses [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) on an active sparse coupling, where plain Enzyme reverse AD gives wrong gradients.
 
 On Julia 1.11, an operator built in code that Julia cannot infer can get a zero Enzyme reverse gradient for its scalar float fields, such as `b` in `Add(b)` or the population of a `Depletion`.
 Uninferred code includes a closure that captures a variable it reassigns, or a call through a global that is not constant.

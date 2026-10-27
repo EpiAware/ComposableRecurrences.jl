@@ -17,11 +17,23 @@ const SUITE = BenchmarkGroup()
 # Setting `evals` marks an entry as tuned, so the `tune!` pass of the
 # history workflow skips it rather than spending seconds per entry
 # estimating an evaluation count.
-# The pull request workflow already measures with one evaluation and
-# `seconds = 1`.
+# The pull request workflow also measures with `seconds = 1`. The entries
+# keep BenchmarkTools' default sample count: a lower cap raises the minimum
+# of the fastest entries and widens its spread between runs.
 # `gctrial = false` drops the full garbage collections before each entry.
 # With every AD backend loaded the heap is large, each collection takes
 # seconds, and the minimum time reported is not sensitive to it.
+
+# BenchmarkTools runs full garbage collections (`gcscrub`) before every
+# group it tunes or runs, whatever the entries set. The AD grid has a group
+# per scenario, and with the AD backends loaded each collection takes
+# seconds. Compiling a group allocates more than a tenth of the live heap,
+# so the allocation threshold BenchmarkTools 1.9 adds would not skip them.
+# A collection before a group does not change the minimum time reported,
+# and Julia still collects as it allocates, so they are skipped here.
+if isdefined(BenchmarkTools, :gcscrub)
+    BenchmarkTools.gcscrub() = nothing
+end
 
 # The AD gradient grid, read from the package-owned `test/ADFixtures`
 # registry: declare a scenario or a broken pair there, not here.
@@ -31,9 +43,32 @@ import DifferentiationInterface as DI
 # The backends the package targets: ForwardDiff, and Enzyme and Mooncake in
 # forward and reverse mode. The registry also lists ReverseDiff, which the AD
 # tests still run, but the suite does not time it.
-const BENCHMARK_BACKENDS = filter(
+#
+# `BENCHMARK_BACKENDS`, a comma-separated list of these backend names and
+# `primal`, limits the suite to those parts, so a workflow can split it
+# across jobs: each backend's gradients, and `primal` for the primal
+# timings and the convolution groups, whose gradients are all Mooncake's.
+# Unset or empty, the suite times everything.
+const _ALL_BACKENDS = filter(
     e -> !startswith(e.name, "ReverseDiff"), ADFixtures.backends()
 )
+const _SELECTED = let spec = strip(get(ENV, "BENCHMARK_BACKENDS", ""))
+    if isempty(spec)
+        nothing
+    else
+        names = Set(
+            String(strip(n)) for n in split(spec, ",") if !isempty(strip(n))
+        )
+        known = Set(["primal"; [e.name for e in _ALL_BACKENDS]])
+        unknown = setdiff(names, known)
+        isempty(unknown) || error(
+            "unknown BENCHMARK_BACKENDS $(join(sort!(collect(unknown)), ", "))"
+        )
+        names
+    end
+end
+_selected(name) = _SELECTED === nothing || name in _SELECTED
+const BENCHMARK_BACKENDS = filter(e -> _selected(e.name), _ALL_BACKENDS)
 
 let grad = BenchmarkGroup()
     broken = Set(ADFixtures.broken_scenario_names())
@@ -70,11 +105,18 @@ let grad = BenchmarkGroup()
 end
 
 # The `ci` tier of the benchmark matrix (`matrix.jl` runs the full grid):
-# each case's primal, and its gradient on the reverse backends with the
-# operator as users call it and under `NoAdjoint`, so the comparison comment
-# shows the rule gain. ForwardDiff times the operator and, where the case
-# has one, the hand-written `loop` baseline, so the ratio between them is
-# tracked. The history workflow runs this script, and the
+# each case's primal, and its gradient on every benchmarked backend in three
+# arms: the operator as users call it, under `NoAdjoint`, and, where the
+# case has one, the hand-written `loop` baseline. The comparison comment
+# then shows each backend's rule gain and its ratio to the loop.
+# On the forward modes and ForwardDiff the rule and `NoAdjoint` arms run the
+# same code, as the rules are reverse rules; both are timed so every backend
+# covers the same cells.
+# Plain Enzyme reverse is wrong on a repeated sparse `mul!`, so it skips the
+# sparse cases.
+# Each gradient is taken once here, so an arm a backend cannot run is left
+# out with a warning rather than failing the whole run.
+# The history workflow runs this script, and the
 # registry, against older releases: a case or arm needing a feature the
 # loaded version lacks is left out (`MatrixCases.available`, and
 # `ADFixtures.supports` for the scenarios above), and one that still fails
@@ -82,11 +124,6 @@ end
 using ADFixtures: MatrixCases
 
 let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
-    reverse = filter(
-        e -> e.name in ("Mooncake reverse", "Enzyme reverse"),
-        ADFixtures.backends()
-    )
-    forward = filter(e -> e.name == "ForwardDiff", ADFixtures.backends())
     for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
         MatrixCases.available(c) || continue
         label = "Matrix $(c.name) $(z)"
@@ -98,36 +135,26 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             @warn "matrix case not built" c.name
             continue
         end
-        eval_group[label] = @benchmarkable(
-            $f($θ), evals = 1, seconds = 1, gctrial = false
+        _selected("primal") && (
+            eval_group[label] = @benchmarkable(
+                $f($θ), evals = 1, seconds = 1, gctrial = false
+            )
         )
-        for arm in ("rule", "NoAdjoint"), entry in reverse
-            MatrixCases.available(c, arm) || continue
+        for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
+            arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
+                continue
             c.sparse && entry.name == "Enzyme reverse" && continue
             f, θ = MatrixCases.build(c, z, arm)
             prep = try
-                DI.prepare_gradient(f, entry.backend, copy(θ))
+                p = DI.prepare_gradient(f, entry.backend, copy(θ))
+                DI.gradient(f, p, entry.backend, θ)
+                p
             catch
-                @warn "no gradient prep" label arm entry.name
+                @warn "no gradient" label arm entry.name
                 continue
             end
-            name = arm == "rule" ? label : "NoAdjoint $label"
-            haskey(grad, name) || (grad[name] = BenchmarkGroup())
-            grad[name][entry.name] = @benchmarkable(
-                DI.gradient($f, $prep, $(entry.backend), $θ),
-                evals = 1, seconds = 1, gctrial = false
-            )
-        end
-        for arm in ("rule", "loop"), entry in forward
-            arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) || continue
-            f, θ = MatrixCases.build(c, z, arm)
-            prep = try
-                DI.prepare_gradient(f, entry.backend, copy(θ))
-            catch
-                @warn "no gradient prep" label arm entry.name
-                continue
-            end
-            name = arm == "rule" ? label : "$(titlecase(arm)) $label"
+            name = arm == "rule" ? label :
+                arm == "loop" ? "Loop $label" : "NoAdjoint $label"
             haskey(grad, name) || (grad[name] = BenchmarkGroup())
             grad[name][entry.name] = @benchmarkable(
                 DI.gradient($f, $prep, $(entry.backend), $θ),
@@ -135,7 +162,7 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             )
         end
     end
-    SUITE["Evaluation"] = eval_group
+    isempty(eval_group) || (SUITE["Evaluation"] = eval_group)
 end
 
 # The fixed-kernel convolution body against the forms it replaced, at
@@ -159,7 +186,7 @@ function _bench_native_axpy!(α, x, y)
     return y
 end
 
-let body = BenchmarkGroup(), T = 200, L = 20
+_selected("primal") && let body = BenchmarkGroup(), T = 200, L = 20
     c = fill(1 / L, L)
     X = ones(L + T, 1)
     y = zeros(T)
@@ -187,7 +214,7 @@ using FFTW: FFTW
 using Mooncake: Mooncake
 using ADTypes: AutoMooncake
 
-if isdefined(ComposableRecurrences, :FFTMethod)
+if _selected("primal") && isdefined(ComposableRecurrences, :FFTMethod)
     let methods = BenchmarkGroup()
         backend = AutoMooncake(; config = nothing)
         sizes = (

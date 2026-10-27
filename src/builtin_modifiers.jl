@@ -136,11 +136,11 @@ end
 _check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
 
 # A zero initial state, once the parameters are checked against the state's
-# strata.
+# strata. `foreach` unrolls the pairs, so each keeps its concrete type: in a
+# `for` loop a pair is a `Union`, which an AD backend on Julia 1.11 cannot
+# type.
 function _zero_state!(s, params::Pair...)
-    for (name, x) in params
-        _check_param_strata(name, x, length(s))
-    end
+    foreach(p -> _check_param_strata(first(p), last(p), length(s)), params)
     fill!(s, zero(eltype(s)))
     return nothing
 end
@@ -406,11 +406,15 @@ _floor_power(r, α) = r^α
 _floor_power(r, α::Bool) = α ? r : one(r)
 _times_log(α, r, c) = c * log(r)
 _times_log(::Bool, r, c) = zero(c)
+# The hazard's rate, `v / N` scaled by the share power. A `Bool` exponent
+# of `true` scales by one, which dual numbers would still multiply out.
+@inline _hazard(v, s, N, α) = v / N * _share_power(s / N, α)
+@inline _hazard(v, s, N, α::Bool) = α ? v / N : v / N * inv(s / N)
 
 function forward!(form::Hazard, ::Step, v, s, N)
     α = _alpha(form)
     for k in eachindex(v, s)
-        x = v[k] / N * _share_power(s[k] / N, α)
+        x = _hazard(v[k], s[k], N, α)
         e, em = _exp_neg(x)
         v[k], s[k] = -s[k] * em, s[k] * e
     end

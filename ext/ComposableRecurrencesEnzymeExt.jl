@@ -6,12 +6,11 @@
 # paths; scalar cotangents are returned for `Active` leaves.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: PerStratum, Recurrence, Serial, _ADLeaves,
-    _Current, _Prepended, _WithState, _check_form, _check_now, _check_parts,
-    _check_secondary, _convolve_masses!, _convolve_masses_back!, _current,
-    _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!, _growth_root,
-    _is_leaf, _leaf_paths, _plain, _plain_hook, _rebuild_leaves,
-    _route_forward!, _run_forward, _run_pullback!, _untraced
+using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
+    _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
+    _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
+    _fft_convolve_terms!, _growth_root, _is_leaf, _leaf_paths, _plain_hook,
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -487,75 +486,49 @@ function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
     return _map_leaves(_ez_ret, leaves, lms)
 end
 
-# Plain Enzyme reverse AD of a sparse coupling's products in a loop gives
-# wrong gradients, so `NoAdjoint` on an active sparse coupling is refused:
-# the recurrence's coupling here, and a route coupling at its own step
-# below.
-const _SparseRec = Recurrence{<:Any, <:SparseMatrixCSC}
-const _SparseCall = Union{_SparseRec, _WithState{<:_SparseRec}}
-const _SparseOp = Union{_SparseCall, _Prepended{<:_SparseCall}}
-const _ActiveSparse = Union{
-    Duplicated{<:_SparseOp}, DuplicatedNoNeed{<:_SparseOp},
-    MixedDuplicated{<:_SparseOp},
+# A sparse route coupling's pressure `w = C z`, which plain AD reaches
+# under `NoAdjoint` or when a route coupling has no `pullback!`. Plain
+# Enzyme differentiates it correctly but slower than this reverse pass:
+# `z̄ += Cᵀ w̄`, the coupling's `w̄[a] z[b]` per stored entry, and `w̄`
+# cleared because the step overwrites `w`. `z` is a buffer the next route
+# overwrites, so an active coupling keeps a copy.
+const _SparseArg = Union{
+    Const{<:SparseMatrixCSC}, Duplicated{<:SparseMatrixCSC},
+    DuplicatedNoNeed{<:SparseMatrixCSC},
 }
-const _SPARSE_MSG = "plain Enzyme reverse AD of a sparse coupling gives " *
-    "wrong gradients; drop NoAdjoint so the analytic rule runs"
-
 function EnzymeRules.augmented_primal(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_plain)}, ::Type{<:Annotation},
-        op::_ActiveSparse, args::Vararg{Annotation, N}
-    ) where {N}
-    throw(ArgumentError(_SPARSE_MSG))
-end
-function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_plain)}, ::Type{<:Annotation},
-        tape, op::_ActiveSparse, args::Vararg{Annotation, N}
-    ) where {N}
-    throw(ArgumentError(_SPARSE_MSG))
-end
-
-# A route's coupled pressure `w = C z`, which only plain AD differentiates.
-# Under runtime activity a constant coupling arrives with its primal as
-# its shadow; its reverse pass is `z̄ += Cᵀ w̄`, and `w̄` is cleared because
-# the step overwrites `w`. An active one is refused.
-const _ActiveSparseMatrix = Union{
-    Duplicated{<:SparseMatrixCSC}, DuplicatedNoNeed{<:SparseMatrixCSC},
-    MixedDuplicated{<:SparseMatrixCSC},
-}
-_shadow(C::MixedDuplicated) = C.dval[]
-_shadow(C) = C.dval
-_check_constant(C) = _shadow(C) === C.val || throw(ArgumentError(_SPARSE_MSG))
-function EnzymeRules.augmented_primal(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)}, ::Type{<:Annotation},
-        C::_ActiveSparseMatrix, w::Annotation, z::Annotation, τ::Annotation
+        config::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)},
+        ::Type{<:Annotation}, C::_SparseArg, w::Annotation, z::Annotation,
+        τ::Annotation
     )
-    _check_constant(C)
+    EnzymeRules.width(config) == 1 ||
+        throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     _route_forward!(C.val, w.val, z.val, τ.val)
-    return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
+    tape = _active(C) ? copy(z.val) : nothing
+    return EnzymeRules.AugmentedReturn(nothing, nothing, tape)
 end
 function EnzymeRules.reverse(
-        ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)}, ::Type{<:Annotation},
-        tape, C::_ActiveSparseMatrix, w::Annotation, z::Annotation, τ::Annotation
+        ::EnzymeRules.RevConfig, ::Const{typeof(_route_forward!)},
+        ::Type{<:Annotation}, tape, C::_SparseArg, w::Annotation, z::Annotation,
+        τ::Annotation
     )
-    _check_constant(C)
-    _sparse_transpose_back!(C.val, w, z)
+    _active(w) && _sparse_route_back!(C.val, _shadow(C), w.dval, z, tape)
     return (nothing, nothing, nothing, nothing)
 end
-# A buffer whose shadow is its primal is constant under runtime activity.
+# A shadow that is its primal is constant under runtime activity.
 _active(x::Const) = false
 _active(x) = x.dval !== x.val
-function _sparse_transpose_back!(K, w, z)
-    _active(w) || return nothing
-    w̄ = w.dval
-    if _active(z)
-        z̄ = z.dval
-        rows, vals = rowvals(K), nonzeros(K)
-        for b in axes(K, 2), idx in nzrange(K, b)
-            z̄[b] += vals[idx] * w̄[rows[idx]]
-        end
+_shadow(C::Const) = nothing
+_shadow(C) = _active(C) ? C.dval : nothing
+function _sparse_route_back!(K, K̄, w̄, z, z0)
+    rows, vals = rowvals(K), nonzeros(K)
+    z̄ = _active(z) ? z.dval : nothing
+    for b in axes(K, 2), idx in nzrange(K, b)
+        a = rows[idx]
+        z̄ === nothing || (z̄[b] += vals[idx] * w̄[a])
+        K̄ === nothing || (nonzeros(K̄)[idx] += w̄[a] * z0[b])
     end
     fill!(w̄, zero(eltype(w̄)))
     return nothing
 end
-
 end

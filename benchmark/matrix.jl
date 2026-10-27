@@ -24,7 +24,10 @@
 # `<run>` is the target, with the thread count and any executor other than
 # serial appended (`primal_t4`, `primal_Threaded_t4`); `matrix_report.jl`
 # turns a directory into a Markdown table. Targets that need unmerged work
-# are written as `pending`.
+# are written as `pending`. Every cell gets a row: a forward-mode cell whose
+# estimated gradient time exceeds the timeout is skipped with the estimate,
+# and each cell a worker does not reach before it times out or crashes is
+# written as `not reached`.
 
 using ADTypes: AutoEnzyme, AutoForwardDiff, AutoMooncake, AutoMooncakeForward
 using BenchmarkTools: @benchmark
@@ -77,8 +80,8 @@ const PENDING_TARGETS = [
     ("Reactant GPU gradient", "a Reactant target and a GPU runner"),
 ]
 
-# ForwardDiff costs one primal per chunk of parameters: above this many it
-# is skipped, and gradients are checked against the other arm instead.
+# ForwardDiff costs one primal per chunk of parameters: above this many
+# parameters gradients are checked against the rule arm, not ForwardDiff.
 const FD_MAX = 4000
 
 const COLUMNS = [
@@ -172,17 +175,10 @@ function skip_reason(c, target, arm, θ, rules)
     # The hand rules are Mooncake reverse rules: every other target runs the
     # same code as the `loop` arm.
     target != "Mooncake reverse" && arm == "handrule" && return "same as loop arm"
-    if startswith(target, "ForwardDiff")
-        arm in ("NoAdjoint", "local") && return "rules do not apply to dual numbers"
-        length(θ) > FD_MAX && return "over $FD_MAX parameters"
-    end
     direct = arm == "loop" && c.name in MatrixCases.DIRECT_SPARSE_LOOPS
     if target == "Enzyme reverse" && c.sparse && !direct &&
             (!(arm in ("rule", "local")) || !rules)
         return "known wrong: plain Enzyme on a repeated sparse mul!"
-    end
-    if target in ("Enzyme forward", "Mooncake forward") && length(θ) > FD_MAX
-        return "over $FD_MAX parameters"
     end
     # The overview's hand-written baselines do not compile under forward
     # Enzyme: one calls BLAS, which has no forward rule with runtime
@@ -196,6 +192,35 @@ function skip_reason(c, target, arm, θ, rules)
 end
 
 relerr(a, b) = maximum(abs.(a .- b)) / max(1.0, maximum(abs.(b)))
+
+const FORWARD_TARGETS = ("ForwardDiff", "Enzyme forward", "Mooncake forward")
+
+_width(::DI.BatchSizeSettings{B}) where {B} = B
+
+# A forward-mode gradient takes one pass per batch of parameters, and each
+# pass costs at least one primal, timed as the fastest of five calls so a
+# garbage collection does not inflate it. When that lower bound, for the
+# gradient taken while preparing and the one timed, exceeds the worker's
+# timeout, the cell is skipped with the estimate rather than left to time
+# the worker out.
+function forward_too_slow(f, θ, backend, opts)
+    f(θ)
+    t = minimum(@elapsed(f(θ)) for _ in 1:5)
+    width = try
+        _width(DI.pick_batchsize(backend, θ))
+    catch
+        1
+    end
+    passes = cld(length(θ), width)
+    estimate = t * passes
+    timeout = parse(Float64, opts["timeout"])
+    2 * estimate > timeout || return nothing
+    return string(
+        "forward mode needs at least ", round(Int, estimate), " s a gradient (",
+        passes, " passes of ", round(t; sigdigits = 2), " s), over the ",
+        round(Int, timeout), " s worker timeout"
+    )
+end
 
 function run_worker(opts)
     target = opts["worker"]
@@ -269,9 +294,13 @@ function run_cells(io, opts, target, label, backend, rules)
                 reason = opts["executor"] != "serial" && arm != "rule" ?
                     "the executor applies to the rule arm only" :
                     skip_reason(c, target, arm, θ, rules)
+                if reason === nothing && target in FORWARD_TARGETS
+                    reason = forward_too_slow(f, θ, backend, opts)
+                end
                 if reason !== nothing
                     row["status"] = "skipped: $reason"
                     println(io, join(_row(row), '\t'))
+                    flush(io)
                     continue
                 end
                 try
@@ -346,6 +375,54 @@ end
 
 # ---- orchestrator ---------------------------------------------------------
 
+# Every cell a worker for this tier and case list writes a row for, as
+# `(case, size, arm)`, in the order it runs them.
+function expected_cells(opts)
+    names = _list(opts["cases"])
+    cells = Tuple{String, String, String}[]
+    for c in MatrixCases.CASES
+        isempty(names) || c.name in names || continue
+        for z in MatrixCases.sizes(c, opts["tier"]), arm in MatrixCases.arms(c)
+            MatrixCases.available(c, arm) || continue
+            push!(cells, (c.name, string(z), arm))
+        end
+    end
+    return cells
+end
+
+# Append a `not reached` row for each cell the worker for `target` on `n`
+# threads did not write, so a worker that times out or crashes still leaves
+# a row per cell. Returns how many rows it added.
+function fill_unreached(opts, outdir, target, n, why)
+    label = target_label(target, opts["executor"], n)
+    name = run_name(target, opts["executor"], n)
+    file = joinpath(outdir, "$(opts["tier"])-$name.tsv")
+    done = Set{Tuple{String, String, String}}()
+    if isfile(file)
+        for line in eachline(file)
+            (startswith(line, '#') || startswith(line, "case\t")) && continue
+            f = split(line, '\t')
+            length(f) >= 7 && push!(done, (f[1], f[2], f[7]))
+        end
+    end
+    todo = filter(!in(done), expected_cells(opts))
+    isempty(todo) && return 0
+    open(file, isfile(file) ? "a" : "w") do io
+        if position(io) == 0
+            println(io, "# target=", label)
+            println(io, join(COLUMNS, '\t'))
+        end
+        for (case, size, arm) in todo
+            row = Dict(
+                "case" => case, "size" => size, "target" => label, "arm" => arm,
+                "status" => "not reached: $why",
+            )
+            println(io, join(_row(row), '\t'))
+        end
+    end
+    return length(todo)
+end
+
 function write_pending(opts, outdir)
     file = joinpath(outdir, "$(opts["tier"])-pending.tsv")
     open(file, "w") do io
@@ -390,7 +467,7 @@ function run_all(opts)
             "--worker=$target", "--tier=$(opts["tier"])",
             "--cases=$(opts["cases"])", "--out=$outdir",
             "--label=$(opts["label"])", "--seconds=$(opts["seconds"])",
-            "--executor=$(opts["executor"])",
+            "--executor=$(opts["executor"])", "--timeout=$(opts["timeout"])",
         ]
         cmd = `$(Base.julia_cmd()) --project=$project --startup-file=no
             --threads=$n $(@__FILE__) $args`
@@ -409,6 +486,10 @@ function run_all(opts)
             "   %s after %.0f s\n",
             timed_out ? "timed out" : "exit $(p.exitcode)", time() - t0
         )
+        why = timed_out ? "worker timed out after $(round(Int, timeout)) s" :
+            "worker exited with code $(p.exitcode)"
+        missing = fill_unreached(opts, outdir, target, n, why)
+        missing > 0 && println("   $missing cells not reached: $why")
     end
     println("wrote ", write_pending(opts, outdir))
     return nothing
