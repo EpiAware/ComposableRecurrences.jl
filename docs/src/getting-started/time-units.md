@@ -58,8 +58,7 @@ When the delays add in continuous time, the sum ``D = D_1 + D_2`` is one continu
 p_l = P\big(l \Delta \le D_1 + D_2 < (l + 1) \Delta\big), \qquad l = 0, \dots, L - 1.
 ```
 
-Compose the distributions as distributions, for example with ConvolvedDistributions, and pass the sum as one delay.
-The [CensoredDistributions](@ref extension-censored-distributions) extension gives its masses.
+Compose the distributions as distributions, for example with ConvolvedDistributions, and pass the sum as one delay, whose masses come from the [CensoredDistributions](@ref extension-censored-distributions) extension.
 
 A tuple of two continuous delays is the first form: each delay is censored on its own, then the masses are convolved.
 The two forms give different masses, since each censored delay carries its own rounding.
