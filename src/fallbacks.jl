@@ -93,31 +93,43 @@ function _rebuild(x, θ, o)
 end
 
 
+# Walk the parameters of `x` and its mirror `x̄` after offset `o`, calling
+# `leaf!(x̄, x, g, o)` on each float scalar or array, which returns the new
+# offset; returns the last offset.
+function _walkparams!(
+        leaf!::F, x̄, x::Union{AbstractFloat, AbstractArray{<:AbstractFloat}}, g, o
+    ) where {F}
+    return leaf!(x̄, x, g, o)
+end
+function _walkparams!(leaf!::F, x̄, x::SparseMatrixCSC{<:AbstractFloat}, g, o) where {F}
+    return _walkparams!(leaf!, cotangent(x̄, :nzval), nonzeros(x), g, o)
+end
+function _walkparams!(leaf!::F, x̄, x::Diagonal{<:AbstractFloat}, g, o) where {F}
+    return _walkparams!(leaf!, cotangent(x̄, :diag), x.diag, g, o)
+end
+_walkparams!(leaf!::F, x̄, ::_Leafless, g, o) where {F} = o
+function _walkparams!(leaf!::F, x̄, x::Union{Tuple, NamedTuple}, g, o) where {F}
+    for i in 1:length(x)
+        o = _walkparams!(leaf!, x̄ === nothing ? nothing : x̄[i], x[i], g, o)
+    end
+    return o
+end
+function _walkparams!(leaf!::F, x̄, x, g, o) where {F}
+    isstructtype(typeof(x)) || return o
+    for n in fieldnames(typeof(x))
+        o = _walkparams!(leaf!, _field_mirror(x̄, n), getfield(x, n), g, o)
+    end
+    return o
+end
+
 # Add the gradient `g` (after offset `o`) into the mirror `x̄` of `x`;
 # returns the new offset.
-_addparams!(x̄, x::AbstractFloat, g, o) = (add_cotangent!(x̄, g[o + 1]); o + 1)
-function _addparams!(x̄, x::AbstractArray{<:AbstractFloat}, g, o)
+_addparams!(x̄, x, g, o) = _walkparams!(_add_leaf!, x̄, x, g, o)
+_add_leaf!(x̄, ::AbstractFloat, g, o) = (add_cotangent!(x̄, g[o + 1]); o + 1)
+function _add_leaf!(x̄, x::AbstractArray, g, o)
     n = length(x)
     x̄ === nothing || (x̄ .+= reshape(view(g, (o + 1):(o + n)), size(x)))
     return o + n
-end
-function _addparams!(x̄, x::SparseMatrixCSC{<:AbstractFloat}, g, o)
-    return _addparams!(cotangent(x̄, :nzval), nonzeros(x), g, o)
-end
-_addparams!(x̄, x::Diagonal{<:AbstractFloat}, g, o) = _addparams!(cotangent(x̄, :diag), x.diag, g, o)
-_addparams!(x̄, ::_Leafless, g, o) = o
-function _addparams!(x̄, x::Union{Tuple, NamedTuple}, g, o)
-    for i in 1:length(x)
-        o = _addparams!(x̄ === nothing ? nothing : x̄[i], x[i], g, o)
-    end
-    return o
-end
-function _addparams!(x̄, x, g, o)
-    isstructtype(typeof(x)) || return o
-    for n in fieldnames(typeof(x))
-        o = _addparams!(_field_mirror(x̄, n), getfield(x, n), g, o)
-    end
-    return o
 end
 _field_mirror(x̄, n::Symbol) = cotangent(x̄, n)
 _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
