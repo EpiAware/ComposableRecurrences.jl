@@ -93,7 +93,7 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public Routes, Derived, Recent, Depletion, Flow, Share, Redistribute, movement,
+public Derived, Recent, Depletion, Flow, Share, Redistribute, movement,
     Add, Clamp, Allocate, Transform, Hazard, Floor, Truncate, SoftTruncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,

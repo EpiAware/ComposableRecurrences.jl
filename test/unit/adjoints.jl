@@ -490,7 +490,7 @@ end
 
 @testitem "Adjoint: threaded reverse pass with outputs read and routes" setup = [AdjointCheck] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Derived, Recent, Routes
+    using ComposableRecurrences: Derived, Recent
     using Base.ScopedValues: with
     rng = Xoshiro(18)
     S, L, T, W = 4, 3, 9, 5
@@ -507,7 +507,7 @@ end
         (Recurrence(g; modifiers = own), true),
         (Recurrence(g; coupling = K, modifiers = own), true),
         (Recurrence(g; modifiers = across), false),
-        (Recurrence(Routes((K, g), (0.5I, rand(rng, 2)))), true),
+        (Recurrence(Pairwise(K => g, 0.5I => rand(rng, 2))), true),
     )
     ex = CR.Threaded(; min_work = 0, ntasks = 2)
     with(CR.EXECUTOR => ex) do
@@ -2550,7 +2550,6 @@ end
 
 @testitem "Adjoint: local route coupling pullback" setup = [AdjointCheck] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Routes
     # A dense coupling without a pullback, as one route of two.
     struct Spread{A}
         a::A
@@ -2570,7 +2569,7 @@ end
     end
     rng = Xoshiro(7)
     for S in (3, 6, 20)
-        R = Routes((Spread(0.5), rand(rng, 4)), (rand(rng, S, S) ./ S, rand(rng, 2)))
+        R = Pairwise(Spread(0.5) => rand(rng, 4), rand(rng, S, S) ./ S => rand(rng, 2))
         # Through a recurrence the rule matches ForwardDiff.
         @test pullback_matches(
             Recurrence(R), recargs(ones(S, 6), nothing, ones(S, 4))...;
@@ -2588,7 +2587,7 @@ end
     end
     # The rule takes the routes, and the widest route coupling's local
     # step sets the call's route, as for the coupling of a `Recurrence`.
-    routes(Cs...) = Recurrence(Routes(map(C -> (C, [0.3, 0.2]), Cs)...))
+    routes(Cs...) = Recurrence(Pairwise(map(C -> C => [0.3, 0.2], Cs)...))
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     r = routes(Spread(0.5), I)
     @test CR.uses_adjoint(r, CR.Run())

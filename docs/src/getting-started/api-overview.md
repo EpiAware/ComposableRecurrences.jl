@@ -133,13 +133,13 @@ Each route has its own kernel and its own coupling.
 | vector | one kernel, the weights on each lag, shared by every stratum |
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter for each stratum, with the strata as the first index |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel for each pair of strata, indexed by receiving stratum, giving stratum and lag |
-| [`Routes((K₁, k₁), (K₂, k₂))`](@ref ComposableRecurrences.Routes) | a sum of routes, each a coupling and a kernel |
+| [`Pairwise(K₁ => k₁, K₂ => k₂)`](@ref Pairwise) | a sum of routes, each a coupling and a kernel |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day, with the days as the last index |
 | [`TimeVarying(P, Primary())`](@ref ComposableRecurrences.Primary) | a time-varying kernel whose column ``\tau`` belongs to input day ``\tau`` |
 | [`Derived(f, args...)`](@ref ComposableRecurrences.Derived) | a parameter computed by `f` from other parameters |
 | [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and day |
 
-A `Pairwise` or `Routes` kernel mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
+A `Pairwise` kernel, as an array or as routes, mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
 A `TimeVarying` kernel can be given as a vector with one kernel per day, each of any length.
 It can also be given as change points: `start => value` pairs, each value holding from its start day.
 By default, column ``\tau`` of a time-varying kernel belongs to output day ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
@@ -181,11 +181,11 @@ A model with a weekly [time unit](@ref time-units) and delays in days takes `ste
 | `PerStratum(ds)` | a vector of delays, one per stratum |
 | `Pairwise(D)` | a matrix of delays, with `D[i, j]` the delay of stratum `j` in stratum `i` |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per day |
-| `Routes((K₁, d₁), (K₂, d₂))` | delays or arrays as route kernels |
+| `Pairwise(K₁ => d₁, K₂ => d₂)` | delays or arrays as route kernels |
 
 The argument `indexing` is `Primary()`, or left out for the default, as for any [time-varying kernel](@ref overview-shapes).
 `TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
-`Pairwise` and `Routes` kernels work with `Recurrence` only.
+`Pairwise` kernels work with `Recurrence` only.
 A chain may also hold mass vectors, and it is itself a delay, so it fits wherever `d` does.
 
 ## [Couplings](@id overview-couplings)

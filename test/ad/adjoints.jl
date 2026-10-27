@@ -8,7 +8,7 @@
     import DifferentiationInterface
     using Test: Test
     using ComposableRecurrences
-    using ComposableRecurrences: Derived, Routes
+    using ComposableRecurrences: Derived
     using ComposableRecurrences: ComposableRecurrences as CR
     using LinearAlgebra, Random, SparseArrays
 
@@ -218,20 +218,18 @@
             (
                 "routes: per-stratum, pairwise and Primary kernels",
                 Recurrence(
-                    Routes(
-                        (0.7I, PerStratum(rand(rng, S, 2) ./ 2)),
-                        (Diagonal(rand(rng, S)), Pairwise(rand(rng, S, S, L) ./ 3)),
-                        (
-                            TimeVarying(rand(rng, S, S, T) ./ 2),
-                            TimeVarying(rand(rng, L, T), CR.Primary()),
-                        ),
+                    Pairwise(
+                        0.7I => PerStratum(rand(rng, S, 2) ./ 2),
+                        Diagonal(rand(rng, S)) => Pairwise(rand(rng, S, S, L) ./ 3),
+                        TimeVarying(rand(rng, S, S, T) ./ 2) =>
+                            TimeVarying(rand(rng, L, T), CR.Primary())
                     ); modifiers = (Hazard(60.0),)
                 ),
                 rec(R, nothing, h; start = L + 1),
             ),
             (
                 "routes with state, sparse coupling",
-                CR._WithState(Recurrence(Routes((Ks, g), (K, g[1:2])))),
+                CR._WithState(Recurrence(Pairwise(Ks => g, K => g[1:2]))),
                 rec(R, nothing, h),
             ),
             (
@@ -1009,7 +1007,6 @@ end
 
 @testitem "Enzyme: NoAdjoint on a sparse coupling matches ForwardDiff" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Routes
     using ComposableRecurrences: NoAdjoint
     using SparseArrays
     import Enzyme, ForwardDiff
@@ -1019,12 +1016,12 @@ end
         sparse([0.0 0.5 0.0; 0.0 0.0 0.5; 0.5 0.0 0.0]),
         sparse([0.3 0.3 0.3; 0.0 0.0 0.0; 0.2 0.1 0.4]),
     )
-    dense8 = ntuple(_ -> (fill(0.02, 3, 3), [0.1]), 8)
+    dense8 = ntuple(_ -> fill(0.02, 3, 3) => [0.1], 8)
     # The coupling, a second route and a ninth route, each sparse.
     ops = (
         K -> Recurrence([0.3, 0.2]; coupling = K),
-        K -> Recurrence(Routes((fill(0.2, 3, 3), [0.1]), (K, [0.3, 0.2]))),
-        K -> Recurrence(Routes(dense8..., (K, [0.3, 0.2]))),
+        K -> Recurrence(Pairwise(fill(0.2, 3, 3) => [0.1], K => [0.3, 0.2])),
+        K -> Recurrence(Pairwise(dense8..., K => [0.3, 0.2])),
     )
     sparse_of(K, nz) = SparseMatrixCSC(3, 3, K.colptr, K.rowval, nz)
     @testset "pattern $i, op $j, $T steps" for (i, K) in enumerate(patterns),
@@ -1054,7 +1051,7 @@ end
     fs = let K = first(patterns), dense8 = dense8
         function (θ)
             R, h = reshape(θ[1:120], 3, 40), reshape(θ[121:126], 3, 2)
-            r = NoAdjoint(Recurrence(Routes(dense8..., (K, [0.3, 0.2]))))
+            r = NoAdjoint(Recurrence(Pairwise(dense8..., K => [0.3, 0.2])))
             y1, s = r(R[:, 1:20]; history = h, state = true)
             y2, _ = r(R; state = s)
             return sum(abs2, y1) + sum(abs2, y2)

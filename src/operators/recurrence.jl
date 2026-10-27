@@ -49,9 +49,9 @@ place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
 produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
-A [`Routes`](@ref) kernel sums routes, each a kernel with its own coupling,
-so its coupling is `I` too; the keyword constructor folds routes that have
-a cheaper equivalent form.
+A `Pairwise(C₁ => k₁, C₂ => k₂)` kernel sums routes, each a kernel with its
+own coupling, so its coupling is `I` too; the keyword constructor folds
+routes that have a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
@@ -254,7 +254,8 @@ _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
     return nothing
 end
 
-# A Pairwise or Routes kernel already mixes strata, so its coupling is `I`.
+# A Pairwise kernel, dense or as routes, already mixes strata, so its coupling
+# is `I`.
 _check_pairwise_coupling(kernel, coupling) = nothing
 function _check_pairwise_coupling(::_PairwiseKernel, coupling)
     return _check_unit_coupling(

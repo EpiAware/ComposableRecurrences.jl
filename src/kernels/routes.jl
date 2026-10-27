@@ -1,80 +1,21 @@
-@doc raw"""
-A [`Recurrence`](@ref) kernel that sums transmission routes, each a kernel
-and the coupling it reaches its contacts through.
-
-Route ``r`` convolves the past values with its own kernel, then mixes the
-result with its own coupling:
-
-```math
-z^{(r)}_{t,j} = \sum_{l=1}^{L_r} k^{(r)}_{j,l}(t)\, y_{t-l,j},
-\qquad
-q_t = \sum_{r=1}^{R} K^{(r)}_t\, z^{(r)}_t,
-```
-
-where ``y_{t,j}`` is the output of stratum ``j`` at absolute time ``t``,
-``k^{(r)}_{j,l}(t)`` the weight of route ``r``'s kernel on lag ``l``,
-``L_r`` its length, ``K^{(r)}_t`` its ``S \times S`` coupling and ``q_t``
-the pressure, in place of the coupled pressure ``K_t p_t`` of a
-[`Recurrence`](@ref), that the gain scales.
-A [`Pairwise`](@ref) route kernel replaces ``z^{(r)}_{t,j}`` with
-``\sum_{b} \sum_{l} k^{(r)}_{jb,l}(t)\, y_{t-l,b}``.
-
-This is the [`Pairwise`](@ref) kernel
-``A_{ij,l} = \sum_r K^{(r)}_{ij} k^{(r)}_l`` held as its routes.
-Each step costs ``R`` kernel convolutions and ``R`` coupling products, and
-a sparse route coupling stays sparse.
-The routes mix strata, so the recurrence's coupling is `I`.
-A route kernel is any [`Recurrence`](@ref) kernel but `Routes`, and a route
-coupling any [`Recurrence`](@ref) coupling; kernels may differ in length.
-The recurrence's history covers the longest route kernel.
-
-Routes with a cheaper equivalent form fold into it when
-`Recurrence(routes)` is built by keyword with the default coupling `I`.
-The positional constructor keeps them.
-One route is its kernel with its coupling,
-and routes whose couplings are all `λ * I` on vector kernels are the one
-kernel ``\sum_r \lambda_r k^{(r)}``.
-The analytic adjoint applies when it covers every route coupling, as it
-would the coupling of a [`Recurrence`](@ref): with its own
-[`ComposableRecurrences.pullback!`](@ref), as the built-in ones have, or
-with a local derivative, within the same limits on strata and scalars.
-The constructor stores the routes' couplings in `couplings` and their
-kernels in `kernels`, in route order.
-
-# Arguments
-- `routes`: one `(coupling, kernel)` tuple per route, kernel lag 1 first.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-using SparseArrays: sparse
-community = [0.9 0.1; 0.1 0.9]
-funeral = sparse([0.0 0.4; 0.4 0.0])  # funerals in the other place
-routes = CR.Routes((community, [0.5, 0.3, 0.2]), (funeral, [0.0, 0.0, 0.0, 1.0]))
-y = Recurrence(routes)(fill(1.2, 2, 6); history = ones(2, 4))
-round.(y; digits = 3)
-
-# output
-
-2×6 Matrix{Float64}:
- 1.68  2.088  2.578  3.181  4.144  5.253
- 1.68  2.088  2.578  3.181  4.144  5.253
-```
-"""
-struct Routes{C <: Tuple, G <: Tuple}
+# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds: a sum of routes,
+# each a kernel and the coupling it reaches its contacts through, held as its
+# couplings and kernels in route order (the `Pairwise` docstring gives the
+# maths). Each step costs one kernel convolution and one coupling product per
+# route, and a sparse route coupling stays sparse.
+struct _Routes{C <: Tuple, G <: Tuple}
     "Each route's coupling."
     couplings::C
     "Each route's kernel, lag 1 first."
     kernels::G
-    function Routes(::_Checked, couplings::C, kernels::G) where {C <: Tuple, G <: Tuple}
+    function _Routes(::_Checked, couplings::C, kernels::G) where {C <: Tuple, G <: Tuple}
         length(couplings) == length(kernels) || throw(
             ArgumentError(
-                "Routes has $(length(couplings)) couplings and " *
+                "Pairwise has $(length(couplings)) couplings and " *
                     "$(length(kernels)) kernels"
             )
         )
-        isempty(couplings) && throw(ArgumentError("Routes needs at least one route"))
+        isempty(couplings) && throw(ArgumentError("Pairwise needs at least one route"))
         foreach(_check_coupling_shape, couplings)
         # Only a kernel takes `Primary()` indexing.
         _check_times(:coupling, couplings, nothing)
@@ -83,53 +24,45 @@ struct Routes{C <: Tuple, G <: Tuple}
     end
 end
 
-function Routes(routes::Tuple...)
-    return Routes(_Checked(), map(_route_coupling, routes), map(last, routes))
+function Pairwise(route::Pair, routes::Pair...)
+    rs = (route, routes...)
+    return _Routes(_Checked(), map(first, rs), map(last, rs))
 end
-function Routes(routes...)
+function Pairwise(route, routes...)
     throw(
         ArgumentError(
             string(
-                "each route is a (coupling, kernel) tuple, got ",
-                join(map(_describe, routes), ", ")
+                "Pairwise takes one S × S × L array, or routes as coupling => ",
+                "kernel pairs; got ", join(map(_describe, (route, routes...)), ", ")
             )
         )
     )
 end
 
 # A rebuild from the fields skips the pairing.
-_routes_flat(couplings, kernels) = Routes(_Checked(), couplings, kernels)
-ConstructionBase.constructorof(::Type{<:Routes}) = _routes_flat
-
-function _route_coupling(route::Tuple)
-    length(route) == 2 || throw(
-        ArgumentError(
-            "each route is a (coupling, kernel) tuple, got $(_describe(route))"
-        )
-    )
-    return first(route)
-end
+_routes_flat(couplings, kernels) = _Routes(_Checked(), couplings, kernels)
+ConstructionBase.constructorof(::Type{<:_Routes}) = _routes_flat
 
 # A route kernel may hold delays until the operator is built with `lags`.
 _check_route_kernel(g) = _has_delays(typeof(g)) ? nothing : _check_kernel_shape(g)
-function _check_route_kernel(::Routes)
-    throw(ArgumentError("a route's kernel cannot itself be Routes"))
+function _check_route_kernel(::_Routes)
+    throw(ArgumentError("a route's kernel cannot itself be routes"))
 end
 
-_describe(R::Routes) = string("Routes with ", length(R.kernels), " routes")
+_describe(R::_Routes) = string("Pairwise with ", length(R.kernels), " routes")
 
-_check_kernel_shape(::Routes) = nothing
-function _check_pairwise_coupling(::Routes, coupling)
+_check_kernel_shape(::_Routes) = nothing
+function _check_pairwise_coupling(::_Routes, coupling)
     return _check_unit_coupling(
         coupling,
-        "Routes holds each route's coupling, so the Recurrence coupling"
+        "Pairwise routes hold each route's coupling, so the Recurrence coupling"
     )
 end
 
 # The fold: one route is its kernel with its coupling, unless it is a
 # pairwise kernel, which takes coupling `I`; routes on `λ * I` with vector
 # kernels sum into one kernel. Decided from the types.
-function _fold(R::Routes, J::UniformScaling{Bool})
+function _fold(R::_Routes, J::UniformScaling{Bool})
     _check_pairwise_coupling(R, J)
     return _fold_routes(R.couplings, R.kernels, R, J)
 end
@@ -156,21 +89,21 @@ function _scaled_sum(Cs, gs)
     return g
 end
 
-_nlags(R::Routes) = maximum(map(_nlags, R.kernels))
+_nlags(R::_Routes) = maximum(map(_nlags, R.kernels))
 
-function _check_kernel_strata(R::Routes, S)
+function _check_kernel_strata(R::_Routes, S)
     foreach(C -> _check_coupling(C, S), R.couplings)
     foreach(g -> _check_kernel_strata(g, S), R.kernels)
     return nothing
 end
 
-function _check_kernel_times(R::Routes, stop)
+function _check_kernel_times(R::_Routes, stop)
     _check_times(:coupling, R.couplings, stop)
     foreach(g -> _check_kernel_times(g, stop), R.kernels)
     return nothing
 end
 
-function _check_primary_seed(R::Routes, history, start)
+function _check_primary_seed(R::_Routes, history, start)
     foreach(g -> _check_primary_seed(g, history, start), R.kernels)
     return nothing
 end
@@ -179,11 +112,11 @@ end
 # own pullback or a local derivative, as for the coupling of a
 # `Recurrence`; the local step rebuilds and fits each route coupling as it
 # does that coupling.
-_kernel_adjoint(R::Routes) = all(C -> _coupling_adjoint(C) !== :none, R.couplings)
-_kernel_couplings(R::Routes) = R.couplings
+_kernel_adjoint(R::_Routes) = all(C -> _coupling_adjoint(C) !== :none, R.couplings)
+_kernel_couplings(R::_Routes) = R.couplings
 
 # The plain-AD note names the route couplings the rule cannot use.
-function _no_adjoint_kernel(R::Routes)
+function _no_adjoint_kernel(R::_Routes)
     return Tuple(_part_why(C) for C in R.couplings if _coupling_adjoint(C) === :none)
 end
 
@@ -197,7 +130,7 @@ struct _RouteKernels{C <: Tuple, G <: Tuple, L <: Tuple, W}
     z::W
     w::W
 end
-function _run_kernel(::Type{Tp}, R::Routes, h, S) where {Tp}
+function _run_kernel(::Type{Tp}, R::_Routes, h, S) where {Tp}
     return _RouteKernels(
         R.couplings, map(_oldest_first, R.kernels), map(_nlags, R.kernels),
         _zeros(h, Tp, S), _zeros(h, Tp, S)
@@ -299,4 +232,6 @@ function _kernel_finish!(ḡ, kbuf::_RouteBuffers)
     return nothing
 end
 
-_check_coupling_shape(R::Routes) = _kernel_as_coupling_error(R, "Routes(...)")
+function _check_coupling_shape(R::_Routes)
+    return _kernel_as_coupling_error(R, "Pairwise(C => k, ...)", "Pairwise")
+end

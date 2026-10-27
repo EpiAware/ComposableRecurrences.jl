@@ -284,14 +284,14 @@
 2.0	Recurrence: time-varying kernels
 4.9	Redistribute pullback matches the local Jacobian
 3.4	Redistribute: conserving, against a naive loop
-1.8	Routes: argument validation
-3.9	Routes: arrays alone take the core method with Distributions loaded
-2.4	Routes: delay distributions on routes
-1.9	Routes: equal the Pairwise kernel of their sum
-7.9	Routes: equal the naive loop for each kernel
-6.4	Routes: fold into a cheaper form
-6.2	Routes: modifiers, add, resume and Float32
-2.6	Routes: the rule needs a pullback on every route coupling
+1.8	Pairwise routes: argument validation
+3.9	Pairwise routes: arrays alone take the core method with Distributions loaded
+2.4	Pairwise routes: delay distributions on routes
+1.9	Pairwise routes: equal the Pairwise kernel of their sum
+7.9	Pairwise routes: equal the naive loop for each kernel
+6.4	Pairwise routes: fold into a cheaper form
+6.2	Pairwise routes: modifiers, add, resume and Float32
+2.6	Pairwise routes: the rule needs a pullback on every route coupling
 4.3	Standards: README and page prose
 0.6	Standards: README code is from the getting started page
 1.2	Standards: docstring examples

@@ -62,7 +62,7 @@ const MATHS_FIRST_PAGES = (
 )
 const MATHS_FIRST_CALLS = (
     "Recurrence", "Convolution", "Depletion", "Redistribute", "Add", "Clamp",
-    "Allocate", "Transform", "Routes", "Pairwise",
+    "Allocate", "Transform", "Pairwise",
 )
 # Sections that only reuse a model introduced earlier on the page, as
 # `page => heading`, so need no equation of their own.

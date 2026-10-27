@@ -11,7 +11,7 @@
 # 2. Compare a fixed coupling, per-pair generation intervals and a travel cut.
 # 3. Move infections between patches with `Redistribute`.
 # 4. Split each patch's known infections among its districts with `Allocate`.
-# 5. Combine community and funeral transmission with `Routes`.
+# 5. Combine community and funeral transmission with `Pairwise` routes.
 #
 # ### What might I need to know before starting
 #
@@ -20,7 +20,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, Allocate, movement, Routes
+using ComposableRecurrences: Depletion, Redistribute, Allocate, movement
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 
@@ -184,7 +184,7 @@ maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts
 #
 # Some diseases spread by more than one route, each with its own timing and contacts.
 # Ebola spreads in the community while a case is ill and at the funeral after death.
-# [`Routes`](@ref ComposableRecurrences.Routes) pairs each route's kernel with its own coupling.
+# [`Pairwise(K => k, ...)`](@ref Pairwise) pairs each route's kernel with its own coupling.
 # The funeral route has coupling ``K^{\text{funeral}}`` and kernel ``g^{\text{funeral}}_l``:
 #
 # ```math
@@ -195,7 +195,7 @@ maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts
 # where ``y_t`` holds each patch's infections on day ``t``.
 # ``q_t`` is the pressure the gain scales.
 # The routes are the recurrence's kernel, so its coupling stays `I`.
-# The `Routes` docstring gives the cost and how it relates to `Pairwise`.
+# The `Pairwise` docstring gives the cost of routes against a dense `S × S × L` kernel.
 #
 # The funeral kernel is the infection-to-death delay convolved with the funeral days.
 # The fatality ratio scales it, and a [`Convolution`](@ref) builds it.
@@ -207,7 +207,7 @@ funeral_days = [0.6, 0.4]
 cfr = 0.5
 gi_funeral = cfr .* Convolution(funeral_days)(vcat(death, 0.0))
 K_funeral = sparse([0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.1 0.9])
-routes = Routes((K, gi), (K_funeral, gi_funeral))
+routes = Pairwise(K => gi, K_funeral => gi_funeral)
 ebola = Recurrence(routes; modifiers = (depletion,))
 ebola_cases = ebola(0.9; history = seed, stop = T);
 
