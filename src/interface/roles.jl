@@ -451,7 +451,7 @@ _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 # runs the step per stratum (pointwise) or on the whole vectors. It follows
 # from `blocks`, which follows from the type, so this folds. A built-in may
 # run a pointwise shape on its group kernel instead: `Depletion` does, for a
-# one-pool kind without a step of its own (see `pool.jl`).
+# one-pool kind without a step of its own (see `depletion/pool.jl`).
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))

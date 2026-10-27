@@ -1588,3 +1588,19 @@ function _steps_to_last(L)
     L >= 1 || throw(ArgumentError("a history needs L >= 1 steps, not L = $L"))
     return collect((1 - L):0)
 end
+
+@implements PieceInterface Recurrence [
+    Arguments(;
+        piece = Recurrence([0.2, 0.3, 0.5]), role = Run(),
+        args = ([1.1, 0.9, 1.2, 1.0],), kwargs = (; history = [1.0, 2.0, 3.0])
+    ),
+    Arguments(;
+        piece = Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]),
+        role = Run(), args = ([1.1 0.9 1.2 1.0; 0.8 1.3 1.1 0.9],),
+        kwargs = (; history = [1.0 2.0; 3.0 1.0])
+    ),
+    Arguments(;
+        piece = Recurrence(Pairwise(fill(0.25, 2, 2, 2))), role = Run(),
+        args = ([1.1 0.9 1.2; 0.8 1.3 1.1],), kwargs = (; history = ones(2, 2))
+    ),
+]
