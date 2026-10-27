@@ -41,8 +41,8 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | additive input       | `add =`, before the modifiers                                        |
 | seed and resume      | `history =`, `prepend = true`, `state =`                             |
 | modifiers            | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Allocate`, `Transform` |
-| pools and flows      | `Depletion(N; pools, weights, flows)`, `Flow(from => to, d)`         |
-| filling a pool       | `Depletion(C; form = Truncate(), fill = :O)`                         |
+| pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
+| filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
 | variants             | structs: `Hazard()`, `Floor()`, `Primary()`                          |
 | extension            | a type with a `forward!` method for a role                           |
 
@@ -84,7 +84,7 @@ using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling, mul!
+using LinearAlgebra: Diagonal, I, Transpose, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
@@ -102,16 +102,18 @@ public Depletion, Flow, Share, Redistribute, movement,
     Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses
+    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number,
+    pressure
 
 # interface: roles, `forward!`, `pullback!` and the trace role.
 include("interface/modifiers.jl")
-include("interface/trace.jl")
 
 # shapes: slot wrappers, shape and eltype helpers, and couplings.
 include("shapes/wrappers.jl")
 include("shapes/utils.jl")
 include("shapes/couplings.jl")
+# The trace role, which reads `_CPUArray` from `shapes/utils.jl`.
+include("interface/trace.jl")
 
 # adjoints: executors and the routing to the native rules.
 include("adjoints/executor.jl")
@@ -140,11 +142,15 @@ include("operators/recurrence.jl")
 include("operators/trace_run.jl")
 include("operators/recurrence_adjoint.jl")
 include("operators/convolution.jl")
+# The pressure a recurrence's steps draw against, from given outputs.
+include("operators/pressure.jl")
 
 # kernels: routes kernels and delay masses.
 include("kernels/routes.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("kernels/delays.jl")
+# The growth rate that matches a reproduction number, and its inverse.
+include("kernels/growth_rate.jl")
 
 # Files that load after the operators.
 # Default pullbacks of modifiers and couplings without one; reads

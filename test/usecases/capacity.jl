@@ -57,8 +57,8 @@ end
     # The beds are a pool filled by the admissions up to `θ[2]`, after a
     # share `θ[3]` leaves; the demand left goes to the second stratum.
     beds(θ; overflow = :stratum) = CR.Depletion(
-        θ[2]; pools = (:O,), form = CR.Truncate(), fill = :O, flows_first = true,
-        flows = CR.Flow(:O => 0, θ[3]; form = CR.Share()), overflow
+        θ[2], CR.Flow(:O => 0, θ[3]; form = CR.Share()),
+        CR.Truncate(; into = :O, overflow); pools = (:O,)
     )
     function admit(θ)
         return (d, O, t) -> begin
@@ -117,9 +117,9 @@ end
         starts = [(period === nothing ? t == 1 : (t - 1) % period == 0) for t in 1:T]
         grant = CR.Flow(0 => :B, TimeVarying(b .* starts); form = CR.Truncate())
         reset = CR.Flow(:B => 0, TimeVarying(float.(starts)); form = CR.Share())
-        return CR.Depletion(;
-            pools = (:B,), form = CR.Truncate(), flows_first = true,
-            flows = carry ? (grant,) : (reset, grant), overflow = :stratum
+        flows = carry ? (grant,) : (reset, grant)
+        return CR.Depletion(
+            flows..., CR.Truncate(; overflow = :stratum); pools = (:B,)
         )
     end
     e = 0.4

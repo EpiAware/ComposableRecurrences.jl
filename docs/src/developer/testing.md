@@ -42,13 +42,13 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | `Depletion` with two pools and waning | 0.40 | 0.32 | keep |
 | `Allocate` | 0.78¹ | 0.78¹ | keep |
 | `Allocate` with `imports` and `spill`, 64 strata | 0.05 | 0.11 | keep |
-| `Depletion` filled up to a capacity, flows first | 0.26 | 0.32 | keep |
+| `Depletion` filled up to a capacity, flows before the draw | 0.26 | 0.32 | keep |
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
-| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | plain AD is wrong | keep |
+| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | 0.45 | keep |
 | `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
-| sparse coupling | 0.75¹ | plain AD is wrong | keep |
+| sparse coupling | 0.75¹ | 0.28¹ | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
 | pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep, slower on Enzyme |
@@ -59,6 +59,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 | `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
+| a sparse route coupling under plain AD | plain AD | 0.48 to 0.57⁶ | keep on Enzyme |
 
 ² The worst within the row's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_strata`, `custom_coupling` and `custom_coupling_dense` cases.
 The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13, 20, 23, 26, 30, 36, 40 and 44.
@@ -74,7 +75,10 @@ The model has two routes, a dense user coupling with one scalar and a dense matr
 It was timed at 5, 11, 20, 22 and 23 strata, one pass, and at 30, 46 and 47, two passes.
 At 60 strata the call takes plain AD, within noise of the time before: 1.02 times it on Mooncake and 0.98 on Enzyme.
 
-Every rule in the table is faster than plain AD on both backends, where plain AD is right, except the local step of a pointwise modifier with scalar parameters.
+⁶ A local timing, not a matrix case: a `NoAdjoint` call of the `strata_routes` routes without the depletion, at `T` 200 and `L` 20, timed with and without the rule.
+It was timed at 5 and 50 strata, with the sparse route coupling constant and as a parameter.
+
+Every rule in the table is faster than plain AD on both backends, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
 On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
 The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.

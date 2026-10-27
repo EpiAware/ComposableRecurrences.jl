@@ -196,58 +196,12 @@ Town A turns before the intervention because its susceptible pool runs down.
 
 ## [Performance](@id overview-performance)
 
-```@example overview
-using ComposableRecurrences: Floor, Add # hide
-results = joinpath(pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv") # hide
-bench = if isfile(results) # hide
-    lines = readlines(results) # hide
-    header = Symbol.(split(first(lines), ',')) # hide
-    rows = split.(lines[2:end], ',') # hide
-    DataFrame([h => getindex.(rows, i) for (i, h) in enumerate(header)]) # hide
-else # hide
-    nothing # hide
-end # hide
-methods_order = ["ComposableRecurrences", "hand loop", "hand loop (window copies)", "accumulate"] # hide
-targets = ["primal" => "Forward run", "ForwardDiff" => "ForwardDiff", "Mooncake reverse" => "Mooncake", "Enzyme reverse" => "Enzyme"] # hide
-if bench === nothing # hide
-    Markdown.parse("The benchmark results are not available in this build.") # hide
-else # hide
-    @chain bench begin # hide
-        @subset(:block .== "naive vs package", :size .== "T200_L20_S3", :status .== "ok") # hide
-        @transform(:min_us = parse.(Float64, :min_us)) # hide
-        data(_) * mapping( # hide
-            :target => renamer(targets...) => "", # hide
-            :min_us => "Minimum time (μs)", # hide
-            color = :method => sorter(methods_order...) => "", # hide
-            dodge = :method => sorter(methods_order...) => "", # hide
-        ) * visual(BarPlot, fillto = 1) # hide
-        draw(_; axis = (yscale = log10,), figure = (size = (800, 420),), legend = (position = :bottom,)) # hide
-    end # hide
-end # hide
-```
+Each bar times the three-town model over 200 days with a 20-day generation interval: with the operators, as a preallocated hand-written loop, as a loop that copies its window every step, or with `accumulate` over a `NamedTuple` state.
 
 ```@example overview
-if bench !== nothing # hide
-    failed = @subset(bench, :block .== "naive vs package", :size .== "T200_L20_S3", :status .== "error") # hide
-    missing_note = isempty(failed.method) ? "" : # hide
-        " No bar: " * join(unique(failed.target), ", ") * " could not differentiate " * # hide
-        join(unique(failed.method), " or ") * "." # hide
-    reverse_rules = unique( # hide
-        @subset( # hide
-            bench, :block .== "naive vs package", :size .== "T200_L20_S3", # hide
-            in.(:target, Ref(["Mooncake reverse", "Enzyme reverse"])) # hide
-        ).rules # hide
-    ) # hide
-    Markdown.parse( # hide
-        "The three-town model above over 200 days with a 20-day generation interval: " * # hide
-            "the operators, a preallocated hand-written loop, a loop that copies its window every step, " * # hide
-            "and `accumulate` over a `NamedTuple` state, for the forward run and each gradient backend; " * # hide
-            "minimum times at revision `" * first(bench.revision) * "`, " * # hide
-            (reverse_rules == ["true"] ? "with" : "without") * # hide
-            " the package's Mooncake and Enzyme rules loaded; " * # hide
-            "the forward run and ForwardDiff do not use them." * missing_note # hide
-    ) # hide
-end # hide
+using ComposableRecurrences: Floor, Add # hide
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
+performance_plot("naive vs package")
 ```
 
 ### Changing the model
@@ -266,7 +220,7 @@ where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the impo
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop); form = Floor()), Add(TimeVarying(PerStratum(ι)))))
++renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι)))))
 ```
 
 ::: details The same change in the hand-written loop
@@ -298,7 +252,7 @@ end
 ι[3, 1:10] .= 5.0
 extended = Recurrence(
     gi; coupling = K,
-    modifiers = (Depletion(PerStratum(pop); form = Floor()), Add(TimeVarying(PerStratum(ι))))
+    modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι))))
 )
 maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι))
 ```

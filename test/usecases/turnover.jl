@@ -40,7 +40,9 @@
     function model(R, births)
         N = TimeVarying(N0 .+ cumsum(births .- sales))
         herd = CR.Depletion(
-            N; pools = (S = pool0,), removals = TimeVarying(sales .- births)
+            N, CR.Hazard(),
+            CR.Flow(:S => 0, TimeVarying(sales .- births); form = CR.Truncate());
+            pools = (S = pool0,)
         )
         return Recurrence(g; modifiers = (herd,))(
             R; history = seed, start = t0, prepend = true

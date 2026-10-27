@@ -149,7 +149,10 @@ end
     cases = (
         # Ring vaccination: removals scale with recent cases.
         (
-            u -> CR.Depletion(PerStratum([200.0, 300.0]); removals = u),
+            u -> CR.Depletion(
+                PerStratum([200.0, 300.0]), CR.Hazard(),
+                CR.Flow(:S => 0, u; form = CR.Truncate())
+            ),
             x -> 0.3 * x, u -> 0.3 * u,
         ),
         (u -> CR.Add(u), x -> -0.05 * x, u -> -0.05 * u),
@@ -199,7 +202,12 @@ end
     mods = (
         (CR.Transform(*, Derived(exp, -0.05 * Recent(w))),),
         (CR.Transform(*, Derived(exp, -0.05 * Recent(W))),),
-        (CR.Depletion(PerStratum([50.0, 80.0]); removals = 0.2 * Recent(w)),),
+        (
+            CR.Depletion(
+                PerStratum([50.0, 80.0]), CR.Hazard(),
+                CR.Flow(:S => 0, 0.2 * Recent(w); form = CR.Truncate())
+            ),
+        ),
         (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3))),
         (RecentSpill.Spill(K, Derived(tanh, 0.1 * Recent(w))),),
         (CR.Redistribute(CR.movement(K, Derived(tanh, 0.1 * Recent(w)))),),
@@ -238,7 +246,10 @@ end
 @testitem "Depletion: Derived removals are removed" begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
-    r(u) = Recurrence([0.5, 0.4]; modifiers = (CR.Depletion(100.0; removals = u),))
+    removal(u) = CR.Flow(:S => 0, u; form = CR.Truncate())
+    r(u) = Recurrence(
+        [0.5, 0.4]; modifiers = (CR.Depletion(100.0, CR.Hazard(), removal(u)),)
+    )
     R = fill(1.5, 10)
     @test r(Derived(identity, 2.0))(R; history = ones(2)) ≈ r(2.0)(R; history = ones(2))
     @test !(r(2.0)(R; history = ones(2)) ≈ r(0.0)(R; history = ones(2)))
@@ -248,7 +259,10 @@ end
         r(TimeVarying(2.0 .* u))(R; history = ones(2))
     h = ones(2, 2)
     R2 = fill(1.5, 2, 10)
-    rs(u) = Recurrence([0.5, 0.4]; modifiers = (CR.Depletion(PerStratum([80.0, 120.0]); removals = u),))
+    rs(u) = Recurrence(
+        [0.5, 0.4];
+        modifiers = (CR.Depletion(PerStratum([80.0, 120.0]), CR.Hazard(), removal(u)),)
+    )
     @test rs(Derived(sqrt, PerStratum([4.0, 9.0])))(R2; history = h) ≈
         rs(PerStratum([2.0, 3.0]))(R2; history = h)
 end
@@ -273,10 +287,21 @@ end
 
 @testitem "Recent: a read before the window is an error" begin
     using ComposableRecurrences
+    using ForwardDiff: Dual
     const CR = ComposableRecurrences
     # Depletion's Init reads N at time 1, before a run that starts at 5.
     r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(100.0 + Recent(3)),))
     @test_throws "read at time 1" r(fill(1.2, 8); history = ones(4), start = 5)
+    # The read still errors for strata of floats and of dual numbers with
+    # `prepend = true` and a history deeper than the window.
+    r = Recurrence(
+        [0.5, 0.3]; modifiers = (CR.Depletion(PerStratum([100.0, 90.0]) + Recent(3)),)
+    )
+    for x in (identity, v -> Dual{Nothing}.(v, 1.0))
+        @test_throws "read at time 1" r(
+            x(fill(1.2, 2, 10)); history = x(ones(2, 5)), start = 2, prepend = true
+        )
+    end
 end
 
 @testitem "Recent: an Init that reads the outputs sends its cotangent to the history" setup = [AdjointCheck] begin
@@ -291,9 +316,8 @@ end
         (CR.Depletion(100.0 + 10 * Recent(3)),),
         (
             CR.Depletion(
-                100.0 + 10 * Recent(3); pools = (:S, :V),
-                form = CR.Hazard(), weights = (S = 1, V = 0.3),
-                flows = (CR.Flow(1 => 2, 0.1 * Recent(2); form = CR.Truncate()),)
+                100.0 + 10 * Recent(3), CR.Hazard(; weights = (S = 1, V = 0.3)),
+                CR.Flow(1 => 2, 0.1 * Recent(2); form = CR.Truncate()); pools = (:S, :V)
             ),
         ),
     )
@@ -309,7 +333,10 @@ end
     H = zeros(10, 2)
     mods = (
         CR.Transform(*, Derived(exp, -0.05 * Recent(7))),
-        CR.Depletion(PerStratum([1.0, 2.0]); removals = 0.2 * Recent(3)),
+        CR.Depletion(
+            PerStratum([1.0, 2.0]), CR.Hazard(),
+            CR.Flow(:S => 0, 0.2 * Recent(3); form = CR.Truncate())
+        ),
         CR.Transform((v, θ) -> v * θ.a, (; a = Recent(2))),
     )
     @test @inferred(CR._bind(mods, H, nothing, 1)) isa Tuple
@@ -391,7 +418,12 @@ end
     for C in (rand(rng, S, S), sparse([1.0 0.0 0.5; 0.0 1.0 0.0; 0.2 0.0 1.0]))
         mods = (
             (CR.Transform(*, Derived(exp, -0.05 * Recent(w; coupling = C))),),
-            (CR.Depletion(PerStratum([50.0, 80.0, 60.0]); removals = 0.1 * Recent(W; coupling = C)),),
+            (
+                CR.Depletion(
+                    PerStratum([50.0, 80.0, 60.0]), CR.Hazard(),
+                    CR.Flow(:S => 0, 0.1 * Recent(W; coupling = C); form = CR.Truncate())
+                ),
+            ),
             # Init reads the population at time 1, the first step's row.
             (CR.Depletion(100.0 + 5 * Recent(W; coupling = C)),),
         )
