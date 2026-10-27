@@ -517,12 +517,13 @@ function report(dir, prevdir = nothing)
     return String(take!(io))
 end
 
-# The docs table: the getting-started model against code written without the
-# package, the user modifier under plain AD and through the rule with and
-# without its `pullback!`, and the case study's backend kernels against
-# their hand loops with and without hand-written rules. Each row is one
-# method on one target; `ratio` is its median over the reference method's
-# (the package, or the modifier with `forward` only).
+# The docs table: the getting-started model and the tutorials' models
+# against code written without the package, the user modifier under plain
+# AD and through the rule with and without its `pullback!`, and the case
+# study's backend kernels against their hand loops with and without
+# hand-written rules. Each row is one method on one target; `ratio` is its
+# median over the reference method's (the package, or the modifier with
+# `forward` only).
 const DOCS_BLOCKS = [
     (
         "naive vs package", "overview", "ComposableRecurrences",
@@ -569,6 +570,28 @@ const DOCS_BLOCKS = [
         ],
     ),
 ]
+# The tutorials' models against their hand loops, one block per page. The
+# forecast's loop runs every day in one pass, with no state to resume.
+for (block, case, loop) in (
+        ("renewal", "renewal_depletion", "hand loop"),
+        ("vaccination", "strata_waning", "hand loop"),
+        ("imports", "renewal_imports", "hand loop"),
+        ("clinical outcomes", "outcome_chain", "hand loop"),
+        ("forecasting", "renewal_forecast", "hand loop (one pass)"),
+        ("reproduction number", "reproduction", "hand loop"),
+        ("spatial strata", "strata_routes", "hand loop"),
+        ("occupancy", "ward_flows", "hand loop"),
+        ("latent processes", "ar", "hand loop"),
+        ("time-varying delays", "delay_primary", "hand loop"),
+        ("transform", "transform", "hand loop"),
+    )
+    push!(
+        DOCS_BLOCKS, (
+            block, case, "ComposableRecurrences",
+            [(case, "rule") => "ComposableRecurrences", (case, "loop") => loop],
+        )
+    )
+end
 const DOCS_COLUMNS = [
     "block", "size", "method", "target", "status", "median_us", "min_us",
     "allocs",

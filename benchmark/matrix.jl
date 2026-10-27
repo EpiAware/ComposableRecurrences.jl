@@ -175,7 +175,9 @@ function skip_reason(c, target, arm, θ, rules)
     # The hand rules are Mooncake reverse rules: every other target runs the
     # same code as the `loop` arm.
     target != "Mooncake reverse" && arm == "handrule" && return "same as loop arm"
-    if target == "Enzyme reverse" && c.sparse && (!(arm in ("rule", "local")) || !rules)
+    direct = arm == "loop" && c.name in MatrixCases.DIRECT_SPARSE_LOOPS
+    if target == "Enzyme reverse" && c.sparse && !direct &&
+            (!(arm in ("rule", "local")) || !rules)
         return "known wrong: plain Enzyme on a repeated sparse mul!"
     end
     # The overview's hand-written baselines do not compile under forward
