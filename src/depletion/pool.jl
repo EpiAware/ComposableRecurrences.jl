@@ -15,9 +15,9 @@ the step's value and the pools in the order given.
 A draw takes the value from the pools, or fills one, and
 [`ComposableRecurrences.Flow`](@ref)s move between them.
 
-With one pool ``s`` drawn from, then flows, each stratum ``i`` (see
-[`PerStratum`](@ref)) at absolute time ``t`` from the call's first time
-``t_0`` steps as
+With one pool ``s`` drawn from, then flows, each
+[stratum](@ref PerStratum) ``i`` at absolute time ``t`` from the call's
+first time ``t_0`` steps as
 
 ```math
 s_{t_0 - 1, i} = s_{0,i}, \qquad
@@ -60,26 +60,26 @@ Each draw takes the value the parts before it pass on.
 The flows act on the pools where they stand among the parts, as when
 patients leave before the day's admissions or an allowance is granted at
 the start of a period.
-Flows given one after another act together, as
-[`ComposableRecurrences.Flow`](@ref) sets out, and a count flow from `0`
-brings its demand in from outside.
+Hazard and share [flows](@ref ComposableRecurrences.Flow) given one after
+another act together, then each count flow in the order given; a count
+flow from `0` brings its demand in from outside.
 
 A draw is a form, `Hazard()`, `Floor()`, `Truncate()`, `SoftTruncate(κ)`
-or a new type with a `forward!(form, Step(), v, s, N)` method
-([A depletion form](@ref extending-form)), which draws from the first pool
-alone.
+or a [new type](@ref extending-form) with a `forward!(form, Step(), v, s, N)`
+method, which draws from the first pool alone.
 A built-in form given `weights`, `into` or `overflow`, such as
 `Hazard(; weights = (S = 1, V = σ))` or `Truncate(; into = :O)`, is a draw
 with them.
 The draw's `Hazard()` takes its hazard from the value over the population,
-``v / N_t``; a `Hazard()` flow's demand is read as
-[`ComposableRecurrences.Flow`](@ref) sets out.
-[Rules and plain AD](@ref adjoint-routing) gives the gradient of a form
-without a `pullback!`.
+``v / N_t``; a `Hazard()` [flow](@ref ComposableRecurrences.Flow)'s demand
+is the rate itself.
+A form without a `pullback!` is differentiated by a
+[local step](@ref adjoint-routing) when its float parameters are scalars,
+and by plain AD otherwise.
 
 One pool, with draws that leave nothing over, is a pointwise step,
 `blocks` `(1, 1)`, whose state is the pool.
-Any other is blockwise ([`ComposableRecurrences.blocks`](@ref)): each group
+Any other is [blockwise](@ref ComposableRecurrences.blocks): each group
 has one value, or two with `overflow = :stratum`, value ``(j - 1) G + g``
 being value ``j`` of group ``g`` for ``G`` groups, and the state holds
 pool 1 of every group, then pool 2, and so on, then the queue.
@@ -113,8 +113,9 @@ The step reads `N` at its own time, and a pool is not rescaled when `N`
 changes: arrivals enter it only through the flows.
 Here `starts` is a `TimeVarying` share of one at each period start and
 zero otherwise, and a lifetime allowance is a starting pool alone.
-The [renewal then delay](@ref tutorial-renewal-delay) tutorial builds
-leaky, all-or-nothing and waning protection with a second pool; a delay
+A second pool gives
+[leaky, all-or-nothing and waning protection](@ref tutorial-renewal-delay);
+a delay
 from dose to protection is a [`Convolution`](@ref) of the doses before the
 call.
 A share ``\delta`` leaving the beds is a geometric length of stay, with
@@ -1393,3 +1394,102 @@ function _amounts_back(grads, m, x, s, t, g)
     zs = map(_ -> z, s)
     return x̄, zs, map(_ -> z, x), zs
 end
+
+@implements PieceInterface{(:pointwise, :blocks, :nstate, :pullback)} Depletion [
+    Arguments(;
+        piece = Depletion(
+            PerStratum([100.0, 50.0]); pools = (S = PerStratum([97.0, 46.0]),)
+        ),
+        role = Init(), args = (zeros(2), [1.0 2.0; 3.0 1.0])
+    ),
+    Arguments(;
+        piece = Depletion(80.0, Floor(1.5)), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 1)
+    ),
+    Arguments(;
+        piece = Depletion(
+            80.0, Hazard(), Flow(:S => 0, TimeVarying([4.0, 6.0]); form = Truncate())
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(100.0, Hazard(), Flow(1 => 0, 0.01)), role = Step(),
+        args = ([2.0, 3.0], [80.0, 60.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            100.0, Hazard(; weights = (S = 1, V = 0.3)),
+            Flow(:S => :V, 1.0; form = Truncate()); pools = (:S, :V)
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 60.0, 10.0, 5.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            100.0, Hazard(; weights = (S = 1, V = 0.3)), Flow(:V => :S, 0.1);
+            pools = (S = nothing, V = 4.0)
+        ),
+        role = Init(), args = (zeros(4), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Depletion(
+            PerStratum([100.0, 50.0]),
+            Floor(; weights = (V = PerStratum([0.5, 0.2]), S = 1)),
+            Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share());
+            pools = (:S, :V, :R)
+        ),
+        role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(100.0, Truncate()), role = Step(),
+        args = ([2.0, 3.0], [80.0, 1.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            Flow(1 => 2, PerStratum([0.3, 0.2])),
+            Flow(2 => 0, 0.1; form = Share()),
+            Flow(1 => 0, 0.5; form = Truncate()),
+            Flow(2 => 0, 0.2; form = SoftTruncate(0.1)); pools = (:A, :B)
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
+    ),
+    Arguments(;
+        piece = Depletion(Flow(:U => :C, 0.3); pools = (:U, :C)),
+        role = Init(), args = (zeros(4), ones(4, 2))
+    ),
+    Arguments(;
+        piece = Depletion(
+            4.0, Flow(:O => 0, 0.2; form = Share()),
+            SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+        ),
+        role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            Flow(:B => 0, TimeVarying([1.0, 0.0, 0.0]); form = Share()),
+            Flow(
+                0 => :B, TimeVarying(PerStratum([3.0 0.0 0.0; 2.0 0.0 0.0]));
+                form = Truncate()
+            ),
+            Truncate(; overflow = :queue); pools = (:B,)
+        ),
+        role = Step(), args = ([2.0, 3.0], [1.0, 0.5, 0.0, 1.0], 1),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(Truncate(); pools = (B = 1.0,)),
+        role = Step(), args = ([2.0, 0.5], [1.0, 0.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Depletion(
+            2.0, Truncate(; into = :O, overflow = :queue); pools = (O = 1.0,)
+        ),
+        role = Init(), args = (zeros(4), ones(2, 2))
+    ),
+]

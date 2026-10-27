@@ -20,8 +20,9 @@ A NaN pool gives a NaN draw.
 [`ComposableRecurrences.SoftTruncate`](@ref) is a smooth version.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
@@ -78,8 +79,9 @@ The floor at ``s = 0`` keeps its kink.
 - `κ`: the softness, with ``0 < \kappa < 1``.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw, which
-  [`ComposableRecurrences.Depletion`](@ref) sets out.
+- `weights`, `into`, `overflow`: the form's arguments as a draw in a
+  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
+  it fills and where what it leaves goes.
 
 # Examples
 ```jldoctest
@@ -220,4 +222,23 @@ function _soft_min_back(κ, a, b, ȳ)
     h̄i = ȳ * g * q * r
     κ̄ = ȳ * lo * g * (q * log(r) / κ - log1p(rp))
     return first ? (l̄o, h̄i, κ̄) : (h̄i, l̄o, κ̄)
+end
+
+@implements PieceInterface{(:pullback,)} Truncate [
+    Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0)),
+]
+
+@implements PieceInterface{(:pullback,)} SoftTruncate [
+    Arguments(;
+        piece = SoftTruncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0)
+    ),
+]
+
+# The interface check of a built-in depletion form's draw takes any real `N`.
+const _BuiltinForm = Union{_ExponentForm, _TruncateForm}
+function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, Any})
+    return _form_pullback_matches(f, args)
+end
+function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, AbstractFloat})
+    return _form_pullback_matches(f, args)
 end
