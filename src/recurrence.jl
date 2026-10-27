@@ -1150,6 +1150,15 @@ end
 end
 _pressure_at(C, kernel, p, q, H, t, τ, L, k) = (p[k], q[k])
 
+# The same at call step `t`, whose window is the `L` buffer rows before row
+# `D + t`; the run and `pressure` both read a step's pressure through these.
+@inline function _step_prepare!(ex, p, q, C, kernel, H, t, τ, L, D)
+    return _prepare!(ex, p, q, C, kernel, H, t + D - L, τ, L)
+end
+@inline function _step_pressure(C, kernel, p, q, H, t, τ, L, D, k)
+    return _pressure_at(C, kernel, p, q, H, t + D - L, τ, L, k)
+end
+
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
@@ -1230,7 +1239,7 @@ end
 # convolution and, unless the coupling is pointwise, its pressure in `pr`
 # when it is not `nothing`.
 @inline function _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
-    pk, xk = _pressure_at(coupling, kernel, p, q, H, t + D - L, τ, L, k)
+    pk, xk = _step_pressure(coupling, kernel, p, q, H, t, τ, L, D, k)
     _record_pressure!(pr, pk, xk, t, k)
     return @inbounds _core(coupling, gain, add, k, τ, pk, xk)
 end
@@ -1346,7 +1355,7 @@ end
     )
     τ = τ0 + t - 1
     across && _refresh!(modifiers, D + t)
-    _prepare!(ex, p, q, coupling, kernel, H, t + D - L, τ, L)
+    _step_prepare!(ex, p, q, coupling, kernel, H, t, τ, L, D)
     if _all_pointwise(modifiers)
         _each!(
             _step_body!, ex, H, S, work,

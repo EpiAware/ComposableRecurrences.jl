@@ -415,6 +415,11 @@
 0.7	exponential_history
 0.0	param_eltype infers through nested structs
 0.1	param_eltype recurses through fields
+19.5	pressure: every kernel and coupling recovers the gain
+1.7	pressure: the history, start and a resumed state
+0.6	pressure: a zero pressure gives no value
+5.8	pressure: the effective value under depletion
+3.7	pressure: argument checks and inference
 11.2	prepend returns the history then the run
 0.2	start = nothing names the default to use
 147.3	JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments

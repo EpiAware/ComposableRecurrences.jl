@@ -102,7 +102,8 @@ public Depletion, Flow, Share, Redistribute, movement,
     Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number
+    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number,
+    pressure
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -145,6 +146,8 @@ include("routes.jl")
 include("convolution.jl")
 # `TimeVarying` coefficients given by change points.
 include("piecewise.jl")
+# The pressure a recurrence's steps draw against, from given outputs.
+include("pressure.jl")
 # Default pullbacks of modifiers and couplings without one, whose dual-number
 # code is in an extension.
 include("fallbacks.jl")
