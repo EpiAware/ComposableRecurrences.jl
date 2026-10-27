@@ -110,7 +110,8 @@ So the gain on day ``t`` is always `gain[t]`.
 Inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per day.
-The outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the reproduction number each day.
+Without modifiers or `add`, the outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the gain each day, the reproduction number.
+With a `Depletion` they are the effective reproduction number.
 
 ## [Shapes](@id overview-shapes)
 
