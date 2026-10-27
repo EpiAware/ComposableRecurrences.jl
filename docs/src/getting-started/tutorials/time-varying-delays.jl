@@ -138,7 +138,7 @@ end
 # ## An isolation policy that starts on a set day
 #
 # A recurrence kernel read by infection day gives each case the generation interval of the day it was infected, a cohort effect.
-# A `Secondary()` kernel is a period effect, the same for every case on a given day.
+# The default, output-day kernel is a period effect, the same for every case on a given day.
 #
 # Isolation thins the generation interval, as [Isolation as a thinned kernel](@ref tutorial-isolation-thinning) derives.
 # Here a case infected on day ``c`` is isolated with probability ``p`` after a delay ``D``, and isolation blocks a share ``b`` of its later transmission.
@@ -152,7 +152,7 @@ end
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
 # The run starts at `start = 7` after six seed values.
 # `vcat` joins the seed in front of the run.
-# The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
+# The default, output-day kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
 delay_iso = [0.2, 0.3, 0.3, 0.2]          # P(D = 0, 1, 2, 3)
