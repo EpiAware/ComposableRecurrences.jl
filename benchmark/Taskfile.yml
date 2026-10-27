@@ -3,6 +3,7 @@
 #
 #   task -t benchmark/Taskfile.yml matrix -- --tier=realistic
 #   task -t benchmark/Taskfile.yml matrix-report -- DIR [PREVIOUS_DIR]
+#   task -t benchmark/Taskfile.yml matrix-docs
 #   task -t benchmark/Taskfile.yml threshold -- --target=gradient
 #   task -t benchmark/Taskfile.yml benchmark-methods
 version: '3'
@@ -31,10 +32,11 @@ tasks:
       - julia --startup-file=no benchmark/matrix_report.jl {{.CLI_ARGS}}
 
   matrix-docs:
-    desc: Time the docs tier and rewrite benchmark/results/docs.csv
+    desc: Check the docs tier's baselines, time the tier and rewrite benchmark/results/docs.csv
     dir: '{{.TASKFILE_DIR}}/..'
     cmds:
       - julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - julia --project=benchmark benchmark/baselines.jl --tier=docs
       - julia --project=benchmark benchmark/matrix.jl --tier=docs --out=matrix-results/docs {{.CLI_ARGS}}
       - >-
         julia --startup-file=no benchmark/matrix_report.jl matrix-results/docs
