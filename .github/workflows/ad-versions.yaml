@@ -1,0 +1,72 @@
+# Package-owned: not part of the kit's managed workflows.
+name: AD versions
+
+# Runs every AD item of Enzyme reverse and Mooncake reverse, the backends
+# with rules of their own, on the Julia versions the package allows below
+# the current release.
+# The managed AD workflow runs every backend on the current release only,
+# and the Threads workflow runs only the `compat_floor` items on 1.11.
+# Enzyme's bugs differ between Julia versions, so the full registry runs
+# here too.
+# Enzyme reverse runs in two processes, the registry items in
+# `scenarios.jl` and the rest: in one process on Julia 1.11 it outgrew a
+# runner's memory.
+# It runs on pushes to main, weekly, on demand, and on a pull request that
+# changes this file, not on every pull request.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+  pull_request:
+    paths:
+      - '.github/workflows/ad-versions.yaml'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+# A newer push to a pull request supersedes its run; runs on main all
+# complete, so every merge gets a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ad:
+    name: ${{ matrix.job.backend }} ${{ matrix.job.part }} (Julia ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.11', '1.12']
+        job:
+          - {backend: enzyme_reverse, part: registry}
+          - {backend: enzyme_reverse, part: rest}
+          - {backend: mooncake_reverse, part: all}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
+      # The backend's tag is passed on, so items that check several
+      # backends check only this one (see `test/ad/job_backends.jl`).
+      - run: |
+          julia --project=test/ad -e '
+              using TestItemRunner
+              tag, part = Symbol(ARGS[1]), ARGS[2]
+              in_part(file) = part == "all" ||
+                  endswith(file, "scenarios.jl") == (part == "registry")
+              matched = Ref(false)
+              TestItemRunner.run_tests(
+                  joinpath(pwd(), "test", "ad");
+                  filter = ti -> (tag in ti.tags && in_part(ti.filename)) &&
+                      (matched[] = true)
+              )
+              matched[] || error("no AD test item matches $tag ($part)")
+              ' ${{ matrix.job.backend }} ${{ matrix.job.part }}
