@@ -979,6 +979,32 @@ end
     end
 end
 
+@testitem "Enzyme: the chained delay rule's pullback" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, Enzyme, ForwardDiff
+    CR = ComposableRecurrences
+    a, b = [0.5, 0.3, 0.2], [0.6, 0.3, 0.1, 0.05]
+    for lags in (3, 6, 8)
+        c̄ = collect(1.0:lags) ./ lags
+        Ja = ForwardDiff.jacobian(a -> CR._convolve_masses(a, b, lags), a)
+        Jb = ForwardDiff.jacobian(b -> CR._convolve_masses(a, b, lags), b)
+        ā, b̄, dc = zero(a), zero(b), copy(c̄)
+        Enzyme.autodiff(
+            Reverse, CR._convolve_masses!, Const,
+            Duplicated(zeros(lags), dc), Duplicated(a, ā), Duplicated(b, b̄)
+        )
+        @test ā ≈ Ja' * c̄
+        @test b̄ ≈ Jb' * c̄
+        # `c += a ⊛ b` passes the cotangent of `c` through.
+        @test dc == c̄
+        ā = zero(a)
+        Enzyme.autodiff(
+            Reverse, CR._convolve_masses!, Const,
+            Duplicated(zeros(lags), copy(c̄)), Duplicated(a, ā), Const(b)
+        )
+        @test ā ≈ Ja' * c̄
+    end
+end
+
 @testitem "Enzyme: NoAdjoint on a sparse coupling matches ForwardDiff" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: NoAdjoint

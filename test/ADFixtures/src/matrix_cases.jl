@@ -51,12 +51,9 @@ _gi(L) = (g = exp.(-0.2 .* (1:L)); g ./ sum(g))
 
 # Consecutive blocks of `θ` with the given shapes.
 function _unpack(θ, shapes...)
-    o = 0
-    return map(shapes) do sh
-        n = prod(sh)
-        x = reshape(view(θ, (o + 1):(o + n)), sh...)
-        o += n
-        x
+    ends = cumsum(map(prod, shapes))
+    return map(shapes, ends) do sh, e
+        reshape(view(θ, (e - prod(sh) + 1):e), sh...)
     end
 end
 
@@ -685,6 +682,73 @@ function recent_coupled(wrap, z::Size)
     return f, _flat(_gi(L), C0, fill(log(5.0), S, L), 0.1 .+ 0.05 .* _weights(S, T))
 end
 
+# A seeded renewal with hazard depletion and imports both before the draw,
+# taken from the pool, and after it, added on top.
+function renewal_imports(wrap, z::Size)
+    (; T, L) = z
+    W = _weights(T)
+    N = 1.0e5
+    f = function (θ)
+        g, logh, logR, before, after = _unpack(θ, (L,), (L,), (T,), (T,), (T,))
+        r = Recurrence(g; modifiers = (depletion(N), CR.Add(TimeVarying(after))))
+        y = wrap(r)(exp.(logR); history = exp.(logh), add = before)
+        return sum(W .* log.(y))
+    end
+    ι = [t <= 10 ? 3.0 : 0.1 for t in 1:T]
+    logR = [0.05 + 0.05 * _noise(t, 14) for t in 1:T]
+    return f, _flat(_gi(L), fill(log(10.0), L), logR, ι, ι)
+end
+
+# Clinical outcomes as a chain of delays: onsets after infections, then
+# admissions and deaths, each with its probability as the gain.
+function outcome_chain(wrap, z::Size)
+    (; T, L) = z
+    W = _weights(T)
+    V = [_noise(t, 15) for t in 1:T]
+    f = function (θ)
+        d1, d2, d3, p, x = _unpack(θ, (L,), (L,), (L,), (2,), (T,))
+        onsets = wrap(Convolution(d1))(x)
+        admissions = wrap(Convolution(d2))(onsets; gain = p[1])
+        deaths = wrap(Convolution(d3))(admissions; gain = p[2])
+        return sum(W .* admissions) + sum(V .* deaths)
+    end
+    x = [100.0 + 50.0 * _noise(t, 16) for t in 1:T]
+    return f, _flat(_gi(L), _gi(L), _gi(L), [0.1, 0.25], x)
+end
+
+# A renewal run to half way, returning its state, then continued from it
+# to the end, as a forecast is.
+function renewal_forecast(wrap, z::Size)
+    (; T, L) = z
+    W = _weights(T)
+    f = function (θ)
+        g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+        r = wrap(Recurrence(g))
+        R = exp.(logR)
+        fitted, st = r(R; history = exp.(logh), stop = T ÷ 2, state = true)
+        forecast, _ = r(R; state = st)
+        return sum(W .* log.(vcat(fitted, forecast)))
+    end
+    return f, _flat(_gi(L), fill(log(10.0), L), [0.05 * _noise(t, 2) for t in 1:T])
+end
+
+# The effective reproduction number of the towns' depleted run: each day's
+# infections over the renewal sum they come from.
+function reproduction(wrap, z::Size)
+    (; T, L, S) = z
+    pop, K = towns()
+    seed = overview_seed(S, L)
+    W = _weights(S, T)
+    f = function (θ)
+        g, logR = _unpack(θ, (L,), (S, T))
+        r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
+        y = wrap(r)(exp.(logR); history = seed)
+        sums = K * wrap(Convolution(vcat(zero(eltype(θ)), g)))(y; history = seed)
+        return sum(W .* y ./ sums)
+    end
+    return f, _flat(overview_gi(L), log.(overview_R(S, T)))
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -852,7 +916,27 @@ const CASES = [
         "recent_coupled", "feedback from recent incidence through a contact matrix",
         recent_coupled, [20, 50], false,
     ),
+    Case(
+        "renewal_imports",
+        "seeded renewal, hazard depletion, imports before and after",
+        renewal_imports, [1], false,
+    ),
+    Case(
+        "outcome_chain", "onsets, admissions and deaths as a chain of delays",
+        outcome_chain, [1], false,
+    ),
+    Case(
+        "renewal_forecast", "renewal run to half way, then continued from its state",
+        renewal_forecast, [1], false,
+    ),
+    Case(
+        "reproduction", "effective reproduction number of the towns' depleted run",
+        reproduction, [3], false,
+    ),
 ]
+
+"Sparse cases whose `loop` arm reads the coupling's arrays itself, with no sparse `mul!`."
+const DIRECT_SPARSE_LOOPS = Set(["strata_routes"])
 
 "Cases not yet on `main`, listed so the report shows them as pending."
 pending_cases() = Tuple{String, String}[]
@@ -876,6 +960,9 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "renewal_primary" => (:primary_recurrence,),
     "conv_primary_ragged" => (:_Ragged,),
     "conv_gain" => (:contributions,),
+    # A gain on a `Convolution` came with `contributions`.
+    "outcome_chain" => (:contributions,),
+    "renewal_forecast" => (:resume_state,),
     "triangle" => (:contributions,),
     # `prepend` came with the growth-path seed.
     "random_walk" => (:exponential_history,),
@@ -912,10 +999,23 @@ end
 "The case called `name`."
 case(name) = CASES[findfirst(c -> c.name == name, CASES)]
 
+# The tutorials' models in the `docs` tier, each at one size with its
+# strata.
+const TUTORIAL_CASES = [
+    name => [(T = 200, L = 20, S = S)] for (name, S) in (
+            "renewal_depletion" => 1, "strata_waning" => 1, "renewal_imports" => 1,
+            "outcome_chain" => 1, "renewal_forecast" => 1, "reproduction" => 3,
+            "strata_routes" => 5, "ward_flows" => 1, "ar" => 1, "transform" => 5,
+        )
+]
+# The tutorial's 15-day delay, so ForwardDiff takes all its parameters.
+push!(TUTORIAL_CASES, "delay_primary" => [(T = 200, L = 15, S = 1)])
+
 """
 The size tiers. `smoke` checks every case at a tiny size; `docs` is the
-getting-started model at the page's size and at T 200, L 20, with the
-backend kernels of the case study at their own sizes; `convolved`
+getting-started model at the page's size and at T 200, L 20, the
+tutorials' models at T 200 with their own lags and strata, and the backend
+kernels of the case study at their own sizes; `convolved`
 holds the delay-distribution shapes; `ci` is the AirspeedVelocity subset;
 `realistic` spans T 200-400, L 20-60 and S 1 to 50; `large` is S = 500,
 T = 2000; `lag1` is the unit lag-1 processes at T 8 to 1000.
@@ -941,10 +1041,10 @@ const TIERS = Dict(
         bycase = Dict("random_walk" => [(T = 30, L = 1)]),
     ),
     "docs" => (
-        cases = ["overview"],
+        cases = ["overview", first.(TUTORIAL_CASES)...],
         sizes = [(T = 100, L = 6), (T = 200, L = 20)],
         strata = [1, 3],
-        bycase = Dict{String, Vector{@NamedTuple{T::Int, L::Int}}}(),
+        bycase = Dict{String, Vector{NamedTuple}}(TUTORIAL_CASES),
     ),
     "convolved" => (
         cases = [
@@ -992,7 +1092,11 @@ function sizes(c::Case, tier)
     c.name in spec.cases || return Size[]
     strata = intersect(c.strata, spec.strata)
     szs = haskey(spec, :bycase) ? get(spec.bycase, c.name, spec.sizes) : spec.sizes
-    return [Size(sz.T, sz.L, S) for sz in szs for S in strata]
+    # A size that gives its strata keeps them.
+    return [
+        Size(sz.T, sz.L, S) for sz in szs
+            for S in (haskey(sz, :S) ? [sz.S] : strata)
+    ]
 end
 
 # Baseline arms without the package, by case name: `arm => builder(z)`.

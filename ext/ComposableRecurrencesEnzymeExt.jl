@@ -7,10 +7,10 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
-    _check_form, _check_now, _check_parts, _check_secondary, _current,
-    _fft_convolve!, _fft_convolve_back!, _fft_convolve_terms!, _growth_root,
-    _is_leaf, _leaf_paths, _plain_hook, _rebuild_leaves, _route_forward!,
-    _run_forward, _run_pullback!, _untraced
+    _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
+    _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
+    _fft_convolve_terms!, _growth_root, _is_leaf, _leaf_paths, _plain_hook,
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -395,6 +395,36 @@ function EnzymeRules.reverse(
         tape, args::Vararg{Annotation, N}
     ) where {N}
     throw(ErrorException(_FFT_TRACED))
+end
+
+# A rule so a chain of delays' convolution, `c += a ⊛ b`, is not
+# differentiated loop by loop; `c̄` passes through unchanged.
+const _Floats = AbstractVector{<:_IEEEFloat}
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_convolve_masses!)},
+        ::Type{<:Annotation}, c::Annotation{<:_Floats},
+        a::Annotation{<:_Floats}, b::Annotation{<:_Floats}
+    )
+    _convolve_masses!(c.val, a.val, b.val)
+    ow = EnzymeRules.overwritten(config)
+    tape = (ow[3] ? copy(a.val) : nothing, ow[4] ? copy(b.val) : nothing)
+    p = EnzymeRules.needs_primal(config) ? c.val : nothing
+    s = EnzymeRules.needs_shadow(config) ?
+        _out_shadow(c, EnzymeRules.width(config)) : nothing
+    return EnzymeRules.AugmentedReturn(p, s, tape)
+end
+function EnzymeRules.reverse(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_convolve_masses!)},
+        ::Type{<:Annotation}, tape, c::Annotation{<:_Floats},
+        a::Annotation{<:_Floats}, b::Annotation{<:_Floats}
+    )
+    av, bv = something(tape[1], a.val), something(tape[2], b.val)
+    for i in 1:EnzymeRules.width(config)
+        c̄ = _lane(c, i)
+        c̄ === nothing && continue
+        _convolve_masses_back!(_lane(a, i), _lane(b, i), c̄, av, bv)
+    end
+    return (nothing, nothing, nothing)
 end
 
 # The mirrors of the operator and its arguments, assembled from the leaves'
