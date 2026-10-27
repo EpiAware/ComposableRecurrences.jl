@@ -56,6 +56,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 | pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | 0.86⁴ | keep |
+| whole-step modifier without a `pullback!`, past one pass | 0.84⁷ | plain AD | keep on Mooncake |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 | `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
@@ -77,6 +78,9 @@ At 60 strata the call takes plain AD, within noise of the time before: 1.02 time
 
 ⁶ A local timing, not a matrix case: a `NoAdjoint` call of the `strata_routes` routes without the depletion, at `T` 200 and `L` 20, timed with and without the rule.
 It was timed at 5 and 50 strata, with the sparse route coupling constant and as a parameter.
+
+⁷ The worst of two rounds for the user type of the `custom_modifier_whole` case, at `T` 200, `L` 20 and `S` 20.
+On Enzyme the rule took 1.25 to 2.4 times plain AD, depending on the machine and the Julia version, so the call takes plain AD there.
 
 Every rule in the table is faster than plain AD on both backends, except the local step of a pointwise modifier with scalar parameters.
 That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
