@@ -30,6 +30,7 @@ p_l = P\big(l \Delta \le D < (l + 1) \Delta\big), \qquad l = 0, \dots, L - 1,
 where ``D`` is the delay in its own unit and ``\Delta`` is the step in that unit.
 ``\Delta`` is the `step` keyword of [`delay_masses`](@ref ComposableRecurrences.delay_masses), and `Recurrence` and [`Convolution`](@ref) pass it on.
 It is 1 by default, so a delay in days gives masses on days.
+A delay on continuous time is censored with both windows one step wide, its primary event uniform over one step, so four quarter-day masses do not sum to the daily mass.
 
 ```@example time-units
 Recurrence(gi; lags = 15).kernel ≈ ComposableRecurrences.delay_masses(gi, 15)[2:end]
