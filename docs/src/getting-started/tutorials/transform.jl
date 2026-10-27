@@ -195,6 +195,13 @@ end
 
 ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
 
+# ## Performance
+#
+# Each bar times extinction by generation for five mixing types with a 20-lag generation interval over 200 steps, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("transform")
+
 # ## References
 #
 # - Lloyd-Smith, Schreiber, Kopp and Getz (2005), "Superspreading and the

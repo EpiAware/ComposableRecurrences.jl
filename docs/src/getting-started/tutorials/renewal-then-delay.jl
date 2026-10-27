@@ -215,6 +215,13 @@ end
 
 maximum(abs, vcat(fitted, forecast) .- infections)
 
+# ## Performance
+#
+# Each bar times a seeded renewal with hazard depletion over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("renewal")
+
 # ## Learning more
 #
 # - The [API overview](@ref api-overview) lists every operator, coupling and modifier.

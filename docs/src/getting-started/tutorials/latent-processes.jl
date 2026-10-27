@@ -205,6 +205,13 @@ function total_with_response(x)
 end
 ForwardDiff.gradient(total_with_response, [κr, 1.5])
 
+# ## Performance
+#
+# Each bar times an AR(2) process over 200 days, written with the operators or as a preallocated hand-written loop.
+
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
+performance_plot("latent processes")
+
 # ## References
 #
 # - Capasso and Serio (1978), "A generalization of the Kermack-McKendrick
