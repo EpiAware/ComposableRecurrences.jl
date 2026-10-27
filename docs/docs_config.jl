@@ -19,6 +19,7 @@ const HEAVY_TUTORIALS = [
     "vaccination.jl",
     "imported-cases.jl",
     "clinical-outcomes.jl",
+    "forecasting.jl",
     "reproduction-number.jl",
     "latent-processes.jl",
     "spatial-strata.jl",
@@ -42,6 +43,7 @@ const TUTORIAL_STUBS = [
     "imported-cases.md" => "# [Imported cases](@id tutorial-imports)",
     "clinical-outcomes.md" =>
         "# [Clinical outcomes](@id tutorial-clinical-outcomes)",
+    "forecasting.md" => "# [Forecasting](@id tutorial-forecasting)",
     "reproduction-number.md" =>
         "# [The reproduction number from a run](@id tutorial-reproduction-number)",
     "latent-processes.md" =>
@@ -242,6 +244,7 @@ const PACKAGE_TUTORIALS = [
     "Imported cases" => "getting-started/tutorials/imported-cases.md",
     "Clinical outcomes" =>
         "getting-started/tutorials/clinical-outcomes.md",
+    "Forecasting" => "getting-started/tutorials/forecasting.md",
     "Reproduction number from a run" =>
         "getting-started/tutorials/reproduction-number.md",
     "Latent processes driving R_t" =>

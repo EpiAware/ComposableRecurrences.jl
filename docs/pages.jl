@@ -35,6 +35,7 @@ pages = [
         "Vaccination" => "getting-started/tutorials/vaccination.md",
         "Imported cases" => "getting-started/tutorials/imported-cases.md",
         "Clinical outcomes" => "getting-started/tutorials/clinical-outcomes.md",
+        "Forecasting" => "getting-started/tutorials/forecasting.md",
         "Reproduction number from a run" => "getting-started/tutorials/reproduction-number.md",
         "Latent processes driving R_t" => "getting-started/tutorials/latent-processes.md",
         "Spatial models" => "getting-started/tutorials/spatial-strata.md",
