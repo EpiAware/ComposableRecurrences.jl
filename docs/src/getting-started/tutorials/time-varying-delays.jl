@@ -151,7 +151,7 @@ end
 #
 # With `Primary()` column ``c`` is cohort ``c``'s interval.
 # The run starts at `start = 7` after six seed values.
-# With `prepend = true`, a [`Recurrence`](@ref) returns the seed with the run.
+# `cat` joins the seed in front of the run.
 # The `Secondary()` kernel instead starts the same thinning on day ``t_0`` for every case.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
@@ -161,7 +161,10 @@ cohort = [long_gi[l] * (1 - p_iso * b_iso * P_iso(l, t0 - c)) for l in 1:6, c in
 period = [long_gi[l] * (1 - (t >= t0 ? p_iso * b_iso * P_iso(l, 0) : 0.0)) for l in 1:6, t in 1:T]
 R_iso = fill(1.8, T)
 seed_iso = fill(10.0, 6)
-seeded_iso(kernel) = Recurrence(kernel)(R_iso; history = seed_iso, start = 7, prepend = true)
+function seeded_iso(kernel)
+    y = Recurrence(kernel)(R_iso; history = seed_iso, start = 7)
+    return cat(seed_iso, y; dims = 1)
+end
 @chain DataFrame(
     "day" => 1:T,
     "No isolation" => seeded_iso(long_gi),

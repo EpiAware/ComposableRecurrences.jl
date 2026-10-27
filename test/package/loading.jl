@@ -6,6 +6,7 @@
 @testitem "Loading: recurrences run without precompiled modules" tags = [:quality] begin
     script = """
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     removals = TimeVarying(fill(1.0, 6))
     removal = CR.Flow(:S => 0, removals; form = CR.Truncate())

@@ -50,7 +50,8 @@ end
 # [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves the equation linking `r` to `R` for the generation interval.
 
 r0 = ComposableRecurrences.growth_rate(R[1], gi)
-y0 = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
+h0 = exponential_history(5.0, r0, length(gi))
+y0 = cat(h0, renewal(R; history = h0); dims = 1)
 round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
 # Every daily growth ratio, seed days included, equals ``e^{r}`` until `R` changes.

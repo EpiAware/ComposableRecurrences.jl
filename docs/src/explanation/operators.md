@@ -74,7 +74,7 @@ whole ≈ vcat(fit, forecast)
 ```
 
 The pool in the `State` carries the depletion over, so the forecast starts from the pool the fit left.
-A modifier parameter read from past outputs, [`Recent`](@ref), deepens the window past ``L``, and the `State` keeps the deeper window.
+A modifier parameter read from past outputs, [`Recent`](@ref ComposableRecurrences.Recent), deepens the window past ``L``, and the `State` keeps the deeper window.
 
 ## [Seeding](@id explanation-seeding)
 
@@ -100,9 +100,10 @@ The two placements give the same run whenever the inputs over the seed days are 
 
 ## [What a call returns](@id explanation-returns)
 
-A recurrence returns the run alone by default, from `start` to `stop`.
-With `prepend = true` it returns the seed followed by the run, which is the whole series a later operator should see.
-A convolution never prepends: its `history` holds inputs before time 1, which it reads but does not return.
+A recurrence returns the run alone, from `start` to `stop`.
+`cat(seed, y; dims = ndims(y))` joins the seed in front, which is the whole series a later operator should see.
+Every [AD backend](@ref adjoint-backends) differentiates `cat`, while ReverseDiff cannot take `hcat` of its tracked arrays and Enzyme cannot take `vcat` of a view and an array.
+A convolution's `history` holds inputs before time 1, which it reads but does not return.
 
 So a delay after a recurrence takes the seed as its own history.
 Delaying the seed and run together and dropping the seed days gives the same reports.
@@ -111,8 +112,8 @@ Delaying the seed and run together and dropping the seed days gives the same rep
 delay = Convolution([0.1, 0.4, 0.3, 0.2])
 infections = Recurrence(k)(gain; history = seed)
 reports = delay(infections; history = seed)
-joined = Recurrence(k)(gain; history = seed, prepend = true)
+joined = cat(seed, infections; dims = 1)
 reports ≈ delay(joined)[(length(seed) + 1):end]
 ```
 
-Pass the seed as history when the reports should cover the run only, and prepend it when they should cover the seed days too.
+Pass the seed as history when the reports should cover the run only, and join it in front when they should cover the seed days too.

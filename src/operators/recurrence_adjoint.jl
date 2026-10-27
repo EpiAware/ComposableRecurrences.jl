@@ -34,35 +34,6 @@ _zero_trace(::Nothing) = true
 _zero_trace(T̄s::Tuple) = all(_zero_trace, T̄s)
 _zero_trace(T̄::AbstractArray) = iszero(T̄)
 
-# With the history first, the cotangent of the output's last `T` steps runs
-# the operator's pullback and that of the history's steps adds to `h̄`.
-function pullback!(grads, p::_Prepended, ::Run, c)
-    ȳ, ȳh = _split_prepended(p.op, grads.y, c.T)
-    inner = (; piece = cotangent(grads.piece, :op), y = ȳ, args = grads.args)
-    pullback!(inner, p.op, Run(), c)
-    _add_history!(grads.args[3], ȳh)
-    return nothing
-end
-_split_prepended(::Recurrence, ȳ, T) = _split_steps(ȳ, T)
-function _split_prepended(::_WithState, (Ȳ, st̄), T)
-    ȳ, ȳh = _split_steps(Ȳ, T)
-    return (ȳ, st̄), ȳh
-end
-function _split_prepended(w::_WithTrace, (Ȳ, tr̄), T)
-    ȳ, ȳh = _split_prepended(w.op, Ȳ, T)
-    return (ȳ, tr̄), ȳh
-end
-function _split_steps(ȳ::AbstractVector, T)
-    n = length(ȳ) - T
-    return view(ȳ, (n + 1):(n + T)), view(ȳ, 1:n)
-end
-function _split_steps(ȳ::AbstractMatrix, T)
-    n = size(ȳ, 2) - T
-    return view(ȳ, :, (n + 1):(n + T)), view(ȳ, :, 1:n)
-end
-_add_history!(::Nothing, ȳh) = nothing
-_add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
-
 # The reverse pass runs under the executor set when it runs. The default
 # is passed as the singleton `Serial()`, so the loops below hold no
 # abstractly typed executor. Parameters that read across strata share one

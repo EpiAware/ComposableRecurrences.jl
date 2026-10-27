@@ -5,6 +5,7 @@
 module ReactantCases
 
 using ComposableRecurrences
+using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
     Hazard, Primary, Redistribute, Secondary, SoftTruncate, Step,
     Transform, Truncate

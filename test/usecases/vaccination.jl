@@ -48,9 +48,10 @@
         CR.Flow(1 => 2, TimeVarying(r); form = CR.Truncate());
         pools = (S = pool0, V = nothing)
     )
-    model(R, d) = Recurrence(g; modifiers = (d,))(
-        R; history = seed, start = length(seed) + 1, prepend = true
-    )
+    function model(R, d)
+        y = Recurrence(g; modifiers = (d,))(R; history = seed, start = length(seed) + 1)
+        return cat(seed, y; dims = 1)
+    end
 
     aon(e, doses) = vaccinated(0.0, e .* doses)
     leaky(e, doses) = vaccinated(1 - e, doses)

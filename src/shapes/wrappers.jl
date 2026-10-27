@@ -69,8 +69,8 @@ Convolution(TimeVarying(P, CR.Primary()))(ones(3))
 # Cohorts from time 3 on transmit less.
 K = [0.5 0.5 0.2 0.2 0.2 0.2; 0.5 0.5 0.2 0.2 0.2 0.2]
 r = Recurrence(TimeVarying(K, CR.Primary()))
-y = r(fill(1.5, 6); history = [1.0, 1.0], start = 3, prepend = true)
-round.(y; digits = 3)
+h = [1.0, 1.0]
+round.(cat(h, r(fill(1.5, 6); history = h, start = 3); dims = 1); digits = 3)
 
 # output
 

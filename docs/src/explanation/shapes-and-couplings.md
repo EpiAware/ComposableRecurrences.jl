@@ -13,7 +13,7 @@ A slot is a place an operator reads a coefficient from: a kernel, a coupling or 
 Data (inputs, history and outputs) are not slots, and are always strata × time.
 Each slot accepts its own set of wrappers.
 
-| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref) | [`Derived`](@ref) | [`Recent`](@ref) |
+| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref ComposableRecurrences.Routes) | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
 |---|---|---|---|---|---|---|---|
 | `Recurrence` kernel | lags | yes | yes | yes | yes | no | no |
 | `Convolution` kernel | lags | yes | yes | no | no | no | no |
@@ -84,7 +84,7 @@ coupled = Recurrence(k; coupling = C)(gain; history = h)
 pairwise ≈ coupled
 ```
 
-[`Routes`](@ref) sits between the two: a sum of a few kernels, each with its own coupling, such as household and community contacts with different generation intervals.
+[`Routes`](@ref ComposableRecurrences.Routes) sits between the two: a sum of a few kernels, each with its own coupling, such as household and community contacts with different generation intervals.
 With routes ``r``, each a coupling ``K^{(r)}`` and a kernel ``k^{(r)}``,
 
 ```math

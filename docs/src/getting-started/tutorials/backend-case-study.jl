@@ -210,8 +210,8 @@ end
 #
 # | Loop | Package | Test |
 # |:--|:--|:--|
-# | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pools = (S = max(N - sum(seed), 0),)),))`, called as `r(Rt; history = seed, start = length(seed) + 1, prepend = true)` | `BVD renewal_infections` |
-# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)` | `BVD patch model` |
+# | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pools = (S = max(N - sum(seed), 0),)),))`, called as `cat(seed, r(Rt; history = seed, start = length(seed) + 1); dims = 1)` | `BVD renewal_infections` |
+# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `cat(seeds, r(Rt; history = seeds, start = size(seeds, 2) + 1); dims = 2)` | `BVD patch model` |
 # | `convolve_delay(x, delay)` | `Convolution(delay)(x)` | `BVD convolve_delay` |
 #
 # `ComposableTuringIDModels` writes each step for an `accumulate_scan`:
@@ -227,7 +227,7 @@ end
 # Four conventions differ between the loops and the package:
 #
 # - `ComposableTuringIDModels` stores the generation interval reversed; the package takes it lag 1 first, as a recurrence's first weight is on the [previous value](@ref explanation-lag-origin).
-# - `BVDOutbreakSize` reads `Rt` on the seed days and returns them first: `start` skips them and `prepend` returns them.
+# - `BVDOutbreakSize` reads `Rt` on the seed days and returns them first: `start` skips them and `cat` joins them in front.
 # - `ComposableTuringIDModels` seeds on a growth path: [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives the same window.
 # - `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.
 

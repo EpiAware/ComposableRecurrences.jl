@@ -152,6 +152,7 @@ end
 
 @testitem "Depletion: one population per stratum" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     h = [1.0 2.0; 3.0 1.0]
     N = [100.0, 50.0]
@@ -276,6 +277,7 @@ end
 end
 
 @testitem "Redistribute: a movement that varies over time" setup = [ReferenceAD] begin
+    using ComposableRecurrences: Derived
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     K = [0.0 0.3 0.1; 0.2 0.5 0.5; 0.4 0.2 0.0]
@@ -475,6 +477,7 @@ end
 
 @testitem "Depletion: a population that varies over time" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     g = [0.3, 0.5, 0.2]
     h = [2.0 3.0 4.0; 1.0 1.0 2.0]

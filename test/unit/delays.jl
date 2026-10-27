@@ -54,6 +54,7 @@ end
 @testitem "Continuous delays: an error naming CensoredDistributions without it" begin
     script = raw"""
     using ComposableRecurrences, Distributions, LinearAlgebra
+    using ComposableRecurrences: Routes
     loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
     println(loaded("CensoredDistributions"))
     names_it(f) = try
@@ -218,6 +219,7 @@ end
 end
 
 @testitem "Routes: delay distributions on routes" setup = [DelayCases] begin
+    using ComposableRecurrences: Routes
     C1 = [0.9 0.1; 0.1 0.9]
     C2 = [0.0 0.4; 0.4 0.0]
     d1, d2 = Poisson(1.0), NegativeBinomial(2, 0.5)
@@ -315,6 +317,7 @@ end
 end
 
 @testitem "Routes: arrays alone hold no delays" setup = [DelayCases] begin
+    using ComposableRecurrences: Routes
     using SparseArrays
     routes = Routes(
         ([0.9 0.1; 0.1 0.9], [0.5, 0.3]), (sparse([0.0 0.4; 0.4 0.0]), [0.1, 0.2, 0.3])
@@ -508,6 +511,7 @@ end
 end
 
 @testitem "A delay type of its own: in each wrapper" setup = [OwnDelay] begin
+    using ComposableRecurrences: Routes
     ds = [GeometricDelay(0.2), GeometricDelay(0.5), GeometricDelay(0.7)]
     ps = @inferred Recurrence(PerStratum(ds); lags = 4)
     @test size(ps.kernel.x) == (3, 3)
@@ -590,6 +594,7 @@ end
 end
 
 @testitem "Continuous delays: as kernels" setup = [CensoredDelays] begin
+    using ComposableRecurrences: Routes
     d = LogNormal(1.5, 0.75)
     c = @inferred Convolution(d; lags = 30)
     @test c.kernel ≈ censored(d, 30)

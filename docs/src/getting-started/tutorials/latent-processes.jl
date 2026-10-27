@@ -11,7 +11,7 @@
 # 2. Give an AR process a time-varying coefficient.
 # 3. Drive a renewal process with the exponential of an AR(1) process.
 # 4. Saturate transmission as incidence rises, with [`Transform`](@ref ComposableRecurrences.Transform).
-# 5. Drive a response and vaccination from [`Recent`](@ref) incidence.
+# 5. Drive a response and vaccination from [`Recent`](@ref ComposableRecurrences.Recent) incidence.
 #
 # ### What might I need to know before starting
 #
@@ -20,7 +20,8 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Transform, Depletion, Flow, Hazard, Truncate
+using ComposableRecurrences: Transform, Depletion, Flow, Hazard, Truncate, Derived,
+    Recent
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 using Random
@@ -165,7 +166,7 @@ ForwardDiff.gradient(total_infections, [100.0, 1.5])
 #
 # The saturating response reacts to the current day only.
 # A response to the last week's incidence is built from existing modifiers.
-# [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref) maps them, and any modifier parameter takes the result.
+# [`Recent`](@ref ComposableRecurrences.Recent) reads the recurrence's own past outputs, [`Derived`](@ref ComposableRecurrences.Derived) maps them, and any modifier parameter takes the result.
 # The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it:
 #
 # ```math

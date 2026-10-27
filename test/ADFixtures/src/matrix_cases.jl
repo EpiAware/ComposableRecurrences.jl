@@ -12,6 +12,7 @@
 module MatrixCases
 
 using ComposableRecurrences
+using ComposableRecurrences: Derived, Recent, Routes
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
@@ -210,14 +211,14 @@ function bvd_patch(wrap, z::Size)
 end
 
 # The BVD renewal and patch models as the backend calls them: the series
-# cover the seed's `L` days too, the run starts on day `L + 1`, the output
-# keeps the seed in front, and the patch call takes its trace. `T` counts
+# cover the seed's `L` days too, the run starts on day `L + 1`, the seed is
+# joined in front of the output, and the patch call takes its trace. `T` counts
 # the days after the seed.
 function bvd_renewal_call_rule(wrap, g, seed, R, N)
     L = length(seed)
     d = depletion(N; pool0 = max(N - sum(seed), zero(eltype(seed))))
     r = wrap(Recurrence(g; modifiers = (d,)))
-    return r(R; history = seed, start = L + 1, prepend = true)
+    return cat(seed, r(R; history = seed, start = L + 1); dims = 1)
 end
 function bvd_renewal_call(run)
     return function (wrap, z::Size)
@@ -242,8 +243,8 @@ function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
         depletion(CR.PerStratum(N); pool0),
     )
     r = wrap(Recurrence(g; modifiers = mods))
-    y, _ = r(R; history = seeds, start = L + 1, prepend = true, trace = true)
-    return y
+    y, _ = r(R; history = seeds, start = L + 1, trace = true)
+    return cat(seeds, y; dims = 2)
 end
 function bvd_patches_call(run)
     return function (wrap, z::Size)
@@ -476,15 +477,14 @@ function ar(wrap, z::Size)
     return f, _flat([0.6, 0.2], [0.1, -0.1], [0.1 * _noise(t, 5) for t in 1:T])
 end
 
-# A random walk, a unit lag-1 recurrence from a seed with the seed
-# prepended, as a latent-process package spells it; `L` is unused.
+# A random walk, a unit lag-1 recurrence from a seed with the seed in
+# front, as a latent-process package spells it; `L` is unused.
 function random_walk(wrap, z::Size)
     (; T) = z
     W = [_noise(t, 9) for t in 1:(T + 1)]
     f = function (θ)
-        y = wrap(Recurrence([1.0]))(
-            1.0; history = θ[1:1], add = θ[2:end], prepend = true
-        )
+        z = wrap(Recurrence([1.0]))(1.0; history = θ[1:1], add = θ[2:end])
+        y = cat(θ[1:1], z; dims = 1)
         return sum(W .* y)
     end
     return f, _flat([0.1], [0.1 * _noise(t, 10) for t in 1:T])
@@ -785,11 +785,11 @@ const CASES = [
         bvd_patch, [5, 50], false,
     ),
     Case(
-        "bvd_renewal_call", "BVD renewal as called: seeded, prepended, hazard depletion",
+        "bvd_renewal_call", "BVD renewal as called: seeded, joined, hazard depletion",
         bvd_renewal_call(bvd_renewal_call_rule), [1], false,
     ),
     Case(
-        "bvd_patches_call", "BVD patches as called: seeded, prepended, traced",
+        "bvd_patches_call", "BVD patches as called: seeded, joined, traced",
         bvd_patches_call(bvd_patches_call_rule), [1, 5, 11], false,
     ),
     Case(
@@ -823,7 +823,7 @@ const CASES = [
     ),
     Case("ar", "AR(2) with additive innovations", ar, [1], false),
     Case(
-        "random_walk", "unit lag-1 random walk with its seed prepended",
+        "random_walk", "unit lag-1 random walk with its seed in front",
         random_walk, [1], false,
     ),
     Case("ar1", "AR(1) with additive innovations", ar1, [1], false),
@@ -945,9 +945,7 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:movement,),
-    # `prepend` came with `exponential_history`, `trace` with `_WithTrace`.
-    "bvd_renewal_call" => (:exponential_history,),
-    "bvd_patches_call" => (:movement, :exponential_history, :_WithTrace),
+    "bvd_patches_call" => (:movement, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:Routes,),
     "strata_vaccination" => (:depletion_pools,),
@@ -964,8 +962,6 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "outcome_chain" => (:contributions,),
     "renewal_forecast" => (:resume_state,),
     "triangle" => (:contributions,),
-    # `prepend` came with the growth-path seed.
-    "random_walk" => (:exponential_history,),
 )
 # Kernels from change points came with `_Piecewise`.
 const PIECEWISE_CASES = [

@@ -20,7 +20,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, Allocate, movement
+using ComposableRecurrences: Depletion, Redistribute, Allocate, movement, Routes
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 
@@ -184,7 +184,7 @@ maximum(abs, reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts
 #
 # Some diseases spread by more than one route, each with its own timing and contacts.
 # Ebola spreads in the community while a case is ill and at the funeral after death.
-# [`Routes`](@ref) pairs each route's kernel with its own coupling.
+# [`Routes`](@ref ComposableRecurrences.Routes) pairs each route's kernel with its own coupling.
 # The funeral route has coupling ``K^{\text{funeral}}`` and kernel ``g^{\text{funeral}}_l``:
 #
 # ```math

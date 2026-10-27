@@ -99,7 +99,6 @@ A [`State`](@ref ComposableRecurrences.State) holds what a run needs to continue
 | [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from day `state.t` | `(y, state)` |
 | [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did each day | `(y, trace)` |
-| [`renewal(gain; history, prepend = true)`](@ref Recurrence) | runs the recurrence and returns the history followed by the run | the history and run joined along time |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` days growing at `rate` per day up to `I0` | a vector, or strata × `L` |
 | [`growth_rate(R, g)`](@ref ComposableRecurrences.growth_rate) | the daily growth rate of a renewal with reproduction number `R` and generation interval `g` | a number |
 | [`reproduction_number(rate, g)`](@ref ComposableRecurrences.reproduction_number) | the reproduction number that gives a daily growth `rate`, the inverse of `growth_rate` | a number |
@@ -132,11 +131,11 @@ Each route has its own kernel and its own coupling.
 | vector | one kernel, the weights on each lag, shared by every stratum |
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter for each stratum, with the strata as the first index |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel for each pair of strata, indexed by receiving stratum, giving stratum and lag |
-| [`Routes((K₁, k₁), (K₂, k₂))`](@ref Routes) | a sum of routes, each a coupling and a kernel |
+| [`Routes((K₁, k₁), (K₂, k₂))`](@ref ComposableRecurrences.Routes) | a sum of routes, each a coupling and a kernel |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day, with the days as the last index |
 | [`TimeVarying(P, Primary())`](@ref ComposableRecurrences.Primary) | a time-varying kernel whose column ``\tau`` belongs to input day ``\tau`` |
-| [`Derived(f, args...)`](@ref Derived) | a parameter computed by `f` from other parameters |
-| [`Recent(n)`](@ref Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and day |
+| [`Derived(f, args...)`](@ref ComposableRecurrences.Derived) | a parameter computed by `f` from other parameters |
+| [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and day |
 
 A `Pairwise` or `Routes` kernel mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
 A `TimeVarying` kernel can be given as a vector with one kernel per day, each of any length.

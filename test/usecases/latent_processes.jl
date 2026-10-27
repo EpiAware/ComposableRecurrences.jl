@@ -19,7 +19,9 @@
 
     # z_t = z_{t-1} + ϵ_t: a unit lag-1 kernel, unit gain, innovations added.
     # CTIDM returns the initial value first.
-    random_walk(z0, ϵ) = Recurrence([1.0])(1.0; history = [z0], add = ϵ, prepend = true)
+    function random_walk(z0, ϵ)
+        return cat(z0, Recurrence([1.0])(1.0; history = [z0], add = ϵ); dims = 1)
+    end
     @test random_walk(z0, ϵ) ≈ ref
     ∇ = ReferenceAD.gradient(θ -> sum(w .* random_walk(θ[1], θ[2:end])), θ0)
     @test ∇ ≈ ∇ref
@@ -39,7 +41,7 @@ end
     ∇ref = ReferenceAD.gradient(θ -> sum(w .* C.ar(unpack(θ)...)), θ0)
 
     # z_t = Σ_i ρ_i z_{t-i} + ϵ_t: the AR coefficients are the kernel.
-    ar(ρ, init, ϵ) = Recurrence(ρ)(1.0; history = init, add = ϵ, prepend = true)
+    ar(ρ, init, ϵ) = cat(init, Recurrence(ρ)(1.0; history = init, add = ϵ); dims = 1)
     @test ar(ρ, init, ϵ) ≈ ref
     ∇ = ReferenceAD.gradient(θ -> sum(w .* ar(unpack(θ)...)), θ0)
     @test ∇ ≈ ∇ref
@@ -60,11 +62,13 @@ end
 
     # z_t = ρ_t z_{t-1} + ϵ_t. The coefficient path can be the gain on a
     # unit lag-1 kernel ...
-    tvar_gain(ρ, z1, ϵ) = Recurrence([1.0])(ρ; history = [z1], add = ϵ, prepend = true)
+    function tvar_gain(ρ, z1, ϵ)
+        return cat(z1, Recurrence([1.0])(ρ; history = [z1], add = ϵ); dims = 1)
+    end
     # ... or a time-varying kernel, `L × T`.
     function tvar_kernel(ρ, z1, ϵ)
         r = Recurrence(TimeVarying(reshape(ρ, 1, :)))
-        return r(1.0; history = [z1], add = ϵ, prepend = true)
+        return cat(z1, r(1.0; history = [z1], add = ϵ); dims = 1)
     end
     @test tvar_gain(ρ, z1, ϵ) ≈ ref
     @test tvar_kernel(ρ, z1, ϵ) ≈ ref
@@ -143,7 +147,7 @@ end
     # ARMA: the MA(q) convolution is the AR(p) recurrence's `add`.
     function arma(ρ, init, θ, ϵ)
         ma = vcat(ϵ[1:q], Convolution(vcat(1, θ))(ϵ; start = q + 1))
-        return Recurrence(ρ)(1.0; history = init, add = ma, prepend = true)
+        return cat(init, Recurrence(ρ)(1.0; history = init, add = ma); dims = 1)
     end
     # Each integration is a cumulative sum, a unit lag-1 recurrence from zero
     # driven by the series below it.
