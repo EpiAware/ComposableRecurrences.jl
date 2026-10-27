@@ -345,6 +345,16 @@ end
         @test (Es, Ps) === (E, P)
         @test gHs === (CR._rated_into(fs, i) ? gH : 1.0)
     end
+    # Without a hazard flow the step reads the same shares as `_leaves`.
+    shares = only(
+        CR.Depletion(
+            CR.Flow(:A => :B, 0.1; form = CR.Share()),
+            CR.Flow(:B => 0, 0.5; form = CR.Truncate()); pools = (:A, :B)
+        ).pieces
+    )
+    for i in 1:2
+        @test CR._step_leaves(shares, i, 1, 1, 0.0) === CR._leaves(shares, i, 1, 1, 0.0)
+    end
 end
 
 @testitem "Depletion without a draw: resume, Float32 and the adjoint route" begin
