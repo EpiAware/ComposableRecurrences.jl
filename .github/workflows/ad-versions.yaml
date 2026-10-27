@@ -8,9 +8,10 @@ name: AD versions
 # and the Threads workflow runs only the `compat_floor` items on 1.11.
 # Enzyme's bugs differ between Julia versions, so the full registry runs
 # here too.
-# Enzyme reverse runs in two processes, the registry items in
-# `scenarios.jl` and the rest: in one process on Julia 1.11 it outgrew a
-# runner's memory.
+# Each backend runs in two jobs, the registry items in `scenarios.jl` and
+# the rest: Enzyme reverse in one process on Julia 1.11 outgrew a runner's
+# memory, and Mooncake reverse in one process on 1.12 came close to the
+# time limit.
 # It runs on pushes to main, weekly, on demand, and on a pull request that
 # changes this file, not on every pull request.
 
@@ -36,17 +37,15 @@ concurrency:
 
 jobs:
   ad:
-    name: ${{ matrix.job.backend }} ${{ matrix.job.part }} (Julia ${{ matrix.version }})
+    name: ${{ matrix.backend }} ${{ matrix.part }} (Julia ${{ matrix.version }})
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         version: ['1.11', '1.12']
-        job:
-          - {backend: enzyme_reverse, part: registry}
-          - {backend: enzyme_reverse, part: rest}
-          - {backend: mooncake_reverse, part: all}
+        backend: ['enzyme_reverse', 'mooncake_reverse']
+        part: ['registry', 'rest']
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -60,8 +59,7 @@ jobs:
           julia --project=test/ad -e '
               using TestItemRunner
               tag, part = Symbol(ARGS[1]), ARGS[2]
-              in_part(file) = part == "all" ||
-                  endswith(file, "scenarios.jl") == (part == "registry")
+              in_part(file) = endswith(file, "scenarios.jl") == (part == "registry")
               matched = Ref(false)
               TestItemRunner.run_tests(
                   joinpath(pwd(), "test", "ad");
@@ -69,4 +67,4 @@ jobs:
                       (matched[] = true)
               )
               matched[] || error("no AD test item matches $tag ($part)")
-              ' ${{ matrix.job.backend }} ${{ matrix.job.part }}
+              ' ${{ matrix.backend }} ${{ matrix.part }}
