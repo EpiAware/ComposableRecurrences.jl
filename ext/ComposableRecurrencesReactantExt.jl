@@ -270,7 +270,7 @@ function ComposableRecurrences._run(
         Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, record, joined
     )
 end
-# A joined traced run keeps its traced buffer and joins the history after.
+# A joined traced run keeps its traced buffer and joins a traced history after.
 function ComposableRecurrences._history_buffer(
         ::Val{true}, h::AbstractMatrix, ::Type{Tp}, D, T, S
     ) where {Tp <: TracedRNumber}
@@ -278,7 +278,7 @@ function ComposableRecurrences._history_buffer(
 end
 function ComposableRecurrences._output(H::AnyTracedRArray, D, T, h, ::Val{true})
     y = ComposableRecurrences._output(H, D, T, h, Val(false))
-    return ComposableRecurrences._join(h, y)
+    return ComposableRecurrences._join(_traced(h), y)
 end
 
 function ComposableRecurrences._conv_buffers(
