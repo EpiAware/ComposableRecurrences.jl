@@ -23,6 +23,20 @@
         vec(naive_convolution((t, k, d) -> c[d + 1], reshape(x, 1, T), T + 3))
 end
 
+@testitem "Convolution: a zero weight meeting an Inf gives NaN" begin
+    using ComposableRecurrences
+    # A zero weight multiplies rather than skips, as `sum(k .* x)` does.
+    k = [0.5, 0.0, 0.5]
+    x = [1.0, Inf, 2.0, 3.0]
+    ref = [sum(k[1:min(t, 3)] .* x[t:-1:max(t - 2, 1)]) for t in 1:4]
+    @test isnan(ref[3])
+    for method in (ComposableRecurrences.Auto(), ComposableRecurrences.Direct())
+        y = Convolution(k; method)(x)
+        @test isequal(y, ref)
+        @test isnan(y[3])
+    end
+end
+
 @testitem "Convolution: history" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(22)

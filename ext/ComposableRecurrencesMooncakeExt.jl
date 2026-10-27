@@ -8,8 +8,8 @@ using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses, _convolve_masses_back!, _current,
-    _fft_convolve!, _fft_convolve_back!, _fit, _plain_hook, _run_forward,
-    _run_pullback!, _untraced
+    _fft_convolve!, _fft_convolve_back!, _fit, _growth_root, _plain_hook,
+    _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -108,6 +108,11 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
 # each field's type, and for a field that is a view Julia 1.13 crashed
 # compiling the derived rule.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_fit), Vararg}
+# Nor is the Newton iteration of `growth_rate`: the step from its root on
+# the inputs carries the derivative.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_growth_root), Any, Any, Any,
+}
 # The plain-AD hook carries no derivative.
 Mooncake.@is_primitive Mooncake.DefaultCtx Tuple{typeof(_plain_hook), Vararg}
 function Mooncake.frule!!(
