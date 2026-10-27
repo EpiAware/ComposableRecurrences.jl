@@ -55,7 +55,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
-| pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | plain AD | keep on Mooncake |
+| pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | 0.86⁴ | keep |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 | `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
@@ -68,7 +68,7 @@ The modifier was timed at 3, 5, 10, 20, 23 and 50 strata, the couplings at 5, 13
 
 ⁴ The worst within the route's limit, at `T` 200 and `L` 20, for the user types of the `custom_modifier_vector` and `custom_coupling_matrix` cases.
 The modifier was timed at 1, 5 and 20 strata, the coupling at 2 to 5.
-On Enzyme the modifier's local step was 1.6 to 1.7 times plain AD at 1 and 5 strata, so it takes plain AD there.
+On Enzyme the modifier's local step was 0.79 to 0.86 times plain AD, at 1, 5 and 20 strata, so it takes the rule there too.
 
 ⁵ A local timing, not a matrix case: the worst within the row's limit against plain AD of the same model, at `T` 100 and `L` 6.
 The model has two routes, a dense user coupling with one scalar and a dense matrix.

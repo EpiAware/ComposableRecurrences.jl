@@ -2164,8 +2164,7 @@ backend_skip_scenarios() = Dict{String, Set{String}}()
 """
 Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
-passes of dual numbers is a rule on Mooncake only, as are a modifier's
-local derivative that records its reads of float arrays and a whole-step
+passes of dual numbers is a rule on Mooncake only, as is a whole-step
 modifier's that takes more than one pass.
 """
 function backend_plain_scenarios()
@@ -2173,7 +2172,6 @@ function backend_plain_scenarios()
         "Enzyme reverse" => Set(
             [
                 "Recurrence user coupling across 30 strata",
-                "Recurrence modifier with a vector field read by time",
                 "Recurrence whole-step modifier branching at a tie (occupancy)",
             ]
         )
