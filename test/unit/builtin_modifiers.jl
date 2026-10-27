@@ -259,10 +259,13 @@ end
             (0.1, fill(0.1, 3)), ([0.1, 0.2, 0.05], [0.1, 0.2, 0.05]),
             (E, E[:, 2]),
         )
-        M = CR.movement(K, ε)
+        M = CR._kernel_movement(K, ε)
         @test M isa (ε isa AbstractMatrix ? TimeVarying : Matrix)
+        # The kernel and intensity form builds the same movement.
+        @test CR.Redistribute(K, ε).M == M
+        @test CR.Redistribute(K, ε; leak = true) isa CR.Redistribute{true}
         x, s = copy(v), zeros(3)
-        CR.forward!(CR.Redistribute(M), CR.Step(), x, s, 2)
+        CR.forward!(CR.Redistribute(K, ε), CR.Step(), x, s, 2)
         @test x ≈ naive(εv)
         # What moves is conserved; the state is the arrivals in each stratum.
         @test sum(x) ≈ sum(v)
@@ -282,13 +285,13 @@ end
     CR = ComposableRecurrences
     K = [0.0 0.3 0.1; 0.2 0.5 0.5; 0.4 0.2 0.0]
     E = [0.1 0.2; 0.3 0.05; 0.15 0.25]
-    M = CR.movement(K, E)
+    M = CR._kernel_movement(K, E)
     # Read from the kernel and the intensity, it equals the dense matrix of
     # each time's intensity, and its columns sum to one.
     @test size(M.x) == (3, 3, 2)
     slice(t) = [M.x[p, q, t] for p in 1:3, q in 1:3]
     for t in 1:2
-        @test slice(t) ≈ CR.movement(K, E[:, t])
+        @test slice(t) ≈ CR._kernel_movement(K, E[:, t])
         @test vec(sum(slice(t); dims = 1)) ≈ ones(3)
     end
     v, s̄0, v̄0 = [4.0, 2.0, 1.0], [0.3, -0.2, 0.5], [0.7, 0.1, -0.4]
@@ -297,7 +300,7 @@ end
     function step(x, t)
         Kx, Ex, vx = reshape(x[1:9], 3, 3), reshape(x[10:15], 3, 2), x[16:18]
         vv, ss = copy(vx), zeros(eltype(x), 3)
-        CR.forward!(CR.Redistribute(CR.movement(Kx, Ex)), CR.Step(), vv, ss, t)
+        CR.forward!(CR.Redistribute(Kx, Ex), CR.Step(), vv, ss, t)
         return vcat(vv, ss)
     end
     for t in 1:2
@@ -332,29 +335,29 @@ end
     # Its columns sum to one by construction, so Init does not check them.
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
     @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
-    @test_throws DimensionMismatch CR.movement(K, ones(2, 2))
+    @test_throws DimensionMismatch CR._kernel_movement(K, ones(2, 2))
     # The parameter forms the kernel-and-intensity Redistribute took: a
     # PerStratum vector and strata × time matrix read as what they hold, and
     # any other parameter at each origin and time.
     entries(X) = [X.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2]
-    @test CR.movement(K, PerStratum(E[:, 1])) == CR.movement(K, E[:, 1])
-    @test entries(CR.movement(K, TimeVarying(PerStratum(E)))) == entries(M)
-    D = CR.movement(K, Derived(exp, TimeVarying(PerStratum(log.(E)))))
+    @test CR._kernel_movement(K, PerStratum(E[:, 1])) == CR._kernel_movement(K, E[:, 1])
+    @test entries(CR._kernel_movement(K, TimeVarying(PerStratum(E)))) == entries(M)
+    D = CR._kernel_movement(K, Derived(exp, TimeVarying(PerStratum(log.(E)))))
     @test entries(D) ≈ entries(M)
-    @test entries(CR.movement(K, TimeVarying([0.1, 0.2]))) ≈
-        entries(CR.movement(K, [0.1 0.2; 0.1 0.2; 0.1 0.2]))
-    @test_throws "ε is one value" CR.movement(K, "fast")
-    @test_throws "S × S kernel matrix" CR.movement([0.1, 0.2], 0.1)
+    @test entries(CR._kernel_movement(K, TimeVarying([0.1, 0.2]))) ≈
+        entries(CR._kernel_movement(K, [0.1 0.2; 0.1 0.2; 0.1 0.2]))
+    @test_throws "ε is one value" CR._kernel_movement(K, "fast")
+    @test_throws "S × S kernel matrix" CR._kernel_movement([0.1, 0.2], 0.1)
     # A parameter's strata are checked when the run starts.
-    r3 = Recurrence([0.5]; modifiers = (CR.Redistribute(CR.movement(K, D.x.E)),))
+    r3 = Recurrence([0.5]; modifiers = (CR.Redistribute(K, D.x.E),))
     @test size(r3(ones(3, 2); history = ones(3, 1))) == (3, 2)
-    short = CR.Redistribute(CR.movement(K, Derived(exp, PerStratum([0.0, 0.0]))))
+    short = CR.Redistribute(K, Derived(exp, PerStratum([0.0, 0.0])))
     @test_throws DimensionMismatch Recurrence([0.5]; modifiers = (short,))(
         ones(3, 2); history = ones(3, 1)
     )
     # With one stratum nothing moves: the value passes on, the arrivals are
     # zero, and the kernel and intensity get no gradient.
-    one = CR.Redistribute(CR.movement(fill(0.4, 1, 1), [0.2 0.3]))
+    one = CR.Redistribute(fill(0.4, 1, 1), [0.2 0.3])
     x, s = [2.0], [5.0]
     CR.forward!(one, CR.Step(), x, s, 2)
     @test x == [2.0] && s == [0.0]
@@ -700,7 +703,7 @@ end
     w = reshape(range(0.5, 2.0; length = 15), 3, 5)
     function loss(θ)
         mods = (
-            CR.Redistribute(CR.movement(K, θ[1])),
+            CR.Redistribute(K, θ[1]),
             CR.Depletion(
                 PerStratum(θ[2:4]), CR.Hazard(θ[5]);
                 pools = (S = PerStratum(max.(θ[2:4] .- vec(sum(h; dims = 2)), 0)),)
@@ -844,7 +847,7 @@ end
                 PerStratum([100.0, 50.0]), CR.Hazard(1.5);
                 pools = (S = PerStratum([97.0, 46.0]),)
             ),
-            CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(CR.movement(K, 0.1)),
+            CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(K, 0.1),
         )
         r = Recurrence([0.5, 0.5]; modifiers = (m,))
         @test (@inferred r(fill(1.1, 2, 6); history = ones(2, 2))) isa

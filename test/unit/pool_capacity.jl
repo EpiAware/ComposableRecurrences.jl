@@ -377,7 +377,7 @@ end
     beds = CR.Depletion(1.0, CR.Truncate(; into = :O, overflow = :stratum); pools = (:O,))
     K = zeros(4, 4)
     K[3, 4] = 1.0
-    shared = CR.Redistribute(CR.movement(K, PerStratum([0.0, 0.0, 0.0, 1.0])))
+    shared = CR.Redistribute(K, PerStratum([0.0, 0.0, 0.0, 1.0]))
     y = Recurrence([0.0]; modifiers = (beds, shared))(;
         history = zeros(4, 1), add = [3.0 0.0; 2.0 0.0; 1.0 1.0; 0.0 0.0]
     )

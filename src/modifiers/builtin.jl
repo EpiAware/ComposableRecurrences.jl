@@ -594,10 +594,32 @@ With `leak = true` a column may sum to less than one, for a share lost on
 the way.
 `M` is an `S × S` matrix, or `TimeVarying` of an `S × S × T` array for
 movement that changes over time; its entries are its parameters, and a
-gradient with respect to anything they are built from, such as an
-intensity, flows through that construction
-([`ComposableRecurrences.movement`](@ref) builds one from a kernel and an
-intensity).
+gradient with respect to anything they are built from flows through that
+construction.
+
+`Redistribute(K, ε)` builds ``M`` from a kernel ``K`` and an origin
+intensity ``\varepsilon``: a share ``\varepsilon_q K_{pq}`` of origin ``q``'s
+value is realised in ``p \ne q``, and the rest stays,
+
+```math
+M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\varepsilon),
+\qquad o_q = \sum_p K_{pq},
+```
+
+so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
+diagonal of ``K``, and every column of ``M`` sums to one.
+`ε` is one value or a vector over origins, which gives a matrix, or an
+origins × time matrix, which gives an `S × S × T` movement.
+`PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
+the matrix they hold.
+Any other [parameter](@ref ComposableRecurrences.param), such as
+`TimeVarying(ε)` over time or one built with `Derived` or `Recent` that
+reads the outputs, gives a movement read at each step with
+``\varepsilon_{t,q}`` that parameter at origin ``q``.
+The movement is held as ``K`` and ``\varepsilon`` and read from them, so a
+step costs one product with ``K`` and its reverse pass gives the cotangents
+of ``K`` and ``\varepsilon`` without storing a matrix per time.
+
 Place it before a [`ComposableRecurrences.Depletion`](@ref) to deplete each
 stratum's pool by what it realises; a modifier sees
 ``\gamma_t \odot q_t + a_t``, the gain times the coupled pressure plus the add
@@ -609,6 +631,8 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
 # Arguments
 - `M`: the movement matrix, `M[p, q]` the share of origin `q` realised in
   destination `p`.
+- `K`, `ε`: in place of `M`, the `S × S` kernel, `K[p, q]` the weight from
+  origin `q` to `p`, and the origin intensity.
 
 # Keyword Arguments
 - `leak`: `false` (the default), or `true` to allow columns summing to less
@@ -622,8 +646,7 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-M = CR.movement([0.0 0.3; 0.2 0.0], 0.1)
-r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
+r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute([0.0 0.3; 0.2 0.0], 0.1),))
 y = r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
 round.(y; digits = 3)
 
@@ -646,6 +669,9 @@ end
 # A branch on a literal `leak` names the type parameter in each arm, so the
 # call is inferred.
 Redistribute(M; leak::Bool = false) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
+function Redistribute(K, ε; leak::Bool = false)
+    return Redistribute(_kernel_movement(K, ε); leak)
+end
 ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
 
 function _check_movement_shape(M::AbstractMatrix)
@@ -670,58 +696,28 @@ function _check_movement_shape(M)
     )
 end
 
-@doc raw"""
-The movement matrix of a kernel ``K`` and an origin intensity
-``\varepsilon``: a share ``\varepsilon_q K_{pq}`` of origin ``q``'s value is
-realised in ``p \ne q``, and the rest stays,
-
-```math
-M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\varepsilon),
-\qquad o_q = \sum_p K_{pq},
-```
-
-so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
-diagonal of ``K``, and every column of ``M`` sums to one.
-`ε` is one value or a vector over origins, which gives a matrix, or an
-origins × time matrix, which gives `TimeVarying` of an `S × S × T` array.
-`PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
-the matrix they hold.
-Any other [parameter](@ref ComposableRecurrences.param), such as
-`TimeVarying(ε)` over time or one built with `Derived` or
-[`Recent`](@ref) that reads the outputs, gives a movement read at each step
-as ``M_t`` above with ``\varepsilon_{t,q}`` that parameter at origin ``q``.
-The array is held as ``K`` and ``\varepsilon`` and read from them, the
-column sums ``o`` taken as each column is read, so a step costs one product
-with ``K`` and its reverse pass gives the cotangents of ``K`` and
-``\varepsilon`` without storing a matrix per time.
-
-# Arguments
-- `K`: the `S × S` kernel, `K[p, q]` the weight from origin `q` to `p`.
-- `ε`: the origin intensity.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-CR.movement([0.0 0.3; 0.2 0.0], [0.1, 0.5])
-
-# output
-
-2×2 Matrix{Float64}:
- 0.98  0.15
- 0.02  0.85
-```
-"""
-movement(K::AbstractMatrix, ε::Union{Real, AbstractVector}) = _movement(K, _origins(ε))
-movement(K::AbstractMatrix, ε::AbstractMatrix) = TimeVarying(_Movement(K, ε))
-movement(K::AbstractMatrix, ε::PerStratum{<:AbstractVector}) = movement(K, ε.x)
-function movement(K::AbstractMatrix, ε::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}})
-    return movement(K, ε.x.x)
+# The movement matrix `Redistribute(K, ε)` builds from a kernel and an
+# origin intensity (its docstring gives the maths): a matrix for one value or
+# a vector over origins, `TimeVarying` of an `S × S × T` array for an origins
+# × time matrix, and a movement read at each step for any other parameter.
+function _kernel_movement(K::AbstractMatrix, ε::Union{Real, AbstractVector})
+    return _movement(K, _origins(ε))
 end
-movement(K::AbstractMatrix, ε) = TimeVarying(_Movement(K, _check_param(:ε, ε)))
-function movement(K, ε)
+_kernel_movement(K::AbstractMatrix, ε::AbstractMatrix) = TimeVarying(_Movement(K, ε))
+function _kernel_movement(K::AbstractMatrix, ε::PerStratum{<:AbstractVector})
+    return _kernel_movement(K, ε.x)
+end
+function _kernel_movement(
+        K::AbstractMatrix, ε::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}
+    )
+    return _kernel_movement(K, ε.x.x)
+end
+_kernel_movement(K::AbstractMatrix, ε) = TimeVarying(_Movement(K, _check_param(:ε, ε)))
+function _kernel_movement(K, ε)
     throw(
-        ArgumentError("movement takes an S × S kernel matrix, got $(_describe(K))")
+        ArgumentError(
+            "Redistribute(K, ε) takes an S × S kernel matrix, got $(_describe(K))"
+        )
     )
 end
 _origins(ε::Real) = ε

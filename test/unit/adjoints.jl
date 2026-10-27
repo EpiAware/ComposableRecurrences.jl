@@ -280,7 +280,7 @@ end
     # A Diagonal coupling with a vector modifier takes the coupled steps, and
     # a fixed kernel held constant sends back only the window's cotangent.
     D = Diagonal(rand(rng, S))
-    move = CR.Redistribute(CR.movement(rand(rng, S, S) ./ 2, [0.3, 0.2, 0.1]))
+    move = CR.Redistribute(rand(rng, S, S) ./ 2, [0.3, 0.2, 0.1])
     @test pullback_matches(
         Recurrence(g; coupling = D, modifiers = (move,)), recargs(R, ϵ, h)...
     )
@@ -315,7 +315,7 @@ end
     P = rand(prng, S, S)
     PT = 0.5 .+ rand(prng, S, S, T)
     Ks = rand(prng, S, S) ./ 2 + 0.3I
-    Ms = CR.movement(Ks, [0.3, 0.2, 0.1])
+    Ms = CR._kernel_movement(Ks, [0.3, 0.2, 0.1])
     spill = CR.Redistribute(Ms)
     sparse_spill = CR.Redistribute(sparse(Ms))
     for mods in (
@@ -326,7 +326,7 @@ end
             (Slope(0.3),),
             (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
             (CR.Depletion(50.0, CR.Floor(1.5)),),
-            (CR.Redistribute(CR.movement(K, [0.3, 0.2, 0.1])), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
+            (CR.Redistribute(K, [0.3, 0.2, 0.1]), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
             (CR.Clamp(0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
             (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
@@ -402,7 +402,7 @@ end
     groups = [1:2, 3:5]
     P = rand(rng, S, S)
     K = rand(rng, S, S) ./ 2 + 0.2I
-    M = CR.movement(K, fill(0.2, S))
+    M = CR._kernel_movement(K, fill(0.2, S))
     imports = (PerStratum([0.3, 0.5]), P)
     m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(M))
     # One step: the pullback given the state after the step, and given a
@@ -2668,7 +2668,7 @@ end
         Recurrence(g; modifiers = (Keep(0.8), leaky)),
         Recurrence(
             g; modifiers = (
-                CR.Redistribute(CR.movement(K, fill(0.2, 4, 6))),
+                CR.Redistribute(K, fill(0.2, 4, 6)),
                 CR.Depletion(PerStratum([60.0, 70.0, 80.0, 90.0])),
             )
         ),

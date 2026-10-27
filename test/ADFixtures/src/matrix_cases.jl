@@ -200,7 +200,7 @@ function bvd_patch(wrap, z::Size)
         seeds = exp.(logh)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
-            CR.Redistribute(CR.movement(K, only(ε))),
+            CR.Redistribute(K, only(ε)),
             depletion(CR.PerStratum(N); pool0),
         )
         y = wrap(Recurrence(g; modifiers = mods))(exp.(logR); history = seeds)
@@ -239,7 +239,7 @@ function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
     L = size(seeds, 2)
     pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
     mods = (
-        CR.Redistribute(CR.movement(K, ε)),
+        CR.Redistribute(K, ε),
         depletion(CR.PerStratum(N); pool0),
     )
     r = wrap(Recurrence(g; modifiers = mods))
@@ -944,7 +944,7 @@ pending_cases() = Tuple{String, String}[]
 # The features each case needs beyond the first release, by case name, as
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
-    "bvd_patch" => (:movement,),
+    "bvd_patch" => (:_kernel_movement,),
     "bvd_patches_call" => (:movement, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:_Routes,),
@@ -1305,7 +1305,7 @@ if isfile(BVD_HANDRULE)
     function _bvd_patches_rule(wrap, g, K, seeds, R, ε, N)
         pool0 = CR.PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         mods = (
-            CR.Redistribute(CR.movement(K, ε)),
+            CR.Redistribute(K, ε),
             depletion(CR.PerStratum(N); pool0),
         )
         return wrap(Recurrence(g; modifiers = mods))(R; history = seeds)
@@ -1398,7 +1398,7 @@ if isfile(BVD_HANDRULE)
         split = CR.Allocate(
             d.groups, TimeVarying(PerStratum(d.I_bar));
             imports = (TimeVarying(PerStratum(φ)), d.between .* permutedims(ow)),
-            spill = CR.Redistribute(CR.movement(d.within, ε))
+            spill = CR.Redistribute(d.within, ε)
         )
         r = Recurrence(d.g; modifiers = (split,))
         return permutedims(wrap(r)(gain; history = zeros(S, 1), add))
@@ -1468,8 +1468,8 @@ if isfile(BVD_HANDRULE)
         ]
     end
     # The patch movement built as an `S × S × T` array before the run, the
-    # form `movement` is timed against: the package reads it lazily from the
-    # kernel and the intensity.
+    # form `Redistribute(K, ε)` is timed against: the package reads it lazily
+    # from the kernel and the intensity.
     function _materialised_movement(K, ε)
         S, T = size(ε)
         E = reshape(ε, 1, S, T)

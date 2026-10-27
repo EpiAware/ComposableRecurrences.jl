@@ -146,7 +146,7 @@ end
     for (build, at, θ) in values(fractions), (P, Pt) in patterns,
             spilled in (false, true)
         function run(θ, R, ε)
-            spill = spilled ? CR.Redistribute(CR.movement(K0, ε)) : nothing
+            spill = spilled ? CR.Redistribute(K0, ε) : nothing
             m = CR.Allocate(groups, total; imports = (build(θ), P), spill)
             return Recurrence(g; modifiers = (m,))(R; history = h)
         end
@@ -188,7 +188,7 @@ end
     @test !CR._stateless(imported)
     @test CR.nstate(imported, 3) == 3
     spilled = CR.Allocate(
-        [1:2, 3:3], 1.0; imports = (0.1, P), spill = CR.Redistribute(CR.movement(K, 0.2))
+        [1:2, 3:3], 1.0; imports = (0.1, P), spill = CR.Redistribute(K, 0.2)
     )
     @test CR.nstate(spilled, 3) == 6
     @test CR.param_eltype(
@@ -235,7 +235,7 @@ end
         P[1:2, 3] .= c
         m = CR.Allocate(
             [1:2, 3:3], PerStratum(tot); imports = (PerStratum(φ), P),
-            spill = CR.Redistribute(CR.movement(K, 0.2))
+            spill = CR.Redistribute(K, 0.2)
         )
         y = copy(v)
         CR.forward!(m, CR.Step(), y, zeros(eltype(x), 6), 1)
@@ -293,7 +293,7 @@ end
     εs = [0.1, 0.2, 0.15, 0.05, 0.3]
     PT = cat((P0 .* (1 + 0.1 * t) for t in 1:8)...; dims = 3)
     θ0 = [4.0, 2.0, 1.0, 0.1, 0.3, 0.2]
-    M0 = CR.movement(K0, εs)
+    M0 = CR._kernel_movement(K0, εs)
     # θ is the total, the fraction, the pattern, then the spill's movement
     # matrix, the order of the mirror's fields.
     for spilled in (false, true), P in (P0, PT), t in (1, 5)
@@ -360,7 +360,7 @@ end
     using ComposableRecurrences, SparseArrays
     CR = ComposableRecurrences
     (; g, R, h, groups, TT, P0, K0) = AllocateChecks
-    M0 = CR.movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
+    M0 = CR._kernel_movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
     split(P, M) = CR.Allocate(
         groups, TimeVarying(PerStratum(TT));
         imports = (0.2, P), spill = CR.Redistribute(M)
@@ -389,7 +389,7 @@ end
     K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
     gs = [1:2, 3:3]
     @test_throws "spill needs imports" CR.Allocate(
-        gs, 1.0; spill = CR.Redistribute(CR.movement(K, 0.1))
+        gs, 1.0; spill = CR.Redistribute(K, 0.1)
     )
     @test_throws "imports is (fraction, pattern)" CR.Allocate(
         gs, 1.0; imports = P
@@ -484,7 +484,7 @@ end
         Y[kept, :] .= X
         return Y
     end
-    M0 = CR.movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
+    M0 = CR._kernel_movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
     # Without imports, with them, and with a spill too.
     function split(gs, tot, fr, case)
         total = TimeVarying(PerStratum(tot))
@@ -565,7 +565,7 @@ end
     P = Float32[0.0 0.5; 0.5 0.0]
     m = CR.Allocate(
         [1:1, 2:2], 3.0f0; imports = (0.2f0, P),
-        spill = CR.Redistribute(CR.movement(P, 0.1f0))
+        spill = CR.Redistribute(P, 0.1f0)
     )
     y = Recurrence(Float32[0.5, 0.5]; modifiers = (m,))(
         ones(Float32, 2, 4); history = ones(Float32, 2, 2)

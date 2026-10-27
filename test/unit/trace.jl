@@ -87,7 +87,7 @@ end
         Recurrence(g; modifiers = (CR.Depletion(N),)),
         Recurrence(g; coupling = K + I, modifiers = (CR.Depletion(N),)),
         Recurrence(
-            g; modifiers = (CR.Redistribute(CR.movement(K, ε)), CR.Depletion(N))
+            g; modifiers = (CR.Redistribute(K, ε), CR.Depletion(N))
         ),
         Recurrence(g; modifiers = (leaky,)),
         Recurrence(g; modifiers = (CR.Clamp(0.0, 9.0), CR.Depletion(N))),
@@ -323,7 +323,7 @@ end
     K = [0.0 0.3 0.1; 0.2 0.0 0.4; 0.1 0.2 0.0]
     r = Recurrence(
         [0.4, 0.6]; modifiers = (
-            CR.Redistribute(CR.movement(K, 0.2)),
+            CR.Redistribute(K, 0.2),
             CR.Depletion(PerStratum([50.0, 60.0, 70.0])),
         )
     )
@@ -333,7 +333,7 @@ end
     S1, S2 = states_by_step(r, R; history = h)
     @test M1 ≈ S1
     @test M2[1:3, :] ≈ S2
-    @test CR.ntrace(CR.Redistribute(CR.movement(K, 0.2)), 3) == 3
+    @test CR.ntrace(CR.Redistribute(K, 0.2), 3) == 3
     # A modifier whose state never changes records nothing.
     for m in (CR.Add(0.1), CR.Clamp(0.0, 5.0), CR.Allocate([1:3], 5.0))
         @test CR.ntrace(m, 3) == 0
@@ -401,7 +401,7 @@ end
                 pools = (:S, :V)
             )
             # `Add` keeps no state, so its trace is empty and takes no cotangent.
-            mods = (CR.Redistribute(CR.movement(K, θ[6])), CR.Add(θ[7]), leaky)
+            mods = (CR.Redistribute(K, θ[6]), CR.Add(θ[7]), leaky)
             _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
             T1, T0, T2 = tr.modifiers
             return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])

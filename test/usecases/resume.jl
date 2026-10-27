@@ -91,7 +91,7 @@ end
         PerStratum(N); pools = (S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0)),)
     )
     importation = ComposableRecurrences.Redistribute(
-        ComposableRecurrences.movement(K, ε)
+        K, ε
     )
     patch = Recurrence(g; modifiers = (importation, depletion))
     function split_run(Rt)

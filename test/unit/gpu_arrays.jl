@@ -7,7 +7,7 @@
     using ComposableRecurrences: Derived
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
-        contributions, movement
+        contributions, _kernel_movement
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -210,7 +210,11 @@
                         d([0.0 0.0 0.6; 0.0 0.0 0.4; 0.3 0.7 0.0]),
                     ),
                     spill = Redistribute(
-                        d(movement([0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], [0.1, 0.2, 0.3]))
+                        d(
+                            _kernel_movement(
+                                [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], [0.1, 0.2, 0.3]
+                            )
+                        )
                     )
                 ),
             )
@@ -252,14 +256,20 @@
             modifiers = (
                 Redistribute(
                     TimeVarying(
-                        d(cat((movement(K0 - 0.5I, 0.1 + 0.001 * t) for t in 1:T)...; dims = 3))
+                        d(
+                            cat(
+                                (_kernel_movement(K0 - 0.5I, 0.1 + 0.001 * t) for t in 1:T)...;
+                                dims = 3
+                            )
+                        )
                     )
                 ),
             )
         )(d(RS); history = d(HS)),
         "Redistribute, one intensity per stratum" =>
             d -> Recurrence(
-            d(g0); modifiers = (Redistribute(d(movement(K0 - 0.5I, [0.1, 0.2, 0.3]))),)
+            d(g0);
+            modifiers = (Redistribute(d(_kernel_movement(K0 - 0.5I, [0.1, 0.2, 0.3]))),)
         )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
             d -> Recurrence(
@@ -277,7 +287,8 @@
         r = Recurrence(
             d(g0);
             modifiers = (
-                Depletion(PerStratum(d(NS))), Redistribute(d(movement(K0 - 0.5I, 0.1))),
+                Depletion(PerStratum(d(NS))),
+                Redistribute(d(_kernel_movement(K0 - 0.5I, 0.1))),
                 Depletion(
                     60.0, Hazard(; weights = (S = 1, V = 0.3)),
                     Flow(1 => 2, 0.2; form = Truncate()); pools = (:S, :V)

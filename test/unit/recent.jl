@@ -167,7 +167,7 @@ end
         ),
         # Movement whose intensity reads the outputs.
         (
-            u -> CR.Redistribute(CR.movement(K, u)), x -> Derived(tanh, 0.01 * x),
+            u -> CR.Redistribute(K, u), x -> Derived(tanh, 0.01 * x),
             u -> tanh(0.01 * u),
         ),
     )
@@ -216,7 +216,7 @@ end
         ),
         (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3))),
         (RecentSpill.Spill(K, Derived(tanh, 0.1 * Recent(w))),),
-        (CR.Redistribute(CR.movement(K, Derived(tanh, 0.1 * Recent(w)))),),
+        (CR.Redistribute(K, Derived(tanh, 0.1 * Recent(w))),),
     )
     for ms in mods, C in (I, K)
         r = Recurrence(g; coupling = C, modifiers = ms)

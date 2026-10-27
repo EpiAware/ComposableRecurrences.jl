@@ -272,7 +272,7 @@ function _allocate_imports(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = _leaky(ComposableRecurrences.movement(K, ε))
+        spill = _leaky(ComposableRecurrences._kernel_movement(K, ε))
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -296,7 +296,7 @@ function _allocate_empty_imports(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS_EMPTY, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = _leaky(ComposableRecurrences.movement(K, ε))
+        spill = _leaky(ComposableRecurrences._kernel_movement(K, ε))
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -311,10 +311,10 @@ function _dense_matrices(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (0.2, collect(P)),
-        spill = _leaky(ComposableRecurrences.movement(collect(K), ε))
+        spill = _leaky(ComposableRecurrences._kernel_movement(collect(K), ε))
     )
     mods = (
-        _leaky(ComposableRecurrences.movement(collect(K), 0.1)),
+        _leaky(ComposableRecurrences._kernel_movement(collect(K), 0.1)),
         split,
     )
     r = Recurrence(g; coupling = collect(C), modifiers = mods)
@@ -326,7 +326,7 @@ end
 function _movement_time_varying(w, θ)
     g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
+        ComposableRecurrences.Redistribute(K, ε),
         ComposableRecurrences.Depletion(PerStratum(POP)),
     )
     y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
@@ -339,7 +339,7 @@ function _movement_recent(w, θ)
     K, κ, logh, logR = _unpack(θ, (S, S), (1,), (S, L), (S, T))
     ε = Derived(x -> 0.2 * tanh(x), κ[1] * ComposableRecurrences.Recent(3))
     mods = (
-        ComposableRecurrences.Redistribute(ComposableRecurrences.movement(K, ε)),
+        ComposableRecurrences.Redistribute(K, ε),
         ComposableRecurrences.Depletion(PerStratum(POP)),
     )
     y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
@@ -675,7 +675,7 @@ function _clamp_redistribute_add(w, θ)
         CRA0 .+ θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T)
     )
     mods = (
-        _leaky(ComposableRecurrences.movement(K, ε)),
+        _leaky(ComposableRecurrences._kernel_movement(K, ε)),
         ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
         ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
     )
@@ -1001,7 +1001,7 @@ function _trace_importation(w, θ)
     # The intensity per origin and step keeps the movement a kernel and
     # an intensity, whose columns sum to one under any perturbation.
     mods = (
-        CR.Redistribute(CR.movement(K0, ε .* ones(1, T))),
+        CR.Redistribute(K0, ε .* ones(1, T)),
         CR.Depletion(PerStratum(POP)),
     )
     y, tr = w(Recurrence(G0; modifiers = mods))(
@@ -1652,8 +1652,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:_AllocateImports, :allocate_empty_group),
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
-    "Recurrence Redistribute of a time-varying movement" => (:movement,),
-    "Recurrence Redistribute, Add and Clamp" => (:movement,),
+    "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
+    "Recurrence Redistribute, Add and Clamp" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:movement, :_intensity, :Recent),

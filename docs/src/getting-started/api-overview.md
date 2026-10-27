@@ -248,7 +248,7 @@ A `Depletion` with flows and no draw only moves values between pools, as for pat
 A `Redistribute` moves whatever it receives, including values from `add`.
 Its matrix `M` has columns that sum to one, so the total is kept.
 With `leak = true` a column can sum to less than one, for a share lost on the way.
-The function [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds `M` from a kernel `K` and an intensity `ε`, moving a share `ε[q] * K[p, q]` of stratum `q`'s value to stratum `p`.
+[`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) builds `M` from a kernel `K` and an intensity `ε`, moving a share `ε[q] * K[p, q]` of stratum `q`'s value to stratum `p`.
 An `Allocate` keeps each stratum's share of its group.
 With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
 Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
