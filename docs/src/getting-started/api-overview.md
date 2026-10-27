@@ -173,6 +173,7 @@ A model with a weekly [time unit](@ref time-units) and delays in days takes `ste
 | Kernel | Holds |
 |:--|:--|
 | `d` | one delay |
+| `(d₁, d₂)` | a [chain of delays](@ref time-units-chained), one after another |
 | `PerStratum(ds)` | a vector of delays, one per stratum |
 | `Pairwise(D)` | a matrix of delays, with `D[i, j]` the delay of stratum `j` in stratum `i` |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per day |
@@ -181,6 +182,7 @@ A model with a weekly [time unit](@ref time-units) and delays in days takes `ste
 The argument `indexing` is `Secondary()` or `Primary()`, as for any [time-varying kernel](@ref overview-shapes).
 `TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
 `Pairwise` and `Routes` kernels work with `Recurrence` only.
+A chain may also hold mass vectors, and it is itself a delay, so it fits wherever `d` does.
 
 ## [Couplings](@id overview-couplings)
 
