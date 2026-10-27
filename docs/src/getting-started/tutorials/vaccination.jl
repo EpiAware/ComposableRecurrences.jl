@@ -72,6 +72,7 @@ plot_infections(vaccines)
 
 # Both vaccines lower the peak and bring it slightly earlier, because the susceptible pool shrinks faster.
 # At the same efficacy the all-or-nothing vaccine prevents slightly more infections.
+# The final sizes of both vaccines match seeded stochastic SIR simulations from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl), as the [vaccination use case](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/usecases/vaccination.jl) checks.
 # The leaky vaccine leaves every vaccinated person some risk, which adds up over time.
 # A delay from dose to protection is a [`Convolution`](@ref) of the doses, passed as the flow's demand.
 
@@ -94,8 +95,6 @@ plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # Waning raises the peak a little and adds about 8% more infections over the outbreak.
 # This is because people protected early return to the susceptible pool while the epidemic runs.
-#
-# The final sizes of these vaccines match seeded stochastic SIR simulations from [EpiBranch.jl](https://github.com/epiforecasts/EpiBranch.jl), as the [vaccination use case](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/usecases/vaccination.jl) checks.
 
 # ## Performance
 #

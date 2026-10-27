@@ -82,6 +82,7 @@ end
 dA, dD = [0.3, 0.4, 0.2, 0.1], [0.1, 0.2, 0.4, 0.2, 0.1]
 onset_to_death = Convolution((dA, dD); lags = 8)
 deaths_direct = onset_to_death(onsets; gain = 0.1 * 0.25)
+@assert deaths_direct ≈ deaths #hide
 
 @chain DataFrame("day" => 1:T, "Two delays" => deaths, "One chained delay" => deaths_direct) begin
     stack(Not(:day); variable_name = :model, value_name = :count)
