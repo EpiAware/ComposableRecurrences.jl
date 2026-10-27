@@ -110,9 +110,16 @@ function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
     return nothing
 end
 # A pointwise modifier's trace is a tuple of series, one per value, and a
-# whole-step modifier's one vector.
-_copy_trace!(r::Tuple, s′) = (copyto!(first(r), s′); nothing)
+# whole-step modifier's one vector. On the host a step's few entries are
+# copied by a loop, which costs less than setting up `copyto!` of views.
+_copy_trace!(r::Tuple, s′) = _copy_trace!(first(r), s′)
 _copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
+function _copy_trace!(r::_CPUArray, s′::_CPUArray)
+    for k in eachindex(r, s′)
+        r[k] = s′[k]
+    end
+    return nothing
+end
 _add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))
 function _add_trace!(s̄′, r̄::AbstractVector)
     for k in eachindex(s̄′, r̄)

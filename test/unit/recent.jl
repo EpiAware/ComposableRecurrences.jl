@@ -287,10 +287,21 @@ end
 
 @testitem "Recent: a read before the window is an error" begin
     using ComposableRecurrences
+    using ForwardDiff: Dual
     const CR = ComposableRecurrences
     # Depletion's Init reads N at time 1, before a run that starts at 5.
     r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(100.0 + Recent(3)),))
     @test_throws "read at time 1" r(fill(1.2, 8); history = ones(4), start = 5)
+    # The read still errors for strata of floats and of dual numbers with
+    # `prepend = true` and a history deeper than the window.
+    r = Recurrence(
+        [0.5, 0.3]; modifiers = (CR.Depletion(PerStratum([100.0, 90.0]) + Recent(3)),)
+    )
+    for x in (identity, v -> Dual{Nothing}.(v, 1.0))
+        @test_throws "read at time 1" r(
+            x(fill(1.2, 2, 10)); history = x(ones(2, 5)), start = 2, prepend = true
+        )
+    end
 end
 
 @testitem "Recent: an Init that reads the outputs sends its cotangent to the history" setup = [AdjointCheck] begin

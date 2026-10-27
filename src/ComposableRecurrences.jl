@@ -83,7 +83,7 @@ using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, UniformScaling, mul!
+using LinearAlgebra: Diagonal, I, Transpose, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
