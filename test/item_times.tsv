@@ -296,6 +296,7 @@
 7.6	Ragged kernel: gradients equal the padded kernel's
 6.3	Ragged kernel: storage and validation
 3.2	Reactant: committed results match expected.jl
+1.0	Reactant: compare.jl gates on changed cells
 3.3	Recent: a coupled read allocates nothing per step
 0.1	Recent: a coupled read back at a row other than the cached one
 8.4	Recent: a coupling against a naive loop
@@ -396,6 +397,11 @@
 0.2	Transform: pullback edge cases and refusals
 0.4	Transform: the local derivative runs on an outer dual
 0.4	Transform: the rule covers it unless the map has float fields
+1.8	Transpose: numbers that do not vectorise take the gather body
+15.4	Transpose: pullback against ForwardDiff
+2.3	Transpose: spellings and checks
+8.5	Transpose: the dense matrix's transpose
+2.0	Transpose: window weights against a hand loop
 1.5	Truncate: checks and the rule
 0.3	Truncate: pullback against a local Jacobian
 0.2	Truncate: the shared minimum matches each form

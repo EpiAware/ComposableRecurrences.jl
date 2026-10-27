@@ -149,6 +149,7 @@ end
         @test computed(input; start = 7) ≈ dense(input; start = 7)
         @test computed(input; stop = 20, gain = 0.5) ≈ dense(input; stop = 20, gain = 0.5)
         @test CR.contributions(computed, input) ≈ CR.contributions(dense, input)
+        @test computed'(input) ≈ dense'(input)
     end
     # In a recurrence the kernel's lags start at 1, so entry `i` is lag `i`.
     g = 0.3 * W.confirmed(p, h)
