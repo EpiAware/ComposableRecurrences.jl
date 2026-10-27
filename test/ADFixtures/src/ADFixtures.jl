@@ -1104,6 +1104,17 @@ function _trace_budget(w, θ)
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
+# The effective reproduction number of a depleted run: its outputs over
+# the pressure each step drew against.
+function _effective_reproduction(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    h = exp.(logh)
+    d = ComposableRecurrences.Depletion(PerStratum(POP))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y = w(r)(exp.(logR); history = h)
+    return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
+end
+
 # The relative tolerance of Enzyme's rule tester in `test_adjoint`.
 # EnzymeTestUtils compares the rule with finite differences taken in the
 # arguments' precision. In single precision these differ from the rule by up
@@ -1386,6 +1397,10 @@ const _SCENARIOS = [
         () -> zero(CAPB0),
     ),
     (
+        "Recurrence effective reproduction number from its pressure",
+        _effective_reproduction, () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
         "Recurrence capacity, dropped overflow after a truncated draw",
         _capacity_drop, () -> zero(CAPD0),
     ),
@@ -1494,6 +1509,14 @@ function _delay_distribution_step(w, θ)
     return sum(W1 .* w(c)(ϵ; history = w0))
 end
 
+# A chain of two delays given as masses: the kernel is their full linear
+# convolution, built with the operator, so the gradient reaches both.
+function _chained_delay(w, θ)
+    a, b, ϵ = _unpack(θ, (3,), (L,), (T,))
+    c = Convolution((a, b); lags = L + 2)
+    return sum(W1 .* w(c)(ϵ))
+end
+
 function _generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
@@ -1513,6 +1536,10 @@ push!(
         "Convolution Poisson delay distribution on a step of two units",
         _delay_distribution_step,
         () -> _flat([log(1.5)], ones(L), 1 .+ LOGR[1, :]),
+    ),
+    (
+        "Convolution chain of two delays as masses", _chained_delay,
+        () -> _flat([0.5, 0.3, 0.2], G0, 1 .+ LOGR[1, :]),
     ),
     (
         "Recurrence negative binomial generation interval per stratum", _generation_distribution,
@@ -1580,6 +1607,10 @@ const _PROBES = Dict{Symbol, Function}(
     :depletion_pools => () -> _accepts(
         () -> ComposableRecurrences.Depletion(1.0; pools = (S = 1.0,))
     ),
+    # A chain of delays as one delay.
+    :chained_delays => () -> _accepts(
+        () -> Convolution(([1.0], [1.0]); lags = 1)
+    ),
     # Local derivatives whose dual numbers compare by value.
     :local_ties => function ()
         ext = Base.get_extension(
@@ -1587,6 +1618,14 @@ const _PROBES = Dict{Symbol, Function}(
         )
         return ext !== nothing && isdefined(ext, :_LocalTag)
     end,
+    # A call resumed from a returned state also returns the next state.
+    :resume_state => () -> _accepts(
+        function ()
+            r = Recurrence([0.5])
+            _, st = returning_state(r, ones(2); history = [1.0], stop = 1)
+            return _, _ = r(ones(2); state = st)
+        end
+    ),
     # Delays on lags of a width other than one unit.
     :delay_step => () -> _accepts(
         () -> Convolution(Poisson(1.0); lags = 2, step = 2)
@@ -2004,7 +2043,10 @@ _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
     (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
+# The pressure recomputed from given outputs.
+_REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
+_REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
     (:delay_masses, :delay_step)
 
@@ -2108,39 +2150,16 @@ end
 broken_scenario_names() = String[]
 
 """
-Per-backend broken scenario names (`Dict{String, Set{String}}`).
-
-On Julia 1.11, plain Enzyme reverse AD of the `NoAdjoint` twin of
-"Recurrence Redistribute, Add and Clamp" throws `EnzymeNoTypeError`; the
-rule is correct and runs. Every other scenario and its `NoAdjoint` twin
-passes on every backend.
+Per-backend broken scenario names (`Dict{String, Set{String}}`): the
+scenarios expected to fail on a backend, by backend name.
 """
-function backend_broken_scenarios()
-    VERSION < v"1.12" || return Dict{String, Set{String}}()
-    return Dict(
-        "Enzyme reverse" => Set(["NoAdjoint Recurrence Redistribute, Add and Clamp"]),
-    )
-end
+backend_broken_scenarios() = Dict{String, Set{String}}()
 
 """
-Per-backend scenario names too unstable to run at all.
-
-Plain Enzyme reverse AD of a sparse coupling repeated over steps returns
-silently wrong gradients, so `NoAdjoint` on a sparse coupling, or a sparse
-route coupling, throws on Enzyme reverse; the analytic rule is correct and
-runs.
+Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
+scenarios too unstable to run at all on a backend, by backend name.
 """
-function backend_skip_scenarios()
-    return Dict(
-        "Enzyme reverse" => Set(
-            [
-                "NoAdjoint Recurrence sparse coupling",
-                "NoAdjoint Recurrence routes, dense and sparse",
-                "NoAdjoint Recurrence routes in a buffer deeper than the kernels",
-            ]
-        ),
-    )
-end
+backend_skip_scenarios() = Dict{String, Set{String}}()
 
 """
 Per-backend scenario names whose call takes plain AD by design, so the

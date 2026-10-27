@@ -82,11 +82,13 @@ A recurrence has no lag 0; [A recurrence is a convolution of its own outputs](@r
 | [`(r::Recurrence)(gain; history, add, start, stop)`](@ref Recurrence) | runs `r` over times `start:stop`, multiplying each step by `gain` and adding `add` before the modifiers | a `Vector` of length `T`, or an `S × T` `Matrix` for `S` series |
 | [`(c::Convolution)(x; gain, add, history, start, stop)`](@ref Convolution) | weights the inputs `x` by the kernel over `start:stop`, then multiplies by `gain` and adds `add` | an array shaped like `x` |
 | [`contributions(c, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | the terms of `c(x; gain)` before the sum over lags, such as a reporting triangle | `L × T`, or `S × L × T` for `S` series |
+| [`pressure(r, y; history, start)`](@ref ComposableRecurrences.pressure) | the sum each step of `r` draws against, after the coupling and before the gain, recomputed from outputs `y`; `y ./ pressure(r, y; history)` is the reproduction number | shaped like `y` |
 | [`(r::Recurrence)(gain; history, state = true)`](@ref Recurrence) | runs `r` and also returns a `State`, so that `r(gain; state)` continues the series from where it ended | a `(y, state)` tuple |
 | [`(r::Recurrence)(gain; state)`](@ref Recurrence) | continues from a `State`, starting at time `state.t`, and returns the next `State` | a `(y, state)` tuple, with the values from `state.t` on |
 | [`(r::Recurrence)(gain; history, trace = true)`](@ref Recurrence) | runs `r` and records what each modifier did at each step | a `(y, trace)` tuple, with one matrix per modifier in `trace.modifiers` |
 | [`(r::Recurrence)(gain; history, prepend = true)`](@ref Recurrence) | runs `r` after the seed days in `history` and returns the seed followed by the run | the seed and run joined along time |
 | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | an `L`-step seed growing at rate `r` up to `I0` | a `Vector`, or `S × L` for a vector `I0` |
+| [`growth_rate(R, g)`](@ref ComposableRecurrences.growth_rate) | the growth rate per step of a renewal with reproduction number `R` and generation interval `g`; [`reproduction_number(r, g)`](@ref ComposableRecurrences.reproduction_number) is the inverse | a number |
 | [`State`](@ref ComposableRecurrences.State) | holds the last ``L`` values ``y_{t-L}, \dots, y_{t-1}``, each modifier's state ``s^{(n)}_{t-1}`` (such as the remaining pool) and the next time ``t`` | a struct |
 
 A call reads every time-indexed input (`gain`, `add`, `x` and any `TimeVarying` coefficient) at absolute time ``t``; see [Time base](@ref explanation-time-base).
@@ -129,6 +131,7 @@ The [Distributions](@ref extension-distributions) and [CensoredDistributions](@r
 | `Pairwise(D)` | a matrix of delays, `D[i, j]` series `j`'s delay in series `i`; `Recurrence` only |
 | `TimeVarying(ds, indexing)` | a vector of delays, one per time, or `PerStratum` or `Pairwise` of them with time last |
 | `Routes((C₁, d₁), (C₂, g₂))` | delays or arrays as route kernels; `Recurrence` only |
+| `(d₁, d₂)` | a [chain of delays](@ref time-units-chained) or mass vectors, one after another; a delay itself, so it fits wherever `d` does |
 
 ## [Couplings](@id overview-couplings)
 
