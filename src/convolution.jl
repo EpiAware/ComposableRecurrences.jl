@@ -90,8 +90,8 @@ accuracy, and they cannot come out negative from a positive kernel and
 inputs.
 A series spanning many orders of magnitude, such as a long exponential
 growth, then costs up to both methods together.
-A `NaN` or `Inf` input can spread to every output of its block, including
-earlier ones.
+A `NaN` or `Inf` input makes every output its block's transform reaches
+`NaN`, including earlier ones.
 
 # Examples
 ```jldoctest; setup = :(using ComposableRecurrences, FFTW)
@@ -163,6 +163,10 @@ at absolute time ``t``, ``x_{t-l,i}`` its input ``l`` steps earlier,
 kernel length, ``\gamma_{t,i}`` the gain and ``a_{t,i}`` the add input.
 ``x_\tau`` for ``\tau < 1`` comes from `history` and is zero before it.
 Strata do not mix.
+In the direct sum a zero weight multiplies its input rather than skipping
+it, so ``0 \cdot \infty`` gives `NaN`, as `sum(k .* x)` does, and a
+non-finite input reaches every output its lags feed; the transform of
+[`ComposableRecurrences.FFTMethod`](@ref) spreads it further.
 [`ComposableRecurrences.contributions`](@ref) returns the terms of the sum
 over ``l`` before it is taken.
 

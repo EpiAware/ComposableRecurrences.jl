@@ -100,6 +100,8 @@ A [`State`](@ref ComposableRecurrences.State) holds what a run needs to continue
 | [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did each day | `(y, trace)` |
 | [`renewal(gain; history, prepend = true)`](@ref Recurrence) | runs the recurrence and returns the history followed by the run | the history and run joined along time |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` days growing at `rate` per day up to `I0` | a vector, or strata × `L` |
+| [`growth_rate(R, g)`](@ref ComposableRecurrences.growth_rate) | the daily growth rate of a renewal with reproduction number `R` and generation interval `g` | a number |
+| [`reproduction_number(rate, g)`](@ref ComposableRecurrences.reproduction_number) | the reproduction number that gives a daily growth `rate`, the inverse of `growth_rate` | a number |
 
 Every input that changes over time is [indexed by day](@ref explanation-time-base), counted from day 1 of the gain, whatever `start` is.
 So the gain on day ``t`` is always `gain[t]`.

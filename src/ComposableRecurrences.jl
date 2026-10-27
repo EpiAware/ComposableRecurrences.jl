@@ -101,7 +101,7 @@ public Depletion, Flow, Share, Redistribute, movement,
     Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
     param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
     add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses
+    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number
 
 # Slot wrappers: time-varying, per-stratum and pairwise coefficients.
 include("wrappers.jl")
@@ -149,6 +149,8 @@ include("piecewise.jl")
 include("fallbacks.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("delays.jl")
+# The growth rate that matches a reproduction number, and its inverse.
+include("growth_rate.jl")
 # Interfaces.jl declaration of the role interface.
 include("interfaces.jl")
 # The Transform modifier, a pointwise map with parameters.

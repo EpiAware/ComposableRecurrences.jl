@@ -23,7 +23,6 @@ using ComposableRecurrences
 using ComposableRecurrences: Depletion, Flow, Floor, Hazard, Truncate,
     Add, exponential_history
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
-using ForwardDiff
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
@@ -48,16 +47,9 @@ end
 #
 # A single seed day makes the first generations uneven.
 # [`exponential_history`](@ref ComposableRecurrences.exponential_history) gives a [seed](@ref explanation-seeding) already growing at rate `r`.
-# Its docstring gives the equation linking `r` to `R`, and a few Newton steps solve it.
+# [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves the equation linking `r` to `R` for the generation interval.
 
-euler_lotka(r, R, gi) = R * sum(gi[l] * exp(-r * l) for l in eachindex(gi)) - 1
-function growth_rate(R, gi; r = 0.0)
-    for _ in 1:20
-        r -= euler_lotka(r, R, gi) / ForwardDiff.derivative(x -> euler_lotka(x, R, gi), r)
-    end
-    return r
-end
-r0 = growth_rate(R[1], gi)
+r0 = ComposableRecurrences.growth_rate(R[1], gi)
 y0 = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
 round.((exp(r0), extrema(y0[2:20] ./ y0[1:19])...); digits = 4)
 
