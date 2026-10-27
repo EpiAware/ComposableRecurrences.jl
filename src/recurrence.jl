@@ -932,7 +932,7 @@ end
 # state and its parameters: within one pass of dual numbers
 # (`_LOCAL_PRESSURE`) the call takes the rule, and with more `_ad_wide`,
 # a rule on `Mooncake` at any size, where it stays faster than plain AD, and
-# plain AD on `Enzyme`, where the rule is slower on Julia 1.13.
+# plain AD on `Enzyme`, where the rule is slower on the current release.
 _steps_fit(ms::Tuple, S) = reduce(_worse, map(m -> _step_fit(m, S), ms); init = :one)
 function _step_fit(m, S)
     _whole_local(m) || return :one
