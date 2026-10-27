@@ -52,6 +52,7 @@ function _split_prepended(w::_WithTrace, (Ȳ, tr̄), T)
     ȳ, ȳh = _split_prepended(w.op, Ȳ, T)
     return (ȳ, tr̄), ȳh
 end
+_split_steps(::Nothing, T) = nothing, nothing
 function _split_steps(ȳ::AbstractVector, T)
     n = length(ȳ) - T
     return view(ȳ, (n + 1):(n + T)), view(ȳ, 1:n)
@@ -70,7 +71,7 @@ _add_history!(h̄, ȳh) = (h̄ .+= ȳh; nothing)
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
     (; r, H, D, S, T, τ0) = c
-    H̄ = _zeros(H, eltype(H), D + T, S)
+    H̄ = _seeded(H, Ȳ, D)
     # Parameters that read the outputs send their cotangents into `H̄`. The
     # bound modifiers enter the step loop through a function barrier.
     modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
@@ -86,7 +87,6 @@ end
 function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     (; r, kernel, gain, h, s0, τ0, L, D, S, T, H, pr, rec, init) = c
     coupling = r.coupling
-    _seed_rows!(H̄, Ȳ, D)
     h̄end = cotangent(st̄, :history)
     h̄end === nothing || _seed_rows!(H̄, h̄end, T)
     ḡ = cotangent(r̄, :kernel)
@@ -279,6 +279,24 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
         _kernel_back_at!(kbuf, acc.ḡ, kernel, p̄[k], H, H̄, t, τ, L, k)
     end
     return nothing
+end
+
+# The buffer's cotangent, `D` zero rows and then the output's cotangent
+# `Ȳ`, each row written once. Only an integer output has no cotangent; its
+# buffer is integer only when every input and part is, so no other part has
+# one either and the pass adds zeros. This is a method, not an early return
+# in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme` under runtime
+# activity), that branch slowed the whole reverse pass by about 8%.
+_seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
+function _seeded(H, Ȳ, D)
+    H̄ = similar(H)
+    fill!(view(H̄, 1:D, :), zero(eltype(H̄)))
+    return _set_rows!(H̄, Ȳ, D)
+end
+_set_rows!(H̄, x̄::AbstractVector, o) = (view(H̄, (o + 1):size(H̄, 1), 1) .= x̄; H̄)
+function _set_rows!(H̄, x̄::AbstractMatrix, o)
+    view(H̄, (o + 1):size(H̄, 1), :) .= transpose(x̄)
+    return H̄
 end
 
 # Add the public-layout cotangent `x̄` (length n, or S × n) into buffer rows
