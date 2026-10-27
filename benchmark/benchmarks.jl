@@ -10,18 +10,16 @@ using ComposableRecurrences
 
 const SUITE = BenchmarkGroup()
 
-# Every entry below sets
-# `evals = 1, samples = 1000, seconds = 1, gctrial = false`.
-# That is one evaluation per sample, for at most 1000 samples or a second,
-# whichever comes first.
+# Every entry below sets `evals = 1, seconds = 1, gctrial = false`.
+# That is one evaluation per sample, for at most a second.
 # The convolution body entries at the end take 100 evaluations a sample,
 # since each is well under a microsecond.
 # Setting `evals` marks an entry as tuned, so the `tune!` pass of the
 # history workflow skips it rather than spending seconds per entry
 # estimating an evaluation count.
-# The pull request workflow measures with `seconds = 1` and keeps each
-# entry's sample cap. Fewer samples raise the minimum of the fastest
-# entries and widen its noise between runs, so the cap stays at 1000.
+# The pull request workflow also measures with `seconds = 1`. The entries
+# keep BenchmarkTools' default sample count: a lower cap raises the minimum
+# of the fastest entries and widens its spread between runs.
 # `gctrial = false` drops the full garbage collections before each entry.
 # With every AD backend loaded the heap is large, each collection takes
 # seconds, and the minimum time reported is not sensitive to it.
@@ -99,7 +97,7 @@ let grad = BenchmarkGroup()
                     $(scen.f), $prep, $(entry.backend), $(scen.x),
                     $(scen.contexts)...
                 ),
-                evals = 1, samples = 1000, seconds = 1, gctrial = false
+                evals = 1, seconds = 1, gctrial = false
             )
         end
     end
@@ -139,7 +137,7 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
         end
         _selected("primal") && (
             eval_group[label] = @benchmarkable(
-                $f($θ), evals = 1, samples = 1000, seconds = 1, gctrial = false
+                $f($θ), evals = 1, seconds = 1, gctrial = false
             )
         )
         for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
@@ -160,7 +158,7 @@ let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
             haskey(grad, name) || (grad[name] = BenchmarkGroup())
             grad[name][entry.name] = @benchmarkable(
                 DI.gradient($f, $prep, $(entry.backend), $θ),
-                evals = 1, samples = 1000, seconds = 1, gctrial = false
+                evals = 1, seconds = 1, gctrial = false
             )
         end
     end
@@ -194,17 +192,17 @@ _selected("primal") && let body = BenchmarkGroup(), T = 200, L = 20
     y = zeros(T)
     body["BLAS axpy per lag"] = @benchmarkable(
         _bench_conv_per_lag!(axpy!, $y, $c, $X, $L),
-        evals = 100, samples = 1000, seconds = 1, gctrial = false
+        evals = 100, seconds = 1, gctrial = false
     )
     body["native axpy per lag"] = @benchmarkable(
         _bench_conv_per_lag!(_bench_native_axpy!, $y, $c, $X, $L),
-        evals = 100, samples = 1000, seconds = 1, gctrial = false
+        evals = 100, seconds = 1, gctrial = false
     )
     if isdefined(ComposableRecurrences, :_convolve_series!) &&
             applicable(ComposableRecurrences._convolve_series!, y, c, X, 1, L, 1)
         body["package"] = @benchmarkable(
             ComposableRecurrences._convolve_series!($y, $c, $X, 1, $L, 1),
-            evals = 100, samples = 1000, seconds = 1, gctrial = false
+            evals = 100, seconds = 1, gctrial = false
         )
     end
     SUITE["Convolution body"] = body
@@ -234,15 +232,14 @@ if _selected("primal") && isdefined(ComposableRecurrences, :FFTMethod)
             haskey(methods, label) || (methods[label] = BenchmarkGroup())
             c = Convolution(fill(1 / L, L); method)
             methods[label]["$name forward"] = @benchmarkable(
-                $c($x),
-                evals = 1, samples = 1000, seconds = 1, gctrial = false
+                $c($x), evals = 1, seconds = 1, gctrial = false
             )
             loss = k -> sum(w .* Convolution(k; method)(x))
             k = fill(1 / L, L)
             prep = DI.prepare_gradient(loss, backend, k)
             methods[label]["$name Mooncake gradient"] = @benchmarkable(
                 DI.gradient($loss, $prep, $backend, $k),
-                evals = 1, samples = 1000, seconds = 1, gctrial = false
+                evals = 1, seconds = 1, gctrial = false
             )
         end
         SUITE["Convolution methods"] = methods
