@@ -99,9 +99,10 @@ The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
 every input and field, so Float32 inputs give a Float32 output and
 dual numbers pass through any slot.
 With integer and `Bool` inputs and fields alone and no modifiers, the
-output keeps that integer type promoted with `Int`, as `cumsum` does;
-otherwise it is the float type. A user coupling whose pressure is not an
-integer then needs a float input.
+output keeps that integer type promoted with `Int`, so a signed or `Bool`
+running total has the eltype `cumsum` gives.
+Otherwise it is the float type.
+A user coupling whose pressure is not an integer needs a float input.
 The constructor checks once whether the local step can rebuild every
 part it differentiates and stores the result in the field `rebuilds`; see
 [Rules and plain AD](@ref adjoint-routing) for the route this sets.

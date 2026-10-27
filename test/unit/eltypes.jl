@@ -145,7 +145,7 @@ end
     @test (@inferred beds()) isa CR.Depletion
 end
 
-@testitem "Eltypes: integer inputs keep an integer output, as cumsum does" begin
+@testitem "Eltypes: integer inputs keep an integer output promoted with Int" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences
     # A running total of integers is Base's `cumsum`, type and values.
@@ -157,6 +157,9 @@ end
     @test eltype(Recurrence([true])(true; history = [false], add = [true])) == Int
     @test eltype(Recurrence([true])(true; history = Int8[0], add = Int8[1])) == Int
     @test Recurrence([true])(true; history = Int8[0], add = Int8[100, 100]) == [100, 200]
+    # Unsigned integers promote with `Int` too, where `cumsum` keeps `UInt`.
+    @test eltype(Recurrence(UInt8[1])(UInt8(1); history = UInt8[0], add = UInt8[1])) ==
+        Int
     @test Recurrence([1, 2])(2; history = [1, 1], stop = 3) == [6, 16, 56]
     # Strata through an integer coupling, prepended, traced and resumed.
     y = Recurrence([1]; coupling = [1 0; 1 1])(1; history = ones(Int, 2, 1), stop = 2)
