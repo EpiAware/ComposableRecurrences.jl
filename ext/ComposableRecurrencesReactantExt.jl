@@ -264,11 +264,21 @@ end
 # threads and devices of the other executors are the compiled program's
 # own concern.
 function ComposableRecurrences._run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val, joined::Val
     ) where {Tp <: TracedRNumber}
     return @allowscalar ComposableRecurrences._run(
-        Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, record
+        Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, record, joined
     )
+end
+# A joined traced run keeps its traced buffer and joins the history after.
+function ComposableRecurrences._history_buffer(
+        ::Val{true}, h::AbstractMatrix, ::Type{Tp}, D, T, S
+    ) where {Tp <: TracedRNumber}
+    return ComposableRecurrences._history_buffer(Val(false), h, Tp, D, T, S)
+end
+function ComposableRecurrences._output(H::AnyTracedRArray, D, T, h, ::Val{true})
+    y = ComposableRecurrences._output(H, D, T, h, Val(false))
+    return ComposableRecurrences._join(h, y)
 end
 
 function ComposableRecurrences._conv_buffers(
