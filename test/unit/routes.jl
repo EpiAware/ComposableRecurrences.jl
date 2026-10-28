@@ -173,6 +173,8 @@ end
     g = [0.5, 0.5]
     K = ones(2, 2)
     R2 = Pairwise(K => g, 2K => g)
+    # Printed as written; a test module qualifies the name.
+    @test endswith(repr(R2), "Pairwise([1.0 1.0; 1.0 1.0] => [0.5, 0.5], [2.0 2.0; 2.0 2.0] => [0.5, 0.5])")
     @test_throws "coupling must be I, got" Recurrence(R2; coupling = K)
     @test_throws "coupling must be I, got" Recurrence(R2; coupling = 0.5I)
     @test_throws "coupling must be I, got" Recurrence(R2, K, ())

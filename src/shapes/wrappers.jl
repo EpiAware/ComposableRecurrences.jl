@@ -160,7 +160,8 @@ and the history covers the longest.
 A dense `S × S × L` array costs ``S^2 L`` a step; routes cost one kernel
 convolution and one coupling product each, and a sparse route coupling
 stays sparse.
-`Recurrence(routes)` built by keyword folds routes with a cheaper form: one
+The keyword constructor `Recurrence(routes)` folds routes with a cheaper
+form, and the positional `Recurrence(routes, I, ())` keeps them as given: one
 route is its kernel with its coupling, and routes whose couplings are all
 `λ * I` on vector kernels are the one kernel ``\sum_r \lambda_r k^{(r)}``.
 The analytic adjoint applies when it covers every route coupling, as for
