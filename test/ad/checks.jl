@@ -21,8 +21,9 @@
     # Runs the kit's working-backend check on the registry scenarios of
     # `category` for the backend named `name`, once per precision at its
     # tolerance, then checks each gradient against its reference entry by
-    # entry. The kit compares whole gradients by norm, but it also checks
-    # the prepared, in-place and value-and-gradient calls.
+    # entry: the plain call, and the prepared, value-and-gradient and
+    # in-place calls the kit compares only by norm. A scenario broken on
+    # the backend is `@test_broken`, so it fails once it passes.
     function test_gradients(name; category::Symbol)
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
@@ -37,14 +38,30 @@
                 ADFixtures, name; rtol, atol = 0.0, scenario_kwargs
             )
             scens = filter(
-                s -> !(s.name in skip || s.name in broken),
+                s -> !(s.name in skip),
                 ADFixtures.scenarios(; with_reference = true, scenario_kwargs...)
             )
             @testset "$(s.name), entry by entry" for s in scens
-                @test entrywise(DI.gradient(s.f, backend, s.x), s.res1; rtol)
+                if s.name in broken
+                    @test_broken all(g -> entrywise(g, s.res1; rtol), gradients(s, backend))
+                else
+                    @test all(g -> entrywise(g, s.res1; rtol), gradients(s, backend))
+                end
             end
         end
         return nothing
+    end
+
+    # The gradients of scenario `s` on `backend` from the plain call, and
+    # from the prepared out-of-place, value-and-gradient and in-place calls,
+    # prepared at zero as the kit's check prepares them.
+    function gradients(s, backend)
+        prep = DI.prepare_gradient(s.f, backend, zero(s.x))
+        g! = DI.gradient!(s.f, similar(s.x), prep, backend, s.x)
+        return (
+            DI.gradient(s.f, backend, s.x), DI.gradient(s.f, prep, backend, s.x),
+            last(DI.value_and_gradient(s.f, prep, backend, s.x)), g!,
+        )
     end
 
     # The central difference of `f` at `x` in entry `i` with step `h`, or

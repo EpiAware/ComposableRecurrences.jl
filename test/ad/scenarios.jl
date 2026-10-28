@@ -91,7 +91,7 @@ end
         logging = false, rtol, atol = 0.0
     )
     @testset "$(s.name) on $(nameof(typeof(b))), entry by entry" for s in scens, b in backends
-        @test entrywise(DI.gradient(s.f, b, s.x), s.res1; rtol)
+        @test all(g -> entrywise(g, s.res1; rtol), gradients(s, b))
     end
 end
 
@@ -102,8 +102,10 @@ end
 
 # The registry leaves out scenarios and matrix cases whose features the loaded
 # version lacks, for the benchmark history on older releases. On the current
-# version nothing may be left out, so a misspelt requirement fails here.
-@testitem "AD fixtures need only features this version has" tags = [:ad, :forwarddiff] begin
+# version nothing may be left out, so a misspelt requirement fails here. The
+# reverse-mode tags run it on Julia 1.11 and 1.12 in the AD versions workflow,
+# where a probe that throws there would drop its scenarios.
+@testitem "AD fixtures need only features this version has" tags = [:ad, :forwarddiff, :enzyme_reverse, :mooncake_reverse] begin
     using ADFixtures
     using ADFixtures: MatrixCases
     @test isempty(ADFixtures.unsupported_scenarios())
