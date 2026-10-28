@@ -819,7 +819,7 @@ end
 @testitem "Variants: one path per step" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.Truncate(0.1))
         m = CR.Depletion(100.0, form)
         @test m isa CR.Depletion{<:Any, <:Tuple{CR._DrawFrom{typeof(form), Float64}}}
         # The built-in maths is the form's Step.

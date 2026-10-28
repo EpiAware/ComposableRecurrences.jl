@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
 public Derived, Recent, Depletion, Flow, Share, Redistribute,
-    Add, Clamp, Allocate, Transform, Hazard, Floor, Truncate, SoftTruncate,
+    Add, Clamp, Allocate, Transform, Hazard, Floor, Truncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,

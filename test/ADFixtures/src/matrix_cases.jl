@@ -377,7 +377,7 @@ function capacity_beds(wrap, z::Size)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
         beds = CR.Depletion(
             PerStratum(exp.(logC)), CR.Flow(:O => 0, 0.1; form = CR.Share()),
-            CR.SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+            CR.Truncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
         )
         r = Recurrence(G; modifiers = (beds,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))

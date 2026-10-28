@@ -275,13 +275,13 @@ Depletion(N, Floor())
 | [`Hazard(α)`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
 | [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N, Floor())` |
 | [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(Truncate(); pools = (S = B,))` for a budget `B` |
-| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(cap, SoftTruncate(0.1; into = :S))` |
+| [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | a smooth `Truncate()`, with softness `κ` in [0, 1), where 0 is `Truncate()` | `Depletion(cap, Truncate(0.1; into = :S))` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool each day | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
 | a type you write | a new depletion form | `Depletion(N, MyForm())` |
 
 The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
-With `Truncate()` or `SoftTruncate(κ)` a flow is a count, capped by what remains.
+With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
 A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, `Step()`.
 
 ## [Time-series processes](@id overview-time-series)

@@ -193,12 +193,12 @@ end
     @test y ≈ [2.0, 1.0, 1.0, 1.0, 1.0, 1.0] rtol = 1.0e-12
     @test st.states[1] ≈ [2.0, 1.5] rtol = 1.0e-12
     # Was `Capacity(TimeVarying(PerStratum(C)), Beds(PerStratum([0.2, 0.3]));
-    # pairs = [1 => 3, 2 => 4], form = SoftTruncate(0.1),
+    # pairs = [1 => 3, 2 => 4], form = Truncate(0.1),
     # initial = PerStratum([2.0, 1.0]))`.
     C = [5.0 5.0 4.0 4.0 6.0 6.0; 3.0 3.0 3.0 2.0 2.0 2.0]
     m = beds(
         TimeVarying(PerStratum(C)), PerStratum([0.2, 0.3]);
-        form = (; kw...) -> CR.SoftTruncate(0.1; kw...),
+        form = (; kw...) -> CR.Truncate(0.1; kw...),
         initial = PerStratum([2.0, 1.0])
     )
     dem = [
