@@ -11,6 +11,7 @@
 # neighbours, a sparse matrix. Susceptibles deplete in each place.
 
 @testitem "Use case: community, household and funeral routes" tags = [:usecase] setup = [ReferenceAD] begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, ForwardDiff, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
 

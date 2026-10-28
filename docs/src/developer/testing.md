@@ -172,7 +172,7 @@ The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item o
 To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-On pull requests that change `src/` or `ext/`, a smoke run checks six cases, forward and reverse at 20 steps, against the same file.
+On pull requests that change `src/` or `ext/`, a smoke run checks five cases, forward and reverse at 20 steps, against the same file.
 After a change, rerun it on Julia 1.12 from the repository root:
 
 ```bash

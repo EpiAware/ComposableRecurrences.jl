@@ -48,14 +48,14 @@ Scope: modifier parameters of a [`Recurrence`](@ref); analytic adjoint.
 
 # Keyword Arguments
 - `coupling`: `nothing` to read each stratum's own outputs, or an `S × S`
-  matrix mixing them; `Recent(w, C)` is the same as `Recent(w; coupling = C)`.
+  matrix mixing them.
 
 # Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 # Transmission falls as the last week's incidence grows.
-β = Derived(exp, -0.05 * Recent(7))
+β = CR.Derived(exp, -0.05 * CR.Recent(7))
 r = Recurrence([0.2, 0.5, 0.3]; modifiers = (CR.Transform(*, β),))
 round.(r(fill(2.0, 8); history = ones(3)); digits = 3)
 
@@ -77,7 +77,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 # Each of two places responds to the incidence in both.
 C = [0.8 0.2; 0.2 0.8]
-β = Derived(exp, -0.05 * Recent(7; coupling = C))
+β = CR.Derived(exp, -0.05 * CR.Recent(7; coupling = C))
 r = Recurrence([0.2, 0.5, 0.3]; modifiers = (CR.Transform(*, β),))
 round.(r([2.0 2.0 2.0; 1.0 1.0 1.0]; history = ones(2, 3)); digits = 3)
 
@@ -93,7 +93,9 @@ struct Recent{W <: AbstractVector{<:Real}, C}
     w::W
     "The coupling, `nothing` or an `S × S` matrix."
     coupling::C
-    function Recent(w::W, coupling::C) where {W <: AbstractVector{<:Real}, C}
+    function Recent(
+            w::W; coupling::C = nothing
+        ) where {W <: AbstractVector{<:Real}, C}
         isempty(w) && throw(
             ArgumentError("Recent needs at least one weight; got $(_describe(w))")
         )
@@ -106,12 +108,13 @@ struct Recent{W <: AbstractVector{<:Real}, C}
         return new{W, C}(w, coupling)
     end
 end
-Recent(w::AbstractVector{<:Real}; coupling = nothing) = Recent(w, coupling)
-Recent(n::Integer; coupling = nothing) = Recent(n, coupling)
-function Recent(n::Integer, coupling)
+function Recent(n::Integer; coupling = nothing)
     n >= 1 || throw(ArgumentError("Recent(n) needs n >= 1 outputs; got n = $n"))
-    return Recent(_Ones(n), coupling)
+    return Recent(_Ones(n); coupling)
 end
+# Rebuilt from its fields, which have no positional constructor.
+_recent_flat(w, coupling) = Recent(w; coupling)
+ConstructionBase.constructorof(::Type{<:Recent}) = _recent_flat
 
 # The weights of `Recent(n)`: `n` ones, held as their count. A parameter
 # such as `κ * Recent(n)` then holds no array beside its scalar, a value

@@ -52,7 +52,7 @@ CR = ComposableRecurrences
 g = [0.2, 0.5, 0.3]
 r = CR.growth_rate(1.5, g)
 h = CR.exponential_history(5.0, r, length(g))
-y = Recurrence(g)(fill(1.5, 6); history = h, prepend = true)
+y = vcat(h, Recurrence(g)(fill(1.5, 6); history = h))
 round(r; digits = 4), all(y[2:end] ./ y[1:(end - 1)] .≈ exp(r))
 
 # output

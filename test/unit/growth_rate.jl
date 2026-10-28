@@ -48,7 +48,7 @@ end
     for (R, g) in ((1.4, [0.1, 0.3, 0.3, 0.2, 0.1]), (0.8, [0.2, 0.5, 0.3]))
         r = CR.growth_rate(R, g)
         h = CR.exponential_history(5.0, r, length(g))
-        y = Recurrence(g)(fill(R, 20); history = h, prepend = true)
+        y = vcat(h, Recurrence(g)(fill(R, 20); history = h))
         @test y[2:end] ./ y[1:(end - 1)] ≈ fill(exp(r), length(y) - 1)
     end
 end

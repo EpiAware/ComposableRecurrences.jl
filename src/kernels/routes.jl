@@ -47,10 +47,11 @@ kernels in `kernels`, in route order.
 # Examples
 ```jldoctest
 using ComposableRecurrences
+CR = ComposableRecurrences
 using SparseArrays: sparse
 community = [0.9 0.1; 0.1 0.9]
 funeral = sparse([0.0 0.4; 0.4 0.0])  # funerals in the other place
-routes = Routes((community, [0.5, 0.3, 0.2]), (funeral, [0.0, 0.0, 0.0, 1.0]))
+routes = CR.Routes((community, [0.5, 0.3, 0.2]), (funeral, [0.0, 0.0, 0.0, 1.0]))
 y = Recurrence(routes)(fill(1.2, 2, 6); history = ones(2, 4))
 round.(y; digits = 3)
 

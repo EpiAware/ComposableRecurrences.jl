@@ -8,6 +8,7 @@
     import DifferentiationInterface
     using Test: Test
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Routes
     using ComposableRecurrences: ComposableRecurrences as CR
     using LinearAlgebra, Random, SparseArrays
 
@@ -750,6 +751,7 @@ end
 end
 
 @testitem "Derived: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
+    using ComposableRecurrences: Derived
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Mooncake, Enzyme, ForwardDiff
@@ -1015,6 +1017,7 @@ end
 
 @testitem "Enzyme: NoAdjoint on a sparse coupling matches ForwardDiff" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Routes
     using ComposableRecurrences: NoAdjoint
     using SparseArrays
     import Enzyme, ForwardDiff
@@ -1043,9 +1046,9 @@ end
         @test dK.nzval ≈ ref
     end
     # The history joined in front of the output, by coupling and by route.
-    @testset "prepend, op $j" for (j, op) in enumerate(ops[1:2])
+    @testset "joined, op $j" for (j, op) in enumerate(ops[1:2])
         K, h, R = first(patterns), ones(3, 2), fill(0.9, 3, 10)
-        fp = r -> sum(abs2, NoAdjoint(r)(R; history = h, prepend = true))
+        fp = r -> sum(abs2, hcat(h, NoAdjoint(r)(R; history = h)))
         ref = ForwardDiff.gradient(nz -> fp(op(sparse_of(K, nz))), copy(K.nzval))
         dr = Enzyme.gradient(mode, Enzyme.Const(fp), op(K))[1]
         dK = j == 1 ? dr.coupling : last(dr.kernel.couplings)
@@ -1295,6 +1298,7 @@ end
 
 @testitem "Movement read from recent outputs with an active scale" tags = [:ad, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
@@ -1331,6 +1335,7 @@ end
 
 @testitem "Movement read from recent outputs, built from uninferred code" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
@@ -1840,7 +1845,7 @@ end
     let x = [0.1, 0.2, 0.3]
         losses = (
             (ρ, x) -> (
-                unused(Recurrence([1.0])(ρ; history = [0.5], add = x, prepend = true));
+                unused(Recurrence([1.0])(ρ; history = [0.5], add = x));
                 ρ^2 + sum(x)
             ),
             (ρ, x) -> (
