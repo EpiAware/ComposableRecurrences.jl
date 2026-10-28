@@ -43,7 +43,7 @@ end
 @testitem "ForwardDiff reference against central differences" tags = [:ad, :forwarddiff] setup = [ADHelpers, GradientChecks] begin
     scens = ADFixtures.scenarios(; with_reference = true, category = :rules)
     @testset "$(s.name)" for s in scens
-        @test matches_differences(s.f, s.x, s.res1; rtol = 1.0e-5, atol_share = 1.0e-5)
+        @test isempty(differing_entries(s.f, s.x, s.res1; rtol = 1.0e-5, atol_share = 1.0e-5))
     end
 end
 

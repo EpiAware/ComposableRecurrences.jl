@@ -65,13 +65,13 @@
     # where a relative step drowns in rounding.
     steps(x) = cbrt(eps()) .* unique((iszero(x) ? 1.0 : abs(x), max(abs(x), 1.0)))
 
-    # Whether the gradient `ref` of `f` at `θ` matches central differences
-    # in double precision entry by entry, at one of the entry's `steps`.
-    function matches_differences(f, θ, ref; rtol, atol_share)
+    # The entries where the gradient `ref` of `f` at `θ` matches central
+    # differences in double precision at none of the entry's `steps`.
+    function differing_entries(f, θ, ref; rtol, atol_share)
         x = Float64.(θ)
         atol = atol_share * maximum(abs, ref)
-        return all(eachindex(x)) do i
-            any(steps(x[i])) do h
+        return filter(eachindex(x)) do i
+            !any(steps(x[i])) do h
                 isapprox(central_difference(f, x, i, h), ref[i]; rtol, atol)
             end
         end

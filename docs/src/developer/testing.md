@@ -165,7 +165,7 @@ The `Threads` workflow runs the tests with four threads, so `Threaded` loops run
 To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq).
 
 The `AD` workflow runs every backend on the current Julia release only.
-The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item on Julia 1.11 and 1.12, on pushes to `main`, weekly and on demand.
+The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item on Julia 1.11 and 1.12, weekly and on demand.
 To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.

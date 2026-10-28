@@ -11,16 +11,11 @@ name: AD versions
 # Each backend runs in two jobs, the registry items in `scenarios.jl` and
 # the rest: in one process, Enzyme reverse on Julia 1.11 outgrows a
 # runner's memory and Mooncake reverse on 1.12 nears the time limit.
-# It runs on pushes to main, weekly, on demand, and on a pull request that
-# changes this file, not on every pull request.
+# It runs weekly, on demand, and on a pull request that changes this file:
+# its eight jobs take about seven runner-hours, too many for every pull
+# request or merge.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
   pull_request:
     paths:
       - '.github/workflows/ad-versions.yaml'
@@ -28,8 +23,8 @@ on:
     - cron: '17 3 * * 1'
   workflow_dispatch:
 
-# A newer push to a pull request supersedes its run; runs on main all
-# complete, so every merge gets a result.
+# A newer push to a pull request supersedes its run; scheduled and
+# on-demand runs all complete.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
