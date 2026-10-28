@@ -56,6 +56,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | part that the local step cannot rebuild from its parameters | plain AD |
 
 A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
+An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
 The [local step](@ref adjoint-local-step) rebuilds a part with dual numbers in place of its float parameters.
 The `Recurrence` constructor checks the rebuild once and stores the result.
