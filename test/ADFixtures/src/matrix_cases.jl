@@ -945,7 +945,7 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:_kernel_movement,),
-    "bvd_patches_call" => (:movement, :_WithTrace),
+    "bvd_patches_call" => (:_kernel_movement, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:_Routes,),
     "strata_vaccination" => (:depletion_pools,),

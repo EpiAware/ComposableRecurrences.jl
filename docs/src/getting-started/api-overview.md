@@ -96,6 +96,7 @@ A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a
 | [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | runs the recurrence from day `start` to day `stop` | a vector for one stratum, or strata × days |
 | [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from day `start` to day `stop` | an array shaped like `x` |
 | [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as each day's reports split by delay | lags × days, or strata × lags × days |
+| [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each day, with `tail` the values after the end of `x` | an array shaped like `x` |
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` each day, recomputed from outputs `y` | shaped like `y` |
 | [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from day `state.t` | `(y, state)` |

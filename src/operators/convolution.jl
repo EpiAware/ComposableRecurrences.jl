@@ -183,6 +183,8 @@ is ``k_{i,l}(t - l)`` and input mass is conserved up to the window's end.
 To weight lags from 1, as a renewal's force of infection does, prepend a
 zero: `Convolution(vcat(0, g))` recomputes ``\sum_{l=1}^{L} g_l\, y_{t-l}``
 from the outputs ``y`` of a [`Recurrence`](@ref) with kernel ``g``.
+A sum that reads the inputs forward from each time is the transpose
+`c'`, which [`transpose`](@ref Base.transpose(::Convolution)) sets out.
 
 Called as `c(x; gain = 1, add, history = nothing, start = 1, stop)`, the
 call covers the absolute times `start:stop`:
@@ -782,11 +784,11 @@ function _convolve_body!(k, Y, c::_TVColumns{Secondary}, X, m, start)
 end
 # A column kernel in Primary indexing: the input at time `σ`, buffer row
 # `m + σ`, spreads forward through its own column. There is no history, so
-# `σ` starts at 1.
+# `σ` starts at 1, and an input after the last column spreads nowhere.
 function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
     D = _nlags(c)
     stop = start + size(Y, 1) - 1
-    for σ in max(1, start - D + 1):stop
+    for σ in max(1, start - D + 1):min(stop, _last_column(c))
         w = _wcolumn(c, k, σ)
         @inbounds x = X[m + σ, k]
         o = σ - start + 1
@@ -796,6 +798,14 @@ function _convolve_body!(k, Y, c::_TVColumns{Primary}, X, m, start)
     end
     return nothing
 end
+# The last input time a `Primary()` kernel has a column for, and the first
+# lag at output time `t` whose input has one: guards for the transpose,
+# which runs these bodies past the kernel's last column.
+_last_column(c::TimeVarying) = _extent(_array(c))
+_last_column(c::TimeVarying{<:Any, <:_AnyRagged}) = _ncols(c.x)
+_first_lag(c, t) = 0
+_first_lag(c::TimeVarying{Primary}, t) = max(0, t - _last_column(c))
+
 # A per-stratum kernel, in either indexing: one dot per output time `t` of
 # the window with the weights `_lagweight` reads, from the column
 # `_lagcolumn` picks for the indexing. The column bodies above measured
@@ -805,7 +815,7 @@ function _convolve_body!(k, Y, c::_TVPerStratum, X, m, start)
     for j in axes(Y, 1)
         t = start + j - 1
         acc = zero(eltype(Y))
-        @inbounds for d in 0:(min(L, m + t) - 1)
+        @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
             acc += _lagweight(c, k, d, t) * X[m + t - d, k]
         end
         @inbounds Y[j, k] = acc
@@ -954,7 +964,7 @@ end
 function _strata_back!(ks, X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
     D = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
-    for k in ks, σ in max(1, start - D + 1):stop
+    for k in ks, σ in max(1, start - D + 1):min(stop, _last_column(c))
         w = _wcolumn(c, k, σ)
         w̄ = _wcolumn(c̄, c, k, σ)
         o = σ - start + 1
@@ -978,7 +988,7 @@ function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     for k in ks, j in axes(Ȳ, 1)
         t = start + j - 1
         @inbounds a = Ȳ[j, k]
-        @inbounds for d in 0:(min(L, m + t) - 1)
+        @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
             r = m + t - d
             _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
             X̄[r, k] += _lagweight(c, k, d, t) * a

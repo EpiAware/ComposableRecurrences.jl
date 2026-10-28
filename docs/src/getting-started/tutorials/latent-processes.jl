@@ -3,19 +3,8 @@
 # ## Introduction
 #
 # A smoothly changing reproduction number is often a latent process on the log scale.
-# Random walks, AR and MA processes are recurrences or convolutions of innovations, and this tutorial uses them to drive a renewal process.
-#
-# ### What are we going to do in this exercise
-#
-# 1. Build a random walk, an AR(2) and an MA(2) process from the same innovations.
-# 2. Give an AR process a time-varying coefficient.
-# 3. Drive a renewal process with the exponential of an AR(1) process.
-# 4. Saturate transmission as incidence rises, with [`Transform`](@ref ComposableRecurrences.Transform).
-# 5. Drive a response and vaccination from [`Recent`](@ref ComposableRecurrences.Recent) incidence.
-#
-# ### What might I need to know before starting
-#
-# The [Getting started](@ref getting-started) example and AR processes.
+# Random walks, AR and MA processes are recurrences or convolutions of innovations, and they can drive a renewal process.
+# It builds on the [Getting started](@ref getting-started) example and AR processes.
 
 # ## Packages used
 
@@ -30,20 +19,21 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## Three processes from one set of innovations
 #
-# With innovations ``\epsilon_t``, the three processes are
-#
 # ```math
 # z^{\text{RW}}_t = z^{\text{RW}}_{t-1} + \epsilon_t, \qquad
-# z^{\text{AR}}_t = 0.6 \, z^{\text{AR}}_{t-1} + 0.3 \, z^{\text{AR}}_{t-2}
+# z^{\text{AR}}_t = \phi_1 z^{\text{AR}}_{t-1} + \phi_2 z^{\text{AR}}_{t-2}
 #     + \epsilon_t, \qquad
-# z^{\text{MA}}_t = \epsilon_t + 0.8 \, \epsilon_{t-1} + 0.4 \, \epsilon_{t-2}.
+# z^{\text{MA}}_t = \epsilon_t + \theta_1 \epsilon_{t-1} + \theta_2 \epsilon_{t-2}.
 # ```
 #
-# Each recurrence takes the innovations as `add`.
-# The MA(2) process is a convolution of them.
 # ``z_t`` is each process's value on day ``t``.
+# ``\epsilon_t`` is the innovation on day ``t``, drawn with standard deviation 0.1.
+# ``\phi_1 = 0.6`` and ``\phi_2 = 0.3`` are the AR coefficients.
+# ``\theta_1 = 0.8`` and ``\theta_2 = 0.4`` are the MA coefficients.
+# Each recurrence has the AR coefficients as its kernel and takes the innovations as `add`.
+# The MA(2) process is a [`Convolution`](@ref) of the innovations with the kernel ``(1, \theta_1, \theta_2)``.
 # With no gain the call runs over the length of `add`.
-# The processes are those in the [time-series table](@ref overview-time-series).
+# Other [time-series processes](@ref overview-time-series) are built the same way.
 
 T = 100
 ϵ = 0.1 .* randn(Xoshiro(1), T)
@@ -65,23 +55,22 @@ end
 
 # ## A time-varying AR coefficient
 #
-# An AR(1) process with a coefficient ``\rho_t`` that changes by day is
-#
 # ```math
-# z_t = \rho_t \, z_{t-1} + \epsilon_t.
+# z_t = \phi_t \, z_{t-1} + \epsilon_t.
 # ```
 #
-# ``\rho_t`` can be a [`TimeVarying`](@ref) kernel, one column per day.
-# With a single lag it can also be the gain on the unit kernel.
+# ``\phi_t`` is the AR coefficient on day ``t``, falling in equal steps from 0.95 on day 1 to 0.5 on day 100.
+# ``\epsilon_t`` are the innovations above.
+# ``\phi_t`` can be a [`TimeVarying`](@ref) kernel, one column per day.
+# With a single lag it can also be the gain ``\gamma_t`` on the unit kernel.
+# The gain scales the lag sum before the `add` input is added, so both forms give the same process.
+# The comparison holds ``\phi`` at 0.95 throughout.
 
-ρ = range(0.95, 0.5; length = T)
-tvar_kernel = Recurrence(TimeVarying(reshape(collect(ρ), 1, :)))(; history = [0.0], add = ϵ)
-tvar_gain = Recurrence([1.0])(ρ; history = [0.0], add = ϵ)
-maximum(abs, tvar_kernel .- tvar_gain)
-
-#-
-
+φ = range(0.95, 0.5; length = T)
+tvar_kernel = Recurrence(TimeVarying(reshape(collect(φ), 1, :)))(; history = [0.0], add = ϵ)
+tvar_gain = Recurrence([1.0])(φ; history = [0.0], add = ϵ)
 fixed = Recurrence([0.95])(; history = [0.0], add = ϵ)
+
 @chain DataFrame(
     "day" => 1:T, "Fixed at 0.95" => fixed, "Falling from 0.95 to 0.5" => tvar_kernel
 ) begin
@@ -92,17 +81,22 @@ end
 
 # The two agree at first.
 # As the coefficient falls, innovations fade sooner and the process stays nearer zero.
+# The kernel and gain forms agree to round-off.
 
 # ## An AR(1) process as the log reproduction number
 #
-# The exponential of a latent process is a positive reproduction number:
-#
 # ```math
-# \log R_t = 0.95 \log R_{t-1} + \epsilon_t, \qquad I_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}.
+# z_t = \phi \, z_{t-1} + \epsilon_t, \qquad
+# \gamma_t = R_t = \exp(z_t), \qquad
+# I_t = \gamma_t \sum_{l=1}^{L} g_l \, I_{t-l}.
 # ```
 #
-# Here ``\epsilon_t`` are new draws with standard deviation 0.05.
-# ``I_t`` is the number of infections and ``g_l`` the generation interval of length ``L``.
+# ``z_t`` is the log reproduction number, an AR(1) process with coefficient ``\phi = 0.95``.
+# ``\epsilon_t`` are new innovations with standard deviation 0.05.
+# ``R_t`` is the reproduction number on day ``t``, the gain ``\gamma_t`` of the renewal.
+# ``I_t`` is the number of infections on day ``t``.
+# ``g_l`` is the generation interval on lag ``l``, with ``L = 5`` lags.
+# Each run starts from ten infections on each of the five days before day 1.
 # An AR(1) process with a coefficient below one reverts to zero, so ``R_t`` stays near 1.
 # Twenty draws of the innovations give twenty paths of ``R_t`` and their infections.
 
@@ -124,7 +118,7 @@ rng = Xoshiro(2)
     draw(_; axis = (xlabel = "Day", ylabel = "Value"), facet = (; linkyaxes = :none))
 end
 
-# ``R_t`` stays between about 0.6 and 1.8 in every draw.
+# ``R_t`` stays between 0.57 and 1.84 across the twenty draws.
 # Small differences in ``R_t`` compound, so some outbreaks die out and others grow large.
 
 # ## Transmission that saturates with incidence
@@ -133,11 +127,16 @@ end
 # A saturating form (Capasso and Serio 1978) caps daily infections below ``\kappa``:
 #
 # ```math
-# f(v, \kappa) = \frac{v}{1 + v / \kappa},
+# v_t = \gamma \sum_{l=1}^{L} g_l \, I_{t-l}, \qquad
+# I_t = M_1(v_t) = \frac{v_t}{1 + v_t / \kappa}.
 # ```
 #
-# where ``v`` is the renewal value ``R \sum_{l} g_l I_{t-l}``.
-# With a constant ``R > 1`` infections settle at ``\kappa (R - 1) / R``.
+# ``v_t`` is the renewal value on day ``t``, with a constant gain ``\gamma = R = 1.5``.
+# ``g_l`` and ``I_t`` are the generation interval and infections of the previous model.
+# ``M_1`` is a [`Transform`](@ref ComposableRecurrences.Transform) modifier, the only one.
+# ``\kappa`` is the level daily infections stay below.
+# Each run starts from five infections on the day before day 1.
+# With ``R > 1`` infections settle at ``\kappa (R - 1) / R``, which is 33.3 for ``\kappa = 100`` and 100 for ``\kappa = 300``.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 R = fill(1.5, T)
@@ -154,27 +153,74 @@ saturate(v, κ) = v / (1 + v / κ)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections (log scale)", yscale = log10))
 end
 
-# The gradient of the total infections with respect to ``\kappa`` and a constant ``R``:
+# Without the response infections keep growing.
+# With it they level off at the values above.
+#
+# The total infections over the 100 days depend smoothly on ``\kappa`` and ``R``:
+#
+# ```math
+# C(\kappa, R) = \sum_{t=1}^{T} I_t.
+# ```
+#
+# ``T = 100`` is the number of days.
+# [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) gives the gradient of ``C`` at ``\kappa = 100`` and ``R = 1.5``.
+# Each panel varies one parameter and holds the other at that point.
+# The dashed line in each panel is the tangent the gradient gives.
 
 function total_infections(x)
     modifiers = (Transform(saturate, x[1]),)
     return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
 end
-ForwardDiff.gradient(total_infections, [100.0, 1.5])
+line_names = ["Total infections", "Tangent from the gradient"]
+function tangents(f, x0, names, grids)
+    grad = ForwardDiff.gradient(f, x0)
+    frames = map(eachindex(x0)) do i
+        xs = collect(grids[i])
+        curve = [f(setindex!(copy(x0), x, i)) for x in xs]
+        tangent = f(x0) .+ grad[i] .* (xs .- x0[i])
+        DataFrame(
+            parameter = names[i], value = vcat(xs, xs), total = vcat(curve, tangent),
+            line = repeat(line_names; inner = length(xs))
+        )
+    end
+    return reduce(vcat, frames)
+end
+@chain tangents(total_infections, [100.0, 1.5], ["κ", "R"], [60:5:140, 1.3:0.02:1.7]) begin
+    data(_) * visual(Lines, linewidth = 2) * mapping(
+        :value, :total; linestyle = :line => sorter(line_names) => "", layout = :parameter
+    )
+    draw(
+        _; axis = (xlabel = "Parameter value", ylabel = "Total infections"),
+        facet = (; linkxaxes = :none)
+    )
+end
+
+# Each tangent touches its curve at the point, so the gradient matches the slope.
 
 # ## Feedback from recent incidence
 #
 # The saturating response reacts to the current day only.
 # A response to the last week's incidence is built from existing modifiers.
-# [`Recent`](@ref ComposableRecurrences.Recent) reads the recurrence's own past outputs, [`Derived`](@ref ComposableRecurrences.Derived) maps them, and any modifier parameter takes the result.
-# The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it:
+# The parameter [`Recent`](@ref ComposableRecurrences.Recent) reads the recurrence's own past outputs, [`Derived`](@ref ComposableRecurrences.Derived) maps them, and any modifier parameter takes the result.
+# The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it.
+# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases:
 #
 # ```math
-# v'_t = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} y_{t-l}\Big)\, R_t \sum_{l} g_l\, y_{t-l},
+# \begin{aligned}
+# v_t &= \gamma \sum_{l=1}^{L} g_l \, I_{t-l}, \qquad
+# v'_t = M_1(v_t) = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} I_{t-l}\Big)\, v_t, \\
+# I_t &= S_{t-1} \big(1 - e^{-v'_t / N}\big), \qquad
+# S_t = S_{t-1} - I_t - D_t, \\
+# D_t &= \min\Big(0.5 \sum_{l=1}^{7} I_{t-l},\ \max\big(S_{t-1} - I_t,\ 0\big)\Big).
+# \end{aligned}
 # ```
 #
-# where ``y_t`` is the infections drawn on day ``t`` and ``v'_t`` the value the depletion draws them from.
-# The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases.
+# ``v_t`` is the renewal value with gain ``\gamma = 1.5``, and ``v'_t`` the value after the response.
+# ``M_1`` is the response, a [`Transform`](@ref ComposableRecurrences.Transform) with strength ``\kappa = 10``.
+# ``S_t`` is the susceptible pool after day ``t``, starting at ``N = 5000``.
+# The depletion is the second modifier ``M_2``, which draws ``I_t`` from the pool by the [hazard form](@ref ComposableRecurrences.Hazard).
+# ``D_t`` is the ring vaccination doses on day ``t``, half the last week's infections.
+# The models without a response take ``v'_t = v_t``, and those without ring vaccination take ``D_t = 0``.
 
 N = 5_000.0
 κr = 10.0
@@ -196,15 +242,29 @@ feedback = [
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# Both measures cut the peak, and together they cut it further than either alone.
+# Depletion alone peaks at 111 infections on day 37.
+# The response lowers the peak to 23 and ring vaccination to 36.
+# Together they lower it to 16.
+#
 # The [reverse-mode rule](@ref adjoint-routing) sends gradients back through the outputs `Recent` reads, so Mooncake and Enzyme follow the feedback.
-# The gradient of the total infections with respect to the response strength and ``R``:
+# ForwardDiff gives the gradient of the total infections ``C(\kappa, R)`` of the response-and-depletion model at ``\kappa = 10`` and ``R = 1.5``.
 
 function total_with_response(x)
     modifiers = (Transform(*, Derived(exp, -x[1] / N * Recent(7))), Depletion(N))
     return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
 end
-ForwardDiff.gradient(total_with_response, [κr, 1.5])
+@chain tangents(total_with_response, [κr, 1.5], ["κ", "R"], [0:1:20, 1.3:0.02:1.7]) begin
+    data(_) * visual(Lines, linewidth = 2) * mapping(
+        :value, :total; linestyle = :line => sorter(line_names) => "", layout = :parameter
+    )
+    draw(
+        _; axis = (xlabel = "Parameter value", ylabel = "Total infections"),
+        facet = (; linkxaxes = :none)
+    )
+end
+
+# A stronger response lowers the total, and a higher ``R`` raises it.
+# Each tangent touches its curve at the point.
 
 # ## Performance
 #

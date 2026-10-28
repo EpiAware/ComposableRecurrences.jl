@@ -1351,9 +1351,9 @@ end
 
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording (`Val(true)`), the cache the reverse pass reads, or, when
-# tracing without records (`Val(:trace)`), each modifier's trace. The buffer is `D` rows deep before the run, `D >= L`, and row
-# `D + t` holds absolute time `τ0 + t - 1`; the kernel reads the last `L`
-# rows before each step.
+# tracing without records (`Val(:trace)`), each modifier's trace. The buffer
+# is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
+# time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
 # The records are each step's kernel convolutions and pressures `pr`
 # (strata × steps; see `_pressure_records`) and each modifier's input
 # values and states.
