@@ -103,8 +103,8 @@
     # leaves), a population over time, imports, movements, dense matrices,
     # `Derived`, a capacity, a seed joined to the output with and without
     # state, traces of pointwise and grouped steps, change points, the
-    # automatic convolution, the local steps of user types, routes, and an
-    # operator checked at the call. Enzyme's pass with the operator constant
+    # automatic convolution, the weights of a computed kernel, the local
+    # steps of user types, routes, and an operator checked at the call. Enzyme's pass with the operator constant
     # reaches branches for a constant part that only some operators have,
     # so their scenarios are here too: a constant movement, `Clamp`, a
     # traced movement, change-point kernels, ragged columns held as given
@@ -132,6 +132,7 @@
         "Recurrence coupling from change points",
         "Recurrence parameters from change points",
         "Convolution long kernel by the automatic method",
+        "Kernel weights of a survival against a delay and calendar hazard",
         "Recurrence user coupling without a pullback",
         "Recurrence per-stratum modifier without a pullback",
         "Recurrence modifier with a vector field read by time",

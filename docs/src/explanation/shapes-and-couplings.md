@@ -15,8 +15,8 @@ Each slot accepts its own set of wrappers.
 
 | Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref ComposableRecurrences.Routes) | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
 |---|---|---|---|---|---|---|---|
-| `Recurrence` kernel | lags | yes | yes | yes | yes | no | no |
-| `Convolution` kernel | lags | yes | yes | no | no | no | no |
+| `Recurrence` kernel | lags | yes | yes | yes | yes | in `TimeVarying(d, Primary())` | no |
+| `Convolution` kernel | lags | yes | yes | no | no | in `TimeVarying(d, Primary())` | no |
 | coupling | `S × S` or `λI` | no | yes | no | no | no | no |
 | modifier parameter | one value | yes | yes | no | no | yes | yes |
 
@@ -27,6 +27,7 @@ Each slot accepts its own set of wrappers.
 Wrappers nest from the outside in: time, then strata, then the slot's own axes.
 So `TimeVarying(PerStratum(G))` is an `S × L × T` kernel and `TimeVarying(Pairwise(A))` is `S × S × L × T`.
 A `Derived` or `Recent` parameter sits inside arithmetic, as in `κ * Recent(7)`, and its arguments may be any other parameter.
+A `Derived` kernel's arguments may also be vectors of lag weights, `Primary()` coefficients and [`Survival`](@ref ComposableRecurrences.Survival).
 
 Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.param), which takes every form.
 So a new wrapper or parameter form works with every modifier that reads through `param`.

@@ -119,7 +119,8 @@ function _check_param(
     return x
 end
 _check_param(name, x::TimeVarying{Primary}) = _primary_error(name, x)
-function _check_param(name, x)
+_check_param(name, x) = _param_error(name, x)
+@noinline function _param_error(name, x)
     throw(
         ArgumentError(
             "$name is one value, PerStratum($name) with one per stratum, " *
