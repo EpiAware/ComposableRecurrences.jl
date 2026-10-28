@@ -58,10 +58,8 @@ function _check_route_kernel(::_Routes)
     throw(ArgumentError("a route's kernel cannot itself be routes"))
 end
 
-function _describe(R::_Routes)
-    n = length(R.kernels)
-    return string("Pairwise with ", n, n == 1 ? " route" : " routes")
-end
+_describe(R::_Routes) = _describe_routes(length(R.kernels))
+_describe_routes(n) = string("Pairwise with ", n, n == 1 ? " route" : " routes")
 
 _check_kernel_shape(::_Routes) = nothing
 function _check_pairwise_coupling(::_Routes, coupling)
