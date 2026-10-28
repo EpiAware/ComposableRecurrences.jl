@@ -386,7 +386,12 @@ end
     @test @inferred(leaky_redistribute(M)) isa CR.Redistribute{true}
     # So is the kernel and intensity form, for each kind of intensity.
     K = [0.0 0.3 0.1; 0.2 0.0 0.5; 0.4 0.2 0.0]
-    for ε in (0.1, [0.1, 0.2, 0.05], [0.1 0.2; 0.3 0.05; 0.15 0.25])
+    E = [0.1 0.2; 0.3 0.05; 0.15 0.25]
+    for ε in (
+            0.1, [0.1, 0.2, 0.05], E, PerStratum([0.1, 0.2, 0.05]),
+            TimeVarying(PerStratum(E)), TimeVarying([0.1, 0.2]),
+            CR.Derived(exp, TimeVarying(PerStratum(log.(E)))), 0.1 * CR.Recent(3),
+        )
         @test @inferred(CR.Redistribute(K, ε)) isa CR.Redistribute{false}
         leaky_movement(K, ε) = ComposableRecurrences.Redistribute(K, ε; leak = true)
         @test @inferred(leaky_movement(K, ε)) isa CR.Redistribute{true}

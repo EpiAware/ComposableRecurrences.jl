@@ -672,11 +672,10 @@ end
 # A branch on a literal `leak` names the type parameter in each arm, so the
 # call is inferred.
 Redistribute(M; leak::Bool = false) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
-# Julia 1.11 infers the literal `leak` here only with aggressive constant
+# Julia 1.11 carries the literal `leak` through only with aggressive constant
 # propagation.
 Base.@constprop :aggressive function Redistribute(K, ε; leak::Bool = false)
-    M = _kernel_movement(K, ε)
-    return leak ? Redistribute{true}(M) : Redistribute{false}(M)
+    return Redistribute(_kernel_movement(K, ε); leak)
 end
 ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
 
