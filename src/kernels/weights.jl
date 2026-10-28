@@ -76,11 +76,12 @@ _over_time(::_Computed) = true
 # The coefficients a computed kernel reads: numbers, lag weights, values per
 # stratum or per time, and other computed weights.
 const _TimeAxis = Union{AbstractVector{<:Real}, PerStratum{<:AbstractMatrix{<:Real}}}
-const _Coefficient = Union{
-    Real, AbstractVector{<:Real}, PerStratum{<:AbstractVecOrMat{<:Real}},
-    TimeVarying{<:Any, <:_TimeAxis}, _Computed,
+const _ArrayCoefficient = Union{
+    AbstractVector{<:Real}, PerStratum{<:AbstractVecOrMat{<:Real}},
+    TimeVarying{<:Any, <:_TimeAxis},
 }
-function _check_coefficient(x::_Coefficient)
+const _Coefficient = Union{Real, _ArrayCoefficient, _Computed}
+function _check_coefficient(x::_ArrayCoefficient)
     _require_one_based(_array(x))
     return nothing
 end
