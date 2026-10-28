@@ -39,7 +39,6 @@ This table maps common model parts to the code that builds them, with the tutori
 | Vaccine doses from a weekly budget | ``x_t = \min(d_t, B_t)``, with ``B_t`` refilled by ``b`` each week | [`Depletion(Flow(0 => :B, TimeVarying(b); form = Truncate()), Truncate(; overflow = :stratum); pools = (:B,))`](@ref ComposableRecurrences.Depletion), with `b` the weekly grants | the [`Depletion`](@ref ComposableRecurrences.Depletion) example |
 | Forecast after a fit | continue ``I_t`` from the fitted days | [`r(R; history, state = true)`](@ref Recurrence), then `r(R; state)` | [Forecasting](@ref tutorial-forecasting) |
 | Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | `vcat(history, r(R; history))` | [What a call returns](@ref explanation-returns) |
-| Seed on an exponential growth path | ``h_l = I_0 e^{r (l - L)}``, with ``r`` matching ``R`` | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | [Renewal then delay](@ref tutorial-renewal-delay) |
-| Growth rate matching a reproduction number, and the inverse | ``1 = R \sum_{l \ge 1} g_l e^{-r l}`` | [`growth_rate(R, g)`](@ref ComposableRecurrences.growth_rate), [`reproduction_number(r, g)`](@ref ComposableRecurrences.reproduction_number) | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Seed on an exponential growth path | ``h_l = I_0 e^{r (l - L)}``, at a given rate ``r`` per step | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | [Renewal then delay](@ref tutorial-renewal-delay) |
 
 Random walks and autoregressions are [recurrences](@ref overview-time-series), and moving averages are convolutions.
