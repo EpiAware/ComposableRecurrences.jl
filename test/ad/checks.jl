@@ -8,13 +8,14 @@
     using EpiAwarePackageTools: EpiAwarePackageTools
     using Test
 
-    # An entry that is zero in exact arithmetic comes out as rounding, so
-    # the absolute tolerance is this share of the largest reference entry.
-    const ATOL_SHARE = 1.0e-12
+    # An entry that is zero in exact arithmetic comes out as rounding, up to
+    # about 4e-16 in the registry, so it passes this absolute tolerance. It
+    # does not grow with the gradient, so a large entry cannot cover a small
+    # one.
+    const ATOL = 1.0e-12
 
     # Whether `g` matches `ref` entry by entry to `rtol`.
-    function entrywise(g, ref; rtol, atol_share = ATOL_SHARE)
-        atol = atol_share * maximum(abs, ref)
+    function entrywise(g, ref; rtol, atol = ATOL)
         return size(g) == size(ref) && all(isapprox.(g, ref; rtol, atol))
     end
 

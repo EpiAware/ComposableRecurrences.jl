@@ -1150,11 +1150,16 @@ const FLOAT32_RTOL = 1.0e-3
 const _F32 = (; single = true)
 
 # The relative tolerance, entry by entry, of each backend's gradient
-# against the ForwardDiff reference.
+# against the ForwardDiff reference: `FLOAT32_GRADIENT_RTOL` for a scenario
+# whose parameters are `Float32`. A scenario with `Float64` parameters and
+# `Float32` values elsewhere still has a gradient in double precision.
 const GRADIENT_RTOL = 1.0e-8
 const FLOAT32_GRADIENT_RTOL = 1.0e-4
 
-"Whether `entry` has single-precision values: its optional fourth element."
+"""
+Whether `entry` has single-precision values, in which the rule testers take
+their differences: its optional fourth element.
+"""
 single_precision(entry) = length(entry) > 3 && entry[4].single
 
 """
@@ -2119,7 +2124,7 @@ _dynamic(f) = θ -> Base.inferencebarrier(f)(θ)
 const _TWINS = Tuple{String, Any, Any, Bool}[
     (
         prefix * entry[1], _dynamic(Base.Fix1(entry[2], wrap)), entry[3],
-        single_precision(entry),
+        eltype(entry[3]()) == Float32,
     )
         for (prefix, wrap, extra) in (
             ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
@@ -2146,8 +2151,8 @@ The category `:marginal` holds every scenario and its `NoAdjoint` twin,
 which the benchmarks time and the reverse-mode backends with a rule test.
 The category `:rules` holds every scenario without its twin, for the
 backends where the twin takes the same path as its scenario.
-`precision = :single` keeps the scenarios with single-precision values and
-`:double` the others, so each set is checked at its own tolerance (see
+`precision = :single` keeps the scenarios with single-precision parameters
+and `:double` the others, so each set is checked at its own tolerance (see
 `gradient_rtol`).
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
