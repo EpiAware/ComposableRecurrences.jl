@@ -65,17 +65,20 @@
         )
     end
 
-    # The central difference of `f` at `x` in entry `i` with step `h`, or
-    # `NaN` where the step leaves the domain of `f`.
+    # The central difference of `f` at `x` in entry `i` with step `h`, and
+    # the rounding it carries, `100 eps |f| / h`; `NaN`s where the step leaves
+    # the domain of `f`.
     function central_difference(f, x, i, h)
         xp, xm = copy(x), copy(x)
         xp[i] += h
         xm[i] -= h
         return try
-            (f(xp) - f(xm)) / (xp[i] - xm[i])
+            fp, fm = f(xp), f(xm)
+            Δ = xp[i] - xm[i]
+            (fp - fm) / Δ, 200 * eps() * max(abs(fp), abs(fm)) / Δ
         catch err
             err isa DomainError || rethrow()
-            NaN
+            NaN, NaN
         end
     end
 
@@ -85,13 +88,14 @@
     steps(x) = cbrt(eps()) .* unique((iszero(x) ? 1.0 : abs(x), max(abs(x), 1.0)))
 
     # The entries where the gradient `ref` of `f` at `θ` matches central
-    # differences in double precision at none of the entry's `steps`.
-    function differing_entries(f, θ, ref; rtol, atol_share)
+    # differences in double precision, to `rtol` or to their rounding, at
+    # none of the entry's `steps`.
+    function differing_entries(f, θ, ref; rtol)
         x = Float64.(θ)
-        atol = atol_share * maximum(abs, ref)
         return filter(eachindex(x)) do i
             !any(steps(x[i])) do h
-                isapprox(central_difference(f, x, i, h), ref[i]; rtol, atol)
+                d, rounding = central_difference(f, x, i, h)
+                isapprox(d, ref[i]; rtol, atol = rounding)
             end
         end
     end

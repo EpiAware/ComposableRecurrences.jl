@@ -127,9 +127,10 @@ Each row records the load average when its cell started, so a busy machine shows
 ## Gradient tests and use-case tests
 
 `test/ADFixtures` holds the scenarios the gradient tests run on every backend, each checked against a ForwardDiff reference.
-Each gradient entry must match its reference to a relative `1e-8`, or `1e-4` for a scenario with single-precision values, with an absolute floor of `1e-12` of the largest entry for entries that are zero in exact arithmetic.
+Each gradient entry must match its reference to a relative `1e-8`, or `1e-4` for a scenario with single-precision parameters, with an absolute floor of `1e-12` for entries that are zero in exact arithmetic.
+The plain call and the prepared, value-and-gradient and in-place calls are all checked this way.
 The ForwardDiff job also checks each reference against central differences to a relative `1e-5`, so a wrong reference cannot pass every backend.
-Central differences in double precision reach about `1e-6` to `1e-10`, so the check also allows `1e-5` of the largest entry.
+Each entry may also differ by the rounding of its central difference, `100 eps |f| / h` for a step `h`.
 Each entry is tried at a step relative to it and at a step of at least `cbrt(eps())`.
 A wrong reference misses by far more.
 The rule testers that `test_adjoint` runs use a relative and absolute `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
