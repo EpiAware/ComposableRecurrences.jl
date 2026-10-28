@@ -66,8 +66,8 @@ So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent).
 Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
 Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).
 Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
-These accept every parameter form, including [`Derived`](@ref) and [`Recent`](@ref).
-Call [`add_param!`](@ref ComposableRecurrences.add_param!) for every parameter, even with a `nothing` mirror, as a [`Recent`](@ref) parameter still sends its cotangent to the outputs it read.
+These accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent).
+Call [`add_param!`](@ref ComposableRecurrences.add_param!) for every parameter, even with a `nothing` mirror, as a [`Recent`](@ref ComposableRecurrences.Recent) parameter still sends its cotangent to the outputs it read.
 
 A type without a `pullback!` still takes the rule when the [local step](@ref adjoint-local-step) can rebuild it.
 

@@ -12,6 +12,15 @@ f(R) = r(R; history = [1.0, 1.0])
 y = (Reactant.@compile f(R))(R)
 ```
 
+To [join the history in front](@ref explanation-returns) of a traced output, pass the history in as a traced array too.
+Joining a host array to a traced one is a scalar-indexing error.
+
+```julia
+h = Reactant.to_rarray([1.0, 1.0])
+joined(R, h) = vcat(h, r(R; history = h))
+y = (Reactant.@compile joined(R, h))(R, h)
+```
+
 A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
 The time loop compiles to one loop whose body is a step, so compile time does not grow with the number of steps.
 The [strata](@ref overview-step) loops within a step are written out, so the program grows with the number of strata.

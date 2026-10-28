@@ -44,9 +44,8 @@
             CR.Flow(:S => 0, TimeVarying(sales .- births); form = CR.Truncate());
             pools = (S = pool0,)
         )
-        return Recurrence(g; modifiers = (herd,))(
-            R; history = seed, start = t0, prepend = true
-        )
+        y = Recurrence(g; modifiers = (herd,))(R; history = seed, start = t0)
+        return vcat(seed, y)
     end
 
     @test model(R, births) ≈ naive(R, births)

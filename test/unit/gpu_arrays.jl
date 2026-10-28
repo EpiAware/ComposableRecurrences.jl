@@ -4,6 +4,7 @@
 
 @testmodule GPUCases begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
         contributions, movement
@@ -44,8 +45,8 @@
         ),
         "Recurrence, strata with add" =>
             d -> Recurrence(d(g0))(d(RS); history = d(HS), add = d(0.1 .* RS)),
-        "Recurrence, start and prepend" =>
-            d -> Recurrence(d(g0))(d(R0); history = d(H1), start = 5, prepend = true),
+        "Recurrence, start" =>
+            d -> Recurrence(d(g0))(d(R0); history = d(H1), start = 5),
         "Recurrence, PerStratum kernel" =>
             d -> Recurrence(PerStratum(d(repeat(g0', S) .* (1:S) ./ S)))(
             d(RS); history = d(HS)
@@ -477,6 +478,7 @@ end
 @testitem "JLArrays: wrappers and built-in modifiers adapt every array they hold" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Hazard, Redistribute, Share, Transform, Truncate
     using JLArrays

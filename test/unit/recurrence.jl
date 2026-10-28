@@ -464,61 +464,6 @@ end
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
 
-@testitem "prepend returns the history then the run" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff
-    CR = ComposableRecurrences
-    g = [0.3, 0.5, 0.2]
-    d = CR.Depletion(80.0; pools = (S = 71.0,))
-    r = Recurrence(g; modifiers = (d,))
-    # A single series, and strata with a seed shorter than the kernel; the
-    # seed before time 1 or at times 1 to m.
-    for (h, R) in (
-                ([2.0, 3.0, 4.0], [0.0, 0.0, 0.0, 2.5, 2.2, 1.8, 1.5, 1.2]),
-                ([1.0 2.0; 0.5 1.0], fill(1.8, 2, 7)),
-            ), start in (1, size(h, ndims(h)) + 1)
-        expansion(h, R) = cat(h, r(R; history = h, start); dims = ndims(h))
-        seeded(h, R) = r(R; history = h, start, prepend = true)
-        @test seeded(h, R) == expansion(h, R)
-        @test CR.NoAdjoint(r)(R; history = h, start, prepend = true) ≈ expansion(h, R)
-        y, st = r(R; history = h, start, prepend = true, state = true)
-        @test y == expansion(h, R)
-        @test st.t == size(R, ndims(R)) + 1
-        # `state = true` folds as a literal inside a function.
-        stated(op, R; kw...) = op(R; kw..., state = true)
-        yn, stn = @inferred stated(CR.NoAdjoint(r), R; history = h, start, prepend = true)
-        @test yn ≈ y
-        @test stn.history ≈ st.history && stn.t == st.t
-        loss(f) = θ -> sum(abs2, f(reshape(θ[1:length(h)], size(h)), reshape(θ[(length(h) + 1):end], size(R))))
-        θ = vcat(vec(h), vec(R))
-        @test ReferenceAD.gradient(loss(seeded), θ) ≈ ReferenceAD.gradient(loss(expansion), θ)
-    end
-    # With the seed at times 1 to m the result is as long as the inputs.
-    @test size(@inferred r(fill(1.8, 2, 7); history = ones(2, 2), start = 3, prepend = true)) ==
-        (2, 7)
-    @test length(@inferred r(fill(1.8, 7); history = [1, 2], prepend = true)) == 9
-    # There is nothing to prepend to a resumed call.
-    _, st = r(ones(8); history = ones(3), stop = 4, state = true)
-    @test_throws "needs a history" r(ones(8); state = st, prepend = true)
-    @test_throws TypeError r(ones(8); history = ones(3), prepend = 1)
-end
-
-@testitem "prepend joins the output in the run's buffer for each layout" begin
-    using ComposableRecurrences, ForwardDiff
-    g = [0.3, 0.5, 0.2]
-    r = Recurrence(g)
-    dual(x) = ForwardDiff.Dual(x, 1.0)
-    # Histories shorter than, as deep as and deeper than the buffer, for a
-    # series, one stratum and two strata, of floats, dual numbers and a type
-    # that is not bits.
-    for m in (2, 3, 5), S in (0, 1, 2), f in (identity, dual, big)
-        h = f.(S == 0 ? collect(1.0:m) : reshape(collect(1.0:(S * m)), S, m))
-        R = f.(S == 0 ? fill(1.5, 6) : fill(1.5, S, 6))
-        y = r(R; history = h, prepend = true)
-        @test y == cat(h, r(R; history = h); dims = ndims(h))
-        @test typeof(y) == typeof(cat(h, r(R; history = h); dims = ndims(h)))
-    end
-end
-
 @testitem "start = nothing names the default to use" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -639,6 +584,7 @@ end
 end
 
 @testitem "Recurrence: no step reads a buffer row before it is written" begin
+    using ComposableRecurrences: Derived
     using ComposableRecurrences, Random
     CR = ComposableRecurrences
     # A history whose `similar` is filled with NaN: the run's buffer zeroes

@@ -122,23 +122,19 @@ end
         @test tr.modifiers == trw.modifiers
         @test y == r(Rx; history = hx, start = L + 1)
     end
-    # One series, with its seed in front.
+    # One series.
     r = Recurrence(g; modifiers = (CR.Depletion(70.0),))
     args = CR._run_args(r, R[1, :], h[1, :], nothing, nothing, L + 1)
     yr, trr = first(CR._run_forward(CR._WithTrace(r), args..., nothing))
-    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, prepend = true, trace = true)
-    @test y == vcat(h[1, :], yr)
+    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, trace = true)
+    @test y == yr
     @test tr.modifiers == trr.modifiers
 end
 
-@testitem "Trace: prepend and state with a trace written in each step" setup = [InStepTraces] begin
+@testitem "Trace: state with a trace written in each step" setup = [InStepTraces] begin
     for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
         y, tr = r(Rx; history = hx, start = L + 1, trace = true)
-        # With the seed in front, as the rule's forward pass joins it.
-        yp, trp = r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
-        @test yp == CR._join(hx, y)
-        @test trp.modifiers == tr.modifiers
-        @test r(Rx; history = hx, start = L + 1, prepend = true) == yp
+        @test r(Rx; history = hx, start = L + 1) == y
         (ys, trs), st = r(Rx; history = hx, start = L + 1, trace = true, state = true)
         @test ys == y
         @test trs.modifiers == tr.modifiers
@@ -150,13 +146,13 @@ end
     using Base.ScopedValues: with
     using KernelAbstractions
     for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
-        yp, tr = r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
+        yp, tr = r(Rx; history = hx, start = L + 1, trace = true)
         for ex in (
                 CR.Threaded(; min_work = 0, ntasks = 3),
                 CR.Device(KernelAbstractions.CPU()),
             )
             yt, trt = with(CR.EXECUTOR => ex) do
-                r(Rx; history = hx, start = L + 1, prepend = true, trace = true)
+                r(Rx; history = hx, start = L + 1, trace = true)
             end
             @test same(yt, yp)
             @test same(trt.modifiers, tr.modifiers)
@@ -165,18 +161,17 @@ end
 end
 
 @testitem "Trace: a trace written in each step with a short or long history" setup = [InStepTraces] begin
-    # A history shorter or longer than the kernel, which the joined output
-    # holds whole, over strata and for one series.
+    # A history shorter or longer than the kernel, over strata and for one
+    # series.
     for r in cases[[1, 3]], hx in (h[:, 2:3], hcat(h, h)), x in (identity, dual)
         Rx, hx = x(R[:, 1:T]), x(hx)
         y = r(Rx; history = hx)
-        @test r(Rx; history = hx, prepend = true) == CR._join(hx, y)
-        yp, tr = r(Rx; history = hx, prepend = true, trace = true)
-        @test yp == CR._join(hx, y)
-        @test tr.modifiers == last(r(Rx; history = hx, trace = true)).modifiers
+        yt, tr = r(Rx; history = hx, trace = true)
+        @test yt == y
+        @test size(tr.modifiers[1], 2) == T
         r1 = Recurrence(g; modifiers = (CR.Depletion(70.0),))
         y1 = r1(Rx[1, :]; history = hx[1, :])
-        @test r1(Rx[1, :]; history = hx[1, :], prepend = true) == vcat(hx[1, :], y1)
+        @test first(r1(Rx[1, :]; history = hx[1, :], trace = true)) == y1
     end
 end
 

@@ -7,7 +7,8 @@ A coupling and modifiers change how a recurrence steps.
 
 Some public names are not exported, so `using ComposableRecurrences` does not bring them in.
 They are written without the package prefix on this page.
-Load them with `using ComposableRecurrences: Depletion, Floor, State`, and so on.
+Load them with `using ComposableRecurrences: Depletion, Floor, Recent`, and so on.
+Internal names, such as `ComposableRecurrences.State`, are written with the prefix.
 The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
 
 ## [A step](@id overview-step)
@@ -75,7 +76,7 @@ delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 The keyword `method` sets how a convolution sums its lags.
 The method [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one.
 The method [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
-The method [`Auto()`](@ref ComposableRecurrences.Auto), the default, takes the transform for a kernel of at least 300 lags over at least 1000 days.
+By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 days.
 
 ## [Calls](@id overview-calls)
 
@@ -88,19 +89,18 @@ infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4)
 ```
 
-A [`State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the day the next step computes.
+A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the day the next step computes.
 
 | Call | What it does | Returns |
 |:--|:--|:--|
 | [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | runs the recurrence from day `start` to day `stop` | a vector for one stratum, or strata × days |
 | [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from day `start` to day `stop` | an array shaped like `x` |
-| [`contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as each day's reports split by delay | lags × days, or strata × lags × days |
+| [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as each day's reports split by delay | lags × days, or strata × lags × days |
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each day, with `tail` the values after the end of `x` | an array shaped like `x` |
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` each day, recomputed from outputs `y` | shaped like `y` |
 | [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from day `state.t` | `(y, state)` |
 | [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did each day | `(y, trace)` |
-| [`renewal(gain; history, prepend = true)`](@ref Recurrence) | runs the recurrence and returns the history followed by the run | the history and run joined along time |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` days growing at `rate` per day up to `I0` | a vector, or strata × `L` |
 | [`growth_rate(R, g)`](@ref ComposableRecurrences.growth_rate) | the daily growth rate of a renewal with reproduction number `R` and generation interval `g` | a number |
 | [`reproduction_number(rate, g)`](@ref ComposableRecurrences.reproduction_number) | the reproduction number that gives a daily growth `rate`, the inverse of `growth_rate` | a number |
@@ -111,6 +111,7 @@ So the gain on day ``t`` is always `gain[t]`.
 Inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per day.
+The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
 Without modifiers or `add`, the outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the gain each day, the reproduction number.
 With a `Depletion` they are the effective reproduction number.
 
@@ -133,16 +134,16 @@ Each route has its own kernel and its own coupling.
 | vector | one kernel, the weights on each lag, shared by every stratum |
 | [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter for each stratum, with the strata as the first index |
 | [`Pairwise(A)`](@ref Pairwise) | one kernel for each pair of strata, indexed by receiving stratum, giving stratum and lag |
-| [`Routes((K₁, k₁), (K₂, k₂))`](@ref Routes) | a sum of routes, each a coupling and a kernel |
+| [`Routes((K₁, k₁), (K₂, k₂))`](@ref ComposableRecurrences.Routes) | a sum of routes, each a coupling and a kernel |
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes by day, with the days as the last index |
 | [`TimeVarying(P, Primary())`](@ref ComposableRecurrences.Primary) | a time-varying kernel whose column ``\tau`` belongs to input day ``\tau`` |
-| [`Derived(f, args...)`](@ref Derived) | a parameter computed by `f` from other parameters |
-| [`Recent(n)`](@ref Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and day |
+| [`Derived(f, args...)`](@ref ComposableRecurrences.Derived) | a parameter computed by `f` from other parameters |
+| [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and day |
 
 A `Pairwise` or `Routes` kernel mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
 A `TimeVarying` kernel can be given as a vector with one kernel per day, each of any length.
 It can also be given as change points: `start => value` pairs, each value holding from its start day.
-By default, column ``\tau`` of a time-varying kernel belongs to output day ``\tau``, [`Secondary()`](@ref ComposableRecurrences.Secondary).
+By default, column ``\tau`` of a time-varying kernel belongs to output day ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
 It holds the weights the output on day ``\tau`` puts on earlier days, such as the delays of the reports on day ``\tau``.
 With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` belongs to input day ``\tau``.
 It holds how the value on day ``\tau`` spreads over later days, such as the delays of the infections on day ``\tau``.
@@ -183,7 +184,7 @@ A model with a weekly [time unit](@ref time-units) and delays in days takes `ste
 | `TimeVarying(ds, indexing)` | a vector of delays, one per day |
 | `Routes((K₁, d₁), (K₂, d₂))` | delays or arrays as route kernels |
 
-The argument `indexing` is `Secondary()` or `Primary()`, as for any [time-varying kernel](@ref overview-shapes).
+The argument `indexing` is `Primary()`, or left out for the default, as for any [time-varying kernel](@ref overview-shapes).
 `TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
 `Pairwise` and `Routes` kernels work with `Recurrence` only.
 A chain may also hold mass vectors, and it is itself a delay, so it fits wherever `d` does.
@@ -331,33 +332,33 @@ A model built from the package's own parts needs none of them.
 A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
 A role is one job, chosen by a type with no fields.
 The role `Step()` computes one step, and `Init()` the starting state.
-The role `Pressure()` is a coupling's mixing, and `Trace()` a modifier's record for a call with `trace = true`.
-The role `Run()` is an operator's whole call.
+The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `trace = true`.
+The role `ComposableRecurrences.Run()` is an operator's whole call.
 An operator's hand-written gradient is its rule.
 
 | Name | What it does | Returns |
 |:--|:--|:--|
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one role | writes in place, returns `nothing` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | adds to the cotangents: the gradients of the result with respect to each input |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace), [`Run()`](@ref ComposableRecurrences.Run) | the roles | types with no fields |
-| [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
-| [`uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`ComposableRecurrences.Trace()`](@ref ComposableRecurrences.Trace), [`ComposableRecurrences.Run()`](@ref ComposableRecurrences.Run) | the roles | types with no fields |
+| [`ComposableRecurrences.ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
+| [`ComposableRecurrences.uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
-| [`ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each stratum on its own | `Bool` |
+| [`ComposableRecurrences.ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each stratum on its own | `Bool` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
 | [`param(x, k, t)`](@ref ComposableRecurrences.param) | reads a parameter for stratum `k` on day `t` | a value |
 | [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | adds to a parameter's cotangent | `nothing` |
 | [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent) | the cotangent of a field | a cotangent, or `nothing` |
-| [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
-| [`depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads | `Int` |
-| [`param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the number type a type's parameters need in the store of past outputs | a type |
+| [`ComposableRecurrences.add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
+| [`ComposableRecurrences.depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads | `Int` |
+| [`ComposableRecurrences.param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the number type a type's parameters need in the store of past outputs | a type |
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the conformance test for a new type, built on the Interfaces.jl package | a test result |
 
-For an operator, pass `Run()` as the role to `uses_adjoint`, `PieceInterface` and `test_adjoint`.
+For an operator, pass `ComposableRecurrences.Run()` as the role to `ComposableRecurrences.uses_adjoint`, `PieceInterface` and `test_adjoint`.
 `blocks` gives `(nv, ns)`, the number of values and of state entries in each group.
 It is `(1, 1)` for a pointwise modifier and `nothing` for one that reads every stratum.
-`ispointwise` and `nstate` are read from `blocks`.
-A run keeps at least `depth` past outputs, even when the kernel is shorter.
+`ComposableRecurrences.ispointwise` and `nstate` are read from `blocks`.
+A run keeps at least `ComposableRecurrences.depth` past outputs, even when the kernel is shorter.
 
 ### [Checking gradients](@id overview-gradients)
 

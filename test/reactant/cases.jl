@@ -5,6 +5,7 @@
 module ReactantCases
 
 using ComposableRecurrences
+using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
     Hazard, Primary, Redistribute, Secondary, SoftTruncate, Step,
     Transform, Truncate
@@ -35,8 +36,7 @@ const HX = [0.5, 1.0, 1.5]
 # Loss weights, one per output entry.
 const W1 = collect(range(0.5, 2.0; length = T))
 const WS = reshape(collect(range(0.5, 2.0; length = S * T)), S, T)
-# A prepended output holds the history before the steps.
-const HS2 = HS[:, 1:2]
+# A joined output holds the history before the steps.
 weights_after(m) = reshape(collect(range(0.5, 2.0; length = S * (m + T))), S, m + T)
 
 # A pointwise modifier: a floor on each stratum's value.
@@ -96,16 +96,13 @@ function rec_dense_K(θ)
     return Recurrence(g0; coupling = K)(R; history = HS)
 end
 
-# The history joined before the output, as long as the kernel or shorter.
-function rec_prepend_strata(θ)
+# The history joined before the output. It is read from the traced
+# parameters: joining a host array to a traced output is an error.
+function rec_joined(θ)
     K = reshape(θ[1:(S * S)], S, S)
-    R = reshape(θ[(S * S + 1):end], S, T)
-    return Recurrence(g0; coupling = K)(R; history = HS, prepend = true)
-end
-function rec_prepend_short(θ)
-    K = reshape(θ[1:(S * S)], S, S)
-    R = reshape(θ[(S * S + 1):end], S, T)
-    return Recurrence(g0; coupling = K)(R; history = HS2, prepend = true)
+    h = reshape(θ[(S * S + 1):(S * S + S * L)], S, L)
+    R = reshape(θ[(S * S + S * L + 1):end], S, T)
+    return hcat(h, Recurrence(g0; coupling = K)(R; history = h))
 end
 
 function rec_per_stratum(θ)
@@ -334,14 +331,8 @@ const CASES = [
         rec_dense_K, vcat(vec(K0), vec(RS0)), WS
     ),
     Case(
-        "rec_prepend_strata",
-        "Recurrence, $S strata, dense K, history prepended",
-        rec_prepend_strata, vcat(vec(K0), vec(RS0)), weights_after(L)
-    ),
-    Case(
-        "rec_prepend_short",
-        "Recurrence, $S strata, dense K, short history prepended",
-        rec_prepend_short, vcat(vec(K0), vec(RS0)), weights_after(2)
+        "rec_joined", "Recurrence, $S strata, dense K, traced history joined",
+        rec_joined, vcat(vec(K0), vec(HS), vec(RS0)), weights_after(L)
     ),
     Case(
         "rec_per_stratum", "Recurrence, PerStratum kernel",

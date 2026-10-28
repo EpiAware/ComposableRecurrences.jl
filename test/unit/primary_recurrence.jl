@@ -53,12 +53,11 @@ end
     CR = ComposableRecurrences
     (; reindex, shapes, m) = PrimaryChecks
     for (wrap, K, R, h, C) in values(shapes)
-        prim(K, R, h) = Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C)(
-            R; history = h, start = m + 1, prepend = true
+        joined(r, R, h) = cat(h, r(R; history = h, start = m + 1); dims = ndims(h))
+        prim(K, R, h) = joined(
+            Recurrence(TimeVarying(wrap(K), CR.Primary()); coupling = C), R, h
         )
-        sec(K, R, h) = Recurrence(TimeVarying(wrap(reindex(K))); coupling = C)(
-            R; history = h, start = m + 1, prepend = true
-        )
+        sec(K, R, h) = joined(Recurrence(TimeVarying(wrap(reindex(K))); coupling = C), R, h)
         @test prim(K, R, h) ≈ sec(K, R, h)
         W = reshape(range(0.3, 1.2; length = length(R)), size(R))
         f(g) = (K, R, h) -> sum(W .* g(K, R, h))
@@ -77,7 +76,7 @@ end
     g = [0.5, 0.3, 0.2]
     K = repeat(g, 1, 10)
     R = fill(1.3, 10)
-    seed = (; history = [1.0, 2.0], start = 3, prepend = true)
+    seed = (; history = [1.0, 2.0], start = 3)
     @test Recurrence(TimeVarying(K, CR.Primary()))(R; seed...) ≈ Recurrence(g)(R; seed...)
 end
 

@@ -144,7 +144,7 @@ end
 # ## An isolation policy that starts on a set day
 #
 # A recurrence kernel read by infection day gives each case the generation interval of the day it was infected, a cohort effect.
-# A `Secondary()` kernel is a period effect, the same for every case on a given day.
+# The default, output-day kernel is a period effect, the same for every case on a given day.
 #
 # Isolation thins the generation interval, as [Isolation as a thinned kernel](@ref tutorial-isolation-thinning) derives.
 # Here a case infected on day ``c`` is isolated with probability ``p`` after a delay ``D``.
@@ -167,9 +167,9 @@ end
 # where ``[t \ge t_0]`` is one from day ``t_0`` and zero before.
 # Both runs use ``I_t = \gamma_t \sum_{l} g_l(\cdot) \, I_{t-l}``, with ``\gamma_t = 1.8``.
 # With `Primary()` column ``c`` is cohort ``c``'s interval, read at lag ``l`` on day ``c + l``.
-# With the default `Secondary()` column ``t`` is the interval used on day ``t``.
+# With the default indexing column ``t`` is the interval used on day ``t``.
 # The run starts at `start = 7` after six seed values.
-# With `prepend = true`, a [`Recurrence`](@ref) returns the seed with the run.
+# `vcat` joins the seed in front of the run.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
 delay_iso = [0.2, 0.3, 0.3, 0.2]          # P(D = 0, 1, 2, 3)
@@ -178,7 +178,10 @@ cohort = [long_gi[l] * (1 - p_iso * b_iso * P_iso(l, t0 - c)) for l in 1:6, c in
 period = [long_gi[l] * (1 - (t >= t0 ? p_iso * b_iso * P_iso(l, 0) : 0.0)) for l in 1:6, t in 1:T]
 R_iso = fill(1.8, T)
 seed_iso = fill(10.0, 6)
-seeded_iso(kernel) = Recurrence(kernel)(R_iso; history = seed_iso, start = 7, prepend = true)
+function seeded_iso(kernel)
+    y = Recurrence(kernel)(R_iso; history = seed_iso, start = 7)
+    return vcat(seed_iso, y)
+end
 @chain DataFrame(
     "day" => 1:T,
     "No isolation" => seeded_iso(long_gi),
