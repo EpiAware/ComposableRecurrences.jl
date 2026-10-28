@@ -36,7 +36,7 @@ kernel: one pass per cohort forward, and one back.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-# Cohorts confirmed from the day after entry at a daily hazard `h`, and
+# Cohorts confirmed from the step after entry at a hazard `h` per step, and
 # still present with probability `S[l + 1]` at lag `l`.
 h = [0.1, 0.2, 0.3, 0.4]
 S = [1.0, 0.8, 0.5]

@@ -459,13 +459,6 @@
 0.2	each!: serial runs every index in order
 0.2	each!: threaded matches serial
 0.6	exponential_history
-0.3	growth_rate: a delay with lags as a Recurrence takes it
-0.8	growth_rate: a renewal seeded at the rate grows by e^r each step
-0.7	growth_rate: derivatives from the implicit function theorem
-0.7	growth_rate: element types and inference
-0.3	growth_rate: errors say what is wrong
-2.4	growth_rate: second derivatives match differences of the first
-0.2	growth_rate: solves the Euler-Lotka equation
 0.0	param_eltype infers through nested structs
 0.1	param_eltype recurses through fields
 0.3	pressure: a zero pressure gives no value

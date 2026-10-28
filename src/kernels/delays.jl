@@ -14,7 +14,8 @@ of a lag in that unit and ``L`` = `lags`.
 With the default `step = 1` a lag is one unit of the delay.
 A delay on continuous time is censored with both windows one step wide:
 its primary event is uniform over one step and ``D`` runs from the start of
-that step, so four quarter-day masses do not sum to the daily mass.
+that step, so four masses with `step = 0.25` do not sum to the mass with
+`step = 1`.
 A [`Convolution`](@ref) kernel is this vector.
 A [`Recurrence`](@ref) kernel starts at lag 1, so it is the vector without
 ``p_0``, and its sum ``\sum_{l=1}^{L-1} p_l`` scales the gain.

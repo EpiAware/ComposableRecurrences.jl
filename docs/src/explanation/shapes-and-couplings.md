@@ -1,6 +1,7 @@
 # [Shapes and couplings](@id explanation-shapes-couplings)
 
-Each [wrapper](@ref overview-shapes) adds axes to a slot: [`PerStratum`](@ref) a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
+A kernel, a coupling or a modifier parameter is a plain array, or an array in a [wrapper](@ref overview-shapes) that adds axes to it.
+[`PerStratum`](@ref) adds a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
 
 ```@example shapes
 using ComposableRecurrences
@@ -43,7 +44,7 @@ For ``S`` strata, the [step](@ref overview-step) before the modifiers is, stratu
 v_{t,i} = \gamma_{t,i} \sum_{j=1}^{S} K_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},
 ```
 
-where ``y_{t,j}`` is the value of stratum ``j`` on day ``t`` and ``k_{j,l}`` its kernel weight on lag ``l``.
+where ``y_{t,j}`` is the value of stratum ``j`` at time ``t`` and ``k_{j,l}`` its kernel weight on lag ``l``.
 ``K_{ij}`` is the coupling's weight of stratum ``j`` in stratum ``i``, and ``\gamma_{t,i}`` and ``a_{t,i}`` the gain and `add` of stratum ``i``.
 
 This order sets what a per-stratum coefficient means.

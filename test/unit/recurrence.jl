@@ -492,8 +492,8 @@ end
     @test H[2, :] ≈ CR.exponential_history(4.0, -0.2, 4)
     @test CR.exponential_history(I0, 0.1, 4)[1, :] ≈ CR.exponential_history(1.0, 0.1, 4)
     @test_throws "not L = 0" CR.exponential_history(1.0, 0.1, 0)
-    # A constant reproduction number at the matching growth rate keeps the
-    # run on the seed's growth path.
+    # A constant gain `R` that solves `1 = R * sum(g[l] * exp(-rate * l))`,
+    # computed here by hand, keeps the run on the seed's growth path.
     g = [0.2, 0.5, 0.3]
     rate = 0.15
     R = 1 / sum(g[l] * exp(-rate * l) for l in 1:3)
