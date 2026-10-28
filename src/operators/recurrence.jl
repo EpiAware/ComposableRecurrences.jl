@@ -1426,8 +1426,8 @@ function _run(
 end
 
 @doc raw"""
-A history growing exponentially at rate `r` and reaching `I0` at its last
-time, to seed a [`Recurrence`](@ref) on a growth path.
+A geometric history of `L` steps that grows by a factor ``e^{r}`` each step
+and ends at `I0`, to seed a [`Recurrence`](@ref).
 
 For one series, and for stratum ``i`` of ``S``, it is
 
@@ -1439,16 +1439,13 @@ h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
 ```
 
 oldest first, so ``h_L = I_0``.
-For a renewal with generation interval `g` (lag 1 first) and constant
-reproduction number `R`, the rate `r` from
-[`ComposableRecurrences.growth_rate`](@ref)`(R, g)` keeps the seed on the
-renewal's own path.
+A rate of 0 gives a constant history.
 
 # Arguments
-- `I0`: the value at the last time; a vector gives one per stratum.
-- `r`: the growth rate per step; with a vector `I0`, a scalar or one per
+- `I0`: the value at the last step; a vector gives one per stratum.
+- `r`: the rate per step; with a vector `I0`, a scalar or one per
   stratum.
-- `L`: the number of time steps, at least 1, usually the kernel length.
+- `L`: the number of steps, at least 1, usually the kernel length.
 
 # Examples
 ```jldoctest
