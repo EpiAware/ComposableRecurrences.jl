@@ -181,6 +181,7 @@ end
     @test_throws "Pairwise is a kernel" Recurrence(g; coupling = R2)
     @test_throws "coupling => kernel pairs" Pairwise(K => g, K)
     @test_throws "coupling => kernel pairs" Pairwise((K, g))
+    @test_throws "Pairwise with 1 routes" Pairwise(K => g, Pairwise(K => g))
     @test_throws "cannot itself be routes" Pairwise(K => Pairwise(K => g))
     @test_throws "Pairwise is a kernel" Pairwise(Pairwise(K => g) => g)
     @test_throws "not a Convolution" Convolution(Pairwise(K => g, 2K => g))
