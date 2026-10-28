@@ -103,7 +103,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 p = [0.5, 0.3, 0.2]
 scale = TimeVarying([1.0, 1.0, 0.5, 0.5], CR.Primary())
-K = TimeVarying(Derived(*, p, scale), CR.Primary())
+K = TimeVarying(CR.Derived(*, p, scale), CR.Primary())
 round.(Convolution(K)(ones(4)); digits = 3)
 
 # output

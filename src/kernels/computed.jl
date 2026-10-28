@@ -113,14 +113,11 @@ end
 # A recurrence fills the weights of cohorts up to its last time, then runs
 # with them as its kernel; its cache keeps the computed kernel.
 function _recur(
-        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, record::Val,
-        joined::Val = Val(false)
+        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, record::Val
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     K, sc = _fill_kernel(r.kernel, 1, n, n, record)
-    Y, H, states, cache = _recur(
-        _with_kernel(r, K), gain, add, h, s0, τ0, stop, record, joined
-    )
+    Y, H, states, cache = _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, record)
     return Y, H, states, _with_computed(cache, r.kernel, n, sc)
 end
 _with_computed(::Nothing, kernel, n, sc) = nothing
@@ -177,7 +174,7 @@ CR = ComposableRecurrences
 # hazard that falls with the delay and rises with the calendar time.
 base = [0.2, 0.3, 0.4]
 level = TimeVarying([1.0, 1.0, 1.2, 1.2])
-reported = 1 - CR.Survival(Derived(*, base, level))
+reported = 1 - CR.Survival(CR.Derived(*, base, level))
 round.(CR.kernel_weights(TimeVarying(reported, CR.Primary()), 2); digits = 3)
 
 # output

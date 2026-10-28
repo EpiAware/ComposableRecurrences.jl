@@ -25,8 +25,6 @@
 7.9	Adjoint: a Depletion's group step and draw against ForwardDiff
 29.5	Adjoint: a call with its trace against ForwardDiff
 2.1	Adjoint: a declared adjoint without a pullback! throws
-2.2	Adjoint: a plain primal call logs nothing
-13.5	Adjoint: a prepended call
 2.8	Adjoint: an integer output sends no cotangent
 19.3	Adjoint: an operator built without `ForwardDiff` checks its parts per call
 5.0	Adjoint: buffers follow the input's array type
@@ -81,15 +79,6 @@
 1.5	CTIDM: random walk and AR
 0.4	CTIDM: renewal
 3.0	CTIDM: renewal with mixing and depletion
-4.2	Capacity: budget periods, carry over and lifetime
-1.8	Capacity: checks its arguments
-1.5	Capacity: infinite capacity is the identity
-10.9	Capacity: pullback against a local Jacobian
-4.2	Capacity: resuming from the state matches one call
-6.3	Capacity: route conserves each step, hold across steps
-0.1	Capacity: the recurrence uses its adjoint
-0.1	Capacity: the smooth minimum
-44.2	Capacity: values and gradients against a naive loop
 0.9	Chained delays: as kernels
 0.6	Chained delays: the Jacobian is the convolution transposed
 15.9	Chained delays: the Mooncake rule's pullback
@@ -170,19 +159,6 @@
 13.5	Depletion flows: susceptibles leaving at a rate or in counts
 12.5	Depletion flows: waning against a naive loop
 2.2	Depletion init pullback matches ForwardDiff
-7.6	Depletion pools: a single-precision model stays in single precision
-6.1	Depletion pools: an empty pool with a tangent under ForwardDiff
-4.6	Depletion pools: checks its arguments
-1.4	Depletion pools: conservation and final-size ordering
-0.2	Depletion pools: declare their adjoint
-3.8	Depletion pools: full susceptibility undoes the protection
-1.0	Depletion pools: no removals and no protected pool is the base
-9.3	Depletion pools: pullbacks against a local Jacobian
-14.8	Depletion pools: removals at an empty pool, reverse against ForwardDiff
-54.2	Depletion pools: the Recurrence reverse pass
-0.2	Depletion pools: the initial state and its pullback
-1.4	Depletion pools: the removal picks its arm as its pullback does
-9.0	Depletion pools: values and gradients against the maths
 2.4	Depletion pullback matches the local Jacobian
 3.5	Depletion pullback with a time-varying population
 4.2	Depletion without a draw: a share flow is the occupancy recurrence
@@ -236,13 +212,6 @@
 8.5	Eltypes: integer inputs keep an integer output promoted with Int
 0.4	Eltypes: kernel sums of dual numbers add the lags in order
 0.2	Error messages describe wrapped values by size and type
-3.5	Flows: a share flow is the occupancy recurrence
-3.8	Flows: check their options
-0.3	Flows: counts are capped and act in order
-7.6	Flows: pullback against a local Jacobian
-5.0	Flows: resume, Float32 and the adjoint route
-0.2	Flows: the share that leaves near zero hazard
-51.0	Flows: wards against a naive loop
 0.2	Hazard: one exponential gives exp(-x) and expm1(-x)
 0.0	Interfaces: a modifier with no step says it needs forward!
 4.0	Interfaces: a pointwise step may broadcast
@@ -344,13 +313,11 @@
 0.7	Redistribute: conserving, against a naive loop
 1.9	Routes: argument validation
 1.0	Routes: arrays alone hold no delays
-3.9	Routes: arrays alone take the core method with Distributions loaded
 2.0	Routes: delay distributions on routes
 2.9	Routes: equal the Pairwise kernel of their sum
 5.8	Routes: equal the naive loop for each kernel
 4.1	Routes: fold into a cheaper form
 5.0	Routes: modifiers, add, resume and Float32
-2.6	Routes: the rule needs a pullback on every route coupling
 2.4	Routes: the rule needs each route coupling's adjoint
 1.1	Standards: README and page prose
 0.7	Standards: README code is from the getting started page
@@ -380,7 +347,7 @@
 9.5	Trace: a trace written in each step with a short or long history
 2.1	Trace: each flow's amount against a naive loop
 139.2	Trace: gradients through a trace and the default trace of user modifiers, the rule against ForwardDiff
-32.8	Trace: prepend and state with a trace written in each step
+17.4	Trace: state with a trace written in each step
 7.3	Trace: the default is the state after the step
 0.6	Trace: the flow amounts' pullback against forward mode
 78.1	Trace: user traces written in place, for each kind of step
@@ -468,7 +435,6 @@
 1.6	Variants: the form slot takes a form struct
 4.0	Wrapper nesting is normalised
 0.7	delay_masses: a chain of mass vectors is their full convolution
-1.9	delay_masses: a continuous distribution must be discretised
 0.8	delay_masses: a continuous distribution names the censoring package
 1.5	delay_masses: a discrete distribution, lag 0 first
 0.0	delay_masses: a method of the wrong length is caught
@@ -499,8 +465,6 @@
 0.2	growth_rate: solves the Euler-Lotka equation
 0.0	param_eltype infers through nested structs
 0.1	param_eltype recurses through fields
-5.1	prepend joins the output in the run's buffer for each layout
-6.5	prepend returns the history then the run
 0.3	pressure: a zero pressure gives no value
 1.4	pressure: argument checks and inference
 7.0	pressure: every kernel and coupling recovers the gain
