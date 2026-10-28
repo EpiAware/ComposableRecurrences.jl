@@ -126,7 +126,7 @@ Each row records the load average when its cell started, so a busy machine shows
 Each gradient entry must match its reference to a relative `1e-8`, or `1e-4` for a scenario with single-precision values, with an absolute floor of `1e-12` of the largest entry for entries that are zero in exact arithmetic.
 The ForwardDiff job also checks each reference against central differences to a relative `1e-5`, so a wrong reference cannot pass every backend.
 Central differences in double precision reach about `1e-6` to `1e-10`, so the check also allows `1e-5` of the largest entry.
-Each entry is tried at a step relative to it and at one of at least `cbrt(eps())`.
+Each entry is tried at a step relative to it and at a step of at least `cbrt(eps())`.
 A wrong reference misses by far more.
 The rule testers that `test_adjoint` runs use a relative and absolute `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
 A scenario is a name, a scalar loss of a flat parameter vector and its starting value, added to `_SCENARIOS`.
