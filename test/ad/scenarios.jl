@@ -4,36 +4,47 @@
 # tagged so the per-backend CI can select it with a tag filter (e.g. `julia
 # test/ad/runtests.jl enzyme_reverse`). Harness wiring lives in the managed
 # `setup.jl`; the SCENARIOS come from the package's own `ADFixtures`
-# registry. This starter seed covers every backend the kit knows about; add
-# or trim backends and categories to match the package afterwards.
+# registry, and the entrywise checks from `checks.jl`. This starter seed
+# covers every backend the kit knows about; add or trim backends and
+# categories to match the package afterwards.
 
-@testitem "ForwardDiff gradients" tags = [:ad, :forwarddiff] setup = [ADHelpers] begin
-    test_working_backend("ForwardDiff"; category = :rules)
+@testitem "ForwardDiff gradients" tags = [:ad, :forwarddiff] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("ForwardDiff"; category = :rules)
 end
 
-@testitem "ReverseDiff (tape) gradients" tags = [:ad, :reversediff] setup = [ADHelpers] begin
-    test_working_backend("ReverseDiff (tape)"; category = :rules)
+@testitem "ReverseDiff (tape) gradients" tags = [:ad, :reversediff] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("ReverseDiff (tape)"; category = :rules)
 end
 
-@testitem "ReverseDiff (compiled) gradients" tags = [:ad, :reversediff_compiled] setup = [ADHelpers] begin
-    test_working_backend("ReverseDiff (compiled)"; category = :rules)
+@testitem "ReverseDiff (compiled) gradients" tags = [:ad, :reversediff_compiled] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("ReverseDiff (compiled)"; category = :rules)
 end
 
-@testitem "Enzyme forward gradients" tags = [:ad, :enzyme, :enzyme_forward] setup = [ADHelpers] begin
-    test_working_backend("Enzyme forward"; category = :rules)
+@testitem "Enzyme forward gradients" tags = [:ad, :enzyme, :enzyme_forward] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("Enzyme forward"; category = :rules)
 end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers] begin
-    test_working_backend("Enzyme reverse"; category = :marginal)
+@testitem "Enzyme reverse gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("Enzyme reverse"; category = :marginal)
 end
 
-@testitem "Mooncake reverse gradients" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers] begin
-    test_working_backend("Mooncake reverse"; category = :marginal)
+@testitem "Mooncake reverse gradients" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("Mooncake reverse"; category = :marginal)
 end
 
-@testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers] begin
-    test_working_backend("Mooncake forward"; category = :rules)
+@testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("Mooncake forward"; category = :rules)
+end
+
+# The ForwardDiff reference every backend is checked against matches
+# central differences, so a wrong reference cannot pass every backend. Each
+# entry is checked to the differences' precision.
+@testitem "ForwardDiff reference against central differences" tags = [:ad, :forwarddiff] setup = [ADHelpers, GradientChecks] begin
+    scens = ADFixtures.scenarios(; with_reference = true, category = :rules)
+    @testset "$(s.name)" for s in scens
+        @test isempty(differing_entries(s.f, s.x, s.res1; rtol = 1.0e-5))
+    end
 end
 
 # Each registry scenario's gradient on a reverse-mode backend runs the
@@ -62,7 +73,7 @@ end
 # The backends without a rule of their own run the scenarios without their
 # twins, so these two twins run the `NoAdjoint` wrapper's own call and its
 # `contributions` method there.
-@testitem "Without a rule: the NoAdjoint wrapper's own calls" tags = [:ad, :forwarddiff, :reversediff, :reversediff_compiled, :enzyme, :enzyme_forward, :mooncake, :mooncake_forward] setup = [ADHelpers, JobBackends] begin
+@testitem "Without a rule: the NoAdjoint wrapper's own calls" tags = [:ad, :forwarddiff, :reversediff, :reversediff_compiled, :enzyme, :enzyme_forward, :mooncake, :mooncake_forward] setup = [ADHelpers, GradientChecks, JobBackends] begin
     twins = ("NoAdjoint Recurrence renewal", "NoAdjoint Convolution lag contributions")
     scens = filter(s -> s.name in twins, ADFixtures.scenarios(; with_reference = true))
     @test length(scens) == length(twins)
@@ -74,10 +85,14 @@ end
         :mooncake_forward => "Mooncake forward",
     )
     backends = [b.backend for b in ADFixtures.backends() if b.name in names]
+    rtol = ADFixtures.GRADIENT_RTOL
     DIT.test_differentiation(
         backends, scens; correctness = true, type_stability = :none,
-        logging = false, rtol = 5.0e-2, atol = 1.0e-6
+        logging = false, rtol, atol = 0.0
     )
+    @testset "$(s.name) on $(nameof(typeof(b))), entry by entry" for s in scens, b in backends
+        @test all(g -> entrywise(g, s.res1; rtol), gradients(s, b))
+    end
 end
 
 # Add latent (or other) scenario groups as the package needs, e.g.:
@@ -87,8 +102,10 @@ end
 
 # The registry leaves out scenarios and matrix cases whose features the loaded
 # version lacks, for the benchmark history on older releases. On the current
-# version nothing may be left out, so a misspelt requirement fails here.
-@testitem "AD fixtures need only features this version has" tags = [:ad, :forwarddiff] begin
+# version nothing may be left out, so a misspelt requirement fails here. The
+# reverse-mode tags run it on Julia 1.11 and 1.12 in the AD versions workflow,
+# where a probe that throws there would drop its scenarios.
+@testitem "AD fixtures need only features this version has" tags = [:ad, :forwarddiff, :enzyme_reverse, :mooncake_reverse] begin
     using ADFixtures
     using ADFixtures: MatrixCases
     @test isempty(ADFixtures.unsupported_scenarios())

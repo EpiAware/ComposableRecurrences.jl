@@ -607,15 +607,27 @@ end
 # Wards in each stratum: suspected patients (compartment 1) are confirmed
 # at a rate or ruled out as a share; confirmed patients (compartment 2) are
 # discharged at a rate and transferred out in counts. Admissions enter both.
+# The parameters are offsets from `WARD0`, so the scenario starts at zero:
+# compiled ReverseDiff tapes keep the branches taken where they are
+# recorded, which the harness does at zero parameters.
+const WARD0 = _flat(
+    [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
+    0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
+)
 function _ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
-        θ, (2S, T), (S,), (T,), (1,), (S, T)
+        WARD0 .+ θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
     y = w(r)(; history = zeros(2S, 1), add = adm, stop = T)
     return sum([WS; WS] .* y)
 end
+
+# The same ward from its parameters as given, so they are zero, where every
+# admission and rate is zero, at the point the harness records a compiled
+# ReverseDiff tape.
+_ward_given(w, θ) = _ward(w, θ .- WARD0)
 
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
@@ -1081,7 +1093,7 @@ end
 # The ward's flows, each flow's amount per stratum and step.
 function _trace_ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
-        θ, (2S, T), (S,), (T,), (1,), (S, T)
+        WARD0 .+ θ, (2S, T), (S,), (T,), (1,), (S, T)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
@@ -1128,27 +1140,51 @@ function _effective_reproduction(w, θ)
     return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
 end
 
-# The relative tolerance of Enzyme's rule tester in `test_adjoint`.
-# EnzymeTestUtils compares the rule with finite differences taken in the
-# arguments' precision. In single precision these differ from the rule by up
-# to about 5e-4 relative (on a Float32 history with Float64 gains), so an
-# entry with Float32 values carries `FLOAT32_RTOL`.
-const ENZYME_RTOL = 1.0e-7
+# The relative tolerance of the rule testers in `test_adjoint`. They compare
+# the rule with finite differences taken in the arguments' precision. In
+# single precision these differ from the rule by up to about 5e-4 relative
+# (on a Float32 history with Float64 gains), so an entry with Float32 values
+# carries `FLOAT32_RTOL`.
+const RULE_RTOL = 1.0e-8
 const FLOAT32_RTOL = 1.0e-3
-const _F32 = (; enzyme_rtol = FLOAT32_RTOL)
+const _F32 = (; single = true)
+
+# The relative tolerance, entry by entry, of each backend's gradient
+# against the ForwardDiff reference: `FLOAT32_GRADIENT_RTOL` for a scenario
+# whose parameters are `Float32`. A scenario with `Float64` parameters and
+# `Float32` values elsewhere still has a gradient in double precision.
+const GRADIENT_RTOL = 1.0e-8
+const FLOAT32_GRADIENT_RTOL = 1.0e-4
 
 """
-    enzyme_rtol(entry)
-
-The tolerance `test_adjoint` gives Enzyme's rule tester on the operator of
-`entry`: its optional fourth element's `enzyme_rtol`, else `ENZYME_RTOL`.
+Whether `entry` has single-precision values, in which the rule testers take
+their differences: its optional fourth element.
 """
-enzyme_rtol(entry) = length(entry) > 3 ? entry[4].enzyme_rtol : ENZYME_RTOL
+single_precision(entry) = length(entry) > 3 && entry[4].single
 
-# `(name, loss, θ0)`, with an optional fourth element of test options (see
-# `enzyme_rtol`); every scenario also runs as its `NoAdjoint` twin.
-# test/ad/adjoints.jl runs each scenario's operator through `test_adjoint`
-# and checks that its rule fires, so a scenario added here is covered there.
+"""
+    rule_rtol(entry)
+
+The tolerance `test_adjoint` gives the rule testers on the operator of
+`entry`: `FLOAT32_RTOL` where it has single-precision values, else
+`RULE_RTOL`.
+"""
+rule_rtol(entry) = single_precision(entry) ? FLOAT32_RTOL : RULE_RTOL
+
+"""
+    gradient_rtol(precision)
+
+The tolerance of the gradient checks on the scenarios of `precision`
+(`:double` or `:single`; see `scenarios`).
+"""
+gradient_rtol(precision::Symbol) =
+    precision === :single ? FLOAT32_GRADIENT_RTOL : GRADIENT_RTOL
+
+# `(name, loss, θ0)`, with an optional fourth element `_F32` for a scenario
+# with single-precision values; every scenario also runs as its `NoAdjoint`
+# twin. test/ad/adjoints.jl checks that every scenario's rule fires, and
+# runs the operators of the scenarios in its `ADJOINT_SCENARIOS` through
+# `test_adjoint`.
 const _SCENARIOS = [
     ("Recurrence renewal", _renewal, () -> _flat(G0, zeros(L), LOGR[1, :])),
     (
@@ -1193,10 +1229,11 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence ward with competing flows (Depletion without a draw)", _ward,
-        () -> _flat(
-            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
-            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
-        ),
+        () -> zero(WARD0),
+    ),
+    (
+        "Recurrence ward with competing flows, from the parameters as given",
+        _ward_given, () -> copy(WARD0),
     ),
     (
         "Recurrence protected pool in Float32", _protected_float32,
@@ -1404,10 +1441,7 @@ const _SCENARIOS = [
     ),
     (
         "Recurrence trace of a ward's flows", _trace_ward,
-        () -> _flat(
-            [10 .+ 2 .* sin.(LOGR); 1 .+ cos.(LOGR)], [0.3, 0.4, 0.5],
-            0.2 .+ 0.05 .* sin.(1:T), [0.1], 0.5 .+ 0.2 .* abs.(LOGR),
-        ),
+        () -> zero(WARD0),
     ),
     (
         "Recurrence trace of a weekly budget with a queue", _trace_budget,
@@ -1738,6 +1772,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:depletion_pools,),
     "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
+    "Recurrence ward with competing flows, from the parameters as given" =>
+        (:depletion_pools,),
     "Recurrence waning protection (Depletion flows)" => (:depletion_pools,),
     "Recurrence protected pool in Float32" => (:depletion_pools,),
     "Recurrence pool with twelve flows (over 32 leaves)" => (:depletion_pools,),
@@ -2144,13 +2180,16 @@ end
 # scenario itself, from its parameter blocks on, is inferred.
 _dynamic(f) = θ -> Base.inferencebarrier(f)(θ)
 
-const _TWINS = Tuple{String, Any, Any}[
-    (prefix * name, _dynamic(Base.Fix1(f, wrap)), θ0)
+const _TWINS = Tuple{String, Any, Any, Bool}[
+    (
+        prefix * entry[1], _dynamic(Base.Fix1(entry[2], wrap)), entry[3],
+        eltype(entry[3]()) == Float32,
+    )
         for (prefix, wrap, extra) in (
             ("", identity, ()), ("NoAdjoint ", NoAdjoint, _TWIN_REQUIRES),
         )
-        for (name, f, θ0) in _SCENARIOS
-        if supports(_requires(name)..., extra...)
+        for entry in _SCENARIOS
+        if supports(_requires(entry[1])..., extra...)
 ]
 
 # Each scenario runs once through its call, and a twin once more through
@@ -2160,8 +2199,10 @@ const _TWINS = Tuple{String, Any, Any}[
 # path there and the twin repeats its scenario.
 const _CATEGORIES = (:marginal, :rules)
 
+const _PRECISIONS = (:all, :double, :single)
+
 """
-    scenarios(; with_reference = false, category = :marginal)
+    scenarios(; with_reference = false, category = :marginal, precision = :all)
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
@@ -2169,18 +2210,31 @@ The category `:marginal` holds every scenario and its `NoAdjoint` twin,
 which the benchmarks time and the reverse-mode backends with a rule test.
 The category `:rules` holds every scenario without its twin, for the
 backends where the twin takes the same path as its scenario.
+`precision = :single` keeps the scenarios with single-precision parameters
+and `:double` the others, so each set is checked at its own tolerance (see
+`gradient_rtol`).
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
-function scenarios(; with_reference::Bool = false, category::Symbol = :marginal)
+function scenarios(;
+        with_reference::Bool = false, category::Symbol = :marginal,
+        precision::Symbol = :all
+    )
     category in _CATEGORIES || throw(
         ArgumentError(
             "unknown category $(repr(category)); choose one of $(join(_CATEGORIES, ", "))"
         )
     )
-    twins = category === :marginal ? _TWINS :
-        filter(t -> !startswith(first(t), "NoAdjoint "), _TWINS)
-    return map(twins) do (name, f, θ0)
+    precision in _PRECISIONS || throw(
+        ArgumentError(
+            "unknown precision $(repr(precision)); choose one of $(join(_PRECISIONS, ", "))"
+        )
+    )
+    twins = filter(_TWINS) do (name, _, _, single)
+        (category === :marginal || !startswith(name, "NoAdjoint ")) &&
+            (precision === :all || single == (precision === :single))
+    end
+    return map(twins) do (name, f, θ0, _)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
@@ -2224,8 +2278,19 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`): the
 scenarios expected to fail on a backend, by backend name.
+
+A compiled ReverseDiff tape keeps the branches taken where it is recorded,
+which the harness does at zero parameters. The ward from its parameters as
+given branches differently there, so its prepared calls on compiled
+ReverseDiff are wrong; the other scenarios start at zero to avoid this.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    return Dict(
+        "ReverseDiff (compiled)" => Set(
+            ["Recurrence ward with competing flows, from the parameters as given"]
+        ),
+    )
+end
 
 """
 Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
