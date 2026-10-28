@@ -7,6 +7,7 @@
 
 @testmodule CapacityChecks begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     const CR = ComposableRecurrences
 
     # A renewal with per-stratum kernels whose pairs route demand under a

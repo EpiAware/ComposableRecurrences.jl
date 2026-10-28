@@ -258,7 +258,7 @@ end
     end
     function patch(K, ε, N)
         r = patch_model(K, ε, N)
-        return r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)
+        return hcat(seeds, r(Rt; history = seeds, start = size(seeds, 2) + 1))
     end
     @test patch(K, ε, N) ≈ ref
     function loss(θ)

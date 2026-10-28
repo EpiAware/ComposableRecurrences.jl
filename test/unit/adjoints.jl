@@ -490,6 +490,7 @@ end
 
 @testitem "Adjoint: threaded reverse pass with outputs read and routes" setup = [AdjointCheck] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent, Routes
     using Base.ScopedValues: with
     rng = Xoshiro(18)
     S, L, T, W = 4, 3, 9, 5
@@ -607,9 +608,7 @@ end
     args = recargs(1, [1, 2, 3], [1, 0])
     none = map(_ -> nothing, args)
     for (op, ȳ) in (
-            (r, nothing), (CR._Prepended(r), nothing),
-            (CR._WithState(r), (nothing, nothing)),
-            (CR._Prepended(CR._WithState(r)), (nothing, nothing)),
+            (r, nothing), (CR._WithState(r), (nothing, nothing)),
         )
         _, cache = CR._run_forward(op, args...)
         @test CR._run_pullback!((; piece = nothing, y = ȳ, args = none), op, cache) ===
@@ -710,6 +709,7 @@ end
 
 @testitem "Adjoint: Depletion with a population that varies over time" setup = [AdjointCheck] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     rng = Xoshiro(8)
     S, L, T, start = 2, 3, 6, 4
     g = rand(rng, L) ./ 2
@@ -747,29 +747,6 @@ end
         args = recargs(0.5 .+ rand(rng, S, T), nothing, 1 .+ rand(rng, S, m))
         @test pullback_matches(CR._WithState(r), args...)
     end
-end
-
-@testitem "Adjoint: a prepended call" setup = [AdjointCheck] begin
-    using ComposableRecurrences
-    rng = Xoshiro(8)
-    S, L, T = 2, 3, 6
-    g = rand(rng, L) ./ 2
-    # A single series and strata, seeded at times 1 to `L` or before time 1,
-    # with the output, its state and its trace in turn.
-    pop = PerStratum([40.0, 60.0])
-    for (h, R, d) in (
-                (1 .+ rand(rng, L), 0.5 .+ rand(rng, L + T), CR.Depletion(50.0)),
-                (1 .+ rand(rng, S, L), 0.5 .+ rand(rng, S, L + T), CR.Depletion(pop)),
-            ), start in (1, L + 1)
-        r = Recurrence(g; modifiers = (d,))
-        for op in (r, CR._WithState(r), CR._WithTrace(r), CR._WithTrace(CR._WithState(r)))
-            @test pullback_matches(CR._Prepended(op), recargs(R, nothing, h; start)...)
-        end
-    end
-    # A history of counts takes no cotangent.
-    r = Recurrence(g; modifiers = (CR.Depletion(50.0),))
-    args = recargs(0.5 .+ rand(rng, L + T), nothing, [2, 1, 3]; start = L + 1)
-    @test pullback_matches(CR._Prepended(CR._WithTrace(r)), args...)
 end
 
 @testitem "Adjoint: Recurrence with mixed eltypes" setup = [AdjointCheck] begin
@@ -877,6 +854,7 @@ end
 end
 
 @testitem "Adjoint: routing by uses_adjoint" setup = [ReferenceAD, AdjointCheck, AdjointModifiers] begin
+    using ComposableRecurrences: Derived
     using ComposableRecurrences, ConstructionBase, ForwardDiff
     g, K = [0.2, 0.3], [0.5 0.1; 0.2 0.4]
     args = recargs(ones(2, 4), nothing, ones(2, 2))
@@ -1733,6 +1711,7 @@ end
 
 @testitem "Adjoint: local pullback over entry parameters" setup = [ReferenceAD, AdjointCheck] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     # A pointwise modifier whose array parameters a step reads one entry of
     # through `param`: the default `Step` pullback seeds that entry alone.
     struct Cap{K, B}
@@ -2570,6 +2549,7 @@ end
 
 @testitem "Adjoint: local route coupling pullback" setup = [AdjointCheck] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Routes
     # A dense coupling without a pullback, as one route of two.
     struct Spread{A}
         a::A

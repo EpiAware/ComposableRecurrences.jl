@@ -58,7 +58,7 @@ struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
-Called as `r(gain = 1; history, state, add, start, stop, prepend, trace)`,
+Called as `r(gain = 1; history, state, add, start, stop, trace)`,
 the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
@@ -80,8 +80,6 @@ the call covers the absolute times `start:stop`:
     time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
-  - `prepend`: `false`, or `true` to return `history` followed by the
-    output, covering the times `start - h` to `stop`.
   - `trace`: `false`, or `true` to return `(y, trace)`, with
     `trace.modifiers` holding each modifier's series per step, a
     [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of its
@@ -130,7 +128,8 @@ r = Recurrence(g; coupling = K)
 y = r(R; history = ones(2, 3))
 
 # The seed followed by the run, with the seed at times 1 to 3.
-r(hcat(ones(2, 3), R); history = ones(2, 3), start = 4, prepend = true)
+h = ones(2, 3)
+hcat(h, r(hcat(h, R); history = h, start = 4))
 
 # Resume from the returned state over the same inputs.
 y1, state = r(R; history = ones(2, 3), stop = 5, state = true)
@@ -584,36 +583,14 @@ function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
 end
 
 # The output of a run that keeps no cache: the buffer rows after the
-# history or, `joined` (`prepend`), the history then those rows. Nothing
-# writes the buffer after the run, so the output takes over its memory where
-# the layouts agree: the buffer holds the history right aligned.
-_output(H, D, T, h, ::Val{false}) = _public(H, (D + 1):(D + T), h)
-function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{false}) where {Tp}
+# history. Nothing writes the buffer after the run, so the output takes over
+# its memory where the layouts agree: the buffer holds the history right
+# aligned.
+_output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
+function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-function _output(H::Matrix{Tp}, D, T, h::AbstractVector, ::Val{true}) where {Tp}
-    m = length(h)
-    isbitstype(Tp) && m <= D || return _join(h, _rows(H, D, T, h))
-    return deleteat!(vec(H), 1:(D - m))
-end
-function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix, ::Val{true}) where {Tp}
-    m = size(h, 2)
-    isbitstype(Tp) && size(h, 1) == 1 && m <= D ||
-        return _join(h, _rows(H, D, T, h))
-    return reshape(deleteat!(vec(H), 1:(D - m)), 1, m + T)
-end
-function _output(
-        H::Transpose{<:Any, <:SubArray{<:Any, 2, <:Matrix}}, D, T,
-        h::AbstractMatrix, ::Val{true}
-    )
-    Y = parent(parent(H))
-    m = size(h, 2)
-    return m >= D ? Y : Y[:, (D - m + 1):(D + T)]
-end
-# The buffer rows after the history, a view in the public layout of `h`.
-_rows(H, D, T, h::AbstractVector) = view(H, (D + 1):(D + T), 1)
-_rows(H, D, T, h::AbstractMatrix) = transpose(view(H, (D + 1):(D + T), :))
 # The output of a recorded run: the cache keeps the buffer, so the output
 # copies the rows after the history rather than taking them over as
 # `_output` does. A single series (`h` a vector) is the buffer's one column,
@@ -667,121 +644,22 @@ function _resume(history, state::State, start, gain, add)
     return state.history, state.states, state.t
 end
 
-# `prepend = true` joins the history and the output along time, inside the
-# routed call (`_Prepended`): a rule returns the joined output and its
-# pullback hands the history's columns of the cotangent to the history, so
-# no backend differentiates the join itself.
-_join(history::AbstractVector, y) = _join_series(history, y)
-_join(history::AbstractMatrix, y) = _join_strata(history, y)
-_join_series(history, y) = vcat(history, y)
-# `cat` rather than `hcat`, which is ambiguous for some tracked array types.
-_join_strata(history, y) = cat(history, y; dims = 2)
-# CPU arrays join by loop, as `_load_history!` loads them: `Enzyme` cannot
-# analyse the types in `vcat` of a view and an array. The output may be the
-# run's buffer rows (`_rows`), joined with no copy of their own.
-function _join_series(history::_CPUArray, y::_CPUArray)
-    m = length(history)
-    out = Vector{promote_type(eltype(history), eltype(y))}(undef, m + length(y))
-    for i in 1:m
-        out[i] = history[i]
-    end
-    for i in eachindex(y)
-        out[m + i] = y[i]
-    end
-    return out
-end
-function _join_strata(
-        history::_CPUArray, y::Union{Array, Transpose{<:Any, <:_CPUArray}}
-    )
-    S, m = size(history)
-    out = Matrix{promote_type(eltype(history), eltype(y))}(undef, S, m + size(y, 2))
-    for j in 1:m, k in 1:S
-        out[k, j] = history[k, j]
-    end
-    for j in axes(y, 2), k in 1:S
-        out[k, m + j] = y[k, j]
-    end
-    return out
-end
-# The call joins the history to the output when `prepend` is set, branching
-# on the `Bool`: a backend's interpreter may not fold it into a type, and
-# both branches return the output's type.
-function _prepended_call(route, history, op, args::Vararg{Any, N}) where {N}
-    history === nothing &&
-        throw(ArgumentError("prepend = true needs a history, not nothing"))
-    return adjoint_call(_reroute(route, _Prepended(op)), args...)
-end
-
-# A call whose output is preceded by its history along time, routed as its
-# operator: a `Recurrence`, its `_WithState` or a `_WithTrace` of either.
-struct _Prepended{O <: AbstractOperator} <: AbstractOperator
-    op::O
-end
-uses_adjoint(p::_Prepended, ::Run) = uses_adjoint(p.op, Run())
-_type_adjoint(p::_Prepended) = _type_adjoint(p.op)
-_fit(p::_Prepended, args...) = _fit(p.op, args...)
-function _run_forward(p::_Prepended, gain, add, h, s0, τ0, stop)
-    out, cache = _run_forward(p.op, gain, add, h, s0, τ0, stop)
-    return _prepend_output(p.op, h, out, _copy_join), cache
-end
-function _primal(p::_Prepended, gain, add, h, s0, τ0, stop)
-    return _prepend_output(p.op, h, _primal(p.op, gain, add, h, s0, τ0, stop))
-end
-# On host arrays the run writes the joined output from its buffer, with no
-# output of its own to copy.
-function _primal(p::_Prepended{<:Recurrence}, gain, add, h::_CPUArray, s0, τ0, stop)
-    return first(_recur(p.op, gain, add, h, s0, τ0, stop, Val(false), Val(true)))
-end
 # The run's buffer, `D + T` rows by `S` strata, with the history loaded.
-# A joined output of strata on the host runs in a transposed view of the
-# output, so the output is not copied out of the buffer. Hardware floats
-# keep each stratum's times contiguous for their kernel convolution.
-function _history_buffer(joined, h, ::Type{Tp}, D, T, S) where {Tp}
+function _history_buffer(h, ::Type{Tp}, D, T, S) where {Tp}
     return _load_history!(_buffer(h, Tp, D, T, S), h, D)
-end
-function _history_buffer(
-        ::Val{true}, h::AbstractMatrix, ::Type{Tp}, D, T, S
-    ) where {Tp}
-    h isa _CPUArray && !(Tp <: _IEEEFloat) ||
-        return _history_buffer(Val(false), h, Tp, D, T, S)
-    m = size(h, 2)
-    Dh = max(D, m)
-    Y = Matrix{Tp}(undef, S, Dh + T)
-    for j in 1:(Dh - m), k in 1:S
-        Y[k, j] = zero(Tp)
-    end
-    for j in 1:m, k in 1:S
-        Y[k, Dh - m + j] = h[k, j]
-    end
-    return transpose(view(Y, :, (Dh - D + 1):(Dh + T)))
-end
-
-# The history joins the series part of each operator's output: by `_join`,
-# which plain AD differentiates, or, in a rule's forward pass, which no
-# backend differentiates, by `_copy_join` into one array.
-_prepend_output(::Recurrence, h, y, join = _join) = join(h, y)
-_copy_join(h, y) = _join(h, y)
-# Column-major, so the history's entries and then the output's in turn.
-function _copy_join(h::Matrix, y::Matrix)
-    Tz = promote_type(eltype(h), eltype(y))
-    z = similar(y, Tz, size(y, 1), size(h, 2) + size(y, 2))
-    copyto!(z, 1, h, 1, length(h))
-    copyto!(z, length(h) + 1, y, 1, length(y))
-    return z
 end
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, prepend::Bool = false,
+        add = nothing, start = _start(state), stop = nothing,
         trace::Union{Nothing, Bool} = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
     traced, stated = _traced(trace), _stated(state)
     op = _call_op(traced, stated, r)
-    out = prepend ? _prepended_call(route, history, op, args..., stop) :
-        adjoint_call(_reroute(route, op), args..., stop)
+    out = adjoint_call(_reroute(route, op), args..., stop)
     return _unwrap(traced, stated, out)
 end
 # `trace` and `state` are `nothing` unless given, so that a call without
@@ -830,7 +708,6 @@ _trace_op(::Val{true}, r) = _WithTrace(r)
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
-_prepend_output(::_WithState, h, (y, st), join = _join) = (join(h, y), st)
 
 # The rule applies when the kernel, the coupling and each modifier carry
 # their adjoint or are differentiated locally, read off the types (which
@@ -1162,7 +1039,7 @@ end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(
-        r::Recurrence, gain, add, h, s0, τ0, stop, record::Val, joined::Val = Val(false)
+        r::Recurrence, gain, add, h, s0, τ0, stop, record::Val
     )
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
@@ -1191,7 +1068,7 @@ function _recur(
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
     Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record, joined)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:
@@ -1463,11 +1340,9 @@ end
 
 # The buffer loop: returns the output, the buffer, the final states and,
 # when recording (`Val(true)`), the cache the reverse pass reads, or, when
-# tracing without records (`Val(:trace)`), each modifier's trace. With
-# `joined` the output is the history then the series, as `prepend` joins
-# them. The buffer is `D` rows deep before the run, `D >= L`, and row
-# `D + t` holds absolute time `τ0 + t - 1`; the kernel reads the last `L`
-# rows before each step.
+# tracing without records (`Val(:trace)`), each modifier's trace. The buffer
+# is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
+# time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
 # The records are each step's kernel convolutions and pressures `pr`
 # (strata × steps; see `_pressure_records`) and each modifier's input
 # values and states.
@@ -1481,25 +1356,24 @@ end
 # with more than one pool) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val, joined::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
     ) where {Tp}
     c = _current()
     # The default executor is passed as the singleton `Serial()`, so the loop
     # below holds no abstractly typed executor.
     if c.ex isa Serial
-        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, record, joined)
+        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, record)
     end
-    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, record, joined)
+    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, record)
 end
 
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record},
-        joined::Val = Val(false)
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record}
     ) where {Tp, record}
     keep = record === true
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
-    H = _history_buffer(joined, h, Tp, D, T, S)
+    H = _history_buffer(h, Tp, D, T, S)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     states = if s0 === nothing
@@ -1536,7 +1410,7 @@ function _run(
             )
         end
     end
-    Y = keep ? _recorded_output(H, D, T, h) : _output(H, D, T, h, joined)
+    Y = keep ? _recorded_output(H, D, T, h) : _output(H, D, T, h)
     # The cache holds copies of the inputs whose values the reverse pass
     # reads, so a caller overwriting them after the call cannot change the
     # gradient; of the history it reads only the shape unless a modifier's
@@ -1581,7 +1455,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 g = [0.2, 0.5, 0.3]
 h = CR.exponential_history(5.0, 0.1, length(g))
-round.(Recurrence(g)(fill(1.2, 6); history = h, prepend = true); digits = 3)
+round.(vcat(h, Recurrence(g)(fill(1.2, 6); history = h)); digits = 3)
 
 # output
 

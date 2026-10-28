@@ -47,6 +47,7 @@ end
 
 @testitem "Recent: construction, depth and errors" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     const CR = ComposableRecurrences
     @test Recent(3).w == [true, true, true]
     # `Recent(n)` holds its ones as their count, plain data with no array,
@@ -79,6 +80,7 @@ end
 
 @testitem "Recent: arithmetic builds Derived" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     x = Recent(3)
     for y in (2.0 * x, x * 2.0, x + 1.0, 1.0 - x, x / 4.0, x^2, -x, x + x)
         @test y isa Derived
@@ -90,6 +92,7 @@ end
 end
 
 @testitem "Recent: behaviour feedback against a naive loop" begin
+    using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, Random
     const CR = ComposableRecurrences
     rng = Xoshiro(21)
@@ -133,6 +136,7 @@ end
 end
 
 @testitem "Recent: any modifier parameter reads the outputs it would see" setup = [RecentSpill] begin
+    using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, LinearAlgebra, Random
     const CR = ComposableRecurrences
     rng = Xoshiro(22)
@@ -179,6 +183,7 @@ end
 
 @testitem "Recent: the state resumes with the deeper past" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     const CR = ComposableRecurrences
     g = [0.3, 0.4]
     r = Recurrence(g; modifiers = (CR.Transform(*, Derived(exp, -0.02 * Recent(6))),))
@@ -191,6 +196,7 @@ end
 end
 
 @testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck, RecentSpill] begin
+    using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, LinearAlgebra, Random
     rng = Xoshiro(23)
     S, L, T, W = 2, 3, 10, 5
@@ -222,6 +228,7 @@ end
 
 @testitem "Recent: a modifier without its own pullback takes plain AD" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     const CR = ComposableRecurrences
     struct Scale{U}
         u::U
@@ -245,6 +252,7 @@ end
 
 @testitem "Depletion: Derived removals are removed" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     const CR = ComposableRecurrences
     removal(u) = CR.Flow(:S => 0, u; form = CR.Truncate())
     r(u) = Recurrence(
@@ -269,6 +277,7 @@ end
 
 @testitem "Recent: unbound reverse, rebinding and plain fields" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Recent
     const CR = ComposableRecurrences
     @test_throws "inside a Recurrence" CR.add_param!(nothing, Recent(2), 1.0, 1, 1)
     b = CR._bind(Recent(2), zeros(4, 1), nothing, 1)
@@ -287,24 +296,26 @@ end
 
 @testitem "Recent: a read before the window is an error" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Recent
     using ForwardDiff: Dual
     const CR = ComposableRecurrences
     # Depletion's Init reads N at time 1, before a run that starts at 5.
     r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(100.0 + Recent(3)),))
     @test_throws "read at time 1" r(fill(1.2, 8); history = ones(4), start = 5)
     # The read still errors for strata of floats and of dual numbers with
-    # `prepend = true` and a history deeper than the window.
+    # a history deeper than the window.
     r = Recurrence(
         [0.5, 0.3]; modifiers = (CR.Depletion(PerStratum([100.0, 90.0]) + Recent(3)),)
     )
     for x in (identity, v -> Dual{Nothing}.(v, 1.0))
         @test_throws "read at time 1" r(
-            x(fill(1.2, 2, 10)); history = x(ones(2, 5)), start = 2, prepend = true
+            x(fill(1.2, 2, 10)); history = x(ones(2, 5)), start = 2
         )
     end
 end
 
 @testitem "Recent: an Init that reads the outputs sends its cotangent to the history" setup = [AdjointCheck] begin
+    using ComposableRecurrences: Recent
     using ComposableRecurrences, LinearAlgebra, Random
     rng = Xoshiro(24)
     S, L, T = 2, 3, 8
@@ -329,6 +340,7 @@ end
 
 @testitem "Recent: binding infers" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     const CR = ComposableRecurrences
     H = zeros(10, 2)
     mods = (
@@ -351,6 +363,7 @@ end
 end
 
 @testitem "Recent: a coupling against a naive loop" begin
+    using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, LinearAlgebra, Random, SparseArrays
     const CR = ComposableRecurrences
     rng = Xoshiro(31)
@@ -394,9 +407,10 @@ end
 
 @testitem "Recent: coupling errors name the value" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Recent
     const CR = ComposableRecurrences
     @test_throws "S × S matrix" Recent(3; coupling = 2.0)
-    @test Recent(3, ones(2, 2)).w == Recent(3; coupling = ones(2, 2)).w
+    @test_throws MethodError Recent(3, ones(2, 2))
     # Errors describe a Recent by its sizes, not its contents.
     @test_throws "Recent(2 weights; coupling 40 × 40)" CR.Depletion(
         100.0; pools = (S = Recent(2; coupling = ones(40, 40)),)
@@ -408,6 +422,7 @@ end
 end
 
 @testitem "Recent: reverse pass through a coupling" setup = [AdjointCheck] begin
+    using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, LinearAlgebra, Random, SparseArrays
     rng = Xoshiro(32)
     S, L, T, W = 3, 3, 9, 4
@@ -437,6 +452,7 @@ end
 
 @testitem "Recent: binding, rebinding and mirrors" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Recent
     const CR = ComposableRecurrences
     H, H2, H̄ = rand(10, 2), rand(10, 2), zeros(10, 2)
     # An unbound source has no cotangent to take either.
@@ -455,6 +471,7 @@ end
 end
 
 @testitem "Recent: a coupled read back at a row other than the cached one" begin
+    using ComposableRecurrences: Recent
     using ComposableRecurrences, Random
     const CR = ComposableRecurrences
     rng = Xoshiro(41)
@@ -482,6 +499,7 @@ end
 
 @testitem "Recent: a coupled read allocates nothing per step" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     const CR = ComposableRecurrences
     # An integer coupling keeps the run's float type.
     βi = Derived(exp, -0.1f0 * Recent(2; coupling = [0 1; 1 0]))
