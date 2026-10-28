@@ -12,7 +12,8 @@ The neural network package Lux also exports a `Recurrence`, so with both loaded 
 
 ## [A step](@id overview-step)
 
-An operator computes its output one step at a time.
+`Recurrence` and `Convolution`, the two operators, compute their outputs one step at a time.
+A recurrence computes each value from its own past values, and a convolution from the past values of another series.
 Time is the integer step ``t``, counted from 1, and the model sets its [time unit](@ref time-units).
 In the Getting started model one step is one day.
 A model can run several series side by side, such as one per town.
@@ -120,7 +121,7 @@ In a renewal model this is the reproduction number, and with a `Depletion` the e
 
 A [slot](@ref explanation-slots) is a place an operator reads numbers from: a kernel, a coupling or a modifier parameter.
 A plain array gives one set of numbers for every stratum and time.
-A wrapper gives one set per stratum, per pair of strata or per step.
+A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata or per step.
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
 ```julia
@@ -287,9 +288,9 @@ A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.fo
 
 ## [Time-series processes](@id overview-time-series)
 
-A latent process is one that is not observed, such as a random walk on the log reproduction number.
-It is also a recurrence or a convolution, driven by noise ``\epsilon_t``.
-A recurrence takes the noise as `add`, and a convolution as its input.
+A time-series process, such as a random walk or an autoregression, builds a series from noise ``\epsilon_t``.
+Each is a recurrence or a convolution: a recurrence takes the noise as `add`, and a convolution as its input.
+As a latent process, one that is not observed, it can drive a gain such as the log reproduction number.
 
 ```julia
 Recurrence([1.0])(; history = [0.0], add = ϵ)
@@ -331,7 +332,8 @@ end
 
 These names are for writing a [new coupling, modifier or depletion form](@ref extending), and for checking its gradient.
 A model built from the package's own parts needs none of them.
-A role is one job a type can do, chosen by a type with no fields.
+A role is one job a new type can do, such as computing a step.
+Each role is named by a type with no fields, such as `Step()`.
 A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
 The role `Step()` computes one step, and `Init()` the starting state.
 The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `trace = true`.
