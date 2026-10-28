@@ -21,7 +21,8 @@
     # Runs the kit's working-backend check on the registry scenarios of
     # `category` for the backend named `name`, once per precision at its
     # tolerance, then checks each gradient against its reference entry by
-    # entry; the kit compares whole gradients by norm.
+    # entry. The kit compares whole gradients by norm, but it also checks
+    # the prepared, in-place and value-and-gradient calls.
     function test_gradients(name; category::Symbol)
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
