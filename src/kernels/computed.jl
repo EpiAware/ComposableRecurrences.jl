@@ -49,8 +49,9 @@ function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
 end
 
 # The dense kernel's reverse pass, which returns the weights' cotangent. The
-# kernel and its mirror are built from `K` in one method, so their shapes
-# agree even where the shape of `K` does not infer.
+# kernel and its mirror are built from `K` behind one function boundary, so
+# where the shape of `K` does not infer (an abstract kernel), inference
+# cannot pair a mirror and a kernel of different shapes.
 function _dense_convolve_back!(ex, X̄, x̄, K, X, Ȳ, m, start)
     K̄ = _weights_cotangent(x̄, K)
     _convolve_back!(ex, X̄, _dense_mirror(K̄), _dense_kernel(K), X, Ȳ, m, start)
