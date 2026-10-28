@@ -9,7 +9,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Floor, exponential_history, growth_rate
+using ComposableRecurrences: Depletion, Floor, exponential_history
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -43,18 +43,17 @@ end
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
-# A [seed](@ref explanation-seeding) already growing at rate ``r`` avoids this:
+# A [seed](@ref explanation-seeding) over all ``L`` days before day 1, already growing at rate ``r``, avoids this:
 #
 # ```math
-# h_l = I_0 \, e^{r (l - L)}, \quad l = 1, \dots, L, \qquad
-# 1 = R_1 \sum_{l=1}^{L} g_l \, e^{-r l},
+# h_l = I_0 \, e^{r (l - L)}, \quad l = 1, \dots, L,
 # ```
 #
-# where ``h_l`` is the seed on the ``l``-th of the ``L`` days before day 1 and ``I_0`` the seed on the last of them.
-# The second equation links the growth rate ``r`` to the reproduction number ``R_1`` for the generation interval.
-# [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves it for ``r``, and [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds the seed.
+# where ``h_l`` is the seed on the ``l``-th of these days and ``I_0`` the seed on the last of them.
+# Here ``r = 0.12`` per day, close to the rate at which this renewal grows while ``R_t = 1.4``.
+# [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds the seed.
 
-r0 = growth_rate(R[1], gi)
+r0 = 0.12
 h0 = exponential_history(5.0, r0, length(gi))
 seeded = vcat(h0, renewal(R; history = h0))
 single = vcat(5.0, renewal(R; history = [5.0]))
@@ -69,7 +68,7 @@ ratio(y) = (y[2:end] ./ y[1:(end - 1)])[(end - T + 1):(end - T + 25)]
 end
 
 # The dashed line is ``e^{r}``.
-# With the growing seed the daily growth ratio is ``e^{r}`` from day 1 until ``R_t`` changes.
+# With the growing seed the daily growth ratio stays close to ``e^{r}`` from day 1 until ``R_t`` changes.
 # With a single seed day the ratio swings for the first generations.
 
 # ## Susceptible depletion

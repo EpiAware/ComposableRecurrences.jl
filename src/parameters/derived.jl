@@ -75,7 +75,7 @@ expression.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-# A reproduction number from a daily log growth rate and a scale.
+# A multiplier from a scale and a log value that varies with t.
 logR = TimeVarying(0.3 .* sin.(1:10))
 β = 0.8 * CR.Derived(exp, logR)
 r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(*, β),))
