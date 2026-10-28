@@ -857,9 +857,6 @@ _form_why(f, fs...) = _form_adjoint(f) ? _form_why(fs...) : _part_why(f)
 # and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
 # `_ad_wide`; with more it takes plain AD.
 # A part the local step cannot rebuild sends every call to plain AD.
-# A pointwise modifier whose local step records its reads of float arrays
-# (`_read_pullback`) takes the wider route too, as that step beats plain AD
-# only where `_ad_wide` is a rule (see the adjoints page).
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
     return _parts_fit(r, h)
@@ -874,15 +871,13 @@ function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args.
 end
 function _parts_fit(r, h)
     couplings = _couplings_fit(h, r.coupling, _kernel_couplings(r.kernel)...)
-    fit = _worse(couplings, _steps_fit(r.modifiers, _nstrata(h)))
-    fit === :one && _any_reads(r.modifiers) && return :wide
-    return fit
+    return _worse(couplings, _steps_fit(r.modifiers, _nstrata(h)))
 end
 # A whole-step modifier's local derivative seeds the step's values, its
 # state and its parameters: within one pass of dual numbers
 # (`_LOCAL_PRESSURE`) the call takes the rule, and with more `_ad_wide`,
 # a rule on `Mooncake` at any size, where it stays faster than plain AD, and
-# plain AD on `Enzyme`, where the two are level (see the adjoints page).
+# plain AD on `Enzyme`, where the rule is slower than plain AD.
 _steps_fit(ms::Tuple, S) = reduce(_worse, map(m -> _step_fit(m, S), ms); init = :one)
 function _step_fit(m, S)
     _whole_local(m) || return :one
@@ -913,11 +908,6 @@ end
 # over one pass.
 _couplings_fit(h, C) = _coupling_fit(C, h)
 _couplings_fit(h, C, Cs...) = _worse(_coupling_fit(C, h), _couplings_fit(h, Cs...))
-function _any_reads(ms::Tuple)
-    return any(ms) do m
-        _strata_loop(m) && _modifier_adjoint(m) === :local && !_local_params(m)
-    end
-end
 # The parameters a coupling's local step seeds: its float scalars, folded
 # from the type, or every scalar and array entry.
 _ninputs(C) = _scalar_params(C) ? length(_param_tuple(C)) : _nparams(C)
