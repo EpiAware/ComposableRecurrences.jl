@@ -1439,7 +1439,6 @@ h_{i,l} = I_{0,i}\, e^{r_i (l - L)},
 ```
 
 oldest first, so ``h_L = I_0``.
-A rate of 0 gives a constant history.
 
 # Arguments
 - `I0`: the value at the last step; a vector gives one per stratum.
