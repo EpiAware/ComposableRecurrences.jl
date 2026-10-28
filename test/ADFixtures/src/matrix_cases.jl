@@ -12,7 +12,7 @@
 module MatrixCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Derived, Recent, Routes
+using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
@@ -150,7 +150,7 @@ function strata_routes(wrap, z::Size)
         )
         Ks = SparseMatrixCSC(S, S, K2.colptr, K2.rowval, collect(v))
         r = Recurrence(
-            Routes((K1, g1), (Ks, g2));
+            Pairwise(K1 => g1, Ks => g2);
             modifiers = (depletion(pop; form = CR.Floor()),)
         )
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
@@ -947,7 +947,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:movement,),
     "bvd_patches_call" => (:movement, :_WithTrace),
     "zone_allocate" => (:Allocate,),
-    "strata_routes" => (:Routes,),
+    "strata_routes" => (:_Routes,),
     "strata_vaccination" => (:depletion_pools,),
     "ward_flows" => (:depletion_pools,),
     "strata_waning" => (:depletion_pools,),

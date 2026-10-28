@@ -246,6 +246,14 @@
 8.6	Operators: GPU arrays run their strata loops on the device
 1.0	Operators: the default executor keeps calls type stable
 21.3	Operators: threaded calls match serial calls exactly
+1.9	Pairwise routes: argument validation
+1.0	Pairwise routes: arrays alone hold no delays
+2.0	Pairwise routes: delay distributions on routes
+2.9	Pairwise routes: equal the Pairwise kernel of their sum
+5.8	Pairwise routes: equal the naive loop for each kernel
+4.1	Pairwise routes: fold into a cheaper form
+5.0	Pairwise routes: modifiers, add, resume and Float32
+2.4	Pairwise routes: the rule needs each route coupling's adjoint
 1.7	Pairwise: a delay distribution per pair
 2.8	PerStratum: a delay distribution per stratum
 0.8	Primary Recurrence: a cohort's onward weight is its column sum
@@ -314,14 +322,6 @@
 5.4	Redistribute: a movement that varies over time
 4.6	Redistribute: checks its matrix
 0.7	Redistribute: conserving, against a naive loop
-1.9	Routes: argument validation
-1.0	Routes: arrays alone hold no delays
-2.0	Routes: delay distributions on routes
-2.9	Routes: equal the Pairwise kernel of their sum
-5.8	Routes: equal the naive loop for each kernel
-4.1	Routes: fold into a cheaper form
-5.0	Routes: modifiers, add, resume and Float32
-2.4	Routes: the rule needs each route coupling's adjoint
 1.1	Standards: README and page prose
 0.7	Standards: README code is from the getting started page
 0.5	Standards: README example prints nothing on the home page

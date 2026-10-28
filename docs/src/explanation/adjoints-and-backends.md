@@ -51,7 +51,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
-| [`Routes`](@ref ComposableRecurrences.Routes) coupling | as a coupling, the widest route coupling setting the call's route |
+| [`Pairwise`](@ref) route coupling | as a coupling, the widest route coupling setting the call's route |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 

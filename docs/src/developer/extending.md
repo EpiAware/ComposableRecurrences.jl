@@ -21,8 +21,8 @@ A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function
 | initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
 | coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
 | depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
-| modifier trace | `forward!(m, Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
-| blockwise modifier group trace | `forward!(m, Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
+| modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
+| blockwise modifier group trace | `forward!(m, ComposableRecurrences.Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
 
 The arguments mean the same in every role:
 
@@ -410,10 +410,10 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - `(v, s, N)`, with vectors `v` and `s` and a float `N`, for a depletion form, as a float `N` is what tells a form's step from a modifier's;
-- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` a tuple of vectors for a pointwise modifier and a column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows for any other.
+- `(r, v, s, v′, s′, t)` for `ComposableRecurrences.Trace()`, with `r` a tuple of vectors for a pointwise modifier and a column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows for any other.
   A blockwise group takes `g` after `t`, and its arguments are tuples of `Ref`s.
 
-For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
+For `ComposableRecurrences.Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
 It also checks that `uses_adjoint` finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 The optional `:pullback` check compares each `pullback!` for `Step()` or `Pressure()` with the ForwardDiff Jacobian of `forward!` on the same inputs, so it needs `using ForwardDiff`.

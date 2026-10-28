@@ -54,7 +54,6 @@ end
 @testitem "Continuous delays: an error naming CensoredDistributions without it" begin
     script = raw"""
     using ComposableRecurrences, Distributions, LinearAlgebra
-    using ComposableRecurrences: Routes
     loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
     println(loaded("CensoredDistributions"))
     names_it(f) = try
@@ -75,7 +74,7 @@ end
                 () -> Recurrence(PerStratum([g, g]); lags = 4),
                 () -> Convolution(TimeVarying([g, g]); lags = 4),
                 () -> Recurrence(Pairwise(fill(g, 2, 2)); lags = 4),
-                () -> Recurrence(Routes(([1.0 0.0; 0.0 1.0], g)); lags = 4),
+                () -> Recurrence(Pairwise([1.0 0.0; 0.0 1.0] => g); lags = 4),
             )
         )
     )
@@ -218,31 +217,30 @@ end
         Recurrence(Pairwise(r.kernel.x))(ones(2, 6); history = h)
 end
 
-@testitem "Routes: delay distributions on routes" setup = [DelayCases] begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: delay distributions on routes" setup = [DelayCases] begin
     C1 = [0.9 0.1; 0.1 0.9]
     C2 = [0.0 0.4; 0.4 0.0]
     d1, d2 = Poisson(1.0), NegativeBinomial(2, 0.5)
-    r = Recurrence(Routes((C1, d1), (C2, d2)); lags = 5)
+    r = Recurrence(Pairwise(C1 => d1, C2 => d2); lags = 5)
     @test r.kernel.couplings == (C1, C2)
     @test r.kernel.kernels[1] ≈ tail(d1, 5)
     @test r.kernel.kernels[2] ≈ tail(d2, 5)
-    ref = Recurrence(Routes((C1, tail(d1, 5)), (C2, tail(d2, 5))))
+    ref = Recurrence(Pairwise(C1 => tail(d1, 5), C2 => tail(d2, 5)))
     R = fill(1.2, 2, 6)
     h = ones(2, 4)
     @test r(R; history = h) ≈ ref(R; history = h)
     # A route of masses beside a route of a distribution.
     g = [0.5, 0.3]
-    mixed = Recurrence(Routes((C1, g), (C2, d2)); lags = 5)
+    mixed = Recurrence(Pairwise(C1 => g, C2 => d2); lags = 5)
     @test mixed.kernel.kernels[1] == g
     @test mixed.kernel.kernels[2] ≈ tail(d2, 5)
     # A route kernel per stratum.
-    ps = Recurrence(Routes((C1, PerStratum([d1, d2]))); lags = 3)
+    ps = Recurrence(Pairwise(C1 => PerStratum([d1, d2])); lags = 3)
     @test ps.kernel.x[2, :] ≈ tail(d2, 3)
-    @test_throws ArgumentError Recurrence(Routes((C1, d1), (C2, d2)))
-    @test_throws ArgumentError Recurrence(Routes((C1, d1)); lags = 1)
+    @test_throws ArgumentError Recurrence(Pairwise(C1 => d1, C2 => d2))
+    @test_throws ArgumentError Recurrence(Pairwise(C1 => d1); lags = 1)
     # Routes of arrays alone take no `lags`.
-    arrays = Routes((C1, [0.5, 0.3]), (C2, [0.1, 0.1, 0.2]))
+    arrays = Pairwise(C1 => [0.5, 0.3], C2 => [0.1, 0.1, 0.2])
     @test_throws ArgumentError Recurrence(arrays; lags = 4)
 end
 
@@ -316,13 +314,12 @@ end
     end
 end
 
-@testitem "Routes: arrays alone hold no delays" setup = [DelayCases] begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: arrays alone hold no delays" setup = [DelayCases] begin
     using SparseArrays
-    routes = Routes(
-        ([0.9 0.1; 0.1 0.9], [0.5, 0.3]), (sparse([0.0 0.4; 0.4 0.0]), [0.1, 0.2, 0.3])
+    routes = Pairwise(
+        [0.9 0.1; 0.1 0.9] => [0.5, 0.3], sparse([0.0 0.4; 0.4 0.0]) => [0.1, 0.2, 0.3]
     )
-    folded = Routes((0.5I, [0.5, 0.3]), (0.2I, [0.1, 0.2]))
+    folded = Pairwise(0.5I => [0.5, 0.3], 0.2I => [0.1, 0.2])
     R = fill(1.2, 2, 6)
     h = ones(2, 3)
     for rs in (routes, folded)
@@ -331,7 +328,7 @@ end
         @test typeof(@inferred Recurrence(rs; coupling = I)) == typeof(r)
     end
     @test !(@inferred CR._has_delays(typeof(routes)))
-    @test @inferred CR._has_delays(typeof(Routes((I, Poisson(1.0)), (I, [0.1]))))
+    @test @inferred CR._has_delays(typeof(Pairwise(I => Poisson(1.0), I => [0.1])))
 end
 
 @testsnippet ChainedDelays begin
@@ -513,7 +510,6 @@ end
 end
 
 @testitem "A delay type of its own: in each wrapper" setup = [OwnDelay] begin
-    using ComposableRecurrences: Routes
     ds = [GeometricDelay(0.2), GeometricDelay(0.5), GeometricDelay(0.7)]
     ps = @inferred Recurrence(PerStratum(ds); lags = 4)
     @test size(ps.kernel.x) == (3, 3)
@@ -527,10 +523,10 @@ end
     tvs = @inferred Recurrence(TimeVarying(PerStratum(G)); lags = 3)
     @test tvs.kernel.x.x[2, :, 3] ≈ tail(G[2, 3], 3)
     C1 = [0.9 0.1; 0.1 0.9]
-    rt = Recurrence(Routes((C1, ds[1]), (0.5I, [0.2, 0.1])); lags = 4)
+    rt = Recurrence(Pairwise(C1 => ds[1], 0.5I => [0.2, 0.1]); lags = 4)
     @test rt.kernel.kernels[1] ≈ tail(ds[1], 4)
     @test rt.kernel.kernels[2] == [0.2, 0.1]
-    @test_throws ArgumentError Recurrence(Routes((C1, ds[1])))
+    @test_throws ArgumentError Recurrence(Pairwise(C1 => ds[1]))
     @test_throws ArgumentError Recurrence(ds; lags = 3)
 end
 
@@ -602,7 +598,6 @@ end
 end
 
 @testitem "Continuous delays: as kernels" setup = [CensoredDelays] begin
-    using ComposableRecurrences: Routes
     d = LogNormal(1.5, 0.75)
     c = @inferred Convolution(d; lags = 30)
     @test c.kernel ≈ censored(d, 30)
@@ -612,7 +607,7 @@ end
     ps = Recurrence(PerStratum([g, Gamma(3.0, 2.0)]); lags = 6)
     @test ps.kernel.x[2, :] ≈ censored(Gamma(3.0, 2.0), 6)[2:end]
     # A discrete and a continuous delay on separate routes.
-    mixed = Routes(([0.9 0.1; 0.1 0.9], Poisson(2.0)), ([0.0 0.4; 0.4 0.0], g))
+    mixed = Pairwise([0.9 0.1; 0.1 0.9] => Poisson(2.0), [0.0 0.4; 0.4 0.0] => g)
     rt = Recurrence(mixed; lags = 6)
     @test rt.kernel.kernels[2] ≈ censored(g, 6)[2:end]
 end

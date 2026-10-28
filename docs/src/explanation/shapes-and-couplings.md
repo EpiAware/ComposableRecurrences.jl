@@ -13,7 +13,7 @@ A slot is a place an operator reads a coefficient from: a kernel, a coupling or 
 Data (inputs, history and outputs) are not slots, and are always strata × time.
 Each slot accepts its own set of wrappers.
 
-| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | [`Routes`](@ref ComposableRecurrences.Routes) | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
+| Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | `Pairwise` routes | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
 |---|---|---|---|---|---|---|---|
 | `Recurrence` kernel | lags | yes | yes | yes | yes | in `TimeVarying(d, Primary())` | no |
 | `Convolution` kernel | lags | yes | yes | no | no | in `TimeVarying(d, Primary())` | no |
@@ -85,14 +85,14 @@ coupled = Recurrence(k; coupling = C)(gain; history = h)
 pairwise ≈ coupled
 ```
 
-[`Routes`](@ref ComposableRecurrences.Routes) sits between the two: a sum of a few kernels, each with its own coupling, such as household and community contacts with different generation intervals.
+[`Pairwise(K₁ => k₁, K₂ => k₂)`](@ref Pairwise) sits between the two: a sum of a few kernels, each with its own coupling, such as household and community contacts with different generation intervals.
 With routes ``r``, each a coupling ``K^{(r)}`` and a kernel ``k^{(r)}``,
 
 ```math
 v_{t,i} = \gamma_{t,i} \sum_{r} \sum_{j=1}^{S} K^{(r)}_{ij} \sum_{l=1}^{L} k^{(r)}_l \, y_{t-l,j} + a_{t,i}.
 ```
 
-Use a coupling when one lag shape fits, `Routes` for a few shapes, and `Pairwise` when the shape differs by pair.
+Use a coupling when one lag shape fits, `Pairwise` routes for a few shapes, and a `Pairwise` array when the shape differs by pair.
 
 ## [Your own coupling](@id explanation-own-coupling)
 

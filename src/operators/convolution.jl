@@ -246,9 +246,9 @@ struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
             return Convolution(_delay_kernel(kernel, lags, 0, step); method)
         _check_no_step(step)
         _check_no_delays(kernel)
-        kernel isa Union{_PairwiseKernel, Routes} && throw(
+        kernel isa Union{_PairwiseKernel, _Routes} && throw(
             ArgumentError(
-                "a Pairwise or Routes kernel is for a Recurrence, not a " *
+                "a Pairwise kernel is for a Recurrence, not a " *
                     "Convolution; " *
                     "got $(_describe(kernel))"
             )

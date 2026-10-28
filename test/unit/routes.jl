@@ -1,4 +1,4 @@
-# The Routes kernel: a sum of (coupling, kernel) routes, against the
+# The routes form of Pairwise: a sum of coupling => kernel routes, against the
 # naive reference loop and the equivalent Pairwise kernel.
 
 @testsnippet RouteCases begin
@@ -6,7 +6,7 @@
     CR = ComposableRecurrences
 
     # Route `r`'s weight on lag `i` of stratum `b` in stratum `a` at time
-    # `t`, for the kernel shapes Routes accepts; zero past the kernel's end.
+    # `t`, for the kernel shapes a route accepts; zero past the kernel's end.
     lagw(g::AbstractVector, t, a, b, i) = i <= length(g) ? g[i] : 0.0
     lagw(g::PerStratum, t, a, b, i) = i <= size(g.x, 2) ? g.x[a, i] : 0.0
     function lagw(g::Pairwise, t, a, b, i)
@@ -38,8 +38,7 @@
     end
 end
 
-@testitem "Routes: equal the naive loop for each kernel" setup = [Reference, RouteCases] begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: equal the naive loop for each kernel" setup = [Reference, RouteCases] begin
     rng = Xoshiro(21)
     S, T = 3, 9
     h = rand(rng, S, 5)
@@ -55,7 +54,7 @@ end
         ),
     ]
     for routes in cases
-        r = Recurrence(Routes(routes...))
+        r = Recurrence(Pairwise((C => k for (C, k) in routes)...))
         ref = naive_recurrence(
             (t, a, b, i) -> routes_weight(routes, t, a, b, i), h, T;
             gain = (a, t) -> R[a, t]
@@ -66,7 +65,7 @@ end
     # Primary route kernels read the column of each value's own time, so
     # the seed sits at times 1 to 5.
     routes = ((I, TimeVarying(rand(rng, 3, 5 + T), CR.Primary())), (Ks, rand(rng, 2)))
-    r = Recurrence(Routes(routes...))
+    r = Recurrence(Pairwise((C => k for (C, k) in routes)...))
     Rp = hcat(ones(S, 5), R)
     y = r(Rp; history = h, start = 6)
     ref = naive_recurrence(
@@ -77,8 +76,7 @@ end
     @test_throws "needs start > 5" r(Rp; history = h)
 end
 
-@testitem "Routes: equal the Pairwise kernel of their sum" begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: equal the Pairwise kernel of their sum" begin
     using ComposableRecurrences, SparseArrays, Random
     rng = Xoshiro(22)
     S, L, T = 3, 4, 10
@@ -87,7 +85,7 @@ end
     A = [K1[i, j] * get(g1, l, 0.0) + K2[i, j] * g2[l] for i in 1:S, j in 1:S, l in 1:L]
     h = rand(rng, S, L)
     R = rand(rng, S, T)
-    routes = Recurrence(Routes((K1, g1), (K2, g2)))
+    routes = Recurrence(Pairwise(K1 => g1, K2 => g2))
     @test routes(R; history = h) ≈ Recurrence(Pairwise(A))(R; history = h)
     # In a buffer deeper than the longest route, with the state it returns.
     struct Deep end
@@ -95,7 +93,7 @@ end
     ComposableRecurrences.forward!(::Deep, ::ComposableRecurrences.Step, v, s, t) = nothing
     ComposableRecurrences.depth(::Deep) = 2L
     hd = rand(rng, S, 2L)
-    deep = Recurrence(Routes((K1, g1), (K2, g2)); modifiers = (Deep(),))
+    deep = Recurrence(Pairwise(K1 => g1, K2 => g2); modifiers = (Deep(),))
     ref = Recurrence(Pairwise(A); modifiers = (Deep(),))
     @test deep(R; history = hd) ≈ ref(R; history = hd)
     y, st = deep(R; history = hd, state = true)
@@ -103,9 +101,9 @@ end
     @test st.history ≈ hcat(hd, y)[:, (end - 2L + 1):end]
 end
 
-@testitem "Routes: fold into a cheaper form" begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: fold into a cheaper form" begin
     using ComposableRecurrences, LinearAlgebra, SparseArrays, Random
+    using ComposableRecurrences: _Routes
     rng = Xoshiro(23)
     S, L, T = 3, 4, 8
     g = rand(rng, L)
@@ -113,37 +111,36 @@ end
     R = rand(rng, S, T)
     # One route is its kernel with its coupling; unfolded, it gives the same.
     for K in (rand(rng, S, S), sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4]), 0.7I)
-        one = Recurrence(Routes((K, g)))
+        one = Recurrence(Pairwise(K => g))
         @test one.kernel === g
         @test one.coupling === K
         ref = Recurrence(g; coupling = K)(R; history = h)
         @test one(R; history = h) ≈ ref
-        @test Recurrence(Routes((K, g)), I, ())(R; history = h) ≈ ref
+        @test Recurrence(Pairwise(K => g), I, ())(R; history = h) ≈ ref
     end
     # A pairwise route keeps its form, as it takes coupling I.
     P = Pairwise(rand(rng, S, S, L))
-    @test Recurrence(Routes((0.5I, P))).kernel isa Routes
+    @test Recurrence(Pairwise(0.5I => P)).kernel isa _Routes
     # Routes on scaled identities sum into one kernel.
     g2 = rand(rng, L + 2)
-    folded = Recurrence(Routes((0.5I, g), (I, g2)))
+    folded = Recurrence(Pairwise(0.5I => g, I => g2))
     @test folded.kernel ≈ 0.5 .* vcat(g, 0.0, 0.0) .+ g2
     @test folded(R; history = h) ≈
-        Recurrence(Routes((0.5I, g), (I, g2)), I, ())(R; history = h)
+        Recurrence(Pairwise(0.5I => g, I => g2), I, ())(R; history = h)
     # Other mixes keep their routes.
-    @test Recurrence(Routes((0.5I, g), (Diagonal(rand(rng, S)), g2))).kernel isa Routes
-    @test Recurrence(Routes((0.5I, g), (I, PerStratum(rand(rng, S, 2))))).kernel isa
-        Routes
+    @test Recurrence(Pairwise(0.5I => g, Diagonal(rand(rng, S)) => g2)).kernel isa _Routes
+    @test Recurrence(Pairwise(0.5I => g, I => PerStratum(rand(rng, S, 2)))).kernel isa
+        _Routes
 end
 
-@testitem "Routes: modifiers, add, resume and Float32" setup = [TestModifiers] begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: modifiers, add, resume and Float32" setup = [TestModifiers] begin
     using ComposableRecurrences, SparseArrays, Random
     CR = ComposableRecurrences
     rng = Xoshiro(24)
     S, T = 3, 10
-    routes = Routes(
-        (rand(rng, S, S), rand(rng, 3)),
-        (sparse([0.0 0.4 0.0; 0.0 0.0 0.3; 0.2 0.0 0.0]), [0.0, 0.0, 0.5, 0.5])
+    routes = Pairwise(
+        rand(rng, S, S) => rand(rng, 3),
+        sparse([0.0 0.4 0.0; 0.0 0.0 0.3; 0.2 0.0 0.0]) => [0.0, 0.0, 0.5, 0.5]
     )
     A = zeros(S, S, 4)
     for (K, g) in zip(routes.couplings, routes.kernels), l in eachindex(g)
@@ -163,50 +160,50 @@ end
     @test r(R; history = h[:, 3:4]) ≈ ref(R; history = h[:, 3:4])
     # Float32 throughout gives a Float32 output.
     r32 = Recurrence(
-        Routes(
-            (Float32.(routes.couplings[1]), Float32.(routes.kernels[1])),
-            (Float32.(routes.couplings[2]), Float32.(routes.kernels[2]))
+        Pairwise(
+            Float32.(routes.couplings[1]) => Float32.(routes.kernels[1]),
+            Float32.(routes.couplings[2]) => Float32.(routes.kernels[2])
         )
     )
     @test r32(Float32.(R); history = Float32.(h)) isa Matrix{Float32}
 end
 
-@testitem "Routes: argument validation" begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: argument validation" begin
     using ComposableRecurrences, LinearAlgebra
     g = [0.5, 0.5]
     K = ones(2, 2)
-    R2 = Routes((K, g), (2K, g))
+    R2 = Pairwise(K => g, 2K => g)
+    # Printed as written; a test module qualifies the name.
+    @test endswith(repr(R2), "Pairwise([1.0 1.0; 1.0 1.0] => [0.5, 0.5], [2.0 2.0; 2.0 2.0] => [0.5, 0.5])")
     @test_throws "coupling must be I, got" Recurrence(R2; coupling = K)
     @test_throws "coupling must be I, got" Recurrence(R2; coupling = 0.5I)
     @test_throws "coupling must be I, got" Recurrence(R2, K, ())
-    @test_throws "Routes is a kernel" Recurrence(g; coupling = R2)
-    @test_throws "at least one route" Routes()
-    @test_throws "(coupling, kernel) tuple" Routes((K, g), K)
-    @test_throws "(coupling, kernel) tuple" Routes((K, g, g))
-    @test_throws "cannot itself be Routes" Routes((K, Routes((K, g))))
-    @test_throws "Routes is a kernel" Routes((Routes((K, g)), g))
-    @test_throws "not a Convolution" Convolution(Routes((K, g), (2K, g)))
+    @test_throws "Pairwise is a kernel" Recurrence(g; coupling = R2)
+    @test_throws "coupling => kernel pairs" Pairwise(K => g, K)
+    @test_throws "coupling => kernel pairs" Pairwise((K, g))
+    @test_throws "Pairwise with 1 routes" Pairwise(K => g, Pairwise(K => g))
+    @test_throws "cannot itself be routes" Pairwise(K => Pairwise(K => g))
+    @test_throws "Pairwise is a kernel" Pairwise(Pairwise(K => g) => g)
+    @test_throws "not a Convolution" Convolution(Pairwise(K => g, 2K => g))
     # A coupling holding a Primary() coefficient is refused when built.
     struct Holds{X}
         x::X
     end
     primary = TimeVarying(ones(2, 2, 3), ComposableRecurrences.Primary())
-    @test_throws "only meaningful for a kernel" Routes((Holds(primary), g))
-    @test_throws "Pairwise is a kernel" Routes((Pairwise(ones(2, 2, 2)), g))
-    @test_throws "a kernel array is a vector" Routes((K, ones(2, 2)))
-    r = Recurrence(Routes((K, g), (ones(3, 3), g)))
+    @test_throws "only meaningful for a kernel" Pairwise(Holds(primary) => g)
+    @test_throws "Pairwise is a kernel" Pairwise(Pairwise(ones(2, 2, 2)) => g)
+    @test_throws "a kernel array is a vector" Pairwise(K => ones(2, 2))
+    r = Recurrence(Pairwise(K => g, ones(3, 3) => g))
     @test_throws DimensionMismatch r(ones(2, 4); history = ones(2, 2))
-    r = Recurrence(Routes((I, PerStratum(ones(3, 2)))))
+    r = Recurrence(Pairwise(I => PerStratum(ones(3, 2))))
     @test_throws DimensionMismatch r(ones(2, 4); history = ones(2, 2))
-    r = Recurrence(Routes((I, TimeVarying(ones(2, 3)))))
+    r = Recurrence(Pairwise(I => TimeVarying(ones(2, 3))))
     @test_throws "kernel covers 3 times" r(ones(2, 4); history = ones(2, 2))
-    r = Recurrence(Routes((TimeVarying(ones(2, 2, 3)), g)))
+    r = Recurrence(Pairwise(TimeVarying(ones(2, 2, 3)) => g))
     @test_throws "coupling covers 3 times" r(ones(2, 4); history = ones(2, 2))
 end
 
-@testitem "Routes: the rule needs each route coupling's adjoint" begin
-    using ComposableRecurrences: Routes
+@testitem "Pairwise routes: the rule needs each route coupling's adjoint" begin
     using ComposableRecurrences, ConstructionBase, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
     # Couplings with `forward!` only, no `pullback!`: one the rule
@@ -220,22 +217,22 @@ end
     CR.forward!(C::SparseMix, ::CR.Pressure, q, p, t) = (q .= C.K * p; nothing)
     g = [0.5, 0.3]
     K = sparse([0.5 0.0 0.2; 0.1 0.6 0.0; 0.0 0.3 0.4])
-    with = Recurrence(Routes((fill(0.2, 3, 3), g), (K, g)))
-    halves = Recurrence(Routes((fill(0.2, 3, 3), g), (Halve(), g), (Halve(), g)))
-    without = Recurrence(Routes((fill(0.2, 3, 3), g), (SparseMix(K), g)))
+    with = Recurrence(Pairwise(fill(0.2, 3, 3) => g, K => g))
+    halves = Recurrence(Pairwise(fill(0.2, 3, 3) => g, Halve() => g, Halve() => g))
+    without = Recurrence(Pairwise(fill(0.2, 3, 3) => g, SparseMix(K) => g))
     @test CR.uses_adjoint(with, CR.Run())
     @test CR.uses_adjoint(halves, CR.Run())
     @test !CR.uses_adjoint(without, CR.Run())
     empty!(CR._PLAIN_NOTED)
     @test_logs (:info, r"SparseMix has no pullback!") Recurrence(
-        Routes((fill(0.2, 3, 3), g), (SparseMix(K), g))
+        Pairwise(fill(0.2, 3, 3) => g, SparseMix(K) => g)
     )
     @test halves(ones(3, 4); history = ones(3, 2)) ≈
-        Recurrence(Routes((fill(0.2, 3, 3), g), (I, g)))(ones(3, 4); history = ones(3, 2))
+        Recurrence(Pairwise(fill(0.2, 3, 3) => g, I => g))(ones(3, 4); history = ones(3, 2))
     # A rebuild from the fields skips the pairing.
     R = with.kernel
     R2 = ConstructionBase.constructorof(typeof(R))(R.couplings, R.kernels)
-    @test R2 isa Routes
+    @test R2 isa ComposableRecurrences._Routes
     @test R2.couplings === R.couplings
     @test R2.kernels === R.kernels
 end

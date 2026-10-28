@@ -9,7 +9,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, Allocate, movement, Routes
+using ComposableRecurrences: Depletion, Redistribute, Allocate, movement
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 using SparseArrays
@@ -199,7 +199,7 @@ end
 #
 # Some diseases spread by more than one route, each with its own timing and contacts.
 # Ebola spreads in the community while a case is ill and at the funeral after death.
-# A [`Routes`](@ref ComposableRecurrences.Routes) kernel pairs each route's kernel with its own coupling:
+# [`Pairwise(K => k, ...)`](@ref Pairwise) pairs each route's kernel with its own coupling:
 #
 # ```math
 # \begin{aligned}
@@ -225,7 +225,7 @@ funeral_days = [0.6, 0.4]
 cfr = 0.5
 gi_funeral = cfr .* Convolution(funeral_days)(vcat(death, 0.0))
 K_funeral = sparse([0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.1 0.9])
-routes = Routes((K, gi), (K_funeral, gi_funeral))
+routes = Pairwise(K => gi, K_funeral => gi_funeral)
 ebola = Recurrence(routes; modifiers = (depletion,))
 ebola_cases = ebola(0.9; history = seed, stop = T);
 

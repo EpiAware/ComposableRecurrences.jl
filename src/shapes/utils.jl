@@ -186,10 +186,10 @@ end
         )
     )
 end
-@noinline function _kernel_as_coupling_error(x, use)
+@noinline function _kernel_as_coupling_error(x, use, name = nameof(typeof(x)))
     throw(
         ArgumentError(
-            "$(nameof(typeof(x))) is a kernel: use Recurrence($use) with " *
+            "$name is a kernel: use Recurrence($use) with " *
                 "coupling I, not coupling = $(_describe(x))"
         )
     )
