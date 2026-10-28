@@ -291,7 +291,7 @@
 7.9	Pairwise routes: equal the naive loop for each kernel
 6.4	Pairwise routes: fold into a cheaper form
 6.2	Pairwise routes: modifiers, add, resume and Float32
-2.6	Pairwise routes: the rule needs a pullback on every route coupling
+2.6	Pairwise routes: the rule needs each route coupling's adjoint
 4.3	Standards: README and page prose
 0.6	Standards: README code is from the getting started page
 1.2	Standards: docstring examples

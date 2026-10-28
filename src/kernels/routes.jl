@@ -39,6 +39,18 @@ function Pairwise(route, routes...)
     )
 end
 
+# Printed as written.
+function Base.show(io::IO, R::_Routes)
+    show(io, Pairwise)
+    print(io, "(")
+    for (i, route) in enumerate(map(Pair, R.couplings, R.kernels))
+        i > 1 && print(io, ", ")
+        show(io, route)
+    end
+    print(io, ")")
+    return nothing
+end
+
 # A rebuild from the fields skips the pairing.
 _routes_flat(couplings, kernels) = _Routes(_Checked(), couplings, kernels)
 ConstructionBase.constructorof(::Type{<:_Routes}) = _routes_flat
