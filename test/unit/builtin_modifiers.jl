@@ -383,6 +383,13 @@ end
     @test @inferred(CR.Redistribute(M)) isa CR.Redistribute{false}
     leaky_redistribute(M) = ComposableRecurrences.Redistribute(M; leak = true)
     @test @inferred(leaky_redistribute(M)) isa CR.Redistribute{true}
+    # So is the kernel and intensity form, for each kind of intensity.
+    K = [0.0 0.3 0.1; 0.2 0.0 0.5; 0.4 0.2 0.0]
+    for ε in (0.1, [0.1, 0.2, 0.05], [0.1 0.2; 0.3 0.05; 0.15 0.25])
+        @test @inferred(CR.Redistribute(K, ε)) isa CR.Redistribute{false}
+        leaky_movement(K, ε) = ComposableRecurrences.Redistribute(K, ε; leak = true)
+        @test @inferred(leaky_movement(K, ε)) isa CR.Redistribute{true}
+    end
     # A leak flag from a variable goes in as the type parameter.
     for leak in (false, true)
         r = @inferred CR.Redistribute{leak}(M)
