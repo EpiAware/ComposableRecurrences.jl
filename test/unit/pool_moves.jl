@@ -309,6 +309,56 @@ end
     end
 end
 
+@testitem "Depletion without a draw: the share that leaves on dual numbers" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # The dual method takes `g` and `g′` from the value, so it matches the
+    # closed form's derivative away from zero and the series' near it.
+    g(H) = H == 0 ? big(1.0) : -expm1(-H) / H
+    g′(H) = H == 0 ? big(-0.5) : (exp(-H) - g(H)) / H
+    D = ForwardDiff.Dual{Nothing, Float64, 2}
+    for H in (0.0, 1.0e-6, 5.0e-3, 0.03, 0.5, 20.0)
+        x = D(H, ForwardDiff.Partials((1.0, -2.0)))
+        E, gx = CR._leave(x)
+        @test ForwardDiff.value(E) == exp(-H)
+        @test ForwardDiff.partials(E) == -exp(-H) * ForwardDiff.partials(x)
+        @test ForwardDiff.value(gx) == last(CR._leave(H))
+        @test ForwardDiff.partials(gx, 1) ≈ Float64(g′(big(H))) rtol = 1.0e-7
+        @test ForwardDiff.partials(gx, 2) ≈ -2 * Float64(g′(big(H))) rtol = 1.0e-7
+    end
+end
+
+@testitem "Depletion without a draw: a step reads g only for flows into a pool" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    fs = only(
+        CR.Depletion(
+            CR.Flow(:A => :B, 0.3), CR.Flow(:A => 0, 0.1; form = CR.Share()),
+            CR.Flow(:B => 0, 0.2), CR.Flow(:C => :A, 0.4; form = CR.Truncate());
+            pools = (:A, :B, :C)
+        ).pieces
+    )
+    @test CR._rated_into(fs, 1)
+    @test !CR._rated_into(fs, 2)
+    @test !CR._rated_into(fs, 3)
+    for i in 1:3
+        E, gH, P = CR._leaves(fs, i, 1, 1, 0.0)
+        Es, gHs, Ps = CR._step_leaves(fs, i, 1, 1, 0.0)
+        @test (Es, Ps) === (E, P)
+        @test gHs === (CR._rated_into(fs, i) ? gH : 1.0)
+    end
+    # Without a hazard flow the step reads the same shares as `_leaves`.
+    shares = only(
+        CR.Depletion(
+            CR.Flow(:A => :B, 0.1; form = CR.Share()),
+            CR.Flow(:B => 0, 0.5; form = CR.Truncate()); pools = (:A, :B)
+        ).pieces
+    )
+    for i in 1:2
+        @test CR._step_leaves(shares, i, 1, 1, 0.0) === CR._leaves(shares, i, 1, 1, 0.0)
+    end
+end
+
 @testitem "Depletion without a draw: resume, Float32 and the adjoint route" begin
     using ComposableRecurrences
     CR = ComposableRecurrences

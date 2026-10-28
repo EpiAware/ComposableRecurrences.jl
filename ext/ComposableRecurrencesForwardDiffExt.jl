@@ -6,16 +6,17 @@ module ComposableRecurrencesForwardDiffExt
 
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
-import ComposableRecurrences: _array_pressure, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
-    _dual_pressure_buffers, _exp_neg, _init_jacobian, _jacobian_pullback,
+import ComposableRecurrences: _array_pressure, _chain, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
+    _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback
-using ComposableRecurrences: _ArrayPressure, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
+using ComposableRecurrences: _ArrayPressure, _Chained, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _exp_neg_branch, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
-    _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params
+    _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params,
+    _leave_slope
 using ForwardDiff: ForwardDiff, Dual, value
 
 # The local derivatives, `Transform`'s among them, seed each input with a
@@ -519,8 +520,21 @@ end
 _primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
 _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 
+# A run of independent strata without modifiers adds the newest lag last,
+# as on hardware floats: each step then waits on one dual multiply-add.
+function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:Dual})
+    return _Chained(g)
+end
+
 # Dual numbers branch on their value, as plain floats do.
 _exp_neg(x::ForwardDiff.Dual) = _exp_neg_branch(x)
+# `exp(-H)` and `g(H)` from the value and slope: one multiply per partial.
+function _leave(H::Dual{T}) where {T}
+    v = value(H)
+    E, g = _leave(v)
+    p = ForwardDiff.partials(H)
+    return Dual{T}(E, -E * p), Dual{T}(g, _leave_slope(v, E, g) * p)
+end
 # With a dual exponent the power at an empty pool takes the primal
 # exponent. A dual exponent is never traced, so a branch computes only one
 # power.

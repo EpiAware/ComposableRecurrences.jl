@@ -186,3 +186,17 @@ end
     @test _window_sum(g, H, 5, 20, 2) === ordered(i -> g[i] * H[4 + i, 2], 1:20)
     @test _lag_dot(g, H, 2, 30) === ordered(d -> g[d + 1] * H[30 - d, 2], 0:19)
 end
+
+@testitem "Eltypes: an independent run of dual numbers adds the newest lag last" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    using ComposableRecurrences: _window_dot
+    D = ForwardDiff.Dual{Nothing, Float64, 12}
+    dual(i, a) = D(sin(i + 3a), ForwardDiff.Partials(ntuple(j -> cos(i * j + a), 12)))
+    H = [dual(i, a) for i in 1:40, a in 1:2]
+    g = [exp(-0.3i) for i in 1:20]
+    @test CR._chain(g, (), D) isa CR._Chained
+    @test CR._chain(g, (CR.Clamp(0.0, 1.0),), D) === g
+    older = foldl((acc, i) -> acc + g[i] * H[4 + i, 2], 1:19; init = zero(D))
+    @test _window_dot(g, H, 5, 20, 2) === muladd(g[20], H[24, 2], older)
+end
