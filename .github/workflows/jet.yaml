@@ -1,0 +1,47 @@
+# Package-owned: not part of the kit's managed workflows.
+name: JET
+
+# Runs JET's static analysis of the package (test/jet) on Julia 1.12.
+# The kit's `test_jet` quality check skips on Julia 1.13 and later, and the
+# managed Test workflow runs only on the current release, so without this
+# job no CI run reports JET errors. Only the isolated JET environment is
+# instantiated, so the job stays cheap.
+# Drop this job once the kit runs JET on a version where it works.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'ext/**'
+      - 'test/jet/**'
+      - 'Project.toml'
+      - '.github/workflows/jet.yaml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'ext/**'
+      - 'test/jet/**'
+      - 'Project.toml'
+      - '.github/workflows/jet.yaml'
+  workflow_dispatch:
+
+# A newer push to a pull request supersedes its run; runs on main all
+# complete, so every merge gets a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  jet:
+    name: JET (Julia 1.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.12'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=test/jet -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=test/jet test/jet/runtests.jl
