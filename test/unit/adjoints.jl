@@ -1937,8 +1937,7 @@ end
         r = Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
         @test r.rebuilds === true
         @test CR.uses_adjoint(r, CR.Run())
-        # The rule on Mooncake only (`_ad_wide`).
-        @test CR._fit(r, args...) === :wide
+        @test CR._fit(r, args...) === :one
         @test pullback_matches(r, args...)
         # One step against ForwardDiff over every entry at (k, t) = (2, 3).
         x0 = [2.0; 1.5; CR._params(m)]
