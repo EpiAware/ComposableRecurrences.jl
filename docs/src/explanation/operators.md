@@ -15,9 +15,9 @@ y_t = \gamma_t \sum_{l=1}^{L} k_l \, y_{t-l} = \gamma_t \sum_{l=0}^{L} \tilde k_
 \qquad \tilde k = (0, k_1, \dots, k_L),
 ```
 
-where ``y_t`` is the output on day ``t``, ``k_l`` the kernel weight on lag ``l``, and ``\tilde k`` the convolution kernel `vcat(0, k)`.
+where ``y_t`` is the output at time ``t``, ``k_l`` the kernel weight on lag ``l``, and ``\tilde k`` the convolution kernel `vcat(0, k)`.
 A recurrence's value cannot depend on itself in the same step, so its first weight is on the previous value.
-A convolution can weight today's input, as a reporting delay of zero days does.
+A convolution can weight the input at the current time, as a reporting delay of zero does.
 Both are written as the quantity is usually written, so a generation interval or a delay goes in unchanged.
 
 ```@example operators
@@ -52,7 +52,7 @@ length(y_late), y_late[1] ≈ gain[4] * sum(k .* reverse(seed))
 ```
 
 One time base means a series built in parts lines up with one built whole.
-A resumed call, a later `start` and a forecast past the data all read the same column for the same day.
+A resumed call, a later `start` and a forecast past the data all read the same column for the same time.
 
 ## [History and state](@id explanation-history-state)
 
@@ -83,7 +83,7 @@ A recurrence needs values before its first step, in one of two places.
 - Before time 1, as `history` with `start = 1`.
   The run starts at time 1, so the gain and other inputs cover the run only.
 - At times 1 to ``m``, as `history` with `start = m + 1`.
-  The inputs then cover the seed days too, which a [`Primary`](@ref ComposableRecurrences.Primary) kernel needs, since only times from 1 have a column.
+  The inputs then cover the seed times too, which a [`Primary`](@ref ComposableRecurrences.Primary) kernel needs, since only times from 1 have a column.
 
 [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds a seed that grows at a fixed rate, as at the start of an epidemic.
 A seed drawn from a finite pool should leave the pool smaller; the `pools` keyword of [`Depletion`](@ref ComposableRecurrences.Depletion) does this.
@@ -96,7 +96,7 @@ after = Recurrence(k)(gain; history = seed, start = 4)
 before ≈ after
 ```
 
-The two placements give the same run whenever the inputs over the seed days are not read.
+The two placements give the same run whenever the inputs over the seed times are not read.
 
 ## [What a call returns](@id explanation-returns)
 
@@ -106,7 +106,7 @@ ReverseDiff needs `cat(seed, y; dims = ndims(y))`, and Enzyme needs a copied his
 A convolution's `history` holds inputs before time 1, which it reads but does not return.
 
 So a delay after a recurrence takes the seed as its own history.
-Delaying the seed and run together and dropping the seed days gives the same reports.
+Delaying the seed and run together and dropping the seed times gives the same reports.
 
 ```@example operators
 delay = Convolution([0.1, 0.4, 0.3, 0.2])
@@ -116,4 +116,4 @@ joined = vcat(seed, infections)
 reports ≈ delay(joined)[(length(seed) + 1):end]
 ```
 
-Pass the seed as history when the reports should cover the run only, and join it in front when they should cover the seed days too.
+Pass the seed as history when the reports should cover the run only, and join it in front when they should cover the seed times too.
