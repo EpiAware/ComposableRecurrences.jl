@@ -34,11 +34,11 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | feedback recursion   | `Recurrence(kernel; coupling, modifiers)`, lag 1 first               |
 | convolution          | `Convolution(kernel)`, lag 0 first                                   |
 | strata               | `PerStratum(x)`, `Pairwise(x)`                                       |
-| time variation       | `TimeVarying(x, Secondary())`                                        |
+| time variation       | `TimeVarying(x)`, `TimeVarying(x, Primary())`                        |
 | strata and time      | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))`             |
 | multiplicative input | `r(gain; ...)`                                                       |
 | additive input       | `add =`, before the modifiers                                        |
-| seed and resume      | `history =`, `prepend = true`, `state =`                             |
+| seed and resume      | `history =`, `state =`                                               |
 | modifiers            | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Allocate`, `Transform` |
 | pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
 | filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
@@ -83,7 +83,7 @@ using ConstructionBase: ConstructionBase, constructorof
 using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
-using LinearAlgebra: Diagonal, I, Transpose, UniformScaling, mul!
+using LinearAlgebra: Diagonal, I, UniformScaling, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
@@ -91,18 +91,14 @@ using Base.ScopedValues: ScopedValue
 # docstrings are defined (see src/docstrings.jl).
 include("docstrings.jl")
 
-export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise, Routes, Derived,
-    Recent
+export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public Depletion, Flow, Share, Redistribute, movement,
-    Add, Clamp, Allocate,
-    Transform, Hazard, Floor, Truncate, SoftTruncate, Primary, Secondary,
-    exponential_history, State, contributions, forward!, pullback!, Step,
-    Init, Pressure, Run, Trace, ispointwise, blocks, nstate, ntrace, depth,
-    param_eltype, NoAdjoint, PieceInterface, uses_adjoint, cotangent,
-    add_cotangent!, Serial, Threaded, Device, EXECUTOR, param, add_param!,
-    Auto, Direct, FFTMethod, delay_masses, growth_rate, reproduction_number,
-    pressure, Survival, kernel_weights
+public Routes, Derived, Recent, Depletion, Flow, Share, Redistribute, movement,
+    Add, Clamp, Allocate, Transform, Hazard, Floor, Truncate, SoftTruncate,
+    Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
+    blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
+    Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
+    growth_rate, reproduction_number, pressure, Survival, kernel_weights
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.

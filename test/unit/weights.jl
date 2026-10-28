@@ -5,6 +5,7 @@
 
 @testmodule WeightsChecks begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     const CR = ComposableRecurrences
 
     const T = 40
@@ -94,6 +95,7 @@ end
 
 @testitem "Computed kernels: weights against naive loops" setup = [WeightsChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; T, L, p, P, h, a0, γ) = WeightsChecks
     W = WeightsChecks
@@ -154,7 +156,7 @@ end
     # In a recurrence the kernel's lags start at 1, so entry `i` is lag `i`.
     g = 0.3 * W.confirmed(p, h)
     Kr = 0.3 .* W.confirmed_loop(p, h, T, 1)
-    r(k) = Recurrence(k)(fill(1.1, T); history = [1.0], start = 2, prepend = true)
+    r(k) = vcat([1.0], Recurrence(k)(fill(1.1, T); history = [1.0], start = 2))
     @test r(TimeVarying(g, CR.Primary())) ≈ r(primary(triangle(Kr, 1, T)))
     rs(k) = Recurrence(k)(fill(1.1, 2, T); history = ones(2, 1), start = 2)
     gs = PerStratum(P[:, 1:L]) * CR.Survival(TimeVarying(h); from = 1)
@@ -169,6 +171,7 @@ end
 
 @testitem "Computed kernels: arithmetic lowers to Derived" setup = [WeightsChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; p, h) = WeightsChecks
     s = CR.Survival(TimeVarying(h))
@@ -190,6 +193,7 @@ end
 
 @testitem "Computed kernels: construction and call checks" setup = [WeightsChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Recent
     CR = ComposableRecurrences
     (; p, P, h, A, T) = WeightsChecks
     s = CR.Survival(TimeVarying(h))
@@ -301,6 +305,7 @@ end
 
 @testitem "Computed kernels: each rule's pullback against a Jacobian" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; p, P, h, a0, γ) = WeightsChecks
     (; rule_vjp, reference_vjp) = PullbackChecks

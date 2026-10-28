@@ -43,8 +43,7 @@ the ratio then includes its share.
 # Arguments
 - `r`: the recurrence.
 - `y`: its outputs at times `start` to `start + T - 1`, length `T` for a
-  single series or `S × T`; for a call with `prepend = true`, the columns
-  after the history.
+  single series or `S × T`.
 
 # Keyword Arguments
 - `history`: the outputs before `start`, as passed to the call; zeros when

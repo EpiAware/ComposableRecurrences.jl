@@ -40,7 +40,7 @@ parameter form, including forms added later.
 using ComposableRecurrences
 CR = ComposableRecurrences
 x = TimeVarying(PerStratum([1.0 2.0; 3.0 4.0]))
-CR.param(x, 2, 1), round(CR.param(2 * Derived(sqrt, x), 2, 1); digits = 3)
+CR.param(x, 2, 1), round(CR.param(2 * CR.Derived(sqrt, x), 2, 1); digits = 3)
 
 # output
 

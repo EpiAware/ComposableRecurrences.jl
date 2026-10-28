@@ -3,6 +3,7 @@
 
 @testitem "Derived: values against a naive loop" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     g = [0.6, 0.3]
     h = [0.5 1.0; 2.0 1.5]
@@ -39,6 +40,7 @@ end
 
 @testitem "Derived: arithmetic lowers to Derived" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     x = Derived(exp, TimeVarying(PerStratum([0.1 0.2 0.3; 0.4 0.5 0.6])))
     c, N = 0.3, PerStratum([2.0, 4.0])
@@ -68,6 +70,7 @@ end
 
 @testitem "Derived: construction and checks" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     @test_throws ArgumentError Derived(exp)
     @test_throws ArgumentError Derived(exp, "a")
@@ -108,6 +111,7 @@ end
 
 @testitem "Derived: add_param! against ForwardDiff" setup = [ReferenceAD] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     using ForwardDiff
     CR = ComposableRecurrences
     a, z = [0.3, 0.7], [0.1, 0.2, 0.4]

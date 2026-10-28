@@ -21,6 +21,7 @@
 end
 
 @testitem "pressure: every kernel and coupling recovers the gain" setup = [PressureCases] begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, LinearAlgebra, SparseArrays, Distributions
     using ComposableRecurrences: Primary
     using .PressureCases: S, T, g, G, K, A, R, h, recovered
@@ -63,9 +64,6 @@ end
     R̂ = y ./ pressure(r, y)
     @test all(R̂[:, 1:L] .!= R[:, 1:L])
     @test R̂[:, (L + 1):end] ≈ R[:, (L + 1):end] atol = 1.0e-12 rtol = 1.0e-12
-    # A call that returns its seed: the columns after the history.
-    yp = r(R; history = h, prepend = true)
-    @test pressure(r, yp[:, (size(h, 2) + 1):end]; history = h) ≈ pressure(r, y; history = h)
     # A resumed call: its state's history and time.
     y1, st = r(R; history = h, stop = 6, state = true)
     y2, _ = r(R; state = st)

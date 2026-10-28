@@ -19,6 +19,7 @@ import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 # Loaded so the default `Auto()` method can take the transform.
 import FFTW
 using ComposableRecurrences
+using ComposableRecurrences: Derived, Recent, Routes
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
 using Distributions: NegativeBinomial, Poisson
 using LinearAlgebra: Diagonal, I
@@ -401,33 +402,36 @@ function _primary(w, θ)
 end
 
 # Seeded on a growth path from per-stratum levels and one rate, with the
-# seed returned before the run.
+# seed joined before the run.
 const WSL = [cos(a * t) for a in 1:S, t in 1:(L + T)]
 function _growth_seed(w, θ)
     logI0, r, logR = _unpack(θ, (S,), (1,), (S, T))
     h = ComposableRecurrences.exponential_history(exp.(logI0), only(r), L)
-    y = w(Recurrence(G0; coupling = K0))(exp.(logR); history = h, prepend = true)
+    y = cat(h, w(Recurrence(G0; coupling = K0))(exp.(logR); history = h); dims = 2)
     return sum(WSL .* log.(y))
 end
 
 # A history read straight from the parameters is a view, as a probabilistic
 # model hands it over: a random walk (a unit lag-1 kernel) with its seed
-# prepended, and strata whose history is a reshaped view, prepended too. The
-# unit lag-1 pullbacks are checked against ForwardDiff in the unit tests.
-function _prepend_view(w, θ)
+# joined in front, and strata whose history is a reshaped view, joined too.
+# The unit lag-1 pullbacks are checked against ForwardDiff in the unit tests.
+# The join is `cat` with `dims`, as ReverseDiff cannot `hcat` its tracked
+# arrays and Enzyme cannot `vcat` a view and an array.
+function _joined_view(w, θ)
     z0, H, ϵ, E = _unpack(θ, (1,), (S, 2), (T,), (S, T))
-    y = w(Recurrence([1.0]))(1.0; history = z0, add = ϵ, prepend = true)
-    Y = w(Recurrence([0.5, 0.2]))(ones(S, T); history = H, add = E, prepend = true)
+    y = cat(z0, w(Recurrence([1.0]))(1.0; history = z0, add = ϵ); dims = 1)
+    Y = cat(H, w(Recurrence([0.5, 0.2]))(ones(S, T); history = H, add = E); dims = 2)
     return sum(abs2, y) + sum(W1 .* y[2:end]) + sum(WS .* Y[:, 3:end])
 end
 
-# The state returned after the seed and the run, with the seed prepended.
-function _with_state_prepend(w, θ)
+# The state returned after the seed and the run, with the seed joined in
+# front.
+function _with_state_joined(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
     r = Recurrence(G0; coupling = K0)
-    y, st = returning_state(
-        w(r), exp.(logR); history = exp.(logh), start = L + 1, prepend = true
-    )
+    h = exp.(logh)
+    y, st = returning_state(w(r), exp.(logR); history = h, start = L + 1)
+    y = cat(h, y; dims = 2)
     return sum(WS .* log.(y)) + sum(st.history)
 end
 
@@ -1303,11 +1307,11 @@ const _SCENARIOS = [
         () -> _flat(log.([5.0, 2.0, 1.0]), [0.1], LOGR),
     ),
     (
-        "Recurrence random walk and strata prepending a view history", _prepend_view,
+        "Recurrence random walk and strata prepending a view history", _joined_view,
         () -> _flat([0.2], fill(0.2, S, 2), 0.1 .* LOGR[1, :], 0.1 .* LOGR),
     ),
     (
-        "Recurrence returning its state after its seed", _with_state_prepend,
+        "Recurrence returning its state after its seed", _with_state_joined,
         () -> _flat(fill(log(5.0), S, L), LOGR),
     ),
     (
@@ -1763,14 +1767,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Convolution long kernel by the automatic method" => (:Auto,),
     "Convolution wide-range series by the automatic method" => (:Auto,),
     "Convolution epidemic curve by the automatic method" => (:Auto,),
-    # The growth-path seed and `prepend` came together.
     "Recurrence seeded on a growth path" => (:exponential_history,),
-    # A view history joined without `vcat` of the view came with `_join_series`.
-    "Recurrence random walk and strata prepending a view history" =>
-        (:_join_series,),
-    # `prepend` on `with_state`, for a `NoAdjoint` too, came after the
-    # growth-path seed but before any release with it.
-    "Recurrence returning its state after its seed" => (:exponential_history,),
     # Coefficients from change points came with `_Piecewise`.
     "Recurrence kernel from change points" => (:_Piecewise,),
     "Recurrence Primary per-stratum kernel from change points" => (:_Piecewise,),

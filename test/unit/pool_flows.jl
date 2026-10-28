@@ -77,6 +77,7 @@
 end
 
 @testitem "Depletion flows: susceptibles leaving at a rate or in counts" setup = [ReferenceAD] begin
+    using ComposableRecurrences: Derived
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     g, h, N = [0.3, 0.5, 0.2], [2.0, 3.0, 4.0], 500.0

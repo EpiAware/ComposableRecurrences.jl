@@ -226,6 +226,8 @@ end
 
 @implements PieceInterface{(:pullback,)} Truncate [
     Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0)),
+    # An integer `N`, as a count of a population gives it.
+    Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100)),
 ]
 
 @implements PieceInterface{(:pullback,)} SoftTruncate [

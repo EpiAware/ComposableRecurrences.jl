@@ -55,8 +55,9 @@ end
 # [`growth_rate`](@ref ComposableRecurrences.growth_rate) solves it for ``r``, and [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds the seed.
 
 r0 = growth_rate(R[1], gi)
-seeded = renewal(R; history = exponential_history(5.0, r0, length(gi)), prepend = true)
-single = renewal(R; history = [5.0], prepend = true)
+h0 = exponential_history(5.0, r0, length(gi))
+seeded = vcat(h0, renewal(R; history = h0))
+single = vcat(5.0, renewal(R; history = [5.0]))
 ## The ratio of each day's infections to the day before's, on days 1 to 25.
 ratio(y) = (y[2:end] ./ y[1:(end - 1)])[(end - T + 1):(end - T + 25)]
 

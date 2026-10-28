@@ -127,6 +127,7 @@ end
 
 @testitem "Change points: Recurrence equals the dense kernel" setup = [PiecewiseChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Routes
     using LinearAlgebra: I, Diagonal
     using Base.ScopedValues: with
     CR = ComposableRecurrences
@@ -231,6 +232,7 @@ end
 
 @testitem "Adjoint: coefficients from change points" setup = [AdjointCheck, PiecewiseChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived, Routes
     using Base.ScopedValues: with
     (; KS, GS, X, R, H, T) = PiecewiseChecks
     for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS), start in (1, 8)

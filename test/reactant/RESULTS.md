@@ -22,8 +22,7 @@ Total run time 226.9 min, one subprocess per cell, timeout 300 s.
 | Recurrence, TimeVarying kernel | works (51.5 s / 13.9 µs) | works (58.4 s / 20.5 µs) | works (57.9 s / 607.0 µs) | works (67.1 s / 7974.5 µs) |
 | Recurrence, 3 strata, I coupling | works (60.6 s / 10.1 µs) | works (65.0 s / 21.9 µs) | works (68.2 s / 99.7 µs) | works (69.4 s / 1636.6 µs) |
 | Recurrence, 3 strata, dense K coupling | works (55.4 s / 11.6 µs) | works (64.4 s / 21.2 µs) | works (62.4 s / 127.9 µs) | works (67.6 s / 1250.3 µs) |
-| Recurrence, 3 strata, dense K, history prepended | works (71.3 s / 17.9 µs) | works (73.6 s / 31.9 µs) | works (73.3 s / 166.3 µs) | works (77.3 s / 1667.5 µs) |
-| Recurrence, 3 strata, dense K, short history prepended | works (72.0 s / 25.1 µs) | works (69.8 s / 20.9 µs) | works (78.9 s / 105.1 µs) | works (80.9 s / 2047.6 µs) |
+| Recurrence, 3 strata, dense K, traced history joined | works (45.9 s / 7.4 µs) | works (41.8 s / 16.9 µs) | works (45.6 s / 101.8 µs) | works (44.1 s / 1027.0 µs) |
 | Recurrence, PerStratum kernel | works (55.5 s / 9.1 µs) | works (57.6 s / 29.8 µs) | works (55.4 s / 341.1 µs) | works (59.7 s / 2889.7 µs) |
 | Recurrence, Pairwise kernel | works (61.7 s / 102.0 µs) | works (60.9 s / 70.1 µs) | works (65.5 s / 798.6 µs) | works (63.4 s / 9786.7 µs) |
 | Recurrence, TimeVarying coupling | works (63.2 s / 13.1 µs) | works (61.4 s / 21.9 µs) | works (70.3 s / 281.7 µs) | works (67.0 s / 1345.3 µs) |
@@ -195,14 +194,10 @@ Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), 
 | conv_cp_secondary | reverse | extension | cpu | 400 | works | 3.5e-19 | 68.8 | 131.3 | 4034.5 |  |  |
 | mod_add_cp | forward | extension | cpu | 400 | works | 4.6e-15 | 69.3 | 15.0 | 4.6 |  |  |
 | mod_add_cp | reverse | extension | cpu | 400 | works | 3.7e-15 | 71.3 | 498.5 | 3962.9 |  |  |
-| rec_prepend_strata | forward | extension | cpu | 20 | works | 1.8e-16 | 71.3 | 17.9 | 3.0 |  |  |
-| rec_prepend_strata | reverse | extension | cpu | 20 | works | 4.2e-16 | 73.3 | 166.3 | 50.9 |  |  |
-| rec_prepend_short | forward | extension | cpu | 20 | works | 1.2e-16 | 72.0 | 25.1 | 1.6 |  |  |
-| rec_prepend_short | reverse | extension | cpu | 20 | works | 1.5e-16 | 78.9 | 105.1 | 86.5 |  |  |
-| rec_prepend_strata | forward | extension | cpu | 400 | works | 2.2e-16 | 73.6 | 31.9 | 24.4 |  |  |
-| rec_prepend_strata | reverse | extension | cpu | 400 | works | 2.1e-15 | 77.3 | 1667.5 | 18312.0 |  |  |
-| rec_prepend_short | forward | extension | cpu | 400 | works | 1.5e-15 | 69.8 | 20.9 | 23.7 |  |  |
-| rec_prepend_short | reverse | extension | cpu | 400 | works | 1.3e-15 | 80.9 | 2047.6 | 25011.1 |  |  |
+| rec_joined | forward | extension | cpu | 20 | works | 1.8e-16 | 45.9 | 7.4 | 1.9 |  |  |
+| rec_joined | reverse | extension | cpu | 20 | works | 4.2e-16 | 45.6 | 101.8 | 59.3 |  |  |
+| rec_joined | forward | extension | cpu | 400 | works | 2.2e-16 | 41.8 | 16.9 | 17.6 |  |  |
+| rec_joined | reverse | extension | cpu | 400 | works | 2.1e-15 | 44.1 | 1027.0 | 14596.1 |  |  |
 
 ## The Reactant extension
 
