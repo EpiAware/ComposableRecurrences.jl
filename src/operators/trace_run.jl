@@ -26,17 +26,8 @@ _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
     return _traced_primal(w.op, gain, add, h, s0, τ0, stop)
 end
-# With `prepend` the run writes the joined output itself.
-function _primal(
-        p::_Prepended{<:_WithTrace{<:Recurrence}}, gain, add, h::_CPUArray, s0, τ0,
-        stop
-    )
-    return _traced_primal(p.op.op, gain, add, h, s0, τ0, stop, Val(true))
-end
-function _traced_primal(
-        r::Recurrence, gain, add, h, s0, τ0, stop, joined::Val = Val(false)
-    )
-    Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace), joined)
+function _traced_primal(r::Recurrence, gain, add, h, s0, τ0, stop)
+    Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace))
     return Y, (; modifiers = tr)
 end
 function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
@@ -111,9 +102,6 @@ function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
     fill!(col, zero(eltype(col)))
     _trace!(col, m, R.v, R.s, v, s, τ)
     return nothing
-end
-function _prepend_output(w::_WithTrace, h, (y, tr), join = _join)
-    return (_prepend_output(w.op, h, y, join), tr)
 end
 
 # The call's trace, `(; modifiers)`, one matrix per modifier with a

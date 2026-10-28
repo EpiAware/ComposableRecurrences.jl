@@ -383,6 +383,7 @@ end
 
 @testitem "Allocate: checks its imports" begin
     using ComposableRecurrences
+    using ComposableRecurrences: Recent
     CR = ComposableRecurrences
     P = [0.0 0.5 0.0; 0.5 0.0 0.0; 0.0 0.0 0.0]
     K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]

@@ -51,11 +51,11 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
-| [`Routes`](@ref) coupling | as a coupling, the widest route coupling setting the call's route |
+| [`Routes`](@ref ComposableRecurrences.Routes) coupling | as a coupling, the widest route coupling setting the call's route |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
 | part that the local step cannot rebuild from its parameters | plain AD |
 
-A modifier with a [`Derived`](@ref) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
+A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 
 The [local step](@ref adjoint-local-step) rebuilds a part with dual numbers in place of its float parameters.
 The `Recurrence` constructor checks the rebuild once and stores the result.

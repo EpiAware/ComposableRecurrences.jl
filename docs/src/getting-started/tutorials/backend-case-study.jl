@@ -204,8 +204,8 @@ end
 #
 # | Loop | Package | Test |
 # |:--|:--|:--|
-# | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pools = (S = max(N - sum(seed), 0),)),))`, called as `r(Rt; history = seed, start = length(seed) + 1, prepend = true)` | `BVD renewal_infections` |
-# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `r(Rt; history = seeds, start = size(seeds, 2) + 1, prepend = true)` | `BVD patch model` |
+# | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pools = (S = max(N - sum(seed), 0),)),))`, called as `vcat(seed, r(Rt; history = seed, start = length(seed) + 1))` | `BVD renewal_infections` |
+# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `hcat(seeds, r(Rt; history = seeds, start = size(seeds, 2) + 1))` | `BVD patch model` |
 # | `convolve_delay(x, delay)` | `Convolution(delay)(x)` | `BVD convolve_delay` |
 #
 # The package `ComposableTuringIDModels` writes each step for an `accumulate_scan`:
@@ -221,7 +221,7 @@ end
 # Four conventions differ between the loops and the package:
 #
 # - Generation interval: `ComposableTuringIDModels` stores it reversed, and the package takes it lag 1 first, as a recurrence's first weight is on the [previous value](@ref explanation-lag-origin).
-# - Seed days: `BVDOutbreakSize` reads `Rt` on them and returns them first, and `start` skips them and `prepend` returns them.
+# - Seed days: `BVDOutbreakSize` reads `Rt` on them and returns them first, and `start` skips them and `vcat` joins them in front.
 # - Seeding: `ComposableTuringIDModels` seeds on a growth path, and [`exponential_history`](@ref ComposableRecurrences.exponential_history) builds the same window.
 # - Reporting window: `ComposableTuringIDModels` reports only the days with a full delay window, `d:n`, so the call keeps those days.
 

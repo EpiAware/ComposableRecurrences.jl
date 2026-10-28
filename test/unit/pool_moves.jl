@@ -3,6 +3,7 @@
 # pullback against a local ForwardDiff Jacobian, and the checks.
 
 @testmodule FlowChecks begin
+    using ComposableRecurrences: Derived
     using ComposableRecurrences, ForwardDiff
     const CR = ComposableRecurrences
 
@@ -223,6 +224,7 @@ end
 
 @testitem "Depletion without a draw: pullback against a local Jacobian" setup = [FlowChecks, ModifierChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
     # Two groups of three compartments with a cycle, exits and every form.

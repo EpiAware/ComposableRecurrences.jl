@@ -9,7 +9,8 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Transform, Depletion, Flow, Hazard, Truncate
+using ComposableRecurrences: Transform, Depletion, Flow, Hazard, Truncate, Derived,
+    Recent
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ForwardDiff
 using Random
@@ -200,7 +201,7 @@ end
 #
 # The saturating response reacts to the current day only.
 # A response to the last week's incidence is built from existing modifiers.
-# The parameter [`Recent`](@ref) reads the recurrence's own past outputs, [`Derived`](@ref) maps them, and any modifier parameter takes the result.
+# The parameter [`Recent`](@ref ComposableRecurrences.Recent) reads the recurrence's own past outputs, [`Derived`](@ref ComposableRecurrences.Derived) maps them, and any modifier parameter takes the result.
 # The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it.
 # The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases:
 #

@@ -39,6 +39,7 @@
 end
 
 @testitem "Routes: equal the naive loop for each kernel" setup = [Reference, RouteCases] begin
+    using ComposableRecurrences: Routes
     rng = Xoshiro(21)
     S, T = 3, 9
     h = rand(rng, S, 5)
@@ -77,6 +78,7 @@ end
 end
 
 @testitem "Routes: equal the Pairwise kernel of their sum" begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, SparseArrays, Random
     rng = Xoshiro(22)
     S, L, T = 3, 4, 10
@@ -102,6 +104,7 @@ end
 end
 
 @testitem "Routes: fold into a cheaper form" begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, LinearAlgebra, SparseArrays, Random
     rng = Xoshiro(23)
     S, L, T = 3, 4, 8
@@ -133,6 +136,7 @@ end
 end
 
 @testitem "Routes: modifiers, add, resume and Float32" setup = [TestModifiers] begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, SparseArrays, Random
     CR = ComposableRecurrences
     rng = Xoshiro(24)
@@ -168,6 +172,7 @@ end
 end
 
 @testitem "Routes: argument validation" begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, LinearAlgebra
     g = [0.5, 0.5]
     K = ones(2, 2)
@@ -201,6 +206,7 @@ end
 end
 
 @testitem "Routes: the rule needs each route coupling's adjoint" begin
+    using ComposableRecurrences: Routes
     using ComposableRecurrences, ConstructionBase, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
     # Couplings with `forward!` only, no `pullback!`: one the rule
