@@ -614,9 +614,8 @@ origins × time matrix, which gives an `S × S × T` movement.
 `PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
 the matrix they hold.
 Any other [parameter](@ref ComposableRecurrences.param), such as
-`TimeVarying(ε)` over time or one built with `Derived` or `Recent` that
-reads the outputs, gives a movement read at each step with
-``\varepsilon_{t,q}`` that parameter at origin ``q``.
+`TimeVarying(ε)` or one built with `Derived` or `Recent`, is read at each
+step as ``\varepsilon_{t,q}``.
 The movement is held as ``K`` and ``\varepsilon`` and read from them, so a
 step costs one product with ``K`` and its reverse pass gives the cotangents
 of ``K`` and ``\varepsilon`` without storing a matrix per time.
@@ -632,8 +631,11 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
 # Arguments
 - `M`: the movement matrix, `M[p, q]` the share of origin `q` realised in
   destination `p`.
-- `K`, `ε`: in place of `M`, the `S × S` kernel, `K[p, q]` the weight from
-  origin `q` to `p`, and the origin intensity.
+- `K`: in place of `M`, the `S × S` kernel matrix, `K[p, q]` the weight
+  from origin `q` to `p`.
+- `ε`: with `K`, the origin intensity: one value, a vector over origins, an
+  origins × time matrix, `PerStratum` or `TimeVarying(PerStratum)` of
+  these, or any other parameter, read at each step.
 
 # Keyword Arguments
 - `leak`: `false` (the default), or `true` to allow columns summing to less
@@ -670,8 +672,11 @@ end
 # A branch on a literal `leak` names the type parameter in each arm, so the
 # call is inferred.
 Redistribute(M; leak::Bool = false) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
-function Redistribute(K, ε; leak::Bool = false)
-    return Redistribute(_kernel_movement(K, ε); leak)
+# Julia 1.11 infers the literal `leak` here only with aggressive constant
+# propagation.
+Base.@constprop :aggressive function Redistribute(K, ε; leak::Bool = false)
+    M = _kernel_movement(K, ε)
+    return leak ? Redistribute{true}(M) : Redistribute{false}(M)
 end
 ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
 

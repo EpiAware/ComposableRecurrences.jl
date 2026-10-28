@@ -377,6 +377,7 @@ end
     @test_throws "M is an S × S matrix" CR.Redistribute([0.5, 0.5])
     @test_throws "a TimeVarying coupling" CR.Redistribute(TimeVarying(ones(2, 2)))
     @test_throws DimensionMismatch CR.Redistribute(M, ones(2, 2))
+    @test_throws "S × S kernel matrix" CR.Redistribute([0.1, 0.2], 0.1)
     @test_throws "leak is true or false" CR.Redistribute{1}(M)
     # The leak flag is a type parameter; the constructor is still inferred,
     # so a scalar held in the matrix keeps its gradient under Enzyme.

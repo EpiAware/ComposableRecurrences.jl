@@ -7,7 +7,7 @@
     using ComposableRecurrences: Derived
     using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
         Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
-        contributions, _kernel_movement
+        contributions
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -211,9 +211,9 @@
                     ),
                     spill = Redistribute(
                         d(
-                            _kernel_movement(
+                            Redistribute(
                                 [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0], [0.1, 0.2, 0.3]
-                            )
+                            ).M
                         )
                     )
                 ),
@@ -258,7 +258,7 @@
                     TimeVarying(
                         d(
                             cat(
-                                (_kernel_movement(K0 - 0.5I, 0.1 + 0.001 * t) for t in 1:T)...;
+                                (Redistribute(K0 - 0.5I, 0.1 + 0.001 * t).M for t in 1:T)...;
                                 dims = 3
                             )
                         )
@@ -269,7 +269,7 @@
         "Redistribute, one intensity per stratum" =>
             d -> Recurrence(
             d(g0);
-            modifiers = (Redistribute(d(_kernel_movement(K0 - 0.5I, [0.1, 0.2, 0.3]))),)
+            modifiers = (Redistribute(d(Redistribute(K0 - 0.5I, [0.1, 0.2, 0.3]).M)),)
         )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
             d -> Recurrence(
@@ -288,7 +288,7 @@
             d(g0);
             modifiers = (
                 Depletion(PerStratum(d(NS))),
-                Redistribute(d(_kernel_movement(K0 - 0.5I, 0.1))),
+                Redistribute(d(Redistribute(K0 - 0.5I, 0.1).M)),
                 Depletion(
                     60.0, Hazard(; weights = (S = 1, V = 0.3)),
                     Flow(1 => 2, 0.2; form = Truncate()); pools = (:S, :V)

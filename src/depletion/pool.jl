@@ -58,7 +58,7 @@ pools in the state, whose content joins the draw's value at the next step.
 Each draw takes the value the parts before it pass on.
 
 The flows act on the pools where they stand among the parts, as when
-patients leave before the day's admissions or an allowance is granted at
+patients leave before the step's admissions or an allowance is granted at
 the start of a period.
 Hazard and share [flows](@ref ComposableRecurrences.Flow) given one after
 another act together, then each count flow in the order given; a count
@@ -243,7 +243,7 @@ round.(y; digits = 3)
  25.151
 ```
 
-Ten beds, a tenth of patients leaving each day before the admissions:
+Ten beds, a tenth of patients leaving each step before the admissions:
 demand above the free beds goes to the community stratum.
 
 ```jldoctest
