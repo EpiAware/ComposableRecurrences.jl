@@ -19,7 +19,7 @@ import ForwardDiff, ReverseDiff, Enzyme, Mooncake
 # Loaded so the default `Auto()` method can take the transform.
 import FFTW
 using ComposableRecurrences
-using ComposableRecurrences: Derived, Recent, Routes
+using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
 using Distributions: NegativeBinomial, Poisson
 using LinearAlgebra: Diagonal, I
@@ -911,14 +911,14 @@ function _routes(w, θ)
         θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, L), (S, T)
     )
     Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
-    r = Recurrence(Routes((K, g1), (Ks, g2)))
+    r = Recurrence(Pairwise(K => g1, Ks => g2))
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
 # Routes on scaled identities, which fold into one summed kernel.
 function _routes_folded(w, θ)
     λ, g1, g2, logh, logR = _unpack(θ, (2,), (L - 1,), (L,), (S, L), (S, T))
-    r = Recurrence(Routes((λ[1] * I, g1), (λ[2] * I, g2)))
+    r = Recurrence(Pairwise(λ[1] * I => g1, λ[2] * I => g2))
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
@@ -997,7 +997,7 @@ function _routes_deep(w, θ)
         θ, (S, S), (L - 1,), (length(KS.nzval),), (L,), (S, 2L), (S, T)
     )
     Ks = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
-    r = Recurrence(Routes((K, g1), (Ks, g2)); modifiers = (DeepBuffer(2L),))
+    r = Recurrence(Pairwise(K => g1, Ks => g2); modifiers = (DeepBuffer(2L),))
     return sum(WS .* log.(w(r)(exp.(logR); history = exp.(logh))))
 end
 
@@ -1745,12 +1745,12 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence empty pool with a differentiated heterogeneity" => (:removals,),
     "Recurrence Transform with per-stratum parameters" => (:Transform,),
     "Recurrence Derived modifier parameters" => (:Derived,),
-    "Recurrence routes, dense and sparse" => (:Routes,),
-    "Recurrence routes folded on scaled identities" => (:Routes,),
+    "Recurrence routes, dense and sparse" => (:_Routes,),
+    "Recurrence routes folded on scaled identities" => (:_Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
     "Recurrence feedback from recent outputs" => (:Recent,),
     "Recurrence removals from recent outputs" => (:Recent,),
-    "Recurrence routes in a buffer deeper than the kernels" => (:Routes, :depth),
+    "Recurrence routes in a buffer deeper than the kernels" => (:_Routes, :depth),
     # The coupling on `Recent` came after `Recent`.
     "Recurrence feedback from recent outputs across strata" => (:Recent, :_reads_across),
     # A population that varies over time came with `_population`.
@@ -1958,7 +1958,7 @@ end
 # own pullback: the rule differentiates the route coupling locally.
 function _user_coupling_routes(w, θ)
     logh, logR, a, K, g = _unpack(θ, (S, L), (S, T), (1,), (S, S), (2,))
-    r = Recurrence(Routes((ShareFirst(only(a)), G0), (K, g)))
+    r = Recurrence(Pairwise(ShareFirst(only(a)) => G0, K => g))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -2093,7 +2093,7 @@ _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,
 # The rule took routes whose couplings have no pullback once they came with
 # a local derivative.
 let name = "Recurrence routes with a user coupling without a pullback"
-    _REQUIRES[name] = (:Routes, :_kernel_couplings)
+    _REQUIRES[name] = (:_Routes, :_kernel_couplings)
 end
 let name = "Recurrence modifier without a pullback, parameter from change points"
     _REQUIRES[name] = (:_Piecewise,)

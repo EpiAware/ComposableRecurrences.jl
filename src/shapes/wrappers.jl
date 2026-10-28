@@ -137,11 +137,35 @@ where ``k_{ij,l}`` = `x[i, j, l]` weights stratum ``j``'s output at lag
 ``l`` in stratum ``i``, ``y_{t-l,j}`` is that output at absolute time
 ``t - l``, and ``q_{t,i}`` replaces the coupled pressure ``K_t p_t`` of a
 [`Recurrence`](@ref).
-It is equivalent to [`Routes`](@ref) over all pairs, with a faster path: one route
-per pair `(i, j)`, with kernel `x[i, j, :]` and a coupling that is the unit
-matrix at `(i, j)`.
 The kernel already mixes strata, so the coupling must be `I`.
 `TimeVarying(Pairwise(A))` has `A` `S × S × L × T`.
+
+`Pairwise(K₁ => k₁, K₂ => k₂, ...)` holds the same kernel as its routes,
+``k_{ij,l} = \sum_r K^{(r)}_{ij} k^{(r)}_l``, such as community and funeral
+contacts with different generation intervals.
+Route ``r`` convolves the past values with its own kernel, then mixes the
+result with its own coupling:
+
+```math
+z^{(r)}_{t,j} = \sum_{l=1}^{L_r} k^{(r)}_{j,l}(t)\, y_{t-l,j},
+\qquad
+q_t = \sum_{r=1}^{R} K^{(r)}_t\, z^{(r)}_t,
+```
+
+with ``L_r`` the length of route ``r``'s kernel and ``K^{(r)}_t`` its
+``S \times S`` coupling.
+A route kernel is any [`Recurrence`](@ref) kernel but routes, and a route
+coupling any [`Recurrence`](@ref) coupling; kernels may differ in length,
+and the history covers the longest.
+A dense `S × S × L` array costs ``S^2 L`` a step; routes cost one kernel
+convolution and one coupling product each, and a sparse route coupling
+stays sparse.
+The keyword constructor `Recurrence(routes)` folds routes with a cheaper
+form, and the positional `Recurrence(routes, I, ())` keeps them as given: one
+route is its kernel with its coupling, and routes whose couplings are all
+`λ * I` on vector kernels are the one kernel ``\sum_r \lambda_r k^{(r)}``.
+The analytic adjoint applies when it covers every route coupling, as for
+the coupling of a [`Recurrence`](@ref).
 
 # Examples
 ```jldoctest
@@ -154,6 +178,22 @@ Recurrence(Pairwise(P))(ones(2, 4); history = ones(2, 2))
 2×4 Matrix{Float64}:
  1.0  1.0  1.0  1.0
  1.0  1.0  1.0  1.0
+```
+
+```jldoctest
+using ComposableRecurrences
+using SparseArrays: sparse
+community = [0.9 0.1; 0.1 0.9]
+funeral = sparse([0.0 0.4; 0.4 0.0])  # funerals in the other place
+routes = Pairwise(community => [0.5, 0.3, 0.2], funeral => [0.0, 0.0, 0.0, 1.0])
+y = Recurrence(routes)(fill(1.2, 2, 6); history = ones(2, 4))
+round.(y; digits = 3)
+
+# output
+
+2×6 Matrix{Float64}:
+ 1.68  2.088  2.578  3.181  4.144  5.253
+ 1.68  2.088  2.578  3.181  4.144  5.253
 ```
 """
 struct Pairwise{A <: AbstractArray}

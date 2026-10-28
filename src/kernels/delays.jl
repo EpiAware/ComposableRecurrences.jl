@@ -239,7 +239,7 @@ _has_delays(::Type{<:AbstractArray{E}}) where {E} = _isdelay(E)
 _has_delays(::Type{<:PerStratum{A}}) where {A} = _has_delays(A)
 _has_delays(::Type{<:Pairwise{A}}) where {A} = _has_delays(A)
 _has_delays(::Type{<:TimeVarying{I, A}}) where {I, A} = _has_delays(A)
-_has_delays(::Type{<:Routes{C, G}}) where {C, G} = _any_delays(G)
+_has_delays(::Type{<:_Routes{C, G}}) where {C, G} = _any_delays(G)
 _any_delays(::Type{Tuple{}}) = false
 function _any_delays(::Type{G}) where {G <: Tuple}
     return _has_delays(Base.tuple_type_head(G)) ||
@@ -362,7 +362,7 @@ function _masses_kernel(
     A = permutedims(_stack_masses(x.x.x, grid, origin), (2, 3, 1, 4))
     return TimeVarying{I}(Pairwise(A))
 end
-function _masses_kernel(R::Routes, grid, origin)
+function _masses_kernel(R::_Routes, grid, origin)
     kernels = map(g -> _masses_kernel(g, grid, origin), R.kernels)
-    return Routes(map(tuple, R.couplings, kernels)...)
+    return _Routes(_Checked(), R.couplings, kernels)
 end

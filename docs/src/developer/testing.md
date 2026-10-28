@@ -46,7 +46,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | `Transform` | 0.18 | 0.43 | keep |
 | `Primary()` kernel | 0.51 | 0.66 | keep |
 | `Pairwise` kernel | 0.68¹ | 0.61¹ | keep |
-| `Routes` kernel, dense and sparse routes, 50 strata | 0.11 | 0.45 | keep |
+| `Pairwise` routes, dense and sparse, 50 strata | 0.11 | 0.45 | keep |
 | `Diagonal` coupling | 0.84¹ | 0.98¹ | keep |
 | sparse coupling | 0.75¹ | 0.28¹ | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
@@ -58,7 +58,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | 0.86⁴ | keep |
 | whole-step modifier without a `pullback!`, past one pass | 0.84⁷ | plain AD | keep on Mooncake |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
-| `Routes` with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
+| `Pairwise` routes with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
 | a sparse route coupling under plain AD | plain AD | 0.48 to 0.57⁶ | keep on Enzyme |
 

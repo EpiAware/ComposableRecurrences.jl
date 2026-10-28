@@ -21,7 +21,6 @@
 end
 
 @testitem "pressure: every kernel and coupling recovers the gain" setup = [PressureCases] begin
-    using ComposableRecurrences: Routes
     using ComposableRecurrences, LinearAlgebra, SparseArrays, Distributions
     using ComposableRecurrences: Primary
     using .PressureCases: S, T, g, G, K, A, R, h, recovered
@@ -39,7 +38,7 @@ end
         Recurrence(TimeVarying([1 => g, 7 => reverse(g)]); coupling = K),
         Recurrence(Pairwise(A)),
         Recurrence(TimeVarying(Pairwise(tv(A)))),
-        Recurrence(Routes((K, g), (Diagonal(ones(S)), [0.0, 0.0, 0.0, 0.5, 0.5]))),
+        Recurrence(Pairwise(K => g, Diagonal(ones(S)) => [0.0, 0.0, 0.0, 0.5, 0.5])),
         Recurrence(NegativeBinomial(4, 0.6); lags = 5, coupling = K),
         Recurrence(NegativeBinomial(4, 0.6); lags = 5, step = 2),
     ]

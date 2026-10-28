@@ -127,7 +127,6 @@ end
 
 @testitem "Change points: Recurrence equals the dense kernel" setup = [PiecewiseChecks] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Routes
     using LinearAlgebra: I, Diagonal
     using Base.ScopedValues: with
     CR = ComposableRecurrences
@@ -153,8 +152,8 @@ end
     # A kernel from change points as a route.
     p, d = both(KS, T)
     K = [0.9 0.1; 0.2 0.8]
-    rp = Recurrence(Routes((K, [0.3, 0.2]), (0.5I, p)))
-    rd = Recurrence(Routes((K, [0.3, 0.2]), (0.5I, d)))
+    rp = Recurrence(Pairwise(K => [0.3, 0.2], 0.5I => p))
+    rd = Recurrence(Pairwise(K => [0.3, 0.2], 0.5I => d))
     @test rp(R; history = H) ≈ rd(R; history = H)
     # The last value holds past the dense array's end.
     long = vcat(R[1, :], R[1, :])
@@ -232,7 +231,7 @@ end
 
 @testitem "Adjoint: coefficients from change points" setup = [AdjointCheck, PiecewiseChecks] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Derived, Routes
+    using ComposableRecurrences: Derived
     using Base.ScopedValues: with
     (; KS, GS, X, R, H, T) = PiecewiseChecks
     for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS), start in (1, 8)
@@ -264,7 +263,7 @@ end
     end
     K = [0.9 0.1; 0.2 0.8]
     for ix in (CR.Secondary(), CR.Primary())
-        r = Recurrence(Routes((K, [0.3, 0.2]), (0.5I, TimeVarying(KS, ix))))
+        r = Recurrence(Pairwise(K => [0.3, 0.2], 0.5I => TimeVarying(KS, ix)))
         @test pullback_matches(r, recargs(R, nothing, H; start = 5)...)
     end
     ex = CR.Threaded(; min_work = 0, ntasks = 2)

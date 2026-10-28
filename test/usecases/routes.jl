@@ -11,7 +11,6 @@
 # neighbours, a sparse matrix. Susceptibles deplete in each place.
 
 @testitem "Use case: community, household and funeral routes" tags = [:usecase] setup = [ReferenceAD] begin
-    using ComposableRecurrences: Routes
     using ComposableRecurrences, ForwardDiff, LinearAlgebra, SparseArrays
     CR = ComposableRecurrences
 
@@ -37,9 +36,9 @@
     R = [1.1 + 0.2 * sin(t / 6) for t in 1:T]
 
     function model(β)
-        routes = Routes(
-            (β[1] .* K_community, community), (β[2] * I, household),
-            (β[3] .* K_funeral, funeral)
+        routes = Pairwise(
+            β[1] .* K_community => community, β[2] * I => household,
+            β[3] .* K_funeral => funeral
         )
         depletion = CR.Depletion(PerStratum(pop), CR.Floor())
         return Recurrence(routes; modifiers = (depletion,))
