@@ -336,7 +336,7 @@
                     "patch model",
                     Recurrence(
                         g; modifiers = (
-                            ADFixtures._leaky(CR.movement(K, 0.4)),
+                            ADFixtures._leaky(CR._kernel_movement(K, 0.4)),
                             CR.Depletion(
                                 PerStratum(fill(80.0, S)); pools = (S = pool(80.0, h),)
                             ),
@@ -359,7 +359,9 @@
                     "patch model, sparse kernel",
                     Recurrence(
                         g; modifiers = (
-                            ADFixtures._leaky(sparse(CR.movement(K, [0.4, 0.3, 0.2]))),
+                            ADFixtures._leaky(
+                                sparse(CR._kernel_movement(K, [0.4, 0.3, 0.2]))
+                            ),
                         )
                     ),
                     rec(R, nothing, h),
@@ -1273,7 +1275,7 @@ end
         r = Recurrence(
             [0.3, 0.2]; coupling = [0.5 0.1 0.0; 0.0 0.6 0.1; 0.1 0.0 0.5],
             modifiers = (
-                CR.Redistribute(CR.movement(K, ε)),
+                CR.Redistribute(K, ε),
                 CR.Depletion(PerStratum(fill(40.0, 3))),
             )
         )
@@ -1312,7 +1314,7 @@ end
             K, κ = reshape(θ[1:9], 3, 3), θ[10]
             ε = Derived(x -> 0.2 * tanh(x), κ * CR.Recent(3))
             mods = (
-                CR.Redistribute(CR.movement(K, ε)),
+                CR.Redistribute(K, ε),
                 CR.Depletion(PerStratum(pop)),
             )
             y = Recurrence(g; modifiers = mods)(R; history = h)
@@ -1338,7 +1340,7 @@ end
     using ADTypes: AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Enzyme, ForwardDiff
-    # The kernel is hidden from inference, so `movement` is called
+    # The kernel is hidden from inference, so `Redistribute(K, ε)` is called
     # dynamically with the intensity. Enzyme reverse finds no shadow for a
     # value that holds a scalar parameter beside an integer array when it
     # passes through a dynamic call, so `Recent(n)` holds no weight array.
@@ -1349,7 +1351,7 @@ end
             K = Base.inferencebarrier(reshape(θ[1:9], 3, 3))
             ε = Derived(x -> 0.2 * tanh(x), θ[10] * CR.Recent(3))
             mods = (
-                CR.Redistribute(CR.movement(K, ε)),
+                CR.Redistribute(K, ε),
                 CR.Depletion(PerStratum(pop)),
             )
             y = Recurrence(g; modifiers = mods)(R; history = h)
@@ -2016,7 +2018,7 @@ end
     function loss(θ)
         ms = (
             CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
-            CR.Redistribute(CR.movement(K, 0.5)),
+            CR.Redistribute(K, 0.5),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end

@@ -250,7 +250,7 @@ end
     # day `L + 1`, which reads R_t and ε at that day.
     function patch_model(K, ε, N)
         importation = ComposableRecurrences.Redistribute(
-            ComposableRecurrences.movement(K, ε)
+            K, ε
         )
         pool0 = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
         depletion = ComposableRecurrences.Depletion(PerStratum(N); pools = (S = pool0,))

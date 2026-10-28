@@ -107,8 +107,8 @@ end
             CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
             CR.Depletion(100.0f0, CR.Hazard(1.5f0); pools = (S = 97.0f0,)),
             CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
-            CR.Redistribute(CR.movement(K, 0.1f0)),
-            CR.Redistribute(CR.movement(K, fill(0.1f0, 2, 5))),
+            CR.Redistribute(K, 0.1f0),
+            CR.Redistribute(K, fill(0.1f0, 2, 5)),
             CR.Clamp(0.0f0, 5.0f0),
             CR.Depletion(
                 0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
@@ -126,8 +126,8 @@ end
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
     # The movement of a Float32 kernel stays Float32.
-    @test eltype(CR.movement(K, 0.1f0)) == Float32
-    @test CR.param_eltype(CR.movement(K, fill(0.1f0, 2, 5))) == Float32
+    @test eltype(CR._kernel_movement(K, 0.1f0)) == Float32
+    @test CR.param_eltype(CR._kernel_movement(K, fill(0.1f0, 2, 5))) == Float32
     # The constructor infers with a form struct.
     floor_depletion() = ComposableRecurrences.Depletion(
         1.0, ComposableRecurrences.Floor()

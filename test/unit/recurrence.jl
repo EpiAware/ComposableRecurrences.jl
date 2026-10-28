@@ -628,7 +628,7 @@ end
     end
     # A recorded run's records start unset too, as every step writes its
     # column of each: with a vector modifier as well.
-    move = CR.Redistribute(CR.movement(K ./ 2, 0.1))
+    move = CR.Redistribute(K ./ 2, 0.1)
     unset(x) = x isa AbstractArray && any(isnan, x)
     for (r, kw) in (cases..., (Recurrence(g; modifiers = (move, pool)), (;)))
         start = get(kw, :start, 1)

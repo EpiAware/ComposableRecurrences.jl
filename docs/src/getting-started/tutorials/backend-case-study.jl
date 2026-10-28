@@ -10,7 +10,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, movement
+using ComposableRecurrences: Depletion, Redistribute
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using ADTypes: AutoEnzyme, AutoForwardDiff, AutoMooncake
 import DifferentiationInterface as DI
@@ -64,7 +64,7 @@ function backend_model(R, ε, N, inputs)
     (; gi, delay, K, seeds) = inputs
     S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))
     modifiers = (
-        Redistribute(movement(K, ε)),
+        Redistribute(K, ε),
         Depletion(PerStratum(N); pools = (; S)),
     )
     infections = Recurrence(gi; modifiers)(R; history = seeds)
@@ -205,7 +205,7 @@ end
 # | Loop | Package | Test |
 # |:--|:--|:--|
 # | `renewal_infections(Rt, g, seed, N)` | `Recurrence(g; modifiers = (Depletion(N; pools = (S = max(N - sum(seed), 0),)),))`, called as `vcat(seed, r(Rt; history = seed, start = length(seed) + 1))` | `BVD renewal_infections` |
-# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(movement(K, ε)), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `hcat(seeds, r(Rt; history = seeds, start = size(seeds, 2) + 1))` | `BVD patch model` |
+# | `patch_infections(Rt, g, seeds, K, ε, N)` | `Recurrence(g; modifiers = (Redistribute(K, ε), Depletion(PerStratum(N); pools = (; S))))`, with `S = PerStratum(max.(N .- vec(sum(seeds; dims = 2)), 0))`, called as `hcat(seeds, r(Rt; history = seeds, start = size(seeds, 2) + 1))` | `BVD patch model` |
 # | `convolve_delay(x, delay)` | `Convolution(delay)(x)` | `BVD convolve_delay` |
 #
 # The package `ComposableTuringIDModels` writes each step for an `accumulate_scan`:

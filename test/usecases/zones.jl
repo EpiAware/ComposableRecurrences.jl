@@ -77,7 +77,7 @@
         return CR.Allocate(
             patch_ranges, TimeVarying(PerStratum(I_bar[:, t0:n]));
             imports = (fraction, pattern),
-            spill = CR.Redistribute(CR.movement(mix.within, ε))
+            spill = CR.Redistribute(mix.within, ε)
         )
     end
 

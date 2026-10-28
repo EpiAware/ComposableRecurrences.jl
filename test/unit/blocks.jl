@@ -224,7 +224,7 @@ end
     K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
     ms = (
         CR.Clamp(0.0, 50.0), Move(PerStratum([0.2, 0.4])), Keep(0.8),
-        CR.Redistribute(CR.movement(K, 0.5)),
+        CR.Redistribute(K, 0.5),
     )
     @test CR.uses_adjoint(
         Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Clamp(0.0, 1.0))), CR.Run()

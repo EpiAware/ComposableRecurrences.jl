@@ -9,7 +9,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Redistribute, Allocate, movement
+using ComposableRecurrences: Depletion, Redistribute, Allocate
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using LinearAlgebra
 using SparseArrays
@@ -130,11 +130,11 @@ end
 # ``\varepsilon_{t,j}`` is the share patch ``j`` sends to the others, in proportion to ``K``.
 # It is 0.05 for A, 0.03 for B and 0.02 for C, and halves from day 40.
 # The coupling is `I` here, so the patches mix only through the move.
-# The first modifier is [`Redistribute(M)`](@ref ComposableRecurrences.Redistribute), and [`movement(K, ε)`](@ref ComposableRecurrences.movement) builds ``M_t`` from ``K`` and ``\varepsilon``, one matrix per day.
+# The first modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute), which reads ``M_t`` from ``K`` and ``\varepsilon_t`` at each step.
 # It sits before the [`Depletion`](@ref ComposableRecurrences.Depletion), so each pool is depleted by what its patch receives.
 
 ε = [t < 40 ? e : e / 2 for e in [0.05, 0.03, 0.02], t in 1:T]
-patch = Recurrence(gi; modifiers = (Redistribute(movement(K, ε)), depletion))
+patch = Recurrence(gi; modifiers = (Redistribute(K, ε), depletion))
 infections, tr = patch(1.6; history = seed, stop = T, trace = true)
 nothing #hide
 
