@@ -163,11 +163,13 @@
 3.5	Depletion pullback with a time-varying population
 4.2	Depletion without a draw: a share flow is the occupancy recurrence
 3.7	Depletion without a draw: a smooth count against a naive loop
+0.5	Depletion without a draw: a step reads g only for flows into a pool
 3.4	Depletion without a draw: check their options
 0.3	Depletion without a draw: counts are capped and act in order
 4.9	Depletion without a draw: pullback against a local Jacobian
 4.0	Depletion without a draw: resume, Float32 and the adjoint route
 0.2	Depletion without a draw: the share that leaves near zero hazard
+0.1	Depletion without a draw: the share that leaves on dual numbers
 65.1	Depletion without a draw: the time checks infer and allocate nothing, after a gradient too
 23.5	Depletion without a draw: wards against a naive loop
 5.3	Depletion: Derived removals are removed
@@ -208,6 +210,7 @@
 0.0	EXECUTOR: serial by default, set per block
 9.8	Eltypes: Float32 in, Float32 out
 64.6	Eltypes: ForwardDiff gradients through every slot
+0.3	Eltypes: an independent run of dual numbers adds the newest lag last
 15.9	Eltypes: built-in modifiers keep Float32
 8.5	Eltypes: integer inputs keep an integer output promoted with Int
 0.4	Eltypes: kernel sums of dual numbers add the lags in order
