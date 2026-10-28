@@ -63,8 +63,6 @@ The symbol ``\odot`` multiplies element by element.
 
 `Recurrence` and `Convolution` are the two [operators](@ref explanation-operators).
 Each is built once from a kernel and then called like a function.
-A recurrence computes each value from its own past values, such as infections from earlier infections.
-A convolution weights the past values of another series, such as reported cases from earlier infections.
 
 ```julia
 renewal = Recurrence(gi)
@@ -290,7 +288,7 @@ A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.fo
 
 A time-series process, such as a random walk or an autoregression, builds a series from noise ``\epsilon_t``.
 Each is a recurrence or a convolution: a recurrence takes the noise as `add`, and a convolution as its input.
-As a latent process, one that is not observed, it can drive a gain such as the log reproduction number.
+As a latent process, one that is not observed, it can drive a gain, such as the reproduction number through its logarithm.
 
 ```julia
 Recurrence([1.0])(; history = [0.0], add = ϵ)
