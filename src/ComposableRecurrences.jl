@@ -98,7 +98,7 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
-    growth_rate, reproduction_number, pressure
+    growth_rate, reproduction_number, pressure, Survival, kernel_weights
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -162,13 +162,17 @@ include("operators/transpose.jl")
 # The pressure a recurrence's steps draw against, from given outputs.
 include("operators/pressure.jl")
 
-# kernels: routes kernels, delay masses and growth rates.
+# kernels: routes kernels, delay masses, growth rates and computed kernels.
 # The routes kernel: a sum of (coupling, kernel) routes.
 include("kernels/routes.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("kernels/delays.jl")
 # The growth rate that matches a reproduction number, and its inverse.
 include("kernels/growth_rate.jl")
+# Kernels computed from coefficients: `Survival` and the fill of the weights.
+include("kernels/weights.jl")
+# Operators whose kernel is computed from coefficients, and `kernel_weights`.
+include("kernels/computed.jl")
 
 # adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
 # Default pullbacks of modifiers and couplings without one.
