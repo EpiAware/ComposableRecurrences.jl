@@ -260,11 +260,7 @@ end
 function _leave(H)
     small = abs(_primal_value(H)) < _series_cut(H)
     Hd = ifelse(small, one(H), H)
-    g = ifelse(
-        small,
-        1 - H / 2 * (1 - H / 3 * (1 - H / 4 * (1 - H / 5 * (1 - H / 6 * (1 - H / 7))))),
-        -expm1(-Hd) / Hd
-    )
+    g = ifelse(small, evalpoly(H, _coefficients(H, _LEAVE)), -expm1(-Hd) / Hd)
     return exp(-H), g
 end
 
@@ -272,9 +268,13 @@ end
 function _leave_slope(H, E, g)
     small = abs(_primal_value(H)) < _series_cut(H)
     Hd = ifelse(small, one(H), H)
-    series = -one(H) / 2 + H / 3 - H^2 / 8 + H^3 / 30 - H^4 / 144 + H^5 / 840
-    return ifelse(small, series, (E - g) / Hd)
+    return ifelse(small, evalpoly(H, _coefficients(H, _SLOPE)), (E - g) / Hd)
 end
+
+# The series of `g` and `g′` about zero, as products rather than divisions.
+const _LEAVE = (1, -1 / 2, 1 / 6, -1 / 24, 1 / 120, -1 / 720, 1 / 5040)
+const _SLOPE = (-1 / 2, 1 / 3, -1 / 8, 1 / 30, -1 / 144, 1 / 840)
+_coefficients(H, c) = map(float(_primal_type(typeof(H))), c)
 
 # Where the slope's next series term, about `H^6 / 5760`, matches the
 # rounding of its closed form, about `2 eps / H`.
@@ -303,7 +303,7 @@ _get(::Tuple{}, i, j, v) = v
 _get(x::Tuple, i, j, v) = _get(Base.tail(x), i, j + 1, ifelse(j == i, first(x), v))
 
 # What moves out of pool `i` per unit held, `(e^{-H}, g(H), P)`.
-function _leaves(fs, i, g, t, z)
+@inline function _leaves(fs, i, g, t, z)
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
@@ -313,6 +313,24 @@ end
 # would make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
 _leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false)
+
+# The same for a step, which reads `g(H)` only where a hazard flow out of
+# pool `i` enters a pool: elsewhere it is one, without its expm1 and
+# divisions.
+@inline function _step_leaves(fs, i, g, t, z)
+    H = _out(_rate, fs, i, g, t, z)
+    E, gH = _rated_into(fs, i) ? _leave(H) : (exp(-H), one(H))
+    return E, gH, _out(_share, fs, i, g, t, z)
+end
+_step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
+
+# Whether a hazard flow out of pool `i` enters a pool.
+_rated_into(::Tuple{}, i) = false
+function _rated_into(fs::Tuple, i)
+    f = first(fs)
+    return (f isa Flow{<:Any, _FlowHazard} && f.from == i && f.to > 0) |
+        _rated_into(Base.tail(fs), i)
+end
 
 # Add each hazard and share flow's amount into the pool it enters, in
 # `y` and the arrivals `a`.
@@ -373,14 +391,14 @@ end
 
 # The count flows in order on the pools `y` and arrivals `a`.
 _counts(::Tuple{}, y, a, g, t) = y, a
-function _counts(fs::Tuple, y, a, g, t)
+@inline function _counts(fs::Tuple, y, a, g, t)
     y, a = _count(first(fs), y, a, g, t)
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
 # One pass over the pools, by `ifelse`: a flow out of the system
 # (`to = 0`) adds to no pool.
-function _count(f::_Count, y, a, g, t)
+@inline function _count(f::_Count, y, a, g, t)
     i, j = f.from, f.to
     m = _moved(f.form, param(f.demand, g, t), _source(y, i))
     p = _moved_in(m)
@@ -408,7 +426,7 @@ end
 # pool's step about 40% in forward mode.
 @inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
+    L = ntuple(@inline(i -> _step_leaves(fs, i, g, t, z)), Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
