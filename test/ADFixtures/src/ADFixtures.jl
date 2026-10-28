@@ -624,6 +624,11 @@ function _ward(w, θ)
     return sum([WS; WS] .* y)
 end
 
+# The same ward from its parameters as given, so they are zero, where every
+# admission and rate is zero, at the point the harness records a compiled
+# ReverseDiff tape.
+_ward_given(w, θ) = _ward(w, θ .- WARD0)
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -1222,6 +1227,10 @@ const _SCENARIOS = [
         () -> zero(WARD0),
     ),
     (
+        "Recurrence ward with competing flows, from the parameters as given",
+        _ward_given, () -> copy(WARD0),
+    ),
+    (
         "Recurrence protected pool in Float32", _protected_float32,
         () -> Float32.(_flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3])),
         _F32,
@@ -1703,6 +1712,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:depletion_pools,),
     "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
+    "Recurrence ward with competing flows, from the parameters as given" =>
+        (:depletion_pools,),
     "Recurrence waning protection (Depletion flows)" => (:depletion_pools,),
     "Recurrence protected pool in Float32" => (:depletion_pools,),
     "Recurrence pool with twelve flows (over 32 leaves)" => (:depletion_pools,),
@@ -2203,8 +2214,19 @@ broken_scenario_names() = String[]
 """
 Per-backend broken scenario names (`Dict{String, Set{String}}`): the
 scenarios expected to fail on a backend, by backend name.
+
+A compiled ReverseDiff tape keeps the branches taken where it is recorded,
+which the harness does at zero parameters. The ward from its parameters as
+given branches differently there, so its prepared calls on compiled
+ReverseDiff are wrong; the other scenarios start at zero to avoid this.
 """
-backend_broken_scenarios() = Dict{String, Set{String}}()
+function backend_broken_scenarios()
+    return Dict(
+        "ReverseDiff (compiled)" => Set(
+            ["Recurrence ward with competing flows, from the parameters as given"]
+        ),
+    )
+end
 
 """
 Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
