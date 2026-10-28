@@ -1,8 +1,5 @@
-# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds: a sum of routes,
-# each a kernel and the coupling it reaches its contacts through, held as its
-# couplings and kernels in route order (the `Pairwise` docstring gives the
-# maths). Each step costs one kernel convolution and one coupling product per
-# route, and a sparse route coupling stays sparse.
+# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds, held as its routes'
+# couplings and kernels in route order.
 struct _Routes{C <: Tuple, G <: Tuple}
     "Each route's coupling."
     couplings::C
@@ -61,7 +58,10 @@ function _check_route_kernel(::_Routes)
     throw(ArgumentError("a route's kernel cannot itself be routes"))
 end
 
-_describe(R::_Routes) = string("Pairwise with ", length(R.kernels), " routes")
+function _describe(R::_Routes)
+    n = length(R.kernels)
+    return string("Pairwise with ", n, n == 1 ? " route" : " routes")
+end
 
 _check_kernel_shape(::_Routes) = nothing
 function _check_pairwise_coupling(::_Routes, coupling)
