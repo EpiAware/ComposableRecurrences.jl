@@ -19,7 +19,7 @@
 # depend on it: a step of each built-in depletion form compiles to one path,
 # with no dispatch on the form at run time.
 let CR = ComposableRecurrences
-    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.SoftTruncate(0.1))
+    for form in (CR.Hazard(), CR.Floor(), CR.Truncate(), CR.Truncate(0.1))
         m = CR.Depletion(100.0, form)
         r = JET.@report_opt CR._step(m, 2.0, 80.0, 1, 1)
         reports = JET.get_reports(r)

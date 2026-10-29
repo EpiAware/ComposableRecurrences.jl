@@ -12,7 +12,7 @@
             Recurrence, Convolution, UniformScaling, Matrix{Float64},
             Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
             CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
-            CR.Truncate, CR.SoftTruncate,
+            CR.Truncate,
         )
         @test Interfaces.implements(CR.PieceInterface, T)
     end
@@ -25,7 +25,7 @@
         CR.PieceInterface{(:pullback,)}, typeof(K), (obj,); show = false
     )
     # A built-in form's pullback check takes the population as any real.
-    for form in (CR.Hazard(1.5), CR.Floor(1.5), CR.Truncate(), CR.SoftTruncate(0.1)),
+    for form in (CR.Hazard(1.5), CR.Floor(1.5), CR.Truncate(), CR.Truncate(0.1)),
             N in (100, 100.0)
         obj = Interfaces.Arguments(;
             piece = form, role = CR.Step(), args = ([2.0, 3.0], [80.0, 60.0], N)
@@ -497,7 +497,7 @@ end
     # A form's public in-place step and pullback match its kernels; the
     # exponent's cotangent, summed over the entries, goes to the form's
     # mirror.
-    for form in (CR.Hazard(1.0), CR.Floor(1.0), CR.Truncate(), CR.SoftTruncate(0.1))
+    for form in (CR.Hazard(1.0), CR.Floor(1.0), CR.Truncate(), CR.Truncate(0.1))
         v, s = [2.0, 3.0], [80.0, 1.5]
         CR.forward!(form, CR.Step(), v, s, 100.0)
         @test (v[2], s[2]) == CR._draw(form, 3.0, 1.5, 100.0)

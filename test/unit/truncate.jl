@@ -1,4 +1,4 @@
-# Truncate and SoftTruncate: draws up to what the pool holds, against a
+# Truncate() and Truncate(κ): draws up to what the pool holds, against a
 # naive loop, with the pullback against a local ForwardDiff Jacobian and the
 # smooth minimum's bounds.
 
@@ -26,7 +26,7 @@
         end
         return y[(L + 1):end]
     end
-    form(κ) = κ == 0 ? CR.Truncate() : CR.SoftTruncate(κ)
+    form(κ) = κ == 0 ? CR.Truncate() : CR.Truncate(κ)
     run(R, b, κ) = Recurrence(
         g; modifiers = (CR.Depletion(b, form(κ)),)
     )(R; history = h)
@@ -54,10 +54,10 @@ end
         (1.0, 0.0), (4.0, 4.5), (2.0, 2.0), (2.0, Inf),
     )
     for κ in (nothing, 0.1, 0.4), (v, s) in points
-        form(κ) = κ === nothing ? CR.Truncate() : CR.SoftTruncate(κ)
+        form(κ) = κ === nothing ? CR.Truncate() : CR.Truncate(κ)
         θ = κ === nothing ? Float64[] : [κ]
         J = ReferenceAD.jacobian([v, s, 100.0, θ...]) do x
-            f = κ === nothing ? CR.Truncate() : CR.SoftTruncate(x[4])
+            f = κ === nothing ? CR.Truncate() : CR.Truncate(x[4])
             collect(CR._draw(f, x[1], x[2], x[3]))
         end
         ȳ, s̄ = 0.7, -0.3
@@ -73,7 +73,7 @@ end
 @testitem "Truncate: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, v, s) = first(CR._draw(CR.SoftTruncate(κ), v, s, 1.0))
+    draw(κ, v, s) = first(CR._draw(CR.Truncate(κ), v, s, 1.0))
     for κ in (0.05, 0.3)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0
@@ -101,16 +101,23 @@ end
 @testitem "Truncate: checks and the rule" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    @test_throws "between 0 and 1, got 0" CR.SoftTruncate(0)
-    @test_throws "between 0 and 1, got 1.5" CR.SoftTruncate(1.5)
-    @test CR.SoftTruncate(0.1f0).κ isa Float32
+    @test_throws "in [0, 1), got 1.5" CR.Truncate(1.5)
+    @test_throws "in [0, 1), got -0.1" CR.Truncate(-0.1)
+    @test_throws "a number or nothing, got :soft" CR.Truncate(:soft)
+    # A zero softness is the exact minimum, with no cotangent for κ.
+    for (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0), (2.0, -1.0), (-1.0, 2.0))
+        @test CR._draw(CR.Truncate(0.0), v, s, 1.0) == CR._draw(CR.Truncate(), v, s, 1.0)
+        @test CR._soft_min_back(0.0, v, max(s, 0.0), 0.7) ==
+            CR._soft_min_back(nothing, v, max(s, 0.0), 0.7)
+    end
+    @test CR.Truncate(0.1f0).κ isa Float32
     # Mixed argument types promote, so the step infers one type.
-    for form in (CR.Truncate(), CR.SoftTruncate(0.1), CR.SoftTruncate(0.1f0))
+    for form in (CR.Truncate(), CR.Truncate(0.1), CR.Truncate(0.1f0))
         @inferred CR._draw(form, 2.0, 1.5f0, 1.0)
         @inferred CR._draw(form, 2.0f0, 1.5f0, 1.0)
         @inferred CR._draw(form, 0.0f0, 1.5, 1.0)
     end
-    for form in (CR.Truncate(), CR.SoftTruncate(0.2))
+    for form in (CR.Truncate(), CR.Truncate(0.2))
         d = CR.Depletion(50.0, form)
         @test CR.uses_adjoint(d, CR.Step())
         @test CR.uses_adjoint(Recurrence([0.5, 0.5]; modifiers = (d,)), CR.Run())
@@ -130,7 +137,7 @@ end
     CR = ComposableRecurrences
     # `_softness` and `_soft_min` give each form's draw, so a modifier that
     # admits up to a free capacity can reuse the forms' minimum.
-    for form in (CR.Truncate(), CR.SoftTruncate(0.2)), (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0))
+    for form in (CR.Truncate(), CR.Truncate(0.2)), (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0))
         κ = CR._softness(form)
         y = CR._soft_min(κ, v, s)
         @test y == first(CR._draw(form, v, s, 1.0))
@@ -138,5 +145,5 @@ end
         @test collect(back[1:2]) ≈ 0.7 .* ReferenceAD.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
     end
     @test CR._softness(CR.Truncate()) === nothing
-    @test CR._softness(CR.SoftTruncate(0.3)) == 0.3
+    @test CR._softness(CR.Truncate(0.3)) == 0.3
 end
