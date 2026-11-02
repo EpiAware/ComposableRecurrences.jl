@@ -668,8 +668,11 @@ Base.@constprop :aggressive function _invoke(
     args = _run_args(r, gain, history, state, add, start)
     rec = _record(record)
     traced, stated = _recording(rec, :trace), _recording(rec, :state)
-    op = _call_op(traced, stated, r)
-    out = adjoint_call(_reroute(route, op), args..., stop)
+    return _routed(traced, stated, rec, r, route, args, stop)
+end
+# One call over both flags, so that a rule derived from types alone splits.
+function _routed(traced, stated, rec, r, route, args, stop)
+    out = adjoint_call(_reroute(route, _call_op(traced, stated, r)), args..., stop)
     return _recorded(rec, traced, stated, out)
 end
 
@@ -700,7 +703,10 @@ _check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
     )
 end
 _recording(::Nothing, name) = Val(false)
-Base.@constprop :aggressive _recording(rec::Tuple, name) = Val(name in rec)
+# A branch, not `Val(name in rec)`, so that it infers as a two-way union.
+Base.@constprop :aggressive function _recording(rec::Tuple, name)
+    return name in rec ? Val(true) : Val(false)
+end
 
 # The operator a call routes: the recurrence, with its state, its trace or
 # both in its output.
