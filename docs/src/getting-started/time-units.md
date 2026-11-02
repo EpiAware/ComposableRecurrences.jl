@@ -89,6 +89,8 @@ R = repeat(Rw; inner = 7)
 R[6:9]
 ```
 
+Days 6 and 7 hold the value of week 1, and days 8 and 9 the value of week 2.
+
 A kernel, coupling or modifier parameter that changes at a few times is given by its change points, `[t => value]` in [`TimeVarying`](@ref).
 Each value holds from its start until the next.
 Here imports fall each week:
@@ -141,6 +143,8 @@ w = [70.0, 140.0, 210.0]
 x = repeat(w ./ 7; inner = 7)
 x[6:9]
 ```
+
+Each week's total is spread evenly over its seven days, so the daily value jumps from 10 to 20 at day 8.
 
 The third steps by week, with the delays censored on weeks:
 

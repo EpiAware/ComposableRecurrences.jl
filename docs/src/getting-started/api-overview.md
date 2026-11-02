@@ -17,6 +17,7 @@ using ComposableRecurrences: Depletion, Floor, EXECUTOR, Threaded
 using Base.ScopedValues: with
 using Distributions, CensoredDistributions
 
+# The three-town model of Getting started, from getting-started/index.md.
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 T = 75
 pop = [60_000.0, 25_000.0, 10_000.0]
@@ -25,8 +26,6 @@ gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
 K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in 1:3, t in 1:T]
-N = pop[1]
-ϵ = [0.5, -0.25, 0.125, 0.25, -0.5]
 ```
 
 ## [A step](@id overview-step)
@@ -143,8 +142,11 @@ A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata o
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
 ```@example api-overview
-PerStratum(pop)
+pool = Depletion(PerStratum(pop))
+ComposableRecurrences.nstate(pool, 3)
 ```
+
+The pool keeps one state entry for each town.
 
 A route is one way values pass between strata, such as infection through contact in the community or at funerals.
 Each route has its own kernel and its own coupling.
@@ -291,11 +293,12 @@ A depletion form sets how a pool gives up what a step asks for.
 Each form is a type, passed as an instance.
 
 ```@example api-overview
+N = 60_000.0
 floored = Recurrence(gi; modifiers = (Depletion(N, Floor()),))
 round(Int, sum(floored(fill(1.8, T); history = fill(10.0, 6))))
 ```
 
-The result is town A's total infections over the 75 days.
+The result is the total infections over 75 days in a single pool of `N` people.
 
 | Name | What it does | Example |
 |:--|:--|:--|
@@ -318,6 +321,7 @@ Each is a recurrence or a convolution: a recurrence takes the noise as `add`, an
 As a latent process, one that is not observed, it can drive a gain, such as the reproduction number through its logarithm.
 
 ```@example api-overview
+ϵ = [0.5, -0.25, 0.125, 0.25, -0.5]
 Recurrence([1.0])(; history = [0.0], add = ϵ)
 ```
 
