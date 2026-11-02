@@ -315,8 +315,10 @@ One line gives the gradient of all reports with respect to every town's reproduc
 
 ```@example overview
 ∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
-size(∂R)
+round.(vec(sum(∂R; dims = 2)); digits = 1)
 ```
+
+The result is the gradient summed over days for each town.
 
 ```@example overview
 @chain long(∂R, towns) begin

@@ -77,6 +77,7 @@ Each is built once from a kernel and then called like a function.
 ```@example api-overview
 renewal = Recurrence(gi)
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+delay([10.0, 20.0, 30.0])
 ```
 
 | Name | What it does | Returns |
@@ -134,11 +135,9 @@ A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata o
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
 ```@example api-overview
-pool = Depletion(PerStratum(pop))
-ComposableRecurrences.nstate(pool, 3)
+Depletion(PerStratum(pop))
+nothing # hide
 ```
-
-The pool keeps one state entry for each town.
 
 A route is one way values pass between strata, such as infection through contact in the community or at funerals.
 Each route has its own kernel and its own coupling.
@@ -177,9 +176,12 @@ A delay distribution, such as a gamma generation interval, can stand in for a ke
 The operator turns it into masses: the probability that the delay falls on each whole lag.
 
 ```@example api-overview
-gamma_renewal = Recurrence(Gamma(2.0, 2.5); lags = 15)
-length(gamma_renewal.kernel), round(sum(gamma_renewal.kernel); digits = 3)
+Recurrence(Gamma(2.0, 2.5); lags = 15)
+masses = ComposableRecurrences.delay_masses(Gamma(2.0, 2.5), 15)
+round(masses[1]; digits = 3), round(sum(masses[2:end]); digits = 3)
 ```
+
+The recurrence keeps the masses on lags 1 to 14, 0.957 of the delay, and drops the mass of 0.022 on lag 0.
 
 `Gamma` comes from the Distributions.jl package, and a continuous delay such as it needs CensoredDistributions.jl loaded.
 A type works as a delay when it has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method, which gives its masses on lags `0` to `lags - 1`.
@@ -211,8 +213,11 @@ A coupling sets how much each stratum's past outputs drive each stratum, such as
 In Getting started, `K` is a gravity coupling.
 
 ```@example api-overview
-Recurrence(gi; coupling = K)
+round.(Int, vec(sum(Recurrence(gi; coupling = K)(R; history = seed); dims = 2)))
 ```
+
+The result is each town's total infections over the 75 days.
+Without the coupling, towns B and C have none, as only town A is seeded.
 
 Row ``i`` of a coupling is the stratum that receives, and column ``j`` the stratum that gives.
 The coupling [acts](@ref explanation-coupling) on the weighted sums of past outputs, before the gain.
