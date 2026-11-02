@@ -26,7 +26,7 @@ K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; di
 seed = [fill(10.0, 1, 6); zeros(2, 6)]
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in 1:3, t in 1:T]
 N = pop[1]
-ϵ = [0.5, -0.2, 0.1, 0.3, -0.4]
+ϵ = [0.5, -0.25, 0.125, 0.25, -0.5]
 ```
 
 ## [A step](@id overview-step)
@@ -143,7 +143,7 @@ A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata o
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
 ```@example api-overview
-Depletion(PerStratum(pop))
+PerStratum(pop)
 ```
 
 A route is one way values pass between strata, such as infection through contact in the community or at funerals.
@@ -183,7 +183,8 @@ A delay distribution, such as a gamma generation interval, can stand in for a ke
 The operator turns it into masses: the probability that the delay falls on each whole lag.
 
 ```@example api-overview
-Recurrence(Gamma(2.0, 2.5); lags = 15)
+gamma_renewal = Recurrence(Gamma(2.0, 2.5); lags = 15)
+length(gamma_renewal.kernel), round(sum(gamma_renewal.kernel); digits = 3)
 ```
 
 `Gamma` comes from the Distributions.jl package, and a continuous delay such as it needs CensoredDistributions.jl loaded.
@@ -238,8 +239,11 @@ A modifier changes the value of each step after the gain and `add`.
 In Getting started, `Depletion(PerStratum(pop))` draws each town's infections from the people left to infect.
 
 ```@example api-overview
-Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
 ```
+
+The result is each town's total infections over the 75 days.
 
 Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
 The `add` input enters before every modifier, and an `Add` enters where it sits in the tuple.
@@ -287,8 +291,11 @@ A depletion form sets how a pool gives up what a step asks for.
 Each form is a type, passed as an instance.
 
 ```@example api-overview
-Depletion(N, Floor())
+floored = Recurrence(gi; modifiers = (Depletion(N, Floor()),))
+round(Int, sum(floored(fill(1.8, T); history = fill(10.0, 6))))
 ```
+
+The result is town A's total infections over the 75 days.
 
 | Name | What it does | Example |
 |:--|:--|:--|

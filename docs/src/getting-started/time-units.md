@@ -97,7 +97,7 @@ Here imports fall each week:
 imports = Add(TimeVarying([1 => 2.0, 8 => 0.5, 15 => 0.0]))
 renewal = Recurrence(gi; lags = 15, modifiers = (imports,))
 y = renewal(R; history = ones(14))
-renewal
+nothing # hide
 ```
 
 ## [Data coarser than the step, observed](@id time-units-observed)
