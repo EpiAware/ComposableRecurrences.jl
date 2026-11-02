@@ -106,10 +106,11 @@ end
             CR.Depletion(100.0f0),
             CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
             CR.Depletion(100.0f0, CR.Hazard(1.5f0); pools = (S = 97.0f0,)),
-            CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
+            CR.Transform(+, 0.5f0),
+            CR.Transform(+, TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
             CR.Redistribute(K, 0.1f0),
             CR.Redistribute(K, fill(0.1f0, 2, 5)),
-            CR.Clamp(0.0f0, 5.0f0),
+            CR.Transform(clamp, 0.0f0, 5.0f0),
             CR.Depletion(
                 0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
                 CR.Truncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
@@ -196,7 +197,7 @@ end
     H = [dual(i, a) for i in 1:40, a in 1:2]
     g = [exp(-0.3i) for i in 1:20]
     @test CR._chain(g, (), D) isa CR._Chained
-    @test CR._chain(g, (CR.Clamp(0.0, 1.0),), D) === g
+    @test CR._chain(g, (CR.Transform(clamp, 0.0, 1.0),), D) === g
     older = foldl((acc, i) -> acc + g[i] * H[4 + i, 2], 1:19; init = zero(D))
     @test _window_dot(g, H, 5, 20, 2) === muladd(g[20], H[24, 2], older)
 end

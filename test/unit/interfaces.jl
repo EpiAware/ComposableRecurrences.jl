@@ -11,7 +11,7 @@
     for T in (
             Recurrence, Convolution, UniformScaling, Matrix{Float64},
             Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
-            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
+            CR.Hazard, CR.Floor, CR.Redistribute, CR.Transform,
             CR.Truncate,
         )
         @test Interfaces.implements(CR.PieceInterface, T)
@@ -275,9 +275,9 @@ end
     @test !Interfaces.test(CR.PieceInterface, WritingGap, (obj,); show = false)
     # The default trace, the state after the step, passes.
     obj = Interfaces.Arguments(;
-        piece = CR.Clamp(0.0, 1.0), role = CR.Trace(), args = whole
+        piece = CR.Transform(clamp, 0.0, 1.0), role = CR.Trace(), args = whole
     )
-    @test Interfaces.test(CR.PieceInterface, CR.Clamp, (obj,); show = false)
+    @test Interfaces.test(CR.PieceInterface, CR.Transform, (obj,); show = false)
 end
 
 @testitem "Interfaces: a pointwise step may broadcast" begin
@@ -411,10 +411,11 @@ end
     )
     # A state that does not match nstate fails.
     obj = Interfaces.Arguments(;
-        piece = CR.Clamp(0.0, 1.0), role = CR.Step(), args = ([1.0, 2.0], zeros(3), 1)
+        piece = CR.Transform(clamp, 0.0, 1.0), role = CR.Step(),
+        args = ([1.0, 2.0], zeros(3), 1)
     )
     @test !Interfaces.test(
-        CR.PieceInterface{(:nstate,)}, CR.Clamp, (obj,); show = false
+        CR.PieceInterface{(:nstate,)}, CR.Transform, (obj,); show = false
     )
     # Roles other than Init and Step have no state to check.
     obj = Interfaces.Arguments(;
@@ -488,12 +489,13 @@ end
             (; piece = nothing, v = 1.0, s = 0.5), m, 3.0, 60.0, 1, 2
         )
     end
-    grads = (; piece = (; b = Ref(0.0)), v = 1.0, s = 0.5)
-    @test CR._step_back(grads, CR.Add(1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
-    @test grads.piece.b[] == 1.0
-    grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = 1.0, s = 0.0)
-    @test CR._step_back(grads, CR.Clamp(0.0, 1.0), 2.0, 0.0, 1, 1) == (0.0, 0.0)
-    @test grads.piece.hi[] == 1.0
+    grads = (; piece = (; θ = Ref(0.0)), v = 1.0, s = 0.5)
+    @test CR._step_back(grads, CR.Transform(+, 1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
+    @test grads.piece.θ[] == 1.0
+    grads = (; piece = (; θ = (Ref(0.0), Ref(0.0))), v = 1.0, s = 0.0)
+    @test CR._step_back(grads, CR.Transform(clamp, 0.0, 1.0), 2.0, 0.0, 1, 1) == (0.0, 0.0)
+    @test grads.piece.θ[2][] == 1.0
+    @test grads.piece.θ[1][] == 0.0
     # A form's public in-place step and pullback match its kernels; the
     # exponent's cotangent, summed over the entries, goes to the form's
     # mirror.

@@ -16,7 +16,7 @@ r_t = R_M\big(v_t,\ s_{t-1},\ v'_t,\ s_t\big),
 
 with ``R_M`` the modifier's own map: by default its state after the step,
 ``r_t = s_t``, and a modifier whose state never changes, such as
-[`ComposableRecurrences.Add`](@ref), records nothing.
+[`ComposableRecurrences.Transform`](@ref), records nothing.
 A [`ComposableRecurrences.Depletion`](@ref) with a draw records its pools after
 the step, the value it passes on ``y_t`` and the overflow
 ``d_t + Q_{t-1} - y_t``, what its draws leave of the demand ``d_t`` and
@@ -81,7 +81,7 @@ state after each step, or none for a modifier whose state never changes.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.ntrace(CR.Clamp(0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
+CR.ntrace(CR.Transform(clamp, 0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
 
 # output
 

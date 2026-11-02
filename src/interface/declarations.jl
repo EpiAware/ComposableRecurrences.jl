@@ -289,7 +289,7 @@ without a check.
 ```jldoctest
 using ComposableRecurrences, Interfaces, ForwardDiff
 CR = ComposableRecurrences
-Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
+Interfaces.test(CR.PieceInterface, CR.Transform; show = false)
 
 # output
 

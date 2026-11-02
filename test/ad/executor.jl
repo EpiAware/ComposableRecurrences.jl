@@ -74,7 +74,7 @@
             g, R = split(θ, L + 1)
             r = Recurrence(
                 g[1:L]; modifiers = (
-                    CR.Depletion(1.0e3, CR.Floor()), CR.Add(g[L + 1]),
+                    CR.Depletion(1.0e3, CR.Floor()), CR.Transform(+, g[L + 1]),
                 )
             )
             return sum(w .* r(R; history = seed))

@@ -4,7 +4,7 @@ A model has one time unit, its step.
 
 ```@example time-units
 using ComposableRecurrences, Distributions, CensoredDistributions
-using ComposableRecurrences: Add
+using ComposableRecurrences: Transform
 gi = Gamma(2.0, 2.5)   # a generation interval in days, mean 5 days
 nothing # hide
 ```
@@ -95,7 +95,7 @@ Each value holds from its start until the next.
 Here imports fall each week:
 
 ```@example time-units
-imports = Add(TimeVarying([1 => 2.0, 8 => 0.5, 15 => 0.0]))
+imports = Transform(+, TimeVarying([1 => 2.0, 8 => 0.5, 15 => 0.0]))
 renewal = Recurrence(gi; lags = 15, modifiers = (imports,))
 y = renewal(R; history = ones(14))
 nothing # hide

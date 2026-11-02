@@ -227,7 +227,7 @@ end
     c = Convolution(TimeVarying(p * s, CR.Primary()))
     @test_throws ArgumentError c(A; history = [1.0])
     # A computed kernel is not a modifier parameter.
-    @test_throws ArgumentError CR.Add(p * s)
+    @test_throws ArgumentError CR.Transform(+, p * s)
     # A map that holds floats is named as the reason for plain AD.
     scaled = let c = 2.0
         x -> c * x

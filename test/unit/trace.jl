@@ -90,7 +90,7 @@ end
             g; modifiers = (CR.Redistribute(K, ε), CR.Depletion(N))
         ),
         Recurrence(g; modifiers = (leaky,)),
-        Recurrence(g; modifiers = (CR.Clamp(0.0, 9.0), CR.Depletion(N))),
+        Recurrence(g; modifiers = (CR.Transform(clamp, 0.0, 9.0), CR.Depletion(N))),
         Recurrence(g; modifiers = (beds,)),
     )
     dual(x) = ForwardDiff.Dual{Nothing}.(x, 0.5 .* x)
@@ -335,7 +335,7 @@ end
     @test M2[1:3, :] ≈ S2
     @test CR.ntrace(CR.Redistribute(K, 0.2), 3) == 3
     # A modifier whose state never changes records nothing.
-    for m in (CR.Add(0.1), CR.Clamp(0.0, 5.0), CR.Allocate([1:3], 5.0))
+    for m in (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 5.0), CR.Allocate([1:3], 5.0))
         @test CR.ntrace(m, 3) == 0
         s = Recurrence([0.4, 0.6]; modifiers = (m, CR.Depletion(60.0)))
         _, tm = s(R; history = h, trace = true)
@@ -400,8 +400,9 @@ end
                 CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]);
                 pools = (:S, :V)
             )
-            # `Add` keeps no state, so its trace is empty and takes no cotangent.
-            mods = (CR.Redistribute(K, θ[6]), CR.Add(θ[7]), leaky)
+            # `Transform(+, b)` keeps no state, so its trace is empty and takes no
+            # cotangent.
+            mods = (CR.Redistribute(K, θ[6]), CR.Transform(+, θ[7]), leaky)
             _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
             T1, T0, T2 = tr.modifiers
             return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])
@@ -431,9 +432,9 @@ end
         g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
         W = reshape(range(0.2, 1.8; length = 72), 12, 6)
         # Pointwise modifiers only, so each stratum's pullback runs on its own;
-        # `Add` keeps no state, so its trace takes no cotangent.
+        # `Transform(+, b)` keeps no state, so its trace takes no cotangent.
         function pointwise(θ)
-            mods = (Decay(θ[1]), CR.Add(0.1), CR.Depletion(θ[2]))
+            mods = (Decay(θ[1]), CR.Transform(+, 0.1), CR.Depletion(θ[2]))
             y, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
             T1, _, T2 = tr.modifiers
             return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
@@ -556,7 +557,7 @@ end
     for (mods, W) in (
             ((Smoothing(0.6), CR.Depletion(PerStratum(fill(80.0, 4)))), nothing),
             ((Pairs(0.8),), nothing),
-            ((Mean(0.3), CR.Clamp(0.0, 9.0)), nothing),
+            ((Mean(0.3), CR.Transform(clamp, 0.0, 9.0)), nothing),
         )
         f(θ) = begin
             ms = mods[1] isa Smoothing ? (Smoothing(θ[1]), Base.tail(mods)...) :

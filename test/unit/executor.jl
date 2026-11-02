@@ -342,8 +342,10 @@ end
             (Recurrence(g), Recurrence(gd)),
             (Recurrence(PerStratum(G)), Recurrence(PerStratum(Gd))),
             (
-                Recurrence(g; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
-                Recurrence(gd; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
+                Recurrence(g; modifiers = (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 50.0))),
+                Recurrence(
+                    gd; modifiers = (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 50.0))
+                ),
             ),
         )
         @test Array(rd(JLArray(R); history = JLArray(seed))) ≈

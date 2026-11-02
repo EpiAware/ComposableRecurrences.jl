@@ -16,6 +16,14 @@ the modifiers before it in the tuple), ``v'_i`` its value after, and
 A tuple or NamedTuple of these is read entry by entry, so `f` receives a
 tuple or NamedTuple of scalars.
 Without `θ` the map is ``v'_i = f(v_i)``.
+`Transform(+, b)` adds ``b_{t,i}`` wherever it sits in the tuple: after a
+[`ComposableRecurrences.Depletion`](@ref), the added values are neither
+scaled by nor drawn from the pool.
+Alone, `Transform(+, TimeVarying(PerStratum(B)))` gives the same values as
+passing `B` as `add`.
+`Transform(clamp, lo, hi)` bounds each value to
+``[\ell_{t,i}, u_{t,i}]``, as `clamp`, with ``\ell_{t,i} \le u_{t,i}``
+the parameters `lo` and `hi` read at stratum ``i`` and time ``t``.
 
 The reverse pass, for output cotangent ``\bar v'_i``, is
 
@@ -27,6 +35,10 @@ The reverse pass, for output cotangent ``\bar v'_i``, is
 
 with the partial derivatives from `derivative` when given, or else from a
 local forward-mode derivative of `f`.
+`Transform(+, b)` and `Transform(clamp, lo, hi)` have their own pullbacks:
+``\bar v_i = \bar v'_i`` and ``\bar b_{t,i} \mathrel{+}= \bar v'_i``
+for the first, and for the second the cotangent goes to the bound that is
+active, or to ``v_i`` when neither is.
 `derivative(v)` returns ``\partial f / \partial v`` without `θ`, and
 `derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
@@ -37,11 +49,13 @@ fields) are not in ``\theta``: without `derivative` the
 backend instead, so they keep their gradients.
 
 Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
-forward-mode derivative or `derivative`.
+forward-mode derivative or `derivative`, or a hand-written one for `+` and
+`clamp`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
 - `θ`: the parameters, or `nothing`.
+- `lo`, `hi`: with `clamp`, the lower and upper bounds, each a parameter.
 
 # Keyword Arguments
 - `derivative`: the derivative of `f`, or `nothing` for the local one.
@@ -83,6 +97,36 @@ round.(y; digits = 3)
  1.154  1.221  1.313  1.377  1.438  1.484
  1.395  1.648  2.049  2.435  2.879  3.324
 ```
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+# Imports added after the depletion, so not drawn from the pool.
+mods = (CR.Depletion(50.0, CR.Floor()), CR.Transform(+, TimeVarying([1.0, 0.0, 2.0])))
+Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
+
+# output
+
+3-element Vector{Float64}:
+ 3.0
+ 2.88
+ 4.598912
+```
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+r = Recurrence([2.0]; modifiers = (CR.Transform(clamp, 0.0, 5.0),))
+r(1.0; history = [1.0], stop = 4)
+
+# output
+
+4-element Vector{Float64}:
+ 2.0
+ 4.0
+ 5.0
+ 5.0
+```
 """
 struct Transform{F, P, D}
     "The map, called as `f(v)` or `f(v, θ)`."
@@ -91,15 +135,23 @@ struct Transform{F, P, D}
     θ::P
     "The derivative of `f`, or `nothing` for the local one."
     derivative::D
-    function Transform(f::F, θ::P, derivative::D) where {F, P, D}
+    function Transform{F, P, D}(f::F, θ::P, derivative::D) where {F, P, D}
         _check_theta(θ)
         return new{F, P, D}(f, θ, derivative)
     end
 end
 
 function Transform(f, θ = nothing; derivative = nothing)
-    return Transform(f, θ, derivative)
+    return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
 end
+# The bounds are held as `θ = (lo, hi)`.
+function Transform(::typeof(clamp), lo, hi)
+    return Transform(clamp, (_check_param(:lo, lo), _check_param(:hi, hi)))
+end
+# Rebuilt from its fields, as `Adapt` and the dual-number rebuild do: three
+# positional arguments are `clamp`'s map and bounds, not the fields.
+ConstructionBase.constructorof(::Type{<:Transform}) = _transform
+_transform(f, θ, derivative) = Transform(f, θ; derivative)
 
 _check_theta(::Nothing) = nothing
 function _check_theta(θ::Union{Tuple, NamedTuple})
@@ -137,6 +189,7 @@ _theta_at(θ, k, t) = param(θ, k, t)
 
 _call(f, v, ::Nothing) = f(v)
 _call(f, v, θ) = f(v, θ)
+_call(::typeof(clamp), v, θ::Tuple{Any, Any}) = clamp(v, θ...)
 
 function forward!(m::Transform, ::Step, v, s, t)
     for k in eachindex(v)
@@ -160,6 +213,39 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     end
     return nothing
 end
+
+# `Transform(+, b)` passes the cotangent through and adds it into `b`;
+# without `b` it is the identity.
+function pullback!(grads, m::Transform{typeof(+), <:Any, Nothing}, ::Step, v, s, t)
+    b̄ = cotangent(grads.piece, :θ)
+    for k in eachindex(v)
+        add_param!(b̄, m.θ, grads.v[k], k, t)
+    end
+    return nothing
+end
+pullback!(grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t) = nothing
+
+# `Transform(clamp, lo, hi)` matches `clamp`'s branches: above `hi`, then
+# below `lo`, else `v`.
+function pullback!(
+        grads, m::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}, ::Step, v, s, t
+    )
+    v̄ = grads.v
+    lo, hi = m.θ
+    l̄o, h̄i = _bound_mirrors(_arg_mirrors(cotangent(grads.piece, :θ), m.θ))
+    for k in eachindex(v)
+        if v[k] > param(hi, k, t)
+            add_param!(h̄i, hi, v̄[k], k, t)
+            v̄[k] = zero(v̄[k])
+        elseif v[k] < param(lo, k, t)
+            add_param!(l̄o, lo, v̄[k], k, t)
+            v̄[k] = zero(v̄[k])
+        end
+    end
+    return nothing
+end
+_bound_mirrors(::Nothing) = (nothing, nothing)
+_bound_mirrors(θ̄) = Tuple(θ̄)
 
 # Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. Each
 # entry's `∂θ` depends on every entry of `(v, θ)`, so a mirror holds the
@@ -220,5 +306,16 @@ _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
     ),
     Arguments(;
         piece = Transform(log1p), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Transform(+, TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Transform(+, 0.5), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Transform(clamp, 0.0, 2.5), role = Step(),
+        args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]

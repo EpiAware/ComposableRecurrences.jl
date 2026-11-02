@@ -690,7 +690,7 @@ function renewal_imports(wrap, z::Size)
     N = 1.0e5
     f = function (θ)
         g, logh, logR, before, after = _unpack(θ, (L,), (L,), (T,), (T,), (T,))
-        r = Recurrence(g; modifiers = (depletion(N), CR.Add(TimeVarying(after))))
+        r = Recurrence(g; modifiers = (depletion(N), CR.Transform(+, TimeVarying(after))))
         y = wrap(r)(exp.(logR); history = exp.(logh), add = before)
         return sum(W .* log.(y))
     end

@@ -248,7 +248,7 @@ Each bar times the three-town model over 200 days with a 20-day generation inter
 The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
 
 ```@example overview
-using ComposableRecurrences: Floor, Add # hide
+using ComposableRecurrences: Floor, Transform # hide
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
 performance_plot("naive vs package")
 ```
@@ -269,7 +269,7 @@ Imports added after the `Depletion` do not draw down the pool, unlike [imports a
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι)))))
++renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Transform(+, TimeVarying(PerStratum(ι)))))
 ```
 
 ::: details The same change in the hand-written loop
@@ -301,7 +301,7 @@ end
 ι[3, 1:10] .= 5.0
 extended = Recurrence(
     gi; coupling = K,
-    modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι))))
+    modifiers = (Depletion(PerStratum(pop), Floor()), Transform(+, TimeVarying(PerStratum(ι))))
 )
 maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι))
 ```

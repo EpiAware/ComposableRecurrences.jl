@@ -159,7 +159,7 @@ end
     @test Interfaces.test(blockwise, typeof(d), (obj, init); show = false)
     # A modifier that is not blockwise passes the blocks check, so one
     # declaration covers a type with both kinds.
-    @test CR._blocks_ok(CR.Clamp(0.0, 1.0), CR.Step(), ([1.0], [0.0], 1))
+    @test CR._blocks_ok(CR.Transform(clamp, 0.0, 1.0), CR.Step(), ([1.0], [0.0], 1))
     # A depletion is pointwise unless its pools make it blockwise.
     @test CR.ispointwise(
         CR.Depletion(100.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate()))
@@ -223,11 +223,12 @@ end
     # rule" in test/ad/adjoints.jl).
     K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
     ms = (
-        CR.Clamp(0.0, 50.0), Move(PerStratum([0.2, 0.4])), Keep(0.8),
+        CR.Transform(clamp, 0.0, 50.0), Move(PerStratum([0.2, 0.4])), Keep(0.8),
         CR.Redistribute(K, 0.5),
     )
     @test CR.uses_adjoint(
-        Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Clamp(0.0, 1.0))), CR.Run()
+        Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Transform(clamp, 0.0, 1.0))),
+        CR.Run()
     )
     @test pullback_matches(Recurrence(g; modifiers = ms), recargs(R, nothing, h)...)
     # A malformed shape is named.

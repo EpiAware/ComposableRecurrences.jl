@@ -238,7 +238,7 @@ function _array_and_scalar_fields(w, θ)
     logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
     mods = (
         depletion(PerStratum(POP); form = ComposableRecurrences.Floor()),
-        ComposableRecurrences.Add(b),
+        ComposableRecurrences.Transform(+, b),
     )
     y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -661,7 +661,7 @@ function _empty_pool(w, θ)
     d = depletion(
         100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2], removals = 1000 + θ[3]
     )
-    mods = (d, ComposableRecurrences.Add(1.0))
+    mods = (d, ComposableRecurrences.Transform(+, 1.0))
     y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
     return sum(W1 .* y)
 end
@@ -673,7 +673,8 @@ function _derived(w, θ)
     imports = only(κ) * Derived(exp, TimeVarying(logι))
     scale = Derived((x, c) -> c / (1 + x^2), TimeVarying(PerStratum(a)), only(κ))
     mods = (
-        ComposableRecurrences.Add(imports), ComposableRecurrences.Transform(*, scale),
+        ComposableRecurrences.Transform(+, imports),
+        ComposableRecurrences.Transform(*, scale),
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -697,8 +698,8 @@ function _clamp_redistribute_add(w, θ)
     )
     mods = (
         _leaky(ComposableRecurrences._kernel_movement(K, ε)),
-        ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
-        ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
+        ComposableRecurrences.Transform(+, TimeVarying(PerStratum(B))),
+        ComposableRecurrences.Transform(clamp, 0.0, PerStratum(hi)),
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -879,8 +880,10 @@ end
 function _piecewise_parameter(w, θ)
     a, b1, b2, logh, logR = _unpack(θ, (2,), (S,), (S,), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Add(TimeVarying([1 => a[1], 8 => a[2]])),
-        ComposableRecurrences.Add(TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])),
+        ComposableRecurrences.Transform(+, TimeVarying([1 => a[1], 8 => a[2]])),
+        ComposableRecurrences.Transform(
+            +, TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])
+        ),
     )
     r = Recurrence(G0; coupling = K0, modifiers = mods)
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -1416,7 +1419,8 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), LOGR, W1 .- 1, [0.8], 0.5 .* WS),
     ),
     (
-        "Recurrence Redistribute, Add and Clamp", _clamp_redistribute_add,
+        "Recurrence Redistribute, Transform(+) and Transform(clamp)",
+        _clamp_redistribute_add,
         () -> zero(CRA0),
     ),
     (
@@ -1755,7 +1759,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
-    "Recurrence Redistribute, Add and Clamp" => (:_kernel_movement,),
+    "Recurrence Redistribute, Transform(+) and Transform(clamp)" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:_kernel_movement, :_intensity, :Recent),

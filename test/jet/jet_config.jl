@@ -39,7 +39,7 @@ let CR = ComposableRecurrences
         [1:2, 3:5], 6.0; imports = (0.3, P),
         spill = CR.Redistribute(K, fill(0.2, S))
     )
-    r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m, CR.Add(0.1)))
+    r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m, CR.Transform(+, 0.1)))
     R, h = fill(1.2, S, T), ones(S, L)
     y, cache = CR._run_forward(r, R, nothing, h, nothing, 1, nothing)
     m̄ = (;

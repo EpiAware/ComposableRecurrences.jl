@@ -62,7 +62,7 @@ It reads every stratum of a group, so it is not pointwise.
 It has no state without `imports`; with them the state holds ``h``, after
 ``u`` when there is a spill.
 It composes with the other modifiers in tuple order:
-`(Allocate(groups, total), Add(b))` adds `b` after the split.
+`(Allocate(groups, total), Transform(+, b))` adds `b` after the split.
 Its reverse pass, with ``\bar v'`` the output cotangent and
 ``a_p = \sum_{j \in G_p} \bar v'_j v_j / \sigma_p``, is
 
