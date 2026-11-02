@@ -9,6 +9,25 @@ This page writes them without the package prefix.
 Load them with `using ComposableRecurrences: Depletion, Floor, Recent`, and so on.
 Internal names, such as `ComposableRecurrences.State`, keep the prefix.
 The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
+The examples use the three-town model of [Getting started](@ref getting-started).
+
+```@setup api-overview
+using ComposableRecurrences
+using ComposableRecurrences: Depletion, Floor, EXECUTOR, Threaded
+using Base.ScopedValues: with
+using Distributions, CensoredDistributions
+
+gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+T = 75
+pop = [60_000.0, 25_000.0, 10_000.0]
+dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
+K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
+seed = [fill(10.0, 1, 6); zeros(2, 6)]
+R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in 1:3, t in 1:T]
+N = pop[1]
+ϵ = [0.5, -0.2, 0.1, 0.3, -0.4]
+```
 
 ## [A step](@id overview-step)
 
@@ -64,7 +83,7 @@ The symbol ``\odot`` multiplies element by element.
 `Recurrence` and `Convolution` are the two [operators](@ref explanation-operators).
 Each is built once from a kernel and then called like a function.
 
-```julia
+```@example api-overview
 renewal = Recurrence(gi)
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 ```
@@ -86,9 +105,10 @@ A call runs an operator over a range of steps.
 A recurrence takes its gain first, and a convolution takes its input first and its gain as a keyword.
 In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in Getting started.
 
-```julia
+```@example api-overview
 infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4)
+size(reports)
 ```
 
 A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the time the next step computes.
@@ -122,7 +142,7 @@ A plain array gives one set of numbers for every stratum and time.
 A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata or per step.
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
-```julia
+```@example api-overview
 Depletion(PerStratum(pop))
 ```
 
@@ -162,7 +182,7 @@ Inputs and outputs are strata × time arrays, histories are strata × time befor
 A delay distribution, such as a gamma generation interval, can stand in for a kernel.
 The operator turns it into masses: the probability that the delay falls on each whole lag.
 
-```julia
+```@example api-overview
 Recurrence(Gamma(2.0, 2.5); lags = 15)
 ```
 
@@ -195,7 +215,7 @@ A chain may also hold mass vectors, and it is itself a delay, so it fits whereve
 A coupling sets how much each stratum's past outputs drive each stratum, such as travel between towns.
 In Getting started, `K` is a gravity coupling.
 
-```julia
+```@example api-overview
 Recurrence(gi; coupling = K)
 ```
 
@@ -217,7 +237,7 @@ The matrix can be dense, `Diagonal` or sparse.
 A modifier changes the value of each step after the gain and `add`.
 In Getting started, `Depletion(PerStratum(pop))` draws each town's infections from the people left to infect.
 
-```julia
+```@example api-overview
 Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 ```
 
@@ -266,7 +286,7 @@ A `Transform` has one when it is given a `derivative`, or when `f` holds no numb
 A depletion form sets how a pool gives up what a step asks for.
 Each form is a type, passed as an instance.
 
-```julia
+```@example api-overview
 Depletion(N, Floor())
 ```
 
@@ -290,7 +310,7 @@ A time-series process, such as a random walk or an autoregression, builds a seri
 Each is a recurrence or a convolution: a recurrence takes the noise as `add`, and a convolution as its input.
 As a latent process, one that is not observed, it can drive a gain, such as the reproduction number through its logarithm.
 
-```julia
+```@example api-overview
 Recurrence([1.0])(; history = [0.0], add = ϵ)
 ```
 
@@ -311,10 +331,11 @@ The last row recomputes ``p_t`` from a recurrence's output `y`, as operators ret
 An [executor](@ref executors) sets where an operator's loops run: in order, on threads or on a device such as a GPU.
 The default runs in order.
 
-```julia
-with(EXECUTOR => Threaded()) do
+```@example api-overview
+y = with(EXECUTOR => Threaded()) do
     renewal(R; history = seed)
 end
+y ≈ renewal(R; history = seed)
 ```
 
 | Name | What it does | Returns |
