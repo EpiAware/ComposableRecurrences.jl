@@ -17,15 +17,7 @@ using ComposableRecurrences: Depletion, Floor, EXECUTOR, Threaded
 using Base.ScopedValues: with
 using Distributions, CensoredDistributions
 
-# The three-town model of Getting started, from getting-started/index.md.
-gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
-T = 75
-pop = [60_000.0, 25_000.0, 10_000.0]
-dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
-gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:3, b in 1:3]
-K = 0.998 * [a == b for a in 1:3, b in 1:3] + 0.002 * gravity ./ sum(gravity; dims = 2)
-seed = [fill(10.0, 1, 6); zeros(2, 6)]
-R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in 1:3, t in 1:T]
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.jl"))
 ```
 
 ## [A step](@id overview-step)
