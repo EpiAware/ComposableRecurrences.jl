@@ -115,7 +115,7 @@ end
     )
     r = Recurrence(g; modifiers = (d,))
     for stop in (1, 7, 20, 40)
-        y, st = r(R; history = h, stop, state = true)
+        y, st = r(R; history = h, stop, record = (:state,))
         pools = only(st.states)
         @test sum(pools) + sum(y) ≈ N - sum(h)
     end
@@ -298,9 +298,9 @@ end
         )
         r = run(p)
         @test eltype(@inferred r(R; history = h)) == Float32
-        y, st = r(R; history = h, stop = 10, state = true)
+        y, st = r(R; history = h, stop = 10, record = (:state,))
         @test eltype(y) == Float32
-        @test eltype(first(r(R; state = st))) == Float32
+        @test eltype(r(R; state = st)) == Float32
     end
     # The empty default gives the same values as an explicit empty pool.
     @test run(pool(0.5f0, nothing))(R; history = h) ==

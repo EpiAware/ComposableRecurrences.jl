@@ -84,7 +84,7 @@ end
     @test !CR.uses_adjoint(Recurrence(g; modifiers = (MovePlain(0.1),)), CR.Run())
     # The state keeps what moved at the last step.
     moved = Recurrence([1.0]; modifiers = (Move(0.25),))
-    _, st = moved(; history = [4.0, 0.0][:, :], stop = 1, state = true)
+    _, st = moved(; history = [4.0, 0.0][:, :], stop = 1, record = (:state,))
     @test only(st.states) == [1.0]
     r = Recurrence(g; modifiers = (Move(0.1),))
     @test_throws "needs a multiple of 2 strata, got 3" r(ones(3, 4); history = ones(3, 3))
@@ -213,8 +213,8 @@ end
     h = ones(4, 2)
     r = Recurrence(g; modifiers = (Keep(0.9),))
     y = r(R; history = h)
-    y1, st = r(R[:, 1:3]; history = h, state = true)
-    @test hcat(y1, first(r(R; state = st))) ≈ y
+    y1, st = r(R[:, 1:3]; history = h, record = (:state,))
+    @test hcat(y1, r(R; state = st)) ≈ y
     bad = CR.State(st.history, (zeros(3),), st.t)
     @test_throws "expected nstate" r(R; state = bad)
     # Blockwise, pointwise and vector modifiers together: the pullback

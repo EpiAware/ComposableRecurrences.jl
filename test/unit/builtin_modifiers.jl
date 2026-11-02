@@ -412,7 +412,7 @@ end
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M),))
     @test_throws "coupling is (3, 3), expected (2, 2)" r(ones(2, 4); history = ones(2, 2))
     r2 = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute(M[1:2, 1:2] ./ [1.0 0.9]),))
-    _, state = r2(ones(2, 4); history = ones(2, 2), stop = 2, state = true)
+    _, state = r2(ones(2, 4); history = ones(2, 2), stop = 2, record = (:state,))
     @test_throws DimensionMismatch r(ones(2, 4); state)
     # Columns that do not sum to one are an error unless they may leak, and
     # a leaky column may still not sum to more than one.

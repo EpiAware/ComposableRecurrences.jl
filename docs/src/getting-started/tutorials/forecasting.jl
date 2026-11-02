@@ -24,8 +24,8 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # where ``I_t`` is the number of infections on day ``t``, ``R_t`` the reproduction number and ``g_l`` the generation interval's weight on lag ``l``.
 # Day ``t`` reads only ``I_{t-L}, \dots, I_{t-1}``.
 # So a run to day 50 continues from the last ``L`` infections, on days 46 to 50, and the next day, 51.
-# The call `renewal(R; history, stop = 50, state = true)` runs to day 50 and returns them as a [`State`](@ref ComposableRecurrences.State).
-# Passing the state back as `state` continues the run from day 51.
+# The call `renewal(R; history, stop = 50, record = (:state,))` runs to day 50 and also returns them as a [`State`](@ref ComposableRecurrences.State).
+# Passing the state back as `state` continues the run from day 51, and returns the forecast.
 # Here ``R_t`` is 1.4 to day 30, 0.9 to day 50 and 1.2 after.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
@@ -33,8 +33,8 @@ renewal = Recurrence(gi)
 T = 80
 R = [t <= 30 ? 1.4 : t <= 50 ? 0.9 : 1.2 for t in 1:T]
 last_day = 50
-to_day_50, state = renewal(R; history = [5.0], stop = last_day, state = true)
-forecast, _ = renewal(R; state)
+to_day_50, state = renewal(R; history = [5.0], stop = last_day, record = (:state,))
+forecast = renewal(R; state)
 @assert vcat(to_day_50, forecast) ≈ renewal(R; history = [5.0]) #hide
 
 @chain DataFrame("day" => 1:T, "count" => vcat(to_day_50, forecast)) begin

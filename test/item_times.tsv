@@ -301,7 +301,7 @@
 5.7	Recurrence: absolute time and start
 5.7	Recurrence: argument validation
 2.2	Recurrence: fixed kernel, single series
-4.1	Recurrence: forward(r, Run(), R) and state = true infer
+4.1	Recurrence: forward(r, Run(), R) and record infer
 0.6	Recurrence: gain defaults to one
 0.3	Recurrence: history loads the same into any buffer
 1.2	Recurrence: history longer than the kernel

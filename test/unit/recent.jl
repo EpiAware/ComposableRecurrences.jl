@@ -190,9 +190,9 @@ end
     R = fill(1.4, 2, 12)
     h = ones(2, 6)
     y = r(R; history = h)
-    y1, st = r(R; history = h, stop = 5, state = true)
+    y1, st = r(R; history = h, stop = 5, record = (:state,))
     @test size(st.history) == (2, 6)
-    @test hcat(y1, first(r(R; state = st))) ≈ y
+    @test hcat(y1, r(R; state = st)) ≈ y
 end
 
 @testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck, RecentSpill] begin

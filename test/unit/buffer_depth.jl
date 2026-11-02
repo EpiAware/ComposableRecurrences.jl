@@ -113,12 +113,12 @@ end
     R = 0.5 .+ rand(rng, S, T)
     r = Recurrence(g; modifiers = (Deep(D),))
     y = r(R; history = h)
-    y1, st = r(R; history = h, stop = 4, state = true)
+    y1, st = r(R; history = h, stop = 4, record = (:state,))
     @test size(st.history) == (S, D)
     @test st.history ≈ hcat(h, y1)[:, (end - D + 1):end]
-    @test hcat(y1, first(r(R; state = st))) ≈ y
+    @test hcat(y1, r(R; state = st)) ≈ y
     # Without a deeper modifier the state holds the kernel length.
-    _, st = Recurrence(g)(R; history = h, stop = 4, state = true)
+    _, st = Recurrence(g)(R; history = h, stop = 4, record = (:state,))
     @test size(st.history) == (S, L)
 end
 
@@ -196,7 +196,7 @@ end
     K = [0.9 0.1; 0.2 0.8]
     R = fill(1.1, 2, 8)
     h = ones(2, 7)
-    y, st = Recurrence([0.5, 0.3]; coupling = DeepCoupling(K))(R; history = h, state = true)
+    y, st = Recurrence([0.5, 0.3]; coupling = DeepCoupling(K))(R; history = h, record = (:state,))
     @test size(st.history) == (2, 6)
     @test y ≈ Recurrence([0.5, 0.3]; coupling = K)(R; history = h)
 end

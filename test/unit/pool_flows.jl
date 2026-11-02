@@ -228,8 +228,8 @@ end
     )
     r = Recurrence(g; modifiers = (d,))
     y = r(R; history = h)
-    y1, st = r(R[1:5]; history = h, state = true)
-    @test vcat(y1, first(r(R; state = st))) ≈ y
+    y1, st = r(R[1:5]; history = h, record = (:state,))
+    @test vcat(y1, r(R; state = st)) ≈ y
     # Inside a function the pool names are constants, so the `Depletion`
     # infers.
     build() = ComposableRecurrences.Depletion(

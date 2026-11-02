@@ -100,9 +100,9 @@ A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a
 | [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as the reports at each time split by delay | lags × time, or strata × lags × time |
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each time, with `tail` the values after the end of `x` | an array shaped like `x` |
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y` | shaped like `y` |
-| [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
-| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `(y, state)` |
-| [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(y, trace)` |
+| [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
+| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
+| [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(; y, trace)` |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
 
 Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is.
@@ -334,7 +334,7 @@ A role is one job a new type can do, such as computing a step.
 Each role is named by a type with no fields, such as `Step()`.
 A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
 The role `Step()` computes one step, and `Init()` the starting state.
-The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `trace = true`.
+The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `record = (:trace,)`.
 The role `ComposableRecurrences.Run()` is an operator's whole call.
 An operator's hand-written gradient is its rule.
 

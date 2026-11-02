@@ -17,7 +17,7 @@ using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
-    added
+    added, returning_state, returning_trace, resumed
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -244,7 +244,7 @@ function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
         depletion(CR.PerStratum(N); pool0),
     )
     r = wrap(Recurrence(g; modifiers = mods))
-    y, _ = r(R; history = seeds, start = L + 1, trace = true)
+    y, _ = returning_trace(r, R; history = seeds, start = L + 1)
     return hcat(seeds, y)
 end
 function bvd_patches_call(run)
@@ -726,8 +726,8 @@ function renewal_forecast(wrap, z::Size)
         g, logh, logR = _unpack(θ, (L,), (L,), (T,))
         r = wrap(Recurrence(g))
         R = exp.(logR)
-        fitted, st = r(R; history = exp.(logh), stop = T ÷ 2, state = true)
-        forecast, _ = r(R; state = st)
+        fitted, st = returning_state(r, R; history = exp.(logh), stop = T ÷ 2)
+        forecast = resumed(r, R; state = st)
         return sum(W .* log.(vcat(fitted, forecast)))
     end
     return f, _flat(_gi(L), fill(log(10.0), L), [0.05 * _noise(t, 2) for t in 1:T])
