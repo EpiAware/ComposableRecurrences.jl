@@ -1159,7 +1159,7 @@ end
                 r -> sum(W[:, 1:4] .* first(r(R; state = ws(r)[2]))),
             )
             ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
-            @test ḡ.modifiers[2].b ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
+            @test ḡ.modifiers[2].θ ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
         end
         # Fixed scalar fields with only the input active.
         g(Rx) = sum(W .* op(0.5)(Rx; history = h))
