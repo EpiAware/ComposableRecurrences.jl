@@ -16,7 +16,8 @@ using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
+    added
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -690,7 +691,7 @@ function renewal_imports(wrap, z::Size)
     N = 1.0e5
     f = function (θ)
         g, logh, logR, before, after = _unpack(θ, (L,), (L,), (T,), (T,), (T,))
-        r = Recurrence(g; modifiers = (depletion(N), CR.Transform(+, TimeVarying(after))))
+        r = Recurrence(g; modifiers = (depletion(N), added(TimeVarying(after))))
         y = wrap(r)(exp.(logR); history = exp.(logh), add = before)
         return sum(W .* log.(y))
     end

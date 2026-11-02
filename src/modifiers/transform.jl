@@ -16,14 +16,6 @@ the modifiers before it in the tuple), ``v'_i`` its value after, and
 A tuple or NamedTuple of these is read entry by entry, so `f` receives a
 tuple or NamedTuple of scalars.
 Without `θ` the map is ``v'_i = f(v_i)``.
-`Transform(+, b)` adds ``b_{t,i}`` wherever it sits in the tuple: after a
-[`ComposableRecurrences.Depletion`](@ref), the added values are neither
-scaled by nor drawn from the pool.
-Alone, `Transform(+, TimeVarying(PerStratum(B)))` gives the same values as
-passing `B` as `add`.
-`Transform(clamp, lo, hi)` bounds each value to
-``[\ell_{t,i}, u_{t,i}]``, as `clamp`, with ``\ell_{t,i} \le u_{t,i}``
-the parameters `lo` and `hi` read at stratum ``i`` and time ``t``.
 
 The reverse pass, for output cotangent ``\bar v'_i``, is
 
@@ -35,10 +27,6 @@ The reverse pass, for output cotangent ``\bar v'_i``, is
 
 with the partial derivatives from `derivative` when given, or else from a
 local forward-mode derivative of `f`.
-`Transform(+, b)` and `Transform(clamp, lo, hi)` have their own pullbacks:
-``\bar v_i = \bar v'_i`` and ``\bar b_{t,i} \mathrel{+}= \bar v'_i``
-for the first, and for the second the cotangent goes to the bound that is
-active, or to ``v_i`` when neither is.
 `derivative(v)` returns ``\partial f / \partial v`` without `θ`, and
 `derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
@@ -47,6 +35,16 @@ Values captured inside `f` (a closure, or a callable struct with float
 fields) are not in ``\theta``: without `derivative` the
 [`Recurrence`](@ref) holding such a map is differentiated by the AD
 backend instead, so they keep their gradients.
+
+Two maps have their own pullbacks, used unless `derivative` is given.
+`Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple, so after a
+[`ComposableRecurrences.Depletion`](@ref) the added values are neither
+scaled by nor drawn from the pool; alone,
+`Transform(+, TimeVarying(PerStratum(B)))` gives the values of passing `B`
+as `add`.
+`Transform(clamp, lo, hi)` bounds each value to
+``[\ell_{t,i}, u_{t,i}]``, the parameters `lo` and `hi`, and its pullback
+sends the cotangent to the active bound, or to ``v_i`` when neither is.
 
 Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
 forward-mode derivative or `derivative`, or a hand-written one for `+` and
@@ -214,8 +212,6 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     return nothing
 end
 
-# `Transform(+, b)` passes the cotangent through and adds it into `b`;
-# without `b` it is the identity.
 function pullback!(grads, m::Transform{typeof(+), <:Any, Nothing}, ::Step, v, s, t)
     b̄ = cotangent(grads.piece, :θ)
     for k in eachindex(v)
@@ -223,6 +219,7 @@ function pullback!(grads, m::Transform{typeof(+), <:Any, Nothing}, ::Step, v, s,
     end
     return nothing
 end
+# Without `b`, `Transform(+)` is the identity.
 pullback!(grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t) = nothing
 
 # `Transform(clamp, lo, hi)` matches `clamp`'s branches: above `hi`, then

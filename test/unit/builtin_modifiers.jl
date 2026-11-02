@@ -479,6 +479,34 @@ end
     @test_throws "hi is" CR.Transform(clamp, 0.0, [1.0, 2.0])
 end
 
+@testitem "Transform: the + and clamp pullbacks match the generic rule" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # Each against the same map as a plain function, which takes the local
+    # forward-mode derivative.
+    plus(v, b) = v + b
+    bounded(v, θ) = clamp(v, θ...)
+    v, s, v̄ = [-1.0, 0.5, 3.0], zeros(3), [0.7, -1.2, 2.0]
+    grads(θ̄) = (; piece = (; θ = θ̄), v = copy(v̄), s = zeros(3))
+    b = PerStratum([0.1, 0.2, 0.3])
+    g1, g2 = grads((; x = zeros(3))), grads((; x = zeros(3)))
+    CR.pullback!(g1, CR.Transform(+, b), CR.Step(), v, s, 1)
+    CR.pullback!(g2, CR.Transform(plus, b), CR.Step(), v, s, 1)
+    @test g1.v ≈ g2.v
+    @test g1.piece.θ.x ≈ g2.piece.θ.x
+    # Below the lower bound, then above the upper bound twice.
+    lo, hi = 0.0, PerStratum([1.0, 0.4, 2.0])
+    g1 = grads((Ref(0.0), (; x = zeros(3))))
+    g2 = grads((Ref(0.0), (; x = zeros(3))))
+    CR.pullback!(g1, CR.Transform(clamp, lo, hi), CR.Step(), v, s, 1)
+    CR.pullback!(g2, CR.Transform(bounded, (lo, hi)), CR.Step(), v, s, 1)
+    @test g1.v ≈ g2.v
+    @test g1.piece.θ[1][] ≈ g2.piece.θ[1][]
+    @test g1.piece.θ[2].x ≈ g2.piece.θ[2].x
+    # Three positional arguments are `clamp`'s map and bounds only.
+    @test_throws MethodError CR.Transform(sin, 1.0, 2.0)
+end
+
 @testitem "Built-in modifiers implement the piece interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
