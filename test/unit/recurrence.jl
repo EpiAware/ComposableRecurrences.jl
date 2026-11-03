@@ -624,6 +624,10 @@ end
         R; history = h, record = (:pools,)
     )
     @test_throws "not available yet" r(R; history = h, record = (:pressures,))
+    @test_throws "once, got (:state, :state)" r(R; history = h, record = (:state, :state))
+    @test_throws "once, got (:trace, :state, :trace)" r(
+        R; history = h, record = (:trace, :state, :trace)
+    )
 end
 
 @testitem "Recurrence: a record call compiled from types alone dispatches statically" begin

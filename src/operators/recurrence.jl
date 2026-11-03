@@ -673,7 +673,11 @@ end
 _record(::Nothing) = nothing
 Base.@constprop :aggressive function _record(record::Tuple{Vararg{Symbol}})
     foreach(_check_record, record)
+    allunique(record) || _duplicate_record(record)
     return record
+end
+@noinline function _duplicate_record(record)
+    throw(ArgumentError("record names each of :state and :trace once, got $(record)"))
 end
 @noinline function _record(record)
     throw(
