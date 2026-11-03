@@ -101,12 +101,25 @@ function clamped(lo, hi)
     return ComposableRecurrences.Transform(clamp, lo, hi)
 end
 
-# A call that also returns its state, as the loaded release spells it:
-# `state = true` on the call, and `with_state` before.
+# A call that also returns its state or its trace, as the loaded release
+# spells it: `record` on the call, `state = true` or `trace = true` before
+# it, and `with_state` before that.
+const RECORD_KEYWORD = isdefined(ComposableRecurrences, :_recorded)
 const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
+    RECORD_KEYWORD && return op(args...; kwargs..., record = (:state,))
     STATE_KEYWORD && return op(args...; kwargs..., state = true)
     return ComposableRecurrences.with_state(op, args...; kwargs...)
+end
+function returning_trace(op, args...; kwargs...)
+    RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
+    return op(args...; kwargs..., trace = true)
+end
+# The output of a call resumed from a state, which some releases before
+# `record` returned with the next state.
+function resumed(op, args...; kwargs...)
+    out = op(args...; kwargs...)
+    return out isa Tuple ? first(out) : out
 end
 
 # ForwardDiff reference gradient for a scenario function.
@@ -1042,8 +1055,8 @@ function _trace_importation(w, θ)
         CR.Redistribute(K0, ε .* ones(1, T)),
         CR.Depletion(PerStratum(POP)),
     )
-    y, tr = w(Recurrence(G0; modifiers = mods))(
-        exp.(logR); history = exp.(logh), trace = true
+    y, tr = returning_trace(
+        w(Recurrence(G0; modifiers = mods)), exp.(logR); history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
@@ -1054,7 +1067,7 @@ function _trace_pool(w, θ)
     logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
     d = _leaky(PerStratum(POP), TimeVarying(PerStratum(doses)), only(σ))
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     M = only(tr.modifiers)
     return sum(WS .* log.(y)) + sum(WS .* M[(S + 1):(2S), :]) +
         sum(WS .* M[(3S + 1):(4S), :])
@@ -1102,7 +1115,7 @@ function _trace_pointwise(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
     mods = (TracedSmooth(only(a)), ComposableRecurrences.Depletion(PerStratum(POP)))
     r = Recurrence(G0; coupling = K0, modifiers = mods)
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     T1, T2 = tr.modifiers
     return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
 end
@@ -1114,7 +1127,7 @@ function _trace_ward(w, θ)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
-    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
+    y, tr = returning_trace(w(r); history = zeros(2S, 1), add = adm, stop = T)
     return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
 end
 
@@ -1142,7 +1155,7 @@ function _trace_budget(w, θ)
         CR.Truncate(; overflow = :queue); pools = (B = PerStratum(collect(init)),)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
@@ -1742,12 +1755,12 @@ const _PROBES = Dict{Symbol, Function}(
         )
         return ext !== nothing && isdefined(ext, :_LocalTag)
     end,
-    # A call resumed from a returned state also returns the next state.
+    # A call resumed from a returned state.
     :resume_state => () -> _accepts(
         function ()
             r = Recurrence([0.5])
             _, st = returning_state(r, ones(2); history = [1.0], stop = 1)
-            return _, _ = r(ones(2); state = st)
+            return resumed(r, ones(2); state = st)
         end
     ),
     # Delays on lags of a width other than one unit.

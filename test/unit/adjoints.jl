@@ -1370,7 +1370,7 @@ end
     end
     @test_logs Recurrence([0.2, 0.3]; modifiers = (Mapped(quartered),))
     @test_logs r(ones(4); history = ones(2))
-    @test_logs r(ones(4); history = ones(2), state = true)
+    @test_logs r(ones(4); history = ones(2), record = (:state,))
 end
 
 @testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
@@ -1406,8 +1406,8 @@ end
     r = Recurrence([0.2, 0.3])
     n0 = CR._PULLBACK_CALLS[]
     @test NoAdjoint(r)(ones(4); history = ones(2)) == r(ones(4); history = ones(2))
-    y, st = NoAdjoint(r)(ones(4); history = ones(2), state = true)
-    y2, st2 = r(ones(4); history = ones(2), state = true)
+    y, st = NoAdjoint(r)(ones(4); history = ones(2), record = (:state,))
+    y2, st2 = r(ones(4); history = ones(2), record = (:state,))
     @test y == y2 && st.history == st2.history && st.t == st2.t
     c = Convolution([0.5, 0.5])
     @test NoAdjoint(c)(ones(3)) == c(ones(3))
@@ -2624,7 +2624,7 @@ end
 @testitem "Adjoint: a call with its trace against ForwardDiff" setup = [AdjointCheck] begin
     using ComposableRecurrences
     # The trace's cotangent through the records, for each modifier's own
-    # trace and the default, with `state = true` too.
+    # trace and the default, with `record = (:state,)` too.
     # A pointwise modifier whose state decays and gathers what passes it.
     struct Decay{A}
         a::A

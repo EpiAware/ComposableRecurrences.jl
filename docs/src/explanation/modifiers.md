@@ -50,7 +50,7 @@ It is carried in the [`State`](@ref ComposableRecurrences.State) a call returns,
 
 ```@example modifiers
 r = Recurrence(k; modifiers = (pool(100.0),))
-y, state = r(gain; history = seed, state = true)
+y, state = r(gain; history = seed, record = (:state,))
 state.states
 ```
 

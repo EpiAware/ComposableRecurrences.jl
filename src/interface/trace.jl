@@ -1,10 +1,10 @@
 # The trace of a modifier: a series it computes on the way, recorded per
-# step when a call asks for it (`trace = true`). Each step's trace is a
+# step when a call asks for it (`record = (:trace,)`). Each step's trace is a
 # function of the step's inputs and outputs, read from the records the
 # rule keeps, so a call without a trace runs as before.
 
 @doc raw"""
-The role of a modifier's trace: what a call with `trace = true` records
+The role of a modifier's trace: what a call with `record = (:trace,)` records
 for it at each step.
 
 At absolute time ``t`` the modifier maps its values and state

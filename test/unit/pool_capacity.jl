@@ -206,7 +206,7 @@ end
         @test vec(sum(y; dims = 1)) ≈ d
         @test all(>=(0), y)
         r = Recurrence([0.0]; modifiers = (mode(:queue),))
-        y, st = r(; history = zeros(1, 1), add = reshape(d, 1, :), state = true)
+        y, st = r(; history = zeros(1, 1), add = reshape(d, 1, :), record = (:state,))
         queue = st.states[1][2]
         @test sum(y) + queue ≈ sum(d)
         @test queue > 0
@@ -261,8 +261,8 @@ end
     for cap in (beds(5.0, 0.2), budget(5.0, 5, 12; overflow = :queue))
         r = Recurrence(PerStratum(G); modifiers = (cap,))
         whole = r(R; history = h)
-        first7, st = r(R; history = h, stop = 7, state = true)
-        @test hcat(first7, first(r(R; state = st, stop = 12))) ≈ whole
+        first7, st = r(R; history = h, stop = 7, record = (:state,))
+        @test hcat(first7, r(R; state = st, stop = 12)) ≈ whole
     end
 end
 

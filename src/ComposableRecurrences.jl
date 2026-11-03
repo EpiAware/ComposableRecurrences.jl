@@ -109,7 +109,7 @@ include("shapes/utils.jl")
 # interface: roles, the trace role and `PieceInterface`.
 # Roles, `forward!`, `pullback!` and the stage loop.
 include("interface/roles.jl")
-# The trace role: what a call with `trace = true` records per modifier.
+# The trace role: what a call with `record = (:trace,)` records per modifier.
 include("interface/trace.jl")
 # `PieceInterface` and its checks; each type declares it beside its methods.
 include("interface/declarations.jl")

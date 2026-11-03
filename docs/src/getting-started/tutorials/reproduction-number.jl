@@ -71,12 +71,12 @@ end
 # \hat R_t = \frac{I_t}{q_t} = R_t \, \frac{s_{t-1}}{N} \, \frac{1 - e^{-\lambda_t}}{\lambda_t}.
 # ```
 #
-# A call with `trace = true` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
+# A call with `record = (:trace,)` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
 # For a `Depletion` its first row is the pool after each day, which gives ``s_{t-1}`` to check the formula.
 
 N = 60_000.0
 depleted = Recurrence(gi; modifiers = (Depletion(N),))
-y, tr = depleted(R; history = seed, trace = true)
+y, tr = depleted(R; history = seed, record = (:trace,))
 q = pressure(depleted, y; history = seed)
 R_eff = y ./ q
 pool = [N; only(tr.modifiers)[1, 1:(end - 1)]]

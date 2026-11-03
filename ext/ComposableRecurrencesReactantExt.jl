@@ -264,10 +264,10 @@ end
 # threads and devices of the other executors are the compiled program's
 # own concern.
 function ComposableRecurrences._run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp <: TracedRNumber}
     return @allowscalar ComposableRecurrences._run(
-        Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, record
+        Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, cache
     )
 end
 

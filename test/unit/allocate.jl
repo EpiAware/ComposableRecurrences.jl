@@ -532,8 +532,8 @@ end
         # A threaded executor and a trace see the same split.
         threaded = with(() -> r(R; history = h), CR.EXECUTOR => ex)
         @test threaded == r(R; history = h)
-        yt, tr = r(R; history = h, trace = true)
-        _, tr0 = r0(R; history = h, trace = true)
+        yt, tr = r(R; history = h, record = (:trace,))
+        _, tr0 = r0(R; history = h, record = (:trace,))
         @test yt ≈ y
         @test only(tr.modifiers) ≈ only(tr0.modifiers)
         # The pullback of a step against a local Jacobian; the empty groups'

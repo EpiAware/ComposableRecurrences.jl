@@ -125,8 +125,8 @@ end
 function rec_resume(θ)
     r = Recurrence(θ[1:L])
     R = θ[(L + 1):end]
-    y1, state = r(R; history = H1, stop = T₁, state = true)
-    y2, _ = r(R; state)
+    y1, state = r(R; history = H1, stop = T₁, record = (:state,))
+    y2 = r(R; state)
     return vcat(y1, y2)
 end
 

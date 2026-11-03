@@ -295,14 +295,14 @@ end
     )
     # A seed or a state, and a resumed call starts where it left off.
     y, state = Recurrence(g)(
-        ones(5); history = ones(3), stop = 2, state = true
+        ones(5); history = ones(3), stop = 2, record = (:state,)
     )
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), state)
     @test_throws "not both; got history = 3-element" Recurrence(g)(
         ones(5); history = ones(3), state
     )
     @test_throws "state.t = 3, not start = 4" Recurrence(g)(ones(5); state, start = 4)
-    @test first(Recurrence(g)(ones(5); state, start = 3)) == first(Recurrence(g)(ones(5); state))
+    @test Recurrence(g)(ones(5); state, start = 3) == Recurrence(g)(ones(5); state)
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), start = 0)
     @test_throws DimensionMismatch Recurrence(g; coupling = ones(3, 3))(
         ones(2, 5); history = ones(2, 3)
@@ -327,28 +327,28 @@ end
     R = 1 .+ rand(rng, S, T)
     ϵ = rand(rng, S, T)
     full = r(R; history = h, add = ϵ)
-    y1, state = r(R; history = h, add = ϵ, stop = 4, state = true)
+    y1, state = r(R; history = h, add = ϵ, stop = 4, record = (:state,))
     @test state isa ComposableRecurrences.State
     @test y1 ≈ full[:, 1:4]
     @test state.history ≈ full[:, 1:4]
     @test length(state.states) == 2
     @test state.t == 5
     # The resumed call reads the same full-length inputs from `state.t`.
-    y2, _ = r(R; state, add = ϵ)
+    y2 = r(R; state, add = ϵ)
     @test y2 ≈ full[:, 5:end]
 
     # Resuming twice matches as well, and a single series keeps its shape.
-    y2a, state2 = r(R; state, add = ϵ, stop = 7)
-    y2b, _ = r(R; state = state2, add = ϵ)
+    y2a, state2 = r(R; state, add = ϵ, stop = 7, record = (:state,))
+    y2b = r(R; state = state2, add = ϵ)
     @test hcat(y2a, y2b) ≈ full[:, 5:end]
 
     r1 = Recurrence([0.1, 0.2, 0.3, 0.4])
     h1 = rand(rng, 4)
     full1 = r1(R[1, :]; history = h1)
-    y, st = r1(R[1, :]; history = h1, stop = 6, state = true)
+    y, st = r1(R[1, :]; history = h1, stop = 6, record = (:state,))
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
-    @test first(r1(R[1, :]; state = st)) ≈ full1[7:end]
+    @test r1(R[1, :]; state = st) ≈ full1[7:end]
 end
 
 @testitem "Recurrence: a resumed state has nstate entries per modifier" begin
@@ -362,9 +362,9 @@ end
     @test CR.nstate(d, 2) == 4
     r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(clamp, 0.0, 10.0), d))
     R, h = fill(1.1, 2, 6), ones(2, 2)
-    y, state = r(R; history = h, stop = 3, state = true)
+    y, state = r(R; history = h, stop = 3, record = (:state,))
     @test length.(state.states) == (2, 4)
-    @test first(r(R; state)) ≈ r(R; history = h)[:, 4:end]
+    @test r(R; state) ≈ r(R; history = h)[:, 4:end]
     # A state of the wrong length names the modifier and both lengths.
     bad = CR.State(state.history, (state.states[1], state.states[2][1:2]), state.t)
     err = try
@@ -397,9 +397,9 @@ end
     @test full ≈ vec(ref)
 
     # A resumed call continues at the state's next time.
-    y1, state = r(R; history = h, stop = 5, state = true)
+    y1, state = r(R; history = h, stop = 5, record = (:state,))
     @test state.t == 6
-    @test first(r(R; state)) ≈ full[6:end]
+    @test r(R; state) ≈ full[6:end]
 
     # An explicit start reads the gain and time-varying slots from that
     # time, with the history holding the outputs just before it.
@@ -468,11 +468,11 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     r = Recurrence([0.5, 0.5])
-    _, st = r(ones(6); history = ones(2), stop = 3, state = true)
+    _, st = r(ones(6); history = ones(2), stop = 3, record = (:state,))
     for call in (
             () -> r(ones(6); history = ones(2), start = nothing),
             () -> r(ones(6); state = st, start = nothing),
-            () -> r(ones(6); history = ones(2), start = nothing, state = true),
+            () -> r(ones(6); history = ones(2), start = nothing, record = (:state,)),
             () -> CR.forward(r, CR.Run(), ones(6); start = nothing),
         )
         @test_throws ArgumentError call()
@@ -561,7 +561,7 @@ end
     @test qv == [5.0, 11.0]
 end
 
-@testitem "Recurrence: forward(r, Run(), R) and state = true infer" begin
+@testitem "Recurrence: forward(r, Run(), R) and record infer" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences
     # The two entry points beside `r(R)`, with and without a history, for
@@ -571,15 +571,96 @@ end
         (Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]), fill(1.1, 2, 6), ones(2, 2)),
         (Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(100.0),)), fill(1.1, 6), ones(2)),
     )
-    # `state = true` folds as a literal inside a function.
-    stated(r, R; kw...) = r(R; kw..., state = true)
+    # `record` folds as a literal inside a function.
+    stated(r, R; kw...) = r(R; kw..., record = (:state,))
     for (r, R, h) in cases
         @test (@inferred CR.forward(r, CR.Run(), R)) isa Tuple
         @test (@inferred CR.forward(r, CR.Run(), R; history = h)) isa Tuple
-        @test (@inferred stated(r, R)) isa Tuple
-        @test (@inferred stated(r, R; history = h)) isa Tuple
-        # `state = false` is the plain call.
-        @test r(R; history = h, state = false) == r(R; history = h)
+        @test (@inferred stated(r, R)) isa NamedTuple{(:y, :state)}
+        @test (@inferred stated(r, R; history = h)) isa NamedTuple{(:y, :state)}
+        @test r(R; history = h, record = ()) == (; y = r(R; history = h))
+    end
+    r, R = first(cases)
+    @test_throws "records :trace only, got (:state,)" CR.forward(
+        r, CR.Run(), R; record = (:state,)
+    )
+    @test_throws "records :trace only" CR.forward(
+        r, CR.Run(), R; record = (:trace, :state)
+    )
+end
+
+@testitem "Recurrence: record returns its names in a fixed order, inferred" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    R, h = fill(1.2, 6), [1.0, 2.0]
+    y = r(R; history = h)
+    for (record, names) in (
+            () => (:y,), (:state,) => (:y, :state), (:trace,) => (:y, :trace),
+            (:state, :trace) => (:y, :state, :trace),
+            (:trace, :state) => (:y, :state, :trace),
+        )
+        # The tuple as a literal in a function, and in a closure over the
+        # operator and the history, as a gradient call builds it.
+        call = @eval (r, R, h) -> r(R; history = h, record = $record)
+        fit = @eval θ -> $r(θ; history = $h, record = $record)
+        loss = @eval θ -> sum($r(θ; history = $h, record = $record).y)
+        out = @inferred call(r, R, h)
+        @test propertynames(out) == names
+        @test out.y == y
+        @test typeof(@inferred fit(R)) == typeof(out)
+        @test (@inferred loss(R)) == sum(y)
+    end
+    both = r(R; history = h, record = (:trace, :state))
+    @test both.state.t == 7
+    @test both.trace == r(R; history = h, record = (:trace,)).trace
+    # A resumed call returns the output, and the next state when asked.
+    st = r(R; history = h, stop = 3, record = (:state,)).state
+    @test r(R; state = st) == y[4:end]
+    next = r(R; state = st, record = (:state,))
+    @test next.y == y[4:end] && next.state.t == 7
+    @test_throws "a tuple of the names" r(R; history = h, record = :state)
+    @test_throws "record names :state or :trace, got :pools" r(
+        R; history = h, record = (:pools,)
+    )
+    @test_throws "not available yet" r(R; history = h, record = (:pressures,))
+    @test_throws "once, got (:state, :state)" r(R; history = h, record = (:state, :state))
+    @test_throws "once, got (:trace, :state, :trace)" r(
+        R; history = h, record = (:trace, :state, :trace)
+    )
+end
+
+@testitem "Recurrence: a record call compiled from types alone dispatches statically" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Generic calls to the package left in code compiled from types alone.
+    function dynamic_calls(T, depth = 0)
+        found = Any[]
+        depth > 3 && return found
+        for (ci, _) in Base.code_typed_by_type(T)
+            for st in ci.code
+                if Meta.isexpr(st, :call)
+                    f = st.args[1]
+                    f = f isa GlobalRef ? getglobal(f.mod, f.name) : f
+                    f isa Function && parentmodule(f) === CR && push!(found, st)
+                elseif Meta.isexpr(st, :invoke)
+                    mi = st.args[1]
+                    mi = mi isa Core.CodeInstance ? mi.def : mi
+                    mi.def.module === CR &&
+                        append!(found, dynamic_calls(mi.specTypes, depth + 1))
+                end
+            end
+        end
+        return found
+    end
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    for rec in (Tuple{Symbol}, Tuple{Symbol, Symbol})
+        kw = NamedTuple{(:history, :record), Tuple{Vector{Float64}, rec}}
+        T = Tuple{
+            typeof(Core.kwcall), kw, typeof(CR._invoke), typeof(r), typeof(r),
+            Vector{Float64},
+        }
+        @test isempty(dynamic_calls(T))
     end
 end
 
@@ -641,9 +722,9 @@ end
     @test r(R[1, :]; history = Poison(h[1, :])) ≈ r(R[1, :]; history = h[1, :])
     # A resumed call loads its history from the state.
     r = Recurrence(g; coupling = K, modifiers = (pool,))
-    _, st = r(R; history = Poison(h), stop = 5, state = true)
+    _, st = r(R; history = Poison(h), stop = 5, record = (:state,))
     st = CR.State(Poison(st.history), st.states, st.t)
-    @test first(r(R; state = st)) ≈ r(R; history = h)[:, 6:end]
+    @test r(R; state = st) ≈ r(R; history = h)[:, 6:end]
 end
 
 @testitem "Recurrence: a zero sum is +0.0 for every run form" begin

@@ -1065,8 +1065,8 @@ end
         function (θ)
             R, h = reshape(θ[1:120], 3, 40), reshape(θ[121:126], 3, 2)
             r = NoAdjoint(Recurrence(Pairwise(dense8..., K => [0.3, 0.2])))
-            y1, s = r(R[:, 1:20]; history = h, state = true)
-            y2, _ = r(R; state = s)
+            y1, s = r(R[:, 1:20]; history = h, record = (:state,))
+            y2 = r(R; state = s)
             return sum(abs2, y1) + sum(abs2, y2)
         end
     end
@@ -1143,7 +1143,7 @@ end
 
         mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Transform(+, b))
         op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
-        ws(r) = r(R; history = h, stop = 4, state = true)
+        ws(r) = r(R; history = h, stop = 4, record = (:state,))
         # The operator built from `b` inside the loss.
         for f in (
                 b -> sum(W .* op(b[1])(R; history = h)),
@@ -1156,7 +1156,7 @@ end
         for f in (
                 r -> sum(W .* r(R; history = h)),
                 r -> sum(abs2, ws(r)[2].history),
-                r -> sum(W[:, 1:4] .* first(r(R; state = ws(r)[2]))),
+                r -> sum(W[:, 1:4] .* r(R; state = ws(r)[2])),
             )
             ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
             @test ḡ.modifiers[2].θ ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)

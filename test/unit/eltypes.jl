@@ -162,10 +162,10 @@ end
     @test y == [1 1; 2 3]
     r = Recurrence([true])
     @test eltype(vcat([0], r(true; history = [0], add = x))) == Int
-    @test eltype(first(r(true; history = [0], add = x, trace = true))) == Int
-    y, st = r(true; history = [0], add = x, stop = 2, state = true)
+    @test eltype(first(r(true; history = [0], add = x, record = (:trace,)))) == Int
+    y, st = r(true; history = [0], add = x, stop = 2, record = (:state,))
     @test eltype(y) == eltype(st.history) == Int
-    @test first(r(true; add = x, state = st)) == cumsum(x)[3:4]
+    @test r(true; add = x, state = st) == cumsum(x)[3:4]
     # A float anywhere, a rational, or a modifier, whose step may divide,
     # gives the float type.
     @test eltype(r(true; history = [0.0], add = x)) == Float64

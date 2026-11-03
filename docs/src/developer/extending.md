@@ -316,7 +316,7 @@ Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0
 
 ## [A trace](@id extending-trace)
 
-A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
+A call with `record = (:trace,)` returns `(; y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
 By default a modifier's [trace](@ref ComposableRecurrences.Trace) is its state after each step, and a modifier whose state never changes records nothing.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
@@ -353,7 +353,7 @@ function CR.pullback!(grads, m::Smooth, ::CR.Trace, v, s, t)
 end
 
 r = Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))
-y, trace = r(2.0; history = [1.0, 2.0], stop = 4, trace = true)
+y, trace = r(2.0; history = [1.0, 2.0], stop = 4, record = (:trace,))
 only(trace.modifiers)
 ```
 
