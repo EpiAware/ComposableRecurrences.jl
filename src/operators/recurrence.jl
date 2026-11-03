@@ -1379,9 +1379,9 @@ end
     return nothing
 end
 
-# The buffer loop: returns the output, the buffer, the final states and,
-# with `cache = Val(true)`, the cache the reverse pass reads, or, with
-# `Val(:trace)` and no cache, each modifier's trace. The buffer
+# The buffer loop: returns the output, the buffer, the final states and
+# what `cache` asks for: `Val(true)` the cache the reverse pass reads,
+# `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
 # is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
 # time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
 # The records are each step's kernel convolutions and pressures `pr`

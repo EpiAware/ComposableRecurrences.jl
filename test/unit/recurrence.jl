@@ -618,6 +618,40 @@ end
     @test_throws "pass record = (:state,)" r(R; history = h, state = true)
 end
 
+@testitem "Recurrence: a record call compiled from types alone dispatches statically" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Generic calls to the package left in code compiled from types alone.
+    function dynamic_calls(T, depth = 0)
+        found = Any[]
+        depth > 3 && return found
+        for (ci, _) in Base.code_typed_by_type(T)
+            for st in ci.code
+                if Meta.isexpr(st, :call)
+                    f = st.args[1]
+                    f = f isa GlobalRef ? getglobal(f.mod, f.name) : f
+                    f isa Function && parentmodule(f) === CR && push!(found, st)
+                elseif Meta.isexpr(st, :invoke)
+                    mi = st.args[1]
+                    mi = mi isa Core.CodeInstance ? mi.def : mi
+                    mi.def.module === CR &&
+                        append!(found, dynamic_calls(mi.specTypes, depth + 1))
+                end
+            end
+        end
+        return found
+    end
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    for rec in (Tuple{Symbol}, Tuple{Symbol, Symbol})
+        kw = NamedTuple{(:history, :record), Tuple{Vector{Float64}, rec}}
+        T = Tuple{
+            typeof(Core.kwcall), kw, typeof(CR._invoke), typeof(r), typeof(r),
+            Vector{Float64},
+        }
+        @test isempty(dynamic_calls(T))
+    end
+end
+
 @testitem "Recurrence: no step reads a buffer row before it is written" begin
     using ComposableRecurrences: Derived
     using ComposableRecurrences, Random
