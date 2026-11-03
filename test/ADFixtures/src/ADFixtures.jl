@@ -2282,14 +2282,12 @@ scenarios expected to fail on a backend, by backend name.
 A compiled ReverseDiff tape keeps the branches taken where it is recorded,
 which the harness does at zero parameters. The ward from its parameters as
 given branches differently there, so its prepared calls on compiled
-ReverseDiff are wrong; the other scenarios start at zero to avoid this.
+ReverseDiff are wrong, as are its `NoAdjoint` twin's; the other scenarios
+start at zero to avoid this.
 """
 function backend_broken_scenarios()
-    return Dict(
-        "ReverseDiff (compiled)" => Set(
-            ["Recurrence ward with competing flows, from the parameters as given"]
-        ),
-    )
+    ward = "Recurrence ward with competing flows, from the parameters as given"
+    return Dict("ReverseDiff (compiled)" => Set([ward, "NoAdjoint " * ward]))
 end
 
 """
