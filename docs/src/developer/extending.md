@@ -457,7 +457,6 @@ It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded.
 - Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
-- Without a `pullback!`, the [rule](@ref rule-timings) of a pointwise modifier takes 0.64 times the plain AD time on Mooncake and 1.12 times on Enzyme.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
 The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
@@ -475,8 +474,11 @@ if isempty(cases) # hide
     md"The benchmark results are not available in this build." # hide
 else # hide
     (lo, hi), (plo, phi) = pct("plain AD", "forward only"), pct("forward only", "with pullback!") # hide
+    ratio(tg) = round(Int, 100 * time_of("forward only", "T200_L20_S1", tg) / time_of("plain AD", "T200_L20_S1", tg)) # hide
     Markdown.parse( # hide
         "With `forward!` only, the gradient takes $lo% to $hi% of the time of plain AD. " * # hide
+            "At `T` 200 and `L` 20 that is $(ratio("Mooncake reverse"))% on Mooncake " * # hide
+            "and $(ratio("Enzyme reverse"))% on Enzyme. " * # hide
             "The `pullback!` then takes it to $plo% to $phi% of the time with `forward!` only. " * # hide
             "These are median times at revision `$(first(custom)[12])`." # hide
     ) # hide
