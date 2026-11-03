@@ -37,14 +37,16 @@ fields) are not in ``\theta``: without `derivative` the
 backend instead, so they keep their gradients.
 
 Two maps have their own pullbacks, used unless `derivative` is given.
-`Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple, so after a
-[`ComposableRecurrences.Depletion`](@ref) the added values are neither
-scaled by nor drawn from the pool; alone,
-`Transform(+, TimeVarying(PerStratum(B)))` gives the values of passing `B`
-as `add`.
+`Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple.
+After a [`ComposableRecurrences.Depletion`](@ref), the added values are
+neither scaled by nor drawn from the pool.
+Alone, `Transform(+, TimeVarying(PerStratum(B)))` gives the values of
+passing `B` as `add`.
 `Transform(clamp, lo, hi)` bounds each value to
-``[\ell_{t,i}, u_{t,i}]``, the parameters `lo` and `hi`, and its pullback
-sends the cotangent to the active bound, or to ``v_i`` when neither is.
+``[\ell_{t,i}, u_{t,i}]``, the parameters `lo` and `hi`, with
+``\ell_{t,i} \le u_{t,i}``.
+Its pullback sends the cotangent to the active bound, or to ``v_i`` when
+neither is.
 
 Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
 forward-mode derivative or `derivative`, or a hand-written one for `+` and
