@@ -580,6 +580,13 @@ end
         @test (@inferred stated(r, R; history = h)) isa NamedTuple{(:y, :state)}
         @test r(R; history = h, record = ()) == (; y = r(R; history = h))
     end
+    r, R = first(cases)
+    @test_throws "records :trace only, got (:state,)" CR.forward(
+        r, CR.Run(), R; record = (:state,)
+    )
+    @test_throws "records :trace only" CR.forward(
+        r, CR.Run(), R; record = (:trace, :state)
+    )
 end
 
 @testitem "Recurrence: record returns its names in a fixed order, inferred" begin
@@ -596,10 +603,12 @@ end
         # The tuple as a literal in a function, and in a closure over the
         # operator and the history, as a gradient call builds it.
         call = @eval (r, R, h) -> r(R; history = h, record = $record)
+        fit = @eval θ -> $r(θ; history = $h, record = $record)
         loss = @eval θ -> sum($r(θ; history = $h, record = $record).y)
         out = @inferred call(r, R, h)
         @test propertynames(out) == names
         @test out.y == y
+        @test typeof(@inferred fit(R)) == typeof(out)
         @test (@inferred loss(R)) == sum(y)
     end
     both = r(R; history = h, record = (:trace, :state))
@@ -615,7 +624,6 @@ end
         R; history = h, record = (:pools,)
     )
     @test_throws "not available yet" r(R; history = h, record = (:pressures,))
-    @test_throws "pass record = (:state,)" r(R; history = h, state = true)
 end
 
 @testitem "Recurrence: a record call compiled from types alone dispatches statically" begin

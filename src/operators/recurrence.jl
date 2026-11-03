@@ -611,7 +611,7 @@ _empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
 # The first time of a call: the step after the history or the state.
-_start(::Union{Nothing, Bool}) = 1
+_start(::Nothing) = 1
 _start(state::State) = state.t
 
 _check_start(start) = nothing
@@ -629,14 +629,6 @@ end
 function _resume(history, ::Nothing, start, gain, add)
     h = history === nothing ? _empty_history(gain, add) : history
     return h, nothing, start
-end
-@noinline function _resume(history, state::Bool, start, gain, add)
-    throw(
-        ArgumentError(
-            "state is a State to resume from; for the state after the run, " *
-                "pass record = (:state,)"
-        )
-    )
 end
 function _resume(history, state::State, start, gain, add)
     history === nothing || throw(
@@ -738,8 +730,18 @@ Base.@constprop :aggressive function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, record = nothing
     )
-    op = _trace_op(_recording(_record(record), :trace), r)
+    op = _trace_op(_forward_record(_record(record)), r)
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
+end
+# `forward` returns no state, so `:trace` is the one name it records.
+_forward_record(rec) = _forward_record(rec, _recording(rec, :state))
+_forward_record(rec, ::Val{false}) = _recording(rec, :trace)
+@noinline function _forward_record(rec, ::Val{true})
+    throw(
+        ArgumentError(
+            "forward(r, Run(); record) records :trace only, got $(repr(rec))"
+        )
+    )
 end
 _trace_op(::Val{false}, r) = r
 _trace_op(::Val{true}, r) = _WithTrace(r)
