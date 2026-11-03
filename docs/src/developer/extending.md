@@ -474,11 +474,11 @@ if isempty(cases) # hide
     md"The benchmark results are not available in this build." # hide
 else # hide
     (lo, hi), (plo, phi) = pct("plain AD", "forward only"), pct("forward only", "with pullback!") # hide
-    ratio(tg) = round(time_of("forward only", "T200_L20_S1", tg) / time_of("plain AD", "T200_L20_S1", tg); digits = 2) # hide
+    ratio(tg) = round(Int, 100 * time_of("forward only", "T200_L20_S1", tg) / time_of("plain AD", "T200_L20_S1", tg)) # hide
     Markdown.parse( # hide
         "With `forward!` only, the gradient takes $lo% to $hi% of the time of plain AD. " * # hide
-            "At `T` 200 and `L` 20 that is $(ratio("Mooncake reverse")) times the plain AD time on Mooncake " * # hide
-            "and $(ratio("Enzyme reverse")) times on Enzyme. " * # hide
+            "At `T` 200 and `L` 20 that is $(ratio("Mooncake reverse"))% on Mooncake " * # hide
+            "and $(ratio("Enzyme reverse"))% on Enzyme. " * # hide
             "The `pullback!` then takes it to $plo% to $phi% of the time with `forward!` only. " * # hide
             "These are median times at revision `$(first(custom)[12])`." # hide
     ) # hide

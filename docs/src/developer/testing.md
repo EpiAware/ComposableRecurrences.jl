@@ -51,7 +51,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | sparse coupling | 0.75¹ | 0.28¹ | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
-| pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep, slower on Enzyme |
+| pointwise modifier without a `pullback!` | 0.33⁸ | 0.63⁸ | keep |
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
@@ -82,9 +82,10 @@ It was timed at 5 and 50 strata, with the sparse route coupling constant and as 
 ⁷ The worst of two rounds for the user type of the `custom_modifier_whole` case, at `T` 200, `L` 20 and `S` 20.
 On Enzyme the rule took 1.25 to 2.4 times plain AD, depending on the machine and the Julia version, so the call takes plain AD there.
 
-Every rule in the table is faster than plain AD on both backends, except the local step of a pointwise modifier with scalar parameters.
-That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
-On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
+⁸ The `custom modifier` block of `benchmark/results/docs.csv`, the docs tier at f3fb0628: median times of the rule with `forward!` only over plain AD at `T` 200 and `L` 20.
+At `T` 100 and `L` 6 they are 0.58 on Mooncake and 0.65 on Enzyme.
+
+Every rule in the table is faster than plain AD on both backends.
 The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
 On Enzyme it is 0.96 times plain AD at 23 strata, one pass, and 1.58 at 26, two passes.
 On Mooncake it is 0.77 at 44 strata, two passes, and 1.08 at 50, three.
