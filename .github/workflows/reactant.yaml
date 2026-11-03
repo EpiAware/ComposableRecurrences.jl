@@ -45,6 +45,9 @@ jobs:
           version: '1.12'
       - uses: julia-actions/cache@v3
       - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+      # Its own step, so a method ambiguity fails the job: the matrix step
+      # below continues on error and the comparison checks cells only.
+      - run: julia --project=test/reactant --startup-file=no test/reactant/extension_check.jl
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
       - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
         continue-on-error: true
@@ -68,6 +71,9 @@ jobs:
           version: '1.12'
       - uses: julia-actions/cache@v3
       - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+      # Its own step, so a method ambiguity fails the job: the matrix step
+      # below continues on error and the comparison checks cells only.
+      - run: julia --project=test/reactant --startup-file=no test/reactant/extension_check.jl
       # Moved, so a run that writes no results fails the comparison.
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
       # The test set marks expected failures broken, so an unexpected pass
