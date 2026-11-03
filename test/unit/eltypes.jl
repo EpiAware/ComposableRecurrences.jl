@@ -112,7 +112,7 @@ end
             CR.Clamp(0.0f0, 5.0f0),
             CR.Depletion(
                 0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
-                CR.SoftTruncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
+                CR.Truncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
             ),
             CR.Depletion(
                 CR.Flow(
@@ -121,7 +121,7 @@ end
                 CR.Truncate(; overflow = :queue); pools = (:B,)
             ),
             CR.Depletion(0.8f0, CR.Truncate(; into = :O); pools = (:O,)),
-            CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
+            CR.Depletion(5.0f0, CR.Truncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
