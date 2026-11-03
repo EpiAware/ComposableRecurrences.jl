@@ -53,12 +53,12 @@
         return nothing
     end
 
-    # The same gradients once the item has loaded FFTA, whose `plan_rfft`
-    # methods for any real array make the call ambiguous with FFTW's
-    # (#420). The plan cache is emptied so the plans are made after FFTA.
+    # The same gradients once the item has loaded FFTA, with the plan caches
+    # emptied so the plans are made after FFTA loads.
     function test_fft_gradients_with_ffta(backend)
         ext = Base.get_extension(CR, :ComposableRecurrencesFFTWExt)
         lock(ext._PLANS_LOCK) do
+            empty!(ext._plan_cache(Float32))
             empty!(ext._plan_cache(Float64))
         end
         return test_fft_gradients(backend)

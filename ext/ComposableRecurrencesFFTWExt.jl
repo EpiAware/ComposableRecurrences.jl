@@ -42,10 +42,9 @@ _fftsize(n, L) = min(_fftlen(n + L - 1), _fftlen(8L))
 
 # The forward and inverse real transforms along the first axis of `N × S`
 # arrays of eltype `Tp`. They take arrays of any alignment.
-# The plans are built with FFTW's own constructors, as `plan_rfft` and
-# `plan_irfft` build them, rather than through those functions: a package
-# such as FFTA that adds `plan_rfft` methods for any real array makes the
-# call ambiguous once both are loaded (#420).
+# Built with FFTW's constructors, as `plan_rfft` and `plan_irfft` build
+# them, so another package's `plan_rfft` methods, such as FFTA's, cannot
+# make the call ambiguous.
 function _make_plans(::Type{Tp}, N, S) where {Tp}
     flags = FFTW.ESTIMATE | FFTW.UNALIGNED
     M = N ÷ 2 + 1

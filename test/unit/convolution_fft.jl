@@ -161,8 +161,8 @@ end
 
 @testitem "Convolution FFT: plans with FFTA loaded" begin
     # FFTA adds `plan_rfft` methods for any real array, which make the
-    # call ambiguous with FFTW's once both are loaded (#420). A fresh
-    # process, so FFTA's methods reach no other item.
+    # call ambiguous with FFTW's. A fresh process, so FFTA's methods reach
+    # no other item.
     code = """
     using ComposableRecurrences, FFTA, FFTW
     using ComposableRecurrences: FFTMethod, PerStratum
@@ -180,8 +180,31 @@ end
     """
     julia = Base.julia_cmd()
     project = Base.active_project()
+    out, err = IOBuffer(), IOBuffer()
     cmd = `$julia --startup-file=no --project=$project -e $code`
-    @test read(ignorestatus(cmd), String) == "true"
+    run(pipeline(ignorestatus(cmd); stdout = out, stderr = err))
+    result, log = String(take!(out)), String(take!(err))
+    result == "true" || println(log)
+    @test result == "true"
+end
+
+@testitem "Convolution FFT: plans match FFTW's own" begin
+    # The plans are built with FFTW's constructors; they must stay the plans
+    # `plan_rfft` and `plan_irfft` give.
+    using ComposableRecurrences, FFTW
+    ext = Base.get_extension(ComposableRecurrences, :ComposableRecurrencesFFTWExt)
+    flags = FFTW.ESTIMATE | FFTW.UNALIGNED
+    for T in (Float32, Float64), (N, S) in ((1, 1), (12, 1), (60, 3))
+        f, b = ext._make_plans(T, N, S)
+        fw = FFTW.plan_rfft(zeros(T, N, S), 1; flags)
+        bw = FFTW.plan_irfft(zeros(Complex{T}, N ÷ 2 + 1, S), N, 1; flags)
+        @test typeof(f) == typeof(fw)
+        @test typeof(b) == typeof(bw)
+        @test (f.flags, b.p.flags, b.scale) == (fw.flags, bw.p.flags, bw.scale)
+        x = rand(T, N, S)
+        @test f * x == fw * x
+        @test b * (f * x) == bw * (fw * x)
+    end
 end
 
 @testitem "Convolution FFT: reverse pass matches direct" begin
