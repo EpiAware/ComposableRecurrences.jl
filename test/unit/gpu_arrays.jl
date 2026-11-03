@@ -592,3 +592,26 @@ end
         @test hcat(Array(y1), Array(first(rd(JLArray(R); state = st)))) ≈ r(R; history = h)
     end
 end
+
+@testitem "Adapting a flow does not read its demand on the host" begin
+    # A kernel launch adapts a Flow to device arrays, which the host cannot
+    # read entry by entry, so rebuilding it must not check its demand again.
+    using ComposableRecurrences, Adapt, KernelAbstractions
+    using ComposableRecurrences: Depletion, Flow, Share, Truncate
+    struct NoHostRead{T, N, A <: AbstractArray{T, N}} <: AbstractArray{T, N}
+        x::A
+    end
+    Base.size(a::NoHostRead) = size(a.x)
+    Base.getindex(::NoHostRead, i::Int...) = error("read on the host")
+    struct ToNoHostRead end
+    Adapt.adapt_storage(::ToNoHostRead, x::Array) = NoHostRead(x)
+    f = Flow(2 => 3, TimeVarying(fill(0.1, 5)); form = Share())
+    g = adapt(ToNoHostRead(), f)
+    @test g.demand.x isa NoHostRead
+    @test (g.from, g.to, g.form) == (f.from, f.to, f.form)
+    m = Depletion(
+        Flow(1 => 2, PerStratum([0.3])), f, Flow(3 => 0, 0.2; form = Truncate());
+        pools = (:A, :B, :C)
+    )
+    @test adapt(ToNoHostRead(), m) isa Depletion
+end
