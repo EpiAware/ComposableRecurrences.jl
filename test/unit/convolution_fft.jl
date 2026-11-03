@@ -189,8 +189,8 @@ end
 end
 
 @testitem "Convolution FFT: plans match FFTW's own" begin
-    # The plans are built with FFTW's constructors; they must stay the plans
-    # `plan_rfft` and `plan_irfft` give.
+    # The plans come from FFTW's own methods, called by their signatures;
+    # they must stay the plans `plan_rfft` and `plan_irfft` give.
     using ComposableRecurrences, FFTW
     ext = Base.get_extension(ComposableRecurrences, :ComposableRecurrencesFFTWExt)
     flags = FFTW.ESTIMATE | FFTW.UNALIGNED
