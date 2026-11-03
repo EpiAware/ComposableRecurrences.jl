@@ -159,7 +159,7 @@ end
     adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
     function run(θ)
         flows = CR.Depletion(
-            CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
+            CR.Flow(1 => 2, θ[1]; form = CR.Truncate(θ[2])),
             CR.Flow(2 => 0, 0.2; form = CR.Share()); pools = (:A, :B)
         )
         r = Recurrence([1.0]; modifiers = (flows,))
@@ -274,8 +274,8 @@ end
     # Smooth counts, with the softness as a parameter: one below what the
     # compartment holds, one above it and one out of an empty compartment.
     soft(θ) = CR.Depletion(
-        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
-        CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5])); pools = (:A, :B)
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate(θ[3])),
+        CR.Flow(2 => 0, θ[4]; form = CR.Truncate(θ[5])); pools = (:A, :B)
     )
     for θ in ([1.5, 0.3, 0.1, 9.0, 0.2], [3.0, 0.5, 0.4, -1.0, 0.1]), t in (1, 2)
         c = check_pullback(soft, θ, [4.0, 0.0, 1.0, 0.5], zeros(4), t)
@@ -403,7 +403,7 @@ end
         1 => 0, PerStratum([0.2, -0.1]); form = CR.Share()
     )
     @test CR.Flow(1 => 2, 1.5).demand == 1.5
-    @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
+    @test_throws "Truncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )
     moving(names, f::CR.Flow) = moving(names, (f,))

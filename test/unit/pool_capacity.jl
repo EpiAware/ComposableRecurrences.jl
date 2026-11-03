@@ -70,8 +70,7 @@
     const ROUTE = [1 => 3, 2 => 4]
 
     # The truncated form `form` as a draw with the keywords `kw`.
-    drawn(::CR.Truncate; kw...) = CR.Truncate(; kw...)
-    drawn(form::CR.SoftTruncate; kw...) = CR.SoftTruncate(form.κ; kw...)
+    drawn(form::CR.Truncate; kw...) = CR.Truncate(form.κ; kw...)
 
     # Beds: the pool is the occupancy, a share `δ` leaves before the draw
     # and the admissions fill it up to `C`.
@@ -185,7 +184,7 @@ end
     for m in (
             beds(Inf, 0.1), budget(Inf, 3, 12), beds(Inf, false; overflow = :queue),
             budget(Inf, nothing, 12; overflow = nothing),
-            beds(Inf, 0.1; form = CR.SoftTruncate(0.1)),
+            beds(Inf, 0.1; form = CR.Truncate(0.1)),
         )
         @test Recurrence(PerStratum(G); modifiers = (m,))(R; history = h) ≈ free
     end
@@ -270,7 +269,7 @@ end
 @testitem "Depletion capacity: the smooth minimum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    draw(κ, d, f) = first(CR._draw(CR.SoftTruncate(κ), d, f, 1.0))
+    draw(κ, d, f) = first(CR._draw(CR.Truncate(κ), d, f, 1.0))
     for κ in (0.05, 0.2)
         @test draw(κ, 3.0, 3.0) ≈ 3.0 * 2.0^(-κ)
         @test draw(κ, 0.0, 3.0) == 0.0
@@ -302,7 +301,7 @@ end
         (
             x -> beds(
                 PerStratum(x[1:2]), PerStratum(x[5:6]);
-                form = CR.SoftTruncate(x[3]), initial = x[4]
+                form = CR.Truncate(x[3]), initial = x[4]
             ),
             [4.0, 2.0, 0.2, 0.0, 0.2, 0.4], [2.0, 1.0], (1,),
         ),
@@ -318,7 +317,7 @@ end
             x -> CR.Depletion(
                 CR.Flow(:B => 0, TimeVarying(x[3:5]); form = CR.Share()),
                 CR.Flow(0 => :B, x[6]; form = CR.Truncate()),
-                CR.SoftTruncate(x[1]; overflow = :stratum); pools = (B = x[2],)
+                CR.Truncate(x[1]; overflow = :stratum); pools = (B = x[2],)
             ),
             [0.1, 0.0, 1.0, 0.0, 1.0, 2.5], [1.0, 0.4], (1, 2),
         ),
@@ -329,7 +328,7 @@ end
         (
             x -> beds(
                 PerStratum(x[1:4]), x[6]; overflow = nothing,
-                form = CR.SoftTruncate(x[5])
+                form = CR.Truncate(x[5])
             ),
             [2.0, 4.0, 1.0, 3.0, 0.15, 0.3], [1.5, 2.5, 0.0, 1.0], (1,),
         ),
@@ -345,7 +344,7 @@ end
         (x -> beds(x[1], x[3]; initial = x[2]), [3.0, 0.0, 0.5], [2.0, 2.0], (1,)),
         # Infinite capacity with the smooth form: the softness takes nothing.
         (
-            x -> beds(x[1], x[4]; form = CR.SoftTruncate(x[2]), initial = x[3]),
+            x -> beds(x[1], x[4]; form = CR.Truncate(x[2]), initial = x[3]),
             [Inf, 0.1, 0.0, 0.2], [2.0, 1.0], (1,),
         ),
         # The occupancy as one of two pools, with the draw weighted on the
@@ -401,7 +400,7 @@ end
     @test_throws "the draw names pool \"O\", but the pools are (:O,)" fill_into("O")
     @test fill_into(1).pieces[1] === CR._DrawInto(CR.Truncate(), 1.0, 1, CR._Drop())
     # A draw into a pool is truncated, from a capacity that is not negative.
-    @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Depletion(
+    @test_throws "a draw into a pool is Truncate() or Truncate(κ)" CR.Depletion(
         1.0, CR.Hazard(; into = :O); pools = (:O,)
     )
     @test_throws "N is non-negative, got -1.0" CR.Depletion(
@@ -429,8 +428,8 @@ end
         -1 => 1, 0.1
     )
     @test_throws "two different pools, got 0 => 0" CR.Flow(0 => 0, 0.1)
-    @test_throws "between 0 and 1, got 1.5" CR.SoftTruncate(1.5)
-    @test_throws MethodError CR.SoftTruncate(:soft)
+    @test_throws "in [0, 1), got 1.5" CR.Truncate(1.5)
+    @test_throws "a number or nothing, got :soft" CR.Truncate(:soft)
     m = fill_into(:O; overflow = :stratum)
     @test_throws "multiple of 2 strata, got 3" Recurrence([0.5]; modifiers = (m,))(
         ones(3, 3); history = ones(3, 1)
@@ -465,7 +464,7 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     (; G, beds) = CapacityChecks
-    m = beds(5.0, 0.2; form = CR.SoftTruncate(0.1))
+    m = beds(5.0, 0.2; form = CR.Truncate(0.1))
     r = Recurrence(PerStratum(G); modifiers = (m,))
     @test CR.uses_adjoint(r, CR.Run())
     @test CR.uses_adjoint(m, CR.Step())

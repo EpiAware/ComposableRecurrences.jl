@@ -238,7 +238,7 @@ end
 ComposableRecurrences._cached(b::_BoundRecent, i::TracedRNumber) = true
 ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
 
-# The soft minimum of `SoftTruncate` with a traced value picks its arms
+# The soft minimum of `Truncate(κ)` with a traced value picks its arms
 # with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees
 # the ratio 1, so it makes no NaN that a derivative would carry.
 const _MaybeTraced = Union{Real, TracedRNumber}

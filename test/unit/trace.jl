@@ -257,7 +257,7 @@ end
         CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]),
         CR.Flow(2 => 0, θ[3]; form = CR.Share()),
         CR.Flow(2 => 1, θ[4]; form = CR.Truncate()),
-        CR.Flow(1 => 0, θ[5]; form = CR.SoftTruncate(θ[6])),
+        CR.Flow(1 => 0, θ[5]; form = CR.Truncate(θ[6])),
         CR.Flow(0 => 2, θ[7]; form = CR.Truncate()),
     )
     θ = [0.3, 0.2, 0.25, 0.8, 0.5, 0.2, 1.5]
@@ -415,7 +415,7 @@ end
         function ward(θ)
             flows = CR.Depletion(
                 CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
+                CR.Flow(2 => 0, θ[3]; form = CR.Truncate(θ[4])),
                 CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
                 CR.Flow(0 => 2, θ[6]; form = CR.Truncate()); pools = (:A, :B)
             )

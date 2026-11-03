@@ -49,7 +49,7 @@ When ``P \le 0`` the draw comes from the first pool `weights` names alone.
 A draw into pool ``f`` (`into = f`) fills it instead, up to ``N_t``:
 ``(v', \cdot) = F(v, N_t - x_f, N_t)`` and ``x'_f = x_f + v'``, as
 admissions fill beds.
-Its form is `Truncate()` or `SoftTruncate(κ)`, and its capacity ``N_t`` is
+Its form is `Truncate()` or `Truncate(κ)`, and its capacity ``N_t`` is
 not negative.
 What a draw leaves of the value it takes, ``u = v - v'``, goes nowhere by
 default; with `overflow = :stratum` to the group's second value,
@@ -64,7 +64,7 @@ Hazard and share [flows](@ref ComposableRecurrences.Flow) given one after
 another act together, then each count flow in the order given; a count
 flow from `0` brings its demand in from outside.
 
-A draw is a form, `Hazard()`, `Floor()`, `Truncate()`, `SoftTruncate(κ)`
+A draw is a form, `Hazard()`, `Floor()`, `Truncate()`, `Truncate(κ)`
 or a [new type](@ref extending-form) with a `forward!(form, Step(), v, s, N)`
 method, which draws from the first pool alone.
 A built-in form given `weights`, `into` or `overflow`, such as
@@ -579,7 +579,7 @@ _check_fill_form(::_TruncateForm) = nothing
 @noinline function _check_fill_form(form)
     throw(
         ArgumentError(
-            "a draw into a pool is Truncate() or SoftTruncate(κ), got " *
+            "a draw into a pool is Truncate() or Truncate(κ), got " *
                 _describe(form)
         )
     )
@@ -1453,7 +1453,7 @@ end
             Flow(1 => 2, PerStratum([0.3, 0.2])),
             Flow(2 => 0, 0.1; form = Share()),
             Flow(1 => 0, 0.5; form = Truncate()),
-            Flow(2 => 0, 0.2; form = SoftTruncate(0.1)); pools = (:A, :B)
+            Flow(2 => 0, 0.2; form = Truncate(0.1)); pools = (:A, :B)
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
@@ -1464,7 +1464,7 @@ end
     Arguments(;
         piece = Depletion(
             4.0, Flow(:O => 0, 0.2; form = Share()),
-            SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+            Truncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2),
         pullback = false

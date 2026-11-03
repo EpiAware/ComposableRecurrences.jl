@@ -2,7 +2,7 @@
 # into another, or out, each step, by a form applied to its
 # demand: a competing hazard rate (`Hazard()`, the default), a share
 # (`Share()`) or a count capped by what is there (`Truncate()` or
-# `SoftTruncate(κ)`); `Flow`'s docstring gives how they combine.
+# `Truncate(κ)`); `Flow`'s docstring gives how they combine.
 
 @doc raw"""
 The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
@@ -35,9 +35,7 @@ struct Share end
 # The forms a flow takes: without an exponent, and without a draw's
 # arguments.
 const _FlowHazard = Hazard{Nothing, Nothing, Nothing, _Drop}
-const _FlowCount = Union{
-    Truncate{Nothing, Nothing, _Drop}, SoftTruncate{<:Real, Nothing, Nothing, _Drop},
-}
+const _FlowCount = Truncate{<:Any, Nothing, Nothing, _Drop}
 const _FlowForm = Union{_FlowHazard, Share, _FlowCount}
 
 @doc raw"""
@@ -59,8 +57,7 @@ it leaves:
 |:---- |:------ |:------- |
 | [`ComposableRecurrences.Hazard`](@ref) (the default) | a hazard rate | ``x\, d_f \big(1 - e^{-H}\big) / H``, with ``H`` the sum of the hazard rates out of ``x`` |
 | [`ComposableRecurrences.Share`](@ref) | a share | ``d_f\, x`` |
-| [`ComposableRecurrences.Truncate`](@ref) | a count | ``\min\big(d_f, \max(x, 0)\big)`` |
-| [`ComposableRecurrences.SoftTruncate`](@ref) | a count | a smooth ``\min\big(d_f, \max(x, 0)\big)`` |
+| [`ComposableRecurrences.Truncate`](@ref) | a count | ``\min\big(d_f, \max(x, 0)\big)``, or a smooth one with `Truncate(κ)` |
 
 The hazard rates out of one pool compete, as in the `Hazard` depletion
 form, so together they move ``x (1 - e^{-H})``; with non-negative, finite
@@ -94,7 +91,7 @@ A negative count adds ``-d_f`` to pool `from`, without a cap, and moves
 nothing into `to`.
 A flow from `0` is a count from outside the `Depletion`, which never runs out:
 it moves ``m_f = d_f`` into `to`, and a negative one moves nothing.
-Its form is `Truncate()` or `SoftTruncate(κ)`.
+Its form is `Truncate()` or `Truncate(κ)`.
 The derivative through ``\min`` and ``\max`` takes the active branch.
 Rates are not checked.
 
@@ -107,7 +104,7 @@ Rates are not checked.
 
 # Keyword Arguments
 - `form`: `Hazard()`, the default, `Share()`, `Truncate()` or
-  `SoftTruncate(κ)`.
+  `Truncate(κ)`.
 
 # Examples
 ```jldoctest
@@ -129,7 +126,7 @@ struct Flow{D, F <: _FlowForm, E}
     to::E
     "The rate, share or count, a parameter."
     demand::D
-    "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `SoftTruncate(κ)`."
+    "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `Truncate(κ)`."
     form::F
     function Flow(from, to, demand::D, form::F) where {D, F}
         _check_end(:from, from)
@@ -143,7 +140,7 @@ struct Flow{D, F <: _FlowForm, E}
         from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
             ArgumentError(
                 "a flow from outside the Depletion is a count, with form Truncate() " *
-                    "or SoftTruncate(κ), got $(_describe(form))"
+                    "or Truncate(κ), got $(_describe(form))"
             )
         )
         E = Union{typeof(from), typeof(to)}
@@ -171,7 +168,7 @@ end
     throw(
         ArgumentError(
             "a flow's form is Hazard(), Share(), Truncate() or " *
-                "SoftTruncate(κ), got $(_describe(form))"
+                "Truncate(κ), got $(_describe(form))"
         )
     )
 end
@@ -378,13 +375,13 @@ _moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
 # What a count `a` moves out of a pool holding `s`, and the
 # cotangents `(ā, s̄, κ̄)` from that of the move; `κ̄` is the softness's.
-_moved(::Truncate, a, s) = _removal(a, s)
-_moved(form::SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
-function _moved_back(::Truncate, a, s, m̄)
+_moved(::_HardTruncate, a, s) = _removal(a, s)
+_moved(form::_SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
+function _moved_back(::_HardTruncate, a, s, m̄)
     ā, s̄ = _removal_pullback(a, s, m̄)
     return ā, s̄, zero(m̄)
 end
-function _moved_back(form::SoftTruncate, a, s, m̄)
+function _moved_back(form::_SoftTruncate, a, s, m̄)
     ā, c̄, κ̄ = _soft_min_back(form.κ, a, _pool_left(s), m̄)
     return ā, ifelse(s > 0, c̄, zero(c̄)), κ̄
 end
