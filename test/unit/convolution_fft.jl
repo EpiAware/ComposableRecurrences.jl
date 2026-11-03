@@ -159,6 +159,31 @@ end
     @test occursin("using FFTW", out)
 end
 
+@testitem "Convolution FFT: plans with FFTA loaded" begin
+    # FFTA adds `plan_rfft` methods for any real array, which make the
+    # call ambiguous with FFTW's once both are loaded (#420). A fresh
+    # process, so FFTA's methods reach no other item.
+    code = """
+    using ComposableRecurrences, FFTA, FFTW
+    using ComposableRecurrences: FFTMethod, PerStratum
+    let ok = true
+        for T in (Float64, Float32)
+            x, h, c = rand(T, 60), rand(T, 2), rand(T, 7)
+            X, H, C = rand(T, 3, 60), rand(T, 3, 2), rand(T, 3, 7)
+            for (k, u, hu) in ((c, x, h), (c, X, H), (PerStratum(C), X, H))
+                y = Convolution(k; method = FFTMethod())(u; history = hu)
+                ok &= y isa Array{T} && y ≈ Convolution(k)(u; history = hu)
+            end
+        end
+        print(ok)
+    end
+    """
+    julia = Base.julia_cmd()
+    project = Base.active_project()
+    cmd = `$julia --startup-file=no --project=$project -e $code`
+    @test read(ignorestatus(cmd), String) == "true"
+end
+
 @testitem "Convolution FFT: reverse pass matches direct" begin
     using ComposableRecurrences, FFTW, Random
     const CR = ComposableRecurrences

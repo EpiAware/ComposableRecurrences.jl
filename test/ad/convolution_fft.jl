@@ -52,6 +52,17 @@
         end
         return nothing
     end
+
+    # The same gradients once the item has loaded FFTA, whose `plan_rfft`
+    # methods for any real array make the call ambiguous with FFTW's
+    # (#420). The plan cache is emptied so the plans are made after FFTA.
+    function test_fft_gradients_with_ffta(backend)
+        ext = Base.get_extension(CR, :ComposableRecurrencesFFTWExt)
+        lock(ext._PLANS_LOCK) do
+            empty!(ext._plan_cache(Float64))
+        end
+        return test_fft_gradients(backend)
+    end
 end
 
 @testitem "FFT convolution gradients: ReverseDiff" tags = [:ad, :reversediff] setup = [FFTAD] begin
@@ -89,6 +100,25 @@ end
     c = Convolution(rand(rng, 60); method = CR.FFTMethod())
     args = (rand(rng, 20), true, nothing, rand(rng, 3), 1, nothing)
     CR.test_adjoint(AutoMooncake(; config = nothing), c, CR.Run(), args...)
+end
+
+@testitem "FFT convolution gradients with FFTA loaded: Enzyme reverse" tags = [:ad, :enzyme, :enzyme_reverse] setup = [FFTAD] begin
+    using Enzyme: Enzyme
+    using ADTypes: AutoEnzyme
+    import FFTA
+    test_fft_gradients_with_ffta(
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const,
+        )
+    )
+end
+
+@testitem "FFT convolution gradients with FFTA loaded: Mooncake reverse" tags = [:ad, :mooncake, :mooncake_reverse] setup = [FFTAD] begin
+    using Mooncake: Mooncake
+    using ADTypes: AutoMooncake
+    import FFTA
+    test_fft_gradients_with_ffta(AutoMooncake(; config = nothing))
 end
 
 @testitem "FFT convolution gradients: Enzyme forward" tags = [:ad, :enzyme, :enzyme_forward, :compat_floor] setup = [FFTAD] begin

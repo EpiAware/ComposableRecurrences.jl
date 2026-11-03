@@ -7,7 +7,8 @@ module ComposableRecurrencesFFTWExt
 using ComposableRecurrences: ComposableRecurrences, Auto, FFTMethod, PerStratum,
     Serial, _CPUArray, _affine, _auto_fft, _convolve!, _convolve_back!, _nlags,
     _untraced, add_cotangent!, cotangent
-using FFTW: FFTW, plan_irfft, plan_rfft
+using FFTW: FFTW
+using FFTW.AbstractFFTs: ScaledPlan, normalization
 using LinearAlgebra: mul!
 
 const _FFTFloat = Union{Float32, Float64}
@@ -41,10 +42,23 @@ _fftsize(n, L) = min(_fftlen(n + L - 1), _fftlen(8L))
 
 # The forward and inverse real transforms along the first axis of `N × S`
 # arrays of eltype `Tp`. They take arrays of any alignment.
+# The plans are built with FFTW's own constructors, as `plan_rfft` and
+# `plan_irfft` build them, rather than through those functions: a package
+# such as FFTA that adds `plan_rfft` methods for any real array makes the
+# call ambiguous once both are loaded (#420).
 function _make_plans(::Type{Tp}, N, S) where {Tp}
     flags = FFTW.ESTIMATE | FFTW.UNALIGNED
-    f = plan_rfft(zeros(Tp, N, S), 1; flags)
-    b = plan_irfft(zeros(Complex{Tp}, N ÷ 2 + 1, S), N, 1; flags)
+    M = N ÷ 2 + 1
+    f = FFTW.rFFTWPlan{Tp, FFTW.FORWARD, false, 2}(
+        zeros(Tp, N, S), FFTW.FakeArray{Complex{Tp}}((M, S)), 1, flags,
+        FFTW.NO_TIMELIMIT
+    )
+    # FFTW keeps the input of a one-dimensional inverse, as `plan_brfft`.
+    p = FFTW.rFFTWPlan{Complex{Tp}, FFTW.BACKWARD, false, 2}(
+        zeros(Complex{Tp}, M, S), FFTW.FakeArray{Tp}((N, S)), 1,
+        flags | FFTW.PRESERVE_INPUT, FFTW.NO_TIMELIMIT
+    )
+    b = ScaledPlan(p, normalization(Tp, (N, S), 1))
     return f, b
 end
 
