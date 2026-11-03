@@ -152,7 +152,19 @@ struct Flow{D, F <: _FlowForm, E}
         form isa Share && _check_unit(:demand, d)
         return new{D, F, E}(from, to, d, form)
     end
+    # Fields a flow has already checked, stored as they are.
+    function Flow{D, F, E}(from, to, demand, form) where {D, F, E}
+        return new{D, F, E}(from, to, demand, form)
+    end
 end
+
+# Rebuilt from its fields without checking them again, as `constructorof`
+# gives it: a kernel launch adapts the demand to device arrays, which the
+# host cannot read entry by entry.
+function _Flow(from, to, demand::D, form::F) where {D, F}
+    return Flow{D, F, Union{typeof(from), typeof(to)}}(from, to, demand, form)
+end
+ConstructionBase.constructorof(::Type{<:Flow}) = _Flow
 
 @noinline function _bad_flow_form(form)
     form isa Union{_ExponentForm, _TruncateForm} &&
