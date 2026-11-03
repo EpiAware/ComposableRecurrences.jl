@@ -355,21 +355,22 @@ Base.IndexStyle(::Type{<:_At}) = IndexLinear()
 @inline _ix(a::_At{T, <:AbstractVector}) where {T} = (a.k,)
 @inline _ix(a::_At{T, <:Base.RefValue}) where {T} = ()
 @inline function Base.getindex(a::_At, i::Int)
-    @boundscheck i == a.k || _out_of_view(i, a.k)
+    @boundscheck i == a.k || _out_of_view()
     return @inbounds a.parent[_ix(a)...]
 end
 @inline function Base.setindex!(a::_At, x, i::Int)
-    @boundscheck i == a.k || _out_of_view(i, a.k)
+    @boundscheck i == a.k || _out_of_view()
     @inbounds a.parent[_ix(a)...] = x
     return a
 end
 # The error for an index other than the view's own, such as a pointwise
-# step looping over `1:length(v)`, says to loop over `eachindex(v)`. It
-# takes the indices only, so the view and its slot do not escape into it.
-@noinline function _out_of_view(i, k)
+# step looping over `1:length(v)`, says to loop over `eachindex(v)`. A step
+# can run in a GPU kernel, which cannot build a string, so the message is
+# fixed rather than naming the indices.
+@noinline function _out_of_view()
     throw(
         ArgumentError(
-            "index $i is outside a pointwise step's view of stratum $k: " *
+            "an index is outside a pointwise step's view of one stratum: " *
                 "loop over eachindex(v), not 1:length(v)"
         )
     )
@@ -377,11 +378,12 @@ end
 # A step's `eachindex(v, s)` over two one-entry views of the same stratum:
 # Base's generic axis match costs plain reverse-mode AD more to compile.
 @inline function Base.eachindex(a::_At, b::_At)
-    a.k == b.k || _view_mismatch(a.k, b.k)
+    a.k == b.k || _view_mismatch()
     return a.k:a.k
 end
-@noinline function _view_mismatch(a, b)
-    throw(DimensionMismatch("one-entry views of strata $a and $b"))
+# A fixed message, as for `_out_of_view`.
+@noinline function _view_mismatch()
+    throw(DimensionMismatch("one-entry views of different strata"))
 end
 # The one entry without its index, as `v[]`, for a step that holds it alone.
 @inline Base.getindex(a::_At) = @inbounds a[a.k]
