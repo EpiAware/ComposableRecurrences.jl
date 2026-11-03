@@ -349,7 +349,7 @@ end
             (
                 CR.Depletion(
                     1.5, CR.Flow(:O => 0, 0.3; form = CR.Share()),
-                    CR.SoftTruncate(0.1; into = :O, overflow = :queue); pools = (:O,)
+                    CR.Truncate(0.1; into = :O, overflow = :queue); pools = (:O,)
                 ),
             ),
             (
@@ -2695,7 +2695,7 @@ end
     # A ward without a draw: each flow's amount, with every form.
     ward = CR.Depletion(
         CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
-        CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
+        CR.Flow(2 => 0, 1.5; form = CR.Truncate(0.2)),
         CR.Flow(2 => 1, 0.4; form = CR.Truncate()),
         CR.Flow(0 => 2, 0.6; form = CR.Truncate()); pools = (:A, :B)
     )

@@ -731,7 +731,7 @@ function _beds(C, δ, κ)
     CR = ComposableRecurrences
     return CR.Depletion(
         C, CR.Flow(:O => 0, δ; form = CR.Share()),
-        CR.SoftTruncate(κ; into = :O, overflow = :stratum); pools = (:O,)
+        CR.Truncate(κ; into = :O, overflow = :stratum); pools = (:O,)
     )
 end
 function _budget(init, grants)
@@ -774,10 +774,10 @@ function _capacity_drop(w, θ)
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
+    pool = depletion(exp(x[n - 4]); form = CR.Truncate(x[n - 3]))
     beds = CR.Depletion(
         PerStratum(exp.(x[(n - 2):n])), CR.Flow(:O => 0, 0.3; form = CR.Share()),
-        CR.SoftTruncate(0.2; into = :O); pools = (:O,)
+        CR.Truncate(0.2; into = :O); pools = (:O,)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -800,7 +800,7 @@ end
 function _soft_truncate(w, θ)
     x = TRUNC0 .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
-    form = ComposableRecurrences.SoftTruncate(x[length(x)])
+    form = ComposableRecurrences.Truncate(x[length(x)])
     d = depletion(PerStratum(exp.(logpool)); form = form)
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
@@ -1769,7 +1769,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
-    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:_SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:depletion_pools,),
     "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
     "Recurrence ward with competing flows, from the parameters as given" =>
