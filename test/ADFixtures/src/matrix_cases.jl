@@ -17,7 +17,7 @@ using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
-    added, returning_state, returning_trace, resumed
+    added, clamped, returning_state, returning_trace, resumed
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -700,6 +700,19 @@ function renewal_imports(wrap, z::Size)
     return f, _flat(_gi(L), fill(log(10.0), L), logR, ι, ι)
 end
 
+# A renewal over strata with each value clamped to its stratum's bounds.
+function renewal_clamp(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    R = [1.1 + 0.3 * sin(t / 9 + k) for k in 1:S, t in 1:T]
+    f = function (θ)
+        g, lo, hi = _unpack(θ, (L,), (S,), (S,))
+        r = Recurrence(g; modifiers = (clamped(CR.PerStratum(lo), CR.PerStratum(hi)),))
+        return sum(W .* wrap(r)(R; history = ones(S, L)))
+    end
+    return f, _flat(_gi(L), fill(0.5, S), fill(4.0, S))
+end
+
 # Clinical outcomes as a chain of delays: onsets after infections, then
 # admissions and deaths, each with its probability as the gain.
 function outcome_chain(wrap, z::Size)
@@ -921,6 +934,10 @@ const CASES = [
         "renewal_imports",
         "seeded renewal, hazard depletion, imports before and after",
         renewal_imports, [1], false,
+    ),
+    Case(
+        "renewal_clamp", "renewal over strata, each value clamped to its bounds",
+        renewal_clamp, [1, 5, 20], false,
     ),
     Case(
         "outcome_chain", "onsets, admissions and deaths as a chain of delays",

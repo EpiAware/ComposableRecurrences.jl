@@ -467,11 +467,16 @@ end
         @test constructorof(typeof(m))(getfields(m)...) === m
         @test setproperties(m, (; θ = m.θ)) === m
         @test adapt(KernelAbstractions.CPU(), m) === m
-        @test @inferred(CR.Transform(m.f, m.θ; derivative = m.derivative)) === m
+        @test @inferred(constructorof(typeof(m))(m.f, m.θ, m.derivative)) === m
+        m.f === clamp ||
+            @test @inferred(CR.Transform(m.f, m.θ; derivative = m.derivative)) === m
     end
     @test setproperties(CR.Transform(clamp, 0.0, 1.0), (; θ = (0.5, 2.0))) ===
         CR.Transform(clamp, 0.5, 2.0)
-    @test CR.Transform(clamp, 0.0, 1.0) === CR.Transform(clamp, (0.0, 1.0))
+    # The bounds have one spelling.
+    @test CR.Transform(clamp, 0.0, 1.0).θ === (0.0, 1.0)
+    @test_throws "Transform(clamp, lo, hi)" CR.Transform(clamp, (0.0, 1.0))
+    @test_throws "Transform(clamp, lo, hi)" CR.Transform(clamp)
     @inferred CR.Transform(clamp, 0.0, 1.0)
     @inferred CR.Transform(clamp, TimeVarying([0.0, 1.0]), PerStratum([1.0, 2.0]))
     @inferred CR.Transform(+, PerStratum([1.0, 2.0]))
@@ -726,6 +731,10 @@ end
     @test g.v == [0.5, 2.0]
     @test g.s == [0.1, 0.2]
     @test b̄ == [0.5, 2.0]
+    # Without `b` it is the identity, with no parameter to add into.
+    g = (; piece = (; θ = nothing), v = [0.5, 2.0], s = [0.1, 0.2])
+    @test CR.pullback!(g, CR.Transform(+), CR.Step(), v, s, 1) === nothing
+    @test g.v == [0.5, 2.0]
 end
 
 @testitem "Redistribute pullback matches the local Jacobian" setup = [ModifierChecks] begin
