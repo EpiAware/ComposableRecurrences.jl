@@ -213,11 +213,11 @@ A coupling sets how much each stratum's past outputs drive each stratum, such as
 In Getting started, `K` is a gravity coupling.
 
 ```@example api-overview
-round.(Int, vec(sum(Recurrence(gi; coupling = K)(R; history = seed); dims = 2)))
+totals = vec(sum(Recurrence(gi; coupling = K)(R; history = seed); dims = 2))
+round.(totals ./ totals[1]; digits = 3)
 ```
 
-The result is each town's total infections over the 75 days.
-Without the coupling, towns B and C have none, as only town A is seeded.
+Towns B and C have 3.4% and 1.9% of town A's infections, all from the coupling, as only town A is seeded.
 
 Row ``i`` of a coupling is the stratum that receives, and column ``j`` the stratum that gives.
 The coupling [acts](@ref explanation-coupling) on the weighted sums of past outputs, before the gain.

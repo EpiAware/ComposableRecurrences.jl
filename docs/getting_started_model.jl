@@ -8,4 +8,8 @@ let page = joinpath(@__DIR__, "src", "getting-started", "index.md"),
         m = match(r"^(\w+) = ", line)
         m !== nothing && m[1] in names && eval(Meta.parse(line))
     end
+    # A renamed or multi-line definition is not found above, so fail here.
+    missing_names = filter(n -> !isdefined(@__MODULE__, Symbol(n)), names)
+    isempty(missing_names) ||
+        error("$(join(missing_names, ", ")) not defined on one line in $page")
 end
