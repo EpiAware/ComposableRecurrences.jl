@@ -106,7 +106,7 @@
     # automatic convolution, the weights of a computed kernel, the local
     # steps of user types, routes, and an operator checked at the call. Enzyme's pass with the operator constant
     # reaches branches for a constant part that only some operators have,
-    # so their scenarios are here too: a constant movement, `Clamp`, a
+    # so their scenarios are here too: a constant movement, `Transform(clamp, lo, hi)`, a
     # traced movement, change-point kernels, ragged columns held as given
     # and outputs read by a parameter. `extra_cases` adds the shapes the
     # registry lacks.
@@ -140,7 +140,7 @@
         "Recurrence whole-step modifier without a pullback",
         "Recurrence routes with a user coupling without a pullback",
         "Recurrence checked at the call",
-        "Recurrence Redistribute, Add and Clamp",
+        "Recurrence Redistribute, Transform(+) and Transform(clamp)",
         "Recurrence trace of the importation (Redistribute)",
         "Recurrence Primary per-stratum kernel from change points",
         "Convolution kernel from change points with history",
@@ -350,7 +350,9 @@
                         g; coupling = 0.3 .* rand(rng, S, S),
                         modifiers = (
                             CR.Depletion(PerStratum(fill(80.0, S))),
-                            CR.Add(TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))),
+                            CR.Transform(
+                                +, TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))
+                            ),
                         )
                     ),
                     rec(R, nothing, h),
@@ -771,10 +773,10 @@ end
         return sum(W .* w(r)(fill(1.1, 2, 8); history = fill(0.2, 2, 2)))
     end
     # A scalar times a function of a time-varying parameter.
-    θm(θ) = CR.Add(θ[1] * Derived(exp, TimeVarying(θ[2:9])))
+    θm(θ) = CR.Transform(+, θ[1] * Derived(exp, TimeVarying(θ[2:9])))
     # A closure's captured value is not an argument, so plain AD takes it.
     scaled(c) = x -> c * exp(x)
-    cm(θ) = CR.Add(Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
+    cm(θ) = CR.Transform(+, Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
     θ0 = [0.5, collect(range(-0.2, 0.6; length = 8))...]
     # Without the rule the map already takes plain AD, so its `NoAdjoint`
     # would repeat that call.
@@ -1139,7 +1141,7 @@ end
             R = 1.0 .+ 0.05 .* [sin(a + t) for a in 1:3, t in 1:8],
             pool = PerStratum([60.0, 90.0, 70.0])
 
-        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Add(b))
+        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Transform(+, b))
         op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
         ws(r) = r(R; history = h, stop = 4, state = true)
         # The operator built from `b` inside the loss.
@@ -1157,7 +1159,7 @@ end
                 r -> sum(W[:, 1:4] .* first(r(R; state = ws(r)[2]))),
             )
             ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
-            @test ḡ.modifiers[2].b ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
+            @test ḡ.modifiers[2].θ ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
         end
         # Fixed scalar fields with only the input active.
         g(Rx) = sum(W .* op(0.5)(Rx; history = h))
@@ -1176,8 +1178,10 @@ end
     empty!(ext._SCALAR_LOSS_WARNED)
     mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
     let R = fill(1.1, 4), h = ones(2)
-        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b),))
-        op2(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b), CR.Add(b)))
+        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Transform(+, b),))
+        op2(b) = Recurrence(
+            [0.3, 0.2]; modifiers = (CR.Transform(+, b), CR.Transform(+, b))
+        )
         msg = (:warn, r"On Julia 1\.11, Enzyme reverse mode can return a zero")
         grad(f, x) = Enzyme.gradient(mode, Enzyme.Const(f), x)[1]
         # The rule, plain AD of a `NoAdjoint`, a scalar field that is not
@@ -1849,7 +1853,9 @@ end
                 ρ^2 + sum(x)
             ),
             (ρ, x) -> (
-                unused(Recurrence([0.5]; modifiers = (CR.Add(ρ),))(x; history = [0.5]));
+                unused(
+                    Recurrence([0.5]; modifiers = (CR.Transform(+, ρ),))(x; history = [0.5])
+                );
                 ρ^2 + sum(x)
             ),
             (ρ, x) -> (unused(Convolution([0.3, 0.2])(x; gain = ρ)); ρ^2 + sum(x)),
@@ -2017,7 +2023,7 @@ end
     K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
     function loss(θ)
         ms = (
-            CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
+            CR.Transform(clamp, 0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
             CR.Redistribute(K, 0.5),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))

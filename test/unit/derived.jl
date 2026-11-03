@@ -23,15 +23,15 @@
         return y[:, 3:end]
     end
     run(ms...) = Recurrence(g; modifiers = ms)(R; history = h)
-    # Derived of a time-varying and a scalar parameter in `Add`.
+    # Derived of a time-varying and a scalar parameter in `Transform(+, b)`.
     b = Derived((x, c) -> c * exp(x), TimeVarying(ι), κ)
-    @test run(CR.Add(b)) ≈ naive((v, t) -> (v .+= κ * exp(ι[t])))
+    @test run(CR.Transform(+, b)) ≈ naive((v, t) -> (v .+= κ * exp(ι[t])))
     # Derived of a per-stratum, time-varying parameter in `Transform`.
     β = Derived(sqrt, TimeVarying(PerStratum(A)))
     @test run(CR.Transform(*, β)) ≈ naive((v, t) -> (v .*= sqrt.(A[:, t])))
-    # Nested Derived, and a Derived bound in `Clamp`.
+    # Nested Derived, and a Derived bound in `Transform(clamp, lo, hi)`.
     hi = Derived(+, Derived(abs2, PerStratum([1.0, 2.0])), 0.5)
-    @test run(CR.Clamp(0.0, hi)) ≈
+    @test run(CR.Transform(clamp, 0.0, hi)) ≈
         naive((v, t) -> (v .= min.(v, [1.0, 4.0] .+ 0.5)))
     # A constant Derived population in `Depletion`.
     N = Derived(*, 10.0, PerStratum([3.0, 5.0]))
@@ -61,7 +61,7 @@ end
     @test CR.param(2.0 * x / N + 1, 2, 3) ≈ 2 * exp(0.6) / 4 + 1
     # A run with the sugar equals a run with the explicit form.
     g, R, h = [0.5, 0.4], fill(1.1, 2, 3), ones(2, 2)
-    run(b) = Recurrence(g; modifiers = (CR.Add(b),))(R; history = h)
+    run(b) = Recurrence(g; modifiers = (CR.Transform(+, b),))(R; history = h)
     @test run(0.5 * x + 1) == run(Derived(+, Derived(*, 0.5, x), 1))
     # Plain numbers and wrappers keep their own arithmetic.
     @test !hasmethod(*, Tuple{Float64, PerStratum{Vector{Float64}}})
@@ -76,9 +76,11 @@ end
     @test_throws ArgumentError Derived(exp, "a")
     # A vector of lag weights or a `Primary()` argument makes a kernel, which
     # is not a modifier parameter.
-    @test_throws ArgumentError CR.Add(Derived(exp, [1.0, 2.0]))
-    @test_throws ArgumentError CR.Add(Derived(exp, TimeVarying([1.0], CR.Primary())))
-    @test_throws ArgumentError CR.Add(2.0 * Derived(exp, [1.0, 2.0]))
+    @test_throws ArgumentError CR.Transform(+, Derived(exp, [1.0, 2.0]))
+    @test_throws ArgumentError CR.Transform(
+        +, Derived(exp, TimeVarying([1.0], CR.Primary()))
+    )
+    @test_throws ArgumentError CR.Transform(+, 2.0 * Derived(exp, [1.0, 2.0]))
     # A population may vary over time; a starting pool is constant.
     @test CR.Depletion(Derived(exp, TimeVarying([1.0, 2.0]))).pieces[1].N isa Derived
     @test_throws ArgumentError CR.Depletion(
@@ -86,7 +88,7 @@ end
     )
     # Strata and times are checked through the arguments.
     g, R, h = [0.5], fill(1.1, 2, 3), ones(2, 1)
-    run(b) = Recurrence(g; modifiers = (CR.Add(b),))(R; history = h)
+    run(b) = Recurrence(g; modifiers = (CR.Transform(+, b),))(R; history = h)
     @test_throws DimensionMismatch run(Derived(exp, TimeVarying([1.0, 2.0])))
     @test_throws DimensionMismatch Recurrence(
         g; modifiers = (CR.Depletion(Derived(exp, PerStratum([1.0, 2.0, 3.0]))),)
@@ -97,10 +99,10 @@ end
     # The rule gate accepts IEEE arguments, and a map with float fields of
     # its own leaves the rule.
     b = Derived(*, 2.0, TimeVarying([1.0, 2.0, 3.0]))
-    @test CR._gate(Recurrence(g; modifiers = (CR.Add(b),)))
+    @test CR._gate(Recurrence(g; modifiers = (CR.Transform(+, b),)))
     scaled(c) = x -> c * x
     closure = Derived(scaled(2.0), TimeVarying([1.0, 2.0, 3.0]))
-    route(b) = CR.uses_adjoint(Recurrence(g; modifiers = (CR.Add(b),)), CR.Run())
+    route(b) = CR.uses_adjoint(Recurrence(g; modifiers = (CR.Transform(+, b),)), CR.Run())
     @test route(b)
     @test !route(closure)
     @test !route(1.0 + closure)

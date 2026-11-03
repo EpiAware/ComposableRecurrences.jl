@@ -67,7 +67,7 @@ end
     @test_throws ArgumentError Recurrence(TimeVarying([1 => 0.5, 3 => 0.2]))
     @test_throws ArgumentError Recurrence(TimeVarying([1 => Pairwise(ones(2, 2, 2))]))
     @test_throws ArgumentError Recurrence([0.5]; coupling = TimeVarying(KS))
-    @test_throws ArgumentError CR.Add(TimeVarying([1 => 1.0, 3 => 2.0], Primary()))
+    @test_throws ArgumentError CR.Transform(+, TimeVarying([1 => 1.0, 3 => 2.0], Primary()))
     @test_throws DimensionMismatch Recurrence(TimeVarying(GS))(
         ones(3, 4); history = ones(3, 3)
     )
@@ -190,7 +190,7 @@ end
 
 @testitem "Change points: couplings and parameters equal the dense form" setup = [PiecewiseChecks] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Add, Depletion, Transform, Clamp
+    using ComposableRecurrences: Depletion, Transform
     CR = ComposableRecurrences
     (; R, H, T, both) = PiecewiseChecks
     g = [0.5, 0.3, 0.2]
@@ -201,11 +201,11 @@ end
     bp, bd = both([1 => PerStratum([0.1, 0.2]), 5 => PerStratum([0.3, 0.0])], T)
     np, nd = both([1 => 60.0, 12 => 80.0], T)
     for (mp, md) in (
-            ((Add(ap),), (Add(ad),)),
-            ((Add(bp),), (Add(bd),)),
+            ((Transform(+, ap),), (Transform(+, ad),)),
+            ((Transform(+, bp),), (Transform(+, bd),)),
             ((Depletion(np; pools = (S = 50.0,)),), (Depletion(nd; pools = (S = 50.0,)),)),
             ((Transform(*, bp),), (Transform(*, bd),)),
-            ((Clamp(ap, 2.0),), (Clamp(ad, 2.0),)),
+            ((Transform(clamp, ap, 2.0),), (Transform(clamp, ad, 2.0),)),
         )
         @test Recurrence(g; modifiers = mp)(R; history = H) ≈
             Recurrence(g; modifiers = md)(R; history = H)
@@ -252,7 +252,7 @@ end
     @test pullback_matches(Recurrence(g; coupling = C), recargs(R, nothing, H)...)
     a = TimeVarying([1 => 0.3, 9 => -0.1])
     b = TimeVarying([1 => PerStratum([0.1, 0.2]), 5 => PerStratum([0.3, 0.0])])
-    mods = (CR.Add(a), CR.Add(b), CR.Transform(*, Derived(exp, a)))
+    mods = (CR.Transform(+, a), CR.Transform(+, b), CR.Transform(*, Derived(exp, a)))
     @test pullback_matches(Recurrence(g; modifiers = mods), recargs(R, nothing, H)...)
     # The lag contributions, and a route that reads its kernel step by step.
     for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS)

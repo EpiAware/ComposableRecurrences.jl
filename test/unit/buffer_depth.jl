@@ -70,10 +70,10 @@ end
     @test CR.depth(1.0) == 0
     @test CR.depth([1.0, 2.0]) == 0
     @test CR.depth(I) == 0
-    @test CR.depth(CR.Clamp(0.0, 1.0)) == 0
+    @test CR.depth(CR.Transform(clamp, 0.0, 1.0)) == 0
     @test CR.depth((Deep(3), (; a = Deep(7), b = 2.0))) == 7
     @test CR.depth(()) == 0
-    @test @inferred(CR.depth((CR.Clamp(0.0, 1.0), Deep(3)))) == 3
+    @test @inferred(CR.depth((CR.Transform(clamp, 0.0, 1.0), Deep(3)))) == 3
 end
 
 @testitem "depth: a deeper buffer leaves the output unchanged" setup = [DeepBuffer] begin

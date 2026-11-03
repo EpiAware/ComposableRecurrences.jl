@@ -717,7 +717,7 @@ end
         CR.Depletion(CR.Truncate(0.5); pools = (S = PerStratum([30.0, 40.0]),)),
     )
     for m in mods
-        r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))
+        r = Recurrence(g; coupling = K, modifiers = (m, CR.Transform(+, 0.1)))
         @test pullback_matches(r, recargs(R, nothing, h)...)
         @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
     end

@@ -122,7 +122,7 @@ A share ``\delta`` leaving the beds is a geometric length of stay, with
 survival ``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
 admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
 indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
-[`ComposableRecurrences.Clamp`](@ref) or a `Depletion` that fills a pool.
+`Transform(clamp, lo, hi)` or a `Depletion` that fills a pool.
 A `Depletion` holds the fields `pools` (each pool's starting value,
 `nothing` for its default) and `pieces`: the draws, each with `N` and its
 pools named by position, and the flows given one after another as one

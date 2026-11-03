@@ -203,7 +203,7 @@ end
         )
     end
     θ = vcat([0.3, 0.2], fill(0.1, 6), 0.1, fill(0.5, 12))
-    mods = (flows(θ), CR.Clamp(0.0, 1.0e6))
+    mods = (flows(θ), CR.Transform(clamp, 0.0, 1.0e6))
     checked(m) = ComposableRecurrences._check_times(:modifiers, m, 6)
     check_allocs(m) = (checked(m); @allocated checked(m))
     @test (@inferred checked(mods)) === nothing
@@ -215,7 +215,7 @@ end
     call(m) = Recurrence([1.0]; modifiers = m)(; history = zeros(4, 1), add = adm)
     call_allocs(m) = (call(m); @allocated call(m))
     before = call_allocs(mods)
-    loss(θ) = sum(call((flows(θ), CR.Clamp(0.0, 1.0e6))))
+    loss(θ) = sum(call((flows(θ), CR.Transform(clamp, 0.0, 1.0e6))))
     @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
     # A gradient does not leave the checks to run inference on each call.
     @test check_allocs(mods) == 0 skip = coverage

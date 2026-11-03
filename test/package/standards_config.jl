@@ -66,7 +66,7 @@ const MATHS_FIRST_PAGES = (
     "docs/src/getting-started/tutorials/vaccination.jl",
 )
 const MATHS_FIRST_CALLS = (
-    "Recurrence", "Convolution", "Depletion", "Redistribute", "Add", "Clamp",
+    "Recurrence", "Convolution", "Depletion", "Redistribute",
     "Allocate", "Transform", "Pairwise",
 )
 # Sections that only reuse a model introduced earlier on the page, as

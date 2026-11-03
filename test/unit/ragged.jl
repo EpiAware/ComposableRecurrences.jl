@@ -169,6 +169,6 @@ end
     @test_throws "10 kernel columns of up to 6 entries" PerStratum(TimeVarying(KS))
     @test_throws "10 kernel columns of up to 6 entries" PerStratum(TimeVarying(flat))
     @test_throws ArgumentError Pairwise(TimeVarying(KS))
-    @test_throws ArgumentError CR.Add(TimeVarying(KS))
+    @test_throws ArgumentError CR.Transform(+, TimeVarying(KS))
     @test_throws ArgumentError Recurrence([0.5]; coupling = TimeVarying(KS))
 end

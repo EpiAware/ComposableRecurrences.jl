@@ -6,7 +6,7 @@ module ReactantCases
 
 using ComposableRecurrences
 using ComposableRecurrences: Derived, Recent
-using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
+using ComposableRecurrences: Allocate, Depletion, Floor, Flow,
     Hazard, Primary, Redistribute, Secondary, Step, Transform, Truncate
 using LinearAlgebra: I
 
@@ -220,12 +220,12 @@ end
 
 function mod_add(θ)
     b = TimeVarying(θ[(L + T + 1):end])
-    r = Recurrence(θ[1:L]; modifiers = (Add(b),))
+    r = Recurrence(θ[1:L]; modifiers = (Transform(+, b),))
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
 
 function mod_clamp(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Clamp(1.2, 1.6),))
+    r = Recurrence(θ[1:L]; modifiers = (Transform(clamp, 1.2, 1.6),))
     return r(θ[(L + 1):end]; history = H1)
 end
 
@@ -300,7 +300,7 @@ end
 function mod_add_cp(θ)
     at(i) = sum(view(θ, i:i))
     b = TimeVarying([1 => at(L + T + 1), CP2 => at(L + T + 2)])
-    r = Recurrence(θ[1:L]; modifiers = (Add(b),))
+    r = Recurrence(θ[1:L]; modifiers = (Transform(+, b),))
     return r(θ[(L + 1):(L + T)]; history = H1)
 end
 
@@ -406,11 +406,11 @@ const CASES = [
         mod_transform, vcat(g0, R0, 5.0 .+ 0.1 .* (1:T)), W1
     ),
     Case(
-        "mod_add", "Recurrence with Add (TimeVarying)", mod_add,
+        "mod_add", "Recurrence with Transform(+) (TimeVarying)", mod_add,
         vcat(g0, R0, 0.1 .* cos.(1:T)), W1
     ),
     Case(
-        "mod_clamp", "Recurrence with Clamp", mod_clamp,
+        "mod_clamp", "Recurrence with Transform(clamp)", mod_clamp,
         vcat(g0, R0), W1
     ),
     Case(
@@ -449,7 +449,7 @@ const CASES = [
         conv_cp_secondary, vcat(cp_values(d0), x0), W1
     ),
     Case(
-        "mod_add_cp", "Recurrence with Add (change points)", mod_add_cp,
+        "mod_add_cp", "Recurrence with Transform(+) (change points)", mod_add_cp,
         vcat(g0, R0, [0.1, -0.05]), W1
     ),
 ]

@@ -5,7 +5,7 @@
 @testmodule GPUCases begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
-    using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
+    using ComposableRecurrences: Allocate, Depletion,
         Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
         contributions
     using JLArrays: JLSparseMatrixCSR
@@ -239,15 +239,20 @@
                 ),
             )
         )(d(RS); history = d(HS)),
-        "Add" =>
-            d -> Recurrence(d(g0); modifiers = (Add(TimeVarying(d(0.1 .* cos.(1:T)))),))(
+        "Transform(+, b)" =>
+            d -> Recurrence(
+            d(g0); modifiers = (Transform(+, TimeVarying(d(0.1 .* cos.(1:T)))),)
+        )(
             d(R0); history = d(H1)
         ),
-        "Clamp" =>
+        "Transform(clamp, lo, hi)" =>
             d -> Recurrence(
             d(g0);
             modifiers = (
-                Clamp(TimeVarying(PerStratum(d(fill(1.2, S, T)))), PerStratum(d([1.5, 1.6, 1.7]))),
+                Transform(
+                    clamp, TimeVarying(PerStratum(d(fill(1.2, S, T)))),
+                    PerStratum(d([1.5, 1.6, 1.7]))
+                ),
             )
         )(d(RS); history = d(HS)),
         "Redistribute" =>
@@ -275,8 +280,9 @@
             d -> Recurrence(
             d(g0); coupling = d(K0),
             modifiers = (
-                Add(0.1), Depletion(PerStratum(d(NS))),
-                Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))), Clamp(0.0, 10.0),
+                Transform(+, 0.1), Depletion(PerStratum(d(NS))),
+                Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
+                Transform(clamp, 0.0, 10.0),
             )
         )(d(RS); history = d(HS)),
     ]
@@ -460,7 +466,7 @@ end
 
 @testitem "JLArrays: coefficients from change points refuse a device" begin
     using ComposableRecurrences, JLArrays, Adapt
-    using ComposableRecurrences: Add, Primary
+    using ComposableRecurrences: Transform, Primary
     JLArrays.allowscalar(false)
     x, h = JLArray(ones(2, 6)), JLArray(ones(2, 2))
     g1, g2 = JLArray([0.5, 0.5]), JLArray([0.3, 0.7])
@@ -478,7 +484,7 @@ end
     end
     C = TimeVarying([1 => JLArray([0.9 0.1; 0.2 0.8]), 3 => JLArray([1.0 0.0; 0.0 1.0])])
     @test occursin("change points", msg(() -> Recurrence(g1; coupling = C)(x; history = h)))
-    m = Add(TimeVarying([1 => 0.1, 3 => 0.2]))
+    m = Transform(+, TimeVarying([1 => 0.1, 3 => 0.2]))
     r = Recurrence(g1; modifiers = (m,))
     @test occursin("change points", msg(() -> r(x; history = h)))
     # `adapt` refuses them too.
@@ -490,7 +496,7 @@ end
     using Adapt: adapt
     using ComposableRecurrences
     using ComposableRecurrences: Derived
-    using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
+    using ComposableRecurrences: Allocate, Depletion,
         Flow, Hazard, Redistribute, Share, Transform, Truncate
     using JLArrays
     # Inside a kernel each wrapper and modifier must hold device arrays only:
@@ -510,7 +516,7 @@ end
                 PerStratum(v), Hazard(; weights = (S = 1, V = PerStratum(v))),
                 Flow(1 => 2, tv; form = Truncate()); pools = (:S, :V)
             ),
-            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m),
+            Transform(+, tv), Transform(clamp, PerStratum(v), tv), Redistribute(m),
             Transform(*, 0.8 * Derived(exp, tv)),
             Depletion(
                 Flow(1 => 2, PerStratum(v)),
@@ -527,6 +533,9 @@ end
         @test typeof(y).name === typeof(x).name
         @test !holds_host(y)
     end
+    # The rebuild keeps a Transform's map and the order of its bounds.
+    y = adapt(JLArrays.Adaptor(), Transform(clamp, PerStratum(v), tv))
+    @test y.f === clamp && y.θ[1] isa PerStratum && y.θ[2] isa TimeVarying
 end
 
 @testitem "JLArrays: adapting an operator moves its parameters to the device" begin

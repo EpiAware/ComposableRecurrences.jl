@@ -222,7 +222,7 @@ Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 ```
 
 Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
-The `add` input enters before every modifier, and an `Add` enters where it sits in the tuple.
+The `add` input enters before every modifier, and a `Transform(+, b)` enters where it sits in the tuple.
 A [`Convolution`](@ref) has no modifiers.
 
 A `Depletion` holds pools, such as the people left to infect.
@@ -235,8 +235,8 @@ The value a step asks for is drawn from the pools.
 | [`Depletion(cap, Truncate(; into = :O); pools = (:O,))`](@ref ComposableRecurrences.Depletion) | fills pool `:O` up to a capacity `cap` | the capacity |
 | [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | a part that moves values from pool `from` to pool `to` at each step | the rate |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute), `Redistribute(K, ε; leak)` | moves a share of each stratum's value to other strata | `M`, or `K` and `ε` |
-| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | `b` |
-| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | `lo`, `hi` |
+| [`Transform(+, b)`](@ref ComposableRecurrences.Transform) | adds ``b`` at this point in the order | `b` |
+| [`Transform(clamp, lo, hi)`](@ref ComposableRecurrences.Transform) | bounds each value | `lo`, `hi` |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of strata to a known total | `total` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
 
@@ -255,7 +255,7 @@ An `Allocate` keeps each stratum's share of its group.
 With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
 Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
 A [pointwise](@ref explanation-modifier-scope) modifier acts on each stratum on its own.
-`Add`, `Clamp` and `Transform` are pointwise.
+`Transform` is pointwise.
 So is a `Depletion` with one pool whose draws leave nothing over.
 `Redistribute` and `Allocate` act on several strata.
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).

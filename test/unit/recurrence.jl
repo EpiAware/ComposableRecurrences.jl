@@ -173,7 +173,7 @@ end
     @test Recurrence(TimeVarying(Pairwise(P4)))(R; history = h) ≈ ref
     @test Recurrence(Pairwise(TimeVarying(P4)))(R; history = h) ≈ ref
     # With a modifier, as any kernel.
-    y = Recurrence(Pairwise(P); modifiers = (ComposableRecurrences.Add(0.5),))(
+    y = Recurrence(Pairwise(P); modifiers = (ComposableRecurrences.Transform(+, 0.5),))(
         R; history = h
     )
     @test y ≈ naive_recurrence(
@@ -358,9 +358,9 @@ end
         100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
         CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
-    @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
+    @test CR.nstate(CR.Transform(clamp, 0.0, 10.0), 2) == 2
     @test CR.nstate(d, 2) == 4
-    r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(clamp, 0.0, 10.0), d))
     R, h = fill(1.1, 2, 6), ones(2, 2)
     y, state = r(R; history = h, stop = 3, state = true)
     @test length.(state.states) == (2, 4)

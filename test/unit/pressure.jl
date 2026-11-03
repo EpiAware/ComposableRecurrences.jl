@@ -95,7 +95,7 @@ end
 
 @testitem "pressure: the effective value under depletion" setup = [PressureCases] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Depletion, Add
+    using ComposableRecurrences: Depletion, Transform
     using .PressureCases: S, T, g, K, R, pressure
     pop = [600.0, 250.0, 100.0]
     seed = fill(2.0, S, 4)
@@ -117,7 +117,7 @@ end
     # the output less the imports gives the depleted value, as do the drawn
     # values after the pools in the trace.
     ι = [t <= 5 ? 1.0 : 0.0 for _ in 1:S, t in 1:T]
-    imports = Add(TimeVarying(PerStratum(ι)))
+    imports = Transform(+, TimeVarying(PerStratum(ι)))
     ra = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)), imports))
     ya, tra = ra(R; history = seed, trace = true)
     M = first(tra.modifiers)

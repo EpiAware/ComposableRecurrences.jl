@@ -96,7 +96,7 @@ end
 # After day 75 the pool holds 28% of the town.
 #
 # The ratio counts all of ``I_t``, including values the gain does not multiply.
-# Imports ``\iota_t`` added after the depletion by [`Add`](@ref ComposableRecurrences.Add) are such values, so with them ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
+# Imports ``\iota_t`` added after the depletion by [`Transform(+, ι)`](@ref ComposableRecurrences.Transform) are such values, so with them ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
 # An `add` input enters before the depletion and is drawn with the rest, so the ratio then includes its share.
 
 # ## Performance

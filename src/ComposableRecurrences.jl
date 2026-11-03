@@ -39,7 +39,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | multiplicative input | `r(gain; ...)`                                                       |
 | additive input       | `add =`, before the modifiers                                        |
 | seed and resume      | `history =`, `state =`                                               |
-| modifiers            | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Allocate`, `Transform` |
+| modifiers            | `Depletion`, `Redistribute`, `Allocate`, `Transform`                 |
 | pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
 | filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
 | variants             | structs: `Hazard()`, `Floor()`, `Primary()`                          |
@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
 public Derived, Recent, Depletion, Flow, Share, Redistribute,
-    Add, Clamp, Allocate, Transform, Hazard, Floor, Truncate,
+    Allocate, Transform, Hazard, Floor, Truncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,

@@ -331,13 +331,13 @@ end
     ∇ref_before = ReferenceAD.gradient(loss(ref_before), θ0)
 
     # The mixing is the coupling, the pool is per stratum, and the imports
-    # are per stratum and day: `Add` after the depletion, or `add` before it.
+    # are per stratum and day: `Transform(+, ι)` after the depletion, or `add` before it.
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function after(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
             PerStratum(N), ComposableRecurrences.Floor()
         )
-        imports = ComposableRecurrences.Add(TimeVarying(PerStratum(ι)))
+        imports = ComposableRecurrences.Transform(+, TimeVarying(PerStratum(ι)))
         renewal = Recurrence(g; coupling = K, modifiers = (depletion, imports))
         return renewal(Rt; history = window)
     end

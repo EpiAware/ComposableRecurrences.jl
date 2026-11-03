@@ -1,4 +1,5 @@
-# The built-in modifiers: Depletion, Add, Redistribute and Clamp.
+# The built-in modifiers: Depletion, Transform(+, b), Redistribute and
+# Transform(clamp, lo, hi).
 # Forward values against naive loops, ForwardDiff gradients through a
 # recurrence, and each hand-written pullback against a local ForwardDiff
 # Jacobian of the Step in the step's values, state and the modifier's own
@@ -188,15 +189,15 @@ end
     @test all(y .>= 0)
 end
 
-@testitem "Add: scalar, per stratum and time-varying" begin
+@testitem "Transform(+, b): scalar, per stratum and time-varying" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     g = [0.5, 0.5]
     h = [1.0 1.0; 2.0 2.0]
     base(add) = Recurrence(g)(1.1; history = h, add)
     b = [0.1 0.2 0.3 0.4; 0.5 0.6 0.7 0.8]
-    r(b) = Recurrence(g; modifiers = (CR.Add(b),))
-    # Alone, Add is the same as `add`.
+    r(b) = Recurrence(g; modifiers = (CR.Transform(+, b),))
+    # Alone, `Transform(+, b)` is the same as `add`.
     @test r(0.5)(1.1; history = h, stop = 4) ≈ base(fill(0.5, 2, 4))
     @test r(PerStratum(b[:, 1]))(1.1; history = h, stop = 4) ≈
         base(repeat(b[:, 1], 1, 4))
@@ -207,10 +208,11 @@ end
     y = r(TimeVarying(PerStratum(b)))(1.1; history = h, start = 3, stop = 4)
     @test y ≈ Recurrence(g)(1.1; history = h, add = b, start = 3)
     # A plain array is not a parameter, and the values must cover stop.
-    @test_throws ArgumentError CR.Add(b[1, :])
-    @test_throws ArgumentError CR.Add(b)
-    @test_throws ArgumentError CR.Add(TimeVarying(b[1, :], CR.Primary()))
-    @test_throws "only meaningful for a kernel; got TimeVarying(" CR.Add(
+    @test_throws ArgumentError CR.Transform(+, b[1, :])
+    @test_throws ArgumentError CR.Transform(+, b)
+    @test_throws ArgumentError CR.Transform(+, TimeVarying(b[1, :], CR.Primary()))
+    @test_throws "only meaningful for a kernel; got TimeVarying(" CR.Transform(
+        +,
         TimeVarying(b[1, :], CR.Primary())
     )
     @test_throws DimensionMismatch r(TimeVarying(b[1, :]))(1.1; history = h, stop = 5)
@@ -219,13 +221,14 @@ end
     )
 end
 
-@testitem "Add after depletion is not depleted" begin
+@testitem "Transform(+, b) after depletion is not depleted" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     g = [1.0]
     b = [0.5, 1.0, 2.0]
     d = CR.Depletion(10.0, CR.Floor())
-    y = Recurrence(g; modifiers = (d, CR.Add(TimeVarying(b))))(1.0; history = [2.0], stop = 3)
+    r = Recurrence(g; modifiers = (d, CR.Transform(+, TimeVarying(b))))
+    y = r(1.0; history = [2.0], stop = 3)
     function naive()
         S, prev, out = 10.0, 2.0, Float64[]
         for t in 1:3
@@ -428,31 +431,91 @@ end
     @test sum(y) < 1.5
 end
 
-@testitem "Clamp: bounds, scalar and per stratum" begin
+@testitem "Transform(clamp, lo, hi): bounds, scalar and per stratum" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [-1.0, 0.5, 3.0], zeros(3)
-    CR.forward!(CR.Clamp(0.0, 1.0), CR.Step(), v, s, 1)
+    CR.forward!(CR.Transform(clamp, 0.0, 1.0), CR.Step(), v, s, 1)
     @test v == [0.0, 0.5, 1.0]
     v = [-1.0, 0.5, 3.0]
     CR.forward!(
-        CR.Clamp(PerStratum([-2.0, 0.6, 0.0]), PerStratum([0.0, 1.0, 2.0])),
+        CR.Transform(clamp, PerStratum([-2.0, 0.6, 0.0]), PerStratum([0.0, 1.0, 2.0])),
         CR.Step(), v, s, 1
     )
     @test v == [-1.0, 0.6, 2.0]
-    y = Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
+    r = Recurrence([2.0]; modifiers = (CR.Transform(clamp, 0.0, 5.0),))
+    y = r(1.0; history = [1.0], stop = 4)
     @test y == [2.0, 4.0, 5.0, 5.0]
     # A time-varying bound is read at the absolute time.
     hi = TimeVarying([10.0, 3.0, 10.0, 6.0])
-    y = Recurrence([2.0]; modifiers = (CR.Clamp(0.0, hi),))(1.0; history = [1.0], stop = 4)
+    r = Recurrence([2.0]; modifiers = (CR.Transform(clamp, 0.0, hi),))
+    y = r(1.0; history = [1.0], stop = 4)
     @test y == [2.0, 3.0, 6.0, 6.0]
-    @test_throws ArgumentError CR.Clamp([0.0, 1.0], 2.0)
+    @test_throws ArgumentError CR.Transform(clamp, [0.0, 1.0], 2.0)
+end
+
+@testitem "Transform: rebuilt from its fields, and inferred" begin
+    using ComposableRecurrences, ConstructionBase, KernelAbstractions, Adapt
+    CR = ComposableRecurrences
+    # `clamp` and `+` with their own pullbacks, and a map with a derivative.
+    derivative(v, θ) = (θ, v)
+    for m in (
+            CR.Transform(clamp, 0.0, PerStratum([1.0, 2.0])),
+            CR.Transform(+, TimeVarying([1.0, 2.0])),
+            CR.Transform(*, 0.5; derivative),
+        )
+        @test constructorof(typeof(m))(getfields(m)...) === m
+        @test setproperties(m, (; θ = m.θ)) === m
+        @test adapt(KernelAbstractions.CPU(), m) === m
+        @test @inferred(constructorof(typeof(m))(m.f, m.θ, m.derivative)) === m
+        m.f === clamp ||
+            @test @inferred(CR.Transform(m.f, m.θ; derivative = m.derivative)) === m
+    end
+    @test setproperties(CR.Transform(clamp, 0.0, 1.0), (; θ = (0.5, 2.0))) ===
+        CR.Transform(clamp, 0.5, 2.0)
+    # The bounds have one spelling.
+    @test CR.Transform(clamp, 0.0, 1.0).θ === (0.0, 1.0)
+    @test_throws "Transform(clamp, lo, hi)" CR.Transform(clamp, (0.0, 1.0))
+    @test_throws "Transform(clamp, lo, hi)" CR.Transform(clamp)
+    @inferred CR.Transform(clamp, 0.0, 1.0)
+    @inferred CR.Transform(clamp, TimeVarying([0.0, 1.0]), PerStratum([1.0, 2.0]))
+    @inferred CR.Transform(+, PerStratum([1.0, 2.0]))
+    @test_throws "lo is" CR.Transform(clamp, [0.0, 1.0], 2.0)
+    @test_throws "hi is" CR.Transform(clamp, 0.0, [1.0, 2.0])
+end
+
+@testitem "Transform: the + and clamp pullbacks match the generic rule" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    # Each against the same map as a plain function, which takes the local
+    # forward-mode derivative.
+    plus(v, b) = v + b
+    bounded(v, θ) = clamp(v, θ...)
+    v, s, v̄ = [-1.0, 0.5, 3.0], zeros(3), [0.7, -1.2, 2.0]
+    grads(θ̄) = (; piece = (; θ = θ̄), v = copy(v̄), s = zeros(3))
+    b = PerStratum([0.1, 0.2, 0.3])
+    g1, g2 = grads((; x = zeros(3))), grads((; x = zeros(3)))
+    CR.pullback!(g1, CR.Transform(+, b), CR.Step(), v, s, 1)
+    CR.pullback!(g2, CR.Transform(plus, b), CR.Step(), v, s, 1)
+    @test g1.v ≈ g2.v
+    @test g1.piece.θ.x ≈ g2.piece.θ.x
+    # Below the lower bound, then above the upper bound twice.
+    lo, hi = 0.0, PerStratum([1.0, 0.4, 2.0])
+    g1 = grads((Ref(0.0), (; x = zeros(3))))
+    g2 = grads((Ref(0.0), (; x = zeros(3))))
+    CR.pullback!(g1, CR.Transform(clamp, lo, hi), CR.Step(), v, s, 1)
+    CR.pullback!(g2, CR.Transform(bounded, (lo, hi)), CR.Step(), v, s, 1)
+    @test g1.v ≈ g2.v
+    @test g1.piece.θ[1][] ≈ g2.piece.θ[1][]
+    @test g1.piece.θ[2].x ≈ g2.piece.θ[2].x
+    # Three positional arguments are `clamp`'s map and bounds only.
+    @test_throws MethodError CR.Transform(sin, 1.0, 2.0)
 end
 
 @testitem "Built-in modifiers implement the piece interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
-    for T in (CR.Depletion, CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp)
+    for T in (CR.Depletion, CR.Hazard, CR.Floor, CR.Transform, CR.Redistribute)
         @test Interfaces.implements(CR.PieceInterface, T)
     end
 end
@@ -639,32 +702,39 @@ end
     end
 end
 
-@testitem "Add pullback matches the local Jacobian" setup = [ModifierChecks] begin
+@testitem "Transform(+) pullback matches the local Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [1.0, 2.0], [0.3, 0.4]
-    c = ModifierChecks.check_pullback(θ -> CR.Add(θ[1]), [0.7], v, s, 2)
+    c = ModifierChecks.check_pullback(θ -> CR.Transform(+, θ[1]), [0.7], v, s, 2)
     @test c.v && c.s && c.θ
     @test c.θ̄[1] != 0
-    c = ModifierChecks.check_pullback(θ -> CR.Add(PerStratum(θ)), [0.1, 0.2], v, s, 2)
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Transform(+, PerStratum(θ)), [0.1, 0.2], v, s, 2
+    )
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Add(TimeVarying(PerStratum(reshape(θ, 2, 3)))),
+        θ -> CR.Transform(+, TimeVarying(PerStratum(reshape(θ, 2, 3)))),
         collect(0.1:0.1:0.6), v, s, 3
     )
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Add(TimeVarying(θ)), [0.1, 0.2, 0.3], v, s, 2
+        θ -> CR.Transform(+, TimeVarying(θ)), [0.1, 0.2, 0.3], v, s, 2
     )
     @test c.v && c.s && c.θ
     # On the whole vectors, a shift leaves the value's cotangent and adds
     # each stratum's into its own shift.
     b̄ = zeros(2)
-    g = (; piece = (; b = b̄), v = [0.5, 2.0], s = [0.1, 0.2])
-    @test CR.pullback!(g, CR.Add(PerStratum([0.1, 0.2])), CR.Step(), v, s, 1) === nothing
+    g = (; piece = (; θ = b̄), v = [0.5, 2.0], s = [0.1, 0.2])
+    m = CR.Transform(+, PerStratum([0.1, 0.2]))
+    @test CR.pullback!(g, m, CR.Step(), v, s, 1) === nothing
     @test g.v == [0.5, 2.0]
     @test g.s == [0.1, 0.2]
     @test b̄ == [0.5, 2.0]
+    # Without `b` it is the identity, with no parameter to add into.
+    g = (; piece = (; θ = nothing), v = [0.5, 2.0], s = [0.1, 0.2])
+    @test CR.pullback!(g, CR.Transform(+), CR.Step(), v, s, 1) === nothing
+    @test g.v == [0.5, 2.0]
 end
 
 @testitem "Redistribute pullback matches the local Jacobian" setup = [ModifierChecks] begin
@@ -688,20 +758,22 @@ end
     end
 end
 
-@testitem "Clamp pullback matches the local Jacobian" setup = [ModifierChecks] begin
+@testitem "Transform(clamp) pullback matches the Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [-1.0, 0.5, 3.0], [0.1, 0.2, 0.3]
-    c = ModifierChecks.check_pullback(θ -> CR.Clamp(θ[1], θ[2]), [0.0, 1.0], v, s, 1)
+    c = ModifierChecks.check_pullback(
+        θ -> CR.Transform(clamp, θ[1], θ[2]), [0.0, 1.0], v, s, 1
+    )
     @test c.v && c.s && c.θ
     @test all(!iszero, c.θ̄)
     c = ModifierChecks.check_pullback(
-        θ -> CR.Clamp(PerStratum(θ[1:3]), PerStratum(θ[4:6])),
+        θ -> CR.Transform(clamp, PerStratum(θ[1:3]), PerStratum(θ[4:6])),
         [-2.0, 0.6, 0.0, 0.0, 1.0, 2.0], v, s, 1
     )
     @test c.v && c.s && c.θ
     c = ModifierChecks.check_pullback(
-        θ -> CR.Clamp(TimeVarying(θ[1:2]), θ[3]), [0.0, 0.7, 2.0], v, s, 2
+        θ -> CR.Transform(clamp, TimeVarying(θ[1:2]), θ[3]), [0.0, 0.7, 2.0], v, s, 2
     )
     @test c.v && c.s && c.θ
 end
@@ -721,8 +793,8 @@ end
                 PerStratum(θ[2:4]), CR.Hazard(θ[5]);
                 pools = (S = PerStratum(max.(θ[2:4] .- vec(sum(h; dims = 2)), 0)),)
             ),
-            CR.Add(θ[6]),
-            CR.Clamp(0.0, θ[7]),
+            CR.Transform(+, θ[6]),
+            CR.Transform(clamp, 0.0, θ[7]),
         )
         return sum(w .* Recurrence(g; modifiers = mods)(R; history = h))
     end
@@ -766,7 +838,7 @@ end
     @test ca(R) == cb(R)
     # And for modifier parameters.
     for build in (
-            b -> CR.Add(b), b -> CR.Depletion(b), b -> CR.Clamp(0.0, b),
+            b -> CR.Transform(+, b), b -> CR.Depletion(b), b -> CR.Transform(clamp, 0.0, b),
         )
         ma, mb = build(TimeVarying(PerStratum(B))), build(PerStratum(TimeVarying(B)))
         @test typeof(ma) === typeof(mb)
@@ -860,7 +932,7 @@ end
                 PerStratum([100.0, 50.0]), CR.Hazard(1.5);
                 pools = (S = PerStratum([97.0, 46.0]),)
             ),
-            CR.Add(0.5), CR.Clamp(0.0, 5.0), CR.Redistribute(K, 0.1),
+            CR.Transform(+, 0.5), CR.Transform(clamp, 0.0, 5.0), CR.Redistribute(K, 0.1),
         )
         r = Recurrence([0.5, 0.5]; modifiers = (m,))
         @test (@inferred r(fill(1.1, 2, 6); history = ones(2, 2))) isa
@@ -868,7 +940,7 @@ end
     end
     r = Recurrence(
         Float32[0.5, 0.5];
-        modifiers = (CR.Depletion(100.0f0), CR.Clamp(0.0f0, 5.0f0))
+        modifiers = (CR.Depletion(100.0f0), CR.Transform(clamp, 0.0f0, 5.0f0))
     )
     @test (@inferred r(fill(1.1f0, 6); history = ones(Float32, 2))) isa
         Vector{Float32}
