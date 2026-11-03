@@ -142,14 +142,20 @@ end
 function Transform(f, θ = nothing; derivative = nothing)
     return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
 end
-# The bounds are held as `θ = (lo, hi)`.
+# The bounds are held as `θ = (lo, hi)`, and passed only as `lo, hi`.
 function Transform(::typeof(clamp), lo, hi)
-    return Transform(clamp, (_check_param(:lo, lo), _check_param(:hi, hi)))
+    θ = (_check_param(:lo, lo), _check_param(:hi, hi))
+    return Transform{typeof(clamp), typeof(θ), Nothing}(clamp, θ, nothing)
 end
-# Rebuilt from its fields, as `Adapt` and the dual-number rebuild do: three
-# positional arguments are `clamp`'s map and bounds, not the fields.
+@noinline function Transform(::typeof(clamp), θ = nothing; derivative = nothing)
+    throw(ArgumentError("pass clamp's bounds as Transform(clamp, lo, hi)"))
+end
+# Rebuilt from its fields, as `Adapt` and the dual-number rebuild do, so the
+# positional forms above do not apply.
 ConstructionBase.constructorof(::Type{<:Transform}) = _transform
-_transform(f, θ, derivative) = Transform(f, θ; derivative)
+function _transform(f, θ, derivative)
+    return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
+end
 
 _check_theta(::Nothing) = nothing
 function _check_theta(θ::Union{Tuple, NamedTuple})

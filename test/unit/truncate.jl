@@ -117,6 +117,18 @@ end
         @inferred CR._draw(form, 2.0f0, 1.5f0, 1.0)
         @inferred CR._draw(form, 0.0f0, 1.5, 1.0)
     end
+    # Each form's constructor infers, with its symbols as literals.
+    using ComposableRecurrences: Truncate
+    for make in (
+            () -> Truncate(), () -> Truncate(0.1), () -> Truncate(0.1f0),
+            () -> Truncate(0.0), () -> Truncate(; into = :O),
+            () -> Truncate(; into = :O, overflow = :stratum),
+            () -> Truncate(; into = :O, overflow = :queue),
+            () -> Truncate(; weights = (S = 1, V = 0.5)),
+            () -> Truncate(0.1; into = :S),
+        )
+        @test @inferred(make()) isa Truncate
+    end
     for form in (CR.Truncate(), CR.Truncate(0.2))
         d = CR.Depletion(50.0, form)
         @test CR.uses_adjoint(d, CR.Step())
