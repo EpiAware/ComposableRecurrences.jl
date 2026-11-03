@@ -9,14 +9,18 @@ This page writes them without the package prefix.
 Load them with `using ComposableRecurrences: Depletion, Floor, Recent`, and so on.
 Internal names, such as `ComposableRecurrences.State`, keep the prefix.
 The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
-The examples use the three-town model of [Getting started](@ref getting-started).
+The examples load these packages and names:
 
-```@setup api-overview
+```@example api-overview
 using ComposableRecurrences
 using ComposableRecurrences: Depletion, Floor, EXECUTOR, Threaded
 using Base.ScopedValues: with
 using Distributions, CensoredDistributions
+```
 
+They use `gi`, `T`, `pop`, `K`, `seed` and `R` from the three-town model of [Getting started](@ref getting-started).
+
+```@setup api-overview
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.jl"))
 ```
 
@@ -218,6 +222,8 @@ round.(totals ./ totals[1]; digits = 3)
 ```
 
 Towns B and C have 3.4% and 1.9% of town A's infections, all from the coupling, as only town A is seeded.
+This run has no depletion, so its totals exceed the towns' populations.
+The [Modifiers](@ref overview-modifiers) section adds depletion.
 
 Row ``i`` of a coupling is the stratum that receives, and column ``j`` the stratum that gives.
 The coupling [acts](@ref explanation-coupling) on the weighted sums of past outputs, before the gain.
