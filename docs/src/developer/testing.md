@@ -35,7 +35,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | `Depletion`, hazard form | 0.16 | 0.31 | keep |
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
-| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
+| `Depletion`, `Truncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with two pools and a count flow | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.07 | 0.35 | keep |
 | `Depletion` without a draw | 0.43 | 0.43 | keep |

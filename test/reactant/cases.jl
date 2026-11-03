@@ -7,8 +7,7 @@ module ReactantCases
 using ComposableRecurrences
 using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
-    Hazard, Primary, Redistribute, Secondary, SoftTruncate, Step,
-    Transform, Truncate
+    Hazard, Primary, Redistribute, Secondary, Step, Transform, Truncate
 using LinearAlgebra: I
 
 export CASES, case_by_name, loss
@@ -243,7 +242,7 @@ const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
 function mod_capacity(θ)
     c = Depletion(
         Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
-        SoftTruncate(0.5; overflow = :queue); pools = (:B,)
+        Truncate(0.5; overflow = :queue); pools = (:B,)
     )
     r = Recurrence(g0; modifiers = (c,))
     return r(reshape(θ, S, T); history = HS)
