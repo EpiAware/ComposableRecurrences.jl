@@ -20,12 +20,12 @@ where ``v_t`` is the value after the gain and `add`, ``u^{(n)}_t`` the value mod
 Each sees the value the one before it passed on, so the order is part of the model.
 A pool is a quantity a modifier carries from step to step and draws from, such as the people left to infect.
 A cap applied before depletion draws the capped value from the pool, and a cap applied after it only limits what is reported.
-With the cap ``c(v) = \min(\max(v, 0), 8)`` and the [hazard form](@ref ComposableRecurrences.Hazard) of a pool ``s_t`` of ``N``, the two orders give
+With the cap ``c(v) = \min(\max(v, 0), 8)`` and the [hazard form](@ref ComposableRecurrences.Hazard) of a pool ``S_t`` of ``N``, the two orders give
 
 ```math
 \begin{aligned}
-\text{cap first:} \quad & y_t = s_{t-1} \big(1 - e^{-c(v_t)/N}\big), & s_t &= s_{t-1} \, e^{-c(v_t)/N}, \\
-\text{cap last:} \quad & y_t = c\big(s_{t-1} \big(1 - e^{-v_t/N}\big)\big), & s_t &= s_{t-1} \, e^{-v_t/N}.
+\text{cap first:} \quad & y_t = S_{t-1} \big(1 - e^{-c(v_t)/N}\big), & S_t &= S_{t-1} \, e^{-c(v_t)/N}, \\
+\text{cap last:} \quad & y_t = c\big(S_{t-1} \big(1 - e^{-v_t/N}\big)\big), & S_t &= S_{t-1} \, e^{-v_t/N}.
 \end{aligned}
 ```
 

@@ -39,11 +39,11 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # Here ``N_p`` is patch ``p``'s population, and its pool starts at ``S_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
 # The model runs at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
 
-S, T, L, D = 11, 200, 20, 30
+S, T, L, L_w = 11, 200, 20, 30
 gi = let w = [l^2 * exp(-l / 2.5) for l in 1:L]
     w ./ sum(w)
 end
-delay = let w = [exp(-l / 6) for l in 0:(D - 1)]
+delay = let w = [exp(-l / 6) for l in 0:(L_w - 1)]
     w ./ sum(w)
 end
 N = [2.0e4 + 4.0e3 * p for p in 1:S]
