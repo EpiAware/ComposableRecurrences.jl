@@ -99,19 +99,12 @@ A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a
 | [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from step `start` to step `stop` | an array shaped like `x` |
 | [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as the reports at each time split by delay | lags × time, or strata × lags × time |
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each time, with `tail` the values after the end of `x` | an array shaped like `x` |
-| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y` | shaped like `y` |
+| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y`; `y` divided by it is the gain as run, such as the [reproduction number](@ref tutorial-reproduction-number) | shaped like `y` |
 | [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
 | [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(; y, trace)` |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
 
-Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is.
-So the gain at time ``t`` is always `gain[t]`.
-`stop` defaults to the common length of those inputs.
-Inputs of different lengths without a `stop` are an error.
-Without a gain, a recurrence takes a gain of 1.
-A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step.
-The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
 The transpose sums forward in time from each ``t``.
 For a reporting delay ``w_l`` over ``L_w`` lags and data up to time ``T``, the share of the infections at time ``t`` reported by ``T`` is
 
@@ -120,11 +113,15 @@ c_t = \sum_{l=0}^{\min(L_w, T - t + 1) - 1} w_l ,
 ```
 
 and `delay'(ones(T))` returns ``c_1, \dots, c_T``.
-It is 1 up to ``T - L_w + 1`` and falls to ``w_0`` at ``T``.
+For a delay whose weights sum to 1, it is 1 up to ``T - L_w + 1`` and falls to ``w_0`` at ``T``.
 
-```julia
-reported_share = delay'(ones(T))
-```
+Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is.
+So the gain at time ``t`` is always `gain[t]`.
+`stop` defaults to the common length of those inputs.
+Inputs of different lengths without a `stop` are an error.
+Without a gain, a recurrence takes a gain of 1.
+A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step.
+The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
 
 ## [Shapes](@id overview-shapes)
 
