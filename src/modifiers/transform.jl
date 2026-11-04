@@ -51,6 +51,14 @@ Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
 forward-mode derivative or `derivative`, or a hand-written one for `+` and
 `clamp`.
 
+# Arguments
+- `f`: the map, called as `f(v)` or `f(v, θ)`.
+- `θ`: the parameters, or `nothing`.
+- `lo`, `hi`: with `clamp`, the lower and upper bounds, each a parameter.
+
+# Keyword Arguments
+- `derivative`: the derivative of `f`, or `nothing` for the local one.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
