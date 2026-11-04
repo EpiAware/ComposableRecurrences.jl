@@ -28,6 +28,9 @@ gain.
 With modifiers or added values the ratio is the gain as realised on each
 step, with their effect included.
 Where ``q_{t,i}`` is zero the ratio is `NaN` or `Inf`.
+A call with `record = (:trace,)` returns the same pressures as
+`trace.pressure` from the run itself, with no second pass; this function
+is for outputs that did not come from such a call.
 
 # Arguments
 - `r`: the recurrence.
