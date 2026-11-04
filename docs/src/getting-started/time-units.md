@@ -6,7 +6,6 @@ A model has one time unit, its step.
 using ComposableRecurrences, Distributions, CensoredDistributions
 using ComposableRecurrences: Transform
 gi = Gamma(2.0, 2.5)   # a generation interval in days, mean 5 days
-nothing # hide
 ```
 
 ## [The step is the unit](@id time-units-step)
@@ -87,8 +86,10 @@ The gain is data, one value per step, so it is the weekly values repeated:
 ```@example time-units
 Rw = [1.4, 1.1, 0.8]
 R = repeat(Rw; inner = 7)
-nothing # hide
+R[6:9]
 ```
+
+Days 6 and 7 hold the value of week 1, and days 8 and 9 the value of week 2.
 
 A kernel, coupling or modifier parameter that changes at a few times is given by its change points, `[t => value]` in [`TimeVarying`](@ref).
 Each value holds from its start until the next.
@@ -140,8 +141,10 @@ The first is one line:
 ```@example time-units
 w = [70.0, 140.0, 210.0]
 x = repeat(w ./ 7; inner = 7)
-nothing # hide
+x[6:9]
 ```
+
+Each week's total is spread evenly over its seven days, so the daily value jumps from 10 to 20 at day 8.
 
 The third steps by week, with the delays censored on weeks:
 

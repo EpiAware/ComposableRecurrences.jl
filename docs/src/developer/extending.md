@@ -439,14 +439,14 @@ Last, compare a reverse-mode gradient through the operator with its [`NoAdjoint`
 Use Mooncake or Enzyme, and a loss that changes with every parameter.
 Forward-mode [backends](@ref adjoint-backends) never take the rule.
 
-```julia
+```@example extending
 using DifferentiationInterface, Mooncake
 
-r(a) = Recurrence([0.5, 0.5]; modifiers = (Smooth(a[1]),))
-loss(op) = a -> sum(abs2, op(a)(fill(1.2, 30); history = [1.0, 2.0]))
+smooth(a) = Recurrence([0.5, 0.5]; modifiers = (Smooth(a[1]),))
+abs2_loss(op) = a -> sum(abs2, op(a)(fill(1.2, 30); history = [1.0, 2.0]))
 backend = AutoMooncake(; config = nothing)
-gradient(loss(r), backend, [0.3]) ≈
-    gradient(loss(CR.NoAdjoint ∘ r), backend, [0.3])
+gradient(abs2_loss(smooth), backend, [0.3]) ≈
+    gradient(abs2_loss(CR.NoAdjoint ∘ smooth), backend, [0.3])
 ```
 
 For a new operator, `ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)` then runs the backend's own rule tester on its rule, with `args` its positional arguments.

@@ -217,9 +217,10 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4)
-nothing # hide
+round.(Int, vec(sum(infections; dims = 2)))
 ```
 
+The result is each town's total infections over the 75 days.
 The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
 
 ```@example overview
@@ -314,8 +315,10 @@ One line gives the gradient of all reports with respect to every town's reproduc
 
 ```@example overview
 ∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
-nothing # hide
+round.(vec(sum(∂R; dims = 2)); digits = 1)
 ```
+
+The result is the gradient summed over days for each town.
 
 ```@example overview
 @chain long(∂R, towns) begin

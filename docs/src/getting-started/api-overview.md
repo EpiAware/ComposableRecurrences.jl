@@ -9,6 +9,20 @@ This page writes them without the package prefix.
 Load them with `using ComposableRecurrences: Depletion, Floor, Recent`, and so on.
 Internal names, such as `ComposableRecurrences.State`, keep the prefix.
 The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
+The examples load these packages and names:
+
+```@example api-overview
+using ComposableRecurrences
+using ComposableRecurrences: Depletion, Floor, EXECUTOR, Threaded
+using Base.ScopedValues: with
+using Distributions, CensoredDistributions
+```
+
+They use `gi`, `T`, `pop`, `K`, `seed` and `R` from the three-town model of [Getting started](@ref getting-started).
+
+```@setup api-overview
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.jl"))
+```
 
 ## [A step](@id overview-step)
 
@@ -64,9 +78,10 @@ The symbol ``\odot`` multiplies element by element.
 `Recurrence` and `Convolution` are the two [operators](@ref explanation-operators).
 Each is built once from a kernel and then called like a function.
 
-```julia
+```@example api-overview
 renewal = Recurrence(gi)
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+delay([10.0, 20.0, 30.0])
 ```
 
 | Name | What it does | Returns |
@@ -86,9 +101,10 @@ A call runs an operator over a range of steps.
 A recurrence takes its gain first, and a convolution takes its input first and its gain as a keyword.
 In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in Getting started.
 
-```julia
+```@example api-overview
 infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4)
+size(reports)
 ```
 
 A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the time the next step computes.
@@ -122,8 +138,9 @@ A plain array gives one set of numbers for every stratum and time.
 A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata or per step.
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
-```julia
+```@example api-overview
 Depletion(PerStratum(pop))
+nothing # hide
 ```
 
 A route is one way values pass between strata, such as infection through contact in the community or at funerals.
@@ -162,9 +179,13 @@ Inputs and outputs are strata × time arrays, histories are strata × time befor
 A delay distribution, such as a gamma generation interval, can stand in for a kernel.
 The operator turns it into masses: the probability that the delay falls on each whole lag.
 
-```julia
+```@example api-overview
 Recurrence(Gamma(2.0, 2.5); lags = 15)
+masses = ComposableRecurrences.delay_masses(Gamma(2.0, 2.5), 15)
+round(masses[1]; digits = 3), round(sum(masses[2:end]); digits = 3)
 ```
+
+The recurrence keeps the masses on lags 1 to 14, 0.957 of the delay, and drops the mass of 0.022 on lag 0.
 
 `Gamma` comes from the Distributions.jl package, and a continuous delay such as it needs CensoredDistributions.jl loaded.
 A type works as a delay when it has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method, which gives its masses on lags `0` to `lags - 1`.
@@ -195,9 +216,14 @@ A chain may also hold mass vectors, and it is itself a delay, so it fits whereve
 A coupling sets how much each stratum's past outputs drive each stratum, such as travel between towns.
 In Getting started, `K` is a gravity coupling.
 
-```julia
-Recurrence(gi; coupling = K)
+```@example api-overview
+totals = vec(sum(Recurrence(gi; coupling = K)(R; history = seed); dims = 2))
+round.(totals ./ totals[1]; digits = 3)
 ```
+
+Towns B and C have 3.4% and 1.9% of town A's infections, all from the coupling, as only town A is seeded.
+This run has no depletion, so its totals exceed the towns' populations.
+The [Modifiers](@ref overview-modifiers) section adds depletion.
 
 Row ``i`` of a coupling is the stratum that receives, and column ``j`` the stratum that gives.
 The coupling [acts](@ref explanation-coupling) on the weighted sums of past outputs, before the gain.
@@ -217,9 +243,12 @@ The matrix can be dense, `Diagonal` or sparse.
 A modifier changes the value of each step after the gain and `add`.
 In Getting started, `Depletion(PerStratum(pop))` draws each town's infections from the people left to infect.
 
-```julia
-Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+```@example api-overview
+depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
 ```
+
+The result is each town's total infections over the 75 days.
 
 Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
 The `add` input enters before every modifier, and a `Transform(+, b)` enters where it sits in the tuple.
@@ -266,9 +295,13 @@ A `Transform` has one when it is given a `derivative`, or when `f` holds no numb
 A depletion form sets how a pool gives up what a step asks for.
 Each form is a type, passed as an instance.
 
-```julia
-Depletion(N, Floor())
+```@example api-overview
+N = 60_000.0
+floored = Recurrence(gi; modifiers = (Depletion(N, Floor()),))
+round(Int, sum(floored(fill(1.8, T); history = fill(10.0, 6))))
 ```
+
+The result is the total infections over 75 days in a single pool of `N` people.
 
 | Name | What it does | Example |
 |:--|:--|:--|
@@ -290,7 +323,8 @@ A time-series process, such as a random walk or an autoregression, builds a seri
 Each is a recurrence or a convolution: a recurrence takes the noise as `add`, and a convolution as its input.
 As a latent process, one that is not observed, it can drive a gain, such as the reproduction number through its logarithm.
 
-```julia
+```@example api-overview
+ϵ = [0.5, -0.25, 0.125, 0.25, -0.5]
 Recurrence([1.0])(; history = [0.0], add = ϵ)
 ```
 
@@ -311,10 +345,11 @@ The last row recomputes ``p_t`` from a recurrence's output `y`, as operators ret
 An [executor](@ref executors) sets where an operator's loops run: in order, on threads or on a device such as a GPU.
 The default runs in order.
 
-```julia
-with(EXECUTOR => Threaded()) do
+```@example api-overview
+y = with(EXECUTOR => Threaded()) do
     renewal(R; history = seed)
 end
+y ≈ renewal(R; history = seed)
 ```
 
 | Name | What it does | Returns |
