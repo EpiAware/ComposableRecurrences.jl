@@ -360,6 +360,18 @@ function _movement_time_varying(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The same through the public `Redistribute(K, ε; leak = true)`, with a
+# kernel whose columns sum to less than one, so part of what moves leaves.
+function _movement_leak(w, θ)
+    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Redistribute(K, ε; leak = true),
+        ComposableRecurrences.Depletion(PerStratum(POP)),
+    )
+    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Movement whose intensity reads the recent outputs: each origin sends
 # more as its own incidence rises, through a kernel and a scale in `θ`.
 function _movement_recent(w, θ)
@@ -1316,6 +1328,14 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence Redistribute with a leak", _movement_leak,
+        () -> _flat(
+            G0, [0.0 0.4 0.2; 0.5 0.0 0.3; 0.3 0.4 0.0],
+            [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence Redistribute of a movement read from recent outputs",
         _movement_recent,
         () -> _flat(
@@ -1786,6 +1806,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
+    "Recurrence Redistribute with a leak" => (:_kernel_movement,),
     "Recurrence Redistribute, Transform(+) and Transform(clamp)" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
