@@ -415,11 +415,12 @@ Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
 _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
 _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
-# A run of independent strata with no modifiers waits each step on its own
-# last value alone (`_Chained`), which each step adds last. This holds for
-# hardware floats and, through an extension, dual numbers; other runs keep
-# one out-of-line loop, where the split gains nothing and costs `Enzyme`
-# more.
+# A run of independent strata with no modifiers, whose steps wait only on
+# their own last values. A run of one stratum carries its last value in a
+# register (`_carried_run!`); more strata interleave and add the newest lag
+# after the older ones (`_window_dot`). This holds for hardware floats and,
+# through an extension, dual numbers; other runs keep one out-of-line loop,
+# where the split gains nothing and costs `Enzyme` more.
 struct _Chained{G}
     g::G
 end
@@ -427,14 +428,13 @@ _chain(g, ms, ::Type) = g
 function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:_IEEEFloat})
     return _Chained(g)
 end
+# Stratum `k`'s weights, oldest lag first.
 _stratum_weights(g::AbstractVector, k) = g
 _stratum_weights(g::PerStratum, k) = view(g.x, k, :)
-# Interleaved strata read their last values from the buffer, and add the
-# newest lag last, after the loop over the older lags, which do not wait on
-# that step. Both forms start from `+0.0`, so they agree on signed zeros.
-@inline _kdot(c::_Chained{<:AbstractVector}, H, t, τ, L, a) = _window_dot(c.g, H, t, L, a)
-@inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
-    return _window_dot(view(c.g.x, a, :), H, t, L, a)
+# Both sums start from `+0.0`, so they agree on signed zeros with the
+# general step.
+@inline function _kdot(c::_Chained, H, t, τ, L, a)
+    return _window_dot(_stratum_weights(c.g, a), H, t, L, a)
 end
 @inline function _window_dot(g, H, t, L, a)
     acc = zero(promote_type(eltype(g), eltype(H)))
@@ -444,12 +444,12 @@ end
     end
     return @inbounds muladd(g[L], H[t + L - 1, a], acc)
 end
-# Stratum `k` at step `t` of a run of one stratum, from its last value `y`
-# (`_carried_run!`), with weights `w` and the newest of them `newest`, read
-# once per run: writes the step's value to the buffer, records its kernel
-# convolution and returns the value. It scales `y` by the gain, the
-# coefficient and `newest` together, so each step waits on one fused
-# multiply-add.
+# Stratum `k` at step `t` of a run of one stratum, from its last value `y`,
+# with weights `w` and the newest of them `newest`: writes the step's value
+# to the buffer, records its kernel convolution and returns the value. The
+# gain, coefficient and `newest` scale `y` together, so a step waits on one
+# fused multiply-add; that rounds differently from the interleaved step, so
+# the two agree to round-off, and still start from `+0.0`.
 @inline function _chained_step!(
         w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
     )
