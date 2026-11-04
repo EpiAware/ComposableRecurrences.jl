@@ -150,7 +150,7 @@ end
         # A late start reads the earlier cohorts too.
         @test computed(input; start = 7) ≈ dense(input; start = 7)
         @test computed(input; stop = 20, gain = 0.5) ≈ dense(input; stop = 20, gain = 0.5)
-        @test CR.contributions(computed, input) ≈ CR.contributions(dense, input)
+        @test_throws "lag by lag" CR.contributions(computed, input)
         @test computed'(input) ≈ dense'(input)
     end
     # In a recurrence the kernel's lags start at 1, so entry `i` is lag `i`.
@@ -179,7 +179,6 @@ end
         (2.0 * s, Derived(*, 2.0, s)), (s * 2.0, Derived(*, s, 2.0)),
         (1 - s, Derived(-, 1, s)), (s + p, Derived(+, s, p)),
         (p * s, Derived(*, p, s)), (s / PerStratum([1.0, 2.0]), nothing),
-        (s^2, Derived(^, s, 2)), (-s, Derived(-, s)),
         (s * s, Derived(*, s, s)), (TimeVarying(h) * s, nothing),
         ((1 - s) * s, nothing),
     )
@@ -187,6 +186,10 @@ end
         @test sugar isa Derived
         explicit === nothing || @test typeof(sugar) == typeof(explicit)
     end
+    # A power or a negation of a survival is spelled as a Derived.
+    @test !hasmethod(^, Tuple{typeof(s), Int})
+    @test !hasmethod(-, Tuple{typeof(s)})
+    @test Derived(^, s, 2) isa Derived
     # Plain numbers and wrappers keep their own arithmetic.
     @test !hasmethod(*, Tuple{Vector{Float64}, TimeVarying{CR.Secondary, Vector{Float64}}})
 end
@@ -337,9 +340,6 @@ end
         @test c(xs) ≈ Base.ScopedValues.with(() -> c(xs), CR.EXECUTOR => CR.Serial())
         check(c, (xs, true, nothing, nothing, 1, T), sin.(xs))
     end
-    # The terms of a convolution.
-    terms = CR._Contributions(conv(W.confirmed(q, hs)))
-    check(terms, (x, true, nothing, 1, T), reshape(sin.(1:(L * T)), L, T))
     # The weights as an array, with a map the rule differentiates locally.
     kw = CR._KernelWeights(computed(W.reported(a0[1:L], γ[1:(T + L)])))
     check(kw, (T,), reshape(sin.(1:(L * T)), L, T))
