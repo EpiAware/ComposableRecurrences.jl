@@ -227,10 +227,12 @@ end
 
 # ## Performance
 #
-# Each bar times the two-compartment ward with rate, share and count flows over 200 days, written with the operators or as a preallocated hand-written loop.
+# Each bar times the two-compartment ward with rate, share and count flows over 200 steps, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("occupancy")
+#-
+performance_note("occupancy") #hide
 
 # ## Learning more
 #

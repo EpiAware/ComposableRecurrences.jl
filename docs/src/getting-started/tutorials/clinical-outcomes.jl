@@ -92,10 +92,12 @@ end
 
 # ## Performance
 #
-# Each bar times onsets, admissions and deaths as a chain of three delays over 200 days with 20-day delays, written with the operators or as a preallocated hand-written loop.
+# Each bar times onsets, admissions and deaths as a chain of three delays over 200 steps with 20-step delays, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("clinical outcomes")
+#-
+performance_note("clinical outcomes") #hide
 
 # ## Learning more
 #

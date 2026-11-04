@@ -268,10 +268,12 @@ end
 
 # ## Performance
 #
-# Each bar times an AR(2) process over 200 days, written with the operators or as a preallocated hand-written loop.
+# Each bar times an AR(2) process over 200 steps, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("latent processes")
+#-
+performance_note("latent processes") #hide
 
 # ## References
 #

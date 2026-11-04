@@ -20,7 +20,8 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
 - Both are usually hand-written loops, rewritten for each model.
   `Recurrence` and `Convolution` express them as two operators, for one series or for many strata, such as towns, run side by side.
 - Coupling between strata, finite pools and bounds are added by composing small couplings and modifiers.
-- The forward run and gradients under ForwardDiff, Mooncake and Enzyme are close to or faster than a hand-written loop; see the [performance figure](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-performance).
+- Gradients under Mooncake and Enzyme are faster than a hand-written loop on most models.
+  The forward run and ForwardDiff are level with a hand-written loop on most models and up to 2.6 times slower on some; see the [performance figure](https://composablerecurrences.epiaware.org/stable/getting-started/#overview-performance).
 
 ## Getting started
 

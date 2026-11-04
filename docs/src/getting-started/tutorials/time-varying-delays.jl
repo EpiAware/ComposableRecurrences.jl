@@ -234,10 +234,12 @@ end
 
 # ## Performance
 #
-# Each bar times a 15-day delay indexed by infection day over 200 days, written with the operators or as a preallocated hand-written loop.
+# Each bar times a 15-step delay indexed by infection time over 200 steps, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("time-varying delays")
+#-
+performance_note("time-varying delays") #hide
 
 # ## Learning more
 #

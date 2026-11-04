@@ -1,14 +1,15 @@
 # The docs pages' performance plot: one block of
 # `benchmark/results/docs.csv`, the minimum time of each method on the
 # forward run and each gradient backend. A page includes this file and
-# calls `performance_plot(block)`, so the docs build times nothing itself.
+# calls `performance_plot(block)` and `performance_note(block)`, so the docs
+# build times nothing itself.
 module DocsPerformance
 
     using AlgebraOfGraphics, CairoMakie, DataFramesMeta
     using ComposableRecurrences: ComposableRecurrences
     using Markdown: Markdown
 
-    export performance_plot
+    export performance_plot, performance_note
 
     const RESULTS = joinpath(
         pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv"
@@ -30,6 +31,23 @@ module DocsPerformance
         )
     end
 
+    # The rows of `block` in `bench` at `size`, the last size by default.
+    function block_rows(bench, block, size, file)
+        rows = @subset(bench, :block .== block)
+        isempty(rows) && throw(ArgumentError("no block $(repr(block)) in $file"))
+        return @subset(rows, :size .== something(size, last(rows.size)))
+    end
+
+    # A time in microseconds to three significant figures, with thousands
+    # separated by commas.
+    function format_us(x)
+        r = round(x; sigdigits = 3)
+        r < 100 && return string(r)
+        digits = string(round(Int, r))
+        groups = reverse([reverse(g) for g in Iterators.partition(reverse(digits), 3)])
+        return join(groups, ',')
+    end
+
     # The revision, whether the reverse backends ran with the package's rules,
     # and the methods a backend could not differentiate, one sentence a line.
     function caption(rows)
@@ -41,6 +59,7 @@ module DocsPerformance
             "The Mooncake and Enzyme bars run " *
                 (rules == ["true"] ? "with" : "without") * " the package's rules.",
             "The forward run and ForwardDiff do not use them.",
+            "Every backend differentiates the hand-written versions directly.",
         ]
         failed = @subset(rows, :status .== "error")
         if !isempty(failed)
@@ -66,9 +85,7 @@ module DocsPerformance
         bench === nothing && return Markdown.parse(
             "The benchmark results are not available in this build."
         )
-        rows = @subset(bench, :block .== block)
-        isempty(rows) && throw(ArgumentError("no block $(repr(block)) in $file"))
-        rows = @subset(rows, :size .== something(size, last(rows.size)))
+        rows = block_rows(bench, block, size, file)
         methods = unique(rows.method)
         timed = @chain rows begin
             @subset(:status .== "ok", in.(:target, Ref(first.(TARGETS))))
@@ -94,6 +111,50 @@ module DocsPerformance
         return fg
     end
 
+    """
+        performance_note(block; size = nothing, file = RESULTS, tol = 1.1)
+
+    One sentence on where the package is slower than the fastest
+    hand-written version of `block` in `file`: each target whose package time
+    is more than `tol` times the hand-written time, with both times.
+    `size` is as for `performance_plot`.
+    """
+    function performance_note(block; size = nothing, file = RESULTS, tol = 1.1)
+        bench = read_results(file)
+        bench === nothing && return Markdown.parse("")
+        rows = @chain block_rows(bench, block, size, file) begin
+            @subset(:status .== "ok", in.(:target, Ref(first.(TARGETS))))
+            @transform(:min_us = parse.(Float64, :min_us))
+        end
+        names = Dict(TARGETS..., "primal" => "the forward run")
+        slower = String[]
+        compared = 0
+        for (target, _) in TARGETS
+            at = @subset(rows, :target .== target)
+            package = @subset(at, :method .== "ComposableRecurrences").min_us
+            hand = @subset(at, :method .!= "ComposableRecurrences").min_us
+            (isempty(package) || isempty(hand)) && continue
+            p, h = only(package), minimum(hand)
+            compared += 1
+            p > tol * h || continue
+            push!(
+                slower, "$(names[target]) ($(format_us(p)) against " *
+                    "$(format_us(h)) μs)"
+            )
+        end
+        isempty(slower) && return Markdown.parse(
+            "The package is level with or faster than the hand-written " *
+                "loop on every target."
+        )
+        list = length(slower) == 1 ? only(slower) :
+            join(slower[1:(end - 1)], ", ") * " and " * last(slower)
+        rest = length(slower) < compared ?
+            ", and level with or faster than it elsewhere" : ""
+        return Markdown.parse(
+            "The package is slower than the hand-written loop on $list$rest."
+        )
+    end
+
 end # module DocsPerformance
 
-using .DocsPerformance: performance_plot
+using .DocsPerformance: performance_plot, performance_note

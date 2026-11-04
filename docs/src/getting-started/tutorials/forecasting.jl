@@ -49,10 +49,12 @@ end
 
 # ## Performance
 #
-# Each bar times a renewal run to day 100 and continued from its state to day 200, with a 20-day generation interval, written with the operators or as a preallocated hand-written loop over all 200 days in one pass.
+# Each bar times a renewal run to step 100 and continued from its state to step 200, with a 20-step generation interval, written with the operators or as a preallocated hand-written loop over all 200 steps in one pass.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("forecasting")
+#-
+performance_note("forecasting") #hide
 
 # ## Learning more
 #

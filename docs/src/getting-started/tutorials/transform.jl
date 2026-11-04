@@ -205,6 +205,8 @@ nothing #hide
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("transform")
+#-
+performance_note("transform") #hide
 
 # ## References
 #

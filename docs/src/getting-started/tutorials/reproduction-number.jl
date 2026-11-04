@@ -101,10 +101,12 @@ end
 
 # ## Performance
 #
-# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 steps with a 20-step generation interval, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("reproduction number")
+#-
+performance_note("reproduction number") #hide
 
 # ## Learning more
 #

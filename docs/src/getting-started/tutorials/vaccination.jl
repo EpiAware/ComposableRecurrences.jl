@@ -95,10 +95,12 @@ plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # ## Performance
 #
-# Each bar times leaky vaccination with waning protection over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+# Each bar times leaky vaccination with waning protection over 200 steps with a 20-step generation interval, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("vaccination")
+#-
+performance_note("vaccination") #hide
 
 # ## Learning more
 #

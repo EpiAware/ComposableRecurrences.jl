@@ -260,10 +260,12 @@ end
 
 # ## Performance
 #
-# Each bar times five strata with a dense route and a sparse route and floored depletion over 200 days with a 20-day kernel, written with the operators or as a preallocated hand-written loop.
+# Each bar times five strata with a dense route and a sparse route and floored depletion over 200 steps with a 20-step kernel, written with the operators or as a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("spatial strata")
+#-
+performance_note("spatial strata") #hide
 
 # ## Learning more
 #

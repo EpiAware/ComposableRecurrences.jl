@@ -244,13 +244,17 @@ About 49% of town B and 54% of town C are infected, against 73% without the inte
 ## [Performance](@id overview-performance)
 
 The chart compares the time the operators take with three hand-written versions of the same model.
-Each bar times the three-town model over 200 days with a 20-day generation interval.
+Each bar times the three-town model over 200 steps with a 20-step generation interval.
 The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
 
 ```@example overview
 using ComposableRecurrences: Floor, Transform # hide
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
 performance_plot("naive vs package")
+```
+
+```@example overview
+performance_note("naive vs package") # hide
 ```
 
 ### Changing the model
