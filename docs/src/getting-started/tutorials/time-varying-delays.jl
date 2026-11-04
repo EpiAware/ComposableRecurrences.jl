@@ -4,7 +4,6 @@
 #
 # Reporting delays and generation intervals often change as testing or behaviour changes.
 # A [`TimeVarying`](@ref) kernel models this with one column per day.
-# It builds on the [Renewal then delay](@ref tutorial-renewal-delay) tutorial.
 
 # ## Packages used
 
@@ -146,7 +145,7 @@ end
 # A recurrence kernel read by infection day gives each case the generation interval of the day it was infected, a cohort effect.
 # The default, output-day kernel is a period effect, the same for every case on a given day.
 #
-# Isolation thins the generation interval, as [Isolation as a thinned kernel](@ref tutorial-isolation-thinning) derives.
+# Isolation thins the generation interval.
 # Here a case infected on day ``c`` is isolated with probability ``p`` after a delay ``D``.
 # Isolation blocks a share ``b`` of its later transmission.
 # The policy starts on day ``t_0``, and an isolation that would fall before it does not happen.
