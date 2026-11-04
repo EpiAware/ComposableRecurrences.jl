@@ -98,7 +98,6 @@ function _contributions(c::_ComputedConvolution, route, x; kwargs...)
     )
 end
 
-_with_kernel(c::Convolution, K) = Convolution(_dense_kernel(K); method = _method(c))
 function _with_kernel(r::Recurrence, K)
     return Recurrence(_Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds)
 end
