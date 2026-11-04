@@ -1,0 +1,40 @@
+# Package-owned: not part of the kit's managed workflows.
+name: OpenCL
+
+# Runs the forward pass in test/opencl/ as OpenCL device code on pocl's CPU
+# device, so kernels go through a real device compiler without a GPU.
+# The JLArrays tests run kernels as host Julia and cannot catch code a
+# device compiler refuses or a host read of a device array.
+# The steps are the commands in the header of test/opencl/runtests.jl.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'ext/**'
+      - 'test/opencl/**'
+      - 'test/device/**'
+      - 'test/unit/gpu_arrays.jl'
+      - '.github/workflows/opencl.yaml'
+  workflow_dispatch:
+
+# Runs on main are not cancelled by a later one, so each merge gets a
+# result; a pull request's run gives way to a newer push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  opencl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.12'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=test/opencl -e 'using Pkg; Pkg.instantiate()'
+      - run: julia --project=test/opencl --startup-file=no test/opencl/runtests.jl
