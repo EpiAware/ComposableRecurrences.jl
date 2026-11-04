@@ -59,20 +59,20 @@ end
 # A [`Depletion`](@ref ComposableRecurrences.Depletion) of ``N`` susceptibles with the [hazard form](@ref ComposableRecurrences.Hazard) draws
 #
 # ```math
-# I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
+# I_t = S_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
 # \lambda_t = \frac{R_t \, q_t}{N},
 # ```
 #
-# where ``s_t`` is the number of susceptibles left after day ``t``, with ``s_0 = N``, and ``\lambda_t`` is the hazard on day ``t``.
+# where ``S_t`` is the number of susceptibles left after day ``t``, with ``S_0 = N``, and ``\lambda_t`` is the hazard on day ``t``.
 # ``N = 60000`` is the town's population.
 # The ratio is then the effective reproduction number:
 #
 # ```math
-# \hat R_t = \frac{I_t}{q_t} = R_t \, \frac{s_{t-1}}{N} \, \frac{1 - e^{-\lambda_t}}{\lambda_t}.
+# \hat R_t = \frac{I_t}{q_t} = R_t \, \frac{S_{t-1}}{N} \, \frac{1 - e^{-\lambda_t}}{\lambda_t}.
 # ```
 #
 # A call with `record = (:trace,)` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
-# For a `Depletion` its first row is the pool after each day, which gives ``s_{t-1}`` to check the formula.
+# For a `Depletion` its first row is the pool after each day, which gives ``S_{t-1}`` to check the formula.
 
 N = 60_000.0
 depleted = Recurrence(gi; modifiers = (Depletion(N),))

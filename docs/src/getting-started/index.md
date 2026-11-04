@@ -134,13 +134,13 @@ They then grow at about the same rate as town A.
 
 Each infection removes a person from the pool of people who can be infected.
 A finite pool stops an outbreak growing without limit.
-In town A alone, the susceptible pool ``s_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
+In town A alone, the susceptible pool ``S_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
 The default hazard form draws
 
 ```math
 \lambda_t = \frac{v_t}{N}, \qquad
-I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
-s_t = s_{t-1} \, e^{-\lambda_t},
+I_t = S_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
+S_t = S_{t-1} \, e^{-\lambda_t},
 ```
 
 where ``v_t`` is the right-hand side of the renewal equation and ``\lambda_t`` is the hazard.
@@ -196,7 +196,7 @@ An intervention from day 50 lowers the reproduction number in every town.
 ```math
 \begin{aligned}
 v_{t,i} &= R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}, \\
-I_{t,i} &= s_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad s_{t,i} = s_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
+I_{t,i} &= S_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad S_{t,i} = S_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
 C_{t,i} &= \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}, \\
 K_{ij} &= 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \\
 R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
@@ -204,7 +204,7 @@ R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
 ```
 
 where ``I_{t,i}`` is the number of infections in town ``i`` on day ``t``, ``C_{t,i}`` the number of reports and ``R_{t,i}`` the reproduction number.
-The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``s_{t,i}`` starts at the population ``N_i``.
+The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``S_{t,i}`` starts at the population ``N_i``.
 The generation interval has weight ``g_l`` on lag ``l`` over ``L`` lags, the reporting delay has weight ``w_l`` over ``L_w`` lags, and a share ``\rho = 0.4`` of infections is reported.
 The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
 The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
@@ -220,7 +220,7 @@ reports = delay(infections; gain = 0.4)
 nothing # hide
 ```
 
-The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
+The susceptible share of town ``i`` on day ``t`` is ``S_{t,i} / N_i``.
 
 ```@example overview
 susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
@@ -259,8 +259,8 @@ Switching to the floored depletion form and adding imported infections after dep
 The step becomes
 
 ```math
-D_{t,i} = \max\Big(\max\Big(\frac{s_{t-1,i}}{N_i}, 0\Big), 10^{-6}\Big) \, v_{t,i}, \qquad
-s_{t,i} = s_{t-1,i} - D_{t,i}, \qquad
+D_{t,i} = \max\Big(\max\Big(\frac{S_{t-1,i}}{N_i}, 0\Big), 10^{-6}\Big) \, v_{t,i}, \qquad
+S_{t,i} = S_{t-1,i} - D_{t,i}, \qquad
 I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
