@@ -614,26 +614,38 @@ end
     R = [1.4 + 0.2 * sin(k + t) for k in 1:S, t in 1:T]
     # A pointwise and a dense coupling, each with a modifier; the loss reads
     # the output and the pressure, and the effective reproduction number.
-    function recurrence(θ, coupling)
-        C = coupling === :dense ? [θ[4] 0.2; 0.1 θ[4]] : θ[4] * CR.I
-        return Recurrence(θ[1:3]; coupling = C, modifiers = (CR.Depletion(PerStratum(θ[5:6])),))
+    # A scalar, a diagonal and a dense coupling, and one series, whose
+    # pressure is a vector.
+    function coupling_of(θ, coupling)
+        coupling === :dense && return [θ[4] 0.2; 0.1 θ[4]]
+        coupling === :diagonal && return CR.Diagonal([θ[4], 0.8])
+        return θ[4] * CR.I
     end
+    function recurrence(θ, coupling)
+        mods = (CR.Depletion(PerStratum(θ[5:6])),)
+        coupling === :series && return Recurrence(θ[1:3]; modifiers = (CR.Depletion(θ[5]),))
+        return Recurrence(θ[1:3]; coupling = coupling_of(θ, coupling), modifiers = mods)
+    end
+    inputs(θ, coupling) = coupling === :series ? (R[1, :] .* θ[7], h[1, :]) : (R .* θ[7], h)
     function run(θ, coupling)
-        y, tr = recurrence(θ, coupling)(R .* θ[7]; history = h, record = (:trace,))
+        x, hx = inputs(θ, coupling)
+        y, tr = recurrence(θ, coupling)(x; history = hx, record = (:trace,))
         return y, tr.pressure
     end
     # The same pressures from `pressure` on the same recurrence's outputs.
     function second_pass(θ, coupling)
         r = recurrence(θ, coupling)
-        y = r(R .* θ[7]; history = h)
-        return y, CR.pressure(r, y; history = h)
+        x, hx = inputs(θ, coupling)
+        y = r(x; history = hx)
+        return y, CR.pressure(r, y; history = hx)
     end
     # A loss on the output and the pressure, and one on the pressure alone,
     # whose only cotangent is the pressure's.
-    both(y, q) = sum(W .* q) + sum(y ./ q) + sum(y)
-    alone(y, q) = sum(W .* q)
+    weights(q) = q isa AbstractVector ? W[1, :] : W
+    both(y, q) = sum(weights(q) .* q) + sum(y ./ q) + sum(y)
+    alone(y, q) = sum(weights(q) .* q)
     θ = [0.3, 0.5, 0.2, 0.9, 80.0, 120.0, 1.1]
-    for coupling in (:pointwise, :dense), l in (both, alone)
+    for coupling in (:pointwise, :diagonal, :dense, :series), l in (both, alone)
         f = θ -> l(run(θ, coupling)...)
         ∇ = ReferenceAD.gradient(θ -> l(second_pass(θ, coupling)...), θ)
         @test ReferenceAD.gradient(f, θ) ≈ ∇
