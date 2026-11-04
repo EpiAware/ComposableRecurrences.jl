@@ -1972,12 +1972,19 @@ end
     end
 end
 
-@testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse] begin
+@testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
-    using ADTypes: AutoMooncake
+    using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import ForwardDiff, Mooncake
+    import Enzyme, ForwardDiff, Mooncake
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
     # Two compartments per group: a share `a` of the first moves to the
     # second, and the state keeps what moved.
     struct Move{A}
@@ -2029,7 +2036,10 @@ end
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end
     θ = [0.2, 0.4, 0.8]
-    n = CR._PULLBACK_CALLS[]
-    @test gradient(loss, AutoMooncake(; config = nothing), θ) ≈ ForwardDiff.gradient(loss, θ)
-    @test CR._PULLBACK_CALLS[] > n
+    ref = ForwardDiff.gradient(loss, θ)
+    for backend in backends
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(loss, backend, θ) ≈ ref
+        @test CR._PULLBACK_CALLS[] > n
+    end
 end
