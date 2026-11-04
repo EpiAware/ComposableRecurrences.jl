@@ -36,19 +36,32 @@
     @test plain(TimeVarying{CR.Primary}(ones(6, 20))) ==
         "TimeVarying(20 times, 6×20 Matrix{Float64}, Primary())"
 
+    @test plain(TimeVarying([1 => [0.5, 0.5], 5 => [0.2, 0.8]])) ==
+        "TimeVarying(2×2 Matrix{Float64} from the change points [1, 5])"
+
     @test plain(CR.Depletion(PerStratum(pop))) ==
-        "Depletion(pools (:S,), draw Hazard, population PerStratum(3 strata))"
+        "Depletion(pools (:S,), draw Hazard(), population PerStratum(3 strata))"
     @test plain(CR.Depletion(10.0, CR.Floor(0.5))) ==
         "Depletion(pools (:S,), draw Floor(0.5), population 10.0)"
+    @test plain(CR.Depletion(10.0, CR.Truncate(; overflow = :queue))) ==
+        "Depletion(pools (:S,), draw Truncate() with overflow = :queue, " *
+        "population 10.0)"
     @test plain(
         CR.Depletion(
             100.0, CR.Hazard(), CR.Flow(:S, :V, 0.1, CR.Share());
             pools = (S = 100.0, V = 0.0)
         )
-    ) == "Depletion(pools (:S, :V), draw Hazard, population 100.0, " *
+    ) == "Depletion(pools (:S, :V), draw Hazard(), population 100.0, " *
         "flows (S => V))"
+    @test plain(
+        CR.Depletion(
+            100.0, CR.Hazard(2.0; weights = (S = 1, V = 0.3));
+            pools = (S = 100.0, V = 0.0)
+        )
+    ) == "Depletion(pools (:S, :V), draw Hazard(2.0) with weights = " *
+        "(S = 1, V = 0.3), population 100.0)"
     @test plain(CR.Flow(:S, :R, 0.1, CR.Hazard())) ==
-        "Flow(:S => :R, Hazard, 0.1)"
+        "Flow(:S => :R, Hazard(), 0.1)"
 
     @test plain(CR.Transform(clamp, 0.0, 1.0)) == "Transform(clamp, 0.0, 1.0)"
     @test plain(CR.Transform(+, 1.0)) == "Transform(+, 1.0)"
@@ -67,20 +80,19 @@
         "State(t = 4, history 3-element Vector{Float64}, 1 modifier state)"
 end
 
-@testitem "Show: inferred, and repr keeps the constructor form" begin
+@testitem "Show: each summary is inferred as a String" begin
     using ComposableRecurrences: ComposableRecurrences as CR
+    r = Recurrence(ones(3) / 3; modifiers = (CR.Depletion(10.0),))
+    (; state) = r(fill(1.1, 6); history = ones(3), stop = 3, record = (:state,))
     xs = (
-        Recurrence(ones(6); coupling = ones(3, 3) / 3),
+        Recurrence(ones(6); coupling = ones(3, 3) / 3), r,
         Convolution(ones(7)), PerStratum(ones(3)), Pairwise(ones(3, 3, 5)),
         TimeVarying(ones(20)), CR.Depletion(10.0), CR.Flow(:S, :R, 0.1, CR.Hazard()),
         CR.Transform(clamp, 0.0, 1.0), CR.Redistribute(ones(3, 3) / 3),
         CR.Recent(ones(3)), CR.Allocate([[1, 2], [3]], PerStratum([10.0, 5.0])),
+        state,
     )
     for x in xs
-        @test (@inferred show(IOBuffer(), MIME"text/plain"(), x)) === nothing
+        @test (@inferred CR._summary(x)) == sprint(show, MIME"text/plain"(), x)
     end
-    # The two-argument form is the default, so it still names the type and
-    # its fields.
-    @test occursin("Convolution{", repr(Convolution([0.5, 0.5])))
-    @test occursin("PerStratum{", repr(PerStratum([1.0, 2.0])))
 end

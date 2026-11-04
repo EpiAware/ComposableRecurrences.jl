@@ -20,11 +20,11 @@ This is the only indexing outside a kernel.
 # Examples
 ```jldoctest
 using ComposableRecurrences
-TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
+typeof(TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary()))
 
 # output
 
-TimeVarying(2 times, 2×2 Matrix{Float64})
+TimeVarying{ComposableRecurrences.Secondary, Matrix{Float64}}
 ```
 """
 struct Secondary end
