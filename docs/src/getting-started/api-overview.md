@@ -155,7 +155,19 @@ The parameter `Recent(7; coupling = K)` mixes the recent outputs between strata.
 Wrappers combine: `TimeVarying(PerStratum(G))` is a strata × lags × time kernel.
 Most wrappers hold the stored array without copying it.
 A bare vector where a single value is expected is an error that names the wrapper to use.
-Inputs and outputs are strata × time arrays, histories are strata × time before the run, and none of them is wrapped.
+Inputs and outputs are strata × time arrays, or a vector for a single series, and histories are the same before the run.
+None of them is wrapped.
+The call's `gain` and `add` are data too, and take three shapes:
+
+| Shape | What it means |
+|:--|:--|
+| scalar | one value for every stratum and time |
+| length-`T` vector | one value per time, shared by every stratum |
+| `S × T` matrix | one value per stratum and time |
+
+A bare vector is always read as time, so a value per stratum that is constant over time is written `repeat(ρ, 1, T)`.
+For a convolution without `add` the same is `ρ .* c(x)`.
+In a recurrence a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Shapes and couplings](@ref explanation-coupling) shows.
 
 ## [Delay distributions](@id overview-delays)
 
