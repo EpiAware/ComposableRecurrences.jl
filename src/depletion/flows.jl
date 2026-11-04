@@ -554,24 +554,27 @@ end
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
-# flows; returns those before them. Each count's demand is read once, for
-# both passes.
+# flows; returns those before them. A demand that reads the outputs or has
+# a map costs more to read than the rest of a count, so each count's
+# demand `d`, its value and partials, is read once and serves both passes.
 _counts_back(::Tuple{}, f̄s, y, a, ȳ, ā, g, t) = ȳ
 function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     f = first(fs)
-    c, ∂ = _demand(f, _head(f̄s), g, t)
-    y′, a′ = _count_demand(f, c, y, a)
+    d = _demand(f, _head(f̄s), g, t)
+    y′, a′ = _count_demand(f, first(d), y, a)
     ȳ′ = _counts_back(Base.tail(fs), _tail(f̄s), y′, a′, ȳ, ā, g, t)
-    return _count_back(f, c, ∂, _head(f̄s), y, ȳ′, ā, g, t)
+    return _count_back(f, d, _head(f̄s), y, ȳ′, ā, g, t)
 end
-# A count's demand, and the partials its pullback reads (`_param_partials`).
+# What a count's pullback reads of its demand (`_param_partials`); a flow of
+# another form moves no count.
 _demand(f::_Count, f̄, g, t) = _param_partials(cotangent(f̄, :demand), f.demand, g, t)
 _demand(f::Flow, f̄, g, t) = (nothing, nothing)
 _count_demand(f::Flow, c, y, a) = y, a
-_count_back(f::Flow, c, ∂, f̄, y, ȳ, ā, g, t) = ȳ
+_count_back(f::Flow, d, f̄, y, ȳ, ā, g, t) = ȳ
 # A count from outside the `Depletion` (`from = 0`) takes from no pool, so its
 # source has no cotangent.
-function _count_back(f::_Count, c, ∂, f̄, y, ȳ, ā, g, t)
+function _count_back(f::_Count, d, f̄, y, ȳ, ā, g, t)
+    c, ∂ = d
     i = f.from
     s = _source(y, i)
     m = _moved(f.form, c, s)
