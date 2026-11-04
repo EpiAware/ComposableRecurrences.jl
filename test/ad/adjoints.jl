@@ -146,6 +146,18 @@
         "Convolution kernel from change points with history",
         "Convolution ragged kernel of views into the parameters",
         "Recurrence feedback from recent outputs",
+        "Convolution transpose of a Primary kernel with a tail",
+        "Convolution Poisson delay distribution",
+        "Convolution kernel from a hazard and a survival",
+        "Convolution chain of two delays as masses",
+        "Convolution time-varying kernel",
+        "Recurrence negative binomial generation interval per stratum",
+        "Recurrence kernel shortened by a survival",
+        "Recurrence time-varying kernel and coupling",
+        "Recurrence pairwise kernel",
+        "Recurrence grouped totals (Allocate)",
+        "Recurrence routes, dense and sparse",
+        "Recurrence whole-step modifier holding a vector",
     )
 
     # `(name, op, args, rtol)` for each scenario of `ADJOINT_SCENARIOS` at
