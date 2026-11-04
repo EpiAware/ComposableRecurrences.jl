@@ -1886,13 +1886,17 @@ end
     import DifferentiationInterface as DI
     CR = ComposableRecurrences
     ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
-    # `map` over a tuple of 32 or more entries does not infer; the rule's
-    # own map does at any length, with a mirror that may be a `Union`.
-    xs = ntuple(i -> isodd(i) ? Float64(i) : i, Val(40))
-    @test (@inferred ext._map_leaves(float, xs)) === map(float, xs)
-    U = Tuple{ntuple(_ -> Union{Nothing, Float64}, 40)...}
-    second(x, y) = y
-    @test Base.return_types(ext._map_leaves, (typeof(second), typeof(xs), U)) == [U]
+    # On Julia 1.11 the rule takes each leaf of the operator: `map` over a
+    # tuple of 32 or more entries does not infer; the rule's own map does at
+    # any length, with a mirror that may be a `Union`. From 1.12 the rule
+    # takes the operator whole and has no leaves.
+    if VERSION < v"1.12"
+        xs = ntuple(i -> isodd(i) ? Float64(i) : i, Val(40))
+        @test (@inferred ext._map_leaves(float, xs)) === map(float, xs)
+        U = Tuple{ntuple(_ -> Union{Nothing, Float64}, 40)...}
+        second(x, y) = y
+        @test Base.return_types(ext._map_leaves, (typeof(second), typeof(xs), U)) == [U]
+    end
     # A pool with a scalar rate on each of eight flows has more than 32
     # leaves, and its gradient takes the rule.
     function op(θ)
@@ -1906,7 +1910,8 @@ end
     f(θ) = sum(log.(op(θ)(fill(2.0, 20); history = [1.0, 1.0, 1.0])))
     θ = [0.05 + 0.01 * i for i in 1:8]
     args = (fill(2.0, 20), nothing, [1.0, 1.0, 1.0], nothing, 1, nothing)
-    @test length(CR._leaf_paths(Tuple{typeof(op(θ)), typeof.(args)...})) >= 32
+    VERSION < v"1.12" &&
+        @test length(CR._leaf_paths(Tuple{typeof(op(θ)), typeof.(args)...})) >= 32
     b = AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(Enzyme.Reverse), function_annotation = Enzyme.Const
     )

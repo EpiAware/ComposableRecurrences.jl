@@ -182,64 +182,36 @@ _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
 # The primal call. The extensions make `_ad` a rule primitive for
-# `Mooncake` and `_ADLeaves` one for `Enzyme`; `_plain` is differentiated by
-# the backend. `_ad` passes `_ADLeaves` each leaf of the operator and its
-# arguments as its own argument, so `Enzyme` annotates every float and array
-# on its own and never needs a shadow for a struct that holds both;
-# `_ADLeaves` rebuilds the operator and arguments from them. It exists for
-# `Enzyme` on Julia 1.11: there, an operator holding both an array and an
-# active scalar was annotated `MixedDuplicated`, and the scalar's cotangent
-# written back by the rule did not reach the caller, a silent zero.
+# `Mooncake`, and `_ad_call`, which `_ad` calls, one for `Enzyme`; `_plain`
+# is differentiated by the backend. `_ad_call` takes the operator whole. An
+# operator that holds a float outside its arrays reaches it in a `Ref`,
+# whose shadow takes the float's cotangent: by value, next to an array, it
+# would be annotated `MixedDuplicated`, which `Enzyme` rejects for a rule
+# when the float is constant. Any other operator is passed by value, as a
+# `Ref` around it needs runtime activity to hold its constant fields. Code
+# that is not traced (`_untraced`) calls the operator directly; without that
+# branch `Enzyme`'s type analysis fails on a large operator, such as a pool
+# of 24 or more flows, built in the loss. Julia 1.11 takes the leaf rule
+# instead (`adjoints/leaves.jl`).
 _primal(op, args...) = first(_run_forward(op, args...))
-struct _ADLeaves{X} end
-function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
-    return _primal(_rebuild_leaves(X, leaves)...)
-end
-
-# The field paths to the leaves of a value of type `T`. A leaf is a float,
-# an array, other data without float fields, a mutable struct or a field
-# whose type is not concrete; a struct without fields has none.
-function _leaf_paths(::Type{T}) where {T}
-    _is_leaf(T) && return ((),)
-    fieldcount(T) == 0 && return ()
-    paths = Tuple[]
-    for i in 1:fieldcount(T), p in _leaf_paths(fieldtype(T, i))
-        push!(paths, (i, p...))
+@static if VERSION >= v"1.12"
+    function _ad(op, args::Vararg{Any, N}) where {N}
+        _untraced() && return _primal(op, args...)
+        _scalar_floats(typeof(op)) && return _ad_call(Ref(op), args...)
+        return _ad_call(op, args...)
     end
-    return Tuple(paths)
-end
-function _is_leaf(T)
-    T <: Union{
-        Base.IEEEFloat, AbstractArray, Integer, Symbol, AbstractString, Char,
-        Type, Module, Ptr,
-    } && return true
-    return !isconcretetype(T) || ismutabletype(T) ||
-        (fieldcount(T) == 0 && !Base.issingletontype(T))
-end
-function _path_expr(x, p)
-    isempty(p) && return x
-    return _path_expr(:(getfield($x, $(first(p)))), Base.tail(p))
-end
-# After its helpers: a generator sees only the methods defined before it.
-@generated function _ad(op, args::Vararg{Any, N}) where {N}
-    X = Tuple{op, args...}
-    roots = (:op, (:(args[$i]) for i in 1:N)...)
-    leaves = map(p -> _path_expr(roots[first(p)], Base.tail(p)), _leaf_paths(X))
-    return :(_ADLeaves{$X}()($(leaves...)))
-end
-
-# The value of type `X` with the given leaves, built field by field without
-# calling constructors.
-@generated function _rebuild_leaves(::Type{X}, leaves::Tuple) where {X}
-    k = Ref(0)
-    function build(T)
-        _is_leaf(T) && return :(leaves[$(k[] += 1)])
-        fieldcount(T) == 0 && return T.instance
-        parts = (build(fieldtype(T, i)) for i in 1:fieldcount(T))
-        T <: Tuple && return :(($(parts...),))
-        return Expr(:new, T, parts...)
+    _ad_call(op, args::Vararg{Any, N}) where {N} = _primal(_unbox(op), args...)
+    _unbox(op::Base.RefValue) = op[]
+    _unbox(op) = op
+    # Whether a value of type `T` holds a float outside any array, read from
+    # its type alone.
+    Base.@assume_effects :foldable function _scalar_floats(::Type{T}) where {T}
+        T <: Base.IEEEFloat && return true
+        isconcretetype(T) && isstructtype(T) && !ismutabletype(T) || return false
+        return any(_scalar_floats, fieldtypes(T))
     end
-    return build(X)
+else
+    include("leaves.jl")
 end
 _plain(op, args...) = _primal(op, args...)
 # A call the backend differentiates by plain AD first passes through this
