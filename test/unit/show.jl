@@ -74,6 +74,30 @@
     @test plain(CR.Allocate([[1, 2], [3]], PerStratum([10.0, 5.0]))) ==
         "Allocate(2 groups, 3 strata)"
 
+    w = ones(3)
+    @test plain(CR.Transform(min, (60.0 - CR.Recent(w)) / 0.9)) ==
+        "Transform(min, (60.0 - Recent(3 weights)) / 0.9)"
+    @test plain(CR.Derived(exp, -0.5 * CR.Recent(w))) ==
+        "Derived(exp(-0.5 * Recent(3 weights)))"
+    testing = fill(0.1, 40)
+    @test plain(CR.Survival(TimeVarying(testing); from = 1)) ==
+        "Survival(TimeVarying(40 times); from = 1)"
+    stay = [exp(-l / 8) for l in 0:14]
+    @test plain(
+        Convolution(
+            TimeVarying(
+                stay * (1 - CR.Survival(TimeVarying(testing); from = 1)),
+                CR.Primary()
+            )
+        )
+    ) == "Convolution(15 lags, kernel TimeVarying(15-element " *
+        "Vector{Float64} * (1 - Survival(TimeVarying(40 times); from = 1)), " *
+        "Primary()))"
+    @test plain(CR.NoAdjoint(Recurrence(ones(3)))) ==
+        "NoAdjoint(Recurrence(3 lags))"
+    @test plain(Recurrence(ones(3); coupling = 2.0 * CR.I)) ==
+        "Recurrence(3 lags, coupling 2.0I)"
+
     r = Recurrence(ones(3) / 3; modifiers = (CR.Depletion(10.0),))
     (; state) = r(fill(1.1, 6); history = ones(3), stop = 3, record = (:state,))
     @test plain(state) ==
@@ -90,7 +114,9 @@ end
         TimeVarying(ones(20)), CR.Depletion(10.0), CR.Flow(:S, :R, 0.1, CR.Hazard()),
         CR.Transform(clamp, 0.0, 1.0), CR.Redistribute(ones(3, 3) / 3),
         CR.Recent(ones(3)), CR.Allocate([[1, 2], [3]], PerStratum([10.0, 5.0])),
-        state,
+        state, CR.Derived(exp, -0.5 * CR.Recent(ones(3))),
+        CR.Survival(TimeVarying(fill(0.1, 40)); from = 1),
+        CR.NoAdjoint(Recurrence(ones(3))),
     )
     for x in xs
         @test (@inferred CR._summary(x)) == sprint(show, MIME"text/plain"(), x)

@@ -3,7 +3,8 @@
 
 const _Summarised = Union{
     Recurrence, Convolution, PerStratum, Pairwise, TimeVarying, Depletion,
-    Flow, Transform, Redistribute, Allocate, Recent, State,
+    Flow, Transform, Redistribute, Allocate, Recent, State, Derived,
+    Survival, NoAdjoint,
 }
 
 function Base.show(io::IO, ::MIME"text/plain", x::_Summarised)
@@ -16,7 +17,30 @@ end
 _brief(x) = _describe(x)
 _brief(x::Union{PerStratum, Pairwise, TimeVarying}) = _summary(x)
 _brief(x::Function) = string(nameof(x))
-_brief(::UniformScaling{Bool}) = "I"
+_brief(J::UniformScaling) = J.λ === true ? "I" : string(J.λ, "I")
+_brief(x::Union{Derived, Survival}) = _formula(x)
+
+# A computed parameter or kernel as the arithmetic that builds it.
+const _Infix = Union{typeof(+), typeof(-), typeof(*), typeof(/), typeof(^)}
+_formula(x) = _brief(x)
+_formula(x::Real) = string(x)
+function _formula(d::Derived)
+    args = map(_operand, d.args)
+    d.f isa typeof(-) && length(args) == 1 && return "-" * only(args)
+    d.f isa _Infix && length(args) == 2 &&
+        return string(args[1], " ", nameof(d.f), " ", args[2])
+    return string(_brief(d.f), "(", join(map(_formula, d.args), ", "), ")")
+end
+function _formula(s::Survival)
+    from = s.from == 0 ? "" : string("; from = ", s.from)
+    return string("Survival(", _formula(s.hazard), from, ")")
+end
+# An argument of an infix operation, bracketed when it is one itself.
+_operand(x) = _formula(x)
+function _operand(d::Derived)
+    f = _formula(d)
+    return d.f isa _Infix ? string("(", f, ")") : f
+end
 
 # A value printed as written, without the module prefix.
 _bare_repr(x) = repr(x; context = :module => @__MODULE__)
@@ -63,7 +87,7 @@ end
 function _summary(x::TimeVarying{Idx}) where {Idx}
     parts = String[]
     x.x isa AbstractArray && push!(parts, _count(size(x.x, ndims(x.x)), "time"))
-    x.x isa AbstractVector || push!(parts, _describe(x.x))
+    x.x isa AbstractVector || push!(parts, _brief(x.x))
     Idx === Primary && push!(parts, "Primary()")
     return _summary_string(:TimeVarying, parts)
 end
@@ -145,6 +169,9 @@ function _summary(t::Transform)
 end
 
 _summary(r::Recent) = _describe(r)
+_summary(d::Derived) = string("Derived(", _formula(d), ")")
+_summary(s::Survival) = _formula(s)
+_summary(n::NoAdjoint) = string("NoAdjoint(", _summary(n.op), ")")
 
 function _summary(s::State)
     parts = String[
