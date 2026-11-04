@@ -445,20 +445,21 @@ end
     return @inbounds muladd(g[L], H[t + L - 1, a], acc)
 end
 # Stratum `k` at step `t` of a run of one stratum, from its last value `y`
-# (`_carried_run!`): writes the step's value to the buffer, records its
-# kernel convolution and returns the value. It scales `y` by the gain, the
-# coefficient and the newest lag's weight together, so each step waits on
-# one fused multiply-add.
+# (`_carried_run!`), with weights `w` and the newest of them `newest`, read
+# once per run: writes the step's value to the buffer, records its kernel
+# convolution and returns the value. It scales `y` by the gain, the
+# coefficient and `newest` together, so each step waits on one fused
+# multiply-add.
 @inline function _chained_step!(
-        c::_Chained, H, pr, gain, add, C, y, t, τ, L, D, k
+        w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
     )
-    w = _stratum_weights(c.g, k)
     o = t + D - L - 1
     older = zero(promote_type(eltype(w), eltype(H)))
-    @inbounds @_float_simd typeof(older) for i in 1:(L - 1)
-        older += w[i] * H[o + i, k]
+    if L > 1
+        @inbounds @_float_simd typeof(older) for i in 1:(L - 1)
+            older += w[i] * H[o + i, k]
+        end
     end
-    newest = L >= 1 ? @inbounds(w[L]) : zero(eltype(w))
     _record_pressure!(pr, muladd(newest, y, older), nothing, t, k)
     γ = @inbounds _at(gain, k, τ) * _coef(C, k)
     v = muladd(γ * newest, y, muladd(γ, older, @inbounds(_at(add, k, τ))))
@@ -1334,9 +1335,11 @@ end
 function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     row = D + first(steps) - 1
     y = row >= 1 ? @inbounds(H[row, k]) : zero(eltype(H))
+    w = _stratum_weights(c.g, k)
+    newest = L >= 1 ? @inbounds(w[L]) : zero(eltype(w))
     for t in steps
         y = _chained_step!(
-            c, H, pr, gain, add, coupling, y, t, τ0 + t - 1, L, D, k
+            w, newest, H, pr, gain, add, coupling, y, t, τ0 + t - 1, L, D, k
         )
     end
     return nothing

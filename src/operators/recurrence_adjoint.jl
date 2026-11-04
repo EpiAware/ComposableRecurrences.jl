@@ -173,9 +173,13 @@ function _carried_back!(
         c, steps, k, acc, kb, pr, gain, coupling, H, H̄, τ0, L, D
     )
     carry = zero(eltype(H̄))
+    w = _stratum_weights(c.g, k)
+    newest = L >= 1 ? @inbounds(w[L]) : zero(eltype(w))
+    kw = _stratum_buffer(kb, c.g, k)
     for t in reverse(steps)
         carry = _chained_back!(
-            c, acc, kb, pr, gain, coupling, H, H̄, carry, t, τ0 + t - 1, L, D, k
+            w, newest, kw, acc, pr, gain, coupling, H, H̄, carry, t,
+            τ0 + t - 1, L, D, k
         )
     end
     row = D + first(steps) - 1
@@ -186,15 +190,13 @@ end
 # `carry` the step after it sends to its value; returns the cotangent this
 # step sends to the value before it.
 @inline function _chained_back!(
-        c, acc, kb, pr, gain, C, H, H̄, carry, t, τ, L, D, k
+        w, newest, kw, acc, pr, gain, C, H, H̄, carry, t, τ, L, D, k
     )
     h̄ = @inbounds H̄[D + t, k]
     p̄ = _core_back!(acc, h̄ + carry, pr, gain, C, t, τ, k)
     L >= 1 || return zero(carry)
-    w = _stratum_weights(c.g, k)
-    o = t + D - L - 1
-    _older_back!(_stratum_buffer(kb, c.g, k), w, p̄, H, H̄, o, L, k)
-    β = @inbounds _at(gain, k, τ) * _coef(C, k) * w[L]
+    _older_back!(kw, w, p̄, H, H̄, t + D - L - 1, L, k)
+    β = @inbounds _at(gain, k, τ) * _coef(C, k) * newest
     return muladd(β, carry, β * h̄)
 end
 _stratum_buffer(kb::AbstractMatrix, ::AbstractVector, k) = view(kb, :, k)
