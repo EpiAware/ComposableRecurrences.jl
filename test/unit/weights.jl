@@ -337,6 +337,14 @@ end
         @test c(xs) ≈ Base.ScopedValues.with(() -> c(xs), CR.EXECUTOR => CR.Serial())
         check(c, (xs, true, nothing, nothing, 1, T), sin.(xs))
     end
+    # The transpose, which runs the computed kernel's reverse body as its
+    # forward pass: shared and per-stratum kernels, a late start, a stop
+    # before the end and a tail.
+    tr(k) = CR._TransposedConvolution(conv(k))
+    check(tr(W.confirmed(q, hs)), (x, nothing, 1, T), sin.(1:T))
+    check(tr(W.confirmed(q, hs)), (x, nothing, 3, T - 2), sin.(1:(T - 4)))
+    check(tr(W.confirmed(q, hs)), (x[1:(T - 2)], x[1:2], 1, T - 2), sin.(1:(T - 2)))
+    check(tr(W.nested(Ps, 0.4, hs)), (xs, nothing, 1, T), sin.(xs))
     # The terms of a convolution.
     terms = CR._Contributions(conv(W.confirmed(q, hs)))
     check(terms, (x, true, nothing, 1, T), reshape(sin.(1:(L * T)), L, T))
