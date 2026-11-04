@@ -66,10 +66,17 @@ where each index `k` is one [stratum](@ref PerStratum) or one output time.
 
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
-`work` estimates the loop's total cost in inner operations, which an
-executor may use to run small loops in order; [`Serial`](@ref) ignores it.
 A new executor type adds a method of `each!`.
 Returns `nothing`.
+
+# Arguments
+- `body`: the per-index function, called as `body(k, args...)`.
+- `ex`: the executor that runs the loop.
+- `n`: the number of indices.
+- `work`: an estimate of the loop's total cost in inner operations, which
+  an executor may use to run small loops in order; [`Serial`](@ref) ignores
+  it.
+- `args`: the arguments passed to every call of `body`.
 
 # Examples
 ```jldoctest

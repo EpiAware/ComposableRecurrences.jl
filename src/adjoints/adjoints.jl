@@ -66,7 +66,7 @@ _reroute(::NoAdjoint, op) = NoAdjoint(op)
 const _PULLBACK_CALLS = Threads.Atomic{Int}(0)
 _count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
 
-# == Whether a piece has an adjoint ==
+# == Whether a part has its own adjoint ==
 
 @doc raw"""
 Whether `piece` carries its own analytic adjoint in `role`: a
@@ -101,6 +101,10 @@ has one.
 A [`Recurrence`](@ref) does when every float it holds is a `Float16`,
 `Float32` or `Float64` and each part has a `pullback!` or a
 [local step](@ref adjoint-routing) within its limits.
+
+# Arguments
+- `piece`: the operator, coupling, modifier or variant.
+- `role`: the role.
 
 # Examples
 ```jldoctest
@@ -287,6 +291,10 @@ A mirror holds a struct's cotangents for a
 array of the same shape for a float array, and `nothing` for an integer,
 range or function.
 
+# Arguments
+- `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.
+- `name`: the field.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -314,6 +322,11 @@ so the cotangents from every use of a parameter sum.
 This is `x̄[idx...] += v` for an array, `x̄[] += v` for a `Ref` (the index
 is ignored), the same into the array of a wrapper's `(; x)` mirror, and
 nothing for `nothing` or the empty mirror `(;)` of an object with no fields.
+
+# Arguments
+- `x̄`: the mirror: an array, a `Ref`, `(; x)`, `(;)` or `nothing`.
+- `v`: the cotangent to add.
+- `idx`: the index into an array mirror.
 
 # Examples
 ```jldoctest
@@ -392,6 +405,12 @@ are its positional arguments.
 Methods come from package extensions: `AutoMooncake` with `Mooncake` loaded
 (`Mooncake.TestUtils.test_rule`) and `AutoEnzyme` with `EnzymeTestUtils`
 loaded (`test_reverse`, with the operator active and constant).
+
+# Arguments
+- `backend`: an `AutoMooncake` or `AutoEnzyme` from ADTypes.
+- `piece`: the operator.
+- `role`: `Run()`.
+- `args`: the positional arguments.
 
 # Examples
 ```julia
