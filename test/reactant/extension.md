@@ -33,6 +33,9 @@ Each method below was found by tracing the cases in this folder one failure at a
    Reactant's traced `reverse(g)` also reverses `g` in place.
    One call is right, but a second call with the same kernel, as when resuming from a returned state, would read it the wrong way round.
    The extension reverses a copy, for vector and `PerStratum` kernels.
+9. Per-stratum parameters at a traced time (`param`).
+   Inside the traced loop, `x[k, t]` with a traced `t` reads stratum 1 for every `k`.
+   A `TimeVarying(PerStratum(...))` parameter, and one given by change points with per-stratum values, is read at its linear index instead, as the kernel weights from change points are.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
 This lives in the package for the draw of a `Depletion` with several pools (`_draw_pools`, `src/depletion/pool.jl`).

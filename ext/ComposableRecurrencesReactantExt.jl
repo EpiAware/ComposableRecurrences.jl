@@ -198,6 +198,16 @@ end
 _lead_index(::AbstractMatrix, a, i) = i
 _lead_index(x::PerStratum, a, i) = a + (i - 1) * size(x.x, 1)
 
+# A per-stratum parameter at a traced time, read at its linear index for the
+# same reason: inside the traced loop `x[k, t]` reads stratum 1 for every
+# `k`. Values given by change points reach here with their segment as `t`.
+function ComposableRecurrences.param(
+        x::TimeVarying{<:Any, <:PerStratum}, k, t::TracedRNumber
+    )
+    A = x.x.x
+    return vec(_traced(A))[k + (t - 1) * size(A, 1)]
+end
+
 # A recurrence kernel from change points at a traced step: each lag's weight
 # is chosen from the segment of the time it reads, `τ` or with `Primary()`
 # the value's own time, with `ifelse` over the segments, so every lag runs.

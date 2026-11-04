@@ -2418,12 +2418,6 @@ const REACTANT_BROKEN = Dict(
     "kernel from change points with traced values" => [
         "Recurrence kernel from change points",
     ],
-    # Compiles with no error, but a `PerStratum` value given by change points
-    # reads stratum 1 for every stratum: the value differs from plain Julia
-    # by 5e-2 and the gradient from ForwardDiff by up to 1.9 an entry.
-    "wrong values: per-stratum change points read stratum 1" => [
-        "Recurrence parameters from change points",
-    ],
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",
     ],
