@@ -149,9 +149,6 @@ end
     # with shape 2 and scale `θ[2]`, read at the end of each step, so some
     # patients leave on the step they arrive and `S[1] < 1`.
     survival(θ) = [(1 + (k + 1) / θ[2]) * exp(-(k + 1) / θ[2]) for k in 0:(T - 1)]
-    # The admissions written out: each step admits the demand up to the beds
-    # not held by earlier admissions, counting the share `S[1]` of today's
-    # admissions still in a bed at the end of the step.
     function naive(θ)
         S = survival(θ)
         x = zeros(eltype(θ), T)
@@ -171,12 +168,12 @@ end
     x = admitted(θ)
     @test x ≈ naive(θ)
     occupancy = Convolution(survival(θ))(x)
-    # The cap binds, occupancy never passes the beds and nothing is lost.
     @test any(x .< demand)
     @test maximum(occupancy) ≈ θ[1]
     @test all(occupancy .<= θ[1] + 1.0e-10)
-    @test all(>=(0), demand .- x)
-    # Without a cap the occupancy is the convolution of the demand.
+    # A non-increasing survival keeps the bound, and so the admissions,
+    # non-negative where the cap binds.
+    @test all(>=(0), x)
     free = [Inf, θ[2]]
     @test admitted(free) ≈ demand
     w = range(0.5, 1.5; length = T)

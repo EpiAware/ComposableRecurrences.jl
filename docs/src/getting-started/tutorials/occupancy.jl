@@ -140,21 +140,18 @@ end
 # ```
 #
 # where ``A_t`` is the demand for beds, ``x_t`` the admissions and ``h_t`` the beds still held by earlier admissions.
-# Of the day's admissions a share ``S_0`` is still in a bed at the end of the day, so the cap divides the free beds by ``S_0``.
-# Then ``O_t = B`` on the days the cap binds, and ``O_t < B`` otherwise.
-# The held beds ``h_t`` are a weighted sum of the recurrence's own past outputs, with weights ``S_1, S_2, \dots``.
-# [`Recent`](@ref ComposableRecurrences.Recent) reads that sum, so the cap is `Transform(min, (B - Recent(S[2:end])) / S[1])`.
-# The recurrence's kernel is zero, as past admissions enter only through the cap, and the demand is the add input ``a_t = A_t``.
-# The patients turned away are ``A_t - x_t``.
-# Occupancy is ``O_t = \sum_{k \ge 0} S_k x_{t-k}``, the same convolution as without a cap, applied to the admissions.
+# The held beds ``h_t`` are a weighted sum of the recurrence's own past outputs, which [`Recent`](@ref ComposableRecurrences.Recent) reads, so the cap is `Transform(min, (B - Recent(S[2:end])) / S[1])` on a recurrence with a zero kernel and the demand as `add`.
+# Of the day's admissions a share ``S_0`` is still in a bed at the end of the day, so the cap divides the free beds by ``S_0``, and ``O_t = B`` on the days it binds.
 # The survival is non-increasing, so ``h_t \le O_{t-1} \le B`` and the bound is never negative.
 
-function admit(S)
-    cap = Transform(min, (beds - Recent(S[2:end])) / S[1])
-    return Recurrence([0.0]; modifiers = (cap,))(; history = [0.0], add = admissions)
+function admit(survival, beds, demand)
+    cap = Transform(min, (beds - Recent(survival[2:end])) / survival[1])
+    return Recurrence([0.0]; modifiers = (cap,))(; history = [0.0], add = demand)
 end
 geometric = (1 - δ) .^ (0:(T - 1))
-admitted = admit(S)
+admitted = admit(S, beds, admissions)
+@assert round(Int, sum(admissions .- admitted)) == 43 #hide
+@assert extrema(findall(>=(beds - 1.0e-9), Convolution(S)(admitted))) == (35, 42) #hide
 admitted_occupancy = Convolution(S)(admitted)
 
 @chain DataFrame(
@@ -171,7 +168,8 @@ end
 # Occupancy of those admitted reaches the 120 beds and never passes them:
 
 @chain DataFrame(
-    "day" => 1:T, "Geometric stay" => Convolution(geometric)(admit(geometric)),
+    "day" => 1:T,
+    "Geometric stay" => Convolution(geometric)(admit(geometric, beds, admissions)),
     "Log-normal stay" => admitted_occupancy
 ) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
@@ -184,9 +182,6 @@ end
 # With the geometric stay ``S_0 = 1``, and the ward is full on days 32 to 43, as with the cap on occupancy.
 # There 101 patients are turned away rather than deleted.
 # Swapping the stay changes only the survival ``S``: the cap and the convolution stay the same.
-
-# An allowance granted each period works in a similar way, with a pool drawn from rather than filled.
-# Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B` of a [`Depletion`](@ref ComposableRecurrences.Depletion).
 
 # ## A ward with two linked compartments
 #
