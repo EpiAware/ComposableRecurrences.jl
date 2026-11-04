@@ -112,8 +112,19 @@ Inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step.
 The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
-Without modifiers or `add`, the outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the gain at each time ``t``.
-In a renewal model this is the reproduction number, and with a `Depletion` the effective reproduction number.
+The transpose sums forward in time from each ``t``.
+For a reporting delay ``w_l`` over ``L_w`` lags and data up to time ``T``, the share of the infections at time ``t`` reported by ``T`` is
+
+```math
+c_t = \sum_{l=0}^{\min(L_w, T - t + 1) - 1} w_l ,
+```
+
+and `delay'(ones(T))` returns ``c_1, \dots, c_T``.
+It is 1 up to ``T - L_w + 1`` and falls to ``w_0`` at ``T``.
+
+```julia
+reported_share = delay'(ones(T))
+```
 
 ## [Shapes](@id overview-shapes)
 
