@@ -27,7 +27,7 @@ Each slot accepts its own set of wrappers.
 
 Wrappers nest from the outside in: time, then strata, then the slot's own axes.
 So `TimeVarying(PerStratum(G))` is an `S × L × T` kernel and `TimeVarying(Pairwise(A))` is `S × S × L × T`.
-A `Derived` or `Recent` parameter sits inside arithmetic, as in `κ * Recent(7)`, and its arguments may be any other parameter.
+A `Derived` or `Recent` parameter sits inside arithmetic, as in `β * Recent(7)`, and its arguments may be any other parameter.
 A `Derived` kernel's arguments may also be vectors of lag weights, `Primary()` coefficients and [`Survival`](@ref ComposableRecurrences.Survival).
 
 Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.param), which takes every form.
@@ -58,12 +58,12 @@ Scaling ``k_{j,l}`` by a transmissibility ``\sigma_j`` gives the same step as sc
 
 ```@example shapes
 k = [0.4, 0.4, 0.2]
-C = [0.8 0.3; 0.2 0.7]
+K = [0.8 0.3; 0.2 0.7]
 gain = fill(1.1, 2, 8)
 h = ones(2, 3)
 σ = [1.0, 0.5]                  # transmissibility of each sender
-by_kernel = Recurrence(PerStratum(σ .* k'); coupling = C)(gain; history = h)
-by_columns = Recurrence(k; coupling = C .* σ')(gain; history = h)
+by_kernel = Recurrence(PerStratum(σ .* k'); coupling = K)(gain; history = h)
+by_columns = Recurrence(k; coupling = K .* σ')(gain; history = h)
 by_kernel ≈ by_columns
 ```
 
@@ -80,9 +80,9 @@ where ``A_{ij,l}`` weights stratum ``j`` in stratum ``i`` at lag ``l``.
 When every pair shares the shape, ``A_{ij,l} = K_{ij} k_l``, the two give the same values, and the coupling is cheaper.
 
 ```@example shapes
-A = reshape(C, 2, 2, 1) .* reshape(k, 1, 1, :)
+A = reshape(K, 2, 2, 1) .* reshape(k, 1, 1, :)
 pairwise = Recurrence(Pairwise(A))(gain; history = h)
-coupled = Recurrence(k; coupling = C)(gain; history = h)
+coupled = Recurrence(k; coupling = K)(gain; history = h)
 pairwise ≈ coupled
 ```
 

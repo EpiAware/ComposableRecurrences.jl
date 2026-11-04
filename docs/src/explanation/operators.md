@@ -41,7 +41,7 @@ So a call from `start = 4` reads `gain[4]` at its first step, and the output has
 With ``h_{t}`` the history value at time ``t``, that first step is
 
 ```math
-y_4 = g_4 \sum_{l=1}^{3} k_l \, h_{4-l}.
+y_4 = \gamma_4 \sum_{l=1}^{3} k_l \, h_{4-l}.
 ```
 
 ```@example operators

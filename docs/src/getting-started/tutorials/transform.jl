@@ -28,15 +28,15 @@ nothing #hide
 # ```
 #
 # where ``I_n`` holds the mean cases of each type in generation ``n``.
-# The coupling ``K`` is the mean offspring matrix, `M` in the code.
+# The coupling ``K`` is the mean offspring matrix.
 # Its entry ``K_{ij}`` is the mean number of type ``i`` cases that one type ``j`` case causes.
 # The kernel is ``k_1 = 1`` and the gain is ``\gamma_n = 1``.
 # Growth per generation converges to the spectral radius of ``K``, the reproduction number.
 
-M = [1.2 0.4; 0.3 0.6]
-by_generation = Recurrence([1.0]; coupling = M)(1.0; history = [1.0; 0.0;;], stop = 30)
+K = [1.2 0.4; 0.3 0.6]
+by_generation = Recurrence([1.0]; coupling = K)(1.0; history = [1.0; 0.0;;], stop = 30)
 growth = norm(by_generation[:, end]) / norm(by_generation[:, end - 1])
-radius = maximum(abs, eigvals(M))
+radius = maximum(abs, eigvals(K))
 
 @chain DataFrame(
     "generation" => 0:30, "Type 1" => [1.0; by_generation[1, :]], "Type 2" => [0.0; by_generation[2, :]]
@@ -98,17 +98,17 @@ end
 # ```
 #
 # Here ``I_{t,i}`` is the mean number of type ``i`` cases on day ``t`` and ``\gamma_t = 1.6`` the gain.
-# The coupling ``K`` is the mean offspring matrix, `M_house` in the code.
+# The coupling ``K`` is the mean offspring matrix, `K_house` in the code.
 # The weight ``k_{j,l}`` is type ``j``'s thinned kernel on lag ``l``, row ``j`` of `W_house`.
-# The next-generation matrix ``\mathcal{K}`` is `K_house`.
+# The next-generation matrix ``\mathcal{K}`` is `ngm_house`.
 
 F_fast = [0.3, 0.7, 0.9, 1.0, 1.0]
 W_house = permutedims([gi_isolated gi .* (1 .- p * b .* F_fast)])
-M_house = [0.6 0.3; 0.6 0.5]
-house_model = Recurrence(PerStratum(W_house); coupling = M_house)
+K_house = [0.6 0.3; 0.6 0.5]
+house_model = Recurrence(PerStratum(W_house); coupling = K_house)
 house = house_model(R0; history = [10.0; 0.0;;], stop = 60)
-K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
-R_house = maximum(abs, eigvals(K_house))
+ngm_house = R0 * K_house * Diagonal(vec(sum(W_house; dims = 2)))
+R_house = maximum(abs, eigvals(ngm_house))
 
 @chain DataFrame(
     "day" => 1:60, "First case" => house[1, :], "Later case" => house[2, :]
