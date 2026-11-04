@@ -222,12 +222,17 @@ end
 # dense kernel keeps every block instead.
 const _BLOCK = 32
 
-struct _SurvivalScratch{C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
+# `P` is whether the hazard has a strata axis: without one every stratum
+# reads row 1, fixed by the type so each entry's index folds.
+struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
     hazard::C
     S::A
     H::A
     S̄::A
     acc::V
+    function _SurvivalScratch{P}(hazard::C, S::A, H::A, S̄::A, acc::V) where {P, C, A, V}
+        return new{P, C, A, V}(hazard, S, H, S̄, acc)
+    end
 end
 _scratch(x, ::Type, L, B = _BLOCK) = nothing
 function _scratch(x::Derived, ::Type{Tp}, L, B = _BLOCK) where {Tp}
@@ -235,12 +240,25 @@ function _scratch(x::Derived, ::Type{Tp}, L, B = _BLOCK) where {Tp}
 end
 function _scratch(x::Survival, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     ns = max(_coef_strata(x.hazard), 1)
-    return _SurvivalScratch(
+    return _SurvivalScratch{_stratified(x.hazard)}(
         _scratch(x.hazard, Tp, L, B), Array{Tp}(undef, B, L, ns),
         Array{Tp}(undef, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
     )
 end
-_row(sc::_SurvivalScratch, k) = size(sc.S, 3) == 1 ? 1 : k
+_row(sc::_SurvivalScratch{false}, k) = 1
+_row(sc::_SurvivalScratch{true}, k) = k
+
+# Whether a coefficient of type `T` has a strata axis (`_coef_strata` is
+# then its count), from the type alone.
+_stratified_type(::Type) = false
+_stratified_type(::Type{<:PerStratum}) = true
+_stratified_type(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
+_stratified_type(::Type{Survival{H}}) where {H} = _stratified_type(H)
+function _stratified_type(::Type{Derived{F, A}}) where {F, A}
+    return any(_stratified_type, fieldtypes(A))
+end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _stratified(x) = _stratified_type(x)
 
 # The last lag index of cohort `τ` whose weight lands by `last`, for lags
 # from `o`.
