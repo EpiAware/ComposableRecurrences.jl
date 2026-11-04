@@ -46,7 +46,8 @@ Infections before the first day are the history.
 ```@example overview
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 T = 75
-one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
+one_seed = fill(10.0, 6)
+one_town = Recurrence(gi)(fill(1.8, T); history = one_seed)
 
 @chain DataFrame(day = 1:T, count = one_town) begin
     data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
@@ -68,12 +69,12 @@ C_t = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l},
 
 where ``C_t`` is the number of reports on day ``t``.
 ``w_l`` is the delay's weight on lag ``l``, and ``L_w`` is its length.
-The delay reads the same ten infections before the first day as the renewal.
+The delay reads the same history as the renewal, `one_seed`, 10 infections on each of the six days before day 1.
 ``\rho`` is the gain of the [`Convolution`](@ref), and a delay of zero days is lag 0.
 
 ```@example overview
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
-one_report = delay(one_town; gain = 0.4, history = fill(10.0, 6))
+one_report = delay(one_town; gain = 0.4, history = one_seed)
 
 @chain long([one_town one_report]', ["Infections", "Reports"]; name = :series) begin
     data(_) * mapping(:day, :count, color = :series => "") *
@@ -146,7 +147,7 @@ s_t = s_{t-1} \, e^{-\lambda_t},
 where ``v_t`` is the right-hand side of the renewal equation and ``\lambda_t`` is the hazard.
 
 ```@example overview
-one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = fill(10.0, 6))
+one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = one_seed)
 
 @chain DataFrame(day = 1:T, count = one_depleted) begin
     data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
@@ -168,7 +169,7 @@ R_t = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
 
 ```@example overview
 intervention = [1.8 - clamp((t - 50) / 6, 0, 1) for t in 1:T]
-one_intervened = Recurrence(gi)(intervention; history = fill(10.0, 6))
+one_intervened = Recurrence(gi)(intervention; history = one_seed)
 
 @chain long([one_town one_intervened]', ["No intervention", "Intervention"]; name = :series) begin
     data(_) * mapping(:day, :count, color = :series => "") *
@@ -209,6 +210,7 @@ The generation interval has weight ``g_l`` on lag ``l`` over ``L`` lags, the rep
 The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
 The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
+The renewal and the delay both read these as their `history`, so the reports from day 1 include them.
 In the code, `PerStratum(pop)` gives each town its own population.
 
 ```@example overview
@@ -310,10 +312,11 @@ maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι
 
 ## Gradients
 
-One line gives the gradient of all reports with respect to every town's reproduction number on every day.
+ForwardDiff gives the gradient of all reports with respect to every town's reproduction number on every day.
 
 ```@example overview
-∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4, history = seed)), R)
+reports_of(R) = delay(renewal(R; history = seed); gain = 0.4, history = seed)
+∂R = ForwardDiff.gradient(R -> sum(reports_of(R)), R)
 nothing # hide
 ```
 
