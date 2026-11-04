@@ -31,6 +31,7 @@ the absolute times `start:stop`:
   - `tail`: the series after `t = n`, oldest first (any length `m`, or
     `S × m`); later values are zero. A series extended by its last value
     is `tail = fill(x[end], L - 1)`.
+  - `start`: the first time; `1` by default.
   - `stop`: the last time, at most `n + m`; `n` by default.
 
 The output has the layout of `x` and length `stop - start + 1`.
