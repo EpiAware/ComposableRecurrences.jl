@@ -92,7 +92,8 @@ function pullback!(grads, J::UniformScaling, ::Pressure, q, p, t)
 end
 
 # `pullback = false` skips the pullback check for an object on the same
-# `pullback!` method as another one here.
+# `pullback!` method as another one here; each branch has its own test
+# against a local Jacobian.
 @implements PieceInterface{(:pullback,)} UniformScaling [
     Arguments(;
         piece = I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1),
