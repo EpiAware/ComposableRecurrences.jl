@@ -1048,6 +1048,19 @@ end
 # infections, as BVD's joint model reads them.
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    return _importation_loss(w, logh, logR, ε)
+end
+
+# The importation's trace through a sparse coupling, so the coupling's
+# product is differentiated with the trace as well as the output.
+function _trace_sparse(w, θ)
+    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
+    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    return _importation_loss(w, logh, logR, ε; coupling = K)
+end
+
+# The importation's loss, read from its output and trace.
+function _importation_loss(w, logh, logR, ε; kw...)
     CR = ComposableRecurrences
     # The intensity per origin and step keeps the movement a kernel and
     # an intensity, whose columns sum to one under any perturbation.
@@ -1056,23 +1069,7 @@ function _trace_importation(w, θ)
         CR.Depletion(PerStratum(POP)),
     )
     y, tr = returning_trace(
-        w(Recurrence(G0; modifiers = mods)), exp.(logR); history = exp.(logh)
-    )
-    return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
-end
-
-# The importation's trace through a sparse coupling, so the coupling's
-# product is differentiated with the trace as well as the output.
-function _trace_sparse(w, θ)
-    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
-    CR = ComposableRecurrences
-    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
-    mods = (
-        CR.Redistribute(K0, ε .* ones(1, T)),
-        CR.Depletion(PerStratum(POP)),
-    )
-    y, tr = returning_trace(
-        w(Recurrence(G0; coupling = K, modifiers = mods)), exp.(logR);
+        w(Recurrence(G0; modifiers = mods, kw...)), exp.(logR);
         history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
