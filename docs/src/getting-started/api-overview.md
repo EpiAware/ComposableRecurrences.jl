@@ -88,7 +88,7 @@ In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in Get
 
 ```julia
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4, history = seed)
 ```
 
 A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the time the next step computes.

@@ -68,12 +68,12 @@ C_t = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l},
 
 where ``C_t`` is the number of reports on day ``t``.
 ``w_l`` is the delay's weight on lag ``l``, and ``L_w`` is its length.
-Infections before day 1 count as zero here.
+The delay reads the same ten infections before the first day as the renewal.
 ``\rho`` is the gain of the [`Convolution`](@ref), and a delay of zero days is lag 0.
 
 ```@example overview
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
-one_report = delay(one_town; gain = 0.4)
+one_report = delay(one_town; gain = 0.4, history = fill(10.0, 6))
 
 @chain long([one_town one_report]', ["Infections", "Reports"]; name = :series) begin
     data(_) * mapping(:day, :count, color = :series => "") *
@@ -216,7 +216,7 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4, history = seed)
 nothing # hide
 ```
 
@@ -313,7 +313,7 @@ maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι
 One line gives the gradient of all reports with respect to every town's reproduction number on every day.
 
 ```@example overview
-∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
+∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4, history = seed)), R)
 nothing # hide
 ```
 
