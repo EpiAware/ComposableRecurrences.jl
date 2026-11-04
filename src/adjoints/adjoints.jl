@@ -1,11 +1,12 @@
-# The native adjoint rules' entry point. An operator's call builds its
-# positional arguments and goes through `adjoint_call`, which routes to the
-# rule primitive `_ad` (`Mooncake` `rrule!!` and `Enzyme` rules in the
-# extensions) when the operator uses its adjoint and every float is IEEE,
-# and otherwise to `_plain`, which the AD backend differentiates.
+# The native adjoint rules' entry point. An operator's call goes through
+# `adjoint_call`, which routes to the rule primitive `_ad` (the `Mooncake` and
+# `Enzyme` rules in the extensions) when the operator uses its adjoint and
+# every float is IEEE, and otherwise to `_plain`, which the backend
+# differentiates.
 
-# Supertype of operators whose call is routed through the native rules. An
-# operator type implements `forward(op, Run(), args...) -> (y, cache)` and
+# == Operators ==
+
+# An operator implements `forward(op, Run(), args...) -> (y, cache)` and
 # `pullback!(grads, op, Run(), cache)`.
 abstract type AbstractOperator end
 
@@ -48,9 +49,8 @@ struct NoAdjoint{O}
     op::O
 end
 
-# The call. `route` is the operator itself or its `NoAdjoint`; operators
-# with keyword calls add `_invoke` methods that build the positional
-# arguments.
+# `route` is the operator itself or its `NoAdjoint`; an operator with a
+# keyword call adds an `_invoke` method that builds the positional arguments.
 _invoke(op::AbstractOperator, route, args...) = adjoint_call(route, args...)
 (op::AbstractOperator)(args...; kwargs...) = _invoke(op, op, args...; kwargs...)
 (n::NoAdjoint)(args...; kwargs...) = _invoke(n.op, n, args...; kwargs...)
@@ -62,9 +62,11 @@ end
 _reroute(route, op) = op
 _reroute(::NoAdjoint, op) = NoAdjoint(op)
 
-# Incremented by every analytic reverse pass, so tests can prove it ran.
+# Counts the analytic reverse passes, so tests can prove one ran.
 const _PULLBACK_CALLS = Threads.Atomic{Int}(0)
 _count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
+
+# == Whether a piece has an adjoint ==
 
 @doc raw"""
 Whether `piece` carries its own analytic adjoint in `role`: a
@@ -100,10 +102,6 @@ A [`Recurrence`](@ref) does when every float it holds is a `Float16`,
 `Float32` or `Float64` and each part has a `pullback!` or a
 [local step](@ref adjoint-routing) within its limits.
 
-# Arguments
-- `piece`: the operator, coupling, modifier or variant.
-- `role`: the role.
-
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -117,10 +115,8 @@ true
 """
 uses_adjoint(piece, role) = _has_pullback(piece, role)
 
-# Whether `pullback!` has a method for `piece` in `role` that takes untyped
-# cotangents and arguments, so a method that fits every call.
-# `Core._hasmethod` folds at compile time, and adding a method invalidates
-# the code that read it.
+# A `pullback!` method with untyped cotangents and arguments fits every call.
+# `Core._hasmethod` folds at compile time, and a new method invalidates it.
 _has_pullback(piece, role) = false
 function _has_pullback(x, ::Run)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Run, Any})
@@ -129,32 +125,27 @@ function _has_pullback(x, ::Pressure)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Pressure, Any, Any, Any}
     return Core._hasmethod(sig)
 end
+# A blockwise group step's or a depletion form's `pullback!` takes four
+# arguments after the role, and a group step's may type the first two as
+# tuples; a pointwise step's takes three.
 function _has_pullback(x, ::Step)
-    return _has_group_pullback(x) || _has_vector_pullback(x)
-end
-# A blockwise group step's or a depletion form's `pullback!`, after the role
-# its value and state and two more arguments; a group step's may type its
-# value and state as tuples.
-function _has_group_pullback(x)
     sig = Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any, Any}
     tup = Tuple{typeof(pullback!), Any, typeof(x), Step, Tuple, Tuple, Any, Any}
-    return Core._hasmethod(sig) || Core._hasmethod(tup)
+    return Core._hasmethod(sig) || Core._hasmethod(tup) || _has_vector_pullback(x)
 end
 function _has_vector_pullback(x)
     return Core._hasmethod(Tuple{typeof(pullback!), Any, typeof(x), Step, Any, Any, Any})
 end
 
-# The entry point: the rule when the operator uses its adjoint and every
-# float leaf is IEEE, else plain AD, both read from the types
-# (`_type_adjoint`). A `Recurrence` whose local step does not rebuild a part,
-# or whose coupling's local step needs more passes than the rule takes,
-# says so per call (`_fit`): `:one` takes the rule, `:wide` takes
-# `_ad_wide` and `:none` plain AD. `_fit` is the constant `:one` for every
-# other operator, so the route folds. `Vararg{Any, N}` makes the routes
-# specialise on the arguments.
+# == Routing ==
+
+# The rule or plain AD, read from the types. `_fit` refines the rule per call
+# for a `Recurrence` (`:one` the rule, `:wide` `_ad_wide`, `:none` plain AD)
+# and is the constant `:one` otherwise, so the route folds. `Vararg{Any, N}`
+# makes the routes specialise on the arguments.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
-# A `NoAdjoint` call passes the wrapper to the plain-AD hook, so a backend
-# tells it apart from the operator's own plain call.
+# The hook gets the wrapper, so a backend tells it from the operator's own
+# plain call.
 function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
     _gate(n, args...) && _plain_hook(n, args...)
     return _plain(n.op, args...)
@@ -172,33 +163,28 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
 end
 _fit(op, args...) = :one
 
-# A call within the wider limit. Its body is plain AD; a backend extension
-# may make it a rule primitive, as `_ad`.
+# Plain AD unless a backend extension makes it a rule primitive.
 _ad_wide(op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
 
-# The positional Run of an operator and its pullback. Operators with a
-# keyword `forward` on `Run()` add methods for their positional form.
+# An operator with a keyword `forward` adds methods for its positional form.
 _run_forward(op, args...) = forward(op, Run(), args...)
 _run_pullback!(grads, op, cache) = pullback!(grads, op, Run(), cache)
 
-# The primal call. The extensions make `_ad` a rule primitive for
-# `Mooncake` and `_ADLeaves` one for `Enzyme`; `_plain` is differentiated by
-# the backend. `_ad` passes `_ADLeaves` each leaf of the operator and its
-# arguments as its own argument, so `Enzyme` annotates every float and array
-# on its own and never needs a shadow for a struct that holds both;
-# `_ADLeaves` rebuilds the operator and arguments from them. It exists for
-# `Enzyme` on Julia 1.11: there, an operator holding both an array and an
-# active scalar was annotated `MixedDuplicated`, and the scalar's cotangent
-# written back by the rule did not reach the caller, a silent zero.
 _primal(op, args...) = first(_run_forward(op, args...))
+
+# == Leaves for the rule ==
+
+# `_ad` (the `Mooncake` rule) passes each leaf of the operator and arguments
+# to `_ADLeaves` (the `Enzyme` rule) as its own argument, so `Enzyme` never
+# shadows a struct holding both an array and an active scalar: on Julia 1.11
+# it loses the scalar's cotangent there, a silent zero.
 struct _ADLeaves{X} end
 function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
     return _primal(_rebuild_leaves(X, leaves)...)
 end
 
-# The field paths to the leaves of a value of type `T`. A leaf is a float,
-# an array, other data without float fields, a mutable struct or a field
-# whose type is not concrete; a struct without fields has none.
+# The field paths to the leaves of a value of type `T`: floats, arrays, other
+# data without float fields, mutable structs and abstractly typed fields.
 function _leaf_paths(::Type{T}) where {T}
     _is_leaf(T) && return ((),)
     fieldcount(T) == 0 && return ()
@@ -241,28 +227,24 @@ end
     end
     return build(X)
 end
+# == Plain AD ==
+
 _plain(op, args...) = _primal(op, args...)
-# A call the backend differentiates by plain AD first passes through this
-# hook, which does nothing; the `Enzyme` extension's reverse rule for it
-# warns of a gradient `Enzyme` can lose on Julia 1.11. It takes the operator
-# and its arguments so that the backend sees their activity, and
-# `donotdelete` keeps the call. Its call boxes them, so a call whose floats
-# are not all IEEE (dual numbers, say), which no backend with a rule for
-# the hook runs, skips it (`_gate`, read from the types).
+# A no-op that the `Enzyme` extension's rule uses to warn of a gradient it
+# can lose on Julia 1.11. The call boxes its arguments, so calls whose floats
+# are not all IEEE, which no backend with a rule runs, skip it.
 @noinline _plain_hook(op, args...) = (Base.donotdelete(op, args...); nothing)
 function _hooked_plain(op, args::Vararg{Any, N}) where {N}
     _gate(op, args...) && _plain_hook(op, args...)
     return _plain(op, args...)
 end
 
-# Rules apply when every float leaf is IEEE (Float16/32/64) and every array
-# is one whose tangent the wiring can read; dual numbers, BigFloat and other
-# arrays take the plain path, as do abstractly typed fields. Integer arrays
-# of any type, such as index ranges, and arrays of them carry no tangent.
-# `_ok` is one closed function of the types (nothing extends it), evaluated
-# once per signature by a generated function: inference does not
-# constant-fold the recursion, and an unfolded gate costs a dynamic dispatch
-# on every call under `Mooncake`.
+# == Gate ==
+
+# Rules apply when every float leaf is IEEE and every array one whose tangent
+# the wiring reads. A generated function evaluates `_ok` once per signature:
+# inference does not fold the recursion, and an unfolded gate costs a
+# dynamic dispatch per call under `Mooncake`.
 const _IEEEFloat = Union{Float16, Float32, Float64}
 function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true
@@ -283,6 +265,8 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _gate(xs...) = all(_ok, xs)
 
+# == Mirrors ==
+
 @doc raw"""
 The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`
 when `x̄` is `nothing` or has no such field.
@@ -302,10 +286,6 @@ A mirror holds a struct's cotangents for a
 [entry](@ref extending-mirror) per field: a `Ref` for a float scalar, an
 array of the same shape for a float array, and `nothing` for an integer,
 range or function.
-
-# Arguments
-- `x̄`: the mirror, a NamedTuple of field mirrors or `nothing`.
-- `name`: the field.
 
 # Examples
 ```jldoctest
@@ -334,11 +314,6 @@ so the cotangents from every use of a parameter sum.
 This is `x̄[idx...] += v` for an array, `x̄[] += v` for a `Ref` (the index
 is ignored), the same into the array of a wrapper's `(; x)` mirror, and
 nothing for `nothing` or the empty mirror `(;)` of an object with no fields.
-
-# Arguments
-- `x̄`: the mirror: an array, a `Ref`, `(; x)`, `(;)` or `nothing`.
-- `v`: the cotangent to add.
-- `idx`: the index into an array mirror.
 
 # Examples
 ```jldoctest
@@ -381,9 +356,8 @@ function _add_entry!(K̄, K::Diagonal, v, p, q)
     return nothing
 end
 
-# A dense matrix whose mirror is a dense array or absent: the pullbacks'
-# loops over it run without bounds checks once the sizes are checked, so
-# they vectorise.
+# A dense matrix's mirror that its pullback's loop can index without bounds
+# checks once `_check_dense` has passed.
 const _DenseMirror = Union{Matrix, Nothing, NamedTuple{()}}
 function _check_dense(C̄, C)
     C̄ isa Matrix && size(C̄) != size(C) && throw(
@@ -393,6 +367,8 @@ function _check_dense(C̄, C)
 end
 _array_mirror(C̄) = C̄
 _array_mirror(C̄::NamedTuple{(:x,)}) = C̄.x
+
+# == Testing ==
 
 @doc raw"""
 Test the analytic adjoint of `piece` in `role` on the primal arguments
@@ -416,12 +392,6 @@ are its positional arguments.
 Methods come from package extensions: `AutoMooncake` with `Mooncake` loaded
 (`Mooncake.TestUtils.test_rule`) and `AutoEnzyme` with `EnzymeTestUtils`
 loaded (`test_reverse`, with the operator active and constant).
-
-# Arguments
-- `backend`: an `AutoMooncake` or `AutoEnzyme` from ADTypes.
-- `piece`: the operator.
-- `role`: `Run()`.
-- `args`: the positional arguments.
 
 # Examples
 ```julia
