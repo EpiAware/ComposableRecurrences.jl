@@ -133,20 +133,38 @@ Derived(f, args...) = Derived(f, args)
 
 param(x::Derived, k, t) = x.f(_params_at(x.args, k, t)...)
 
-# Unrolled over the arguments, so a nested `Derived` recurses only into
-# simpler `Derived` types and infers: a helper shared by every level would
-# meet inference's recursion limit and dispatch at run time.
-@generated function add_param!(x̄, x::Derived{F, A}, v, k, t) where {F, A}
+function add_param!(x̄, x::Derived, v, k, t)
+    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+    ā === nothing && return nothing
+    return _add_partials!(ā, x, v, _partials(x.f, _params_at(x.args, k, t)), k, t)
+end
+# Add `v ∂_i` into each argument's mirror `ā[i]`. Unrolled over the
+# arguments, so a nested `Derived` recurses only into simpler `Derived`
+# types and infers: a helper shared by every level would meet inference's
+# recursion limit and dispatch at run time.
+@generated function _add_partials!(ā, x::Derived{F, A}, v, ∂, k, t) where {F, A}
     calls = (
         :(add_param!(ā[$i], x.args[$i], v * ∂[$i], k, t)) for i in 1:fieldcount(A)
     )
     return quote
-        ā = _arg_mirrors(cotangent(x̄, :args), x.args)
-        ā === nothing && return nothing
-        ∂ = _forward_derivative(x.f, _params_at(x.args, k, t))
         $(calls...)
         return nothing
     end
+end
+
+# The value of parameter `x` at `(k, t)` and what its pullback
+# (`_add_param_partials!`) needs, from one read of its arguments: the
+# partials of a `Derived`'s map that has mirrors, else `nothing`.
+_param_partials(x̄, x, k, t) = (param(x, k, t), nothing)
+function _param_partials(x̄, x::Derived, k, t)
+    xs = _params_at(x.args, k, t)
+    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+    ā === nothing && return (x.f(xs...), nothing)
+    return (x.f(xs...), _partials(x.f, xs))
+end
+_add_param_partials!(x̄, x, v, ::Nothing, k, t) = add_param!(x̄, x, v, k, t)
+function _add_param_partials!(x̄, x::Derived, v, ∂::Tuple, k, t)
+    return _add_partials!(_arg_mirrors(cotangent(x̄, :args), x.args), x, v, ∂, k, t)
 end
 
 # The arguments' values, read one tuple entry at a time: a `map` closure

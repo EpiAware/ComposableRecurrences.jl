@@ -390,6 +390,7 @@ end
 # The partial derivatives of `f` at `xs`: closed forms for the arithmetic,
 # and a local forward-mode derivative otherwise.
 _partials(f, xs::Tuple) = _forward_derivative(f, xs)
+_partials(::typeof(identity), (a,)::Tuple{Real}) = (one(a),)
 _partials(::typeof(+), (a, b)::Tuple{Real, Real}) = (one(a), one(b))
 _partials(::typeof(-), (a, b)::Tuple{Real, Real}) = (one(a), -one(b))
 _partials(::typeof(-), (a,)::Tuple{Real}) = (-one(a),)

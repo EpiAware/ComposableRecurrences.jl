@@ -393,11 +393,12 @@ _counts(::Tuple{}, y, a, g, t) = y, a
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
-# One pass over the pools, by `ifelse`: a flow out of the system
-# (`to = 0`) adds to no pool.
-@inline function _count(f::_Count, y, a, g, t)
+_count(f::_Count, y, a, g, t) = _count_demand(f, param(f.demand, g, t), y, a)
+# One pass over the pools, by `ifelse`, for the count's demand `c`: a flow
+# out of the system (`to = 0`) adds to no pool.
+@inline function _count_demand(f::_Count, c, y, a)
     i, j = f.from, f.to
-    m = _moved(f.form, param(f.demand, g, t), _source(y, i))
+    m = _moved(f.form, c, _source(y, i))
     p = _moved_in(m)
     y′ = ntuple(Val(length(y))) do l
         return ifelse(l == i, y[l] - m, ifelse(l == j, y[l] + p, y[l]))
@@ -553,20 +554,25 @@ end
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
-# flows; returns those before them.
+# flows; returns those before them. Each count's demand is read once, for
+# both passes.
 _counts_back(::Tuple{}, f̄s, y, a, ȳ, ā, g, t) = ȳ
 function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     f = first(fs)
-    y′, a′ = _count(f, y, a, g, t)
+    c, ∂ = _demand(f, _head(f̄s), g, t)
+    y′, a′ = _count_demand(f, c, y, a)
     ȳ′ = _counts_back(Base.tail(fs), _tail(f̄s), y′, a′, ȳ, ā, g, t)
-    return _count_back(f, _head(f̄s), y, ȳ′, ā, g, t)
+    return _count_back(f, c, ∂, _head(f̄s), y, ȳ′, ā, g, t)
 end
-_count_back(f::Flow, f̄, y, ȳ, ā, g, t) = ȳ
+# A count's demand, and the partials its pullback reads (`_param_partials`).
+_demand(f::_Count, f̄, g, t) = _param_partials(cotangent(f̄, :demand), f.demand, g, t)
+_demand(f::Flow, f̄, g, t) = (nothing, nothing)
+_count_demand(f::Flow, c, y, a) = y, a
+_count_back(f::Flow, c, ∂, f̄, y, ȳ, ā, g, t) = ȳ
 # A count from outside the `Depletion` (`from = 0`) takes from no pool, so its
 # source has no cotangent.
-function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
+function _count_back(f::_Count, c, ∂, f̄, y, ȳ, ā, g, t)
     i = f.from
-    c = param(f.demand, g, t)
     s = _source(y, i)
     m = _moved(f.form, c, s)
     m̄ = ifelse(i == 0, zero(eltype(ȳ)), -_get(ȳ, i))
@@ -575,7 +581,7 @@ function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
     end
     c̄, s̄, κ̄ = _moved_back(f.form, c, s, m̄)
     add_cotangent!(cotangent(cotangent(f̄, :form), :κ), κ̄)
-    add_param!(cotangent(f̄, :demand), f.demand, c̄, g, t)
+    _add_param_partials!(cotangent(f̄, :demand), f.demand, c̄, ∂, g, t)
     return _set(ȳ, i, _get(ȳ, i) + s̄)
 end
 
