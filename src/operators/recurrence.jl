@@ -1316,6 +1316,11 @@ function _series_body!(
                 c, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
                 τ0, L, D
             )
+        elseif length(ks) == 1 && _carries(g, H)
+            _carried_run!(
+                g, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
+                ms, states, rec, τ0, L, D
+            )
         else
             _steps_in!(
                 _series_step!, ex, ts, T,
@@ -1340,6 +1345,41 @@ function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
         )
     end
     return nothing
+end
+
+# A run of one stratum through pointwise modifiers, on a host buffer with a
+# fixed or per-stratum kernel, carries its last value the same way; the
+# modifiers sit between the kernel and the value, so the step adds the
+# newest lag with one fused multiply-add and threads it through them.
+_carries(g, H) = false
+_carries(::Union{AbstractVector, PerStratum}, ::Array) = true
+function _carried_run!(
+        g, steps, k, H, pr, gain, add, coupling, ms, states, rec, τ0, L, D
+    )
+    row = D + first(steps) - 1
+    y = row >= 1 ? @inbounds(H[row, k]) : zero(eltype(H))
+    w = _stratum_weights(g, k)
+    for t in steps
+        τ = τ0 + t - 1
+        pk = _carried_dot(w, H, y, t, L, D, k)
+        xk = _coef(coupling, k) * pk
+        _record_pressure!(pr, pk, xk, t, k)
+        x = @inbounds _core(coupling, gain, add, k, τ, pk, xk)
+        y = _thread(ms, states, rec, x, τ, t, k)
+        @inbounds H[D + t, k] = y
+    end
+    return nothing
+end
+# The kernel convolution of step `t`'s window, its older lags read from the
+# buffer and its newest, `y`, carried.
+@inline function _carried_dot(w, H, y, t, L, D, k)
+    o = t + D - L - 1
+    acc = zero(promote_type(eltype(w), eltype(H)))
+    L >= 1 || return acc
+    @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
+        acc += w[i] * H[o + i, k]
+    end
+    return @inbounds muladd(w[L], y, acc)
 end
 
 # The runs of steps over which the kernel a step reads is fixed, each
