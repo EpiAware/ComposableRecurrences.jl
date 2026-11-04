@@ -172,6 +172,9 @@ include("kernels/weights.jl")
 # Operators whose kernel is computed from coefficients, and `kernel_weights`.
 include("kernels/computed.jl")
 
+# One-line summaries of the public types for the REPL and the docs.
+include("interface/show.jl")
+
 # adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
 # Default pullbacks of modifiers and couplings without one.
 include("adjoints/fallbacks.jl")

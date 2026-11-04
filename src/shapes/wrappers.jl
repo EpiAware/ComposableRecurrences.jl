@@ -24,7 +24,7 @@ TimeVarying([0.8 0.7; 0.2 0.3], ComposableRecurrences.Secondary())
 
 # output
 
-TimeVarying{ComposableRecurrences.Secondary, Matrix{Float64}}([0.8 0.7; 0.2 0.3])
+TimeVarying(2 times, 2×2 Matrix{Float64})
 ```
 """
 struct Secondary end

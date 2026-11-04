@@ -80,6 +80,17 @@ The method [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one.
 The method [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
 By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 steps.
 
+An operator, modifier or shape wrapper prints as one line with its size and parts.
+`repr` prints the constructor form with every type parameter.
+
+```julia
+julia> delay
+Convolution(7 lags)
+
+julia> Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
+Recurrence(6 lags, coupling 3×3 Matrix{Float64}, modifiers (Depletion))
+```
+
 ## [Calls](@id overview-calls)
 
 A call runs an operator over a range of steps.
