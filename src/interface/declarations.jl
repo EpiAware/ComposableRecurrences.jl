@@ -1,6 +1,3 @@
-# `PieceInterface`, declared first; each check below sits under the name of
-# the component it backs, as the docstring describes them.
-
 @interface PieceInterface Any (
     mandatory = (
         forward = "forward or forward! runs in its role" =>
@@ -94,7 +91,8 @@ function _forward_ok(C, ::Pressure, args, kwargs)
     out = forward!(C, Pressure(), q, p, args[3])
     return out === nothing && p == args[2] && all(isfinite, q)
 end
-# `r` is a vector, a tuple of vectors, or a group's one-entry values.
+# A trace writes into `r` (a vector, a tuple of vectors, or a group's
+# one-entry values) and leaves the step's values and state as they were.
 function _forward_ok(m, ::Trace, args, kwargs)
     r, ins = deepcopy(args[1]), _snapshot(args[2:end])
     out = forward!(m, Trace(), r, args[2:end]...)
@@ -110,6 +108,8 @@ _finite(x::AbstractArray) = all(isfinite, x)
 
 # == pointwise ==
 
+# A pointwise modifier's Step on the whole vectors matches its Step on each
+# stratum's one-entry view.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
     _strata_loop(m) || return true
@@ -129,6 +129,7 @@ end
 
 # == blocks ==
 
+# A blockwise modifier's vector Step matches its group Step on each group.
 _blocks_ok(piece, role, args) = true
 _blocks_ok(m, ::Step, args) = _groups_ok(_blocks(m), m, args)
 _groups_ok(::Nothing, m, args) = true
@@ -151,6 +152,8 @@ end
 
 # == nstate ==
 
+# The state keeps `nstate(m, S)` entries through Init and Step, one per
+# stratum for a pointwise modifier.
 _nstate_ok(piece, role, args) = true
 function _nstate_ok(m, ::Init, args)
     n = nstate(m, _nstrata(args[2]))
@@ -256,7 +259,9 @@ end
 # A fixed, non-degenerate seed: entries of both signs and none zero.
 _probe_cotangent(n) = [cospi(0.37 * i + 0.105) for i in 1:n]
 
-# A zeroed mirror of `x`, laid out as `cotangent` reads it.
+# A zeroed mirror of `x`: a `Ref` for a float scalar, an array for a float
+# array, `(; nzval)` or `(; diag)` for a sparse or `Diagonal` matrix, a
+# NamedTuple for a struct and `nothing` otherwise.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
 _zero_mirror(x::SparseMatrixCSC{<:AbstractFloat}) = (; nzval = zero(nonzeros(x)))
