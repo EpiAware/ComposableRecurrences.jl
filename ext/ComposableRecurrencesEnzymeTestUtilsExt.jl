@@ -20,13 +20,16 @@ _ad_ref(r, args...) = _ad(r[], args...)
 # The operator is tested active (as Enzyme would annotate it) and constant;
 # a constant operator needs runtime activity. EnzymeTestUtils cannot build
 # MixedDuplicated, so an operator with array and scalar fields is tested
-# active in a `Duplicated` `Ref`, whose shadow takes its cotangent.
+# active in a `Duplicated` `Ref`, whose shadow takes its cotangent. On Julia
+# 1.11 Enzyme drops the cotangent of a scalar field read from a `Ref`, so
+# that check runs from 1.12.
 function ComposableRecurrences.test_adjoint(::AutoEnzyme, op, ::Run, args...; kwargs...)
     ret = _act(first(_run_forward(op, args...)))
     xs = map(x -> (x, _act(x)), args)
     opact = Enzyme.guess_activity(typeof(op), Enzyme.Reverse)
     if opact <: MixedDuplicated
-        test_reverse(_ad_ref, ret, (Ref(op), Duplicated), xs...; kwargs...)
+        VERSION >= v"1.12" &&
+            test_reverse(_ad_ref, ret, (Ref(op), Duplicated), xs...; kwargs...)
         acts = (Const,)
     else
         acts = opact <: Active ? (Active, Const) : (Duplicated, Const)
