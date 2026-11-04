@@ -8,7 +8,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Transform, Depletion, Flow, Share, Truncate
+using ComposableRecurrences: Transform, Recent, Depletion, Flow
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using SpecialFunctions: erfc
 
@@ -99,10 +99,10 @@ end
 # The log-normal stay gives a lower, later peak, 140 patients on day 40 against 171 on day 39, and a longer tail.
 # With the log-normal stay 31% of patients stay at most one day, against 15% with the geometric stay.
 # Also 12% stay more than 14 days, against 10%.
-# The rest of this tutorial uses the geometric stay, as a pool's share exit flow and the hazard flows do.
 
-# ## A bed cap
+# ## A bed cap on occupancy
 #
+# With a geometric stay occupancy is a recurrence, so a modifier can bound it.
 # [`Transform(clamp, lo, hi)`](@ref ComposableRecurrences.Transform) bounds each day's occupancy.
 # With ``B`` beds,
 #
@@ -125,58 +125,67 @@ end
 
 # Capped occupancy holds at 120 beds for 12 days, days 32 to 43, then falls before the uncapped one.
 # The cap removes 670 bed-days.
+# This cap needs the geometric stay, as only that stay makes occupancy a recurrence.
+# It also deletes the patients it turns away.
 
-# ## Admitted and turned away
+# ## A bed cap with any stay
 #
-# The cap deletes the patients it turns away.
-# A [`Depletion`](@ref ComposableRecurrences.Depletion) that fills a pool keeps them instead.
-# It admits each day's demand up to the free beds and routes the rest to a second stratum:
+# Capping the admissions rather than the occupancy works with any stay and keeps the patients turned away.
+# Each day admits the demand up to the free beds:
 #
 # ```math
-# f_t = \max\big(B - (1 - \delta) \, O_{t-1},\ 0\big), \qquad
-# x_t = \min(A_t, f_t), \qquad
-# O_t = (1 - \delta) \, O_{t-1} + x_t,
+# x_t = \min\Big(A_t,\ \frac{B - h_t}{S_0}\Big), \qquad
+# h_t = \sum_{k \ge 1} S_k \, x_{t-k}, \qquad
+# O_t = h_t + S_0 \, x_t,
 # ```
 #
-# where ``B`` is the number of beds, ``f_t`` the number of free beds and ``x_t`` the admissions.
-# Here ``A_t`` is the demand for beds.
-# A second stratum receives the ``A_t - x_t`` patients turned away.
-# Its one pool `:O` is the occupancy, and its state.
-# A share flow `Flow(:O => 0, δ; form = Share())` empties it first, as it comes before the draw.
-# The draw `Truncate(; into = :O)` then fills it with the admissions, up to `beds`.
-# The setting `overflow = :stratum` sends what is turned away to the second stratum.
-# Stratum 1 holds the demand, and the zero kernel passes it straight to the modifier.
+# where ``A_t`` is the demand for beds, ``x_t`` the admissions and ``h_t`` the beds still held by earlier admissions.
+# Of the day's admissions a share ``S_0`` is still in a bed at the end of the day, so the cap divides the free beds by ``S_0``.
+# Then ``O_t = B`` on the days the cap binds, and ``O_t < B`` otherwise.
+# The held beds ``h_t`` are a weighted sum of the recurrence's own past outputs, with weights ``S_1, S_2, \dots``.
+# [`Recent`](@ref ComposableRecurrences.Recent) reads that sum, so the cap is `Transform(min, (B - Recent(S[2:end])) / S[1])`.
+# The recurrence's kernel is zero, as past admissions enter only through the cap, and the demand is the add input ``a_t = A_t``.
+# The patients turned away are ``A_t - x_t``.
+# Occupancy is ``O_t = \sum_{k \ge 0} S_k x_{t-k}``, the same convolution as without a cap, applied to the admissions.
+# The survival is non-increasing, so ``h_t \le O_{t-1} \le B`` and the bound is never negative.
 
-routing = Depletion(
-    beds, Flow(:O => 0, δ; form = Share()),
-    Truncate(; into = :O, overflow = :stratum); pools = (:O,)
-)
-routed = Recurrence([0.0]; modifiers = (routing,))(;
-    history = zeros(2, 1), add = [admissions'; zeros(1, T)]
-)
-admitted_occupancy = Recurrence([1 - δ])(; history = [0.0], add = routed[1, :])
+function admit(S)
+    cap = Transform(min, (beds - Recent(S[2:end])) / S[1])
+    return Recurrence([0.0]; modifiers = (cap,))(; history = [0.0], add = admissions)
+end
+geometric = (1 - δ) .^ (0:(T - 1))
+admitted = admit(S)
+admitted_occupancy = Convolution(S)(admitted)
 
-turned = DataFrame("day" => 1:T, "Admitted" => routed[1, :], "Turned away" => routed[2, :])
-@chain turned begin
+@chain DataFrame(
+    "day" => 1:T, "Admitted" => admitted, "Turned away" => admissions .- admitted
+) begin
     stack(Not(:day); variable_name = :series, value_name = :count)
     data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Patients"))
 end
 
-# Admissions fall to the beds freed each day while the ward is full.
-# Over the 90 days 101 patients are turned away.
+# With the log-normal stay admissions fall to the beds freed each day while the ward is full.
+# Over the 90 days 43 patients are turned away.
 # Admitted and turned-away patients add up to the demand, so no patient is lost.
-# The occupancy of those admitted is the pool ``O_t``:
+# Occupancy of those admitted reaches the 120 beds and never passes them:
 
-@chain DataFrame(day = 1:T, occupancy = admitted_occupancy) begin
-    data(_) * mapping(:day, :occupancy) * visual(Lines, linewidth = 2) +
+@chain DataFrame(
+    "day" => 1:T, "Geometric stay" => Convolution(geometric)(admit(geometric)),
+    "Log-normal stay" => admitted_occupancy
+) begin
+    stack(Not(:day); variable_name = :series, value_name = :count)
+    data(_) * mapping(:day, :count, color = :series) * visual(Lines, linewidth = 2) +
         mapping([beds]) * visual(HLines, color = :grey, linestyle = :dash)
     draw(_; axis = (xlabel = "Day", ylabel = "Occupied beds"))
 end
 
-# Occupancy reaches the 120 beds and never passes them.
+# The log-normal ward is full on days 35 to 42.
+# With the geometric stay ``S_0 = 1``, and the ward is full on days 32 to 43, as with the cap on occupancy.
+# There 101 patients are turned away rather than deleted.
+# Swapping the stay changes only the survival ``S``: the cap and the convolution stay the same.
 
-# An allowance granted each period works the same way, with a pool drawn from rather than filled.
+# An allowance granted each period works in a similar way, with a pool drawn from rather than filled.
 # Vaccine doses per week are one example: a flow `Flow(0 => :B, grants; form = Truncate())` brings each week's doses into the pool `:B` of a [`Depletion`](@ref ComposableRecurrences.Depletion).
 
 # ## A ward with two linked compartments
