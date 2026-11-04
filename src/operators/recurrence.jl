@@ -1271,11 +1271,14 @@ function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
-# A run without records that writes a trace keeps only the pressures `X`,
-# whatever the coupling, as the trace returns them.
-_trace_pressures(h, ::Type{Tp}, S, T) where {Tp} = (; X = similar(h, Tp, S, T))
+# A run without a reverse pass needs no kernel convolutions, only the
+# pressures its trace returns, so it keeps `X` whatever the coupling.
+struct _TracePressures{X}
+    X::X
+end
+_trace_pressures(h, ::Type{Tp}, S, T) where {Tp} = _TracePressures(similar(h, Tp, S, T))
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
-@inline function _record_pressure!(pr::NamedTuple{(:X,)}, pk, xk, t, k)
+@inline function _record_pressure!(pr::_TracePressures, pk, xk, t, k)
     pr.X[k, t] = xk
     return nothing
 end
@@ -1288,13 +1291,10 @@ end
 # The records are sized by the call, so they are read without bounds checks.
 _pressure(C, pr, k, t) = @inbounds pr.X[k, t]
 _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
-# Every step's pressures from the records, strata × steps: a pointwise
-# coupling's coefficients times the kernel convolutions, or the recorded
-# pressures.
+# A pointwise coupling records no `X`, so its pressures are rebuilt.
 _pressures(C::UniformScaling, pr) = C.λ .* pr.P
 _pressures(C::Diagonal, pr) = C.diag .* pr.P
 _pressures(C, pr) = copy(pr.X)
-# The pressures in the layout of the output: a vector for one series.
 _output_layout(q, h::AbstractVector) = vec(q)
 _output_layout(q, h) = q
 
@@ -1406,8 +1406,6 @@ end
     return nothing
 end
 
-# A run without records returns its trace, `(; modifiers, pressure)`, when
-# it writes one, else `nothing`.
 _sink_trace(::Nothing, ::Nothing, h) = nothing
 function _sink_trace(rec, pr, h)
     return (; modifiers = _sink_traces(rec), pressure = _output_layout(pr.X, h))

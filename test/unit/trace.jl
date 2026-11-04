@@ -581,9 +581,8 @@ end
 end
 
 @testitem "Trace: the pressure each step draws against, against pressure" setup = [InStepTraces] begin
-    # The run's pressures equal `pressure` on its outputs, by the rule's
-    # records and in each step, for every case, a dense coupling and one
-    # series.
+    # `trace.pressure` against `pressure` on the outputs, from the run with
+    # records (the rule's forward pass) and the run without.
     dense = Recurrence(g; coupling = K + I)
     for r in (cases..., dense), (Rx, hx) in ((R, h), (dual(R), dual(h)))
         y, tr = r(Rx; history = hx, start = L + 1, record = (:trace,))
@@ -615,30 +614,28 @@ end
     R = [1.4 + 0.2 * sin(k + t) for k in 1:S, t in 1:T]
     # A pointwise and a dense coupling, each with a modifier; the loss reads
     # the output and the pressure, and the effective reproduction number.
-    function model(θ, coupling)
-        g = θ[1:3]
+    function recurrence(θ, coupling)
         C = coupling === :dense ? [θ[4] 0.2; 0.1 θ[4]] : θ[4] * CR.I
-        mods = (CR.Depletion(PerStratum(θ[5:6])),)
-        return Recurrence(g; coupling = C, modifiers = mods)(
-            R .* θ[7]; history = h, record = (:trace,)
-        )
+        return Recurrence(θ[1:3]; coupling = C, modifiers = (CR.Depletion(PerStratum(θ[5:6])),))
     end
-    function loss(θ, coupling)
-        y, tr = model(θ, coupling)
-        return sum(W .* tr.pressure) + sum(y ./ tr.pressure) + sum(y)
+    function run(θ, coupling)
+        y, tr = recurrence(θ, coupling)(R .* θ[7]; history = h, record = (:trace,))
+        return y, tr.pressure
     end
-    # The same loss from `pressure` on the outputs, a second pass.
+    # The same pressures from `pressure` on the same recurrence's outputs.
     function second_pass(θ, coupling)
-        y, _ = model(θ, coupling)
-        g = θ[1:3]
-        C = coupling === :dense ? [θ[4] 0.2; 0.1 θ[4]] : θ[4] * CR.I
-        q = CR.pressure(Recurrence(g; coupling = C), y; history = h)
-        return sum(W .* q) + sum(y ./ q) + sum(y)
+        r = recurrence(θ, coupling)
+        y = r(R .* θ[7]; history = h)
+        return y, CR.pressure(r, y; history = h)
     end
+    # A loss on the output and the pressure, and one on the pressure alone,
+    # whose only cotangent is the pressure's.
+    both(y, q) = sum(W .* q) + sum(y ./ q) + sum(y)
+    alone(y, q) = sum(W .* q)
     θ = [0.3, 0.5, 0.2, 0.9, 80.0, 120.0, 1.1]
-    for coupling in (:pointwise, :dense)
-        f = θ -> loss(θ, coupling)
-        ∇ = ReferenceAD.gradient(θ -> second_pass(θ, coupling), θ)
+    for coupling in (:pointwise, :dense), l in (both, alone)
+        f = θ -> l(run(θ, coupling)...)
+        ∇ = ReferenceAD.gradient(θ -> l(second_pass(θ, coupling)...), θ)
         @test ReferenceAD.gradient(f, θ) ≈ ∇
         n = CR._PULLBACK_CALLS[]
         @test gradient(f, AutoMooncake(), θ) ≈ ∇

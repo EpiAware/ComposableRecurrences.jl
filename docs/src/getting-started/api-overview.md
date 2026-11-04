@@ -114,7 +114,6 @@ A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per 
 The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
 Without modifiers or `add`, the outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the gain at each time ``t``.
 In a renewal model this is the reproduction number, and with a `Depletion` the effective reproduction number.
-A call with `record = (:trace,)` returns the same pressure as `trace.pressure`, from the run itself, so the ratio needs no second pass.
 
 ## [Shapes](@id overview-shapes)
 
