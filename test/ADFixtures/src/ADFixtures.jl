@@ -12,7 +12,7 @@
 module ADFixtures
 
 using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
-    AutoMooncakeForward, AutoEnzyme
+    AutoMooncakeForward, AutoEnzyme, AutoReactant
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
@@ -2283,9 +2283,15 @@ The matrix-case losses are closures over constant data (weights,
 populations, kernels), which Enzyme cannot always prove read-only.
 Without the annotation, Enzyme reverse on Julia 1.13 throws an
 `EnzymeMutabilityException` on them.
+
+`Reactant` (Enzyme reverse mode compiled by Reactant) is listed only when
+Reactant is loaded, as it is in `test/reactant/`.
+DifferentiationInterface has no Reactant extension, so `test/reactant/`
+compiles each scenario itself rather than through its `backend`; the AD
+jobs and the benchmark suite do not load Reactant and so never see it.
 """
 function backends()
-    return [
+    list = [
         (name = "ForwardDiff", backend = AutoForwardDiff()),
         (name = "ReverseDiff (tape)", backend = AutoReverseDiff(compile = false)),
         (name = "ReverseDiff (compiled)", backend = AutoReverseDiff(compile = true)),
@@ -2294,6 +2300,21 @@ function backends()
         (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
         (name = "Mooncake forward", backend = AutoMooncakeForward()),
     ]
+    if reactant_loaded()
+        push!(
+            list, (
+                name = "Reactant",
+                backend = AutoReactant(; mode = AutoEnzyme(; mode = Enzyme.Reverse)),
+            )
+        )
+    end
+    return list
+end
+
+"Whether Reactant, and with it the package's Reactant extension, is loaded."
+function reactant_loaded()
+    ext = :ComposableRecurrencesReactantExt
+    return Base.get_extension(ComposableRecurrences, ext) !== nothing
 end
 
 function _enzyme(mode)

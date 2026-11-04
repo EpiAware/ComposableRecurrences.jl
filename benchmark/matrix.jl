@@ -19,7 +19,10 @@
 #   --threads=N,M               worker thread counts (default 1)
 #
 # Each target runs in its own Julia process, so one backend's hang or crash
-# does not stop the rest and no process loads two AD stacks. A worker writes
+# does not stop the rest and no process loads two AD stacks. The Reactant
+# targets (`Reactant CPU primal`, `Reactant CPU gradient`) run in the
+# `test/reactant` environment, so instantiate it first; their `prep_s` is
+# the compile time. A worker writes
 # `DIR/<tier>-<run>.tsv` and its output goes to `DIR/<tier>-<run>.log`, where
 # `<run>` is the target, with the thread count and any executor other than
 # serial appended (`primal_t4`, `primal_Threaded_t4`); `matrix_report.jl`
@@ -66,18 +69,23 @@ const DEFAULT_TARGETS = [
     "primal", "ForwardDiff", "Mooncake reverse", "Enzyme reverse",
 ]
 
+# Reactant targets: the loss, or its Enzyme reverse-mode gradient, compiled
+# by Reactant on the CPU (`reactant_target.jl`). Their workers run in the
+# `test/reactant` environment, which has Reactant, so the benchmark
+# environment does not need it. `prep_s` is the compile time.
+const REACTANT_TARGETS = Dict(
+    "Reactant CPU primal" => false, "Reactant CPU gradient" => true,
+)
+const REACTANT_PROJECT = normpath(joinpath(@__DIR__, "..", "test", "reactant"))
+
 # Targets not run yet, with what they wait for. CPU threaded runs are not
 # listed: every target runs under `Threaded()` with `--executor=threaded`.
-# Reactant support is measured on its own cases in test/reactant/; no worker
-# here compiles a matrix case with Reactant yet.
 const PENDING_TARGETS = [
     ("KA CPU primal", "a `--executor=device` option for `Device`"),
     ("CUDA primal", "GPU array path (#14)"),
     ("CUDA gradient", "GPU array path and rules (#14)"),
-    ("Reactant CPU primal", "a Reactant target in matrix.jl"),
-    ("Reactant CPU gradient", "a Reactant target in matrix.jl"),
-    ("Reactant GPU primal", "a Reactant target and a GPU runner"),
-    ("Reactant GPU gradient", "a Reactant target and a GPU runner"),
+    ("Reactant GPU primal", "a GPU runner"),
+    ("Reactant GPU gradient", "a GPU runner"),
 ]
 
 # ForwardDiff costs one primal per chunk of parameters: above this many
@@ -171,7 +179,12 @@ end
 
 # Why a cell is not run, or `nothing` to run it.
 function skip_reason(c, target, arm, θ, rules)
-    target == "primal" && arm in ("NoAdjoint", "local") && return "same as rule arm"
+    primal = target == "primal" || target == "Reactant CPU primal"
+    primal && arm in ("NoAdjoint", "local") && return "same as rule arm"
+    # Reactant differentiates the traced program and never runs the
+    # package's rules, so every arm of the package's runs the same code.
+    haskey(REACTANT_TARGETS, target) && arm in ("NoAdjoint", "local") &&
+        return "same as rule arm"
     # The hand rules are Mooncake reverse rules: every other target runs the
     # same code as the `loop` arm.
     target != "Mooncake reverse" && arm == "handrule" && return "same as loop arm"
@@ -230,12 +243,15 @@ function run_worker(opts)
     file = joinpath(outdir, "$(opts["tier"])-$name.tsv")
     meta = metadata(opts, label)
     push!(meta, "executor" => opts["executor"])
-    grad = target != "primal"
+    reactant = haskey(REACTANT_TARGETS, target)
+    grad = target != "primal" && !reactant
     backend = nothing
     if grad
         mod, backend_expr = GRADIENTS[target]
         @eval import ForwardDiff, $mod
         backend = @eval $backend_expr
+    elseif reactant
+        include(joinpath(@__DIR__, "reactant_target.jl"))
     end
     CR = MatrixCases.ComposableRecurrences
     rules = grad && has_rules(CR, String(GRADIENTS[target][1]))
@@ -244,7 +260,7 @@ function run_worker(opts)
         meta, versions(
             [
                 "ComposableRecurrences", "Mooncake", "Enzyme", "ForwardDiff",
-                "DifferentiationInterface",
+                "DifferentiationInterface", "Reactant",
             ]
         )
     )
@@ -275,6 +291,7 @@ end
 
 function run_cells(io, opts, target, label, backend, rules)
     grad = backend !== nothing
+    reactant = get(REACTANT_TARGETS, target, nothing)
     tier = opts["tier"]
     seconds = parse(Float64, opts["seconds"])
     names = _list(opts["cases"])
@@ -304,7 +321,9 @@ function run_cells(io, opts, target, label, backend, rules)
                     continue
                 end
                 try
-                    if grad
+                    if reactant !== nothing
+                        _time_reactant!(row, f, θ, seconds, reactant)
+                    elseif grad
                         _time_gradient!(row, grads, f, θ, backend, seconds, arm)
                     else
                         _time_primal!(row, f, θ, seconds)
@@ -457,9 +476,9 @@ function run_all(opts)
     targets = _list(opts["targets"])
     for target in targets
         target == "primal" || haskey(GRADIENTS, target) ||
-            error(
+            haskey(REACTANT_TARGETS, target) || error(
             "unknown target $target; choose from primal, ",
-            join(keys(GRADIENTS), ", ")
+            join([collect(keys(GRADIENTS)); collect(keys(REACTANT_TARGETS))], ", ")
         )
     end
     for target in targets, n in threads
@@ -469,7 +488,8 @@ function run_all(opts)
             "--label=$(opts["label"])", "--seconds=$(opts["seconds"])",
             "--executor=$(opts["executor"])", "--timeout=$(opts["timeout"])",
         ]
-        cmd = `$(Base.julia_cmd()) --project=$project --startup-file=no
+        env = haskey(REACTANT_TARGETS, target) ? REACTANT_PROJECT : project
+        cmd = `$(Base.julia_cmd()) --project=$env --startup-file=no
             --threads=$n $(@__FILE__) $args`
         name = run_name(target, opts["executor"], n)
         log = joinpath(outdir, "$(opts["tier"])-$name.log")
