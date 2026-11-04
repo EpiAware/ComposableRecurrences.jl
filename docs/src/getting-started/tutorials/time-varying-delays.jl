@@ -25,19 +25,19 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ```
 #
 # on lag ``l = 0, \dots, L_d - 1``.
-# Here ``L_d = 15`` is the delay's length, `D` in the code.
+# Here ``L_d = 15`` is the delay's length.
 # The shape parameter ``\mu_t`` is `means` in the code.
 # It rises up to day 40, then falls as reporting recovers.
 # The plot is the mean delay of each column, ``\sum_l l \, P_l(t)``.
 
-T, D = 80, 15
+T, L_d = 80, 15
 function delay_pmf(mean)
-    w = [(d + 1)^(mean - 1) * exp(-d) for d in 0:(D - 1)]
+    w = [(d + 1)^(mean - 1) * exp(-d) for d in 0:(L_d - 1)]
     return w ./ sum(w)
 end
 means = [2 + 4 * exp(-((t - 40) / 15)^2) for t in 1:T]
 P = hcat(delay_pmf.(means)...)
-realised = vec(sum((0:(D - 1)) .* P; dims = 1))
+realised = vec(sum((0:(L_d - 1)) .* P; dims = 1))
 
 @chain DataFrame(day = 1:T, mean_delay = realised) begin
     data(_) * mapping(:day, :mean_delay) * visual(Lines, linewidth = 2)
@@ -216,7 +216,7 @@ end
 # The operator computes the weights it reads inside its own call and reverse pass, so the kernel is never built entry by entry in the code being differentiated.
 
 using ComposableRecurrences: Survival
-stay = [exp(-l / 8) for l in 0:(D - 1)]
+stay = [exp(-l / 8) for l in 0:(L_d - 1)]
 testing = [0.05 + 0.25 / (1 + exp(-(t - 35) / 5)) for t in 1:T]
 in_care = Convolution(stay)
 confirmed = Convolution(TimeVarying(stay * (1 - Survival(TimeVarying(testing); from = 1)), Primary()))
