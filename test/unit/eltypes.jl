@@ -201,3 +201,20 @@ end
     older = foldl((acc, i) -> acc + g[i] * H[4 + i, 2], 1:19; init = zero(D))
     @test _window_dot(g, H, 5, 20, 2) === muladd(g[20], H[24, 2], older)
 end
+
+@testitem "Eltypes: a chained run of one stratum carries its last value" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    D = ForwardDiff.Dual{Nothing, Float64, 3}
+    dual(i) = D(sin(i), ForwardDiff.Partials(ntuple(j -> cos(i * j), 3)))
+    g = [0.2, 0.3, 0.5]
+    H = reshape([dual(i) for i in 1:8], :, 1)
+    y = dual(9)
+    # Step 2 of a buffer with 3 history rows reads rows 2 and 3 and the
+    # carried value `y`, which takes the gain and the newest weight at once.
+    c = CR._Chained(g)
+    v = CR._chained_step!(c, H, nothing, 1.5, 0.25, CR.I, y, 2, 2, 3, 3, 1)
+    older = zero(D) + g[1] * H[2, 1] + g[2] * H[3, 1]
+    @test v === muladd(1.5 * g[3], y, muladd(1.5, older, 0.25))
+    @test H[5, 1] === v
+end
