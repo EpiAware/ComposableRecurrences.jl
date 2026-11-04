@@ -179,12 +179,10 @@ end
 
 # Why a cell is not run, or `nothing` to run it.
 function skip_reason(c, target, arm, θ, rules)
-    primal = target == "primal" || target == "Reactant CPU primal"
-    primal && arm in ("NoAdjoint", "local") && return "same as rule arm"
-    # Reactant differentiates the traced program and never runs the
-    # package's rules, so every arm of the package's runs the same code.
-    haskey(REACTANT_TARGETS, target) && arm in ("NoAdjoint", "local") &&
-        return "same as rule arm"
+    # A primal takes no rule, and Reactant never runs the package's rules: it
+    # differentiates the traced program.
+    (target == "primal" || haskey(REACTANT_TARGETS, target)) &&
+        arm in ("NoAdjoint", "local") && return "same as rule arm"
     # The hand rules are Mooncake reverse rules: every other target runs the
     # same code as the `loop` arm.
     target != "Mooncake reverse" && arm == "handrule" && return "same as loop arm"

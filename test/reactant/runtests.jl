@@ -33,7 +33,7 @@
 #   REACTANT_REUSE      "1" rebuilds RESULTS.md and the tests from results.tsv
 using Test, Dates, Printf
 import Pkg
-using ADFixtures: ADFixtures
+include(joinpath(@__DIR__, "registry.jl"))
 
 include(joinpath(@__DIR__, "cases.jl"))
 using .ReactantCases
@@ -52,9 +52,6 @@ const FIELDS = (
 
 # The cases of each suite, as `(name, description)`, and the numbers of
 # steps each runs at. The registry's scenarios have their own size.
-const SCENARIO_NAMES = [
-    s.name for s in ADFixtures.scenarios(; category = :rules)
-]
 function selected(key, all)
     names = envlist(key, "", key == "REACTANT_SCENARIOS" ? ';' : ',')
     isempty(names) && return all
@@ -81,13 +78,9 @@ function log_tail(log)
 end
 
 # A cell the registry skips on Reactant: too unstable to run at all.
-function skipped_cell(name)
-    return merge(
-        blank_result(), (;
-            status = "skipped", message = "skipped in the AD registry",
-        )
-    )
-end
+const SKIPPED_CELL = merge(
+    blank_result(), (; status = "skipped", message = "skipped in the AD registry")
+)
 
 # The rows written so far to a batch's result file, by case name.
 function read_rows(out)
@@ -286,19 +279,11 @@ end
 
 # Whether a cell is expected to work: every hand-written case (see
 # `expected.jl`), and every registry scenario the registry does not list as
-# broken on Reactant, forward and reverse.
-const REGISTRY_BROKEN = union(
-    Set(ADFixtures.broken_scenario_names()),
-    get(ADFixtures.backend_broken_scenarios(), "Reactant", Set{String}())
-)
+# broken on Reactant (`registry.jl`).
 function expected(r)
     r.suite == "cases" && return get(EXPECTED, (r.name, r.mode, r.backend), false)
-    return !(r.name in REGISTRY_BROKEN)
+    return registry_works(r.name)
 end
-
-const REGISTRY_SKIP = get(
-    ADFixtures.backend_skip_scenarios(), "Reactant", Set{String}()
-)
 
 const RAW = joinpath(@__DIR__, "results.tsv")
 if get(ENV, "REACTANT_REUSE", "") == "1"
@@ -313,7 +298,7 @@ else
                 name in skip || continue
                 push!(
                     results, merge(
-                        skipped_cell(name), (;
+                        SKIPPED_CELL, (;
                             name, mode, suite, backend, steps = string(steps),
                             wall = 0.0,
                         )
@@ -341,6 +326,7 @@ write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
         @test REGISTRY_BROKEN ⊆ Set(SCENARIO_NAMES)
         @test REGISTRY_SKIP ⊆ Set(SCENARIO_NAMES)
     end
+
     for suite in SUITES, backend in BACKENDS
         @testset "$suite $backend" begin
             for r in results

@@ -49,6 +49,9 @@ jobs:
           version: '1.12'
       - uses: julia-actions/cache@v3
       - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
+      # The committed registry rows agree with the registry's Reactant lists,
+      # which a smoke run of a few scenarios would not show.
+      - run: julia --project=test/reactant --startup-file=no test/reactant/registry.jl test/reactant/results.tsv
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
       - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
         continue-on-error: true

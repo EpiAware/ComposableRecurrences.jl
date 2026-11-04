@@ -2418,12 +2418,16 @@ const REACTANT_BROKEN = Dict(
     "kernel from change points with traced values" => [
         "Recurrence kernel from change points",
     ],
-    # Compiles, but the value differs from plain Julia (relative error 5e-2).
-    "wrong values: change-point parameters" => [
+    # Compiles with no error, but a `PerStratum` value given by change points
+    # reads stratum 1 for every stratum: the value differs from plain Julia
+    # by 5e-2 and the gradient from ForwardDiff by up to 1.9 an entry.
+    "wrong values: per-stratum change points read stratum 1" => [
         "Recurrence parameters from change points",
     ],
-    "lag contributions" => ["Convolution lag contributions"],
-    "view history" => [
+    "lag contributions read a traced number (`_at`)" => [
+        "Convolution lag contributions",
+    ],
+    "a history given as a view, loaded into a Float64 buffer" => [
         "Recurrence random walk and strata prepending a view history",
     ],
 )

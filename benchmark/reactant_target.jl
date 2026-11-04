@@ -3,7 +3,9 @@
 # file after loading Reactant, so `matrix.jl` itself parses without it.
 # `prep_s` is the compile time, which a Reactant user pays once for each
 # size, and the timed run is the compiled call on parameters already on the
-# device.
+# device. `test/reactant/probe.jl` compiles the registry scenarios the same
+# way, under `@allowscalar` and with `Enzyme.gradient` in reverse mode; keep
+# the two in step.
 
 import Reactant, Enzyme, ForwardDiff
 

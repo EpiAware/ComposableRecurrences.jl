@@ -21,15 +21,13 @@ const NAMES = readlines(ARGS[2])
 const MODES = ("forward", "reverse")
 
 # What a probe runs: `fwd(θ)` is the traced call, `loss(y)` the scalar the
-# gradient is taken of, `ref` the reference gradient (or `nothing` to take
-# ForwardDiff's), and `rtol` the tolerance of both modes. `entrywise` checks
+# gradient is taken of, and `rtol` the tolerance of both modes. `entrywise` checks
 # the gradient entry by entry, as the AD tests do, rather than by the
 # largest error relative to the largest entry.
-struct Problem{F, L, R}
+struct Problem{F, L}
     fwd::F
     loss::L
     θ::Vector
-    ref::R
     rtol::Float64
     entrywise::Bool
 end
@@ -46,14 +44,14 @@ function problem(suite, name)
     if suite == "cases"
         c = ReactantCases.case_by_name(name)
         W = c.weights
-        return Problem(c.fwd, y -> sum(W .* y), c.θ, nothing, 1.0e-8, false)
+        return Problem(c.fwd, y -> sum(W .* y), c.θ, 1.0e-8, false)
     elseif suite == "registry"
         # The reference is ForwardDiff's, as the registry's is, taken for
         # this scenario only.
         s = only(filter(s -> s.name == name, SCENARIOS))
         precision = eltype(s.x) == Float32 ? :single : :double
         rtol = ADFixtures.gradient_rtol(precision)
-        return Problem(s.f, identity, s.x, nothing, rtol, true)
+        return Problem(s.f, identity, s.x, rtol, true)
     end
     throw(ArgumentError("unknown suite $suite"))
 end
@@ -140,7 +138,7 @@ function probe(p::Problem, mode)
         f = traced
         plain = () -> p.fwd(θ0)
     else
-        ref = p.ref === nothing ? ForwardDiff.gradient(plain_loss, θ0) : p.ref
+        ref = ForwardDiff.gradient(plain_loss, θ0)
         f = θ -> Enzyme.gradient(Enzyme.Reverse, traced_loss, θ)[1]
         plain = () -> ForwardDiff.gradient(plain_loss, θ0)
     end
