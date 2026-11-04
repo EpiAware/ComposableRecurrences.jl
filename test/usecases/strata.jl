@@ -280,7 +280,7 @@ end
     # step. The seed days have no arrivals.
     function patch_importation(K, ε, N)
         r = patch_model(K, ε, N)
-        _, tr = r(Rt; history = seeds, start = size(seeds, 2) + 1, trace = true)
+        _, tr = r(Rt; history = seeds, start = size(seeds, 2) + 1, record = (:trace,))
         arrivals = first(tr.modifiers)
         return hcat(zeros(eltype(arrivals), np, size(seeds, 2)), arrivals)
     end
@@ -331,13 +331,13 @@ end
     ∇ref_before = ReferenceAD.gradient(loss(ref_before), θ0)
 
     # The mixing is the coupling, the pool is per stratum, and the imports
-    # are per stratum and day: `Add` after the depletion, or `add` before it.
+    # are per stratum and day: `Transform(+, ι)` after the depletion, or `add` before it.
     window = ComposableRecurrences.exponential_history(I₀, r, length(g))
     function after(K, N, ι)
         depletion = ComposableRecurrences.Depletion(
             PerStratum(N), ComposableRecurrences.Floor()
         )
-        imports = ComposableRecurrences.Add(TimeVarying(PerStratum(ι)))
+        imports = ComposableRecurrences.Transform(+, TimeVarying(PerStratum(ι)))
         renewal = Recurrence(g; coupling = K, modifiers = (depletion, imports))
         return renewal(Rt; history = window)
     end
@@ -422,9 +422,9 @@ end
         c = innovations(z_drift, σ_δ)
         ar = Recurrence([φ])
         fitted, state = ar(
-            1.0; history = reshape(δ1, :, 1), add = c, stop = 3, state = true
+            1.0; history = reshape(δ1, :, 1), add = c, stop = 3, record = (:state,)
         )
-        return hcat(δ1, fitted, first(ar(1.0; state, add = c)))
+        return hcat(δ1, fitted, ar(1.0; state, add = c))
     end
     @test forecast(unpack(θ0)...) ≈ ref(unpack(θ0)...)
     @test ReferenceAD.gradient(θ -> sum(W .* forecast(unpack(θ)...)), θ0) ≈ ∇ref

@@ -5,19 +5,37 @@
 The truncated depletion form: the value is drawn in full while the pool
 holds it, and the pool is drawn down to zero otherwise.
 
-For one stratum at one step,
+For one stratum at one step, with ``c = \max(s, 0)``,
 
 ```math
-v' = \min\big(v,\ \max(s, 0)\big), \qquad s' = s - v',
+v' = \min(v, c), \qquad s' = s - v',
 ```
 
 where ``v`` is the value asked for, ``s`` the pool before the step, ``v'``
 the value drawn and ``s'`` the pool after the step.
 The population is not read.
-The minimum has a kink at ``v = s`` and the floor one at ``s = 0``; the
+The minimum has a kink at ``v = c`` and the floor one at ``s = 0``; the
 derivative takes the active branch, and the value asked for on a tie.
 A NaN pool gives a NaN draw.
-[`ComposableRecurrences.SoftTruncate`](@ref) is a smooth version.
+
+`Truncate(κ)` replaces the minimum by a smooth one of softness ``\kappa``:
+
+```math
+v' = \Big(v^{-1/\kappa} + c^{-1/\kappa}\Big)^{-\kappa},
+```
+
+with ``v \ge 0`` and ``v' = 0`` when ``v`` or ``c`` is zero.
+Then ``0 \le v' \le \min(v, c)``, with ``v' = 2^{-\kappa} v`` at
+``v = c``, and ``v'`` tends to the minimum as ``\kappa \to 0`` or as ``v``
+and ``c`` part.
+A non-positive value is drawn as it is, and the floor at ``s = 0`` keeps
+its kink.
+``\kappa = 0`` is the exact minimum; `Truncate()` is that form with no
+softness to differentiate.
+
+# Arguments
+- `κ`: the softness, with ``0 \le \kappa < 1``; omitted for the exact
+  minimum.
 
 # Keyword Arguments
 - `weights`, `into`, `overflow`: the form's arguments as a draw in a
@@ -36,59 +54,12 @@ v, s
 
 ([2.0, 1.5], [78.0, 0.0])
 ```
-"""
-struct Truncate{W, I, O}
-    "As a draw, each pool's weight by name, or `nothing`."
-    weights::W
-    "As a draw, the pool it fills, or `nothing`."
-    into::I
-    "As a draw, where what it leaves goes."
-    overflow::O
-    function Truncate{W, I, O}(weights, into, overflow) where {W, I, O}
-        return new{W, I, O}(weights, into, overflow)
-    end
-end
-function Truncate(; weights = nothing, into = nothing, overflow = nothing)
-    return Truncate(weights, into, _overflow(overflow))
-end
-function Truncate(weights::W, into::I, overflow::O) where {W, I, O}
-    return Truncate{W, I, O}(weights, into, overflow)
-end
 
-@doc raw"""
-The smoothly truncated depletion form: as
-[`ComposableRecurrences.Truncate`](@ref), with the minimum replaced by a
-smooth one of softness ``\kappa``.
-
-For one stratum at one step, with ``c = \max(s, 0)``,
-
-```math
-v' = \Big(v^{-1/\kappa} + c^{-1/\kappa}\Big)^{-\kappa}, \qquad s' = s - v',
-```
-
-where ``v \ge 0`` is the value asked for, ``s`` the pool before the step,
-``v'`` the value drawn and ``s'`` the pool after the step; ``v' = 0`` when
-``v`` or ``c`` is zero.
-Then ``0 \le v' \le \min(v, c)``, with ``v' = 2^{-\kappa} v`` at ``v = c``,
-and ``v'`` tends to the minimum as ``\kappa \to 0`` or as ``v`` and ``c``
-part.
-A non-positive value is drawn as it is.
-The floor at ``s = 0`` keeps its kink.
-
-# Arguments
-- `κ`: the softness, with ``0 < \kappa < 1``.
-
-# Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw in a
-  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
-  it fills and where what it leaves goes.
-
-# Examples
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
 v, s = [2.0], [2.0]
-CR.forward!(CR.SoftTruncate(0.1), CR.Step(), v, s, 100.0)
+CR.forward!(CR.Truncate(0.1), CR.Step(), v, s, 100.0)
 round.(v; digits = 3), round.(s; digits = 3)
 
 # output
@@ -96,8 +67,8 @@ round.(v; digits = 3), round.(s; digits = 3)
 ([1.866], [0.134])
 ```
 """
-struct SoftTruncate{K <: Real, W, I, O}
-    "The softness κ."
+struct Truncate{K, W, I, O}
+    "The softness κ, or `nothing` for the exact minimum."
     κ::K
     "As a draw, each pool's weight by name, or `nothing`."
     weights::W
@@ -105,43 +76,45 @@ struct SoftTruncate{K <: Real, W, I, O}
     into::I
     "As a draw, where what it leaves goes."
     overflow::O
-    function SoftTruncate(
-            κ::K, weights::W, into::I, overflow::O
-        ) where {K <: Real, W, I, O}
-        0 < κ < 1 || throw(
-            ArgumentError("the softness κ is between 0 and 1, got $κ")
-        )
+    function Truncate(κ::K, weights::W, into::I, overflow::O) where {K, W, I, O}
+        _check_softness(κ)
         return new{K, W, I, O}(κ, weights, into, overflow)
     end
 end
-function SoftTruncate(κ; weights = nothing, into = nothing, overflow = nothing)
-    return SoftTruncate(κ, weights, into, _overflow(overflow))
+function Truncate(κ = nothing; weights = nothing, into = nothing, overflow = nothing)
+    return Truncate(κ, weights, into, _overflow(overflow))
 end
 
-const _TruncateForm = Union{Truncate, SoftTruncate}
+_check_softness(::Nothing) = nothing
+function _check_softness(κ::Real)
+    0 <= κ < 1 || throw(ArgumentError("the softness κ is in [0, 1), got $κ"))
+    return nothing
+end
+@noinline function _check_softness(κ)
+    throw(ArgumentError("the softness κ is a number or nothing, got $(_describe(κ))"))
+end
+
+# The exact and the smooth form, told apart by the type of the softness.
+const _HardTruncate = Truncate{Nothing}
+const _SoftTruncate = Truncate{<:Real}
+
+const _TruncateForm = Truncate
 # The built-in forms, without a method lookup at run time.
 _is_form(::Type{<:Union{_ExponentForm, _TruncateForm}}) = true
 _draw_args(form::_TruncateForm) = (form.weights, form.into, form.overflow)
-_bare(::Truncate) = Truncate()
-_bare(form::SoftTruncate) = SoftTruncate(form.κ)
+_bare(form::Truncate) = Truncate(form.κ)
 
 # Printed as written.
 function Base.show(io::IO, form::Truncate)
     show(io, Truncate)
     print(io, "(")
-    _show_draw_args(io, form)
-    print(io, ")")
-    return nothing
-end
-function Base.show(io::IO, form::SoftTruncate)
-    show(io, SoftTruncate)
-    print(io, "(", form.κ)
+    form.κ === nothing || print(io, form.κ)
     _show_draw_args(io, form)
     print(io, ")")
     return nothing
 end
 
-function forward!(::Truncate, ::Step, v, s, N)
+function forward!(::_HardTruncate, ::Step, v, s, N)
     for k in eachindex(v, s)
         vk, sk = promote(v[k], s[k])
         y = _removal(vk, sk)
@@ -153,7 +126,7 @@ end
 # The softness goes to the smooth minimum in its own type: promoted with the
 # value and pool to a dual number first, the step took about 20% longer in
 # forward mode.
-function forward!(form::SoftTruncate, ::Step, v, s, N)
+function forward!(form::_SoftTruncate, ::Step, v, s, N)
     for k in eachindex(v, s)
         vk, sk = promote(v[k], s[k])
         y = _soft_min(form.κ, vk, _pool_left(sk))
@@ -168,7 +141,7 @@ _pool_left(s) = ifelse(_primal_value(s) > 0, s, zero(s))
 
 # The cotangents of `v` and `s`; neither form reads `N`, and the softness
 # takes its own.
-function pullback!(grads, ::Truncate, ::Step, v, s, N)
+function pullback!(grads, ::_HardTruncate, ::Step, v, s, N)
     for k in eachindex(v, s)
         ȳ = grads.v[k] - grads.s[k]
         v̄, s̄ = _removal_pullback(v[k], s[k], ȳ)
@@ -176,7 +149,7 @@ function pullback!(grads, ::Truncate, ::Step, v, s, N)
     end
     return nothing
 end
-function pullback!(grads, form::SoftTruncate, ::Step, v, s, N)
+function pullback!(grads, form::_SoftTruncate, ::Step, v, s, N)
     for k in eachindex(v, s)
         ȳ = grads.v[k] - grads.s[k]
         v̄, c̄, κ̄ = _soft_min_back(form.κ, v[k], _pool_left(s[k]), ȳ)
@@ -185,16 +158,16 @@ function pullback!(grads, form::SoftTruncate, ::Step, v, s, N)
     end
     return nothing
 end
-_softness(::Truncate) = nothing
-_softness(form::SoftTruncate) = form.κ
+_softness(form::Truncate) = form.κ
 
 # The minimum of `a` and a non-negative `b`, or with softness `κ` the
 # smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M`
 # the smaller and larger of the two; a non-positive `m` is returned as it
-# is, and an infinite `M` gives `m`. The exact minimum is `_removal`, which
-# takes `a` on a tie and returns a NaN.
+# is, and an infinite `M` gives `m`. The exact minimum, for no softness or
+# a zero one, is `_removal`, which takes `a` on a tie and returns a NaN.
 _soft_min(::Nothing, a, b) = _removal(a, b)
 function _soft_min(κ, a, b)
+    iszero(_primal_value(κ)) && return _soft_min(nothing, a, b)
     a, b, κ = promote(a, b, κ)
     lo, hi = _takes_first(a, b) ? (a, b) : (b, a)
     _primal_value(lo) > 0 || return lo
@@ -210,6 +183,7 @@ function _soft_min_back(::Nothing, a, b, ȳ)
     return ā, b̄, zero(ȳ)
 end
 function _soft_min_back(κ, a, b, ȳ)
+    iszero(_primal_value(κ)) && return _soft_min_back(nothing, a, b, ȳ)
     z = zero(ȳ)
     first = _takes_first(a, b)
     lo, hi = first ? (a, b) : (b, a)
@@ -228,12 +202,8 @@ end
     Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0)),
     # An integer `N`, as a count of a population gives it.
     Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100)),
-]
-
-@implements PieceInterface{(:pullback,)} SoftTruncate [
-    Arguments(;
-        piece = SoftTruncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0)
-    ),
+    Arguments(; piece = Truncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0)),
+    Arguments(; piece = Truncate(0.0), role = Step(), args = ([2.0], [1.5], 100.0)),
 ]
 
 # The interface check of a built-in depletion form's draw takes any real `N`.

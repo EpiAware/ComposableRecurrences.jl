@@ -74,8 +74,8 @@ end
         C isa UniformScaling && @test ragged(R[1, :]; history = h[1, :], seed.start) ≈
             dense(R[1, :]; history = h[1, :], seed.start)
         # A resumed call carries on through the same columns.
-        y1, st = ragged(R; seed..., stop = 7, state = true)
-        @test hcat(y1, first(ragged(R; state = st))) ≈ ragged(R; seed...)
+        y1, st = ragged(R; seed..., stop = 7, record = (:state,))
+        @test hcat(y1, ragged(R; state = st)) ≈ ragged(R; seed...)
     end
 end
 
@@ -169,6 +169,6 @@ end
     @test_throws "10 kernel columns of up to 6 entries" PerStratum(TimeVarying(KS))
     @test_throws "10 kernel columns of up to 6 entries" PerStratum(TimeVarying(flat))
     @test_throws ArgumentError Pairwise(TimeVarying(KS))
-    @test_throws ArgumentError CR.Add(TimeVarying(KS))
+    @test_throws ArgumentError CR.Transform(+, TimeVarying(KS))
     @test_throws ArgumentError Recurrence([0.5]; coupling = TimeVarying(KS))
 end

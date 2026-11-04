@@ -133,7 +133,7 @@ end
         CR.Flow(1 => 0, 0.4); pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (flows,))
-    _, st = r(; history = [5.0, 0.0][:, :], stop = 1, state = true)
+    _, st = r(; history = [5.0, 0.0][:, :], stop = 1, record = (:state,))
     @test only(st.states)[1] == 0
     @test only(st.states)[2] ≈ 5 * 0.3 / 0.7 * (1 - exp(-0.7))
 end
@@ -159,7 +159,7 @@ end
     adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
     function run(θ)
         flows = CR.Depletion(
-            CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
+            CR.Flow(1 => 2, θ[1]; form = CR.Truncate(θ[2])),
             CR.Flow(2 => 0, 0.2; form = CR.Share()); pools = (:A, :B)
         )
         r = Recurrence([1.0]; modifiers = (flows,))
@@ -203,7 +203,7 @@ end
         )
     end
     θ = vcat([0.3, 0.2], fill(0.1, 6), 0.1, fill(0.5, 12))
-    mods = (flows(θ), CR.Clamp(0.0, 1.0e6))
+    mods = (flows(θ), CR.Transform(clamp, 0.0, 1.0e6))
     checked(m) = ComposableRecurrences._check_times(:modifiers, m, 6)
     check_allocs(m) = (checked(m); @allocated checked(m))
     @test (@inferred checked(mods)) === nothing
@@ -215,7 +215,7 @@ end
     call(m) = Recurrence([1.0]; modifiers = m)(; history = zeros(4, 1), add = adm)
     call_allocs(m) = (call(m); @allocated call(m))
     before = call_allocs(mods)
-    loss(θ) = sum(call((flows(θ), CR.Clamp(0.0, 1.0e6))))
+    loss(θ) = sum(call((flows(θ), CR.Transform(clamp, 0.0, 1.0e6))))
     @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
     # A gradient does not leave the checks to run inference on each call.
     @test check_allocs(mods) == 0 skip = coverage
@@ -274,8 +274,8 @@ end
     # Smooth counts, with the softness as a parameter: one below what the
     # compartment holds, one above it and one out of an empty compartment.
     soft(θ) = CR.Depletion(
-        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
-        CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5])); pools = (:A, :B)
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate(θ[3])),
+        CR.Flow(2 => 0, θ[4]; form = CR.Truncate(θ[5])); pools = (:A, :B)
     )
     for θ in ([1.5, 0.3, 0.1, 9.0, 0.2], [3.0, 0.5, 0.4, -1.0, 0.1]), t in (1, 2)
         c = check_pullback(soft, θ, [4.0, 0.0, 1.0, 0.5], zeros(4), t)
@@ -369,8 +369,8 @@ end
     r = Recurrence([1.0]; modifiers = (flows,))
     A = [fill(3.0, 2, 10); zeros(2, 10)]
     y = r(; history = zeros(4, 1), add = A, stop = 10)
-    y1, st = r(; history = zeros(4, 1), add = A, stop = 4, state = true)
-    @test hcat(y1, first(r(; state = st, add = A, stop = 10))) ≈ y
+    y1, st = r(; history = zeros(4, 1), add = A, stop = 4, record = (:state,))
+    @test hcat(y1, r(; state = st, add = A, stop = 10)) ≈ y
     @test CR.blocks(flows) == (2, 2)
     @test CR.nstate(flows, 6) == 6
     @test CR.uses_adjoint(r, CR.Run())
@@ -403,7 +403,7 @@ end
         1 => 0, PerStratum([0.2, -0.1]); form = CR.Share()
     )
     @test CR.Flow(1 => 2, 1.5).demand == 1.5
-    @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
+    @test_throws "Truncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )
     moving(names, f::CR.Flow) = moving(names, (f,))

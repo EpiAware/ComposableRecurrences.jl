@@ -61,7 +61,7 @@ end
     @test CR.depth(Recent(7)) == 7
     @test CR.depth(CR.Transform(*, Derived(exp, -0.1 * Recent(9)))) == 9
     # A nested operator keeps its own buffer.
-    inner = Recurrence([0.5]; modifiers = (CR.Add(Recent(12)),))
+    inner = Recurrence([0.5]; modifiers = (CR.Transform(+, Recent(12)),))
     @test CR.depth(inner) == 0
     @test CR.depth((inner, Recent(3))) == 3
     @test_throws "n >= 1" Recent(0)
@@ -159,8 +159,8 @@ end
             ),
             x -> 0.3 * x, u -> 0.3 * u,
         ),
-        (u -> CR.Add(u), x -> -0.05 * x, u -> -0.05 * u),
-        (u -> CR.Clamp(0.0, u), x -> 2.0 + x, u -> 2.0 + u),
+        (u -> CR.Transform(+, u), x -> -0.05 * x, u -> -0.05 * u),
+        (u -> CR.Transform(clamp, 0.0, u), x -> 2.0 + x, u -> 2.0 + u),
         (
             u -> RecentSpill.Spill(K, u), x -> Derived(tanh, 0.01 * x),
             u -> tanh(0.01 * u),
@@ -190,9 +190,9 @@ end
     R = fill(1.4, 2, 12)
     h = ones(2, 6)
     y = r(R; history = h)
-    y1, st = r(R; history = h, stop = 5, state = true)
+    y1, st = r(R; history = h, stop = 5, record = (:state,))
     @test size(st.history) == (2, 6)
-    @test hcat(y1, first(r(R; state = st))) ≈ y
+    @test hcat(y1, r(R; state = st)) ≈ y
 end
 
 @testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck, RecentSpill] begin
@@ -214,7 +214,7 @@ end
                 CR.Flow(:S => 0, 0.2 * Recent(w); form = CR.Truncate())
             ),
         ),
-        (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3))),
+        (CR.Transform(+, -0.01 * Recent(w)), CR.Transform(clamp, 0.0, 10.0 - Recent(3))),
         (RecentSpill.Spill(K, Derived(tanh, 0.1 * Recent(w))),),
         (CR.Redistribute(K, Derived(tanh, 0.1 * Recent(w))),),
     )
@@ -416,7 +416,7 @@ end
         100.0; pools = (S = Recent(2; coupling = ones(40, 40)),)
     )
     r = Recurrence(
-        [0.5]; modifiers = (CR.Add(Recent(2; coupling = ones(3, 3))),)
+        [0.5]; modifiers = (CR.Transform(+, Recent(2; coupling = ones(3, 3))),)
     )
     @test_throws "expected 2 × 2" r(ones(2, 4); history = ones(2, 2))
 end

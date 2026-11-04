@@ -68,8 +68,8 @@ A forecast is then a second call, not a second model.
 modifiers = (Depletion(50.0; pools = (S = 50.0 - sum(seed),)),)
 r = Recurrence(k; modifiers)
 whole = r(fill(1.6, 20); history = seed)
-fit, state = r(fill(1.6, 20); history = seed, stop = 12, state = true)
-forecast, _ = r(fill(1.6, 20); state)
+fit, state = r(fill(1.6, 20); history = seed, stop = 12, record = (:state,))
+forecast = r(fill(1.6, 20); state)
 whole ≈ vcat(fit, forecast)
 ```
 

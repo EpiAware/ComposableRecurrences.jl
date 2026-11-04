@@ -125,13 +125,13 @@ end
 
     # CTIDM's `(SusceptibleDepletion, ImportedCases)` order adds imports to
     # the depleted infections, which `add` cannot express because it enters
-    # before the modifiers. The `Add` modifier adds `ι[t]` wherever it sits
+    # before the modifiers. `Transform(+, ι)` adds `ι[t]` wherever it sits
     # in the tuple.
     function after(ι, N)
         depletion = ComposableRecurrences.Depletion(
             N, ComposableRecurrences.Floor()
         )
-        imports = ComposableRecurrences.Add(TimeVarying(ι))
+        imports = ComposableRecurrences.Transform(+, TimeVarying(ι))
         r = Recurrence(g; modifiers = (depletion, imports))
         return r(Rt; history = window)
     end

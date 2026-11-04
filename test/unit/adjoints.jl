@@ -326,10 +326,13 @@ end
             (Slope(0.3),),
             (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
             (CR.Depletion(50.0, CR.Floor(1.5)),),
-            (CR.Redistribute(K, [0.3, 0.2, 0.1]), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
-            (CR.Clamp(0.0, 3.0),),
+            (
+                CR.Redistribute(K, [0.3, 0.2, 0.1]),
+                CR.Transform(+, PerStratum([0.1, 0.2, 0.3])),
+            ),
+            (CR.Transform(clamp, 0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
-            (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+            (CR.Allocate([1:3], 5.0), CR.Transform(+, 0.2)),
             (CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, P), spill),),
             (
                 CR.Allocate(
@@ -344,12 +347,12 @@ end
             ),
             (
                 CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, TimeVarying(PT))),
-                CR.Add(0.2),
+                CR.Transform(+, 0.2),
             ),
             (
                 CR.Depletion(
                     1.5, CR.Flow(:O => 0, 0.3; form = CR.Share()),
-                    CR.SoftTruncate(0.1; into = :O, overflow = :queue); pools = (:O,)
+                    CR.Truncate(0.1; into = :O, overflow = :queue); pools = (:O,)
                 ),
             ),
             (
@@ -361,7 +364,7 @@ end
                     CR.Truncate(; overflow = :queue);
                     pools = (B = PerStratum([0.5, 0.0, 1.0]),)
                 ),
-                CR.Add(0.2),
+                CR.Transform(+, 0.2),
             ),
             (
                 CR.Depletion(30.0, CR.Truncate()),
@@ -440,7 +443,7 @@ end
     for spill in (CR.Redistribute(M), nothing)
         r = Recurrence(
             g; coupling = rand(rng, S, S) ./ 4,
-            modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Add(0.1))
+            modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Transform(+, 0.1))
         )
         xs = (r, recargs(R, nothing, h)...)
         function cotangents()
@@ -468,15 +471,15 @@ end
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     ϵ = randn(rng, S, T)
-    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Add(0.2))
+    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Transform(+, 0.2))
     ops = (
         Recurrence(g; modifiers = mods),
-        Recurrence(g; coupling = 0.8I, modifiers = (CR.Clamp(0.0, 4.0),)),
+        Recurrence(g; coupling = 0.8I, modifiers = (CR.Transform(clamp, 0.0, 4.0),)),
         Recurrence(PerStratum(rand(rng, S, L)); coupling = Diagonal(rand(rng, S))),
         Recurrence(TimeVarying(rand(rng, L, T)); modifiers = (PoolDepletion(fill(40.0, S)),)),
         Recurrence(g; coupling = K, modifiers = mods),
         Recurrence(Pairwise(rand(rng, S, S, L) ./ S); modifiers = mods),
-        Recurrence(g; modifiers = (CR.Allocate([1:2, 3:5], 6.0), CR.Add(0.1))),
+        Recurrence(g; modifiers = (CR.Allocate([1:2, 3:5], 6.0), CR.Transform(+, 0.1))),
     )
     for ex in (CR.Threaded(; min_work = 0, ntasks = 2), CR.Threaded(; min_work = 0))
         with(CR.EXECUTOR => ex) do
@@ -501,7 +504,7 @@ end
     w = rand(rng, W)
     # Each stratum reads its own outputs, so the strata split; a coupled
     # read mixes the strata, so its reverse pass runs serially.
-    own = (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3)))
+    own = (CR.Transform(+, -0.01 * Recent(w)), CR.Transform(clamp, 0.0, 10.0 - Recent(3)))
     across = (CR.Transform(*, Derived(exp, -0.05 * Recent(w; coupling = K))),)
     ops = (
         (Recurrence(g; modifiers = own), true),
@@ -543,7 +546,7 @@ end
     S, L, T = 3, 2, 5
     h = ones(S, L)
     R = fill(1.2, S, T)
-    mods = (CR.Add(0.1), CR.Depletion(50.0), CR.Clamp(0.0, 9.0))
+    mods = (CR.Transform(+, 0.1), CR.Depletion(50.0), CR.Transform(clamp, 0.0, 9.0))
     for C in (I, rand(S, S))
         r = Recurrence([0.4, 0.3]; coupling = C, modifiers = mods)
         _, c = CR._run_forward(r, recargs(R, nothing, h)...)
@@ -560,11 +563,14 @@ end
         @test size(c.rec[2].S) == (S, T)
         @test c.rec[3].S == zeros(S)
     end
-    @test all(CR._stateless, (CR.Add(0.1), CR.Clamp(0.0, 1.0), CR.Allocate([1:3], 1.0)))
+    @test all(
+        CR._stateless,
+        (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 1.0), CR.Allocate([1:3], 1.0)),
+    )
     @test CR._stateless(CR.Transform(exp))
     @test !CR._stateless(CR.Depletion(50.0))
     # A resumed stateless modifier reads the state it was given.
-    r = Recurrence([0.4, 0.3]; modifiers = (CR.Add(0.1),))
+    r = Recurrence([0.4, 0.3]; modifiers = (CR.Transform(+, 0.1),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
     # A caller overwriting the history after the call does not change the
     # gradient: the history is copied for the modifiers' `Init` pullbacks,
@@ -865,7 +871,7 @@ end
             (Recurrence(g), :rule), (Recurrence(g; coupling = K), :rule),
             (Recurrence(g; modifiers = (CR.Depletion(50.0),)), :rule),
             (Recurrence(g; modifiers = (Slope(0.3),)), :rule),
-            (Recurrence(g; modifiers = (Slope(0.3), CR.Clamp(0.0, 9.0))), :rule),
+            (Recurrence(g; modifiers = (Slope(0.3), CR.Transform(clamp, 0.0, 9.0))), :rule),
             (
                 Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
                 :rule,
@@ -930,16 +936,16 @@ end
         coupling = NestedMix(nested)
     )
     @test_logs (:info, r"NestedPool has no pullback!") note(
-        modifiers = (CR.Clamp(0.0, 9.0), NestedPool([[30.0], [40.0]]))
+        modifiers = (CR.Transform(clamp, 0.0, 9.0), NestedPool([[30.0], [40.0]]))
     )
     @test_logs note(coupling = Mix(K, [1.0, 1.0]))
-    @test_logs note(modifiers = (CR.Clamp(0.0, 9.0),))
+    @test_logs note(modifiers = (CR.Transform(clamp, 0.0, 9.0),))
     # A `Derived` map that holds floats is named as the cause.
     scaled = let c = 2.0
         x -> c * x
     end
-    @test_logs (:info, r"Add has a Derived map that holds floats") note(
-        modifiers = (CR.Add(Derived(scaled, 0.5)),)
+    @test_logs (:info, r"Transform has a Derived map that holds floats") note(
+        modifiers = (CR.Transform(+, Derived(scaled, 0.5)),)
     )
     @test_logs (:info, r"Depletion has a Derived map that holds floats") note(
         modifiers = (CR.Depletion(Derived(scaled, 25.0)),)
@@ -958,7 +964,7 @@ end
     @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
         "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
-    @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
+    @test CR._adjoint_found(CR.Transform(clamp, 0.0, 1.0), CR.Init())
     # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
     # overrides it.
     struct Scaled{A}
@@ -1124,13 +1130,16 @@ end
     CR._step_pullback((; piece = m̄, v = 1.0, s = 0.0), Doubled(0.5), 2.0, 0.0, 1, 1)
     @test m̄.a[] ≈ 4.0
     # Without a part to check, the outcome is read off the types.
-    for ms in ((), (CR.Depletion(50.0), CR.Clamp(0.0, 9.0)), (CR.Add(1.0),))
+    for ms in (
+            (), (CR.Depletion(50.0), CR.Transform(clamp, 0.0, 9.0)),
+            (CR.Transform(+, 1.0),),
+        )
         @test (@inferred Recurrence(g, I, ms)).rebuilds === Val(true)
     end
     # A rebuild through `constructorof` checks again.
     op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
     @test op.rebuilds === true
-    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
+    op = ConstructionBase.setproperties(op; modifiers = (CR.Transform(+, 1.0),))
     @test op.rebuilds === Val(true)
     @test pullback_matches(
         Recurrence(g; modifiers = (Kept(0.5),)),
@@ -1361,7 +1370,7 @@ end
     end
     @test_logs Recurrence([0.2, 0.3]; modifiers = (Mapped(quartered),))
     @test_logs r(ones(4); history = ones(2))
-    @test_logs r(ones(4); history = ones(2), state = true)
+    @test_logs r(ones(4); history = ones(2), record = (:state,))
 end
 
 @testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
@@ -1397,8 +1406,8 @@ end
     r = Recurrence([0.2, 0.3])
     n0 = CR._PULLBACK_CALLS[]
     @test NoAdjoint(r)(ones(4); history = ones(2)) == r(ones(4); history = ones(2))
-    y, st = NoAdjoint(r)(ones(4); history = ones(2), state = true)
-    y2, st2 = r(ones(4); history = ones(2), state = true)
+    y, st = NoAdjoint(r)(ones(4); history = ones(2), record = (:state,))
+    y2, st2 = r(ones(4); history = ones(2), record = (:state,))
     @test y == y2 && st.history == st2.history && st.t == st2.t
     c = Convolution([0.5, 0.5])
     @test NoAdjoint(c)(ones(3)) == c(ones(3))
@@ -2257,7 +2266,8 @@ end
     # Through a recurrence the rule matches ForwardDiff over every leaf.
     for (ms, S) in (
             ((Mixer(0.9, 0.1),), 3), ((VecScale([0.9, 1.1]),), 2),
-            ((Smear(), CR.Clamp(0.0, 9.0)), 3), ((Mixer(0.95, 0.05), Smear()), 2),
+            ((Smear(), CR.Transform(clamp, 0.0, 9.0)), 3),
+            ((Mixer(0.95, 0.05), Smear()), 2),
         )
         op = Recurrence([0.3, 0.2]; modifiers = ms)
         @test CR.uses_adjoint(op, CR.Run())
@@ -2614,7 +2624,7 @@ end
 @testitem "Adjoint: a call with its trace against ForwardDiff" setup = [AdjointCheck] begin
     using ComposableRecurrences
     # The trace's cotangent through the records, for each modifier's own
-    # trace and the default, with `state = true` too.
+    # trace and the default, with `record = (:state,)` too.
     # A pointwise modifier whose state decays and gathers what passes it.
     struct Decay{A}
         a::A
@@ -2663,7 +2673,7 @@ end
         pools = (:S, :V)
     )
     cases = (
-        Recurrence(g; modifiers = (Decay(0.6), CR.Add(0.1), CR.Depletion(80.0))),
+        Recurrence(g; modifiers = (Decay(0.6), CR.Transform(+, 0.1), CR.Depletion(80.0))),
         Recurrence(g; modifiers = (Keep(0.8), leaky)),
         Recurrence(
             g; modifiers = (
@@ -2695,7 +2705,7 @@ end
     # A ward without a draw: each flow's amount, with every form.
     ward = CR.Depletion(
         CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
-        CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
+        CR.Flow(2 => 0, 1.5; form = CR.Truncate(0.2)),
         CR.Flow(2 => 1, 0.4; form = CR.Truncate()),
         CR.Flow(0 => 2, 0.6; form = CR.Truncate()); pools = (:A, :B)
     )

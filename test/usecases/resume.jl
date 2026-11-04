@@ -28,9 +28,9 @@
     # next day, so both calls read the same full-length R_t.
     function split_run(N, Rt)
         fitted, state = renewal(N)(
-            Rt; history = window, stop = T₁, state = true
+            Rt; history = window, stop = T₁, record = (:state,)
         )
-        forecast, _ = renewal(N)(Rt; state)
+        forecast = renewal(N)(Rt; state)
         return vcat(fitted, forecast)
     end
     @test renewal(N)(Rt; history = window) ≈ ref
@@ -55,9 +55,9 @@ end
     function split_run(ρ, ϵ)
         ar = Recurrence(ρ)
         fitted, state = ar(
-            1.0; history = init, add = ϵ, stop = T₁, state = true
+            1.0; history = init, add = ϵ, stop = T₁, record = (:state,)
         )
-        forecast, _ = ar(1.0; state, add = ϵ)
+        forecast = ar(1.0; state, add = ϵ)
         return vcat(init, fitted, forecast)
     end
     @test split_run(ρ, ϵ) ≈ ref
@@ -96,9 +96,9 @@ end
     patch = Recurrence(g; modifiers = (importation, depletion))
     function split_run(Rt)
         fitted, state = patch(
-            Rt; history = seeds, start = L + 1, stop = T₁, state = true
+            Rt; history = seeds, start = L + 1, stop = T₁, record = (:state,)
         )
-        forecast, _ = patch(Rt; state)
+        forecast = patch(Rt; state)
         return hcat(seeds, fitted, forecast)
     end
     @test split_run(Rt) ≈ ref

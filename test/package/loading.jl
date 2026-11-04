@@ -85,7 +85,7 @@ end
     println(occursin("Cap has no `pullback!`", msg), " ",
         occursin("add `using ForwardDiff`", msg))
     using Interfaces
-    unchecked = Interfaces.test(CR.PieceInterface{(:pullback,)}, CR.Clamp; show = false)
+    unchecked = Interfaces.test(CR.PieceInterface{(:pullback,)}, CR.Transform; show = false)
     using ForwardDiff
     n0 = CR._PULLBACK_CALLS[]
     g = gradient(h, backend, x)

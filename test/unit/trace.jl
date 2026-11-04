@@ -1,4 +1,4 @@
-# The trace a call records with `trace = true`: each modifier's trace
+# The trace a call records with `record = (:trace,)`: each modifier's trace
 # against the series it stands for (the state after each step, read by
 # resuming one step at a time, or the maths), its shape and its
 # gradients, by the rule against ForwardDiff.
@@ -14,8 +14,8 @@
         cols = map(_ -> Vector{Vector{Float64}}(), r.modifiers)
         st = nothing
         for t in 1:T
-            _, st = st === nothing ? r(R; history, stop = t, state = true) :
-                r(R; state = st, stop = t)
+            _, st = st === nothing ? r(R; history, stop = t, record = (:state,)) :
+                r(R; state = st, stop = t, record = (:state,))
             foreach((c, s) -> push!(c, copy(s)), cols, st.states)
         end
         return map(c -> reduce(hcat, c), cols)
@@ -39,26 +39,26 @@ end
     r = Recurrence([0.3, 0.5, 0.2]; modifiers = (CR.Depletion(100.0),))
     R = fill(2.0, 8)
     y = r(R; history = [5.0])
-    y2, tr = r(R; history = [5.0], trace = true)
+    y2, tr = r(R; history = [5.0], record = (:trace,))
     @test y2 == y
     @test keys(tr) == (:modifiers,)
     @test length(tr.modifiers) == 1
     @test size(only(tr.modifiers)) == (3, 8)
-    (y3, tr3), st = r(R; history = [5.0], trace = true, state = true)
+    y3, st, tr3 = r(R; history = [5.0], record = (:state, :trace))
     @test y3 == y
     @test tr3.modifiers == tr.modifiers
-    @test st.states == r(R; history = [5.0], state = true)[2].states
-    (y4, tr4), _ = CR.forward(r, CR.Run(), R; history = [5.0], trace = true)
+    @test st.states == r(R; history = [5.0], record = (:state,))[2].states
+    (y4, tr4), _ = CR.forward(r, CR.Run(), R; history = [5.0], record = (:trace,))
     @test y4 == y
     @test tr4.modifiers == tr.modifiers
-    # A literal `trace` inside a function is folded, so each call infers.
+    # A literal `record` inside a function is folded, so each call infers.
     # `forward` and `Run` are imported, as a global alias does not infer.
     using ComposableRecurrences: forward, Run
-    traced(r, R, h) = r(R; history = h, trace = true)
-    untraced(r, R, h) = r(R; history = h, trace = false)
-    run(r, R, h) = first(forward(r, Run(), R; history = h, trace = true))
-    @test @inferred(traced(r, R, [5.0])) == (y2, tr)
-    @test @inferred(untraced(r, R, [5.0])) == y
+    traced(r, R, h) = r(R; history = h, record = (:trace,))
+    untraced(r, R, h) = r(R; history = h, record = ())
+    run(r, R, h) = first(forward(r, Run(), R; history = h, record = (:trace,)))
+    @test @inferred(traced(r, R, [5.0])) == (; y = y2, trace = tr)
+    @test @inferred(untraced(r, R, [5.0])) == (; y)
     @test @inferred(run(r, R, [5.0])) == (y2, tr)
 end
 
@@ -90,7 +90,7 @@ end
             g; modifiers = (CR.Redistribute(K, ε), CR.Depletion(N))
         ),
         Recurrence(g; modifiers = (leaky,)),
-        Recurrence(g; modifiers = (CR.Clamp(0.0, 9.0), CR.Depletion(N))),
+        Recurrence(g; modifiers = (CR.Transform(clamp, 0.0, 9.0), CR.Depletion(N))),
         Recurrence(g; modifiers = (beds,)),
     )
     dual(x) = ForwardDiff.Dual{Nothing}.(x, 0.5 .* x)
@@ -117,7 +117,7 @@ end
         yw, trw = CR._primal(w, args..., nothing)
         @test same(yw, yr)
         @test same(trw.modifiers, trr.modifiers)
-        y, tr = r(Rx; history = hx, start = L + 1, trace = true)
+        y, tr = r(Rx; history = hx, start = L + 1, record = (:trace,))
         @test y == yw
         @test tr.modifiers == trw.modifiers
         @test y == r(Rx; history = hx, start = L + 1)
@@ -126,19 +126,19 @@ end
     r = Recurrence(g; modifiers = (CR.Depletion(70.0),))
     args = CR._run_args(r, R[1, :], h[1, :], nothing, nothing, L + 1)
     yr, trr = first(CR._run_forward(CR._WithTrace(r), args..., nothing))
-    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, trace = true)
+    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, record = (:trace,))
     @test y == yr
     @test tr.modifiers == trr.modifiers
 end
 
 @testitem "Trace: state with a trace written in each step" setup = [InStepTraces] begin
     for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
-        y, tr = r(Rx; history = hx, start = L + 1, trace = true)
+        y, tr = r(Rx; history = hx, start = L + 1, record = (:trace,))
         @test r(Rx; history = hx, start = L + 1) == y
-        (ys, trs), st = r(Rx; history = hx, start = L + 1, trace = true, state = true)
+        ys, st, trs = r(Rx; history = hx, start = L + 1, record = (:state, :trace))
         @test ys == y
         @test trs.modifiers == tr.modifiers
-        @test st.states == r(Rx; history = hx, start = L + 1, state = true)[2].states
+        @test st.states == r(Rx; history = hx, start = L + 1, record = (:state,))[2].states
     end
 end
 
@@ -146,13 +146,13 @@ end
     using Base.ScopedValues: with
     using KernelAbstractions
     for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))
-        yp, tr = r(Rx; history = hx, start = L + 1, trace = true)
+        yp, tr = r(Rx; history = hx, start = L + 1, record = (:trace,))
         for ex in (
                 CR.Threaded(; min_work = 0, ntasks = 3),
                 CR.Device(KernelAbstractions.CPU()),
             )
             yt, trt = with(CR.EXECUTOR => ex) do
-                r(Rx; history = hx, start = L + 1, trace = true)
+                r(Rx; history = hx, start = L + 1, record = (:trace,))
             end
             @test same(yt, yp)
             @test same(trt.modifiers, tr.modifiers)
@@ -166,12 +166,12 @@ end
     for r in cases[[1, 3]], hx in (h[:, 2:3], hcat(h, h)), x in (identity, dual)
         Rx, hx = x(R[:, 1:T]), x(hx)
         y = r(Rx; history = hx)
-        yt, tr = r(Rx; history = hx, trace = true)
+        yt, tr = r(Rx; history = hx, record = (:trace,))
         @test yt == y
         @test size(tr.modifiers[1], 2) == T
         r1 = Recurrence(g; modifiers = (CR.Depletion(70.0),))
         y1 = r1(Rx[1, :]; history = hx[1, :])
-        @test first(r1(Rx[1, :]; history = hx[1, :], trace = true)) == y1
+        @test first(r1(Rx[1, :]; history = hx[1, :], record = (:trace,))) == y1
     end
 end
 
@@ -185,7 +185,7 @@ end
             CR.Depletion(60.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate())),
         )
     )
-    y, tr = r(R; history = h, trace = true)
+    y, tr = r(R; history = h, record = (:trace,))
     M = only(tr.modifiers)
     @test M[1, :] ≈ vec(only(states_by_step(r, R; history = h)))
     @test M[2, :] == y
@@ -203,7 +203,7 @@ end
         pools = (:S, :V)
     )
     r = Recurrence(g; modifiers = (leaky,))
-    y, tr = r(R; history = h, trace = true)
+    y, tr = r(R; history = h, record = (:trace,))
     M = only(tr.modifiers)
     # Rows: pool S of each stratum, then pool V, then the value drawn,
     # then the overflow.
@@ -229,7 +229,7 @@ end
         pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (ward,))
-    y, tr = r(; history = zeros(2, 1), add = [adm'; zero(adm')], trace = true)
+    y, tr = r(; history = zeros(2, 1), add = [adm'; zero(adm')], record = (:trace,))
     M = only(tr.modifiers)
     @test size(M) == (4, 6)
     x = zeros(2)
@@ -257,7 +257,7 @@ end
         CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]),
         CR.Flow(2 => 0, θ[3]; form = CR.Share()),
         CR.Flow(2 => 1, θ[4]; form = CR.Truncate()),
-        CR.Flow(1 => 0, θ[5]; form = CR.SoftTruncate(θ[6])),
+        CR.Flow(1 => 0, θ[5]; form = CR.Truncate(θ[6])),
         CR.Flow(0 => 2, θ[7]; form = CR.Truncate()),
     )
     θ = [0.3, 0.2, 0.25, 0.8, 0.5, 0.2, 1.5]
@@ -328,17 +328,17 @@ end
         )
     )
     R, h = fill(1.8, 3, 6), [1.0 2.0; 2.0 1.0; 0.5 0.5]
-    y, tr = r(R; history = h, trace = true)
+    y, tr = r(R; history = h, record = (:trace,))
     M1, M2 = tr.modifiers
     S1, S2 = states_by_step(r, R; history = h)
     @test M1 ≈ S1
     @test M2[1:3, :] ≈ S2
     @test CR.ntrace(CR.Redistribute(K, 0.2), 3) == 3
     # A modifier whose state never changes records nothing.
-    for m in (CR.Add(0.1), CR.Clamp(0.0, 5.0), CR.Allocate([1:3], 5.0))
+    for m in (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 5.0), CR.Allocate([1:3], 5.0))
         @test CR.ntrace(m, 3) == 0
         s = Recurrence([0.4, 0.6]; modifiers = (m, CR.Depletion(60.0)))
-        _, tm = s(R; history = h, trace = true)
+        _, tm = s(R; history = h, record = (:trace,))
         @test size(first(tm.modifiers)) == (0, 6)
         @test size(last(tm.modifiers)) == (9, 6)
     end
@@ -400,9 +400,10 @@ end
                 CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]);
                 pools = (:S, :V)
             )
-            # `Add` keeps no state, so its trace is empty and takes no cotangent.
-            mods = (CR.Redistribute(K, θ[6]), CR.Add(θ[7]), leaky)
-            _, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
+            # `Transform(+, b)` keeps no state, so its trace is empty and takes no
+            # cotangent.
+            mods = (CR.Redistribute(K, θ[6]), CR.Transform(+, θ[7]), leaky)
+            _, tr = Recurrence(g; modifiers = mods)(R; history = h, record = (:trace,))
             T1, T0, T2 = tr.modifiers
             return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])
         end
@@ -415,13 +416,13 @@ end
         function ward(θ)
             flows = CR.Depletion(
                 CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                CR.Flow(2 => 0, θ[3]; form = CR.SoftTruncate(θ[4])),
+                CR.Flow(2 => 0, θ[3]; form = CR.Truncate(θ[4])),
                 CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
                 CR.Flow(0 => 2, θ[6]; form = CR.Truncate()); pools = (:A, :B)
             )
             r = Recurrence([1.0]; modifiers = (flows,))
             adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
-            y, tr = r(; history = zeros(2, 1), add = adm, trace = true)
+            y, tr = r(; history = zeros(2, 1), add = adm, record = (:trace,))
             return sum(W[1:5, 1:6] .* only(tr.modifiers)) + sum(y)
         end
         θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
@@ -431,15 +432,15 @@ end
         g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
         W = reshape(range(0.2, 1.8; length = 72), 12, 6)
         # Pointwise modifiers only, so each stratum's pullback runs on its own;
-        # `Add` keeps no state, so its trace takes no cotangent.
+        # `Transform(+, b)` keeps no state, so its trace takes no cotangent.
         function pointwise(θ)
-            mods = (Decay(θ[1]), CR.Add(0.1), CR.Depletion(θ[2]))
-            y, tr = Recurrence(g; modifiers = mods)(R; history = h, trace = true)
+            mods = (Decay(θ[1]), CR.Transform(+, 0.1), CR.Depletion(θ[2]))
+            y, tr = Recurrence(g; modifiers = mods)(R; history = h, record = (:trace,))
             T1, _, T2 = tr.modifiers
             return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
         end
         function blockwise(θ)
-            y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, trace = true)
+            y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, record = (:trace,))
             return sum(W[1:4, :] .* only(tr.modifiers)) + sum(y)
         end
         for (f, θ) in ((pointwise, [0.6, 80.0]), (blockwise, [0.8]))
@@ -545,23 +546,23 @@ end
     # The trace rows against the step run by hand.
     # The trace rows: the smoothed value is the output, and the two rows
     # sum to the value the step received.
-    y, tr = Recurrence(g; modifiers = (Smoothing(0.6),))(R; history = h, trace = true)
+    y, tr = Recurrence(g; modifiers = (Smoothing(0.6),))(R; history = h, record = (:trace,))
     M = only(tr.modifiers)
     @test size(M) == (8, 6)
     @test M[1:4, :] ≈ y
-    _, trm = Recurrence(g; modifiers = (Mean(0.3),))(R; history = h, trace = true)
+    _, trm = Recurrence(g; modifiers = (Mean(0.3),))(R; history = h, record = (:trace,))
     @test size(only(trm.modifiers)) == (1, 6)
-    _, trp = Recurrence(g; modifiers = (Pairs(0.8),))(R; history = h, trace = true)
+    _, trp = Recurrence(g; modifiers = (Pairs(0.8),))(R; history = h, record = (:trace,))
     @test size(only(trp.modifiers)) == (2, 6)
     for (mods, W) in (
             ((Smoothing(0.6), CR.Depletion(PerStratum(fill(80.0, 4)))), nothing),
             ((Pairs(0.8),), nothing),
-            ((Mean(0.3), CR.Clamp(0.0, 9.0)), nothing),
+            ((Mean(0.3), CR.Transform(clamp, 0.0, 9.0)), nothing),
         )
         f(θ) = begin
             ms = mods[1] isa Smoothing ? (Smoothing(θ[1]), Base.tail(mods)...) :
                 mods[1] isa Pairs ? (Pairs(θ[1]),) : (Mean(θ[1]), Base.tail(mods)...)
-            y, tr = Recurrence(g; modifiers = ms)(R; history = h, trace = true)
+            y, tr = Recurrence(g; modifiers = ms)(R; history = h, record = (:trace,))
             sum(y) + sum(x -> sum(abs2, x), tr.modifiers)
         end
         θ = [0.6]
@@ -576,5 +577,5 @@ end
     CR.nstate(::Returns, S) = S
     CR.forward!(::Returns, ::CR.Trace, r, v, s, v′, s′, t) = (s′,)
     r = Recurrence(g; modifiers = (Returns(),))
-    @test_throws r"returned a Tuple" r(R; history = h, trace = true)
+    @test_throws r"returned a Tuple" r(R; history = h, record = (:trace,))
 end

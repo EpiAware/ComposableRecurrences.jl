@@ -71,12 +71,12 @@ end
 # \hat R_t = \frac{I_t}{q_t} = R_t \, \frac{s_{t-1}}{N} \, \frac{1 - e^{-\lambda_t}}{\lambda_t}.
 # ```
 #
-# A call with `trace = true` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
+# A call with `record = (:trace,)` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
 # For a `Depletion` its first row is the pool after each day, which gives ``s_{t-1}`` to check the formula.
 
 N = 60_000.0
 depleted = Recurrence(gi; modifiers = (Depletion(N),))
-y, tr = depleted(R; history = seed, trace = true)
+y, tr = depleted(R; history = seed, record = (:trace,))
 q = pressure(depleted, y; history = seed)
 R_eff = y ./ q
 pool = [N; only(tr.modifiers)[1, 1:(end - 1)]]
@@ -96,7 +96,7 @@ end
 # After day 75 the pool holds 28% of the town.
 #
 # The ratio counts all of ``I_t``, including values the gain does not multiply.
-# Imports ``\iota_t`` added after the depletion by [`Add`](@ref ComposableRecurrences.Add) are such values, so with them ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
+# Imports ``\iota_t`` added after the depletion by [`Transform(+, ι)`](@ref ComposableRecurrences.Transform) are such values, so with them ``(I_t - \iota_t) / q_t`` is the effective reproduction number.
 # An `add` input enters before the depletion and is drawn with the rest, so the ratio then includes its share.
 
 # ## Performance

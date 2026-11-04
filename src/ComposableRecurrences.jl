@@ -39,7 +39,7 @@ Time is absolute, counted from 1, and a call covers the times `start:stop`.
 | multiplicative input | `r(gain; ...)`                                                       |
 | additive input       | `add =`, before the modifiers                                        |
 | seed and resume      | `history =`, `state =`                                               |
-| modifiers            | `Depletion`, `Redistribute`, `Add`, `Clamp`, `Allocate`, `Transform` |
+| modifiers            | `Depletion`, `Redistribute`, `Allocate`, `Transform`                 |
 | pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
 | filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
 | variants             | structs: `Hazard()`, `Floor()`, `Primary()`                          |
@@ -94,7 +94,7 @@ include("docstrings.jl")
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
 public Derived, Recent, Depletion, Flow, Share, Redistribute,
-    Add, Clamp, Allocate, Transform, Hazard, Floor, Truncate, SoftTruncate,
+    Allocate, Transform, Hazard, Floor, Truncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
@@ -109,7 +109,7 @@ include("shapes/utils.jl")
 # interface: roles, the trace role and `PieceInterface`.
 # Roles, `forward!`, `pullback!` and the stage loop.
 include("interface/roles.jl")
-# The trace role: what a call with `trace = true` records per modifier.
+# The trace role: what a call with `record = (:trace,)` records per modifier.
 include("interface/trace.jl")
 # `PieceInterface` and its checks; each type declares it beside its methods.
 include("interface/declarations.jl")

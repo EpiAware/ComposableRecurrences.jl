@@ -301,10 +301,10 @@ is cheap, and the whole operator takes plain AD otherwise.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-m = CR.Clamp(0.0, 1.0)
-grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = [1.0], s = [0.0])
+m = CR.Transform(clamp, 0.0, 1.0)
+grads = (; piece = (; θ = (Ref(0.0), Ref(0.0))), v = [1.0], s = [0.0])
 CR.pullback!(grads, m, CR.Step(), [2.0], [0.0], 1)
-grads.v, grads.piece.hi[]
+grads.v, grads.piece.θ[2][]
 
 # output
 
@@ -334,7 +334,7 @@ It follows from `blocks`, which is the trait to define.
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-CR.ispointwise(CR.Clamp(0.0, 1.0)), CR.ispointwise(nothing)
+CR.ispointwise(CR.Transform(clamp, 0.0, 1.0)), CR.ispointwise(nothing)
 
 # output
 
@@ -396,7 +396,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 weights = (S = 1, V = 0.3)
 leaky = CR.Depletion(100.0, CR.Hazard(; weights); pools = (:S, :V))
-CR.blocks(leaky), CR.blocks(CR.Clamp(0.0, 1.0)), CR.blocks(nothing)
+CR.blocks(leaky), CR.blocks(CR.Transform(clamp, 0.0, 1.0)), CR.blocks(nothing)
 
 # output
 
@@ -435,7 +435,7 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 weights = (S = 1, V = 0.3)
 leaky = CR.Depletion(100.0, CR.Hazard(; weights); pools = (:S, :V))
-CR.nstate(CR.Clamp(0.0, 1.0), 3), CR.nstate(leaky, 3)
+CR.nstate(CR.Transform(clamp, 0.0, 1.0), 3), CR.nstate(leaky, 3)
 
 # output
 
@@ -535,7 +535,7 @@ struct Window
     w::Int
 end
 CR.depth(x::Window) = x.w
-CR.depth((Window(5), (; a = Window(9), b = 1.0))), CR.depth(CR.Clamp(0.0, 1.0))
+CR.depth((Window(5), (; a = Window(9), b = 1.0))), CR.depth(CR.Transform(clamp, 0.0, 1.0))
 
 # output
 

@@ -87,12 +87,39 @@ macro pointwise(T)
     return :($ComposableRecurrences.ispointwise(::$(esc(T))) = true)
 end
 
-# A call that also returns its state, as the loaded release spells it:
-# `state = true` on the call, and `with_state` before.
+# An added value and a clamp, as the loaded release spells them:
+# `Transform(+, b)` and `Transform(clamp, lo, hi)`, and `Add` and `Clamp`
+# before.
+const ADD_MODIFIER = isdefined(ComposableRecurrences, :Add)
+const CLAMP_MODIFIER = isdefined(ComposableRecurrences, :Clamp)
+function added(b)
+    ADD_MODIFIER && return ComposableRecurrences.Add(b)
+    return ComposableRecurrences.Transform(+, b)
+end
+function clamped(lo, hi)
+    CLAMP_MODIFIER && return ComposableRecurrences.Clamp(lo, hi)
+    return ComposableRecurrences.Transform(clamp, lo, hi)
+end
+
+# A call that also returns its state or its trace, as the loaded release
+# spells it: `record` on the call, `state = true` or `trace = true` before
+# it, and `with_state` before that.
+const RECORD_KEYWORD = isdefined(ComposableRecurrences, :_recorded)
 const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
+    RECORD_KEYWORD && return op(args...; kwargs..., record = (:state,))
     STATE_KEYWORD && return op(args...; kwargs..., state = true)
     return ComposableRecurrences.with_state(op, args...; kwargs...)
+end
+function returning_trace(op, args...; kwargs...)
+    RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
+    return op(args...; kwargs..., trace = true)
+end
+# The output of a call resumed from a state, which some releases before
+# `record` returned with the next state.
+function resumed(op, args...; kwargs...)
+    out = op(args...; kwargs...)
+    return out isa Tuple ? first(out) : out
 end
 
 # ForwardDiff reference gradient for a scenario function.
@@ -238,7 +265,7 @@ function _array_and_scalar_fields(w, θ)
     logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
     mods = (
         depletion(PerStratum(POP); form = ComposableRecurrences.Floor()),
-        ComposableRecurrences.Add(b),
+        added(b),
     )
     y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -661,7 +688,7 @@ function _empty_pool(w, θ)
     d = depletion(
         100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2], removals = 1000 + θ[3]
     )
-    mods = (d, ComposableRecurrences.Add(1.0))
+    mods = (d, added(1.0))
     y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
     return sum(W1 .* y)
 end
@@ -673,7 +700,8 @@ function _derived(w, θ)
     imports = only(κ) * Derived(exp, TimeVarying(logι))
     scale = Derived((x, c) -> c / (1 + x^2), TimeVarying(PerStratum(a)), only(κ))
     mods = (
-        ComposableRecurrences.Add(imports), ComposableRecurrences.Transform(*, scale),
+        added(imports),
+        ComposableRecurrences.Transform(*, scale),
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -697,8 +725,8 @@ function _clamp_redistribute_add(w, θ)
     )
     mods = (
         _leaky(ComposableRecurrences._kernel_movement(K, ε)),
-        ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
-        ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
+        added(TimeVarying(PerStratum(B))),
+        clamped(0.0, PerStratum(hi)),
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -731,7 +759,7 @@ function _beds(C, δ, κ)
     CR = ComposableRecurrences
     return CR.Depletion(
         C, CR.Flow(:O => 0, δ; form = CR.Share()),
-        CR.SoftTruncate(κ; into = :O, overflow = :stratum); pools = (:O,)
+        CR.Truncate(κ; into = :O, overflow = :stratum); pools = (:O,)
     )
 end
 function _budget(init, grants)
@@ -774,10 +802,10 @@ function _capacity_drop(w, θ)
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
+    pool = depletion(exp(x[n - 4]); form = CR.Truncate(x[n - 3]))
     beds = CR.Depletion(
         PerStratum(exp.(x[(n - 2):n])), CR.Flow(:O => 0, 0.3; form = CR.Share()),
-        CR.SoftTruncate(0.2; into = :O); pools = (:O,)
+        CR.Truncate(0.2; into = :O); pools = (:O,)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -800,7 +828,7 @@ end
 function _soft_truncate(w, θ)
     x = TRUNC0 .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
-    form = ComposableRecurrences.SoftTruncate(x[length(x)])
+    form = ComposableRecurrences.Truncate(x[length(x)])
     d = depletion(PerStratum(exp.(logpool)); form = form)
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
@@ -879,8 +907,10 @@ end
 function _piecewise_parameter(w, θ)
     a, b1, b2, logh, logR = _unpack(θ, (2,), (S,), (S,), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Add(TimeVarying([1 => a[1], 8 => a[2]])),
-        ComposableRecurrences.Add(TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])),
+        added(TimeVarying([1 => a[1], 8 => a[2]])),
+        ComposableRecurrences.Transform(
+            +, TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])
+        ),
     )
     r = Recurrence(G0; coupling = K0, modifiers = mods)
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -1025,8 +1055,8 @@ function _trace_importation(w, θ)
         CR.Redistribute(K0, ε .* ones(1, T)),
         CR.Depletion(PerStratum(POP)),
     )
-    y, tr = w(Recurrence(G0; modifiers = mods))(
-        exp.(logR); history = exp.(logh), trace = true
+    y, tr = returning_trace(
+        w(Recurrence(G0; modifiers = mods)), exp.(logR); history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
@@ -1037,7 +1067,7 @@ function _trace_pool(w, θ)
     logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
     d = _leaky(PerStratum(POP), TimeVarying(PerStratum(doses)), only(σ))
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     M = only(tr.modifiers)
     return sum(WS .* log.(y)) + sum(WS .* M[(S + 1):(2S), :]) +
         sum(WS .* M[(3S + 1):(4S), :])
@@ -1085,7 +1115,7 @@ function _trace_pointwise(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
     mods = (TracedSmooth(only(a)), ComposableRecurrences.Depletion(PerStratum(POP)))
     r = Recurrence(G0; coupling = K0, modifiers = mods)
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     T1, T2 = tr.modifiers
     return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
 end
@@ -1097,7 +1127,7 @@ function _trace_ward(w, θ)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
-    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
+    y, tr = returning_trace(w(r); history = zeros(2S, 1), add = adm, stop = T)
     return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
 end
 
@@ -1125,7 +1155,7 @@ function _trace_budget(w, θ)
         CR.Truncate(; overflow = :queue); pools = (B = PerStratum(collect(init)),)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
@@ -1416,7 +1446,8 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), LOGR, W1 .- 1, [0.8], 0.5 .* WS),
     ),
     (
-        "Recurrence Redistribute, Add and Clamp", _clamp_redistribute_add,
+        "Recurrence Redistribute, Transform(+) and Transform(clamp)",
+        _clamp_redistribute_add,
         () -> zero(CRA0),
     ),
     (
@@ -1724,12 +1755,12 @@ const _PROBES = Dict{Symbol, Function}(
         )
         return ext !== nothing && isdefined(ext, :_LocalTag)
     end,
-    # A call resumed from a returned state also returns the next state.
+    # A call resumed from a returned state.
     :resume_state => () -> _accepts(
         function ()
             r = Recurrence([0.5])
             _, st = returning_state(r, ones(2); history = [1.0], stop = 1)
-            return _, _ = r(ones(2); state = st)
+            return resumed(r, ones(2); state = st)
         end
     ),
     # Delays on lags of a width other than one unit.
@@ -1755,7 +1786,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
-    "Recurrence Redistribute, Add and Clamp" => (:_kernel_movement,),
+    "Recurrence Redistribute, Transform(+) and Transform(clamp)" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:_kernel_movement, :_intensity, :Recent),
@@ -1769,7 +1800,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
-    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:_SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:depletion_pools,),
     "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
     "Recurrence ward with competing flows, from the parameters as given" =>
@@ -2282,14 +2313,12 @@ scenarios expected to fail on a backend, by backend name.
 A compiled ReverseDiff tape keeps the branches taken where it is recorded,
 which the harness does at zero parameters. The ward from its parameters as
 given branches differently there, so its prepared calls on compiled
-ReverseDiff are wrong; the other scenarios start at zero to avoid this.
+ReverseDiff are wrong, as are its `NoAdjoint` twin's; the other scenarios
+start at zero to avoid this.
 """
 function backend_broken_scenarios()
-    return Dict(
-        "ReverseDiff (compiled)" => Set(
-            ["Recurrence ward with competing flows, from the parameters as given"]
-        ),
-    )
+    ward = "Recurrence ward with competing flows, from the parameters as given"
+    return Dict("ReverseDiff (compiled)" => Set([ward, "NoAdjoint " * ward]))
 end
 
 """

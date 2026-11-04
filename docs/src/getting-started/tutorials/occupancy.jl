@@ -8,7 +8,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Clamp, Depletion, Flow, Share, Truncate
+using ComposableRecurrences: Transform, Depletion, Flow, Share, Truncate
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 using SpecialFunctions: erfc
 
@@ -103,18 +103,18 @@ end
 
 # ## A bed cap
 #
-# [`Clamp`](@ref ComposableRecurrences.Clamp) bounds each day's occupancy.
+# [`Transform(clamp, lo, hi)`](@ref ComposableRecurrences.Transform) bounds each day's occupancy.
 # With ``B`` beds,
 #
 # ```math
 # O_t = \min\big(\max\big((1 - \delta) \, O_{t-1} + A_t,\ 0\big),\ B\big).
 # ```
 #
-# The one modifier ``M_1`` is the `Clamp` with bounds 0 and ``B``.
+# The one modifier ``M_1`` is `Transform(clamp, 0, B)`.
 # The cap applies before occupancy carries over to the next day, so patients turned away never occupy a bed later.
 
 beds = 120.0
-capped = Recurrence([1 - δ]; modifiers = (Clamp(0.0, beds),))(; history = [0.0], add = admissions)
+capped = Recurrence([1 - δ]; modifiers = (Transform(clamp, 0.0, beds),))(; history = [0.0], add = admissions)
 
 @chain DataFrame(day = 1:T, Uncapped = by_recurrence, Capped = capped) begin
     stack(Not(:day); variable_name = :series, value_name = :count)

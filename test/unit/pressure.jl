@@ -64,8 +64,8 @@ end
     @test all(R̂[:, 1:L] .!= R[:, 1:L])
     @test R̂[:, (L + 1):end] ≈ R[:, (L + 1):end] atol = 1.0e-12 rtol = 1.0e-12
     # A resumed call: its state's history and time.
-    y1, st = r(R; history = h, stop = 6, state = true)
-    y2, _ = r(R; state = st)
+    y1, st = r(R; history = h, stop = 6, record = (:state,))
+    y2 = r(R; state = st)
     @test y2 ./ pressure(r, y2; history = st.history, start = st.t) ≈ R[:, 7:end]
 end
 
@@ -95,7 +95,7 @@ end
 
 @testitem "pressure: the effective value under depletion" setup = [PressureCases] begin
     using ComposableRecurrences
-    using ComposableRecurrences: Depletion, Add
+    using ComposableRecurrences: Depletion, Transform
     using .PressureCases: S, T, g, K, R, pressure
     pop = [600.0, 250.0, 100.0]
     seed = fill(2.0, S, 4)
@@ -108,7 +108,7 @@ end
         return R .* s ./ pop .* -expm1.(-λ) ./ λ
     end
     r = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-    y, tr = r(R; history = seed, trace = true)
+    y, tr = r(R; history = seed, record = (:trace,))
     q = pressure(r, y; history = seed)
     R̂ = y ./ q
     @test R̂ ≈ depleted(q, only(tr.modifiers)[1:S, :]) atol = 1.0e-12 rtol = 1.0e-12
@@ -117,9 +117,9 @@ end
     # the output less the imports gives the depleted value, as do the drawn
     # values after the pools in the trace.
     ι = [t <= 5 ? 1.0 : 0.0 for _ in 1:S, t in 1:T]
-    imports = Add(TimeVarying(PerStratum(ι)))
+    imports = Transform(+, TimeVarying(PerStratum(ι)))
     ra = Recurrence(g; coupling = K, modifiers = (Depletion(PerStratum(pop)), imports))
-    ya, tra = ra(R; history = seed, trace = true)
+    ya, tra = ra(R; history = seed, record = (:trace,))
     M = first(tra.modifiers)
     drawn = M[(S + 1):(2S), :]
     @test ya ≈ drawn .+ ι

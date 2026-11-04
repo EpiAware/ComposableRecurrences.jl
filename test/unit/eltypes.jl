@@ -106,13 +106,14 @@ end
             CR.Depletion(100.0f0),
             CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
             CR.Depletion(100.0f0, CR.Hazard(1.5f0); pools = (S = 97.0f0,)),
-            CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
+            CR.Transform(+, 0.5f0),
+            CR.Transform(+, TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
             CR.Redistribute(K, 0.1f0),
             CR.Redistribute(K, fill(0.1f0, 2, 5)),
-            CR.Clamp(0.0f0, 5.0f0),
+            CR.Transform(clamp, 0.0f0, 5.0f0),
             CR.Depletion(
                 0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
-                CR.SoftTruncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
+                CR.Truncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
             ),
             CR.Depletion(
                 CR.Flow(
@@ -121,7 +122,7 @@ end
                 CR.Truncate(; overflow = :queue); pools = (:B,)
             ),
             CR.Depletion(0.8f0, CR.Truncate(; into = :O); pools = (:O,)),
-            CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
+            CR.Depletion(5.0f0, CR.Truncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
@@ -161,10 +162,10 @@ end
     @test y == [1 1; 2 3]
     r = Recurrence([true])
     @test eltype(vcat([0], r(true; history = [0], add = x))) == Int
-    @test eltype(first(r(true; history = [0], add = x, trace = true))) == Int
-    y, st = r(true; history = [0], add = x, stop = 2, state = true)
+    @test eltype(first(r(true; history = [0], add = x, record = (:trace,)))) == Int
+    y, st = r(true; history = [0], add = x, stop = 2, record = (:state,))
     @test eltype(y) == eltype(st.history) == Int
-    @test first(r(true; add = x, state = st)) == cumsum(x)[3:4]
+    @test r(true; add = x, state = st) == cumsum(x)[3:4]
     # A float anywhere, a rational, or a modifier, whose step may divide,
     # gives the float type.
     @test eltype(r(true; history = [0.0], add = x)) == Float64
@@ -196,7 +197,7 @@ end
     H = [dual(i, a) for i in 1:40, a in 1:2]
     g = [exp(-0.3i) for i in 1:20]
     @test CR._chain(g, (), D) isa CR._Chained
-    @test CR._chain(g, (CR.Clamp(0.0, 1.0),), D) === g
+    @test CR._chain(g, (CR.Transform(clamp, 0.0, 1.0),), D) === g
     older = foldl((acc, i) -> acc + g[i] * H[4 + i, 2], 1:19; init = zero(D))
     @test _window_dot(g, H, 5, 20, 2) === muladd(g[20], H[24, 2], older)
 end

@@ -100,9 +100,9 @@ A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a
 | [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as the reports at each time split by delay | lags × time, or strata × lags × time |
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each time, with `tail` the values after the end of `x` | an array shaped like `x` |
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y` | shaped like `y` |
-| [`renewal(gain; history, state = true)`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(y, state)` |
-| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `(y, state)` |
-| [`renewal(gain; history, trace = true)`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(y, trace)` |
+| [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
+| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
+| [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(; y, trace)` |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
 
 Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is.
@@ -222,7 +222,7 @@ Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 ```
 
 Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
-The `add` input enters before every modifier, and an `Add` enters where it sits in the tuple.
+The `add` input enters before every modifier, and a `Transform(+, b)` enters where it sits in the tuple.
 A [`Convolution`](@ref) has no modifiers.
 
 A `Depletion` holds pools, such as the people left to infect.
@@ -235,8 +235,8 @@ The value a step asks for is drawn from the pools.
 | [`Depletion(cap, Truncate(; into = :O); pools = (:O,))`](@ref ComposableRecurrences.Depletion) | fills pool `:O` up to a capacity `cap` | the capacity |
 | [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | a part that moves values from pool `from` to pool `to` at each step | the rate |
 | [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute), `Redistribute(K, ε; leak)` | moves a share of each stratum's value to other strata | `M`, or `K` and `ε` |
-| [`Add(b)`](@ref ComposableRecurrences.Add) | adds ``b`` at this point in the order | `b` |
-| [`Clamp(lo, hi)`](@ref ComposableRecurrences.Clamp) | bounds each value | `lo`, `hi` |
+| [`Transform(+, b)`](@ref ComposableRecurrences.Transform) | adds ``b`` at this point in the order | `b` |
+| [`Transform(clamp, lo, hi)`](@ref ComposableRecurrences.Transform) | bounds each value | `lo`, `hi` |
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of strata to a known total | `total` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
 
@@ -255,7 +255,7 @@ An `Allocate` keeps each stratum's share of its group.
 With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
 Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
 A [pointwise](@ref explanation-modifier-scope) modifier acts on each stratum on its own.
-`Add`, `Clamp` and `Transform` are pointwise.
+`Transform` is pointwise.
 So is a `Depletion` with one pool whose draws leave nothing over.
 `Redistribute` and `Allocate` act on several strata.
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).
@@ -275,13 +275,13 @@ Depletion(N, Floor())
 | [`Hazard(α)`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
 | [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N, Floor())` |
 | [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(Truncate(); pools = (S = B,))` for a budget `B` |
-| [`SoftTruncate(κ)`](@ref ComposableRecurrences.SoftTruncate) | a smooth `Truncate()`, with softness `κ` between 0 and 1 | `Depletion(cap, SoftTruncate(0.1; into = :S))` |
+| [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | a smooth `Truncate()`, with softness `κ` in [0, 1), where 0 is `Truncate()` | `Depletion(cap, Truncate(0.1; into = :S))` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
 | a type you write | a new depletion form | `Depletion(N, MyForm())` |
 
 The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
-With `Truncate()` or `SoftTruncate(κ)` a flow is a count, capped by what remains.
+With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
 A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, `Step()`.
 
 ## [Time-series processes](@id overview-time-series)
@@ -334,7 +334,7 @@ A role is one job a new type can do, such as computing a step.
 Each role is named by a type with no fields, such as `Step()`.
 A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
 The role `Step()` computes one step, and `Init()` the starting state.
-The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `trace = true`.
+The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `record = (:trace,)`.
 The role `ComposableRecurrences.Run()` is an operator's whole call.
 An operator's hand-written gradient is its rule.
 

@@ -55,7 +55,7 @@ struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
-Called as `r(gain = 1; history, state, add, start, stop, trace)`,
+Called as `r(gain = 1; history, state, add, start, stop, record)`,
 the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
@@ -65,23 +65,25 @@ the call covers the absolute times `start:stop`:
     The recursion reads the last ``D`` outputs, with ``D`` at least `L`
     and at least the [`ComposableRecurrences.depth`](@ref) of each part,
     and a shorter history is zero-padded. A modifier's `Init` sees all of it.
-  - `state`: `true` to return `(y, state)`, with `state` the
-    [`ComposableRecurrences.State`](@ref) after the last step, or such a
-    `State` to resume from it, which returns the next one in the same way;
-    not a `State` with `history`. With `trace = true` as well the call
-    returns `((y, trace), state)`. Pass `true` as a literal, so that the
-    return type infers.
+  - `state`: a [`ComposableRecurrences.State`](@ref) to resume from, in
+    place of `history`; `record = (:state,)` returns the next one.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
     With `start = h + 1` the seed sits at times `1:h`, and the
     time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
-  - `trace`: `false`, or `true` to return `(y, trace)`, with
-    `trace.modifiers` holding each modifier's series per step, a
-    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of its
-    [`ComposableRecurrences.Trace`](@ref) records. It is differentiable as
-    the output is. Pass it as a literal, so that the return type infers.
+  - `record`: a tuple of what to return beside the output `y`, which
+    makes the call return a named tuple with fields in the order `y`,
+    `state`, `trace`:
+      - `:state`, the [`ComposableRecurrences.State`](@ref) after the last
+        step;
+      - `:trace`, with `trace.modifiers` holding each modifier's series
+        per step, a [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of
+        its [`ComposableRecurrences.Trace`](@ref) records, differentiable
+        as the output is.
+    `record = ()` returns `(; y)`, and without `record` the call returns
+    `y`. Pass the tuple as a literal, so that the return type infers.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -129,9 +131,8 @@ h = ones(2, 3)
 hcat(h, r(hcat(h, R); history = h, start = 4))
 
 # Resume from the returned state over the same inputs.
-y1, state = r(R; history = ones(2, 3), stop = 5, state = true)
-y2, _ = r(R; state)
-y ≈ hcat(y1, y2)
+fit = r(R; history = ones(2, 3), stop = 5, record = (:state,))
+y ≈ hcat(fit.y, r(R; state = fit.state))
 
 # output
 
@@ -196,8 +197,8 @@ end
 _fold(kernel, coupling) = (kernel, coupling)
 
 @doc raw"""
-The state a [`Recurrence`](@ref) call with `state = true` returns with its
-output, passed back as `state` to resume.
+The state a [`Recurrence`](@ref) call with `record = (:state,)` returns
+with its output, passed back as `state` to resume.
 
 After a call that ended at absolute time ``t_1`` it carries
 
@@ -218,8 +219,8 @@ A call with `state` continues exactly as one call over both ranges would.
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.5, 0.5])
-y, state = r(fill(1.1, 6); history = ones(2), stop = 3, state = true)
-state.t, round.(first(r(fill(1.1, 6); state)); digits = 3)
+(; state) = r(fill(1.1, 6); history = ones(2), stop = 3, record = (:state,))
+state.t, round.(r(fill(1.1, 6); state); digits = 3)
 
 # output
 
@@ -607,7 +608,7 @@ _empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
 # The first time of a call: the step after the history or the state.
-_start(::Union{Nothing, Bool}) = 1
+_start(::Nothing) = 1
 _start(state::State) = state.t
 
 _check_start(start) = nothing
@@ -622,7 +623,7 @@ end
 
 # The history, modifier states and first time of a call: seeded from
 # `history`, or resumed from `state`.
-function _resume(history, state::Union{Nothing, Bool}, start, gain, add)
+function _resume(history, ::Nothing, start, gain, add)
     h = history === nothing ? _empty_history(gain, add) : history
     return h, nothing, start
 end
@@ -651,32 +652,68 @@ end
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing,
-        trace::Union{Nothing, Bool} = nothing
+        add = nothing, start = _start(state), stop = nothing, record = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
-    traced, stated = _traced(trace), _stated(state)
-    op = _call_op(traced, stated, r)
-    out = adjoint_call(_reroute(route, op), args..., stop)
-    return _unwrap(traced, stated, out)
+    rec = _record(record)
+    traced, stated = _recording(rec, :trace), _recording(rec, :state)
+    return _routed(traced, stated, rec, r, route, args, stop)
 end
-# `trace` and `state` are `nothing` unless given, so that a call without
-# them compiles without their arms; a `State` to resume from returns the
-# next one.
-_traced(::Nothing) = Val(false)
-_traced(trace::Bool) = Val(trace)
-_stated(::Nothing) = Val(false)
-_stated(state::Bool) = Val(state)
-_stated(::State) = Val(true)
+# One call over both flags, so that a rule derived from types alone splits.
+function _routed(traced, stated, rec, r, route, args, stop)
+    out = adjoint_call(_reroute(route, _call_op(traced, stated, r)), args..., stop)
+    return _recorded(rec, traced, stated, out)
+end
+
+# What a call records beside `y`, checked once: `nothing` unless `record`
+# is given, so that a call without it compiles without its arms.
+_record(::Nothing) = nothing
+Base.@constprop :aggressive function _record(record::Tuple{Vararg{Symbol}})
+    foreach(_check_record, record)
+    allunique(record) || _duplicate_record(record)
+    return record
+end
+@noinline function _duplicate_record(record)
+    throw(ArgumentError("record names each of :state and :trace once, got $(record)"))
+end
+@noinline function _record(record)
+    throw(
+        ArgumentError(
+            "record is a tuple of the names to return beside y, such as " *
+                "(:state,), (:trace,) or (:state, :trace); got $(_describe(record))"
+        )
+    )
+end
+_check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
+@noinline function _record_error(name)
+    name === :pressures && throw(
+        ArgumentError("record = (:pressures,) is not available yet")
+    )
+    throw(
+        ArgumentError(
+            "record names :state or :trace, got $(repr(name))"
+        )
+    )
+end
+_recording(::Nothing, name) = Val(false)
+# A branch, not `Val(name in rec)`, so that it infers as a two-way union.
+Base.@constprop :aggressive function _recording(rec::Tuple, name)
+    return name in rec ? Val(true) : Val(false)
+end
+
 # The operator a call routes: the recurrence, with its state, its trace or
 # both in its output.
 _call_op(::Val{false}, ::Val{false}, r) = r
 _call_op(::Val{true}, ::Val{false}, r) = _WithTrace(r)
 _call_op(::Val{false}, ::Val{true}, r) = _WithState(r)
 _call_op(::Val{true}, ::Val{true}, r) = _WithTrace(_WithState(r))
-# A call with a trace and a state returns `((y, trace), state)`.
-_unwrap(traced, stated, out) = out
-_unwrap(::Val{true}, ::Val{true}, ((y, st), tr)) = ((y, tr), st)
+# Without `record` the call returns `y`; with it, a named tuple of `y` and
+# what it names, in the order `y`, `state`, `trace`.
+_recorded(::Nothing, traced, stated, y) = y
+_recorded(::Tuple, ::Val{false}, ::Val{false}, y) = (; y)
+_recorded(::Tuple, ::Val{false}, ::Val{true}, (y, state)) = (; y, state)
+_recorded(::Tuple, ::Val{true}, ::Val{false}, (y, trace)) = (; y, trace)
+_recorded(::Tuple, ::Val{true}, ::Val{true}, ((y, state), trace)) = (; y, state, trace)
 
 function _run_args(r, gain, history, state, add, start)
     _check_start(start)
@@ -692,17 +729,26 @@ end
 
 Base.@constprop :aggressive function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing,
-        trace::Union{Nothing, Bool} = nothing
+        add = nothing, start = _start(state), stop = nothing, record = nothing
     )
-    op = _trace_op(_traced(trace), r)
+    op = _trace_op(_forward_record(_record(record)), r)
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
+end
+# `forward` returns no state, so `:trace` is the one name it records.
+_forward_record(rec) = _forward_record(rec, _recording(rec, :state))
+_forward_record(rec, ::Val{false}) = _recording(rec, :trace)
+@noinline function _forward_record(rec, ::Val{true})
+    throw(
+        ArgumentError(
+            "forward(r, Run(); record) records :trace only, got $(repr(rec))"
+        )
+    )
 end
 _trace_op(::Val{false}, r) = r
 _trace_op(::Val{true}, r) = _WithTrace(r)
 
-# A call with `state` routes through the rules too: a recurrence whose
-# output is `(y, state)`.
+# A call that records its state routes through the rules too: a recurrence
+# whose output is `(y, state)`.
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
@@ -1037,7 +1083,7 @@ end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(
-        r::Recurrence, gain, add, h, s0, τ0, stop, record::Val
+        r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val
     )
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
@@ -1066,7 +1112,7 @@ function _recur(
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
     Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:
@@ -1336,9 +1382,9 @@ end
     return nothing
 end
 
-# The buffer loop: returns the output, the buffer, the final states and,
-# when recording (`Val(true)`), the cache the reverse pass reads, or, when
-# tracing without records (`Val(:trace)`), each modifier's trace. The buffer
+# The buffer loop: returns the output, the buffer, the final states and
+# what `cache` asks for: `Val(true)` the cache the reverse pass reads,
+# `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
 # is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
 # time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
 # The records are each step's kernel convolutions and pressures `pr`
@@ -1354,21 +1400,21 @@ end
 # with more than one pool) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp}
     c = _current()
     # The default executor is passed as the singleton `Serial()`, so the loop
     # below holds no abstractly typed executor.
     if c.ex isa Serial
-        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, record)
+        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, cache)
     end
-    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, record)
+    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, cache)
 end
 
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record}
-    ) where {Tp, record}
-    keep = record === true
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C}
+    ) where {Tp, C}
+    keep = C === true
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _history_buffer(h, Tp, D, T, S)
@@ -1382,7 +1428,7 @@ function _run(
     init = keep ? map(copy, states) : nothing
     pr = keep ? _pressure_records(h, Tp, coupling, S, T) : nothing
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
-        _sinks(Val(record), h, Tp, modifiers, states, S, T)
+        _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         # A stratum on its own reads only its kernel convolution, so the run

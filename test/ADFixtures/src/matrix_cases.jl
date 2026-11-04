@@ -16,7 +16,8 @@ using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
+    added, clamped, returning_state, returning_trace, resumed
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -243,7 +244,7 @@ function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
         depletion(CR.PerStratum(N); pool0),
     )
     r = wrap(Recurrence(g; modifiers = mods))
-    y, _ = r(R; history = seeds, start = L + 1, trace = true)
+    y, _ = returning_trace(r, R; history = seeds, start = L + 1)
     return hcat(seeds, y)
 end
 function bvd_patches_call(run)
@@ -377,7 +378,7 @@ function capacity_beds(wrap, z::Size)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
         beds = CR.Depletion(
             PerStratum(exp.(logC)), CR.Flow(:O => 0, 0.1; form = CR.Share()),
-            CR.SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+            CR.Truncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
         )
         r = Recurrence(G; modifiers = (beds,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
@@ -690,13 +691,26 @@ function renewal_imports(wrap, z::Size)
     N = 1.0e5
     f = function (θ)
         g, logh, logR, before, after = _unpack(θ, (L,), (L,), (T,), (T,), (T,))
-        r = Recurrence(g; modifiers = (depletion(N), CR.Add(TimeVarying(after))))
+        r = Recurrence(g; modifiers = (depletion(N), added(TimeVarying(after))))
         y = wrap(r)(exp.(logR); history = exp.(logh), add = before)
         return sum(W .* log.(y))
     end
     ι = [t <= 10 ? 3.0 : 0.1 for t in 1:T]
     logR = [0.05 + 0.05 * _noise(t, 14) for t in 1:T]
     return f, _flat(_gi(L), fill(log(10.0), L), logR, ι, ι)
+end
+
+# A renewal over strata with each value clamped to its stratum's bounds.
+function renewal_clamp(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    R = [1.1 + 0.3 * sin(t / 9 + k) for k in 1:S, t in 1:T]
+    f = function (θ)
+        g, lo, hi = _unpack(θ, (L,), (S,), (S,))
+        r = Recurrence(g; modifiers = (clamped(CR.PerStratum(lo), CR.PerStratum(hi)),))
+        return sum(W .* wrap(r)(R; history = ones(S, L)))
+    end
+    return f, _flat(_gi(L), fill(0.5, S), fill(4.0, S))
 end
 
 # Clinical outcomes as a chain of delays: onsets after infections, then
@@ -725,8 +739,8 @@ function renewal_forecast(wrap, z::Size)
         g, logh, logR = _unpack(θ, (L,), (L,), (T,))
         r = wrap(Recurrence(g))
         R = exp.(logR)
-        fitted, st = r(R; history = exp.(logh), stop = T ÷ 2, state = true)
-        forecast, _ = r(R; state = st)
+        fitted, st = returning_state(r, R; history = exp.(logh), stop = T ÷ 2)
+        forecast = resumed(r, R; state = st)
         return sum(W .* log.(vcat(fitted, forecast)))
     end
     return f, _flat(_gi(L), fill(log(10.0), L), [0.05 * _noise(t, 2) for t in 1:T])
@@ -920,6 +934,10 @@ const CASES = [
         "renewal_imports",
         "seeded renewal, hazard depletion, imports before and after",
         renewal_imports, [1], false,
+    ),
+    Case(
+        "renewal_clamp", "renewal over strata, each value clamped to its bounds",
+        renewal_clamp, [1, 5, 20], false,
     ),
     Case(
         "outcome_chain", "onsets, admissions and deaths as a chain of delays",
