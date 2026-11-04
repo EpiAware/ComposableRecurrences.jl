@@ -4,7 +4,6 @@
 #
 # A branching process follows the offspring of each case, and its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
 # The operators compute these expectations; they do not simulate chains.
-# It builds on the [Getting started](@ref getting-started) overview, and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
 
 # ## Packages used
 

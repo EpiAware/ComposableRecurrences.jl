@@ -4,7 +4,6 @@
 #
 # Vaccine doses move susceptibles into a protected pool.
 # Here a renewal process with susceptible depletion gets all-or-nothing, leaky and waning protection.
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay), whose depletion section introduces the pool of susceptibles.
 
 # ## Packages used
 

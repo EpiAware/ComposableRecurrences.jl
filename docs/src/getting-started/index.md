@@ -337,7 +337,6 @@ Sensitivity fades after the intervention and is zero on the last day, whose infe
 - See how renewal processes, delays and occupancy map to the package in [Infectious disease models](@ref infectious-disease-models).
 - Want to write your own modifier or coupling? See the [Developer documentation](@ref developer).
 - Want the full interface? See the [Public API](@ref public-api).
-- Want the packages ComposableRecurrences works alongside? See Related packages on the [home page](../index.md).
 
 ## Getting help
 

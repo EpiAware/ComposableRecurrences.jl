@@ -4,7 +4,6 @@
 #
 # A smoothly changing reproduction number is often a latent process on the log scale.
 # Random walks, AR and MA processes are recurrences or convolutions of innovations, and they can drive a renewal process.
-# It builds on the [Getting started](@ref getting-started) example and AR processes.
 
 # ## Packages used
 
@@ -33,7 +32,6 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # Each recurrence has the AR coefficients as its kernel and takes the innovations as `add`.
 # The MA(2) process is a [`Convolution`](@ref) of the innovations with the kernel ``(1, \theta_1, \theta_2)``.
 # With no gain the call runs over the length of `add`.
-# Other [time-series processes](@ref overview-time-series) are built the same way.
 
 T = 100
 ϵ = 0.1 .* randn(Xoshiro(1), T)
