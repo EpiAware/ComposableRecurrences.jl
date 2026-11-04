@@ -165,9 +165,22 @@ The call's `gain` and `add` are data too, and take three shapes:
 | length-`T` vector | one value per time, shared by every stratum |
 | `S × T` matrix | one value per stratum and time |
 
-A bare vector is always read as time, so a value per stratum that is constant over time is written `repeat(ρ, 1, T)`.
-For a convolution without `add` the same is `ρ .* c(x)`.
-In a recurrence a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Shapes and couplings](@ref explanation-coupling) shows.
+A bare vector is always read as time, so a value per stratum that is constant over time is written `repeat(ρ, 1, T)`, with `ρ` a vector of `S` values.
+For a convolution without `add` the same is `ρ .* c(x)`, which scales row `i` of the `S × T` output by `ρ[i]`.
+In a recurrence a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Where the coupling acts](@ref explanation-coupling) shows.
+
+```jldoctest
+using ComposableRecurrences
+ρ, T = [1.0, 2.0], 3
+h = ones(2, 1)
+by_gain = Recurrence([0.5])(repeat(ρ, 1, T); history = h)
+by_rows = Recurrence([0.5]; coupling = ρ .* [1 0; 0 1])(; history = h, stop = T)
+by_gain == by_rows
+
+# output
+
+true
+```
 
 ## [Delay distributions](@id overview-delays)
 

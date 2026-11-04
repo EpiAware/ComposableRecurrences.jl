@@ -11,8 +11,7 @@ using LinearAlgebra: I
 ## [Slots](@id explanation-slots)
 
 A slot is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
-Data (inputs, history, outputs, `gain` and `add`) are not slots, and are not wrapped.
-Their shapes are listed in the [API overview](@ref overview-shapes): inputs, histories and outputs are strata × time, or a vector for a single series, and `gain` and `add` are also a scalar or a vector over time.
+Data (inputs, history, outputs, `gain` and `add`) are not slots and are not wrapped; their shapes are in the [API overview](@ref overview-shapes).
 Each slot accepts its own set of wrappers.
 
 | Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | `Pairwise` routes | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
