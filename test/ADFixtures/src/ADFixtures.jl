@@ -767,7 +767,7 @@ function _bed_cap_any_stay(w, θ)
     cap = CR.Transform(min, (beds - CR.Recent(S[2:end])) / S[1])
     r = Recurrence([zero(eltype(x))]; modifiers = (cap,))
     y = w(r)(; history = [zero(eltype(x))], add = DEMAND)
-    return sum(W1 .* Convolution(S)(y))
+    return sum(W1 .* w(Convolution(S))(y))
 end
 
 # The capacity pools are built behind a call: inline in the losses, whose
