@@ -99,10 +99,6 @@
 
 ### Fixed
 
-- A depletion with a `Flow` runs on a GPU: a kernel launch no longer checks the flow's demand again on the host.
-- `Add`, `Clamp`, `Transform`, `Depletion` and other pointwise modifiers compile on a CUDA GPU.
-  A step's error for an index outside its one-entry view no longer builds a string in the kernel, so its message no longer names the index.
-- The Reactant extension adds no method ambiguity with computed kernels; a kernel computed from a `Derived` or a `Survival` is an `ArgumentError` under Reactant, which does not run it yet.
 - A `Convolution` kernel with offset axes is an `ArgumentError`, where before it gave wrong values.
 - ForwardDiff, Enzyme and Mooncake gradients are finite at an empty depletion or protected pool and agree with the reverse rules.
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.

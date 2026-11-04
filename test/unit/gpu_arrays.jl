@@ -615,3 +615,20 @@ end
     )
     @test adapt(ToNoHostRead(), m) isa Depletion
 end
+
+@testitem "Rebuilding a flow from its fields keeps its structural checks" begin
+    # `setproperties` rebuilds through `constructorof`, as a kernel launch
+    # does, so it skips only the host reads of the demand's entries.
+    using ComposableRecurrences, ConstructionBase
+    using ComposableRecurrences: Flow, Hazard, Share
+    f = Flow(1 => 2, 0.5; form = Share())
+    @test setproperties(f, (; demand = 0.25)).demand == 0.25
+    @test_throws ArgumentError setproperties(f, (; demand = 1.5))
+    @test_throws ArgumentError setproperties(f, (; demand = -0.2))
+    @test_throws ArgumentError setproperties(f, (; demand = "x"))
+    @test_throws ArgumentError setproperties(f, (; from = 2))
+    @test_throws ArgumentError setproperties(f, (; from = -1))
+    @test_throws ArgumentError setproperties(f, (; from = 0))
+    @test_throws ArgumentError setproperties(f, (; form = Hazard(; weights = (S = 1, V = 0.3))))
+    @test_throws MethodError Flow{Float64, Share, Int}(1, 2, 1.5, Share())
+end

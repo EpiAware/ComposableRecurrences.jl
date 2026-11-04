@@ -1,5 +1,8 @@
 # Shape, time and eltype helpers shared by the operators.
 
+# Marks the call that sets the fields once the arguments are checked.
+struct _Checked end
+
 _nstrata(x::AbstractVector) = 1
 _nstrata(x::AbstractMatrix) = size(x, 1)
 

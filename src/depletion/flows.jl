@@ -132,38 +132,43 @@ struct Flow{D, F <: _FlowForm, E}
     "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `SoftTruncate(κ)`."
     form::F
     function Flow(from, to, demand::D, form::F) where {D, F}
-        _check_end(:from, from)
-        _check_end(:to, to)
-        from == to && throw(
-            ArgumentError(
-                "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
-            )
-        )
-        form isa _FlowForm || _bad_flow_form(form)
-        from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
-            ArgumentError(
-                "a flow from outside the Depletion is a count, with form Truncate() " *
-                    "or SoftTruncate(κ), got $(_describe(form))"
-            )
-        )
-        E = Union{typeof(from), typeof(to)}
-        d = _check_param(:demand, demand)
+        d = _check_flow(from, to, demand, form)
         # A share is a fraction of the pool it leaves.
         form isa Share && _check_unit(:demand, d)
-        return new{D, F, E}(from, to, d, form)
+        return new{D, F, Union{typeof(from), typeof(to)}}(from, to, d, form)
     end
-    # Fields a flow has already checked, stored as they are.
-    function Flow{D, F, E}(from, to, demand, form) where {D, F, E}
-        return new{D, F, E}(from, to, demand, form)
+    # Rebuilt from its fields, as `constructorof` gives it. A kernel launch
+    # adapts the demand to device arrays, which the host cannot read entry
+    # by entry, so this checks everything but those entries: a number's
+    # share is still checked.
+    function Flow(::_Checked, from, to, demand::D, form::F) where {D, F}
+        d = _check_flow(from, to, demand, form)
+        form isa Share && d isa Real && _check_unit(:demand, d)
+        return new{D, F, Union{typeof(from), typeof(to)}}(from, to, d, form)
     end
 end
 
-# Rebuilt from its fields without checking them again, as `constructorof`
-# gives it: a kernel launch adapts the demand to device arrays, which the
-# host cannot read entry by entry.
-function _Flow(from, to, demand::D, form::F) where {D, F}
-    return Flow{D, F, Union{typeof(from), typeof(to)}}(from, to, demand, form)
+# The checks on a flow's ends, form and demand that read no demand entries;
+# returns the demand.
+function _check_flow(from, to, demand, form)
+    _check_end(:from, from)
+    _check_end(:to, to)
+    from == to && throw(
+        ArgumentError(
+            "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
+        )
+    )
+    form isa _FlowForm || _bad_flow_form(form)
+    from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
+        ArgumentError(
+            "a flow from outside the Depletion is a count, with form Truncate() " *
+                "or SoftTruncate(κ), got $(_describe(form))"
+        )
+    )
+    return _check_param(:demand, demand)
 end
+
+_Flow(from, to, demand, form) = Flow(_Checked(), from, to, demand, form)
 ConstructionBase.constructorof(::Type{<:Flow}) = _Flow
 
 @noinline function _bad_flow_form(form)

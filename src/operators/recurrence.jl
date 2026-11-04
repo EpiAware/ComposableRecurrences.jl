@@ -1,6 +1,3 @@
-# Marks the call that sets the fields once the arguments are checked.
-struct _Checked end
-
 @doc raw"""
 A recurrence over strata whose kernel starts at lag 1, stepped from a window
 of its own past values.
