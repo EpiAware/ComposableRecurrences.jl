@@ -229,7 +229,6 @@ admissions = [20 * exp(-((t - 40) / 15)^2) for t in 1:T]
 end
 
 # Few patients in care are confirmed while testing is scarce; once it scales up after day 35, most patients are confirmed within a few days of admission.
-# [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns such weights as an array when they are an output in their own right, such as the probability that each onset date is reported by each delay.
 
 # ## Performance
 #
