@@ -2,8 +2,9 @@
 name: Reactant
 
 # Runs the Reactant support matrix in test/reactant/ on the CPU backend:
-# the full matrix weekly and on main, and a five-case smoke subset on pull
-# requests that change the source or an extension.
+# every AD registry scenario and the hand-written cases weekly and on main,
+# and a smoke subset of both on pull requests that change the source, an
+# extension or the AD registry.
 # Each job fails when a cell it ran differs from the committed results.tsv
 # (test/reactant/compare.jl); the main test suite checks results.tsv against
 # expected.jl. The steps are the commands in the header of
@@ -18,6 +19,7 @@ on:
       - 'src/**'
       - 'ext/**'
       - 'test/reactant/**'
+      - 'test/ADFixtures/**'
       - '.github/workflows/reactant.yaml'
   schedule:
     - cron: '17 4 * * 1'
@@ -36,7 +38,9 @@ jobs:
     timeout-minutes: 60
     env:
       REACTANT_BACKENDS: cpu
-      REACTANT_CASES: rec_single,rec_strata_I,rec_per_stratum,rec_joined,conv_fixed
+      REACTANT_CASES: rec_single,rec_strata_I,rec_joined,conv_fixed
+      REACTANT_SCENARIOS: >-
+        Recurrence renewal;Recurrence strata, coupling and depletion;Convolution delay with history
       REACTANT_STEPS: '20'
     steps:
       - uses: actions/checkout@v7

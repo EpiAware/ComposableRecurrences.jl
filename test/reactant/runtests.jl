@@ -10,8 +10,7 @@
 # Two suites run:
 # - `registry`: every scenario of the shared AD registry (`test/ADFixtures`),
 #   at its own size. Scenarios Reactant cannot run are listed in the
-#   registry, under the `Reactant` backend (gradients) and `Reactant primal`
-#   (compiled calls).
+#   registry under the `Reactant` backend, with the cause.
 # - `cases`: the hand-written cases in `cases.jl`, for what the registry
 #   cannot express, at each number of steps.
 #
@@ -224,7 +223,7 @@ function write_results(path, results, elapsed)
     println(io, "- AD registry scenarios (`test/ADFixtures`) are at the registry's size and are checked as the AD tests check them: entry by entry, at the scenario's tolerance (`1e-8`, or `1e-4` with single-precision parameters). Scenarios Reactant cannot run are listed in the registry with the reason.")
     println(io, "- Hand-written cases (`cases.jl`) cover what the registry cannot: the harness control, a resumed call, a joined traced history, a check at the call, and how compile and run time grow with the number of steps (L = $(ReactantCases.L) lags, S = $(ReactantCases.S) strata). Their loss is a weighted sum of the output, checked to a relative error below `1e-8`.")
     println(io, "- `works` cells give compile time (s) / median run time (µs); `wrong` means the check failed.")
-    println(io, "- The control row's compile time is Reactant's fixed first-compile cost, included in every cell.")
+    println(io, "- Each suite runs in one process, so the first row's forward compile time includes Reactant's fixed first-compile cost; the control row of the hand-written cases measures it.")
     for b in setdiff(["cpu", "gpu"], backends)
         println(io, "- No $(uppercase(b)) cell was run.")
     end
@@ -287,15 +286,14 @@ end
 
 # Whether a cell is expected to work: every hand-written case (see
 # `expected.jl`), and every registry scenario the registry does not list as
-# broken on Reactant.
+# broken on Reactant, forward and reverse.
+const REGISTRY_BROKEN = union(
+    Set(ADFixtures.broken_scenario_names()),
+    get(ADFixtures.backend_broken_scenarios(), "Reactant", Set{String}())
+)
 function expected(r)
     r.suite == "cases" && return get(EXPECTED, (r.name, r.mode, r.backend), false)
-    key = r.mode == "forward" ? "Reactant primal" : "Reactant"
-    broken = union(
-        Set(ADFixtures.broken_scenario_names()),
-        get(ADFixtures.backend_broken_scenarios(), key, Set{String}())
-    )
-    return !(r.name in broken)
+    return !(r.name in REGISTRY_BROKEN)
 end
 
 const REGISTRY_SKIP = get(
@@ -337,6 +335,11 @@ write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
         cmd = `$(Base.julia_cmd()) --project=$(@__DIR__) --startup-file=no
             $(joinpath(@__DIR__, "extension_check.jl"))`
         @test success(pipeline(cmd; stdout, stderr))
+    end
+    # A misspelt name in the registry's Reactant lists would match nothing.
+    @testset "the registry's Reactant lists name its scenarios" begin
+        @test REGISTRY_BROKEN ⊆ Set(SCENARIO_NAMES)
+        @test REGISTRY_SKIP ⊆ Set(SCENARIO_NAMES)
     end
     for suite in SUITES, backend in BACKENDS
         @testset "$suite $backend" begin

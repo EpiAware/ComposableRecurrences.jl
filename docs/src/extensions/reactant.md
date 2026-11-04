@@ -24,4 +24,4 @@ y = (Reactant.@compile joined(R, h))(R, h)
 A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
 The time loop compiles to one loop whose body is a step, so compile time does not grow with the number of steps.
 The [strata](@ref overview-step) loops within a step are written out, so the program grows with the number of strata.
-The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records, for each case at 20 and 400 steps on the CPU, whether the compiled call matches plain Julia forward and ForwardDiff in reverse to a relative error below `1e-8`.
+The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records, for every scenario of the AD test registry and a few cases at 20 and 400 steps on the CPU, whether the compiled call matches plain Julia and its gradient matches ForwardDiff.
