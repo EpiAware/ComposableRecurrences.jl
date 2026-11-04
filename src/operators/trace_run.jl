@@ -1,6 +1,10 @@
 # A call with its trace: the output of `op` (a `Recurrence` or its
-# `_WithState`) and each modifier's trace, built after the run from the
-# records the rule keeps, or in each step of a run without records.
+# `_WithState`) and each modifier's trace. A run that keeps records builds
+# the trace from them after the run; one that keeps none writes it in each
+# step.
+
+# == _WithTrace ==
+
 struct _WithTrace{O <: AbstractOperator} <: AbstractOperator
     op::O
 end
@@ -14,14 +18,13 @@ function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop)
     return (y, _traces(_traced_recurrence(w.op), cache)), cache
 end
-# The modifiers are read from the operator, as the step reads them, not
-# from the cache: plain reverse AD on Julia 1.11 can lose the cotangent of
-# a scalar field read back from a value that also holds arrays.
+# The modifiers are read from the operator, not the cache: plain reverse AD
+# on Julia 1.11 can lose a scalar field's cotangent read back from a value
+# that also holds arrays.
 _traced_recurrence(r::Recurrence) = r
 _traced_recurrence(w::_WithState) = w.r
-# A call that keeps no records writes each modifier's trace in its step
-# (`_TraceSink`) on host arrays. Elsewhere it runs the traced rule's forward
-# pass, which records the run and builds the trace after it.
+# On host arrays the trace is written in each step; elsewhere the run keeps
+# records and builds the trace after it.
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
     return _traced_primal(w.op, gain, add, h, s0, τ0, stop)
@@ -35,6 +38,8 @@ function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return (Y, _state(Y, H, states, h, τ0)), (; modifiers = tr)
 end
 
+# == Traces written in each step ==
+
 # A modifier's trace as the run writes it, with copies `v` and `s` of the
 # step's inputs for a step on the whole vectors that is not pointwise.
 # `out` starts unset, as each step writes its column.
@@ -44,8 +49,7 @@ struct _TraceSink{O, V, W}
     s::W
     S::Int
 end
-# A modifier whose state never changes writes no trace, so its trace is
-# zeros.
+# A modifier whose state never changes has a trace of zeros.
 struct _NoTrace{O}
     out::O
 end
@@ -104,10 +108,12 @@ function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
     return nothing
 end
 
-# The call's trace, `(; modifiers)`, one matrix per modifier with a
-# column per step: each step's inputs are the modifier's records, its
-# outputs the next modifier's inputs (or the buffer's row for the last)
-# and its state entering the next step (or its final state).
+# == Traces built from records ==
+
+# `(; modifiers)`, one matrix per modifier with a column per step: a step's
+# inputs are the modifier's records, its outputs the next modifier's inputs
+# (or the buffer's row for the last) and its state the next step's (or the
+# final state).
 function _traces(r, c)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
@@ -117,8 +123,8 @@ _traces(::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
 function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)
     m, R = first(ms), first(rec)
     out = _zeros(H, eltype(H), ntrace(m, S), T)
-    # The last step's state after it is the final state, apart so that each
-    # call sees one type.
+    # The last step's state is the final state, apart so each call sees one
+    # type.
     rest = Base.tail(rec)
     _stateless(m) || _trace_steps!(out, m, R, rest, first(finals), H, D, T, τ0)
     rest = _traces(Base.tail(ms), Base.tail(rec), Base.tail(finals), H, D, S, T, τ0)
@@ -142,17 +148,17 @@ end
 _outputs_at(::Tuple{}, H, D, t) = view(H, D + t, :)
 _outputs_at(rec::Tuple, H, D, t) = view(first(rec).V, :, t)
 
-# The records with each modifier's trace cotangent `T̄` and, for a
-# vector-level step, the buffers for the cotangents its trace sends to the
-# step's inputs.
-# A modifier's records with its trace cotangent and buffers, as
-# `_traced_record` builds them; any other record has no trace cotangent.
+# == Trace pullback ==
+
+# A modifier's records with its trace cotangent `T̄` and buffers `V̄`, `S̄`
+# for the cotangents its trace sends to the step's inputs.
 const _TracedRecord = NamedTuple{(:V, :S, :A, :T̄, :V̄, :S̄)}
 _traced_records(rec, ::Nothing, S) = rec
-_traced_records(rec, T̄s::Tuple, S) = map((R, T̄) -> _traced_record(R, T̄, S), rec, T̄s)
-_traced_record(R, ::Nothing, S) = R
-function _traced_record(R, T̄, S)
-    return (; R..., T̄, V̄ = _zeros(R.V, eltype(R.V), S), S̄ = zero(_states_at(R.S, 1)))
+function _traced_records(rec, T̄s::Tuple, S)
+    return map(rec, T̄s) do R, T̄
+        T̄ === nothing && return R
+        return (; R..., T̄, V̄ = _zeros(R.V, eltype(R.V), S), S̄ = zero(_states_at(R.S, 1)))
+    end
 end
 
 # One stratum's trace pullback at step `t`, around its step's pullback:
@@ -166,10 +172,7 @@ function _trace_out(R::_TracedRecord, m, args...)
 end
 # A modifier whose state never changes has no trace, so no cotangent.
 _trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
-# The trace's pullback runs on one-entry views of stratum `k`: of the
-# trace's cotangent series, and of slots the pullback adds the cotangents
-# of the step's inputs and outputs into. Inlined, so the slots stay off
-# the heap.
+# On one-entry views of stratum `k`; inlined, so the slots stay off the heap.
 @inline function _trace_out(::Val{false}, R, m, m̄, v̄, s̄, v, s, τ, t, k)
     S = length(R.V̄)
     r̄ = _trace_series(view(R.T̄, :, t), Val(ntrace(m, 1)), S)
@@ -221,8 +224,7 @@ function _trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
     return nothing
 end
 # Group `g`'s trace pullback, adding into the cotangents of the step's
-# outputs and the record's buffers: the modifier's `pullback!` on one-entry
-# views, or a built-in's on the gathered values.
+# outputs and the record's buffers.
 function _group_trace_back!(m, ::Val{B}, R, m̄, v̄, s̄, r̄, v, s, τ, G, g) where {B}
     nv, ns = B
     grads = (;
