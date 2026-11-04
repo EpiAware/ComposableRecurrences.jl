@@ -67,7 +67,7 @@ where each index `k` is one [stratum](@ref PerStratum) or one output time.
 `body` must write only the slots it owns for index `k`, so the indices
 can run in any order or at the same time.
 `work` estimates the loop's total cost in inner operations, which an
-executor may use to run small loops in order.
+executor may use to run small loops in order; [`Serial`](@ref) ignores it.
 A new executor type adds a method of `each!`.
 Returns `nothing`.
 
@@ -137,6 +137,8 @@ Loops split every step count each multiply-add once whatever the type.
 The default `min_work` of 500 000 comes from whole-loss timings
 (`benchmark/threshold.jl`); [Threads and GPUs](@ref tutorial-threads-gpus)
 gives them.
+Strata that mix split only with a pairwise kernel over a few hundred strata
+or a coupling over tens of thousands.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
 A reverse pass sums per chunk the cotangents of parameters that chunks of
