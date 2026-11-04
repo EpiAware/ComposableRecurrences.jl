@@ -50,6 +50,11 @@ It is meant for non-negative values: a group sum at or below zero is
 floored to ``\epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
+They are not [`ComposableRecurrences.blocks`](@ref): blocks hold a fixed
+number of compartments per group, interleaved and set by the type, while
+these groups are sets of strata of any size, set by the value, such as
+patches holding different numbers of zones.
+So `Allocate` is not blockwise, and its `blocks` is `nothing`.
 A group may be empty, given as `Int[]` or a range such as `3:2` (an untyped
 `[]` holds `Any` and is rejected): it holds no strata, so its total and
 import fraction are not used and their gradients are zero.
