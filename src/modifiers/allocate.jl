@@ -50,11 +50,6 @@ It is meant for non-negative values: a group sum at or below zero is
 floored to ``\epsilon``.
 The groups partition the strata; a stratum in no group is an
 `ArgumentError`.
-They are not [`ComposableRecurrences.blocks`](@ref): blocks hold a fixed
-number of compartments per group, interleaved and set by the type, while
-these groups are sets of strata of any size, set by the value, such as
-patches holding different numbers of zones.
-So `Allocate` is not blockwise, and its `blocks` is `nothing`.
 A group may be empty, given as `Int[]` or a range such as `3:2` (an untyped
 `[]` holds `Any` and is rejected): it holds no strata, so its total and
 import fraction are not used and their gradients are zero.
@@ -63,7 +58,9 @@ turn) and `offsets` (where each group starts), so the analytic adjoint sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
 over groups, not strata: `PerStratum` holds one value per group.
-It reads every stratum of a group, so it is not pointwise.
+It reads every stratum of a group, so it is not pointwise, and its groups
+differ in size and are set by the value, so it is not blockwise
+([`ComposableRecurrences.blocks`](@ref) is `nothing`).
 It has no state without `imports`; with them the state holds ``h``, after
 ``u`` when there is a spill.
 It composes with the other modifiers in tuple order:

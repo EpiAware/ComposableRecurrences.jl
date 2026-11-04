@@ -386,10 +386,9 @@ only at run time.
 [`ComposableRecurrences.ispointwise`](@ref) and
 [`ComposableRecurrences.nstate`](@ref) follow from it.
 The default is `nothing`.
-Every group of a blockwise modifier has the same size.
 Groups of different sizes, such as the patches of
-[`ComposableRecurrences.Allocate`](@ref), are a value of the modifier
-instead, and its `blocks` is `nothing`.
+[`ComposableRecurrences.Allocate`](@ref), are a value of the modifier, so
+its `blocks` is `nothing`.
 
 # Arguments
 - `m`: the modifier.
