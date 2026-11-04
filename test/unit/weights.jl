@@ -337,9 +337,8 @@ end
         @test c(xs) ≈ Base.ScopedValues.with(() -> c(xs), CR.EXECUTOR => CR.Serial())
         check(c, (xs, true, nothing, nothing, 1, T), sin.(xs))
     end
-    # The transpose, which runs the computed kernel's reverse body as its
-    # forward pass: shared and per-stratum kernels, a late start, a stop
-    # before the end and a tail.
+    # The transpose runs the computed kernel's reverse body as its forward
+    # pass, so its own pullback is checked too.
     tr(k) = CR._TransposedConvolution(conv(k))
     check(tr(W.confirmed(q, hs)), (x, nothing, 1, T), sin.(1:T))
     check(tr(W.confirmed(q, hs)), (x, nothing, 3, T - 2), sin.(1:(T - 4)))
