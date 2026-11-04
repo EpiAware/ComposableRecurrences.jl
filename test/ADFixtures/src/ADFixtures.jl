@@ -1061,6 +1061,23 @@ function _trace_importation(w, θ)
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
 
+# The importation's trace through a sparse coupling, so the coupling's
+# product is differentiated with the trace as well as the output.
+function _trace_sparse(w, θ)
+    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
+    CR = ComposableRecurrences
+    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    mods = (
+        CR.Redistribute(K0, ε .* ones(1, T)),
+        CR.Depletion(PerStratum(POP)),
+    )
+    y, tr = returning_trace(
+        w(Recurrence(G0; coupling = K, modifiers = mods)), exp.(logR);
+        history = exp.(logh)
+    )
+    return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
+end
+
 # A protected `Depletion`'s trace: its protected pool, the value drawn and the
 # overflow, one row each per stratum after the susceptible pools.
 function _trace_pool(w, θ)
@@ -1463,6 +1480,10 @@ const _SCENARIOS = [
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
     ),
     (
+        "Recurrence trace through a sparse coupling", _trace_sparse,
+        () -> _flat(KS.nzval, fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
         "Recurrence trace of a protected pool", _trace_pool,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
@@ -1793,6 +1814,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace through a sparse coupling" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
     # A trace written in place, with `forward!`.
     "Recurrence trace of pointwise modifiers" => (:_trace_series,),
