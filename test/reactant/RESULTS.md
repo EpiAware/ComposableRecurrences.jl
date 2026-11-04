@@ -51,6 +51,9 @@ Total run time 226.9 min, one subprocess per cell, timeout 300 s.
 | Convolution, Primary() kernel from change points | works (65.4 s / 8.6 µs) | works (61.1 s / 26.4 µs) | works (71.4 s / 15.8 µs) | works (62.9 s / 404.1 µs) |
 | Convolution, Secondary() kernel from change points | works (68.2 s / 17.3 µs) | works (61.9 s / 44.4 µs) | works (74.9 s / 13.0 µs) | works (68.8 s / 131.3 µs) |
 | Recurrence with Add (change points) | works (77.2 s / 14.0 µs) | works (69.3 s / 15.0 µs) | works (77.0 s / 83.3 µs) | works (71.3 s / 498.5 µs) |
+| Convolution, kernel computed from a Survival | works (47.5 s / 60.1 µs) | works (54.2 s / 266.4 µs) | works (54.4 s / 129.7 µs) | works (75.2 s / 1150.8 µs) |
+| Convolution, kernel computed from a Derived | works (46.0 s / 34.3 µs) | works (50.6 s / 285.6 µs) | works (49.5 s / 62.8 µs) | works (61.6 s / 1204.4 µs) |
+| Recurrence, kernel computed from a Survival | works (45.9 s / 55.2 µs) | works (51.7 s / 306.2 µs) | works (50.9 s / 255.0 µs) | works (68.9 s / 4742.3 µs) |
 
 ## Details
 
@@ -198,6 +201,18 @@ Plain Julia is the operator call (forward) or `ForwardDiff.gradient` (reverse), 
 | rec_joined | reverse | extension | cpu | 20 | works | 4.2e-16 | 45.6 | 101.8 | 59.3 |  |  |
 | rec_joined | forward | extension | cpu | 400 | works | 2.2e-16 | 41.8 | 16.9 | 17.6 |  |  |
 | rec_joined | reverse | extension | cpu | 400 | works | 2.1e-15 | 44.1 | 1027.0 | 14596.1 |  |  |
+| conv_survival | forward | extension | cpu | 20 | works | 2.2e-16 | 47.5 | 60.1 | 1.9 |  |  |
+| conv_survival | reverse | extension | cpu | 20 | works | 1.5e-16 | 54.4 | 129.7 | 41.9 |  |  |
+| conv_derived | forward | extension | cpu | 20 | works | 1.3e-16 | 46.0 | 34.3 | 0.7 |  |  |
+| conv_derived | reverse | extension | cpu | 20 | works | 1.6e-16 | 49.5 | 62.8 | 20.3 |  |  |
+| rec_survival | forward | extension | cpu | 20 | works | 1.4e-16 | 45.9 | 55.2 | 1.5 |  |  |
+| rec_survival | reverse | extension | cpu | 20 | works | 4.3e-16 | 50.9 | 255.0 | 41.5 |  |  |
+| conv_survival | forward | extension | cpu | 400 | works | 1.8e-16 | 54.2 | 266.4 | 7.8 |  |  |
+| conv_survival | reverse | extension | cpu | 400 | works | 2.7e-16 | 75.2 | 1150.8 | 7759.8 |  |  |
+| conv_derived | forward | extension | cpu | 400 | works | 2.5e-16 | 50.6 | 285.6 | 5.7 |  |  |
+| conv_derived | reverse | extension | cpu | 400 | works | 1.5e-16 | 61.6 | 1204.4 | 6142.1 |  |  |
+| rec_survival | forward | extension | cpu | 400 | works | 8.1e-16 | 51.7 | 306.2 | 10.9 |  |  |
+| rec_survival | reverse | extension | cpu | 400 | works | 4.6e-15 | 68.9 | 4742.3 | 9030.0 |  |  |
 
 ## The Reactant extension
 

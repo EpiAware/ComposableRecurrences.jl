@@ -2,8 +2,8 @@ module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Executor, PerStratum, Primary,
     Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
-    _ComputedKernel, _Ragged, _array, _lagweight, _nlags, _seg_weights, _steps!,
-    _weight
+    _ComputedKernel, _Ragged, _array, _dense_kernel, _fill_kernel, _lagweight,
+    _nlags, _seg_weights, _steps!, _weight, Survival
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
 
@@ -75,6 +75,38 @@ end
 # A traced movement matrix's values are not known while tracing, so its
 # columns are not checked.
 ComposableRecurrences._check_columns(::AnyTracedRArray, leak) = nothing
+
+# A traced array is a coefficient a computed kernel reads, as a vector of
+# numbers is; its eltype is a traced number, not a `Real`.
+const _TracedCoefficient = Union{
+    AnyTracedRVector, PerStratum{<:AnyTracedRArray},
+    TimeVarying{<:Any, <:AnyTracedRVector},
+    TimeVarying{<:Any, <:PerStratum{<:AnyTracedRMatrix}},
+}
+ComposableRecurrences._check_coefficient(::_TracedCoefficient) = nothing
+
+function _held_zeros(::Type{Tp}, dims) where {Tp}
+    a = Array{Tp}(undef, dims)
+    for i in eachindex(a)
+        a[i] = zero(Tp)
+    end
+    return a
+end
+
+# A `Survival`'s scratch at a traced eltype holds traced numbers, read and
+# written one at a time as the weights are filled while tracing. `zeros`
+# at a traced eltype gives a traced array and Reactant refuses `fill!` of a
+# Julia array, so each is filled entry by entry.
+function ComposableRecurrences._scratch(
+        x::Survival, ::Type{Tp}, L, B = ComposableRecurrences._BLOCK
+    ) where {Tp <: TracedRNumber}
+    ns = max(ComposableRecurrences._coef_strata(x.hazard), 1)
+    hold(dims...) = _held_zeros(Tp, dims)
+    return ComposableRecurrences._SurvivalScratch(
+        ComposableRecurrences._scratch(x.hazard, Tp, L, B),
+        hold(B, L, ns), hold(B, L, ns), hold(B, L, ns), hold(B)
+    )
+end
 
 function ComposableRecurrences.param_eltype(x::AbstractArray{<:TracedRNumber})
     return eltype(x)
@@ -280,11 +312,25 @@ function ComposableRecurrences._conv_buffers(
     )
 end
 
+# A computed kernel's weights are filled while tracing, one traced number at
+# a time.
+function ComposableRecurrences._fill_weights(
+        ::Type{Tp}, x, o, n, last, keep::Val
+    ) where {Tp <: TracedRNumber}
+    return @allowscalar invoke(
+        ComposableRecurrences._fill_weights,
+        Tuple{Type, Any, Any, Any, Any, Val}, Tp, x, o, n, last, keep
+    )
+end
+
 # A traced convolution is a loop over output times, each output one sum
 # over the `D` lags. The input buffer gains `D - 1` zero rows on top, so
 # every lag of every output reads inside it: a lag before the first input
 # reads a zero, as it would outside the buffer.
 function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
+    return _traced_convolve!(ex, Y, c, X, m, start)
+end
+function _traced_convolve!(ex, Y, c, X, m, start)
     D = _nlags(c)
     z = zero(unwrapped_eltype(eltype(X)))
     Xp = vcat(Reactant.Ops.fill(z, (D - 1, size(X, 2))), X)
@@ -293,18 +339,15 @@ function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
 end
 
 # A computed kernel, whose weights come from a `Derived` or a `Survival`,
-# fills its weights in host scratch that a traced call cannot hold, so it
-# does not run under Reactant yet. This also settles which method a traced
-# call with one takes.
+# runs as the dense kernel of its weights: the weights are filled while
+# tracing, each one a traced number, into a traced array, which the traced
+# loop reads at the step as any `Primary()` kernel's.
 function ComposableRecurrences._convolve!(
-        ::Traced, Y, c::_ComputedKernel, X, m, start
+        ex::Traced, Y, c::_ComputedKernel, X, m, start
     )
-    throw(
-        ArgumentError(
-            "a kernel computed from a Derived or a Survival does not run " *
-                "under Reactant yet"
-        )
-    )
+    stop = start + size(Y, 1) - 1
+    K, _ = _fill_kernel(c, 0, stop, stop, Val(false))
+    return _traced_convolve!(ex, Y, _dense_kernel(K), X, m, start)
 end
 
 # Output `j` of every stratum.

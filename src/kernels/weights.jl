@@ -483,7 +483,11 @@ function _fill_kernel(kernel::_ComputedKernel, o, n, last, keep::Val = Val(true)
     x = kernel.x
     n = max(n, 0)
     _check_coef_times(x, n, last)
-    Tp = float(param_eltype(x))
+    return _fill_weights(float(param_eltype(x)), x, o, n, last, keep)
+end
+# The fill at the weights' eltype `Tp`, which an extension can run in a
+# setting of its own.
+function _fill_weights(::Type{Tp}, x, o, n, last, keep::Val) where {Tp}
     L = _coef_lags(x)
     ns = max(_coef_strata(x), 1)
     B = _block_size(x, n, keep)

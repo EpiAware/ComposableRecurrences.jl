@@ -140,3 +140,15 @@ works	1.8e-16	45.9	7.4	1.9				rec_joined	forward	extension	cpu	20	64.10759592056
 works	4.2e-16	45.6	101.8	59.3				rec_joined	reverse	extension	cpu	20	67.07646608352661
 works	2.2e-16	41.8	16.9	17.6				rec_joined	forward	extension	cpu	400	60.06745219230652
 works	2.1e-15	44.1	1027.0	14596.1				rec_joined	reverse	extension	cpu	400	65.07487297058105
+works	2.2e-16	47.5	60.1	1.9				conv_survival	forward	extension	cpu	20	68.10662603378296
+works	1.5e-16	54.4	129.7	41.9				conv_survival	reverse	extension	cpu	20	74.07019686698914
+works	1.3e-16	46.0	34.3	0.7				conv_derived	forward	extension	cpu	20	65.06390714645386
+works	1.6e-16	49.5	62.8	20.3				conv_derived	reverse	extension	cpu	20	68.05868005752563
+works	1.4e-16	45.9	55.2	1.5				rec_survival	forward	extension	cpu	20	65.06388020515442
+works	4.3e-16	50.9	255.0	41.5				rec_survival	reverse	extension	cpu	20	70.07157492637634
+works	1.8e-16	54.2	266.4	7.8				conv_survival	forward	extension	cpu	400	73.07467293739319
+works	2.7e-16	75.2	1150.8	7759.8				conv_survival	reverse	extension	cpu	400	95.09331393241882
+works	2.5e-16	50.6	285.6	5.7				conv_derived	forward	extension	cpu	400	69.06707501411438
+works	1.5e-16	61.6	1204.4	6142.1				conv_derived	reverse	extension	cpu	400	80.0838680267334
+works	8.1e-16	51.7	306.2	10.9				rec_survival	forward	extension	cpu	400	71.067214012146
+works	4.6e-15	68.9	4742.3	9030.0				rec_survival	reverse	extension	cpu	400	88.0875871181488
