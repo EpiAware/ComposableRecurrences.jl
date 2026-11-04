@@ -5,7 +5,7 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Derived, Recent
+using ComposableRecurrences: Derived, Recent, Survival
 using ComposableRecurrences: Add, Allocate, Clamp, Depletion, Floor, Flow,
     Hazard, Primary, Redistribute, Secondary, SoftTruncate, Step,
     Transform, Truncate
@@ -296,6 +296,24 @@ function conv_cp_secondary(θ)
     return Convolution(cp_kernel(θ, L))(θ[(3L + 1):end]; history = HX)
 end
 
+# Kernels computed from traced coefficients over time: a delay whose
+# reporting probability rises with a hazard, lag weights scaled by a level,
+# and a generation interval shortened by a hazard. A coefficient read at the
+# time a weight lands covers `T + L` times.
+const TL = T + L
+const HZ0 = collect(range(0.1, 0.3; length = TL))
+const LV0 = collect(range(1.0, 1.2; length = TL))
+reported(h) = d0 * (1 - Survival(TimeVarying(h); from = 1))
+conv_survival(θ) = Convolution(TimeVarying(reported(θ[1:TL]), Primary()))(θ[(TL + 1):end])
+function conv_derived(θ)
+    w = Derived(*, d0, TimeVarying(θ[1:TL]))
+    return Convolution(TimeVarying(w, Primary()))(θ[(TL + 1):end])
+end
+function rec_survival(θ)
+    g = TimeVarying(2.5 * g0 * Survival(TimeVarying(θ[1:TL])), Primary())
+    return Recurrence(g)(θ[(TL + 1):end]; history = H1, start = L + 1)
+end
+
 # The values are read as sums of one entry, as a traced scalar is not
 # indexed outside the package's loops.
 function mod_add_cp(θ)
@@ -452,6 +470,18 @@ const CASES = [
     Case(
         "mod_add_cp", "Recurrence with Add (change points)", mod_add_cp,
         vcat(g0, R0, [0.1, -0.05]), W1
+    ),
+    Case(
+        "conv_survival", "Convolution, kernel computed from a Survival",
+        conv_survival, vcat(HZ0, x0), W1
+    ),
+    Case(
+        "conv_derived", "Convolution, kernel computed from a Derived",
+        conv_derived, vcat(LV0, x0), W1
+    ),
+    Case(
+        "rec_survival", "Recurrence, kernel computed from a Survival",
+        rec_survival, vcat(HZ0, R0), W1[(L + 1):end]
     ),
 ]
 
