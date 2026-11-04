@@ -28,8 +28,13 @@ function ComposableRecurrences.test_adjoint(::AutoEnzyme, op, ::Run, args...; kw
     xs = map(x -> (x, _act(x)), args)
     opact = Enzyme.guess_activity(typeof(op), Enzyme.Reverse)
     if opact <: MixedDuplicated
-        VERSION >= v"1.12" &&
+        if VERSION >= v"1.12"
             test_reverse(_ad_ref, ret, (Ref(op), Duplicated), xs...; kwargs...)
+        else
+            @info "On Julia 1.11 an operator with array and scalar fields " *
+                "is checked as Const only: Enzyme drops the cotangent of its " *
+                "scalar fields read from a Ref." maxlog = 1
+        end
         acts = (Const,)
     else
         acts = opact <: Active ? (Active, Const) : (Duplicated, Const)
