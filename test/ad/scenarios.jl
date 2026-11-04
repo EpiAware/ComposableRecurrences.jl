@@ -118,3 +118,18 @@ end
     @test length(rules) == length(ADFixtures._SCENARIOS)
     @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
 end
+
+# No scenario is skipped or broken on every backend, and each per-backend
+# broken or plain entry names a backend and a scenario that exist, so a
+# renamed scenario cannot leave an entry that no longer applies.
+@testitem "AD fixtures skip nothing and name only real scenarios" tags = [:ad, :forwarddiff, :enzyme_reverse, :mooncake_reverse] begin
+    using ADFixtures
+    @test all(isempty, values(ADFixtures.backend_skip_scenarios()))
+    @test isempty(ADFixtures.broken_scenario_names())
+    names = Set(s.name for s in ADFixtures.scenarios())
+    backends = Set(b.name for b in ADFixtures.backends())
+    for lists in (ADFixtures.backend_broken_scenarios(), ADFixtures.backend_plain_scenarios())
+        @test keys(lists) ⊆ backends
+        @test all(v -> v ⊆ names, values(lists))
+    end
+end
