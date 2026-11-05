@@ -251,9 +251,9 @@ function _out(h, fs::Tuple, i, g, t, z)
 end
 
 # `exp(-H)` and the share that leaves per unit hazard,
-# `g(H) = (1 - exp(-H)) / H`, both from one exponential (`_exp_neg`). Near
-# zero `g` is 0/0, so it takes its series; the arm follows the primal
-# value, and the guarded division keeps the unused arm finite.
+# `g(H) = (1 - exp(-H)) / H`. Near zero `g` is 0/0, so it takes its series;
+# the arm follows the primal value, and the guarded division keeps the
+# unused arm finite.
 function _leave(H)
     small = abs(_primal_value(H)) < _series_cut(H)
     Hd = ifelse(small, one(H), H)
