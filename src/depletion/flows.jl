@@ -274,8 +274,9 @@ end
 function _leave(H)
     small = abs(_primal_value(H)) < _series_cut(H)
     Hd = ifelse(small, one(H), H)
-    g = ifelse(small, evalpoly(H, _coefficients(H, _LEAVE)), -expm1(-Hd) / Hd)
-    return exp(-H), g
+    E, em = _exp_neg(H)
+    g = ifelse(small, evalpoly(H, _coefficients(H, _LEAVE)), -em / Hd)
+    return E, g
 end
 
 # The slope `g′(H) = (exp(-H) - g) / H`, with its series near zero.
