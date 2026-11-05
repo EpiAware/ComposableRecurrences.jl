@@ -104,11 +104,17 @@
     # `Derived`, a capacity, a seed joined to the output with and without
     # state, traces of pointwise and grouped steps, change points, the
     # automatic convolution, the weights of a computed kernel, the local
-    # steps of user types, routes, and an operator checked at the call. Enzyme's pass with the operator constant
-    # reaches branches for a constant part that only some operators have,
-    # so their scenarios are here too: a constant movement, `Transform(clamp, lo, hi)`, a
-    # traced movement, change-point kernels, ragged columns held as given
-    # and outputs read by a parameter. `extra_cases` adds the shapes the
+    # steps of user types, routes, and an operator checked at the call.
+    # So are the operator types and field types no other scenario has: the
+    # transpose, lag contributions, kernels computed from a distribution, a
+    # hazard and survival or a chain of delays, time-varying, pairwise and
+    # per-stratum kernels, sparse and `Diagonal` couplings, `Allocate` alone,
+    # dense and sparse routes and a whole-step modifier holding a vector.
+    # Enzyme's pass with the operator constant reaches branches for a
+    # constant part that only some operators have, so their scenarios are
+    # here too: a constant movement, `Transform(clamp, lo, hi)`, a traced
+    # movement, change-point kernels, ragged columns held as given and
+    # outputs read by a parameter. `extra_cases` adds the shapes the
     # registry lacks.
     const ADJOINT_SCENARIOS = (
         "Recurrence renewal",
@@ -158,6 +164,10 @@
         "Recurrence grouped totals (Allocate)",
         "Recurrence routes, dense and sparse",
         "Recurrence whole-step modifier holding a vector",
+        "Convolution lag contributions",
+        "Recurrence sparse coupling",
+        "Recurrence per-stratum kernel, Diagonal coupling",
+        "Convolution per-stratum kernel with history",
     )
 
     # `(name, op, args, rtol)` for each scenario of `ADJOINT_SCENARIOS` at
