@@ -291,7 +291,8 @@ function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
     n = _local_inputs(C̄, C, p)
     if n > _LOCAL_DUALS
         e = _LOCAL_ENGINE[]
-        _takes_local(e, n) && return _reverse_pressure!(e, p̄, C̄, C, q̄, p, t)
+        _takes_local(e, n) &&
+            return Base.invokelatest(_reverse_pressure!, e, p̄, C̄, C, q̄, p, t)
     end
     if _array_seeds(C̄, C)
         # The reverse pass makes the buffers once (`_pressure_buffers`); a
@@ -319,7 +320,13 @@ _local_inputs(C̄, C, p) = length(p) + (C̄ === nothing ? 0 : _ninputs(C))
 _takes_local(engine, n) = false
 _takes_local(::_EnzymeLocal, n) = n > _LOCAL_DUALS
 _takes_local(::_MooncakeLocal, n) = n > _LOCAL_PRESSURE_WIDE
-function _reverse_pressure! end
+# The engine is read at run time, so inference would see each extension's
+# method at the call: `invokelatest` hides them, so a Mooncake gradient does
+# not infer Enzyme's pass, which cost 37 s on its first call. Only an
+# engine's extension sets it, so the fallback is not reached.
+function _reverse_pressure!(engine, p̄, C̄, C, q̄, p, t)
+    throw(ArgumentError("no reverse pass for a coupling's local derivative under $engine"))
+end
 # Whether the local step seeds a coupling's float arrays as well as its
 # scalars: only when the coupling is differentiated and holds any.
 _array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)

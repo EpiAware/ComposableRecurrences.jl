@@ -2542,6 +2542,7 @@ end
     # many passes as its inputs need.
     @test CR._LOCAL_ENGINE[] === nothing
     @test pullback_matches(r, args(47)...; rtol = 1.0e-6)
+    @test_throws "no reverse pass" CR._reverse_pressure!(:none, nothing, nothing, C, [1.0], [1.0], 1)
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end
     CR.forward!(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
