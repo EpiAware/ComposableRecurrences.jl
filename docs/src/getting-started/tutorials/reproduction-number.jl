@@ -5,7 +5,6 @@
 # This tutorial gets the reproduction number on each day from the infections a renewal run returns.
 # A renewal's infections on a day are the reproduction number times the pressure, a weighted sum of earlier infections.
 # A call with `record = (:trace,)` returns the pressure of each day with the infections, so dividing the infections by it gives the reproduction number.
-# It builds on the [Getting started](@ref getting-started) example.
 
 # ## Packages used
 
