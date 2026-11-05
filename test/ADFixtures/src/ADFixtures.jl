@@ -360,6 +360,18 @@ function _movement_time_varying(w, θ)
     return sum(WS .* log.(y))
 end
 
+# The same through the public `Redistribute(K, ε; leak = true)`, with a
+# kernel whose columns sum to less than one, so part of what moves leaves.
+function _movement_leak(w, θ)
+    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Redistribute(K, ε; leak = true),
+        ComposableRecurrences.Depletion(PerStratum(POP)),
+    )
+    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # Movement whose intensity reads the recent outputs: each origin sends
 # more as its own incidence rises, through a kernel and a scale in `θ`.
 function _movement_recent(w, θ)
@@ -752,6 +764,24 @@ function _capacity_beds(w, θ)
     return sum(WS[1:2, :] .* log.(y))
 end
 
+# A bed cap on admissions with a stay that is not geometric: the beds held
+# by earlier admissions are a weighted sum of the recurrence's own outputs,
+# read by `Recent`, and occupancy is the convolution of the admissions with
+# the survival. The parameters are the log beds and the log scale of a
+# gamma stay of shape 2; the cap binds on some steps and not on others.
+const BEDCAP0 = [log(40.0), log(3.0)]
+const DEMAND = [30 * exp(-((t - 5) / 2.5)^2) for t in 1:T]
+_stay(scale) = [(1 + (k + 1) / scale) * exp(-(k + 1) / scale) for k in 0:(T - 1)]
+function _bed_cap_any_stay(w, θ)
+    x = BEDCAP0 .+ θ
+    beds, S = exp(x[1]), _stay(exp(x[2]))
+    CR = ComposableRecurrences
+    cap = CR.Transform(min, (beds - CR.Recent(S[2:end])) / S[1])
+    r = Recurrence([zero(eltype(x))]; modifiers = (cap,))
+    y = w(r)(; history = [zero(eltype(x))], add = DEMAND)
+    return sum(W1 .* w(Convolution(S))(y))
+end
+
 # The capacity pools are built behind a call: inline in the losses, whose
 # unpacking does not infer, Enzyme rejects them when the code is compiled
 # for coverage.
@@ -1048,6 +1078,19 @@ end
 # infections, as BVD's joint model reads them.
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    return _importation_loss(w, logh, logR, ε)
+end
+
+# The importation's trace through a sparse coupling, so the coupling's
+# product is differentiated with the trace as well as the output.
+function _trace_sparse(w, θ)
+    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
+    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    return _importation_loss(w, logh, logR, ε; coupling = K)
+end
+
+# The importation's loss, read from its output and trace.
+function _importation_loss(w, logh, logR, ε; kw...)
     CR = ComposableRecurrences
     # The intensity per origin and step keeps the movement a kernel and
     # an intensity, whose columns sum to one under any perturbation.
@@ -1056,7 +1099,8 @@ function _trace_importation(w, θ)
         CR.Depletion(PerStratum(POP)),
     )
     y, tr = returning_trace(
-        w(Recurrence(G0; modifiers = mods)), exp.(logR); history = exp.(logh)
+        w(Recurrence(G0; modifiers = mods, kw...)), exp.(logR);
+        history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
@@ -1316,6 +1360,14 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence Redistribute with a leak", _movement_leak,
+        () -> _flat(
+            G0, [0.0 0.4 0.2; 0.5 0.0 0.3; 0.3 0.4 0.0],
+            [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence Redistribute of a movement read from recent outputs",
         _movement_recent,
         () -> _flat(
@@ -1455,12 +1507,20 @@ const _SCENARIOS = [
         () -> zero(CAPS0),
     ),
     (
+        "Recurrence bed cap with a stay that is not geometric",
+        _bed_cap_any_stay, () -> zero(BEDCAP0),
+    ),
+    (
         "Recurrence capacity, weekly budget with a queue", _capacity_budget,
         () -> zero(CAPB0),
     ),
     (
         "Recurrence trace of the importation (Redistribute)", _trace_importation,
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
+        "Recurrence trace through a sparse coupling", _trace_sparse,
+        () -> _flat(KS.nzval, fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
     ),
     (
         "Recurrence trace of a protected pool", _trace_pool,
@@ -1786,6 +1846,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
+    "Recurrence Redistribute with a leak" => (:_kernel_movement,),
     "Recurrence Redistribute, Transform(+) and Transform(clamp)" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
@@ -1793,6 +1854,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace through a sparse coupling" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
     # A trace written in place, with `forward!`.
     "Recurrence trace of pointwise modifiers" => (:_trace_series,),
@@ -1816,6 +1878,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence routes folded on scaled identities" => (:_Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
     "Recurrence feedback from recent outputs" => (:Recent,),
+    "Recurrence bed cap with a stay that is not geometric" => (:Recent, :Transform),
     "Recurrence removals from recent outputs" => (:Recent,),
     "Recurrence routes in a buffer deeper than the kernels" => (:_Routes, :depth),
     # The coupling on `Recent` came after `Recent`.
