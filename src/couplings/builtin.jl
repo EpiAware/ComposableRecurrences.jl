@@ -9,16 +9,60 @@ function forward!(J::UniformScaling, ::Pressure, q, p, t)
     return nothing
 end
 
-# Column by column, the order a column-major matrix is stored in. The
-# shapes are checked once, so the loop reads without bounds checks.
+# The shapes are checked once, so the loops read without bounds checks.
 function forward!(C::AbstractMatrix, ::Pressure, q, p, t)
     _check_pressure(C, q, p)
+    _mix!(q, C, p)
+    return nothing
+end
+
+# Floats: four columns per pass, in storage order, so each row's update
+# vectorises across rows and `q` is read and written once per four columns.
+function _mix!(q::AbstractVector{<:AbstractFloat}, C, p)
     fill!(q, zero(eltype(q)))
-    @inbounds for b in axes(C, 2)
-        pb = p[b]
+    b, last_b = first(axes(C, 2)), last(axes(C, 2))
+    @inbounds while b + 3 <= last_b
+        p1, p2, p3, p4 = p[b], p[b + 1], p[b + 2], p[b + 3]
         for a in axes(C, 1)
-            q[a] += C[a, b] * pb
+            qa = muladd(C[a, b], p1, q[a])
+            qa = muladd(C[a, b + 1], p2, qa)
+            qa = muladd(C[a, b + 2], p3, qa)
+            q[a] = muladd(C[a, b + 3], p4, qa)
         end
+        b += 4
+    end
+    @inbounds for c in b:last_b
+        pc = p[c]
+        for a in axes(C, 1)
+            q[a] = muladd(C[a, c], pc, q[a])
+        end
+    end
+    return nothing
+end
+
+# Other numbers, such as dual numbers: four rows per pass, summed in locals
+# and stored once, since loading and storing a wide number on every column
+# costs more than the column-major reads it saves.
+function _mix!(q, C, p)
+    a, last_a = first(axes(C, 1)), last(axes(C, 1))
+    @inbounds while a + 3 <= last_a
+        q1 = q2 = q3 = q4 = zero(eltype(q))
+        for b in axes(C, 2)
+            pb = p[b]
+            q1 = muladd(C[a, b], pb, q1)
+            q2 = muladd(C[a + 1, b], pb, q2)
+            q3 = muladd(C[a + 2, b], pb, q3)
+            q4 = muladd(C[a + 3, b], pb, q4)
+        end
+        q[a], q[a + 1], q[a + 2], q[a + 3] = q1, q2, q3, q4
+        a += 4
+    end
+    @inbounds for r in a:last_a
+        qr = zero(eltype(q))
+        for b in axes(C, 2)
+            qr = muladd(C[r, b], p[b], qr)
+        end
+        q[r] = qr
     end
     return nothing
 end
