@@ -4,7 +4,6 @@
 #
 # A forecast continues a run past the last day with data.
 # The run returns its [state](@ref explanation-history-state), and a second call starts from it.
-# It builds on [Renewal then delay](@ref tutorial-renewal-delay).
 
 # ## Packages used
 
