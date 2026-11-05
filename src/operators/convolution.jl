@@ -764,8 +764,11 @@ function _convolve!(ex, Y, c, X, m, start)
 end
 # A per-stratum time-varying kernel stores its weights strata fastest, so
 # strata run inside time, in blocks from `_nblocks`: one, or one per task
-# when the loop splits. Device arrays keep one stratum per index.
-function _convolve!(ex, Y::Array, c::_TVPerStratum, X, m, start)
+# when the loop splits. Device arrays keep one stratum per index, and a
+# traced call its own loop.
+function _convolve!(
+        ex::Union{Serial, _Current}, Y::Array, c::_TVPerStratum, X, m, start
+    )
     S = size(Y, 2)
     work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
     n = _nblocks(ex, S, work)
