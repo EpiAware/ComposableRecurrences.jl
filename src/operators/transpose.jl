@@ -1,3 +1,9 @@
+# The transpose of a convolution runs the convolution's bodies with the roles
+# of their inputs and outputs swapped.
+struct _TransposedConvolution{C <: Convolution} <: AbstractOperator
+    c::C
+end
+
 @doc raw"""
     transpose(c::Convolution)
     c'
@@ -51,12 +57,6 @@ c'([1.0, 2.0, 4.0, 8.0])
 """
 Base.transpose(c::Convolution) = _TransposedConvolution(c)
 Base.adjoint(c::Convolution) = transpose(c)
-
-# The transpose of a convolution, which runs the convolution's bodies with
-# the roles of their inputs and outputs swapped.
-struct _TransposedConvolution{C <: Convolution} <: AbstractOperator
-    c::C
-end
 Base.transpose(t::_TransposedConvolution) = t.c
 Base.adjoint(t::_TransposedConvolution) = t.c
 
@@ -74,11 +74,25 @@ function forward(
     return _run_forward(t, x, tail, start, stop)
 end
 
-# The convolution's reverse body with the series `A` as its output
-# cotangent. The convolution is linear in its inputs, so their cotangent
-# does not read them: they enter only the kernel's cotangent, which is
-# `nothing` here, and the output `Z` stands in for them. A body that reads
-# its inputs for anything else must not be called this way.
+# Without a rule, numbers that do not vectorise take the gather body: a fixed
+# kernel's transpose is its convolution with the kernel reversed, read `L - 1`
+# times later.
+function _primal(t::_TransposedConvolution, x, tail, start, stop)
+    kernel = t.c.kernel
+    Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
+    _conv_path(Tp, kernel, x) isa _Gathered ||
+        return first(_run_forward(t, x, tail, start, stop))
+    L = _nlags(kernel)
+    series = _padded(x, tail, stop + L - 1)
+    return _convolve_public(
+        _Gathered(), Tp, _oldest_first(kernel), series, true, nothing,
+        nothing, 0, S, start + L - 1, stop + L - 1
+    )
+end
+
+# The convolution's reverse body with the series `A` as its output cotangent.
+# Its inputs enter only the kernel's cotangent, `nothing` here, so `Z` stands
+# in for them; a body that reads its inputs otherwise must not be called so.
 function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
@@ -93,31 +107,39 @@ function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     return out, (; A, n, o, start, stop, last)
 end
 
-# Without a rule, numbers that do not vectorise take the gather body: a
-# fixed kernel's transpose is its convolution with the kernel reversed,
-# read `L - 1` times later.
-function _primal(t::_TransposedConvolution, x, tail, start, stop)
+# The convolution's forward body takes the output cotangent back to the
+# series; its reverse body gives the kernel's.
+function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
+    _count_pullback()
+    (; A, n, o, start, stop, last) = cache
+    x̄, t̄ = grads.args
     kernel = t.c.kernel
-    Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
-    return _transpose_public(
-        _conv_path(Tp, kernel, x), t, Tp, x, tail, S, n, start, stop
-    )
+    Z̄ = _zeros(A, eltype(A), o + last, size(A, 2))
+    _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
+    Ā = zero(A)
+    cur = _current()
+    if cur.ex isa Serial
+        _convolve!(Serial(), Ā, kernel, Z̄, o, start)
+    else
+        _convolve!(cur, Ā, kernel, Z̄, o, start)
+    end
+    k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
+    k̄ === nothing ||
+        _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
+    _add_rows!(x̄, Ā, 1 - start, start, min(n, last))
+    _add_rows!(t̄, Ā, n + 1 - start, max(start - n, 1), last - n)
+    return nothing
 end
-function _transpose_public(
-        ::_Buffered, t, ::Type{Tp}, x, tail, S, n, start, stop
-    ) where {Tp}
-    return first(_run_forward(t, x, tail, start, stop))
-end
-function _transpose_public(
-        ::_Gathered, t, ::Type{Tp}, x, tail, S, n, start, stop
-    ) where {Tp}
-    kernel = t.c.kernel
-    L = _nlags(kernel)
-    series = _padded(x, tail, stop + L - 1)
-    return _convolve_public(
-        _Gathered(), Tp, _oldest_first(kernel), series, true, nothing,
-        nothing, 0, S, start + L - 1, stop + L - 1
-    )
+
+# The convolution's reverse body with the set executor.
+function _transpose_back!(X̄, k̄, kernel, X, Ȳ, o, start)
+    cur = _current()
+    if cur.ex isa Serial
+        _convolve_back!(Serial(), X̄, k̄, kernel, X, Ȳ, o, start)
+    else
+        _convolve_back!(cur, X̄, k̄, kernel, X, Ȳ, o, start)
+    end
+    return nothing
 end
 
 # The series and tail joined, with zeros after them up to time `N`.
@@ -134,53 +156,14 @@ function _padded(x, tail, N)
     return X
 end
 
-# The convolution's forward body takes the output cotangent back to the
-# series; its reverse body gives the kernel's.
-function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
-    _count_pullback()
-    (; A, n, o, start, stop, last) = cache
-    x̄, t̄ = grads.args
-    kernel = t.c.kernel
-    Z̄ = _zeros(A, eltype(A), o + last, size(A, 2))
-    _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
-    Ā = zero(A)
-    _transpose_forward!(Ā, kernel, Z̄, o, start)
-    k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
-    k̄ === nothing ||
-        _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
-    _add_rows!(x̄, Ā, 1 - start, start, min(n, last))
-    _add_rows!(t̄, Ā, n + 1 - start, max(start - n, 1), last - n)
-    return nothing
-end
-
-# The convolution's bodies with the set executor.
-function _transpose_forward!(Y, kernel, X, o, start)
-    cur = _current()
-    if cur.ex isa Serial
-        _convolve!(Serial(), Y, kernel, X, o, start)
-    else
-        _convolve!(cur, Y, kernel, X, o, start)
-    end
-    return nothing
-end
-function _transpose_back!(X̄, k̄, kernel, X, Ȳ, o, start)
-    cur = _current()
-    if cur.ex isa Serial
-        _convolve_back!(Serial(), X̄, k̄, kernel, X, Ȳ, o, start)
-    else
-        _convolve_back!(cur, X̄, k̄, kernel, X, Ȳ, o, start)
-    end
-    return nothing
-end
-
-# Checks a call of the transpose; returns the buffer eltype, the strata,
-# the series length, the last output time and the last series time read.
+# Returns the buffer eltype, the strata, the series length, the last output
+# time and the last series time read.
 function _check_transpose(kernel, x, tail, start, stop)
     _check_unwrapped(:x, x)
     _check_unwrapped(:tail, tail)
     S = _nstrata(x)
     n = _extent(x)
-    _check_tail(tail, x)
+    tail === nothing || _check_tail(tail, x)
     _check_kernel_strata(kernel, S)
     m = tail === nothing ? 0 : size(tail, ndims(tail))
     stop = stop === nothing ? n : stop
@@ -194,18 +177,14 @@ function _check_transpose(kernel, x, tail, start, stop)
         )
     )
     last = min(stop + _nlags(kernel) - 1, n + m)
-    _check_kernel_times(kernel, _transpose_reach(kernel, stop, last))
+    # A `Primary()` kernel's column is the time of the output; any other's is
+    # the time it reads.
+    _check_kernel_times(kernel, kernel isa TimeVarying{Primary} ? stop : last)
     _check_device(x, (kernel, tail))
     Tp = float(param_eltype((kernel, x, tail)))
     return Tp, S, n, stop, last
 end
 
-# The last kernel column the transpose reads: a `Primary()` kernel's
-# column is the time of the output, any other's the time it reads.
-_transpose_reach(kernel, stop, last) = last
-_transpose_reach(::TimeVarying{Primary}, stop, last) = stop
-
-_check_tail(::Nothing, x) = nothing
 function _check_tail(tail, x)
     ndims(tail) == ndims(x) && _nstrata(tail) == _nstrata(x) || throw(
         DimensionMismatch(
