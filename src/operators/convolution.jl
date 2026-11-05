@@ -759,9 +759,29 @@ end
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
     work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
-    _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
+    _convolve_strata!(ex, Y, c, X, m, start, S, work)
     return Y
 end
+function _convolve_strata!(ex, Y, c, X, m, start, S, work)
+    _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
+    return nothing
+end
+# A per-stratum time-varying kernel on the host holds its `S × L × T`
+# weights strata fastest. One stratum at a time, a kernel larger than the
+# cache is read a cache line per weight, so the strata run in the blocks of
+# the reverse pass (`_nblocks`), one per task when threaded, and each block
+# runs time outermost (`_strata_forward!`).
+function _convolve_strata!(ex, Y::Array, c::_TVPerStratum, X, m, start, S, work)
+    n = _nblocks(_executor(ex), S, work)
+    _each!(_convolve_block!, ex, Y, n, work, n, Y, c, X, m, start)
+    return nothing
+end
+function _convolve_block!(b, n, Y, c, X, m, start)
+    _strata_forward!(_chunk(b, size(Y, 2), n), Y, c, X, m, start)
+    return nothing
+end
+_executor(c::_Current) = c.ex
+_executor(ex) = ex
 
 function _convolve_body!(k, Y, c::AbstractVector, X, m, start)
     _convolve_series!(view(Y, :, k), c, X, k, m, start)
@@ -809,10 +829,15 @@ _first_lag(c::TimeVarying{Primary}, t) = max(0, t - _last_column(c))
 # A per-stratum kernel, in either indexing: one dot per output time `t` of
 # the window with the weights `_lagweight` reads, from the column
 # `_lagcolumn` picks for the indexing. The column bodies above measured
-# faster for column kernels, this for per-stratum ones.
+# faster for column kernels, this for per-stratum ones. Time runs
+# outermost, so the strata `ks` read neighbouring weights in turn.
 function _convolve_body!(k, Y, c::_TVPerStratum, X, m, start)
+    _strata_forward!(k:k, Y, c, X, m, start)
+    return nothing
+end
+function _strata_forward!(ks, Y, c, X, m, start)
     L = _nlags(c)
-    for j in axes(Y, 1)
+    for j in axes(Y, 1), k in ks
         t = start + j - 1
         acc = zero(eltype(Y))
         @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
@@ -982,17 +1007,30 @@ end
 
 # A per-stratum kernel's reverse pass, in either indexing, the transpose
 # of its forward body: each output cotangent adds to the weights it read,
-# through `_add_lagweight!`, and to the inputs.
+# through `_add_lagweight!`, and to the inputs. Time runs outermost, as in
+# the forward pass; a single stratum skips the strata loop, which measured
+# slower for one series.
 function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     L = _nlags(c)
-    for k in ks, j in axes(Ȳ, 1)
-        t = start + j - 1
-        @inbounds a = Ȳ[j, k]
-        @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
-            r = m + t - d
-            _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
-            X̄[r, k] += _lagweight(c, k, d, t) * a
+    if length(ks) == 1
+        k = first(ks)
+        for j in axes(Ȳ, 1)
+            _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
         end
+    else
+        for j in axes(Ȳ, 1), k in ks
+            _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
+        end
+    end
+    return nothing
+end
+@inline function _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
+    t = start + j - 1
+    @inbounds a = Ȳ[j, k]
+    @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
+        r = m + t - d
+        _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
+        X̄[r, k] += _lagweight(c, k, d, t) * a
     end
     return nothing
 end
