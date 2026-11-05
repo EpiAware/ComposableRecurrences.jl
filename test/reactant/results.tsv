@@ -1,15 +1,15 @@
-# elapsed_s	1350.335981345
+# elapsed_s	2146.350238448
 status	relerr	compile_s	run_us	plain_us	error	frame	message	name	mode	suite	backend	steps	wall
-works	1.1e-15	54.2	9.1	0.6				Recurrence renewal	forward	registry	cpu	12	0.0
-works	1.8e-14	3.7	11.8	8.8				Recurrence renewal	reverse	registry	cpu	12	0.0
-works	5.8e-16	12.0	14.4	1.9				Recurrence strata, coupling and depletion	forward	registry	cpu	12	0.0
-works	2.9e-15	1.5	29.4	37.9				Recurrence strata, coupling and depletion	reverse	registry	cpu	12	0.0
+works	1.1e-15	85.0	21.4	1.5				Recurrence renewal	forward	registry	cpu	12	0.0
+works	1.8e-14	5.4	16.4	9.6				Recurrence renewal	reverse	registry	cpu	12	0.0
+works	5.8e-16	18.7	34.7	3.1				Recurrence strata, coupling and depletion	forward	registry	cpu	12	0.0
+works	2.9e-15	2.1	85.6	83.2				Recurrence strata, coupling and depletion	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_exponent	ArgumentError: the heterogeneity exponent is a number or nothing, got TracedRNumber{Float64}(())	Recurrence depletion with a differentiated heterogeneity	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_exponent	ArgumentError: the heterogeneity exponent is a number or nothing, got TracedRNumber{Float64}(())	Recurrence depletion with a differentiated heterogeneity	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_exponent	ArgumentError: the heterogeneity exponent is a number or nothing, got TracedRNumber{Float64}(())	Recurrence floored depletion with a differentiated heterogeneity	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_exponent	ArgumentError: the heterogeneity exponent is a number or nothing, got TracedRNumber{Float64}(())	Recurrence floored depletion with a differentiated heterogeneity	reverse	registry	cpu	12	0.0
-works	4.5e-16	12.3	15.4	1.6				Recurrence scalar modifier field, mixed eltypes	forward	registry	cpu	12	0.0
-works	3.2e-15	1.3	19.1	29.0				Recurrence scalar modifier field, mixed eltypes	reverse	registry	cpu	12	0.0
+works	4.5e-16	17.2	14.1	1.9				Recurrence scalar modifier field, mixed eltypes	forward	registry	cpu	12	0.0
+works	3.2e-15	1.8	42.3	29.8				Recurrence scalar modifier field, mixed eltypes	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: θ is one value, PerStratum(θ) with one per stratum, TimeVarying(θ) with one per time, TimeVarying(PerStratum(θ)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence array-field and scalar-field modifiers	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: θ is one value, PerStratum(θ) with one per stratum, TimeVarying(θ) with one per time, TimeVarying(PerStratum(θ)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence array-field and scalar-field modifiers	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: weight is one value, PerStratum(weight) with one per stratum, TimeVarying(weight) with one per time, TimeVarying(PerStratum(weight)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence vaccination into a protected pool	forward	registry	cpu	12	0.0
@@ -26,126 +26,126 @@ error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: demand is one va
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: demand is one value, PerStratum(demand) with one per stratum, TimeVarying(demand) with one per time, TimeVarying(PerStratum(demand)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence ward with competing flows, from the parameters as given	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: weight is one value, PerStratum(weight) with one per stratum, TimeVarying(weight) with one per time, TimeVarying(PerStratum(weight)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float32}(())	Recurrence protected pool in Float32	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: weight is one value, PerStratum(weight) with one per stratum, TimeVarying(weight) with one per time, TimeVarying(PerStratum(weight)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float32}(())	Recurrence protected pool in Float32	reverse	registry	cpu	12	0.0
-works	3.7e-16	5.1	11.4	2.4				Recurrence grouped totals (Allocate)	forward	registry	cpu	12	0.0
-works	6.1e-05	1.3	80.1	73.6				Recurrence grouped totals (Allocate)	reverse	registry	cpu	12	0.0
-works	1.3e-16	13.3	44.4	3.2				Recurrence grouped totals with imports and a spill (Allocate)	forward	registry	cpu	12	0.0
-works	1.9e-04	2.0	248.1	124.7				Recurrence grouped totals with imports and a spill (Allocate)	reverse	registry	cpu	12	0.0
-works	1.2e-16	0.7	11.2	2.5				Recurrence grouped totals with empty groups (Allocate)	forward	registry	cpu	12	0.0
-works	8.9e-05	1.4	63.9	121.2				Recurrence grouped totals with empty groups (Allocate)	reverse	registry	cpu	12	0.0
-works	1.3e-16	1.1	54.0	3.4				Recurrence grouped totals with empty groups and imports (Allocate)	forward	registry	cpu	12	0.0
-works	2.6e-04	2.0	161.5	207.2				Recurrence grouped totals with empty groups and imports (Allocate)	reverse	registry	cpu	12	0.0
-works	2.0e-16	5.0	38.6	2.7				Recurrence Redistribute of a time-varying movement	forward	registry	cpu	12	0.0
-works	4.2e-05	1.7	141.1	91.2				Recurrence Redistribute of a time-varying movement	reverse	registry	cpu	12	0.0
+works	3.7e-16	8.2	20.5	3.0				Recurrence grouped totals (Allocate)	forward	registry	cpu	12	0.0
+works	6.1e-05	2.0	131.6	88.4				Recurrence grouped totals (Allocate)	reverse	registry	cpu	12	0.0
+works	1.3e-16	21.8	66.8	3.6				Recurrence grouped totals with imports and a spill (Allocate)	forward	registry	cpu	12	0.0
+works	1.9e-04	3.1	378.5	178.4				Recurrence grouped totals with imports and a spill (Allocate)	reverse	registry	cpu	12	0.0
+works	1.2e-16	1.0	20.1	4.0				Recurrence grouped totals with empty groups (Allocate)	forward	registry	cpu	12	0.0
+works	8.9e-05	1.9	219.7	141.6				Recurrence grouped totals with empty groups (Allocate)	reverse	registry	cpu	12	0.0
+works	1.3e-16	1.4	59.9	6.8				Recurrence grouped totals with empty groups and imports (Allocate)	forward	registry	cpu	12	0.0
+works	2.6e-04	2.4	224.9	241.1				Recurrence grouped totals with empty groups and imports (Allocate)	reverse	registry	cpu	12	0.0
+works	2.0e-16	7.3	68.3	4.6				Recurrence Redistribute of a time-varying movement	forward	registry	cpu	12	0.0
+works	4.2e-05	3.0	355.6	156.0				Recurrence Redistribute of a time-varying movement	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exists, but no method is defined for this combination of argument types. Closest candidates are:   *(::Any, ::Any, !Matched::Any, !Matched::Any.	Recurrence Redistribute of a movement read from recent outputs	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exists, but no method is defined for this combination of argument types. Closest candidates are:   *(::Any, ::Any, !Matched::Any, !Matched::Any.	Recurrence Redistribute of a movement read from recent outputs	reverse	registry	cpu	12	0.0
-works	1.3e-16	10.4	111.9	7.3				Recurrence dense coupling, Redistribute and imports as Matrix	forward	registry	cpu	12	0.0
-works	1.0e-04	2.7	241.8	142.6				Recurrence dense coupling, Redistribute and imports as Matrix	reverse	registry	cpu	12	0.0
+works	1.3e-16	15.1	393.4	4.7				Recurrence dense coupling, Redistribute and imports as Matrix	forward	registry	cpu	12	0.0
+works	1.0e-04	4.1	478.5	188.7				Recurrence dense coupling, Redistribute and imports as Matrix	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: fraction is one value, PerStratum(fraction) with one per stratum, TimeVarying(fraction) with one per time, TimeVarying(PerStratum(fraction)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64	Recurrence grouped totals with time-varying imports (Allocate)	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: fraction is one value, PerStratum(fraction) with one per stratum, TimeVarying(fraction) with one per time, TimeVarying(PerStratum(fraction)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64	Recurrence grouped totals with time-varying imports (Allocate)	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type `SparseArrays.SparseMatrixCSC` exists, but no method is defined for this combination of argument types when trying to construct it. Closest c	Recurrence sparse coupling	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type `SparseArrays.SparseMatrixCSC` exists, but no method is defined for this combination of argument types when trying to construct it. Closest c	Recurrence sparse coupling	reverse	registry	cpu	12	0.0
-works	0.0e+00	3.5	8.6	0.8				Recurrence per-stratum kernel, Diagonal coupling	forward	registry	cpu	12	0.0
-works	1.7e-13	1.1	18.7	31.3				Recurrence per-stratum kernel, Diagonal coupling	reverse	registry	cpu	12	0.0
-works	4.2e-16	5.2	32.4	2.8				Recurrence pairwise kernel	forward	registry	cpu	12	0.0
-works	4.7e-13	1.4	121.5	55.4				Recurrence pairwise kernel	reverse	registry	cpu	12	0.0
-works	3.6e-16	3.9	8.9	1.2				Recurrence time-varying kernel and coupling	forward	registry	cpu	12	0.0
-works	2.7e-14	1.7	137.6	154.4				Recurrence time-varying kernel and coupling	reverse	registry	cpu	12	0.0
-works	2.5e-16	3.0	12.9	1.9				Recurrence Primary time-varying kernel	forward	registry	cpu	12	0.0
-works	4.4e-15	1.8	204.8	143.4				Recurrence Primary time-varying kernel	reverse	registry	cpu	12	0.0
-works	5.1e-16	3.3	17.8	3.8				Recurrence returning its state	forward	registry	cpu	12	0.0
-works	2.7e-15	1.6	21.2	41.2				Recurrence returning its state	reverse	registry	cpu	12	0.0
-works	3.3e-16	6.1	10.9	3.6				Recurrence seeded on a growth path	forward	registry	cpu	12	0.0
-works	1.8e-15	1.1	25.7	51.4				Recurrence seeded on a growth path	reverse	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	MethodError	_load_history!	MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Float64(!Matched::IrrationalConstants.Invπ)    @ IrrationalConstants ~/.julia	Recurrence random walk and strata prepending a view history	forward	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	MethodError	_load_history!	MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Float64(!Matched::IrrationalConstants.Invπ)    @ IrrationalConstants ~/.julia	Recurrence random walk and strata prepending a view history	reverse	registry	cpu	12	0.0
-works	0.0e+00	2.0	11.6	5.3				Recurrence returning its state after its seed	forward	registry	cpu	12	0.0
-works	1.2e-14	1.0	15.1	40.2				Recurrence returning its state after its seed	reverse	registry	cpu	12	0.0
-works	4.4e-16	3.7	7.7	0.5				Convolution delay with history	forward	registry	cpu	12	0.0
-works	2.0e-15	1.0	9.6	5.1				Convolution delay with history	reverse	registry	cpu	12	0.0
-works	2.4e-16	3.1	9.3	0.8				Convolution time-varying kernel	forward	registry	cpu	12	0.0
-works	0.0e+00	1.3	87.7	73.8				Convolution time-varying kernel	reverse	registry	cpu	12	0.0
-works	4.0e-15	2.2	5.6	1.2				Convolution time-varying kernel indexed by output	forward	registry	cpu	12	0.0
-works	7.0e-15	0.9	9.6	39.6				Convolution time-varying kernel indexed by output	reverse	registry	cpu	12	0.0
+works	0.0e+00	4.5	17.1	0.9				Recurrence per-stratum kernel, Diagonal coupling	forward	registry	cpu	12	0.0
+works	1.7e-13	2.2	43.8	39.4				Recurrence per-stratum kernel, Diagonal coupling	reverse	registry	cpu	12	0.0
+works	4.2e-16	5.8	73.0	2.8				Recurrence pairwise kernel	forward	registry	cpu	12	0.0
+works	4.7e-13	2.6	268.9	87.3				Recurrence pairwise kernel	reverse	registry	cpu	12	0.0
+works	3.6e-16	4.9	20.9	1.6				Recurrence time-varying kernel and coupling	forward	registry	cpu	12	0.0
+works	2.7e-14	2.5	192.9	220.6				Recurrence time-varying kernel and coupling	reverse	registry	cpu	12	0.0
+works	2.5e-16	4.6	17.4	3.1				Recurrence Primary time-varying kernel	forward	registry	cpu	12	0.0
+works	4.4e-15	2.5	321.3	181.6				Recurrence Primary time-varying kernel	reverse	registry	cpu	12	0.0
+works	5.1e-16	5.2	22.0	4.6				Recurrence returning its state	forward	registry	cpu	12	0.0
+works	2.7e-15	2.3	44.4	102.8				Recurrence returning its state	reverse	registry	cpu	12	0.0
+works	3.3e-16	11.1	12.8	7.2				Recurrence seeded on a growth path	forward	registry	cpu	12	0.0
+works	1.8e-15	2.1	31.5	79.5				Recurrence seeded on a growth path	reverse	registry	cpu	12	0.0
+error	NaN	NaN	NaN	NaN	MethodError	_load_history!	MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Float64(!Matched::IrrationalConstants.Inv2π)    @ IrrationalConstants ~/.juli	Recurrence random walk and strata prepending a view history	forward	registry	cpu	12	0.0
+error	NaN	NaN	NaN	NaN	MethodError	_load_history!	MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Float64(!Matched::IrrationalConstants.Inv2π)    @ IrrationalConstants ~/.juli	Recurrence random walk and strata prepending a view history	reverse	registry	cpu	12	0.0
+works	0.0e+00	2.7	19.3	5.8				Recurrence returning its state after its seed	forward	registry	cpu	12	0.0
+works	1.2e-14	2.2	32.7	110.2				Recurrence returning its state after its seed	reverse	registry	cpu	12	0.0
+works	4.4e-16	6.8	15.1	0.6				Convolution delay with history	forward	registry	cpu	12	0.0
+works	2.0e-15	1.8	20.2	5.4				Convolution delay with history	reverse	registry	cpu	12	0.0
+works	2.4e-16	5.9	17.4	1.4				Convolution time-varying kernel	forward	registry	cpu	12	0.0
+works	0.0e+00	1.9	159.8	130.9				Convolution time-varying kernel	reverse	registry	cpu	12	0.0
+works	4.0e-15	3.9	20.0	1.7				Convolution time-varying kernel indexed by output	forward	registry	cpu	12	0.0
+works	7.0e-15	2.0	12.9	36.4				Convolution time-varying kernel indexed by output	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	StackOverflowError	-	StackOverflowError:	Convolution ragged kernel truncated at the horizon	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	StackOverflowError	-	StackOverflowError:	Convolution ragged kernel truncated at the horizon	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	StackOverflowError	-	StackOverflowError:	Convolution ragged kernel of views into the parameters	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	StackOverflowError	-	StackOverflowError:	Convolution ragged kernel of views into the parameters	reverse	registry	cpu	12	0.0
-works	1.3e-16	3.0	9.8	1.3				Convolution with gain and add	forward	registry	cpu	12	0.0
-works	1.5e-15	1.0	16.4	30.0				Convolution with gain and add	reverse	registry	cpu	12	0.0
+works	1.3e-16	4.6	11.4	2.1				Convolution with gain and add	forward	registry	cpu	12	0.0
+works	1.5e-15	1.3	36.0	55.4				Convolution with gain and add	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_contribute!	MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combination of argument types. Closest candidates are:   _at(!Matched::Nothing, ::Any, ::Any)    @ ComposableRecurrences /home/user/ComposableRecurren	Convolution lag contributions	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_contribute!	MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combination of argument types. Closest candidates are:   _at(!Matched::Nothing, ::Any, ::Any)    @ ComposableRecurrences /home/user/ComposableRecurren	Convolution lag contributions	reverse	registry	cpu	12	0.0
-works	7.8e-16	4.5	32.5	1.2				Convolution transpose of a Primary kernel with a tail	forward	registry	cpu	12	0.0
-works	7.0e-15	1.4	31.9	54.7				Convolution transpose of a Primary kernel with a tail	reverse	registry	cpu	12	0.0
+works	7.8e-16	7.7	83.9	1.2				Convolution transpose of a Primary kernel with a tail	forward	registry	cpu	12	0.0
+works	7.0e-15	3.2	70.8	113.9				Convolution transpose of a Primary kernel with a tail	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ErrorException	_ragged	Create Operation 'stablehlo.gather' failed	Recurrence ragged Primary kernel	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ErrorException	_ragged	Create Operation 'stablehlo.gather' failed	Recurrence ragged Primary kernel	reverse	registry	cpu	12	0.0
-works	5.7e-16	3.3	13.1	2.8				Recurrence Transform with per-stratum parameters	forward	registry	cpu	12	0.0
-works	1.2e-15	1.1	23.1	8.6				Recurrence Transform with per-stratum parameters	reverse	registry	cpu	12	0.0
-works	9.8e-16	5.6	15.5	20.4				Recurrence population varying over time with births	forward	registry	cpu	12	0.0
-works	4.0e-15	1.6	176.9	179.8				Recurrence population varying over time with births	reverse	registry	cpu	12	0.0
+works	5.7e-16	5.2	12.0	3.7				Recurrence Transform with per-stratum parameters	forward	registry	cpu	12	0.0
+works	1.2e-15	1.6	26.7	11.2				Recurrence Transform with per-stratum parameters	reverse	registry	cpu	12	0.0
+works	9.8e-16	7.3	25.7	3.6				Recurrence population varying over time with births	forward	registry	cpu	12	0.0
+works	4.0e-15	2.5	138.4	214.7				Recurrence population varying over time with births	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_exponent	ArgumentError: the heterogeneity exponent is a number or nothing, got TracedRNumber{Float64}(())	Recurrence empty pool with a differentiated heterogeneity	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_exponent	ArgumentError: the heterogeneity exponent is a number or nothing, got TracedRNumber{Float64}(())	Recurrence empty pool with a differentiated heterogeneity	reverse	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Derived{typeof(exp), Tuple{TimeVarying{ComposableRecurrences.Secondary, SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}}}}) The function `*` exi	Recurrence Derived modifier parameters	forward	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Derived{typeof(exp), Tuple{TimeVarying{ComposableRecurrences.Secondary, SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}}}}) The function `*` exi	Recurrence Derived modifier parameters	reverse	registry	cpu	12	0.0
-works	4.2e-16	4.1	41.2	3.1				Recurrence Redistribute, Transform(+) and Transform(clamp)	forward	registry	cpu	12	0.0
-works	1.5e-05	2.1	217.9	101.6				Recurrence Redistribute, Transform(+) and Transform(clamp)	reverse	registry	cpu	12	0.0
+error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: θ is one value, PerStratum(θ) with one per stratum, TimeVarying(θ) with one per time, TimeVarying(PerStratum(θ)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence Derived modifier parameters	forward	registry	cpu	12	0.0
+error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: θ is one value, PerStratum(θ) with one per stratum, TimeVarying(θ) with one per time, TimeVarying(PerStratum(θ)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence Derived modifier parameters	reverse	registry	cpu	12	0.0
+works	4.2e-16	6.3	70.9	4.7				Recurrence Redistribute, Transform(+) and Transform(clamp)	forward	registry	cpu	12	0.0
+works	1.5e-05	2.2	138.0	161.8				Recurrence Redistribute, Transform(+) and Transform(clamp)	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: demand is one value, PerStratum(demand) with one per stratum, TimeVarying(demand) with one per time, TimeVarying(PerStratum(demand)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence capacity, beds with overflow	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: demand is one value, PerStratum(demand) with one per stratum, TimeVarying(demand) with one per time, TimeVarying(PerStratum(demand)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence capacity, beds with overflow	reverse	registry	cpu	12	0.0
-works	1.9e-16	6.1	13.8	3.5				Recurrence capacity, weekly budget with a queue	forward	registry	cpu	12	0.0
-works	1.4e-14	1.6	121.3	115.2				Recurrence capacity, weekly budget with a queue	reverse	registry	cpu	12	0.0
+works	1.9e-16	9.2	17.8	33.6				Recurrence capacity, weekly budget with a queue	forward	registry	cpu	12	0.0
+works	1.4e-14	2.7	218.5	148.6				Recurrence capacity, weekly budget with a queue	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_stage_rec!	MethodError: no method matching unsafe_view(::Reactant.TracedRArray{Float64, 2}, ::Base.Slice{Base.OneTo{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `unsafe_view` exists, but no method is defined for this combination of argument types. Closest candidates are:   unsafe_view(::AbstractArray	Recurrence trace of the importation (Redistribute)	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_stage_rec!	MethodError: no method matching unsafe_view(::Reactant.TracedRArray{Float64, 2}, ::Base.Slice{Base.OneTo{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `unsafe_view` exists, but no method is defined for this combination of argument types. Closest candidates are:   unsafe_view(::AbstractArray	Recurrence trace of the importation (Redistribute)	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: weight is one value, PerStratum(weight) with one per stratum, TimeVarying(weight) with one per time, TimeVarying(PerStratum(weight)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence trace of a protected pool	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: weight is one value, PerStratum(weight) with one per stratum, TimeVarying(weight) with one per time, TimeVarying(PerStratum(weight)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence trace of a protected pool	reverse	registry	cpu	12	0.0
-works	1.1e-16	7.0	24.2	6.5				Recurrence trace of pointwise modifiers	forward	registry	cpu	12	0.0
-works	1.4e-14	1.9	26.9	81.8				Recurrence trace of pointwise modifiers	reverse	registry	cpu	12	0.0
+works	1.1e-16	12.1	65.3	49.9				Recurrence trace of pointwise modifiers	forward	registry	cpu	12	0.0
+works	1.4e-14	3.4	74.4	128.3				Recurrence trace of pointwise modifiers	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: demand is one value, PerStratum(demand) with one per stratum, TimeVarying(demand) with one per time, TimeVarying(PerStratum(demand)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence trace of a ward's flows	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: demand is one value, PerStratum(demand) with one per stratum, TimeVarying(demand) with one per time, TimeVarying(PerStratum(demand)) strata × time, or Derived(f, args...) computed from other parameters, or Recent(w) read from the recurrence's outputs; got TracedRNumber{Float64}(())	Recurrence trace of a ward's flows	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_stage_rec!	MethodError: no method matching unsafe_view(::Reactant.TracedRArray{Float64, 2}, ::Base.Slice{Base.OneTo{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `unsafe_view` exists, but no method is defined for this combination of argument types. Closest candidates are:   unsafe_view(::AbstractArray	Recurrence trace of a weekly budget with a queue	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_stage_rec!	MethodError: no method matching unsafe_view(::Reactant.TracedRArray{Float64, 2}, ::Base.Slice{Base.OneTo{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `unsafe_view` exists, but no method is defined for this combination of argument types. Closest candidates are:   unsafe_view(::AbstractArray	Recurrence trace of a weekly budget with a queue	reverse	registry	cpu	12	0.0
-works	8.0e-16	5.0	25.3	2.9				Recurrence effective reproduction number from its pressure	forward	registry	cpu	12	0.0
-works	3.1e-14	3.1	191.9	38.5				Recurrence effective reproduction number from its pressure	reverse	registry	cpu	12	0.0
+works	8.0e-16	8.2	52.6	10.4				Recurrence effective reproduction number from its pressure	forward	registry	cpu	12	0.0
+works	3.1e-14	5.0	180.2	68.1				Recurrence effective reproduction number from its pressure	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_softness	ArgumentError: the softness κ is a number or nothing, got TracedRNumber{Float64}(())	Recurrence capacity, dropped overflow after a truncated draw	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_softness	ArgumentError: the softness κ is a number or nothing, got TracedRNumber{Float64}(())	Recurrence capacity, dropped overflow after a truncated draw	reverse	registry	cpu	12	0.0
-works	2.0e-16	3.9	10.7	2.7				Recurrence depletion with truncated draws	forward	registry	cpu	12	0.0
-works	1.8e-14	1.2	19.7	54.8				Recurrence depletion with truncated draws	reverse	registry	cpu	12	0.0
+works	2.0e-16	5.2	11.9	2.6				Recurrence depletion with truncated draws	forward	registry	cpu	12	0.0
+works	1.8e-14	2.4	38.3	49.3				Recurrence depletion with truncated draws	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_softness	ArgumentError: the softness κ is a number or nothing, got TracedRNumber{Float64}(())	Recurrence depletion with smoothly truncated draws	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	_check_softness	ArgumentError: the softness κ is a number or nothing, got TracedRNumber{Float64}(())	Recurrence depletion with smoothly truncated draws	reverse	registry	cpu	12	0.0
-works	1.9e-07	13.8	10.3	1.4				Recurrence in Float32	forward	registry	cpu	12	0.0
-works	2.5e-06	1.7	17.9	33.0				Recurrence in Float32	reverse	registry	cpu	12	0.0
-works	5.6e-16	5.4	13.2	1.9				Recurrence routes folded on scaled identities	forward	registry	cpu	12	0.0
-works	4.7e-15	1.3	38.3	35.3				Recurrence routes folded on scaled identities	reverse	registry	cpu	12	0.0
+works	1.9e-07	17.4	20.2	3.9				Recurrence in Float32	forward	registry	cpu	12	0.0
+works	2.5e-06	2.8	22.9	28.8				Recurrence in Float32	reverse	registry	cpu	12	0.0
+works	5.6e-16	8.1	13.5	1.7				Recurrence routes folded on scaled identities	forward	registry	cpu	12	0.0
+works	4.7e-15	2.2	28.5	89.3				Recurrence routes folded on scaled identities	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type `SparseArrays.SparseMatrixCSC` exists, but no method is defined for this combination of argument types when trying to construct it. Closest c	Recurrence routes, dense and sparse	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type `SparseArrays.SparseMatrixCSC` exists, but no method is defined for this combination of argument types when trying to construct it. Closest c	Recurrence routes, dense and sparse	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type `SparseArrays.SparseMatrixCSC` exists, but no method is defined for this combination of argument types when trying to construct it. Closest c	Recurrence routes in a buffer deeper than the kernels	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type `SparseArrays.SparseMatrixCSC` exists, but no method is defined for this combination of argument types when trying to construct it. Closest c	Recurrence routes in a buffer deeper than the kernels	reverse	registry	cpu	12	0.0
-works	1.7e-16	2.6	16.2	3.4				Recurrence with a buffer deeper than the kernel	forward	registry	cpu	12	0.0
-works	3.6e-15	1.2	71.0	46.6				Recurrence with a buffer deeper than the kernel	reverse	registry	cpu	12	0.0
+works	1.7e-16	4.2	26.3	3.5				Recurrence with a buffer deeper than the kernel	forward	registry	cpu	12	0.0
+works	3.6e-15	2.1	126.1	52.2				Recurrence with a buffer deeper than the kernel	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching ComposableRecurrences.Recent(::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}) The type `ComposableRecurrences.Recent` exists, but no method is defined for this combination of argument types when trying t	Recurrence feedback from recent outputs	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching ComposableRecurrences.Recent(::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}) The type `ComposableRecurrences.Recent` exists, but no method is defined for this combination of argument types when trying t	Recurrence feedback from recent outputs	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exists, but no method is defined for this combination of argument types. Closest candidates are:   *(::Any, ::Any, !Matched::Any, !Matched::Any.	Recurrence removals from recent outputs	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exists, but no method is defined for this combination of argument types. Closest candidates are:   *(::Any, ::Any, !Matched::Any, !Matched::Any.	Recurrence removals from recent outputs	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	-	ArgumentError: Recent's coupling is nothing or an S × S matrix; got 3×3 reshape(view(::Reactant.TracedRArray{Float64, 1}, 1:9), 3, 3) with eltype Reactant.TracedRNumber{Float64}	Recurrence feedback from recent outputs across strata	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	ArgumentError	-	ArgumentError: Recent's coupling is nothing or an S × S matrix; got 3×3 reshape(view(::Reactant.TracedRArray{Float64, 1}, 1:9), 3, 3) with eltype Reactant.TracedRNumber{Float64}	Recurrence feedback from recent outputs across strata	reverse	registry	cpu	12	0.0
-works	1.1e-16	1.9	9.6	0.8				Convolution per-stratum kernel with history	forward	registry	cpu	12	0.0
-works	1.3e-14	1.1	16.9	29.3				Convolution per-stratum kernel with history	reverse	registry	cpu	12	0.0
+works	1.1e-16	2.5	10.0	1.1				Convolution per-stratum kernel with history	forward	registry	cpu	12	0.0
+works	1.3e-14	1.6	23.6	34.7				Convolution per-stratum kernel with history	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_stack	MethodError: Cannot `convert` an object of type Reactant.TracedRArray{Float64, 1} to an object of type SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true} The function `convert` exists, but no method is defined for this combination of argume	Recurrence kernel from change points	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_stack	MethodError: Cannot `convert` an object of type Reactant.TracedRArray{Float64, 1} to an object of type SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true} The function `convert` exists, but no method is defined for this combination of argume	Recurrence kernel from change points	reverse	registry	cpu	12	0.0
-works	1.1e-15	7.8	79.0	2.6				Recurrence Primary per-stratum kernel from change points	forward	registry	cpu	12	0.0
-works	1.4e-13	2.0	121.2	72.0				Recurrence Primary per-stratum kernel from change points	reverse	registry	cpu	12	0.0
-works	0.0e+00	3.4	11.7	1.3				Convolution kernel from change points with history	forward	registry	cpu	12	0.0
-works	1.2e-14	1.1	13.0	21.1				Convolution kernel from change points with history	reverse	registry	cpu	12	0.0
-works	8.8e-16	2.2	8.5	1.7				Convolution Primary kernel from change points	forward	registry	cpu	12	0.0
-works	1.4e-15	1.0	12.8	26.3				Convolution Primary kernel from change points	reverse	registry	cpu	12	0.0
-works	3.6e-16	4.1	10.9	2.3				Recurrence coupling from change points	forward	registry	cpu	12	0.0
-works	4.6e-14	1.2	90.7	52.9				Recurrence coupling from change points	reverse	registry	cpu	12	0.0
-works	6.0e-16	5.5	13.0	2.9				Recurrence parameters from change points	forward	registry	cpu	12	0.0
-works	5.5e-15	1.2	17.4	45.4				Recurrence parameters from change points	reverse	registry	cpu	12	0.0
-works	1.9e-15	30.6	291.6	33.9				Convolution long kernel by the automatic method	forward	registry	cpu	12	0.0
-works	1.8e-13	37.9	2654.3	167341.0				Convolution long kernel by the automatic method	reverse	registry	cpu	12	0.0
-works	3.5e-14	30.6	357.6	75.8				Convolution wide-range series by the automatic method	forward	registry	cpu	12	0.0
-works	1.9e-12	38.8	2562.0	113769.0				Convolution wide-range series by the automatic method	reverse	registry	cpu	12	0.0
-works	2.4e-15	33.4	338.0	55.2				Convolution epidemic curve by the automatic method	forward	registry	cpu	12	0.0
-works	1.8e-14	36.8	2641.8	114743.9				Convolution epidemic curve by the automatic method	reverse	registry	cpu	12	0.0
+works	1.1e-15	10.7	112.3	2.8				Recurrence Primary per-stratum kernel from change points	forward	registry	cpu	12	0.0
+works	1.4e-13	2.5	127.2	65.8				Recurrence Primary per-stratum kernel from change points	reverse	registry	cpu	12	0.0
+works	0.0e+00	4.9	14.3	2.0				Convolution kernel from change points with history	forward	registry	cpu	12	0.0
+works	1.2e-14	1.6	14.8	46.1				Convolution kernel from change points with history	reverse	registry	cpu	12	0.0
+works	8.8e-16	2.9	19.2	3.9				Convolution Primary kernel from change points	forward	registry	cpu	12	0.0
+works	1.4e-15	1.8	22.0	37.4				Convolution Primary kernel from change points	reverse	registry	cpu	12	0.0
+works	3.6e-16	6.0	12.5	3.4				Recurrence coupling from change points	forward	registry	cpu	12	0.0
+works	4.6e-14	2.2	111.6	73.0				Recurrence coupling from change points	reverse	registry	cpu	12	0.0
+works	6.0e-16	9.2	21.9	6.8				Recurrence parameters from change points	forward	registry	cpu	12	0.0
+works	5.5e-15	2.4	33.2	69.5				Recurrence parameters from change points	reverse	registry	cpu	12	0.0
+works	1.9e-15	45.4	464.9	40.8				Convolution long kernel by the automatic method	forward	registry	cpu	12	0.0
+works	1.8e-13	59.2	6128.8	213211.5				Convolution long kernel by the automatic method	reverse	registry	cpu	12	0.0
+works	3.5e-14	49.6	279.0	77.2				Convolution wide-range series by the automatic method	forward	registry	cpu	12	0.0
+works	1.9e-12	56.2	3854.9	138040.9				Convolution wide-range series by the automatic method	reverse	registry	cpu	12	0.0
+works	2.4e-15	47.6	368.1	60.0				Convolution epidemic curve by the automatic method	forward	registry	cpu	12	0.0
+works	1.8e-14	58.9	4757.0	156152.0				Convolution epidemic curve by the automatic method	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Distributions.Poisson()    @ Distributions ~/.julia	Convolution Poisson delay distribution	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Distributions.Poisson()    @ Distributions ~/.julia	Convolution Poisson delay distribution	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are:   Distributions.Poisson()    @ Distributions ~/.julia	Convolution Poisson delay distribution on a step of two units	forward	registry	cpu	12	0.0
@@ -154,63 +154,67 @@ error	NaN	NaN	NaN	NaN	ArgumentError	_delay_kernel	ArgumentError: `lags` turns de
 error	NaN	NaN	NaN	NaN	ArgumentError	_delay_kernel	ArgumentError: `lags` turns delays into masses, and (SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}(TracedRArray{Float64,1N}(((Symbol("##autodiffarg#4350"), 2),), size=(19,))), SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.Trace	Convolution chain of two delays as masses	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.NegativeBinomial` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are: 	Recurrence negative binomial generation interval per stratum	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.NegativeBinomial` exists, but no method is defined for this combination of argument types when trying to construct it. Closest candidates are: 	Recurrence negative binomial generation interval per stratum	reverse	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	ArgumentError	_check_coefficient	ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or without Primary()), a Derived or a Survival; got TimeVarying(12-element Reactant.TracedRArray{Float64, 1}, Secondary())	Convolution kernel from a hazard and a survival	forward	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	ArgumentError	_check_coefficient	ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or without Primary()), a Derived or a Survival; got TimeVarying(12-element Reactant.TracedRArray{Float64, 1}, Secondary())	Convolution kernel from a hazard and a survival	reverse	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: a Derived argument is a kernel coefficient (a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or without Primary()), a Derived or a Survival) or a modifier parameter (one value, PerStratum, TimeVarying, TimeVarying(PerStr	Kernel weights of a survival against a delay and calendar hazard	forward	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	ArgumentError	_param_error	ArgumentError: a Derived argument is a kernel coefficient (a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or without Primary()), a Derived or a Survival) or a modifier parameter (one value, PerStratum, TimeVarying, TimeVarying(PerStr	Kernel weights of a survival against a delay and calendar hazard	reverse	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	ArgumentError	_check_coefficient	ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or without Primary()), a Derived or a Survival; got TimeVarying(12-element Reactant.TracedRArray{Float64, 1}, Secondary())	Recurrence kernel shortened by a survival	forward	registry	cpu	12	0.0
-error	NaN	NaN	NaN	NaN	ArgumentError	_check_coefficient	ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or without Primary()), a Derived or a Survival; got TimeVarying(12-element Reactant.TracedRArray{Float64, 1}, Secondary())	Recurrence kernel shortened by a survival	reverse	registry	cpu	12	0.0
-works	1.0e-15	2.2	15.4	1.7				Recurrence user coupling without a pullback	forward	registry	cpu	12	0.0
-works	1.3e-15	1.1	18.8	39.8				Recurrence user coupling without a pullback	reverse	registry	cpu	12	0.0
+works	1.1e-15	7.5	24.2	3.5				Convolution kernel from a hazard and a survival	forward	registry	cpu	12	0.0
+works	2.2e-14	2.6	53.8	102.7				Convolution kernel from a hazard and a survival	reverse	registry	cpu	12	0.0
+works	3.9e-15	4.0	14.0	2.5				Kernel weights of a survival against a delay and calendar hazard	forward	registry	cpu	12	0.0
+works	3.4e-15	3.5	75.6	33.3				Kernel weights of a survival against a delay and calendar hazard	reverse	registry	cpu	12	0.0
+works	2.1e-16	5.6	26.6	4.3				Recurrence kernel shortened by a survival	forward	registry	cpu	12	0.0
+works	1.0e-13	3.6	100.8	147.5				Recurrence kernel shortened by a survival	reverse	registry	cpu	12	0.0
+works	1.0e-15	4.2	21.5	3.0				Recurrence user coupling without a pullback	forward	registry	cpu	12	0.0
+works	1.3e-15	1.7	27.8	57.2				Recurrence user coupling without a pullback	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	param	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence per-stratum modifier without a pullback	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	param	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence per-stratum modifier without a pullback	reverse	registry	cpu	12	0.0
-works	1.6e-16	1.6	464.0	10.4				Recurrence user coupling across 30 strata	forward	registry	cpu	12	0.0
-works	6.2e-15	2.7	475.5	2215.0				Recurrence user coupling across 30 strata	reverse	registry	cpu	12	0.0
-works	7.2e-15	2.9	18.9	3.6				Recurrence modifier without a pullback, parameter from change points	forward	registry	cpu	12	0.0
-works	1.0e-14	1.3	22.7	41.5				Recurrence modifier without a pullback, parameter from change points	reverse	registry	cpu	12	0.0
+works	1.6e-16	3.1	731.3	12.2				Recurrence user coupling across 30 strata	forward	registry	cpu	12	0.0
+works	6.2e-15	5.0	944.6	3980.9				Recurrence user coupling across 30 strata	reverse	registry	cpu	12	0.0
+works	7.2e-15	5.0	23.4	4.1				Recurrence modifier without a pullback, parameter from change points	forward	registry	cpu	12	0.0
+works	1.0e-14	2.5	46.5	57.1				Recurrence modifier without a pullback, parameter from change points	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_coupled_step!	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence modifier with a vector field read by time	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	_coupled_step!	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence modifier with a vector field read by time	reverse	registry	cpu	12	0.0
-works	1.4e-14	4.3	13.6	3.9				Recurrence routes with a user coupling without a pullback	forward	registry	cpu	12	0.0
-works	7.5e-15	1.4	36.2	38.8				Recurrence routes with a user coupling without a pullback	reverse	registry	cpu	12	0.0
-works	7.4e-16	5.5	54.5	2.7				Recurrence user coupling holding a matrix	forward	registry	cpu	12	0.0
-works	6.0e-14	1.5	22.2	36.2				Recurrence user coupling holding a matrix	reverse	registry	cpu	12	0.0
-works	5.6e-16	2.8	11.9	1.9				Recurrence whole-step modifier without a pullback	forward	registry	cpu	12	0.0
-works	8.7e-15	1.1	17.9	43.1				Recurrence whole-step modifier without a pullback	reverse	registry	cpu	12	0.0
-works	2.0e-16	3.1	9.2	1.8				Recurrence whole-step modifier holding a vector	forward	registry	cpu	12	0.0
-works	1.6e-14	1.0	19.0	38.5				Recurrence whole-step modifier holding a vector	reverse	registry	cpu	12	0.0
+works	1.4e-14	6.9	28.5	2.9				Recurrence routes with a user coupling without a pullback	forward	registry	cpu	12	0.0
+works	7.5e-15	2.4	26.3	53.9				Recurrence routes with a user coupling without a pullback	reverse	registry	cpu	12	0.0
+works	7.4e-16	12.1	19.6	5.5				Recurrence user coupling holding a matrix	forward	registry	cpu	12	0.0
+works	6.0e-14	1.9	28.4	58.7				Recurrence user coupling holding a matrix	reverse	registry	cpu	12	0.0
+works	5.6e-16	4.5	19.2	3.8				Recurrence whole-step modifier without a pullback	forward	registry	cpu	12	0.0
+works	8.7e-15	2.3	36.2	72.9				Recurrence whole-step modifier without a pullback	reverse	registry	cpu	12	0.0
+works	2.0e-16	5.1	17.4	4.4				Recurrence whole-step modifier holding a vector	forward	registry	cpu	12	0.0
+works	1.6e-14	1.6	24.7	48.0				Recurrence whole-step modifier holding a vector	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	param	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence checked at the call	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	param	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence checked at the call	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	forward!	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence whole-step modifier branching at a tie (occupancy)	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	forward!	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence whole-step modifier branching at a tie (occupancy)	reverse	registry	cpu	12	0.0
-works	0.0e+00	28.8	7.4	0.1				control	forward	cases	cpu	20	0.0
-works	0.0e+00	5.7	5.1	0.6				control	reverse	cases	cpu	20	0.0
-works	0.0e+00	21.9	11.3	0.3				rec_single	forward	cases	cpu	20	0.0
-works	2.1e-16	1.2	27.6	10.1				rec_single	reverse	cases	cpu	20	0.0
-works	7.1e-17	6.8	7.7	1.4				rec_strata_I	forward	cases	cpu	20	0.0
-works	2.4e-16	2.6	93.8	31.7				rec_strata_I	reverse	cases	cpu	20	0.0
-works	1.8e-16	5.9	15.7	1.6				rec_joined	forward	cases	cpu	20	0.0
-works	4.2e-16	1.6	80.3	106.6				rec_joined	reverse	cases	cpu	20	0.0
-works	0.0e+00	3.9	16.3	0.6				rec_resume	forward	cases	cpu	20	0.0
-works	2.1e-16	1.0	23.4	9.0				rec_resume	reverse	cases	cpu	20	0.0
-works	0.0e+00	2.9	12.2	3.0				rec_checked_at_call	forward	cases	cpu	20	0.0
-works	4.2e-16	1.2	20.9	13.1				rec_checked_at_call	reverse	cases	cpu	20	0.0
-works	1.6e-16	3.3	7.0	0.4				conv_fixed	forward	cases	cpu	20	0.0
-works	1.3e-16	0.9	11.3	3.7				conv_fixed	reverse	cases	cpu	20	0.0
-works	3.3e-16	2.9	10.6	1.3				rec_cp_strata_const	forward	cases	cpu	20	0.0
-works	5.6e-16	1.1	13.1	39.4				rec_cp_strata_const	reverse	cases	cpu	20	0.0
-works	0.0e+00	31.2	4.3	0.1				control	forward	cases	cpu	400	0.0
-works	0.0e+00	5.0	4.7	1.2				control	reverse	cases	cpu	400	0.0
-works	0.0e+00	22.8	19.0	2.6				rec_single	forward	cases	cpu	400	0.0
-works	1.1e-15	1.3	255.2	2663.0				rec_single	reverse	cases	cpu	400	0.0
-works	8.7e-16	6.6	15.0	13.9				rec_strata_I	forward	cases	cpu	400	0.0
-works	1.9e-15	2.6	1699.3	8689.6				rec_strata_I	reverse	cases	cpu	400	0.0
-works	2.2e-16	6.9	16.4	19.1				rec_joined	forward	cases	cpu	400	0.0
-works	2.1e-15	1.2	1938.5	14758.1				rec_joined	reverse	cases	cpu	400	0.0
-works	0.0e+00	3.6	26.4	4.4				rec_resume	forward	cases	cpu	400	0.0
-works	1.1e-15	1.4	564.3	1530.8				rec_resume	reverse	cases	cpu	400	0.0
-works	0.0e+00	3.5	17.8	7.8				rec_checked_at_call	forward	cases	cpu	400	0.0
-works	1.5e-15	1.1	485.1	1168.1				rec_checked_at_call	reverse	cases	cpu	400	0.0
-works	1.5e-16	3.2	36.6	2.4				conv_fixed	forward	cases	cpu	400	0.0
-works	6.2e-16	0.9	41.9	1035.0				conv_fixed	reverse	cases	cpu	400	0.0
-works	2.7e-24	3.0	16.3	9.6				rec_cp_strata_const	forward	cases	cpu	400	0.0
-works	4.6e-15	1.2	389.4	9481.0				rec_cp_strata_const	reverse	cases	cpu	400	0.0
+works	0.0e+00	44.0	10.6	0.2				control	forward	cases	cpu	20	0.0
+works	0.0e+00	7.2	11.7	1.0				control	reverse	cases	cpu	20	0.0
+works	0.0e+00	32.6	9.4	0.7				rec_single	forward	cases	cpu	20	0.0
+works	2.1e-16	1.5	57.8	11.8				rec_single	reverse	cases	cpu	20	0.0
+works	7.1e-17	9.1	9.8	1.4				rec_strata_I	forward	cases	cpu	20	0.0
+works	2.4e-16	3.5	104.0	78.2				rec_strata_I	reverse	cases	cpu	20	0.0
+works	1.8e-16	8.3	11.5	2.7				rec_joined	forward	cases	cpu	20	0.0
+works	4.2e-16	1.7	158.9	91.6				rec_joined	reverse	cases	cpu	20	0.0
+works	0.0e+00	5.1	19.5	1.1				rec_resume	forward	cases	cpu	20	0.0
+works	2.1e-16	1.8	13.1	15.1				rec_resume	reverse	cases	cpu	20	0.0
+works	0.0e+00	3.9	22.1	2.8				rec_checked_at_call	forward	cases	cpu	20	0.0
+works	4.2e-16	1.5	22.4	11.8				rec_checked_at_call	reverse	cases	cpu	20	0.0
+works	1.6e-16	4.8	9.0	0.8				conv_fixed	forward	cases	cpu	20	0.0
+works	1.3e-16	1.3	11.1	7.8				conv_fixed	reverse	cases	cpu	20	0.0
+works	1.7e-16	5.1	76.6	1.1				conv_derived_kernel	forward	cases	cpu	20	0.0
+works	2.8e-16	2.3	138.9	66.1				conv_derived_kernel	reverse	cases	cpu	20	0.0
+works	3.3e-16	4.3	13.8	2.7				rec_cp_strata_const	forward	cases	cpu	20	0.0
+works	5.6e-16	1.6	27.3	37.6				rec_cp_strata_const	reverse	cases	cpu	20	0.0
+works	0.0e+00	43.1	9.9	0.1				control	forward	cases	cpu	400	0.0
+works	0.0e+00	9.1	15.0	0.9				control	reverse	cases	cpu	400	0.0
+works	0.0e+00	35.3	19.5	6.4				rec_single	forward	cases	cpu	400	0.0
+works	1.1e-15	1.7	650.9	3943.2				rec_single	reverse	cases	cpu	400	0.0
+works	8.7e-16	9.0	33.0	19.7				rec_strata_I	forward	cases	cpu	400	0.0
+works	1.9e-15	3.9	2204.2	21541.1				rec_strata_I	reverse	cases	cpu	400	0.0
+works	2.2e-16	10.5	22.3	30.9				rec_joined	forward	cases	cpu	400	0.0
+works	2.1e-15	2.2	1287.8	27640.5				rec_joined	reverse	cases	cpu	400	0.0
+works	0.0e+00	5.8	20.9	6.3				rec_resume	forward	cases	cpu	400	0.0
+works	1.1e-15	1.9	781.0	1772.6				rec_resume	reverse	cases	cpu	400	0.0
+works	0.0e+00	4.0	27.4	8.2				rec_checked_at_call	forward	cases	cpu	400	0.0
+works	1.5e-15	1.8	594.8	2613.8				rec_checked_at_call	reverse	cases	cpu	400	0.0
+works	1.5e-16	4.2	49.8	4.6				conv_fixed	forward	cases	cpu	400	0.0
+works	6.2e-16	1.5	64.1	1336.9				conv_fixed	reverse	cases	cpu	400	0.0
+works	1.6e-16	16.6	496.6	27.9				conv_derived_kernel	forward	cases	cpu	400	0.0
+works	3.4e-16	34.5	1204.4	4358.4				conv_derived_kernel	reverse	cases	cpu	400	0.0
+works	2.7e-24	4.8	24.1	11.6				rec_cp_strata_const	forward	cases	cpu	400	0.0
+works	4.6e-15	1.8	531.4	17322.2				rec_cp_strata_const	reverse	cases	cpu	400	0.0
