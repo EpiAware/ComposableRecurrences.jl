@@ -5,11 +5,11 @@ name: Reactant
 # every AD registry scenario and the hand-written cases weekly and on main,
 # and a smoke subset of both on pull requests that change the source, an
 # extension or the AD registry.
-# Each job fails when a cell it ran differs from the committed results.tsv
-# (test/reactant/compare.jl); the main test suite checks results.tsv against
-# expected.jl. The steps are the commands in the header of
-# test/reactant/runtests.jl, so the job does not depend on the managed
-# Taskfile.
+# Each job fails when a test fails or a cell it ran differs from the
+# committed results.tsv (test/reactant/compare.jl); the main test suite
+# checks results.tsv against expected.jl. The steps are the commands in the
+# header of test/reactant/runtests.jl, so the job does not depend on the
+# managed Taskfile.
 
 on:
   push:
@@ -57,8 +57,8 @@ jobs:
       - run: julia --project=test/reactant --startup-file=no test/reactant/registry.jl test/reactant/results.tsv
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
       - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
-        continue-on-error: true
       - name: Compare with the committed results
+        if: ${{ !cancelled() }}
         run: |
           julia --startup-file=no test/reactant/compare.jl \
             "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv --subset \
@@ -83,12 +83,12 @@ jobs:
       - run: julia --project=test/reactant --startup-file=no test/reactant/extension_check.jl
       # Moved, so a run that writes no results fails the comparison.
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
-      # The test set marks expected failures broken, so an unexpected pass
-      # fails this step; the comparison below reports which cells changed
-      # and fails the job.
+      # The test set marks expected failures broken, so any failure or an
+      # unexpected pass fails this step and the job; the comparison below
+      # still runs and reports which cells changed.
       - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
-        continue-on-error: true
       - name: Compare with the committed results
+        if: ${{ !cancelled() }}
         run: |
           julia --startup-file=no test/reactant/compare.jl \
             "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv \
