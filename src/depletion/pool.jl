@@ -465,7 +465,9 @@ end
 # A run or a part with its pools as positions among `starts`: each flow of
 # a run, or a draw by its form's arguments, a form of another type drawn
 # from the first pool alone. The draw holds the form without its arguments.
-_place_run(fs::_Flows, N, starts) = _tuple_map(f -> _placed(f, keys(starts)), fs)
+function _place_run(fs::_Flows, N, ::NamedTuple{names}) where {names}
+    return _tuple_map(f -> _placed(f, Val(names)), fs)
+end
 _place_run(form, N, starts) = _place_piece(form, N, starts)
 function _place_piece(form, N, starts)
     _check_piece(form)

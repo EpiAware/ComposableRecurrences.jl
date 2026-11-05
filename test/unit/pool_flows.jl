@@ -248,3 +248,30 @@ end
     @test y32 isa Vector{Float32}
     @test y32 ≈ y rtol = 1.0e-5
 end
+
+@testitem "Depletion flows: ends in the type" begin
+    using ComposableRecurrences, Test
+    using ComposableRecurrences: ConstructionBase
+    CR = ComposableRecurrences
+    # A flow's ends are its type's, and placing it reads its positions from
+    # them, so the step's selects at a pool index fold.
+    f = CR.Flow(:V => :S, 0.1)
+    @test (CR._from(f), CR._to(f)) === (:V, :S)
+    d = CR.Depletion(500.0, CR.Hazard(), f, CR.Flow(:S => 0, 0.2); pools = (:S, :V))
+    p = d.pieces[2]
+    @test map(CR._from, p) === (2, 1)
+    @test map(CR._to, p) === (1, 0)
+    @test (p[1].from, p[1].to) === (2, 1)
+    # Positions given as numbers are checked against the pools.
+    @test map(CR._from, CR.Depletion(CR.Flow(2 => 1, 0.1); pools = (:S, :V)).pieces[1]) === (2,)
+    @test_throws "names pool 3" CR.Depletion(CR.Flow(3 => 1, 0.1); pools = (:S, :V))
+    @test_throws "names pool :W" CR.Depletion(CR.Flow(:W => :S, 0.1); pools = (:S, :V))
+    # A rebuild from the fields, as a local derivative makes, keeps them.
+    q = ConstructionBase.constructorof(typeof(p[1]))(2, 1, 0.3, p[1].form)
+    @test typeof(q) == typeof(p[1]) && q.demand == 0.3
+    # Ends known only at run time still build and run the same.
+    ends = (:V, :S)
+    g = CR.Flow(ends[1] => ends[2], 0.1)
+    r(f) = Recurrence([0.5]; modifiers = (CR.Depletion(500.0, CR.Hazard(), f; pools = (:S, :V)),))
+    @test r(g)(fill(2.0, 6); history = [5.0]) == r(f)(fill(2.0, 6); history = [5.0])
+end
