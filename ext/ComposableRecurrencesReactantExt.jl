@@ -303,17 +303,40 @@ function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
 end
 
 # A computed kernel, whose weights come from a `Derived` or a `Survival`,
-# fills its weights in host scratch that a traced call cannot hold, so it
-# does not run under Reactant yet. This also settles which method a traced
-# call with one takes.
+# is filled as a dense `Primary()` kernel over the call's times, which the
+# traced loop then reads as it reads any other. Without this method a traced
+# call with one would match both this executor's method and the computed
+# kernel's.
 function ComposableRecurrences._convolve!(
-        ::Traced, Y, c::_ComputedKernel, X, m, start
+        ex::Traced, Y, c::_ComputedKernel, X, m, start
     )
-    throw(
-        ArgumentError(
-            "a kernel computed from a Derived or a Survival does not run " *
-                "under Reactant yet"
-        )
+    stop = start + size(Y, 1) - 1
+    K, _ = ComposableRecurrences._fill_kernel(c, 0, stop, stop, Val(false))
+    return ComposableRecurrences._convolve!(
+        ex, Y, ComposableRecurrences._dense_kernel(K), X, m, start
+    )
+end
+
+# The coefficients a computed kernel reads may be traced: a traced array's
+# eltype is a traced number, which is not a `Real`, so the package's check
+# on the coefficient's shape does not match it.
+const _TracedCoefficient = Union{
+    TracedRNumber, AnyTracedRVector, PerStratum{<:AnyTracedRArray},
+    TimeVarying{<:Any, <:Union{AnyTracedRVector, PerStratum{<:AnyTracedRMatrix}}},
+}
+ComposableRecurrences._check_coefficient(::_TracedCoefficient) = nothing
+ComposableRecurrences._check_argument(::_TracedCoefficient) = nothing
+
+# A survival's scratch at a traced eltype: every buffer a traced array, as
+# `zeros` gives one, where `Array{T}(undef, ...)` would give a Julia array
+# of traced numbers beside them.
+function ComposableRecurrences._scratch(
+        x::ComposableRecurrences.Survival, ::Type{Tp}, L, B
+    ) where {Tp <: TracedRNumber}
+    ns = max(ComposableRecurrences._coef_strata(x.hazard), 1)
+    return ComposableRecurrences._SurvivalScratch(
+        ComposableRecurrences._scratch(x.hazard, Tp, L, B), zeros(Tp, B, L, ns),
+        zeros(Tp, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
     )
 end
 
