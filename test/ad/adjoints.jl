@@ -102,9 +102,10 @@
     # scalar, mixed-eltype and Float32 fields, pools and flows (past 32
     # leaves), a population over time, imports, movements, dense matrices,
     # `Derived`, a capacity, a seed joined to the output with and without
-    # state, traces of pointwise and grouped steps, change points, the
-    # automatic convolution, the weights of a computed kernel, the local
-    # steps of user types, routes, and an operator checked at the call.
+    # state, traces of pointwise and grouped steps and through a sparse
+    # coupling, change points, the automatic convolution, the weights of a
+    # computed kernel, the local steps of user types, routes, and an
+    # operator checked at the call.
     # So are the operator types and field types no other scenario has: the
     # transpose, lag contributions, kernels computed from a distribution, a
     # hazard and survival or a chain of delays, time-varying, pairwise and
@@ -148,6 +149,7 @@
         "Recurrence checked at the call",
         "Recurrence Redistribute, Transform(+) and Transform(clamp)",
         "Recurrence trace of the importation (Redistribute)",
+        "Recurrence trace through a sparse coupling",
         "Recurrence Primary per-stratum kernel from change points",
         "Convolution kernel from change points with history",
         "Convolution ragged kernel of views into the parameters",

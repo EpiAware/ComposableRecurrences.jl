@@ -3,7 +3,6 @@
 # ## Introduction
 #
 # Bed occupancy is the admissions weighted by the chance of still being in a bed, a convolution over the length of stay.
-# It builds on the [Getting started](@ref getting-started) overview.
 
 # ## Packages used
 
@@ -185,14 +184,14 @@ end
 # Each day some suspected patients are confirmed and move to the confirmed compartment.
 # Others are ruled out and leave, and confirmed patients are discharged.
 # Confirmation and ruling out compete for the same suspected patients.
-# Let ``U_t`` be the suspected compartment, ``C_t`` the confirmed compartment and ``A_t`` the admissions.
+# Let ``U_t`` be the suspected compartment, ``Q_t`` the confirmed compartment and ``A_t`` the admissions.
 # With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``d``,
 #
 # ```math
 # \begin{aligned}
 # U^{*}_t &= U_{t-1} + A_t, \\
 # U_t &= e^{-(c + r)} U^{*}_t, \\
-# C_t &= e^{-d} C_{t-1} + \frac{c}{c + r} \big(1 - e^{-(c + r)}\big) U^{*}_t .
+# Q_t &= e^{-d} Q_{t-1} + \frac{c}{c + r} \big(1 - e^{-(c + r)}\big) U^{*}_t .
 # \end{aligned}
 # ```
 #
