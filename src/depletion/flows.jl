@@ -635,9 +635,12 @@ end
 function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
 end
+# As in the step, `g(H)` is read only where a hazard flow out of a pool
+# enters another (`_step_leaves`): elsewhere it multiplies no arrival and
+# a zero `B`.
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
+    L = ntuple(i -> _step_leaves(fs, i, g, t, z), Val(N))
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
