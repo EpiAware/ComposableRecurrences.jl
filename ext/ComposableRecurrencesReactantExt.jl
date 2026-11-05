@@ -327,6 +327,27 @@ const _TracedCoefficient = Union{
 ComposableRecurrences._check_coefficient(::_TracedCoefficient) = nothing
 ComposableRecurrences._check_argument(::_TracedCoefficient) = nothing
 
+# Arithmetic between a traced number or vector and a `Derived` or a
+# `Survival` lowers to `Derived`, as the package's operands do; a
+# `PerStratum` or `TimeVarying` is an operand whatever it holds.
+const _TracedOperand = Union{TracedRNumber, AnyTracedRVector}
+for op in (:+, :-, :*, :/, :^)
+    @eval begin
+        function Base.$op(
+                a::_TracedOperand,
+                b::Union{ComposableRecurrences.Derived, ComposableRecurrences.Survival}
+            )
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+        function Base.$op(
+                a::Union{ComposableRecurrences.Derived, ComposableRecurrences.Survival},
+                b::_TracedOperand
+            )
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+    end
+end
+
 # A survival's scratch at a traced eltype: every buffer a traced array, as
 # `zeros` gives one, where `Array{T}(undef, ...)` would give a Julia array
 # of traced numbers beside them.
