@@ -58,7 +58,9 @@ turn) and `offsets` (where each group starts), so the analytic adjoint sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
 over groups, not strata: `PerStratum` holds one value per group.
-It reads every stratum of a group, so it is not pointwise.
+It reads every stratum of a group, so it is not pointwise, and its groups
+differ in size and are set by the value, so it is not blockwise
+([`ComposableRecurrences.blocks`](@ref) is `nothing`).
 It has no state without `imports`; with them the state holds ``h``, after
 ``u`` when there is a spill.
 It composes with the other modifiers in tuple order:
