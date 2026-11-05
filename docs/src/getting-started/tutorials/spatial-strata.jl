@@ -238,13 +238,13 @@ ebola_cases = ebola(0.9; history = seed, stop = T);
 # The kernel sum is a `Convolution` of the infections with the kernel, with a zero at lag 0.
 # This is the force before depletion, so the routes sum to more than the cases.
 
-function route_force(C, w)
+function route_force(K_r, g_r)
     y = hcat(seed, ebola_cases)
-    return 0.9 .* (C * Convolution(vcat(0.0, w))(y)[:, (size(seed, 2) + 1):end])
+    return 0.9 .* (K_r * Convolution(vcat(0.0, g_r))(y)[:, (size(seed, 2) + 1):end])
 end
 @chain [("Community", K, gi), ("Funeral", K_funeral, gi_funeral)] begin
-    map(_) do (name, C, w)
-        @transform(long(route_force(C, w)), :route = name)
+    map(_) do (name, K_r, g_r)
+        @transform(long(route_force(K_r, g_r)), :route = name)
     end
     reduce(vcat, _)
     data(_) * mapping(:day, :count, color = :route, layout = :patch) *
