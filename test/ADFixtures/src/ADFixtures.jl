@@ -1674,6 +1674,7 @@ push!(
         () -> _flat(reverse(G0), -1 .+ 0.3 .* W1, 1 .+ LOGR),
     ),
     (
+        "Kernel weights of a survival against a delay and calendar hazard",
         _computed_table,
         () -> _flat(-1 .+ 0.2 .* (1:L), 0.3 .* sin.(1:(T + L - 1))),
     ),
@@ -2372,7 +2373,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace of a ward's flows",
         "Recurrence capacity, dropped overflow after a truncated draw",
         "Recurrence depletion with smoothly truncated draws",
-        "Kernel weights of a survival against a delay and calendar hazard",
     ],
     # `Recent` and `Derived` have no arithmetic with, or constructor from,
     # traced values.
