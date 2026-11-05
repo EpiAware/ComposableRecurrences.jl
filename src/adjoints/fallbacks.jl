@@ -308,21 +308,21 @@ _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
 # numbers handle well, taken by the backend whose rule is running: its rule
 # sets `_LOCAL_ENGINE` around the reverse pass, and its extension adds
 # `_reverse_pressure!`. Enzyme's reverse pass costs less than the dual
-# numbers past 12 inputs; Mooncake's, with a larger fixed cost, past 48,
-# where the dual numbers take three passes. With no engine set, as in a
-# direct call of `pullback!`, the dual numbers take every step. A step
-# within `_LOCAL_DUALS` inputs never reads the engine.
+# numbers past `_LOCAL_DUALS` inputs, up to the one pass the call takes the
+# rule for (`_LOCAL_PRESSURE`). Mooncake sets no engine, so its rule takes
+# the dual numbers. With no engine set, as in a direct call of `pullback!`,
+# the dual numbers take every step. A step within `_LOCAL_DUALS` inputs
+# never reads the engine.
 const _LOCAL_DUALS = 12
 struct _EnzymeLocal end
-struct _MooncakeLocal end
 const _LOCAL_ENGINE = ScopedValue{Any}(nothing)
 _local_inputs(C̄, C, p) = length(p) + (C̄ === nothing ? 0 : _ninputs(C))
 _takes_local(engine, n) = false
 _takes_local(::_EnzymeLocal, n) = n > _LOCAL_DUALS
-_takes_local(::_MooncakeLocal, n) = n > _LOCAL_PRESSURE_WIDE
 # The engine is read at run time, so inference would see each extension's
 # method at the call: `invokelatest` hides them, so a Mooncake gradient does
-# not infer Enzyme's pass, which cost 37 s on its first call. Only an
+# not infer Enzyme's pass, which cost 37 s on its first call. It adds 3
+# allocations to a step that takes the pass. Only an
 # engine's extension sets it, so the fallback is not reached.
 function _reverse_pressure!(engine, p̄, C̄, C, q̄, p, t)
     throw(ArgumentError("no reverse pass for a coupling's local derivative under $engine"))

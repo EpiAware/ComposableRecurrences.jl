@@ -1910,9 +1910,8 @@ function _strata_modifier(w, θ)
     return sum(WS .* log.(y))
 end
 
-# The same coupling across 30 strata: its local derivative is one reverse
-# pass on Enzyme, past 12 inputs, and two passes of dual numbers on
-# Mooncake, up to 48.
+# The same coupling across 30 strata: its local derivative takes two passes
+# of dual numbers, a rule on Mooncake and plain AD on Enzyme.
 const SW = 30
 const WSW = [cos(0.3 * a + 0.1 * t) for a in 1:SW, t in 1:T]
 function _user_coupling_wide(w, θ)
@@ -2330,14 +2329,17 @@ backend_skip_scenarios() = Dict{String, Set{String}}()
 
 """
 Per-backend scenario names whose call takes plain AD by design, so the
-analytic reverse pass does not run: a whole-step modifier's local
-derivative in more than one pass of dual numbers is a rule on Mooncake
-only.
+analytic reverse pass does not run: a coupling's local derivative in two
+passes of dual numbers is a rule on Mooncake only, as is a whole-step
+modifier's that takes more than one pass.
 """
 function backend_plain_scenarios()
     return Dict(
         "Enzyme reverse" => Set(
-            ["Recurrence whole-step modifier branching at a tie (occupancy)"]
+            [
+                "Recurrence user coupling across 30 strata",
+                "Recurrence whole-step modifier branching at a tie (occupancy)",
+            ]
         )
     )
 end

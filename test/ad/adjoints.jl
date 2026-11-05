@@ -1749,15 +1749,15 @@ end
         r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Plain(PerStratum(θ[2:(S + 1)])),))
         return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
     end
-    # Blend's local step takes the rule at any size on both backends: dual
-    # numbers, then past 12 inputs on Enzyme and 48 on Mooncake one reverse
-    # pass of that backend. Direct sends the operator to plain AD at any
-    # size. `fires` holds the Mooncake and the Enzyme outcome.
+    # Blend's local step fires up to 23 strata (with its one scalar), and
+    # on Mooncake up to 47; Direct sends the operator to plain AD at any
+    # size. On Enzyme, past 12 inputs (12 strata), the step is one reverse
+    # pass. `fires` holds the Mooncake and the Enzyme outcome.
     cases = (
         (loss_param, 3, (true, true)), (loss_param, 11, (true, true)),
         (loss_param, 12, (true, true)), (loss_param, 23, (true, true)),
-        (loss_param, 24, (true, true)), (loss_param, 47, (true, true)),
-        (loss_param, 48, (true, true)), (loss, 3, (false, false)),
+        (loss_param, 24, (true, false)), (loss_param, 47, (true, false)),
+        (loss_param, 48, (false, false)), (loss, 3, (false, false)),
     )
     # Where the rule does not fire on a backend the operator already takes
     # plain AD there, so its `NoAdjoint` would repeat that call.
@@ -1776,15 +1776,16 @@ end
     end
 end
 
-# Past the inputs the dual numbers handle well, a coupling's local
-# derivative is one reverse pass by the backend whose rule runs: Enzyme's
-# past 12 inputs, Mooncake's past 48. The coupling here holds a view into a
-# larger vector, as a loss that unpacks its parameters builds it, and a
-# scalar beside it.
-@testitem "A coupling's local derivative as one reverse pass of the calling backend" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+# Past 12 inputs, a coupling's local derivative inside Enzyme's rule is one
+# Enzyme reverse pass; Mooncake's rule keeps the dual numbers. The coupling
+# here holds a view into a larger vector, as a loss that unpacks its
+# parameters builds it, and a scalar beside it.
+@testitem "A coupling's local derivative as one Enzyme reverse pass" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using Base.ScopedValues: with
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
     import Enzyme, ForwardDiff, Mooncake
     using LinearAlgebra, Random
     struct ViewMix{M, A}
@@ -1798,14 +1799,10 @@ end
     end
     @test !CR._takes_local(CR._EnzymeLocal(), 12)
     @test CR._takes_local(CR._EnzymeLocal(), 13)
-    @test !CR._takes_local(CR._MooncakeLocal(), 48)
-    @test CR._takes_local(CR._MooncakeLocal(), 49)
     @test !CR._takes_local(nothing, 1000)
     rng = Xoshiro(3)
-    # Enzyme: 7 inputs take the dual numbers, 13 and 31 the reverse pass.
-    # Mooncake: 31 take the dual numbers, 57 the reverse pass.
-    cases = ((CR._EnzymeLocal(), (2, 3, 5)), (CR._MooncakeLocal(), (5, 7)))
-    for (engine, Ss) in cases, S in Ss
+    # 7 inputs take the dual numbers, 13 and 31 the reverse pass.
+    for S in (2, 3, 5)
         θ = rand(rng, S * S + 10)
         θ0 = copy(θ)
         C = ViewMix(reshape(view(θ, 1:(S * S)), S, S), 0.7)
@@ -1820,30 +1817,27 @@ end
         C̄ = (; M = zeros(S, S), a = Ref(0.0))
         p̄ = zeros(S)
         bufs = CR._pressure_buffers(C̄, C, Float64)
-        with(() -> CR._pressure_back!(p̄, C̄, C, q̄, p, 1, bufs), CR._LOCAL_ENGINE => engine)
+        engine = CR._LOCAL_ENGINE => CR._EnzymeLocal()
+        with(() -> CR._pressure_back!(p̄, C̄, C, q̄, p, 1, bufs), engine)
         @test p̄ ≈ ref[1:S]
         @test vec(C̄.M) ≈ ref[(S + 1):(S + S * S)]
         @test C̄.a[] ≈ ref[end]
         # Without the coupling's cotangent only the strata are seeded.
         p̄ = zeros(S)
-        with(() -> CR._pressure_back!(p̄, nothing, C, q̄, p, 1), CR._LOCAL_ENGINE => engine)
+        with(() -> CR._pressure_back!(p̄, nothing, C, q̄, p, 1), engine)
         @test p̄ ≈ ref[1:S]
         # The parameters the view reads from are untouched.
         @test θ == θ0
     end
-    # Through the public call, under a threaded executor whose tasks inherit
-    # the engine: 7 strata take each backend's reverse pass (57 inputs).
-    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
-    using DifferentiationInterface: gradient
-    S = 7
-    W = [cos(a * t) for a in 1:S, t in 1:6]
-    function loss(θ)
+    # Through the public call, two sizes in one process and under a
+    # threaded executor: 3 strata (13 inputs) and 4 (21) take the rule, by
+    # Enzyme's reverse pass on Enzyme; 7 (57) takes plain AD on both.
+    function loss(θ, S)
+        W = [cos(a * t / 7) for a in 1:S, t in 1:6]
         C = ViewMix(reshape(view(θ, 1:(S * S)), S, S), θ[end])
         r = Recurrence([0.3, 0.2]; coupling = C)
         return sum(W .* r(fill(1.1, S, 6); history = ones(S, 2)))
     end
-    θ = [vec(0.1 .* rand(rng, S, S)); 0.8]
-    ref = gradient(loss, AutoForwardDiff(), θ)
     backends = (
         AutoMooncake(; config = nothing),
         AutoEnzyme(;
@@ -1851,11 +1845,15 @@ end
             function_annotation = Enzyme.Const
         ),
     )
-    ex = CR.Threaded(; min_work = 0, ntasks = 4)
-    for backend in backends
-        n0 = CR._PULLBACK_CALLS[]
-        @test with(() -> gradient(loss, backend, θ), CR.EXECUTOR => ex) ≈ ref
-        @test CR._PULLBACK_CALLS[] > n0
+    for S in (3, 4, 7), ex in (CR.Serial(), CR.Threaded(; min_work = 0, ntasks = 4))
+        θ = [vec(0.1 .* rand(rng, S, S)); 0.8]
+        f = θ -> loss(θ, S)
+        ref = gradient(f, AutoForwardDiff(), θ)
+        for backend in backends
+            n0 = CR._PULLBACK_CALLS[]
+            @test with(() -> gradient(f, backend, θ), CR.EXECUTOR => ex) ≈ ref
+            @test (CR._PULLBACK_CALLS[] > n0) == (S < 7)
+        end
     end
 end
 
