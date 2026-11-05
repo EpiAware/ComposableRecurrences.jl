@@ -121,10 +121,11 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
-With `min_work = 0` every loop of more than one index splits, including the
-loops of strata that mix, which split every step and so start tasks every
-step; this forces the threaded paths, as tests do, and is slower than
-[`Serial`](@ref) at the sizes usually fitted.
+`min_work = 0` forces every loop of more than one index to split and is meant
+for tests of the threaded paths.
+The loops of strata that mix then split every step and start tasks every
+step, so at small sizes it runs slower than [`Serial`](@ref), by an order of
+magnitude or more.
 A split loop runs its first chunk on the calling task.
 `work` counts multiply-adds.
 Operators split three kinds of loop, and count the work of each kind so
