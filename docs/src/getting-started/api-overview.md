@@ -102,7 +102,7 @@ A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y`; `y` divided by it is the gain as run, such as the [reproduction number](@ref tutorial-reproduction-number) | shaped like `y` |
 | [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
-| [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(; y, trace)` |
+| [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did and the pressure at each step | `(; y, trace)` |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
 
 The transpose sums forward in time from each ``t``.
@@ -120,7 +120,7 @@ So the gain at time ``t`` is always `gain[t]`.
 `stop` defaults to the common length of those inputs.
 Inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
-A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step.
+A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step, and the pressure of each step in `trace.pressure`, shaped like `y`.
 The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
 
 ## [Shapes](@id overview-shapes)
