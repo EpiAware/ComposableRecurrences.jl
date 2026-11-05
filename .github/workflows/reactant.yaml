@@ -49,8 +49,7 @@ jobs:
           version: '1.12'
       - uses: julia-actions/cache@v3
       - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
-      # Its own step, so a method ambiguity fails the job: the matrix step
-      # below continues on error and the comparison checks cells only.
+      # Its own step, so a method ambiguity fails fast, before the matrix.
       - run: julia --project=test/reactant --startup-file=no test/reactant/extension_check.jl
       # The committed registry rows agree with the registry's Reactant lists,
       # which a smoke run of a few scenarios would not show.
@@ -78,8 +77,7 @@ jobs:
           version: '1.12'
       - uses: julia-actions/cache@v3
       - run: julia --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
-      # Its own step, so a method ambiguity fails the job: the matrix step
-      # below continues on error and the comparison checks cells only.
+      # Its own step, so a method ambiguity fails fast, before the matrix.
       - run: julia --project=test/reactant --startup-file=no test/reactant/extension_check.jl
       # The committed registry rows agree with the registry's Reactant lists.
       - run: julia --project=test/reactant --startup-file=no test/reactant/registry.jl test/reactant/results.tsv
