@@ -351,6 +351,8 @@ end
 # A survival's scratch at a traced eltype: every buffer a traced array, as
 # `zeros` gives one, where `Array{T}(undef, ...)` would give a Julia array
 # of traced numbers beside them.
+# It mirrors the package's `_scratch(::Survival, ...)` in
+# `src/kernels/weights.jl` field by field; keep the two in step.
 function ComposableRecurrences._scratch(
         x::ComposableRecurrences.Survival, ::Type{Tp}, L, B
     ) where {Tp <: TracedRNumber}
