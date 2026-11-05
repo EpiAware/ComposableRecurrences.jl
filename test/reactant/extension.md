@@ -36,6 +36,7 @@ Each method below was found by tracing the cases in this folder one failure at a
 9. Per-stratum parameters at a traced time (`param`).
    Inside the traced loop, `x[k, t]` with a traced `t` reads stratum 1 for every `k`.
    A `TimeVarying(PerStratum(...))` parameter, and one given by change points with per-stratum values, is read at its linear index instead, as the kernel weights from change points are.
+   The registry's grouped-totals (`Allocate`) scenarios cover the dense parameter, `rec_cp_strata_const` the change points held as host constants, and "Recurrence parameters from change points" traced ones.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
 This lives in the package for the draw of a `Depletion` with several pools (`_draw_pools`, `src/depletion/pool.jl`).
