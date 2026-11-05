@@ -141,6 +141,9 @@ stratum ``j`` in stratum ``i``, with ``S`` [strata](@ref PerStratum).
 coupling gives ``K_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
+It reads only the coupling, `p` and `t`, and writes only `q`: without a
+pullback of its own, the coupling's gradient is taken by differentiating
+this method, which assumes it reads no global mutable state.
 Add a [`ComposableRecurrences.pullback!`](@ref) method for a hand-written
 [gradient](@ref extending-coupling).
 

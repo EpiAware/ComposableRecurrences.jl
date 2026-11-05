@@ -7,13 +7,15 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: ComposableRecurrences, PerStratum, Pressure, Serial,
-    _ADLeaves, _Current, _addparams!, _params, _rebuild, forward!,
+    _ADLeaves, _Current, _EnzymeLocal, _LOCAL_ENGINE, _addparams!, _params, _rebuild,
+    forward!,
     _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
     _fft_convolve_terms!, _is_leaf, _leaf_paths, _plain_hook,
     _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
+using Base.ScopedValues: with
 using LinearAlgebra: Diagonal
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
@@ -479,7 +481,8 @@ function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
     lms = _map_leaves(a -> _ez(a, mode), leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
-    _run_pullback!(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
+    op = _rebuild_leaves(X, _map_leaves(_val, leaves))[1]
+    with(() -> _run_pullback!(grads, op, cache), _LOCAL_ENGINE => _EnzymeLocal())
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)
 end
@@ -530,16 +533,15 @@ function _sparse_route_back!(K, K̄, w̄, z, z0)
     return nothing
 end
 
-# A coupling's local derivative as one reverse pass through its `forward!`,
-# in place of the passes of dual numbers (`_reverse_pressure!`). The pass
+# A coupling's local derivative inside this rule, past 12 inputs, as one
+# reverse pass through its `forward!` (`_reverse_pressure!`). The pass
 # runs on a copy of the coupling rebuilt from its parameters, whose shadow
 # is the same rebuild from zeros: the shadow then holds only the
 # parameters, not the arrays a view in the coupling reads from. The copy
 # sits in a `Ref`, so a coupling whose fields are all scalars is taken the
 # same way as one that holds arrays.
-ComposableRecurrences._reverse_local(::Type{<:_IEEEFloat}) = true
 _pressure_call!(Cr, q, p, t) = (forward!(Cr[], Pressure(), q, p, t); nothing)
-function ComposableRecurrences._reverse_pressure!(p̄, C̄, C, q̄, p, t)
+function ComposableRecurrences._reverse_pressure!(::_EnzymeLocal, p̄, C̄, C, q̄, p, t)
     x = collect(p)
     q, dq, dx = similar(x), copyto!(similar(x), q̄), zero(x)
     if C̄ === nothing

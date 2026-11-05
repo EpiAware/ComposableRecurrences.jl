@@ -2122,10 +2122,11 @@ end
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     @test CR._fit(r, args(3)...) === :one
     @test pullback_matches(r, args(3)...)
-    @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :wide
-    @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(7, 7))), args(7)...) === :none
+    # A coupling's local step takes the rule at any size.
+    @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :one
+    @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(7, 7))), args(7)...) === :one
     # A call with its trace is routed as the call without it.
-    for (S, fit) in ((3, :one), (5, :wide), (7, :none))
+    for (S, fit) in ((3, :one), (5, :one), (7, :one))
         rS = Recurrence([0.3]; coupling = Mix(0.5 .* rand(rng, S, S)))
         for op in (CR._WithTrace(rS), CR._WithTrace(CR._WithState(rS)))
             @test CR.uses_adjoint(op, CR.Run()) === CR.uses_adjoint(rS, CR.Run())
@@ -2150,12 +2151,12 @@ end
     @test r.rebuilds === true
     @test CR._fit(r, args(3)...) === :one
     @test pullback_matches(r, args(3)...)
-    # At the limits: 24 inputs in one pass, 48 in two.
+    # Past one pass of 24 inputs, and past two, the call still takes the rule.
     struct WMix{W}
         w::W
     end
     CR.forward!(C::WMix, ::CR.Pressure, q, p, t) = (q .= (sum(C.w) / length(C.w)) .* p; nothing)
-    for (P, fit) in ((22, :one), (23, :wide), (46, :wide), (47, :none))
+    for (P, fit) in ((22, :one), (23, :one), (46, :one), (47, :one))
         @test CR._fit(Recurrence([0.3]; coupling = WMix(rand(P))), args(2)...) === fit
     end
     # A constructor that changes its matrix keeps plain AD.
@@ -2521,17 +2522,15 @@ end
     # Through a recurrence the rule matches ForwardDiff.
     r = Recurrence([0.3, 0.2]; coupling = C)
     @test pullback_matches(r, recargs(ones(3, 6), nothing, ones(3, 2))...; rtol = 1.0e-6)
-    # The route: the rule from the types, the wide route once the strata
-    # and the coupling's scalars outgrow one pass, and plain AD once they
-    # outgrow two.
+    # The route: the rule from the types, at any number of strata.
     @test (@inferred Recurrence([0.3], C, ())).rebuilds === true
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     val(op, S) = Base.return_types(CR._route_val, typeof.((op, args(S)...)))
     @test val(r, 3) == [Val{:rule}]
     @test CR._fit(r, args(22)...) === :one
-    @test CR._fit(r, args(23)...) === :wide
-    @test CR._fit(r, args(46)...) === :wide
-    @test CR._fit(r, args(47)...) === :none
+    @test CR._fit(r, args(23)...) === :one
+    @test CR._fit(r, args(46)...) === :one
+    @test CR._fit(r, args(47)...) === :one
     # Without a local step the route is the rule, as for any other operator.
     @test CR._fit(Recurrence([0.3]), args(50)...) === :one
     @test CR._fit(Convolution([0.5, 0.5]), ones(4)) === :one
@@ -2539,6 +2538,10 @@ end
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end
+    # With no backend's engine set the dual numbers take every step, in as
+    # many passes as its inputs need.
+    @test CR._LOCAL_ENGINE[] === nothing
+    @test pullback_matches(r, args(47)...; rtol = 1.0e-6)
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end
     CR.forward!(::Swap, ::CR.Pressure, q, p, t) = (q .= reverse(p); nothing)
@@ -2594,16 +2597,16 @@ end
         @test last(kbuf.pressures) === nothing
         @test step_allocations(kbuf, ḡ, k, randn(rng, S), H, zero(H), 4) == 0
     end
-    # The rule takes the routes, and the widest route coupling's local
-    # step sets the call's route, as for the coupling of a `Recurrence`.
+    # The rule takes the routes at any size, as for the coupling of a
+    # `Recurrence`.
     routes(Cs...) = Recurrence(Pairwise(map(C -> C => [0.3, 0.2], Cs)...))
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     r = routes(Spread(0.5), I)
     @test CR.uses_adjoint(r, CR.Run())
     @test CR._fit(r, args(23)...) === :one
-    @test CR._fit(r, args(24)...) === :wide
-    @test CR._fit(r, args(47)...) === :wide
-    @test CR._fit(r, args(48)...) === :none
+    @test CR._fit(r, args(24)...) === :one
+    @test CR._fit(r, args(47)...) === :one
+    @test CR._fit(r, args(48)...) === :one
     @test CR._fit(routes(fill(0.01, 60, 60), I), args(60)...) === :one
     # A rebuild that fails sends every call to plain AD.
     struct Halved{A}

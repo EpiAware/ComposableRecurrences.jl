@@ -1910,9 +1910,9 @@ function _strata_modifier(w, θ)
     return sum(WS .* log.(y))
 end
 
-# The same coupling across 30 strata: past 12 inputs its local derivative
-# is one reverse pass when Enzyme is loaded, and two passes of dual numbers
-# otherwise.
+# The same coupling across 30 strata: its local derivative is one reverse
+# pass on Enzyme, past 12 inputs, and two passes of dual numbers on
+# Mooncake, up to 48.
 const SW = 30
 const WSW = [cos(0.3 * a + 0.1 * t) for a in 1:SW, t in 1:T]
 function _user_coupling_wide(w, θ)

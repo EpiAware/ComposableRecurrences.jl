@@ -5,12 +5,14 @@
 module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
-using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
+using ComposableRecurrences: ComposableRecurrences, Pressure, Run, Serial, _Current,
+    _LOCAL_ENGINE, _MooncakeLocal, _ad, _ad_wide, _addparams!, _params, _rebuild,
+    forward!, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses, _convolve_masses_back!, _current,
     _fft_convolve!, _fft_convolve_back!, _fit, _plain_hook,
     _run_forward, _run_pullback!, _untraced
-using LinearAlgebra: axpy!
+using Base.ScopedValues: with
+using LinearAlgebra: axpy!, dot
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
 
@@ -198,18 +200,16 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
     function _ad_pullback(::NoRData)
         ms = map(a -> _mc(primal(a), tangent(a)), args)
         grads = (; piece = first(ms), y = _mc(y, tangent(ydual)), args = Base.tail(ms))
-        _run_pullback!(grads, first(ps), cache)
+        with(() -> _run_pullback!(grads, first(ps), cache), _LOCAL_ENGINE => _MooncakeLocal())
         return (NoRData(), map((a, m) -> _rd(primal(a), m), args, ms)...)
     end
     return ydual, _ad_pullback
 end
 
-# The rule also covers a call whose local derivative needs a second pass
-# of dual numbers (25 to 48 strata and scalars): a whole-step modifier's,
-# or a coupling's when no reverse-mode extension gives it one reverse pass
-# (`_reverse_local`). It beats plain AD there on Mooncake, at most 0.81 of
-# its time for a dense coupling, but not on Enzyme, 1.58 at 26 strata, so
-# only this extension makes `_ad_wide` a rule primitive.
+# The rule also covers a call whose whole-step modifier's local derivative
+# needs a second pass of dual numbers. It beats plain AD there on Mooncake
+# but not on Enzyme, so only this extension makes `_ad_wide` a rule
+# primitive.
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad_wide), Vararg}
 )
@@ -224,6 +224,35 @@ function ComposableRecurrences.test_adjoint(
         rng, _ad, op, args...; is_primitive = true, perf_flag = :none,
         unsafe_perturb = true, mode = Mooncake.ReverseMode, kwargs...
     )
+end
+
+# A coupling's local derivative inside this rule, past 48 inputs, as one
+# Mooncake pullback of `q̄ ⋅ C(θ)(x)` (`_reverse_pressure!`), the coupling
+# rebuilt from its parameters `θ`. A gradient cache is written by each call,
+# so each task keeps its own, one per type of every argument, so a cache is
+# never reused across element types; it holds at most 16 and starts again
+# when full.
+function _pressure_dot(C, θ, x, q̄, t)
+    q = similar(x)
+    forward!(_rebuild(C, θ), Pressure(), q, x, t)
+    return dot(q̄, q)
+end
+function _pressure_cache(args...)
+    caches = get!(Dict{Any, Any}, task_local_storage(), :_pressure_caches)
+    key = map(typeof, args)
+    haskey(caches, key) && return caches[key]
+    length(caches) >= 16 && empty!(caches)
+    return caches[key] = Mooncake.prepare_gradient_cache(_pressure_dot, args...)
+end
+function ComposableRecurrences._reverse_pressure!(::_MooncakeLocal, p̄, C̄, C, q̄, p, t)
+    θ, x, w = _params(C), collect(p), collect(q̄)
+    cache = _pressure_cache(C, θ, x, w, t)
+    _, (_, _, θ̄, x̄, _, _) = Mooncake.value_and_gradient!!(
+        cache, _pressure_dot, C, θ, x, w, t
+    )
+    p̄ .+= x̄
+    C̄ === nothing || _addparams!(C̄, C, θ̄, 0)
+    return nothing
 end
 
 end

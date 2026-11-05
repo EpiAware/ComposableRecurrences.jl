@@ -288,8 +288,10 @@ function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     return nothing
 end
 function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
-    if _reverse_local(eltype(p)) && _local_inputs(C̄, C, p) > _LOCAL_DUALS
-        return _reverse_pressure!(p̄, C̄, C, q̄, p, t)
+    n = _local_inputs(C̄, C, p)
+    if n > _LOCAL_DUALS
+        e = _LOCAL_ENGINE[]
+        _takes_local(e, n) && return _reverse_pressure!(e, p̄, C̄, C, q̄, p, t)
     end
     if _array_seeds(C̄, C)
         # The reverse pass makes the buffers once (`_pressure_buffers`); a
@@ -300,14 +302,23 @@ function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
     return _local_pressure!(p̄, C̄, C, q̄, p, t, _pressure_scalars(C̄, C), bufs)
 end
 _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
-# Past `_LOCAL_DUALS` inputs (the strata and, when the coupling is
-# differentiated, its parameters) one reverse pass through the coupling's
-# `forward!` costs less than the passes of dual numbers, which seed the
-# inputs at most 24 at a time. A reverse-mode extension (`Enzyme`) says it
-# provides the pass (`_reverse_local`) and adds `_reverse_pressure!`.
+# The local derivative of a step with more inputs (the strata and, when the
+# coupling is differentiated, its parameters) than the passes of dual
+# numbers handle well, taken by the backend whose rule is running: its rule
+# sets `_LOCAL_ENGINE` around the reverse pass, and its extension adds
+# `_reverse_pressure!`. Enzyme's reverse pass costs less than the dual
+# numbers past 12 inputs; Mooncake's, with a larger fixed cost, past 48,
+# where the dual numbers take three passes. With no engine set, as in a
+# direct call of `pullback!`, the dual numbers take every step. A step
+# within `_LOCAL_DUALS` inputs never reads the engine.
 const _LOCAL_DUALS = 12
+struct _EnzymeLocal end
+struct _MooncakeLocal end
+const _LOCAL_ENGINE = ScopedValue{Any}(nothing)
 _local_inputs(C̄, C, p) = length(p) + (C̄ === nothing ? 0 : _ninputs(C))
-_reverse_local(::Type) = false
+_takes_local(engine, n) = false
+_takes_local(::_EnzymeLocal, n) = n > _LOCAL_DUALS
+_takes_local(::_MooncakeLocal, n) = n > _LOCAL_PRESSURE_WIDE
 function _reverse_pressure! end
 # Whether the local step seeds a coupling's float arrays as well as its
 # scalars: only when the coupling is differentiated and holds any.
@@ -323,9 +334,9 @@ end
 _pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
 _pressure_buffers(::Val{false}, C̄, C, Tp) = _dual_pressure_buffers(C̄, C, Tp)
 # The local step seeds the strata and the scalars `N` at a time, `N` the
-# smallest of 4, 8, 12 and 24 that covers them. The rule takes this route
-# while one pass covers every input (`_LOCAL_PRESSURE`), and through
-# `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
+# smallest of 4, 8, 12 and 24 that covers them, in as many passes as the
+# inputs need (one within `_LOCAL_PRESSURE`, two within
+# `_LOCAL_PRESSURE_WIDE`).
 const _LOCAL_PRESSURE = 24
 const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 # The local derivative of a coupling with float arrays among its parameters:
