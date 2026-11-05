@@ -244,15 +244,6 @@ end
 # A count flow, which moves its demand up to what the pool holds.
 const _Count = Flow{<:Any, <:_FlowCount}
 
-# The flows as a non-empty tuple of `Flow`s.
-function _flow_tuple(fs)
-    isempty(fs) && throw(ArgumentError("give at least one Flow, got none"))
-    for f in fs
-        f isa Flow || throw(ArgumentError("expected a Flow, got $(_describe(f))"))
-    end
-    return fs
-end
-
 # The hazard rate and share of a flow, zero for another form.
 _rate(f::Flow{<:Any, _FlowHazard}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
