@@ -5,7 +5,6 @@
 # The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) backend models an outbreak across 11 patches.
 # It writes its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
 # The inputs here are invented.
-# It builds on the [Renewal then delay](@ref tutorial-renewal-delay), [Spatial models](@ref tutorial-spatial-strata) and [Adjoints and backends](@ref adjoints-backends) pages.
 
 # ## Packages used
 

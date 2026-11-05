@@ -4,7 +4,6 @@
 #
 # A branching process follows the offspring of each case, and its expectations, such as the mean cases by type or the probability of extinction, are recurrences.
 # The operators compute these expectations; they do not simulate chains.
-# It builds on the [Getting started](@ref getting-started) overview, and the couplings and [`Pairwise`](@ref) kernels of [Shapes and couplings](@ref explanation-shapes-couplings).
 
 # ## Packages used
 
@@ -28,15 +27,15 @@ nothing #hide
 # ```
 #
 # where ``I_n`` holds the mean cases of each type in generation ``n``.
-# The coupling ``K`` is the mean offspring matrix, `M` in the code.
+# The coupling ``K`` is the mean offspring matrix.
 # Its entry ``K_{ij}`` is the mean number of type ``i`` cases that one type ``j`` case causes.
 # The kernel is ``k_1 = 1`` and the gain is ``\gamma_n = 1``.
 # Growth per generation converges to the spectral radius of ``K``, the reproduction number.
 
-M = [1.2 0.4; 0.3 0.6]
-by_generation = Recurrence([1.0]; coupling = M)(1.0; history = [1.0; 0.0;;], stop = 30)
+K = [1.2 0.4; 0.3 0.6]
+by_generation = Recurrence([1.0]; coupling = K)(1.0; history = [1.0; 0.0;;], stop = 30)
 growth = norm(by_generation[:, end]) / norm(by_generation[:, end - 1])
-radius = maximum(abs, eigvals(M))
+radius = maximum(abs, eigvals(K))
 
 @chain DataFrame(
     "generation" => 0:30, "Type 1" => [1.0; by_generation[1, :]], "Type 2" => [0.0; by_generation[2, :]]
@@ -98,17 +97,17 @@ end
 # ```
 #
 # Here ``I_{t,i}`` is the mean number of type ``i`` cases on day ``t`` and ``\gamma_t = 1.6`` the gain.
-# The coupling ``K`` is the mean offspring matrix, `M_house` in the code.
+# The coupling ``K`` is the mean offspring matrix, `K_house` in the code.
 # The weight ``k_{j,l}`` is type ``j``'s thinned kernel on lag ``l``, row ``j`` of `W_house`.
-# The next-generation matrix ``\mathcal{K}`` is `K_house`.
+# The next-generation matrix ``\mathcal{K}`` is `ngm_house`.
 
 F_fast = [0.3, 0.7, 0.9, 1.0, 1.0]
 W_house = permutedims([gi_isolated gi .* (1 .- p * b .* F_fast)])
-M_house = [0.6 0.3; 0.6 0.5]
-house_model = Recurrence(PerStratum(W_house); coupling = M_house)
+K_house = [0.6 0.3; 0.6 0.5]
+house_model = Recurrence(PerStratum(W_house); coupling = K_house)
 house = house_model(R0; history = [10.0; 0.0;;], stop = 60)
-K_house = R0 * M_house * Diagonal(vec(sum(W_house; dims = 2)))
-R_house = maximum(abs, eigvals(K_house))
+ngm_house = R0 * K_house * Diagonal(vec(sum(W_house; dims = 2)))
+R_house = maximum(abs, eigvals(ngm_house))
 
 @chain DataFrame(
     "day" => 1:60, "First case" => house[1, :], "Later case" => house[2, :]
@@ -124,12 +123,12 @@ end
 # ## Contact tracing as two types
 #
 # Traced and untraced cases are two types.
-# A share ``q`` of each case's contacts is traced, and traced cases use the thinned kernel.
+# A share ``\psi`` of each case's contacts is traced, and traced cases use the thinned kernel.
 # A `Pairwise` kernel gives each pair of types its interval.
 # Rows are the infectee type and columns the infector type:
 #
 # ```math
-# A_{1j,l} = (1 - q) \, g^{(j)}_l, \qquad A_{2j,l} = q \, g^{(j)}_l, \qquad
+# A_{1j,l} = (1 - \psi) \, g^{(j)}_l, \qquad A_{2j,l} = \psi \, g^{(j)}_l, \qquad
 # I_{t,i} = \gamma_t \sum_{j} \sum_{l} A_{ij,l} \, I_{t-l,j},
 # ```
 #
@@ -139,18 +138,18 @@ end
 # The gain is ``\gamma_t = 1.6``.
 # This is an approximation: tracing correlates an infector's and infectee's isolation times.
 
-function traced_outbreak(q)
+function traced_outbreak(ψ)
     A_trace = zeros(2, 2, length(gi))
     for (col, g) in enumerate([gi, gi_isolated])
-        A_trace[1, col, :] = (1 - q) .* g
-        A_trace[2, col, :] = q .* g
+        A_trace[1, col, :] = (1 - ψ) .* g
+        A_trace[2, col, :] = ψ .* g
     end
     return Recurrence(Pairwise(A_trace))(R0; history = [10.0; 0.0;;], stop = 60)
 end
 @chain [0.0, 0.5, 0.9] begin
-    map(q -> DataFrame(day = 1:60, q = string(q), cases = vec(sum(traced_outbreak(q); dims = 1))), _)
+    map(ψ -> DataFrame(day = 1:60, ψ = string(ψ), cases = vec(sum(traced_outbreak(ψ); dims = 1))), _)
     reduce(vcat, _)
-    data(_) * mapping(:day, :cases, color = :q => "Traced share") * visual(Lines, linewidth = 2)
+    data(_) * mapping(:day, :cases, color = :ψ => "Traced share") * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Cases (log scale)", yscale = log10))
 end
 
@@ -161,43 +160,43 @@ end
 # ## Extinction by generation
 #
 # A branching process from one case dies out by generation ``n`` with probability ``q_n``.
-# Offspring are negative binomial (Lloyd-Smith et al. 2005), with mean ``R`` and dispersion ``k``:
+# Offspring are negative binomial (Lloyd-Smith et al. 2005), with mean ``R`` and dispersion ``\kappa``:
 #
 # ```math
 # q_n = G(q_{n-1}), \qquad q_0 = 0, \qquad
-# G(s) = \left(1 + \frac{R}{k} (1 - s)\right)^{-k}.
+# G(s) = \left(1 + \frac{R}{\kappa} (1 - s)\right)^{-\kappa}.
 # ```
 #
 # Here ``G`` is the offspring probability generating function.
 # The recurrence has the unit kernel `[1.0]` and no gain, so the value entering the modifiers is ``q_{n-1}``.
-# Its one modifier ``M_1`` is a `Transform` that applies ``G`` with parameters ``\theta = (R, k)``.
+# Its one modifier ``M_1`` is a `Transform` that applies ``G`` with parameters ``\theta = (R, \kappa)``.
 # Here ``R = 1.5``, and the history is ``q_0 = 0``.
 
-G(s, θ) = (1 + θ.R / θ.k * (1 - s))^(-θ.k)
+G(s, θ) = (1 + θ.R / θ.κ * (1 - s))^(-θ.κ)
 function extinction(θ, n)
     return Recurrence([1.0]; modifiers = (Transform(G, θ),))(; history = [0.0], stop = n)
 end
 
 generations = 30
 @chain [0.1, 0.5, 1.0, 10.0] begin
-    map(_) do k
-        q = extinction((; R = 1.5, k), generations)
-        DataFrame(generation = 1:generations, k = "k = $k", q = q)
+    map(_) do κ
+        q = extinction((; R = 1.5, κ), generations)
+        DataFrame(generation = 1:generations, κ = "κ = $κ", q = q)
     end
     reduce(vcat, _)
-    data(_) * mapping(:generation, :q, color = :k) * visual(Lines, linewidth = 2)
+    data(_) * mapping(:generation, :q, color = :κ) * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Generation", ylabel = "Probability of extinction"))
 end
 
-# Smaller ``k`` concentrates offspring in fewer cases, so chains die out more often.
-# By generation 30 the probability of extinction is 0.93 with ``k = 0.1`` and 0.46 with ``k = 10``.
+# Smaller ``\kappa`` concentrates offspring in fewer cases, so chains die out more often.
+# By generation 30 the probability of extinction is 0.93 with ``\kappa = 0.1`` and 0.46 with ``\kappa = 10``.
 
-# The derivative of ``q_{30}`` with respect to ``k`` comes from the same call, with ForwardDiff:
+# The derivative of ``q_{30}`` with respect to ``\kappa`` comes from the same call, with ForwardDiff:
 
-dq30_dk = ForwardDiff.derivative(k -> last(extinction((; R = 1.5, k), generations)), 0.5)
+dq30_dκ = ForwardDiff.derivative(κ -> last(extinction((; R = 1.5, κ), generations)), 0.5)
 nothing #hide
 
-# At ``k = 0.5`` it is -0.28, so a larger dispersion parameter lowers the probability of extinction.
+# At ``\kappa = 0.5`` it is -0.28, so a larger dispersion parameter lowers the probability of extinction.
 
 # ## Performance
 #
