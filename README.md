@@ -46,6 +46,7 @@ The generation interval has weight $g_l$ on lag $l$ over $L$ lags, the reporting
 The gravity coupling $K_{ij}$ comes from the populations and the distances $d_{ij}$ between towns, with $G_{ii} = 0$.
 The term $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
+The renewal and the delay both read these as their `history`, so the reports from day 1 include them.
 In the code, `PerStratum(pop)` gives each town its own population, and the run covers $T = 75$ days.
 
 <!-- INDEX_REWRITES in docs/docs_config.jl matches the last line of this block to hide its output on the docs home page; keep the two in step. -->
@@ -66,7 +67,7 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4, history = seed)
 ```
 
 ![Infections, reports and the remaining susceptible share in each town, with the intervention from day 50 to 56 shaded](docs/src/assets/readme-example.png)
