@@ -81,6 +81,8 @@ jobs:
       # Its own step, so a method ambiguity fails the job: the matrix step
       # below continues on error and the comparison checks cells only.
       - run: julia --project=test/reactant --startup-file=no test/reactant/extension_check.jl
+      # The committed registry rows agree with the registry's Reactant lists.
+      - run: julia --project=test/reactant --startup-file=no test/reactant/registry.jl test/reactant/results.tsv
       # Moved, so a run that writes no results fails the comparison.
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
       # The test set marks expected failures broken, so an unexpected pass
