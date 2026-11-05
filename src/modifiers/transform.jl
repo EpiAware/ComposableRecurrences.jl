@@ -31,7 +31,7 @@ local forward-mode derivative of `f`.
 `derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
 shaped as ``\theta_{t,i}``.
-As for [`ComposableRecurrences.Derived`](@ref), values captured inside `f`
+Values captured by `f` (a closure, or a callable struct with float fields)
 are not in ``\theta``, so without `derivative` the AD backend
 differentiates the [`Recurrence`](@ref) holding such a map.
 
