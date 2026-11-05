@@ -274,6 +274,37 @@ end
     end
 end
 
+@testitem "Adjoint: a single series carries its value across change points" setup = [AdjointCheck, PiecewiseChecks] begin
+    using ComposableRecurrences
+    (; KS, GS, R, H) = PiecewiseChecks
+    # One stratum with no modifiers carries its last value from step to
+    # step, and in reverse its cotangent, across each change point of its
+    # kernel; a gain, an add input and a late start shift what it carries.
+    GS1 = [t => PerStratum(g.x[1:1, :]) for (t, g) in GS]
+    for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS1), start in (1, 5, 8)
+        r = Recurrence(TimeVarying(ps, ix))
+        one_row = ps === KS
+        h = one_row ? H[1, :] : H[1:1, :]
+        gain = one_row ? R[1, :] : R[1:1, :]
+        seed = ix isa CR.Primary ? max(start, 5) : start
+        @test pullback_matches(r, recargs(gain, 0.1 .* gain, h; start = seed)...)
+        @test pullback_matches(r, recargs(gain, nothing, h; start = seed)...)
+    end
+    # Fixed kernels, from a late start, and with no history at all.
+    g = [0.5, 0.3, 0.2]
+    for k in (g, PerStratum(reshape(g, 1, :)))
+        one_row = k isa Vector
+        h = one_row ? H[1, :] : H[1:1, :]
+        gain = one_row ? R[1, :] : R[1:1, :]
+        r = Recurrence(k)
+        @test pullback_matches(r, recargs(gain, 0.1 .* gain, h; start = 8)...)
+        empty = one_row ? zeros(0) : zeros(1, 0)
+        @test pullback_matches(r, recargs(gain, 0.1 .* gain, empty)...)
+    end
+    # A kernel with no lags reads no last value.
+    @test pullback_matches(Recurrence(Float64[]), recargs(R[1, :], R[1, :], zeros(0))...)
+end
+
 @testitem "Change points: in-order reverse sums equal the @simd ones" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
