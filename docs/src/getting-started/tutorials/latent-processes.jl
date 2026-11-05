@@ -208,7 +208,7 @@ end
 # ```math
 # \begin{aligned}
 # v_t &= \gamma \sum_{l=1}^{L} g_l \, I_{t-l}, \qquad
-# v'_t = M_1(v_t) = \exp\Big(-\frac{\kappa}{N} \sum_{l=1}^{7} I_{t-l}\Big)\, v_t, \\
+# v'_t = M_1(v_t) = \exp\Big(-\frac{\lambda}{N} \sum_{l=1}^{7} I_{t-l}\Big)\, v_t, \\
 # I_t &= S_{t-1} \big(1 - e^{-v'_t / N}\big), \qquad
 # S_t = S_{t-1} - I_t - D_t, \\
 # D_t &= \min\Big(0.5 \sum_{l=1}^{7} I_{t-l},\ \max\big(S_{t-1} - I_t,\ 0\big)\Big).
@@ -216,15 +216,15 @@ end
 # ```
 #
 # ``v_t`` is the renewal value with gain ``\gamma = 1.5``, and ``v'_t`` the value after the response.
-# ``M_1`` is the response, a [`Transform`](@ref ComposableRecurrences.Transform) with strength ``\kappa = 10``.
+# ``M_1`` is the response, a [`Transform`](@ref ComposableRecurrences.Transform) with strength ``\lambda = 10``.
 # ``S_t`` is the susceptible pool after day ``t``, starting at ``N = 5000``.
 # The depletion is the second modifier ``M_2``, which draws ``I_t`` from the pool by the [hazard form](@ref ComposableRecurrences.Hazard).
 # ``D_t`` is the ring vaccination doses on day ``t``, half the last week's infections.
 # The models without a response take ``v'_t = v_t``, and those without ring vaccination take ``D_t = 0``.
 
 N = 5_000.0
-κr = 10.0
-response = Transform(*, Derived(exp, -κr / N * Recent(7)))
+λ = 10.0
+response = Transform(*, Derived(exp, -λ / N * Recent(7)))
 ring = Depletion(N, Hazard(), Flow(:S => 0, 0.5 * Recent(7); form = Truncate()))
 feedback = [
     "Depletion only" => (Depletion(N),),
@@ -247,13 +247,13 @@ end
 # Together they lower it to 16.
 #
 # The [reverse-mode rule](@ref adjoint-routing) sends gradients back through the outputs `Recent` reads, so Mooncake and Enzyme follow the feedback.
-# ForwardDiff gives the gradient of the total infections ``C(\kappa, R)`` of the response-and-depletion model at ``\kappa = 10`` and ``R = 1.5``.
+# ForwardDiff gives the gradient of the total infections ``C(\lambda, R)`` of the response-and-depletion model at ``\lambda = 10`` and ``R = 1.5``.
 
 function total_with_response(x)
     modifiers = (Transform(*, Derived(exp, -x[1] / N * Recent(7))), Depletion(N))
     return sum(Recurrence(gi; modifiers)(fill(x[2], T); history = [5.0]))
 end
-@chain tangents(total_with_response, [κr, 1.5], ["κ", "R"], [0:1:20, 1.3:0.02:1.7]) begin
+@chain tangents(total_with_response, [λ, 1.5], ["λ", "R"], [0:1:20, 1.3:0.02:1.7]) begin
     data(_) * visual(Lines, linewidth = 2) * mapping(
         :value, :total; linestyle = :line => sorter(line_names) => "", layout = :parameter
     )

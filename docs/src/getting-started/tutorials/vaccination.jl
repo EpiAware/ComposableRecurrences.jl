@@ -34,18 +34,18 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # A [`Depletion`](@ref ComposableRecurrences.Depletion) holds both pools, `:S` and `:V`.
 # Its `Hazard(; weights = (S = 1, V = σ))` draws from ``S + \sigma V``, and a count [`Flow`](@ref ComposableRecurrences.Flow) after it moves the doses from `:S` to `:V`.
 #
-# Let ``e`` be the efficacy.
-# An all-or-nothing vaccine fully protects a share ``e`` of the vaccinated.
-# This gives ``\sigma = 0``, with ``e \, d_t`` doses moved.
-# A leaky vaccine reduces every vaccinated person's risk by ``e``.
-# This gives ``\sigma = 1 - e``, with all ``d_t`` doses moved.
-# Here ``e`` is 0.7, ``N`` is 2000, ``R_t`` is 1.8 and 40 doses a day start on day 15.
+# Let ``\eta`` be the efficacy.
+# An all-or-nothing vaccine fully protects a share ``\eta`` of the vaccinated.
+# This gives ``\sigma = 0``, with ``\eta \, d_t`` doses moved.
+# A leaky vaccine reduces every vaccinated person's risk by ``\eta``.
+# This gives ``\sigma = 1 - \eta``, with all ``d_t`` doses moved.
+# Here ``\eta`` is 0.7, ``N`` is 2000, ``R_t`` is 1.8 and 40 doses a day start on day 15.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 T = 80
 N = 2_000.0
 R = fill(1.8, T)
-e = 0.7
+η = 0.7
 doses = [t < 15 ? 0.0 : 40.0 for t in 1:T]
 vaccinated(σ, d, flows...) = Depletion(
     N, Hazard(; weights = (S = 1, V = σ)),
@@ -59,10 +59,10 @@ plot_infections(runs) = @chain runs begin
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-leaky = vaccinated(1 - e, doses)
+leaky = vaccinated(1 - η, doses)
 vaccines = [
     "None" => Depletion(N),
-    "All-or-nothing" => vaccinated(0.0, e .* doses),
+    "All-or-nothing" => vaccinated(0.0, η .* doses),
     "Leaky" => leaky,
 ]
 plot_infections(vaccines)
@@ -87,7 +87,7 @@ plot_infections(vaccines)
 # where ``S_t`` and ``V_t`` are the pools after the day's infections and ``S'_t`` and ``V'_t`` the pools after waning.
 # Here ``\omega`` is 1/20, so protection lasts 20 days on average.
 
-waning = vaccinated(1 - e, doses, Flow(:V => :S, 1 / 20))
+waning = vaccinated(1 - η, doses, Flow(:V => :S, 1 / 20))
 plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 # Waning raises the peak a little and adds about 8% more infections over the outbreak.
