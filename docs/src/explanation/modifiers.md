@@ -40,7 +40,7 @@ round.(cap_first(gain; history = seed)[end-2:end]; digits = 2),
 round.(cap_last(gain; history = seed)[end-2:end]; digits = 2)
 ```
 
-[Imported cases](@ref tutorial-imports) have the same choice: through `add` they are drawn from the pool, and through a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) after a `Depletion` they do not deplete it.
+Imported infections have the same choice: through `add` they are drawn from the pool, and through a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) after a `Depletion` they do not deplete it.
 
 ## [State](@id explanation-modifier-state)
 
