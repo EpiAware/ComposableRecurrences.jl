@@ -178,7 +178,9 @@ The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item o
 To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-On pull requests that change `src/` or `ext/`, a smoke run checks five cases, forward and reverse at 20 steps, against the same file.
+It runs every AD registry scenario, forward and reverse, and the hand-written cases in `cases.jl`, which cover what the registry cannot: a resumed call, a joined traced history and the growth of compile time with the number of steps.
+A scenario Reactant cannot run is listed in the registry under the `Reactant` backend, with the cause.
+On pull requests that change `src/` or `ext/`, a smoke run checks a few cases and scenarios against the same file.
 After a change, rerun it on Julia 1.12 from the repository root:
 
 ```bash
@@ -186,5 +188,5 @@ julia +1.12 --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
 julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 ```
 
-Then commit `results.tsv` and `RESULTS.md` and update `expected.jl`.
-The main tests check that these three agree.
+Then commit `results.tsv` and `RESULTS.md`, and update `expected.jl` or the registry's Reactant lists.
+The main tests check that the hand-written cases' rows agree with `expected.jl`; the Reactant workflow checks the registry rows against the registry.
