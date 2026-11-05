@@ -93,6 +93,20 @@
     ) == "Convolution(15 lags, kernel TimeVarying(15-element " *
         "Vector{Float64} * (1 - Survival(TimeVarying(40 times); from = 1)), " *
         "Primary()))"
+    @test plain(CR.Depletion(10.0, CR.Truncate(; overflow = :stratum))) ==
+        "Depletion(pools (:S,), draw Truncate() with overflow = :stratum, " *
+        "population 10.0)"
+    @test plain(
+        CR.Depletion(10.0, CR.Truncate(; into = :B); pools = (A = 10.0, B = 0.0))
+    ) == "Depletion(pools (:A, :B), draw Truncate() with into = :B, " *
+        "population 10.0)"
+    @test plain(CR.Derived(max, CR.Recent(w), 1.0)) ==
+        "Derived(max(Recent(3 weights), 1.0))"
+    @test plain(CR.Derived(-, CR.Recent(w))) == "Derived(-Recent(3 weights))"
+    @test plain(CR.Derived(*, TimeVarying(ones(5)), ones(3))) ==
+        "Derived(TimeVarying(5 times) * 3-element Vector{Float64})"
+    @test plain(CR.Transform(exp; derivative = exp)) ==
+        "Transform(exp, derivative exp)"
     @test plain(CR.NoAdjoint(Recurrence(ones(3)))) ==
         "NoAdjoint(Recurrence(3 lags))"
     @test plain(Recurrence(ones(3); coupling = 2.0 * CR.I)) ==
