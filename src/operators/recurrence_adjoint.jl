@@ -150,7 +150,7 @@ function _series_back!(
             )
             continue
         end
-        if length(ks) == 1 && _carries(g, H)
+        if size(H, 2) == 1 && _carries(g, H)
             _carried_back!(
                 g, _run_steps(ts, T), first(ks), acc, kb, s̄s, rec, pr, gain,
                 coupling, ms, H, H̄, τ0, L, D

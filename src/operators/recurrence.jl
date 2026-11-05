@@ -1317,7 +1317,7 @@ function _series_body!(
                 c, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
                 τ0, L, D
             )
-        elseif length(ks) == 1 && _carries(g, H)
+        elseif size(H, 2) == 1 && _carries(g, H)
             _carried_run!(
                 g, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
                 ms, states, rec, τ0, L, D
@@ -1350,7 +1350,7 @@ function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     return nothing
 end
 
-# A run of one stratum through pointwise modifiers, on a host buffer with a
+# A call of one stratum through pointwise modifiers, on a host buffer with a
 # fixed or per-stratum kernel, carries its last value the same way; the
 # modifiers sit between the kernel and the value, so the step adds the
 # newest lag with one fused multiply-add and threads it through them.
