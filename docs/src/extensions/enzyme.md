@@ -15,4 +15,4 @@ The error comes from Enzyme when it differentiates the caller's keyword call `Re
 Call a function on each concrete modifier instead, such as `flag ? model(Depletion(N), θ) : model(Depletion(N, Floor()), θ)`, so that the operator is built from a value of one type.
 
 Without runtime activity (`AutoEnzyme()`, or `Enzyme.Reverse` as given), Enzyme raises `EnzymeRuntimeActivityError` when an operator with an active part holds a constant array that lives outside the loss, such as a global population in `Depletion(PerStratum(N))`.
-Use `AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse))`, as the tutorials do, or build that array inside the loss.
+Use `AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse))`, as the tutorials do, or build every such array inside the loss, the kernel included.
