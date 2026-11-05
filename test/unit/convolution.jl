@@ -271,12 +271,6 @@ end
             @test with(() -> c(X), CR.EXECUTOR => ex) == serial
         end
     end
-    # The blocks are the reverse pass's: one serially and one per task when
-    # the loop splits.
-    ex = CR.Threaded(; min_work = 0, ntasks = 3)
-    @test CR._nblocks(CR._executor(CR._Current(ex)), 7, 0) == 3
-    @test CR._nblocks(CR._executor(CR._Current(CR.Serial())), 7, 0) == 1
-    @test CR._nblocks(CR._executor(CR.Serial()), 7, 0) == 1
 end
 
 @testitem "Convolution: output indexing matches CTIDM's time-varying delay" setup = [UseCaseReferences] begin

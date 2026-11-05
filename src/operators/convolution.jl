@@ -759,29 +759,23 @@ end
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
     work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
-    _convolve_strata!(ex, Y, c, X, m, start, S, work)
+    _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
     return Y
 end
-function _convolve_strata!(ex, Y, c, X, m, start, S, work)
-    _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
-    return nothing
-end
-# A per-stratum time-varying kernel on the host holds its `S × L × T`
-# weights strata fastest. One stratum at a time, a kernel larger than the
-# cache is read a cache line per weight, so the strata run in the blocks of
-# the reverse pass (`_nblocks`), one per task when threaded, and each block
-# runs time outermost (`_strata_forward!`).
-function _convolve_strata!(ex, Y::Array, c::_TVPerStratum, X, m, start, S, work)
-    n = _nblocks(_executor(ex), S, work)
+# A per-stratum time-varying kernel stores its weights strata fastest, so
+# strata run inside time, in blocks from `_nblocks`: one, or one per task
+# when the loop splits. Device arrays keep one stratum per index.
+function _convolve!(ex, Y::Array, c::_TVPerStratum, X, m, start)
+    S = size(Y, 2)
+    work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
+    n = _nblocks(ex, S, work)
     _each!(_convolve_block!, ex, Y, n, work, n, Y, c, X, m, start)
-    return nothing
+    return Y
 end
 function _convolve_block!(b, n, Y, c, X, m, start)
     _strata_forward!(_chunk(b, size(Y, 2), n), Y, c, X, m, start)
     return nothing
 end
-_executor(c::_Current) = c.ex
-_executor(ex) = ex
 
 function _convolve_body!(k, Y, c::AbstractVector, X, m, start)
     _convolve_series!(view(Y, :, k), c, X, k, m, start)
@@ -1008,8 +1002,7 @@ end
 # A per-stratum kernel's reverse pass, in either indexing, the transpose
 # of its forward body: each output cotangent adds to the weights it read,
 # through `_add_lagweight!`, and to the inputs. Time runs outermost, as in
-# the forward pass; a single stratum skips the strata loop, which measured
-# slower for one series.
+# the forward pass; a single stratum keeps its loop free of the strata loop.
 function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     L = _nlags(c)
     if length(ks) == 1
