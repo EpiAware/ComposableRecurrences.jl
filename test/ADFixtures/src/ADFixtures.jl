@@ -1048,6 +1048,19 @@ end
 # infections, as BVD's joint model reads them.
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    return _importation_loss(w, logh, logR, ε)
+end
+
+# The importation's trace through a sparse coupling, so the coupling's
+# product is differentiated with the trace as well as the output.
+function _trace_sparse(w, θ)
+    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
+    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    return _importation_loss(w, logh, logR, ε; coupling = K)
+end
+
+# The importation's loss, read from its output and trace.
+function _importation_loss(w, logh, logR, ε; kw...)
     CR = ComposableRecurrences
     # The intensity per origin and step keeps the movement a kernel and
     # an intensity, whose columns sum to one under any perturbation.
@@ -1056,7 +1069,8 @@ function _trace_importation(w, θ)
         CR.Depletion(PerStratum(POP)),
     )
     y, tr = returning_trace(
-        w(Recurrence(G0; modifiers = mods)), exp.(logR); history = exp.(logh)
+        w(Recurrence(G0; modifiers = mods, kw...)), exp.(logR);
+        history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
@@ -1463,6 +1477,10 @@ const _SCENARIOS = [
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
     ),
     (
+        "Recurrence trace through a sparse coupling", _trace_sparse,
+        () -> _flat(KS.nzval, fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
         "Recurrence trace of a protected pool", _trace_pool,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
@@ -1793,6 +1811,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace through a sparse coupling" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
     # A trace written in place, with `forward!`.
     "Recurrence trace of pointwise modifiers" => (:_trace_series,),
