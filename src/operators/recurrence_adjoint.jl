@@ -143,7 +143,7 @@ function _series_back!(
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         c = _chain(g, ms, eltype(H))
-        if c isa _Chained && length(ks) == 1
+        if c isa _Chained && size(H, 2) == 1
             _carried_back!(
                 c, _run_steps(ts, T), first(ks), acc, kb, pr, gain, coupling, H,
                 H̄, τ0, L, D
