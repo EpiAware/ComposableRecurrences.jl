@@ -4,7 +4,6 @@
 #
 # A model can run several [strata](@ref overview-step) side by side, one per place, mixed within each step.
 # Strata can also be types, as for the case types of a [branching process](@ref tutorial-branching).
-# It builds on the three-town example in [Getting started](@ref overview-build).
 
 # ## Packages used
 
