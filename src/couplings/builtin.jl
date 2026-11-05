@@ -16,25 +16,15 @@ function forward!(C::AbstractMatrix, ::Pressure, q, p, t)
     return nothing
 end
 
-# Floats: four columns per pass, in storage order, so each row's update
-# vectorises across rows and `q` is read and written once per four columns.
+# Floats: column by column, the order a column-major matrix is stored in.
+# Four columns per pass measured faster on the primal at many strata, but
+# plain Enzyme AD of that loop took up to 1.45 times as long at five.
 function _mix!(q::AbstractVector{<:AbstractFloat}, C, p)
     fill!(q, zero(eltype(q)))
-    b, last_b = first(axes(C, 2)), last(axes(C, 2))
-    @inbounds while b + 3 <= last_b
-        p1, p2, p3, p4 = p[b], p[b + 1], p[b + 2], p[b + 3]
+    @inbounds for b in axes(C, 2)
+        pb = p[b]
         for a in axes(C, 1)
-            qa = muladd(C[a, b], p1, q[a])
-            qa = muladd(C[a, b + 1], p2, qa)
-            qa = muladd(C[a, b + 2], p3, qa)
-            q[a] = muladd(C[a, b + 3], p4, qa)
-        end
-        b += 4
-    end
-    @inbounds for c in b:last_b
-        pc = p[c]
-        for a in axes(C, 1)
-            q[a] = muladd(C[a, c], pc, q[a])
+            q[a] += C[a, b] * pb
         end
     end
     return nothing
