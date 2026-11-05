@@ -1816,15 +1816,14 @@ end
         ref = ForwardDiff.gradient(pressure, [p; vec(C.M); C.a])
         C̄ = (; M = zeros(S, S), a = Ref(0.0))
         p̄ = zeros(S)
-        bufs = CR._pressure_buffers(C̄, C, Float64)
-        engine = CR._LOCAL_ENGINE => CR._EnzymeLocal()
-        with(() -> CR._pressure_back!(p̄, C̄, C, q̄, p, 1, bufs), engine)
+        bufs = CR._with_engine(CR._EnzymeLocal(), CR._pressure_buffers(C̄, C, Float64))
+        CR._pressure_back!(p̄, C̄, C, q̄, p, 1, bufs)
         @test p̄ ≈ ref[1:S]
         @test vec(C̄.M) ≈ ref[(S + 1):(S + S * S)]
         @test C̄.a[] ≈ ref[end]
         # Without the coupling's cotangent only the strata are seeded.
         p̄ = zeros(S)
-        with(() -> CR._pressure_back!(p̄, nothing, C, q̄, p, 1), engine)
+        CR._pressure_back!(p̄, nothing, C, q̄, p, 1, CR._with_engine(CR._EnzymeLocal(), nothing))
         @test p̄ ≈ ref[1:S]
         # The parameters the view reads from are untouched.
         @test θ == θ0

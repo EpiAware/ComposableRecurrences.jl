@@ -2539,10 +2539,17 @@ end
         y = @test_logs CR.adjoint_call(r, args(S)...)
         @test y ≈ CR._plain(r, args(S)...)
     end
-    # With no backend's engine set the dual numbers take every step, in as
-    # many passes as its inputs need.
-    @test CR._LOCAL_ENGINE[] === nothing
+    # With no backend's engine the dual numbers take every step, in as many
+    # passes as its inputs need. A cache holds an engine only when a rule
+    # put one there, and a step's buffers carry it only when one is set.
     @test pullback_matches(r, args(47)...; rtol = 1.0e-6)
+    @test CR._cache_engine((; a = 1)) === nothing
+    @test CR._cache_engine((; a = 1, engine = :e)) === :e
+    @test CR._cache_engine(1) === nothing
+    @test CR._with_engine(nothing, :b) === :b
+    @test CR._engine_of(CR._with_engine(:e, :b)) === :e
+    @test CR._bufs_of(CR._with_engine(:e, :b)) === :b
+    @test CR._engine_of(:b) === nothing
     @test_throws "no reverse pass" CR._reverse_pressure!(:none, nothing, nothing, C, [1.0], [1.0], 1)
     # A coupling with no float parameters keeps the rule at any size.
     struct Swap end

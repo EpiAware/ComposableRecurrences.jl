@@ -94,7 +94,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
         bufs = map((m, m̄) -> _pass_buffer(H, eltype(H), m, m̄, S, T), modifiers, m̄s)
         _steps_back!(
             accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, modifiers,
-            H, τ0, L, D, S, T
+            H, τ0, L, D, S, T, _cache_engine(c)
         )
         foreach(modifiers, m̄s, rec, bufs) do m, m̄, R, b
             _finish_pass!(m̄, m, R, b, τ0)
@@ -192,14 +192,14 @@ _coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :d
 # own slots: the pointwise modifiers and the kernel unless it is pairwise.
 function _steps_back!(
         accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, ms, H, τ0, L,
-        D, S, T
+        D, S, T, engine
     )
     acc = first(accs)
     Tp = eltype(H)
     v̄ = _zeros(H, Tp, S)
     p̄ = _zeros(H, Tp, S)
     q̄ = _zeros(H, Tp, S)
-    pbufs = _pressure_buffers(_own(acc.C̄), coupling, Tp)
+    pbufs = _with_engine(engine, _pressure_buffers(_own(acc.C̄), coupling, Tp))
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         for t in reverse(_run_steps(ts, T))

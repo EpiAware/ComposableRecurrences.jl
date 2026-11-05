@@ -7,7 +7,7 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: ComposableRecurrences, PerStratum, Pressure, Serial,
-    _ADLeaves, _Current, _EnzymeLocal, _LOCAL_ENGINE, _addparams!, _params, _rebuild,
+    _ADLeaves, _Current, _EnzymeLocal, _addparams!, _params, _rebuild,
     forward!,
     _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
@@ -15,7 +15,6 @@ using ComposableRecurrences: ComposableRecurrences, PerStratum, Pressure, Serial
     _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
-using Base.ScopedValues: with
 using LinearAlgebra: Diagonal
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 
@@ -482,7 +481,7 @@ function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
     op = _rebuild_leaves(X, _map_leaves(_val, leaves))[1]
-    with(() -> _run_pullback!(grads, op, cache), _LOCAL_ENGINE => _EnzymeLocal())
+    _run_pullback!(grads, op, _with_local_engine(cache))
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)
 end
@@ -541,6 +540,9 @@ end
 # sits in a `Ref`, so a coupling whose fields are all scalars is taken the
 # same way as one that holds arrays.
 _pressure_call!(Cr, q, p, t) = (forward!(Cr[], Pressure(), q, p, t); nothing)
+# The reverse pass's cache with this rule's engine (`_cache_engine`).
+_with_local_engine(c::NamedTuple) = merge(c, (; engine = _EnzymeLocal()))
+_with_local_engine(c) = c
 function ComposableRecurrences._reverse_pressure!(::_EnzymeLocal, p̄, C̄, C, q̄, p, t)
     x = collect(p)
     q, dq, dx = similar(x), copyto!(similar(x), q̄), zero(x)

@@ -287,12 +287,10 @@ function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
     return nothing
 end
-function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
-    n = _local_inputs(C̄, C, p)
-    if n > _LOCAL_DUALS
-        e = _LOCAL_ENGINE[]
-        _takes_local(e, n) &&
-            return Base.invokelatest(_reverse_pressure!, e, p̄, C̄, C, q̄, p, t)
+function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, eb)
+    e, bufs = _engine_of(eb), _bufs_of(eb)
+    if _takes_local(e, _local_inputs(C̄, C, p))
+        return _reverse_pressure!(e, p̄, C̄, C, q̄, p, t)
     end
     if _array_seeds(C̄, C)
         # The reverse pass makes the buffers once (`_pressure_buffers`); a
@@ -304,26 +302,36 @@ function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
 end
 _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
 # The local derivative of a step with more inputs (the strata and, when the
-# coupling is differentiated, its parameters) than the passes of dual
-# numbers handle well, taken by the backend whose rule is running: its rule
-# sets `_LOCAL_ENGINE` around the reverse pass, and its extension adds
-# `_reverse_pressure!`. Enzyme's reverse pass costs less than the dual
-# numbers past `_LOCAL_DUALS` inputs, up to the one pass the call takes the
-# rule for (`_LOCAL_PRESSURE`). Mooncake sets no engine, so its rule takes
-# the dual numbers. With no engine set, as in a direct call of `pullback!`,
-# the dual numbers take every step. A step within `_LOCAL_DUALS` inputs
-# never reads the engine.
+# coupling is differentiated, its parameters) than the dual numbers handle
+# well, taken by the backend whose rule is running: its rule puts an engine
+# in the reverse pass's cache (`_cache_engine`), the pass hands it to the
+# coupling's step with the step's buffers (`_EngineBuffers`), and its
+# extension adds `_reverse_pressure!`. Enzyme's reverse pass costs less
+# than the dual numbers past `_LOCAL_DUALS` inputs, up to the one pass the
+# call takes the rule for (`_LOCAL_PRESSURE`). Mooncake sets no engine, so
+# its rule takes the dual numbers, as does a direct call of `pullback!`.
+# The engine's type is known where it is read, so a step without one
+# compiles as before.
 const _LOCAL_DUALS = 12
 struct _EnzymeLocal end
-const _LOCAL_ENGINE = ScopedValue{Any}(nothing)
 _local_inputs(C̄, C, p) = length(p) + (C̄ === nothing ? 0 : _ninputs(C))
 _takes_local(engine, n) = false
 _takes_local(::_EnzymeLocal, n) = n > _LOCAL_DUALS
-# The engine is read at run time, so inference would see each extension's
-# method at the call: `invokelatest` hides them, so a Mooncake gradient does
-# not infer Enzyme's pass, which cost 37 s on its first call. It adds 3
-# allocations to a step that takes the pass. Only an
-# engine's extension sets it, so the fallback is not reached.
+# The engine a reverse pass's cache holds, `nothing` without one.
+_cache_engine(c::NamedTuple) = hasfield(typeof(c), :engine) ? c.engine : nothing
+_cache_engine(c) = nothing
+# A coupling step's buffers with the engine, only when one is set.
+struct _EngineBuffers{E, B}
+    engine::E
+    bufs::B
+end
+_with_engine(::Nothing, bufs) = bufs
+_with_engine(engine, bufs) = _EngineBuffers(engine, bufs)
+_engine_of(b) = nothing
+_engine_of(b::_EngineBuffers) = b.engine
+_bufs_of(b) = b
+_bufs_of(b::_EngineBuffers) = b.bufs
+# Only an engine's extension sets one, so this fallback is not reached.
 function _reverse_pressure!(engine, p̄, C̄, C, q̄, p, t)
     throw(ArgumentError("no reverse pass for a coupling's local derivative under $engine"))
 end
