@@ -108,7 +108,8 @@ end
 # == Threaded ==
 
 @doc raw"""
-Runs the indices of a loop in contiguous chunks, one task per chunk.
+Runs the indices of a loop in contiguous chunks, one task per chunk, the
+first on the calling task.
 With `m` chunks, chunk `c` covers
 
 ```math
@@ -124,9 +125,7 @@ The threshold applies to each loop.
 `min_work = 0` forces every loop of more than one index to split and is meant
 for tests of the threaded paths.
 The loops of strata that mix then split every step and start tasks every
-step, so at small sizes it runs slower than [`Serial`](@ref), by an order of
-magnitude or more.
-A split loop runs its first chunk on the calling task.
+step, so at small sizes it runs slower than [`Serial`](@ref).
 `work` counts multiply-adds.
 Operators split three kinds of loop, and count the work of each kind so
 that one `min_work` sets where each of them breaks even:
@@ -256,9 +255,8 @@ function _run_chunks(f::F, m) where {F}
     throw(ce)
 end
 
-# `f(c)`, returning `nothing`, or the exception it threw with its backtrace.
-# The exception is untyped, so the constructor that takes a raw backtrace is
-# named with `invoke`, keeping the reverse pass free of runtime dispatch.
+# `f(c)`, or the exception it threw with its backtrace; `invoke` keeps the
+# untyped exception from adding runtime dispatch to the reverse pass.
 function _caught(f::F, c) where {F}
     try
         f(c)

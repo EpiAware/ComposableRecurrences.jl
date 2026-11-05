@@ -382,8 +382,9 @@ end
     # Every other chunk ran to the end before the error was raised.
     @test done[3:8] == ones(Int, 6)
     # The first chunk runs on the calling task and the others on new tasks;
-    # a failure on either side, or on both, is raised once every chunk ends.
-    for bad in ((8,), (2, 8))
+    # a failure on either side, or on both, is raised once every chunk ends,
+    # the calling task's first.
+    for bad in ((2,), (8,), (2, 8))
         fill!(done, 0)
         function fails!(k, done)
             k in bad && error("chunk failed")
@@ -399,6 +400,11 @@ end
         @test err isa CompositeException
         @test length(err.exceptions) == length(bad)
         @test count(==(1), done) == 8 - length(bad)
+        @test (first(err.exceptions) isa CapturedException) == (2 in bad)
+        spawned = count(e -> e isa TaskFailedException, err.exceptions)
+        @test spawned == (8 in bad)
+        msgs = map(e -> sprint(showerror, e), err.exceptions)
+        @test all(m -> occursin("chunk failed", m), msgs)
     end
     @test CR._nchunks(ex, 2) == 2
     @test CR._nchunks(CR.Threaded(), 100) == min(Threads.nthreads(), 100)
