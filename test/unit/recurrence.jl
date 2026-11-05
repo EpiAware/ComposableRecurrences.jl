@@ -578,6 +578,10 @@ end
         for i in 1:3
             @test ForwardDiff.partials.(qd, i) ≈ C * ForwardDiff.partials.(pd, i)
         end
+        Ci, pi_ = rand(rng, 0:3, m, n), rand(rng, 0:3, n)
+        qi = zeros(Int, m)
+        CR.forward!(Ci, CR.Pressure(), qi, pi_, 1)
+        @test qi == Ci * pi_
     end
 end
 

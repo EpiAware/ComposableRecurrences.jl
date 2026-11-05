@@ -17,8 +17,7 @@ function forward!(C::AbstractMatrix, ::Pressure, q, p, t)
 end
 
 # Floats: column by column, the order a column-major matrix is stored in.
-# Four columns per pass measured faster on the primal at many strata, but
-# plain Enzyme AD of that loop took up to 1.45 times as long at five.
+# A loop blocked by columns costs more under plain reverse-mode AD.
 function _mix!(q::AbstractVector{<:AbstractFloat}, C, p)
     fill!(q, zero(eltype(q)))
     @inbounds for b in axes(C, 2)
@@ -31,8 +30,7 @@ function _mix!(q::AbstractVector{<:AbstractFloat}, C, p)
 end
 
 # Other numbers, such as dual numbers: four rows per pass, summed in locals
-# and stored once, since loading and storing a wide number on every column
-# costs more than the column-major reads it saves.
+# and stored once, so a wide number is not loaded and stored per column.
 function _mix!(q, C, p)
     a, last_a = first(axes(C, 1)), last(axes(C, 1))
     @inbounds while a + 3 <= last_a
