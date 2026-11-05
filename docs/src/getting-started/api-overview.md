@@ -80,6 +80,8 @@ The method [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one.
 The method [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
 By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 steps.
 
+An operator, modifier or shape wrapper prints as one line with its size and parts, such as `Convolution(7 lags)` for `delay`.
+
 ## [Calls](@id overview-calls)
 
 A call runs an operator over a range of steps.
@@ -88,7 +90,7 @@ In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in Get
 
 ```julia
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4, history = seed)
 ```
 
 A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the time the next step computes.
@@ -99,11 +101,21 @@ A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a
 | [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from step `start` to step `stop` | an array shaped like `x` |
 | [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as the reports at each time split by delay | lags × time, or strata × lags × time |
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each time, with `tail` the values after the end of `x` | an array shaped like `x` |
-| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y` | shaped like `y` |
+| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y`; `y` divided by it is the gain as run, such as the [reproduction number](@ref tutorial-reproduction-number) | shaped like `y` |
 | [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
 | [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
 | [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did at each step | `(; y, trace)` |
 | [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
+
+The transpose sums forward in time from each ``t``.
+For a reporting delay ``w_l`` over ``L_w`` lags and data up to time ``T``, the share of the infections at time ``t`` reported by ``T`` is
+
+```math
+c_t = \sum_{l=0}^{\min(L_w, T - t + 1) - 1} w_l ,
+```
+
+and `delay'(ones(T))` returns ``c_1, \dots, c_T``.
+For a delay whose weights sum to 1, it is 1 up to ``T - L_w + 1`` and falls to ``w_0`` at ``T``.
 
 Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is.
 So the gain at time ``t`` is always `gain[t]`.
@@ -112,8 +124,6 @@ Inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step.
 The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
-Without modifiers or `add`, the outputs divided by their pressure, `y ./ pressure(renewal, y; history)`, are the gain at each time ``t``.
-In a renewal model this is the reproduction number, and with a `Depletion` the effective reproduction number.
 
 ## [Shapes](@id overview-shapes)
 
@@ -138,7 +148,7 @@ Each route has its own kernel and its own coupling.
 | [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes over time, with time as the last index |
 | [`TimeVarying(P, Primary())`](@ref ComposableRecurrences.Primary) | a time-varying kernel whose column ``\tau`` belongs to input time ``\tau`` |
 | [`Derived(f, args...)`](@ref ComposableRecurrences.Derived) | a parameter computed by `f` from other parameters, or a cohort kernel computed inside the operator, `TimeVarying(Derived(f, args...), Primary())` |
-| [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a computed kernel's lags against a hazard `h`, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())`; [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns a computed kernel's weights as an array |
+| [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a computed kernel's lags against a hazard `h`, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())` |
 | [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and time |
 
 A `Pairwise` kernel, as an array or as routes, mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
@@ -155,7 +165,32 @@ The parameter `Recent(7; coupling = K)` mixes the recent outputs between strata.
 Wrappers combine: `TimeVarying(PerStratum(G))` is a strata × lags × time kernel.
 Most wrappers hold the stored array without copying it.
 A bare vector where a single value is expected is an error that names the wrapper to use.
-Inputs and outputs are strata × time arrays, histories are strata × time before the run, and none of them is wrapped.
+Inputs and outputs are strata × time arrays, or a vector for a single series, and histories are the same before the run.
+None of them is wrapped.
+The call's `gain` and `add` are data too, and take three shapes:
+
+| Shape | What it means |
+|:--|:--|
+| scalar | one value for every stratum and time |
+| length-`T` vector | one value per time, shared by every stratum |
+| `S × T` matrix | one value per stratum and time |
+
+A bare vector is always read as time, so a value per stratum that is constant over time is written `repeat(ρ, 1, T)`, with `ρ` a vector of `S` values.
+For a convolution without `add` the same is `ρ .* c(x)`, which scales row `i` of the `S × T` output by `ρ[i]`.
+In a recurrence a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Where the coupling acts](@ref explanation-coupling) shows.
+
+```jldoctest
+using ComposableRecurrences
+ρ, T = [1.0, 2.0], 3
+h = ones(2, 1)
+by_gain = Recurrence([0.5])(repeat(ρ, 1, T); history = h)
+by_rows = Recurrence([0.5]; coupling = ρ .* [1 0; 0 1])(; history = h, stop = T)
+by_gain == by_rows
+
+# output
+
+true
+```
 
 ## [Delay distributions](@id overview-delays)
 

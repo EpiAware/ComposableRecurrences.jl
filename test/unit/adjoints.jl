@@ -1655,6 +1655,23 @@ end
     )
 end
 
+@testitem "Adjoint: coupling pullback on a matrix view and a time-varying view" setup = [AdjointCheck] begin
+    # A coupling that is not a dense `Array` takes the generic loop; its
+    # cotangents match the transposed products.
+    rng = Xoshiro(6)
+    A, X = randn(rng, 3, 3), randn(rng, 3, 3, 4)
+    p, q̄, t = randn(rng, 3), randn(rng, 3), 2
+    for (C, M, m̄, read) in (
+            (view(A, :, :), A, zeros(3, 3), identity),
+            (TimeVarying(view(X, :, :, :)), X[:, :, t], (; x = zeros(3, 3, 4)), m -> m.x[:, :, t]),
+        )
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, t)
+        @test p̄ ≈ transpose(M) * q̄
+        @test read(m̄) ≈ q̄ * transpose(p)
+    end
+end
+
 @testitem "Adjoint: local pullback over structured and nested parameters" setup = [ReferenceAD, AdjointCheck] begin
     # The local Jacobian of a pointwise modifier with array parameters: a
     # Diagonal, a sparse matrix, a named tuple and a tuple holding an array,

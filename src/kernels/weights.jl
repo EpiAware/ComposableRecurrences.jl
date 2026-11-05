@@ -571,12 +571,11 @@ _weights_cotangent(x̄, K) = zero(K)
 
 # ---- arithmetic --------------------------------------------------------------
 
-# Arithmetic with a `Survival` on either side lowers to `Derived`, as with
-# a `Derived`.
-for op in (:+, :-, :*, :/, :^)
+# Arithmetic with a `Survival` on either side lowers to `Derived`, for the
+# four operations a kernel has closed-form partials for.
+for op in (:+, :-, :*, :/)
     @eval begin
         Base.$op(a::Survival, b::Union{_Operand, _Computed}) = Derived($op, a, b)
         Base.$op(a::Union{_Operand, Derived}, b::Survival) = Derived($op, a, b)
     end
 end
-Base.:-(a::Survival) = Derived(-, a)
