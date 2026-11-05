@@ -1674,7 +1674,6 @@ push!(
         () -> _flat(reverse(G0), -1 .+ 0.3 .* W1, 1 .+ LOGR),
     ),
     (
-        "Kernel weights of a survival against a delay and calendar hazard",
         _computed_table,
         () -> _flat(-1 .+ 0.2 .* (1:L), 0.3 .* sin.(1:(T + L - 1))),
     ),
@@ -2354,8 +2353,7 @@ end
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
     # A traced number is not a `Real`, so the checks on a scalar parameter,
-    # a heterogeneity exponent, a softness or a computed kernel's
-    # coefficient refuse it.
+    # a heterogeneity exponent or a softness refuse it.
     "traced scalar refused by a parameter check" => [
         "Recurrence depletion with a differentiated heterogeneity",
         "Recurrence floored depletion with a differentiated heterogeneity",
@@ -2374,9 +2372,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace of a ward's flows",
         "Recurrence capacity, dropped overflow after a truncated draw",
         "Recurrence depletion with smoothly truncated draws",
-        "Convolution kernel from a hazard and a survival",
         "Kernel weights of a survival against a delay and calendar hazard",
-        "Recurrence kernel shortened by a survival",
     ],
     # `Recent` and `Derived` have no arithmetic with, or constructor from,
     # traced values.
