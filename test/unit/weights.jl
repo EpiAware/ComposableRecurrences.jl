@@ -303,6 +303,28 @@ end
     end
 end
 
+@testitem "Computed kernels: a survival scratch's row is fixed by the hazard's type" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    S, L, T = 3, 4, 6
+    plain = [0.1, 0.2, 0.3, 0.4]
+    hazards = (
+        plain, PerStratum(rand(S, L)), TimeVarying(rand(T)),
+        TimeVarying(PerStratum(rand(S, T))), CR.Derived(exp, plain),
+        CR.Derived(*, 0.5, PerStratum(rand(S, L))),
+        CR.Derived(+, CR.Derived(exp, plain), TimeVarying(PerStratum(rand(S, T)))),
+    )
+    for h in (hazards..., CR.Survival(plain), CR.Survival(PerStratum(rand(S, L))))
+        # The type's answer agrees with the strata count the values give.
+        @test CR._stratified_type(typeof(h)) == (CR._coef_strata(h) > 0)
+        @test CR._stratified(h) === CR._stratified_type(typeof(h))
+    end
+    for h in hazards
+        sc = @inferred CR._scratch(CR.Survival(h), Float64, L)
+        @test sc isa CR._SurvivalScratch{CR._stratified_type(typeof(h))}
+    end
+end
+
 @testitem "Computed kernels: each rule's pullback against a Jacobian" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
