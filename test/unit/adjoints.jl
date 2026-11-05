@@ -231,6 +231,31 @@ end
     @test pullback_matches(r, recargs(R, nothing, rand(rng, L); start = 4)...)
 end
 
+@testitem "Adjoint: Recurrence, single series through pointwise modifiers" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    rng = Xoshiro(8)
+    L, T = 3, 9
+    # A fixed kernel and one given by change points, whose runs each carry
+    # the last value; a gain with and without additions, and later starts.
+    kernels = (
+        rand(rng, L) ./ 2,
+        TimeVarying([1 => rand(rng, L) ./ 2, 4 => rand(rng, L) ./ 2, 7 => rand(rng, 2)]),
+    )
+    modifiers = (
+        (CR.Transform(clamp, 0.0, 2.0),),
+        (CR.Depletion(50.0),),
+        (CR.Depletion(50.0), CR.Transform(clamp, 0.0, 2.0)),
+    )
+    R = 0.8 .+ rand(rng, T)
+    ϵ = rand(rng, T)
+    for g in kernels, ms in modifiers, start in (1, 5, 8), add in (nothing, ϵ)
+        r = Recurrence(g; modifiers = ms)
+        h = 1 .+ rand(rng, L)
+        @test pullback_matches(r, recargs(R, add, h; start)...)
+    end
+end
+
 @testitem "Adjoint: Recurrence, unit lag-1" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(5)
