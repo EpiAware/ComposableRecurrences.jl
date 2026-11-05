@@ -1312,7 +1312,7 @@ function _series_body!(
     )
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         c = _chain(g, ms, eltype(H))
-        if c isa _Chained && length(ks) == 1
+        if c isa _Chained && size(H, 2) == 1
             _carried_run!(
                 c, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
                 τ0, L, D
@@ -1335,7 +1335,9 @@ end
 
 # A chained run of one stratum carries its last value from step to step.
 # More strata interleave, time outermost, which overlaps their waits on
-# their own last values. The row before the run is the history's, or none
+# their own last values; a block of one stratum among several, as a
+# threaded run splits them, interleaves too, so it rounds as the serial run
+# does. The row before the run is the history's, or none
 # for a run with no lags, which reads no value.
 function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     row = D + first(steps) - 1
