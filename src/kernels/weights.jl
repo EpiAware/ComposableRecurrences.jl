@@ -222,8 +222,7 @@ end
 # dense kernel keeps every block instead.
 const _BLOCK = 32
 
-# `P` is whether the hazard has a strata axis: without one every stratum
-# reads row 1, fixed by the type so each entry's index folds.
+# `P` is whether the hazard has a strata axis; without one, row 1 serves all.
 struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
     hazard::C
     S::A
