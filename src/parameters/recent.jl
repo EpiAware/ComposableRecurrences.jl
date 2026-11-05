@@ -182,13 +182,33 @@ struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
         return new{R, B, G, U, I, Z, M}(x, H, H̄, o, u, row, z, w̄)
     end
 end
-function _BoundRecent(x::Recent, H, H̄, o)
+function _BoundRecent(x::Recent, H, H̄, o, shared)
     C = x.coupling
     _check_recent_strata(C, size(H, 2))
-    return _BoundRecent(
-        x, H, H̄, o, _window_cache(C, H), _row_slot(C), _window_cache(C, H),
-        _mirror_slot(C, x.w)
-    )
+    u, row, z = _windows!(shared, C, x.w, H)
+    return _BoundRecent(x, H, H̄, o, u, row, z, _mirror_slot(C, x.w))
+end
+# The windows `u`, their row and their cotangents `z` of a coupled read.
+# Coupled `Recent(n)` reads with the same `n` in one call hold the same
+# windows, whatever their couplings, and their weights take no cotangent,
+# so they share one set (`shared`, by `n`): a step fills and flushes it
+# once.
+_windows!(shared, ::Nothing, w, H) = nothing, nothing, nothing
+function _windows!(shared, C, w, H)
+    return _window_cache(C, H), _row_slot(C), _window_cache(C, H)
+end
+function _windows!(shared, C::AbstractMatrix, w::_Ones, H)
+    for (n, u, row, z) in shared
+        n == w.n && return u, row, z
+    end
+    u, row, z = _window_cache(C, H), _row_slot(C), _window_cache(C, H)
+    push!(shared, (w.n, u, row, z))
+    return u, row, z
+end
+# The shared windows of one call, empty until a coupled `Recent(n)` binds.
+function _shared_windows(H)
+    U = typeof(_window_cache(true, H))
+    return Tuple{Int, U, Base.RefValue{Int}, U}[]
 end
 _window_cache(::Nothing, H) = nothing
 _window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
@@ -273,6 +293,7 @@ end
 # per step and before the strata read them.
 _refresh!(x, i) = _each_coupled(b -> _refresh_one!(b, i), x)
 function _refresh_one!(b::_BoundRecent, i)
+    _cached(b, i) && return nothing
     u, w, H = b.u, b.x.w, b.H
     for j in axes(H, 2)
         u[j] = _recent_window(w, H, i, j)
@@ -297,6 +318,9 @@ function _flush_one!(b::_BoundRecent)
         _recent_back!(nothing, b.x.w, b.H, b.H̄, z[j], i, j)
         z[j] = zero(eltype(z))
     end
+    # Flushed: a read sharing these windows flushes nothing more, and the
+    # next step fills them again.
+    _cache_row!(b, 0)
     return nothing
 end
 # The weights' cotangent, `w̄_l += Σ_j z_j y_{i-l,j}`; behind a function
@@ -398,20 +422,24 @@ end
 @generated _coupled_reads(x) = Expr(:tuple, _coupled_paths(x, :x)...)
 
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
-# rebuilding only the values that hold one.
+# rebuilding only the values that hold one, with one set of shared windows
+# for the call (`_windows!`).
 _bind(x, H, H̄, o) = _bind(Val(_reads_outputs(x)), x, H, H̄, o)
 _bind(::Val{false}, x, H, H̄, o) = x
-_bind(::Val{true}, x::Recent, H, H̄, o) = _BoundRecent(x, H, H̄, o)
-_bind(::Val{true}, x::_BoundRecent, H, H̄, o) = _BoundRecent(x.x, H, H̄, o)
-_bind(::Val{true}, x::Tuple, H, H̄, o) = map(y -> _bind(y, H, H̄, o), x)
-function _bind(::Val{true}, x::NamedTuple{K}, H, H̄, o) where {K}
-    return NamedTuple{K}(_bind(Tuple(x), H, H̄, o))
+_bind(::Val{true}, x, H, H̄, o) = _bound(x, H, H̄, o, _shared_windows(H))
+_bound(x, H, H̄, o, s) = _bound(Val(_reads_outputs(x)), x, H, H̄, o, s)
+_bound(::Val{false}, x, H, H̄, o, s) = x
+_bound(::Val{true}, x::Recent, H, H̄, o, s) = _BoundRecent(x, H, H̄, o, s)
+_bound(::Val{true}, x::_BoundRecent, H, H̄, o, s) = _BoundRecent(x.x, H, H̄, o, s)
+_bound(::Val{true}, x::Tuple, H, H̄, o, s) = map(y -> _bound(y, H, H̄, o, s), x)
+function _bound(::Val{true}, x::NamedTuple{K}, H, H̄, o, s) where {K}
+    return NamedTuple{K}(_bound(Tuple(x), H, H̄, o, s))
 end
-function _bind(::Val{true}, x::Derived, H, H̄, o)
-    return Derived(x.f, _bind(x.args, H, H̄, o))
+function _bound(::Val{true}, x::Derived, H, H̄, o, s)
+    return Derived(x.f, _bound(x.args, H, H̄, o, s))
 end
-function _bind(::Val{true}, x, H, H̄, o)
-    fs = map(f -> _bind(f, H, H̄, o), Tuple(ConstructionBase.getfields(x)))
+function _bound(::Val{true}, x, H, H̄, o, s)
+    fs = map(f -> _bound(f, H, H̄, o, s), Tuple(ConstructionBase.getfields(x)))
     return constructorof(typeof(x))(fs...)
 end
 
