@@ -1013,6 +1013,10 @@ so ``c_{t,i,l}`` is the part of the input at time ``t - l`` that arrives
 at ``t``: a reporting triangle by arrival time.
 Terms whose input is before the history, or past a ragged column's end,
 are zero.
+A kernel computed from coefficients (`TimeVarying(d, Primary())` with `d` a
+[`ComposableRecurrences.Derived`](@ref) or a
+[`ComposableRecurrences.Survival`](@ref)) is an `ArgumentError`: pass the
+dense kernel of its weights, `TimeVarying(K, Primary())`.
 
 Takes the arguments of a call of `c` except `add`, which no lag carries.
 The output is `L × T` for a single series and `S × L × T` for `S` strata,
