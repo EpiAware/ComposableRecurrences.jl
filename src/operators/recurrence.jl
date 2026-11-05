@@ -1196,7 +1196,15 @@ function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
-_record_states!(R::AbstractMatrix, s, t) = (copyto!(view(R, :, t), s); nothing)
+_record_states!(R::AbstractMatrix, s, t) = _copy_column!(R, s, t)
+# Column `t` of `R` from `x`, by linear offset: a copy into a column view
+# takes `copyto!`'s generic path, whose checks cost more than the step's
+# short copy, where the offset form is one block copy for host and device
+# arrays alike.
+function _copy_column!(R, x, t)
+    copyto!(R, (t - 1) * size(R, 1) + 1, x, firstindex(x), length(x))
+    return nothing
+end
 _record_states!(R::AbstractVector, s, t) = nothing
 _record_states!(::Nothing, s, t) = nothing
 # The recorded state of stratum `k` entering step `t`, and of every stratum.
@@ -1213,7 +1221,7 @@ function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
 function _stage_rec!(R, m, v, s, τ, t)
-    copyto!(view(R.V, :, t), v)
+    _copy_column!(R.V, v, t)
     _record_states!(R.S, s, t)
     _stage!(m, v, s, τ)
     _record_states!(R.A, s, t)
