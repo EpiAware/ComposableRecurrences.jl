@@ -38,7 +38,8 @@ const _FlowHazard = Hazard{Nothing, Nothing, Nothing, _Drop}
 const _FlowCount = Truncate{<:Any, Nothing, Nothing, _Drop}
 const _FlowForm = Union{_FlowHazard, Share, _FlowCount}
 
-# Marks the constructor of a flow placed among its pools.
+# Marks the inner constructor of a flow whose ends `P` are already checked,
+# which, unlike an outer function, can build the type with `new`.
 struct _Placed end
 
 @doc raw"""
@@ -165,12 +166,7 @@ function _flow_demand(demand, form)
     return d
 end
 
-# A flow's ends, read from its type `P = (from, to)`, so that the step's
-# comparisons with them and its reads at them fold where the pool index is
-# a constant, as in an `ntuple` over the pools. Literal ends, as in
-# `Flow(:S => :V, r)`, reach the type by constant propagation, and placing
-# a flow among its pools reads them there, so a `Depletion` of such flows
-# infers.
+# A flow's ends, read from its type, so the step's selects at them fold.
 _from(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[1]
 _to(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[2]
 # A rebuild from its fields, as a local derivative makes, keeps its ends.
@@ -202,6 +198,8 @@ end
     )
 end
 
+# Literal ends, as in `Flow(:S => :V, r)`, reach the type by constant
+# propagation, so a `Depletion` of such flows infers.
 Base.@constprop :aggressive function Flow(pools::Pair, demand; form = Hazard())
     return Flow(_end(pools.first), _end(pools.second), demand, form)
 end
@@ -246,14 +244,15 @@ end
 # not a pool or a position past the last.
 _end_position(x::Int, names) = x == 0 || x <= length(names) ? x : nothing
 _end_position(x::Symbol, names) = findfirst(==(x), names)
-# After its helpers: a generator sees only the methods defined before it.
+# After `_end_position`: a generator sees only the methods defined before
+# it, so it cannot use `_position`, which `pool.jl` defines later.
 @generated function _positions(::Val{P}, ::Val{names}) where {P, names}
     return (_end_position(P[1], names), _end_position(P[2], names))
 end
 @noinline function _unknown_pool(x, names, f)
     throw(
         ArgumentError(
-            "Flow($(repr(f.from)) => $(repr(f.to))) names pool $(repr(x)), " *
+            "Flow($(repr(_from(f))) => $(repr(_to(f)))) names pool $(repr(x)), " *
                 "but the pools are $(repr(names))"
         )
     )
@@ -702,7 +701,7 @@ struct _Named
     from::Int
     to::Int
 end
-_Named(name, f::Flow) = _Named(name, f.from, f.to)
+_Named(name, f::Flow) = _Named(name, _from(f), _to(f))
 function Base.print(io::IO, n::_Named)
     return print(io, n.name, " of Flow(", n.from, " => ", n.to, ")")
 end
