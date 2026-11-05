@@ -31,6 +31,10 @@
 #   REACTANT_STEPS      comma-separated numbers of steps T for the
 #                       hand-written cases (default "20,400")
 #   REACTANT_REUSE      "1" rebuilds RESULTS.md and the tests from results.tsv
+#   REACTANT_RESULTS    a name for a run with its own results, such as "gpu":
+#                       it reads and writes results-<name>.tsv and
+#                       RESULTS-<name>.md, so a GPU run does not change the
+#                       CPU results the weekly job compares against
 using Test, Dates, Printf
 import Pkg
 include(joinpath(@__DIR__, "registry.jl"))
@@ -285,7 +289,11 @@ function expected(r)
     return registry_works(r.name)
 end
 
-const RAW = joinpath(@__DIR__, "results.tsv")
+const RESULTS_NAME = get(ENV, "REACTANT_RESULTS", "")
+results_file(stem, ext) = joinpath(
+    @__DIR__, isempty(RESULTS_NAME) ? "$stem.$ext" : "$stem-$RESULTS_NAME.$ext"
+)
+const RAW = results_file("results", "tsv")
 if get(ENV, "REACTANT_REUSE", "") == "1"
     results, elapsed = read_raw(RAW)
 else
@@ -312,7 +320,7 @@ else
     end
     write_raw(RAW, results, elapsed)
 end
-write_results(joinpath(@__DIR__, "RESULTS.md"), results, elapsed)
+write_results(results_file("RESULTS", "md"), results, elapsed)
 @printf("Total %.1f min\n", elapsed / 60)
 
 @testset "Reactant support" begin
