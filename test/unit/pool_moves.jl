@@ -303,7 +303,8 @@ end
     for T in (Float32, Float64), H in Hs
         x = T(H)
         E, gx = CR._leave(x)
-        @test gx isa T
+        @test E isa T && gx isa T
+        @test E ≈ T(exp(-big(x))) rtol = 2 * eps(T)
         @test gx ≈ T(g(big(x))) rtol = 8 * eps(T)
         @test CR._leave_slope(x, E, gx) ≈ T(g′(big(x))) rtol = sqrt(eps(T))
     end

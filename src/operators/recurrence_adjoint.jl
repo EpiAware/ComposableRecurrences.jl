@@ -142,6 +142,14 @@ function _series_back!(
     end
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
+        c = _chain(g, ms, eltype(H))
+        if c isa _Chained && size(H, 2) == 1
+            _carried_back!(
+                c, _run_steps(ts, T), first(ks), acc, kb, pr, gain, coupling, H,
+                H̄, τ0, L, D
+            )
+            continue
+        end
         for t in reverse(_run_steps(ts, T))
             τ = τ0 + t - 1
             for k in ks
@@ -155,6 +163,45 @@ function _series_back!(
     end
     return nothing
 end
+
+# A chained run of one stratum in reverse carries the cotangent each step
+# sends to its last value, rather than adding it into `H̄` and reading it
+# back, and adds the run's last into the row before its first step. That
+# cotangent is the step's times the gain, the coefficient and the newest
+# weight together, so each step waits on one fused multiply-add.
+function _carried_back!(
+        c, steps, k, acc, kb, pr, gain, coupling, H, H̄, τ0, L, D
+    )
+    carry = zero(eltype(H̄))
+    w = _stratum_weights(c.g, k)
+    newest = L >= 1 ? @inbounds(w[L]) : zero(eltype(w))
+    kw = _stratum_buffer(kb, c.g, k)
+    for t in reverse(steps)
+        carry = _chained_back!(
+            w, newest, kw, acc, pr, gain, coupling, H, H̄, carry, t,
+            τ0 + t - 1, L, D, k
+        )
+    end
+    row = D + first(steps) - 1
+    row >= 1 && @inbounds(H̄[row, k] += carry)
+    return nothing
+end
+# Stratum `k` at step `t` of a chained run in reverse, given the cotangent
+# `carry` the step after it sends to its value; returns the cotangent this
+# step sends to the value before it.
+@inline function _chained_back!(
+        w, newest, kw, acc, pr, gain, C, H, H̄, carry, t, τ, L, D, k
+    )
+    h̄ = @inbounds H̄[D + t, k]
+    p̄ = _core_back!(acc, h̄ + carry, pr, gain, C, t, τ, k)
+    L >= 1 || return zero(carry)
+    _older_back!(kw, w, p̄, H, H̄, t + D - L - 1, L, k)
+    β = @inbounds _at(gain, k, τ) * _coef(C, k) * newest
+    return muladd(β, carry, β * h̄)
+end
+_stratum_buffer(kb::AbstractMatrix, ::AbstractVector, k) = view(kb, :, k)
+_stratum_buffer(kb::AbstractMatrix, ::PerStratum, k) = view(kb, k, :)
+_stratum_buffer(::Nothing, g, k) = nothing
 
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, then `_gain_add_back!`.
@@ -439,18 +486,22 @@ end
 @inline function _window_back!(kbuf, g, a, H, H̄, t, L, k)
     L >= 1 || return nothing
     @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
-    @inbounds kbuf[L] = muladd(a, H[t + L - 1, k], kbuf[L])
+    _older_back!(kbuf, g, a, H, H̄, t - 1, L, k)
+    return nothing
+end
+# The rest of `_window_back!` for the window after row `o`: the kernel's
+# cotangent, and the older lags' rows of `H̄`.
+@inline function _older_back!(kbuf, g, a, H, H̄, o, L, k)
+    @inbounds kbuf[L] = muladd(a, H[o + L, k], kbuf[L])
     @inbounds @simd ivdep for i in 1:(L - 1)
-        kbuf[i] += a * H[t + i - 1, k]
-        H̄[t + i - 1, k] += a * g[i]
+        kbuf[i] += a * H[o + i, k]
+        H̄[o + i, k] += a * g[i]
     end
     return nothing
 end
-@inline function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
-    L >= 1 || return nothing
-    @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
+@inline function _older_back!(::Nothing, g, a, H, H̄, o, L, k)
     @inbounds @simd ivdep for i in 1:(L - 1)
-        H̄[t + i - 1, k] += a * g[i]
+        H̄[o + i, k] += a * g[i]
     end
     return nothing
 end
