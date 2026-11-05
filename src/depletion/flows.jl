@@ -38,7 +38,8 @@ const _FlowHazard = Hazard{Nothing, Nothing, Nothing, _Drop}
 const _FlowCount = Truncate{<:Any, Nothing, Nothing, _Drop}
 const _FlowForm = Union{_FlowHazard, Share, _FlowCount}
 
-# Marks the constructor of a flow placed among its pools.
+# Marks the inner constructor of a flow whose ends `P` are already checked,
+# which, unlike an outer function, can build the type with `new`.
 struct _Placed end
 
 @doc raw"""
@@ -132,52 +133,66 @@ struct Flow{D, F <: _FlowForm, E, P}
     "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `Truncate(κ)`."
     form::F
     Base.@constprop :aggressive function Flow(from, to, demand, form::F) where {F}
-        _check_end(:from, from)
-        _check_end(:to, to)
-        from == to && throw(
-            ArgumentError(
-                "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
-            )
-        )
-        form isa _FlowForm || _bad_flow_form(form)
-        from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
-            ArgumentError(
-                "a flow from outside the Depletion is a count, with form Truncate() " *
-                    "or Truncate(κ), got $(_describe(form))"
-            )
-        )
+        d = _check_flow(from, to, demand, form)
+        # A share is a fraction of the pool it leaves.
+        form isa Share && _check_unit(:demand, d)
         E = Union{typeof(from), typeof(to)}
-        d = _flow_demand(demand, form)
         return new{typeof(d), F, E, (from, to)}(from, to, d, form)
     end
     # A flow with ends `P` already checked, such as one placed among its
-    # `Depletion`'s pools or rebuilt from its fields.
+    # `Depletion`'s pools or rebuilt from its fields. A kernel launch
+    # adapts the demand to device arrays, which the host cannot read entry
+    # by entry, so this checks everything but those entries: a number's
+    # share is still checked.
     function Flow(::_Placed, ::Type{E}, ::Val{P}, demand, form::F) where {E, P, F}
-        d = _flow_demand(demand, form)
+        d = _check_flow(P[1], P[2], demand, form)
+        form isa Share && d isa Real && _check_unit(:demand, d)
         return new{typeof(d), F, E, P}(P[1], P[2], d, form)
     end
 end
 
-# The demand as a parameter; a share is a fraction of the pool it leaves.
-function _flow_demand(demand, form)
-    d = _check_param(:demand, demand)
-    form isa Share && _check_unit(:demand, d)
-    return d
+# The checks on a flow's ends, form and demand that read no demand entries;
+# returns the demand.
+function _check_flow(from, to, demand, form)
+    _check_end(:from, from)
+    _check_end(:to, to)
+    from == to && throw(
+        ArgumentError(
+            "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
+        )
+    )
+    form isa _FlowForm || _bad_flow_form(form)
+    from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
+        ArgumentError(
+            "a flow from outside the Depletion is a count, with form Truncate() " *
+                "or Truncate(κ), got $(_describe(form))"
+        )
+    )
+    return _check_param(:demand, demand)
 end
 
-# A flow's ends, read from its type `P = (from, to)`, so that the step's
-# comparisons with them and its reads at them fold where the pool index is
-# a constant, as in an `ntuple` over the pools. Literal ends, as in
-# `Flow(:S => :V, r)`, reach the type by constant propagation, and placing
-# a flow among its pools reads them there, so a `Depletion` of such flows
-# infers.
+# A flow's ends, read from its type, so the step's selects at them fold.
 _from(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[1]
 _to(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[2]
-# A rebuild from its fields, as a local derivative makes, keeps its ends.
+# A rebuild from its fields, as a local derivative or a kernel launch
+# makes, keeps its ends, so its type infers; new ends make a new `Flow`.
 function ConstructionBase.constructorof(
         ::Type{<:Flow{<:Any, <:Any, E, P}}
     ) where {E, P}
-    return (from, to, d, form) -> Flow(_Placed(), E, Val(P), d, form)
+    return function (from, to, d, form)
+        (from, to) == P || _moved_ends(from, to, d, form)
+        return Flow(_Placed(), E, Val(P), d, form)
+    end
+end
+
+@noinline function _moved_ends(from, to, d, form)
+    _check_flow(from, to, d, form)
+    throw(
+        ArgumentError(
+            "a rebuilt flow keeps its ends, got $(repr(from)) => $(repr(to)); " *
+                "build a new Flow to move them"
+        )
+    )
 end
 
 @noinline function _bad_flow_form(form)
@@ -202,6 +217,8 @@ end
     )
 end
 
+# Literal ends, as in `Flow(:S => :V, r)`, reach the type by constant
+# propagation, so a `Depletion` of such flows infers.
 Base.@constprop :aggressive function Flow(pools::Pair, demand; form = Hazard())
     return Flow(_end(pools.first), _end(pools.second), demand, form)
 end
@@ -246,14 +263,15 @@ end
 # not a pool or a position past the last.
 _end_position(x::Int, names) = x == 0 || x <= length(names) ? x : nothing
 _end_position(x::Symbol, names) = findfirst(==(x), names)
-# After its helpers: a generator sees only the methods defined before it.
+# After `_end_position`: a generator sees only the methods defined before
+# it, so it cannot use `_position`, which `pool.jl` defines later.
 @generated function _positions(::Val{P}, ::Val{names}) where {P, names}
     return (_end_position(P[1], names), _end_position(P[2], names))
 end
 @noinline function _unknown_pool(x, names, f)
     throw(
         ArgumentError(
-            "Flow($(repr(f.from)) => $(repr(f.to))) names pool $(repr(x)), " *
+            "Flow($(repr(_from(f))) => $(repr(_to(f)))) names pool $(repr(x)), " *
                 "but the pools are $(repr(names))"
         )
     )
@@ -705,7 +723,7 @@ struct _Named
     from::Int
     to::Int
 end
-_Named(name, f::Flow) = _Named(name, f.from, f.to)
+_Named(name, f::Flow) = _Named(name, _from(f), _to(f))
 function Base.print(io::IO, n::_Named)
     return print(io, n.name, " of Flow(", n.from, " => ", n.to, ")")
 end

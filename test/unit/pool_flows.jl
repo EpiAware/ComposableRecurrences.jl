@@ -269,6 +269,14 @@ end
     # A rebuild from the fields, as a local derivative makes, keeps them.
     q = ConstructionBase.constructorof(typeof(p[1]))(2, 1, 0.3, p[1].form)
     @test typeof(q) == typeof(p[1]) && q.demand == 0.3
+    # The placed type infers from the flow's type, wherever the flow was
+    # built, and so does a call of a recurrence holding it.
+    # Imported by name: a global alias of the module would not infer.
+    using ComposableRecurrences: Depletion, Flow, Hazard
+    place(f) = Depletion(500.0, Hazard(), f, Flow(:S => 0, 0.2); pools = (:S, :V))
+    @test (@inferred place(f)) isa CR.Depletion
+    rec = Recurrence([0.5]; modifiers = (place(f),))
+    @test (@inferred rec(fill(2.0, 6); history = [5.0])) isa Vector{Float64}
     # Ends known only at run time still build and run the same.
     ends = (:V, :S)
     g = CR.Flow(ends[1] => ends[2], 0.1)

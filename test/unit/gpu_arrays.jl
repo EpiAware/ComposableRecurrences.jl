@@ -601,3 +601,43 @@ end
         @test hcat(Array(y1), Array(rd(JLArray(R); state = st))) ≈ r(R; history = h)
     end
 end
+
+@testitem "Adapting a flow does not read its demand on the host" begin
+    # A kernel launch adapts a Flow to device arrays, which the host cannot
+    # read entry by entry, so rebuilding it must not check its demand again.
+    using ComposableRecurrences, Adapt, KernelAbstractions
+    using ComposableRecurrences: Depletion, Flow, Share, Truncate
+    struct NoHostRead{T, N, A <: AbstractArray{T, N}} <: AbstractArray{T, N}
+        x::A
+    end
+    Base.size(a::NoHostRead) = size(a.x)
+    Base.getindex(::NoHostRead, i::Int...) = error("read on the host")
+    struct ToNoHostRead end
+    Adapt.adapt_storage(::ToNoHostRead, x::Array) = NoHostRead(x)
+    f = Flow(2 => 3, TimeVarying(fill(0.1, 5)); form = Share())
+    g = adapt(ToNoHostRead(), f)
+    @test g.demand.x isa NoHostRead
+    @test (g.from, g.to, g.form) == (f.from, f.to, f.form)
+    m = Depletion(
+        Flow(1 => 2, PerStratum([0.3])), f, Flow(3 => 0, 0.2; form = Truncate());
+        pools = (:A, :B, :C)
+    )
+    @test adapt(ToNoHostRead(), m) isa Depletion
+end
+
+@testitem "Rebuilding a flow from its fields keeps its structural checks" begin
+    # `setproperties` rebuilds through `constructorof`, as a kernel launch
+    # does, so it skips only the host reads of the demand's entries.
+    using ComposableRecurrences, ConstructionBase
+    using ComposableRecurrences: Flow, Hazard, Share
+    f = Flow(1 => 2, 0.5; form = Share())
+    @test setproperties(f, (; demand = 0.25)).demand == 0.25
+    @test_throws ArgumentError setproperties(f, (; demand = 1.5))
+    @test_throws ArgumentError setproperties(f, (; demand = -0.2))
+    @test_throws ArgumentError setproperties(f, (; demand = "x"))
+    @test_throws ArgumentError setproperties(f, (; from = 2))
+    @test_throws ArgumentError setproperties(f, (; from = -1))
+    @test_throws ArgumentError setproperties(f, (; from = 0))
+    @test_throws ArgumentError setproperties(f, (; form = Hazard(; weights = (S = 1, V = 0.3))))
+    @test_throws MethodError Flow{Float64, Share, Int}(1, 2, 1.5, Share())
+end
