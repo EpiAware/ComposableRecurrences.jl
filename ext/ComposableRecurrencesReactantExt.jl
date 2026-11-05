@@ -2,7 +2,8 @@ module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Executor, PerStratum, Primary,
     Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
-    _Ragged, _array, _lagweight, _nlags, _seg_weights, _steps!, _weight
+    _ComputedKernel, _Ragged, _array, _lagweight, _nlags, _seg_weights, _steps!,
+    _weight
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
 
@@ -289,6 +290,21 @@ function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
     Xp = vcat(Reactant.Ops.fill(z, (D - 1, size(X, 2))), X)
     _steps!(_conv_step!, ex, size(Y, 1), Y, c, Xp, m + D - 1, start, D)
     return Y
+end
+
+# A computed kernel, whose weights come from a `Derived` or a `Survival`,
+# fills its weights in host scratch that a traced call cannot hold, so it
+# does not run under Reactant yet. This also settles which method a traced
+# call with one takes.
+function ComposableRecurrences._convolve!(
+        ::Traced, Y, c::_ComputedKernel, X, m, start
+    )
+    throw(
+        ArgumentError(
+            "a kernel computed from a Derived or a Survival does not run " *
+                "under Reactant yet"
+        )
+    )
 end
 
 # Output `j` of every stratum.
