@@ -288,6 +288,9 @@ function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     return nothing
 end
 function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
+    if _reverse_local(eltype(p)) && _local_inputs(C̄, C, p) > _LOCAL_DUALS
+        return _reverse_pressure!(p̄, C̄, C, q̄, p, t)
+    end
     if _array_seeds(C̄, C)
         # The reverse pass makes the buffers once (`_pressure_buffers`); a
         # direct call without them makes its own.
@@ -297,6 +300,15 @@ function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
     return _local_pressure!(p̄, C̄, C, q̄, p, t, _pressure_scalars(C̄, C), bufs)
 end
 _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
+# Past `_LOCAL_DUALS` inputs (the strata and, when the coupling is
+# differentiated, its parameters) one reverse pass through the coupling's
+# `forward!` costs less than the passes of dual numbers, which seed the
+# inputs at most 24 at a time. A reverse-mode extension (`Enzyme`) says it
+# provides the pass (`_reverse_local`) and adds `_reverse_pressure!`.
+const _LOCAL_DUALS = 12
+_local_inputs(C̄, C, p) = length(p) + (C̄ === nothing ? 0 : _ninputs(C))
+_reverse_local(::Type) = false
+function _reverse_pressure! end
 # Whether the local step seeds a coupling's float arrays as well as its
 # scalars: only when the coupling is differentiated and holds any.
 _array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)

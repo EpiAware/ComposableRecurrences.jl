@@ -210,7 +210,8 @@ _dual_buffers(bufs::Tuple, ::Type{D}, S) where {D} = _dual_buffers(Base.tail(buf
 # `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored; `N` is the smallest
 # of 4, 8, 12 and 24 that covers them. The rule takes this route while one
 # pass covers every input (`_LOCAL_PRESSURE`), and through `_ad_wide` while
-# two do (`_LOCAL_PRESSURE_WIDE`).
+# two do (`_LOCAL_PRESSURE_WIDE`). Past 12 inputs a reverse-mode extension
+# takes the step instead (`_reverse_pressure!`).
 function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple, bufs = nothing)
     n = length(p) + length(θ)
     n <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ, bufs)

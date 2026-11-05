@@ -1749,13 +1749,15 @@ end
         r = Recurrence([0.3, 0.2]; coupling = Blend(θ[1]), modifiers = (Plain(PerStratum(θ[2:(S + 1)])),))
         return sum(W .* w(r)(fill(1.1, S, 6); history = ones(S, 2)))
     end
-    # Blend's local step fires up to 23 strata (with its one scalar), and
-    # on Mooncake up to 47; Direct sends the operator to plain AD at any
-    # size. `fires` holds the Mooncake and the Enzyme outcome.
+    # With Enzyme loaded, Blend's local step is one reverse pass past 12
+    # inputs, so the rule fires at any size on both backends; Direct sends
+    # the operator to plain AD at any size. `fires` holds the Mooncake and
+    # the Enzyme outcome.
     cases = (
-        (loss_param, 3, (true, true)), (loss_param, 23, (true, true)),
-        (loss_param, 24, (true, false)), (loss_param, 47, (true, false)),
-        (loss_param, 48, (false, false)), (loss, 3, (false, false)),
+        (loss_param, 3, (true, true)), (loss_param, 11, (true, true)),
+        (loss_param, 12, (true, true)), (loss_param, 23, (true, true)),
+        (loss_param, 24, (true, true)), (loss_param, 47, (true, true)),
+        (loss_param, 48, (true, true)), (loss, 3, (false, false)),
     )
     # Where the rule does not fire on a backend the operator already takes
     # plain AD there, so its `NoAdjoint` would repeat that call.
@@ -1771,6 +1773,54 @@ end
                 @test (CR._PULLBACK_CALLS[] > n0) == (fires[i] && w === identity)
             end
         end
+    end
+end
+
+# Past 12 inputs a coupling's local derivative is one Enzyme reverse pass.
+# The coupling here holds a view into a larger vector, as a loss that
+# unpacks its parameters builds it, and a scalar beside it.
+@testitem "Enzyme: a coupling's local derivative as one reverse pass" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    import Enzyme, ForwardDiff
+    using LinearAlgebra, Random
+    struct ViewMix{M, A}
+        M::M
+        a::A
+    end
+    function CR.forward!(C::ViewMix, ::CR.Pressure, q, p, t)
+        mul!(q, C.M, p)
+        q .*= C.a
+        return nothing
+    end
+    @test CR._reverse_local(Float64)
+    @test !CR._reverse_local(Int)
+    rng = Xoshiro(3)
+    # Two strata take the dual numbers (7 inputs), three and five the
+    # reverse pass (13 and 31).
+    for S in (2, 3, 5)
+        θ = rand(rng, S * S + 10)
+        θ0 = copy(θ)
+        C = ViewMix(reshape(view(θ, 1:(S * S)), S, S), 0.7)
+        p, q̄ = rand(rng, S), randn(rng, S)
+        function pressure(x)
+            M = reshape(x[(S + 1):(S + S * S)], S, S)
+            q = zeros(eltype(x), S)
+            CR.forward!(ViewMix(M, x[end]), CR.Pressure(), q, x[1:S], 1)
+            return sum(q̄ .* q)
+        end
+        ref = ForwardDiff.gradient(pressure, [p; vec(C.M); C.a])
+        C̄ = (; M = zeros(S, S), a = Ref(0.0))
+        p̄ = zeros(S)
+        CR._pressure_back!(p̄, C̄, C, q̄, p, 1, CR._pressure_buffers(C̄, C, Float64))
+        @test p̄ ≈ ref[1:S]
+        @test vec(C̄.M) ≈ ref[(S + 1):(S + S * S)]
+        @test C̄.a[] ≈ ref[end]
+        # Without the coupling's cotangent only the strata are seeded.
+        p̄ = zeros(S)
+        CR._pressure_back!(p̄, nothing, C, q̄, p, 1)
+        @test p̄ ≈ ref[1:S]
+        # The parameters the view reads from are untouched.
+        @test θ == θ0
     end
 end
 

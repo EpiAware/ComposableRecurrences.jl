@@ -945,8 +945,11 @@ function _check_now(r::Recurrence)
     return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
+# With a reverse pass for the local derivative (`_reverse_local`) the rule
+# takes a call at any size.
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
+    _reverse_local(eltype(h)) && return :one
     n = _nstrata(h) + _ninputs(C)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none

@@ -6,7 +6,8 @@
 # paths; scalar cotangents are returned for `Active` leaves.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
+using ComposableRecurrences: ComposableRecurrences, PerStratum, Pressure, Serial,
+    _ADLeaves, _Current, _addparams!, _params, _rebuild, forward!,
     _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
     _fft_convolve_terms!, _is_leaf, _leaf_paths, _plain_hook,
@@ -526,6 +527,36 @@ function _sparse_route_back!(K, K̄, w̄, z, z0)
         K̄ === nothing || (nonzeros(K̄)[idx] += w̄[a] * z0[b])
     end
     fill!(w̄, zero(eltype(w̄)))
+    return nothing
+end
+
+# A coupling's local derivative as one reverse pass through its `forward!`,
+# in place of the passes of dual numbers (`_reverse_pressure!`). The pass
+# runs on a copy of the coupling rebuilt from its parameters, whose shadow
+# is the same rebuild from zeros: the shadow then holds only the
+# parameters, not the arrays a view in the coupling reads from. The copy
+# sits in a `Ref`, so a coupling whose fields are all scalars is taken the
+# same way as one that holds arrays.
+ComposableRecurrences._reverse_local(::Type{<:_IEEEFloat}) = true
+_pressure_call!(Cr, q, p, t) = (forward!(Cr[], Pressure(), q, p, t); nothing)
+function ComposableRecurrences._reverse_pressure!(p̄, C̄, C, q̄, p, t)
+    x = collect(p)
+    q, dq, dx = similar(x), copyto!(similar(x), q̄), zero(x)
+    if C̄ === nothing
+        Enzyme.autodiff(
+            Enzyme.Reverse, Const(_pressure_call!), Const, Const(Ref(C)),
+            Duplicated(q, dq), Duplicated(x, dx), Const(t)
+        )
+    else
+        θ = _params(C)
+        Cr, dCr = Ref(_rebuild(C, θ)), Ref(_rebuild(C, zero(θ)))
+        Enzyme.autodiff(
+            Enzyme.Reverse, Const(_pressure_call!), Const, Duplicated(Cr, dCr),
+            Duplicated(q, dq), Duplicated(x, dx), Const(t)
+        )
+        _addparams!(C̄, C, _params(dCr[]), 0)
+    end
+    p̄ .+= dx
     return nothing
 end
 end
