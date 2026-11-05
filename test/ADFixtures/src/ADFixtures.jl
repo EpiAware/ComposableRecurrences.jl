@@ -752,6 +752,24 @@ function _capacity_beds(w, θ)
     return sum(WS[1:2, :] .* log.(y))
 end
 
+# A bed cap on admissions with a stay that is not geometric: the beds held
+# by earlier admissions are a weighted sum of the recurrence's own outputs,
+# read by `Recent`, and occupancy is the convolution of the admissions with
+# the survival. The parameters are the log beds and the log scale of a
+# gamma stay of shape 2; the cap binds on some steps and not on others.
+const BEDCAP0 = [log(40.0), log(3.0)]
+const DEMAND = [30 * exp(-((t - 5) / 2.5)^2) for t in 1:T]
+_stay(scale) = [(1 + (k + 1) / scale) * exp(-(k + 1) / scale) for k in 0:(T - 1)]
+function _bed_cap_any_stay(w, θ)
+    x = BEDCAP0 .+ θ
+    beds, S = exp(x[1]), _stay(exp(x[2]))
+    CR = ComposableRecurrences
+    cap = CR.Transform(min, (beds - CR.Recent(S[2:end])) / S[1])
+    r = Recurrence([zero(eltype(x))]; modifiers = (cap,))
+    y = w(r)(; history = [zero(eltype(x))], add = DEMAND)
+    return sum(W1 .* w(Convolution(S))(y))
+end
+
 # The capacity pools are built behind a call: inline in the losses, whose
 # unpacking does not infer, Enzyme rejects them when the code is compiled
 # for coverage.
@@ -1469,6 +1487,10 @@ const _SCENARIOS = [
         () -> zero(CAPS0),
     ),
     (
+        "Recurrence bed cap with a stay that is not geometric",
+        _bed_cap_any_stay, () -> zero(BEDCAP0),
+    ),
+    (
         "Recurrence capacity, weekly budget with a queue", _capacity_budget,
         () -> zero(CAPB0),
     ),
@@ -1835,6 +1857,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence routes folded on scaled identities" => (:_Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
     "Recurrence feedback from recent outputs" => (:Recent,),
+    "Recurrence bed cap with a stay that is not geometric" => (:Recent, :Transform),
     "Recurrence removals from recent outputs" => (:Recent,),
     "Recurrence routes in a buffer deeper than the kernels" => (:_Routes, :depth),
     # The coupling on `Recent` came after `Recent`.
