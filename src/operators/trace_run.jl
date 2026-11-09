@@ -11,7 +11,7 @@ _type_adjoint(w::_WithTrace) = _type_adjoint(w.op)
 _fit(w::_WithTrace, args...) = _fit(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
-    y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop)
+    y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop, Val(:traced))
     return (y, _traces(_traced_recurrence(w.op), cache)), cache
 end
 # The modifiers are read from the operator, as the step reads them, not
@@ -28,11 +28,11 @@ function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
 end
 function _traced_primal(r::Recurrence, gain, add, h, s0, τ0, stop)
     Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace))
-    return Y, (; modifiers = tr)
+    return Y, tr
 end
 function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
     Y, H, states, tr = _recur(w.r, gain, add, h, s0, τ0, stop, Val(:trace))
-    return (Y, _state(Y, H, states, h, τ0)), (; modifiers = tr)
+    return (Y, _state(Y, H, states, h, τ0)), tr
 end
 
 # A modifier's trace as the run writes it, with copies `v` and `s` of the
@@ -104,14 +104,16 @@ function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
     return nothing
 end
 
-# The call's trace, `(; modifiers)`, one matrix per modifier with a
-# column per step: each step's inputs are the modifier's records, its
-# outputs the next modifier's inputs (or the buffer's row for the last)
-# and its state entering the next step (or its final state).
+# The call's trace, `(; modifiers, pressure)`: one matrix per modifier
+# with a column per step, and the pressure of every step from the records.
+# Each step's inputs are the modifier's records, its outputs the next
+# modifier's inputs (or the buffer's row for the last) and its state
+# entering the next step (or its final state).
 function _traces(r, c)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
-    return (; modifiers = _traces(ms, rec, c.states, H, D, S, T, τ0))
+    modifiers = _traces(ms, rec, c.states, H, D, S, T, τ0)
+    return (; modifiers, pressure = _output_layout(_pressures(r.coupling, c.pr), c.h))
 end
 _traces(::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
 function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)

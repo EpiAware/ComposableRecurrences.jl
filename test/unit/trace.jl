@@ -41,7 +41,7 @@ end
     y = r(R; history = [5.0])
     y2, tr = r(R; history = [5.0], record = (:trace,))
     @test y2 == y
-    @test keys(tr) == (:modifiers,)
+    @test keys(tr) == (:modifiers, :pressure)
     @test length(tr.modifiers) == 1
     @test size(only(tr.modifiers)) == (3, 8)
     y3, st, tr3 = r(R; history = [5.0], record = (:state, :trace))
@@ -578,4 +578,136 @@ end
     CR.forward!(::Returns, ::CR.Trace, r, v, s, v′, s′, t) = (s′,)
     r = Recurrence(g; modifiers = (Returns(),))
     @test_throws r"returned a Tuple" r(R; history = h, record = (:trace,))
+end
+
+@testitem "Trace: the pressure each step draws against, against pressure" setup = [InStepTraces] begin
+    # `trace.pressure` against `pressure` on the outputs, from the run with
+    # records (the rule's forward pass) and the run without.
+    dense = Recurrence(g; coupling = K + I)
+    for r in (cases..., dense), (Rx, hx) in ((R, h), (dual(R), dual(h)))
+        y, tr = r(Rx; history = hx, start = L + 1, record = (:trace,))
+        q = CR.pressure(r, y; history = hx, start = L + 1)
+        @test same(tr.pressure, q)
+        args = CR._run_args(r, Rx, hx, nothing, nothing, L + 1)
+        _, trr = first(CR._run_forward(CR._WithTrace(r), args..., nothing))
+        @test same(trr.pressure, q)
+        ys, _, trs = r(Rx; history = hx, start = L + 1, record = (:state, :trace))
+        @test same(trs.pressure, q)
+    end
+    r = Recurrence(g; modifiers = (CR.Depletion(70.0),))
+    y, tr = r(R[1, :]; history = h[1, :], start = L + 1, record = (:trace,))
+    @test tr.pressure isa Vector
+    @test tr.pressure ≈ CR.pressure(r, y; history = h[1, :], start = L + 1)
+    # Without modifiers or an add input the gain is the output over the
+    # pressure.
+    y, tr = Recurrence(g; coupling = K + I)(R; history = h, record = (:trace,))
+    @test y ./ tr.pressure ≈ R
+end
+
+@testitem "Trace: the pressure of a run of one series or one stratum" begin
+    # Runs of one stratum carry their last value from step to step, with or
+    # without pointwise modifiers; their traces hold the same pressure as
+    # `pressure` on the outputs.
+    using ComposableRecurrences
+    using LinearAlgebra: Diagonal
+    const CR = ComposableRecurrences
+    g = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+    T = 20
+    R = [1.6 - 0.04 * t for t in 1:T]
+    seed = fill(10.0, 6)
+    runs = (
+        Recurrence(g),
+        Recurrence(g; coupling = Diagonal([0.9])),
+        Recurrence(PerStratum(reshape(g, 1, :))),
+        Recurrence(g; modifiers = (CR.Transform(*, 0.8),)),
+    )
+    for r in runs, (Rx, hx) in ((R, seed), (reshape(R, 1, :), reshape(seed, 1, :)))
+        r isa Recurrence{<:PerStratum} && Rx isa Vector && continue
+        y, tr = r(Rx; history = hx, record = (:trace,))
+        @test tr.pressure ≈ CR.pressure(r, y; history = hx)
+    end
+    # Without modifiers the gain is the output over the pressure.
+    y, tr = Recurrence(g)(R; history = seed, record = (:trace,))
+    @test y ./ tr.pressure ≈ R
+end
+
+@testitem "Trace: gradients through the pressure, the rule against ForwardDiff" setup = [ReferenceAD] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    CR = ComposableRecurrences
+    S, T = 2, 8
+    W = reshape(range(0.2, 1.8; length = S * T), S, T)
+    h = [5.0 4.0 3.0; 3.0 2.0 1.0]
+    R = [1.4 + 0.2 * sin(k + t) for k in 1:S, t in 1:T]
+    # A pointwise and a dense coupling, each with a modifier; the loss reads
+    # the output and the pressure, and the effective reproduction number.
+    # A scalar, a diagonal and a dense coupling, and one series, whose
+    # pressure is a vector.
+    function coupling_of(θ, coupling)
+        coupling === :dense && return [θ[4] 0.2; 0.1 θ[4]]
+        coupling === :diagonal && return CR.Diagonal([θ[4], 0.8])
+        return θ[4] * CR.I
+    end
+    function recurrence(θ, coupling)
+        mods = (CR.Depletion(PerStratum(θ[5:6])),)
+        coupling === :series && return Recurrence(θ[1:3]; modifiers = (CR.Depletion(θ[5]),))
+        return Recurrence(θ[1:3]; coupling = coupling_of(θ, coupling), modifiers = mods)
+    end
+    inputs(θ, coupling) = coupling === :series ? (R[1, :] .* θ[7], h[1, :]) : (R .* θ[7], h)
+    function run(θ, coupling)
+        x, hx = inputs(θ, coupling)
+        y, tr = recurrence(θ, coupling)(x; history = hx, record = (:trace,))
+        return y, tr.pressure
+    end
+    # The same pressures from `pressure` on the same recurrence's outputs.
+    function second_pass(θ, coupling)
+        r = recurrence(θ, coupling)
+        x, hx = inputs(θ, coupling)
+        y = r(x; history = hx)
+        return y, CR.pressure(r, y; history = hx)
+    end
+    # A loss on the output and the pressure, and one on the pressure alone,
+    # whose only cotangent is the pressure's.
+    weights(q) = q isa AbstractVector ? W[1, :] : W
+    both(y, q) = sum(weights(q) .* q) + sum(y ./ q) + sum(y)
+    alone(y, q) = sum(weights(q) .* q)
+    θ = [0.3, 0.5, 0.2, 0.9, 80.0, 120.0, 1.1]
+    for coupling in (:pointwise, :diagonal, :dense, :series), l in (both, alone)
+        f = θ -> l(run(θ, coupling)...)
+        ∇ = ReferenceAD.gradient(θ -> l(second_pass(θ, coupling)...), θ)
+        @test ReferenceAD.gradient(f, θ) ≈ ∇
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(f, AutoMooncake(), θ) ≈ ∇
+        @test CR._PULLBACK_CALLS[] > n
+    end
+end
+
+@testitem "Trace: the pressure of a run with an integer gain and coefficient" setup = [ReferenceAD] begin
+    # Such a run records no convolutions for the reverse pass, but its trace
+    # returns its pressures, so a traced run records them all the same.
+    using ComposableRecurrences, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    using LinearAlgebra: Diagonal, I
+    CR = ComposableRecurrences
+    S, T = 2, 8
+    h = [5.0 4.0 3.0; 3.0 2.0 1.0]
+    W = reshape(range(0.2, 1.8; length = S * T), S, T)
+    for C in (I, Diagonal([1, 2]))
+        r = Recurrence([0.3, 0.5, 0.2]; coupling = C)
+        ϵ = fill(0.5, S, T)
+        args = CR._run_args(r, true, h, nothing, ϵ, 1)
+        (y, tr), c = CR._run_forward(CR._WithTrace(r), args..., nothing)
+        @test c.pr !== nothing
+        @test tr.pressure ≈ CR.pressure(r, y; history = h)
+        function f(θ)
+            y, tr = Recurrence(θ[1:3]; coupling = C)(;
+                history = h, add = reshape(θ[4:end], S, T), record = (:trace,)
+            )
+            return sum(W .* tr.pressure) + sum(y)
+        end
+        θ = vcat([0.3, 0.5, 0.2], vec(ϵ))
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
+        @test CR._PULLBACK_CALLS[] > n
+    end
 end

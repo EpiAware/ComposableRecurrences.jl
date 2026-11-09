@@ -671,7 +671,7 @@ end
     @test_throws "record names :state or :trace, got :pools" r(
         R; history = h, record = (:pools,)
     )
-    @test_throws "not available yet" r(R; history = h, record = (:pressures,))
+    @test_throws "trace.pressure" r(R; history = h, record = (:pressures,))
     @test_throws "once, got (:state, :state)" r(R; history = h, record = (:state, :state))
     @test_throws "once, got (:trace, :state, :trace)" r(
         R; history = h, record = (:trace, :state, :trace)
