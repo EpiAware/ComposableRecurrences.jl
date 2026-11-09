@@ -236,11 +236,13 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     rng = Xoshiro(8)
     L, T = 3, 9
-    # A fixed kernel and one given by change points, whose runs each carry
-    # the last value; a gain with and without additions, and later starts.
+    # A fixed kernel, one given by change points and one with no lags, whose
+    # runs each carry the last value; a gain with and without additions, and
+    # later starts.
     kernels = (
         rand(rng, L) ./ 2,
         TimeVarying([1 => rand(rng, L) ./ 2, 4 => rand(rng, L) ./ 2, 7 => rand(rng, 2)]),
+        Float64[],
     )
     modifiers = (
         (CR.Transform(clamp, 0.0, 2.0),),
@@ -249,7 +251,10 @@ end
     )
     R = 0.8 .+ rand(rng, T)
     ϵ = rand(rng, T)
-    for g in kernels, ms in modifiers, start in (1, 5, 8), add in (nothing, ϵ)
+    # With no lags and no add input every value is 0, on `clamp`'s kink, where
+    # the rule and the reference may take different one-sided slopes.
+    for g in kernels, ms in modifiers, start in (1, 5, 8),
+            add in (g isa Vector && isempty(g) ? (ϵ,) : (nothing, ϵ))
         r = Recurrence(g; modifiers = ms)
         h = 1 .+ rand(rng, L)
         @test pullback_matches(r, recargs(R, add, h; start)...)
