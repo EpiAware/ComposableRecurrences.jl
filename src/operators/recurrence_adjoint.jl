@@ -44,7 +44,7 @@ end
 function _reverse_run!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
     (; r, H, D, S, T, τ0) = c
-    H̄ = _seeded(H, Ȳ, D)
+    H̄ = _seeded(c, H, Ȳ, D)
     # Parameters that read the outputs send their cotangents into `H̄`. The
     # bound modifiers enter the step loop through a function barrier.
     modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
@@ -260,6 +260,11 @@ end
     _coef_back!(acc.C̄, C, gk * v̄k * Pk, k)
     return (gk * _coef(C, k)) * v̄k
 end
+# Without records the gain and the coefficient carry no cotangent.
+@inline function _core_back!(acc, v̄k, ::Nothing, gain, C::_PointwiseCoupling, t, τ, k)
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
+    return (@inbounds(_at(gain, k, τ)) * _coef(C, k)) * v̄k
+end
 _coef_back!(C̄, C::UniformScaling, v, k) = add_cotangent!(cotangent(C̄, :λ), v)
 _coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
 
@@ -337,6 +342,12 @@ end
 # in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme` under runtime
 # activity), that branch slowed the whole reverse pass by about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
+# A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
+# buffer's cotangent, below zero rows.
+function _seeded(c::NamedTuple{N}, H, Ȳ, D) where {N}
+    :ȳ in N && Ȳ === c.ȳ && return c.H̄
+    return _seeded(H, Ȳ, D)
+end
 function _seeded(H, Ȳ, D)
     H̄ = similar(H)
     fill!(view(H̄, 1:D, :), zero(eltype(H̄)))
@@ -460,6 +471,8 @@ function _coupling_back_at(C̄, C::UniformScaling, q̄k, pr, t, k)
     add_cotangent!(cotangent(C̄, :λ), q̄k * @inbounds(pr.P[k, t]))
     return C.λ * q̄k
 end
+_coupling_back_at(C̄, C::UniformScaling, q̄k, ::Nothing, t, k) = C.λ * q̄k
+_coupling_back_at(C̄, C::Diagonal, q̄k, ::Nothing, t, k) = @inbounds C.diag[k] * q̄k
 function _coupling_back_at(C̄, C::Diagonal, q̄k, pr, t, k)
     @inbounds add_cotangent!(cotangent(C̄, :diag), q̄k * pr.P[k, t], k)
     return @inbounds C.diag[k] * q̄k
@@ -625,4 +638,21 @@ function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     n = min(m, D)
     view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (D - n + 1):D, :))
     return nothing
+end
+
+# A zero output cotangent for a reverse rule to accumulate into, with the
+# cache it goes with, or `nothing` where the rule makes its own. A single
+# series' output is the buffer's rows after the history, so its cotangent can
+# be those rows of the buffer's cotangent, which `_seeded` then need not
+# fill; the cache keeps both.
+_shared_shadow(op, y, c) = (nothing, c)
+_shared_shadow(op::Recurrence, y, c) = _shared_shadow(y, c, c.H, c.D)
+_shared_shadow(y, c, H, D) = (nothing, c)
+function _shared_shadow(y::Vector{E}, c, H::Matrix{E}, D) where {E <: _IEEEFloat}
+    length(H) == D + length(y) || return (nothing, c)
+    m = Memory{E}(undef, length(H))
+    fill!(m, zero(E))
+    H̄ = Base.wrap(Array, m, size(H))
+    ȳ = Base.wrap(Array, memoryref(m, D + 1), (length(y),))
+    return ȳ, merge(c, (; H̄, ȳ))
 end

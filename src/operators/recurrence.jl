@@ -1296,6 +1296,17 @@ function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
+# A pointwise coupling's convolutions reach only the gain's and the
+# coupling's cotangents, which an integer gain and coefficient have none of,
+# so such a run records none. Decided from the types.
+function _pressure_records(h, ::Type{Tp}, C::_PointwiseCoupling, S, T, gain) where {Tp}
+    _floats(gain, C) || return nothing
+    return _pressure_records(h, Tp, C, S, T)
+end
+@generated _floats(gain, C) = _has_float(gain) || _has_float(C)
+function _pressure_records(h, ::Type{Tp}, C, S, T, gain) where {Tp}
+    return _pressure_records(h, Tp, C, S, T)
+end
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
 @inline function _record_pressure!(pr, pk, xk, t, k)
     pr.P[k, t] = pk
@@ -1306,6 +1317,8 @@ end
 # The records are sized by the call, so they are read without bounds checks.
 _pressure(C, pr, k, t) = @inbounds pr.X[k, t]
 _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
+# Without records the gain has no cotangent to take this.
+_pressure(C::_PointwiseCoupling, ::Nothing, k, t) = false
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata
@@ -1526,7 +1539,7 @@ function _run(
         map(s -> _state_vector(Tp, s), s0)
     end
     init = keep ? map(copy, states) : nothing
-    pr = keep ? _pressure_records(h, Tp, coupling, S, T) : nothing
+    pr = keep ? _pressure_records(h, Tp, coupling, S, T, gain) : nothing
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
         _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
