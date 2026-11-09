@@ -80,8 +80,10 @@ the call covers the absolute times `start:stop`:
         step;
       - `:trace`, with `trace.modifiers` holding each modifier's series
         per step, a [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of
-        its [`ComposableRecurrences.Trace`](@ref) records, differentiable
-        as the output is.
+        its [`ComposableRecurrences.Trace`](@ref) records, and
+        `trace.pressure` the pressure ``K_t p_t`` each step drew against,
+        laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
+        returns it; both differentiable as the output is.
     `record = ()` returns `(; y)`, and without `record` the call returns
     `y`. Pass the tuple as a literal, so that the return type infers.
 
@@ -457,7 +459,8 @@ end
             older += w[i] * H[o + i, k]
         end
     end
-    _record_pressure!(pr, muladd(newest, y, older), nothing, t, k)
+    pk = muladd(newest, y, older)
+    _record_pressure!(pr, pk, _coef(C, k) * pk, t, k)
     γ = @inbounds _at(gain, k, τ) * _coef(C, k)
     v = muladd(γ * newest, y, muladd(γ, older, @inbounds(_at(add, k, τ))))
     @inbounds H[D + t, k] = v
@@ -704,7 +707,10 @@ end
 _check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
 @noinline function _record_error(name)
     name === :pressures && throw(
-        ArgumentError("record = (:pressures,) is not available yet")
+        ArgumentError(
+            "the pressures are in the trace: record = (:trace,) and read " *
+                "trace.pressure"
+        )
     )
     throw(
         ArgumentError(
@@ -1283,7 +1289,17 @@ function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
+# A run without a reverse pass needs no kernel convolutions, only the
+# pressures its trace returns, so it keeps `X` whatever the coupling.
+struct _TracePressures{X}
+    X::X
+end
+_trace_pressures(h, ::Type{Tp}, S, T) where {Tp} = _TracePressures(similar(h, Tp, S, T))
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
+@inline function _record_pressure!(pr::_TracePressures, pk, xk, t, k)
+    pr.X[k, t] = xk
+    return nothing
+end
 @inline function _record_pressure!(pr, pk, xk, t, k)
     pr.P[k, t] = pk
     pr.X === nothing || (pr.X[k, t] = xk)
@@ -1293,6 +1309,12 @@ end
 # The records are sized by the call, so they are read without bounds checks.
 _pressure(C, pr, k, t) = @inbounds pr.X[k, t]
 _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
+# A pointwise coupling records no `X`, so its pressures are rebuilt.
+_pressures(C::UniformScaling, pr) = C.λ .* pr.P
+_pressures(C::Diagonal, pr) = C.diag .* pr.P
+_pressures(C, pr) = copy(pr.X)
+_output_layout(q, h::AbstractVector) = vec(q)
+_output_layout(q, h) = q
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata
@@ -1469,6 +1491,11 @@ end
     return nothing
 end
 
+_sink_trace(::Nothing, ::Nothing, h) = nothing
+function _sink_trace(rec, pr, h)
+    return (; modifiers = _sink_traces(rec), pressure = _output_layout(pr.X, h))
+end
+
 # The buffer loop: returns the output, the buffer, the final states and
 # what `cache` asks for: `Val(true)` the cache the reverse pass reads,
 # `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
@@ -1513,7 +1540,11 @@ function _run(
         map(s -> _state_vector(Tp, s), s0)
     end
     init = keep ? map(copy, states) : nothing
-    pr = keep ? _pressure_records(h, Tp, coupling, S, T) : nothing
+    pr = if keep
+        _pressure_records(h, Tp, coupling, S, T)
+    else
+        C === :trace ? _trace_pressures(h, Tp, S, T) : nothing
+    end
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
         _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
@@ -1551,7 +1582,7 @@ function _run(
         (;
             r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S,
             T, H, pr, rec, init, states,
-        ) : _sink_traces(rec)
+        ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache
 end
 
