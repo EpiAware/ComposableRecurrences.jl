@@ -399,6 +399,18 @@ end
         @test err isa CompositeException
         @test length(err.exceptions) == length(bad)
         @test count(==(1), done) == 8 - length(bad)
+        # A failure on the calling task comes first, with its backtrace; one
+        # on a new task is the `TaskFailedException` from waiting on it.
+        first_err = first(err.exceptions)
+        @test (first_err isa CR._ChunkFailed) == (2 in bad)
+        if first_err isa CR._ChunkFailed
+            @test first_err.error isa ErrorException
+            @test !isempty(first_err.backtrace)
+            shown = sprint(showerror, first_err)
+            @test occursin("chunk failed", shown)
+            @test occursin("Stacktrace", shown)
+        end
+        @test last(err.exceptions) isa TaskFailedException
     end
     @test CR._nchunks(ex, 2) == 2
     @test CR._nchunks(CR.Threaded(), 100) == min(Threads.nthreads(), 100)
