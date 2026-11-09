@@ -347,9 +347,9 @@ function _set_rows!(H̄, x̄::AbstractMatrix, o)
     view(H̄, (o + 1):size(H̄, 1), :) .= transpose(x̄)
     return H̄
 end
-# A CPU buffer is written down its columns. The broadcast above is a plain
-# copy, which `Base` hands to the blocked transpose: about four times as
-# slow at 200 steps by 100 strata.
+# A CPU buffer is written down its columns: the broadcast above is a plain
+# copy, which `Base` hands to the slower blocked transpose. The loop skips
+# bounds checks, so it checks the shapes the broadcast would have.
 function _set_rows!(H̄::Matrix, x̄::Matrix, o)
     size(H̄) == (o + size(x̄, 2), size(x̄, 1)) || throw(
         DimensionMismatch(
