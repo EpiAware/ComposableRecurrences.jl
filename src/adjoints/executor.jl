@@ -468,6 +468,7 @@ function _accumulators(c::_Current, x, n, work, acc)
 end
 _nblocks(ex::Threaded, n, work) = _splits(ex, n, work) ? _nchunks(ex, n) : 1
 _nblocks(ex, n, work) = 1
+_nblocks(c::_Current, n, work) = _nblocks(c.ex, n, work)
 
 @inline function _reduce_blocks!(
         body::F, accs, n, args::Vararg{Any, N}
