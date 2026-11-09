@@ -350,22 +350,17 @@ end
 
 # Movement between strata from a kernel and an intensity per origin and
 # time, both reshaped from θ, before a depletion.
-function _movement_time_varying(w, θ)
-    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
-    mods = (
-        ComposableRecurrences.Redistribute(K, ε),
-        ComposableRecurrences.Depletion(PerStratum(POP)),
-    )
-    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
-    return sum(WS .* log.(y))
-end
+_movement_time_varying(w, θ) = _movement_with(w, θ; leak = Val(false))
 
 # The same through the public `Redistribute(K, ε; leak = true)`, with a
 # kernel whose columns sum to less than one, so part of what moves leaves.
-function _movement_leak(w, θ)
+_movement_leak(w, θ) = _movement_with(w, θ; leak = Val(true))
+
+# The movement's loss, with `leak` a type parameter (see `Redistribute`).
+function _movement_with(w, θ; leak::Val{LEAK}) where {LEAK}
     g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Redistribute(K, ε; leak = true),
+        ComposableRecurrences.Redistribute(K, ε; leak = LEAK),
         ComposableRecurrences.Depletion(PerStratum(POP)),
     )
     y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
