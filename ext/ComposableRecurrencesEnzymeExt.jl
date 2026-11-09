@@ -509,11 +509,14 @@ function _shadow_of(op, y, cache)
     dy, c = _shared_shadow(op, y, cache)
     return dy === nothing ? (Enzyme.make_zero(y), c) : (dy, c)
 end
+# The pullback compiled on its own, as a call whose mirrors' types are found
+# at run time compiles it, rather than inlined into the rule.
+@noinline _pullback_call(grads, op, cache) = _run_pullback!(grads, op, cache)
 function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
     lms = _map_leaves(a -> _ez(a, mode), leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
-    _run_pullback!(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
+    _pullback_call(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)
 end
