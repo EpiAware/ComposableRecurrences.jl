@@ -614,6 +614,30 @@ end
     @test qv == [5.0, 11.0]
 end
 
+@testitem "Coupling pressure: floats and dual numbers match the product" begin
+    using ComposableRecurrences, ForwardDiff, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(11)
+    # Sizes on both sides of the four-wide blocks, plus a non-square block.
+    for (m, n) in ((1, 1), (3, 3), (4, 4), (5, 5), (9, 9), (12, 12), (6, 11))
+        C, p = rand(rng, m, n), rand(rng, n)
+        q = fill(NaN, m)
+        CR.forward!(C, CR.Pressure(), q, p, 1)
+        @test q ≈ C * p
+        pd = [ForwardDiff.Dual(p[b], rand(rng, 3)...) for b in 1:n]
+        qd = similar(pd, m)
+        CR.forward!(C, CR.Pressure(), qd, pd, 1)
+        @test ForwardDiff.value.(qd) ≈ C * p
+        for i in 1:3
+            @test ForwardDiff.partials.(qd, i) ≈ C * ForwardDiff.partials.(pd, i)
+        end
+        Ci, pi_ = rand(rng, 0:3, m, n), rand(rng, 0:3, n)
+        qi = zeros(Int, m)
+        CR.forward!(Ci, CR.Pressure(), qi, pi_, 1)
+        @test qi == Ci * pi_
+    end
+end
+
 @testitem "Recurrence: forward(r, Run(), R) and record infer" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences

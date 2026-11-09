@@ -569,6 +569,15 @@ end
             @test CR._SPLIT_BLOCKS[] > splits
         end
     end
+    # A per-stratum time-varying kernel, in blocks of several strata and of
+    # one, with more tasks than strata too.
+    for ix in (CR.Secondary(), CR.Primary()), ntasks in (2, 3, 8)
+        c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T)), ix))
+        h = ix isa CR.Primary ? nothing : rand(rng, S, 2)
+        with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks)) do
+            @test pullback_matches(c, X, true, nothing, h, 2, nothing)
+        end
+    end
 end
 
 @testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
