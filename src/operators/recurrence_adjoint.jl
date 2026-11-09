@@ -47,7 +47,7 @@ function _reverse_run!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     H̄ = _seeded(H, Ȳ, D)
     # Parameters that read the outputs send their cotangents into `H̄`. The
     # bound modifiers enter the step loop through a function barrier.
-    modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
+    modifiers = _with_tapes(_bind(r.modifiers, H, H̄, D - τ0 + 1), c.tapes, τ0 - 1)
     cur = _current()
     if cur.ex isa Serial || _reads_across(modifiers)
         _reverse!(Serial(), c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)

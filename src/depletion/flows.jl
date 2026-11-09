@@ -478,6 +478,7 @@ end
 @inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(@inline(i -> _step_leaves(fs, i, g, t, z)), Val(N))
+    _tape_leaves!(_tape_of(fs), L, g, t)
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
@@ -656,10 +657,10 @@ function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where
 end
 # As in the step, `g(H)` is read only where a hazard flow out of a pool
 # enters another (`_step_leaves`): elsewhere it multiplies no arrival and
-# a zero `B`.
+# a zero `B`. A recorded run reads the step's leaving terms from its tape.
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _step_leaves(fs, i, g, t, z), Val(N))
+    L = _taped_leaves(_tape_of(fs), fs, Val(N), g, t, z)
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)

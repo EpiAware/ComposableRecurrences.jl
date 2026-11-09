@@ -1480,6 +1480,9 @@ function _run(
     H = _history_buffer(h, Tp, D, T, S)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
+    # A recorded run tapes its flows' leaving terms for the reverse pass.
+    tapes = keep ? _flow_tapes(modifiers, H, Tp, S, T) : nothing
+    modifiers = _with_tapes(modifiers, tapes, τ0 - 1)
     states = if s0 === nothing
         map(m -> _init_state(Tp, m, h, S), modifiers)
     else
@@ -1523,7 +1526,7 @@ function _run(
         (;
             r, kernel, gain = _tape(gain), add,
             h = _tape_history(h, s0, r.modifiers), s0, τ0, L, D, S, T, H, pr,
-            rec, init, states,
+            rec, init, states, tapes,
         ) : _sink_traces(rec)
     return Y, H, states, cache
 end

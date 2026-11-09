@@ -147,6 +147,8 @@ include("depletion/truncate.jl")
 include("depletion/flows.jl")
 # `Depletion`: pools drawn from by a depletion form and moved by flows.
 include("depletion/pool.jl")
+# A recorded run's tape of each pool's leaving terms, for the flows' pullback.
+include("depletion/tape.jl")
 
 # operators: `Recurrence` and `Convolution`, their loops and reverse passes.
 # The recurrence operator and its buffer loop.
