@@ -1292,21 +1292,15 @@ end
 # pointwise coupling's pressure is its coefficient times the convolution,
 # so it records no `X`.
 # Every step writes its column of both, so they start unset.
-function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
+# A pointwise coupling's convolutions reach only the gain's and the
+# coupling's cotangents, which an integer gain and coefficient have none of,
+# so such a run records none.
+function _pressure_records(h, ::Type{Tp}, C, S, T, gain) where {Tp}
+    C isa _PointwiseCoupling && !_floats(gain, C) && return nothing
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
-# A pointwise coupling's convolutions reach only the gain's and the
-# coupling's cotangents, which an integer gain and coefficient have none of,
-# so such a run records none. Decided from the types.
-function _pressure_records(h, ::Type{Tp}, C::_PointwiseCoupling, S, T, gain) where {Tp}
-    _floats(gain, C) || return nothing
-    return _pressure_records(h, Tp, C, S, T)
-end
 @generated _floats(gain, C) = _has_float(gain) || _has_float(C)
-function _pressure_records(h, ::Type{Tp}, C, S, T, gain) where {Tp}
-    return _pressure_records(h, Tp, C, S, T)
-end
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
 @inline function _record_pressure!(pr, pk, xk, t, k)
     pr.P[k, t] = pk

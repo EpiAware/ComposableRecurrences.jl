@@ -77,10 +77,8 @@ function _ezs(x, dx, mode)
     )
 end
 
-# Whether any shadow of an annotated argument is its primal, as `_ez` finds
-# it in the `_Shared` mode: where none is, the `_Distinct` mirrors are the
-# same and infer, so the reverse pass is compiled for their types rather than
-# building mirrors of types found at run time.
+# Whether any argument's shadow is the same object as its value. Where none
+# is, the mirrors need no `nothing` for a shared shadow, so their types infer.
 _shares(::Union{Const, Active}) = false
 _shares(a::Union{Duplicated, DuplicatedNoNeed}) = _sh(a.val, a.dval)
 _shares(a::MixedDuplicated) = _sh(a.val, a.dval[])
@@ -509,8 +507,8 @@ function _shadow_of(op, y, cache)
     dy, c = _shared_shadow(op, y, cache)
     return dy === nothing ? (Enzyme.make_zero(y), c) : (dy, c)
 end
-# The pullback compiled on its own, as a call whose mirrors' types are found
-# at run time compiles it, rather than inlined into the rule.
+# The pullback compiled on its own for the mirrors' types: inlined into the
+# rule, it ran slower on a coupled run with a modifier.
 @noinline _pullback_call(grads, op, cache) = _run_pullback!(grads, op, cache)
 function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
     lms = _map_leaves(a -> _ez(a, mode), leaves)

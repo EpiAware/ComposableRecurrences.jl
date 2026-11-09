@@ -649,10 +649,6 @@ _shared_shadow(op, y, c) = (nothing, c)
 _shared_shadow(op::Recurrence, y, c) = _shared_shadow(y, c, c.H, c.D)
 _shared_shadow(y, c, H, D) = (nothing, c)
 function _shared_shadow(y::Vector{E}, c, H::Matrix{E}, D) where {E <: _IEEEFloat}
-    # A run's output is its buffer's rows after the history; a check, not a
-    # branch, so the rule's tape keeps one type.
-    length(H) == D + length(y) ||
-        throw(DimensionMismatch("output does not fit the buffer"))
     m = Memory{E}(undef, length(H))
     fill!(m, zero(E))
     H̄ = Base.wrap(Array, m, size(H))
