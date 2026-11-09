@@ -264,14 +264,14 @@ function _wait_all(tasks::Vector{Task})
     return failed
 end
 
-# `f(c)`, returning `nothing`, or the exception it threw with its backtrace.
-# The exception is untyped, so the constructor that takes a raw backtrace is
-# named with `invoke`, keeping the reverse pass free of runtime dispatch.
+# `f(c)`, returning `nothing`, or the exception it threw. The exception is
+# kept as thrown: capturing its backtrace would bring stack-trace printing
+# into the loop, which a trimmed build cannot compile.
 function _caught(f::F, c) where {F}
     try
         f(c)
     catch e
-        return invoke(CapturedException, Tuple{Any, Vector}, e, catch_backtrace())
+        return e
     end
     return nothing
 end
