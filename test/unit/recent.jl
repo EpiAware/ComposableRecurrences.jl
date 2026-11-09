@@ -459,23 +459,23 @@ end
     h = rand(rng, S, W)
     R = 1.0 .+ rand(rng, S, T)
     C1, C2 = rand(rng, S, S), rand(rng, S, S)
+    f(a, b, c, d) = exp(-0.05 * a - 0.02 * b + 0.01 * c - 0.01 * d)
     # Two reads of the last two outputs through different couplings, a third
     # with another window and a fourth with float weights, which keeps its own.
-    shared(C) = Recent(W; coupling = C)
+    last2(C) = Recent(W; coupling = C)
     β = Derived(
-        (a, b, c, d) -> exp(-0.05 * a - 0.02 * b + 0.01 * c - 0.01 * d),
-        shared(C1), shared(C2), Recent(3; coupling = C1),
+        f, last2(C1), last2(C2), Recent(3; coupling = C1),
         Recent([1.0, 1.0]; coupling = C2),
     )
     ms = (CR.Transform(*, β),)
     H = rand(rng, T + 3, S)
-    b = only(CR._bind(ms, H, nothing, 1)).θ.args
-    @test b[1].u === b[2].u && b[1].z === b[2].z && b[1].row === b[2].row
-    @test b[3].u !== b[1].u && b[4].u !== b[1].u
+    reads = only(CR._bind(ms, H, nothing, 1)).θ.args
+    @test reads[1].u === reads[2].u
+    @test reads[3].u !== reads[1].u
+    @test reads[4].u !== reads[1].u
     # The shared windows read what separate ones would.
     own = Derived(
-        (a, b, c, d) -> exp(-0.05 * a - 0.02 * b + 0.01 * c - 0.01 * d),
-        Recent([1.0, 1.0]; coupling = C1), Recent([1.0, 1.0]; coupling = C2),
+        f, Recent([1.0, 1.0]; coupling = C1), Recent([1.0, 1.0]; coupling = C2),
         Recent([1.0, 1.0, 1.0]; coupling = C1), Recent([1.0, 1.0]; coupling = C2),
     )
     r = Recurrence(g; modifiers = ms)
@@ -485,11 +485,28 @@ end
     flows = (
         CR.Depletion(
             PerStratum([50.0, 80.0, 60.0]), CR.Hazard(),
-            CR.Flow(:S => 0, 0.1 * shared(C1); form = CR.Truncate()),
-            CR.Flow(:S => 0, 0.05 * shared(C2); form = CR.Truncate()),
+            CR.Flow(:S => 0, 0.1 * last2(C1); form = CR.Truncate()),
+            CR.Flow(:S => 0, 0.05 * last2(C2); form = CR.Truncate()),
         ),
     )
     @test pullback_matches(Recurrence(g; modifiers = flows), recargs(R, nothing, h)...)
+    # Init reads the shared windows at the first step's row, before any step
+    # fills them, and a flow reads them again at each step.
+    init = (
+        CR.Depletion(
+            100.0 + 5 * last2(C1), CR.Hazard(),
+            CR.Flow(:S => 0, 0.1 * last2(C2); form = CR.Truncate()),
+        ),
+    )
+    init_own = (
+        CR.Depletion(
+            100.0 + 5 * Recent([1.0, 1.0]; coupling = C1), CR.Hazard(),
+            CR.Flow(:S => 0, 0.1 * Recent([1.0, 1.0]; coupling = C2); form = CR.Truncate()),
+        ),
+    )
+    r = Recurrence(g; modifiers = init)
+    @test r(R; history = h) ≈ Recurrence(g; modifiers = init_own)(R; history = h)
+    @test pullback_matches(r, recargs(R, nothing, h)...)
 end
 
 @testitem "Recent: binding, rebinding and mirrors" begin

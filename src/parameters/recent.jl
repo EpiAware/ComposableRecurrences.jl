@@ -185,35 +185,43 @@ end
 function _BoundRecent(x::Recent, H, H̄, o, shared)
     C = x.coupling
     _check_recent_strata(C, size(H, 2))
-    u, row, z = _windows!(shared, C, x.w, H)
+    u, row, z = _windows(shared, C, x.w, H)
     return _BoundRecent(x, H, H̄, o, u, row, z, _mirror_slot(C, x.w))
 end
 # The windows `u`, their row and their cotangents `z` of a coupled read.
-# Coupled `Recent(n)` reads with the same `n` in one call hold the same
-# windows, whatever their couplings, and their weights take no cotangent,
-# so they share one set (`shared`, by `n`): a step fills and flushes it
-# once.
-_windows!(shared, ::Nothing, w, H) = nothing, nothing, nothing
-function _windows!(shared, C, w, H)
+# Coupled `Recent(n)` reads share them per `n`, as unit weights take no
+# cotangent.
+_windows(shared, ::Nothing, w, H) = nothing, nothing, nothing
+function _windows(shared, C, w, H)
     return _window_cache(C, H), _row_slot(C), _window_cache(C, H)
 end
-function _windows!(shared, C::AbstractMatrix, w::_Ones, H)
-    for (n, u, row, z) in shared
-        n == w.n && return u, row, z
-    end
-    u, row, z = _window_cache(C, H), _row_slot(C), _window_cache(C, H)
-    push!(shared, (w.n, u, row, z))
+function _windows(shared, C::AbstractMatrix, w::_Ones, H)
+    _, u, row, z = _find_windows(w.n, shared, H)
     return u, row, z
 end
-# The shared windows of one call, empty until a coupled `Recent(n)` binds.
-function _shared_windows(H)
-    U = typeof(_window_cache(true, H))
-    return Tuple{Int, U, Base.RefValue{Int}, U}[]
+# One call's shared windows: a tuple with a set for each distinct `n` of
+# its coupled `Recent(n)` reads, found by `n`.
+_shared_windows(x, H) = _distinct_windows(_shared_counts(x), H)
+# Unrolled, so each set's search sees the sets before it as a concrete tuple.
+@generated function _distinct_windows(ns::NTuple{K, Int}, H) where {K}
+    sets = [Symbol(:set, k) for k in 1:K]
+    finds = map(1:K) do k
+        :($(sets[k]) = _find_windows(ns[$k], ($(sets[1:(k - 1)]...),), H))
+    end
+    return Expr(:block, finds..., Expr(:tuple, sets...))
+end
+function _find_windows(n, sets, H)
+    for set in sets
+        first(set) == n && return set
+    end
+    return n, _window_cache(true, H), _row_slot(true), _window_cache(true, H)
 end
 _window_cache(::Nothing, H) = nothing
 _window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
 _row_slot(::Nothing) = nothing
-_row_slot(C) = Ref(0)
+_row_slot(C) = Ref(_STALE_ROW)
+# The row of windows not yet filled, or already flushed.
+const _STALE_ROW = 0
 # The weights' mirror is first seen when a read's cotangent arrives.
 # Integer weights, such as those of `Recent(n)`, take no cotangent, so
 # they keep no slot and the step's flush makes no dynamic call.
@@ -312,15 +320,14 @@ _cache_row!(b::_BoundRecent, i) = (b.row[] = i; nothing)
 _flush!(x) = _each_coupled(_flush_one!, x)
 function _flush_one!(b::_BoundRecent)
     z, i = b.z, b.row[]
-    i > 0 || return nothing
+    i == _STALE_ROW && return nothing
     _flush_weights!(_kept_mirror(b.w̄), z, b.x.w, b.H, i)
     for j in eachindex(z)
         _recent_back!(nothing, b.x.w, b.H, b.H̄, z[j], i, j)
         z[j] = zero(eltype(z))
     end
-    # Flushed: a read sharing these windows flushes nothing more, and the
-    # next step fills them again.
-    _cache_row!(b, 0)
+    # Stale: a read at this row now takes the uncached path.
+    _cache_row!(b, _STALE_ROW)
     return nothing
 end
 # The weights' cotangent, `w̄_l += Σ_j z_j y_{i-l,j}`; behind a function
@@ -421,12 +428,35 @@ end
 # helpers: a generator sees only the methods defined before it.
 @generated _coupled_reads(x) = Expr(:tuple, _coupled_paths(x, :x)...)
 
+# Whether a value of type `T` holds a coupled `Recent(n)`, whose windows
+# reads with the same `n` share.
+_shared_leaf(::Type{T}) where {T} = T <: Recent ? _shares_windows(T) : nothing
+function _shares_windows(::Type{R}) where {R <: Recent}
+    return fieldtype(R, :w) <: _Ones && fieldtype(R, :coupling) <: AbstractMatrix
+end
+# The field paths from `ex`, a value of type `T`, to the `n` of each
+# coupled `Recent(n)` inside it, bound or not.
+function _shared_paths(::Type{R}, ex) where {R <: Recent}
+    return _shares_windows(R) ? Any[:(getfield($ex, :w).n)] : Any[]
+end
+function _shared_paths(::Type{T}, ex) where {T}
+    _holds_type(_shared_leaf, T) || return Any[]
+    paths = Any[]
+    for (i, F) in enumerate(fieldtypes(T))
+        append!(paths, _shared_paths(F, :(getfield($ex, $i))))
+    end
+    return paths
+end
+# The `n` of each coupled `Recent(n)` inside `x`, as a tuple. After its
+# helpers: a generator sees only the methods defined before it.
+@generated _shared_counts(x) = Expr(:tuple, _shared_paths(x, :x)...)
+
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
 # rebuilding only the values that hold one, with one set of shared windows
-# for the call (`_windows!`).
+# for the call (`_shared_windows`).
 _bind(x, H, H̄, o) = _bind(Val(_reads_outputs(x)), x, H, H̄, o)
 _bind(::Val{false}, x, H, H̄, o) = x
-_bind(::Val{true}, x, H, H̄, o) = _bound(x, H, H̄, o, _shared_windows(H))
+_bind(::Val{true}, x, H, H̄, o) = _bound(x, H, H̄, o, _shared_windows(x, H))
 _bound(x, H, H̄, o, s) = _bound(Val(_reads_outputs(x)), x, H, H̄, o, s)
 _bound(::Val{false}, x, H, H̄, o, s) = x
 _bound(::Val{true}, x::Recent, H, H̄, o, s) = _BoundRecent(x, H, H̄, o, s)
