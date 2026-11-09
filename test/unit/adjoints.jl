@@ -25,6 +25,7 @@
     mirror_vec(x̄::Nothing, x) = zeros(CR._nparams(x))
     mirror_vec(x̄, x::SparseMatrixCSC) = copy(x̄.nzval)
     mirror_vec(x̄, x::Diagonal) = mirror_vec(x̄.diag, x.diag)
+    mirror_vec(::Nothing, x::Diagonal) = zeros(CR._nparams(x))
     function mirror_vec(x̄, x::Union{Tuple, NamedTuple})
         return reduce(vcat, map(mirror_vec, values(x̄), values(x)); init = Float64[])
     end
