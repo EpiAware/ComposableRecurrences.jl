@@ -269,6 +269,10 @@ end
     # A rebuild from the fields, as a local derivative makes, keeps them.
     q = ConstructionBase.constructorof(typeof(p[1]))(2, 1, 0.3, p[1].form)
     @test typeof(q) == typeof(p[1]) && q.demand == 0.3
+    # Moving the ends means a new flow: a rebuild to valid but different
+    # ends throws, so the rebuild's type is the flow's.
+    @test_throws "keeps its ends" ConstructionBase.setproperties(f, (; from = :W))
+    @test_throws "keeps its ends" ConstructionBase.setproperties(p[1], (; to = 0))
     # The placed type infers from the flow's type, wherever the flow was
     # built, and so does a call of a recurrence holding it.
     # Imported by name: a global alias of the module would not infer.
