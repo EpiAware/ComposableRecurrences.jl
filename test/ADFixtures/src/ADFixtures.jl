@@ -2449,6 +2449,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence Derived modifier parameters",
         "Recurrence feedback from recent outputs",
         "Recurrence feedback from recent outputs across strata",
+        "Recurrence bed cap with a stay that is not geometric",
     ],
     # A modifier field read at the traced step indexes a view with a traced
     # integer.
@@ -2462,6 +2463,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence sparse coupling",
         "Recurrence routes, dense and sparse",
         "Recurrence routes in a buffer deeper than the kernels",
+        "Recurrence trace through a sparse coupling",
     ],
     "ragged kernel" => [
         "Convolution ragged kernel truncated at the horizon",
