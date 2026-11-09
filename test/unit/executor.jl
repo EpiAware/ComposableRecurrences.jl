@@ -458,3 +458,15 @@ end
         @test_skip nt > 1
     end
 end
+
+@testitem "Executor: a loop under an executor of another kind raises" begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    struct OtherExecutor <: CR.Executor end
+    y = zeros(4)
+    body!(k, y) = (y[k] = k; nothing)
+    @test_throws ArgumentError with(CR.EXECUTOR => OtherExecutor()) do
+        CR._each!(body!, CR._current(), y, 4, 4, y)
+    end
+end
