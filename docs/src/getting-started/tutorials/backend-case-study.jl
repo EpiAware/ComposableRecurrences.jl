@@ -23,26 +23,26 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # Its value on day ``t`` is ``G_{p,t} = R_{p,t} \sum_{l=1}^{L} g_l I_{p,t-l}``.
 # A share ``\varepsilon_{q,t} K_{pq}`` of what origin ``q`` generates is realised in patch ``p`` instead.
 # Each patch then draws its infections from its own pool by the hazard form of depletion.
-# Reports follow a delay ``d_l``, lag 0 first:
+# Reports follow a delay ``w_l`` over ``L_w`` lags, lag 0 first:
 #
 # ```math
 # \begin{aligned}
 # v_{p,t} &= \Big(1 - \varepsilon_{p,t} \sum_{q \ne p} K_{qp}\Big) G_{p,t}
 #     + \sum_{q \ne p} \varepsilon_{q,t} K_{pq} \, G_{q,t}, \\
-# I_{p,t} &= s_{p,t-1} \big(1 - e^{-v_{p,t} / N_p}\big), \qquad
-# s_{p,t} = s_{p,t-1} \, e^{-v_{p,t} / N_p}, \\
-# C_{p,t} &= \sum_{l=0}^{D-1} d_l \, I_{p,t-l}.
+# I_{p,t} &= S_{p,t-1} \big(1 - e^{-v_{p,t} / N_p}\big), \qquad
+# S_{p,t} = S_{p,t-1} \, e^{-v_{p,t} / N_p}, \\
+# C_{p,t} &= \sum_{l=0}^{L_w-1} w_l \, I_{p,t-l}.
 # \end{aligned}
 # ```
 #
-# Here ``N_p`` is patch ``p``'s population, and its pool starts at ``s_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
+# Here ``N_p`` is patch ``p``'s population, and its pool starts at ``S_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
 # The model runs at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
 
-S, T, L, D = 11, 200, 20, 30
+S, T, L, L_w = 11, 200, 20, 30
 gi = let w = [l^2 * exp(-l / 2.5) for l in 1:L]
     w ./ sum(w)
 end
-delay = let w = [exp(-l / 6) for l in 0:(D - 1)]
+delay = let w = [exp(-l / 6) for l in 0:(L_w - 1)]
     w ./ sum(w)
 end
 N = [2.0e4 + 4.0e3 * p for p in 1:S]

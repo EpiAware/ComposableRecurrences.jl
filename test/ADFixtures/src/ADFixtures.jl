@@ -12,7 +12,7 @@
 module ADFixtures
 
 using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
-    AutoMooncakeForward, AutoEnzyme
+    AutoMooncakeForward, AutoEnzyme, AutoReactant
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
@@ -354,6 +354,18 @@ function _movement_time_varying(w, θ)
     g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
     mods = (
         ComposableRecurrences.Redistribute(K, ε),
+        ComposableRecurrences.Depletion(PerStratum(POP)),
+    )
+    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# The same through the public `Redistribute(K, ε; leak = true)`, with a
+# kernel whose columns sum to less than one, so part of what moves leaves.
+function _movement_leak(w, θ)
+    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
+    mods = (
+        ComposableRecurrences.Redistribute(K, ε; leak = true),
         ComposableRecurrences.Depletion(PerStratum(POP)),
     )
     y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
@@ -752,6 +764,24 @@ function _capacity_beds(w, θ)
     return sum(WS[1:2, :] .* log.(y))
 end
 
+# A bed cap on admissions with a stay that is not geometric: the beds held
+# by earlier admissions are a weighted sum of the recurrence's own outputs,
+# read by `Recent`, and occupancy is the convolution of the admissions with
+# the survival. The parameters are the log beds and the log scale of a
+# gamma stay of shape 2; the cap binds on some steps and not on others.
+const BEDCAP0 = [log(40.0), log(3.0)]
+const DEMAND = [30 * exp(-((t - 5) / 2.5)^2) for t in 1:T]
+_stay(scale) = [(1 + (k + 1) / scale) * exp(-(k + 1) / scale) for k in 0:(T - 1)]
+function _bed_cap_any_stay(w, θ)
+    x = BEDCAP0 .+ θ
+    beds, S = exp(x[1]), _stay(exp(x[2]))
+    CR = ComposableRecurrences
+    cap = CR.Transform(min, (beds - CR.Recent(S[2:end])) / S[1])
+    r = Recurrence([zero(eltype(x))]; modifiers = (cap,))
+    y = w(r)(; history = [zero(eltype(x))], add = DEMAND)
+    return sum(W1 .* w(Convolution(S))(y))
+end
+
 # The capacity pools are built behind a call: inline in the losses, whose
 # unpacking does not infer, Enzyme rejects them when the code is compiled
 # for coverage.
@@ -1048,6 +1078,19 @@ end
 # infections, as BVD's joint model reads them.
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    return _importation_loss(w, logh, logR, ε)
+end
+
+# The importation's trace through a sparse coupling, so the coupling's
+# product is differentiated with the trace as well as the output.
+function _trace_sparse(w, θ)
+    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
+    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    return _importation_loss(w, logh, logR, ε; coupling = K)
+end
+
+# The importation's loss, read from its output and trace.
+function _importation_loss(w, logh, logR, ε; kw...)
     CR = ComposableRecurrences
     # The intensity per origin and step keeps the movement a kernel and
     # an intensity, whose columns sum to one under any perturbation.
@@ -1056,7 +1099,8 @@ function _trace_importation(w, θ)
         CR.Depletion(PerStratum(POP)),
     )
     y, tr = returning_trace(
-        w(Recurrence(G0; modifiers = mods)), exp.(logR); history = exp.(logh)
+        w(Recurrence(G0; modifiers = mods, kw...)), exp.(logR);
+        history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
@@ -1316,6 +1360,14 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence Redistribute with a leak", _movement_leak,
+        () -> _flat(
+            G0, [0.0 0.4 0.2; 0.5 0.0 0.3; 0.3 0.4 0.0],
+            [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence Redistribute of a movement read from recent outputs",
         _movement_recent,
         () -> _flat(
@@ -1455,12 +1507,20 @@ const _SCENARIOS = [
         () -> zero(CAPS0),
     ),
     (
+        "Recurrence bed cap with a stay that is not geometric",
+        _bed_cap_any_stay, () -> zero(BEDCAP0),
+    ),
+    (
         "Recurrence capacity, weekly budget with a queue", _capacity_budget,
         () -> zero(CAPB0),
     ),
     (
         "Recurrence trace of the importation (Redistribute)", _trace_importation,
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
+        "Recurrence trace through a sparse coupling", _trace_sparse,
+        () -> _flat(KS.nzval, fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
     ),
     (
         "Recurrence trace of a protected pool", _trace_pool,
@@ -1786,6 +1846,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
+    "Recurrence Redistribute with a leak" => (:_kernel_movement,),
     "Recurrence Redistribute, Transform(+) and Transform(clamp)" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
@@ -1793,6 +1854,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace through a sparse coupling" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
     # A trace written in place, with `forward!`.
     "Recurrence trace of pointwise modifiers" => (:_trace_series,),
@@ -1816,6 +1878,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence routes folded on scaled identities" => (:_Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
     "Recurrence feedback from recent outputs" => (:Recent,),
+    "Recurrence bed cap with a stay that is not geometric" => (:Recent, :Transform),
     "Recurrence removals from recent outputs" => (:Recent,),
     "Recurrence routes in a buffer deeper than the kernels" => (:_Routes, :depth),
     # The coupling on `Recent` came after `Recent`.
@@ -2283,9 +2346,15 @@ The matrix-case losses are closures over constant data (weights,
 populations, kernels), which Enzyme cannot always prove read-only.
 Without the annotation, Enzyme reverse on Julia 1.13 throws an
 `EnzymeMutabilityException` on them.
+
+`Reactant` (Enzyme reverse mode compiled by Reactant) is listed only when
+Reactant is loaded, as it is in `test/reactant/`.
+DifferentiationInterface has no Reactant extension, so `test/reactant/`
+compiles each scenario itself rather than through its `backend`; the AD
+jobs and the benchmark suite do not load Reactant and so never see it.
 """
 function backends()
-    return [
+    list = [
         (name = "ForwardDiff", backend = AutoForwardDiff()),
         (name = "ReverseDiff (tape)", backend = AutoReverseDiff(compile = false)),
         (name = "ReverseDiff (compiled)", backend = AutoReverseDiff(compile = true)),
@@ -2294,6 +2363,21 @@ function backends()
         (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
         (name = "Mooncake forward", backend = AutoMooncakeForward()),
     ]
+    if reactant_loaded()
+        push!(
+            list, (
+                name = "Reactant",
+                backend = AutoReactant(; mode = AutoEnzyme(; mode = Enzyme.Reverse)),
+            )
+        )
+    end
+    return list
+end
+
+"Whether Reactant, and with it the package's Reactant extension, is loaded."
+function reactant_loaded()
+    ext = :ComposableRecurrencesReactantExt
+    return Base.get_extension(ComposableRecurrences, ext) !== nothing
 end
 
 function _enzyme(mode)
@@ -2315,11 +2399,101 @@ which the harness does at zero parameters. The ward from its parameters as
 given branches differently there, so its prepared calls on compiled
 ReverseDiff are wrong, as are its `NoAdjoint` twin's; the other scenarios
 start at zero to avoid this.
+
+`Reactant` lists the scenarios that do not run under Reactant, forward or
+reverse; `test/reactant/` reads it.
 """
 function backend_broken_scenarios()
     ward = "Recurrence ward with competing flows, from the parameters as given"
-    return Dict("ReverseDiff (compiled)" => Set([ward, "NoAdjoint " * ward]))
+    return Dict(
+        "ReverseDiff (compiled)" => Set([ward, "NoAdjoint " * ward]),
+        "Reactant" => Set(reduce(vcat, values(REACTANT_BROKEN))),
+    )
 end
+
+# The scenarios that do not compile, or compile to wrong values, under
+# Reactant, forward and reverse, by cause (see test/reactant/RESULTS.md).
+# `test/reactant/` runs the scenarios without their twins, so only the
+# scenario names are listed.
+const REACTANT_BROKEN = Dict(
+    # A traced number is not a `Real`, so the checks on a scalar parameter,
+    # a heterogeneity exponent, a softness or a computed kernel's
+    # coefficient refuse it.
+    "traced scalar refused by a parameter check" => [
+        "Recurrence depletion with a differentiated heterogeneity",
+        "Recurrence floored depletion with a differentiated heterogeneity",
+        "Recurrence array-field and scalar-field modifiers",
+        "Recurrence vaccination into a protected pool",
+        "Recurrence waning protection (Depletion flows)",
+        "Recurrence pool with twelve flows (over 32 leaves)",
+        "Recurrence two draws on one pool with a flow between",
+        "Recurrence ward with competing flows (Depletion without a draw)",
+        "Recurrence ward with competing flows, from the parameters as given",
+        "Recurrence protected pool in Float32",
+        "Recurrence grouped totals with time-varying imports (Allocate)",
+        "Recurrence empty pool with a differentiated heterogeneity",
+        "Recurrence capacity, beds with overflow",
+        "Recurrence trace of a protected pool",
+        "Recurrence trace of a ward's flows",
+        "Recurrence capacity, dropped overflow after a truncated draw",
+        "Recurrence depletion with smoothly truncated draws",
+        "Convolution kernel from a hazard and a survival",
+        "Kernel weights of a survival against a delay and calendar hazard",
+        "Recurrence kernel shortened by a survival",
+    ],
+    # `Recent` and `Derived` have no arithmetic with, or constructor from,
+    # traced values.
+    "Recent or Derived built from traced values" => [
+        "Recurrence Redistribute of a movement read from recent outputs",
+        "Recurrence removals from recent outputs",
+        "Recurrence Derived modifier parameters",
+        "Recurrence feedback from recent outputs",
+        "Recurrence feedback from recent outputs across strata",
+    ],
+    # A modifier field read at the traced step indexes a view with a traced
+    # integer.
+    "modifier field read at a traced step" => [
+        "Recurrence per-stratum modifier without a pullback",
+        "Recurrence modifier with a vector field read by time",
+        "Recurrence checked at the call",
+        "Recurrence whole-step modifier branching at a tie (occupancy)",
+    ],
+    "sparse coupling from traced values" => [
+        "Recurrence sparse coupling",
+        "Recurrence routes, dense and sparse",
+        "Recurrence routes in a buffer deeper than the kernels",
+    ],
+    "ragged kernel" => [
+        "Convolution ragged kernel truncated at the horizon",
+        "Convolution ragged kernel of views into the parameters",
+        "Recurrence ragged Primary kernel",
+    ],
+    "Distributions or delay masses from traced parameters" => [
+        "Convolution Poisson delay distribution",
+        "Convolution Poisson delay distribution on a step of two units",
+        "Convolution chain of two delays as masses",
+        "Recurrence negative binomial generation interval per stratum",
+    ],
+    "trace recorded into a traced buffer" => [
+        "Recurrence trace of the importation (Redistribute)",
+        "Recurrence trace of a weekly budget with a queue",
+    ],
+    "kernel from change points with traced values" => [
+        "Recurrence kernel from change points",
+    ],
+    # Compiles with no error, but a `PerStratum` value given by change points
+    # reads stratum 1 for every stratum: the value differs from plain Julia
+    # by 5e-2 and the gradient from ForwardDiff by up to 1.9 an entry.
+    "wrong values: per-stratum change points read stratum 1" => [
+        "Recurrence parameters from change points",
+    ],
+    "lag contributions read a traced number (`_at`)" => [
+        "Convolution lag contributions",
+    ],
+    "a history given as a view, loaded into a Float64 buffer" => [
+        "Recurrence random walk and strata prepending a view history",
+    ],
+)
 
 """
 Per-backend skipped scenario names (`Dict{String, Set{String}}`): the

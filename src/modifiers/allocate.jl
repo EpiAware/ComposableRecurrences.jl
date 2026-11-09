@@ -58,7 +58,9 @@ turn) and `offsets` (where each group starts), so the analytic adjoint sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
 over groups, not strata: `PerStratum` holds one value per group.
-It reads every stratum of a group, so it is not pointwise.
+It reads every stratum of a group, so it is not pointwise, and its groups
+differ in size and are set by the value, so it is not blockwise
+([`ComposableRecurrences.blocks`](@ref) is `nothing`).
 It has no state without `imports`; with them the state holds ``h``, after
 ``u`` when there is a spill.
 It composes with the other modifiers in tuple order:
@@ -154,11 +156,9 @@ struct Allocate{T, I}
     function Allocate(
             groups::AbstractVector, total::T; imports = nothing, spill = nothing
         ) where {T}
-        _check_groups(groups)
+        strata, offsets = _flat_groups(groups)
         _check_group_param(:total, total, length(groups))
         im = _imports(imports, spill, length(groups))
-        strata = Int[k for zs in groups for k in zs]
-        offsets = cumsum([0; length.(groups)])
         return new{T, typeof(im)}(strata, offsets, total, im)
     end
     function Allocate(::_Flat, strata, offsets, total::T, imports::I) where {T, I}
@@ -241,6 +241,16 @@ end
 # only integer arrays and the total.
 _ngroups(m::Allocate) = length(m.offsets) - 1
 _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
+
+# The groups, checked and stored flat: every stratum in group order, and
+# each group's end in that list. Only integers, so the extensions mark it as
+# carrying no derivative; traced, it was most of the constructor's gradient.
+function _flat_groups(groups)
+    _check_groups(groups)
+    strata = Int[k for zs in groups for k in zs]
+    offsets = cumsum([0; length.(groups)])
+    return strata, offsets
+end
 
 # The groups are disjoint vectors of positive indices, some possibly empty;
 # that they cover every stratum is checked once the strata are known.

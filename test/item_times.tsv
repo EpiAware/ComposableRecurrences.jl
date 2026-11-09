@@ -409,6 +409,7 @@
 9.8	Use case: imports added after depletion
 0.7	Use case: isolation as a thinned kernel
 7.0	Use case: isolation beds with overflow to the community
+8.9	Use case: a bed cap with a general length of stay
 1.1	Use case: multi-type extinction
 1.8	Use case: multi-type growth is the spectral radius
 4.7	Use case: per-pair generation intervals

@@ -386,6 +386,9 @@ only at run time.
 [`ComposableRecurrences.ispointwise`](@ref) and
 [`ComposableRecurrences.nstate`](@ref) follow from it.
 The default is `nothing`.
+Groups of different sizes, such as the patches of
+[`ComposableRecurrences.Allocate`](@ref), are a value of the modifier, so
+its `blocks` is `nothing`.
 
 # Arguments
 - `m`: the modifier.

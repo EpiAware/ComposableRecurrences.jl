@@ -2,7 +2,7 @@
 #
 #   julia test/reactant/compare.jl committed.tsv fresh.tsv [--subset]
 #
-# Prints every (case, mode, config, backend, steps) cell whose status
+# Prints every (case, mode, suite, backend, steps) cell whose status
 # changed, as a Markdown table, and exits with status 1 if any did. Timings
 # are ignored. With `--subset` the fresh run covers only some cells, as the
 # pull request smoke run does, and only those are compared.
@@ -13,14 +13,12 @@ function statuses(path)
     lines = readlines(path)
     keys = split(lines[2], '\t')
     col(name) = findfirst(==(name), keys)
-    idx = col.(("name", "mode", "config", "backend", "status"))
-    # Results from before the steps column ran at 20 steps.
+    idx = col.(("name", "mode", "suite", "backend", "status"))
     isteps = col("steps")
     d = Dict{NTuple{5, String}, String}()
     for l in lines[3:end]
         v = split(l, '\t')
-        steps = isteps === nothing ? "20" : String(v[isteps])
-        d[(String.(v[collect(idx[1:4])])..., steps)] = String(v[idx[5]])
+        d[(String.(v[collect(idx[1:4])])..., String(v[isteps]))] = String(v[idx[5]])
     end
     return d
 end
@@ -40,12 +38,12 @@ function main(committed, fresh, subset = false)
         return 0
     end
     println("Reactant support changed in $(length(changed)) cells:\n")
-    println("| Case | Mode | Config | Backend | T | Committed | Now |")
+    println("| Case | Mode | Suite | Backend | T | Committed | Now |")
     println("|---|---|---|---|---|---|---|")
     for k in changed
         println("| ", join(k, " | "), " | ", get(old, k, "missing"), " | ", get(new, k, "missing"), " |")
     end
-    println("\nRegenerate the committed results and update `expected.jl`.")
+    println("\nRegenerate the committed results and update `expected.jl` or the AD registry's Reactant lists.")
     return 1
 end
 
