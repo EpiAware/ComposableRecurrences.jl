@@ -357,7 +357,8 @@ function ComposableRecurrences._scratch(
         x::ComposableRecurrences.Survival, ::Type{Tp}, L, B
     ) where {Tp <: TracedRNumber}
     ns = max(ComposableRecurrences._coef_strata(x.hazard), 1)
-    return ComposableRecurrences._SurvivalScratch(
+    P = ComposableRecurrences._stratified(x.hazard)
+    return ComposableRecurrences._SurvivalScratch{P}(
         ComposableRecurrences._scratch(x.hazard, Tp, L, B), zeros(Tp, B, L, ns),
         zeros(Tp, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
     )
