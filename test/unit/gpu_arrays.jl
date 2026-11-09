@@ -641,3 +641,41 @@ end
     @test_throws ArgumentError setproperties(f, (; form = Hazard(; weights = (S = 1, V = 0.3))))
     @test_throws MethodError Flow{Float64, Share, Int}(1, 2, 1.5, Share())
 end
+
+# A device convolution with a gathering kernel runs one output per kernel
+# index, so a launch covers every output rather than one index per stratum.
+# A backend that records each launch's size and runs it on JLArrays checks
+# the launch without a GPU.
+@testitem "JLArrays: a device convolution launches one index per output" begin
+    using Adapt: adapt
+    using ComposableRecurrences: ComposableRecurrences as CR, PerStratum, TimeVarying
+    using Base.ScopedValues: with
+    using JLArrays, KernelAbstractions
+    JLArrays.allowscalar(false)
+    KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
+    struct RecordingBackend end
+    launches = Int[]
+    jl = KernelAbstractions.get_backend(JLArray(ones(1)))
+    function KAExt._launch!(::RecordingBackend, body, args, n)
+        push!(launches, n)
+        return KAExt._launch!(jl, body, args, n)
+    end
+    S, T, L = 3, 20, 4
+    g = [0.4, 0.3, 0.2, 0.1]
+    x = [1.0 + 0.1 * k + 0.01 * t for k in 1:S, t in 1:T]
+    kernels = (
+        "fixed" => g,
+        "PerStratum" => PerStratum(repeat(g', S) .* (1:S) ./ S),
+        "TimeVarying" => TimeVarying(repeat(g, 1, T) .* (1 .+ 0.01 .* (1:T)')),
+    )
+    for (name, k) in kernels
+        @testset "$name" begin
+            empty!(launches)
+            y = with(CR.EXECUTOR => CR.Device(RecordingBackend())) do
+                CR.Convolution(adapt(JLArray, k))(JLArray(x))
+            end
+            @test S * T in launches
+            @test Array(y) ≈ CR.Convolution(k)(x)
+        end
+    end
+end
