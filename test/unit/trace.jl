@@ -604,6 +604,33 @@ end
     @test y ./ tr.pressure ≈ R
 end
 
+@testitem "Trace: the pressure of a run of one series or one stratum" begin
+    # Runs of one stratum carry their last value from step to step, with or
+    # without pointwise modifiers; their traces hold the same pressure as
+    # `pressure` on the outputs.
+    using ComposableRecurrences
+    using LinearAlgebra: Diagonal
+    const CR = ComposableRecurrences
+    g = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
+    T = 20
+    R = [1.6 - 0.04 * t for t in 1:T]
+    seed = fill(10.0, 6)
+    runs = (
+        Recurrence(g),
+        Recurrence(g; coupling = Diagonal([0.9])),
+        Recurrence(PerStratum(reshape(g, 1, :))),
+        Recurrence(g; modifiers = (CR.Transform(*, 0.8),)),
+    )
+    for r in runs, (Rx, hx) in ((R, seed), (reshape(R, 1, :), reshape(seed, 1, :)))
+        r isa Recurrence{<:PerStratum} && Rx isa Vector && continue
+        y, tr = r(Rx; history = hx, record = (:trace,))
+        @test tr.pressure ≈ CR.pressure(r, y; history = hx)
+    end
+    # Without modifiers the gain is the output over the pressure.
+    y, tr = Recurrence(g)(R; history = seed, record = (:trace,))
+    @test y ./ tr.pressure ≈ R
+end
+
 @testitem "Trace: gradients through the pressure, the rule against ForwardDiff" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake

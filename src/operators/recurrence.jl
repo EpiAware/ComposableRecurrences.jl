@@ -459,7 +459,8 @@ end
             older += w[i] * H[o + i, k]
         end
     end
-    _record_pressure!(pr, muladd(newest, y, older), nothing, t, k)
+    pk = muladd(newest, y, older)
+    _record_pressure!(pr, pk, _coef(C, k) * pk, t, k)
     γ = @inbounds _at(gain, k, τ) * _coef(C, k)
     v = muladd(γ * newest, y, muladd(γ, older, @inbounds(_at(add, k, τ))))
     @inbounds H[D + t, k] = v
