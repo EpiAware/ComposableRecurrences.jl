@@ -1,0 +1,59 @@
+# Package-owned: not part of the kit's managed workflows.
+name: Trim
+
+# Builds the app in test/trim into a trimmed executable with JuliaC
+# (`--trim=safe`) and runs it. A build fails on any call the compiler cannot
+# resolve statically, so a green run shows the forward path of the models the
+# app covers compiles without dynamic dispatch. The app checks its outputs and
+# exits non-zero on a mismatch. Nightly is allowed to fail.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'test/trim/**'
+      - 'Project.toml'
+      - '.github/workflows/trim.yaml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/trim/**'
+      - 'Project.toml'
+      - '.github/workflows/trim.yaml'
+  workflow_dispatch:
+
+# A newer push to a pull request supersedes its run; runs on main all
+# complete, so every merge gets a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  trim:
+    name: Trim (Julia ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: ${{ matrix.version == 'nightly' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['1.12', 'nightly']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - name: Install JuliaC
+        run: julia --project="$RUNNER_TEMP/juliac" -e 'using Pkg; Pkg.add(name = "JuliaC", version = "0.3")'
+      - name: Instantiate the app
+        run: julia --project=test/trim -e 'using Pkg; Pkg.instantiate()'
+      - name: Build the trimmed app
+        working-directory: test/trim
+        run: >-
+          julia --project="$RUNNER_TEMP/juliac" -e 'using JuliaC; JuliaC.main(ARGS)' --
+          --output-exe trimapp --bundle "$RUNNER_TEMP/trimapp"
+          --trim=safe --experimental .
+      - name: Run the trimmed app
+        run: '"$RUNNER_TEMP/trimapp/bin/trimapp"'

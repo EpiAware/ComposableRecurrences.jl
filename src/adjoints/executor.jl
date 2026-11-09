@@ -226,9 +226,28 @@ _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
 # Waits for every task, so a failing chunk cannot leave others writing after
 # the loop returns; failures are rethrown together.
 function _spawn_chunks(run::R, n, m) where {R}
-    @sync for c in 1:m
-        Threads.@spawn run(_chunk(c, n, m))
+    tasks = Vector{Task}(undef, m)
+    for c in 1:m
+        tasks[c] = Threads.@spawn run(_chunk(c, n, m))
     end
+    _wait_all(tasks)
+    return nothing
+end
+
+# Wait for every task and rethrow their failures together, as `@sync` does.
+# `@sync` collects its tasks in an untyped channel, which a trimmed build
+# cannot dispatch on.
+function _wait_all(tasks::Vector{Task})
+    failed = nothing
+    for t in tasks
+        try
+            wait(t)
+        catch e
+            failed === nothing && (failed = CompositeException())
+            push!(failed, e)
+        end
+    end
+    failed === nothing || throw(failed)
     return nothing
 end
 
@@ -355,11 +374,19 @@ end
     return nothing
 end
 
-# The loop `loop!` with the call's executor, behind a dynamic call.
+# The loop `loop!` with the call's executor, behind a function barrier. The
+# executor is one of the three built-in kinds, so each branch is a static call.
 @noinline function _dynamic!(
-        loop!::L, body::F, c::_Current, x, n, work, args...
-    ) where {L, F}
-    loop!(body, _resolve(c.ex, x), n, work, args...)
+        loop!::L, body::F, c::_Current, x, n, work, args::Vararg{Any, N}
+    ) where {L, F, N}
+    ex = _resolve(c.ex, x)
+    if ex isa Threaded
+        loop!(body, ex, n, work, args...)
+    elseif ex isa Serial
+        loop!(body, ex, n, work, args...)
+    else
+        loop!(body, ex::Device, n, work, args...)
+    end
     return nothing
 end
 
@@ -451,14 +478,16 @@ const _SPLIT_BLOCKS = Threads.Atomic{Int}(0)
 @noinline function _spawn_blocks(body::F, acc, copies, n, args...) where {F}
     Threads.atomic_add!(_SPLIT_BLOCKS, 1)
     m = length(copies) + 1
-    @sync for b in 1:m
+    tasks = Vector{Task}(undef, m)
+    for b in 1:m
         ks = _chunk(b, n, m)
-        if b == 1
+        tasks[b] = if b == 1
             Threads.@spawn body(ks, acc, args...)
         else
             Threads.@spawn _copy_block!(body, ks, acc, copies, b - 1, args...)
         end
     end
+    _wait_all(tasks)
     return nothing
 end
 function _copy_block!(body::F, ks, acc, copies, i, args...) where {F}
