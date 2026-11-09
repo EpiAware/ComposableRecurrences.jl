@@ -1,7 +1,7 @@
 ## The Reactant extension
 
 `ext/ComposableRecurrencesReactantExt.jl` loads with Reactant.
-Each method below was found by tracing the cases here one failure at a time, first as a shim in this folder and now in the extension.
+Each method below was found by tracing the cases in this folder one failure at a time, first as a shim here and now in the extension.
 
 1. `param_eltype` for traced arrays.
    A traced array's eltype is `TracedRNumber{T}`, which is not a `Real`, so the generic array method runs `mapreduce(param_eltype, promote_type, x; init = Bool)`.
