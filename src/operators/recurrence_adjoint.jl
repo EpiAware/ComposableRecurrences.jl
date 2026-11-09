@@ -150,6 +150,13 @@ function _series_back!(
             )
             continue
         end
+        if size(H, 2) == 1 && _carries(g, H)
+            _carried_back!(
+                g, _run_steps(ts, T), first(ks), acc, kb, s̄s, rec, pr, gain,
+                coupling, ms, H, H̄, τ0, L, D
+            )
+            continue
+        end
         for t in reverse(_run_steps(ts, T))
             τ = τ0 + t - 1
             for k in ks
@@ -198,6 +205,28 @@ end
     _older_back!(kw, w, p̄, H, H̄, t + D - L - 1, L, k)
     β = @inbounds _at(gain, k, τ) * _coef(C, k) * newest
     return muladd(β, carry, β * h̄)
+end
+# The same for a run through pointwise modifiers: the cotangent each step
+# sends to its last value is its pressure's times the newest weight.
+function _carried_back!(
+        g, steps, k, acc, kb, s̄s, rec, pr, gain, coupling, ms, H, H̄, τ0, L, D
+    )
+    w = _stratum_weights(g, k)
+    b = _stratum_buffer(kb, g, k)
+    carry = zero(eltype(H̄))
+    for t in reverse(steps)
+        τ = τ0 + t - 1
+        v̄k = _thread_back(
+            ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]) + carry, τ, t, k
+        )
+        p̄ = _core_back!(acc, v̄k, pr, gain, coupling, t, τ, k)
+        L >= 1 || (carry = zero(carry); continue)
+        _older_back!(b, w, p̄, H, H̄, t + D - L - 1, L, k)
+        carry = p̄ * @inbounds(w[L])
+    end
+    row = D + first(steps) - 1
+    row >= 1 && @inbounds(H̄[row, k] += carry)
+    return nothing
 end
 _stratum_buffer(kb::AbstractMatrix, ::AbstractVector, k) = view(kb, :, k)
 _stratum_buffer(kb::AbstractMatrix, ::PerStratum, k) = view(kb, k, :)
