@@ -121,7 +121,8 @@ end
     @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
     @test all(isempty, values(ADFixtures.backend_skip_scenarios()))
     names = Set(s.name for s in ADFixtures.scenarios())
-    backends = Set(b.name for b in ADFixtures.backends())
+    # A list may name a backend these jobs do not load, as Reactant.
+    backends = ADFixtures.backend_names()
     @test Set(ADFixtures.broken_scenario_names()) ⊆ names
     for lists in (ADFixtures.backend_broken_scenarios(), ADFixtures.backend_plain_scenarios())
         for (backend, entries) in lists
