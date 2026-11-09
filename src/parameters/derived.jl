@@ -62,8 +62,10 @@ the AD backend instead, so they keep their gradients.
 
 Arithmetic with a `Derived` on either side builds another `Derived`, so
 `κ * x`, `x + c`, `x - c`, `x / N`, `x ^ p` and `-x` all work when `x` is
-a `Derived`, with a number, a vector, `PerStratum`, `TimeVarying` or a
-`Survival` on the other side.
+a `Derived`, with a number, a vector, `PerStratum` or `TimeVarying` on the
+other side.
+`+`, `-`, `*` and `/` also work with a
+[`ComposableRecurrences.Survival`](@ref) on either side.
 Wrap a plain parameter as `Derived(identity, x)` to start such an
 expression.
 

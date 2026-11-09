@@ -102,9 +102,9 @@
     # scalar, mixed-eltype and Float32 fields, pools and flows (past 32
     # leaves), a population over time, imports, movements, dense matrices,
     # `Derived`, a capacity, a seed joined to the output with and without
-    # state, traces of pointwise and grouped steps, change points, the
-    # automatic convolution, the weights of a computed kernel, the local
-    # steps of user types, routes, and an operator checked at the call. Enzyme's pass with the operator constant
+    # state, traces of pointwise and grouped steps and through a sparse
+    # coupling, change points, the automatic convolution, the weights of a
+    # computed kernel, the local steps of user types, routes, and an operator checked at the call. Enzyme's pass with the operator constant
     # reaches branches for a constant part that only some operators have,
     # so their scenarios are here too: a constant movement, `Transform(clamp, lo, hi)`, a
     # traced movement, change-point kernels, ragged columns held as given
@@ -142,6 +142,7 @@
         "Recurrence checked at the call",
         "Recurrence Redistribute, Transform(+) and Transform(clamp)",
         "Recurrence trace of the importation (Redistribute)",
+        "Recurrence trace through a sparse coupling",
         "Recurrence Primary per-stratum kernel from change points",
         "Convolution kernel from change points with history",
         "Convolution ragged kernel of views into the parameters",
@@ -419,21 +420,27 @@
 
     # Runs `check()` in a testset named `label`, for the backend named
     # `name`. A registry scenario marked broken there runs in a testset that
-    # only records whether every check passed, as one `@test_broken` while
-    # it fails.
-    function scenario_testset(check, name, label)
-        broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
-        if label in broken || label in ADFixtures.broken_scenario_names()
+    # only records whether every check passed, as one `@test_broken`, which
+    # reports an unexpected pass once it is fixed.
+    function scenario_testset(check, name, label; broken = _marked_broken(name, label))
+        if broken
             probe = @testset Probe "$label" begin
                 check()
             end
-            probe.ok ? (@test probe.ok) : (@test_broken probe.ok)
+            @test_broken probe.ok
         else
             @testset "$label" begin
                 check()
             end
         end
         return nothing
+    end
+
+    # Whether the registry marks scenario `label` broken on the backend
+    # named `name`.
+    function _marked_broken(name, label)
+        broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
+        return label in broken || label in ADFixtures.broken_scenario_names()
     end
 
     # Runs `test_adjoint` on `case` for the backend named `name`.
@@ -643,6 +650,35 @@ end
             ),
         ]
     end
+end
+
+# A scenario marked broken whose checks all pass is reported, so a fixed
+# entry is taken off the broken list, as `@test_broken` reports it in the
+# registry items.
+@testitem "A scenario marked broken that passes is reported" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using Test: Test, @test, @testset
+    # A testset that keeps its results and passes none up.
+    mutable struct Kept <: Test.AbstractTestSet
+        description::String
+        results::Vector{Any}
+    end
+    Kept(description; kwargs...) = Kept(description, Any[])
+    Test.record(ts::Kept, r) = (push!(ts.results, r); r)
+    Test.finish(ts::Kept) = ts
+    function results(pass)
+        ts = @testset Kept "probe" begin
+            scenario_testset("backend", "scenario"; broken = true) do
+                @test pass
+            end
+        end
+        return ts.results
+    end
+    fixed, failing = results(true), results(false)
+    @test length(fixed) == 1
+    @test only(fixed) isa Test.Error
+    @test only(fixed).test_type === :test_unbroken
+    @test length(failing) == 1
+    @test only(failing) isa Test.Broken
 end
 
 @testitem "Mooncake: test_adjoint on one operator of each kind" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin

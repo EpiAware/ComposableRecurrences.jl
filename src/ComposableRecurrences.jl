@@ -98,7 +98,7 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
-    pressure, Survival, kernel_weights
+    pressure, Survival
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -171,6 +171,9 @@ include("kernels/delays.jl")
 include("kernels/weights.jl")
 # Operators whose kernel is computed from coefficients, and `kernel_weights`.
 include("kernels/computed.jl")
+
+# One-line summaries of the public types for the REPL and the docs.
+include("interface/show.jl")
 
 # adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
 # Default pullbacks of modifiers and couplings without one.
