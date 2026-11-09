@@ -1,11 +1,9 @@
 # Package-owned: not part of the kit's managed workflows.
 name: Trim
 
-# Builds the app in test/trim into a trimmed executable with JuliaC
-# (`--trim=safe`) and runs it. A build fails on any call the compiler cannot
-# resolve statically, so a green run shows the forward path of the models the
-# app covers compiles without dynamic dispatch. The app checks its outputs and
-# exits non-zero on a mismatch. Nightly is allowed to fail.
+# Builds the app in test/trim with JuliaC (`--trim=safe`) and runs it. The
+# build fails on any call the compiler cannot resolve, and the app exits
+# non-zero when an output differs from its expected value. Nightly may fail.
 
 on:
   push:

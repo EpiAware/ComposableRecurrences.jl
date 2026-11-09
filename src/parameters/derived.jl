@@ -163,11 +163,9 @@ function _check_param(name, x::Derived)
     map(a -> _check_param(name, a), x.args)
     return x
 end
-_check_param_strata(name, x::Derived, S) = _check_args_strata(name, x.args, S)
-_check_args_strata(name, ::Tuple{}, S) = nothing
-function _check_args_strata(name, args::Tuple, S)
-    _check_param_strata(name, first(args), S)
-    return _check_args_strata(name, Base.tail(args), S)
+function _check_param_strata(name, x::Derived, S)
+    _tuple_foreach(a -> _check_param_strata(name, a, S), x.args)
+    return nothing
 end
 # Constant over time when every argument is.
 function _check_constant(name, x::Derived)

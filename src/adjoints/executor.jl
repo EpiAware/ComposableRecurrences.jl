@@ -157,7 +157,10 @@ its own slots.
 A reverse pass sums per chunk the cotangents of parameters that chunks of
 strata share, such as a scalar modifier parameter, so those agree with
 [`Serial`](@ref) up to rounding.
-Errors inside a split loop arrive wrapped in a `CompositeException`.
+Errors inside a split loop arrive wrapped in a `CompositeException`: an
+error in a chunk on a new task as a `TaskFailedException`, and one in the
+chunk the calling task runs as an exception that shows it with its
+backtrace.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Device`](@ref) there.
 
@@ -239,9 +242,9 @@ _spawn_chunks(run::R, n, m) where {R} = _run_chunks(c -> run(_chunk(c, n, m)), m
 function _run_chunks(f::F, m) where {F}
     tasks = Vector{Task}(undef, m - 1)
     for c in 2:m
-        tasks[c - 1] = Threads.@spawn f(c)
+        tasks[c - 1] = _spawn(_Chunk(f, c))
     end
-    err = _caught(f, 1)
+    err = _caught(_Chunk(f, 1))
     failed = _wait_all(tasks)
     err === nothing && failed === nothing && return nothing
     ce = failed === nothing ? CompositeException() : failed
@@ -249,8 +252,8 @@ function _run_chunks(f::F, m) where {F}
     throw(ce)
 end
 
-# Wait for every task; their failures together, or `nothing`. `@sync` keeps
-# its tasks in an untyped channel, which a trimmed build cannot dispatch on.
+# The failures of `tasks` once every one has ended, or `nothing`. `@sync`
+# keeps tasks in an untyped channel, which a trimmed build cannot resolve.
 function _wait_all(tasks::Vector{Task})
     failed = nothing
     for t in tasks
@@ -264,15 +267,45 @@ function _wait_all(tasks::Vector{Task})
     return failed
 end
 
-# `f(c)`, returning `nothing`, or the exception it threw. The exception is
-# kept as thrown: capturing its backtrace would bring stack-trace printing
-# into the loop, which a trimmed build cannot compile.
-function _caught(f::F, c) where {F}
+# Chunk `c` of the loop `f`, as a task runs it. The call is not inlined, so
+# its compiled method exists for the runtime to start a task with.
+struct _Chunk{F}
+    f::F
+    c::Int
+end
+@noinline (t::_Chunk)() = (t.f(t.c); nothing)
+
+# A task running `t()`, made as `Threads.@spawn` makes one. The runtime
+# starts it with a dynamic call, which a trimmed build resolves only to a
+# method the code also calls directly, so the calling task runs its own
+# chunk through `_Chunk` too.
+function _spawn(t::_Chunk)
+    task = Task(t)
+    task.sticky = false
+    Threads._spawn_set_thrpool(task, :default)
+    schedule(task)
+    return task
+end
+
+# `t()`, returning `nothing` or the exception it threw with its backtrace.
+function _caught(t::_Chunk)
     try
-        f(c)
+        t()
     catch e
-        return e
+        return _ChunkFailed(e, catch_backtrace())
     end
+    return nothing
+end
+
+# An exception from the calling task's chunk. Its backtrace stays as raw
+# frames until it is shown, so the loop compiles no stack-trace code.
+struct _ChunkFailed <: Exception
+    error::Any
+    backtrace::Vector{Union{Ptr{Nothing}, Base.InterpreterIP}}
+end
+function Base.showerror(io::IO, e::_ChunkFailed)
+    println(io, "a chunk on the calling task failed:")
+    showerror(io, e.error, e.backtrace)
     return nothing
 end
 
@@ -409,10 +442,15 @@ end
         loop!(body, ex, n, work, args...)
     elseif ex isa Serial
         loop!(body, ex, n, work, args...)
+    elseif ex isa Device
+        loop!(body, ex, n, work, args...)
     else
-        loop!(body, ex::Device, n, work, args...)
+        _unknown_executor()
     end
     return nothing
+end
+@noinline function _unknown_executor()
+    throw(ArgumentError("`EXECUTOR` must be `Serial`, `Threaded` or `Device`"))
 end
 
 # The time loop, in order, each step reading the steps before it. A traced

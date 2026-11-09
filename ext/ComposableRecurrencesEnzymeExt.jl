@@ -215,10 +215,8 @@ EnzymeRules.inactive(::typeof(_flat_groups), args...) = nothing
 # reverse rule below runs its forward pass as primal code, so it uses the
 # set executor.
 EnzymeRules.inactive_type(::Type{_Current}) = true
-# A call Enzyme traces reads `Serial()` (below), so it never starts tasks,
-# but the threaded branch of a loop is a static call that Enzyme would still
-# compile; marking the task spawners inactive keeps their task code out of
-# the derivative.
+# Code Enzyme traces reads `Serial()` (below) but still compiles each loop's
+# threaded branch, so the task spawners are inactive.
 EnzymeRules.inactive(::typeof(_spawn_chunks), args...) = nothing
 EnzymeRules.inactive(::typeof(_spawn_blocks), args...) = nothing
 function EnzymeRules.forward(

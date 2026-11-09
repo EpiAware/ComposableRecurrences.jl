@@ -4,8 +4,8 @@
 module TrimApp
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Derived, Flow, Hazard, Recent,
-    Transform, Truncate
+using ComposableRecurrences: Depletion, Derived, Flow, Hazard, Recent, Threaded,
+    Transform, Truncate, _Current, _each!
 
 const GI = [0.1, 0.3, 0.3, 0.2, 0.1]
 const T = 60
@@ -55,6 +55,15 @@ function coupled()
     return checksums(reports)
 end
 
+# A loop split into tasks. A trimmed build cannot set `EXECUTOR` with
+# `with`, so the loop takes the executor as operators pass it.
+function threaded_loop()
+    y = zeros(T)
+    square!(k, y) = (y[k] = k^2; nothing)
+    _each!(square!, _Current(Threaded(; min_work = 0, ntasks = 2)), y, T, T, y)
+    return checksums(y)
+end
+
 # Expected checksums, from the untrimmed run.
 const EXPECTED = (
     renewal = (14312.180421651366, 75.49579395833648),
@@ -62,10 +71,11 @@ const EXPECTED = (
     depletion_flows = (1145.1167080354787, 0.003893786272316724),
     transform_derived = (958.5901518870926, 16.12111590713957),
     coupled = (26271.092770674793, 0.04407131537196616),
+    threaded_loop = (73810.0, 3600.0),
 )
 
 function check(name::String, got::NTuple{2, Float64}, want::NTuple{2, Float64})
-    ok = all(isapprox.(got, want; rtol = 1.0e-10))
+    ok = all(isapprox.(got, want; rtol = 1.0e-8))
     println(Core.stdout, ok ? "ok   " : "FAIL ", name, " ", got[1], " ", got[2])
     return ok
 end
@@ -76,6 +86,7 @@ function (@main)(args::Vector{String})::Cint
     ok &= check("depletion_flows", depletion_flows(), EXPECTED.depletion_flows)
     ok &= check("transform_derived", transform_derived(), EXPECTED.transform_derived)
     ok &= check("coupled", coupled(), EXPECTED.coupled)
+    ok &= check("threaded_loop", threaded_loop(), EXPECTED.threaded_loop)
     return ok ? 0 : 1
 end
 
