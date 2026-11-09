@@ -1,9 +1,7 @@
-# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds: a sum over routes,
-# each a coupling and a kernel.
-
 # == _Routes ==
 
-# The routes' couplings and kernels, in route order.
+# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds: its routes' couplings
+# and kernels, in route order.
 struct _Routes{C <: Tuple, G <: Tuple}
     "Each route's coupling."
     couplings::C
@@ -191,8 +189,7 @@ end
 
 # == Reverse pass ==
 
-# Per route: recompute its convolution `z`, send `p̄` back through its
-# coupling into `z̄`, then through its kernel into the buffer.
+# Each route's mirror, or `nothing` for each when no cotangent is carried.
 _route_mirrors(::Nothing, xs) = map(_ -> nothing, xs)
 _route_mirrors(x̄s, xs) = x̄s
 
@@ -225,6 +222,8 @@ function _kernels_back!(accs, kbuf, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     _kernel_back!(kbuf, _own(first(accs).ḡ), k, p̄, H, H̄, t, τ, L)
     return nothing
 end
+# Per route: recompute its convolution `z`, send `p̄` back through its
+# coupling into `z̄`, then through its kernel into the buffer.
 function _routes_back!(
         ::Tuple{}, pbufs, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L
     )
