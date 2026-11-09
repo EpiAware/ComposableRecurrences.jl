@@ -121,6 +121,12 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
+`min_work = 0` forces every loop of more than one index to split and is meant
+for tests of the threaded paths.
+The loops of strata that mix then split every step and start tasks every
+step, so at small sizes it runs slower than [`Serial`](@ref), by an order of
+magnitude or more.
+A split loop runs its first chunk on the calling task.
 `work` counts multiply-adds.
 Operators split three kinds of loop, and count the work of each kind so
 that one `min_work` sets where each of them breaks even:
@@ -223,11 +229,41 @@ _work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
 
-# Waits for every task, so a failing chunk cannot leave others writing after
-# the loop returns; failures are rethrown together.
-function _spawn_chunks(run::R, n, m) where {R}
-    @sync for c in 1:m
-        Threads.@spawn run(_chunk(c, n, m))
+# Run `run(ks)` on `m` contiguous chunks of `1:n`.
+_spawn_chunks(run::R, n, m) where {R} = _run_chunks(c -> run(_chunk(c, n, m)), m)
+
+# `f(c)` for `c` in `1:m`: chunk 1 on the calling task, the others on one
+# new task each. Every task is waited for, so a failing chunk cannot leave
+# others writing after the loop returns; failures, the calling task's
+# included, are rethrown together.
+function _run_chunks(f::F, m) where {F}
+    err = nothing
+    failed = try
+        @sync begin
+            for c in 2:m
+                Threads.@spawn f(c)
+            end
+            err = _caught(f, 1)
+        end
+        nothing
+    catch e
+        e isa CompositeException || rethrow()
+        e
+    end
+    err === nothing && failed === nothing && return nothing
+    ce = failed === nothing ? CompositeException() : failed
+    err === nothing || pushfirst!(ce.exceptions, err)
+    throw(ce)
+end
+
+# `f(c)`, returning `nothing`, or the exception it threw with its backtrace.
+# The exception is untyped, so the constructor that takes a raw backtrace is
+# named with `invoke`, keeping the reverse pass free of runtime dispatch.
+function _caught(f::F, c) where {F}
+    try
+        f(c)
+    catch e
+        return invoke(CapturedException, Tuple{Any, Vector}, e, catch_backtrace())
     end
     return nothing
 end
@@ -451,13 +487,14 @@ const _SPLIT_BLOCKS = Threads.Atomic{Int}(0)
 @noinline function _spawn_blocks(body::F, acc, copies, n, args...) where {F}
     Threads.atomic_add!(_SPLIT_BLOCKS, 1)
     m = length(copies) + 1
-    @sync for b in 1:m
+    _run_chunks(m) do b
         ks = _chunk(b, n, m)
         if b == 1
-            Threads.@spawn body(ks, acc, args...)
+            body(ks, acc, args...)
         else
-            Threads.@spawn _copy_block!(body, ks, acc, copies, b - 1, args...)
+            _copy_block!(body, ks, acc, copies, b - 1, args...)
         end
+        return nothing
     end
     return nothing
 end
