@@ -394,15 +394,12 @@ end
 # zero, as `_rate` gives them.
 _by_rate(f, g, t, gH) = _rate(f, g, t) * gH
 _by_rate(f::Flow{<:Any, _FlowHazard}, g, t, w::_Moved) = w.F
-_by_rate(f::Flow, g, t, w::_Moved) = false
+_by_rate(f::Flow, g, t, w::_Moved) = _rate(f, g, t)
 
 # Whether pool `i` has one hazard flow out, and it enters a pool.
 _one_rated_into(fs, i) = _rated_into(fs, i) & (_hazards_out(fs, i) == 1)
-_hazards_out(::Tuple{}, i) = 0
-function _hazards_out(fs::Tuple, i)
-    f = first(fs)
-    return (f isa Flow{<:Any, _FlowHazard} && _from(f) == i) +
-        _hazards_out(Base.tail(fs), i)
+function _hazards_out(fs, i)
+    return sum(f -> Int(f isa Flow{<:Any, _FlowHazard} && _from(f) == i), fs)
 end
 
 # Whether a hazard flow out of pool `i` enters a pool.

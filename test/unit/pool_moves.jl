@@ -392,6 +392,24 @@ end
             @test abs(F - ref) <= abs(H * gH - ref)
         end
     end
+    # A run with a share flow into a pool beside the one hazard flow, against
+    # a hand loop.
+    for r in (1.0e-9, 0.3, 4.0)
+        fl = CR.Depletion(
+            CR.Flow(:A => :B, r), CR.Flow(:A => :C, 0.2; form = CR.Share());
+            pools = (:A, :B, :C)
+        )
+        A = [k == 1 ? 10.0 : 0.0 for k in 1:3, t in 1:6]
+        y = Recurrence([1.0]; modifiers = (fl,))(;
+            history = zeros(3, 1), add = A, stop = 6
+        )
+        x = zeros(3)
+        for t in 1:6
+            a, b, c = x .+ A[:, t]
+            x = [(exp(-r) - 0.2) * a, b - expm1(-r) * a, c + 0.2 * a]
+            @test y[:, t] ≈ x rtol = 1.0e-14
+        end
+    end
 end
 
 @testitem "Depletion without a draw: resume, Float32 and the adjoint route" begin
