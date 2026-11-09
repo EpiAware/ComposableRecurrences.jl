@@ -34,6 +34,7 @@ Total run time 22.7 min, timeout 600 s a case.
 | Recurrence grouped totals with empty groups (Allocate) | works (0.7 s / 12.1 µs) | works (1.2 s / 62.8 µs) |
 | Recurrence grouped totals with empty groups and imports (Allocate) | works (1.2 s / 40.1 µs) | works (1.8 s / 152.8 µs) |
 | Recurrence Redistribute of a time-varying movement | works (5.1 s / 39.2 µs) | works (1.9 s / 147.9 µs) |
+| Recurrence Redistribute with a leak | not run | not run |
 | Recurrence Redistribute of a movement read from recent outputs | error: MethodError | error: MethodError |
 | Recurrence dense coupling, Redistribute and imports as Matrix | works (10.9 s / 96.3 µs) | works (2.3 s / 287.4 µs) |
 | Recurrence grouped totals with time-varying imports (Allocate) | error: ArgumentError in `_param_error` | error: ArgumentError in `_param_error` |
@@ -61,8 +62,10 @@ Total run time 22.7 min, timeout 600 s a case.
 | Recurrence Derived modifier parameters | error: MethodError | error: MethodError |
 | Recurrence Redistribute, Transform(+) and Transform(clamp) | works (4.4 s / 37.3 µs) | works (1.5 s / 82.4 µs) |
 | Recurrence capacity, beds with overflow | error: ArgumentError in `_param_error` | error: ArgumentError in `_param_error` |
+| Recurrence bed cap with a stay that is not geometric | not run | not run |
 | Recurrence capacity, weekly budget with a queue | works (5.6 s / 15.7 µs) | works (1.8 s / 96.5 µs) |
 | Recurrence trace of the importation (Redistribute) | error: MethodError in `_stage_rec!` | error: MethodError in `_stage_rec!` |
+| Recurrence trace through a sparse coupling | not run | not run |
 | Recurrence trace of a protected pool | error: ArgumentError in `_param_error` | error: ArgumentError in `_param_error` |
 | Recurrence trace of pointwise modifiers | works (8.1 s / 24.7 µs) | works (2.7 s / 47.4 µs) |
 | Recurrence trace of a ward's flows | error: ArgumentError in `_param_error` | error: ArgumentError in `_param_error` |
@@ -93,9 +96,9 @@ Total run time 22.7 min, timeout 600 s a case.
 | Convolution Poisson delay distribution on a step of two units | error: MethodError | error: MethodError |
 | Convolution chain of two delays as masses | error: ArgumentError in `_delay_kernel` | error: ArgumentError in `_delay_kernel` |
 | Recurrence negative binomial generation interval per stratum | error: MethodError | error: MethodError |
-| Convolution kernel from a hazard and a survival | error: ArgumentError in `_check_coefficient` | error: ArgumentError in `_check_coefficient` |
-| Kernel weights of a survival against a delay and calendar hazard | error: ArgumentError in `_param_error` | error: ArgumentError in `_param_error` |
-| Recurrence kernel shortened by a survival | error: ArgumentError in `_check_coefficient` | error: ArgumentError in `_check_coefficient` |
+| Convolution kernel from a hazard and a survival | works (83.7 s / 20.2 µs) | works (7.3 s / 108.4 µs) |
+| Kernel weights of a survival against a delay and calendar hazard | works (5.1 s / 20.4 µs) | works (3.0 s / 58.4 µs) |
+| Recurrence kernel shortened by a survival | works (13.5 s / 21.4 µs) | works (3.4 s / 211.7 µs) |
 | Recurrence user coupling without a pullback | works (2.8 s / 11.0 µs) | works (1.1 s / 14.7 µs) |
 | Recurrence per-stratum modifier without a pullback | error: MethodError in `param` | error: MethodError in `param` |
 | Recurrence user coupling across 30 strata | works (1.6 s / 553.4 µs) | works (2.7 s / 547.8 µs) |
@@ -280,12 +283,12 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution chain of two delays as masses | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _delay_kernel | ArgumentError: `lags` turns delays into masses, and (SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, tr |
 | registry | Recurrence negative binomial generation interval per stratum | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
 | registry | Recurrence negative binomial generation interval per stratum | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
-| registry | Convolution kernel from a hazard and a survival | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _check_coefficient | ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or with |
-| registry | Convolution kernel from a hazard and a survival | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _check_coefficient | ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or with |
-| registry | Kernel weights of a survival against a delay and calendar hazard | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _param_error | ArgumentError: a Derived argument is a kernel coefficient (a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum  |
-| registry | Kernel weights of a survival against a delay and calendar hazard | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _param_error | ArgumentError: a Derived argument is a kernel coefficient (a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum  |
-| registry | Recurrence kernel shortened by a survival | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _check_coefficient | ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or with |
-| registry | Recurrence kernel shortened by a survival | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _check_coefficient | ArgumentError: a computed kernel reads a number, a vector of lag weights, a PerStratum vector or matrix, a TimeVarying vector or PerStratum matrix (with or with |
+| registry | Convolution kernel from a hazard and a survival | forward | cpu | 12 | works | 1.1e-15 | 83.7 | 20.2 | 3.0 |  |  |
+| registry | Convolution kernel from a hazard and a survival | reverse | cpu | 12 | works | 2.2e-14 | 7.3 | 108.4 | 118.9 |  |  |
+| registry | Kernel weights of a survival against a delay and calendar hazard | forward | cpu | 12 | works | 3.9e-15 | 5.1 | 20.4 | 3.1 |  |  |
+| registry | Kernel weights of a survival against a delay and calendar hazard | reverse | cpu | 12 | works | 2.2e-15 | 3.0 | 58.4 | 35.8 |  |  |
+| registry | Recurrence kernel shortened by a survival | forward | cpu | 12 | works | 6.3e-16 | 13.5 | 21.4 | 3.1 |  |  |
+| registry | Recurrence kernel shortened by a survival | reverse | cpu | 12 | works | 1.9e-14 | 3.4 | 211.7 | 174.2 |  |  |
 | registry | Recurrence user coupling without a pullback | forward | cpu | 12 | works | 1.0e-15 | 2.8 | 11.0 | 1.4 |  |  |
 | registry | Recurrence user coupling without a pullback | reverse | cpu | 12 | works | 1.3e-15 | 1.1 | 14.7 | 39.1 |  |  |
 | registry | Recurrence per-stratum modifier without a pullback | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | param | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |

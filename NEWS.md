@@ -99,6 +99,7 @@
 
 ### Fixed
 
+- Under Reactant, `Convolution`, `Recurrence` and `kernel_weights` run with a kernel computed from a `Derived` or a `Survival` of traced coefficients, forward and reverse, where before they raised an `ArgumentError` ([Reactant extension][reactant]).
 - A `Convolution` kernel with offset axes is an `ArgumentError`, where before it gave wrong values.
 - ForwardDiff, Enzyme and Mooncake gradients are finite at an empty depletion or protected pool and agree with the reverse rules.
 - On Julia 1.11, the Enzyme reverse rule no longer drops the gradient of a scalar field held next to arrays, such as `b` in `Add(b)`.
