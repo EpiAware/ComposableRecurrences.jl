@@ -1,40 +1,41 @@
 # ---- float precision of a model ----------------------------------------------
 
 @doc raw"""
-    f32(x)
+    convert_floats(T, x)
 
-`x` with every float it holds converted to `Float32`: float arrays, which
-stay on their device, and single floats, such as a population or a scale.
-Each float ``v`` of `x` becomes the nearest `Float32`,
+`x` with every float it holds converted to the float type `T`: float
+arrays, which stay on their device, and single floats, such as a
+population or a scale.
+Each float ``v`` becomes the nearest value of type `T`,
 
 ```math
-v \mapsto \operatorname{round}_{\mathrm{Float32}}(v).
+v \mapsto \operatorname{round}_T(v).
 ```
 
 Integers, `Bool`s, numbers that are not floats (such as dual numbers),
-functions, symbols and the structure of `x` are kept.
+functions and the structure of `x` are kept.
 
-An operator's output takes its element type from every array and number it
+An operator's output takes its float type from every array and number it
 is given, so a `Float64` parameter promotes a run on `Float32` arrays to
 `Float64`.
-Converting the whole model runs it in `Float32`, as the `f32` of a neural
-network library does, and also converts the scalar parameters such a
-function leaves alone.
+Converting the whole model keeps the run in `T`, which a GPU needs: most
+run `Float32` much faster, and some have no `Float64` at all.
+Compose it with a device move, for example
+`adapt(CuArray, convert_floats(Float32, r))`.
 
-It walks tuples, named tuples, arrays of arrays and immutable structs, which
-it rebuilds with `ConstructionBase.constructorof`, so a modifier of your own
-is converted when it can be rebuilt from its fields.
-Compose it with a device move, for example `adapt(CuArray, f32(r))`.
+It needs Functors.jl, whose `fmap` walks the model: run `using Functors`
+first.
 
-See also [`f64`](@ref ComposableRecurrences.f64) and
-[`f16`](@ref ComposableRecurrences.f16).
+# Arguments
+- `T`: the float type, such as `Float32`.
+- `x`: an operator, a modifier, a coefficient or an array.
 
 # Examples
 ```jldoctest
-using ComposableRecurrences
-using ComposableRecurrences: Depletion, f32
+using ComposableRecurrences, Functors
+using ComposableRecurrences: Depletion, convert_floats
 r = Recurrence([0.5, 0.3]; modifiers = (Depletion(60.0),))
-y = f32(r)(f32(fill(1.2, 4)); history = f32([1.0, 1.0]))
+y = convert_floats(Float32, r)(Float32.(fill(1.2, 4)); history = Float32[1, 1])
 eltype(y)
 
 # output
@@ -42,70 +43,11 @@ eltype(y)
 Float32
 ```
 """
-f32(x) = _floats(Float32, x)
-
-@doc raw"""
-    f64(x)
-
-`x` with every float it holds converted to `Float64`; see
-[`f32`](@ref ComposableRecurrences.f32).
-Each float ``v`` becomes
-
-```math
-v \mapsto \operatorname{round}_{\mathrm{Float64}}(v).
-```
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-using ComposableRecurrences: Depletion, f64
-r = Recurrence([0.5, 0.3]; modifiers = (Depletion(60.0f0),))
-y = f64(r)(f64(fill(1.2f0, 4)); history = f64(ones(Float32, 2)))
-eltype(y)
-
-# output
-
-Float64
-```
-"""
-f64(x) = _floats(Float64, x)
-
-@doc raw"""
-    f16(x)
-
-`x` with every float it holds converted to `Float16`; see
-[`f32`](@ref ComposableRecurrences.f32).
-Each float ``v`` becomes
-
-```math
-v \mapsto \operatorname{round}_{\mathrm{Float16}}(v).
-```
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-using ComposableRecurrences: Depletion, f16
-r = Recurrence([0.5, 0.3]; modifiers = (Depletion(60.0f0),))
-y = f16(r)(f16(fill(1.2f0, 4)); history = f16(ones(Float32, 2)))
-eltype(y)
-
-# output
-
-Float16
-```
-"""
-f16(x) = _floats(Float16, x)
-
-_floats(::Type{T}, x::AbstractFloat) where {T} = T(x)
-_floats(::Type, x::Number) = x
-_floats(::Type{T}, x::AbstractArray{<:AbstractFloat}) where {T} = T.(x)
-_floats(::Type, x::AbstractArray{<:Number}) = x
-_floats(::Type{T}, x::AbstractArray) where {T} = map(a -> _floats(T, a), x)
-_floats(::Type{T}, x::Union{Tuple, NamedTuple}) where {T} = map(a -> _floats(T, a), x)
-_floats(::Type, x::Union{Function, Type, Symbol, AbstractString, Module}) = x
-# Any other immutable struct is rebuilt from its converted fields.
-function _floats(::Type{T}, x::S) where {T, S}
-    (isstructtype(S) && !ismutabletype(S) && fieldcount(S) > 0) || return x
-    fields = map(f -> _floats(T, f), Tuple(ConstructionBase.getfields(x)))
-    return constructorof(S)(fields...)
+function convert_floats(::Type{T}, x) where {T <: AbstractFloat}
+    return _convert_floats(T, x)
+end
+# The Functors extension walks the model.
+_convert_floats(T, x) = _no_functors()
+@noinline function _no_functors()
+    throw(ArgumentError("convert_floats needs Functors.jl: run `using Functors` first"))
 end

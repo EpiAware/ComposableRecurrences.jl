@@ -32,7 +32,7 @@
 
 ### New
 
-- `ComposableRecurrences.f32`, `f64` and `f16` convert every float a model holds, scalars such as a population included, so a run on `Float32` arrays stays in `Float32`, as on a GPU ([API overview][api]).
+- `ComposableRecurrences.convert_floats(T, x)` converts every float a model holds, scalars such as a population included, so a run on `Float32` arrays stays in `Float32`, as on a GPU; it walks the model with Functors.jl's `fmap` ([API overview][api]).
 - `Recurrence(TimeVarying(K, Primary()))` runs for vector, `PerStratum` and `Pairwise` kernels, so each output keeps the kernel of the time it was produced ([time-varying delays][tv]).
 - `TimeVarying(ks, indexing)` takes a vector of kernel columns of any lengths, for `Convolution` and `Recurrence` ([API overview][api]).
 - `TimeVarying([t₁ => c₁, t₂ => c₂, ...], indexing)` gives a kernel, coupling or modifier parameter by its change points, storing one value per segment; a `Secondary()` kernel switches between fixed-kernel loops at the change points, and a `Primary()` convolution sums one fixed convolution per segment ([time-varying delays][tv]).

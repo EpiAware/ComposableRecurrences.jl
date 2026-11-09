@@ -158,7 +158,7 @@ A call with device inputs and a host float array among these is an error.
 A GPU runs `Float32` much faster than `Float64`.
 An output takes its float type from every array and number a call holds.
 So a `Float64` scalar parameter, such as a population, promotes the run to `Float64`.
-[`f32(r)`](@ref ComposableRecurrences.f32) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, f32(r))` runs on the device in `Float32`.
+[`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
 Buffers, states and outputs are allocated from the inputs, so they live there too.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
