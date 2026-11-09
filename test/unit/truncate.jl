@@ -147,15 +147,15 @@ end
 @testitem "Truncate: the shared minimum matches each form" setup = [ReferenceAD] begin
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
-    # `_softness` and `_soft_min` give each form's draw, so a modifier that
-    # admits up to a free capacity can reuse the forms' minimum.
+    # `_soft_min` gives each form's draw from its softness `κ`, so a
+    # modifier that admits up to a free capacity can reuse the forms' minimum.
     for form in (CR.Truncate(), CR.Truncate(0.2)), (v, s) in ((2.0, 3.0), (3.0, 2.0), (2.0, 2.0))
-        κ = CR._softness(form)
+        κ = form.κ
         y = CR._soft_min(κ, v, s)
         @test y == first(CR._draw(form, v, s, 1.0))
         back = CR._soft_min_back(κ, v, s, 0.7)
         @test collect(back[1:2]) ≈ 0.7 .* ReferenceAD.gradient(x -> CR._soft_min(κ, x[1], x[2]), [v, s])
     end
-    @test CR._softness(CR.Truncate()) === nothing
-    @test CR._softness(CR.Truncate(0.3)) == 0.3
+    @test CR.Truncate().κ === nothing
+    @test CR.Truncate(0.3).κ == 0.3
 end
