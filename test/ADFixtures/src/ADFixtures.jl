@@ -2380,6 +2380,15 @@ function reactant_loaded()
     return Base.get_extension(ComposableRecurrences, ext) !== nothing
 end
 
+"""
+    backend_names()
+
+The names of every backend `backends` can list, Reactant included whether
+or not it is loaded, as a `Set{String}`: the keys the per-backend scenario
+lists may use.
+"""
+backend_names() = union(Set(b.name for b in backends()), Set(["Reactant"]))
+
 function _enzyme(mode)
     return AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(mode),
