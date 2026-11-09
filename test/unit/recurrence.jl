@@ -52,6 +52,35 @@ end
     end
 end
 
+@testitem "Recurrence: a single series through modifiers matches it among strata" begin
+    using ComposableRecurrences, Random
+    using ComposableRecurrences: ComposableRecurrences as CR
+    # One stratum through pointwise modifiers carries its last value; two
+    # strata take the general step. Both give the same series, for fixed,
+    # change-point and zero-lag kernels, later starts and an add input.
+    rng = Xoshiro(9)
+    T = 12
+    kernels = (
+        rand(rng, 3) ./ 2,
+        Float64[],
+        TimeVarying([1 => rand(rng, 3) ./ 2, 5 => rand(rng, 2) ./ 2]),
+    )
+    modifiers = (
+        (one = (CR.Transform(clamp, 0.0, 2.0),), two = (CR.Transform(clamp, 0.0, 2.0),)),
+        (one = (CR.Depletion(50.0),), two = (CR.Depletion(PerStratum(fill(50.0, 2))),)),
+    )
+    for g in kernels, ms in modifiers, start in (1, 6), with_add in (false, true)
+        h = 1 .+ rand(rng, 3)
+        R = 0.8 .+ rand(rng, T)
+        ϵ = rand(rng, T)
+        add, add2 = with_add ? (ϵ, vcat(ϵ', ϵ')) : (nothing, nothing)
+        y = Recurrence(g; modifiers = ms.one)(R; history = h, add, start)
+        Y = Recurrence(g; modifiers = ms.two)(R; history = vcat(h', h'), add = add2, start)
+        @test y ≈ Y[1, :]
+        @test signbit.(y) == signbit.(Y[1, :])
+    end
+end
+
 @testitem "Recurrence: strata with dense coupling" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(2)

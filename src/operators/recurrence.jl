@@ -433,14 +433,19 @@ _stratum_weights(g::PerStratum, k) = view(g.x, k, :)
 @inline function _kdot(c::_Chained, H, t, τ, L, a)
     return _window_dot(_stratum_weights(c.g, a), H, t, L, a)
 end
-@inline function _window_dot(g, H, t, L, a)
+# The window from row `t`, its newest lag added last; that lag is read from
+# the buffer, or is `y` when a run carries its last value.
+@inline _window_dot(g, H, t, L, a) = _window_dot(g, H, t, L, a, H)
+@inline function _window_dot(g, H, t, L, a, y)
     acc = zero(promote_type(eltype(g), eltype(H)))
     L >= 1 || return acc
     @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
         acc += g[i] * H[t + i - 1, a]
     end
-    return @inbounds muladd(g[L], H[t + L - 1, a], acc)
+    return @inbounds muladd(g[L], _newest(y, t + L - 1, a), acc)
 end
+@inline _newest(H::AbstractMatrix, r, a) = @inbounds H[r, a]
+@inline _newest(y, r, a) = y
 # Stratum `k` at step `t` of a run of one stratum, from its last value `y`,
 # with weights `w` and the newest of them `newest`: writes the step's value
 # to the buffer, records its kernel convolution and returns the value. The
@@ -1357,10 +1362,10 @@ function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     return nothing
 end
 
-# A call of one stratum through pointwise modifiers, on a host buffer with a
-# fixed or per-stratum kernel, carries its last value the same way; the
-# modifiers sit between the kernel and the value, so the step adds the
-# newest lag with one fused multiply-add and threads it through them.
+# A call of one stratum through pointwise modifiers carries its last value
+# the same way: `y` is the value the step writes to the buffer, after the
+# modifiers, so it is the next step's newest lag. Only a host `Array`, as the
+# buffer is read without bounds checks, and a fixed or per-stratum kernel.
 _carries(g, H) = false
 _carries(::Union{AbstractVector, PerStratum}, ::Array) = true
 function _carried_run!(
@@ -1371,7 +1376,7 @@ function _carried_run!(
     w = _stratum_weights(g, k)
     for t in steps
         τ = τ0 + t - 1
-        pk = _carried_dot(w, H, y, t, L, D, k)
+        pk = _window_dot(w, H, t + D - L, L, k, y)
         xk = _coef(coupling, k) * pk
         _record_pressure!(pr, pk, xk, t, k)
         x = @inbounds _core(coupling, gain, add, k, τ, pk, xk)
@@ -1379,17 +1384,6 @@ function _carried_run!(
         @inbounds H[D + t, k] = y
     end
     return nothing
-end
-# The kernel convolution of step `t`'s window, its older lags read from the
-# buffer and its newest, `y`, carried.
-@inline function _carried_dot(w, H, y, t, L, D, k)
-    o = t + D - L - 1
-    acc = zero(promote_type(eltype(w), eltype(H)))
-    L >= 1 || return acc
-    @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
-        acc += w[i] * H[o + i, k]
-    end
-    return @inbounds muladd(w[L], y, acc)
 end
 
 # The runs of steps over which the kernel a step reads is fixed, each
