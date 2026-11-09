@@ -479,14 +479,17 @@ function ar(wrap, z::Size)
 end
 
 # A random walk, a unit lag-1 recurrence from a seed with the seed in
-# front, as a latent-process package spells it; `L` is unused.
+# front; `L` is unused. As the loop's loss does, the operator is built once,
+# the seed and innovations are read as views and the seed's term is added
+# apart, so the loss measures the run rather than its own setup.
 function random_walk(wrap, z::Size)
     (; T) = z
     W = [_noise(t, 9) for t in 1:(T + 1)]
+    w0, Wt = W[1], W[2:end]
+    op = wrap(Recurrence([1.0]))
     f = function (θ)
-        walk = wrap(Recurrence([1.0]))(1.0; history = θ[1:1], add = θ[2:end])
-        y = vcat(θ[1:1], walk)
-        return sum(W .* y)
+        walk = op(; history = view(θ, 1:1), add = view(θ, 2:(T + 1)))
+        return w0 * θ[1] + sum(Wt .* walk)
     end
     return f, _flat([0.1], [0.1 * _noise(t, 10) for t in 1:T])
 end
