@@ -1,11 +1,9 @@
-# Executors: how a loop over independent slots runs.
-#
-# A parallelisable loop is written once as a top-level per-index body
-# `body(k, args...)` that writes only the slots it owns for index `k`
-# (a stratum, a series or an output time) and returns `nothing`. The loop
-# is then `each!(body, ex, n, work, args...)`, and the executor `ex` decides
-# how the `n` indices run. Shared cotangents stay out of the bodies: they
-# go to per-slot storage and are reduced after the loop.
+# Executors: how a loop over independent slots runs. A loop is a per-index
+# body `body(k, args...)` that writes only the slots index `k` owns, run by
+# `each!(body, ex, n, work, args...)`. Shared cotangents go to per-block
+# copies, reduced after the loop.
+
+# == Executor ==
 
 @doc raw"""
 How [`ComposableRecurrences.each!`](@ref) runs a loop over independent
@@ -107,6 +105,8 @@ y
     return nothing
 end
 
+# == Threaded ==
+
 @doc raw"""
 Runs the indices of a loop in contiguous chunks, one task per chunk.
 With `m` chunks, chunk `c` covers
@@ -121,6 +121,12 @@ unless it is set.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
+`min_work = 0` forces every loop of more than one index to split and is meant
+for tests of the threaded paths.
+The loops of strata that mix then split every step and start tasks every
+step, so at small sizes it runs slower than [`Serial`](@ref), by an order of
+magnitude or more.
+A split loop runs its first chunk on the calling task.
 `work` counts multiply-adds.
 Operators split three kinds of loop, and count the work of each kind so
 that one `min_work` sets where each of them breaks even:
@@ -141,14 +147,11 @@ real, counts as one word, as do the floats of an AD backend that carries
 its tangents or shadows beside the arrays rather than in them.
 Loops split every step count each multiply-add once whatever the type.
 
-The default `min_work` of 500 000 comes from whole-loss timings with four
-threads against one on a shared 4-core machine (`benchmark/threshold.jl`).
-At its threshold, each kind ran 0.9 to 1.4 times as fast on the primal
-and in reverse mode, and 1.1 to 3 times as fast with dual numbers; the
-exception was the convolution primal, at 0.8 to 1.1 times.
-Strata that mix reach the threshold only with a pairwise kernel over a few
-hundred strata, or a coupling over tens of thousands, so with a sparse or
-dense coupling at the sizes usually fitted they do not split.
+The default `min_work` of 500 000 comes from whole-loss timings
+(`benchmark/threshold.jl`); [Threads and GPUs](@ref tutorial-threads-gpus)
+gives them.
+Strata that mix split only with a pairwise kernel over a few hundred strata
+or a coupling over tens of thousands.
 Results are identical to [`Serial`](@ref) because each index writes only
 its own slots.
 A reverse pass sums per chunk the cotangents of parameters that chunks of
@@ -213,11 +216,8 @@ end
 _nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
 _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
 
-# The kinds of loop operators split, and the work an operator passes for a
-# loop of kind `kind` that does `w` multiply-adds on elements like those of
-# `x`, scaled so that one `min_work` is where each kind breaks even (see
-# `Threaded`). Loops split once per call count one per 64-bit word of the
-# element type; loops split every step count `w` as it is.
+# The work a loop of each kind passes for `w` multiply-adds on elements like
+# those of `x`, scaled as the `Threaded` docstring sets out.
 struct _StepLoop end
 struct _RunLoop end
 struct _ConvLoop end
@@ -229,15 +229,46 @@ _work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
 
-# Run `run(ks)` on `m` contiguous chunks of `1:n`, one task each, and wait
-# for every task, so a failing chunk cannot leave others writing after the
-# loop returns; failures are rethrown together.
-function _spawn_chunks(run::R, n, m) where {R}
-    @sync for c in 1:m
-        Threads.@spawn run(_chunk(c, n, m))
+# Run `run(ks)` on `m` contiguous chunks of `1:n`.
+_spawn_chunks(run::R, n, m) where {R} = _run_chunks(c -> run(_chunk(c, n, m)), m)
+
+# `f(c)` for `c` in `1:m`: chunk 1 on the calling task, the others on one
+# new task each. Every task is waited for, so a failing chunk cannot leave
+# others writing after the loop returns; failures, the calling task's
+# included, are rethrown together.
+function _run_chunks(f::F, m) where {F}
+    err = nothing
+    failed = try
+        @sync begin
+            for c in 2:m
+                Threads.@spawn f(c)
+            end
+            err = _caught(f, 1)
+        end
+        nothing
+    catch e
+        e isa CompositeException || rethrow()
+        e
+    end
+    err === nothing && failed === nothing && return nothing
+    ce = failed === nothing ? CompositeException() : failed
+    err === nothing || pushfirst!(ce.exceptions, err)
+    throw(ce)
+end
+
+# `f(c)`, returning `nothing`, or the exception it threw with its backtrace.
+# The exception is untyped, so the constructor that takes a raw backtrace is
+# named with `invoke`, keeping the reverse pass free of runtime dispatch.
+function _caught(f::F, c) where {F}
+    try
+        f(c)
+    catch e
+        return invoke(CapturedException, Tuple{Any, Vector}, e, catch_backtrace())
     end
     return nothing
 end
+
+# == The set executor ==
 
 @doc raw"""
 The executor that operator calls use for their parallel loops, [`Serial`](@ref)
@@ -273,6 +304,8 @@ ComposableRecurrences.Threaded(500000, 0)
 ```
 """
 const EXECUTOR = ScopedValue{Executor}(Serial())
+
+# == Device ==
 
 @doc raw"""
 Runs every index of a loop as one thread of a kernel on a device, such as a
@@ -317,33 +350,29 @@ struct Device{B} <: Executor
     backend::B
 end
 
-# The executor a call on arrays like `x` uses under executor `ex`; a
-# device array selects its device.
+# == Running operator loops ==
+
+# The executor a call on arrays like `x` uses under `ex`; the GPU extension
+# makes a device array select its device.
 _resolve(ex::Executor, x) = ex
 
-# The executor an operator call read from `EXECUTOR`. Its field is typed
-# only as `Executor`; holding it in a concrete wrapper keeps the call's own
-# arguments concretely typed, so passing it down boxes nothing.
+# The executor a call read from `EXECUTOR`, in a concrete wrapper so that
+# passing it down boxes nothing.
 struct _Current
     ex::Executor
 end
 _current() = _Current(EXECUTOR[])
 
-# The arguments a device kernel receives. A kernel thread runs its loop
-# body serially, as the default executor does, so the call's executor
-# reaches it as the singleton `Serial()`: `_Current`, whose field is
-# abstractly typed, is not plain data and so cannot be a kernel argument.
+# A kernel thread runs its body serially, and `_Current` is not plain data,
+# so a kernel receives the call's executor as `Serial()`.
 _kernel_args(args::Tuple) = map(_kernel_arg, args)
 _kernel_arg(::_Current) = Serial()
 _kernel_arg(x) = x
 
-# The loop `each!(body, ex, n, work, args...)` as operators run it, for the
-# executor `c.ex` of a call and arrays like `x`. Operators pass the default
-# executor as the singleton `Serial()` (the method below), so here a
-# `Threaded` loop too small to split runs inline with no dynamic dispatch.
-# A loop that does split is reached by a dynamic call, so the inline path
-# holds no task code: reverse-mode AD backends that compile the whole call
-# never see tasks unless a loop is split.
+# `each!` as operators run it. A `Threaded` loop too small to split runs
+# inline; one that splits is reached by a dynamic call, so AD backends that
+# compile the whole call see no task code unless a loop splits. Operators
+# pass the default executor as `Serial()`, known at compile time.
 @inline function _each!(
         body::F, c::_Current, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
@@ -351,13 +380,10 @@ _kernel_arg(x) = x
     if ex isa Threaded && !_splits(ex, n, work)
         each!(body, Serial(), n, work, args...)
     else
-        _each_dynamic!(body, c, x, n, work, args...)
+        _dynamic!(each!, body, c, x, n, work, args...)
     end
     return nothing
 end
-
-# The default executor, known at compile time; on device arrays it runs on
-# their device.
 @inline function _each!(
         body::F, ex::Serial, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
@@ -365,17 +391,16 @@ end
     return nothing
 end
 
-@noinline function _each_dynamic!(
-        body::F, c::_Current, x, n, work, args...
-    ) where {F}
-    each!(body, _resolve(c.ex, x), n, work, args...)
+# The loop `loop!` with the call's executor, behind a dynamic call.
+@noinline function _dynamic!(
+        loop!::L, body::F, c::_Current, x, n, work, args...
+    ) where {L, F}
+    loop!(body, _resolve(c.ex, x), n, work, args...)
     return nothing
 end
 
-# The time loop: `body(t, args...)` for `t` in `1:n`, in order, each step
-# reading the steps before it. Every executor runs it as written; one that
-# compiles the whole call, such as a traced one, may compile it as a single
-# loop whose body is the step.
+# The time loop, in order, each step reading the steps before it. A traced
+# executor may compile it as one loop whose body is the step.
 @inline function _steps!(body::F, ex, n, args::Vararg{Any, N}) where {F, N}
     for t in 1:n
         @inline body(t, args...)
@@ -383,10 +408,8 @@ end
     return nothing
 end
 
-# `body(ks, args...)` over blocks `ks` of `1:n` that together cover it once:
-# one block for `Serial`, one per chunk for `Threaded` and one per index
-# otherwise. A body that loops over time inside its block keeps the serial
-# loop order, so serial runs match a loop written by hand.
+# `body(ks, args...)` over blocks `ks` that cover `1:n` once: one block for
+# `Serial`, one per chunk for `Threaded` and one per index otherwise.
 @inline function _blocks!(
         body::F, c::_Current, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
@@ -395,7 +418,7 @@ end
             (ex isa Threaded && !_splits(ex, n, work))
         n == 0 || @inline body(1:n, args...)
     else
-        _blocks_dynamic!(body, c, x, n, work, args...)
+        _dynamic!(_blocks_on!, body, c, x, n, work, args...)
     end
     return nothing
 end
@@ -408,13 +431,6 @@ end
     else
         _blocks_on!(body, _resolve(ex, x), n, work, args...)
     end
-    return nothing
-end
-
-@noinline function _blocks_dynamic!(
-        body::F, c::_Current, x, n, work, args...
-    ) where {F}
-    _blocks_on!(body, _resolve(c.ex, x), n, work, args...)
     return nothing
 end
 
@@ -437,18 +453,13 @@ struct _Single{F}
 end
 @inline (s::_Single)(k, args::Vararg{Any, N}) where {N} = s.body(k:k, args...)
 
-# A loop whose indices also add into shared cotangents: `acc` holds those
-# cotangents, a tuple of mirrors. `_accumulators` gives `(acc, copies)`
-# with a slot in `copies` for each block after the first that the loop runs
-# in. `_reduce_blocks!` calls `body(ks, acc, args...)` on the first block
-# and `body(ks, copies[b - 1], args...)` on block `b`, where the copy is a
-# zeroed `acc` that block `b` allocates on its own task the first time, so
-# copies of small cotangents written by different tasks do not share cache
-# lines. `_reduce!` adds the copies into `acc` in block order afterwards.
-# Serial runs are one block on `acc`, so they add in the order of a loop
-# written by hand; split runs agree with them up to rounding. A `Device` or
-# another executor runs the loop as one block on the calling task, as does
-# any executor when a mirror has a leaf `_private` cannot copy.
+# == Shared cotangents ==
+
+# A loop whose indices also add into the shared mirrors `acc`. The first
+# block writes `acc`; block `b` writes a zeroed copy it allocates on its own
+# task, so copies written by different tasks do not share cache lines.
+# `_reduce!` adds the copies in block order, so split runs match serial ones
+# up to rounding. A mirror `_private` cannot copy runs as one block.
 _accumulators(::Serial, x, n, work, acc) = (acc, ())
 function _accumulators(c::_Current, x, n, work, acc)
     m = _copyable(acc) ? _nblocks(c.ex, n, work) : 1
@@ -457,6 +468,7 @@ function _accumulators(c::_Current, x, n, work, acc)
 end
 _nblocks(ex::Threaded, n, work) = _splits(ex, n, work) ? _nchunks(ex, n) : 1
 _nblocks(ex, n, work) = 1
+_nblocks(c::_Current, n, work) = _nblocks(c.ex, n, work)
 
 @inline function _reduce_blocks!(
         body::F, accs, n, args::Vararg{Any, N}
@@ -470,20 +482,20 @@ _nblocks(ex, n, work) = 1
     return nothing
 end
 
-# Incremented by every loop that `_reduce_blocks!` splits, so tests can
-# prove a reverse pass ran on more than one task.
+# Counts the loops `_reduce_blocks!` splits, so tests can prove one did.
 const _SPLIT_BLOCKS = Threads.Atomic{Int}(0)
 
 @noinline function _spawn_blocks(body::F, acc, copies, n, args...) where {F}
     Threads.atomic_add!(_SPLIT_BLOCKS, 1)
     m = length(copies) + 1
-    @sync for b in 1:m
+    _run_chunks(m) do b
         ks = _chunk(b, n, m)
         if b == 1
-            Threads.@spawn body(ks, acc, args...)
+            body(ks, acc, args...)
         else
-            Threads.@spawn _copy_block!(body, ks, acc, copies, b - 1, args...)
+            _copy_block!(body, ks, acc, copies, b - 1, args...)
         end
+        return nothing
     end
     return nothing
 end
@@ -505,9 +517,8 @@ function _reduce!(accs)
     return nothing
 end
 
-# A zeroed copy of a mirror, and the sum of two mirrors into the first.
-# Mirrors that every index writes only at its own slots are `_Owned` and
-# shared by every block.
+# A zeroed copy of a mirror, and the sum of two mirrors into the first. An
+# `_Owned` mirror, which each index writes only at its own slots, is shared.
 struct _Owned{X}
     x::X
 end

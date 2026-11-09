@@ -62,8 +62,10 @@ the AD backend instead, so they keep their gradients.
 
 Arithmetic with a `Derived` on either side builds another `Derived`, so
 `κ * x`, `x + c`, `x - c`, `x / N`, `x ^ p` and `-x` all work when `x` is
-a `Derived`, with a number, a vector, `PerStratum`, `TimeVarying` or a
-`Survival` on the other side.
+a `Derived`, with a number, a vector, `PerStratum` or `TimeVarying` on the
+other side.
+`+`, `-`, `*` and `/` also work with a
+[`ComposableRecurrences.Survival`](@ref) on either side.
 Wrap a plain parameter as `Derived(identity, x)` to start such an
 expression.
 
@@ -182,7 +184,7 @@ function _derived_local_type(::Type{T}) where {T}
     isconcretetype(T) && isstructtype(T) || return true
     return all(_derived_local_type, fieldtypes(T))
 end
-# The type-level form of `_fieldfree`: no float leaves in fields.
+# Whether a type holds no float leaves in its fields.
 function _fieldfree_type(::Type{T}) where {T}
     T <: Union{Bool, Integer, Nothing, Symbol, AbstractString} && return true
     T <: Real && return false

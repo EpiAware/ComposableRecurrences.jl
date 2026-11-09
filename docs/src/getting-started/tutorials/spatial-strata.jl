@@ -20,21 +20,21 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # The coupling is the [three-town example's](@ref overview-build) gravity coupling, with the same towns as patches and 5% mixing rather than 0.2%:
 #
 # ```math
-# K_{ij} = 0.95 \, \delta_{ij} + 0.05 \, \frac{w_{ij}}{\sum_{b} w_{ib}}, \qquad
-# w_{ij} = \begin{cases} N_j / d_{ij}^2 & i \ne j, \\ 0 & i = j. \end{cases}
+# K_{ij} = 0.95 \, \delta_{ij} + 0.05 \, \frac{G_{ij}}{\sum_{b} G_{ib}}, \qquad
+# G_{ij} = \begin{cases} N_j / d_{ij}^2 & i \ne j, \\ 0 & i = j. \end{cases}
 # ```
 #
 # ``K_{ij}`` weights patch ``j``'s infections in patch ``i``.
 # ``\delta_{ij}`` is one when ``i = j`` and zero otherwise.
 # ``N_j`` is the population of patch ``j`` and ``d_{ij}`` the distance between patches ``i`` and ``j``.
-# ``w_{ij}`` is the gravity weight, so each row of ``K`` sums to one.
+# ``G_{ij}`` is the gravity weight, so each row of ``K`` sums to one.
 
 patches = ["A", "B", "C"]
-S, T = 3, 120
+P, T = 3, 120
 pop = [60_000.0, 25_000.0, 10_000.0]
 dist = [0.0 20.0 45.0; 20.0 0.0 30.0; 45.0 30.0 0.0]
-gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:S, b in 1:S]
-K = 0.95 * I(S) + 0.05 * gravity ./ sum(gravity; dims = 2)
+gravity = [a == b ? 0.0 : pop[b] / dist[a, b]^2 for a in 1:P, b in 1:P]
+K = 0.95 * I(P) + 0.05 * gravity ./ sum(gravity; dims = 2)
 
 @chain DataFrame(K, patches) begin
     @transform(:to = patches)
@@ -55,8 +55,8 @@ end
 # q^{\text{fixed}}_{t,i} &= \sum_{j} K_{ij} \sum_{l} g_l \, I_{t-l,j}, \qquad
 # q^{\text{pair}}_{t,i} = \sum_{j} \sum_{l} A_{ij,l} \, I_{t-l,j}, \qquad
 # q^{\text{cut}}_{t,i} = \sum_{j} K_{t,ij} \sum_{l} g_l \, I_{t-l,j}, \\
-# I_{t,i} &= s_{t-1,i} \big(1 - e^{-\gamma q_{t,i} / N_i}\big), \qquad
-# s_{t,i} = s_{t-1,i} - I_{t,i}.
+# I_{t,i} &= S_{t-1,i} \big(1 - e^{-\gamma q_{t,i} / N_i}\big), \qquad
+# S_{t,i} = S_{t-1,i} - I_{t,i}.
 # \end{aligned}
 # ```
 #
@@ -66,7 +66,7 @@ end
 # ``g^{\text{between}}_l`` is a longer interval, `gi_between` below.
 # ``K_{t,ij}`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30.
 # ``\gamma = 1.6`` is the gain.
-# ``s_{t,i}`` is patch ``i``'s susceptible pool after day ``t``, starting at its population ``N_i``.
+# ``S_{t,i}`` is patch ``i``'s susceptible pool after day ``t``, starting at its population ``N_i``.
 # A [`Pairwise`](@ref) kernel weights each interval by `K`, so its coupling stays `I`.
 # A [`TimeVarying`](@ref) coupling gives ``K_{t,ij}``.
 # It changes once, so it is given by its change points.
@@ -75,8 +75,8 @@ end
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]
 gi_between = [0.0, 0.1, 0.2, 0.3, 0.2, 0.2]
-A = zeros(S, S, length(gi_between))
-for a in 1:S, b in 1:S
+A = zeros(P, P, length(gi_between))
+for a in 1:P, b in 1:P
     A[a, b, :] = K[a, b] .* (a == b ? vcat(gi, 0.0) : gi_between)
 end
 K_travel(cut) = Diagonal(diag(K)) + (1 - cut) * (K - Diagonal(diag(K)))
@@ -118,8 +118,8 @@ end
 # v'_{t,i} = \sum_j M_{t,ij} \, v_{t,j}, \\
 # M_{t,ij} &= K_{ij} \, \varepsilon_{t,j} \quad (i \ne j), \qquad
 # M_{t,jj} = 1 - \varepsilon_{t,j} \sum_{i \ne j} K_{ij}, \\
-# I_{t,i} &= s_{t-1,i} \big(1 - e^{-v'_{t,i} / N_i}\big), \qquad
-# s_{t,i} = s_{t-1,i} - I_{t,i}.
+# I_{t,i} &= S_{t-1,i} \big(1 - e^{-v'_{t,i} / N_i}\big), \qquad
+# S_{t,i} = S_{t-1,i} - I_{t,i}.
 # \end{aligned}
 # ```
 #
@@ -204,15 +204,15 @@ end
 # \begin{aligned}
 # q_t &= K \sum_{l} g_l \, I_{t-l}
 #     + K^{\text{funeral}} \sum_{l} g^{\text{funeral}}_l \, I_{t-l}, \qquad
-# g^{\text{funeral}}_l = c \, \big(f_0 \, d_l + f_1 \, d_{l-1}\big), \\
-# I_{t,i} &= s_{t-1,i} \big(1 - e^{-\gamma q_{t,i} / N_i}\big), \qquad
-# s_{t,i} = s_{t-1,i} - I_{t,i}.
+# g^{\text{funeral}}_l = c \, \big(f_0 \, w_l + f_1 \, w_{l-1}\big), \\
+# I_{t,i} &= S_{t-1,i} \big(1 - e^{-\gamma q_{t,i} / N_i}\big), \qquad
+# S_{t,i} = S_{t-1,i} - I_{t,i}.
 # \end{aligned}
 # ```
 #
 # ``I_t`` holds each patch's infections on day ``t`` and ``q_t`` the pressure the gain ``\gamma = 0.9`` scales.
 # ``K^{\text{funeral}}`` is the funeral coupling and ``g^{\text{funeral}}_l`` the funeral kernel on lag ``l``.
-# ``d_l`` is the infection-to-death delay, with a mean of 7.3 days.
+# ``w_l`` is the infection-to-death delay, with a mean of 7.3 days.
 # ``f_0 = 0.6`` and ``f_1 = 0.4`` are the funeral's weights on the day of death and the day after.
 # ``c = 0.5`` is the fatality ratio, and a [`Convolution`](@ref) builds the funeral kernel.
 # Funerals draw mourners from the patch and its neighbours, so their coupling is sparse.
