@@ -186,7 +186,7 @@ function _derived_local_type(::Type{T}) where {T}
     isconcretetype(T) && isstructtype(T) || return true
     return all(_derived_local_type, fieldtypes(T))
 end
-# The type-level form of `_fieldfree`: no float leaves in fields.
+# Whether a type holds no float leaves in its fields.
 function _fieldfree_type(::Type{T}) where {T}
     T <: Union{Bool, Integer, Nothing, Symbol, AbstractString} && return true
     T <: Real && return false

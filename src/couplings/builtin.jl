@@ -158,12 +158,45 @@ end
 
 function forward!(C::AbstractMatrix, ::Pressure, q, p, t)
     _check_pressure(C, q, p)
+    _mix!(q, C, p)
+    return nothing
+end
+
+# Floats: column by column, the order a column-major matrix is stored in.
+# A loop blocked by columns costs more under plain reverse-mode AD.
+function _mix!(q::AbstractVector{<:AbstractFloat}, C, p)
     fill!(q, zero(eltype(q)))
     @inbounds for b in axes(C, 2)
         pb = p[b]
         for a in axes(C, 1)
             q[a] += C[a, b] * pb
         end
+    end
+    return nothing
+end
+
+# Other numbers, such as dual numbers: four rows per pass, summed in locals
+# and stored once, so a wide number is not loaded and stored per column.
+function _mix!(q, C, p)
+    a, last_a = first(axes(C, 1)), last(axes(C, 1))
+    @inbounds while a + 3 <= last_a
+        q1 = q2 = q3 = q4 = zero(eltype(q))
+        for b in axes(C, 2)
+            pb = p[b]
+            q1 = muladd(C[a, b], pb, q1)
+            q2 = muladd(C[a + 1, b], pb, q2)
+            q3 = muladd(C[a + 2, b], pb, q3)
+            q4 = muladd(C[a + 3, b], pb, q4)
+        end
+        q[a], q[a + 1], q[a + 2], q[a + 3] = q1, q2, q3, q4
+        a += 4
+    end
+    @inbounds for r in a:last_a
+        qr = zero(eltype(q))
+        for b in axes(C, 2)
+            qr = muladd(C[r, b], p[b], qr)
+        end
+        q[r] = qr
     end
     return nothing
 end
