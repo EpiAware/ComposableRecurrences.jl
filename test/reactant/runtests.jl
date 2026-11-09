@@ -195,8 +195,9 @@ const SUITE_TITLES = Dict(
 
 # The lines saying where the results were run. A rebuild from results.tsv
 # keeps the lines already in RESULTS.md, as most of its rows come from those
-# runs, and adds a line for this machine when it is not one of them: rows
-# added to results.tsv since were recorded here.
+# runs, and adds a line for this machine when it is not one of them, on the
+# view that rows added to results.tsv since were recorded here. A rebuild
+# elsewhere that adds no rows adds the line all the same.
 function run_lines(path, vs)
     env = "$(Dates.today()), Julia $(VERSION), Reactant $(vs.Reactant), " *
         "Enzyme $(vs.Enzyme)."
