@@ -2375,6 +2375,15 @@ function reactant_loaded()
     return Base.get_extension(ComposableRecurrences, ext) !== nothing
 end
 
+"""
+    backend_names()
+
+The names of every backend `backends` can list, Reactant included whether
+or not it is loaded, as a `Set{String}`: the keys the per-backend scenario
+lists may use.
+"""
+backend_names() = union(Set(b.name for b in backends()), Set(["Reactant"]))
+
 function _enzyme(mode)
     return AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(mode),
@@ -2444,6 +2453,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence Derived modifier parameters",
         "Recurrence feedback from recent outputs",
         "Recurrence feedback from recent outputs across strata",
+        "Recurrence bed cap with a stay that is not geometric",
     ],
     # A modifier field read at the traced step indexes a view with a traced
     # integer.
@@ -2457,6 +2467,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence sparse coupling",
         "Recurrence routes, dense and sparse",
         "Recurrence routes in a buffer deeper than the kernels",
+        "Recurrence trace through a sparse coupling",
     ],
     "ragged kernel" => [
         "Convolution ragged kernel truncated at the horizon",
@@ -2475,12 +2486,6 @@ const REACTANT_BROKEN = Dict(
     ],
     "kernel from change points with traced values" => [
         "Recurrence kernel from change points",
-    ],
-    # Compiles with no error, but a `PerStratum` value given by change points
-    # reads stratum 1 for every stratum: the value differs from plain Julia
-    # by 5e-2 and the gradient from ForwardDiff by up to 1.9 an entry.
-    "wrong values: per-stratum change points read stratum 1" => [
-        "Recurrence parameters from change points",
     ],
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",
