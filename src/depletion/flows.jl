@@ -375,9 +375,8 @@ _leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false
 end
 _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
 
-# The same for the forward step alone. A pool whose one hazard flow enters
-# a pool moves `1 - e^{-H}` of what it holds along it: that is `-expm1(-H)`,
-# from the exponential `e^{-H}` takes, with no `g(H)` and no division.
+# Leave terms for the forward step. A pool whose one hazard flow enters a
+# pool moves `-expm1(-H)` of what it holds, so no `g(H)` is needed.
 @inline function _group_leaves(fs, i, g, t, z)
     _one_rated_into(fs, i) || return _step_leaves(fs, i, g, t, z)
     E, em = _exp_neg(_out(_rate, fs, i, g, t, z))
@@ -390,7 +389,9 @@ struct _Moved{T}
 end
 
 # What a flow moves per unit held at its rate: `r g(H)`, or the share its
-# pool's one hazard flow moves; a flow of another form moves none.
+# pool's one hazard flow moves. The `_Moved` is that of the flow's own pool,
+# which has one hazard flow, so it is this flow's. Other forms have rate
+# zero, as `_rate` gives them.
 _by_rate(f, g, t, gH) = _rate(f, g, t) * gH
 _by_rate(f::Flow{<:Any, _FlowHazard}, g, t, w::_Moved) = w.F
 _by_rate(f::Flow, g, t, w::_Moved) = false
