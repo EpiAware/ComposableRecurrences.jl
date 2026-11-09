@@ -635,6 +635,12 @@ end
     rng = Xoshiro(9)
     H, Ȳ = rand(rng, 5, 2), rand(rng, 2, 3)
     @test CR._seeded(H, Ȳ, 2) == CR._seed_rows!(zeros(5, 2), Ȳ, 2)
+    # A CPU matrix takes its own loop and other arrays the broadcast, so the
+    # two must agree: for one stratum, no history and more steps than strata.
+    for (S, n, o) in ((2, 3, 2), (1, 4, 2), (3, 5, 0), (2, 1, 1))
+        Hs, Ys = rand(rng, o + n, S), rand(rng, S, n)
+        @test CR._seeded(Hs, Ys, o) == CR._seeded(Hs, view(Ys, :, :), o)
+    end
     H1, ȳ = rand(rng, 5, 1), rand(rng, 3)
     @test CR._seeded(H1, ȳ, 2) == CR._seed_rows!(zeros(5, 1), ȳ, 2)
     @test CR._seeded(H1, view(rand(rng, 4), 2:4), 2)[3:5] isa Vector{Float64}
