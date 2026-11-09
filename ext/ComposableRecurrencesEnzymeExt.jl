@@ -10,7 +10,8 @@ using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
     _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
     _fft_convolve_terms!, _flat_groups, _is_leaf, _leaf_paths, _plain_hook,
-    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _untraced
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _spawn_blocks,
+    _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -214,6 +215,10 @@ EnzymeRules.inactive(::typeof(_flat_groups), args...) = nothing
 # reverse rule below runs its forward pass as primal code, so it uses the
 # set executor.
 EnzymeRules.inactive_type(::Type{_Current}) = true
+# Code Enzyme traces reads `Serial()` (below) but still compiles each loop's
+# threaded branch, so the task spawners are inactive.
+EnzymeRules.inactive(::typeof(_spawn_chunks), args...) = nothing
+EnzymeRules.inactive(::typeof(_spawn_blocks), args...) = nothing
 function EnzymeRules.forward(
         config::EnzymeRules.FwdConfig, ::Const{typeof(_current)}, ::Type{<:Const}
     )

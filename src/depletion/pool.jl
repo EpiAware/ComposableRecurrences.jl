@@ -349,13 +349,13 @@ const _Flows = Tuple{Flow, Vararg{Flow}}
 # that one draw at most has a queue; the message is built only when one
 # does not hold.
 function _check_pieces(pieces::Tuple, n)
-    foreach(p -> _check_piece_pools(p, n), pieces)
+    _tuple_foreach(p -> _check_piece_pools(p, n), pieces)
     _nqueues(pieces) <= 1 || throw(
         ArgumentError("one draw at most has overflow = :queue")
     )
     return nothing
 end
-_check_piece_pools(fs::Tuple, n) = foreach(f -> _check_pool(f, n), fs)
+_check_piece_pools(fs::Tuple, n) = _tuple_foreach(f -> _check_pool(f, n), fs)
 _check_piece_pools(d::_DrawFrom, n) = _check_drawn_pool(d.first, n)
 _check_piece_pools(d::_DrawInto, n) = _check_drawn_pool(d.pool, n)
 function _check_pool(f, n)

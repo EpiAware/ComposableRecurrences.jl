@@ -489,6 +489,29 @@ The local step evaluates `forward!` once per step with dual numbers, so its cost
 For a map as cheap as the saturation there is little for a `pullback!` to save.
 Write `forward!` first, and add a `pullback!` when timing shows the modifier's local step matters.
 
+### [Trimmed executables](@id trimming)
+
+On Julia 1.12 and later, `juliac --trim=safe` compiles an app into an executable that holds only the code the app can reach.
+The build fails on any call the compiler cannot resolve from the argument types.
+A build can pass and still fail when run, for example on a call the runtime makes, so the app is run as well as built.
+The app in `test/trim` runs the forward path of a renewal, a convolution, a depletion with flows, a transform with a derived parameter and a coupled renewal over several strata, and checks the outputs.
+It also runs a loop split into tasks by [`Threaded`](@ref ComposableRecurrences.Threaded).
+A trimmed app cannot set [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) with `with` on Julia 1.12, so its operator calls run serially.
+The Trim workflow builds and runs it when `src` or the app changes.
+Gradients and the extensions are not trim-tested.
+A new type used in a trimmed app needs concrete field types, and methods whose calls resolve from the argument types.
+
+To run the check locally, with JuliaC installed in a shared environment:
+
+```bash
+julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
+cd test/trim
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=@juliac -e 'using JuliaC; JuliaC.main(ARGS)' -- \
+    --output-exe trimapp --bundle build --trim=safe --experimental .
+build/bin/trimapp
+```
+
 ## [Specialising for speed](@id specialising)
 
 Every call of an operator has one form, and the work behind it is chosen by dispatch on the types of its kernel, coupling, modifiers and numbers.

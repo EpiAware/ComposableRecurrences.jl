@@ -4,12 +4,12 @@
 #
 # This tutorial gets the reproduction number on each day from the infections a renewal run returns.
 # A renewal's infections on a day are the reproduction number times the pressure, a weighted sum of earlier infections.
-# [`pressure`](@ref ComposableRecurrences.pressure) recomputes the pressure from the infections, so dividing the infections by it gives the reproduction number.
+# A call with `record = (:trace,)` returns the pressure of each day with the infections, so dividing the infections by it gives the reproduction number.
 
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, pressure
+using ComposableRecurrences: Depletion
 using CairoMakie, AlgebraOfGraphics, DataFramesMeta
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
@@ -29,7 +29,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ``R_t`` is the reproduction number, the gain of the [`Recurrence`](@ref).
 # It is 1.8 up to day 50 and falls in equal steps to 0.8 on day 56.
 # The run starts from ten infections on each of the six days before day 1.
-# `pressure` takes the same `history` as the run, so the first ``L`` days have the earlier infections they need.
+# The call's trace holds ``q_t`` as `trace.pressure`, computed as each step computes it, so the first ``L`` days read the earlier infections in the `history`.
 # The ratio ``\hat R_t = I_t / q_t`` is then ``R_t``.
 
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
@@ -37,8 +37,8 @@ T = 75
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for t in 1:T]
 seed = fill(10.0, 6)
 renewal = Recurrence(gi)
-infections = renewal(R; history = seed)
-R_hat = infections ./ pressure(renewal, infections; history = seed)
+infections, trace = renewal(R; history = seed, record = (:trace,))
+R_hat = infections ./ trace.pressure
 
 @chain DataFrame(day = 1:T, value = R, series = "Gain") begin
     data(_) * mapping(:day, :value => "Reproduction number", color = :series => "") *
@@ -51,7 +51,8 @@ end
 
 # The ratio matches ``R_t`` to round-off on every day.
 # Where ``q_t`` is zero the ratio is `NaN` with no infections and `Inf` otherwise.
-# With strata, `pressure` includes the coupling, so the ratio works on each stratum.
+# With strata, the pressure includes the coupling, so the ratio works on each stratum.
+# For infections that did not come from a traced call, [`pressure`](@ref ComposableRecurrences.pressure) recomputes the pressure from them and the same `history`.
 
 # ## The effective reproduction number
 #
@@ -70,13 +71,13 @@ end
 # \hat R_t = \frac{I_t}{q_t} = R_t \, \frac{S_{t-1}}{N} \, \frac{1 - e^{-\lambda_t}}{\lambda_t}.
 # ```
 #
-# A call with `record = (:trace,)` also returns each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
+# The call's trace also holds each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
 # For a `Depletion` its first row is the pool after each day, which gives ``S_{t-1}`` to check the formula.
 
 N = 60_000.0
 depleted = Recurrence(gi; modifiers = (Depletion(N),))
 y, tr = depleted(R; history = seed, record = (:trace,))
-q = pressure(depleted, y; history = seed)
+q = tr.pressure
 R_eff = y ./ q
 pool = [N; only(tr.modifiers)[1, 1:(end - 1)]]
 λ = R .* q ./ N
