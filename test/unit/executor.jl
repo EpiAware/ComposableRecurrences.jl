@@ -400,7 +400,15 @@ end
         @test err isa CompositeException
         @test length(err.exceptions) == length(bad)
         @test count(==(1), done) == 8 - length(bad)
-        @test (first(err.exceptions) isa CapturedException) == (2 in bad)
+        # A failure on the calling task comes first, with its backtrace; one
+        # on a new task is the `TaskFailedException` from waiting on it.
+        first_err = first(err.exceptions)
+        @test (first_err isa CR._ChunkFailed) == (2 in bad)
+        if first_err isa CR._ChunkFailed
+            @test first_err.error isa ErrorException
+            @test !isempty(first_err.backtrace)
+            @test occursin("Stacktrace", sprint(showerror, first_err))
+        end
         spawned = count(e -> e isa TaskFailedException, err.exceptions)
         @test spawned == (8 in bad)
         msgs = map(e -> sprint(showerror, e), err.exceptions)

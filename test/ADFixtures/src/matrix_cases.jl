@@ -747,7 +747,9 @@ function renewal_forecast(wrap, z::Size)
 end
 
 # The effective reproduction number of the towns' depleted run: each day's
-# infections over the renewal sum they come from.
+# infections over the renewal sum they come from, read from the run's trace
+# where the release records it, else from a second pass.
+const TRACE_PRESSURE = isdefined(CR, :_TracedPressure)
 function reproduction(wrap, z::Size)
     (; T, L, S) = z
     pop, K = towns()
@@ -756,6 +758,10 @@ function reproduction(wrap, z::Size)
     f = function (θ)
         g, logR = _unpack(θ, (L,), (S, T))
         r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
+        if TRACE_PRESSURE
+            y, tr = returning_trace(wrap(r), exp.(logR); history = seed)
+            return sum(W .* y ./ tr.pressure)
+        end
         y = wrap(r)(exp.(logR); history = seed)
         sums = K * wrap(Convolution(vcat(zero(eltype(θ)), g)))(y; history = seed)
         return sum(W .* y ./ sums)

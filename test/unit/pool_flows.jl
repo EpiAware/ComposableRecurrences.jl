@@ -121,6 +121,7 @@ end
 
 @testitem "Depletion flows: pullbacks against a local Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
     flatten = ModifierChecks.flat_pool
@@ -168,6 +169,18 @@ end
                 pools = (S = nothing, V = x[3])
             ),
             (a, α) -> [100.0, α, 0.0, 0.3, a],
+        ),
+        # Counts whose demands are `Derived`: a map with closed-form
+        # partials, one with a local derivative, and one without floats.
+        (
+            x -> CR.Depletion(
+                x[1], CR.Hazard(x[2]; weights = (S = 1, V = x[4])),
+                CR.Flow(:S => :V, Derived(*, x[5], TimeVarying(x[6:7])); form = CR.Truncate()),
+                CR.Flow(:V => 0, Derived((b, c) -> b * exp(c), x[8], x[9]); form = CR.Truncate()),
+                CR.Flow(:S => 0, Derived(identity, 1); form = CR.Truncate());
+                pools = (S = nothing, V = x[3])
+            ),
+            (a, α) -> [100.0, α, 0.0, 0.3, a, 1.0, 0.5, 2.0, 0.1],
         ),
     )
     # Pools full, and one stratum's pools empty so the draw comes from the

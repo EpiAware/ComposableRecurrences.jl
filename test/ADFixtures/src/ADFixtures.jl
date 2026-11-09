@@ -1214,6 +1214,16 @@ function _effective_reproduction(w, θ)
     return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
 end
 
+# The same from the pressures the run's trace records, so with no second
+# pass.
+function _effective_reproduction_trace(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    d = ComposableRecurrences.Depletion(PerStratum(POP))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
+    return sum(WS .* y ./ tr.pressure) + sum(WS .* log.(tr.pressure))
+end
+
 # The relative tolerance of the rule testers in `test_adjoint`. They compare
 # the rule with finite differences taken in the arguments' precision. In
 # single precision these differ from the rule by up to about 5e-4 relative
@@ -1541,6 +1551,11 @@ const _SCENARIOS = [
     (
         "Recurrence effective reproduction number from its pressure",
         _effective_reproduction, () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence effective reproduction number from its trace",
+        _effective_reproduction_trace,
+        () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
     ),
     (
         "Recurrence capacity, dropped overflow after a truncated draw",
@@ -2244,6 +2259,7 @@ _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 # The pressure recomputed from given outputs.
 _REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
+_REQUIRES["Recurrence effective reproduction number from its trace"] = (:_TracedPressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
@@ -2380,6 +2396,15 @@ function reactant_loaded()
     return Base.get_extension(ComposableRecurrences, ext) !== nothing
 end
 
+"""
+    backend_names()
+
+The names of every backend `backends` can list, Reactant included whether
+or not it is loaded, as a `Set{String}`: the keys the per-backend scenario
+lists may use.
+"""
+backend_names() = union(Set(b.name for b in backends()), Set(["Reactant"]))
+
 function _enzyme(mode)
     return AutoEnzyme(;
         mode = Enzyme.set_runtime_activity(mode),
@@ -2449,6 +2474,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence Derived modifier parameters",
         "Recurrence feedback from recent outputs",
         "Recurrence feedback from recent outputs across strata",
+        "Recurrence bed cap with a stay that is not geometric",
     ],
     # A modifier field read at the traced step indexes a view with a traced
     # integer.
@@ -2462,6 +2488,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence sparse coupling",
         "Recurrence routes, dense and sparse",
         "Recurrence routes in a buffer deeper than the kernels",
+        "Recurrence trace through a sparse coupling",
     ],
     "ragged kernel" => [
         "Convolution ragged kernel truncated at the horizon",
@@ -2480,12 +2507,6 @@ const REACTANT_BROKEN = Dict(
     ],
     "kernel from change points with traced values" => [
         "Recurrence kernel from change points",
-    ],
-    # Compiles with no error, but a `PerStratum` value given by change points
-    # reads stratum 1 for every stratum: the value differs from plain Julia
-    # by 5e-2 and the gradient from ForwardDiff by up to 1.9 an entry.
-    "wrong values: per-stratum change points read stratum 1" => [
-        "Recurrence parameters from change points",
     ],
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",
