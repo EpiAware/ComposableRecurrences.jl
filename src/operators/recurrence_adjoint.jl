@@ -248,6 +248,12 @@ end
     return @inbounds _at(gain, k, τ) * v̄k
 end
 
+# Without records the gain has no cotangent.
+@inline function _gain_add_back!(acc, v̄k, ::Nothing, gain, C::_PointwiseCoupling, t, τ, k)
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
+    return @inbounds _at(gain, k, τ) * v̄k
+end
+
 # The pullback of `_core` for a pointwise coupling: the value's cotangent
 # `v̄k` into the add input, the gain and the coupling; returns the kernel
 # convolution's. As in the forward step, the coefficient joins the gain, so
