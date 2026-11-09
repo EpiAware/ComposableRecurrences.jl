@@ -18,6 +18,7 @@ end
     check(x) = (ComposableRecurrences._check_coefficient(PerStratum(x)); sum(x))
     x3 = Reactant.to_rarray(zeros(2, 2, 2))
     @test_throws ArgumentError Reactant.@compile check(x3)
+    # A matrix compiles: the test is only that the call does not throw.
     x2 = Reactant.to_rarray(zeros(2, 3))
     @test Reactant.@compile(check(x2)) isa Any
 end

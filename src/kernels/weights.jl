@@ -234,7 +234,7 @@ struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
     end
 end
 # A scratch buffer of element type `T`, its entries written before they are
-# read; the Reactant extension gives traced buffers instead.
+# read; an extension may give another array type for its own element types.
 _alloc(::Type{T}, dims::Vararg{Int, N}) where {T, N} = Array{T}(undef, dims...)
 _scratch(x, ::Type, L, B = _BLOCK) = nothing
 function _scratch(x::Derived, ::Type{Tp}, L, B = _BLOCK) where {Tp}
