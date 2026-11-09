@@ -621,6 +621,8 @@ end
     rng = Xoshiro(9)
     H, Ȳ = rand(rng, 5, 2), rand(rng, 2, 3)
     @test CR._seeded(H, Ȳ, 2) == CR._seed_rows!(zeros(5, 2), Ȳ, 2)
+    # A CPU matrix's loop writes what the broadcast for other arrays does.
+    @test CR._seeded(H, Ȳ, 2) == CR._seeded(H, view(Ȳ, :, :), 2)
     H1, ȳ = rand(rng, 5, 1), rand(rng, 3)
     @test CR._seeded(H1, ȳ, 2) == CR._seed_rows!(zeros(5, 1), ȳ, 2)
     @test CR._seeded(H1, view(rand(rng, 4), 2:4), 2)[3:5] isa Vector{Float64}
