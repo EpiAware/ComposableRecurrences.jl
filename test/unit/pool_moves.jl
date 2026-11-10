@@ -388,6 +388,8 @@ end
     @test !CR._one_rated_into(fs, 3)
     @test map(i -> CR._hazards_out(fs, i), (1, 2, 3)) == (1, 2, 1)
     @test CR._hazards_out((), 1) == 0
+    @test CR._group_leaves_each(fs, 1, 1, 0.0, Val(3)) ===
+        ntuple(i -> CR._group_leaves(fs, i, 1, 1, 0.0), 3)
     for i in 2:3
         @test CR._group_leaves(fs, i, 1, 1, 0.0) === CR._step_leaves(fs, i, 1, 1, 0.0)
     end

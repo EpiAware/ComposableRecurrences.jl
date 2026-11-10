@@ -214,12 +214,13 @@ end
 # A computed kernel is filled a block of `_BLOCK` cohorts at a time, lag
 # outermost and cohort innermost: each cohort's survival is a product along
 # its lags, so the cohorts of a block run side by side. Each `Survival`
-# keeps the block's values `S`, hazards `H` and cotangents `S̄` (cohorts ×
-# lags × the strata of its hazard, or one) in a scratch tree that mirrors
-# the kernel, and the reverse pass recomputes a block before taking its
-# cotangent back. So no weight is stored past its block, and a convolution
-# allocates `O(L)` beyond the arrays it returns; `_fill_kernel` says when a
-# dense kernel keeps every block instead.
+# keeps the block's values `S` and hazards `H`, and in the reverse pass
+# their cotangents `S̄` (cohorts × lags × the strata of its hazard, or one),
+# in a scratch tree that mirrors the kernel, and the reverse pass
+# recomputes a block before taking its cotangent back. So no weight is
+# stored past its block, and a convolution allocates `O(L)` beyond the
+# arrays it returns; `_fill_kernel` says when a dense kernel keeps every
+# block instead.
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.
@@ -244,8 +245,16 @@ function _scratch(x::Survival, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     ns = max(_coef_strata(x.hazard), 1)
     return _SurvivalScratch{_stratified(x.hazard)}(
         _scratch(x.hazard, Tp, L, B), _alloc(Tp, B, L, ns),
-        _alloc(Tp, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
+        _alloc(Tp, B, L, ns), zeros(Tp, 0, 0, 0), zeros(Tp, B)
     )
+end
+# The forward fill keeps no cotangents; the reverse pass takes the scratch
+# again with `S̄` allocated, sharing its values and hazards.
+_back_scratch(sc) = nothing
+_back_scratch(sc::Tuple) = map(_back_scratch, sc)
+function _back_scratch(sc::_SurvivalScratch{P}) where {P}
+    S̄ = zeros(eltype(sc.S), size(sc.S))
+    return _SurvivalScratch{P}(_back_scratch(sc.hazard), sc.S, sc.H, S̄, sc.acc)
 end
 _row(sc::_SurvivalScratch{false}, k) = 1
 _row(sc::_SurvivalScratch{true}, k) = k
@@ -570,6 +579,7 @@ function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x
     n = size(K̄, ndims(K̄))
     B = _block_size(x, n, Val(true))
+    sc = _back_scratch(sc)
     for τ0 in 1:B:n
         nb = min(B, n - τ0 + 1)
         B < n && _block!(x, sc, τ0, nb, o, last)

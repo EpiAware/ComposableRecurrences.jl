@@ -1392,12 +1392,9 @@ if isfile(BVD_HANDRULE)
         ]
         I_bar = [20.0 * (1.2 + _noise(t, p + 20)) for p in 1:P, t in 1:T]
         force_pre = [10.0 * exp(-0.1 * t) for p in 1:P, t in 1:T]
-        # The pre-grid force of each zone's patch, as the rule arm reads it.
+        # The pre-grid force of each zone's patch, zones × days.
         zone_pre = force_pre[patch_of, :]
-        return (;
-            I_bar, g = _gi(L), force_pre, zone_pre, within, between, groups,
-            patch_of,
-        )
+        return (; I_bar, g = _gi(L), zone_pre, within, between, groups, patch_of)
     end
     function _bvd_zones(run)
         return function (wrap, z::Size)
@@ -1405,9 +1402,13 @@ if isfile(BVD_HANDRULE)
             d = _zone_data(z)
             P = length(d.groups)
             W = _weights(T, S)
+            # Both arms take the gain and the pre-grid drive formed here, so
+            # each times only its own run.
             f = function (θ)
                 δ, w0, ε, φ, ow = _unpack(θ, (T, S), (S,), (S,), (P, T), (S,))
-                return sum(W .* log.(run(wrap, δ, w0, ε, φ, ow, d)))
+                gain = exp.(permutedims(δ))
+                add = gain .* w0 .* d.zone_pre
+                return sum(W .* log.(run(wrap, gain, add, ε, φ, ow, d)))
             end
             θ = _flat(
                 [0.1 * _noise(t, k + 21) for t in 1:T, k in 1:S],
@@ -1418,10 +1419,8 @@ if isfile(BVD_HANDRULE)
             return f, θ
         end
     end
-    function _bvd_zones_rule(wrap, δ, w0, ε, φ, ow, d)
-        S = size(δ, 2)
-        gain = exp.(permutedims(δ))
-        add = gain .* w0 .* d.zone_pre
+    function _bvd_zones_rule(wrap, gain, add, ε, φ, ow, d)
+        S = size(gain, 1)
         split = CR.Allocate(
             d.groups, TimeVarying(PerStratum(d.I_bar));
             imports = (TimeVarying(PerStratum(φ)), d.between .* permutedims(ow)),
@@ -1431,10 +1430,10 @@ if isfile(BVD_HANDRULE)
         return permutedims(wrap(r)(gain; history = zeros(S, 1), add))
     end
     function _bvd_zones_hand(kernel)
-        return function (wrap, δ, w0, ε, φ, ow, d)
+        return function (wrap, gain, add, ε, φ, ow, d)
             return kernel(
-                collect(δ), collect(w0), collect(ε), collect(φ), collect(ow),
-                d.I_bar, d.g, d.force_pre, d.within, d.between, d.groups
+                collect(gain), collect(add), collect(ε), collect(φ),
+                collect(ow), d.I_bar, d.g, d.within, d.between, d.groups
             )
         end
     end

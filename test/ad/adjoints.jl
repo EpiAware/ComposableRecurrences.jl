@@ -2106,3 +2106,36 @@ end
         @test CR._PULLBACK_CALLS[] > n
     end
 end
+
+@testitem "Enzyme reverse under runtime activity: shared and distinct shadows" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, Enzyme, ForwardDiff
+    using ComposableRecurrences: ComposableRecurrences as CR
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    h, ϵ = [0.3], [0.1 * sin(t) for t in 1:8]
+    # The output is read twice, so its shadow takes cotangents from both
+    # reads before the rule's reverse pass runs.
+    f(w, ϵ) = (y = Recurrence(w)(1.0; history = h, add = ϵ); sum(y) + sum(abs2, y))
+    w = [0.6]
+    ref_w = ForwardDiff.gradient(x -> f(x, ϵ), w)
+    ref_ϵ = ForwardDiff.gradient(x -> f(w, x), ϵ)
+    # Every shadow distinct from its value.
+    dw, dϵ = zero(w), zero(ϵ)
+    Enzyme.autodiff(mode, Const(f), Active, Duplicated(w, dw), Duplicated(ϵ, dϵ))
+    @test dw ≈ ref_w
+    @test dϵ ≈ ref_ϵ
+    # The kernel's shadow is the kernel itself, which runtime activity reads
+    # as constant: no cotangent is written into it.
+    dϵ = zero(ϵ)
+    Enzyme.autodiff(mode, Const(f), Active, Duplicated(w, w), Duplicated(ϵ, dϵ))
+    @test dϵ ≈ ref_ϵ
+    @test w == [0.6]
+    # The check reads each kind of shadow as the rule's mirrors do.
+    x, dx = rand(3), zeros(3)
+    @test !ext._any_shares((Const(x), Active(1.0), Duplicated(x, dx)))
+    @test ext._any_shares((Duplicated(x, dx), Duplicated(x, x)))
+    @test ext._any_shares((Duplicated(PerStratum(x), PerStratum(x)),))
+    @test !ext._any_shares((Duplicated(PerStratum(x), PerStratum(dx)),))
+    @test ext._any_shares((Duplicated([x, x], [x, dx]),))
+    @test ext._any_shares((Duplicated((x, 1.0), (x, 0.0)),))
+end

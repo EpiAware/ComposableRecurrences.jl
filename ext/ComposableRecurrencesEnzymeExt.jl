@@ -10,8 +10,8 @@ using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
     _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
     _fft_convolve_terms!, _flat_groups, _is_leaf, _leaf_paths, _plain_hook,
-    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _spawn_blocks,
-    _spawn_chunks, _untraced
+    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
+    _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -75,6 +75,27 @@ function _ezs(x, dx, mode)
     return NamedTuple{names}(
         map(n -> _ezs(getfield(x, n), getfield(dx, n), mode), names)
     )
+end
+
+# Whether any argument's shadow is the same object as its value. Where none
+# is, the mirrors need no `nothing` for a shared shadow, so their types infer.
+_shares(::Union{Const, Active}) = false
+_shares(a::Union{Duplicated, DuplicatedNoNeed}) = _sh(a.val, a.dval)
+_shares(a::MixedDuplicated) = _sh(a.val, a.dval[])
+_sh(x::AbstractArray{<:_IEEEFloat}, dx::AbstractArray) = dx === x
+function _sh(x::AbstractVector{<:AbstractVector{<:_IEEEFloat}}, dx::AbstractVector)
+    return dx === x || any(i -> _sh(x[i], dx[i]), eachindex(x, dx))
+end
+_sh(x::SparseMatrixCSC, dx::SparseMatrixCSC) = _sh(nonzeros(x), nonzeros(dx))
+_sh(x::Diagonal, dx::Diagonal) = _sh(x.diag, dx.diag)
+_sh(x::Union{Tuple, NamedTuple}, dx) = any(map(_sh, values(x), values(dx)))
+_sh(::Union{_IEEEFloat, _Inert, AbstractString, Char, Type, Module, Ptr}, dx) = false
+function _sh(x::T, dx) where {T}
+    isstructtype(T) || return false
+    return any(n -> _sh(getfield(x, n), getfield(dx, n)), fieldnames(T))
+end
+@generated function _any_shares(leaves::Tuple{Vararg{Any, N}}) where {N}
+    return Expr(:||, false, (:(_shares(leaves[$i])) for i in 1:N)...)
 end
 
 # Whether a mirror holds a nonzero scalar cotangent.
@@ -461,8 +482,10 @@ function EnzymeRules.augmented_primal(
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     VERSION < v"1.12" &&
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
-    y, cache = _run_forward(_rebuild_leaves(X, _map_leaves(_val, leaves))...)
-    dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
+    args = _rebuild_leaves(X, _map_leaves(_val, leaves))
+    y, cache = _run_forward(args...)
+    dy, cache = EnzymeRules.needs_shadow(config) ? _shadow_of(first(args), y, cache) :
+        (nothing, cache)
     ret = EnzymeRules.needs_primal(config) ? y : nothing
     R = eltype(RA)
     P = EnzymeRules.needs_primal(config) ? R : Nothing
@@ -478,14 +501,40 @@ function EnzymeRules.reverse(
     cache, y, dy = tape
     # An unused output still owes each `Active` leaf a zero cotangent.
     dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
-    mode = EnzymeRules.runtime_activity(config) ? _Shared() : _Distinct()
-    return _reverse_leaves(mode, X, cache, y, dy, leaves)
+    if EnzymeRules.runtime_activity(config)
+        # The inferred mirrors save most on a single series, whose setup is
+        # much of its gradient; elsewhere they cost more to compile than they
+        # save, so other outputs keep the checked mode.
+        y isa AbstractVector || return _reverse_leaves(_Shared(), X, cache, y, dy, leaves)
+        _any_shares(leaves) && return _reverse_shared(X, cache, y, dy, leaves)
+    end
+    return _reverse_leaves(_Distinct(), X, cache, y, dy, leaves)
 end
+# A shared shadow is found only at run time. `invokelatest` hides the call
+# from inference, so that reverse pass is compiled only for calls that take
+# it, not for every call beside the distinct one. Its return type is the
+# same: an `Active` leaf's cotangent has its value's type and every other
+# leaf returns `nothing`.
+@noinline function _reverse_shared(::Type{X}, cache, y, dy, leaves) where {X}
+    ret = Base.invokelatest(_reverse_leaves, _Shared(), X, cache, y, dy, leaves)
+    return ret::_rets(typeof(leaves))
+end
+@generated function _rets(::Type{L}) where {L <: Tuple}
+    return Tuple{(A <: Active ? A.parameters[1] : Nothing for A in L.parameters)...}
+end
+# The output's shadow, sharing the reverse pass's buffer where it can.
+function _shadow_of(op, y, cache)
+    dy, c = _shared_shadow(op, y, cache)
+    return dy === nothing ? (Enzyme.make_zero(y), c) : (dy, c)
+end
+# The pullback compiled on its own for the mirrors' types: inlined into the
+# rule, it ran slower on a coupled run with a modifier.
+@noinline _pullback_call(grads, op, cache) = _run_pullback!(grads, op, cache)
 function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
     lms = _map_leaves(a -> _ez(a, mode), leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
-    _run_pullback!(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
+    _pullback_call(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)
 end
