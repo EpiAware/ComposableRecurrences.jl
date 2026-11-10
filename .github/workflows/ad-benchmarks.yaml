@@ -16,6 +16,10 @@ on:
     - cron: '41 1 * * *'
   workflow_dispatch:
 
+# Read-only by default; the publish job asks for write access itself.
+permissions:
+  contents: read
+
 # A newer push to a pull request supersedes its run; scheduled and
 # on-demand runs all complete.
 concurrency:
