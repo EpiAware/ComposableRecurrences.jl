@@ -262,10 +262,6 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _stratified(x) = _stratified_type(x)
 
-# The last lag index of cohort `τ` whose weight lands by `last`, for lags
-# from `o`.
-_imax(τ, L, o, last) = clamp(last - τ - o + 1, 0, L)
-
 # Of the `nb` cohorts from `τ0`, those whose weight on lag index `i` (lags
 # from `o`) lands by `last` are the first `_bmax`: cohort `τ0 + b - 1`'s lag
 # `i - 1 + o` lands at `τ0 + b + i + o - 2`.
