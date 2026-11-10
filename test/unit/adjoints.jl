@@ -237,11 +237,13 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     rng = Xoshiro(8)
     L, T = 3, 9
-    # A fixed kernel and one given by change points, whose runs each carry
-    # the last value; a gain with and without additions, and later starts.
+    # A fixed kernel, one given by change points and one with no lags, whose
+    # runs each carry the last value; a gain with and without additions, and
+    # later starts.
     kernels = (
         rand(rng, L) ./ 2,
         TimeVarying([1 => rand(rng, L) ./ 2, 4 => rand(rng, L) ./ 2, 7 => rand(rng, 2)]),
+        Float64[],
     )
     modifiers = (
         (CR.Transform(clamp, 0.0, 2.0),),
@@ -250,7 +252,10 @@ end
     )
     R = 0.8 .+ rand(rng, T)
     ϵ = rand(rng, T)
-    for g in kernels, ms in modifiers, start in (1, 5, 8), add in (nothing, ϵ)
+    # With no lags and no add input every value is 0, on `clamp`'s kink, where
+    # the rule and the reference may take different one-sided slopes.
+    for g in kernels, ms in modifiers, start in (1, 5, 8),
+            add in (g isa Vector && isempty(g) ? (ϵ,) : (nothing, ϵ))
         r = Recurrence(g; modifiers = ms)
         h = 1 .+ rand(rng, L)
         @test pullback_matches(r, recargs(R, add, h; start)...)
@@ -671,6 +676,12 @@ end
     rng = Xoshiro(9)
     H, Ȳ = rand(rng, 5, 2), rand(rng, 2, 3)
     @test CR._seeded(H, Ȳ, 2) == CR._seed_rows!(zeros(5, 2), Ȳ, 2)
+    # A CPU matrix takes its own loop and other arrays the broadcast, so the
+    # two must agree: for one stratum, no history and more steps than strata.
+    for (S, n, o) in ((2, 3, 2), (1, 4, 2), (3, 5, 0), (2, 1, 1))
+        Hs, Ys = rand(rng, o + n, S), rand(rng, S, n)
+        @test CR._seeded(Hs, Ys, o) == CR._seeded(Hs, view(Ys, :, :), o)
+    end
     H1, ȳ = rand(rng, 5, 1), rand(rng, 3)
     @test CR._seeded(H1, ȳ, 2) == CR._seed_rows!(zeros(5, 1), ȳ, 2)
     @test CR._seeded(H1, view(rand(rng, 4), 2:4), 2)[3:5] isa Vector{Float64}

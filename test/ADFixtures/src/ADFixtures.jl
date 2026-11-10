@@ -350,22 +350,17 @@ end
 
 # Movement between strata from a kernel and an intensity per origin and
 # time, both reshaped from θ, before a depletion.
-function _movement_time_varying(w, θ)
-    g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
-    mods = (
-        ComposableRecurrences.Redistribute(K, ε),
-        ComposableRecurrences.Depletion(PerStratum(POP)),
-    )
-    y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
-    return sum(WS .* log.(y))
-end
+_movement_time_varying(w, θ) = _movement_with(w, θ; leak = Val(false))
 
 # The same through the public `Redistribute(K, ε; leak = true)`, with a
 # kernel whose columns sum to less than one, so part of what moves leaves.
-function _movement_leak(w, θ)
+_movement_leak(w, θ) = _movement_with(w, θ; leak = Val(true))
+
+# The movement's loss, with `leak` a type parameter (see `Redistribute`).
+function _movement_with(w, θ; leak::Val{LEAK}) where {LEAK}
     g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Redistribute(K, ε; leak = true),
+        ComposableRecurrences.Redistribute(K, ε; leak = LEAK),
         ComposableRecurrences.Depletion(PerStratum(POP)),
     )
     y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
@@ -2312,7 +2307,10 @@ const _CATEGORIES = (:marginal, :rules)
 const _PRECISIONS = (:all, :double, :single)
 
 """
-    scenarios(; with_reference = false, category = :marginal, precision = :all)
+    scenarios(;
+        with_reference = false, category = :marginal, precision = :all,
+        backend = nothing
+    )
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
@@ -2323,12 +2321,15 @@ backends where the twin takes the same path as its scenario.
 `precision = :single` keeps the scenarios with single-precision parameters
 and `:double` the others, so each set is checked at its own tolerance (see
 `gradient_rtol`).
+With `backend` set to a backend's name, a scenario that takes plain AD on
+that backend by design (see `backend_plain_scenarios`) keeps no twin there,
+since the twin would take the same plain path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(;
         with_reference::Bool = false, category::Symbol = :marginal,
-        precision::Symbol = :all
+        precision::Symbol = :all, backend::Union{Nothing, String} = nothing
     )
     category in _CATEGORIES || throw(
         ArgumentError(
@@ -2340,8 +2341,12 @@ function scenarios(;
             "unknown precision $(repr(precision)); choose one of $(join(_PRECISIONS, ", "))"
         )
     )
+    plain = isnothing(backend) ? Set{String}() :
+        get(backend_plain_scenarios(), backend, Set{String}())
     twins = filter(_TWINS) do (name, _, _, single)
-        (category === :marginal || !startswith(name, "NoAdjoint ")) &&
+        base = chopprefix(name, "NoAdjoint ")
+        twin = base != name
+        (category === :marginal || !twin) && !(twin && base in plain) &&
             (precision === :all || single == (precision === :single))
     end
     return map(twins) do (name, f, θ0, _)
@@ -2421,9 +2426,10 @@ scenarios expected to fail on a backend, by backend name.
 
 A compiled ReverseDiff tape keeps the branches taken where it is recorded,
 which the harness does at zero parameters. The ward from its parameters as
-given branches differently there, so its prepared calls on compiled
-ReverseDiff are wrong, as are its `NoAdjoint` twin's; the other scenarios
-start at zero to avoid this.
+given branches differently there, so its `NoAdjoint` twin's prepared calls
+on compiled ReverseDiff are wrong; the rule's forward step takes no branch
+on the hazard, so the ward itself is right. The other scenarios start at
+zero to avoid this.
 
 `Reactant` lists the scenarios that do not run under Reactant, forward or
 reverse; `test/reactant/` reads it.
@@ -2431,7 +2437,7 @@ reverse; `test/reactant/` reads it.
 function backend_broken_scenarios()
     ward = "Recurrence ward with competing flows, from the parameters as given"
     return Dict(
-        "ReverseDiff (compiled)" => Set([ward, "NoAdjoint " * ward]),
+        "ReverseDiff (compiled)" => Set(["NoAdjoint " * ward]),
         "Reactant" => Set(reduce(vcat, values(REACTANT_BROKEN))),
     )
 end
@@ -2442,8 +2448,7 @@ end
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
     # A traced number is not a `Real`, so the checks on a scalar parameter,
-    # a heterogeneity exponent, a softness or a computed kernel's
-    # coefficient refuse it.
+    # a heterogeneity exponent or a softness refuse it.
     "traced scalar refused by a parameter check" => [
         "Recurrence depletion with a differentiated heterogeneity",
         "Recurrence floored depletion with a differentiated heterogeneity",
@@ -2462,9 +2467,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace of a ward's flows",
         "Recurrence capacity, dropped overflow after a truncated draw",
         "Recurrence depletion with smoothly truncated draws",
-        "Convolution kernel from a hazard and a survival",
-        "Kernel weights of a survival against a delay and calendar hazard",
-        "Recurrence kernel shortened by a survival",
     ],
     # `Recent` and `Derived` have no arithmetic with, or constructor from,
     # traced values.
