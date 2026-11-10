@@ -353,7 +353,8 @@ end
 # are summed in their own type, not the pools': under a dual number that
 # would make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
-_leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false)
+_leaves(fs::_NoHazard, i, g, t, z) = _no_hazard_leaves(fs, i, g, t)
+_no_hazard_leaves(fs, i, g, t) = true, true, _out(_share, fs, i, g, t, false)
 
 # The same for a step, which reads `g(H)` only where a hazard flow out of
 # pool `i` enters a pool: elsewhere it is one, without its expm1 and
@@ -368,10 +369,12 @@ _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
 # Leave terms for the forward step. A pool whose one hazard flow enters a
 # pool moves `-expm1(-H)` of what it holds, so no `g(H)` is needed.
 @inline function _group_leaves(fs, i, g, t, z)
-    return _group_leaves(fs, i, Val(_one_rated_into(fs, i)), g, t, z)
+    return _group_leaves(fs, i, Val(_leave_kind(fs, i)), g, t, z)
 end
-@inline _group_leaves(fs, i, ::Val{false}, g, t, z) = _step_leaves(fs, i, g, t, z)
-@inline function _group_leaves(fs, i, ::Val{true}, g, t, z)
+# No hazard flow out: `e^{-0}` and `g(0)` are one, with no dual exponential.
+@inline _group_leaves(fs, i, ::Val{:none}, g, t, z) = _no_hazard_leaves(fs, i, g, t)
+@inline _group_leaves(fs, i, ::Val{:step}, g, t, z) = _step_leaves(fs, i, g, t, z)
+@inline function _group_leaves(fs, i, ::Val{:moved}, g, t, z)
     E, em = _exp_neg(_out(_rate, fs, i, g, t, z))
     return E, _Moved(-em), _out(_share, fs, i, g, t, z)
 end
@@ -391,22 +394,28 @@ _by_rate(f::Flow, g, t, w::_Moved) = _rate(f, g, t)
 
 # Whether pool `i` has one hazard flow out, and it enters a pool.
 _one_rated_into(fs, i) = _rated_into(fs, i) & (_hazards_out(fs, i) == 1)
-# `_group_leaves` for each of `N` pools, with the pool and whether it has
-# one hazard flow into a pool written in as constants, read from the flows'
-# types, which hold their ends. Past 32 flows `_one_rated_into` is not
-# folded to a constant for each pool, and under dual numbers an index into a
-# tuple of the answers is not either, so the pools' leave terms would be
-# held boxed.
+# Which leave terms pool `i` takes: `:none` with no hazard flow out,
+# `:moved` with one that enters a pool, else `:step`.
+function _leave_kind(fs, i)
+    _hazards_out(fs, i) == 0 && return :none
+    return _one_rated_into(fs, i) ? :moved : :step
+end
+# `_group_leaves` for each of `N` pools, with the pool and its `_leave_kind`
+# written in as constants, read from the flows' types, which hold their
+# ends. Past 32 flows `_leave_kind` is not folded to a constant for each
+# pool, and under dual numbers an index into a tuple of the answers is not
+# either, so the pools' leave terms would be held boxed.
 @generated function _group_leaves_each(fs::Tuple, g, t, z, ::Val{N}) where {N}
     ok = N isa Int && all(f -> f <: Flow && isconcretetype(f), fs.parameters)
     ok || return :(ntuple(i -> _group_leaves(fs, i, g, t, z), Val(N)))
     hazard = [f <: Flow{<:Any, _FlowHazard} for f in fs.parameters]
     ends = [f.parameters[4] for f in fs.parameters]
-    function one(i)
+    function kind(i)
         out = [k for k in eachindex(ends) if hazard[k] && ends[k][1] == i]
-        return length(out) == 1 && ends[only(out)][2] > 0
+        isempty(out) && return QuoteNode(:none)
+        return QuoteNode(length(out) == 1 && ends[only(out)][2] > 0 ? :moved : :step)
     end
-    calls = (:(_group_leaves(fs, $i, Val{$(one(i))}(), g, t, z)) for i in 1:N)
+    calls = (:(_group_leaves(fs, $i, Val{$(kind(i))}(), g, t, z)) for i in 1:N)
     return Expr(:block, Expr(:meta, :inline), Expr(:tuple, calls...))
 end
 
@@ -514,18 +523,23 @@ end
 # Inlined, with the spread of the rates and shares, so that a step on dual
 # numbers passes no tuple of them through a call, which cost a filling
 # pool's step about 40% in forward mode.
-@inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
+@inline _flow_group(fs, x, g, t) = _flow_step(fs, x, g, t, Val(true))
+@inline function _flow_step(fs, x::NTuple{N}, g, t, keep_arrivals) where {N}
     z = zero(first(x))
     L = _group_leaves_each(fs, g, t, z, Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
-    y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    y, a = _spread(fs, x, L, y0, _start_arrivals(keep_arrivals, y0), g, t)
     return _counts(fs, y, a, g, t)
 end
+# The arrivals before the flows: zeros, or `nothing` when they are not
+# kept, which the flows' `_add` passes through.
+@inline _start_arrivals(::Val{true}, y::NTuple{N}) where {N} = ntuple(_ -> zero(first(y)), Val(N))
+@inline _start_arrivals(::Val{false}, y) = nothing
 
-# The pools after the flows, without the arrivals.
+# The pools after the flows, without the arrivals, which are not built.
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
-@inline _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
+@inline _flow_only(fs, x, g, t) = first(_flow_step(fs, x, g, t, Val(false)))
 
 # The amount each flow moves at one step, in the order given, from the
 # pools `x`: a hazard or share flow's from `x`, as the step spreads it,
