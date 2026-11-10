@@ -2124,6 +2124,8 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
+# Its 61 parameters send the call to plain AD (`backend_plain_scenarios`),
+# so the local derivative at a tie is checked by the adjoint unit tests.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2516,17 +2518,18 @@ backend_skip_scenarios() = Dict{String, Set{String}}()
 """
 Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
-passes of dual numbers is a rule on Mooncake only, as is a whole-step
-modifier's that takes more than one pass.
+passes of dual numbers is a rule on Mooncake only, and one in more than two
+passes is plain AD on every backend.
+The occupancy balance's whole-step modifier seeds its four values, its four
+states and its 61 parameters, more than two passes.
 """
 function backend_plain_scenarios()
+    occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
     return Dict(
         "Enzyme reverse" => Set(
-            [
-                "Recurrence user coupling across 30 strata",
-                "Recurrence whole-step modifier branching at a tie (occupancy)",
-            ]
-        )
+            ["Recurrence user coupling across 30 strata", occupancy]
+        ),
+        "Mooncake reverse" => Set([occupancy]),
     )
 end
 
