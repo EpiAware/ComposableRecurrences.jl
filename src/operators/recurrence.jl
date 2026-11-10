@@ -641,9 +641,10 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
 end
 # The width in bytes above which a strata output is transposed in place
 # rather than copied. Timed alone, the cycle walk takes 1.4 to 12 times the
-# copy for numbers up to 72 bytes and about as long at 104 (dual numbers
-# with twelve partials), where the fresh array the copy needs on each
-# forward-mode chunk pass then dominates.
+# copy for numbers up to 72 bytes and about as long at 104. In a whole
+# forward-mode gradient, dual numbers of 72 and 104 bytes still gain,
+# because the copy's fresh array on each chunk pass costs more in garbage
+# collection than the walk; plain numbers of 8 bytes lose.
 const _INPLACE_BYTES = 64
 
 # Strata × time: a buffer of wide numbers is transposed in place, so that
