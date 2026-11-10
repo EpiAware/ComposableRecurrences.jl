@@ -233,6 +233,9 @@ struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
         return new{P, C, A, V}(hazard, S, H, S̄, acc)
     end
 end
+# A scratch buffer of element type `T`, its entries written before they are
+# read; an extension may give another array type for its own element types.
+_alloc(::Type{T}, dims::Vararg{Int, N}) where {T, N} = Array{T}(undef, dims...)
 _scratch(x, ::Type, L, B = _BLOCK) = nothing
 function _scratch(x::Derived, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     return map(a -> _scratch(a, Tp, L, B), x.args)
@@ -240,8 +243,8 @@ end
 function _scratch(x::Survival, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     ns = max(_coef_strata(x.hazard), 1)
     return _SurvivalScratch{_stratified(x.hazard)}(
-        _scratch(x.hazard, Tp, L, B), Array{Tp}(undef, B, L, ns),
-        Array{Tp}(undef, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
+        _scratch(x.hazard, Tp, L, B), _alloc(Tp, B, L, ns),
+        _alloc(Tp, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
     )
 end
 _row(sc::_SurvivalScratch{false}, k) = 1

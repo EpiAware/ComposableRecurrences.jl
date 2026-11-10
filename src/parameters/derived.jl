@@ -184,7 +184,7 @@ function _check_param(name, x::Derived)
     return x
 end
 function _check_param_strata(name, x::Derived, S)
-    foreach(a -> _check_param_strata(name, a, S), x.args)
+    _tuple_foreach(a -> _check_param_strata(name, a, S), x.args)
     return nothing
 end
 # Constant over time when every argument is.
