@@ -158,7 +158,6 @@ function pullback!(grads, form::_SoftTruncate, ::Step, v, s, N)
     end
     return nothing
 end
-_softness(form::Truncate) = form.κ
 
 # The minimum of `a` and a non-negative `b`, or with softness `κ` the
 # smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M`
