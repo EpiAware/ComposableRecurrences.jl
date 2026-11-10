@@ -377,8 +377,9 @@ end
     CR = ComposableRecurrences
     K = [0.0 0.2 0.1; 0.3 0.0 0.2; 0.1 0.4 0.0]
     M̄ = reshape(collect(1.0:9.0), 3, 3) ./ 9
-    # One intensity, and one per origin as `Redistribute(K, ε)` passes it.
-    for E in (0.3, [0.2 0.5 0.1])
+    # One intensity, one per origin as `Redistribute(K, ε)` passes it, and a
+    # vector of one, which the movement broadcasts over every origin.
+    for E in (0.3, [0.2 0.5 0.1], fill(0.4, 1, 1))
         f = CR._movement
         JK = ReferenceAD.jacobian(K -> f(K, E), K)
         cache = Mooncake.prepare_pullback_cache(f, K, E)
@@ -402,6 +403,15 @@ end
     cache = Mooncake.prepare_pullback_cache(split, θ)
     _, (_, θ̄) = Mooncake.value_and_pullback!!(cache, M̄, split, θ)
     @test θ̄ ≈ J' * vec(M̄)
+    # The same broadcast through a recurrence's loss.
+    loss(θ) = sum(
+        Recurrence([0.5, 0.3]; modifiers = (CR.Redistribute(K, θ[1:1]),))(
+            [1.1 1.2 1.3; 0.9 1.0 1.1; 1.2 1.1 1.0]; history = ones(3, 2)
+        )
+    )
+    cache = Mooncake.prepare_gradient_cache(loss, [0.3])
+    _, (_, θ̄) = Mooncake.value_and_gradient!!(cache, loss, [0.3])
+    @test θ̄ ≈ ReferenceAD.gradient(loss, [0.3])
 end
 
 @testitem "Redistribute: checks its matrix" begin

@@ -671,7 +671,9 @@ function _movement(K, E)
 end
 # The cotangents of `_movement(K, E)` from the cotangent `M̄` of its matrix,
 # for the reverse rules: added into `K̄`, and into the origin row `Ē`, or
-# returned for one intensity `E` when `Ē` is `nothing`.
+# returned for one intensity `E` when `Ē` is `nothing`. A row of one entry is
+# broadcast over every origin, as the movement reads it, so it gathers every
+# origin's cotangent.
 function _movement_back!(K̄, Ē, M̄, K, E)
     e = zero(eltype(M̄))
     for q in axes(K, 2)
@@ -685,12 +687,13 @@ function _movement_back!(K̄, Ē, M̄, K, E)
             K̄[p, q] += (M̄[p, q] - d) * Eq
         end
         ē = a - d * o
-        Ē === nothing ? (e += ē) : (Ē[1, q] += ē)
+        Ē === nothing ? (e += ē) : (Ē[1, _origin_column(E, q)] += ē)
     end
     return e
 end
 _origin_at(E::Real, q) = E
-_origin_at(E::AbstractMatrix, q) = E[1, q]
+_origin_at(E::AbstractMatrix, q) = E[1, _origin_column(E, q)]
+_origin_column(E, q) = size(E, 2) == 1 ? 1 : q
 
 # The movement of a kernel `K` and an intensity `E` (origins × time), read
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
