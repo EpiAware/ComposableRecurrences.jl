@@ -986,10 +986,8 @@ _part_why(m::Depletion) = _form_why(_forms(m.pieces)...)
 _form_why() = "Depletion has a Derived map that holds floats"
 _form_why(f, fs...) = _form_adjoint(f) ? _form_why(fs...) : _part_why(f)
 
-# How many passes of dual numbers a coupling's local derivative needs per
-# step: one while the strata and its scalars fit in one (`_LOCAL_PRESSURE`),
-# and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
-# `_ad_wide`; with more it takes plain AD.
+# The route of a call: the slowest its couplings and whole-step modifiers
+# allow (`_local_fit`).
 # A part the local step cannot rebuild sends every call to plain AD.
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
@@ -1014,9 +1012,10 @@ function _step_fit(m, S)
     _whole_local(m) || return :one
     return _local_fit(S + nstate(m, S) + _ninputs(m))
 end
-# The route of a local derivative that seeds `n` inputs: the rule within one
-# pass of dual numbers, `_ad_wide` within two, and plain AD past that, where
-# the local step is slower than plain AD.
+# The route of a part's local derivative that seeds `n` inputs: the rule
+# within one pass of dual numbers (`_LOCAL_PRESSURE`), `_ad_wide` within two
+# (`_LOCAL_PRESSURE_WIDE`), and plain AD past that, where the benchmarks in
+# the developer testing page find plain AD cheaper.
 function _local_fit(n)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none

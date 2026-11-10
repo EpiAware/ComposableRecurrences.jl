@@ -1812,8 +1812,9 @@ if supports(:_StepDuals)
     end
 
     # A whole-step modifier without a `pullback!` holding an `S × S`
-    # matrix: its local derivative seeds every entry, so past a few strata
-    # it needs more than two passes of dual numbers.
+    # matrix: its local derivative seeds `S + S + S²` inputs, more than two
+    # passes of dual numbers (48) from 7 strata.
+    # Of the sizes, 5 strata take `_ad_wide`, and 20 and 50 take plain AD.
     "The values mixed over the strata by a matrix `M`, `v ← M v`."
     struct MatrixMix{M}
         M::M
