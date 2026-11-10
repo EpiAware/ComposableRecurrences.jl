@@ -123,7 +123,12 @@ end
 # to build or run is skipped with a warning.
 using ADFixtures: MatrixCases
 
-let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
+# `BENCHMARK_MATRIX=false` leaves the matrix cases out, so a workflow that
+# needs only the registry grid, as `ad-benchmarks.yaml` does, does not
+# build them.
+const _MATRIX = get(ENV, "BENCHMARK_MATRIX", "true") != "false"
+
+_MATRIX && let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
     for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
         MatrixCases.available(c) || continue
         label = "Matrix $(c.name) $(z)"
