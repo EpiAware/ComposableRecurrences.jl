@@ -21,9 +21,11 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
   `Recurrence` and `Convolution` express them as two operators, for one series or for many strata, such as towns, run side by side.
 - Coupling between strata, finite pools and bounds are added by composing small couplings and modifiers.
 - The aim is to be as fast as hand-written code with hand-written adjoints.
-  Across the documentation's models, gradients under Mooncake and Enzyme are a median 4.1× and 2.4× faster than differentiating a hand-written loop, and 1.2–1.8× faster than the same loop with hand-written Mooncake adjoints.
-  The forward run and ForwardDiff are level with the loop, at a median 1.2× and 1.1×.
-  A few small models with modifiers are slower, by up to 1.5×; see the [benchmarks](https://composablerecurrences.epiaware.org/stable/benchmarks/over-time/#benchmarks-hand-written).
+  The documentation's models are each timed against a hand-written loop of the same model, with each backend compared with itself on the loop.
+  Across them, the package's Mooncake gradient is a median 4.1× faster than Mooncake on the loop, and its Enzyme gradient 2.4× faster than Enzyme on the loop.
+  Its forward run and ForwardDiff gradient are level with the loop's, at a median 1.2× and 1.1×.
+  Its Mooncake gradient is 1.2–1.8× faster than Mooncake on the same loop with hand-written Mooncake adjoints.
+  A few small models with modifiers are slower than the loop, by up to 1.5×; see the [benchmarks](https://composablerecurrences.epiaware.org/stable/benchmarks/over-time/#benchmarks-hand-written).
 
 ## Getting started
 
