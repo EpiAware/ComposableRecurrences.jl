@@ -34,7 +34,7 @@
         )
         for precision in (:double, :single)
             rtol = ADFixtures.gradient_rtol(precision)
-            scenario_kwargs = (; category, precision)
+            scenario_kwargs = (; category, precision, backend = name)
             EpiAwarePackageTools.test_working_backend(
                 ADFixtures, name; rtol, atol = 0.0, scenario_kwargs
             )

@@ -479,14 +479,17 @@ function ar(wrap, z::Size)
 end
 
 # A random walk, a unit lag-1 recurrence from a seed with the seed in
-# front, as a latent-process package spells it; `L` is unused.
+# front; `L` is unused. As the loop's loss does, the operator is built once,
+# the seed and innovations are read as views and the seed's term is added
+# apart, so the loss measures the run rather than its own setup.
 function random_walk(wrap, z::Size)
     (; T) = z
     W = [_noise(t, 9) for t in 1:(T + 1)]
+    w0, Wt = W[1], W[2:end]
+    op = wrap(Recurrence([1.0]))
     f = function (θ)
-        walk = wrap(Recurrence([1.0]))(1.0; history = θ[1:1], add = θ[2:end])
-        y = vcat(θ[1:1], walk)
-        return sum(W .* y)
+        walk = op(; history = view(θ, 1:1), add = view(θ, 2:(T + 1)))
+        return w0 * θ[1] + sum(Wt .* walk)
     end
     return f, _flat([0.1], [0.1 * _noise(t, 10) for t in 1:T])
 end
@@ -747,7 +750,9 @@ function renewal_forecast(wrap, z::Size)
 end
 
 # The effective reproduction number of the towns' depleted run: each day's
-# infections over the renewal sum they come from.
+# infections over the renewal sum they come from, read from the run's trace
+# where the release records it, else from a second pass.
+const TRACE_PRESSURE = isdefined(CR, :_TracedPressure)
 function reproduction(wrap, z::Size)
     (; T, L, S) = z
     pop, K = towns()
@@ -756,6 +761,10 @@ function reproduction(wrap, z::Size)
     f = function (θ)
         g, logR = _unpack(θ, (L,), (S, T))
         r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
+        if TRACE_PRESSURE
+            y, tr = returning_trace(wrap(r), exp.(logR); history = seed)
+            return sum(W .* y ./ tr.pressure)
+        end
         y = wrap(r)(exp.(logR); history = seed)
         sums = K * wrap(Convolution(vcat(zero(eltype(θ)), g)))(y; history = seed)
         return sum(W .* y ./ sums)

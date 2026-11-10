@@ -189,4 +189,5 @@ julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 ```
 
 Then commit `results.tsv` and `RESULTS.md`, and update `expected.jl` or the registry's Reactant lists.
+A run on another backend, such as a GPU, sets `REACTANT_RESULTS=gpu` and `REACTANT_BACKENDS=gpu`, and writes `results-gpu.tsv` and `RESULTS-gpu.md`, so it leaves the CPU results the weekly job compares against unchanged.
 The main tests check that the hand-written cases' rows agree with `expected.jl`; the Reactant workflow checks the registry rows against the registry.

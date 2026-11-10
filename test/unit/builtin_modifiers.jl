@@ -1089,3 +1089,24 @@ end
     # Other numbers take both exponentials.
     @test CR._exp_neg(big(0.25)) == (exp(-big(0.25)), expm1(-big(0.25)))
 end
+
+@testitem "Depletion: a bare form among the modifiers is refused" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    g = [0.2, 0.3, 0.1]
+    for form in (CR.Hazard(), CR.Hazard(0.7), CR.Floor(), CR.Truncate(0.1))
+        name = string(nameof(typeof(form)))
+        err = try
+            Recurrence(g; modifiers = (form,))
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("Depletion(N, $name(...))", sprint(showerror, err))
+        mods = (CR.Transform(+, 0.0), form)
+        @test_throws ArgumentError Recurrence(g; modifiers = mods)
+        @test Recurrence(g; modifiers = (CR.Depletion(100.0, form),)) isa
+            Recurrence
+    end
+end

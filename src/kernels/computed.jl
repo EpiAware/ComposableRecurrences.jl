@@ -12,6 +12,9 @@ uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 # so they run in one loop; another executor takes the dense kernel of the
 # same weights, whose loops it splits by stratum.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
+    return _convolve_dense!(ex, Y, c, X, m, start)
+end
+function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
     stop = start + size(Y, 1) - 1
     K, _ = _fill_kernel(c, 0, stop, stop, Val(false))
     return _convolve!(ex, Y, _dense_kernel(K), X, m, start)

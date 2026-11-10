@@ -35,6 +35,13 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 [sources]
 ComposableRecurrences = {path = ".."}
 
+# LogExpFunctions 1.0.4 dropped a helper that Mooncake's LogExpFunctions
+# extension calls, so that extension no longer precompiles. LogExpFunctions
+# is listed here only to cap it; remove both entries once a Mooncake or
+# LogExpFunctions release loads together with LogExpFunctions 1.0.4 or later.
+[weakdeps]
+LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
+
 [compat]
 ADTypes = "1"
 Adapt = "4"
@@ -59,6 +66,7 @@ Interfaces = "0.3"
 JLArrays = "0.3.1, 0.4"
 KernelAbstractions = "0.9.34, 0.10"
 LinearAlgebra = "1"
+LogExpFunctions = "1 - 1.0.3"
 Mooncake = "0.5.61"
 Pkg = "1"
 Random = "1"

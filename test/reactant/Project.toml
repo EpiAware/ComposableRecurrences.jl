@@ -16,6 +16,13 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 ADFixtures = {path = "../ADFixtures"}
 ComposableRecurrences = {path = "../.."}
 
+# LogExpFunctions 1.0.4 dropped a helper that Mooncake's LogExpFunctions
+# extension calls, so that extension no longer precompiles. LogExpFunctions
+# is listed here only to cap it; remove both entries once a Mooncake or
+# LogExpFunctions release loads together with LogExpFunctions 1.0.4 or later.
+[weakdeps]
+LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
+
 [compat]
 ADTypes = "1.24.0"
 BenchmarkTools = "1"
@@ -23,6 +30,7 @@ DifferentiationInterface = "0.7.21"
 Enzyme = "0.13.207"
 ForwardDiff = "1.4.6"
 LinearAlgebra = "1"
+LogExpFunctions = "1 - 1.0.3"
 Printf = "1"
 Reactant = "0.2.290 - 0.2.292"
 Statistics = "1"
