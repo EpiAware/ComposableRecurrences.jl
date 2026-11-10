@@ -681,3 +681,33 @@ end
         @test CR._PULLBACK_CALLS[] > n
     end
 end
+
+@testitem "Trace: the pressure of a run with an integer gain and coefficient" setup = [ReferenceAD] begin
+    # Such a run records no convolutions for the reverse pass, but its trace
+    # returns its pressures, so a traced run records them all the same.
+    using ComposableRecurrences, Mooncake
+    using DifferentiationInterface: gradient, AutoMooncake
+    using LinearAlgebra: Diagonal, I
+    CR = ComposableRecurrences
+    S, T = 2, 8
+    h = [5.0 4.0 3.0; 3.0 2.0 1.0]
+    W = reshape(range(0.2, 1.8; length = S * T), S, T)
+    for C in (I, Diagonal([1, 2]))
+        r = Recurrence([0.3, 0.5, 0.2]; coupling = C)
+        ϵ = fill(0.5, S, T)
+        args = CR._run_args(r, true, h, nothing, ϵ, 1)
+        (y, tr), c = CR._run_forward(CR._WithTrace(r), args..., nothing)
+        @test c.pr !== nothing
+        @test tr.pressure ≈ CR.pressure(r, y; history = h)
+        function f(θ)
+            y, tr = Recurrence(θ[1:3]; coupling = C)(;
+                history = h, add = reshape(θ[4:end], S, T), record = (:trace,)
+            )
+            return sum(W .* tr.pressure) + sum(y)
+        end
+        θ = vcat([0.3, 0.5, 0.2], vec(ϵ))
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
+        @test CR._PULLBACK_CALLS[] > n
+    end
+end
