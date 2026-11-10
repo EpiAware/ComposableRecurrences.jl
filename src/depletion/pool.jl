@@ -883,9 +883,10 @@ _to_stratum(::_ToStratum, b, u) = b + u
 _to_queue(o, Q, u) = Q
 _to_queue(::_Queue, Q, u) = u
 
-# The weights at group `g` and time `t`, promoted to one type so a step
-# indexes them without a union, and the weighted pools `Σ w_i x_i`, summed
-# in order. A fixed weight of one promotes to an exact one.
+# The weights at group `g` and time `t`, promoted to one type so the
+# reverse pass (`_take_back`) indexes them without a union, and the
+# weighted pools `Σ w_i x_i`, summed in order. A fixed weight of one
+# promotes to an exact one.
 function _weights_at(p, ::Val{n}, g, t) where {n}
     return promote(ntuple(i -> param(p.weights[i], g, t), Val(n))...)
 end
@@ -915,8 +916,10 @@ end
 end
 
 # Several pools: each loses the draw in proportion to its weighted pool.
+# The weights keep their own types, so a fixed weight of one multiplies a
+# dual pool as a plain number.
 @inline function _draw_pools(p, v, x::NTuple{n}, t, g) where {n}
-    w = _weights_at(p, Val(n), g, t)
+    w = map(@inline(wi -> param(wi, g, t)), Tuple(p.weights))
     P = _weighted(w, x)
     y, _ = _draw(p.form, v, P, _pop(p.N, g, t))
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
@@ -925,8 +928,9 @@ end
     on = _primal_value(P) > 0
     q = y / ifelse(on, P, one(P))
     d = p.first
-    x′ = ntuple(Val(n)) do i
-        return ifelse(on, x[i] - q * w[i] * x[i], ifelse(i == d, x[i] - y, x[i]))
+    x′ = map(w, x, ntuple(identity, Val(n))) do wi, xi, i
+        @inline
+        return ifelse(on, xi - q * wi * xi, ifelse(i == d, xi - y, xi))
     end
     return y, x′
 end
