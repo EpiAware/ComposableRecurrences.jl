@@ -814,3 +814,37 @@ end
     m = Recurrence([1.0]; modifiers = (ComposableRecurrences.Transform(*, 1.0),))
     @test !any(signbit, m(1.0; history = [-0.0], add = [-0.0, -0.0]))
 end
+
+@testitem "Recurrence: wide dual numbers over strata run strata-major" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    # Twelve partials take the strata × time buffer; two partials, or one
+    # series, keep time × strata.
+    D12, D2 = ForwardDiff.Dual{Nothing, Float64, 12}, ForwardDiff.Dual{Nothing, Float64, 2}
+    @test CR._buffer(ones(3, 2), D12, 2, 5, 3) isa Transpose{D12, Matrix{D12}}
+    @test CR._buffer(ones(3, 2), D2, 2, 5, 3) isa Matrix{D2}
+    @test CR._buffer(ones(2), D12, 2, 5, 1) isa Matrix{D12}
+    # A run on twelve partials against one run per partial.
+    seeds(x, j) = map(v -> ForwardDiff.Dual{Nothing}(v, j / (1 + v)), x)
+    wide(x) = map(v -> ForwardDiff.Dual{Nothing}(v, ntuple(j -> j / (1 + v), 12)...), x)
+    R, h = [1.0 + 0.1 * sin(k + t) for k in 1:3, t in 1:8], [1.0 + 0.2 * k * t for k in 1:3, t in 1:2]
+    runs = (
+        Recurrence([0.4, 0.6]; coupling = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]),
+        Recurrence(PerStratum([0.5 0.5; 0.3 0.7; 0.6 0.4])),
+        Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(50.0),)),
+    )
+    threaded = CR.Threaded(; min_work = 0, ntasks = 2)
+    for r in runs, ex in (CR.Serial(), threaded)
+        Base.ScopedValues.with(CR.EXECUTOR => ex) do
+            out = r(wide(R); history = wide(h), record = (:state,))
+            @test size(out.y) == size(R)
+            @test ForwardDiff.value.(out.y) ≈ r(R; history = h)
+            for j in 1:12
+                one = r(seeds(R, j); history = seeds(h, j), record = (:state,))
+                @test ForwardDiff.partials.(out.y, j) ≈ ForwardDiff.partials.(one.y, 1)
+                @test ForwardDiff.partials.(out.state.history, j) ≈
+                    ForwardDiff.partials.(one.state.history, 1)
+            end
+        end
+    end
+end

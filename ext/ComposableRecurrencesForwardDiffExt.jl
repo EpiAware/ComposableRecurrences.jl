@@ -6,18 +6,19 @@ module ComposableRecurrencesForwardDiffExt
 
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
-import ComposableRecurrences: _array_pressure, _chain, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
+import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback
-using ComposableRecurrences: _ArrayPressure, _Chained, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
+using ComposableRecurrences: _ArrayPressure, _CPUArray, _Chained, _IEEEFloat, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params,
     _leave_slope
 using ForwardDiff: ForwardDiff, Dual, value
+using LinearAlgebra: Transpose, transpose
 
 # The local derivatives, `Transform`'s among them, seed each input with a
 # partial of its own.
@@ -519,6 +520,32 @@ end
 # The primal value of a dual number, through any nesting, and its type.
 _primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
 _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
+
+# A buffer of dual numbers over strata is held strata × time and read
+# through its transpose, so the output, strata × time, takes over the rows
+# after the history rather than copying them out. A dual number of eight or
+# more partials spans a cache line or more, so reading a stratum's window
+# across strata costs about what reading it down a column does; smaller ones
+# keep the time × strata buffer, where the strided reads would cost more.
+const _FloatDual = Dual{<:Any, <:_IEEEFloat}
+_strata_major(::Type{<:Dual{<:Any, <:Any, N}}) where {N} = N >= 8
+function _buffer(h::_CPUArray, ::Type{Tp}, D, T, S) where {Tp <: _FloatDual}
+    if !(h isa AbstractMatrix && _strata_major(Tp))
+        return invoke(_buffer, Tuple{_CPUArray, Type, Any, Any, Any}, h, Tp, D, T, S)
+    end
+    P = Matrix{Tp}(undef, S, D + T)
+    for i in 1:D, k in 1:S
+        P[k, i] = zero(Tp)
+    end
+    return transpose(P)
+end
+function _output(
+        H::Transpose{Tp, Matrix{Tp}}, D, T, h::AbstractMatrix
+    ) where {Tp <: _FloatDual}
+    P = parent(H)
+    S = size(P, 1)
+    return reshape(deleteat!(vec(P), 1:(S * D)), S, T)
+end
 
 # A run of independent strata without modifiers adds the newest lag last,
 # as on hardware floats: each step then waits on one dual multiply-add.
