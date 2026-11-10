@@ -669,6 +669,28 @@ function _movement(K, E)
     o = sum(K; dims = 1)
     return (axes(K, 1) .== permutedims(axes(K, 2))) .* (1 .- o .* E) .+ K .* E
 end
+# The cotangents of `_movement(K, E)` from the cotangent `M̄` of its matrix,
+# for the reverse rules: added into `K̄`, and into the origin row `Ē`, or
+# returned for one intensity `E` when `Ē` is `nothing`.
+function _movement_back!(K̄, Ē, M̄, K, E)
+    e = zero(eltype(M̄))
+    for q in axes(K, 2)
+        Eq = _origin_at(E, q)
+        d = M̄[q, q]
+        o = zero(eltype(K))
+        a = zero(eltype(M̄))
+        for p in axes(K, 1)
+            o += K[p, q]
+            a += M̄[p, q] * K[p, q]
+            K̄[p, q] += (M̄[p, q] - d) * Eq
+        end
+        ē = a - d * o
+        Ē === nothing ? (e += ē) : (Ē[1, q] += ē)
+    end
+    return e
+end
+_origin_at(E::Real, q) = E
+_origin_at(E::AbstractMatrix, q) = E[1, q]
 
 # The movement of a kernel `K` and an intensity `E` (origins × time), read
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
