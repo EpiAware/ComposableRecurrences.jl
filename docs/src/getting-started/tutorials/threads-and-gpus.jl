@@ -2,7 +2,8 @@
 #
 # !!! note "Draft"
 #     The page is a draft and is not in the docs build yet.
-#     It is not listed in `docs/docs_config.jl` or the navigation in `docs/pages.jl`, and the docs environment does not have JLArrays.jl or KernelAbstractions.jl.
+#     It is not listed in `docs/docs_config.jl` or the navigation in `docs/pages.jl`.
+#     The docs environment has JLArrays.jl and KernelAbstractions.jl, and the page runs there.
 #     Its timings come from a shared 4-core machine.
 #     Before it is listed it needs speed-ups from 8 to 16 threads on a dedicated machine (`benchmark/threshold.jl`), with the hardware stated.
 #
