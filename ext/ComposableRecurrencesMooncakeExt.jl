@@ -8,8 +8,8 @@ using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses, _convolve_masses_back!, _current,
-    _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _plain_hook,
-    _run_forward, _run_pullback!, _untraced
+    _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
+    _plain_hook, _route, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -217,6 +217,56 @@ Mooncake.@is_primitive(
 )
 function Mooncake.rrule!!(::CoDual{typeof(_ad_wide)}, args::Vararg{CoDual, N}) where {N}
     return Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+end
+
+# The rule's route is chosen per call: `_fit` reads the strata count and the
+# parts, so a rule Mooncake derived for `_route` would infer every branch,
+# and with it plain AD through the whole run, even when no call takes it.
+# As a primitive the route compiles only the rule, and builds plain AD's
+# derived rule the first time a call takes it. `_ad_wide` is the rule here.
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode,
+    Tuple{typeof(_route), Val{:rule}, Vararg}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(_route)}, ::CoDual{Val{:rule}}, args::Vararg{CoDual, N}
+    ) where {N}
+    _fit(map(primal, args)...) === :none && return _plain_route(args...)
+    y, pb = Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+    return y, _RoutePullback(pb)
+end
+# The route's pullback: the rule's cotangents after one for the `Val`.
+struct _RoutePullback{P}
+    pb::P
+end
+function (r::_RoutePullback)(ȳ)
+    r̄ = r.pb(ȳ)
+    return (first(r̄), NoRData(), Base.tail(r̄)...)
+end
+# Plain AD of the call through a derived rule built on its first use and
+# cached per argument types, under a lock. The cache keeps one rule per
+# types, rebuilt when the call runs in a newer world, so a method defined
+# since is seen as a derived rule would see it. The output has the rule's
+# type; the pullback is held untyped, a dynamic call on a route that
+# already traces the whole run.
+function _plain_route(args::Vararg{CoDual, N}) where {N}
+    rule = _plain_rule(map(primal, args)...)
+    y, pb = rule(Mooncake.zero_fcodual(_hooked_plain), args...)
+    Y = fieldtype(Base.promote_op(_rule_route, map(typeof, args)...), 1)
+    return y::Y, _RoutePullback{Any}(pb)
+end
+_rule_route(args...) = Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+const _PLAIN_RULES = Dict{Type, Tuple{UInt, Any}}()
+const _PLAIN_RULES_LOCK = ReentrantLock()
+function _plain_rule(ps::Vararg{Any, N}) where {N}
+    world = Base.tls_world_age()
+    return lock(_PLAIN_RULES_LOCK) do
+        built = get(_PLAIN_RULES, typeof(ps), nothing)
+        built !== nothing && first(built) == world && return last(built)
+        rule = Mooncake.build_rrule(_hooked_plain, ps...)
+        _PLAIN_RULES[typeof(ps)] = (world, rule)
+        return rule
+    end
 end
 
 function ComposableRecurrences.test_adjoint(
