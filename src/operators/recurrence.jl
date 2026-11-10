@@ -86,12 +86,10 @@ the call covers the absolute times `start:stop`:
         returns it; both differentiable as the output is.
     `record = ()` returns `(; y)`, and without `record` the call returns
     `y`.
-    Pass the tuple as a literal, so that the return type infers through
-    constant propagation, or in a `Val`, as `record = Val((:trace,))`, so
-    that it follows from the argument types.
-    Use the `Val` where the record reaches the call as a variable, or the
-    call sits deep in code an AD backend differentiates, since Mooncake
-    derives a rule for each call from its argument types.
+    Pass the tuple as a literal, or in a `Val`, as
+    `record = Val((:trace,))`, where it reaches the call as a variable or
+    the call is compiled from its argument types alone; the return type
+    then infers from the argument types.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -759,9 +757,7 @@ function _routed(traced, stated, rec, r, route, args, stop)
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
-# is given, so that a call without it compiles without its arms. A tuple
-# reaches the arms through constant propagation; a `Val` carries the names
-# in its type, so the arms follow from the argument types alone.
+# is given, so that a call without it compiles without its arms.
 _record(::Nothing) = nothing
 Base.@constprop :aggressive function _record(record::Tuple{Vararg{Symbol}})
     foreach(_check_record, record)
@@ -800,8 +796,8 @@ _check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
         )
     )
 end
-# Whether a call records `name`, as `Val(true)` or `Val(false)`; the name
-# is a `Val` so that a record in a `Val` answers from the types alone.
+# The name is a `Val` so that a record in a `Val` answers from the types
+# alone.
 _recording(::Nothing, ::Val) = Val(false)
 # A branch, not `Val(name in rec)`, so that it infers as a two-way union.
 Base.@constprop :aggressive function _recording(rec::Tuple, ::Val{name}) where {name}
