@@ -623,6 +623,44 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
+# Strata × time: the buffer is transposed in place, so that the history
+# leads its memory, and the output takes over the rest. The walk only pays
+# for wide numbers, such as dual numbers with many partials, whose copy
+# costs a fresh array per call; narrower ones are copied out.
+function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix) where {Tp}
+    (isbitstype(Tp) && sizeof(Tp) > 64) || return _public(H, (D + 1):(D + T), h)
+    S = size(H, 2)
+    x = _transpose!(vec(H), D + T, S)
+    return reshape(deleteat!(x, 1:(D * S)), S, T)
+end
+
+# Transpose the `m × n` matrix held in the first `m * n` entries of `x`, in
+# place, by following the cycles of the permutation. Entry `j` (from zero) of
+# the transpose, at row `c` and column `r`, is entry `r + c * m` of the
+# matrix; the division by `n` is by multiplication.
+function _transpose!(x::Vector, m, n)
+    N = m * n
+    (m <= 1 || n <= 1) && return x
+    seen = falses(N)
+    dn = Base.MultiplicativeInverses.SignedMultiplicativeInverse(n)
+    @inbounds for i in 1:(N - 2)
+        seen[i + 1] && continue
+        # Walk the cycle through `i`: each slot takes the entry that belongs
+        # there, and the last takes the first slot's.
+        j = i
+        v = x[j + 1]
+        while true
+            seen[j + 1] = true
+            r = div(j, dn)
+            k = r + (j - r * n) * m
+            k == i && break
+            x[j + 1] = x[k + 1]
+            j = k
+        end
+        x[j + 1] = v
+    end
+    return x
+end
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.

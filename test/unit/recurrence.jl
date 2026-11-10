@@ -517,6 +517,46 @@ end
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
 
+@testitem "Recurrence: a strata output of wide numbers is the buffer transposed in place" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    for (D, T, S) in (
+            (0, 4, 3), (2, 0, 3), (2, 5, 1), (1, 1, 1), (3, 7, 4), (20, 9, 6),
+        )
+        H = reshape(collect(1.0:((D + T) * S)), D + T, S)
+        want = permutedims(H[(D + 1):end, :])
+        # Plain floats and narrow duals are copied out; the buffer is kept.
+        for Hn in (copy(H), ForwardDiff.Dual.(H, 2 .* H))
+            Hc = copy(Hn)
+            y = CR._output(Hn, D, T, zeros(S, 1))
+            @test y isa Matrix{eltype(Hn)}
+            @test ForwardDiff.value.(y) == want
+            @test Hn == Hc
+        end
+        # Dual numbers with twelve partials are transposed in place.
+        Hw = map(x -> ForwardDiff.Dual(x, ntuple(k -> k * x, 12)...), H)
+        @test sizeof(eltype(Hw)) > 64
+        yw = CR._output(Hw, D, T, zeros(S, 1))
+        @test yw isa Matrix{eltype(Hw)}
+        @test ForwardDiff.value.(yw) == want
+        @test all(k -> ForwardDiff.partials.(yw, k) == k .* want, 1:12)
+        # An element type that is not plain bits is copied out.
+        @test CR._output(big.(H), D, T, zeros(S, 1)) == want
+    end
+    r = Recurrence([0.6, 0.3])
+    h = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    # A gradient in chunks of twelve takes the in-place output, and one
+    # partial at a time the copy; both give the same gradient.
+    f(θ) = sum(abs2, r(reshape(θ, 3, 6); history = h))
+    θ = collect(range(0.5, 1.5; length = 18))
+    one_at_a_time = ForwardDiff.GradientConfig(f, θ, ForwardDiff.Chunk{1}())
+    @test ForwardDiff.gradient(f, θ) ≈ ForwardDiff.gradient(f, θ, one_at_a_time)
+    y = r(ones(3, 6); history = h)
+    @test y ≈ reduce(
+        vcat, (r(ones(6); history = h[k, :])' for k in 1:3)
+    )
+end
+
 @testitem "start = nothing names the default to use" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
