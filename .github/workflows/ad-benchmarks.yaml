@@ -1,17 +1,11 @@
 # Package-owned: not part of the kit's managed workflows.
 name: AD benchmarks
 
-# Publishes the AD gradient numbers the AD comparison page renders.
-# The page reads `history/results/latest.json` from the `benchmarks` branch.
-# The managed history workflow writes that file, but it times six
-# revisions of the whole suite in one job, which does not fit in the job's
-# time limit, so the file stays at its last completed run.
-# This workflow times only the registry's gradient grid, on the current
-# commit, with one job per backend, and publishes the merged result as
-# that file.
-# It runs daily and on demand: its five jobs take several runner-hours, too
-# many for every merge.
-# On a pull request that changes it, it runs without publishing.
+# Times the registry's AD gradient grid on the current commit, one job per
+# backend, and publishes it as `history/results/latest.json` on the
+# `benchmarks` branch, the file the AD comparison page reads.
+# It runs daily and on demand, and without publishing on a pull request
+# that changes it.
 
 on:
   pull_request:
@@ -54,11 +48,13 @@ jobs:
         env:
           BENCHMARK_BACKENDS: ${{ matrix.backend }}
           BENCHMARK_MATRIX: 'false'
-        run: julia --project=benchmark benchmark/run.jl results.json
+        run: >-
+          julia --project=benchmark benchmark/run.jl
+          results-${{ strategy.job-index }}.json
       - uses: actions/upload-artifact@v7
         with:
           name: ad-results-${{ strategy.job-index }}
-          path: results.json
+          path: results-${{ strategy.job-index }}.json
 
   publish:
     needs: measure
@@ -76,14 +72,19 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v3
       - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      # With no artifacts at all, the merge step still runs and names the
+      # backends without numbers.
       - uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           pattern: ad-results-*
           path: results
+          merge-multiple: true
       - name: Merge the backends
         run: |
+          mkdir -p results
           julia --project=benchmark benchmark/ad_latest.jl \
-            public/latest.json results/*/results.json
+            public/latest.json results/*.json
       # `clean: false` replaces `latest.json` and leaves the history
       # workflow's other files on the branch as they are.
       - name: Deploy to benchmarks branch

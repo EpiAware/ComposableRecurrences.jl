@@ -49,9 +49,10 @@ import DifferentiationInterface as DI
 # across jobs: each backend's gradients, and `primal` for the primal
 # timings and the convolution groups, whose gradients are all Mooncake's.
 # Unset or empty, the suite times everything.
-const _ALL_BACKENDS = filter(
-    e -> !startswith(e.name, "ReverseDiff"), ADFixtures.backends()
-)
+# `BENCHMARK_MATRIX=false` also leaves out the matrix cases' gradients,
+# so a job times only the registry grid; the `primal` groups follow
+# `BENCHMARK_BACKENDS` alone.
+const _ALL_BACKENDS = ADFixtures.benchmarked_backends()
 const _SELECTED = let spec = strip(get(ENV, "BENCHMARK_BACKENDS", ""))
     if isempty(spec)
         nothing
@@ -71,17 +72,10 @@ _selected(name) = _SELECTED === nothing || name in _SELECTED
 const BENCHMARK_BACKENDS = filter(e -> _selected(e.name), _ALL_BACKENDS)
 
 let grad = BenchmarkGroup()
-    broken = Set(ADFixtures.broken_scenario_names())
-    per_backend = ADFixtures.backend_broken_scenarios()
-    skipped = ADFixtures.backend_skip_scenarios()
     for entry in BENCHMARK_BACKENDS
-        excluded = union(
-            broken,
-            get(per_backend, entry.name, Set{String}()),
-            get(skipped, entry.name, Set{String}())
-        )
         for scen in ADFixtures.scenarios()
-            scen.name in excluded && continue
+            ADFixtures.exclusion_reason(scen.name, entry.name) === nothing ||
+                continue
             prep = try
                 DI.prepare_gradient(
                     scen.f, entry.backend, scen.x, scen.contexts...
@@ -123,51 +117,51 @@ end
 # to build or run is skipped with a warning.
 using ADFixtures: MatrixCases
 
-# `BENCHMARK_MATRIX=false` leaves the matrix cases out, so a workflow that
-# needs only the registry grid, as `ad-benchmarks.yaml` does, does not
-# build them.
+# Left out with `BENCHMARK_MATRIX=false` (see `BENCHMARK_BACKENDS` above).
 const _MATRIX = get(ENV, "BENCHMARK_MATRIX", "true") != "false"
 
-_MATRIX && let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
-    for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
-        MatrixCases.available(c) || continue
-        label = "Matrix $(c.name) $(z)"
-        f, θ = try
-            built = MatrixCases.build(c, z, "rule")
-            first(built)(last(built))
-            built
-        catch
-            @warn "matrix case not built" c.name
-            continue
-        end
-        _selected("primal") && (
-            eval_group[label] = @benchmarkable(
-                $f($θ), evals = 1, seconds = 1, gctrial = false
-            )
-        )
-        for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
-            arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
-                continue
-            c.sparse && entry.name == "Enzyme reverse" && continue
-            f, θ = MatrixCases.build(c, z, arm)
-            prep = try
-                p = DI.prepare_gradient(f, entry.backend, copy(θ))
-                DI.gradient(f, p, entry.backend, θ)
-                p
+if _MATRIX
+    let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
+        for c in MatrixCases.CASES, z in MatrixCases.sizes(c, "ci")
+            MatrixCases.available(c) || continue
+            label = "Matrix $(c.name) $(z)"
+            f, θ = try
+                built = MatrixCases.build(c, z, "rule")
+                first(built)(last(built))
+                built
             catch
-                @warn "no gradient" label arm entry.name
+                @warn "matrix case not built" c.name
                 continue
             end
-            name = arm == "rule" ? label :
-                arm == "loop" ? "Loop $label" : "NoAdjoint $label"
-            haskey(grad, name) || (grad[name] = BenchmarkGroup())
-            grad[name][entry.name] = @benchmarkable(
-                DI.gradient($f, $prep, $(entry.backend), $θ),
-                evals = 1, seconds = 1, gctrial = false
+            _selected("primal") && (
+                eval_group[label] = @benchmarkable(
+                    $f($θ), evals = 1, seconds = 1, gctrial = false
+                )
             )
+            for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
+                arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
+                    continue
+                c.sparse && entry.name == "Enzyme reverse" && continue
+                f, θ = MatrixCases.build(c, z, arm)
+                prep = try
+                    p = DI.prepare_gradient(f, entry.backend, copy(θ))
+                    DI.gradient(f, p, entry.backend, θ)
+                    p
+                catch
+                    @warn "no gradient" label arm entry.name
+                    continue
+                end
+                name = arm == "rule" ? label :
+                    arm == "loop" ? "Loop $label" : "NoAdjoint $label"
+                haskey(grad, name) || (grad[name] = BenchmarkGroup())
+                grad[name][entry.name] = @benchmarkable(
+                    DI.gradient($f, $prep, $(entry.backend), $θ),
+                    evals = 1, seconds = 1, gctrial = false
+                )
+            end
         end
+        isempty(eval_group) || (SUITE["Evaluation"] = eval_group)
     end
-    isempty(eval_group) || (SUITE["Evaluation"] = eval_group)
 end
 
 # The fixed-kernel convolution body against the forms it replaced, at
