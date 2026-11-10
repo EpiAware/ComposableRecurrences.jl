@@ -623,12 +623,19 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-# Strata × time: the buffer is transposed in place, so that the history
-# leads its memory, and the output takes over the rest. The walk only pays
-# for wide numbers, such as dual numbers with many partials, whose copy
-# costs a fresh array per call; narrower ones are copied out.
+# The width in bytes above which a strata output is transposed in place
+# rather than copied. Timed alone, the cycle walk takes 1.4 to 12 times the
+# copy for numbers up to 72 bytes and about as long at 104 (dual numbers
+# with twelve partials), where the fresh array the copy needs on each
+# ForwardDiff chunk pass then dominates.
+const _INPLACE_BYTES = 64
+
+# Strata × time: a buffer of wide numbers is transposed in place, so that
+# the history leads its memory, and the output takes over the rest;
+# narrower ones are copied out.
 function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix) where {Tp}
-    (isbitstype(Tp) && sizeof(Tp) > 64) || return _public(H, (D + 1):(D + T), h)
+    (isbitstype(Tp) && sizeof(Tp) > _INPLACE_BYTES) ||
+        return _public(H, (D + 1):(D + T), h)
     S = size(H, 2)
     x = _transpose!(vec(H), D + T, S)
     return reshape(deleteat!(x, 1:(D * S)), S, T)

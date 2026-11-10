@@ -551,10 +551,31 @@ end
     θ = collect(range(0.5, 1.5; length = 18))
     one_at_a_time = ForwardDiff.GradientConfig(f, θ, ForwardDiff.Chunk{1}())
     @test ForwardDiff.gradient(f, θ) ≈ ForwardDiff.gradient(f, θ, one_at_a_time)
-    y = r(ones(3, 6); history = h)
-    @test y ≈ reduce(
-        vcat, (r(ones(6); history = h[k, :])' for k in 1:3)
-    )
+    # The state a wide run returns, with fewer steps than the buffer is deep
+    # and a history shorter than it, matches a run on plain floats, and a run
+    # resumed from it continues the same.
+    rd = Recurrence([0.1, 0.2, 0.3, 0.2, 0.1])
+    hs = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    R = [1.0 + 0.1 * (k + t) for k in 1:3, t in 1:7]
+    Rw = map(x -> ForwardDiff.Dual(x, ntuple(k -> k * x, 12)...), R)
+    _, st = rd(R[:, 1:2]; history = hs, record = (:state,))
+    _, stw = rd(Rw[:, 1:2]; history = hs, record = (:state,))
+    @test ForwardDiff.value.(stw.history) == st.history
+    # A resumed call reads its inputs by absolute time.
+    @test rd(R; state = st, start = 3) ≈
+        ForwardDiff.value.(rd(Rw; state = stw, start = 3))
+    @test rd(R; history = hs) ≈
+        hcat(rd(R[:, 1:2]; history = hs), rd(R; state = st, start = 3))
+    # A gradient through a state from four steps, still fewer than the
+    # buffer is deep, in chunks of twelve and one at a time.
+    function g(θ)
+        x = hcat(reshape(θ, 3, 4) .* R[:, 1:4], R[:, 5:7])
+        _, s = rd(x; history = hs, stop = 4, record = (:state,))
+        return sum(rd(x; state = s, start = 5))
+    end
+    θs = collect(range(0.5, 1.5; length = 12))
+    one_by_one = ForwardDiff.GradientConfig(g, θs, ForwardDiff.Chunk{1}())
+    @test ForwardDiff.gradient(g, θs) ≈ ForwardDiff.gradient(g, θs, one_by_one)
 end
 
 @testitem "start = nothing names the default to use" begin
