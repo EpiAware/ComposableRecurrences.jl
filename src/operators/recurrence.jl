@@ -85,7 +85,13 @@ the call covers the absolute times `start:stop`:
         laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
         returns it; both differentiable as the output is.
     `record = ()` returns `(; y)`, and without `record` the call returns
-    `y`. Pass the tuple as a literal, so that the return type infers.
+    `y`.
+    Pass the tuple as a literal, so that the return type infers through
+    constant propagation, or in a `Val`, as `record = Val((:trace,))`, so
+    that it follows from the argument types.
+    Use the `Val` where the record reaches the call as a variable, or the
+    call sits deep in code an AD backend differentiates, since Mooncake
+    derives a rule for each call from its argument types.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -743,7 +749,7 @@ Base.@constprop :aggressive function _invoke(
     )
     args = _run_args(r, gain, history, state, add, start)
     rec = _record(record)
-    traced, stated = _recording(rec, :trace), _recording(rec, :state)
+    traced, stated = _recording(rec, Val(:trace)), _recording(rec, Val(:state))
     return _routed(traced, stated, rec, r, route, args, stop)
 end
 # One call over both flags, so that a rule derived from types alone splits.
@@ -753,21 +759,30 @@ function _routed(traced, stated, rec, r, route, args, stop)
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
-# is given, so that a call without it compiles without its arms.
+# is given, so that a call without it compiles without its arms. A tuple
+# reaches the arms through constant propagation; a `Val` carries the names
+# in its type, so the arms follow from the argument types alone.
 _record(::Nothing) = nothing
 Base.@constprop :aggressive function _record(record::Tuple{Vararg{Symbol}})
     foreach(_check_record, record)
     allunique(record) || _duplicate_record(record)
     return record
 end
+function _record(rec::Val{R}) where {R}
+    R isa Tuple{Vararg{Symbol}} || _bad_record(rec)
+    _record(R)
+    return rec
+end
 @noinline function _duplicate_record(record)
     throw(ArgumentError("record names each of :state and :trace once, got $(record)"))
 end
-@noinline function _record(record)
+_record(record) = _bad_record(record)
+@noinline function _bad_record(record)
     throw(
         ArgumentError(
             "record is a tuple of the names to return beside y, such as " *
-                "(:state,), (:trace,) or (:state, :trace); got $(_describe(record))"
+                "(:state,), (:trace,) or (:state, :trace), or such a tuple in a " *
+                "Val; got $(_describe(record))"
         )
     )
 end
@@ -785,11 +800,14 @@ _check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
         )
     )
 end
-_recording(::Nothing, name) = Val(false)
+# Whether a call records `name`, as `Val(true)` or `Val(false)`; the name
+# is a `Val` so that a record in a `Val` answers from the types alone.
+_recording(::Nothing, ::Val) = Val(false)
 # A branch, not `Val(name in rec)`, so that it infers as a two-way union.
-Base.@constprop :aggressive function _recording(rec::Tuple, name)
+Base.@constprop :aggressive function _recording(rec::Tuple, ::Val{name}) where {name}
     return name in rec ? Val(true) : Val(false)
 end
+_recording(::Val{R}, ::Val{name}) where {R, name} = Val(name in R)
 
 # The operator a call routes: the recurrence, with its state, its trace or
 # both in its output.
@@ -800,10 +818,11 @@ _call_op(::Val{true}, ::Val{true}, r) = _WithTrace(_WithState(r))
 # Without `record` the call returns `y`; with it, a named tuple of `y` and
 # what it names, in the order `y`, `state`, `trace`.
 _recorded(::Nothing, traced, stated, y) = y
-_recorded(::Tuple, ::Val{false}, ::Val{false}, y) = (; y)
-_recorded(::Tuple, ::Val{false}, ::Val{true}, (y, state)) = (; y, state)
-_recorded(::Tuple, ::Val{true}, ::Val{false}, (y, trace)) = (; y, trace)
-_recorded(::Tuple, ::Val{true}, ::Val{true}, ((y, state), trace)) = (; y, state, trace)
+_recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y) = (; y)
+_recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state)) = (; y, state)
+_recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace)) = (; y, trace)
+_recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace)) =
+    (; y, state, trace)
 
 function _run_args(r, gain, history, state, add, start)
     _check_start(start)
@@ -825,8 +844,8 @@ Base.@constprop :aggressive function forward(
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
 end
 # `forward` returns no state, so `:trace` is the one name it records.
-_forward_record(rec) = _forward_record(rec, _recording(rec, :state))
-_forward_record(rec, ::Val{false}) = _recording(rec, :trace)
+_forward_record(rec) = _forward_record(rec, _recording(rec, Val(:state)))
+_forward_record(rec, ::Val{false}) = _recording(rec, Val(:trace))
 @noinline function _forward_record(rec, ::Val{true})
     throw(
         ArgumentError(
