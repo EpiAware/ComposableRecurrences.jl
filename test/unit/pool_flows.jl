@@ -262,6 +262,31 @@ end
     @test y32 ≈ y rtol = 1.0e-5
 end
 
+@testitem "Depletion flows: more than 32 flows" setup = [AdjointCheck] begin
+    using ComposableRecurrences, Test
+    # Past 32 flows a step that recursed over them stopped inferring and
+    # allocated at each step. Two linked pools among 40, the rest joined at
+    # a zero rate, run as the two pools alone.
+    P, T = 40, 12
+    names = Tuple(Symbol(:p, i) for i in 1:P)
+    rest = Tuple(CR.Flow(names[i] => names[i + 1], 0.0) for i in 3:(P - 1))
+    many = CR.Depletion(
+        CR.Flow(:p1 => :p2, 0.1), CR.Flow(:p2 => 0, 0.2), rest...; pools = names
+    )
+    two = CR.Depletion(CR.Flow(:p1 => :p2, 0.1), CR.Flow(:p2 => 0, 0.2); pools = (:p1, :p2))
+    g = [0.5, 0.3]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:P, t in 1:T]
+    h = [1.0 + 0.1 * k for k in 1:P, _ in 1:2]
+    r = Recurrence(g; modifiers = (many,))
+    y = @inferred r(R; history = h)
+    @test y[1:2, :] ≈ Recurrence(g; modifiers = (two,))(R[1:2, :]; history = h[1:2, :])
+    # The steps allocate nothing: a call over more steps allocates as often.
+    long = repeat(R, 1, 4)
+    r(long; history = h)
+    @test (@allocations r(R; history = h)) == (@allocations r(long; history = h))
+    @test pullback_matches(r, recargs(R, nothing, h)...)
+end
+
 @testitem "Depletion flows: ends in the type" begin
     using ComposableRecurrences, Test
     using ComposableRecurrences: ConstructionBase

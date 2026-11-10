@@ -303,6 +303,94 @@ end
     return Expr(:block, (:(f(xs[$i])) for i in 1:N)..., :(return nothing))
 end
 
+# `op(acc, x, k)` folded over the entries `x` of the tuple `xs` in order,
+# unrolled in the same way: a function that recurses on `Base.tail` stops
+# inferring past 32 entries and then dispatches at run time. As with
+# `_tuple_map`, a tuple whose length is not in its type takes a loop.
+@generated function _tuple_fold(op, acc, xs::Tuple{Vararg{Any, N}}) where {N}
+    N isa Int || return :(_fold_loop(op, acc, xs))
+    ex = :acc
+    for k in 1:N
+        ex = :(op($ex, xs[$k], $k))
+    end
+    return Expr(:block, Expr(:meta, :inline), ex)
+end
+
+# `map` with each entry's position, `op(x, k)`, unrolled in the same way.
+@generated function _tuple_map_index(op, xs::Tuple{Vararg{Any, N}}) where {N}
+    N isa Int || return :(map(op, xs, ntuple(identity, length(xs))))
+    ex = Expr(:tuple, (:(op(xs[$k], $k)) for k in 1:N)...)
+    return Expr(:block, Expr(:meta, :inline), ex)
+end
+
+# The pairs `(xs[k], ys[k])` of two tuples of one length, unrolled in the
+# same way.
+@generated function _tuple_zip(
+        xs::Tuple{Vararg{Any, N}}, ys::Tuple{Vararg{Any, N}}
+    ) where {N}
+    N isa Int || return :(map(tuple, xs, ys))
+    return Expr(:tuple, (:((xs[$k], ys[$k])) for k in 1:N)...)
+end
+
+# The tuple of each `out` from `(out, s) = op(s, x, k)` over the entries of
+# `xs` in order, unrolled in the same way.
+@generated function _tuple_scan(op, s, xs::Tuple{Vararg{Any, N}}) where {N}
+    N isa Int || return :(_scan_loop(op, s, xs))
+    outs = [Symbol(:out, k) for k in 1:N]
+    ex = Any[Expr(:meta, :inline)]
+    for k in 1:N
+        push!(ex, :(($(outs[k]), s) = op(s, xs[$k], $k)))
+    end
+    push!(ex, Expr(:tuple, outs...))
+    return Expr(:block, ex...)
+end
+
+# A pass forward over the entries of `xs` with `(s, kept) = fwd(s, x, k)`,
+# then one back, last first, with `b = back(b, x, kept, k)`; unrolled in the
+# same way.
+@generated function _tuple_forward_back(
+        fwd, back, s, b, xs::Tuple{Vararg{Any, N}}
+    ) where {N}
+    N isa Int || return :(_forward_back_loop(fwd, back, s, b, xs))
+    kept = [Symbol(:kept, k) for k in 1:N]
+    ex = Any[Expr(:meta, :inline)]
+    for k in 1:N
+        push!(ex, :((s, $(kept[k])) = fwd(s, xs[$k], $k)))
+    end
+    for k in N:-1:1
+        push!(ex, :(b = back(b, xs[$k], $(kept[k]), $k)))
+    end
+    push!(ex, :b)
+    return Expr(:block, ex...)
+end
+
+# The loops the unrolled helpers take for a tuple of unknown length.
+function _fold_loop(op, acc, xs)
+    for (k, x) in enumerate(xs)
+        acc = op(acc, x, k)
+    end
+    return acc
+end
+function _scan_loop(op, s, xs)
+    outs = ()
+    for (k, x) in enumerate(xs)
+        out, s = op(s, x, k)
+        outs = (outs..., out)
+    end
+    return outs
+end
+function _forward_back_loop(fwd, back, s, b, xs)
+    kept = Any[]
+    for (k, x) in enumerate(xs)
+        s, c = fwd(s, x, k)
+        push!(kept, c)
+    end
+    for k in reverse(eachindex(xs))
+        b = back(b, xs[k], kept[k], k)
+    end
+    return b
+end
+
 # A zeroed array like `x` of eltype `T` and size `dims`.
 _zeros(x, ::Type{T}, dims...) where {T} = fill!(similar(x, T, dims), zero(T))
 # CPU arrays allocate with `zeros`, which AD backends treat as one call
