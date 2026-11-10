@@ -6,7 +6,8 @@
 # OUT gets the registry scenarios of the RESULTS files' `"AD gradients"`
 # groups, as nested `data` dictionaries down to each (scenario, backend)
 # entry, whose minimum time is its one sample: the layout the AD page reads.
-# It fails when a backend has no numbers at all.
+# A backend with no numbers at all gets a workflow warning, and the page
+# names it; the script fails only when no backend has numbers.
 
 using BenchmarkTools
 
@@ -95,8 +96,11 @@ function main(args)
     empty_backends = report_gaps(
         stdout, grid, scenario_names, backends, ADFixtures.exclusion_reason
     )
-    isempty(empty_backends) ||
-        error("no numbers for $(join(empty_backends, ", "))")
+    length(empty_backends) == length(backends) &&
+        error("no numbers for any backend")
+    for backend in empty_backends
+        println("::warning::no AD gradient numbers for ", backend)
+    end
     println("Wrote ", out)
     return nothing
 end

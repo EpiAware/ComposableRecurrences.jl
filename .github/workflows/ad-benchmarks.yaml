@@ -31,6 +31,9 @@ jobs:
     name: ${{ matrix.backend }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # A backend that crashes, as Enzyme forward can in the garbage collector
+    # (#321), leaves the others to publish; the merge step warns for it.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -62,8 +65,8 @@ jobs:
 
   publish:
     needs: measure
-    # A backend whose job failed still leaves the others to publish; the
-    # merge step names it, and fails if it has no numbers at all.
+    # The merge step warns for a backend with no numbers and fails only if
+    # no backend has any.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
