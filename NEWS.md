@@ -81,7 +81,6 @@
 
 ### Changed
 
-- On a device, a `Convolution` with a fixed, `PerStratum` or `TimeVarying` (`Secondary()`) kernel runs one output per kernel index rather than one stratum, so neighbouring indices read neighbouring inputs; on an RTX 2070 a 60-lag convolution of 1,000 strata over 10,000 steps is 43× faster ([GPU arrays][gpu]).
 - ConstructionBase is a hard dependency.
 - Julia 1.13 is supported.
 - `Hazard()` and `Floor()` take a fixed heterogeneity of one by default; pass a float to make it a parameter.
@@ -117,7 +116,6 @@
 [occupancy]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/occupancy/
 [transform]: https://composablerecurrences.epiaware.org/stable/getting-started/tutorials/transform/
 [adjoints]: https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/
-[gpu]: https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/#gpu-arrays
 [extending]: https://composablerecurrences.epiaware.org/stable/developer/extending/
 [extensions]: https://composablerecurrences.epiaware.org/stable/extensions/enzyme/
 [fftw]: https://composablerecurrences.epiaware.org/stable/extensions/fftw/
