@@ -27,6 +27,7 @@ using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
     backend_broken_scenarios, backend_plain_scenarios, backend_skip_scenarios,
+    benchmarked_backends, exclusion_reason,
     FlooredDepletion,
     supports, unsupported_scenarios
 
@@ -2512,6 +2513,31 @@ Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
 scenarios too unstable to run at all on a backend, by backend name.
 """
 backend_skip_scenarios() = Dict{String, Set{String}}()
+
+@doc raw"""
+    benchmarked_backends()
+
+The backends `benchmark/benchmarks.jl` times: every backend but ReverseDiff,
+which the AD tests run and the benchmark suite does not.
+"""
+function benchmarked_backends()
+    return filter(e -> !startswith(e.name, "ReverseDiff"), backends())
+end
+
+@doc raw"""
+    exclusion_reason(name, backend)
+
+Why the benchmark suite leaves scenario `name` out on the backend named
+`backend`, or `nothing` when it times the pair.
+"""
+function exclusion_reason(name, backend)
+    name in broken_scenario_names() && return "broken in the registry"
+    name in get(backend_broken_scenarios(), backend, Set{String}()) &&
+        return "broken on this backend in the registry"
+    name in get(backend_skip_scenarios(), backend, Set{String}()) &&
+        return "skipped on this backend in the registry"
+    return nothing
+end
 
 """
 Per-backend scenario names whose call takes plain AD by design, so the

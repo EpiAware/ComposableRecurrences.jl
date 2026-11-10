@@ -1,0 +1,113 @@
+# Package-owned: not part of the kit's managed workflows.
+name: AD benchmarks
+
+# Times the registry's AD gradient grid on the current commit, one job per
+# backend, and publishes it as `history/results/latest.json` on the
+# `benchmarks` branch, the file the AD comparison page reads.
+# It runs daily and on demand, and without publishing on a pull request
+# that changes it.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ad-benchmarks.yaml'
+      - 'benchmark/ad_latest.jl'
+  schedule:
+    - cron: '41 1 * * *'
+  workflow_dispatch:
+
+# Read-only by default; the publish job asks for write access itself.
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes its run; scheduled and
+# on-demand runs all complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  measure:
+    name: ${{ matrix.backend }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # A backend that crashes, as Enzyme forward can in the garbage collector
+    # (#321), leaves the others to publish; the merge step warns for it.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # The backends `benchmark/benchmarks.jl` times.
+        backend:
+          - ForwardDiff
+          - Enzyme forward
+          - Enzyme reverse
+          - Mooncake forward
+          - Mooncake reverse
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      - name: Time the registry's gradients
+        env:
+          BENCHMARK_BACKENDS: ${{ matrix.backend }}
+          BENCHMARK_MATRIX: 'false'
+        run: >-
+          julia --project=benchmark benchmark/run.jl
+          results-${{ strategy.job-index }}.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ad-results-${{ strategy.job-index }}
+          path: results-${{ strategy.job-index }}.json
+
+  publish:
+    needs: measure
+    # The merge step warns for a backend with no numbers and fails only if
+    # no backend has any.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      # With no artifacts at all, the merge step still runs and names the
+      # backends without numbers.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: ad-results-*
+          path: results
+          merge-multiple: true
+      # The report, with each backend that has no numbers for whatever
+      # reason (a crash, a timeout), also goes to the run's summary page.
+      - name: Merge the backends
+        shell: bash
+        run: |
+          mkdir -p results
+          status=0
+          julia --project=benchmark benchmark/ad_latest.jl \
+            public/latest.json results/*.json 2>&1 | tee report.txt ||
+            status=$?
+          { echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      # `clean: false` replaces `latest.json` and leaves the history
+      # workflow's other files on the branch as they are.
+      - name: Deploy to benchmarks branch
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: benchmarks
+          folder: public
+          target-folder: history/results
+          clean: false
+          commit-message: >-
+            AD gradient numbers for ${{ github.sha }}
