@@ -120,6 +120,14 @@ end
     @test length(rules) == length(ADFixtures._SCENARIOS)
     @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
     @test all(isempty, values(ADFixtures.backend_skip_scenarios()))
+    # A backend's scenarios drop only the twins of the scenarios that take
+    # plain AD there by design, and keep those scenarios.
+    for (backend, plain) in ADFixtures.backend_plain_scenarios()
+        kept = Set(s.name for s in ADFixtures.scenarios(; backend))
+        @test setdiff(Set(s.name for s in ADFixtures.scenarios()), kept) ==
+            Set("NoAdjoint " .* plain)
+        @test plain ⊆ kept
+    end
     names = Set(s.name for s in ADFixtures.scenarios())
     # A list may name a backend these jobs do not load, as Reactant.
     backends = ADFixtures.backend_names()

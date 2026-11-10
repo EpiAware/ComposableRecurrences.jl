@@ -382,8 +382,9 @@ end
     # Every other chunk ran to the end before the error was raised.
     @test done[3:8] == ones(Int, 6)
     # The first chunk runs on the calling task and the others on new tasks;
-    # a failure on either side, or on both, is raised once every chunk ends.
-    for bad in ((8,), (2, 8))
+    # a failure on either side, or on both, is raised once every chunk ends,
+    # the calling task's first.
+    for bad in ((2,), (8,), (2, 8))
         fill!(done, 0)
         function fails!(k, done)
             k in bad && error("chunk failed")
@@ -399,6 +400,19 @@ end
         @test err isa CompositeException
         @test length(err.exceptions) == length(bad)
         @test count(==(1), done) == 8 - length(bad)
+        # A failure on the calling task comes first, with its backtrace; one
+        # on a new task is the `TaskFailedException` from waiting on it.
+        first_err = first(err.exceptions)
+        @test (first_err isa CR._ChunkFailed) == (2 in bad)
+        if first_err isa CR._ChunkFailed
+            @test first_err.error isa ErrorException
+            @test !isempty(first_err.backtrace)
+            @test occursin("Stacktrace", sprint(showerror, first_err))
+        end
+        spawned = count(e -> e isa TaskFailedException, err.exceptions)
+        @test spawned == (8 in bad)
+        msgs = map(e -> sprint(showerror, e), err.exceptions)
+        @test all(m -> occursin("chunk failed", m), msgs)
     end
     @test CR._nchunks(ex, 2) == 2
     @test CR._nchunks(CR.Threaded(), 100) == min(Threads.nthreads(), 100)
@@ -442,5 +456,17 @@ end
     else
         # Run the suite with `--threads` above 1 to exercise this.
         @test_skip nt > 1
+    end
+end
+
+@testitem "Executor: a loop under an executor of another kind raises" begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    struct OtherExecutor <: CR.Executor end
+    y = zeros(4)
+    body!(k, y) = (y[k] = k; nothing)
+    @test_throws ArgumentError with(CR.EXECUTOR => OtherExecutor()) do
+        CR._each!(body!, CR._current(), y, 4, 4, y)
     end
 end

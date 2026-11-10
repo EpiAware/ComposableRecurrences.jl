@@ -296,6 +296,13 @@ end
     return :(($((:(f(xs[$i])) for i in 1:N)...),))
 end
 
+# `foreach` over a tuple, unrolled in the same way, so each call is static
+# at any length.
+@generated function _tuple_foreach(f, xs::Tuple{Vararg{Any, N}}) where {N}
+    N isa Int || return :(foreach(f, xs))
+    return Expr(:block, (:(f(xs[$i])) for i in 1:N)..., :(return nothing))
+end
+
 # A zeroed array like `x` of eltype `T` and size `dims`.
 _zeros(x, ::Type{T}, dims...) where {T} = fill!(similar(x, T, dims), zero(T))
 # CPU arrays allocate with `zeros`, which AD backends treat as one call

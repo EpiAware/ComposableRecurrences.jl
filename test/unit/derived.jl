@@ -143,4 +143,11 @@ end
     # The N-argument local derivative.
     @test CR._forward_derivative((x, y, w) -> x * y + w^2, (2.0, 3.0, 1)) ==
         (3.0, 2.0, 2.0)
+    # The closed-form partials agree with the local derivative.
+    for (f, xs) in (
+            (identity, (1.5,)), (-, (1.5,)), (+, (1.5, 0.4)), (-, (1.5, 0.4)),
+            (*, (1.5, 0.4)), (/, (1.5, 0.4)),
+        )
+        @test all(CR._partials(f, xs) .≈ CR._forward_derivative(f, xs))
+    end
 end

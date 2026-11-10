@@ -80,8 +80,10 @@ the call covers the absolute times `start:stop`:
         step;
       - `:trace`, with `trace.modifiers` holding each modifier's series
         per step, a [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of
-        its [`ComposableRecurrences.Trace`](@ref) records, differentiable
-        as the output is.
+        its [`ComposableRecurrences.Trace`](@ref) records, and
+        `trace.pressure` the pressure ``K_t p_t`` each step drew against,
+        laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
+        returns it; both differentiable as the output is.
     `record = ()` returns `(; y)`, and without `record` the call returns
     `y`. Pass the tuple as a literal, so that the return type infers.
 
@@ -173,7 +175,23 @@ end
 function _check_secondary(coupling, modifiers::Tuple)
     _check_times(:coupling, coupling, nothing)
     _check_times(:modifiers, modifiers, nothing)
+    _tuple_foreach(_check_not_form, modifiers)
     return nothing
+end
+
+# A depletion form's step reads a population where a modifier's reads the
+# time, and it has no `Init`, so a bare form among the modifiers would run
+# silently wrong.
+_check_not_form(m) = nothing
+@noinline function _check_not_form(form::_BuiltinForm)
+    name = nameof(typeof(form))
+    throw(
+        ArgumentError(
+            "$(_describe(form)) is a form for a Depletion or a Flow, not a " *
+                "modifier; use Depletion(N, $name(...)) to draw from a pool " *
+                "of population N"
+        )
+    )
 end
 
 # A rebuild of a `Recurrence` from its fields checks its parts again.
@@ -433,14 +451,19 @@ _stratum_weights(g::PerStratum, k) = view(g.x, k, :)
 @inline function _kdot(c::_Chained, H, t, τ, L, a)
     return _window_dot(_stratum_weights(c.g, a), H, t, L, a)
 end
-@inline function _window_dot(g, H, t, L, a)
+# The window from row `t`, its newest lag added last; that lag is read from
+# the buffer, or is `y` when a run carries its last value.
+@inline _window_dot(g, H, t, L, a) = _window_dot(g, H, t, L, a, H)
+@inline function _window_dot(g, H, t, L, a, y)
     acc = zero(promote_type(eltype(g), eltype(H)))
     L >= 1 || return acc
     @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
         acc += g[i] * H[t + i - 1, a]
     end
-    return @inbounds muladd(g[L], H[t + L - 1, a], acc)
+    return @inbounds muladd(g[L], _newest(y, t + L - 1, a), acc)
 end
+@inline _newest(H::AbstractMatrix, r, a) = @inbounds H[r, a]
+@inline _newest(y, r, a) = y
 # Stratum `k` at step `t` of a run of one stratum, from its last value `y`,
 # with weights `w` and the newest of them `newest`: writes the step's value
 # to the buffer, records its kernel convolution and returns the value. The
@@ -457,7 +480,8 @@ end
             older += w[i] * H[o + i, k]
         end
     end
-    _record_pressure!(pr, muladd(newest, y, older), nothing, t, k)
+    pk = muladd(newest, y, older)
+    _record_pressure!(pr, pk, _coef(C, k) * pk, t, k)
     γ = @inbounds _at(gain, k, τ) * _coef(C, k)
     v = muladd(γ * newest, y, muladd(γ, older, @inbounds(_at(add, k, τ))))
     @inbounds H[D + t, k] = v
@@ -615,14 +639,6 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-# The output of a recorded run: the cache keeps the buffer, so the output
-# copies the rows after the history rather than taking them over as
-# `_output` does. A single series (`h` a vector) is the buffer's one column,
-# copied in one call.
-_recorded_output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
-function _recorded_output(H::Matrix, D, T, h::AbstractVector)
-    return copyto!(similar(H, T), 1, H, D + 1, T)
-end
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
@@ -712,7 +728,10 @@ end
 _check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
 @noinline function _record_error(name)
     name === :pressures && throw(
-        ArgumentError("record = (:pressures,) is not available yet")
+        ArgumentError(
+            "the pressures are in the trace: record = (:trace,) and read " *
+                "trace.pressure"
+        )
     )
     throw(
         ArgumentError(
@@ -1086,11 +1105,6 @@ end
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
-# The reverse pass reads the history's values only in the modifiers' `Init`
-# pullbacks, which a call without modifiers or resumed from a state does not
-# run; otherwise it reads only the history's shape.
-_tape_history(h, s0, ::Tuple{}) = h
-_tape_history(h, s0, modifiers) = s0 === nothing ? _tape(h) : h
 
 # A resumed state must have each modifier's `nstate` entries, as an
 # `Init` would have written, and the modifiers must fit the strata, as
@@ -1296,7 +1310,17 @@ function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
+# A run without a reverse pass needs no kernel convolutions, only the
+# pressures its trace returns, so it keeps `X` whatever the coupling.
+struct _TracePressures{X}
+    X::X
+end
+_trace_pressures(h, ::Type{Tp}, S, T) where {Tp} = _TracePressures(similar(h, Tp, S, T))
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
+@inline function _record_pressure!(pr::_TracePressures, pk, xk, t, k)
+    pr.X[k, t] = xk
+    return nothing
+end
 @inline function _record_pressure!(pr, pk, xk, t, k)
     pr.P[k, t] = pk
     pr.X === nothing || (pr.X[k, t] = xk)
@@ -1306,6 +1330,12 @@ end
 # The records are sized by the call, so they are read without bounds checks.
 _pressure(C, pr, k, t) = @inbounds pr.X[k, t]
 _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
+# A pointwise coupling records no `X`, so its pressures are rebuilt.
+_pressures(C::UniformScaling, pr) = C.λ .* pr.P
+_pressures(C::Diagonal, pr) = C.diag .* pr.P
+_pressures(C, pr) = copy(pr.X)
+_output_layout(q, h::AbstractVector) = vec(q)
+_output_layout(q, h) = q
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata
@@ -1357,10 +1387,10 @@ function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     return nothing
 end
 
-# A call of one stratum through pointwise modifiers, on a host buffer with a
-# fixed or per-stratum kernel, carries its last value the same way; the
-# modifiers sit between the kernel and the value, so the step adds the
-# newest lag with one fused multiply-add and threads it through them.
+# A call of one stratum through pointwise modifiers carries its last value
+# the same way: `y` is the value the step writes to the buffer, after the
+# modifiers, so it is the next step's newest lag. Only a host `Array`, as the
+# buffer is read without bounds checks, and a fixed or per-stratum kernel.
 _carries(g, H) = false
 _carries(::Union{AbstractVector, PerStratum}, ::Array) = true
 function _carried_run!(
@@ -1371,7 +1401,7 @@ function _carried_run!(
     w = _stratum_weights(g, k)
     for t in steps
         τ = τ0 + t - 1
-        pk = _carried_dot(w, H, y, t, L, D, k)
+        pk = _window_dot(w, H, t + D - L, L, k, y)
         xk = _coef(coupling, k) * pk
         _record_pressure!(pr, pk, xk, t, k)
         x = @inbounds _core(coupling, gain, add, k, τ, pk, xk)
@@ -1379,17 +1409,6 @@ function _carried_run!(
         @inbounds H[D + t, k] = y
     end
     return nothing
-end
-# The kernel convolution of step `t`'s window, its older lags read from the
-# buffer and its newest, `y`, carried.
-@inline function _carried_dot(w, H, y, t, L, D, k)
-    o = t + D - L - 1
-    acc = zero(promote_type(eltype(w), eltype(H)))
-    L >= 1 || return acc
-    @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
-        acc += w[i] * H[o + i, k]
-    end
-    return @inbounds muladd(w[L], y, acc)
 end
 
 # The runs of steps over which the kernel a step reads is fixed, each
@@ -1482,6 +1501,11 @@ end
     return nothing
 end
 
+_sink_trace(::Nothing, ::Nothing, h) = nothing
+function _sink_trace(rec, pr, h)
+    return (; modifiers = _sink_traces(rec), pressure = _output_layout(pr.X, h))
+end
+
 # The buffer loop: returns the output, the buffer, the final states and
 # what `cache` asks for: `Val(true)` the cache the reverse pass reads,
 # `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
@@ -1526,7 +1550,11 @@ function _run(
         map(s -> _state_vector(Tp, s), s0)
     end
     init = keep ? map(copy, states) : nothing
-    pr = keep ? _pressure_records(h, Tp, coupling, S, T) : nothing
+    pr = if keep
+        _pressure_records(h, Tp, coupling, S, T)
+    else
+        C === :trace ? _trace_pressures(h, Tp, S, T) : nothing
+    end
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
         _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
@@ -1554,17 +1582,17 @@ function _run(
             )
         end
     end
-    Y = keep ? _recorded_output(H, D, T, h) : _output(H, D, T, h)
+    # The cache keeps the buffer, so a recorded run's output copies the rows
+    # after the history rather than taking them over.
+    Y = keep ? _public(H, (D + 1):(D + T), h) : _output(H, D, T, h)
     # The cache holds copies of the inputs whose values the reverse pass
     # reads, so a caller overwriting them after the call cannot change the
-    # gradient; of the history it reads only the shape unless a modifier's
-    # `Init` pullback runs (`_tape_history`).
+    # gradient.
     cache = keep ?
         (;
-            r, kernel, gain = _tape(gain), add,
-            h = _tape_history(h, s0, r.modifiers), s0, τ0, L, D, S, T, H, pr,
-            rec, init, states,
-        ) : _sink_traces(rec)
+            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S,
+            T, H, pr, rec, init, states,
+        ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache
 end
 

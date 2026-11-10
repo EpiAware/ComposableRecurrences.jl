@@ -108,7 +108,8 @@ end
 # == Threaded ==
 
 @doc raw"""
-Runs the indices of a loop in contiguous chunks, one task per chunk.
+Runs the indices of a loop in contiguous chunks, one task per chunk, the
+first on the calling task.
 With `m` chunks, chunk `c` covers
 
 ```math
@@ -124,9 +125,7 @@ The threshold applies to each loop.
 `min_work = 0` forces every loop of more than one index to split and is meant
 for tests of the threaded paths.
 The loops of strata that mix then split every step and start tasks every
-step, so at small sizes it runs slower than [`Serial`](@ref), by an order of
-magnitude or more.
-A split loop runs its first chunk on the calling task.
+step, so at small sizes it runs much slower than [`Serial`](@ref).
 `work` counts multiply-adds.
 Operators split three kinds of loop, and count the work of each kind so
 that one `min_work` sets where each of them breaks even:
@@ -157,7 +156,10 @@ its own slots.
 A reverse pass sums per chunk the cotangents of parameters that chunks of
 strata share, such as a scalar modifier parameter, so those agree with
 [`Serial`](@ref) up to rounding.
-Errors inside a split loop arrive wrapped in a `CompositeException`.
+Errors inside a split loop arrive wrapped in a `CompositeException`: an
+error in a chunk on a new task as a `TaskFailedException`, and one in the
+chunk the calling task runs as an exception that shows it with its
+backtrace.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Device`](@ref) there.
 
@@ -237,34 +239,72 @@ _spawn_chunks(run::R, n, m) where {R} = _run_chunks(c -> run(_chunk(c, n, m)), m
 # others writing after the loop returns; failures, the calling task's
 # included, are rethrown together.
 function _run_chunks(f::F, m) where {F}
-    err = nothing
-    failed = try
-        @sync begin
-            for c in 2:m
-                Threads.@spawn f(c)
-            end
-            err = _caught(f, 1)
-        end
-        nothing
-    catch e
-        e isa CompositeException || rethrow()
-        e
+    tasks = Vector{Task}(undef, m - 1)
+    for c in 2:m
+        tasks[c - 1] = _spawn(_Chunk(f, c))
     end
+    err = _caught(_Chunk(f, 1))
+    failed = _wait_all(tasks)
     err === nothing && failed === nothing && return nothing
     ce = failed === nothing ? CompositeException() : failed
     err === nothing || pushfirst!(ce.exceptions, err)
     throw(ce)
 end
 
-# `f(c)`, returning `nothing`, or the exception it threw with its backtrace.
-# The exception is untyped, so the constructor that takes a raw backtrace is
-# named with `invoke`, keeping the reverse pass free of runtime dispatch.
-function _caught(f::F, c) where {F}
-    try
-        f(c)
-    catch e
-        return invoke(CapturedException, Tuple{Any, Vector}, e, catch_backtrace())
+# The failures of `tasks` once every one has ended, or `nothing`. `@sync`
+# keeps tasks in an untyped channel, which a trimmed build cannot resolve.
+function _wait_all(tasks::Vector{Task})
+    failed = nothing
+    for t in tasks
+        try
+            wait(t)
+        catch e
+            failed === nothing && (failed = CompositeException())
+            push!(failed, e)
+        end
     end
+    return failed
+end
+
+# Chunk `c` of the loop `f`, as a task runs it. The call is not inlined, so
+# its compiled method exists for the runtime to start a task with.
+struct _Chunk{F}
+    f::F
+    c::Int
+end
+@noinline (t::_Chunk)() = (t.f(t.c); nothing)
+
+# A task running `t()`, made as `Threads.@spawn` makes one. The runtime
+# starts it with a dynamic call, which a trimmed build resolves only to a
+# method the code also calls directly, so the calling task runs its own
+# chunk through `_Chunk` too.
+function _spawn(t::_Chunk)
+    task = Task(t)
+    task.sticky = false
+    Threads._spawn_set_thrpool(task, :default)
+    schedule(task)
+    return task
+end
+
+# `t()`, returning `nothing` or the exception it threw with its backtrace.
+function _caught(t::_Chunk)
+    try
+        t()
+    catch e
+        return _ChunkFailed(e, catch_backtrace())
+    end
+    return nothing
+end
+
+# An exception from the calling task's chunk. Its backtrace stays as raw
+# frames until it is shown, so the loop compiles no stack-trace code.
+struct _ChunkFailed <: Exception
+    error::Any
+    backtrace::Vector{Union{Ptr{Nothing}, Base.InterpreterIP}}
+end
+function Base.showerror(io::IO, e::_ChunkFailed)
+    println(io, "a chunk on the calling task failed:")
+    showerror(io, e.error, e.backtrace)
     return nothing
 end
 
@@ -391,12 +431,25 @@ end
     return nothing
 end
 
-# The loop `loop!` with the call's executor, behind a dynamic call.
+# The loop `loop!` with the call's executor, behind a function barrier. The
+# executor is one of the three built-in kinds, so each branch is a static call.
 @noinline function _dynamic!(
-        loop!::L, body::F, c::_Current, x, n, work, args...
-    ) where {L, F}
-    loop!(body, _resolve(c.ex, x), n, work, args...)
+        loop!::L, body::F, c::_Current, x, n, work, args::Vararg{Any, N}
+    ) where {L, F, N}
+    ex = _resolve(c.ex, x)
+    if ex isa Threaded
+        loop!(body, ex, n, work, args...)
+    elseif ex isa Serial
+        loop!(body, ex, n, work, args...)
+    elseif ex isa Device
+        loop!(body, ex, n, work, args...)
+    else
+        _unknown_executor()
+    end
     return nothing
+end
+@noinline function _unknown_executor()
+    throw(ArgumentError("`EXECUTOR` must be `Serial`, `Threaded` or `Device`"))
 end
 
 # The time loop, in order, each step reading the steps before it. A traced

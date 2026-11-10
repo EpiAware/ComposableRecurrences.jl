@@ -1,6 +1,8 @@
 # Reactant cases the AD registry (`test/ADFixtures`) cannot express: the
 # harness control, a call resumed from a returned state, a traced history
-# joined before the output, a check run at the call while traced, and how
+# joined before the output, a check run at the call while traced, a
+# parameter held as host constants in a traced call, a kernel computed from
+# a `Derived` alone (the registry has one only inside a `Survival`), and how
 # compile and run time grow with the number of steps. The registry's
 # scenarios cover the operators, kernels, couplings and modifiers.
 #
@@ -11,7 +13,7 @@
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Step
+using ComposableRecurrences: Primary, Step
 
 export CASES, case_by_name, loss
 
@@ -104,6 +106,26 @@ end
 
 conv_fixed(θ) = Convolution(θ[1:L])(θ[(L + 1):end]; history = HX)
 
+# A per-stratum parameter given by change points, held as host constants
+# while only the series is traced: the registry traces every parameter.
+const BCP = TimeVarying(
+    [1 => PerStratum([0.1, 0.2, 0.3]), max(2, T ÷ 2) => PerStratum([0.4, 0.2, 0.1])]
+)
+function rec_cp_strata_const(θ)
+    r = Recurrence(g0; modifiers = (ComposableRecurrences.Transform(+, BCP),))
+    return r(reshape(θ, S, T); history = HS)
+end
+
+# A `Primary()` kernel computed from a `Derived` of lag weights and a
+# traced `TimeVarying` rate, filled densely in the traced call.
+function conv_derived_kernel(θ)
+    k = TimeVarying(
+        ComposableRecurrences.Derived((a, b) -> a * exp(-b), θ[1:L], TimeVarying(θ[(L + 1):end])),
+        Primary()
+    )
+    return Convolution(k)(x0)
+end
+
 const CASES = [
     Case(
         "control", "harness control: 2θ, no package code", control,
@@ -133,6 +155,15 @@ const CASES = [
     Case(
         "conv_fixed", "Convolution, fixed kernel", conv_fixed,
         vcat(d0, x0), W1
+    ),
+    Case(
+        "conv_derived_kernel", "Convolution, kernel computed from a Derived",
+        conv_derived_kernel, vcat(d0, fill(0.1, T + L)), W1
+    ),
+    Case(
+        "rec_cp_strata_const",
+        "Recurrence, per-stratum change points held as host constants",
+        rec_cp_strata_const, vec(RS0), WS
     ),
 ]
 
