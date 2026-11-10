@@ -915,8 +915,12 @@ end
 end
 
 # Several pools: each loses the draw in proportion to its weighted pool.
+# The weights stay in their own types, so a fixed weight of one multiplies
+# a dual pool as a plain number, not as a dual one; `map` unrolls over
+# weights of mixed types, and its inlined closure passes no dual number
+# through a call.
 @inline function _draw_pools(p, v, x::NTuple{n}, t, g) where {n}
-    w = _weights_at(p, Val(n), g, t)
+    w = map(@inline(wi -> param(wi, g, t)), Tuple(p.weights))
     P = _weighted(w, x)
     y, _ = _draw(p.form, v, P, _pop(p.N, g, t))
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
@@ -925,8 +929,9 @@ end
     on = _primal_value(P) > 0
     q = y / ifelse(on, P, one(P))
     d = p.first
-    x′ = ntuple(Val(n)) do i
-        return ifelse(on, x[i] - q * w[i] * x[i], ifelse(i == d, x[i] - y, x[i]))
+    x′ = map(w, x, ntuple(identity, Val(n))) do wi, xi, i
+        @inline
+        return ifelse(on, xi - q * wi * xi, ifelse(i == d, xi - y, xi))
     end
     return y, x′
 end
