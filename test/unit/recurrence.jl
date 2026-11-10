@@ -770,6 +770,7 @@ end
 
 @testitem "Recurrence: a record in a Val infers from the argument types alone" begin
     using ComposableRecurrences, Test
+    using ComposableRecurrences: Run, forward
     CR = ComposableRecurrences
     r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
     R, h = fill(1.2, 6), [1.0, 2.0]
@@ -777,6 +778,7 @@ end
     # inlined, so no constant reaches the call: a tuple infers only as a
     # `NamedTuple`, a `Val` as the concrete one.
     @noinline deep(r, R, h, record) = r(R; history = h, record)
+    @noinline deep_forward(r, R, record) = forward(r, Run(), R; record)
     for names in ((), (:state,), (:trace,), (:state, :trace), (:trace, :state))
         out = @inferred deep(r, R, h, Val(names))
         lit = r(R; history = h, record = names)
@@ -786,13 +788,10 @@ end
         :trace in names && @test out.trace == lit.trace
         :state in names && @test out.state.t == lit.state.t
     end
-    traced = @inferred CR.forward(r, CR.Run(), R; record = Val((:trace,)))
-    @test first(traced) == first(CR.forward(r, CR.Run(), R; record = (:trace,)))
-    @test first(CR.forward(r, CR.Run(), R; record = Val(()))) ==
-        first(CR.forward(r, CR.Run(), R))
-    @test_throws "records :trace only" CR.forward(
-        r, CR.Run(), R; record = Val((:state,))
-    )
+    traced = @inferred deep_forward(r, R, Val((:trace,)))
+    @test first(traced) == first(forward(r, Run(), R; record = (:trace,)))
+    @test first(@inferred deep_forward(r, R, Val(()))) == first(forward(r, Run(), R))
+    @test_throws "records :trace only" deep_forward(r, R, Val((:state,)))
     @test_throws "or such a tuple in a Val" deep(r, R, h, Val(:state))
     @test_throws "record names :state or :trace, got :pools" deep(
         r, R, h, Val((:pools,))
