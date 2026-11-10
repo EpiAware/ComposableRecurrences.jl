@@ -13,7 +13,9 @@ Each method below was found by tracing the cases in this folder one failure at a
    The package writes its time loop once, as `_steps!(body, ex, T, args...)`.
    For `Traced` it is `@trace track_numbers = false for t in 1:T`, which compiles to one `stablehlo.while` whose body is the step.
    `track_numbers = false` keeps the integers the step closes over, such as the number of lags, as constants rather than loop-carried values.
-   The strata loops inside a step are written out in order, so the program grows with the strata but not with the steps.
+   A step of independent strata with no modifiers, records or trace runs on all strata at once (`_series_step!`): one `dynamic_slice` of the `L × S` window, its product with the kernel summed over the lags, and one write of the buffer row.
+   Such a program does not grow with the strata either: its size is the same at 2 strata as at 64.
+   Other strata loops inside a step are written out in order, so those programs grow with the strata but not with the steps.
 3. Traced buffers.
    `_zeros` at a traced eltype gives a traced array, which the loop carries and updates in place, rather than a Julia array of traced numbers.
 4. Windows at a traced step.

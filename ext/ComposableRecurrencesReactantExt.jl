@@ -2,15 +2,17 @@ module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Executor, PerStratum, Primary,
     Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
-    _ComputedKernel, _Ragged, _array, _lagweight, _nlags, _seg_weights, _steps!,
-    _weight
+    _ComputedKernel, _PointwiseCoupling, _Ragged, _array, _lagweight, _nlags,
+    _seg_weights, _steps!, _weight
+using LinearAlgebra: Diagonal, UniformScaling
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
 
-# A traced call compiles as one program: the strata loops are written out
-# in order, which costs a fixed `S` blocks, while the time loop compiles to
-# a single loop whose body is the step, so the program does not grow with
-# the number of steps.
+# A traced call compiles as one program: the time loop compiles to a
+# single loop whose body is the step, so the program does not grow with the
+# number of steps. A step of independent strata with no modifiers runs on
+# all strata at once (`_series_step!` below); other strata loops are written
+# out in order, which costs a fixed `S` blocks.
 struct Traced <: Executor end
 
 @inline function ComposableRecurrences.each!(
@@ -350,6 +352,43 @@ function ComposableRecurrences._alloc(
     ) where {Tp <: TracedRNumber, N}
     return zeros(Tp, dims...)
 end
+
+# A step of independent strata with no modifiers, and no records or trace,
+# runs on every stratum at once: one slice of the `L × S` window, one
+# product with the kernel summed over the lags, and one write of the
+# buffer row. The program then holds one step whatever the number of
+# strata, as it holds one whatever the number of steps.
+function ComposableRecurrences._series_step!(
+        t, ks::AbstractUnitRange, H::AnyTracedRArray, pr::Nothing, gain, add,
+        coupling::_PointwiseCoupling, kernel::Union{AbstractVector, PerStratum},
+        p, q, ms::Tuple{}, states::Tuple{}, rec::Nothing, τ0, L, D
+    )
+    τ = τ0 + t - 1
+    pk = _strata_kdot(kernel, H, t + D - L, L, ks)
+    H[D + t, ks] = _strata_at(gain, τ, ks) .* _coefs(coupling, ks) .* pk .+
+        _strata_at(add, τ, ks)
+    return nothing
+end
+
+# The kernel convolutions of strata `ks` over the window from row `t`.
+function _strata_kdot(g, H, t, L, ks)
+    L == 0 && return Reactant.Ops.fill(zero(unwrapped_eltype(eltype(H))), (length(ks),))
+    W = Reactant.Ops.dynamic_slice(H, [t, first(ks)], [L, length(ks)])
+    return vec(sum(_lag_weights(g, ks) .* W; dims = 1))
+end
+_lag_weights(g::AbstractVector, ks) = _traced(g)
+_lag_weights(g::PerStratum, ks) = permutedims(_traced(g.x)[ks, :])
+
+# A parameter of the step at time `τ` for strata `ks`, as `_at` reads it
+# for one stratum.
+_strata_at(x::Real, τ, ks) = x
+_strata_at(::Nothing, τ, ks) = false
+_strata_at(x::AbstractVector, τ, ks) = _traced(x)[τ]
+function _strata_at(x::AbstractMatrix, τ, ks)
+    return vec(Reactant.Ops.dynamic_slice(_traced(x), [first(ks), τ], [length(ks), 1]))
+end
+_coefs(C::UniformScaling, ks) = C.λ
+_coefs(C::Diagonal, ks) = _traced(C.diag)[ks]
 
 # Output `j` of every stratum.
 function _conv_step!(j, Y, c, X, m, start, D)

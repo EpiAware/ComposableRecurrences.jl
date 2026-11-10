@@ -3,8 +3,9 @@
 # joined before the output, a check run at the call while traced, a
 # parameter held as host constants in a traced call, a kernel computed from
 # a `Derived` alone (the registry has one only inside a `Survival`), and how
-# compile and run time grow with the number of steps. The registry's
-# scenarios cover the operators, kernels, couplings and modifiers.
+# compile and run time grow with the number of steps and of strata. The
+# registry's scenarios cover the operators, kernels, couplings and
+# modifiers.
 #
 # Each case maps a parameter vector `θ` to the operator's output through the
 # public API. Only `θ` is traced: sizes, histories and loss weights are
@@ -36,6 +37,12 @@ const K0 = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.1 0.2 0.7]
 const d0 = [0.1, 0.4, 0.3, 0.2]
 const x0 = collect(range(1.0, 3.0; length = T))
 const HX = [0.5, 1.0, 1.5]
+# A wide call: many strata, with only the kernel traced, so its gradient's
+# ForwardDiff reference stays cheap.
+const SW = 1000
+const RSW = [0.9 + 0.2 * k / SW + 0.01 * t for k in 1:SW, t in 1:T]
+const HSW = [1.0 + k / SW + 0.1 * i for k in 1:SW, i in 1:L]
+const WSW = reshape(collect(range(0.5, 2.0; length = SW * T)), SW, T)
 
 # Loss weights, one per output entry.
 const W1 = collect(range(0.5, 2.0; length = T))
@@ -104,6 +111,8 @@ function rec_checked_at_call(θ)
     return r(θ[(L + 1):end]; history = H1)
 end
 
+rec_strata_wide(θ) = Recurrence(θ)(RSW; history = HSW)
+
 conv_fixed(θ) = Convolution(θ[1:L])(θ[(L + 1):end]; history = HX)
 
 # A per-stratum parameter given by change points, held as host constants
@@ -138,6 +147,10 @@ const CASES = [
     Case(
         "rec_strata_I", "Recurrence, $S strata, I coupling",
         rec_strata_I, vcat(g0, vec(RS0)), WS
+    ),
+    Case(
+        "rec_strata_wide", "Recurrence, $SW strata, I coupling, traced kernel",
+        rec_strata_wide, copy(g0), WSW
     ),
     Case(
         "rec_joined", "Recurrence, $S strata, dense K, traced history joined",
