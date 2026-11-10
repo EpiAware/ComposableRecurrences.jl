@@ -1,8 +1,12 @@
 # The file `benchmark/ad_latest.jl` publishes for the AD comparison page:
 # the page reads it with `EpiAwarePackageTools.load_ad_benchmarks`, so its
-# layout is checked here rather than first seen on a broken page.
+# layout is checked here rather than first seen on a broken page. It loads
+# the kit, so it runs with the quality items, whose jobs have the kit
+# installed; the Threads unit job, which skips them, runs without it.
 
-@testitem "AD benchmarks: the published file merges backends in the page's layout" begin
+@testitem "AD benchmarks: the published file merges backends in the page's layout" tags = [
+    :quality,
+] begin
     using BenchmarkTools, ComposableRecurrences, EpiAwarePackageTools
     script = joinpath(pkgdir(ComposableRecurrences), "benchmark", "ad_latest.jl")
     mod = Module(:ADLatest)
