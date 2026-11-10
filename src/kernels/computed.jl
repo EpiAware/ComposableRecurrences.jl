@@ -66,7 +66,7 @@ function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, sta
     L = _nlags(c)
     stop = start + size(Ȳ, 1) - 1
     T = eltype(X̄)
-    sc = _scratch(x, T, L)
+    sc = _back_scratch(_scratch(x, T, L))
     W = _block_weights(T, L, max(_coef_strata(x), 1))
     W̄ = zero(W)
     shared = size(W, 3) == 1
