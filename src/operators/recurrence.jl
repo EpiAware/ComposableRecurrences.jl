@@ -175,7 +175,23 @@ end
 function _check_secondary(coupling, modifiers::Tuple)
     _check_times(:coupling, coupling, nothing)
     _check_times(:modifiers, modifiers, nothing)
+    _tuple_foreach(_check_not_form, modifiers)
     return nothing
+end
+
+# A depletion form's step reads a population where a modifier's reads the
+# time, and it has no `Init`, so a bare form among the modifiers would run
+# silently wrong.
+_check_not_form(m) = nothing
+@noinline function _check_not_form(form::_BuiltinForm)
+    name = nameof(typeof(form))
+    throw(
+        ArgumentError(
+            "$(_describe(form)) is a form for a Depletion or a Flow, not a " *
+                "modifier; use Depletion(N, $name(...)) to draw from a pool " *
+                "of population N"
+        )
+    )
 end
 
 # A rebuild of a `Recurrence` from its fields checks its parts again.
