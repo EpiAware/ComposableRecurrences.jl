@@ -23,12 +23,14 @@ end
 # each modifier's into its records, and the pressure's into the pressure
 # records, as `Q̄`. A zero cotangent, as a loss that reads only the output
 # gives, adds nothing, so the steps then skip the traces' pullbacks and
-# the pressure's.
+# the pressure's. With no cotangent at all the cache passes on as it is:
+# rebuilding it costs a runtime `merge` under Mooncake and Enzyme.
 function pullback!(grads, w::_WithTrace, ::Run, c)
     ȳ, tr̄ = grads.y
     T̄s = cotangent(tr̄, :modifiers)
     Q̄ = cotangent(tr̄, :pressure)
     inner = (; piece = cotangent(grads.piece, :op), y = ȳ, args = grads.args)
+    _zero_trace(T̄s) && _zero_trace(Q̄) && return pullback!(inner, w.op, Run(), c)
     rec = _zero_trace(T̄s) ? c.rec : _traced_records(c.rec, T̄s, c.S)
     pr = _zero_trace(Q̄) ? c.pr : merge(c.pr, (; Q̄ = _strata_rows(Q̄)))
     return pullback!(inner, w.op, Run(), merge(c, (; rec, pr)))
