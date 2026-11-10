@@ -25,7 +25,8 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
   Across them, the package's Mooncake gradient is a median 4.1× faster than Mooncake on the loop, and its Enzyme gradient 2.4× faster than Enzyme on the loop.
   Its forward run and ForwardDiff gradient are level with the loop's, at a median 1.2× and 1.1×.
   Its Mooncake gradient is 1.2–1.8× faster than Mooncake on the same loop with hand-written Mooncake adjoints.
-  A few small models with modifiers are slower than the loop, by up to 1.5×; see the [benchmarks](https://composablerecurrences.epiaware.org/stable/benchmarks/over-time/#benchmarks-hand-written).
+  The forward run and ForwardDiff are slower than the loop on several models, by up to 1.5×, and the Enzyme gradient on two, by up to 1.2×; the Mooncake gradient is slower on none.
+  These figures are from revision 48f2396; see the [benchmarks](https://composablerecurrences.epiaware.org/stable/benchmarks/over-time/#benchmarks-hand-written).
 
 ## Getting started
 
