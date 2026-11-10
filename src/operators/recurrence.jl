@@ -643,7 +643,7 @@ end
 # rather than copied. Timed alone, the cycle walk takes 1.4 to 12 times the
 # copy for numbers up to 72 bytes and about as long at 104 (dual numbers
 # with twelve partials), where the fresh array the copy needs on each
-# ForwardDiff chunk pass then dominates.
+# forward-mode chunk pass then dominates.
 const _INPLACE_BYTES = 64
 
 # Strata × time: a buffer of wide numbers is transposed in place, so that
