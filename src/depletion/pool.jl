@@ -954,7 +954,7 @@ end
         only(m.pieces), _head(cotangent(grads.piece, :pieces)), v, grads.v, grads.s,
         g, t
     )
-    return x̄, map(_ -> zero(eltype(x̄)), x̄)
+    return x̄, _tuple_map(_ -> zero(eltype(x̄)), x̄)
 end
 
 # `v` and `s` are the group's incoming values and state; returns their
