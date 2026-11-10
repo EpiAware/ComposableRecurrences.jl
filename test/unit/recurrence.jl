@@ -814,3 +814,26 @@ end
     m = Recurrence([1.0]; modifiers = (ComposableRecurrences.Transform(*, 1.0),))
     @test !any(signbit, m(1.0; history = [-0.0], add = [-0.0, -0.0]))
 end
+
+@testitem "Recurrence: a host kernel is read oldest first without a copy" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    g = [0.1, 0.2, 0.7]
+    r = CR._oldest_first(g)
+    @test r isa CR._Reversed
+    @test r == reverse(g)
+    @test r.x === g
+    G = [0.1 0.2 0.7; 0.3 0.3 0.4]
+    P = CR._oldest_first(PerStratum(G))
+    @test P.x isa CR._Reversed
+    @test P.x == reverse(G; dims = 2)
+    @test view(P.x, 2, :) == reverse(G[2, :])
+    # Other arrays are copied reversed, as before.
+    v = CR._oldest_first(view(g, 1:3))
+    @test !(v isa CR._Reversed)
+    @test v == reverse(g)
+    # The run leaves the caller's kernel as it was.
+    k = copy(g)
+    Recurrence(k)(1.2; history = ones(3), add = 0.1, stop = 5)
+    @test k == g
+end

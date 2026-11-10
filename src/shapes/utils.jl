@@ -16,6 +16,24 @@ _like(v, x) = x
 # `x` reversed along axis `d`.
 _reverse_dim(x::AbstractVector, d) = reverse(x)
 _reverse_dim(x, d) = reverse(x; dims = d)
+# A kernel's lags, its last axis, oldest first. A host array is read back to
+# front without a copy, since a run only reads its kernel; device and traced
+# arrays are copied reversed, which their kernels index natively.
+_oldest_lags(x::AbstractVector) = _reverse_dim(x, 1)
+_oldest_lags(x::AbstractMatrix) = _reverse_dim(x, 2)
+_oldest_lags(x::Union{Vector, Matrix}) = _Reversed(x)
+
+struct _Reversed{T, N, A <: Array{T, N}} <: AbstractArray{T, N}
+    x::A
+end
+Base.size(r::_Reversed) = size(r.x)
+Base.IndexStyle(::Type{<:_Reversed}) = IndexCartesian()
+Base.@propagate_inbounds function Base.getindex(r::_Reversed{<:Any, 1}, i::Int)
+    return r.x[length(r.x) + 1 - i]
+end
+Base.@propagate_inbounds function Base.getindex(r::_Reversed{<:Any, 2}, i::Int, j::Int)
+    return r.x[i, size(r.x, 2) + 1 - j]
+end
 
 # The primal value of `x`, through any nesting of dual numbers (their
 # method is in the dual-number extension), for deciding a branch. A dual

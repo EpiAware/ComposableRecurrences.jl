@@ -371,8 +371,8 @@ end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
 # the kernel with a contiguous, oldest-first window.
-_oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
-_oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
+_oldest_first(g::AbstractVector) = _oldest_lags(g)
+_oldest_first(g::PerStratum) = PerStratum(_oldest_lags(g.x))
 function _oldest_first(g::Pairwise)
     return _OldestFirstPairwise(_reverse_dim(permutedims(g.x, (3, 2, 1)), 1))
 end
