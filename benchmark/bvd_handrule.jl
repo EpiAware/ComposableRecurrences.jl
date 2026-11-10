@@ -173,35 +173,37 @@ function delay_loop(x::AbstractVector, delay::AbstractVector)
 end
 
 @doc raw"""
-    zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+    zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
 
 The mixed zone share renewal, from day 1. Each zone's own force is
-``u_{z,t} = e^{δ_{t,z}} (w0_z Λ^{pre}_{p,t} + \sum_s g_s I_{z,t-s})``; a share
-``ε_z`` of it spills within its patch, ``v = (1 - ε) ∘ u + W (ε ∘ u)``, and
-the import pattern ``h = B (ow ∘ u)`` reads it before the spill. Patch `p`'s
-infections ``Ī_{p,t}`` go a share ``1 - φ_{p,t}`` by `v` and ``φ_{p,t}`` by
-`h` (by `v` where `h` sums to the floor or less). `δ` is days × zones and
-`φ`, `I_bar` and `force_pre` patches × days. Returns the infections, days ×
-zones.
+``u_{z,t} = γ_{z,t} \sum_s g_s I_{z,t-s} + a_{z,t}``, with the gain `γ` and
+the pre-grid drive `a` formed by the caller as the package's arm forms them;
+a share ``ε_z`` of it spills within its patch,
+``v = (1 - ε) ∘ u + W (ε ∘ u)``, and the import pattern ``h = B (ow ∘ u)``
+reads it before the spill. Patch `p`'s infections ``Ī_{p,t}`` go a share
+``1 - φ_{p,t}`` by `v` and ``φ_{p,t}`` by `h` (by `v` where `h` sums to the
+floor or less). `gain` and `add` are zones × days and `φ` and `I_bar`
+patches × days. Returns the infections, days × zones.
 """
-function zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+function zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
     return _zone_state(
-        δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups
+        gain, add, ε, φ, ow, I_bar, g, within, between, groups
     ).infections
 end
 
-# `zone_loop` keeping each zone's own force `u`, the spilled force `v`, the
-# import pattern `h` and per patch and day the unfloored sums of `v` and `h`.
-function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
-    nd, nz = size(δ)
+# `zone_loop` keeping each zone's own force `u` and its renewal sum `c`, the
+# spilled force `v`, the import pattern `h` and per patch and day the
+# unfloored sums of `v` and `h`.
+function _zone_state(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
+    nz, nd = size(gain)
     np = length(groups)
     Tp = promote_type(
-        eltype(δ), eltype(w0), eltype(ε), eltype(φ), eltype(ow),
-        eltype(I_bar), eltype(g), eltype(force_pre), eltype(within),
-        eltype(between)
+        eltype(gain), eltype(add), eltype(ε), eltype(φ), eltype(ow),
+        eltype(I_bar), eltype(g), eltype(within), eltype(between)
     )
     I = zeros(Tp, nd, nz)
     U = zeros(Tp, nd, nz)
+    C = zeros(Tp, nd, nz)
     V = zeros(Tp, nd, nz)
     H = zeros(Tp, nd, nz)
     patch_total = zeros(Tp, np, nd)
@@ -215,16 +217,14 @@ function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, g
     floor_ = eps(Tp)
     @inbounds for j in 1:nd
         smax = min(L, j - 1)
-        for p in eachindex(groups)
-            fp = force_pre[p, j]
-            for z in groups[p]
-                acc = w0[z] * fp
-                for s in 1:smax
-                    acc = muladd(g[s], I[j - s, z], acc)
-                end
-                u[z] = exp(δ[j, z]) * acc
-                U[j, z] = u[z]
+        for z in 1:nz
+            acc = zero(Tp)
+            for s in 1:smax
+                acc = muladd(g[s], I[j - s, z], acc)
             end
+            C[j, z] = acc
+            u[z] = muladd(gain[z, j], acc, add[z, j])
+            U[j, z] = u[z]
         end
         for z in 1:nz
             eu[z] = ε[z] * u[z]
@@ -256,7 +256,9 @@ function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, g
             end
         end
     end
-    return (; infections = I, u = U, v = V, h = H, patch_total, share_total)
+    return (;
+        infections = I, u = U, c = C, v = V, h = H, patch_total, share_total,
+    )
 end
 
 # ---- the same loops with hand-written Mooncake rules ------------------------
@@ -271,8 +273,8 @@ patch_infections(Rt, g, seeds, K, ε, N) = patch_loop(Rt, g, seeds, K, ε, N)
 convolve_delay(x, delay) = delay_loop(x, delay)
 
 "`zone_loop` with a hand-written Mooncake rule."
-function zone_infections(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
-    return zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+function zone_infections(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
+    return zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
 end
 
 const _Vec = Vector{Float64}
@@ -442,23 +444,23 @@ end
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx,
     Tuple{
-        typeof(zone_infections), _Mat, _Vec, _Vec, _Mat, _Vec, _Mat, _Vec, _Mat,
+        typeof(zone_infections), _Mat, _Mat, _Vec, _Mat, _Vec, _Mat, _Vec,
         _Mat, _Mat, Vector{UnitRange{Int}},
     }
 )
 function Mooncake.rrule!!(
-        ::CoDual{typeof(zone_infections)}, δ::CoDual{_Mat}, w0::CoDual{_Vec},
-        ε::CoDual{_Vec}, φ::CoDual{_Mat}, ow::CoDual{_Vec}, I_bar::CoDual{_Mat},
-        g::CoDual{_Vec}, force_pre::CoDual{_Mat}, within::CoDual{_Mat},
+        ::CoDual{typeof(zone_infections)}, gain::CoDual{_Mat},
+        add::CoDual{_Mat}, ε::CoDual{_Vec}, φ::CoDual{_Mat}, ow::CoDual{_Vec},
+        I_bar::CoDual{_Mat}, g::CoDual{_Vec}, within::CoDual{_Mat},
         between::CoDual{_Mat}, groups::CoDual{Vector{UnitRange{Int}}}
     )
-    duals = (δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between)
+    duals = (gain, add, ε, φ, ow, I_bar, g, within, between)
     args = (map(primal, duals)..., primal(groups))
     st = _zone_state(args...)
     Ī = zero(st.infections)
     function zone_infections_pb(::NoRData)
         _zone_back!(map(tangent, duals), copy(Ī), st, args...)
-        return ntuple(_ -> NoRData(), 12)
+        return ntuple(_ -> NoRData(), 11)
     end
     return CoDual(st.infections, Ī), zone_infections_pb
 end
@@ -470,14 +472,12 @@ end
 # product a day, and their own cotangents are one outer product after the
 # walk.
 function _zone_back!(
-        bars, acc, st, δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between,
-        groups
+        bars, acc, st, gain, add, ε, φ, ow, I_bar, g, within, between, groups
     )
-    δ̄, w̄0, ε̄, φ̄, ōw, Ī_bar, ḡ, f̄_pre, W̄, B̄ = bars
-    nd, nz = size(δ)
+    γ̄, ā, ε̄, φ̄, ōw, Ī_bar, ḡ, W̄, B̄ = bars
+    nz, nd = size(gain)
     L = length(g)
     floor_ = eps(Float64)
-    E = exp.(δ)
     ū = zeros(nz)
     v̄ = zeros(nz)
     h̄ = zeros(nz)
@@ -546,20 +546,14 @@ function _zone_back!(
             ū[z] += w̄u[z] * ow[z]
         end
         smax = min(L, j - 1)
-        for p in eachindex(groups)
-            fp = force_pre[p, j]
-            pre = 0.0
-            for z in groups[p]
-                Λ̄ = ū[z] * E[j, z]
-                δ̄[j, z] += ū[z] * st.u[j, z]
-                w̄0[z] += Λ̄ * fp
-                pre += Λ̄ * w0[z]
-                for s in 1:smax
-                    acc[j - s, z] += Λ̄ * g[s]
-                    ḡ[s] += Λ̄ * st.infections[j - s, z]
-                end
+        for z in 1:nz
+            Λ̄ = ū[z] * gain[z, j]
+            γ̄[z, j] += ū[z] * st.c[j, z]
+            ā[z, j] += ū[z]
+            for s in 1:smax
+                acc[j - s, z] += Λ̄ * g[s]
+                ḡ[s] += Λ̄ * st.infections[j - s, z]
             end
-            f̄_pre[p, j] += pre
         end
     end
     mul!(W̄, transpose(V̄), st.u .* transpose(ε), 1.0, 1.0)
