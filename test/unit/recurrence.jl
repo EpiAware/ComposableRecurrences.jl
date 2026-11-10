@@ -28,6 +28,30 @@
     @test y ≈ vec(ref)
 end
 
+@testitem "Recurrence: a single series matches the same series among strata" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    # One stratum carries its last value from step to step and more strata
+    # interleave; both agree with the naive loop, for every kernel length,
+    # and so with each other.
+    rng = Xoshiro(4)
+    T = 15
+    for L in (1, 2, 5)
+        g = rand(rng, L) ./ L
+        h = rand(rng, L)
+        ϵ = randn(rng, T)
+        R = 0.5 .+ rand(rng, T)
+        y = Recurrence(g)(R; history = h, add = ϵ)
+        Y = Recurrence(g)(R; history = vcat(h', h'), add = vcat(ϵ', ϵ'))
+        ref = naive_recurrence(
+            (t, a, b, i) -> g[i], reshape(h, 1, L), T;
+            gain = (a, t) -> R[t], add = (a, t) -> ϵ[t]
+        )
+        @test y ≈ vec(ref)
+        @test Y[1, :] ≈ y
+        @test Y[2, :] == Y[1, :]
+    end
+end
+
 @testitem "Recurrence: strata with dense coupling" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(2)
@@ -561,6 +585,30 @@ end
     @test qv == [5.0, 11.0]
 end
 
+@testitem "Coupling pressure: floats and dual numbers match the product" begin
+    using ComposableRecurrences, ForwardDiff, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(11)
+    # Sizes on both sides of the four-wide blocks, plus a non-square block.
+    for (m, n) in ((1, 1), (3, 3), (4, 4), (5, 5), (9, 9), (12, 12), (6, 11))
+        C, p = rand(rng, m, n), rand(rng, n)
+        q = fill(NaN, m)
+        CR.forward!(C, CR.Pressure(), q, p, 1)
+        @test q ≈ C * p
+        pd = [ForwardDiff.Dual(p[b], rand(rng, 3)...) for b in 1:n]
+        qd = similar(pd, m)
+        CR.forward!(C, CR.Pressure(), qd, pd, 1)
+        @test ForwardDiff.value.(qd) ≈ C * p
+        for i in 1:3
+            @test ForwardDiff.partials.(qd, i) ≈ C * ForwardDiff.partials.(pd, i)
+        end
+        Ci, pi_ = rand(rng, 0:3, m, n), rand(rng, 0:3, n)
+        qi = zeros(Int, m)
+        CR.forward!(Ci, CR.Pressure(), qi, pi_, 1)
+        @test qi == Ci * pi_
+    end
+end
+
 @testitem "Recurrence: forward(r, Run(), R) and record infer" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences
@@ -623,7 +671,7 @@ end
     @test_throws "record names :state or :trace, got :pools" r(
         R; history = h, record = (:pools,)
     )
-    @test_throws "not available yet" r(R; history = h, record = (:pressures,))
+    @test_throws "trace.pressure" r(R; history = h, record = (:pressures,))
     @test_throws "once, got (:state, :state)" r(R; history = h, record = (:state, :state))
     @test_throws "once, got (:trace, :state, :trace)" r(
         R; history = h, record = (:trace, :state, :trace)

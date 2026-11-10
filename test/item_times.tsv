@@ -352,6 +352,8 @@
 139.2	Trace: gradients through a trace and the default trace of user modifiers, the rule against ForwardDiff
 17.4	Trace: state with a trace written in each step
 7.3	Trace: the default is the state after the step
+45.4	Trace: gradients through the pressure, the rule against ForwardDiff
+9.9	Trace: the pressure each step draws against, against pressure
 0.6	Trace: the flow amounts' pullback against forward mode
 78.1	Trace: user traces written in place, for each kind of step
 0.0	Transform implements the role interface
@@ -409,6 +411,7 @@
 9.8	Use case: imports added after depletion
 0.7	Use case: isolation as a thinned kernel
 7.0	Use case: isolation beds with overflow to the community
+8.9	Use case: a bed cap with a general length of stay
 1.1	Use case: multi-type extinction
 1.8	Use case: multi-type growth is the spectral radius
 4.7	Use case: per-pair generation intervals

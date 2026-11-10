@@ -302,26 +302,21 @@ function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
     return Y
 end
 
-# A computed kernel, whose weights come from a `Derived` or a `Survival`,
-# is filled as a dense `Primary()` kernel over the call's times, which the
-# traced loop then reads as it reads any other. Without this method a traced
-# call with one would match both this executor's method and the computed
-# kernel's.
+# A computed kernel is filled as a dense `Primary()` kernel, as on any
+# executor without its own loops; this method settles which of this
+# executor's method and the computed kernel's a traced call takes.
 function ComposableRecurrences._convolve!(
         ex::Traced, Y, c::_ComputedKernel, X, m, start
     )
-    stop = start + size(Y, 1) - 1
-    K, _ = ComposableRecurrences._fill_kernel(c, 0, stop, stop, Val(false))
-    return ComposableRecurrences._convolve!(
-        ex, Y, ComposableRecurrences._dense_kernel(K), X, m, start
-    )
+    return ComposableRecurrences._convolve_dense!(ex, Y, c, X, m, start)
 end
 
 # The coefficients a computed kernel reads may be traced: a traced array's
 # eltype is a traced number, which is not a `Real`, so the package's check
 # on the coefficient's shape does not match it.
 const _TracedCoefficient = Union{
-    TracedRNumber, AnyTracedRVector, PerStratum{<:AnyTracedRArray},
+    TracedRNumber, AnyTracedRVector,
+    PerStratum{<:Union{AnyTracedRVector, AnyTracedRMatrix}},
     TimeVarying{<:Any, <:Union{AnyTracedRVector, PerStratum{<:AnyTracedRMatrix}}},
 }
 ComposableRecurrences._check_coefficient(::_TracedCoefficient) = nothing
@@ -348,19 +343,12 @@ for op in (:+, :-, :*, :/, :^)
     end
 end
 
-# A survival's scratch at a traced eltype: every buffer a traced array, as
-# `zeros` gives one, where `Array{T}(undef, ...)` would give a Julia array
-# of traced numbers beside them.
-# It mirrors the package's `_scratch(::Survival, ...)` in
-# `src/kernels/weights.jl` field by field; keep the two in step.
-function ComposableRecurrences._scratch(
-        x::ComposableRecurrences.Survival, ::Type{Tp}, L, B
-    ) where {Tp <: TracedRNumber}
-    ns = max(ComposableRecurrences._coef_strata(x.hazard), 1)
-    return ComposableRecurrences._SurvivalScratch(
-        ComposableRecurrences._scratch(x.hazard, Tp, L, B), zeros(Tp, B, L, ns),
-        zeros(Tp, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
-    )
+# A survival's scratch buffers at a traced eltype are traced arrays, as
+# `zeros` gives, not Julia arrays of traced numbers.
+function ComposableRecurrences._alloc(
+        ::Type{Tp}, dims::Vararg{Int, N}
+    ) where {Tp <: TracedRNumber, N}
+    return zeros(Tp, dims...)
 end
 
 # Output `j` of every stratum.

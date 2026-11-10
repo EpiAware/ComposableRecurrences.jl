@@ -762,6 +762,23 @@ function _convolve!(ex, Y, c, X, m, start)
     _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
     return Y
 end
+# A per-stratum time-varying kernel stores its weights strata fastest, so
+# strata run inside time, in blocks from `_nblocks`: one, or one per task
+# when the loop splits. Device arrays keep one stratum per index, and a
+# traced call its own loop.
+function _convolve!(
+        ex::Union{Serial, _Current}, Y::Array, c::_TVPerStratum, X, m, start
+    )
+    S = size(Y, 2)
+    work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
+    n = _nblocks(ex, S, work)
+    _each!(_convolve_block!, ex, Y, n, work, n, Y, c, X, m, start)
+    return Y
+end
+function _convolve_block!(b, n, Y, c, X, m, start)
+    _strata_forward!(_chunk(b, size(Y, 2), n), Y, c, X, m, start)
+    return nothing
+end
 
 function _convolve_body!(k, Y, c::AbstractVector, X, m, start)
     _convolve_series!(view(Y, :, k), c, X, k, m, start)
@@ -809,10 +826,15 @@ _first_lag(c::TimeVarying{Primary}, t) = max(0, t - _last_column(c))
 # A per-stratum kernel, in either indexing: one dot per output time `t` of
 # the window with the weights `_lagweight` reads, from the column
 # `_lagcolumn` picks for the indexing. The column bodies above measured
-# faster for column kernels, this for per-stratum ones.
+# faster for column kernels, this for per-stratum ones. Time runs
+# outermost, so the strata `ks` read neighbouring weights in turn.
 function _convolve_body!(k, Y, c::_TVPerStratum, X, m, start)
+    _strata_forward!(k:k, Y, c, X, m, start)
+    return nothing
+end
+function _strata_forward!(ks, Y, c, X, m, start)
     L = _nlags(c)
-    for j in axes(Y, 1)
+    for j in axes(Y, 1), k in ks
         t = start + j - 1
         acc = zero(eltype(Y))
         @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
@@ -982,17 +1004,29 @@ end
 
 # A per-stratum kernel's reverse pass, in either indexing, the transpose
 # of its forward body: each output cotangent adds to the weights it read,
-# through `_add_lagweight!`, and to the inputs.
+# through `_add_lagweight!`, and to the inputs. Time runs outermost, as in
+# the forward pass; a single stratum keeps its loop free of the strata loop.
 function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     L = _nlags(c)
-    for k in ks, j in axes(Ȳ, 1)
-        t = start + j - 1
-        @inbounds a = Ȳ[j, k]
-        @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
-            r = m + t - d
-            _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
-            X̄[r, k] += _lagweight(c, k, d, t) * a
+    if length(ks) == 1
+        k = first(ks)
+        for j in axes(Ȳ, 1)
+            _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
         end
+    else
+        for j in axes(Ȳ, 1), k in ks
+            _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
+        end
+    end
+    return nothing
+end
+@inline function _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
+    t = start + j - 1
+    @inbounds a = Ȳ[j, k]
+    @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
+        r = m + t - d
+        _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
+        X̄[r, k] += _lagweight(c, k, d, t) * a
     end
     return nothing
 end
@@ -1013,6 +1047,10 @@ so ``c_{t,i,l}`` is the part of the input at time ``t - l`` that arrives
 at ``t``: a reporting triangle by arrival time.
 Terms whose input is before the history, or past a ragged column's end,
 are zero.
+A kernel computed from coefficients (`TimeVarying(d, Primary())` with `d` a
+[`ComposableRecurrences.Derived`](@ref) or a
+[`ComposableRecurrences.Survival`](@ref)) is an `ArgumentError`: pass the
+dense kernel of its weights, `TimeVarying(K, Primary())`.
 
 Takes the arguments of a call of `c` except `add`, which no lag carries.
 The output is `L × T` for a single series and `S × L × T` for `S` strata,
