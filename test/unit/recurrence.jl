@@ -922,3 +922,27 @@ end
         end
     end
 end
+
+@testitem "Recurrence: wide strata outputs from either wide path match the copy" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    r = Recurrence([0.6, 0.3]; coupling = [0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.2 0.8])
+    h = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    f(θ) = sum(abs2, r(reshape(θ, 3, 6); history = h))
+    θ = collect(range(0.5, 1.5; length = 18))
+    # A gradient in chunks of nine runs on dual numbers of floats of 80
+    # bytes, which take the strata × time buffer; a Hessian runs on nested
+    # dual numbers, which take the in-place transpose. One partial at a time
+    # each is copied out.
+    D9 = ForwardDiff.Dual{Nothing, Float64, 9}
+    N9 = ForwardDiff.Dual{Int, D9, 9}
+    @test sizeof(D9) > CR._INPLACE_BYTES && sizeof(N9) > CR._INPLACE_BYTES
+    @test CR._buffer(h, D9, 2, 6, 3) isa Transpose{D9, Matrix{D9}}
+    @test CR._buffer(h, N9, 2, 6, 3) isa Matrix{N9}
+    one = ForwardDiff.Chunk{1}()
+    nine = ForwardDiff.Chunk{9}()
+    @test ForwardDiff.gradient(f, θ, ForwardDiff.GradientConfig(f, θ, nine)) ≈
+        ForwardDiff.gradient(f, θ, ForwardDiff.GradientConfig(f, θ, one))
+    @test ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, nine)) ≈
+        ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, one))
+end

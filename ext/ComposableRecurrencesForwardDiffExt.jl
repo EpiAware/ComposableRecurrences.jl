@@ -11,7 +11,7 @@ import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback
-using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
+using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
@@ -521,16 +521,18 @@ end
 _primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
 _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 
-# A run on dual numbers wider than 64 bytes over strata holds its buffer
-# strata × time and reads it through `transpose`, so its output takes over
-# the rows after the history rather than copying them. Narrower dual
-# numbers, nested ones and one series keep the time × strata buffer.
+# A run on dual numbers of floats wider than `_INPLACE_BYTES` over strata
+# holds its buffer strata × time and reads it through `transpose`, so its
+# output takes over the rows after the history rather than copying them.
+# Narrower dual numbers and one series keep the time × strata buffer, and
+# other wide numbers, nested dual numbers among them, transpose it in place
+# (`_output`).
 const _FloatDual = Dual{<:Any, <:_IEEEFloat}
 const _CPUMatrix = Union{
     Matrix, SubArray{<:Any, 2, <:Array}, Base.ReshapedArray{<:Any, 2, <:Array},
     Base.ReshapedArray{<:Any, 2, <:SubArray{<:Any, <:Any, <:Array}},
 }
-_strata_major(::Type{Tp}) where {Tp} = sizeof(Tp) > 64
+_strata_major(::Type{Tp}) where {Tp} = sizeof(Tp) > _INPLACE_BYTES
 function _buffer(h::_CPUMatrix, ::Type{Tp}, D, T, S) where {Tp <: _FloatDual}
     _strata_major(Tp) || return _cpu_buffer(Tp, D, T, S)
     P = Matrix{Tp}(undef, S, D + T)
