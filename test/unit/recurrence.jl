@@ -840,6 +840,15 @@ end
     threaded = CR.Threaded(; min_work = 0, ntasks = 2)
     for r in runs, ex in (CR.Serial(), threaded)
         Base.ScopedValues.with(CR.EXECUTOR => ex) do
+            # A call with no record, from a full and a short history.
+            for hk in (h, h[:, 2:2])
+                y = r(wide(R); history = wide(hk))
+                @test ForwardDiff.value.(y) ≈ r(R; history = hk)
+                for j in (1, 12)
+                    one = r(seeds(R, j); history = seeds(hk, j))
+                    @test ForwardDiff.partials.(y, j) ≈ ForwardDiff.partials.(one, 1)
+                end
+            end
             out = r(wide(R); history = wide(h), record = (:state,))
             @test size(out.y) == size(R)
             @test ForwardDiff.value.(out.y) ≈ r(R; history = h)

@@ -11,7 +11,7 @@ import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback
-using ComposableRecurrences: _ArrayPressure, _CPUArray, _Chained, _IEEEFloat, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
+using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
@@ -521,26 +521,25 @@ end
 _primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))
 _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 
-# A buffer of dual numbers over strata is held strata × time and read
-# through its transpose, so the output, strata × time, takes over the rows
-# after the history rather than copying them out. A dual number wider than
-# 64 bytes (a float and eight or more partials of `Float64`) spans a cache
-# line, so reading a stratum's window across strata costs about what reading
-# it down a column does; narrower ones keep the time × strata buffer, where
-# the strided reads would cost more. Other element types, nested dual
-# numbers among them, keep the time × strata buffer too.
+# A run on dual numbers wider than 64 bytes over strata holds its buffer
+# strata × time and reads it through `transpose`, so its output takes over
+# the rows after the history rather than copying them. Narrower dual
+# numbers, nested ones and one series keep the time × strata buffer.
 const _FloatDual = Dual{<:Any, <:_IEEEFloat}
+const _CPUMatrix = Union{
+    Matrix, SubArray{<:Any, 2, <:Array}, Base.ReshapedArray{<:Any, 2, <:Array},
+    Base.ReshapedArray{<:Any, 2, <:SubArray{<:Any, <:Any, <:Array}},
+}
 _strata_major(::Type{Tp}) where {Tp} = sizeof(Tp) > 64
-function _buffer(h::_CPUArray, ::Type{Tp}, D, T, S) where {Tp <: _FloatDual}
-    if !(h isa AbstractMatrix && _strata_major(Tp))
-        return invoke(_buffer, Tuple{_CPUArray, Type, Any, Any, Any}, h, Tp, D, T, S)
-    end
+function _buffer(h::_CPUMatrix, ::Type{Tp}, D, T, S) where {Tp <: _FloatDual}
+    _strata_major(Tp) || return _cpu_buffer(Tp, D, T, S)
     P = Matrix{Tp}(undef, S, D + T)
     for i in 1:D, k in 1:S
         P[k, i] = zero(Tp)
     end
     return transpose(P)
 end
+# A dual number of floats is plain bits, so its memory can be taken over.
 function _output(
         H::Transpose{Tp, Matrix{Tp}}, D, T, h::AbstractMatrix
     ) where {Tp <: _FloatDual}
