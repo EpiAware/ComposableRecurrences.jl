@@ -685,11 +685,12 @@ end
 function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
 end
-# `g(H)` is read only through `ā_to` and `B`, zero where no hazard flow out
-# of a pool enters another, so the step's `_step_leaves` serves here too.
+# The leave terms are the step's: where a pool's one hazard flow enters a
+# pool, the share it moves stands in for `g(H)`, and the pullback needs
+# neither `g` nor its slope.
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _step_leaves(fs, i, g, t, z), Val(N))
+    L = ntuple(@inline(i -> _group_leaves(fs, i, g, t, z)), Val(N))
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
@@ -700,8 +701,22 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     _rates_back!(fs, f̄s, x, L, H, B, ȳ, āt, g, t)
     return ntuple(Val(N)) do i
         E, gH, P = L[i]
-        (E - P) * ȳ[i] + gH * B[i] + _shares_back(fs, āt, i, g, t, zero(gH))
+        (E - P) * ȳ[i] + _leave_back(gH, B[i], fs, āt, i) +
+            _shares_back(fs, āt, i, g, t, zero(E))
     end
+end
+
+# What leaves pool `i` at a rate, against the arrivals' cotangents:
+# `g(H) B_i`, or for a pool whose one hazard flow enters a pool, the share
+# it moves times that pool's arrival cotangent.
+_leave_back(gH, B, fs, ā, i) = gH * B
+_leave_back(w::_Moved, B, fs, ā, i) = w.F * _hazard_arrival(fs, ā, i)
+_hazard_arrival(::Tuple{}, ā, i) = zero(eltype(ā))
+function _hazard_arrival(fs::Tuple, ā, i)
+    f = first(fs)
+    into = f isa Flow{<:Any, _FlowHazard} && _from(f) == i && _to(f) > 0
+    a = into ? ā[_to(f)] : zero(eltype(ā))
+    return a + _hazard_arrival(Base.tail(fs), ā, i)
 end
 
 # `Σ_f p_f ā_to(f)` over the share flows out of pool `i`.
@@ -726,10 +741,16 @@ function _rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = _from(f)
     E, gH, _ = L[i]
     āto = _to(f) > 0 ? ā[_to(f)] : zero(eltype(ā))
-    r̄ = x[i] * (gH * āto + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
+    r̄ = _rate_bar(x[i], E, gH, H[i], B[i], āto, ȳ[i])
     add_param!(cotangent(f̄, :demand), f.demand, r̄, g, t)
     return nothing
 end
+# The rate's cotangent `x (g ā_to + g′ B - e^{-H} ȳ)`; with one hazard flow
+# out of the pool, `d(H g)/dH = e^{-H}`, so it is `x e^{-H} (ā_to - ȳ)`.
+function _rate_bar(x, E, gH, H, B, āto, ȳ)
+    return x * (gH * āto + _leave_slope(H, E, gH) * B - E * ȳ)
+end
+_rate_bar(x, E, w::_Moved, H, B, āto, ȳ) = x * E * (āto - ȳ)
 function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = _from(f)
     āto = _to(f) > 0 ? ā[_to(f)] : zero(eltype(ā))
