@@ -501,10 +501,26 @@ function EnzymeRules.reverse(
     cache, y, dy = tape
     # An unused output still owes each `Active` leaf a zero cotangent.
     dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
-    if EnzymeRules.runtime_activity(config) && _any_shares(leaves)
-        return _reverse_leaves(_Shared(), X, cache, y, dy, leaves)
+    if EnzymeRules.runtime_activity(config)
+        # The inferred mirrors save most on a single series, whose setup is
+        # much of its gradient; elsewhere they cost more to compile than they
+        # save, so other outputs keep the checked mode.
+        y isa AbstractVector || return _reverse_leaves(_Shared(), X, cache, y, dy, leaves)
+        _any_shares(leaves) && return _reverse_shared(X, cache, y, dy, leaves)
     end
     return _reverse_leaves(_Distinct(), X, cache, y, dy, leaves)
+end
+# A shared shadow is found only at run time. `invokelatest` hides the call
+# from inference, so that reverse pass is compiled only for calls that take
+# it, not for every call beside the distinct one. Its return type is the
+# same: an `Active` leaf's cotangent has its value's type and every other
+# leaf returns `nothing`.
+@noinline function _reverse_shared(::Type{X}, cache, y, dy, leaves) where {X}
+    ret = Base.invokelatest(_reverse_leaves, _Shared(), X, cache, y, dy, leaves)
+    return ret::_rets(typeof(leaves))
+end
+@generated function _rets(::Type{L}) where {L <: Tuple}
+    return Tuple{(A <: Active ? A.parameters[1] : Nothing for A in L.parameters)...}
 end
 # The output's shadow, sharing the reverse pass's buffer where it can.
 function _shadow_of(op, y, cache)
