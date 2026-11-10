@@ -8,7 +8,7 @@ module DocsPerformance
     using ComposableRecurrences: ComposableRecurrences
     using Markdown: Markdown
 
-    export performance_plot
+    export performance_plot, performance_table
 
     const RESULTS = joinpath(
         pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv"
@@ -94,6 +94,74 @@ module DocsPerformance
         return fg
     end
 
+    # The method a block's package time is compared with: its hand loop, or
+    # its first hand-loop variant, or `nothing` for a block without one.
+    function reference_method(methods)
+        "hand loop" in methods && return "hand loop"
+        i = findfirst(m -> startswith(m, "hand loop"), methods)
+        return i === nothing ? nothing : methods[i]
+    end
+
+    # The minimum time of `method` on `target` in `rows`, or `nothing`.
+    function min_time(rows, method, target)
+        hit = @subset(rows, :method .== method, :target .== target, :status .== "ok")
+        return isempty(hit) ? nothing : parse(Float64, only(hit.min_us))
+    end
+
+    # `ref / pkg` as a speed-up, or a dash when either time is missing.
+    function speedup(rows, ref, target)
+        pkg = min_time(rows, "ComposableRecurrences", target)
+        other = min_time(rows, ref, target)
+        (pkg === nothing || other === nothing) && return "–"
+        return string(round(other / pkg; digits = 1), "×")
+    end
+
+    """
+        performance_table(; reference = :hand_loop, file = RESULTS)
+
+    A table of how many times faster the package is than hand-written code,
+    one row per block of `file` at its largest size, naming its matrix case,
+    and one column per target:
+    the reference method's minimum time over the package's.
+    Above 1 the package is faster; below 1 it is slower.
+    `reference = :hand_loop` compares with each block's hand loop,
+    differentiated by the same backend; `reference = :hand_rules` compares
+    with the hand loop given hand-written Mooncake rules, in the blocks that
+    have them.
+    """
+    function performance_table(; reference = :hand_loop, file = RESULTS)
+        bench = read_results(file)
+        bench === nothing && return Markdown.parse(
+            "The benchmark results are not available in this build."
+        )
+        targets = reference === :hand_rules ? TARGETS[3:3] : TARGETS
+        cased = hasproperty(bench, :case)
+        header = "| Block | " * (cased ? "Case | " : "") * "Size | " *
+            join(last.(targets), " | ") * " |"
+        lines = [
+            header,
+            "|:--|" * (cased ? ":--|" : "") * ":--|" * repeat("--:|", length(targets)),
+        ]
+        for block in unique(bench.block)
+            rows = @subset(bench, :block .== block)
+            rows = @subset(rows, :size .== last(rows.size))
+            methods = unique(rows.method)
+            ref = reference === :hand_rules ?
+                ("hand rules" in methods ? "hand rules" : nothing) :
+                reference_method(methods)
+            (ref === nothing || !("ComposableRecurrences" in methods)) && continue
+            cells = [speedup(rows, ref, first(t)) for t in targets]
+            case = cased ?
+                "`" * first(@subset(rows, :method .== "ComposableRecurrences").case) * "` | " : ""
+            push!(
+                lines, "| $block | $case`$(first(rows.size))` | " *
+                    join(cells, " | ") * " |"
+            )
+        end
+        push!(lines, "", "Minimum times at revision $(join(unique(bench.revision), ", ")).")
+        return Markdown.parse(join(lines, '\n'))
+    end
+
 end # module DocsPerformance
 
-using .DocsPerformance: performance_plot
+using .DocsPerformance: performance_plot, performance_table
