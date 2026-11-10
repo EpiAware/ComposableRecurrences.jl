@@ -818,12 +818,16 @@ end
 @testitem "Recurrence: wide dual numbers over strata run strata-major" begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra
     CR = ComposableRecurrences
-    # Twelve partials take the strata × time buffer; two partials, or one
-    # series, keep time × strata.
-    D12, D2 = ForwardDiff.Dual{Nothing, Float64, 12}, ForwardDiff.Dual{Nothing, Float64, 2}
+    # Dual numbers wider than 64 bytes take the strata × time buffer; narrower
+    # ones, one series and nested dual numbers keep time × strata.
+    D12 = ForwardDiff.Dual{Nothing, Float64, 12}
     @test CR._buffer(ones(3, 2), D12, 2, 5, 3) isa Transpose{D12, Matrix{D12}}
-    @test CR._buffer(ones(3, 2), D2, 2, 5, 3) isa Matrix{D2}
     @test CR._buffer(ones(2), D12, 2, 5, 1) isa Matrix{D12}
+    D2, F12 = ForwardDiff.Dual{Nothing, Float64, 2}, ForwardDiff.Dual{Nothing, Float32, 12}
+    N12 = ForwardDiff.Dual{Int, D12, 1}
+    for Tn in (D2, F12, N12)
+        @test CR._buffer(ones(3, 2), Tn, 2, 5, 3) isa Matrix{Tn}
+    end
     # A run on twelve partials against one run per partial.
     seeds(x, j) = map(v -> ForwardDiff.Dual{Nothing}(v, j / (1 + v)), x)
     wide(x) = map(v -> ForwardDiff.Dual{Nothing}(v, ntuple(j -> j / (1 + v), 12)...), x)

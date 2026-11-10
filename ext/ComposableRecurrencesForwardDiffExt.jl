@@ -523,12 +523,14 @@ _primal_type(::Type{<:ForwardDiff.Dual{<:Any, V}}) where {V} = _primal_type(V)
 
 # A buffer of dual numbers over strata is held strata × time and read
 # through its transpose, so the output, strata × time, takes over the rows
-# after the history rather than copying them out. A dual number of eight or
-# more partials spans a cache line or more, so reading a stratum's window
-# across strata costs about what reading it down a column does; smaller ones
-# keep the time × strata buffer, where the strided reads would cost more.
+# after the history rather than copying them out. A dual number wider than
+# 64 bytes (a float and eight or more partials of `Float64`) spans a cache
+# line, so reading a stratum's window across strata costs about what reading
+# it down a column does; narrower ones keep the time × strata buffer, where
+# the strided reads would cost more. Other element types, nested dual
+# numbers among them, keep the time × strata buffer too.
 const _FloatDual = Dual{<:Any, <:_IEEEFloat}
-_strata_major(::Type{<:Dual{<:Any, <:Any, N}}) where {N} = N >= 8
+_strata_major(::Type{Tp}) where {Tp} = sizeof(Tp) > 64
 function _buffer(h::_CPUArray, ::Type{Tp}, D, T, S) where {Tp <: _FloatDual}
     if !(h isa AbstractMatrix && _strata_major(Tp))
         return invoke(_buffer, Tuple{_CPUArray, Type, Any, Any, Any}, h, Tp, D, T, S)
