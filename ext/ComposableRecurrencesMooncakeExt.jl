@@ -219,11 +219,10 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad_wide)}, args::Vararg{CoDual, N}) w
     return Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
 end
 
-# The rule's route is chosen per call: `_fit` reads the strata count and the
-# parts, so a rule Mooncake derived for `_route` would infer every branch,
-# and with it plain AD through the whole run, even when no call takes it.
-# As a primitive the route compiles only the rule, and builds plain AD's
-# derived rule the first time a call takes it. `_ad_wide` is the rule here.
+# `_fit` picks the route per call, so a rule Mooncake derived for `_route`
+# would infer plain AD through the whole run even when no call takes it. As
+# a primitive the route compiles the rule (`_ad_wide` is the rule here) and
+# builds plain AD's rule the first time a call takes it.
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode,
     Tuple{typeof(_route), Val{:rule}, Vararg}
@@ -243,19 +242,23 @@ function (r::_RoutePullback)(ȳ)
     r̄ = r.pb(ȳ)
     return (first(r̄), NoRData(), Base.tail(r̄)...)
 end
-# Plain AD of the call through a derived rule built on its first use and
-# cached per argument types, under a lock. The cache keeps one rule per
-# types, rebuilt when the call runs in a newer world, so a method defined
-# since is seen as a derived rule would see it. The output has the rule's
-# type; the pullback is held untyped, a dynamic call on a route that
-# already traces the whole run.
+# The output is typed as the rule route's, which inference folds, so the
+# primitive's return type does not widen for the calls that take the rule.
 function _plain_route(args::Vararg{CoDual, N}) where {N}
     rule = _plain_rule(map(primal, args)...)
     y, pb = rule(Mooncake.zero_fcodual(_hooked_plain), args...)
-    Y = fieldtype(Base.promote_op(_rule_route, map(typeof, args)...), 1)
-    return y::Y, _RoutePullback{Any}(pb)
+    return _as_rule_output(y, args...), _RoutePullback{Any}(pb)
+end
+function _as_rule_output(y, args::Vararg{CoDual, N}) where {N}
+    R = Base.promote_op(_rule_route, map(typeof, args)...)
+    return R isa DataType && R <: Tuple && isconcretetype(fieldtype(R, 1)) ?
+        y::fieldtype(R, 1) : y
 end
 _rule_route(args...) = Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+# Plain AD's rules, one per argument types, built at the world of the call
+# that needs it, as Mooncake builds its lazy rules, and rebuilt when a call
+# runs in a newer world. Like Mooncake's own rule caches it keeps an entry
+# for each argument types that has taken this route.
 const _PLAIN_RULES = Dict{Type, Tuple{UInt, Any}}()
 const _PLAIN_RULES_LOCK = ReentrantLock()
 function _plain_rule(ps::Vararg{Any, N}) where {N}
@@ -263,7 +266,9 @@ function _plain_rule(ps::Vararg{Any, N}) where {N}
     return lock(_PLAIN_RULES_LOCK) do
         built = get(_PLAIN_RULES, typeof(ps), nothing)
         built !== nothing && first(built) == world && return last(built)
-        rule = Mooncake.build_rrule(_hooked_plain, ps...)
+        interp = Mooncake.get_interpreter(Mooncake.ReverseMode, world)
+        sig = Tuple{typeof(_hooked_plain), map(typeof, ps)...}
+        rule = Mooncake.build_rrule(interp, sig; skip_world_age_check = true)
         _PLAIN_RULES[typeof(ps)] = (world, rule)
         return rule
     end
