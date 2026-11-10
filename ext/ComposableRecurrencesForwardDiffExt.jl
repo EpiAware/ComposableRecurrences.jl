@@ -13,7 +13,7 @@ import ComposableRecurrences: _array_pressure, _chain, _check_jacobian, _local_s
     _transform_seeds, _value_pullback
 using ComposableRecurrences: _ArrayPressure, _Chained, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
-    _addparams!, _array_seeds, _exp_neg_branch, _nparams, _param_tuple, _params,
+    _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params,
     _leave_slope
@@ -526,8 +526,13 @@ function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:Dual})
     return _Chained(g)
 end
 
-# Dual numbers branch on their value, as plain floats do.
-_exp_neg(x::ForwardDiff.Dual) = _exp_neg_branch(x)
+# Dual numbers branch on their value, as plain floats do. `e^{-x}` and
+# `expm1(-x)` share the slope `-e^{-x}`, so the partials take one multiply.
+function _exp_neg(x::Dual{T}) where {T}
+    E, em = _exp_neg(value(x))
+    d = -E * ForwardDiff.partials(x)
+    return Dual{T}(E, d), Dual{T}(em, d)
+end
 # `exp(-H)` and `g(H)` from the value and slope: one multiply per partial.
 function _leave(H::Dual{T}) where {T}
     v = value(H)

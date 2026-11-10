@@ -74,6 +74,8 @@ const EXPECTED = (
     threaded_loop = (73810.0, 3600.0),
 )
 
+# A relative 1e-8 allows for BLAS and fused multiply-adds that differ in the
+# last bits across CPUs and Julia versions, and still catches a real change.
 function check(name::String, got::NTuple{2, Float64}, want::NTuple{2, Float64})
     ok = all(isapprox.(got, want; rtol = 1.0e-8))
     println(Core.stdout, ok ? "ok   " : "FAIL ", name, " ", got[1], " ", got[2])

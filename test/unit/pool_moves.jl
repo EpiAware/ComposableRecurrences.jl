@@ -360,6 +360,60 @@ end
     end
 end
 
+@testitem "Depletion without a draw: a pool's one hazard flow moves -expm1(-H)" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Pool 1 has one hazard flow into a pool; pool 2 two; pool 3's one leaves
+    # the system.
+    depletion(r) = CR.Depletion(
+        CR.Flow(:A => :B, r), CR.Flow(:A => 0, 0.1; form = CR.Share()),
+        CR.Flow(:B => :C, 0.2), CR.Flow(:B => :A, 0.3), CR.Flow(:C => 0, 0.4);
+        pools = (:A, :B, :C)
+    )
+    fs = only(depletion(0.3).pieces)
+    @test CR._one_rated_into(fs, 1)
+    @test !CR._one_rated_into(fs, 2)
+    @test !CR._one_rated_into(fs, 3)
+    @test map(i -> CR._hazards_out(fs, i), (1, 2, 3)) == (1, 2, 1)
+    @test CR._hazards_out((), 1) == 0
+    for i in 2:3
+        @test CR._group_leaves(fs, i, 1, 1, 0.0) === CR._step_leaves(fs, i, 1, 1, 0.0)
+    end
+    setprecision(BigFloat, 256) do
+        for H in (0.0, 1.0e-12, 1.0e-6, 0.03, 0.49, 0.5, 2.0, 40.0)
+            fs = only(depletion(H).pieces)
+            E, w, P = CR._group_leaves(fs, 1, 1, 1, 0.0)
+            Es, gH, Ps = CR._step_leaves(fs, 1, 1, 1, 0.0)
+            @test (E, P) == (Es, Ps)
+            @test w isa CR._Moved
+            F = CR._by_rate(fs[1], 1, 1, w)
+            @test CR._by_rate(fs[2], 1, 1, w) == 0
+            ref = -expm1(-big(H))
+            @test abs(F - ref) <= eps(Float64(ref))
+            # As accurate as the general form, `H g(H)`, or more.
+            @test abs(F - ref) <= abs(H * gH - ref)
+        end
+    end
+    # A run with a share flow into a pool beside the one hazard flow, against
+    # a hand loop.
+    for r in (1.0e-9, 0.3, 4.0)
+        fl = CR.Depletion(
+            CR.Flow(:A => :B, r), CR.Flow(:A => :C, 0.2; form = CR.Share());
+            pools = (:A, :B, :C)
+        )
+        A = [k == 1 ? 10.0 : 0.0 for k in 1:3, t in 1:6]
+        y = Recurrence([1.0]; modifiers = (fl,))(;
+            history = zeros(3, 1), add = A, stop = 6
+        )
+        x = zeros(3)
+        for t in 1:6
+            a, b, c = x .+ A[:, t]
+            x = [(exp(-r) - 0.2) * a, b - expm1(-r) * a, c + 0.2 * a]
+            @test y[:, t] ≈ x rtol = 1.0e-14
+        end
+    end
+end
+
 @testitem "Depletion without a draw: resume, Float32 and the adjoint route" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
