@@ -1119,11 +1119,28 @@ function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return Y, _state(Y, H, states, h, τ0)
 end
 
+# The state to resume from: the last `D` times of the history then the
+# output, in the public layout, read from `Y` and `h` rather than the
+# buffer, which a strata output may have taken over (`_output`).
 function _state(Y, H, states, h, τ0)
     T = size(Y, ndims(Y))
     D = size(H, 1) - T
-    return State(_public(H, (T + 1):(T + D), h), states, τ0 + T)
+    return State(_state_history(Y, h, eltype(H), D, T), states, τ0 + T)
 end
+function _state_history(Y, h, ::Type{Tp}, D, T) where {Tp}
+    T >= D && return copy(selectdim(Y, ndims(Y), (T - D + 1):T))
+    # The buffer's history rows after the first `T`, as `_load_history!`
+    # loads them: the last of `h`, right aligned, zero before.
+    out = fill!(similar(Y, Tp, _with_times(Y, D)...), zero(Tp))
+    m = size(h, ndims(h))
+    n = min(m, D - T)
+    selectdim(out, ndims(out), (D - T - n + 1):(D - T)) .=
+        selectdim(h, ndims(h), (m - n + 1):m)
+    selectdim(out, ndims(out), (D - T + 1):D) .= Y
+    return out
+end
+_with_times(Y::AbstractVector, n) = (n,)
+_with_times(Y::AbstractMatrix, n) = (size(Y, 1), n)
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
