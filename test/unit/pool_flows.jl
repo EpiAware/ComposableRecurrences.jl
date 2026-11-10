@@ -264,12 +264,18 @@ end
 
 @testitem "Depletion flows: more than 32 flows" setup = [AdjointCheck] begin
     using ComposableRecurrences, Test
-    # Past 32 flows a step that recursed over them stopped inferring and
-    # allocated at each step. Two linked pools among 40, the rest joined at
-    # a zero rate, run as the two pools alone.
+    # Two linked pools among 40, the rest joined by rate, share and count
+    # flows that move nothing, run as the two pools alone; the step infers
+    # and neither pass allocates per step.
     P, T = 40, 12
     names = Tuple(Symbol(:p, i) for i in 1:P)
-    rest = Tuple(CR.Flow(names[i] => names[i + 1], 0.0) for i in 3:(P - 1))
+    form(i) = i == 35 ? CR.Share() : i == 36 ? CR.Truncate() : nothing
+    function link(i)
+        f = form(i)
+        e = names[i] => names[i + 1]
+        return f === nothing ? CR.Flow(e, 0.0) : CR.Flow(e, 0.0; form = f)
+    end
+    rest = Tuple(link(i) for i in 3:(P - 1))
     many = CR.Depletion(
         CR.Flow(:p1 => :p2, 0.1), CR.Flow(:p2 => 0, 0.2), rest...; pools = names
     )
@@ -280,11 +286,41 @@ end
     r = Recurrence(g; modifiers = (many,))
     y = @inferred r(R; history = h)
     @test y[1:2, :] ≈ Recurrence(g; modifiers = (two,))(R[1:2, :]; history = h[1:2, :])
-    # The steps allocate nothing: a call over more steps allocates as often.
+    # A call over four times the steps allocates as often, forward and back.
     long = repeat(R, 1, 4)
     r(long; history = h)
     @test (@allocations r(R; history = h)) == (@allocations r(long; history = h))
+    function back_allocations(x)
+        xs = (r, recargs(x, nothing, h)...)
+        y, cache = CR._run_forward(xs...)
+        ms = zero_mirror(xs)
+        grads = (; piece = first(ms), y = one.(y), args = Base.tail(ms))
+        return @allocations CR._run_pullback!(grads, r, cache)
+    end
+    back_allocations(R)
+    back_allocations(long)
+    @test back_allocations(R) == back_allocations(long)
     @test pullback_matches(r, recargs(R, nothing, h)...)
+end
+
+@testitem "Depletion flows: tuple folds and their loops agree" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # The unrolled folds and the loops taken for a tuple of unknown length
+    # give the same results over entries of mixed types.
+    xs = (1, 2.5, 3.0f0, 4)
+    op(acc, x, k) = acc + k * x
+    @test CR._tuple_fold(op, 0.0, xs) == CR._fold_loop(op, 0.0, xs) == 31.0
+    step(s, x, k) = (s + x * k, s + x)
+    @test CR._tuple_scan(step, 0, xs) == CR._scan_loop(step, 0, xs)
+    @test CR._tuple_scan(step, 0, xs) == (1, 6.0, 12.5, 22.5)
+    fwd(s, x, k) = (s + x, s)
+    back(b, x, kept, k) = 2b + kept * k
+    @test CR._tuple_forward_back(fwd, back, 0, 0.0, xs) ==
+        CR._forward_back_loop(fwd, back, 0, 0.0, xs)
+    @test CR._tuple_forward_back(fwd, back, 0, 0.0, xs) == 254.0
+    @test CR._fold_loop(op, 1, ()) == CR._tuple_fold(op, 1, ()) == 1
+    @test CR._scan_loop(step, 0, ()) == CR._tuple_scan(step, 0, ()) == ()
 end
 
 @testitem "Depletion flows: ends in the type" begin

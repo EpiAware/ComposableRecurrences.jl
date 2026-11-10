@@ -296,17 +296,16 @@ end
     return :(($((:(f(xs[$i])) for i in 1:N)...),))
 end
 
-# `foreach` over a tuple, unrolled in the same way, so each call is static
-# at any length.
+# `foreach` over a tuple, unrolled so each call is static at any length.
 @generated function _tuple_foreach(f, xs::Tuple{Vararg{Any, N}}) where {N}
     N isa Int || return :(foreach(f, xs))
     return Expr(:block, (:(f(xs[$i])) for i in 1:N)..., :(return nothing))
 end
 
 # `op(acc, x, k)` folded over the entries `x` of the tuple `xs` in order,
-# unrolled in the same way: a function that recurses on `Base.tail` stops
-# inferring past 32 entries and then dispatches at run time. As with
-# `_tuple_map`, a tuple whose length is not in its type takes a loop.
+# unrolled: a function that recurses on `Base.tail` stops inferring past 32
+# entries. As with `_tuple_map`, a tuple whose length is not in its type
+# takes a loop.
 @generated function _tuple_fold(op, acc, xs::Tuple{Vararg{Any, N}}) where {N}
     N isa Int || return :(_fold_loop(op, acc, xs))
     ex = :acc
@@ -316,15 +315,14 @@ end
     return Expr(:block, Expr(:meta, :inline), ex)
 end
 
-# `map` with each entry's position, `op(x, k)`, unrolled in the same way.
+# `map` with each entry's position, `op(x, k)`, unrolled.
 @generated function _tuple_map_index(op, xs::Tuple{Vararg{Any, N}}) where {N}
     N isa Int || return :(map(op, xs, ntuple(identity, length(xs))))
     ex = Expr(:tuple, (:(op(xs[$k], $k)) for k in 1:N)...)
     return Expr(:block, Expr(:meta, :inline), ex)
 end
 
-# The pairs `(xs[k], ys[k])` of two tuples of one length, unrolled in the
-# same way.
+# The pairs `(xs[k], ys[k])` of two tuples of one length, unrolled.
 @generated function _tuple_zip(
         xs::Tuple{Vararg{Any, N}}, ys::Tuple{Vararg{Any, N}}
     ) where {N}
@@ -333,7 +331,7 @@ end
 end
 
 # The tuple of each `out` from `(out, s) = op(s, x, k)` over the entries of
-# `xs` in order, unrolled in the same way.
+# `xs` in order, unrolled.
 @generated function _tuple_scan(op, s, xs::Tuple{Vararg{Any, N}}) where {N}
     N isa Int || return :(_scan_loop(op, s, xs))
     outs = [Symbol(:out, k) for k in 1:N]
@@ -346,8 +344,7 @@ end
 end
 
 # A pass forward over the entries of `xs` with `(s, kept) = fwd(s, x, k)`,
-# then one back, last first, with `b = back(b, x, kept, k)`; unrolled in the
-# same way.
+# then one back, last first, with `b = back(b, x, kept, k)`; unrolled.
 @generated function _tuple_forward_back(
         fwd, back, s, b, xs::Tuple{Vararg{Any, N}}
     ) where {N}

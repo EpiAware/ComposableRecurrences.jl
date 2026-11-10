@@ -348,8 +348,8 @@ end
 _add(x::Tuple, i, v) = ntuple(j -> ifelse(j == i, x[j] + v, x[j]), Val(length(x)))
 _add(::Nothing, i, v) = nothing
 
-# Tuple entry `i` of `x`, chosen by `ifelse` over the entries: a small tuple
-# is read where it is held, without an indexed load.
+# Tuple entry `i` of `x`, chosen by `ifelse` in a fold over the entries, so
+# the tuple is read where it is held, without an indexed load.
 _get(x::Tuple, i) = _tuple_fold(@inline((v, y, j) -> ifelse(j == i, y, v)), first(x), x)
 
 # What moves out of pool `i` per unit held, `(e^{-H}, g(H), P)`.
@@ -628,8 +628,7 @@ end
 # The first flow's mirror, or `nothing` when the flows have none.
 _head(::Nothing) = nothing
 _head(x̄::Tuple) = first(x̄)
-# Each flow with its mirror, `nothing` when the flows have none, so a fold
-# over them reads each mirror with a constant index.
+# Each flow paired with its mirror, or with `nothing`.
 _with_mirrors(fs, ::Nothing) = _tuple_map(f -> (f, nothing), fs)
 _with_mirrors(fs, f̄s::Tuple) = _tuple_zip(fs, f̄s)
 
