@@ -302,19 +302,53 @@ function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
     return Y
 end
 
-# A computed kernel, whose weights come from a `Derived` or a `Survival`,
-# fills its weights in host scratch that a traced call cannot hold, so it
-# does not run under Reactant yet. This also settles which method a traced
-# call with one takes.
+# A computed kernel is filled as a dense `Primary()` kernel, as on any
+# executor without its own loops; this method settles which of this
+# executor's method and the computed kernel's a traced call takes.
 function ComposableRecurrences._convolve!(
-        ::Traced, Y, c::_ComputedKernel, X, m, start
+        ex::Traced, Y, c::_ComputedKernel, X, m, start
     )
-    throw(
-        ArgumentError(
-            "a kernel computed from a Derived or a Survival does not run " *
-                "under Reactant yet"
-        )
-    )
+    return ComposableRecurrences._convolve_dense!(ex, Y, c, X, m, start)
+end
+
+# The coefficients a computed kernel reads may be traced: a traced array's
+# eltype is a traced number, which is not a `Real`, so the package's check
+# on the coefficient's shape does not match it.
+const _TracedCoefficient = Union{
+    TracedRNumber, AnyTracedRVector,
+    PerStratum{<:Union{AnyTracedRVector, AnyTracedRMatrix}},
+    TimeVarying{<:Any, <:Union{AnyTracedRVector, PerStratum{<:AnyTracedRMatrix}}},
+}
+ComposableRecurrences._check_coefficient(::_TracedCoefficient) = nothing
+ComposableRecurrences._check_argument(::_TracedCoefficient) = nothing
+
+# Arithmetic between a traced number or vector and a `Derived` or a
+# `Survival` lowers to `Derived`, as the package's operands do; a
+# `PerStratum` or `TimeVarying` is an operand whatever it holds.
+const _TracedOperand = Union{TracedRNumber, AnyTracedRVector}
+for op in (:+, :-, :*, :/, :^)
+    @eval begin
+        function Base.$op(
+                a::_TracedOperand,
+                b::Union{ComposableRecurrences.Derived, ComposableRecurrences.Survival}
+            )
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+        function Base.$op(
+                a::Union{ComposableRecurrences.Derived, ComposableRecurrences.Survival},
+                b::_TracedOperand
+            )
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+    end
+end
+
+# A survival's scratch buffers at a traced eltype are traced arrays, as
+# `zeros` gives, not Julia arrays of traced numbers.
+function ComposableRecurrences._alloc(
+        ::Type{Tp}, dims::Vararg{Int, N}
+    ) where {Tp <: TracedRNumber, N}
+    return zeros(Tp, dims...)
 end
 
 # Output `j` of every stratum.

@@ -280,15 +280,6 @@ end
 # A count flow, which moves its demand up to what the pool holds.
 const _Count = Flow{<:Any, <:_FlowCount}
 
-# The flows as a non-empty tuple of `Flow`s.
-function _flow_tuple(fs)
-    isempty(fs) && throw(ArgumentError("give at least one Flow, got none"))
-    for f in fs
-        f isa Flow || throw(ArgumentError("expected a Flow, got $(_describe(f))"))
-    end
-    return fs
-end
-
 # The hazard rate and share of a flow, zero for another form.
 _rate(f::Flow{<:Any, _FlowHazard}, g, t) = param(f.demand, g, t)
 _rate(f::Flow, g, t) = false
@@ -374,6 +365,57 @@ _leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false
 end
 _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
 
+# Leave terms for the forward step. A pool whose one hazard flow enters a
+# pool moves `-expm1(-H)` of what it holds, so no `g(H)` is needed.
+@inline function _group_leaves(fs, i, g, t, z)
+    return _group_leaves(fs, i, Val(_one_rated_into(fs, i)), g, t, z)
+end
+@inline _group_leaves(fs, i, ::Val{false}, g, t, z) = _step_leaves(fs, i, g, t, z)
+@inline function _group_leaves(fs, i, ::Val{true}, g, t, z)
+    E, em = _exp_neg(_out(_rate, fs, i, g, t, z))
+    return E, _Moved(-em), _out(_share, fs, i, g, t, z)
+end
+
+# The share of a pool its one hazard flow moves, in place of `g(H)`.
+struct _Moved{T}
+    F::T
+end
+
+# What a flow moves per unit held at its rate: `r g(H)`, or the share its
+# pool's one hazard flow moves. The `_Moved` is that of the flow's own pool,
+# which has one hazard flow, so it is this flow's. Other forms have rate
+# zero, as `_rate` gives them.
+_by_rate(f, g, t, gH) = _rate(f, g, t) * gH
+_by_rate(f::Flow{<:Any, _FlowHazard}, g, t, w::_Moved) = w.F
+_by_rate(f::Flow, g, t, w::_Moved) = _rate(f, g, t)
+
+# Whether pool `i` has one hazard flow out, and it enters a pool.
+_one_rated_into(fs, i) = _rated_into(fs, i) & (_hazards_out(fs, i) == 1)
+# `_group_leaves` for each of `N` pools, with the pool and whether it has
+# one hazard flow into a pool written in as constants, read from the flows'
+# types, which hold their ends. Past 32 flows `_one_rated_into` is not
+# folded to a constant for each pool, and under dual numbers an index into a
+# tuple of the answers is not either, so the pools' leave terms would be
+# held boxed.
+@generated function _group_leaves_each(fs::Tuple, g, t, z, ::Val{N}) where {N}
+    ok = N isa Int && all(f -> f <: Flow && isconcretetype(f), fs.parameters)
+    ok || return :(ntuple(i -> _group_leaves(fs, i, g, t, z), Val(N)))
+    hazard = [f <: Flow{<:Any, _FlowHazard} for f in fs.parameters]
+    ends = [f.parameters[4] for f in fs.parameters]
+    function one(i)
+        out = [k for k in eachindex(ends) if hazard[k] && ends[k][1] == i]
+        return length(out) == 1 && ends[only(out)][2] > 0
+    end
+    calls = (:(_group_leaves(fs, $i, Val{$(one(i))}(), g, t, z)) for i in 1:N)
+    return Expr(:block, Expr(:meta, :inline), Expr(:tuple, calls...))
+end
+
+# The number of hazard flows out of pool `i`.
+function _hazards_out(fs::Tuple, i)
+    count = @inline (n, f, _) -> n + (f isa Flow{<:Any, _FlowHazard} && _from(f) == i)
+    return _tuple_fold(count, 0, fs)
+end
+
 # Whether a hazard flow out of pool `i` enters a pool.
 function _rated_into(fs::Tuple, i)
     into = @inline function (b, f, _)
@@ -392,7 +434,7 @@ _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
 @inline function _spread_one(f::Flow, x, L, y, a, g, t)
     _to(f) > 0 || return (y, a)
     _, gH, _ = L[_from(f)]
-    m = x[_from(f)] * (_rate(f, g, t) * gH + _share(f, g, t))
+    m = x[_from(f)] * (_by_rate(f, g, t, gH) + _share(f, g, t))
     return _add(y, _to(f), m), _add(a, _to(f), m)
 end
 
@@ -474,7 +516,7 @@ end
 # pool's step about 40% in forward mode.
 @inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(@inline(i -> _step_leaves(fs, i, g, t, z)), Val(N))
+    L = _group_leaves_each(fs, g, t, z, Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)

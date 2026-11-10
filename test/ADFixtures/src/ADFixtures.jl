@@ -2416,9 +2416,10 @@ scenarios expected to fail on a backend, by backend name.
 
 A compiled ReverseDiff tape keeps the branches taken where it is recorded,
 which the harness does at zero parameters. The ward from its parameters as
-given branches differently there, so its prepared calls on compiled
-ReverseDiff are wrong, as are its `NoAdjoint` twin's; the other scenarios
-start at zero to avoid this.
+given branches differently there, so its `NoAdjoint` twin's prepared calls
+on compiled ReverseDiff are wrong; the rule's forward step takes no branch
+on the hazard, so the ward itself is right. The other scenarios start at
+zero to avoid this.
 
 `Reactant` lists the scenarios that do not run under Reactant, forward or
 reverse; `test/reactant/` reads it.
@@ -2426,7 +2427,7 @@ reverse; `test/reactant/` reads it.
 function backend_broken_scenarios()
     ward = "Recurrence ward with competing flows, from the parameters as given"
     return Dict(
-        "ReverseDiff (compiled)" => Set([ward, "NoAdjoint " * ward]),
+        "ReverseDiff (compiled)" => Set(["NoAdjoint " * ward]),
         "Reactant" => Set(reduce(vcat, values(REACTANT_BROKEN))),
     )
 end
@@ -2437,8 +2438,7 @@ end
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
     # A traced number is not a `Real`, so the checks on a scalar parameter,
-    # a heterogeneity exponent, a softness or a computed kernel's
-    # coefficient refuse it.
+    # a heterogeneity exponent or a softness refuse it.
     "traced scalar refused by a parameter check" => [
         "Recurrence depletion with a differentiated heterogeneity",
         "Recurrence floored depletion with a differentiated heterogeneity",
@@ -2457,9 +2457,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace of a ward's flows",
         "Recurrence capacity, dropped overflow after a truncated draw",
         "Recurrence depletion with smoothly truncated draws",
-        "Convolution kernel from a hazard and a survival",
-        "Kernel weights of a survival against a delay and calendar hazard",
-        "Recurrence kernel shortened by a survival",
     ],
     # `Recent` and `Derived` have no arithmetic with, or constructor from,
     # traced values.

@@ -284,6 +284,9 @@ end
     R = [1.0 + 0.1 * sin(k + t) for k in 1:P, t in 1:T]
     h = [1.0 + 0.1 * k for k in 1:P, _ in 1:2]
     r = Recurrence(g; modifiers = (many,))
+    fs = only(many.pieces)
+    @test CR._group_leaves_each(fs, nothing, 1, 0.0, Val(P)) ===
+        ntuple(i -> CR._group_leaves(fs, i, nothing, 1, 0.0), P)
     y = @inferred r(R; history = h)
     @test y[1:2, :] ≈ Recurrence(g; modifiers = (two,))(R[1:2, :]; history = h[1:2, :])
     # A call over four times the steps allocates as often, forward and back.
