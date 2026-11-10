@@ -2344,9 +2344,9 @@ function scenarios(;
     plain = isnothing(backend) ? Set{String}() :
         get(backend_plain_scenarios(), backend, Set{String}())
     twins = filter(_TWINS) do (name, _, _, single)
-        twin = startswith(name, "NoAdjoint ")
-        (category === :marginal || !twin) &&
-            !(twin && chopprefix(name, "NoAdjoint ") in plain) &&
+        base = chopprefix(name, "NoAdjoint ")
+        twin = base != name
+        (category === :marginal || !twin) && !(twin && base in plain) &&
             (precision === :all || single == (precision === :single))
     end
     return map(twins) do (name, f, θ0, _)

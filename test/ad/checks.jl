@@ -24,8 +24,7 @@
     # tolerance, then checks each gradient against its reference entry by
     # entry: the plain call, and the prepared, value-and-gradient and
     # in-place calls the kit compares only by norm. A scenario broken on
-    # the backend is `@test_broken`, so it fails once it passes. A scenario
-    # that takes plain AD on the backend by design runs without its twin.
+    # the backend is `@test_broken`, so it fails once it passes.
     function test_gradients(name; category::Symbol)
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
