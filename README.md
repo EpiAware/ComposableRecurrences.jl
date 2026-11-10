@@ -22,7 +22,7 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
 - Coupling between strata, finite pools and bounds are added by composing small couplings and modifiers.
 - The aim is to be as fast as hand-written code with hand-written adjoints.
   The documentation's models are each timed against a hand-written loop of the same model, with each backend compared with itself on the loop.
-  Across them, the package's Mooncake gradient is a median 4.1× faster than Mooncake on the loop, and its Enzyme gradient 2.4× faster than Enzyme on the loop.
+  Comparing minimum times across them, the package's Mooncake gradient is a median 4.1× faster than Mooncake on the loop, and its Enzyme gradient 2.4× faster than Enzyme on the loop.
   Its forward run and ForwardDiff gradient are level with the loop's, at a median 1.2× and 1.1×.
   Its Mooncake gradient is 1.2–1.8× faster than Mooncake on the same loop with hand-written Mooncake adjoints.
   The forward run and ForwardDiff are slower than the loop on several models, by up to 1.5×, and the Enzyme gradient on two, by up to 1.2×; the Mooncake gradient is slower on none.
