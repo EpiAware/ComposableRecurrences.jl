@@ -214,23 +214,23 @@ end
 # A computed kernel is filled a block of `_BLOCK` cohorts at a time, lag
 # outermost and cohort innermost: each cohort's survival is a product along
 # its lags, so the cohorts of a block run side by side. Each `Survival`
-# keeps the block's values `S`, hazards `H` and cotangents `S̄` (cohorts ×
-# lags × the strata of its hazard, or one) in a scratch tree that mirrors
-# the kernel, and the reverse pass recomputes a block before taking its
-# cotangent back. So no weight is stored past its block, and a convolution
-# allocates `O(L)` beyond the arrays it returns; `_fill_kernel` says when a
-# dense kernel keeps every block instead.
+# keeps the block's values `S` and hazards `H` (cohorts × lags × the strata
+# of its hazard, or one), and the cotangent it carries (cohorts × those
+# strata), in a scratch tree that mirrors the kernel, and the reverse pass
+# recomputes a block before taking its cotangent back. So no weight is
+# stored past its block, and a convolution allocates `O(L)` beyond the
+# arrays it returns; `_fill_kernel` says when a dense kernel keeps every
+# block instead.
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.
-struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
+struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractMatrix}
     hazard::C
     S::A
     H::A
-    S̄::A
     acc::V
-    function _SurvivalScratch{P}(hazard::C, S::A, H::A, S̄::A, acc::V) where {P, C, A, V}
-        return new{P, C, A, V}(hazard, S, H, S̄, acc)
+    function _SurvivalScratch{P}(hazard::C, S::A, H::A, acc::V) where {P, C, A, V}
+        return new{P, C, A, V}(hazard, S, H, acc)
     end
 end
 # A scratch buffer of element type `T`, its entries written before they are
@@ -244,7 +244,7 @@ function _scratch(x::Survival, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     ns = max(_coef_strata(x.hazard), 1)
     return _SurvivalScratch{_stratified(x.hazard)}(
         _scratch(x.hazard, Tp, L, B), _alloc(Tp, B, L, ns),
-        _alloc(Tp, B, L, ns), zeros(Tp, B, L, ns), zeros(Tp, B)
+        _alloc(Tp, B, L, ns), zeros(Tp, B, ns)
     )
 end
 _row(sc::_SurvivalScratch{false}, k) = 1
@@ -355,7 +355,7 @@ _values_at(::Tuple{}, ::Tuple{}, k, i, τ, l, b) = ()
 end
 
 # Add `v` to the cotangent of a coefficient's value at an entry, through
-# its mirror `x̄`; a `Survival` adds it to its scratch.
+# its mirror `x̄`; a `Survival` adds it to the cotangent it carries.
 Base.@propagate_inbounds function _add_value!(x̄, x::Real, sc, v, k, i, τ, l, b)
     return add_cotangent!(x̄, v)
 end
@@ -387,7 +387,7 @@ _add_value!(::Nothing, x::Survival, sc, v, k, i, τ, l, b) = nothing
 @inline Base.@propagate_inbounds function _add_value!(
         x̄, x::Survival, sc, v, k, i, τ, l, b
     )
-    sc.S̄[b, i, _row(sc, k)] += v
+    sc.acc[b, _row(sc, k)] += v
     return nothing
 end
 # Unrolled over the arguments, so each reads its own mirror and scratch
@@ -417,48 +417,44 @@ _partials(::typeof(-), (a,)::Tuple{Real}) = (-one(a),)
 _partials(::typeof(*), (a, b)::Tuple{Real, Real}) = (b, a)
 _partials(::typeof(/), (a, b)::Tuple{Real, Real}) = (inv(b), -a / b^2)
 
-# Once the block's own cotangents are added, each `Survival` takes the
-# cotangents of its values back to its hazard, back along the lags: with
-# `a` the cotangent of the survival from lag `i` on carried back to it,
-# `η̄_i = -s_{i-1} a_i`. It clears its cotangents for the next block.
-_block_back!(x̄, x, sc, τ0, nb, o, last) = nothing
-function _block_back!(x̄, x::Derived, sc, τ0, nb, o, last)
-    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
-    ā === nothing && return nothing
-    _block_back_args!(ā, x.args, sc, τ0, nb, o, last)
-    return nothing
+# Each `Survival` carries the cotangent of its survival from the current
+# lag on, `a`, back along the lags, the block's cohorts side by side: at
+# lag `i` it takes `η̄_i = -s_{i-1} a_i` to its hazard, then carries
+# `a_i (1 - η_i)` to lag `i - 1`. An outer `Survival` steps first, so a
+# nested one has every cotangent of its lag before it steps; each clears
+# its carry at lag one.
+_step_back!(x̄, x, sc, i, τ0, bm, l) = nothing
+_step_back!(::Nothing, x::Derived, sc, i, τ0, bm, l) = nothing
+@generated function _step_back!(x̄, x::Derived{F, A}, sc, i, τ0, bm, l) where {F, A}
+    calls = (
+        :(@inbounds _step_back!(ā[$j], x.args[$j], sc[$j], i, τ0, bm, l))
+            for j in 1:fieldcount(A)
+    )
+    return quote
+        ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+        ā === nothing && return nothing
+        $(calls...)
+        return nothing
+    end
 end
-_block_back_args!(::Tuple{}, ::Tuple{}, ::Tuple{}, τ0, nb, o, last) = nothing
-function _block_back_args!(ā::Tuple, args::Tuple, sc::Tuple, τ0, nb, o, last)
-    _block_back!(first(ā), first(args), first(sc), τ0, nb, o, last)
-    rest = (Base.tail(ā), Base.tail(args), Base.tail(sc))
-    return _block_back_args!(rest..., τ0, nb, o, last)
-end
-_block_back!(::Nothing, x::Survival, sc, τ0, nb, o, last) = nothing
-function _block_back!(x̄, x::Survival, sc, τ0, nb, o, last)
+_step_back!(::Nothing, x::Survival, sc, i, τ0, bm, l) = nothing
+function _step_back!(x̄, x::Survival, sc, i, τ0, bm, l)
     h̄ = cotangent(x̄, :hazard)
-    (; S, H, S̄, acc) = sc
+    (; S, H, acc) = sc
     T = eltype(S)
-    for k in axes(S, 3)
-        fill!(acc, zero(T))
-        for i in reverse(axes(S, 2))
-            l = i - 1 + o
-            bm = _bmax(τ0, nb, i, o, last)
-            bm == 0 && continue
-            @inbounds for b in 1:bm
-                acc[b] += S̄[b, i, k]
-                S̄[b, i, k] = zero(T)
-            end
-            l >= x.from || continue
+    for k in axes(acc, 2)
+        if l >= x.from
             @inbounds for b in 1:bm
                 prev = i == 1 ? one(T) : S[b, i - 1, k]
-                v = -prev * acc[b]
+                v = -prev * acc[b, k]
                 _add_value!(h̄, x.hazard, sc.hazard, v, k, i, τ0 + b - 1, l, b)
-                acc[b] *= one(T) - H[b, i, k]
             end
         end
+        @inbounds for b in 1:bm
+            acc[b, k] = i == 1 ? zero(T) : acc[b, k] * (one(T) - H[b, i, k])
+        end
     end
-    _block_back!(h̄, x.hazard, sc.hazard, τ0, nb, o, last)
+    _step_back!(h̄, x.hazard, sc.hazard, i, τ0, bm, l)
     return nothing
 end
 
@@ -477,16 +473,21 @@ function _fill_block!(W, x, sc, τ0, nb, o, last)
     end
     return W
 end
+# The lags from the last back, so each `Survival` takes its cotangents
+# back to its hazard as they arrive.
 function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
-    # Each cohort's lags in turn, so no two adds in a row hit one lag's
-    # cotangent.
-    for k in _strata_axis(W̄), b in 1:nb
-        @inbounds for i in 1:_imax(τ0 + b - 1, length(_lag_axis(W̄)), o, last)
-            v = W̄[b, i, k]
-            iszero(v) || _add_value!(x̄, x, sc, v, k, i, τ0 + b - 1, i - 1 + o, b)
+    for i in reverse(_lag_axis(W̄))
+        bm = _bmax(τ0, nb, i, o, last)
+        bm == 0 && continue
+        l = i - 1 + o
+        for k in _strata_axis(W̄)
+            @inbounds for b in 1:bm
+                v = W̄[b, i, k]
+                iszero(v) || _add_value!(x̄, x, sc, v, k, i, τ0 + b - 1, l, b)
+            end
         end
+        _step_back!(x̄, x, sc, i, τ0, bm, l)
     end
-    _block_back!(x̄, x, sc, τ0, nb, o, last)
     return nothing
 end
 # The block of weights of a kernel with `L` lags and `ns` strata.

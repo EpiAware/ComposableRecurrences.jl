@@ -355,6 +355,12 @@ end
     args = (xs, true, nothing, nothing, 1, T)
     check(conv(PerStratum([0.5, 0.8]) * W.confirmed(q, hs)), args, sin.(xs))
     check(conv(Derived(*, q, TimeVarying(PerStratum(B)))), args, sin.(xs))
+    # A survival against a per-stratum hazard carries a cotangent per
+    # stratum, alone and inside another survival with a later start.
+    η = Derived(*, 0.1, TimeVarying(PerStratum(B)))
+    check(conv(q * CR.Survival(η; from = 1)), args, sin.(xs))
+    outer = CR.Survival(0.4 * CR.Survival(η; from = 1); from = 2)
+    check(conv(PerStratum(Ps) * outer), args, sin.(xs))
     # Another executor takes the dense kernel of the same weights.
     threaded = CR.Threaded(; min_work = 0, ntasks = 2)
     Base.ScopedValues.with(CR.EXECUTOR => threaded) do
