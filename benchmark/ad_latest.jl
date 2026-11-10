@@ -9,7 +9,8 @@
 # OUT gets the registry's entries of their `"AD gradients"` groups in the
 # layout the history workflow publishes as `history/results/latest.json`,
 # which `EpiAwarePackageTools.load_ad_benchmarks` reads: nested `data`
-# dictionaries down to each (scenario, backend) trial.
+# dictionaries down to each (scenario, backend) trial, with the trial's
+# minimum time as its one sample.
 # Entries that are not registry scenarios are left out, so the page covers
 # the registry and nothing else.
 #
@@ -24,9 +25,11 @@ using BenchmarkTools
 
 const JSON = BenchmarkTools.JSON
 
+# The page reports a trial's minimum time and its memory, so a leaf keeps
+# the minimum as its one sample: every sample of five backends' grids would
+# make the file too large for the branch.
 _leaf(t) = Dict(
-    "times" => t.times, "gctimes" => t.gctimes, "memory" => t.memory,
-    "allocs" => t.allocs
+    "times" => [minimum(t.times)], "memory" => t.memory, "allocs" => t.allocs
 )
 _group(data) = Dict("tags" => String[], "data" => data)
 
