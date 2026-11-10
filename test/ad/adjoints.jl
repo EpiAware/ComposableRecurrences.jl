@@ -507,7 +507,7 @@
     function test_rules_fire(name, backend)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
         plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
-        for scen in ADFixtures.scenarios()
+        for scen in ADFixtures.scenarios(; backend = name)
             scen.name in skip && continue
             rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
             scenario_testset(name, scen.name) do
@@ -725,18 +725,19 @@ end
     end
 end
 
-@testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
-    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+# Enzyme reverse checks the same through the registry. Its gradients item
+# checks a recurrence with an active scalar population in a modifier, a
+# delay and grouped totals against ForwardDiff ("Recurrence scalar modifier
+# field, mixed eltypes", "Convolution delay with history" and "Recurrence
+# grouped totals (Allocate)"). "Enzyme reverse: every AD scenario fires its
+# rule and no twin does" checks that each fires its rule and its twin does
+# not.
+@testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases, JobBackends] begin
+    using ADTypes: AutoMooncake, AutoForwardDiff
     using DifferentiationInterface: gradient
-    import Mooncake, Enzyme, ForwardDiff
+    import Mooncake, ForwardDiff
     using ComposableRecurrences: NoAdjoint
-    backends = job_backends(
-        :mooncake_reverse => AutoMooncake(; config = nothing),
-        :enzyme_reverse => AutoEnzyme(;
-            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-            function_annotation = Enzyme.Const
-        ),
-    )
+    backends = job_backends(:mooncake_reverse => AutoMooncake(; config = nothing))
     rng = Xoshiro(3)
     g, h, W = rand(rng, 3) ./ 2, 1 .+ rand(rng, 3), randn(rng, 8)
     renewal(θ) = sum(W .* Recurrence(g; modifiers = (Hazard(θ[1]),))(θ[2:end]; history = h))
@@ -765,9 +766,7 @@ end
             backend in backends
         ref = gradient(f, AutoForwardDiff(), θ)
         n0 = CR._PULLBACK_CALLS[]
-        # Plain Enzyme on Julia 1.11 loses the scalar field's gradient.
-        broken = f === renewal_na && backend isa AutoEnzyme && VERSION < v"1.12"
-        @test gradient(f, backend, θ) ≈ ref broken = broken
+        @test gradient(f, backend, θ) ≈ ref
         @test (CR._PULLBACK_CALLS[] > n0) == fires
     end
 end

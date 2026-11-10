@@ -24,7 +24,8 @@
     # tolerance, then checks each gradient against its reference entry by
     # entry: the plain call, and the prepared, value-and-gradient and
     # in-place calls the kit compares only by norm. A scenario broken on
-    # the backend is `@test_broken`, so it fails once it passes.
+    # the backend is `@test_broken`, so it fails once it passes. A scenario
+    # that takes plain AD on the backend by design runs without its twin.
     function test_gradients(name; category::Symbol)
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
@@ -34,7 +35,7 @@
         )
         for precision in (:double, :single)
             rtol = ADFixtures.gradient_rtol(precision)
-            scenario_kwargs = (; category, precision)
+            scenario_kwargs = (; category, precision, backend = name)
             EpiAwarePackageTools.test_working_backend(
                 ADFixtures, name; rtol, atol = 0.0, scenario_kwargs
             )

@@ -2312,7 +2312,10 @@ const _CATEGORIES = (:marginal, :rules)
 const _PRECISIONS = (:all, :double, :single)
 
 """
-    scenarios(; with_reference = false, category = :marginal, precision = :all)
+    scenarios(;
+        with_reference = false, category = :marginal, precision = :all,
+        backend = nothing
+    )
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
@@ -2323,12 +2326,15 @@ backends where the twin takes the same path as its scenario.
 `precision = :single` keeps the scenarios with single-precision parameters
 and `:double` the others, so each set is checked at its own tolerance (see
 `gradient_rtol`).
+With `backend` set to a backend's name, a scenario that takes plain AD on
+that backend by design (see `backend_plain_scenarios`) keeps no twin there,
+since the twin would take the same plain path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(;
         with_reference::Bool = false, category::Symbol = :marginal,
-        precision::Symbol = :all
+        precision::Symbol = :all, backend::Union{Nothing, String} = nothing
     )
     category in _CATEGORIES || throw(
         ArgumentError(
@@ -2340,8 +2346,12 @@ function scenarios(;
             "unknown precision $(repr(precision)); choose one of $(join(_PRECISIONS, ", "))"
         )
     )
+    plain = isnothing(backend) ? Set{String}() :
+        get(backend_plain_scenarios(), backend, Set{String}())
     twins = filter(_TWINS) do (name, _, _, single)
-        (category === :marginal || !startswith(name, "NoAdjoint ")) &&
+        twin = startswith(name, "NoAdjoint ")
+        (category === :marginal || !twin) &&
+            !(twin && chopprefix(name, "NoAdjoint ") in plain) &&
             (precision === :all || single == (precision === :single))
     end
     return map(twins) do (name, f, θ0, _)
