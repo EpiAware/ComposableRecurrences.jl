@@ -197,7 +197,7 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
     Mooncake.rdata_type(Mooncake.tangent_type(typeof(y))) === NoRData || throw(
         ArgumentError("an operator output with scalar float leaves is not supported")
     )
-    ydual = Mooncake.zero_fcodual(y)
+    ydual = _zero_output(y)
     function _ad_pullback(::NoRData)
         ms = map(a -> _mc(primal(a), tangent(a)), args)
         grads = (; piece = first(ms), y = _mc(y, tangent(ydual)), args = Base.tail(ms))
@@ -206,6 +206,12 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
     end
     return ydual, _ad_pullback
 end
+
+# The output with a zero cotangent. A float array holds no other arrays, so
+# `zero_fcodual`'s alias tracking has nothing to find, and on a short run
+# it costs more than the zeroing.
+_zero_output(y::Array{<:_IEEEFloat}) = CoDual(y, zero(y))
+_zero_output(y) = Mooncake.zero_fcodual(y)
 
 # The rule also covers a call whose local coupling derivative needs a
 # second pass of dual numbers (25 to 48 strata and scalars). It beats plain
