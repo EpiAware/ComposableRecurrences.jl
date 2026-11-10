@@ -349,23 +349,23 @@ const _Flows = Tuple{Flow, Vararg{Flow}}
 # that one draw at most has a queue; the message is built only when one
 # does not hold.
 function _check_pieces(pieces::Tuple, n)
-    foreach(p -> _check_piece_pools(p, n), pieces)
+    _tuple_foreach(p -> _check_piece_pools(p, n), pieces)
     _nqueues(pieces) <= 1 || throw(
         ArgumentError("one draw at most has overflow = :queue")
     )
     return nothing
 end
-_check_piece_pools(fs::Tuple, n) = foreach(f -> _check_pool(f, n), fs)
+_check_piece_pools(fs::Tuple, n) = _tuple_foreach(f -> _check_pool(f, n), fs)
 _check_piece_pools(d::_DrawFrom, n) = _check_drawn_pool(d.first, n)
 _check_piece_pools(d::_DrawInto, n) = _check_drawn_pool(d.pool, n)
 function _check_pool(f, n)
-    max(f.from, f.to) <= n || _too_many_pools(f, n)
+    max(_from(f), _to(f)) <= n || _too_many_pools(f, n)
     return nothing
 end
 @noinline function _too_many_pools(f, n)
     throw(
         ArgumentError(
-            "the flows name pool $(max(f.from, f.to)), but there " *
+            "the flows name pool $(max(_from(f), _to(f))), but there " *
                 (n == 1 ? "is 1 pool" : "are $n pools")
         )
     )
@@ -465,7 +465,9 @@ end
 # A run or a part with its pools as positions among `starts`: each flow of
 # a run, or a draw by its form's arguments, a form of another type drawn
 # from the first pool alone. The draw holds the form without its arguments.
-_place_run(fs::_Flows, N, starts) = _tuple_map(f -> _placed(f, keys(starts)), fs)
+function _place_run(fs::_Flows, N, ::NamedTuple{names}) where {names}
+    return _tuple_map(f -> _placed(f, Val(names)), fs)
+end
 _place_run(form, N, starts) = _place_piece(form, N, starts)
 function _place_piece(form, N, starts)
     _check_piece(form)

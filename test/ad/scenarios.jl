@@ -104,8 +104,10 @@ end
 # version lacks, for the benchmark history on older releases. On the current
 # version nothing may be left out, so a misspelt requirement fails here. The
 # reverse-mode tags run it on Julia 1.11 and 1.12 in the AD versions workflow,
-# where a probe that throws there would drop its scenarios.
-@testitem "AD fixtures need only features this version has" tags = [:ad, :forwarddiff, :enzyme_reverse, :mooncake_reverse] begin
+# where a probe that throws there would drop its scenarios. No scenario is
+# skipped, and each broken or plain entry names a backend and a scenario that
+# exist, so a renamed scenario cannot leave an entry that no longer applies.
+@testitem "AD fixtures need only features this version has, skip nothing and name real scenarios" tags = [:ad, :forwarddiff, :enzyme_reverse, :mooncake_reverse] begin
     using ADFixtures
     using ADFixtures: MatrixCases
     @test isempty(ADFixtures.unsupported_scenarios())
@@ -117,4 +119,15 @@ end
     rules = ADFixtures.scenarios(; category = :rules)
     @test length(rules) == length(ADFixtures._SCENARIOS)
     @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
+    @test all(isempty, values(ADFixtures.backend_skip_scenarios()))
+    names = Set(s.name for s in ADFixtures.scenarios())
+    # A list may name a backend these jobs do not load, as Reactant.
+    backends = ADFixtures.backend_names()
+    @test Set(ADFixtures.broken_scenario_names()) ⊆ names
+    for lists in (ADFixtures.backend_broken_scenarios(), ADFixtures.backend_plain_scenarios())
+        for (backend, entries) in lists
+            @test backend in backends
+            @test entries ⊆ names
+        end
+    end
 end

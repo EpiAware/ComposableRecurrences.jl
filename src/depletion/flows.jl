@@ -38,6 +38,10 @@ const _FlowHazard = Hazard{Nothing, Nothing, Nothing, _Drop}
 const _FlowCount = Truncate{<:Any, Nothing, Nothing, _Drop}
 const _FlowForm = Union{_FlowHazard, Share, _FlowCount}
 
+# Marks the inner constructor of a flow whose ends `P` are already checked,
+# which, unlike an outer function, can build the type with `new`.
+struct _Placed end
+
 @doc raw"""
 A flow from pool `from` into pool `to` of a
 [`ComposableRecurrences.Depletion`](@ref), out of it with `to = 0` or into
@@ -119,7 +123,7 @@ waning.form, transfers.to
 (ComposableRecurrences.Hazard(), 0)
 ```
 """
-struct Flow{D, F <: _FlowForm, E}
+struct Flow{D, F <: _FlowForm, E, P}
     "The pool the flow leaves, by name or position."
     from::E
     "The pool it enters, by name or position, or `0` when it leaves."
@@ -128,27 +132,67 @@ struct Flow{D, F <: _FlowForm, E}
     demand::D
     "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `Truncate(κ)`."
     form::F
-    function Flow(from, to, demand::D, form::F) where {D, F}
-        _check_end(:from, from)
-        _check_end(:to, to)
-        from == to && throw(
-            ArgumentError(
-                "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
-            )
-        )
-        form isa _FlowForm || _bad_flow_form(form)
-        from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
-            ArgumentError(
-                "a flow from outside the Depletion is a count, with form Truncate() " *
-                    "or Truncate(κ), got $(_describe(form))"
-            )
-        )
-        E = Union{typeof(from), typeof(to)}
-        d = _check_param(:demand, demand)
+    Base.@constprop :aggressive function Flow(from, to, demand, form::F) where {F}
+        d = _check_flow(from, to, demand, form)
         # A share is a fraction of the pool it leaves.
         form isa Share && _check_unit(:demand, d)
-        return new{D, F, E}(from, to, d, form)
+        E = Union{typeof(from), typeof(to)}
+        return new{typeof(d), F, E, (from, to)}(from, to, d, form)
     end
+    # A flow with ends `P` already checked, such as one placed among its
+    # `Depletion`'s pools or rebuilt from its fields. A kernel launch
+    # adapts the demand to device arrays, which the host cannot read entry
+    # by entry, so this checks everything but those entries: a number's
+    # share is still checked.
+    function Flow(::_Placed, ::Type{E}, ::Val{P}, demand, form::F) where {E, P, F}
+        d = _check_flow(P[1], P[2], demand, form)
+        form isa Share && d isa Real && _check_unit(:demand, d)
+        return new{typeof(d), F, E, P}(P[1], P[2], d, form)
+    end
+end
+
+# The checks on a flow's ends, form and demand that read no demand entries;
+# returns the demand.
+function _check_flow(from, to, demand, form)
+    _check_end(:from, from)
+    _check_end(:to, to)
+    from == to && throw(
+        ArgumentError(
+            "a flow joins two different pools, got $(repr(from)) => $(repr(to))"
+        )
+    )
+    form isa _FlowForm || _bad_flow_form(form)
+    from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
+        ArgumentError(
+            "a flow from outside the Depletion is a count, with form Truncate() " *
+                "or Truncate(κ), got $(_describe(form))"
+        )
+    )
+    return _check_param(:demand, demand)
+end
+
+# A flow's ends, read from its type, so the step's selects at them fold.
+_from(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[1]
+_to(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[2]
+# A rebuild from its fields, as a local derivative or a kernel launch
+# makes, keeps its ends, so its type infers; new ends make a new `Flow`.
+function ConstructionBase.constructorof(
+        ::Type{<:Flow{<:Any, <:Any, E, P}}
+    ) where {E, P}
+    return function (from, to, d, form)
+        (from, to) == P || _moved_ends(from, to, d, form)
+        return Flow(_Placed(), E, Val(P), d, form)
+    end
+end
+
+@noinline function _moved_ends(from, to, d, form)
+    _check_flow(from, to, d, form)
+    throw(
+        ArgumentError(
+            "a rebuilt flow keeps its ends, got $(repr(from)) => $(repr(to)); " *
+                "build a new Flow to move them"
+        )
+    )
 end
 
 @noinline function _bad_flow_form(form)
@@ -173,7 +217,9 @@ end
     )
 end
 
-function Flow(pools::Pair, demand; form = Hazard())
+# Literal ends, as in `Flow(:S => :V, r)`, reach the type by constant
+# propagation, so a `Depletion` of such flows infers.
+Base.@constprop :aggressive function Flow(pools::Pair, demand; form = Hazard())
     return Flow(_end(pools.first), _end(pools.second), demand, form)
 end
 function Flow(pools, demand; form = Hazard())
@@ -204,21 +250,28 @@ function _check_end(name, x::Int)
     return nothing
 end
 
-# The flow with its ends as positions among the pools `names`.
-function _placed(f::Flow, names)
-    return Flow(_place(f.from, names, f), _place(f.to, names, f), f.demand, f.form)
+# The flow with its ends as positions among the pools `names`, found from
+# the types, so the placed flow's type infers whether or not the flow was
+# built where its ends are literals.
+function _placed(f::Flow{<:Any, <:Any, <:Any, P}, ::Val{names}) where {P, names}
+    from, to = _positions(Val(P), Val(names))
+    from === nothing && _unknown_pool(P[1], names, f)
+    to === nothing && _unknown_pool(P[2], names, f)
+    return Flow(_Placed(), Int, Val((from, to)), f.demand, f.form)
 end
-_place(x::Int, names, f) = x == 0 ? 0 : _placed_pool(x, names, f)
-_place(x::Symbol, names, f) = _placed_pool(x, names, f)
-function _placed_pool(x, names, f)
-    i = _position(x, names)
-    i == 0 && _unknown_pool(x, names, f)
-    return i
+# An end's position among `names`: `0` outside, `nothing` for a name that is
+# not a pool or a position past the last.
+_end_position(x::Int, names) = x == 0 || x <= length(names) ? x : nothing
+_end_position(x::Symbol, names) = findfirst(==(x), names)
+# After `_end_position`: a generator sees only the methods defined before
+# it, so it cannot use `_position`, which `pool.jl` defines later.
+@generated function _positions(::Val{P}, ::Val{names}) where {P, names}
+    return (_end_position(P[1], names), _end_position(P[2], names))
 end
 @noinline function _unknown_pool(x, names, f)
     throw(
         ArgumentError(
-            "Flow($(repr(f.from)) => $(repr(f.to))) names pool $(repr(x)), " *
+            "Flow($(repr(_from(f))) => $(repr(_to(f)))) names pool $(repr(x)), " *
                 "but the pools are $(repr(names))"
         )
     )
@@ -247,7 +300,7 @@ _out(h, ::Tuple{}, i, g, t, z) = z
 function _out(h, fs::Tuple, i, g, t, z)
     f = first(fs)
     x = h(f, g, t)
-    return _out(h, Base.tail(fs), i, g, t, z + ifelse(f.from == i, x, zero(x)))
+    return _out(h, Base.tail(fs), i, g, t, z + ifelse(_from(f) == i, x, zero(x)))
 end
 
 # `exp(-H)` and the share that leaves per unit hazard,
@@ -257,8 +310,9 @@ end
 function _leave(H)
     small = abs(_primal_value(H)) < _series_cut(H)
     Hd = ifelse(small, one(H), H)
-    g = ifelse(small, evalpoly(H, _coefficients(H, _LEAVE)), -expm1(-Hd) / Hd)
-    return exp(-H), g
+    E, em = _exp_neg(H)
+    g = ifelse(small, evalpoly(H, _coefficients(H, _LEAVE)), -em / Hd)
+    return E, g
 end
 
 # The slope `g′(H) = (exp(-H) - g) / H`, with its series near zero.
@@ -325,7 +379,7 @@ _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
 _rated_into(::Tuple{}, i) = false
 function _rated_into(fs::Tuple, i)
     f = first(fs)
-    return (f isa Flow{<:Any, _FlowHazard} && f.from == i && f.to > 0) |
+    return (f isa Flow{<:Any, _FlowHazard} && _from(f) == i && _to(f) > 0) |
         _rated_into(Base.tail(fs), i)
 end
 
@@ -338,10 +392,10 @@ _spread(::Tuple{}, x, L, y, a, g, t) = y, a
 end
 _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
 @inline function _spread_one(f::Flow, x, L, y, a, g, t)
-    f.to > 0 || return (y, a)
-    _, gH, _ = L[f.from]
-    m = x[f.from] * (_rate(f, g, t) * gH + _share(f, g, t))
-    return _add(y, f.to, m), _add(a, f.to, m)
+    _to(f) > 0 || return (y, a)
+    _, gH, _ = L[_from(f)]
+    m = x[_from(f)] * (_rate(f, g, t) * gH + _share(f, g, t))
+    return _add(y, _to(f), m), _add(a, _to(f), m)
 end
 
 # A count `r` out of a pool holding `s`, `min(r, max(s, 0))`; it is
@@ -393,11 +447,12 @@ _counts(::Tuple{}, y, a, g, t) = y, a
     return _counts(Base.tail(fs), y, a, g, t)
 end
 _count(f::Flow, y, a, g, t) = y, a
-# One pass over the pools, by `ifelse`: a flow out of the system
-# (`to = 0`) adds to no pool.
-@inline function _count(f::_Count, y, a, g, t)
-    i, j = f.from, f.to
-    m = _moved(f.form, param(f.demand, g, t), _source(y, i))
+_count(f::_Count, y, a, g, t) = _count_demand(f, param(f.demand, g, t), y, a)
+# One pass over the pools, by `ifelse`, for the count's demand `c`: a flow
+# out of the system (`to = 0`) adds to no pool.
+@inline function _count_demand(f::_Count, c, y, a)
+    i, j = _from(f), _to(f)
+    m = _moved(f.form, c, _source(y, i))
     p = _moved_in(m)
     y′ = ntuple(Val(length(y))) do l
         return ifelse(l == i, y[l] - m, ifelse(l == j, y[l] + p, y[l]))
@@ -450,10 +505,10 @@ function _amounts_each(fs::Tuple, x, L, y, g, t)
     return (m, _amounts_each(Base.tail(fs), x, L, y′, g, t)...)
 end
 function _amount(f::Flow, x, L, y, g, t)
-    return x[f.from] * (_rate(f, g, t) * L[f.from][2] + _share(f, g, t)), y
+    return x[_from(f)] * (_rate(f, g, t) * L[_from(f)][2] + _share(f, g, t)), y
 end
 function _amount(f::_Count, x, L, y, g, t)
-    m = _moved(f.form, param(f.demand, g, t), _source(y, f.from))
+    m = _moved(f.form, param(f.demand, g, t), _source(y, _from(f)))
     return m, first(_count(f, y, nothing, g, t))
 end
 
@@ -490,13 +545,13 @@ function _amount_counts_back(fs::Tuple, f̄s, r̄, y, ȳ, g, t)
 end
 _amount_count_back(f::Flow, f̄, r̄, y, ȳ, g, t) = ȳ
 function _amount_count_back(f::_Count, f̄, r̄, y, ȳ, g, t)
-    i = f.from
+    i = _from(f)
     c = param(f.demand, g, t)
     s = _source(y, i)
     m = _moved(f.form, c, s)
     m̄ = r̄ + ifelse(i == 0, zero(r̄), -_get(ȳ, i))
-    if f.to > 0 && _primal_value(m) >= 0
-        m̄ += ȳ[f.to]
+    if _to(f) > 0 && _primal_value(m) >= 0
+        m̄ += ȳ[_to(f)]
     end
     c̄, s̄, κ̄ = _moved_back(f.form, c, s, m̄)
     add_cotangent!(cotangent(cotangent(f̄, :form), :κ), κ̄)
@@ -509,7 +564,7 @@ end
 _amount_cotangents(::Tuple{}, r̄, ȳ) = ()
 function _amount_cotangents(fs::Tuple, r̄, ȳ)
     f = first(fs)
-    q = f isa _Count || f.to == 0 ? first(r̄) : first(r̄) + ȳ[f.to]
+    q = f isa _Count || _to(f) == 0 ? first(r̄) : first(r̄) + ȳ[_to(f)]
     return (q, _amount_cotangents(Base.tail(fs), Base.tail(r̄), ȳ)...)
 end
 
@@ -518,13 +573,13 @@ end
 _rated(::Tuple{}, q, i, g, t, B) = B
 function _rated(fs::Tuple, q, i, g, t, B)
     f = first(fs)
-    B = f.from == i ? B + _rate(f, g, t) * first(q) : B
+    B = _from(f) == i ? B + _rate(f, g, t) * first(q) : B
     return _rated(Base.tail(fs), Base.tail(q), i, g, t, B)
 end
 _shared(::Tuple{}, q, i, g, t, z) = z
 function _shared(fs::Tuple, q, i, g, t, z)
     f = first(fs)
-    z = f.from == i ? z + _share(f, g, t) * first(q) : z
+    z = _from(f) == i ? z + _share(f, g, t) * first(q) : z
     return _shared(Base.tail(fs), Base.tail(q), i, g, t, z)
 end
 
@@ -539,43 +594,51 @@ function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
 end
 _amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
 function _amount_rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, q, x, L, H, B, ȳ, g, t)
-    i = f.from
+    i = _from(f)
     E, gH, _ = L[i]
     r̄ = x[i] * (gH * q + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
     add_param!(cotangent(f̄, :demand), f.demand, r̄, g, t)
     return nothing
 end
 function _amount_rate_back!(f::Flow{<:Any, Share}, f̄, q, x, L, H, B, ȳ, g, t)
-    i = f.from
+    i = _from(f)
     add_param!(cotangent(f̄, :demand), f.demand, x[i] * (q - ȳ[i]), g, t)
     return nothing
 end
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
-# flows; returns those before them.
+# flows; returns those before them. A demand that reads the outputs or has
+# a map costs more to read than the rest of a count, so each count's
+# demand `d`, its value and partials, is read once and serves both passes.
 _counts_back(::Tuple{}, f̄s, y, a, ȳ, ā, g, t) = ȳ
 function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     f = first(fs)
-    y′, a′ = _count(f, y, a, g, t)
+    d = _demand(f, _head(f̄s), g, t)
+    y′, a′ = _count_demand(f, first(d), y, a)
     ȳ′ = _counts_back(Base.tail(fs), _tail(f̄s), y′, a′, ȳ, ā, g, t)
-    return _count_back(f, _head(f̄s), y, ȳ′, ā, g, t)
+    return _count_back(f, d, _head(f̄s), y, ȳ′, ā, g, t)
 end
-_count_back(f::Flow, f̄, y, ȳ, ā, g, t) = ȳ
+# What a count's pullback reads of its demand (`_param_partials`); a flow of
+# another form moves no count.
+_demand(f::_Count, f̄, g, t) = _param_partials(cotangent(f̄, :demand), f.demand, g, t)
+_demand(f::Flow, f̄, g, t) = (nothing, nothing)
+_count_demand(f::Flow, c, y, a) = y, a
+_count_back(f::Flow, d, f̄, y, ȳ, ā, g, t) = ȳ
 # A count from outside the `Depletion` (`from = 0`) takes from no pool, so its
 # source has no cotangent.
-function _count_back(f::_Count, f̄, y, ȳ, ā, g, t)
-    i = f.from
-    c = param(f.demand, g, t)
+function _count_back(f::_Count, d, f̄, y, ȳ, ā, g, t)
+    c, ∂ = d
+    i = _from(f)
     s = _source(y, i)
     m = _moved(f.form, c, s)
     m̄ = ifelse(i == 0, zero(eltype(ȳ)), -_get(ȳ, i))
-    if f.to > 0 && _primal_value(m) >= 0
-        m̄ += ȳ[f.to] + ā[f.to]
+    if _to(f) > 0 && _primal_value(m) >= 0
+        m̄ += ȳ[_to(f)] + ā[_to(f)]
     end
     c̄, s̄, κ̄ = _moved_back(f.form, c, s, m̄)
     add_cotangent!(cotangent(cotangent(f̄, :form), :κ), κ̄)
-    add_param!(cotangent(f̄, :demand), f.demand, c̄, g, t)
+    _add_param_partials!(cotangent(f̄, :demand), f.demand, c̄, ∂, g, t)
     return _set(ȳ, i, _get(ȳ, i) + s̄)
 end
 
@@ -588,8 +651,8 @@ _head(x̄::Tuple) = first(x̄)
 _arrivals_back(::Tuple{}, ā, i, g, t, B) = B
 function _arrivals_back(fs::Tuple, ā, i, g, t, B)
     f = first(fs)
-    if f.from == i && f.to > 0
-        B += _rate(f, g, t) * ā[f.to]
+    if _from(f) == i && _to(f) > 0
+        B += _rate(f, g, t) * ā[_to(f)]
     end
     return _arrivals_back(Base.tail(fs), ā, i, g, t, B)
 end
@@ -600,9 +663,11 @@ end
 function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
 end
+# `g(H)` is read only through `ā_to` and `B`, zero where no hazard flow out
+# of a pool enters another, so the step's `_step_leaves` serves here too.
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
+    L = ntuple(i -> _step_leaves(fs, i, g, t, z), Val(N))
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
@@ -621,8 +686,8 @@ end
 _shares_back(::Tuple{}, ā, i, g, t, z) = z
 function _shares_back(fs::Tuple, ā, i, g, t, z)
     f = first(fs)
-    if f.from == i && f.to > 0
-        z += _share(f, g, t) * ā[f.to]
+    if _from(f) == i && _to(f) > 0
+        z += _share(f, g, t) * ā[_to(f)]
     end
     return _shares_back(Base.tail(fs), ā, i, g, t, z)
 end
@@ -636,16 +701,16 @@ function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
 end
 _rate_back!(f::_Count, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
 function _rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, x, L, H, B, ȳ, ā, g, t)
-    i = f.from
+    i = _from(f)
     E, gH, _ = L[i]
-    āto = f.to > 0 ? ā[f.to] : zero(eltype(ā))
+    āto = _to(f) > 0 ? ā[_to(f)] : zero(eltype(ā))
     r̄ = x[i] * (gH * āto + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
     add_param!(cotangent(f̄, :demand), f.demand, r̄, g, t)
     return nothing
 end
 function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
-    i = f.from
-    āto = f.to > 0 ? ā[f.to] : zero(eltype(ā))
+    i = _from(f)
+    āto = _to(f) > 0 ? ā[_to(f)] : zero(eltype(ā))
     add_param!(cotangent(f̄, :demand), f.demand, x[i] * (āto - ȳ[i]), g, t)
     return nothing
 end
@@ -667,7 +732,7 @@ struct _Named
     from::Int
     to::Int
 end
-_Named(name, f::Flow) = _Named(name, f.from, f.to)
+_Named(name, f::Flow) = _Named(name, _from(f), _to(f))
 function Base.print(io::IO, n::_Named)
     return print(io, n.name, " of Flow(", n.from, " => ", n.to, ")")
 end

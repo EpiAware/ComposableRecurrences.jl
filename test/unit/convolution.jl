@@ -248,6 +248,31 @@ end
     @test Convolution(TimeVarying(G))(X) ≈ Convolution(g)(X)
 end
 
+@testitem "Convolution: a per-stratum time-varying kernel runs strata in blocks" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    using Base.ScopedValues: with
+    CR = ComposableRecurrences
+    rng = Xoshiro(26)
+    S, D, T = 5, 4, 12
+    X = rand(rng, S, T)
+    C3 = rand(rng, S, D, T)
+    refs = (
+        naive_convolution((t, k, d) -> t - d >= 1 ? C3[k, d + 1, t - d] : 0.0, X, D),
+        naive_convolution((t, k, d) -> C3[k, d + 1, t], X, D),
+    )
+    for (ix, ref) in zip((CR.Primary(), CR.Secondary()), refs)
+        c = Convolution(TimeVarying(PerStratum(C3), ix))
+        serial = c(X)
+        @test serial ≈ ref
+        # One block per task gives the serial values, with more tasks than
+        # strata too.
+        for ntasks in (2, 3, 8)
+            ex = CR.Threaded(; min_work = 0, ntasks)
+            @test with(() -> c(X), CR.EXECUTOR => ex) == serial
+        end
+    end
+end
+
 @testitem "Convolution: output indexing matches CTIDM's time-varying delay" setup = [UseCaseReferences] begin
     using ComposableRecurrences
     C = UseCaseReferences.CTIDMReference

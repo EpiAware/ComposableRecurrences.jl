@@ -33,7 +33,7 @@ An intervention from day 50 lowers the reproduction number in every town.
 ```math
 \begin{aligned}
 v_{t,i} &= R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}, \\
-I_{t,i} &= s_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad s_{t,i} = s_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
+I_{t,i} &= S_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad S_{t,i} = S_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
 C_{t,i} &= \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}, \\
 K_{ij} &= 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \\
 R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
@@ -41,11 +41,12 @@ R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
 ```
 
 where $I_{t,i}$ is the number of infections in town $i$ on day $t$, $C_{t,i}$ the number of reports and $R_{t,i}$ the reproduction number.
-The value $v_{t,i}$ is the number of new infections before depletion, and the susceptible pool $s_{t,i}$ starts at the population $N_i$.
+The value $v_{t,i}$ is the number of new infections before depletion, and the susceptible pool $S_{t,i}$ starts at the population $N_i$.
 The generation interval has weight $g_l$ on lag $l$ over $L$ lags, the reporting delay has weight $w_l$ over $L_w$ lags, and a share $\rho = 0.4$ of infections is reported.
 The gravity coupling $K_{ij}$ comes from the populations and the distances $d_{ij}$ between towns, with $G_{ii} = 0$.
 The term $\delta_{ij}$ is 1 when $i = j$ and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
+The renewal and the delay both read these as their `history`, so the reports from day 1 include them.
 In the code, `PerStratum(pop)` gives each town its own population, and the run covers $T = 75$ days.
 
 <!-- INDEX_REWRITES in docs/docs_config.jl matches the last line of this block to hide its output on the docs home page; keep the two in step. -->
@@ -66,7 +67,7 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4, history = seed)
 ```
 
 ![Infections, reports and the remaining susceptible share in each town, with the intervention from day 50 to 56 shaded](docs/src/assets/readme-example.png)

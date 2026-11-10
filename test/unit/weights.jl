@@ -150,7 +150,7 @@ end
         # A late start reads the earlier cohorts too.
         @test computed(input; start = 7) ≈ dense(input; start = 7)
         @test computed(input; stop = 20, gain = 0.5) ≈ dense(input; stop = 20, gain = 0.5)
-        @test CR.contributions(computed, input) ≈ CR.contributions(dense, input)
+        @test_throws "lag by lag" CR.contributions(computed, input)
         @test computed'(input) ≈ dense'(input)
     end
     # In a recurrence the kernel's lags start at 1, so entry `i` is lag `i`.
@@ -179,7 +179,6 @@ end
         (2.0 * s, Derived(*, 2.0, s)), (s * 2.0, Derived(*, s, 2.0)),
         (1 - s, Derived(-, 1, s)), (s + p, Derived(+, s, p)),
         (p * s, Derived(*, p, s)), (s / PerStratum([1.0, 2.0]), nothing),
-        (s^2, Derived(^, s, 2)), (-s, Derived(-, s)),
         (s * s, Derived(*, s, s)), (TimeVarying(h) * s, nothing),
         ((1 - s) * s, nothing),
     )
@@ -187,6 +186,10 @@ end
         @test sugar isa Derived
         explicit === nothing || @test typeof(sugar) == typeof(explicit)
     end
+    # A power or a negation of a survival is spelled as a Derived.
+    @test !hasmethod(^, Tuple{typeof(s), Int})
+    @test !hasmethod(-, Tuple{typeof(s)})
+    @test Derived(^, s, 2) isa Derived
     # Plain numbers and wrappers keep their own arithmetic.
     @test !hasmethod(*, Tuple{Vector{Float64}, TimeVarying{CR.Secondary, Vector{Float64}}})
 end
@@ -303,6 +306,28 @@ end
     end
 end
 
+@testitem "Computed kernels: a survival scratch's row is fixed by the hazard's type" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    S, L, T = 3, 4, 6
+    plain = [0.1, 0.2, 0.3, 0.4]
+    hazards = (
+        plain, PerStratum(rand(S, L)), TimeVarying(rand(T)),
+        TimeVarying(PerStratum(rand(S, T))), CR.Derived(exp, plain),
+        CR.Derived(*, 0.5, PerStratum(rand(S, L))),
+        CR.Derived(+, CR.Derived(exp, plain), TimeVarying(PerStratum(rand(S, T)))),
+    )
+    for h in (hazards..., CR.Survival(plain), CR.Survival(PerStratum(rand(S, L))))
+        # The type's answer agrees with the strata count the values give.
+        @test CR._stratified_type(typeof(h)) == (CR._coef_strata(h) > 0)
+        @test CR._stratified(h) === CR._stratified_type(typeof(h))
+    end
+    for h in hazards
+        sc = @inferred CR._scratch(CR.Survival(h), Float64, L)
+        @test sc isa CR._SurvivalScratch{CR._stratified_type(typeof(h))}
+    end
+end
+
 @testitem "Computed kernels: each rule's pullback against a Jacobian" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
@@ -337,9 +362,13 @@ end
         @test c(xs) ≈ Base.ScopedValues.with(() -> c(xs), CR.EXECUTOR => CR.Serial())
         check(c, (xs, true, nothing, nothing, 1, T), sin.(xs))
     end
-    # The terms of a convolution.
-    terms = CR._Contributions(conv(W.confirmed(q, hs)))
-    check(terms, (x, true, nothing, 1, T), reshape(sin.(1:(L * T)), L, T))
+    # The transpose runs the computed kernel's reverse body as its forward
+    # pass, so its own pullback is checked too.
+    tr(k) = CR._TransposedConvolution(conv(k))
+    check(tr(W.confirmed(q, hs)), (x, nothing, 1, T), sin.(1:T))
+    check(tr(W.confirmed(q, hs)), (x, nothing, 3, T - 2), sin.(1:(T - 4)))
+    check(tr(W.confirmed(q, hs)), (x[1:(T - 2)], x[1:2], 1, T - 2), sin.(1:(T - 2)))
+    check(tr(W.nested(Ps, 0.4, hs)), (xs, nothing, 1, T), sin.(xs))
     # The weights as an array, with a map the rule differentiates locally.
     kw = CR._KernelWeights(computed(W.reported(a0[1:L], γ[1:(T + L)])))
     check(kw, (T,), reshape(sin.(1:(L * T)), L, T))

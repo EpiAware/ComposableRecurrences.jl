@@ -1,7 +1,7 @@
 # Operators with a computed kernel (see `weights.jl`). A convolution fills
-# a block of cohorts at a time inside its own loops; a recurrence, the
-# terms of a convolution and `kernel_weights` fill the weights as a dense
-# `Primary()` kernel and take its cotangent back to the coefficients.
+# a block of cohorts at a time inside its own loops; a recurrence and
+# `kernel_weights` fill the weights as a dense `Primary()` kernel and take
+# its cotangent back to the coefficients.
 
 const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
@@ -12,6 +12,9 @@ uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 # so they run in one loop; another executor takes the dense kernel of the
 # same weights, whose loops it splits by stratum.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
+    return _convolve_dense!(ex, Y, c, X, m, start)
+end
+function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
     stop = start + size(Y, 1) - 1
     K, _ = _fill_kernel(c, 0, stop, stop, Val(false))
     return _convolve!(ex, Y, _dense_kernel(K), X, m, start)
@@ -86,37 +89,18 @@ function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, sta
     return nothing
 end
 
-# The terms of a convolution read its weights through `_lagweight`, so they
-# run with the dense kernel.
-const _ComputedContributions = _Contributions{<:_ComputedConvolution}
-uses_adjoint(op::_ComputedContributions, ::Run) = _derived_local(op.c.kernel)
-function _dense_contributions(
-        op::_ComputedContributions, x, gain, history, start, stop, keep
+# The terms of a convolution read its weights one at a time, which a
+# computed kernel holds only inside a call.
+function _contributions(c::_ComputedConvolution, route, x; kwargs...)
+    throw(
+        ArgumentError(
+            "contributions reads a kernel's weights lag by lag, and a " *
+                "computed kernel has none outside a call; pass the dense " *
+                "kernel of its weights, TimeVarying(K, Primary())"
+        )
     )
-    kernel = op.c.kernel
-    n = last(_check_conv(kernel, x, gain, nothing, history, start, stop))
-    K, sc = _fill_kernel(kernel, 0, n, n, keep)
-    return _Contributions(_with_kernel(op.c, K)), n, sc
-end
-function _run_forward(op::_ComputedContributions, x, gain, history, start, stop)
-    d, n, sc = _dense_contributions(op, x, gain, history, start, stop, Val(true))
-    y, cache = _run_forward(d, x, gain, history, start, stop)
-    return y, (; d, inner = cache, n, sc)
-end
-function _primal(op::_ComputedContributions, x, gain, history, start, stop)
-    d, _, _ = _dense_contributions(op, x, gain, history, start, stop, Val(false))
-    return _primal(d, x, gain, history, start, stop)
-end
-function pullback!(grads, op::_ComputedContributions, ::Run, cache)
-    x̄ = cotangent(cotangent(cotangent(grads.piece, :c), :kernel), :x)
-    K̄ = _weights_cotangent(x̄, _array(cache.d.c.kernel))
-    piece = (; c = (; kernel = _dense_mirror(K̄)))
-    pullback!((; piece, y = grads.y, args = grads.args), cache.d, Run(), cache.inner)
-    _weights_back!(x̄, op.c.kernel, K̄, 0, cache.n, cache.sc)
-    return nothing
 end
 
-_with_kernel(c::Convolution, K) = Convolution(_dense_kernel(K); method = _method(c))
 function _with_kernel(r::Recurrence, K)
     return Recurrence(_Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds)
 end

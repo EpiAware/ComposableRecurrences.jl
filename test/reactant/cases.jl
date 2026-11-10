@@ -1,14 +1,19 @@
-# Reactant capability cases. Each case maps a parameter vector `θ` to the
-# operator's output through the public API. Only `θ` is traced: sizes,
-# histories and loss weights are `const` globals, so Reactant sees them as
-# constants rather than tracing captured values.
+# Reactant cases the AD registry (`test/ADFixtures`) cannot express: the
+# harness control, a call resumed from a returned state, a traced history
+# joined before the output, a check run at the call while traced, a
+# parameter held as host constants in a traced call, a kernel computed from
+# a `Derived` alone (the registry has one only inside a `Survival`), and how
+# compile and run time grow with the number of steps. The registry's
+# scenarios cover the operators, kernels, couplings and modifiers.
+#
+# Each case maps a parameter vector `θ` to the operator's output through the
+# public API. Only `θ` is traced: sizes, histories and loss weights are
+# `const` globals, so Reactant sees them as constants rather than tracing
+# captured values.
 module ReactantCases
 
 using ComposableRecurrences
-using ComposableRecurrences: Derived, Recent
-using ComposableRecurrences: Allocate, Depletion, Floor, Flow,
-    Hazard, Primary, Redistribute, Secondary, Step, Transform, Truncate
-using LinearAlgebra: I
+using ComposableRecurrences: Primary, Step
 
 export CASES, case_by_name, loss
 
@@ -50,15 +55,6 @@ function ComposableRecurrences.forward!(m::Lower, ::Step, v, s, t)
     return nothing
 end
 
-# A modifier that couples strata: rescale the step to a fixed total.
-struct Rescale
-    total::Float64
-end
-function ComposableRecurrences.forward!(m::Rescale, ::Step, v, s, t)
-    v .*= m.total / sum(v)
-    return nothing
-end
-
 "A case: `fwd(θ)` is the operator's output at parameters `θ`."
 struct Case
     name::String
@@ -75,24 +71,9 @@ control(θ) = 2 .* θ
 
 rec_single(θ) = Recurrence(θ[1:L])(θ[(L + 1):end]; history = H1)
 
-function rec_add(θ)
-    return Recurrence(θ[1:2])(1.0; history = H1, add = θ[3:end])
-end
-
-function rec_tv_kernel(θ)
-    k = TimeVarying(reshape(θ[1:(L * T)], L, T))
-    return Recurrence(k)(θ[(L * T + 1):end]; history = H1)
-end
-
 function rec_strata_I(θ)
     R = reshape(θ[(L + 1):end], S, T)
     return Recurrence(θ[1:L])(R; history = HS)
-end
-
-function rec_dense_K(θ)
-    K = reshape(θ[1:(S * S)], S, S)
-    R = reshape(θ[(S * S + 1):end], S, T)
-    return Recurrence(g0; coupling = K)(R; history = HS)
 end
 
 # The history joined before the output. It is read from the traced
@@ -104,24 +85,6 @@ function rec_joined(θ)
     return hcat(h, Recurrence(g0; coupling = K)(R; history = h))
 end
 
-function rec_per_stratum(θ)
-    k = PerStratum(reshape(θ[1:(S * L)], S, L))
-    R = reshape(θ[(S * L + 1):end], S, T)
-    return Recurrence(k)(R; history = HS)
-end
-
-function rec_pairwise(θ)
-    P = Pairwise(reshape(θ[1:(S * S * L)], S, S, L))
-    R = reshape(θ[(S * S * L + 1):end], S, T)
-    return Recurrence(P)(R; history = HS)
-end
-
-function rec_tv_coupling(θ)
-    C = TimeVarying(reshape(θ[1:(S * S * T)], S, S, T))
-    R = reshape(θ[(S * S * T + 1):end], S, T)
-    return Recurrence(g0; coupling = C)(R; history = HS)
-end
-
 function rec_resume(θ)
     r = Recurrence(θ[1:L])
     R = θ[(L + 1):end]
@@ -130,13 +93,8 @@ function rec_resume(θ)
     return vcat(y1, y2)
 end
 
-function rec_pointwise_modifier(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Lower(1.0),))
-    return r(θ[(L + 1):end]; history = H1)
-end
-
-# The same operator built before the local step's check could run (as
-# before `ForwardDiff` loads): the call checks the modifier while traced.
+# The operator built before the local step's check could run (as before
+# `ForwardDiff` loads): the call checks the modifier while traced.
 function rec_checked_at_call(θ)
     r0 = Recurrence(θ[1:L]; modifiers = (Lower(1.0),))
     r = Recurrence(
@@ -146,162 +104,26 @@ function rec_checked_at_call(θ)
     return r(θ[(L + 1):end]; history = H1)
 end
 
-function rec_apply_modifier(θ)
-    r = Recurrence(g0; modifiers = (Rescale(6.0),))
-    return r(reshape(θ, S, T); history = HS)
-end
-
 conv_fixed(θ) = Convolution(θ[1:L])(θ[(L + 1):end]; history = HX)
 
-# A `Primary()` kernel has no column for inputs before `t = 1`, so no
-# history.
-function conv_tv_primary(θ)
-    k = TimeVarying(reshape(θ[1:(L * T)], L, T), Primary())
-    return Convolution(k)(θ[(L * T + 1):end])
-end
-
-function conv_tv_secondary(θ)
-    k = TimeVarying(reshape(θ[1:(L * T)], L, T))
-    return Convolution(k)(θ[(L * T + 1):end]; history = HX)
-end
-
-const N0 = 60.0  # population for the depletion cases
-
-function mod_depletion(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0),))
-    return r(θ[(L + 1):end]; history = H1)
-end
-
-function mod_depletion_floor(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Depletion(N0, Floor()),))
-    return r(θ[(L + 1):end]; history = H1)
-end
-
-# Removals traced as a `TimeVarying` parameter after the kernel and `R`.
-function mod_depletion_removals(θ)
-    rm = TimeVarying(θ[(L + T + 1):end])
-    d = Depletion(N0, Hazard(), Flow(:S => 0, rm; form = Truncate()))
-    r = Recurrence(θ[1:L]; modifiers = (d,))
-    return r(θ[(L + 1):(L + T)]; history = H1)
-end
-
-# `σ` is a constant: a draw weight is one value or `PerStratum`, and a
-# traced scalar is not a `Real`.
-const σ0 = 0.3
-
-function mod_depletion_protected(θ)
-    rm = TimeVarying(θ[(L + T + 1):end])
-    d = Depletion(
-        N0, Hazard(; weights = (S = 1, V = σ0)), Flow(1 => 2, rm; form = Truncate());
-        pools = (:S, :V)
-    )
-    r = Recurrence(θ[1:L]; modifiers = (d,))
-    return r(θ[(L + 1):(L + T)]; history = H1)
-end
-
-# Strata 1 and 2 share a total, stratum 3 has its own.
-const GROUPS = [1:2, 3:3]
-
-function mod_allocate(θ)
-    R = reshape(θ[1:(S * T)], S, T)
-    tot = TimeVarying(PerStratum(reshape(θ[(S * T + 1):end], 2, T)))
-    r = Recurrence(g0; modifiers = (Allocate(GROUPS, tot),))
-    return r(R; history = HS)
-end
-
-# A saturating map with a traced, time-varying saturation level.
-saturate(v, c) = c * v / (c + v)
-
-function mod_transform(θ)
-    c = TimeVarying(θ[(L + T + 1):end])
-    r = Recurrence(θ[1:L]; modifiers = (Transform(saturate, c),))
-    return r(θ[(L + 1):(L + T)]; history = H1)
-end
-
-function mod_add(θ)
-    b = TimeVarying(θ[(L + T + 1):end])
-    r = Recurrence(θ[1:L]; modifiers = (Transform(+, b),))
-    return r(θ[(L + 1):(L + T)]; history = H1)
-end
-
-function mod_clamp(θ)
-    r = Recurrence(θ[1:L]; modifiers = (Transform(clamp, 1.2, 1.6),))
-    return r(θ[(L + 1):end]; history = H1)
-end
-
-function mod_redistribute(θ)
-    K = reshape(θ[1:(S * S)], S, S)
-    R = reshape(θ[(S * S + 1):end], S, T)
-    r = Recurrence(g0; modifiers = (Redistribute(K, 0.1),))
-    return r(R; history = HS)
-end
-
-# A weekly budget for each stratum whose unmet demand waits in a queue,
-# with the smooth draw: the budget is granted at each week's start.
-const GRANTS = [t % 7 == 1 ? 5.0 : 0.0 for t in 1:T]
-function mod_capacity(θ)
-    c = Depletion(
-        Flow(0 => :B, TimeVarying(GRANTS); form = Truncate()),
-        Truncate(0.5; overflow = :queue); pools = (:B,)
-    )
-    r = Recurrence(g0; modifiers = (c,))
-    return r(reshape(θ, S, T); history = HS)
-end
-
-# Each stratum a compartment: stratum 1 moves to 2 and leaves, 2 moves to 3.
-function mod_flows(θ)
-    fs = Depletion(
-        Flow(1 => 2, 0.3), Flow(1 => 0, 0.2), Flow(2 => 3, 0.1); pools = (:A, :B, :C)
-    )
-    r = Recurrence(g0; modifiers = (fs,))
-    return r(reshape(θ, S, T); history = HS)
-end
-
-# Transmission falls with the last week's incidence, mixed across strata.
-function mod_recent(θ)
-    β = Derived(exp, -0.05 * Recent(7; coupling = K0))
-    r = Recurrence(g0; modifiers = (Transform(*, β),))
-    return r(reshape(θ, S, T); history = HS)
-end
-
-tv_kernel(n) = vec(repeat(g0, 1, n) .* (1 .+ 0.01 .* (1:n)'))
-
-# Kernels, a coupling and a parameter given by change points, with traced
-# values; the second and third segments start a third and two thirds of the
-# way through the run.
-const CP2, CP3 = max(2, T ÷ 3), max(3, 2T ÷ 3)
-cp_kernel(θ, n, I = Secondary()) = TimeVarying(
-    [1 => θ[1:n], CP2 => θ[(n + 1):(2n)], CP3 => θ[(2n + 1):(3n)]], I
+# A per-stratum parameter given by change points, held as host constants
+# while only the series is traced: the registry traces every parameter.
+const BCP = TimeVarying(
+    [1 => PerStratum([0.1, 0.2, 0.3]), max(2, T ÷ 2) => PerStratum([0.4, 0.2, 0.1])]
 )
-cp_values(v) = vcat(v, 0.8 .* v, 0.6 .* v)
-
-rec_cp_kernel(θ) = Recurrence(cp_kernel(θ, L))(θ[(3L + 1):end]; history = H1)
-
-function rec_cp_primary(θ)
-    r = Recurrence(cp_kernel(θ, L, Primary()))
-    return r(θ[(3L + 1):end]; history = H1, start = L + 1)
+function rec_cp_strata_const(θ)
+    r = Recurrence(g0; modifiers = (ComposableRecurrences.Transform(+, BCP),))
+    return r(reshape(θ, S, T); history = HS)
 end
 
-function rec_cp_coupling(θ)
-    C1 = reshape(θ[1:(S * S)], S, S)
-    C2 = reshape(θ[(S * S + 1):(2S * S)], S, S)
-    R = reshape(θ[(2S * S + 1):end], S, T)
-    return Recurrence(g0; coupling = TimeVarying([1 => C1, CP2 => C2]))(R; history = HS)
-end
-
-conv_cp_primary(θ) = Convolution(cp_kernel(θ, L, Primary()))(θ[(3L + 1):end])
-
-function conv_cp_secondary(θ)
-    return Convolution(cp_kernel(θ, L))(θ[(3L + 1):end]; history = HX)
-end
-
-# The values are read as sums of one entry, as a traced scalar is not
-# indexed outside the package's loops.
-function mod_add_cp(θ)
-    at(i) = sum(view(θ, i:i))
-    b = TimeVarying([1 => at(L + T + 1), CP2 => at(L + T + 2)])
-    r = Recurrence(θ[1:L]; modifiers = (Transform(+, b),))
-    return r(θ[(L + 1):(L + T)]; history = H1)
+# A `Primary()` kernel computed from a `Derived` of lag weights and a
+# traced `TimeVarying` rate, filled densely in the traced call.
+function conv_derived_kernel(θ)
+    k = TimeVarying(
+        ComposableRecurrences.Derived((a, b) -> a * exp(-b), θ[1:L], TimeVarying(θ[(L + 1):end])),
+        Primary()
+    )
+    return Convolution(k)(x0)
 end
 
 const CASES = [
@@ -314,49 +136,16 @@ const CASES = [
         rec_single, vcat(g0, R0), W1
     ),
     Case(
-        "rec_add", "Recurrence with add (AR(2))", rec_add,
-        vcat([0.5, 0.2], 0.1 .* sin.(1:T)), W1
-    ),
-    Case(
-        "rec_tv_kernel", "Recurrence, TimeVarying kernel",
-        rec_tv_kernel, vcat(tv_kernel(T), R0), W1
-    ),
-    Case(
         "rec_strata_I", "Recurrence, $S strata, I coupling",
         rec_strata_I, vcat(g0, vec(RS0)), WS
-    ),
-    Case(
-        "rec_dense_K", "Recurrence, $S strata, dense K coupling",
-        rec_dense_K, vcat(vec(K0), vec(RS0)), WS
     ),
     Case(
         "rec_joined", "Recurrence, $S strata, dense K, traced history joined",
         rec_joined, vcat(vec(K0), vec(HS), vec(RS0)), weights_after(L)
     ),
     Case(
-        "rec_per_stratum", "Recurrence, PerStratum kernel",
-        rec_per_stratum,
-        vcat(vec(repeat(g0', S) .* (1:S) ./ S), vec(RS0)), WS
-    ),
-    Case(
-        "rec_pairwise", "Recurrence, Pairwise kernel",
-        rec_pairwise,
-        vcat(vec(reshape(K0, S, S, 1) .* reshape(g0, 1, 1, L)), vec(RS0)),
-        WS
-    ),
-    Case(
-        "rec_tv_coupling", "Recurrence, TimeVarying coupling",
-        rec_tv_coupling,
-        vcat(vec(repeat(K0, 1, 1, T) .* reshape(1 .+ 0.01 .* (1:T), 1, 1, T)), vec(RS0)),
-        WS
-    ),
-    Case(
         "rec_resume", "Recurrence, resume from returned state",
         rec_resume, vcat(g0, R0), W1
-    ),
-    Case(
-        "rec_pointwise_modifier", "Recurrence, custom pointwise modifier",
-        rec_pointwise_modifier, vcat(g0, RM0), W1
     ),
     Case(
         "rec_checked_at_call",
@@ -364,96 +153,19 @@ const CASES = [
         rec_checked_at_call, vcat(g0, RM0), W1
     ),
     Case(
-        "rec_apply_modifier", "Recurrence, custom all-strata modifier",
-        rec_apply_modifier, vec(RS0), WS
-    ),
-    Case(
         "conv_fixed", "Convolution, fixed kernel", conv_fixed,
         vcat(d0, x0), W1
     ),
     Case(
-        "conv_tv_primary", "Convolution, TimeVarying kernel, Primary()",
-        conv_tv_primary, vcat(tv_kernel(T), x0), W1
+        "conv_derived_kernel", "Convolution, kernel computed from a Derived",
+        conv_derived_kernel, vcat(d0, fill(0.1, T + L)), W1
     ),
     Case(
-        "conv_tv_secondary", "Convolution, TimeVarying kernel, Secondary()",
-        conv_tv_secondary, vcat(tv_kernel(T), x0), W1
-    ),
-    Case(
-        "mod_depletion", "Recurrence with Depletion (Hazard)",
-        mod_depletion, vcat(g0, 1.5 .* R0), W1
-    ),
-    Case(
-        "mod_depletion_floor", "Recurrence with Depletion (Floor)",
-        mod_depletion_floor, vcat(g0, 1.5 .* R0), W1
-    ),
-    Case(
-        "mod_depletion_removals", "Recurrence with Depletion (removals)",
-        mod_depletion_removals,
-        vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
-    ),
-    Case(
-        "mod_depletion_protected", "Recurrence with a protected pool",
-        mod_depletion_protected,
-        vcat(g0, 1.5 .* R0, 0.5 .+ 0.2 .* sin.(1:T)), W1
-    ),
-    Case(
-        "mod_allocate", "Recurrence with Allocate", mod_allocate,
-        vcat(vec(RS0), vec([4.0 + 0.2 * t + p for p in 1:2, t in 1:T])), WS
-    ),
-    Case(
-        "mod_transform", "Recurrence with Transform (TimeVarying θ)",
-        mod_transform, vcat(g0, R0, 5.0 .+ 0.1 .* (1:T)), W1
-    ),
-    Case(
-        "mod_add", "Recurrence with Transform(+) (TimeVarying)", mod_add,
-        vcat(g0, R0, 0.1 .* cos.(1:T)), W1
-    ),
-    Case(
-        "mod_clamp", "Recurrence with Transform(clamp)", mod_clamp,
-        vcat(g0, R0), W1
-    ),
-    Case(
-        "mod_redistribute", "Recurrence with Redistribute",
-        mod_redistribute, vcat(vec(K0 .- 0.5 .* [i == j for i in 1:S, j in 1:S]), vec(RS0)), WS
-    ),
-    Case(
-        "mod_capacity", "Recurrence with a budget pool and a queue",
-        mod_capacity, vec(RS0), WS
-    ),
-    Case(
-        "mod_flows", "Recurrence with a Depletion of flows", mod_flows, vec(RS0), WS
-    ),
-    Case(
-        "mod_recent", "Recurrence with Recent (coupled)", mod_recent,
-        vec(RS0), WS
-    ),
-    Case(
-        "rec_cp_kernel", "Recurrence, kernel from change points",
-        rec_cp_kernel, vcat(cp_values(g0), R0), W1
-    ),
-    Case(
-        "rec_cp_primary", "Recurrence, Primary() kernel from change points",
-        rec_cp_primary, vcat(cp_values(g0), R0), W1[(L + 1):end]
-    ),
-    Case(
-        "rec_cp_coupling", "Recurrence, coupling from change points",
-        rec_cp_coupling, vcat(vec(K0), vec(0.5 .* K0), vec(RS0)), WS
-    ),
-    Case(
-        "conv_cp_primary", "Convolution, Primary() kernel from change points",
-        conv_cp_primary, vcat(cp_values(d0), x0), W1
-    ),
-    Case(
-        "conv_cp_secondary", "Convolution, Secondary() kernel from change points",
-        conv_cp_secondary, vcat(cp_values(d0), x0), W1
-    ),
-    Case(
-        "mod_add_cp", "Recurrence with Transform(+) (change points)", mod_add_cp,
-        vcat(g0, R0, [0.1, -0.05]), W1
+        "rec_cp_strata_const",
+        "Recurrence, per-stratum change points held as host constants",
+        rec_cp_strata_const, vec(RS0), WS
     ),
 ]
-
 
 function case_by_name(name)
     i = findfirst(c -> c.name == name, CASES)
