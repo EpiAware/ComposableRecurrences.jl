@@ -354,7 +354,8 @@ end
 # are summed in their own type, not the pools': under a dual number that
 # would make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
-_leaves(fs::_NoHazard, i, g, t, z) = true, true, _out(_share, fs, i, g, t, false)
+_leaves(fs::_NoHazard, i, g, t, z) = _no_hazard_leaves(fs, i, g, t)
+_no_hazard_leaves(fs, i, g, t) = true, true, _out(_share, fs, i, g, t, false)
 
 # The same for a step, which reads `g(H)` only where a hazard flow out of
 # pool `i` enters a pool: elsewhere it is one, without its expm1 and
@@ -369,6 +370,8 @@ _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
 # Leave terms for the forward step. A pool whose one hazard flow enters a
 # pool moves `-expm1(-H)` of what it holds, so no `g(H)` is needed.
 @inline function _group_leaves(fs, i, g, t, z)
+    # No hazard flow out: `e^{-0}` and `g(0)` are one, with no dual exponential.
+    _hazards_out(fs, i) == 0 && return _no_hazard_leaves(fs, i, g, t)
     _one_rated_into(fs, i) || return _step_leaves(fs, i, g, t, z)
     E, em = _exp_neg(_out(_rate, fs, i, g, t, z))
     return E, _Moved(-em), _out(_share, fs, i, g, t, z)
@@ -498,18 +501,23 @@ end
 # Inlined, with the spread of the rates and shares, so that a step on dual
 # numbers passes no tuple of them through a call, which cost a filling
 # pool's step about 40% in forward mode.
-@inline function _flow_group(fs, x::NTuple{N}, g, t) where {N}
+@inline _flow_group(fs, x, g, t) = _flow_step(fs, x, g, t, Val(true))
+@inline function _flow_step(fs, x::NTuple{N}, g, t, keep_arrivals) where {N}
     z = zero(first(x))
     L = ntuple(@inline(i -> _group_leaves(fs, i, g, t, z)), Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
-    y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    y, a = _spread(fs, x, L, y0, _start_arrivals(keep_arrivals, y0), g, t)
     return _counts(fs, y, a, g, t)
 end
+# The arrivals before the flows: zeros, or `nothing` when they are not
+# kept, which the flows' `_add` passes through.
+@inline _start_arrivals(::Val{true}, y::NTuple{N}) where {N} = ntuple(_ -> zero(first(y)), Val(N))
+@inline _start_arrivals(::Val{false}, y) = nothing
 
-# The pools after the flows, without the arrivals.
+# The pools after the flows, without the arrivals, which are not built.
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
-@inline _flow_only(fs, x, g, t) = first(_flow_group(fs, x, g, t))
+@inline _flow_only(fs, x, g, t) = first(_flow_step(fs, x, g, t, Val(false)))
 
 # The amount each flow moves at one step, in the order given, from the
 # pools `x`: a hazard or share flow's from `x`, as the step spreads it,

@@ -640,6 +640,52 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
+# The width in bytes above which a strata output is transposed in place
+# rather than copied. Timed alone, the cycle walk takes 1.4 to 12 times the
+# copy for numbers up to 72 bytes and about as long at 104. In a whole
+# forward-mode gradient, dual numbers of 72 and 104 bytes still gain,
+# because the copy's fresh array on each chunk pass costs more in garbage
+# collection than the walk; plain numbers of 8 bytes lose.
+const _INPLACE_BYTES = 64
+
+# Strata × time: a buffer of wide numbers is transposed in place, so that
+# the history leads its memory, and the output takes over the rest;
+# narrower ones are copied out.
+function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix) where {Tp}
+    (isbitstype(Tp) && sizeof(Tp) > _INPLACE_BYTES) ||
+        return _public(H, (D + 1):(D + T), h)
+    S = size(H, 2)
+    x = _transpose!(vec(H), D + T, S)
+    return reshape(deleteat!(x, 1:(D * S)), S, T)
+end
+
+# Transpose the `m × n` matrix held in the first `m * n` entries of `x`, in
+# place, by following the cycles of the permutation. Entry `j` (from zero) of
+# the transpose, at row `c` and column `r`, is entry `r + c * m` of the
+# matrix; the division by `n` is by multiplication.
+function _transpose!(x::Vector, m, n)
+    N = m * n
+    (m <= 1 || n <= 1) && return x
+    seen = falses(N)
+    dn = Base.MultiplicativeInverses.SignedMultiplicativeInverse(n)
+    @inbounds for i in 1:(N - 2)
+        seen[i + 1] && continue
+        # Walk the cycle through `i`: each slot takes the entry that belongs
+        # there, and the last takes the first slot's.
+        j = i
+        v = x[j + 1]
+        while true
+            seen[j + 1] = true
+            r = div(j, dn)
+            k = r + (j - r * n) * m
+            k == i && break
+            x[j + 1] = x[k + 1]
+            j = k
+        end
+        x[j + 1] = v
+    end
+    return x
+end
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
@@ -1098,11 +1144,28 @@ function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return Y, _state(Y, H, states, h, τ0)
 end
 
+# The state to resume from: the last `D` times of the history then the
+# output, in the public layout, read from `Y` and `h` rather than the
+# buffer, which a strata output may have taken over (`_output`).
 function _state(Y, H, states, h, τ0)
     T = size(Y, ndims(Y))
     D = size(H, 1) - T
-    return State(_public(H, (T + 1):(T + D), h), states, τ0 + T)
+    return State(_state_history(Y, h, eltype(H), D, T), states, τ0 + T)
 end
+function _state_history(Y, h, ::Type{Tp}, D, T) where {Tp}
+    T >= D && return copy(selectdim(Y, ndims(Y), (T - D + 1):T))
+    # The buffer's history rows after the first `T`, as `_load_history!`
+    # loads them: the last of `h`, right aligned, zero before.
+    out = fill!(similar(Y, Tp, _with_times(Y, D)...), zero(Tp))
+    m = size(h, ndims(h))
+    n = min(m, D - T)
+    selectdim(out, ndims(out), (D - T - n + 1):(D - T)) .=
+        selectdim(h, ndims(h), (m - n + 1):m)
+    selectdim(out, ndims(out), (D - T + 1):D) .= Y
+    return out
+end
+_with_times(Y::AbstractVector, n) = (n,)
+_with_times(Y::AbstractMatrix, n) = (size(Y, 1), n)
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x

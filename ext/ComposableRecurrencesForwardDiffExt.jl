@@ -556,7 +556,7 @@ end
 
 # Dual numbers branch on their value, as plain floats do. `e^{-x}` and
 # `expm1(-x)` share the slope `-e^{-x}`, so the partials take one multiply.
-function _exp_neg(x::Dual{T}) where {T}
+@inline function _exp_neg(x::Dual{T}) where {T}
     E, em = _exp_neg(value(x))
     d = -E * ForwardDiff.partials(x)
     return Dual{T}(E, d), Dual{T}(em, d)
