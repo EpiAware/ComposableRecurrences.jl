@@ -32,16 +32,18 @@
     const TOT = [4.0 + 0.2 * t + p for p in 1:2, t in 1:T]
 
     # A sparse coupling on the host, or in CSR form on the device.
-    _sparse(d, K) = d === identity ? sparse(K) : JLSparseMatrixCSR(sparse(K))
+    _sparse(d, K) = d(zeros(1)) isa Array ? sparse(K) : JLSparseMatrixCSR(sparse(K))
 
     # Each case maps `d`, which moves an array to the device (or leaves it
-    # on the host), to the output of one call with every array moved.
+    # on the host), to the output of one call with every array moved. A case
+    # with a scalar parameter also takes its float type `F`, so a run in
+    # `Float32` holds no `Float64` that would promote its output.
     const CASES = [
         "Recurrence, fixed kernel" =>
             d -> Recurrence(d(g0))(d(R0); history = d(H1)),
         "Recurrence, scalar gain and add" =>
-            d -> Recurrence(d([0.5, 0.2]))(
-            1.0; history = d(H1), add = d(0.1 .* sin.(1:T))
+            (d, F = Float64) -> Recurrence(d([0.5, 0.2]))(
+            F(1); history = d(H1), add = d(0.1 .* sin.(1:T))
         ),
         "Recurrence, strata with add" =>
             d -> Recurrence(d(g0))(d(RS); history = d(HS), add = d(0.1 .* RS)),
@@ -84,13 +86,13 @@
         "Recurrence, dense coupling" =>
             d -> Recurrence(d(g0); coupling = d(K0))(d(RS); history = d(HS)),
         "Recurrence, sparse coupling" =>
-            d -> Recurrence(d(g0); coupling = _sparse(d, K0))(d(RS); history = d(HS)),
+            (d, F = Float64) -> Recurrence(d(g0); coupling = _sparse(d, F.(K0)))(d(RS); history = d(HS)),
         "Recurrence, Diagonal coupling" =>
             d -> Recurrence(d(g0); coupling = Diagonal(d([0.5, 1.0, 1.5])))(
             d(RS); history = d(HS)
         ),
         "Recurrence, scaled I coupling" =>
-            d -> Recurrence(d(g0); coupling = 0.5I)(d(RS); history = d(HS)),
+            (d, F = Float64) -> Recurrence(d(g0); coupling = F(0.5) * I)(d(RS); history = d(HS)),
         "Recurrence, TimeVarying coupling" =>
             d -> Recurrence(d(g0); coupling = TimeVarying(d(repeat(K0, 1, 1, T))))(
             d(RS); history = d(HS)
@@ -120,7 +122,7 @@
         "contributions" =>
             d -> contributions(Convolution(d(g0)), d(x0)),
         "Depletion (Hazard)" =>
-            d -> Recurrence(d(g0); modifiers = (Depletion(60.0),))(
+            (d, F = Float64) -> Recurrence(d(g0); modifiers = (Depletion(F(60)),))(
             d(1.5 .* R0); history = d(H1)
         ),
         "Depletion (Floor), PerStratum population" =>
@@ -128,15 +130,15 @@
             d(g0); modifiers = (Depletion(PerStratum(d(NS)), Floor()),)
         )(d(RS); history = d(HS)),
         "Depletion, heterogeneity and starting pool" =>
-            d -> Recurrence(
-            d(g0); modifiers = (Depletion(60.0, Hazard(2.0); pools = (S = 50.0,)),)
+            (d, F = Float64) -> Recurrence(
+            d(g0); modifiers = (Depletion(F(60), Hazard(F(2)); pools = (S = F(50),)),)
         )(d(R0); history = d(H1)),
         "Depletion with removals" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0);
             modifiers = (
                 Depletion(
-                    60.0, Hazard(),
+                    F(60), Hazard(),
                     Flow(
                         :S => 0, TimeVarying(d(0.5 .+ 0.2 .* sin.(1:T)));
                         form = Truncate()
@@ -157,19 +159,19 @@
             )
         )(d(RS); history = d(HS)),
         "Flows, one group of three compartments with every form" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d([1.0]);
             modifiers = (
                 Depletion(
                     Flow(1 => 2, PerStratum(d([0.3]))),
-                    Flow(1 => 0, 0.05),
+                    Flow(1 => 0, F(0.05)),
                     Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
-                    Flow(3 => 0, 0.2; form = Truncate()); pools = (:A, :B, :C)
+                    Flow(3 => 0, F(0.2); form = Truncate()); pools = (:A, :B, :C)
                 ),
             )
         )(d(RS); history = d(HS[:, end:end])),
         "Depletion with a protected pool and waning flows" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0);
             modifiers = (
                 Depletion(
@@ -177,7 +179,7 @@
                     Hazard(; weights = (S = 1, V = PerStratum(d([0.3, 0.2, 0.1])))),
                     Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
                     Flow(2 => 1, PerStratum(d([0.05, 0.1, 0.2]))),
-                    Flow(1 => 0, 0.01; form = Share()); pools = (:S, :V)
+                    Flow(1 => 0, F(0.01); form = Share()); pools = (:S, :V)
                 ),
             )
         )(d(RS); history = d(HS)),
@@ -227,13 +229,13 @@
             )
         )(d(R0); history = d(H1)),
         "Transform with a tuple and Derived" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0);
             modifiers = (
                 Transform(
                     (v, θ) -> θ[1] * v + θ[2],
                     (
-                        0.8 * Derived(exp, TimeVarying(d(0.03 .* sin.(1:T)))),
+                        F(0.8) * Derived(exp, TimeVarying(d(0.03 .* sin.(1:T)))),
                         PerStratum(d([0.1, 0.2, 0.3])),
                     )
                 ),
@@ -277,12 +279,12 @@
             modifiers = (Redistribute(d(Redistribute(K0 - 0.5I, [0.1, 0.2, 0.3]).M)),)
         )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0); coupling = d(K0),
             modifiers = (
-                Transform(+, 0.1), Depletion(PerStratum(d(NS))),
+                Transform(+, F(0.1)), Depletion(PerStratum(d(NS))),
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
-                Transform(clamp, 0.0, 10.0),
+                Transform(clamp, F(0), F(10)),
             )
         )(d(RS); history = d(HS)),
     ]
@@ -304,6 +306,31 @@
         )
         y1, state = r(d(RS); history = d(HS), stop = 8, record = (:state,))
         return y1, state, r(d(RS); state)
+    end
+
+    # Case `f` at float type `F`, which a case with no scalar parameter does
+    # not take.
+    at(f, d, F) = applicable(f, d, F) ? f(d, F) : f(d)
+end
+
+# A run in Float32 stays in Float32: every array is Float32 and each scalar
+# parameter is built in Float32, so a Float64 inside the package would
+# promote the output.
+@testitem "Every GPU case run in Float32 returns Float32, on the host and on JLArrays" setup = [GPUCases] begin
+    using JLArrays
+    JLArrays.allowscalar(false)
+    host(x) = Float32.(x)
+    device(x) = JLArray(Float32.(x))
+    for (where, d, A) in (("host", host, Array{Float32}), ("JLArrays", device, JLArray{Float32}))
+        @testset "$where" begin
+            for (name, f) in GPUCases.CASES
+                @testset "$name" begin
+                    y = GPUCases.at(f, d, Float32)
+                    @test y isa A
+                    @test Array(y) ≈ f(identity) rtol = 1.0e-4
+                end
+            end
+        end
     end
 end
 
