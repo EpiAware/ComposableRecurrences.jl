@@ -1128,14 +1128,14 @@ end
 # The positional Run: the output and the cache the reverse pass reads,
 # including each modifier's final state; `_WithState` builds the state to
 # resume from, which a plain call does not need.
-function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop)
-    Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, Val(true))
+function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop, cache = Val(true))
+    Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, cache)
     return Y, cache
 end
 _primal(r::Recurrence, args...) = first(_recur(r, args..., Val(false)))
 
-function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop)
-    Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, stop, Val(true))
+function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop, cache = Val(true))
+    Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, stop, cache)
     return (Y, _state(Y, H, states, h, τ0)), cache
 end
 function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
@@ -1369,10 +1369,15 @@ end
 # pointwise coupling's pressure is its coefficient times the convolution,
 # so it records no `X`.
 # Every step writes its column of both, so they start unset.
-function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
+# A pointwise coupling's convolutions reach only the gain's and the
+# coupling's cotangents, which an integer gain and coefficient have none of,
+# so such a run records none.
+function _pressure_records(h, ::Type{Tp}, C, S, T, need) where {Tp}
+    C isa _PointwiseCoupling && !need && return nothing
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
+@generated _floats(gain, C) = _has_float(gain) || _has_float(C)
 # A run without a reverse pass needs no kernel convolutions, only the
 # pressures its trace returns, so it keeps `X` whatever the coupling.
 struct _TracePressures{X}
@@ -1571,6 +1576,7 @@ end
 
 # The buffer loop: returns the output, the buffer, the final states and
 # what `cache` asks for: `Val(true)` the cache the reverse pass reads,
+# `Val(:traced)` that cache with the pressures a trace returns,
 # `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
 # is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
 # time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
@@ -1601,7 +1607,7 @@ end
 function _run(
         ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C}
     ) where {Tp, C}
-    keep = C === true
+    keep = C === true || C === :traced
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _history_buffer(h, Tp, D, T, S)
@@ -1614,7 +1620,10 @@ function _run(
     end
     init = keep ? map(copy, states) : nothing
     pr = if keep
-        _pressure_records(h, Tp, coupling, S, T)
+        # A traced run returns its pressures, so it records them whatever
+        # the gain.
+        need = C === :traced || _floats(gain, coupling)
+        _pressure_records(h, Tp, coupling, S, T, need)
     else
         C === :trace ? _trace_pressures(h, Tp, S, T) : nothing
     end

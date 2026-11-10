@@ -11,7 +11,7 @@ _type_adjoint(w::_WithTrace) = _type_adjoint(w.op)
 _fit(w::_WithTrace, args...) = _fit(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
-    y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop)
+    y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop, Val(:traced))
     return (y, _traces(_traced_recurrence(w.op), cache)), cache
 end
 # The modifiers are read from the operator, as the step reads them, not
