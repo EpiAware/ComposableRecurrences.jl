@@ -8,7 +8,7 @@ module DocsPerformance
     using ComposableRecurrences: ComposableRecurrences
     using Markdown: Markdown
 
-    export performance_plot, performance_table
+    export performance_plot, performance_table, slower_cases
 
     const RESULTS = joinpath(
         pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv"
@@ -162,6 +162,48 @@ module DocsPerformance
         return Markdown.parse(join(lines, '\n'))
     end
 
+    # `x` to two decimal places, keeping a trailing zero.
+    function two_places(x)
+        s = string(round(x; digits = 2))
+        return length(last(split(s, '.'))) == 1 ? s * "0" : s
+    end
+
+    """
+        slower_cases(; file = RESULTS)
+
+    One line per target listing the blocks where the package is slower than
+    the block's hand loop, below 1 at two decimal places, with the speed-up
+    as in `performance_table`, or saying there are none.
+    """
+    function slower_cases(; file = RESULTS)
+        bench = read_results(file)
+        bench === nothing && return Markdown.parse(
+            "The benchmark results are not available in this build."
+        )
+        lines = String[]
+        for (target, label) in TARGETS
+            slow = String[]
+            for block in unique(bench.block)
+                rows = @subset(bench, :block .== block)
+                rows = @subset(rows, :size .== last(rows.size))
+                methods = unique(rows.method)
+                ref = reference_method(methods)
+                (ref === nothing || !("ComposableRecurrences" in methods)) && continue
+                pkg = min_time(rows, "ComposableRecurrences", target)
+                other = min_time(rows, ref, target)
+                # Below 1 at two decimal places, as the table rounds.
+                (pkg === nothing || other === nothing) && continue
+                round(other / pkg; digits = 2) < 1 || continue
+                push!(slow, "$block ($(two_places(other / pkg))×)")
+            end
+            push!(
+                lines, "- **$label**: " *
+                    (isempty(slow) ? "never slower." : join(slow, ", ") * ".")
+            )
+        end
+        return Markdown.parse(join(lines, '\n'))
+    end
+
 end # module DocsPerformance
 
-using .DocsPerformance: performance_plot, performance_table
+using .DocsPerformance: performance_plot, performance_table, slower_cases

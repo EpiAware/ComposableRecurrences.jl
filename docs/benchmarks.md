@@ -22,7 +22,12 @@ performance_table()
 
 Reverse-mode gradients gain most, because the package's own adjoints replace differentiating the loop.
 The forward run and ForwardDiff use no adjoints, so they are near the loop's speed and slower than it on several models.
-Every cell below 1, on any target, is a case where the package is slower.
+The package is slower than the loop in these cases:
+
+```@example benchmarks
+slower_cases()
+```
+
 [Issue #417](https://github.com/EpiAware/ComposableRecurrences.jl/issues/417) tracks the slower cases and [issue #506](https://github.com/EpiAware/ComposableRecurrences.jl/issues/506) forward-mode adjoints.
 
 The second table compares the package's Mooncake gradient with Mooncake on the same loop given hand-written Mooncake adjoints:
