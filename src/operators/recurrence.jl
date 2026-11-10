@@ -573,7 +573,8 @@ function _buffer(h, ::Type{Tp}, D, T, S) where {Tp}
     fill!(view(H, 1:D, :), zero(Tp))
     return H
 end
-function _buffer(::_CPUArray, ::Type{Tp}, D, T, S) where {Tp}
+_buffer(::_CPUArray, ::Type{Tp}, D, T, S) where {Tp} = _cpu_buffer(Tp, D, T, S)
+function _cpu_buffer(::Type{Tp}, D, T, S) where {Tp}
     H = Matrix{Tp}(undef, D + T, S)
     for k in 1:S, i in 1:D
         H[i, k] = zero(Tp)
