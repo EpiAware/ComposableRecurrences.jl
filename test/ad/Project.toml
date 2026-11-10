@@ -21,6 +21,13 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 ADFixtures = {path = "../ADFixtures"}
 ComposableRecurrences = {path = "../.."}
 
+# LogExpFunctions 1.0.4 dropped a helper that Mooncake's LogExpFunctions
+# extension calls, so that extension no longer precompiles. LogExpFunctions
+# is listed here only to cap it; remove both entries once a Mooncake or
+# LogExpFunctions release loads together with LogExpFunctions 1.0.4 or later.
+[weakdeps]
+LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
+
 [compat]
 ADTypes = "1.24.0"
 DifferentiationInterface = "0.7.21"
@@ -32,6 +39,7 @@ EpiAwarePackageTools = "0.3, 0.4"
 FFTA = "0.3.2"
 FFTW = "1.10"
 ForwardDiff = "1.4.6"
+LogExpFunctions = "1 - 1.0.3"
 Mooncake = "0.5.61"
 ReverseDiff = "1.18.2"
 Test = "< 0.0.1, 1"
