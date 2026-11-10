@@ -87,11 +87,18 @@ jobs:
           pattern: ad-results-*
           path: results
           merge-multiple: true
+      # The report, with each backend that has no numbers for whatever
+      # reason (a crash, a timeout), also goes to the run's summary page.
       - name: Merge the backends
+        shell: bash
         run: |
           mkdir -p results
+          status=0
           julia --project=benchmark benchmark/ad_latest.jl \
-            public/latest.json results/*.json
+            public/latest.json results/*.json 2>&1 | tee report.txt ||
+            status=$?
+          { echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
       # `clean: false` replaces `latest.json` and leaves the history
       # workflow's other files on the branch as they are.
       - name: Deploy to benchmarks branch
