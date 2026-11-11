@@ -403,6 +403,15 @@ struct _Current
 end
 _current() = _Current(EXECUTOR[])
 
+# `f(ex, args...)` with the set executor `ex`: the default one as the
+# singleton `Serial()`, so the loops below hold no abstractly typed
+# executor, and any other as the `_Current` wrapper.
+@inline function _with_executor(f::F, args::Vararg{Any, N}) where {F, N}
+    cur = _current()
+    cur.ex isa Serial && return f(Serial(), args...)
+    return f(cur, args...)
+end
+
 # A kernel thread runs its body serially, and `_Current` is not plain data,
 # so a kernel receives the call's executor as `Serial()`.
 _kernel_args(args::Tuple) = map(_kernel_arg, args)
