@@ -246,6 +246,18 @@ end
         c = check_pullback(build, θ, v, zeros(6), t)
         @test c.v && c.s && c.θ
     end
+    # Pool A's one hazard flow enters a pool, beside a share out of it; B has
+    # two hazard flows and C's one leaves the system. A's rate spans the
+    # series and both arms of the exponential.
+    abc(θ) = CR.Depletion(
+        CR.Flow(:A => :B, θ[1]), CR.Flow(:A => 0, θ[2]; form = CR.Share()),
+        CR.Flow(:B => :C, θ[3]), CR.Flow(:B => :A, θ[4]), CR.Flow(:C => 0, θ[5]);
+        pools = (:A, :B, :C)
+    )
+    for r in (0.0, 1.0e-12, 0.5, 40.0), t in (1, 2)
+        c = check_pullback(abc, [r, 0.1, 0.2, 0.3, 0.4], v, zeros(6), t)
+        @test c.v && c.s && c.θ
+    end
     # Derived and group-by-time parameters, and a count into a compartment
     # followed by a count out of it whose cap binds.
     chained(θ) = CR.Depletion(
