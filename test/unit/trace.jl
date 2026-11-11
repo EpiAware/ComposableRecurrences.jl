@@ -142,7 +142,7 @@ end
     end
 end
 
-@testitem "Trace: a trace written in each step under other executors" setup = [InStepTraces] begin
+@testitem "Trace: a trace written in each step under other executors" tags = [:threads] setup = [InStepTraces] begin
     using Base.ScopedValues: with
     using KernelAbstractions
     for r in cases, (Rx, hx) in ((R, h), (dual(R), dual(h)))

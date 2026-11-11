@@ -328,7 +328,7 @@ end
     end
 end
 
-@testitem "Computed kernels: each rule's pullback against a Jacobian" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+@testitem "Computed kernels: each rule's pullback against a Jacobian" tags = [:threads] setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     CR = ComposableRecurrences

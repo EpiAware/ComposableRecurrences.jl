@@ -467,7 +467,7 @@ end
     )
 end
 
-@testitem "Allocate: an empty group's total is unused" setup = [
+@testitem "Allocate: an empty group's total is unused" tags = [:threads] setup = [
     ReferenceAD, ModifierChecks, AllocateChecks,
 ] begin
     using ComposableRecurrences, ForwardDiff
