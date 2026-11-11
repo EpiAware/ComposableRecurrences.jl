@@ -108,12 +108,36 @@ module DocsPerformance
         return isempty(hit) ? nothing : parse(Float64, only(hit.min_us))
     end
 
-    # `ref / pkg` as a speed-up, or a dash when either time is missing.
-    function speedup(rows, ref, target)
+    # The reference's minimum time over the package's on `target`, or
+    # `nothing` when either time is missing.
+    function ratio(rows, ref, target)
         pkg = min_time(rows, "ComposableRecurrences", target)
         other = min_time(rows, ref, target)
-        (pkg === nothing || other === nothing) && return "–"
-        return string(round(other / pkg; digits = 1), "×")
+        return (pkg === nothing || other === nothing) ? nothing : other / pkg
+    end
+
+    # `ratio` as a speed-up to one decimal place, or a dash when missing.
+    function speedup(rows, ref, target)
+        r = ratio(rows, ref, target)
+        return r === nothing ? "–" : string(round(r; digits = 1), "×")
+    end
+
+    # Each block of `bench` with a package row and a reference, as
+    # `(block, rows, ref)`: its rows at its largest size, and its hand loop,
+    # or its hand rules when `reference = :hand_rules`.
+    function compared_blocks(bench, reference)
+        blocks = Tuple{String, DataFrame, String}[]
+        for block in unique(bench.block)
+            rows = @subset(bench, :block .== block)
+            rows = @subset(rows, :size .== last(rows.size))
+            methods = unique(rows.method)
+            ref = reference === :hand_rules ?
+                ("hand rules" in methods ? "hand rules" : nothing) :
+                reference_method(methods)
+            (ref === nothing || !("ComposableRecurrences" in methods)) && continue
+            push!(blocks, (block, rows, ref))
+        end
+        return blocks
     end
 
     """
@@ -142,14 +166,7 @@ module DocsPerformance
             header,
             "|:--|" * (cased ? ":--|" : "") * ":--|" * repeat("--:|", length(targets)),
         ]
-        for block in unique(bench.block)
-            rows = @subset(bench, :block .== block)
-            rows = @subset(rows, :size .== last(rows.size))
-            methods = unique(rows.method)
-            ref = reference === :hand_rules ?
-                ("hand rules" in methods ? "hand rules" : nothing) :
-                reference_method(methods)
-            (ref === nothing || !("ComposableRecurrences" in methods)) && continue
+        for (block, rows, ref) in compared_blocks(bench, reference)
             cells = [speedup(rows, ref, first(t)) for t in targets]
             case = cased ?
                 "`" * first(@subset(rows, :method .== "ComposableRecurrences").case) * "` | " : ""
@@ -172,8 +189,8 @@ module DocsPerformance
         slower_cases(; file = RESULTS)
 
     One line per target listing the blocks where the package is slower than
-    the block's hand loop, below 1 at two decimal places, with the speed-up
-    as in `performance_table`, or saying there are none.
+    the block's hand loop, below 1 at two decimal places (the table shows
+    one), with the speed-up, or saying there are none.
     """
     function slower_cases(; file = RESULTS)
         bench = read_results(file)
@@ -183,18 +200,12 @@ module DocsPerformance
         lines = String[]
         for (target, label) in TARGETS
             slow = String[]
-            for block in unique(bench.block)
-                rows = @subset(bench, :block .== block)
-                rows = @subset(rows, :size .== last(rows.size))
-                methods = unique(rows.method)
-                ref = reference_method(methods)
-                (ref === nothing || !("ComposableRecurrences" in methods)) && continue
-                pkg = min_time(rows, "ComposableRecurrences", target)
-                other = min_time(rows, ref, target)
-                # Below 1 at two decimal places, as the table rounds.
-                (pkg === nothing || other === nothing) && continue
-                round(other / pkg; digits = 2) < 1 || continue
-                push!(slow, "$block ($(two_places(other / pkg))×)")
+            for (block, rows, ref) in compared_blocks(bench, :hand_loop)
+                r = ratio(rows, ref, target)
+                # Listed at two decimal places, one more than the table, so
+                # a case the table shows as 1.0× can still be listed.
+                (r === nothing || round(r; digits = 2) >= 1) && continue
+                push!(slow, "$block ($(two_places(r))×)")
             end
             push!(
                 lines, "- **$label**: " *
