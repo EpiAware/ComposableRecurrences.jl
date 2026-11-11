@@ -4,6 +4,7 @@
 
 @testsnippet GradientChecks begin
     using ADFixtures
+    using ComposableRecurrences: ComposableRecurrences
     import DifferentiationInterface as DI
     using EpiAwarePackageTools: EpiAwarePackageTools
     using Test
@@ -25,9 +26,13 @@
     # entry: the plain call, and the prepared, value-and-gradient and
     # in-place calls the kit compares only by norm. A scenario broken on
     # the backend is `@test_broken`, so it fails once it passes.
-    function test_gradients(name; category::Symbol)
+    # With `rules_fire`, for a backend with a rule of its own, it also
+    # checks that those calls ran the analytic reverse pass for each
+    # scenario, and for no `NoAdjoint` twin (`test_rule_fires`).
+    function test_gradients(name; category::Symbol, rules_fire::Bool = false)
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
+        plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
         broken = union(
             Set(ADFixtures.broken_scenario_names()),
             get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
@@ -43,11 +48,30 @@
                 ADFixtures.scenarios(; with_reference = true, scenario_kwargs...)
             )
             @testset "$(s.name), entry by entry" for s in scens
+                calls = ComposableRecurrences._PULLBACK_CALLS[]
                 if s.name in broken
                     @test_broken all(g -> entrywise(g, s.res1; rtol), gradients(s, backend))
                 else
                     @test all(g -> entrywise(g, s.res1; rtol), gradients(s, backend))
                 end
+                fired = ComposableRecurrences._PULLBACK_CALLS[] > calls
+                rules_fire && test_rule_fires(s.name, fired, plain, s.name in broken)
+            end
+        end
+        return nothing
+    end
+
+    # Whether the gradients of the scenario named `name` ran the analytic
+    # reverse pass (`fired`), as they must on a backend with a rule of its
+    # own, unless the scenario is a `NoAdjoint` twin or takes plain AD there
+    # by design (`plain`). A rule that stops firing fails here.
+    function test_rule_fires(name, fired, plain, broken)
+        rule = !startswith(name, "NoAdjoint") && !(name in plain)
+        @testset "$name: $(rule ? "the rule fires" : "no rule fires")" begin
+            if broken
+                @test_broken fired == rule
+            else
+                @test fired == rule
             end
         end
         return nothing
