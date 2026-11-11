@@ -172,6 +172,8 @@ works	1.0e-15	2.2	14.5	1.5				Recurrence user coupling without a pullback	forwar
 works	1.3e-15	0.9	11.9	33.5				Recurrence user coupling without a pullback	reverse	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	param	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence per-stratum modifier without a pullback	forward	registry	cpu	12	0.0
 error	NaN	NaN	NaN	NaN	MethodError	param	MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for this combination of argument types. Closest candidates are:   reindex(::Tuple{AbstractVector, Vararg{Any}}, !Matched::Tuple{Any, Vararg{Any}	Recurrence per-stratum modifier without a pullback	reverse	registry	cpu	12	0.0
+works	6.9e-13	48.5	14.0	1.8				Recurrence blockwise modifier without a pullback	forward	registry	cpu	12	0.0
+works	3.6e-15	3.8	19.9	27.9				Recurrence blockwise modifier without a pullback	reverse	registry	cpu	12	0.0
 works	1.6e-16	1.6	565.8	10.1				Recurrence user coupling across 30 strata	forward	registry	cpu	12	0.0
 works	6.2e-15	2.6	571.3	2574.0				Recurrence user coupling across 30 strata	reverse	registry	cpu	12	0.0
 works	5.2e-15	2.2	10.5	2.3				Recurrence modifier without a pullback, parameter from change points	forward	registry	cpu	12	0.0

@@ -18,6 +18,7 @@ using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
+using ..ADFixtures: AddMean, AddMeanHand
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -1760,6 +1761,50 @@ if supports(:_read_pullback)
     REQUIRES["custom_coupling_matrix"] = (:_read_pullback,)
     for tier in ("smoke", "realistic")
         append!(TIERS[tier].cases, ["custom_modifier_vector", "custom_coupling_matrix"])
+    end
+end
+
+# A blockwise user modifier with a per-stratum parameter, with `forward!`
+# only and with a hand-written `pullback!`: the local derivative runs group
+# by group, its dual numbers as wide as one group's values, state and
+# parameter entry at any number of strata.
+if supports(:_block_local_back)
+    function _custom_modifier_blocks(M)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, a = _unpack(θ, (L,), (S, L), (S, T), (S,))
+                r = Recurrence(g; modifiers = (M(PerStratum(a)),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 13) for k in 1:S, t in 1:T],
+                [0.05 + 0.01 * k for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_blocks",
+            "renewal across strata with a user blockwise modifier, forward only",
+            _custom_modifier_blocks(AddMean), [1, 5, 20, 50], false,
+        ),
+        Case(
+            "custom_modifier_blocks_pullback",
+            "renewal across strata with a user blockwise modifier and its pullback!",
+            _custom_modifier_blocks(AddMeanHand), [1, 5, 20, 50], false,
+        ),
+    )
+    for name in ("custom_modifier_blocks", "custom_modifier_blocks_pullback")
+        REQUIRES[name] = (:_block_local_back,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
     end
 end
 

@@ -47,7 +47,8 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24 | rule, local ForwardDiff step |
 | the same with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same with more than 48 | plain AD |
-| blockwise modifier | plain AD |
+| blockwise modifier with float scalars and `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through `param` at its group | rule, local ForwardDiff step per group |
+| blockwise modifier with other float arrays | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
@@ -85,6 +86,8 @@ Add a `ConstructionBase.constructorof` method for a type whose positional constr
 The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
 So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
 A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
+A blockwise modifier's local step does the same for each group: it seeds the group's values, its state and the entries its parameters read at group `g`, as `param(m.a, g, t)`.
+So its dual numbers are as wide as one group, whatever the number of strata.
 A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
 
 The local step of a pointwise modifier seeds the entries of its other float arrays that a step reads, as `m.a[t]`, and records which they are.

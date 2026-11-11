@@ -1265,6 +1265,47 @@ if USER_TRACES
     end
 end
 
+# A blockwise user modifier with a per-stratum parameter, without and with
+# a hand-written `pullback!`: the registry and the benchmark matrix compare
+# its local derivative with the hand one.
+"""
+The value plus `a` times the mean of the values so far, one value and two
+state entries (their sum and count) per group, with `forward!` only.
+"""
+struct AddMean{A}
+    a::A
+end
+"`AddMean` with a hand-written `pullback!`."
+struct AddMeanHand{A}
+    a::A
+end
+if IN_PLACE && isdefined(ComposableRecurrences, :blocks)
+    for M in (AddMean, AddMeanHand)
+        @eval begin
+            CR.blocks(::$M) = (1, 2)
+            function CR.forward!(m::$M, ::CR.Step, v::Tuple, s::Tuple, t, g)
+                total, n = s[1][] + v[1][], s[2][] + 1
+                s[1][], s[2][] = total, n
+                v[1][] = v[1][] + CR.param(m.a, g, t) * total / n
+                return nothing
+            end
+        end
+    end
+    # With `total = s₁ + v` and `n = s₂ + 1` before the step, it gives
+    # `v′ = v + a total / n`, `s₁′ = total` and `s₂′ = n`.
+    function CR.pullback!(grads, m::AddMeanHand, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        a = CR.param(m.a, g, t)
+        total, n = s[1][] + v[1][], s[2][] + 1
+        v̄′, s̄₁′, s̄₂′ = grads.v[1][], grads.s[1][], grads.s[2][]
+        total̄ = s̄₁′ + v̄′ * a / n
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, v̄′ * total / n, g, t)
+        grads.v[1][] = v̄′ + total̄
+        grads.s[1][] = total̄
+        grads.s[2][] = s̄₂′ - v̄′ * a * total / n^2
+        return nothing
+    end
+end
+
 # The default traces of a pointwise and a grouped user modifier, before a
 # depletion.
 function _trace_user_default(w, θ)
@@ -2154,6 +2195,16 @@ function _strata_modifier(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A blockwise modifier without a `pullback!`, with a per-stratum parameter
+# read through `param` at its group: the local derivative seeds one group's
+# value, state and parameter entry at a time.
+function _block_modifier(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; coupling = K0, modifiers = (AddMean(PerStratum(a)),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # The same coupling across 30 strata: its local derivative takes two passes
 # of dual numbers, a rule on Mooncake and plain AD on Enzyme.
 const SW = 30
@@ -2378,6 +2429,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
     (
+        "Recurrence blockwise modifier without a pullback", _block_modifier,
+        () -> _flat(zeros(S, L), LOGR, [0.05, 0.1, 0.2]),
+    ),
+    (
         "Recurrence user coupling across 30 strata", _user_coupling_wide,
         () -> _flat(zeros(SW, L), [0.1 * sin(a + t) for a in 1:SW, t in 1:T], [0.3]),
     ),
@@ -2425,6 +2480,7 @@ push!(
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+_REQUIRES["Recurrence blockwise modifier without a pullback"] = (:_block_local_back,)
 # The rule took routes whose couplings have no pullback once they came with
 # a local derivative.
 let name = "Recurrence routes with a user coupling without a pullback"
