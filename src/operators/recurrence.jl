@@ -1612,13 +1612,9 @@ end
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp}
-    c = _current()
-    # The default executor is passed as the singleton `Serial()`, so the loop
-    # below holds no abstractly typed executor.
-    if c.ex isa Serial
-        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, cache)
+    return _with_executor() do ex
+        _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache)
     end
-    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, cache)
 end
 
 function _run(

@@ -907,7 +907,7 @@ end
     @test !any(signbit, m(1.0; history = [-0.0], add = [-0.0, -0.0]))
 end
 
-@testitem "Recurrence: wide dual numbers over strata run strata-major" begin
+@testitem "Recurrence: wide dual numbers over strata run strata-major" tags = [:threads] begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra
     CR = ComposableRecurrences
     # Dual numbers wider than 64 bytes take the strata × time buffer; narrower

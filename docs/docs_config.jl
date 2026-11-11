@@ -268,6 +268,8 @@ const PACKAGE_TUTORIALS = [
 # hold: a single page path, or a nested vector of `"Title" => content` pairs.
 # Spliced in after "Benchmarks" and before "Development", in list order.
 const PACKAGE_SECTIONS = Pair{String, Any}[
+    # Here rather than under "Benchmarks", whose entries the kit fixes.
+    "Performance summary" => "performance/summary.md",
     "Explanation" => [
         "Operators" => "explanation/operators.md",
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",

@@ -1,6 +1,6 @@
 # The FFTMethod() lag sum against the direct one.
 
-@testitem "Convolution FFT: matches direct" begin
+@testitem "Convolution FFT: matches direct" tags = [:threads] begin
     using ComposableRecurrences, FFTW, Random
     using Base.ScopedValues: with
     const CR = ComposableRecurrences

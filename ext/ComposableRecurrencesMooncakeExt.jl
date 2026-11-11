@@ -9,7 +9,8 @@ using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses, _convolve_masses_back!, _current,
     _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
-    _plain_hook, _route, _run_forward, _run_pullback!, _untraced
+    _movement, _movement_back!, _plain_hook, _route, _run_forward,
+    _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -184,6 +185,36 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), NoRData(), NoRData()
     end
     return CoDual(c, c̄), _convolve_masses_pullback
+end
+
+# Primitive so the movement `Redistribute(K, ε)` builds from a kernel is not
+# traced as its `S × S` broadcasts, which cost a sizeable share of a
+# gradient whose movement is built in the differentiated code. It takes a
+# matrix kernel, or a reshape or view of one, and one intensity or a row of
+# them over origins, which is a reshape when the intensities are a view.
+const _KernelMatrix{P} = Union{
+    Matrix{P}, SubArray{P, 2, <:Array{P}},
+    Base.ReshapedArray{P, 2, <:Union{Array{P}, SubArray{P, 1, <:Array{P}}}},
+}
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode,
+    Tuple{typeof(_movement), K, E} where {
+        P <: _IEEEFloat, K <: _KernelMatrix{P}, E <: Union{P, _KernelMatrix{P}},
+    }
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(_movement)}, K::CoDual{<:_KernelMatrix{P}},
+        E::CoDual{<:Union{P, _KernelMatrix{P}}}
+    ) where {P <: _IEEEFloat}
+    pK, pE = primal(K), primal(E)
+    M = _movement(pK, pE)
+    M̄ = zero(M)
+    function _movement_pullback(::NoRData)
+        Ē = pE isa Real ? nothing : _mc(pE, tangent(E))
+        e = _movement_back!(_mc(pK, tangent(K)), Ē, M̄, pK, pE)
+        return NoRData(), NoRData(), pE isa Real ? e : NoRData()
+    end
+    return CoDual(M, M̄), _movement_pullback
 end
 
 Mooncake.@is_primitive(

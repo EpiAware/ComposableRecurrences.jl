@@ -146,7 +146,7 @@ end
     deep_reverse_matches()
 end
 
-@testitem "depth: the threaded reverse pass reads the deeper buffer" setup = [AdjointCheck, DeepBuffer] begin
+@testitem "depth: the threaded reverse pass reads the deeper buffer" tags = [:threads] setup = [AdjointCheck, DeepBuffer] begin
     using ComposableRecurrences, LinearAlgebra, Random
     using Base.ScopedValues: with
     rng = Xoshiro(14)
