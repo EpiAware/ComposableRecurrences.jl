@@ -67,7 +67,7 @@ end
         naive_convolution((t, k, d) -> C[k, d + 1], X, D; hist = H)
 end
 
-@testitem "Convolution: other number types take the gather body" begin
+@testitem "Convolution: other number types take the gather body" tags = [:threads] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(26)
     S, D, T = 3, 4, 9
@@ -248,7 +248,7 @@ end
     @test Convolution(TimeVarying(G))(X) ≈ Convolution(g)(X)
 end
 
-@testitem "Convolution: a per-stratum time-varying kernel runs strata in blocks" setup = [Reference] begin
+@testitem "Convolution: a per-stratum time-varying kernel runs strata in blocks" tags = [:threads] setup = [Reference] begin
     using ComposableRecurrences, Random
     using Base.ScopedValues: with
     CR = ComposableRecurrences

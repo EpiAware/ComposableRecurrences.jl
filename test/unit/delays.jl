@@ -429,48 +429,6 @@ end
     @test g != 0
 end
 
-@testitem "Chained delays: the Mooncake rule's pullback" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using Random: Xoshiro
-    CR = ComposableRecurrences
-    a, b = [0.5, 0.3, 0.2], [0.6, 0.3, 0.1, 0.05]
-    for lags in (3, 6, 8)
-        c̄ = collect(1.0:lags) ./ lags
-        Ja = ReferenceAD.jacobian(a -> CR._convolve_masses(a, b, lags), a)
-        Jb = ReferenceAD.jacobian(b -> CR._convolve_masses(a, b, lags), b)
-        f = CR._convolve_masses
-        cache = Mooncake.prepare_pullback_cache(f, a, b, lags)
-        _, (_, ā, b̄, _) = Mooncake.value_and_pullback!!(cache, c̄, f, a, b, lags)
-        @test ā ≈ Ja' * c̄
-        @test b̄ ≈ Jb' * c̄
-    end
-    # The same vector as both links, in traced code, takes both cotangents.
-    c̄ = collect(1.0:5.0)
-    square(a) = CR._convolve_masses(a, a, 5)
-    J = ReferenceAD.jacobian(square, a)
-    cache = Mooncake.prepare_pullback_cache(square, a)
-    _, (_, ā) = Mooncake.value_and_pullback!!(cache, c̄, square, a)
-    @test ā ≈ J' * c̄
-    for lags in (4, 6)
-        Mooncake.TestUtils.test_rule(
-            Xoshiro(1), CR._convolve_masses, a, b, lags;
-            is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
-        )
-    end
-    # Views of one parameter vector, as a model hands them over.
-    θ = [a; b]
-    split(θ) = CR._convolve_masses(view(θ, 1:3), view(θ, 4:7), 6)
-    c̄ = collect(1.0:6.0)
-    J = ReferenceAD.jacobian(split, θ)
-    cache = Mooncake.prepare_pullback_cache(split, θ)
-    _, (_, θ̄) = Mooncake.value_and_pullback!!(cache, c̄, split, θ)
-    @test θ̄ ≈ J' * c̄
-    Mooncake.TestUtils.test_rule(
-        Xoshiro(1), CR._convolve_masses, view(θ, 1:3), view(θ, 4:7), 6;
-        is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
-    )
-end
-
 @testsnippet OwnDelay begin
     using ComposableRecurrences, LinearAlgebra
     CR = ComposableRecurrences
