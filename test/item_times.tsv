@@ -78,10 +78,6 @@
 0.0	Built-in modifiers implement the piece interface
 4.1	Built-in modifiers: ForwardDiff through a recurrence
 7.2	Built-in modifiers: a Recurrence infers its return type
-0.5	CTIDM: delay as a convolution
-1.2	CTIDM: random walk and AR
-1.3	CTIDM: renewal
-2.2	CTIDM: renewal with mixing and depletion
 0.9	Chained delays: as kernels
 1.8	Chained delays: the Jacobian is the convolution transposed
 15.9	Chained delays: the Mooncake rule's pullback
