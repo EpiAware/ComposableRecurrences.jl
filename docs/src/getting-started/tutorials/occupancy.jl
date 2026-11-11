@@ -234,6 +234,8 @@ end
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("occupancy")
+#-
+slower_targets("occupancy") #hide
 
 # ## Learning more
 #

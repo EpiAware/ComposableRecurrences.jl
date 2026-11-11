@@ -243,20 +243,6 @@ Town A peaks on day 36, before the intervention, because its susceptible pool ru
 The intervention brings the peaks of towns B and C forward to day 50, from days 53 and 51 without it.
 About 49% of town B and 54% of town C are infected, against 73% without the intervention.
 
-## [Performance](@id overview-performance)
-
-The chart compares the time the operators take with three hand-written versions of the same model.
-Each bar times the three-town model over 200 days with a 20-day generation interval.
-The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
-
-```@example overview
-using ComposableRecurrences: Floor, Transform # hide
-include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
-performance_plot("naive vs package")
-```
-
-The [benchmarks page](@ref benchmarks-hand-written) compares each tutorial's model with a hand-written loop of it in the same way.
-
 ### Changing the model
 
 Switching to the floored depletion form and adding imported infections after depletion changes one line of the operator version.
@@ -279,6 +265,7 @@ Imports added after the `Depletion` do not draw down the pool, unlike [imports a
 ::: details The same change in the hand-written loop
 
 ```@example overview
+using ComposableRecurrences: Floor, Transform
 function loop_renewal(R, seed, gi, K, pop, ι)  # changed: imports passed in
     S, T = size(R)
     L, m = length(gi), size(seed, 2)
@@ -332,6 +319,23 @@ end
 Total reports are most sensitive to town A's reproduction number around its peak.
 The reproduction numbers of B and C matter most just before the intervention, when their own outbreaks are largest.
 Sensitivity fades after the intervention and is zero on the last day, whose infections are not yet reported.
+
+## [Performance](@id overview-performance)
+
+The chart compares the time the operators take with three hand-written versions of the same model.
+Each bar times the three-town model over 200 days with a 20-day generation interval.
+The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
+
+```@example overview
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
+performance_plot("naive vs package")
+```
+
+```@example overview
+slower_targets("naive vs package") # hide
+```
+
+The [benchmarks page](@ref benchmarks-hand-written) compares each tutorial's model with a hand-written loop of it in the same way.
 
 ## Learning more
 

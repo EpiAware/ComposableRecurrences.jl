@@ -98,6 +98,8 @@ plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("vaccination")
+#-
+slower_targets("vaccination") #hide
 
 # ## Learning more
 #

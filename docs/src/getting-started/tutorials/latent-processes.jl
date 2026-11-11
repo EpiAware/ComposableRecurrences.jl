@@ -270,6 +270,8 @@ end
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("latent processes")
+#-
+slower_targets("latent processes") #hide
 
 # ## References
 #

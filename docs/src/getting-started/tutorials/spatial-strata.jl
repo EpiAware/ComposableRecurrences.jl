@@ -263,6 +263,8 @@ end
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("spatial strata")
+#-
+slower_targets("spatial strata") #hide
 
 # ## Learning more
 #
