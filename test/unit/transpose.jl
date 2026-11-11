@@ -109,7 +109,7 @@ end
     @test_throws DimensionMismatch Convolution(PerStratum(ones(2, 2)))'(ones(3, 4))
 end
 
-@testitem "Transpose: pullback against ForwardDiff" setup = [
+@testitem "Transpose: pullback against ForwardDiff" tags = [:threads] setup = [
     AdjointCheck, TransposeCases,
 ] begin
     using Base.ScopedValues: with

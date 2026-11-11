@@ -309,7 +309,7 @@ end
 
 # One item for the three runs of every case, so the device code compiled
 # for one run is reused by the others.
-@testitem "JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments" setup = [GPUCases] begin
+@testitem "JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments" tags = [:threads] setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences: ComposableRecurrences as CR
     using Base.ScopedValues: with
