@@ -723,11 +723,8 @@ end
     g, h, W = rand(rng, 3) ./ 2, 1 .+ rand(rng, 3), randn(rng, 8)
     renewal(θ) = sum(W .* Recurrence(g; modifiers = (Hazard(θ[1]),))(θ[2:end]; history = h))
     renewal_na(θ) = sum(W .* NoAdjoint(Recurrence(g; modifiers = (Hazard(θ[1]),)))(θ[2:end]; history = h))
-    # A delay through the public call is the registry's "Convolution delay
-    # with history" and the other convolution scenarios, whose rule-fires
-    # checks run with the registry gradients. Two groups of strata, one of
-    # them not contiguous, with totals over time: the totals and the gains
-    # get cotangents.
+    # Two groups of strata, one of them not contiguous, with totals over
+    # time: the totals and the gains get cotangents.
     W2, h2 = randn(rng, 3, 4), 1 .+ rand(rng, 3, 3)
     split(θ) = CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(reshape(θ[1:8], 2, 4))))
     allocate(θ) = sum(
