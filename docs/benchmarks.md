@@ -36,6 +36,7 @@ The second table compares the package's Mooncake gradient with Mooncake on the s
 performance_table(; reference = :hand_rules)
 ```
 
+The [performance summary](@ref performance-summary) gives each example its own table, with the package's times and the gain from its rules.
 Each row names its case in `test/ADFixtures/src/matrix_cases.jl`, timed at the docs tier, and `task -t benchmark/Taskfile.yml matrix-docs` regenerates `benchmark/results/docs.csv`, which these tables read.
 The [AD comparison](@ref ad-comparison) times the gradient of every scenario in the AD test registry on each backend.
 

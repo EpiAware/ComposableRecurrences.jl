@@ -40,6 +40,18 @@ end
 using ADFixtures
 import DifferentiationInterface as DI
 
+# `BENCHMARK_TIER`: `pr`, the default when unset or empty, is small enough
+# for a pull request job; `full` times everything below, and is what
+# `ad-benchmarks.yaml` sets for the registry grid. `pr` leaves out the
+# registry scenarios, the `NoAdjoint` and `loop` arms, the forward modes and
+# the convolution methods, FFT included.
+const _FULL = let tier = strip(get(ENV, "BENCHMARK_TIER", ""))
+    isempty(tier) || tier in ("pr", "full") ||
+        error("unknown BENCHMARK_TIER $tier; use pr or full")
+    tier == "full"
+end
+const _PR_BACKENDS = ("ForwardDiff", "Mooncake reverse", "Enzyme reverse")
+
 # The backends the package targets: ForwardDiff, and Enzyme and Mooncake in
 # forward and reverse mode. The registry also lists ReverseDiff, which the AD
 # tests still run, but the suite does not time it.
@@ -48,7 +60,7 @@ import DifferentiationInterface as DI
 # `primal`, limits the suite to those parts, so a workflow can split it
 # across jobs: each backend's gradients, and `primal` for the primal
 # timings and the convolution groups, whose gradients are all Mooncake's.
-# Unset or empty, the suite times everything.
+# Unset or empty, the suite times every part of its tier.
 # `BENCHMARK_MATRIX=false` also leaves out the matrix cases' gradients,
 # so a job times only the registry grid; the `primal` groups follow
 # `BENCHMARK_BACKENDS` alone.
@@ -72,7 +84,7 @@ _selected(name) = _SELECTED === nothing || name in _SELECTED
 const BENCHMARK_BACKENDS = filter(e -> _selected(e.name), _ALL_BACKENDS)
 
 let grad = BenchmarkGroup()
-    for entry in BENCHMARK_BACKENDS
+    for entry in (_FULL ? BENCHMARK_BACKENDS : ())
         for scen in ADFixtures.scenarios()
             ADFixtures.exclusion_reason(scen.name, entry.name) === nothing ||
                 continue
@@ -99,10 +111,11 @@ let grad = BenchmarkGroup()
 end
 
 # The `ci` tier of the benchmark matrix (`matrix.jl` runs the full grid):
-# each case's primal, and its gradient on every benchmarked backend in three
-# arms: the operator as users call it, under `NoAdjoint`, and, where the
-# case has one, the hand-written `loop` baseline. The comparison comment
-# then shows each backend's rule gain and its ratio to the loop.
+# each case's primal, and, in the `full` tier, its gradient on every
+# benchmarked backend in three arms: the operator as users call it, under
+# `NoAdjoint`, and, where the case has one, the hand-written `loop`
+# baseline. The comparison comment then shows each backend's rule gain and
+# its ratio to the loop. The `pr` tier times the `rule` arm only.
 # On the forward modes and ForwardDiff the rule and `NoAdjoint` arms run the
 # same code, as the rules are reverse rules; both are timed so every backend
 # covers the same cells.
@@ -119,6 +132,10 @@ using ADFixtures: MatrixCases
 
 # Left out with `BENCHMARK_MATRIX=false` (see `BENCHMARK_BACKENDS` above).
 const _MATRIX = get(ENV, "BENCHMARK_MATRIX", "true") != "false"
+# The `pr` tier times only the `rule` arm, on its three backends.
+const _MATRIX_ARMS = _FULL ? ("rule", "NoAdjoint", "loop") : ("rule",)
+const _MATRIX_BACKENDS = _FULL ? BENCHMARK_BACKENDS :
+    filter(e -> e.name in _PR_BACKENDS, BENCHMARK_BACKENDS)
 
 if _MATRIX
     let eval_group = BenchmarkGroup(), grad = SUITE["AD gradients"]
@@ -138,7 +155,7 @@ if _MATRIX
                     $f($θ), evals = 1, seconds = 1, gctrial = false
                 )
             )
-            for arm in ("rule", "NoAdjoint", "loop"), entry in BENCHMARK_BACKENDS
+            for arm in _MATRIX_ARMS, entry in _MATRIX_BACKENDS
                 arm in MatrixCases.arms(c) && MatrixCases.available(c, arm) ||
                     continue
                 c.sparse && entry.name == "Enzyme reverse" && continue
@@ -213,7 +230,7 @@ using FFTW: FFTW
 using Mooncake: Mooncake
 using ADTypes: AutoMooncake
 
-if _selected("primal") && isdefined(ComposableRecurrences, :FFTMethod)
+if _FULL && _selected("primal") && isdefined(ComposableRecurrences, :FFTMethod)
     let methods = BenchmarkGroup()
         backend = AutoMooncake(; config = nothing)
         sizes = (

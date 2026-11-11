@@ -4,11 +4,13 @@ name: Threads
 # Runs the tests with four threads, so `Threaded` loops split across real
 # tasks on separate threads. The managed Test and AD workflows run on one
 # thread, where a split loop's tasks all share it.
-# `unit` runs the main suite without the quality checks, which the Test
-# workflow already runs; `ad` runs the threaded-executor gradient items
-# (tag `executor`) on every backend, and the allocation counts (tag
-# `allocations`), which skip under the coverage the managed AD workflow
-# collects. Neither job here collects coverage.
+# On 1.11 `unit` runs the main suite without the quality checks, which the
+# Test workflow already runs; on the current release it runs only the items
+# tagged `threads`, as the Test workflow runs the rest there on one thread.
+# `ad` runs the threaded-executor gradient items (tag `executor`) on every
+# backend, and the allocation counts (tag `allocations`), which skip under
+# the coverage the managed AD workflow collects. Neither job here collects
+# coverage.
 # Both jobs run on the current release and on the compat floor (1.11),
 # which the managed Test and AD workflows do not cover. On 1.11
 # `ad` also runs the items tagged `compat_floor`: the registry gradients,
@@ -53,6 +55,11 @@ jobs:
       fail-fast: false
       matrix:
         version: ['1.11', '1']
+        include:
+          - version: '1.11'
+            mode: skip_quality
+          - version: '1'
+            mode: threads_only
     env:
       JULIA_NUM_THREADS: '4'
     steps:
@@ -65,7 +72,7 @@ jobs:
         run: sed -i '/^Runic = /d' test/Project.toml
       - run: julia --project=test -e 'using Pkg; Pkg.instantiate()'
       - run: julia --project=test -e 'println("threads = ", Threads.nthreads())'
-      - run: julia --project=test test/runtests.jl skip_quality
+      - run: julia --project=test test/runtests.jl ${{ matrix.mode }}
 
   ad:
     name: ad (Julia ${{ matrix.version }})

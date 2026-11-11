@@ -98,7 +98,7 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
-    pressure, Survival
+    pressure, Survival, convert_floats
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -174,6 +174,9 @@ include("kernels/computed.jl")
 
 # One-line summaries of the public types for the REPL and the docs.
 include("interface/show.jl")
+
+# The float precision of a whole model.
+include("interface/precision.jl")
 
 # adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
 # Default pullbacks of modifiers and couplings without one.

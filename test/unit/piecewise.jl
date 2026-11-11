@@ -95,7 +95,7 @@ end
     @test_throws "TimeVarying wraps an array" TimeVarying(1.0)
 end
 
-@testitem "Change points: Convolution equals the dense kernel" setup = [ReferenceAD, PiecewiseChecks] begin
+@testitem "Change points: Convolution equals the dense kernel" tags = [:threads] setup = [ReferenceAD, PiecewiseChecks] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     CR = ComposableRecurrences
@@ -125,7 +125,7 @@ end
     @test ReferenceAD.gradient(f(pw), θ) ≈ ReferenceAD.gradient(f(dn), θ)
 end
 
-@testitem "Change points: Recurrence equals the dense kernel" setup = [PiecewiseChecks] begin
+@testitem "Change points: Recurrence equals the dense kernel" tags = [:threads] setup = [PiecewiseChecks] begin
     using ComposableRecurrences
     using LinearAlgebra: I, Diagonal
     using Base.ScopedValues: with
@@ -229,7 +229,7 @@ end
     ).demand isa TimeVarying
 end
 
-@testitem "Adjoint: coefficients from change points" setup = [AdjointCheck, PiecewiseChecks] begin
+@testitem "Adjoint: coefficients from change points" tags = [:threads] setup = [AdjointCheck, PiecewiseChecks] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     using Base.ScopedValues: with

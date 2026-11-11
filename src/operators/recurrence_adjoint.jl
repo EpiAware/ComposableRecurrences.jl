@@ -56,11 +56,10 @@ function _reverse_run!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     # Parameters that read the outputs send their cotangents into `H̄`. The
     # bound modifiers enter the step loop through a function barrier.
     modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
-    cur = _current()
-    if cur.ex isa Serial || _reads_across(modifiers)
+    if _reads_across(modifiers)
         _reverse!(Serial(), c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     else
-        _reverse!(cur, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+        _with_executor(_reverse!, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     end
     return nothing
 end

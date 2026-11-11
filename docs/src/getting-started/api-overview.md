@@ -358,6 +358,7 @@ end
 | [`Serial()`](@ref ComposableRecurrences.Serial) | runs the loops in order; the default | an executor |
 | [`Threaded()`](@ref ComposableRecurrences.Threaded) | runs the loops on threads | an executor |
 | [`Device(backend)`](@ref ComposableRecurrences.Device) | runs the loops on a device, such as a GPU's KernelAbstractions.jl backend | an executor |
+| [`convert_floats(T, x)`](@ref ComposableRecurrences.convert_floats) | converts every float a model holds, scalars included, to `T`; needs Functors.jl | the model |
 
 `with` comes from `Base.ScopedValues`, and the setting holds inside its block only.
 
