@@ -496,28 +496,6 @@
         end
         return ts
     end
-
-    # Each registry scenario's gradient on `backend` runs the analytic
-    # reverse pass, and no `NoAdjoint` twin's does, nor a scenario that
-    # takes plain AD on the backend by design. The counter is reset per
-    # scenario. In one CI job the gradients reuse the code the backend's
-    # registry item compiled, so this checks the same scenarios. A
-    # scenario marked broken on the backend is recorded as broken while it
-    # fails, as in `test_adjoint_case`.
-    function test_rules_fire(name, backend)
-        skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
-        plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
-        for scen in ADFixtures.scenarios(; backend = name)
-            scen.name in skip && continue
-            rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
-            scenario_testset(name, scen.name) do
-                CR._PULLBACK_CALLS[] = 0
-                DifferentiationInterface.gradient(scen.f, backend, scen.x)
-                @test (CR._PULLBACK_CALLS[] > 0) == rule
-            end
-        end
-        return nothing
-    end
 end
 
 @testsnippet UserTypes begin
@@ -745,9 +723,10 @@ end
     g, h, W = rand(rng, 3) ./ 2, 1 .+ rand(rng, 3), randn(rng, 8)
     renewal(θ) = sum(W .* Recurrence(g; modifiers = (Hazard(θ[1]),))(θ[2:end]; history = h))
     renewal_na(θ) = sum(W .* NoAdjoint(Recurrence(g; modifiers = (Hazard(θ[1]),)))(θ[2:end]; history = h))
-    delay(θ) = sum(W .* Convolution(θ[1:3])(θ[4:end]))
-    delay_na(θ) = sum(W .* NoAdjoint(Convolution(θ[1:3]))(θ[4:end]))
-    # Two groups of strata with totals over time: the totals and the gains
+    # A delay through the public call is the registry's "Convolution delay
+    # with history" and the other convolution scenarios, whose rule-fires
+    # checks run with the registry gradients. Two groups of strata, one of
+    # them not contiguous, with totals over time: the totals and the gains
     # get cotangents.
     W2, h2 = randn(rng, 3, 4), 1 .+ rand(rng, 3, 3)
     split(θ) = CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(reshape(θ[1:8], 2, 4))))
@@ -762,8 +741,6 @@ end
     for (f, θ, fires, bs) in (
                 (renewal, [50.0; 1 .+ rand(rng, 8)], true, backends),
                 (renewal_na, [50.0; 1 .+ rand(rng, 8)], false, backends),
-                (delay, rand(rng, 11), true, mooncake),
-                (delay_na, rand(rng, 11), false, mooncake),
                 (allocate, 1 .+ rand(rng, 20), true, mooncake),
                 (allocate_na, 1 .+ rand(rng, 20), false, mooncake),
             ), backend in bs
@@ -1294,13 +1271,16 @@ end
     using ADFixtures
     using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
     using DifferentiationInterface: value_and_gradient
-    using ComposableRecurrences: NoAdjoint
     import Enzyme, ForwardDiff, Mooncake
-    _, loss, θ0, _ = only(
-        filter(s -> first(s) == "Recurrence protected pool in Float32", ADFixtures._SCENARIOS)
+    # The registry's scenario and twin, whose gradients the registry items
+    # already check against ForwardDiff; their own functions, so a backend
+    # compiles each once for both items. Only the element types are new here.
+    names = (
+        "Recurrence protected pool in Float32",
+        "NoAdjoint Recurrence protected pool in Float32",
     )
-    θ = θ0()
-    @test eltype(θ) == Float32
+    scens = filter(s -> s.name in names, ADFixtures.scenarios(; precision = :single))
+    @test length(scens) == length(names)
     backends = job_backends(
         :forwarddiff => AutoForwardDiff(),
         :mooncake_reverse => AutoMooncake(; config = nothing),
@@ -1314,11 +1294,12 @@ end
             function_annotation = Enzyme.Const
         ),
     )
-    for w in (identity, NoAdjoint)
-        f = Base.Fix1(loss, w)
-        _, ref = value_and_gradient(f, AutoForwardDiff(), Float64.(θ))
+    for s in scens
+        θ = s.x
+        @test eltype(θ) == Float32
+        _, ref = value_and_gradient(s.f, AutoForwardDiff(), Float64.(θ))
         for backend in backends
-            y, ∇ = value_and_gradient(f, backend, θ)
+            y, ∇ = value_and_gradient(s.f, backend, θ)
             @test y isa Float32
             @test eltype(∇) == Float32
             @test ∇ ≈ ref rtol = 1.0e-3
