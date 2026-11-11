@@ -89,6 +89,8 @@ jobs:
           merge-multiple: true
       # The report, with each backend that has no numbers for whatever
       # reason (a crash, a timeout), also goes to the run's summary page.
+      # The explicit `bash` shell runs with `pipefail`, so the script's exit
+      # status survives the pipe through `tee`.
       - name: Merge the backends
         shell: bash
         run: |
