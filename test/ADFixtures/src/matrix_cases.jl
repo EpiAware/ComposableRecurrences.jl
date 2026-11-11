@@ -1519,6 +1519,82 @@ if isfile(BVD_HANDRULE)
     REQUIRES["bvd_zones"] = (:_AllocateImports,)
 end
 
+# The tutorials' hand loops with hand-written Mooncake rules: a `handrule`
+# arm beside each `loop` arm, with the same loss. Skipped where the file is
+# absent (a copied fixture package).
+const TUTORIAL_HANDRULE = joinpath(
+    @__DIR__, "..", "..", "..", "benchmark", "tutorial_handrule.jl"
+)
+"The cases with a `handrule` arm from `benchmark/tutorial_handrule.jl`."
+const TUTORIAL_HANDRULE_CASES = String[]
+if isfile(TUTORIAL_HANDRULE)
+    include(TUTORIAL_HANDRULE)
+    using .TutorialHandRule: TutorialHandRule as TH
+
+    function _handrule_arm(case, run)
+        arm = _tutorial_baseline(case.loss, run)
+        push!(BASELINES[case.name], "handrule" => arm)
+        push!(TUTORIAL_HANDRULE_CASES, case.name)
+        return nothing
+    end
+    _case(name) = only(c for c in CASES if c.name == name)
+
+    _handrule_arm(
+        _case("ar"), function (z)
+            W = _weights(z.T)
+            return function (θ)
+                φ, h, ϵ = _unpack(θ, (2,), (2,), (z.T,))
+                y = TH.ar2_handrule(collect(φ), collect(h), collect(ϵ))
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("renewal_depletion"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                y = TH.depletion_handrule(
+                    collect(g), exp.(logh), exp.(logR), 1.0e5
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("renewal_imports"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR, before, after = _unpack(
+                    θ, (L,), (L,), (T,), (T,), (T,)
+                )
+                y = TH.imports_handrule(
+                    collect(g), exp.(logh), exp.(logR), collect(before),
+                    collect(after), 1.0e5
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("transform"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            K = S == 1 ? ones(1, 1) :
+                fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
+            return function (θ)
+                g, r, p = _unpack(θ, (L,), (S,), (S,))
+                y = TH.transform_handrule(
+                    collect(g), K, collect(r), collect(p), T
+                )
+                return sum(W .* y)
+            end
+        end
+    )
+end
+
 # A user coupling and a user modifier with per-stratum parameters, each
 # with a hand-written `pullback!`: the `local` arm times the local
 # derivative that runs without one, and `NoAdjoint` plain AD.
