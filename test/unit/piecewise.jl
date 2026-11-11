@@ -142,12 +142,11 @@ end
             @test rp(R; seed...) ≈ rd(R; seed...)
         end
         # A resumed call carries on through the change points: the stop
-        # falls between two of them.
-        if ix isa CR.Secondary
-            rp, rd = Recurrence(p; coupling = K), Recurrence(d; coupling = K)
-            y1, st = rp(R; seed..., stop = 8, record = (:state,))
-            @test hcat(y1, rp(R; state = st)) ≈ rd(R; seed...)
-        end
+        # falls before a change point of each piece set (9 for KS, 10 for
+        # GS), which the resumed run then crosses.
+        rp, rd = Recurrence(p; coupling = K), Recurrence(d; coupling = K)
+        y1, st = rp(R; seed..., stop = 8, record = (:state,))
+        @test hcat(y1, rp(R; state = st)) ≈ rd(R; seed...)
         ps === KS && @test Recurrence(p)(R[1, :]; history = H[1, :], start = 5) ≈
             Recurrence(d)(R[1, :]; history = H[1, :], start = 5)
     end
