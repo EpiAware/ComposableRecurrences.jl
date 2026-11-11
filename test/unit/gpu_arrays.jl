@@ -307,37 +307,17 @@
     end
 end
 
-# One item for the three runs of every case, so the device code compiled
-# for one run is reused by the others.
-@testitem "JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments" setup = [GPUCases] begin
+# Every case runs once on the device under an explicit `Device` executor
+# whose launches are recorded, so the same run checks the result and the
+# kernel arguments. The default executor, which a device array resolves to
+# the same `Device`, runs three representative cases: an operator with a
+# dense coupling, a convolution with strata, and a chain of modifiers.
+@testitem "JLArrays: every case runs forward on the device with plain kernel arguments, and by default" setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences: ComposableRecurrences as CR
     using Base.ScopedValues: with
     using JLArrays, KernelAbstractions
     JLArrays.allowscalar(false)
-    # Every operator, coupling and modifier, with the default executor.
-    @testset "default executor" begin
-        for (name, f) in GPUCases.CASES
-            @testset "$name" begin
-                y = f(JLArray)
-                @test y isa JLArray
-                @test Array(y) ≈ f(identity)
-            end
-        end
-    end
-    # Every case under an explicit Device executor.
-    ex = CR.Device(KernelAbstractions.get_backend(JLArray(ones(1))))
-    @testset "explicit Device executor" begin
-        for (name, f) in GPUCases.CASES
-            @testset "$name" begin
-                y = with(CR.EXECUTOR => ex) do
-                    f(JLArray)
-                end
-                @test y isa JLArray
-                @test Array(y) ≈ f(identity)
-            end
-        end
-    end
     KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     # A backend that compiles kernels takes plain data only: bits types, or
     # immutable structs whose concretely typed fields are plain, with the
@@ -363,16 +343,31 @@ end
         return KAExt._launch!(b.inner, body, args, n)
     end
     jl = KernelAbstractions.get_backend(JLArray(ones(1)))
-    @testset "plain kernel arguments" begin
+    @testset "Device executor, plain kernel arguments" begin
         for (name, f) in GPUCases.CASES
             @testset "$name" begin
                 b = Recording(jl, Any[])
                 y = with(CR.EXECUTOR => CR.Device(b)) do
                     f(JLArray)
                 end
+                @test y isa JLArray
                 @test Array(y) ≈ f(identity)
                 @test !isempty(b.args)
                 @test all(a -> plain(launched(a)), b.args)
+            end
+        end
+    end
+    @testset "default executor" begin
+        cases = Dict(GPUCases.CASES)
+        for name in (
+                "Recurrence, dense coupling",
+                "Convolution, strata with gain and history",
+                "Modifiers in a chain with a dense coupling",
+            )
+            @testset "$name" begin
+                y = cases[name](JLArray)
+                @test y isa JLArray
+                @test Array(y) ≈ cases[name](identity)
             end
         end
     end

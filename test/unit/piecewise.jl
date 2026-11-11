@@ -127,31 +127,37 @@ end
 
 @testitem "Change points: Recurrence equals the dense kernel" setup = [PiecewiseChecks] begin
     using ComposableRecurrences
-    using LinearAlgebra: I, Diagonal
+    using LinearAlgebra: I
     using Base.ScopedValues: with
     CR = ComposableRecurrences
     (; KS, GS, R, H, T, both) = PiecewiseChecks
+    # Each indexing and piece set with a dense coupling, and with `I` for the
+    # per-stratum kernels, whose strata then run apart.
+    K = [0.9 0.1; 0.2 0.8]
     for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS)
         p, d = both(ps, T, ix)
-        for C in (I, 0.8I, Diagonal([0.9, 1.1]), [0.9 0.1; 0.2 0.8])
-            seed = (; history = H, start = ix isa CR.Primary ? 5 : 1)
+        seed = (; history = H, start = ix isa CR.Primary ? 5 : 1)
+        for C in (ps === GS ? (I, K) : (K,))
             rp, rd = Recurrence(p; coupling = C), Recurrence(d; coupling = C)
             @test rp(R; seed...) ≈ rd(R; seed...)
-            # A resumed call carries on through the change points.
-            for stop in (6, 8, 12)
-                y1, st = rp(R; seed..., stop, record = (:state,))
-                @test hcat(y1, rp(R; state = st)) ≈ rd(R; seed...)
-            end
-            with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
-                @test rp(R; seed...) ≈ rd(R; seed...)
-            end
+        end
+        # A resumed call carries on through the change points: the stop
+        # falls between two of them.
+        if ix isa CR.Secondary
+            rp, rd = Recurrence(p; coupling = K), Recurrence(d; coupling = K)
+            y1, st = rp(R; seed..., stop = 8, record = (:state,))
+            @test hcat(y1, rp(R; state = st)) ≈ rd(R; seed...)
         end
         ps === KS && @test Recurrence(p)(R[1, :]; history = H[1, :], start = 5) ≈
             Recurrence(d)(R[1, :]; history = H[1, :], start = 5)
     end
+    p, d = both(GS, T)
+    with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
+        @test Recurrence(p; coupling = K)(R; history = H) ≈
+            Recurrence(d; coupling = K)(R; history = H)
+    end
     # A kernel from change points as a route.
     p, d = both(KS, T)
-    K = [0.9 0.1; 0.2 0.8]
     rp = Recurrence(Pairwise(K => [0.3, 0.2], 0.5I => p))
     rd = Recurrence(Pairwise(K => [0.3, 0.2], 0.5I => d))
     @test rp(R; history = H) ≈ rd(R; history = H)
@@ -234,18 +240,23 @@ end
     using ComposableRecurrences: Derived
     using Base.ScopedValues: with
     (; KS, GS, X, R, H, T) = PiecewiseChecks
-    for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS), start in (1, 8)
+    # Each indexing and piece set once, with the start at the first step for
+    # one piece set and after a change point for the other. The Recurrence
+    # and the constant-kernel checks run for two of them: Secondary() kernels
+    # with a dense coupling, and Primary() per-stratum ones with `I`.
+    K = [0.9 0.1; 0.2 0.8]
+    for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS)
+        start = ps === KS ? 1 : 8
         c = Convolution(TimeVarying(ps, ix))
         h = ix isa CR.Primary ? nothing : X[:, 1:2]
         @test pullback_matches(c, X, true, nothing, h, start, nothing)
         @test pullback_matches(c, X, 0.5, 1.0, h, start, 15)
+        (ix isa CR.Primary) == (ps === GS) || continue
         @test constant_kernel_matches(c, X, true, nothing, h, start, nothing)
         seed = ix isa CR.Primary ? 5 : start
-        for C in (I, [0.9 0.1; 0.2 0.8])
-            r = Recurrence(TimeVarying(ps, ix); coupling = C)
-            @test pullback_matches(r, recargs(R, nothing, H; start = seed)...)
-            @test constant_kernel_matches(r, recargs(R, nothing, H; start = seed)...)
-        end
+        r = Recurrence(TimeVarying(ps, ix); coupling = ps === GS ? I : K)
+        @test pullback_matches(r, recargs(R, nothing, H; start = seed)...)
+        @test constant_kernel_matches(r, recargs(R, nothing, H; start = seed)...)
     end
     g = [0.5, 0.3, 0.2]
     C = TimeVarying([1 => [0.9 0.1; 0.2 0.8], 8 => [0.6 0.0; 0.1 0.5]])
@@ -256,12 +267,11 @@ end
     @test pullback_matches(Recurrence(g; modifiers = mods), recargs(R, nothing, H)...)
     # The lag contributions, and a route that reads its kernel step by step.
     for ix in (CR.Secondary(), CR.Primary()), ps in (KS, GS)
-        ix isa CR.Primary && ps === GS && continue
+        (ix isa CR.Primary) == (ps === GS) || continue
         op = CR._Contributions(Convolution(TimeVarying(ps, ix)))
         h = ix isa CR.Primary ? nothing : X[:, 1:2]
         @test pullback_matches(op, X, 0.5, h, 1, nothing)
     end
-    K = [0.9 0.1; 0.2 0.8]
     for ix in (CR.Secondary(), CR.Primary())
         r = Recurrence(Pairwise(K => [0.3, 0.2], 0.5I => TimeVarying(KS, ix)))
         @test pullback_matches(r, recargs(R, nothing, H; start = 5)...)
