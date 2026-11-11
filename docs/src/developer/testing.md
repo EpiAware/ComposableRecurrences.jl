@@ -56,7 +56,8 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 | pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | 0.86⁴ | keep |
-| whole-step modifier without a `pullback!`, past one pass | 0.84⁷ | plain AD | keep on Mooncake |
+| whole-step modifier without a `pullback!`, 25 to 48 values, state and parameters | 0.84⁷ | plain AD | keep on Mooncake |
+| whole-step modifier without a `pullback!`, more than 48 | 11.7 to 157⁹ | plain AD | plain AD |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 | `Pairwise` routes with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
@@ -84,6 +85,9 @@ On Enzyme the rule took 1.25 to 2.4 times plain AD, depending on the machine and
 
 ⁸ The `custom modifier` block of `benchmark/results/docs.csv`, the docs tier at 48f2396e: median times of the rule with `forward!` only over plain AD at `T` 200 and `L` 20.
 At `T` 100 and `L` 6 they are 0.60 on Mooncake and 0.61 on Enzyme.
+
+⁹ The rule's time over plain AD before the call took plain AD past two passes, for the user type of the `custom_modifier_matrix` case, which holds an `S × S` matrix, at `T` 200 and `L` 20: 11.7 at 20 strata and 157 at 50.
+It now takes plain AD there, at 0.93 to 1.01 times the `NoAdjoint` time.
 
 Every rule is faster than plain AD on each backend that takes it; where the decision names one backend, the other takes plain AD.
 The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
