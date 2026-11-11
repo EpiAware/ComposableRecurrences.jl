@@ -2378,12 +2378,14 @@ end
         @test pullback_matches(op, recargs(fill(1.1, S, 6), nothing, ones(S, 2))...)
     end
     # One pass of 24 holds the values, the state and the parameters; past
-    # it the call takes the wider route, at any size.
+    # it the call takes the wider route, and past two passes plain AD, as
+    # for a coupling.
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(11)...) === :one
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(12)...) === :wide
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(23)...) === :wide
-    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(60)...) === :wide
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(24)...) === :none
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(60)...) === :none
     @test CR._fit(Recurrence([0.3]; modifiers = (Smear(),)), args(12)...) === :one
     # A constructor that changes its arguments takes plain AD with the note.
     struct Doubling{A}
