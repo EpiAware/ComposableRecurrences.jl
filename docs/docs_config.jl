@@ -176,6 +176,9 @@ const INDEX_REWRITES = Pair{String, String}[
         "](@ref api-overview)",
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/)" =>
         "](@ref adjoints-backends)",
+    # The performance summary's link, to the benchmarks page section.
+    "](https://composablerecurrences.epiaware.org/stable/benchmarks/over-time/#benchmarks-hand-written)" =>
+        "](@ref benchmarks-hand-written)",
     # The README's model block prints nothing on the home page.
     "reports = delay(infections; gain = 0.4, history = seed)" =>
         "reports = delay(infections; gain = 0.4, history = seed)\nnothing # hide",
