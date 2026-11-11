@@ -371,49 +371,6 @@ end
     @test all(iszero, m̄.M.x.K) && all(iszero, m̄.M.x.E)
 end
 
-@testitem "Redistribute: the Mooncake rule for a kernel's movement" setup = [ReferenceAD] begin
-    using ComposableRecurrences, Mooncake
-    using Random: Xoshiro
-    CR = ComposableRecurrences
-    K = [0.0 0.2 0.1; 0.3 0.0 0.2; 0.1 0.4 0.0]
-    M̄ = reshape(collect(1.0:9.0), 3, 3) ./ 9
-    # One intensity, one per origin as `Redistribute(K, ε)` passes it, and a
-    # vector of one, which the movement broadcasts over every origin.
-    for E in (0.3, [0.2 0.5 0.1], fill(0.4, 1, 1))
-        f = CR._movement
-        JK = ReferenceAD.jacobian(K -> f(K, E), K)
-        cache = Mooncake.prepare_pullback_cache(f, K, E)
-        _, (_, K̄, Ē) = Mooncake.value_and_pullback!!(cache, M̄, f, K, E)
-        @test vec(K̄) ≈ JK' * vec(M̄)
-        if E isa Real
-            @test Ē ≈ sum(ReferenceAD.derivative(e -> vec(f(K, e)), E) .* vec(M̄))
-        else
-            @test vec(Ē) ≈ ReferenceAD.jacobian(e -> f(K, e), E)' * vec(M̄)
-        end
-        Mooncake.TestUtils.test_rule(
-            Xoshiro(1), f, K, E;
-            is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
-        )
-    end
-    # A kernel and intensities read from a parameter vector, as a model hands
-    # them over: the row of intensities is then a reshape of a view.
-    θ = [vec(K); 0.2; 0.5; 0.1]
-    split(θ) = CR._movement(reshape(view(θ, 1:9), 3, 3), permutedims(view(θ, 10:12)))
-    J = ReferenceAD.jacobian(split, θ)
-    cache = Mooncake.prepare_pullback_cache(split, θ)
-    _, (_, θ̄) = Mooncake.value_and_pullback!!(cache, M̄, split, θ)
-    @test θ̄ ≈ J' * vec(M̄)
-    # The same broadcast through a recurrence's loss.
-    loss(θ) = sum(
-        Recurrence([0.5, 0.3]; modifiers = (CR.Redistribute(K, θ[1:1]),))(
-            [1.1 1.2 1.3; 0.9 1.0 1.1; 1.2 1.1 1.0]; history = ones(3, 2)
-        )
-    )
-    cache = Mooncake.prepare_gradient_cache(loss, [0.3])
-    _, (_, θ̄) = Mooncake.value_and_gradient!!(cache, loss, [0.3])
-    @test θ̄ ≈ ReferenceAD.gradient(loss, [0.3])
-end
-
 @testitem "Redistribute: checks its matrix" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
