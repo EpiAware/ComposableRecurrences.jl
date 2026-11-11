@@ -1,0 +1,127 @@
+# Package-owned: not part of the kit's managed workflows.
+name: Benchmark full
+
+# Times the full benchmark grid (`BENCHMARK_TIER=full`) on the current
+# commit, one job per backend and one for the primal groups, and publishes
+# it as `full/latest.json` on the `benchmarks` branch, with the commit and
+# date in `full/README.md`. The grid is too large for one job: see
+# `benchmark/benchmarks.jl`. It runs weekly and on demand.
+
+on:
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+
+# Read-only by default; the publish job asks for write access itself.
+permissions:
+  contents: read
+
+# A second run on the same ref waits for the first rather than cancelling
+# it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: ${{ matrix.backend }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # A backend that crashes, as Enzyme forward can in the garbage collector,
+    # leaves the others to publish; the merge step warns for it.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # `primal` times the primal and convolution groups; each other job
+        # one backend's gradients.
+        backend:
+          - primal
+          - ForwardDiff
+          - Enzyme forward
+          - Enzyme reverse
+          - Mooncake reverse
+          - Mooncake forward
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      # The step's wall time goes to the run's summary page, to compare
+      # with the job's timeout.
+      - name: Time the full grid
+        shell: bash
+        env:
+          BENCHMARK_TIER: full
+          BENCHMARK_BACKENDS: ${{ matrix.backend }}
+        run: |
+          start=$(date +%s)
+          julia --project=benchmark benchmark/run.jl \
+            results-${{ strategy.job-index }}.json
+          minutes=$(( ($(date +%s) - start) / 60 ))
+          echo "${{ matrix.backend }}: ${minutes} min of 120" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: full-results-${{ strategy.job-index }}
+          path: results-${{ strategy.job-index }}.json
+
+  publish:
+    needs: measure
+    # The merge step warns for a job with no results and fails only if no
+    # job has any.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
+      # With no artifacts at all, the merge step still runs and names the
+      # jobs without results.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: full-results-*
+          path: results
+          merge-multiple: true
+      - name: Merge the jobs
+        shell: bash
+        run: |
+          mkdir -p results
+          status=0
+          julia --project=benchmark benchmark/full_latest.jl \
+            public/latest.json results/*.json 2>&1 | tee report.txt ||
+            status=$?
+          { echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Describe the run
+        shell: bash
+        run: |
+          {
+            echo '# Full benchmark grid'
+            echo
+            echo "Commit ${GITHUB_SHA}, run on $(date -u +%Y-%m-%d)."
+            echo 'Load `latest.json` with `BenchmarkTools.load("latest.json")[1]`.'
+            echo
+            echo '```'
+            cat report.txt
+            echo '```'
+          } > public/README.md
+      # A folder of its own, so this and the history workflow do not
+      # overwrite each other's files.
+      - name: Deploy to benchmarks branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: benchmarks
+          folder: public
+          target-folder: full
+          clean: true
+          commit-message: >-
+            Full benchmark grid for ${{ github.sha }}
