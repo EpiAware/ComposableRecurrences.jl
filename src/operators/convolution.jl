@@ -365,13 +365,13 @@ function _convolve_public(
     history === nothing || Base.require_one_based_indexing(history)
     T = stop - start + 1
     out = x isa AbstractVector ? similar(x, Tp, T) : similar(x, Tp, S, T)
-    cur = _current()
-    ex = cur.ex isa Serial ? Serial() : cur
-    _each!(
-        _gather_body!, ex, out, S,
-        _work(_RunLoop(), out, length(out) * _nlags(kernel)),
-        out, kernel, x, history, gain, add, m, start
-    )
+    work = _work(_RunLoop(), out, length(out) * _nlags(kernel))
+    _with_executor() do ex
+        _each!(
+            _gather_body!, ex, out, S, work, out, kernel, x, history, gain, add,
+            m, start
+        )
+    end
     return out
 end
 
@@ -496,11 +496,9 @@ end
 # buffer at eltype `Tp` with the set executor; an extension adds methods for
 # its own number types.
 function _conv_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
-    cur = _current()
-    if cur.ex isa Serial
-        return _conv_buffers(Tp, Serial(), kernel, x, history, m, S, start, stop)
+    return _with_executor() do ex
+        _conv_buffers(Tp, ex, kernel, x, history, m, S, start, stop)
     end
-    return _conv_buffers(Tp, cur, kernel, x, history, m, S, start, stop)
 end
 
 function _conv_buffers(
@@ -884,13 +882,10 @@ function pullback!(grads, c::Convolution, ::Run, cache)
     end
     X̄ = zero(X)
     k̄ = cotangent(grads.piece, :kernel)
-    cur = _current()
     if cache.fft
         _fft_convolve_back!(X̄, k̄, c.kernel, X, Ȳ, o, start)
-    elseif cur.ex isa Serial
-        _convolve_back!(Serial(), X̄, k̄, c.kernel, X, Ȳ, o, start)
     else
-        _convolve_back!(cur, X̄, k̄, c.kernel, X, Ȳ, o, start)
+        _with_executor(_convolve_back!, X̄, k̄, c.kernel, X, Ȳ, o, start)
     end
     _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
@@ -1125,12 +1120,7 @@ function _run_forward(op::_Contributions, x, gain, history, start, stop)
     T = stop - start + 1
     L = _nlags(kernel)
     C = x isa AbstractVector ? _zeros(x, Tp, L, T) : _zeros(x, Tp, S, L, T)
-    cur = _current()
-    if cur.ex isa Serial
-        _contribute!(Serial(), C, kernel, X, gain, o, start)
-    else
-        _contribute!(cur, C, kernel, X, gain, o, start)
-    end
+    _with_executor(_contribute!, C, kernel, X, gain, o, start)
     return C, (; gain = _tape(gain), start, stop, X, o, m)
 end
 

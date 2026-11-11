@@ -117,12 +117,7 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     Z̄ = _zeros(A, eltype(A), o + last, size(A, 2))
     _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
     Ā = zero(A)
-    cur = _current()
-    if cur.ex isa Serial
-        _convolve!(Serial(), Ā, kernel, Z̄, o, start)
-    else
-        _convolve!(cur, Ā, kernel, Z̄, o, start)
-    end
+    _with_executor(_convolve!, Ā, kernel, Z̄, o, start)
     k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
     k̄ === nothing ||
         _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
@@ -133,12 +128,7 @@ end
 
 # The convolution's reverse body with the set executor.
 function _transpose_back!(X̄, k̄, kernel, X, Ȳ, o, start)
-    cur = _current()
-    if cur.ex isa Serial
-        _convolve_back!(Serial(), X̄, k̄, kernel, X, Ȳ, o, start)
-    else
-        _convolve_back!(cur, X̄, k̄, kernel, X, Ȳ, o, start)
-    end
+    _with_executor(_convolve_back!, X̄, k̄, kernel, X, Ȳ, o, start)
     return nothing
 end
 
