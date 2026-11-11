@@ -21,6 +21,13 @@ module DocsPerformance
         "Mooncake reverse" => "Mooncake", "Enzyme reverse" => "Enzyme",
     ]
 
+    # The method name of the package run with its rules turned off.
+    const PLAIN_AD = "plain AD"
+
+    # The targets that call the package's rules: a forward-mode `PLAIN_AD`
+    # time would time the same code as the package's.
+    const RULE_TARGETS = ["Mooncake reverse", "Enzyme reverse"]
+
     # The results as a table of strings, or `nothing` when the file is absent.
     function read_results(file)
         isfile(file) || return nothing
@@ -71,9 +78,8 @@ module DocsPerformance
         rows = @subset(bench, :block .== block)
         isempty(rows) && throw(ArgumentError("no block $(repr(block)) in $file"))
         rows = @subset(rows, :size .== something(size, last(rows.size)))
-        # The tutorials' bars compare the package with code written without
-        # it; its run with the rules turned off is on the summary page.
-        rows = @subset(rows, :method .!= "plain AD")
+        # Plain-AD rows are tabulated on the summary page, not drawn as bars.
+        rows = @subset(rows, :method .!= PLAIN_AD)
         methods = unique(rows.method)
         timed = @chain rows begin
             @subset(:status .== "ok", in.(:target, Ref(first.(TARGETS))))
@@ -121,11 +127,28 @@ module DocsPerformance
         return (pkg === nothing || other === nothing) ? nothing : other / pkg
     end
 
+    # `x` as a speed-up to one decimal place, or a dash when missing.
+    times(x) = x === nothing ? "–" : string(round(x; digits = 1), "×")
+
     # `ratio` as a speed-up to one decimal place, or a dash when missing.
-    function speedup(rows, ref, target)
-        r = ratio(rows, ref, target)
-        return r === nothing ? "–" : string(round(r; digits = 1), "×")
-    end
+    speedup(rows, ref, target) = times(ratio(rows, ref, target))
+
+    # Whether the package is slower at `r`: below 1 at two decimal places,
+    # one more than the tables show, so a case shown as 1.0× can count.
+    is_slower(r) = round(r; digits = 2) < 1
+
+    # `ratio`, or `nothing` for `PLAIN_AD` on a target that never calls the
+    # rules.
+    rule_ratio(rows, ref, target) =
+        ref == PLAIN_AD && !(target in RULE_TARGETS) ? nothing :
+        ratio(rows, ref, target)
+
+    # A table's header and alignment lines: left-aligned `left` columns,
+    # then right-aligned `right` columns.
+    table_header(left, right) = [
+        "| " * join(vcat(left, right), " | ") * " |",
+        "|" * repeat(":--|", length(left)) * repeat("--:|", length(right)),
+    ]
 
     # Each block of `bench` with a package row and a reference, as
     # `(block, rows, ref)`: its rows at its largest size, and its hand loop,
@@ -165,12 +188,9 @@ module DocsPerformance
         )
         targets = reference === :hand_rules ? TARGETS[3:3] : TARGETS
         cased = hasproperty(bench, :case)
-        header = "| Block | " * (cased ? "Case | " : "") * "Size | " *
-            join(last.(targets), " | ") * " |"
-        lines = [
-            header,
-            "|:--|" * (cased ? ":--|" : "") * ":--|" * repeat("--:|", length(targets)),
-        ]
+        lines = table_header(
+            cased ? ["Block", "Case", "Size"] : ["Block", "Size"], last.(targets)
+        )
         for (block, rows, ref) in compared_blocks(bench, reference)
             cells = [speedup(rows, ref, first(t)) for t in targets]
             case = cased ?
@@ -207,9 +227,7 @@ module DocsPerformance
             slow = String[]
             for (block, rows, ref) in compared_blocks(bench, :hand_loop)
                 r = ratio(rows, ref, target)
-                # Listed at two decimal places, one more than the table, so
-                # a case the table shows as 1.0× can still be listed.
-                (r === nothing || round(r; digits = 2) >= 1) && continue
+                (r === nothing || !is_slower(r)) && continue
                 push!(slow, "$block ($(two_places(r))×)")
             end
             push!(
@@ -219,10 +237,6 @@ module DocsPerformance
         end
         return Markdown.parse(join(lines, '\n'))
     end
-
-    # The targets the package's rules serve: only the reverse backends call
-    # them, so a forward-mode cell for `plain AD` would time the same code.
-    const RULE_TARGETS = ["Mooncake reverse", "Enzyme reverse"]
 
     # The rows of `block` in `file` at its largest size, as `(rows, ref)`
     # with `ref` its hand loop, or `nothing` when the file is absent.
@@ -266,22 +280,18 @@ module DocsPerformance
         targets = first.(TARGETS)
         methods = unique(rows.method)
         lines = [
-            table_row("", last.(TARGETS)),
-            "|:--|" * repeat("--:|", length(TARGETS)),
+            table_header([""], last.(TARGETS))...,
             table_row(
                 "Package (μs)",
                 [microseconds(min_time(rows, "ComposableRecurrences", t)) for t in targets]
             ),
         ]
         for (label, method) in (
-                "Without its rules" => "plain AD", "Hand loop" => ref,
+                "Without its rules" => PLAIN_AD, "Hand loop" => ref,
                 "Hand rules" => "hand rules",
             )
             method in methods || continue
-            cells = [
-                method == "plain AD" && !(t in RULE_TARGETS) ? "–" :
-                    speedup(rows, method, t) for t in targets
-            ]
+            cells = [times(rule_ratio(rows, method, t)) for t in targets]
             all(==("–"), cells) && continue
             push!(lines, table_row(label, cells))
         end
@@ -294,9 +304,6 @@ module DocsPerformance
 
     # The geometric mean of `xs`, or `nothing` when there are none.
     geomean(xs) = isempty(xs) ? nothing : exp(sum(log, xs) / length(xs))
-
-    # `x` as a speed-up to one decimal place, or a dash when missing.
-    times(x) = x === nothing ? "–" : string(round(x; digits = 1), "×")
 
     """
         performance_overview(; file = RESULTS)
@@ -317,21 +324,17 @@ module DocsPerformance
         # Each block's ratio on `t` against `method`, or its hand loop
         # for `:ref`; `nothing` where a time is missing.
         against(method, t) = [
-            ratio(rows, method === :ref ? ref : method, t)
+            rule_ratio(rows, method === :ref ? ref : method, t)
                 for (_, rows, ref) in blocks
         ]
-        ratios(method) = [
-            method == "plain AD" && !(t in RULE_TARGETS) ? Float64[] :
-                filter(!isnothing, against(method, t)) for t in targets
-        ]
-        rules, loop = ratios("plain AD"), ratios(:ref)
+        ratios(method) = [filter(!isnothing, against(method, t)) for t in targets]
+        rules, loop = ratios(PLAIN_AD), ratios(:ref)
         span(xs) = isempty(xs) ? "–" :
             string(two_places(minimum(xs)), "–", two_places(maximum(xs)), "×")
         slower(xs) = isempty(xs) ? "–" :
-            "$(count(x -> round(x; digits = 2) < 1, xs)) of $(length(xs))"
+            "$(count(is_slower, xs)) of $(length(xs))"
         lines = [
-            table_row("", last.(TARGETS)),
-            "|:--|" * repeat("--:|", length(TARGETS)),
+            table_header([""], last.(TARGETS))...,
             table_row("Without its rules (geometric mean)", times.(geomean.(rules))),
             table_row("Slower than without its rules", slower.(rules)),
             table_row("Hand loop (geometric mean)", times.(geomean.(loop))),
