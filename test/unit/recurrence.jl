@@ -768,6 +768,37 @@ end
     )
 end
 
+@testitem "Recurrence: a record in a Val infers from the argument types alone" begin
+    using ComposableRecurrences, Test
+    using ComposableRecurrences: Run, forward
+    CR = ComposableRecurrences
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    R, h = fill(1.2, 6), [1.0, 2.0]
+    # The record reaches the call as an argument of a caller that is not
+    # inlined, so no constant reaches the call: a tuple infers only as a
+    # `NamedTuple`, a `Val` as the concrete one.
+    @noinline deep(r, R, h, record) = r(R; history = h, record)
+    @noinline deep_forward(r, R, record) = forward(r, Run(), R; record)
+    for names in ((), (:state,), (:trace,), (:state, :trace), (:trace, :state))
+        out = @inferred deep(r, R, h, Val(names))
+        lit = r(R; history = h, record = names)
+        @test typeof(out) == typeof(lit)
+        @test propertynames(out) == propertynames(lit)
+        @test out.y == lit.y
+        :trace in names && @test out.trace == lit.trace
+        :state in names && @test out.state.t == lit.state.t
+    end
+    traced = @inferred deep_forward(r, R, Val((:trace,)))
+    @test first(traced) == first(forward(r, Run(), R; record = (:trace,)))
+    @test first(@inferred deep_forward(r, R, Val(()))) == first(forward(r, Run(), R))
+    @test_throws "records :trace only" deep_forward(r, R, Val((:state,)))
+    @test_throws "or such a tuple in a Val" deep(r, R, h, Val(:state))
+    @test_throws "record names :state or :trace, got :pools" deep(
+        r, R, h, Val((:pools,))
+    )
+    @test_throws "once, got (:state, :state)" deep(r, R, h, Val((:state, :state)))
+end
+
 @testitem "Recurrence: a record call compiled from types alone dispatches statically" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -874,4 +905,75 @@ end
     @test !any(signbit, r(1.0; history = fill(-0.0, 2, 1), add = fill(-0.0, 2, 2)))
     m = Recurrence([1.0]; modifiers = (ComposableRecurrences.Transform(*, 1.0),))
     @test !any(signbit, m(1.0; history = [-0.0], add = [-0.0, -0.0]))
+end
+
+@testitem "Recurrence: wide dual numbers over strata run strata-major" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    # Dual numbers wider than 64 bytes take the strata × time buffer; narrower
+    # ones, one series and nested dual numbers keep time × strata.
+    D12 = ForwardDiff.Dual{Nothing, Float64, 12}
+    @test CR._buffer(ones(3, 2), D12, 2, 5, 3) isa Transpose{D12, Matrix{D12}}
+    @test CR._buffer(ones(2), D12, 2, 5, 1) isa Matrix{D12}
+    D2, F12 = ForwardDiff.Dual{Nothing, Float64, 2}, ForwardDiff.Dual{Nothing, Float32, 12}
+    N12 = ForwardDiff.Dual{Int, D12, 1}
+    for Tn in (D2, F12, N12)
+        @test CR._buffer(ones(3, 2), Tn, 2, 5, 3) isa Matrix{Tn}
+    end
+    # A run on twelve partials against one run per partial.
+    seeds(x, j) = map(v -> ForwardDiff.Dual{Nothing}(v, j / (1 + v)), x)
+    wide(x) = map(v -> ForwardDiff.Dual{Nothing}(v, ntuple(j -> j / (1 + v), 12)...), x)
+    R, h = [1.0 + 0.1 * sin(k + t) for k in 1:3, t in 1:8], [1.0 + 0.2 * k * t for k in 1:3, t in 1:2]
+    runs = (
+        Recurrence([0.4, 0.6]; coupling = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]),
+        Recurrence(PerStratum([0.5 0.5; 0.3 0.7; 0.6 0.4])),
+        Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(50.0),)),
+    )
+    threaded = CR.Threaded(; min_work = 0, ntasks = 2)
+    for r in runs, ex in (CR.Serial(), threaded)
+        Base.ScopedValues.with(CR.EXECUTOR => ex) do
+            # A call with no record, from a full and a short history.
+            for hk in (h, h[:, 2:2])
+                y = r(wide(R); history = wide(hk))
+                @test ForwardDiff.value.(y) ≈ r(R; history = hk)
+                for j in (1, 12)
+                    one = r(seeds(R, j); history = seeds(hk, j))
+                    @test ForwardDiff.partials.(y, j) ≈ ForwardDiff.partials.(one, 1)
+                end
+            end
+            out = r(wide(R); history = wide(h), record = (:state,))
+            @test size(out.y) == size(R)
+            @test ForwardDiff.value.(out.y) ≈ r(R; history = h)
+            for j in 1:12
+                one = r(seeds(R, j); history = seeds(h, j), record = (:state,))
+                @test ForwardDiff.partials.(out.y, j) ≈ ForwardDiff.partials.(one.y, 1)
+                @test ForwardDiff.partials.(out.state.history, j) ≈
+                    ForwardDiff.partials.(one.state.history, 1)
+            end
+        end
+    end
+end
+
+@testitem "Recurrence: wide strata outputs from either wide path match the copy" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    r = Recurrence([0.6, 0.3]; coupling = [0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.2 0.8])
+    h = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    f(θ) = sum(abs2, r(reshape(θ, 3, 6); history = h))
+    θ = collect(range(0.5, 1.5; length = 18))
+    # A gradient in chunks of nine runs on dual numbers of floats of 80
+    # bytes, which take the strata × time buffer; a Hessian runs on nested
+    # dual numbers, which take the in-place transpose. One partial at a time
+    # each is copied out.
+    D9 = ForwardDiff.Dual{Nothing, Float64, 9}
+    N9 = ForwardDiff.Dual{Int, D9, 9}
+    @test sizeof(D9) > CR._INPLACE_BYTES && sizeof(N9) > CR._INPLACE_BYTES
+    @test CR._buffer(h, D9, 2, 6, 3) isa Transpose{D9, Matrix{D9}}
+    @test CR._buffer(h, N9, 2, 6, 3) isa Matrix{N9}
+    one = ForwardDiff.Chunk{1}()
+    nine = ForwardDiff.Chunk{9}()
+    @test ForwardDiff.gradient(f, θ, ForwardDiff.GradientConfig(f, θ, nine)) ≈
+        ForwardDiff.gradient(f, θ, ForwardDiff.GradientConfig(f, θ, one))
+    @test ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, nine)) ≈
+        ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, one))
 end

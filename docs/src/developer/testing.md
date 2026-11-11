@@ -182,7 +182,8 @@ The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item o
 To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-It runs every AD registry scenario, forward and reverse, and the hand-written cases in `cases.jl`, which cover what the registry cannot: a resumed call, a joined traced history and the growth of compile time with the number of steps.
+It runs every AD registry scenario, forward and reverse, and the hand-written cases in `cases.jl`.
+Those cover what the registry cannot: a resumed call, a joined traced history, a call across 1,000 strata and the growth of compile time with the number of steps.
 A scenario Reactant cannot run is listed in the registry under the `Reactant` backend, with the cause.
 On pull requests that change `src/` or `ext/`, a smoke run checks a few cases and scenarios against the same file.
 After a change, rerun it on Julia 1.12 from the repository root:
@@ -193,5 +194,6 @@ julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 ```
 
 Then commit `results.tsv` and `RESULTS.md`, and update `expected.jl` or the registry's Reactant lists.
-A run on another backend, such as a GPU, sets `REACTANT_RESULTS=gpu` and `REACTANT_BACKENDS=gpu`, and writes `results-gpu.tsv` and `RESULTS-gpu.md`, so it leaves the CPU results the weekly job compares against unchanged.
-The main tests check that the hand-written cases' rows agree with `expected.jl`; the Reactant workflow checks the registry rows against the registry.
+`REACTANT_BACKENDS` picks the backends that run, and `REACTANT_RESULTS` only names the results files.
+A run on another backend, such as a GPU, sets both: `REACTANT_BACKENDS=gpu` runs it, and `REACTANT_RESULTS=gpu` writes `results-gpu.tsv` and `RESULTS-gpu.md`, so it leaves the CPU results the weekly job compares against unchanged.
+The main tests check that the hand-written cases' rows agree with `expected.jl`, which lists CPU cells only; the Reactant workflow checks the registry rows against the registry.
