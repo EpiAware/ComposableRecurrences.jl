@@ -135,6 +135,8 @@
         "Recurrence seeded on a growth path",
         "Recurrence returning its state after its seed",
         "Recurrence trace of pointwise modifiers",
+        "Recurrence default traces of user modifiers",
+        "Recurrence user traces on groups and over the whole step",
         "Recurrence trace of a protected pool",
         "Recurrence coupling from change points",
         "Recurrence parameters from change points",
