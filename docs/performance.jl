@@ -10,7 +10,7 @@ module DocsPerformance
     using Markdown: Markdown
 
     export performance_plot, performance_table, slower_cases,
-        performance_summary, performance_overview, slower_targets
+        performance_summary, performance_overview
 
     const RESULTS = joinpath(
         pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv"
@@ -51,11 +51,6 @@ module DocsPerformance
                 (rules == ["true"] ? "with" : "without") * " the package's rules.",
             "The forward run and ForwardDiff do not use them.",
         ]
-        "hand rules" in rows.method || push!(
-            lines,
-            "The hand-written versions have no rules, so each backend " *
-                "differentiates them directly."
-        )
         failed = @subset(rows, :status .== "error")
         if !isempty(failed)
             names = Dict(TARGETS)
@@ -352,41 +347,7 @@ module DocsPerformance
         return Markdown.parse(join(lines, '\n'))
     end
 
-    # The targets as named in a sentence.
-    const TARGET_NAMES = Dict(
-        "primal" => "the forward run", "ForwardDiff" => "ForwardDiff",
-        "Mooncake reverse" => "Mooncake", "Enzyme reverse" => "Enzyme",
-    )
-
-    """
-        slower_targets(block; file = RESULTS)
-
-    One sentence naming the targets on which the package is slower than
-    `block`'s hand-written loop in `file`, at its largest size, with the
-    loop's minimum time over the package's, or saying there are none.
-    """
-    function slower_targets(block; file = RESULTS)
-        found = block_rows(block, file)
-        found === nothing && return Markdown.parse(
-            "The benchmark results are not available in this build."
-        )
-        rows, ref = found
-        slow = String[]
-        for (t, _) in TARGETS
-            r = ratio(rows, ref, t)
-            (r === nothing || !is_slower(r)) && continue
-            push!(slow, "$(TARGET_NAMES[t]) ($(two_places(r))×)")
-        end
-        revision = first(rows.revision)
-        text = isempty(slow) ?
-            "At revision $revision the package is at least as fast as the " *
-            "hand-written loop on every target." :
-            "At revision $revision the package is slower than the " *
-            "hand-written loop on " * join(slow, ", ", " and ") * "."
-        return Markdown.parse(text)
-    end
-
 end # module DocsPerformance
 
 using .DocsPerformance: performance_plot, performance_table, slower_cases,
-    performance_summary, performance_overview, slower_targets
+    performance_summary, performance_overview

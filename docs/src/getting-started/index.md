@@ -331,10 +331,6 @@ include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hid
 performance_plot("naive vs package")
 ```
 
-```@example overview
-slower_targets("naive vs package") # hide
-```
-
 The [benchmarks page](@ref benchmarks-hand-written) compares each tutorial's model with a hand-written loop of it in the same way.
 
 ## Learning more

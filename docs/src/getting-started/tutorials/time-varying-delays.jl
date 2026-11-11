@@ -236,8 +236,6 @@ end
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("time-varying delays")
-#-
-slower_targets("time-varying delays") #hide
 
 # ## Learning more
 #

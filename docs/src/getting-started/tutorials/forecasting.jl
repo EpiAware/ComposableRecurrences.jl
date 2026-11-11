@@ -52,8 +52,6 @@ end
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("forecasting")
-#-
-slower_targets("forecasting") #hide
 
 # ## Learning more
 #

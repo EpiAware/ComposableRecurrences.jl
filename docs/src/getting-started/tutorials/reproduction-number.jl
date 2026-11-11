@@ -105,8 +105,6 @@ end
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("reproduction number")
-#-
-slower_targets("reproduction number") #hide
 
 # ## Learning more
 #
