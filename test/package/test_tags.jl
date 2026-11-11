@@ -12,10 +12,14 @@
         for chunk in chunks
             m = match(r"^@testitem \"([^\"]+)\"", chunk)
             m === nothing && continue
-            stop = findfirst(r"begin\s*$"m, chunk)
-            header = stop === nothing ? chunk : chunk[1:last(stop)]
-            body = stop === nothing ? "" : chunk[(last(stop) + 1):end]
-            uses = occursin(r"Threaded|EXECUTOR|Threads\.", body)
+            # A header must end its line with `begin`; one that does not
+            # is reported, so the item is not skipped unchecked.
+            stop = findfirst(r"\bbegin\s*$"m, chunk)
+            stop === nothing && (push!(names, m.captures[1] * " (no begin)"); continue)
+            header = chunk[1:last(stop)]
+            # Code only: comments may name the executors without using them.
+            body = replace(chunk[(last(stop) + 1):end], r"#[^\n]*" => "")
+            uses = occursin(r"\bThreaded\b|\bEXECUTOR\b|\bThreads\.", body)
             uses && !occursin(":threads", header) && push!(names, m.captures[1])
         end
         return names
@@ -28,17 +32,19 @@
         Threads.nthreads()
     end
     @testitem "serial" begin
-        1 + 1
+        # Threaded() is not used here.
+        NonThreaded = 1
     end
     """
     @test untagged_threading(sample) == ["untagged"]
     untagged = String[]
     for dir in ("unit", "usecases")
-        for file in readdir(joinpath(@__DIR__, "..", dir); join = true)
-            endswith(file, ".jl") || continue
-            append!(untagged, untagged_threading(read(file, String)))
+        for (root, _, files) in walkdir(joinpath(@__DIR__, "..", dir))
+            for file in files
+                endswith(file, ".jl") || continue
+                append!(untagged, untagged_threading(read(joinpath(root, file), String)))
+            end
         end
     end
-    # Tag each item listed here `:threads`.
     @test isempty(untagged)
 end
