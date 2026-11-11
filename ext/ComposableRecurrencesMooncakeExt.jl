@@ -8,8 +8,8 @@ using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses, _convolve_masses_back!, _current,
-    _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _plain_hook,
-    _run_forward, _run_pullback!, _untraced
+    _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
+    _plain_hook, _route, _run_forward, _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -197,7 +197,7 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
     Mooncake.rdata_type(Mooncake.tangent_type(typeof(y))) === NoRData || throw(
         ArgumentError("an operator output with scalar float leaves is not supported")
     )
-    ydual = Mooncake.zero_fcodual(y)
+    ydual = _zero_output(y)
     function _ad_pullback(::NoRData)
         ms = map(a -> _mc(primal(a), tangent(a)), args)
         grads = (; piece = first(ms), y = _mc(y, tangent(ydual)), args = Base.tail(ms))
@@ -206,6 +206,12 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
     end
     return ydual, _ad_pullback
 end
+
+# The output with a zero cotangent. A float array holds no other arrays, so
+# `zero_fcodual`'s alias tracking has nothing to find, and on a short run
+# it costs more than the zeroing.
+_zero_output(y::Array{<:_IEEEFloat}) = CoDual(y, zero(y))
+_zero_output(y) = Mooncake.zero_fcodual(y)
 
 # The rule also covers a call whose local coupling derivative needs a
 # second pass of dual numbers (25 to 48 strata and scalars). It beats plain
@@ -217,6 +223,61 @@ Mooncake.@is_primitive(
 )
 function Mooncake.rrule!!(::CoDual{typeof(_ad_wide)}, args::Vararg{CoDual, N}) where {N}
     return Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+end
+
+# `_fit` picks the route per call, so a rule Mooncake derived for `_route`
+# would infer plain AD through the whole run even when no call takes it. As
+# a primitive the route compiles the rule (`_ad_wide` is the rule here) and
+# builds plain AD's rule the first time a call takes it.
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode,
+    Tuple{typeof(_route), Val{:rule}, Vararg}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(_route)}, ::CoDual{Val{:rule}}, args::Vararg{CoDual, N}
+    ) where {N}
+    _fit(map(primal, args)...) === :none && return _plain_route(args...)
+    y, pb = Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+    return y, _RoutePullback(pb)
+end
+# The route's pullback: the rule's cotangents after one for the `Val`.
+struct _RoutePullback{P}
+    pb::P
+end
+function (r::_RoutePullback)(ȳ)
+    r̄ = r.pb(ȳ)
+    return (first(r̄), NoRData(), Base.tail(r̄)...)
+end
+# The output is typed as the rule route's, which inference folds, so the
+# primitive's return type does not widen for the calls that take the rule.
+function _plain_route(args::Vararg{CoDual, N}) where {N}
+    rule = _plain_rule(map(primal, args)...)
+    y, pb = rule(Mooncake.zero_fcodual(_hooked_plain), args...)
+    return _as_rule_output(y, args...), _RoutePullback{Any}(pb)
+end
+function _as_rule_output(y, args::Vararg{CoDual, N}) where {N}
+    R = Base.promote_op(_rule_route, map(typeof, args)...)
+    return R isa DataType && R <: Tuple && isconcretetype(fieldtype(R, 1)) ?
+        y::fieldtype(R, 1) : y
+end
+_rule_route(args...) = Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
+# Plain AD's rules, one per argument types, built at the world of the call
+# that needs it, as Mooncake builds its lazy rules, and rebuilt when a call
+# runs in a newer world. Like Mooncake's own rule caches it keeps an entry
+# for each argument types that has taken this route.
+const _PLAIN_RULES = Dict{Type, Tuple{UInt, Any}}()
+const _PLAIN_RULES_LOCK = ReentrantLock()
+function _plain_rule(ps::Vararg{Any, N}) where {N}
+    world = Base.tls_world_age()
+    return lock(_PLAIN_RULES_LOCK) do
+        built = get(_PLAIN_RULES, typeof(ps), nothing)
+        built !== nothing && first(built) == world && return last(built)
+        interp = Mooncake.get_interpreter(Mooncake.ReverseMode, world)
+        sig = Tuple{typeof(_hooked_plain), map(typeof, ps)...}
+        rule = Mooncake.build_rrule(interp, sig; skip_world_age_check = true)
+        _PLAIN_RULES[typeof(ps)] = (world, rule)
+        return rule
+    end
 end
 
 function ComposableRecurrences.test_adjoint(

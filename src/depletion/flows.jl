@@ -287,11 +287,12 @@ _share(f::Flow{<:Any, Share}, g, t) = param(f.demand, g, t)
 _share(f::Flow, g, t) = false
 
 # Sum `h(f, g, t)` over the flows out of pool `i`.
-_out(h, ::Tuple{}, i, g, t, z) = z
-function _out(h, fs::Tuple, i, g, t, z)
-    f = first(fs)
-    x = h(f, g, t)
-    return _out(h, Base.tail(fs), i, g, t, z + ifelse(_from(f) == i, x, zero(x)))
+@inline function _out(h, fs::Tuple, i, g, t, z)
+    add = @inline function (s, f, _)
+        x = h(f, g, t)
+        return s + ifelse(_from(f) == i, x, zero(x))
+    end
+    return _tuple_fold(add, z, fs)
 end
 
 # `exp(-H)` and the share that leaves per unit hazard,
@@ -338,11 +339,9 @@ end
 _add(x::Tuple, i, v) = ntuple(j -> ifelse(j == i, x[j] + v, x[j]), Val(length(x)))
 _add(::Nothing, i, v) = nothing
 
-# Tuple entry `i` of `x`, chosen by `ifelse` over the entries: a small tuple
-# is read where it is held, without an indexed load.
-_get(x::Tuple, i) = _get(Base.tail(x), i, 2, first(x))
-_get(::Tuple{}, i, j, v) = v
-_get(x::Tuple, i, j, v) = _get(Base.tail(x), i, j + 1, ifelse(j == i, first(x), v))
+# Tuple entry `i` of `x`, chosen by `ifelse` in a fold over the entries, so
+# the tuple is read where it is held, without an indexed load.
+_get(x::Tuple, i) = _tuple_fold(@inline((v, y, j) -> ifelse(j == i, y, v)), first(x), x)
 
 # What moves out of pool `i` per unit held, `(e^{-H}, g(H), P)`.
 @inline function _leaves(fs, i, g, t, z)
@@ -370,9 +369,12 @@ _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
 # Leave terms for the forward step. A pool whose one hazard flow enters a
 # pool moves `-expm1(-H)` of what it holds, so no `g(H)` is needed.
 @inline function _group_leaves(fs, i, g, t, z)
-    # No hazard flow out: `e^{-0}` and `g(0)` are one, with no dual exponential.
-    _hazards_out(fs, i) == 0 && return _no_hazard_leaves(fs, i, g, t)
-    _one_rated_into(fs, i) || return _step_leaves(fs, i, g, t, z)
+    return _group_leaves(fs, i, Val(_leave_kind(fs, i)), g, t, z)
+end
+# No hazard flow out: `e^{-0}` and `g(0)` are one, with no dual exponential.
+@inline _group_leaves(fs, i, ::Val{:none}, g, t, z) = _no_hazard_leaves(fs, i, g, t)
+@inline _group_leaves(fs, i, ::Val{:step}, g, t, z) = _step_leaves(fs, i, g, t, z)
+@inline function _group_leaves(fs, i, ::Val{:moved}, g, t, z)
     E, em = _exp_neg(_out(_rate, fs, i, g, t, z))
     return E, _Moved(-em), _out(_share, fs, i, g, t, z)
 end
@@ -392,28 +394,50 @@ _by_rate(f::Flow, g, t, w::_Moved) = _rate(f, g, t)
 
 # Whether pool `i` has one hazard flow out, and it enters a pool.
 _one_rated_into(fs, i) = _rated_into(fs, i) & (_hazards_out(fs, i) == 1)
-# Recursion over the tuple, which unrolls at any length where `sum` does not.
+# Which leave terms pool `i` takes: `:none` with no hazard flow out,
+# `:moved` with one that enters a pool, else `:step`.
+function _leave_kind(fs, i)
+    _hazards_out(fs, i) == 0 && return :none
+    return _one_rated_into(fs, i) ? :moved : :step
+end
+# `_group_leaves` for each of `N` pools, with the pool and its `_leave_kind`
+# written in as constants, read from the flows' types, which hold their
+# ends. Past 32 flows `_leave_kind` is not folded to a constant for each
+# pool, and under dual numbers an index into a tuple of the answers is not
+# either, so the pools' leave terms would be held boxed.
+@generated function _group_leaves_each(fs::Tuple, g, t, z, ::Val{N}) where {N}
+    ok = N isa Int && all(f -> f <: Flow && isconcretetype(f), fs.parameters)
+    ok || return :(ntuple(i -> _group_leaves(fs, i, g, t, z), Val(N)))
+    hazard = [f <: Flow{<:Any, _FlowHazard} for f in fs.parameters]
+    ends = [f.parameters[4] for f in fs.parameters]
+    function kind(i)
+        out = [k for k in eachindex(ends) if hazard[k] && ends[k][1] == i]
+        isempty(out) && return QuoteNode(:none)
+        return QuoteNode(length(out) == 1 && ends[only(out)][2] > 0 ? :moved : :step)
+    end
+    calls = (:(_group_leaves(fs, $i, Val{$(kind(i))}(), g, t, z)) for i in 1:N)
+    return Expr(:block, Expr(:meta, :inline), Expr(:tuple, calls...))
+end
+
+# The number of hazard flows out of pool `i`.
 function _hazards_out(fs::Tuple, i)
-    isempty(fs) && return 0
-    f = first(fs)
-    return (f isa Flow{<:Any, _FlowHazard} && _from(f) == i) +
-        _hazards_out(Base.tail(fs), i)
+    count = @inline (n, f, _) -> n + (f isa Flow{<:Any, _FlowHazard} && _from(f) == i)
+    return _tuple_fold(count, 0, fs)
 end
 
 # Whether a hazard flow out of pool `i` enters a pool.
-_rated_into(::Tuple{}, i) = false
 function _rated_into(fs::Tuple, i)
-    f = first(fs)
-    return (f isa Flow{<:Any, _FlowHazard} && _from(f) == i && _to(f) > 0) |
-        _rated_into(Base.tail(fs), i)
+    into = @inline function (b, f, _)
+        return b | (f isa Flow{<:Any, _FlowHazard} && _from(f) == i && _to(f) > 0)
+    end
+    return _tuple_fold(into, false, fs)
 end
 
 # Add each hazard and share flow's amount into the pool it enters, in
 # `y` and the arrivals `a`.
-_spread(::Tuple{}, x, L, y, a, g, t) = y, a
 @inline function _spread(fs::Tuple, x, L, y, a, g, t)
-    y, a = _spread_one(first(fs), x, L, y, a, g, t)
-    return _spread(Base.tail(fs), x, L, y, a, g, t)
+    spread = @inline ((y, a), f, _) -> _spread_one(f, x, L, y, a, g, t)
+    return _tuple_fold(spread, (y, a), fs)
 end
 _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
 @inline function _spread_one(f::Flow, x, L, y, a, g, t)
@@ -466,10 +490,8 @@ function _moved_back(form::_SoftTruncate, a, s, m̄)
 end
 
 # The count flows in order on the pools `y` and arrivals `a`.
-_counts(::Tuple{}, y, a, g, t) = y, a
 @inline function _counts(fs::Tuple, y, a, g, t)
-    y, a = _count(first(fs), y, a, g, t)
-    return _counts(Base.tail(fs), y, a, g, t)
+    return _tuple_fold(@inline(((y, a), f, _) -> _count(f, y, a, g, t)), (y, a), fs)
 end
 _count(f::Flow, y, a, g, t) = y, a
 _count(f::_Count, y, a, g, t) = _count_demand(f, param(f.demand, g, t), y, a)
@@ -504,7 +526,7 @@ end
 @inline _flow_group(fs, x, g, t) = _flow_step(fs, x, g, t, Val(true))
 @inline function _flow_step(fs, x::NTuple{N}, g, t, keep_arrivals) where {N}
     z = zero(first(x))
-    L = ntuple(@inline(i -> _group_leaves(fs, i, g, t, z)), Val(N))
+    L = _group_leaves_each(fs, g, t, z, Val(N))
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, _start_arrivals(keep_arrivals, y0), g, t)
@@ -529,10 +551,8 @@ function _amounts(fs, x::NTuple{N}, g, t) where {N}
     y, _ = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     return _amounts_each(fs, x, L, y, g, t)
 end
-_amounts_each(::Tuple{}, x, L, y, g, t) = ()
 function _amounts_each(fs::Tuple, x, L, y, g, t)
-    m, y′ = _amount(first(fs), x, L, y, g, t)
-    return (m, _amounts_each(Base.tail(fs), x, L, y′, g, t)...)
+    return _tuple_scan(@inline((y, f, _) -> _amount(f, x, L, y, g, t)), y, fs)
 end
 function _amount(f::Flow, x, L, y, g, t)
     return x[_from(f)] * (_rate(f, g, t) * L[_from(f)][2] + _share(f, g, t)), y
@@ -566,12 +586,10 @@ end
 
 # The counts' pullback, last first, from the cotangent `ȳ` of the pools
 # after them, each count's own amount cotangent added to its move's.
-_amount_counts_back(::Tuple{}, f̄s, r̄, y, ȳ, g, t) = ȳ
 function _amount_counts_back(fs::Tuple, f̄s, r̄, y, ȳ, g, t)
-    f = first(fs)
-    y′ = first(_count(f, y, nothing, g, t))
-    ȳ′ = _amount_counts_back(Base.tail(fs), _tail(f̄s), Base.tail(r̄), y′, ȳ, g, t)
-    return _amount_count_back(f, _head(f̄s), first(r̄), y, ȳ′, g, t)
+    fwd(y, (f, _), _) = (first(_count(f, y, nothing, g, t)), y)
+    back(ȳ, (f, f̄), y, k) = _amount_count_back(f, f̄, r̄[k], y, ȳ, g, t)
+    return _tuple_forward_back(fwd, back, y, ȳ, _with_mirrors(fs, f̄s))
 end
 _amount_count_back(f::Flow, f̄, r̄, y, ȳ, g, t) = ȳ
 function _amount_count_back(f::_Count, f̄, r̄, y, ȳ, g, t)
@@ -591,36 +609,27 @@ end
 
 # Each flow's `q_f`: its amount's cotangent, and the cotangent of the pool
 # it enters for a hazard or share flow.
-_amount_cotangents(::Tuple{}, r̄, ȳ) = ()
 function _amount_cotangents(fs::Tuple, r̄, ȳ)
-    f = first(fs)
-    q = f isa _Count || _to(f) == 0 ? first(r̄) : first(r̄) + ȳ[_to(f)]
-    return (q, _amount_cotangents(Base.tail(fs), Base.tail(r̄), ȳ)...)
+    return _tuple_map_index(fs) do f, k
+        f isa _Count || _to(f) == 0 ? r̄[k] : r̄[k] + ȳ[_to(f)]
+    end
 end
 
 # `Σ_f r_f q_f` over the rate flows out of pool `i`, and `Σ_f p_f q_f` over
 # the share flows.
-_rated(::Tuple{}, q, i, g, t, B) = B
 function _rated(fs::Tuple, q, i, g, t, B)
-    f = first(fs)
-    B = _from(f) == i ? B + _rate(f, g, t) * first(q) : B
-    return _rated(Base.tail(fs), Base.tail(q), i, g, t, B)
+    return _tuple_fold((B, f, k) -> _from(f) == i ? B + _rate(f, g, t) * q[k] : B, B, fs)
 end
-_shared(::Tuple{}, q, i, g, t, z) = z
 function _shared(fs::Tuple, q, i, g, t, z)
-    f = first(fs)
-    z = _from(f) == i ? z + _share(f, g, t) * first(q) : z
-    return _shared(Base.tail(fs), Base.tail(q), i, g, t, z)
+    return _tuple_fold((z, f, k) -> _from(f) == i ? z + _share(f, g, t) * q[k] : z, z, fs)
 end
 
 # Each rate takes `x_i (g q_f + g′ B_i - e^{-H_i} ȳ_i)` and each share
 # `x_i (q_f - ȳ_i)`.
-_amount_rates_back!(::Tuple{}, f̄s, q, x, L, H, B, ȳ, g, t) = nothing
 function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
-    _amount_rate_back!(first(fs), _head(f̄s), first(q), x, L, H, B, ȳ, g, t)
-    return _amount_rates_back!(
-        Base.tail(fs), _tail(f̄s), Base.tail(q), x, L, H, B, ȳ, g, t
-    )
+    return _tuple_fold(nothing, _with_mirrors(fs, f̄s)) do _, (f, f̄), k
+        _amount_rate_back!(f, f̄, q[k], x, L, H, B, ȳ, g, t)
+    end
 end
 _amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
 function _amount_rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, q, x, L, H, B, ȳ, g, t)
@@ -641,13 +650,13 @@ end
 # flows; returns those before them. A demand that reads the outputs or has
 # a map costs more to read than the rest of a count, so each count's
 # demand `d`, its value and partials, is read once and serves both passes.
-_counts_back(::Tuple{}, f̄s, y, a, ȳ, ā, g, t) = ȳ
 function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
-    f = first(fs)
-    d = _demand(f, _head(f̄s), g, t)
-    y′, a′ = _count_demand(f, first(d), y, a)
-    ȳ′ = _counts_back(Base.tail(fs), _tail(f̄s), y′, a′, ȳ, ā, g, t)
-    return _count_back(f, d, _head(f̄s), y, ȳ′, ā, g, t)
+    function fwd((y, a), (f, f̄), _)
+        d = _demand(f, f̄, g, t)
+        return _count_demand(f, first(d), y, a), (y, d)
+    end
+    back(ȳ, (f, f̄), (y, d), _) = _count_back(f, d, f̄, y, ȳ, ā, g, t)
+    return _tuple_forward_back(fwd, back, (y, a), ȳ, _with_mirrors(fs, f̄s))
 end
 # What a count's pullback reads of its demand (`_param_partials`); a flow of
 # another form moves no count.
@@ -675,16 +684,16 @@ end
 # The first flow's mirror, or `nothing` when the flows have none.
 _head(::Nothing) = nothing
 _head(x̄::Tuple) = first(x̄)
+# Each flow paired with its mirror, or with `nothing`.
+_with_mirrors(fs, ::Nothing) = _tuple_map(f -> (f, nothing), fs)
+_with_mirrors(fs, f̄s::Tuple) = _tuple_zip(fs, f̄s)
 
 # `Σ_f r_f ā_to(f)` over the rate flows out of pool `i`, exits
 # adding nothing.
-_arrivals_back(::Tuple{}, ā, i, g, t, B) = B
 function _arrivals_back(fs::Tuple, ā, i, g, t, B)
-    f = first(fs)
-    if _from(f) == i && _to(f) > 0
-        B += _rate(f, g, t) * ā[_to(f)]
+    return _tuple_fold(B, fs) do B, f, _
+        _from(f) == i && _to(f) > 0 ? B + _rate(f, g, t) * ā[_to(f)] : B
     end
-    return _arrivals_back(Base.tail(fs), ā, i, g, t, B)
 end
 
 # The cotangent of one group's pools `x` before the flows, from
@@ -693,11 +702,11 @@ end
 function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
 end
-# `g(H)` is read only through `ā_to` and `B`, zero where no hazard flow out
-# of a pool enters another, so the step's `_step_leaves` serves here too.
+# The leave terms are the step's, `_Moved` for a pool whose one hazard flow
+# enters a pool.
 function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _step_leaves(fs, i, g, t, z), Val(N))
+    L = _group_leaves_each(fs, g, t, z, Val(N))
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
     ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
@@ -706,38 +715,55 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _arrivals_back(fs, āt, i, g, t, zero(eltype(āt))), Val(N))
     _rates_back!(fs, f̄s, x, L, H, B, ȳ, āt, g, t)
-    return ntuple(Val(N)) do i
+    # Inlined, so each pool reads its own leave terms from `L`, whose types
+    # differ by pool, with a constant index.
+    x̄ = @inline function (i)
         E, gH, P = L[i]
-        (E - P) * ȳ[i] + gH * B[i] + _shares_back(fs, āt, i, g, t, zero(gH))
+        return (E - P) * ȳ[i] + _leave_back(gH, B[i], fs, āt, i) +
+            _shares_back(fs, āt, i, g, t, zero(E))
     end
+    return ntuple(x̄, Val(N))
 end
+
+# What leaves pool `i` at a rate, against the arrivals' cotangents:
+# `g(H) B_i`, or for a pool whose one hazard flow enters a pool, the share
+# it moves times that pool's arrival cotangent.
+_leave_back(gH, B, fs, ā, i) = gH * B
+_leave_back(w::_Moved, B, fs, ā, i) = w.F * _hazard_arrival(fs, ā, i)
+function _hazard_arrival(fs::Tuple, ā, i)
+    return _tuple_fold(@inline((a, f, _) -> a + _arrival(f, ā, i)), zero(eltype(ā)), fs)
+end
+_arrival(f, ā, i) = zero(eltype(ā))
+_arrival(f::Flow{<:Any, _FlowHazard}, ā, i) = _into(f, i) ? ā[_to(f)] : zero(eltype(ā))
+_into(f, i) = _from(f) == i && _to(f) > 0
 
 # `Σ_f p_f ā_to(f)` over the share flows out of pool `i`.
-_shares_back(::Tuple{}, ā, i, g, t, z) = z
 function _shares_back(fs::Tuple, ā, i, g, t, z)
-    f = first(fs)
-    if _from(f) == i && _to(f) > 0
-        z += _share(f, g, t) * ā[_to(f)]
+    return _tuple_fold(z, fs) do z, f, _
+        _from(f) == i && _to(f) > 0 ? z + _share(f, g, t) * ā[_to(f)] : z
     end
-    return _shares_back(Base.tail(fs), ā, i, g, t, z)
 end
 
-# Each rate takes `x_i (g ā_to + g′ B_i - e^{-H_i} ȳ_i)` and each share
-# `x_i (ā_to - ȳ_i)`, with `ā_to = 0` for an exit.
-_rates_back!(::Tuple{}, f̄s, x, L, H, B, ȳ, ā, g, t) = nothing
+# Each rate takes its `_rate_bar` and each share `x_i (ā_to - ȳ_i)`, with
+# `ā_to = 0` for an exit.
 function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
-    _rate_back!(first(fs), _head(f̄s), x, L, H, B, ȳ, ā, g, t)
-    return _rates_back!(Base.tail(fs), _tail(f̄s), x, L, H, B, ȳ, ā, g, t)
+    return _tuple_fold(nothing, _with_mirrors(fs, f̄s)) do _, (f, f̄), _
+        _rate_back!(f, f̄, x, L, H, B, ȳ, ā, g, t)
+    end
 end
 _rate_back!(f::_Count, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
 function _rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = _from(f)
     E, gH, _ = L[i]
     āto = _to(f) > 0 ? ā[_to(f)] : zero(eltype(ā))
-    r̄ = x[i] * (gH * āto + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
+    r̄ = _rate_bar(x[i], E, gH, H[i], B[i], āto, ȳ[i])
     add_param!(cotangent(f̄, :demand), f.demand, r̄, g, t)
     return nothing
 end
+# The rate's cotangent `x (g ā_to + g′ B - e^{-H} ȳ)`; with one hazard flow
+# out of the pool, `d(H g)/dH = e^{-H}`, so it is `x e^{-H} (ā_to - ȳ)`.
+_rate_bar(x, E, gH, H, B, āto, ȳ) = x * (gH * āto + _leave_slope(H, E, gH) * B - E * ȳ)
+_rate_bar(x, E, w::_Moved, H, B, āto, ȳ) = x * E * (āto - ȳ)
 function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = _from(f)
     āto = _to(f) > 0 ? ā[_to(f)] : zero(eltype(ā))

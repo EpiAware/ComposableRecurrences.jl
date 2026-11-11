@@ -51,7 +51,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | sparse coupling | 0.75¹ | 0.28¹ | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
-| pointwise modifier without a `pullback!` | 0.33⁸ | 0.63⁸ | keep |
+| pointwise modifier without a `pullback!` | 0.33⁸ | 0.75⁸ | keep |
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
@@ -82,8 +82,8 @@ It was timed at 5 and 50 strata, with the sparse route coupling constant and as 
 ⁷ The worst of two rounds for the user type of the `custom_modifier_whole` case, at `T` 200, `L` 20 and `S` 20.
 On Enzyme the rule took 1.25 to 2.4 times plain AD, depending on the machine and the Julia version, so the call takes plain AD there.
 
-⁸ The `custom modifier` block of `benchmark/results/docs.csv`, the docs tier at f3fb0628: median times of the rule with `forward!` only over plain AD at `T` 200 and `L` 20.
-At `T` 100 and `L` 6 they are 0.58 on Mooncake and 0.65 on Enzyme.
+⁸ The `custom modifier` block of `benchmark/results/docs.csv`, the docs tier at 48f2396e: median times of the rule with `forward!` only over plain AD at `T` 200 and `L` 20.
+At `T` 100 and `L` 6 they are 0.60 on Mooncake and 0.61 on Enzyme.
 
 Every rule is faster than plain AD on each backend that takes it; where the decision names one backend, the other takes plain AD.
 The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
@@ -178,7 +178,8 @@ The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item o
 To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-It runs every AD registry scenario, forward and reverse, and the hand-written cases in `cases.jl`, which cover what the registry cannot: a resumed call, a joined traced history and the growth of compile time with the number of steps.
+It runs every AD registry scenario, forward and reverse, and the hand-written cases in `cases.jl`.
+Those cover what the registry cannot: a resumed call, a joined traced history, a call across 1,000 strata and the growth of compile time with the number of steps.
 A scenario Reactant cannot run is listed in the registry under the `Reactant` backend, with the cause.
 On pull requests that change `src/` or `ext/`, a smoke run checks a few cases and scenarios against the same file.
 After a change, rerun it on Julia 1.12 from the repository root:
@@ -189,5 +190,6 @@ julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 ```
 
 Then commit `results.tsv` and `RESULTS.md`, and update `expected.jl` or the registry's Reactant lists.
-A run on another backend, such as a GPU, sets `REACTANT_RESULTS=gpu` and `REACTANT_BACKENDS=gpu`, and writes `results-gpu.tsv` and `RESULTS-gpu.md`, so it leaves the CPU results the weekly job compares against unchanged.
-The main tests check that the hand-written cases' rows agree with `expected.jl`; the Reactant workflow checks the registry rows against the registry.
+`REACTANT_BACKENDS` picks the backends that run, and `REACTANT_RESULTS` only names the results files.
+A run on another backend, such as a GPU, sets both: `REACTANT_BACKENDS=gpu` runs it, and `REACTANT_RESULTS=gpu` writes `results-gpu.tsv` and `RESULTS-gpu.md`, so it leaves the CPU results the weekly job compares against unchanged.
+The main tests check that the hand-written cases' rows agree with `expected.jl`, which lists CPU cells only; the Reactant workflow checks the registry rows against the registry.
