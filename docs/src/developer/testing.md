@@ -177,6 +177,7 @@ Run them with `julia --project=test test/runtests.jl usecase_only`.
 The `Threads` workflow runs the tests with four threads, so `Threaded` loops run on separate threads.
 On Julia 1.11 it runs the whole unit suite; on the current release it runs only the items tagged `:threads`, as the `Test` workflow runs the rest there.
 Tag an item `:threads` when it uses `Threaded`, `EXECUTOR` or `Threads`, so it runs with four threads on the current release too.
+A quality check in `test/package/test_tags.jl` fails on an item that uses them without the tag.
 To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq), such as `julia --threads=4 --project=test test/runtests.jl threads_only`.
 
 The `AD` workflow runs every backend on the current Julia release only.
