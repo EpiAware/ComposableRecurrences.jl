@@ -362,7 +362,7 @@ end
     @test @inferred(CR.param_eltype(b)) === Float64
 end
 
-@testitem "Recent: a coupling against a naive loop" begin
+@testitem "Recent: a coupling against a naive loop" tags = [:threads] begin
     using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, LinearAlgebra, Random, SparseArrays
     const CR = ComposableRecurrences
