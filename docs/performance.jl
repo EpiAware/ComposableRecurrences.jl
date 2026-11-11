@@ -304,8 +304,8 @@ module DocsPerformance
     Every example in `file` at a glance, per target: the geometric mean over
     the examples of how many times faster the package is than itself with
     its rules turned off, on the reverse backends, and than each example's
-    hand loop, how many
-    examples are slower than each, and the range against the hand loop.
+    hand loop, how many examples are slower than each, and the range against
+    the hand loop.
     """
     function performance_overview(; file = RESULTS)
         bench = read_results(file)
@@ -314,12 +314,15 @@ module DocsPerformance
         )
         blocks = compared_blocks(bench, :hand_loop)
         targets = first.(TARGETS)
+        # Each block's ratio on `t` against `method`, or its hand loop
+        # for `:ref`; `nothing` where a time is missing.
+        against(method, t) = [
+            ratio(rows, method === :ref ? ref : method, t)
+                for (_, rows, ref) in blocks
+        ]
         ratios(method) = [
             method == "plain AD" && !(t in RULE_TARGETS) ? Float64[] :
-                filter(
-                    !isnothing,
-                    [ratio(rows, method === :ref ? ref : method, t) for (_, rows, ref) in blocks]
-                ) for t in targets
+                filter(!isnothing, against(method, t)) for t in targets
         ]
         rules, loop = ratios("plain AD"), ratios(:ref)
         span(xs) = isempty(xs) ? "–" :

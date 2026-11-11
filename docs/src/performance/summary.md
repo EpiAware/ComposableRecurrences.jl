@@ -23,7 +23,7 @@ performance_overview() # hide
 ```
 
 The rules gain most on the reverse backends.
-The forward run and ForwardDiff are near the hand loop's speed and slower than it on several examples, which [issue #417](https://github.com/EpiAware/ComposableRecurrences.jl/issues/417) tracks.
+The forward run and ForwardDiff are near the hand loop's speed and slower than it on several examples, and Enzyme is slower on a few, which [issue #417](https://github.com/EpiAware/ComposableRecurrences.jl/issues/417) tracks.
 [Against hand-written code](@ref benchmarks-hand-written) lists every example in one table and names the slower cases.
 
 ## By example
