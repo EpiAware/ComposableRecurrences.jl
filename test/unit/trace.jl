@@ -344,117 +344,8 @@ end
     end
 end
 
-# One item for the Mooncake gradients through traces, so the rules compiled
-# for one loss are reused by the others.
-@testitem "Trace: gradients through a trace and the default trace of user modifiers, the rule against ForwardDiff" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
-    # A pointwise modifier whose state decays and gathers what passes it.
-    struct Decay{A}
-        a::A
-    end
-    CR.blocks(::Decay) = (1, 1)
-    CR.uses_adjoint(::Decay, ::CR.Step) = true
-    CR.forward!(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
-    function CR.forward!(m::Decay, ::CR.Step, v, s, t)
-        for k in eachindex(v, s)
-            s[k] = m.a * s[k] + v[k]
-        end
-        return nothing
-    end
-    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t)
-        v̄, s̄ = grads.v, grads.s
-        for k in eachindex(v, s)
-            CR.add_cotangent!(CR.cotangent(grads.piece, :a), s̄[k] * s[k])
-            v̄[k], s̄[k] = v̄[k] + s̄[k], m.a * s̄[k]
-        end
-        return nothing
-    end
-    # Two values and two state entries per group.
-    struct Keep{A}
-        a::A
-    end
-    CR.blocks(::Keep) = (2, 2)
-    function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
-        v[1][], v[2][] = v1 * m.a, v2 + s1
-        s[1][], s[2][] = s1 + v1, s2 + v2
-        return nothing
-    end
-    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        v̄1, v̄2 = grads.v[1][], grads.v[2][]
-        s̄1, s̄2 = grads.s[1][], grads.s[2][]
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
-        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
-        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
-        return nothing
-    end
-    @testset "built-in modifiers and flows" begin
-        W = reshape(range(0.2, 1.8; length = 48), 6, 8)
-        g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
-        K = [0.0 0.3; 0.2 0.0]
-        function loss(θ)
-            leaky = CR.Depletion(
-                PerStratum(θ[1:2]), CR.Hazard(; weights = (S = 1, V = θ[3])),
-                CR.Flow(:S => :V, θ[4]; form = CR.Truncate()), CR.Flow(:V => :S, θ[5]);
-                pools = (:S, :V)
-            )
-            # `Transform(+, b)` keeps no state, so its trace is empty and takes no
-            # cotangent.
-            mods = (CR.Redistribute(K, θ[6]), CR.Transform(+, θ[7]), leaky)
-            _, tr = Recurrence(g; modifiers = mods)(R; history = h, record = (:trace,))
-            T1, T0, T2 = tr.modifiers
-            return sum(W[1:2, :] .* T1) + sum(T0) + sum(W .* T2[3:8, :])
-        end
-        θ = [80.0, 120.0, 0.3, 2.0, 0.1, 0.2, 0.4]
-        n = CR._PULLBACK_CALLS[]
-        @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
-        @test CR._PULLBACK_CALLS[] > n
-        # The flows' amounts, with a smooth count whose softness is a
-        # parameter.
-        function ward(θ)
-            flows = CR.Depletion(
-                CR.Flow(1 => 2, θ[1]), CR.Flow(1 => 0, θ[2]; form = CR.Share()),
-                CR.Flow(2 => 0, θ[3]; form = CR.Truncate(θ[4])),
-                CR.Flow(2 => 1, θ[5]; form = CR.Truncate()),
-                CR.Flow(0 => 2, θ[6]; form = CR.Truncate()); pools = (:A, :B)
-            )
-            r = Recurrence([1.0]; modifiers = (flows,))
-            adm = [4.0 6.0 2.0 0.0 3.0 1.0; 0.0 0.0 0.0 0.0 0.0 0.0]
-            y, tr = r(; history = zeros(2, 1), add = adm, record = (:trace,))
-            return sum(W[1:5, 1:6] .* only(tr.modifiers)) + sum(y)
-        end
-        θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
-        @test gradient(ward, AutoMooncake(), θw) ≈ ReferenceAD.gradient(ward, θw)
-    end
-    @testset "the default trace of user modifiers" begin
-        g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
-        W = reshape(range(0.2, 1.8; length = 72), 12, 6)
-        # Pointwise modifiers only, so each stratum's pullback runs on its own;
-        # `Transform(+, b)` keeps no state, so its trace takes no cotangent.
-        function pointwise(θ)
-            mods = (Decay(θ[1]), CR.Transform(+, 0.1), CR.Depletion(θ[2]))
-            y, tr = Recurrence(g; modifiers = mods)(R; history = h, record = (:trace,))
-            T1, _, T2 = tr.modifiers
-            return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
-        end
-        function blockwise(θ)
-            y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, record = (:trace,))
-            return sum(W[1:4, :] .* only(tr.modifiers)) + sum(y)
-        end
-        for (f, θ) in ((pointwise, [0.6, 80.0]), (blockwise, [0.8]))
-            n = CR._PULLBACK_CALLS[]
-            @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
-            @test CR._PULLBACK_CALLS[] > n
-        end
-    end
-end
-
-@testitem "Trace: user traces written in place, for each kind of step" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
+@testitem "Trace: user traces written in place, for each kind of step" setup = [AdjointCheck] begin
+    using ComposableRecurrences
     # Pointwise: the smoothed value and what it leaves of the value, as
     # a tuple of series over the strata.
     struct Smoothing{A}
@@ -554,21 +445,15 @@ end
     @test size(only(trm.modifiers)) == (1, 6)
     _, trp = Recurrence(g; modifiers = (Pairs(0.8),))(R; history = h, record = (:trace,))
     @test size(only(trp.modifiers)) == (2, 6)
-    for (mods, W) in (
-            ((Smoothing(0.6), CR.Depletion(PerStratum(fill(80.0, 4)))), nothing),
-            ((Pairs(0.8),), nothing),
-            ((Mean(0.3), CR.Transform(clamp, 0.0, 9.0)), nothing),
+    # The pullback through each trace against ForwardDiff, over every float
+    # leaf of the call.
+    for mods in (
+            (Smoothing(0.6), CR.Depletion(PerStratum(fill(80.0, 4)))),
+            (Pairs(0.8),),
+            (Mean(0.3), CR.Transform(clamp, 0.0, 9.0)),
         )
-        f(θ) = begin
-            ms = mods[1] isa Smoothing ? (Smoothing(θ[1]), Base.tail(mods)...) :
-                mods[1] isa Pairs ? (Pairs(θ[1]),) : (Mean(θ[1]), Base.tail(mods)...)
-            y, tr = Recurrence(g; modifiers = ms)(R; history = h, record = (:trace,))
-            sum(y) + sum(x -> sum(abs2, x), tr.modifiers)
-        end
-        θ = [0.6]
-        n = CR._PULLBACK_CALLS[]
-        @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
-        @test CR._PULLBACK_CALLS[] > n
+        r = Recurrence(g; modifiers = mods)
+        @test pullback_matches(CR._WithTrace(r), recargs(R, nothing, h)...)
     end
     # A trace that returns its values rather than writing them is an error.
     struct Returns end
@@ -631,10 +516,8 @@ end
     @test y ./ tr.pressure ≈ R
 end
 
-@testitem "Trace: gradients through the pressure, the rule against ForwardDiff" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
+@testitem "Trace: gradients through the pressure, the rule against ForwardDiff" setup = [ReferenceAD, AdjointCheck] begin
+    using ComposableRecurrences
     S, T = 2, 8
     W = reshape(range(0.2, 1.8; length = S * T), S, T)
     h = [5.0 4.0 3.0; 3.0 2.0 1.0]
@@ -672,26 +555,26 @@ end
     both(y, q) = sum(weights(q) .* q) + sum(y ./ q) + sum(y)
     alone(y, q) = sum(weights(q) .* q)
     θ = [0.3, 0.5, 0.2, 0.9, 80.0, 120.0, 1.1]
-    for coupling in (:pointwise, :diagonal, :dense, :series), l in (both, alone)
-        f = θ -> l(run(θ, coupling)...)
-        ∇ = ReferenceAD.gradient(θ -> l(second_pass(θ, coupling)...), θ)
-        @test ReferenceAD.gradient(f, θ) ≈ ∇
-        n = CR._PULLBACK_CALLS[]
-        @test gradient(f, AutoMooncake(), θ) ≈ ∇
-        @test CR._PULLBACK_CALLS[] > n
+    for coupling in (:pointwise, :diagonal, :dense, :series)
+        for l in (both, alone)
+            f = θ -> l(run(θ, coupling)...)
+            ∇ = ReferenceAD.gradient(θ -> l(second_pass(θ, coupling)...), θ)
+            @test ReferenceAD.gradient(f, θ) ≈ ∇
+        end
+        # The pullback through the output and the pressure against ForwardDiff.
+        x, hx = inputs(θ, coupling)
+        r = CR._WithTrace(recurrence(θ, coupling))
+        @test pullback_matches(r, recargs(x, nothing, hx)...)
     end
 end
 
-@testitem "Trace: the pressure of a run with an integer gain and coefficient" setup = [ReferenceAD] begin
+@testitem "Trace: the pressure of a run with an integer gain and coefficient" setup = [AdjointCheck] begin
     # Such a run records no convolutions for the reverse pass, but its trace
     # returns its pressures, so a traced run records them all the same.
-    using ComposableRecurrences, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
+    using ComposableRecurrences
     using LinearAlgebra: Diagonal, I
-    CR = ComposableRecurrences
     S, T = 2, 8
     h = [5.0 4.0 3.0; 3.0 2.0 1.0]
-    W = reshape(range(0.2, 1.8; length = S * T), S, T)
     for C in (I, Diagonal([1, 2]))
         r = Recurrence([0.3, 0.5, 0.2]; coupling = C)
         ϵ = fill(0.5, S, T)
@@ -699,15 +582,7 @@ end
         (y, tr), c = CR._run_forward(CR._WithTrace(r), args..., nothing)
         @test c.pr !== nothing
         @test tr.pressure ≈ CR.pressure(r, y; history = h)
-        function f(θ)
-            y, tr = Recurrence(θ[1:3]; coupling = C)(;
-                history = h, add = reshape(θ[4:end], S, T), record = (:trace,)
-            )
-            return sum(W .* tr.pressure) + sum(y)
-        end
-        θ = vcat([0.3, 0.5, 0.2], vec(ϵ))
-        n = CR._PULLBACK_CALLS[]
-        @test gradient(f, AutoMooncake(), θ) ≈ ReferenceAD.gradient(f, θ)
-        @test CR._PULLBACK_CALLS[] > n
+        # The pullback through the output and the pressure against ForwardDiff.
+        @test pullback_matches(CR._WithTrace(r), recargs(true, ϵ, h)...)
     end
 end

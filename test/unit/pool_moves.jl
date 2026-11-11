@@ -187,10 +187,8 @@ end
         ReferenceAD.gradient(θ -> sum(ref(θ)), θ)
 end
 
-@testitem "Depletion without a draw: the time checks infer and allocate nothing, after a gradient too" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
+@testitem "Depletion without a draw: the time checks infer and allocate nothing, after a gradient too" setup = [AdjointCheck] begin
+    using ComposableRecurrences
     function flows(θ)
         return CR.Depletion(
             CR.Flow(:U => :C, PerStratum(θ[1:2])),
@@ -215,8 +213,9 @@ end
     call(m) = Recurrence([1.0]; modifiers = m)(; history = zeros(4, 1), add = adm)
     call_allocs(m) = (call(m); @allocated call(m))
     before = call_allocs(mods)
-    loss(θ) = sum(call((flows(θ), CR.Transform(clamp, 0.0, 1.0e6))))
-    @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
+    # The reverse pass, against ForwardDiff.
+    r = Recurrence([1.0]; modifiers = mods)
+    @test pullback_matches(r, recargs(true, adm, zeros(4, 1))...)
     # A gradient does not leave the checks to run inference on each call.
     @test check_allocs(mods) == 0 skip = coverage
     @test call_allocs(mods) <= before skip = coverage
