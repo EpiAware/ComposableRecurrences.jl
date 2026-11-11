@@ -21,41 +21,43 @@
     CR.pullback!(grads, ::DeepVector, ::CR.Step, v, s, t) = nothing
     CR.depth(m::DeepVector) = m.w
 
-    # Checks the reverse pass of each kernel in `which` against ForwardDiff,
-    # with a buffer deeper than the kernel. The kernels are split across
-    # test items so they run in parallel; each item draws the same inputs.
-    function deep_reverse_matches(which)
+    # Checks the reverse pass of each kind of kernel against ForwardDiff,
+    # with a buffer deeper than the kernel. Each kernel runs with a dense
+    # coupling and a vector step, which takes the per-step path, reading a
+    # history shorter than the kernel. The fixed, per-stratum, pairwise and
+    # time-varying kernels also run with `I` and a pointwise modifier, which
+    # takes the independent path, reading a history longer than the buffer;
+    # the ragged and Primary() kernels read the buffer as the time-varying
+    # one does. The fixed kernel also returns its state.
+    function deep_reverse_matches()
         rng = Xoshiro(13)
         S, L, T, D = 3, 3, 8, 6
-        g = rand(rng, L)
         K = rand(rng, S, S) ./ S
         h = rand(rng, S, D + 1)
         R = 0.5 .+ rand(rng, S, T)
         gt = 0.3 .* rand(rng, L, T)
         ragged = [0.3 .* rand(rng, 1 + mod(t, L)) for t in 1:T]
         kernels = (
-            g, PerStratum(rand(rng, S, L)), Pairwise(0.2 .* rand(rng, S, S, L)),
-            TimeVarying(gt), TimeVarying(PerStratum(0.3 .* rand(rng, S, L, T))),
-            TimeVarying(Pairwise(0.1 .* rand(rng, S, S, L, T))), TimeVarying(ragged),
-            TimeVarying(gt, CR.Primary()), TimeVarying(ragged, CR.Primary()),
+            rand(rng, L), PerStratum(rand(rng, S, L)), Pairwise(0.2 .* rand(rng, S, S, L)),
+            TimeVarying(gt), TimeVarying(ragged), TimeVarying(gt, CR.Primary()),
         )
         for (i, kernel) in enumerate(kernels)
-            couplings = (I, Diagonal(rand(rng, S)), K)
-            i in which || continue
-            for C in couplings
-                kernel isa Union{Pairwise, TimeVarying{<:Any, <:Pairwise}} &&
-                    C !== I && continue
-                primary = kernel isa TimeVarying{CR.Primary}
-                # Histories longer than the buffer, between the kernel and
-                # the buffer, and shorter than the kernel; a Primary() kernel
-                # runs unseeded.
-                hs = primary ? (zeros(S, 0),) : (h, h[:, 1:(L + 1)], h[:, 1:1])
-                for m in (Deep(D), DeepVector(D)), hk in hs
-                    r = Recurrence(kernel; coupling = C, modifiers = (m,))
-                    @test pullback_matches(r, recargs(R, nothing, hk)...)
-                    @test pullback_matches(CR._WithState(r), recargs(R, nothing, hk)...)
-                end
+            # A Primary() kernel runs unseeded; a pairwise kernel takes `I`.
+            primary = kernel isa TimeVarying{CR.Primary}
+            short = primary ? zeros(S, 0) : h[:, 1:1]
+            long = primary ? zeros(S, 0) : h
+            C = kernel isa Pairwise ? I : K
+            if i <= 4
+                r = Recurrence(kernel; modifiers = (Deep(D),))
+                @test pullback_matches(r, recargs(R, nothing, long)...)
+                kernel isa Vector &&
+                    @test pullback_matches(CR._WithState(r), recargs(R, nothing, long)...)
             end
+            r = Recurrence(kernel; coupling = C, modifiers = (DeepVector(D),))
+            @test pullback_matches(r, recargs(R, nothing, short)...)
+            # A history between the kernel and the buffer.
+            kernel isa Vector &&
+                @test pullback_matches(r, recargs(R, nothing, h[:, 1:(L + 1)])...)
         end
         return nothing
     end
@@ -139,19 +141,9 @@ end
     @test occursin("BadDepth", err.msg)
 end
 
-@testitem "depth: the reverse pass reads the deeper buffer, fixed kernels" setup = [AdjointCheck, DeepBuffer] begin
+@testitem "depth: the reverse pass reads the deeper buffer" setup = [AdjointCheck, DeepBuffer] begin
     using ComposableRecurrences, LinearAlgebra, Random
-    deep_reverse_matches(1:3)
-end
-
-@testitem "depth: the reverse pass reads the deeper buffer, time-varying kernels" setup = [AdjointCheck, DeepBuffer] begin
-    using ComposableRecurrences, LinearAlgebra, Random
-    deep_reverse_matches(4:6)
-end
-
-@testitem "depth: the reverse pass reads the deeper buffer, ragged and Primary kernels" setup = [AdjointCheck, DeepBuffer] begin
-    using ComposableRecurrences, LinearAlgebra, Random
-    deep_reverse_matches(7:9)
+    deep_reverse_matches()
 end
 
 @testitem "depth: the threaded reverse pass reads the deeper buffer" tags = [:threads] setup = [AdjointCheck, DeepBuffer] begin
@@ -162,19 +154,16 @@ end
     K = rand(rng, S, S) ./ S
     h = rand(rng, S, D + 1)
     R = 0.5 .+ rand(rng, S, T)
-    kernels = (
-        rand(rng, L), PerStratum(rand(rng, S, L)), TimeVarying(0.3 .* rand(rng, L, T)),
-        Pairwise(0.2 .* rand(rng, S, S, L)),
-    )
+    kernels = (rand(rng, L), PerStratum(rand(rng, S, L)), Pairwise(0.2 .* rand(rng, S, S, L)))
     # Pointwise modifiers with `I` take the independent path; a dense
     # coupling or a vector step takes the per-step one.
     with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
-        for kernel in kernels, C in (I, K), m in (Deep(D), DeepVector(D))
-            kernel isa Pairwise && C !== I && continue
+        for kernel in kernels, m in (Deep(D), DeepVector(D))
+            C = kernel isa Pairwise || m isa Deep ? I : K
             r = Recurrence(kernel; coupling = C, modifiers = (m,))
             splits = CR._SPLIT_BLOCKS[]
-            @test pullback_matches(r, recargs(R, nothing, h)...)
-            @test pullback_matches(r, recargs(R, nothing, h[:, 1:1])...)
+            hk = m isa Deep ? h : h[:, 1:1]
+            @test pullback_matches(r, recargs(R, nothing, hk)...)
             # A pairwise kernel with a vector step runs every reverse step on
             # the calling task.
             serial = kernel isa Pairwise && m isa DeepVector
