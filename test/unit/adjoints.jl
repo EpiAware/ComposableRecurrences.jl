@@ -2908,13 +2908,14 @@ end
     s̄ = CR._zero_mirror(x)
     @test CR._add_scalar!(s̄, x, (0.75, 1.0), nothing) == (1.0,)
     @test s̄[1].a[] == 0.75
-    # The read step's rebuild wraps each float array, numbered in field
-    # order, and adds a read's cotangent into that array's mirror.
+    # The read step's rebuild wraps each float array, a `Diagonal` whole,
+    # numbered in field order, and adds a read's cotangent into that
+    # array's mirror.
     seed = CR._ReadSeed{Float64}(CR._Reads{4}(), 0)
     r, rest, l = CR._rebuild_reads(dense, (0.5, 9.0), seed, 1)
     @test r.a == 0.5 && rest == (9.0,) && l == 4
     @test r.b isa CR._ReadArray && r.b.leaf == 1 && r.c.leaf == 2
-    @test r.d isa Diagonal && r.d.diag.leaf == 3
+    @test r.d isa CR._ReadArray && r.d.leaf == 3 && r.d.x === dense.d
     d̄ = CR._zero_mirror(dense)
     @test CR._add_read!(d̄, dense, 2, 3, 0.5, 1) == 4
     @test d̄.c[3] == 0.5 && all(iszero, d̄.b)
@@ -2924,4 +2925,25 @@ end
     @test @inferred(CR._param_tuple(parts)) == (1.5, 0.5, 1.5)
     @test @inferred(CR._rebuild_scalar(parts, (1.0, 2.0, 3.0)))[2] == ()
     @test CR._rebuild(parts, collect(1.0:(2n - 3))) isa typeof(parts)
+end
+
+@testitem "Adjoint: the read step takes a Diagonal or sparse field whole" begin
+    using ComposableRecurrences, LinearAlgebra, SparseArrays
+    # The read step's check rebuilds with dual numbers.
+    using ForwardDiff
+    CR = ComposableRecurrences
+    struct DiagonalScale{D}
+        d::D
+    end
+    CR.blocks(::DiagonalScale) = (1, 1)
+    CR.forward(m::DiagonalScale, ::CR.Step, v, s, t, k) = (m.d[k, k] * v, s)
+    seed = CR._ReadSeed{Float64}(CR._Reads{4}(), 0)
+    for d in (Diagonal([0.5, 0.7, 0.9]), sparse(Diagonal([0.5, 0.7, 0.9])))
+        m = DiagonalScale(d)
+        r, rest, l = CR._rebuild_reads(m, (), seed, 1)
+        @test r.d isa CR._ReadArray && r.d.x === d && r.d.leaf == 1 && l == 2
+        @test CR._reads_kept(m, r)
+        # The check turns the part away, so its call takes plain AD.
+        @test CR._check_reads(m) === false
+    end
 end

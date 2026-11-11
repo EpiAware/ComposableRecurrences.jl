@@ -8,16 +8,13 @@
 # sparse matrix or the diagonal of a `Diagonal`, found by recursing through
 # fields, tuples and named tuples.
 
-# The walks every parameter walker shares, in field order: through tuples,
-# named tuples and the fields of a struct the walker descends into
-# (`_descends`, by default one that may hold floats), and to the stored
-# entries of a sparse or `Diagonal` matrix, skipping `_Leafless` values.
-# Each walk is one function over a tuple's head and tail, as the walkers it
-# replaces were, so it unrolls and infers. A walker `f` handles a float
-# scalar, a float array and an entry parameter (`_EntryParam`) through the
-# walk's leaf functions; by default it skips the first two and walks into
-# the third.
+# Shared walks over the parameter leaves, in field order. A walker is a
+# struct with methods of `_fold_*`, `_mfold_*`, `_map_*` or `_collect_*` for
+# the leaves it handles; `_descends` picks the structs it enters and
+# `_into_stored` whether it reads a sparse or `Diagonal` matrix's stored
+# entries or the whole matrix.
 _descends(f, x) = _holds_floats(x)
+_into_stored(f) = true
 _fields(x) = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
 const _FloatArray = AbstractArray{<:AbstractFloat}
 const _Stored = Union{SparseMatrixCSC{<:AbstractFloat}, Diagonal{<:AbstractFloat}}
@@ -45,6 +42,7 @@ _fold_entry(f, x, s) = _lfold_all(f, _fields(x), s)
 _mfold(f, x̄, x::AbstractFloat, s) = _mfold_scalar(f, x̄, x, s)
 _mfold(f, x̄, x::_FloatArray, s) = _mfold_array(f, x̄, x, s)
 function _mfold(f, x̄, x::_Stored, s)
+    _into_stored(f) || return _mfold_array(f, x̄, x, s)
     return _mfold(f, cotangent(x̄, _stored_name(x)), _stored(x), s)
 end
 _mfold(f, x̄, x::_EntryParam, s) = _mfold_entry(f, x̄, x, s)
@@ -73,11 +71,14 @@ _mfold_entry(f, x̄, x, s) = _mfold_fields(f, x̄, x, s)
 # struct, through `ConstructionBase.constructorof`, of its rebuilt fields.
 _remap(f, x::AbstractFloat, s) = _map_scalar(f, x, s)
 _remap(f, x::_FloatArray, s) = _map_array(f, x, s)
+# A stored matrix's entries reach `_map_array` as a `Vector`.
 function _remap(f, x::SparseMatrixCSC{<:AbstractFloat}, s)
+    _into_stored(f) || return _map_array(f, x, s)
     nz, s = _remap(f, nonzeros(x), s)
     return SparseMatrixCSC(size(x)..., copy(x.colptr), copy(x.rowval), nz), s
 end
 function _remap(f, x::Diagonal{<:AbstractFloat}, s)
+    _into_stored(f) || return _map_array(f, x, s)
     d, s = _remap(f, x.diag, s)
     return Diagonal(d), s
 end
@@ -296,6 +297,9 @@ struct _AddReadLeaf{G}
     i::Int
     g::G
 end
+# The read step wraps a sparse or `Diagonal` matrix whole, as any other
+# float array.
+_into_stored(::Union{_ReadingLeaves, _AddReadLeaf}) = false
 _add_read!(x̄, x, leaf, i, g, l) = _mfold(_AddReadLeaf(leaf, i, g), x̄, x, l)
 _mfold_entry(::_AddReadLeaf, x̄, x, l) = l
 function _mfold_array(f::_AddReadLeaf, x̄, x, l)
@@ -386,7 +390,9 @@ _column(b::_StepDuals, t) = b
 _finish_pass!(m̄, m, R, ::_StepDuals, τ0) = nothing
 
 # `_rebuild` with each float array a view of `θ` rather than a copy, so a
-# change to `θ` reaches the rebuilt object.
+# change to `θ` reaches the rebuilt object. A `Diagonal` is rebuilt around a
+# view; a sparse matrix's constructor takes only a `Vector`, so parts that
+# hold one keep to plain AD (`_has_structured_floats`).
 struct _ViewLeaves{V}
     θ::V
 end
@@ -450,15 +456,12 @@ _entry(x::TimeVarying{<:Any, <:AbstractVector}, ::Nothing) = zero(eltype(x.x))
 _entry(x::TimeVarying{<:Any, <:PerStratum}, ::Nothing) = zero(eltype(x.x.x))
 _entry(x::TimeVarying{<:Any, <:_Piecewise}, ::Nothing) = zero(eltype(_array(x)))
 
-# `_rebuild` and `_addparams!` for the tuple of scalars: each consumes the
-# leading entries of `θ` or `g` and returns the rest, so the recursion over
-# fields is resolved at compile time.
-# Both walk only into structs that hold float scalars.
+# `x` with its float scalars, entry parameters included, taken from the
+# tuple `θ`; returns the object and the rest of `θ`.
 struct _CopyScalars end
 _rebuild_scalar(x, θ) = _remap(_CopyScalars(), x, θ)
 _map_scalar(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
 _map_entry(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
-_descends(::_CopyScalars, x) = _param_tuple(x) !== ()
 
 # Whether the local step's rebuild of `x` from its float scalars gives them
 # back: each is seeded as a dual number with its own partial, `x` is
@@ -569,7 +572,8 @@ function _mfold_entry(f::_AddScalars, x̄, x, g)
     add_param!(x̄, x, first(g), f.at...)
     return Base.tail(g)
 end
-_descends(::_AddScalars, x) = _param_tuple(x) !== ()
+# Both scalar walks descend only into structs that hold float scalars.
+_descends(::Union{_CopyScalars, _AddScalars}, x) = _param_tuple(x) !== ()
 
 # Default initial-state pullback: a local forward-mode Jacobian of the Init,
 # skipped for the default zero state and for a zero state cotangent (a
