@@ -2866,3 +2866,62 @@ end
         @test all(iszero, H[1:2, :])
     end
 end
+
+@testitem "Adjoint: every parameter walker round-trips each leaf kind" begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using LinearAlgebra: Diagonal
+    using SparseArrays: sparse, nonzeros
+    using Test
+    struct Leaves{A, B, C, D}
+        a::A
+        b::B
+        c::C
+        d::D
+    end
+    # A float, a vector, a matrix and a `Diagonal`, with a sparse matrix in
+    # a nested tuple beside them.
+    dense = Leaves(1.5, [2.0, 3.0], [4.0 5.0; 6.0 7.0], Diagonal([8.0, 9.0]))
+    x = (dense, (; s = sparse([1.0 0.0; 0.0 2.0]), k = :label))
+    n = 1 + 2 + 4 + 2 + 2
+    @test CR._nparams(x) == n
+    @test CR._params(x) == [1.5, 2.0, 3.0, 4.0, 6.0, 5.0, 7.0, 8.0, 9.0, 1.0, 2.0]
+    θ = collect(1.0:n) ./ 10
+    # A copy and, without the sparse matrix, which keeps its own entries,
+    # views of `θ` that a change to `θ` reaches; the float scalar is copied.
+    y = CR._rebuild(x, θ)
+    @test CR._params(y) == θ
+    @test y[1].d isa Diagonal && nonzeros(y[2].s) == θ[(end - 1):end]
+    θv = copy(θ[1:(n - 2)])
+    v = CR._rebuild_views(dense, θv)
+    @test CR._params(v) == θv
+    θv .*= 2
+    @test CR._params(v)[2:end] == θv[2:end]
+    @test CR._params(v)[1] == θ[1]
+    # A gradient added into a zero mirror reads back in the same order.
+    x̄ = CR._zero_mirror(x)
+    CR._addparams!(x̄, x, θ, 0)
+    @test CR._mirror_params(x̄, x) == θ
+    # The float scalars, rebuilt and with their cotangents added.
+    @test CR._param_tuple(x) == (1.5,)
+    @test CR._param_tuple(CR._rebuild_scalar(x, (0.25,))[1]) == (0.25,)
+    s̄ = CR._zero_mirror(x)
+    @test CR._add_scalar!(s̄, x, (0.75, 1.0), nothing) == (1.0,)
+    @test s̄[1].a[] == 0.75
+    # The read step's rebuild wraps each float array, numbered in field
+    # order, and adds a read's cotangent into that array's mirror.
+    seed = CR._ReadSeed{Float64}(CR._Reads{4}(), 0)
+    r, rest, l = CR._rebuild_reads(dense, (0.5, 9.0), seed, 1)
+    @test r.a == 0.5 && rest == (9.0,) && l == 4
+    @test r.b isa CR._ReadArray && r.b.leaf == 1 && r.c.leaf == 2
+    @test r.d isa Diagonal && r.d.diag.leaf == 3
+    d̄ = CR._zero_mirror(dense)
+    @test CR._add_read!(d̄, dense, 2, 3, 0.5, 1) == 4
+    @test d̄.c[3] == 0.5 && all(iszero, d̄.b)
+    # A nested tuple of parts infers through the count and the scalar walks.
+    parts = (dense, (Leaves(0.5, 1, :s, nothing), (; m = dense)))
+    @test @inferred(CR._nparams(parts)) == 2n - 4 + 1
+    @test @inferred(CR._param_tuple(parts)) == (1.5, 0.5, 1.5)
+    @test @inferred(CR._rebuild_scalar(parts, (1.0, 2.0, 3.0)))[2] == ()
+    @test CR._rebuild(parts, collect(1.0:(2n - 3))) isa typeof(parts)
+end
