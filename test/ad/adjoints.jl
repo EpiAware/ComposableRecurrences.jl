@@ -2139,3 +2139,52 @@ end
     @test ext._any_shares((Duplicated([x, x], [x, dx]),))
     @test ext._any_shares((Duplicated((x, 1.0), (x, 0.0)),))
 end
+
+@testitem "Mooncake reverse: a call the rule cannot take builds plain AD's rule once" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences, DifferentiationInterface, ForwardDiff, Mooncake
+    using ADTypes: AutoForwardDiff, AutoMooncake
+    CR = ComposableRecurrences
+    ext = Base.get_extension(CR, :ComposableRecurrencesMooncakeExt)
+    # A modifier that reads its parameter's array directly, which the local
+    # step cannot rebuild, so `_fit` sends every call to plain AD.
+    struct DirectRead{K}
+        κ::K
+    end
+    CR.blocks(::DirectRead) = (1, 1)
+    function CR.forward!(m::DirectRead, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + v[k] / m.κ.x[k])
+        end
+        return nothing
+    end
+    W = [cos(a * t) for a in 1:3, t in 1:8]
+    function loss(θ)
+        r = Recurrence([0.3, 0.2]; modifiers = (DirectRead(PerStratum(θ[1:3])),))
+        return sum(W .* r(fill(1.1, 3, 8); history = ones(3, 2)))
+    end
+    function loss_add(θ)
+        r = Recurrence([0.3, 0.2]; modifiers = (DirectRead(PerStratum(θ[1:3])),))
+        return sum(W .* r(fill(1.1, 3, 8); history = ones(3, 2), add = θ[4]))
+    end
+    θ = [5.0, 6.0, 7.0, 0.5]
+    @test CR._fit(Recurrence([0.3, 0.2]; modifiers = (DirectRead(PerStratum(θ[1:3])),)), true, nothing, ones(3, 2)) === :none
+    mc = AutoMooncake(; config = nothing)
+    empty!(ext._PLAIN_RULES)
+    ref = gradient(loss, AutoForwardDiff(), θ)
+    prep = prepare_gradient(loss, mc, θ)
+    @test gradient(loss, prep, mc, θ) ≈ ref
+    @test length(ext._PLAIN_RULES) == 1
+    key = only(keys(ext._PLAIN_RULES))
+    built = ext._PLAIN_RULES[key]
+    # A second call through the same prepared gradient takes the cached rule.
+    @test gradient(loss, prep, mc, θ) ≈ ref
+    @test ext._PLAIN_RULES[key] === built
+    # Other argument types build their own rule.
+    @test gradient(loss_add, mc, θ) ≈ gradient(loss_add, AutoForwardDiff(), θ)
+    @test length(ext._PLAIN_RULES) == 2
+    # A gradient prepared in a newer world rebuilds the rule at that world.
+    @eval _a_method_for_a_newer_world() = nothing
+    prep2 = Base.invokelatest(prepare_gradient, loss, mc, θ)
+    @test Base.invokelatest(gradient, loss, prep2, mc, θ) ≈ ref
+    @test first(ext._PLAIN_RULES[key]) > first(built)
+end
