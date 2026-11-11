@@ -6,8 +6,8 @@
 # paths; scalar cotangents are returned for `Active` leaves.
 module ComposableRecurrencesEnzymeExt
 
-using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
-    _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
+using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
+    _Current, _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
     _fft_convolve_terms!, _flat_groups, _is_leaf, _leaf_paths, _plain_hook,
     _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
@@ -15,7 +15,7 @@ using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
-using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
+using SparseArrays: SparseMatrixCSC, nonzeros
 
 const _IEEEFloat = Union{Float16, Float32, Float64}
 const _Inert = Union{
@@ -541,10 +541,10 @@ end
 
 # A sparse route coupling's pressure `w = C z`, which plain AD reaches
 # under `NoAdjoint` or when a route coupling has no `pullback!`. Plain
-# Enzyme differentiates it correctly but slower than this reverse pass:
-# `z̄ += Cᵀ w̄`, the coupling's `w̄[a] z[b]` per stored entry, and `w̄`
-# cleared because the step overwrites `w`. `z` is a buffer the next route
-# overwrites, so an active coupling keeps a copy.
+# Enzyme differentiates it correctly but slower than the coupling's own
+# `pullback!`, which this rule runs, clearing `w̄` because the step
+# overwrites `w`. `z` is a buffer the next route overwrites, so an active
+# coupling keeps a copy.
 const _SparseArg = Union{
     Const{<:SparseMatrixCSC}, Duplicated{<:SparseMatrixCSC},
     DuplicatedNoNeed{<:SparseMatrixCSC},
@@ -565,7 +565,7 @@ function EnzymeRules.reverse(
         ::Type{<:Annotation}, tape, C::_SparseArg, w::Annotation, z::Annotation,
         τ::Annotation
     )
-    _active(w) && _sparse_route_back!(C.val, _shadow(C), w.dval, z, tape)
+    _active(w) && _route_pullback!(C.val, _shadow(C), w.dval, z, tape)
     return (nothing, nothing, nothing, nothing)
 end
 # A shadow that is its primal is constant under runtime activity.
@@ -573,13 +573,12 @@ _active(x::Const) = false
 _active(x) = x.dval !== x.val
 _shadow(C::Const) = nothing
 _shadow(C) = _active(C) ? C.dval : nothing
-function _sparse_route_back!(K, K̄, w̄, z, z0)
-    rows, vals = rowvals(K), nonzeros(K)
-    z̄ = _active(z) ? z.dval : nothing
-    for b in axes(K, 2), idx in nzrange(K, b)
-        a = rows[idx]
-        z̄ === nothing || (z̄[b] += vals[idx] * w̄[a])
-        K̄ === nothing || (nonzeros(K̄)[idx] += w̄[a] * z0[b])
+function _route_pullback!(K, K̄, w̄, z, z0)
+    if _active(z) || K̄ !== nothing
+        z̄ = _active(z) ? z.dval : zero(z.val)
+        piece = K̄ === nothing ? nothing : (; nzval = nonzeros(K̄))
+        p = z0 === nothing ? z.val : z0
+        pullback!((; piece, q = w̄, p = z̄), K, Pressure(), w̄, p, 1)
     end
     fill!(w̄, zero(eltype(w̄)))
     return nothing
