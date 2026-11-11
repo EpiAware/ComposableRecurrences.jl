@@ -578,16 +578,11 @@ end
 # cotangent, and the older lags' rows of `H̄`.
 @inline function _older_back!(kbuf, g, a, H, H̄, o, L, k)
     @inbounds kbuf[L] = muladd(a, H[o + L, k], kbuf[L])
-    @inbounds @simd ivdep for i in 1:(L - 1)
-        kbuf[i] += a * H[o + i, k]
-        H̄[o + i, k] += a * g[i]
-    end
+    _span_back!(kbuf, g, a, H, H̄, o + 1, 1, L - 1, k)
     return nothing
 end
 @inline function _older_back!(::Nothing, g, a, H, H̄, o, L, k)
-    @inbounds @simd ivdep for i in 1:(L - 1)
-        H̄[o + i, k] += a * g[i]
-    end
+    _span_back!(nothing, g, a, H, H̄, o + 1, 1, L - 1, k)
     return nothing
 end
 # Time-varying kernels read their weights through `_weight` and add their
