@@ -459,11 +459,8 @@ end
 # the buffer, or is `y` when a run carries its last value.
 @inline _window_dot(g, H, t, L, a) = _window_dot(g, H, t, L, a, H)
 @inline function _window_dot(g, H, t, L, a, y)
-    acc = zero(promote_type(eltype(g), eltype(H)))
-    L >= 1 || return acc
-    @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
-        acc += g[i] * H[t + i - 1, a]
-    end
+    L >= 1 || return zero(promote_type(eltype(g), eltype(H)))
+    acc = _span_dot(g, H, t, 1, L - 1, a)
     return @inbounds muladd(g[L], _newest(y, t + L - 1, a), acc)
 end
 @inline _newest(H::AbstractMatrix, r, a) = @inbounds H[r, a]
@@ -477,13 +474,7 @@ end
 @inline function _chained_step!(
         w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
     )
-    o = t + D - L - 1
-    older = zero(promote_type(eltype(w), eltype(H)))
-    if L > 1
-        @inbounds @_float_simd typeof(older) for i in 1:(L - 1)
-            older += w[i] * H[o + i, k]
-        end
-    end
+    older = _span_dot(w, H, t + D - L, 1, L - 1, k)
     pk = muladd(newest, y, older)
     _record_pressure!(pr, pk, _coef(C, k) * pk, t, k)
     γ = @inbounds _at(gain, k, τ) * _coef(C, k)
@@ -492,20 +483,12 @@ end
     return v
 end
 # A window's convolution in one loop over the lags.
-function _window_sum(g, H, t, L, a)
-    acc = zero(promote_type(eltype(g), eltype(H)))
-    @inbounds @_float_simd typeof(acc) for i in 1:L
-        acc += g[i] * H[t + i - 1, a]
-    end
-    return acc
-end
+_window_sum(g, H, t, L, a) = _span_dot(g, H, t, 1, L, a)
+# Column `τ`'s weights, lag 0 first, against the window ending at row
+# `t + L - 1`.
 function _kdot(g::_TVColumns{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
-    acc = zero(eltype(H))
-    @inbounds @_float_simd typeof(acc) for i in 1:length(w)
-        acc += w[i] * H[t + L - i, a]
-    end
-    return acc
+    return _tail_dot(w, H, a, t + L - 1, 0, length(w) - 1)
 end
 # A per-stratum column is strided, so it is read entry by entry.
 function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
