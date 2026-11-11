@@ -45,7 +45,8 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule, local ForwardDiff step |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
 | whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24 | rule, local ForwardDiff step |
-| the same with more | rule on Mooncake, plain AD on Enzyme |
+| the same with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
+| the same with more than 48 | plain AD |
 | blockwise modifier | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
@@ -94,7 +95,8 @@ Above 24 the local step is slower than plain AD, so such a modifier takes plain 
 A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
 The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
-Past one pass it stays faster than plain AD on Mooncake at any size, and is slower than plain AD on Enzyme.
+With a second pass it takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD.
+Past two passes it takes plain AD on every backend, as a coupling does.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 The local step's dual numbers, and those of a `Transform` without a `derivative`, compare by value only, as plain floats do.
 So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.

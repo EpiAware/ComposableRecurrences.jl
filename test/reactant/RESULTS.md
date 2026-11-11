@@ -115,6 +115,7 @@ Total run time 20.5 min, timeout 600 s a case.
 | Recurrence whole-step modifier holding a vector | works (2.8 s / 7.7 µs) | works (1.0 s / 11.4 µs) |
 | Recurrence checked at the call | error: MethodError in `param` | error: MethodError in `param` |
 | Recurrence whole-step modifier branching at a tie (occupancy) | error: MethodError in `forward!` | error: MethodError in `forward!` |
+| Recurrence whole-step modifier branching at a tie over five steps (occupancy) | error: MethodError in `forward!` | error: MethodError in `forward!` |
 
 ## Hand-written cases
 
@@ -327,6 +328,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence checked at the call | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | param | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
 | registry | Recurrence whole-step modifier branching at a tie (occupancy) | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | forward! | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
 | registry | Recurrence whole-step modifier branching at a tie (occupancy) | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | forward! | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
+| registry | Recurrence whole-step modifier branching at a tie over five steps (occupancy) | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | forward! | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
+| registry | Recurrence whole-step modifier branching at a tie over five steps (occupancy) | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | forward! | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
 | cases | control | forward | cpu | 20 | works | 0.0e+00 | 22.9 | 3.6 | 0.1 |  |  |
 | cases | control | reverse | cpu | 20 | works | 0.0e+00 | 3.9 | 3.7 | 0.7 |  |  |
 | cases | rec_single | forward | cpu | 20 | works | 2.0e-16 | 19.8 | 5.1 | 0.7 |  |  |

@@ -1809,6 +1809,50 @@ if supports(:_StepDuals)
     for tier in ("smoke", "realistic")
         push!(TIERS[tier].cases, "custom_modifier_whole")
     end
+
+    # A whole-step modifier without a `pullback!` holding an `S × S`
+    # matrix: its local derivative seeds `S + S + S²` inputs, more than two
+    # passes of dual numbers (48) from 7 strata.
+    # Of the sizes, 5 strata take `_ad_wide`, and 20 and 50 take plain AD.
+    "The values mixed over the strata by a matrix `M`, `v ← M v`."
+    struct MatrixMix{M}
+        M::M
+    end
+    @in_place function CR.forward!(m::MatrixMix, ::CR.Step, v, s, t)
+        w = m.M * v
+        copyto!(v, w)
+        return nothing
+    end
+
+    function custom_modifier_matrix(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, M = _unpack(θ, (L,), (S, L), (S, T), (S, S))
+            r = Recurrence(g; modifiers = (MatrixMix(M),))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        mix = [0.8 * (i == j) + 0.2 / S for i in 1:S, j in 1:S]
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 14) for k in 1:S, t in 1:T], mix
+        )
+        return f, θ
+    end
+
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_matrix",
+            "renewal with a user whole-step modifier holding a mixing matrix",
+            custom_modifier_matrix, [5, 20, 50], false,
+        ),
+    )
+    REQUIRES["custom_modifier_matrix"] = (:_StepDuals,)
+    for tier in ("smoke", "realistic")
+        push!(TIERS[tier].cases, "custom_modifier_matrix")
+    end
 end
 
 end # module MatrixCases

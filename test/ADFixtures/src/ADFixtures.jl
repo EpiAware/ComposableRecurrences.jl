@@ -27,6 +27,7 @@ using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
     backend_broken_scenarios, backend_plain_scenarios, backend_skip_scenarios,
+    benchmarked_backends, exclusion_reason,
     FlooredDepletion,
     supports, unsupported_scenarios
 
@@ -2299,6 +2300,8 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
+# Its 61 parameters send the call to plain AD (`backend_plain_scenarios`);
+# the five-step balance below keeps the local step at the tie.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2351,6 +2354,24 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
+# The same balance over its first five steps: its local derivative seeds 39
+# inputs, within two passes of dual numbers, so on Mooncake the call takes
+# the rule and the local step meets the tie end to end.
+const TS = 5
+const OCC0_SHORT = _flat(A_BVD[1:TS], [0.1], CONF_HAZARD[1:TS])
+const A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT, WO_SHORT =
+    A_BG[1:TS], DEATHS[1:TS], RECOVER[1:TS], RULEOUT[1:TS], WO[1:TS]
+function _occupancy_short(w, θ)
+    A_bvd, κ, conf_hazard = _unpack(OCC0_SHORT .+ θ, (TS,), (1,), (TS,))
+    m = OccupancyBalance(
+        A_bvd, A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT,
+        only(κ), conf_hazard
+    )
+    r = Recurrence([1.0]; modifiers = (m,))
+    Y = w(r)(; history = zeros(4, 1), stop = TS)
+    return sum(WO_SHORT .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
+end
+
 push!(
     _SCENARIOS,
     (
@@ -2399,6 +2420,10 @@ push!(
         "Recurrence whole-step modifier branching at a tie (occupancy)",
         _occupancy, () -> zero(OCC0),
     ),
+    (
+        "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
+        _occupancy_short, () -> zero(OCC0_SHORT),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
@@ -2425,6 +2450,8 @@ _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
 # The local derivatives took the step's branch at a tie later.
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
+    (:_StepDuals, :local_ties)
+_REQUIRES["Recurrence whole-step modifier branching at a tie over five steps (occupancy)"] =
     (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 # The pressure recomputed from given outputs.
@@ -2649,6 +2676,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence modifier with a vector field read by time",
         "Recurrence checked at the call",
         "Recurrence whole-step modifier branching at a tie (occupancy)",
+        "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
     ],
     "sparse coupling from traced values" => [
         "Recurrence sparse coupling",
@@ -2690,20 +2718,48 @@ scenarios too unstable to run at all on a backend, by backend name.
 """
 backend_skip_scenarios() = Dict{String, Set{String}}()
 
+@doc raw"""
+    benchmarked_backends()
+
+The backends `benchmark/benchmarks.jl` times: every backend but ReverseDiff,
+which the AD tests run and the benchmark suite does not.
+"""
+function benchmarked_backends()
+    return filter(e -> !startswith(e.name, "ReverseDiff"), backends())
+end
+
+@doc raw"""
+    exclusion_reason(name, backend)
+
+Why the benchmark suite leaves scenario `name` out on the backend named
+`backend`, or `nothing` when it times the pair.
+"""
+function exclusion_reason(name, backend)
+    name in broken_scenario_names() && return "broken in the registry"
+    name in get(backend_broken_scenarios(), backend, Set{String}()) &&
+        return "broken on this backend in the registry"
+    name in get(backend_skip_scenarios(), backend, Set{String}()) &&
+        return "skipped on this backend in the registry"
+    return nothing
+end
+
 """
 Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
-passes of dual numbers is a rule on Mooncake only, as is a whole-step
-modifier's that takes more than one pass.
+passes of dual numbers is a rule on Mooncake only, and one in more than two
+passes is plain AD on every backend.
+The occupancy balance's whole-step modifier seeds its four values, its four
+states and its 61 parameters, more than two passes; over five steps it seeds
+39, within two.
 """
 function backend_plain_scenarios()
+    occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
+    short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
         "Enzyme reverse" => Set(
-            [
-                "Recurrence user coupling across 30 strata",
-                "Recurrence whole-step modifier branching at a tie (occupancy)",
-            ]
-        )
+            ["Recurrence user coupling across 30 strata", occupancy, short]
+        ),
+        "Mooncake reverse" => Set([occupancy]),
     )
 end
 
