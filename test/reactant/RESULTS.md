@@ -75,6 +75,7 @@ Total run time 20.5 min, timeout 600 s a case.
 | Recurrence trace of a weekly budget with a queue | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
 | Recurrence effective reproduction number from its pressure | works (3.9 s / 23.6 µs) | works (2.3 s / 257.7 µs) |
 | Recurrence effective reproduction number from its trace | works (2.1 s / 12.8 µs) | works (1.2 s / 24.5 µs) |
+| Recurrence pressure from its trace, by coupling and with no input | works (67.6 s / 42.8 µs) | works (4.9 s / 146.1 µs) |
 | Recurrence capacity, dropped overflow after a truncated draw | error: ArgumentError in `_check_softness` | error: ArgumentError in `_check_softness` |
 | Recurrence depletion with truncated draws | works (2.9 s / 11.9 µs) | works (1.1 s / 21.8 µs) |
 | Recurrence depletion with smoothly truncated draws | error: ArgumentError in `_check_softness` | error: ArgumentError in `_check_softness` |
@@ -370,6 +371,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence default traces of user modifiers | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
 | registry | Recurrence user traces on groups and over the whole step | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
 | registry | Recurrence user traces on groups and over the whole step | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
+| registry | Recurrence pressure from its trace, by coupling and with no input | forward | cpu | 12 | works | 2.8e-15 | 67.6 | 42.8 | 7.9 |  |  |
+| registry | Recurrence pressure from its trace, by coupling and with no input | reverse | cpu | 12 | works | 6.1e-13 | 4.9 | 146.1 | 224.3 |  |  |
 
 ## The Reactant extension
 

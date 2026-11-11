@@ -1351,6 +1351,30 @@ function _effective_reproduction_trace(w, θ)
     return sum(WS .* y ./ tr.pressure) + sum(WS .* log.(tr.pressure))
 end
 
+# The pressures the trace records under a scalar and a diagonal coupling,
+# for one series, and for a run with no input and an integer coefficient,
+# which records no convolutions for the reverse pass but its pressures.
+function _pressure_trace_shapes(w, θ)
+    CR = ComposableRecurrences
+    g, logh, logR, κ, ϵ = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, T))
+    h, x = exp.(logh), exp.(logR)
+    d = CR.Depletion(PerStratum(POP))
+    scalar = Recurrence(g; coupling = only(κ) * I, modifiers = (d,))
+    y1, tr1 = returning_trace(w(scalar), x; history = h)
+    diagonal = Recurrence(
+        g; coupling = Diagonal(only(κ) .* [1.0, 0.8, 1.2]), modifiers = (d,)
+    )
+    y2, tr2 = returning_trace(w(diagonal), x; history = h)
+    series = Recurrence(g; modifiers = (CR.Depletion(POP[1]),))
+    y3, tr3 = returning_trace(w(series), x[1, :]; history = h[1, :])
+    integer = Recurrence(g; coupling = Diagonal([1, 2, 1]))
+    y4, tr4 = returning_trace(w(integer); history = h, add = ϵ)
+    return sum(WS .* log.(tr1.pressure)) + sum(WS .* log.(y1)) +
+        sum(WS .* log.(tr2.pressure)) + sum(WS .* log.(y2)) +
+        sum(W1 .* log.(tr3.pressure)) + sum(W1 .* log.(y3)) +
+        sum(WS .* tr4.pressure) + sum(WS .* y4)
+end
+
 # The relative tolerance of the rule testers in `test_adjoint`. They compare
 # the rule with finite differences taken in the arguments' precision. In
 # single precision these differ from the rule by up to about 5e-4 relative
@@ -1691,6 +1715,11 @@ const _SCENARIOS = [
         "Recurrence effective reproduction number from its trace",
         _effective_reproduction_trace,
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence pressure from its trace, by coupling and with no input",
+        _pressure_trace_shapes,
+        () -> _flat(G0, zeros(S, L), 0.3 .+ LOGR, [0.9], fill(0.5, S, T)),
     ),
     (
         "Recurrence capacity, dropped overflow after a truncated draw",
