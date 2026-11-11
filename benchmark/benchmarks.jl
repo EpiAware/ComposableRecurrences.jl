@@ -40,20 +40,16 @@ end
 using ADFixtures
 import DifferentiationInterface as DI
 
-# `BENCHMARK_TIER` sets how much the suite times. `pr`, the default when it
-# is unset or empty, is small enough for a pull request job: each `ci`
-# matrix case's primal, the gradient of its `rule` arm on ForwardDiff,
-# Mooncake reverse and Enzyme reverse, and the convolution body. The AD
-# workflow already checks the registry scenarios, so `pr` leaves them out,
-# with the `NoAdjoint` and `loop` arms, the forward modes and the
-# convolution methods. `full` times everything below.
-const _TIER = let tier = strip(get(ENV, "BENCHMARK_TIER", ""))
-    tier = isempty(tier) ? "pr" : String(tier)
-    tier in ("pr", "full") ||
+# `BENCHMARK_TIER`: `pr`, the default when unset or empty, is small enough
+# for a pull request job; `full` times everything below, and is what
+# `ad-benchmarks.yaml` sets for the registry grid. `pr` leaves out the
+# registry scenarios, the `NoAdjoint` and `loop` arms, the forward modes and
+# the convolution methods, FFT included.
+const _FULL = let tier = strip(get(ENV, "BENCHMARK_TIER", ""))
+    isempty(tier) || tier in ("pr", "full") ||
         error("unknown BENCHMARK_TIER $tier; use pr or full")
-    tier
+    tier == "full"
 end
-const _FULL = _TIER == "full"
 const _PR_BACKENDS = ("ForwardDiff", "Mooncake reverse", "Enzyme reverse")
 
 # The backends the package targets: ForwardDiff, and Enzyme and Mooncake in
