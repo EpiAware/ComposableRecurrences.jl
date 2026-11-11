@@ -1160,11 +1160,9 @@ function _trace_pointwise(w, θ)
     return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
 end
 
-# User modifiers' traces on every kind of step. The default trace of a
-# modifier with no trace of its own is its state, reached through the
-# modifier's pullback; a modifier on groups of strata, or over the whole
-# step, may also write its own. The groups pair the strata, so these
-# scenarios have four.
+# User modifiers' traces on every kind of step. The groups pair the
+# strata, so these scenarios have four.
+const CR = ComposableRecurrences
 const S4 = 4
 const WS4 = [cos(0.7 * a * t) for a in 1:S4, t in 1:T]
 const LOGR4 = [0.1 * sin(a + t) for a in 1:S4, t in 1:T]
@@ -1188,7 +1186,6 @@ end
 struct TracedMean{B}
     b::B
 end
-const CR = ComposableRecurrences
 if USER_TRACES
     CR.blocks(::GatherDecay) = (1, 1)
     CR.uses_adjoint(::GatherDecay, ::CR.Step) = true
@@ -1273,8 +1270,7 @@ end
 function _trace_user_default(w, θ)
     logh, logR, a = _unpack(θ, (S4, L), (S4, T), (2,))
     mods = (
-        GatherDecay(a[1]), GatherPairs(a[2]),
-        ComposableRecurrences.Depletion(PerStratum(POP4)),
+        GatherDecay(a[1]), GatherPairs(a[2]), CR.Depletion(PerStratum(POP4)),
     )
     r = Recurrence(G0; modifiers = mods)
     y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
@@ -1356,7 +1352,6 @@ end
 # for one series, and for a run with no input and an integer coefficient,
 # which records no convolutions for the reverse pass but its pressures.
 function _pressure_trace_shapes(w, θ)
-    CR = ComposableRecurrences
     g, logh, logR, κ, ϵ = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, T))
     h, x = exp.(logh), exp.(logR)
     d = CR.Depletion(PerStratum(POP))
@@ -2457,6 +2452,8 @@ _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 # The pressure recomputed from given outputs.
 _REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
 _REQUIRES["Recurrence effective reproduction number from its trace"] = (:_TracedPressure,)
+_REQUIRES["Recurrence pressure from its trace, by coupling and with no input"] =
+    (:_TracedPressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
