@@ -395,6 +395,8 @@ end
 # The executor a call on arrays like `x` uses under `ex`; the GPU extension
 # makes a device array select its device.
 _resolve(ex::Executor, x) = ex
+# Whether a loop over arrays like `x` runs on a device.
+_on_device(ex, x) = _resolve(ex, x) isa Device
 
 # The executor a call read from `EXECUTOR`, in a concrete wrapper so that
 # passing it down boxes nothing.
@@ -402,6 +404,7 @@ struct _Current
     ex::Executor
 end
 _current() = _Current(EXECUTOR[])
+_on_device(c::_Current, x) = _on_device(c.ex, x)
 
 # A kernel thread runs its body serially, and `_Current` is not plain data,
 # so a kernel receives the call's executor as `Serial()`.
