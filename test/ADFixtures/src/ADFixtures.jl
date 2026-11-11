@@ -1160,6 +1160,134 @@ function _trace_pointwise(w, θ)
     return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
 end
 
+# User modifiers' traces on every kind of step. The groups pair the
+# strata, so these scenarios have four.
+const CR = ComposableRecurrences
+const S4 = 4
+const WS4 = [cos(0.7 * a * t) for a in 1:S4, t in 1:T]
+const LOGR4 = [0.1 * sin(a + t) for a in 1:S4, t in 1:T]
+const POP4 = [60.0, 90.0, 70.0, 80.0]
+const USER_TRACES = isdefined(ComposableRecurrences, :_trace_series) &&
+    isdefined(ComposableRecurrences, :blocks)
+
+"A pointwise decay at rate `a`, whose state gathers what passes it."
+struct GatherDecay{A}
+    a::A
+end
+"Two values and two state entries per group, the first value scaled by `a`."
+struct GatherPairs{A}
+    a::A
+end
+"`GatherPairs` whose trace is the group's total after the step."
+struct TracedPairs{A}
+    a::A
+end
+"Each value mixed with the mean at weight `b`; its trace is the mean."
+struct TracedMean{B}
+    b::B
+end
+if USER_TRACES
+    CR.blocks(::GatherDecay) = (1, 1)
+    CR.uses_adjoint(::GatherDecay, ::CR.Step) = true
+    CR.forward!(::GatherDecay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
+    function CR.forward!(m::GatherDecay, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + v[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::GatherDecay, ::CR.Step, v, s, t)
+        v̄, s̄ = grads.v, grads.s
+        for k in eachindex(v, s)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :a), s̄[k] * s[k])
+            v̄[k], s̄[k] = v̄[k] + s̄[k], m.a * s̄[k]
+        end
+        return nothing
+    end
+    for P in (GatherPairs, TracedPairs)
+        @eval begin
+            CR.blocks(::$P) = (2, 2)
+            function CR.forward!(m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g)
+                v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+                v[1][], v[2][] = v1 * m.a, v2 + s1
+                s[1][], s[2][] = s1 + v1, s2 + v2
+                return nothing
+            end
+            function CR.pullback!(
+                    grads, m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g
+                )
+                v̄1, v̄2 = grads.v[1][], grads.v[2][]
+                s̄1, s̄2 = grads.s[1][], grads.s[2][]
+                CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+                grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+                grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+                return nothing
+            end
+        end
+    end
+    CR.ntrace(::TracedPairs, S) = S ÷ 2
+    function CR.forward!(
+            m::TracedPairs, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple,
+            v′::Tuple, s′::Tuple, t, g
+        )
+        only(r)[] = v′[1][] + v′[2][]
+        return nothing
+    end
+    function CR.pullback!(
+            grads, m::TracedPairs, ::CR.Trace, v::Tuple, s::Tuple, t, g
+        )
+        r̄ = only(grads.trace)[]
+        grads.v′[1][] += r̄
+        grads.v′[2][] += r̄
+        return nothing
+    end
+    function CR.forward!(m::TracedMean, ::CR.Step, v, s, t)
+        μ = sum(v) / length(v)
+        v .= (1 - m.b) .* v .+ m.b * μ
+        return nothing
+    end
+    function CR.pullback!(grads, m::TracedMean, ::CR.Step, v, s, t)
+        v̄ = grads.v
+        μ, μ̄ = sum(v) / length(v), sum(v̄) / length(v)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :b), sum(v̄ .* (μ .- v)))
+        v̄ .= (1 - m.b) .* v̄ .+ m.b * μ̄
+        fill!(grads.s, zero(eltype(grads.s)))
+        return nothing
+    end
+    CR.ntrace(::TracedMean, S) = 1
+    function CR.forward!(m::TracedMean, ::CR.Trace, r, v, s, v′, s′, t)
+        r[1] = sum(v) / length(v)
+        return nothing
+    end
+    function CR.pullback!(grads, m::TracedMean, ::CR.Trace, v, s, t)
+        grads.v .+= grads.trace[1] / length(v)
+        return nothing
+    end
+end
+
+# The default traces of a pointwise and a grouped user modifier, before a
+# depletion.
+function _trace_user_default(w, θ)
+    logh, logR, a = _unpack(θ, (S4, L), (S4, T), (2,))
+    mods = (
+        GatherDecay(a[1]), GatherPairs(a[2]), CR.Depletion(PerStratum(POP4)),
+    )
+    r = Recurrence(G0; modifiers = mods)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
+    T1, T2, T3 = tr.modifiers
+    return sum(WS4 .* log.(y)) + sum(WS4 .* log.(T1)) + sum(WS4 .* T2) +
+        sum([WS4; WS4; WS4] .* T3)
+end
+
+# Traces a grouped and a whole-step user modifier write themselves.
+function _trace_user_written(w, θ)
+    logh, logR, a = _unpack(θ, (S4, L), (S4, T), (2,))
+    r = Recurrence(G0; modifiers = (TracedPairs(a[1]), TracedMean(a[2])))
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
+    T1, T2 = tr.modifiers
+    return sum(WS4 .* log.(y)) + sum(WS4[1:2, :] .* T1) + sum(W1' .* T2)
+end
+
 # The ward's flows, each flow's amount per stratum and step.
 function _trace_ward(w, θ)
     adm, confirm, ruleout, discharge, transfer = _unpack(
@@ -1218,6 +1346,29 @@ function _effective_reproduction_trace(w, θ)
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* y ./ tr.pressure) + sum(WS .* log.(tr.pressure))
+end
+
+# The pressures the trace records under a scalar and a diagonal coupling,
+# for one series, and for a run with no input and an integer coefficient,
+# which records no convolutions for the reverse pass but its pressures.
+function _pressure_trace_shapes(w, θ)
+    g, logh, logR, κ, ϵ = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, T))
+    h, x = exp.(logh), exp.(logR)
+    d = CR.Depletion(PerStratum(POP))
+    scalar = Recurrence(g; coupling = only(κ) * I, modifiers = (d,))
+    y1, tr1 = returning_trace(w(scalar), x; history = h)
+    diagonal = Recurrence(
+        g; coupling = Diagonal(only(κ) .* [1.0, 0.8, 1.2]), modifiers = (d,)
+    )
+    y2, tr2 = returning_trace(w(diagonal), x; history = h)
+    series = Recurrence(g; modifiers = (CR.Depletion(POP[1]),))
+    y3, tr3 = returning_trace(w(series), x[1, :]; history = h[1, :])
+    integer = Recurrence(g; coupling = Diagonal([1, 2, 1]))
+    y4, tr4 = returning_trace(w(integer); history = h, add = ϵ)
+    return sum(WS .* log.(tr1.pressure)) + sum(WS .* log.(y1)) +
+        sum(WS .* log.(tr2.pressure)) + sum(WS .* log.(y2)) +
+        sum(W1 .* log.(tr3.pressure)) + sum(W1 .* log.(y3)) +
+        sum(WS .* tr4.pressure) + sum(WS .* y4)
 end
 
 # The relative tolerance of the rule testers in `test_adjoint`. They compare
@@ -1537,6 +1688,14 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, [0.6]),
     ),
     (
+        "Recurrence default traces of user modifiers", _trace_user_default,
+        () -> _flat(zeros(S4, L), 0.3 .+ LOGR4, [0.6, 0.8]),
+    ),
+    (
+        "Recurrence user traces on groups and over the whole step",
+        _trace_user_written, () -> _flat(zeros(S4, L), 0.3 .+ LOGR4, [0.8, 0.3]),
+    ),
+    (
         "Recurrence trace of a ward's flows", _trace_ward,
         () -> zero(WARD0),
     ),
@@ -1552,6 +1711,11 @@ const _SCENARIOS = [
         "Recurrence effective reproduction number from its trace",
         _effective_reproduction_trace,
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence pressure from its trace, by coupling and with no input",
+        _pressure_trace_shapes,
+        () -> _flat(G0, zeros(S, L), 0.3 .+ LOGR, [0.9], fill(0.5, S, T)),
     ),
     (
         "Recurrence capacity, dropped overflow after a truncated draw",
@@ -1869,6 +2033,12 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
     # A trace written in place, with `forward!`.
     "Recurrence trace of pointwise modifiers" => (:_trace_series,),
+    # User modifiers' traces on groups and over the whole step, with their
+    # own pullbacks, as `blocks` declares the groups.
+    "Recurrence default traces of user modifiers" =>
+        (:_trace_series, :blocks, :depletion_pools),
+    "Recurrence user traces on groups and over the whole step" =>
+        (:_trace_series, :blocks),
     "Recurrence trace of a ward's flows" => (:Trace, :depletion_pools),
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
@@ -2282,6 +2452,8 @@ _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 # The pressure recomputed from given outputs.
 _REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
 _REQUIRES["Recurrence effective reproduction number from its trace"] = (:_TracedPressure,)
+_REQUIRES["Recurrence pressure from its trace, by coupling and with no input"] =
+    (:_TracedPressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
@@ -2523,6 +2695,8 @@ const REACTANT_BROKEN = Dict(
     "trace recorded into a traced buffer" => [
         "Recurrence trace of the importation (Redistribute)",
         "Recurrence trace of a weekly budget with a queue",
+        "Recurrence default traces of user modifiers",
+        "Recurrence user traces on groups and over the whole step",
     ],
     "kernel from change points with traced values" => [
         "Recurrence kernel from change points",
