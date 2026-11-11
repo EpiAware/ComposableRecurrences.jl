@@ -53,6 +53,8 @@ jobs:
       - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
       - name: Time the registry's gradients
         env:
+          # The registry grid is in the full tier only.
+          BENCHMARK_TIER: full
           BENCHMARK_BACKENDS: ${{ matrix.backend }}
           BENCHMARK_MATRIX: 'false'
         run: >-
