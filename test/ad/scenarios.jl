@@ -25,12 +25,12 @@ end
 end
 
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
-    test_gradients("Enzyme reverse"; category = :marginal)
+@testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("Enzyme reverse"; category = :marginal, rules_fire = true)
 end
 
-@testitem "Mooncake reverse gradients" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
-    test_gradients("Mooncake reverse"; category = :marginal)
+@testitem "Mooncake reverse gradients, and every scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
+    test_gradients("Mooncake reverse"; category = :marginal, rules_fire = true)
 end
 
 @testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers, GradientChecks] begin
@@ -45,29 +45,6 @@ end
     @testset "$(s.name)" for s in scens
         @test isempty(differing_entries(s.f, s.x, s.res1; rtol = 1.0e-5))
     end
-end
-
-# Each registry scenario's gradient on a reverse-mode backend runs the
-# analytic reverse pass, and no `NoAdjoint` twin's does. Test items run in
-# file order, so these follow the registry items and reuse the gradients
-# they compiled.
-@testitem "Mooncake reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
-    using ADTypes: AutoMooncake
-    import Mooncake
-    test_rules_fire("Mooncake reverse", AutoMooncake(; config = nothing))
-end
-
-# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse: every AD scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
-    using ADTypes: AutoEnzyme
-    import Enzyme
-    test_rules_fire(
-        "Enzyme reverse",
-        AutoEnzyme(;
-            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-            function_annotation = Enzyme.Const
-        )
-    )
 end
 
 # The backends without a rule of their own run the scenarios without their

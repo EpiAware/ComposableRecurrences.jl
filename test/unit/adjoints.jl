@@ -426,7 +426,7 @@ end
     @test pullback_matches(r, recargs(R[1:2, :], nothing, h[1:2, :]; states = ([1.0],))...)
 end
 
-@testitem "Adjoint: Allocate imports read the record and batch the same" setup = [
+@testitem "Adjoint: Allocate imports read the record and batch the same" tags = [:threads] setup = [
     AdjointCheck,
 ] begin
     using ComposableRecurrences
@@ -492,7 +492,7 @@ end
     end
 end
 
-@testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin
+@testitem "Adjoint: Recurrence reverse pass in threaded blocks" tags = [:threads] setup = [AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     rng = Xoshiro(16)
@@ -522,7 +522,7 @@ end
     end
 end
 
-@testitem "Adjoint: threaded reverse pass with outputs read and routes" setup = [AdjointCheck] begin
+@testitem "Adjoint: threaded reverse pass with outputs read and routes" tags = [:threads] setup = [AdjointCheck] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived, Recent
     using Base.ScopedValues: with
@@ -553,7 +553,7 @@ end
     end
 end
 
-@testitem "Adjoint: Convolution reverse pass in threaded blocks" setup = [AdjointCheck] begin
+@testitem "Adjoint: Convolution reverse pass in threaded blocks" tags = [:threads] setup = [AdjointCheck] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     rng = Xoshiro(17)
