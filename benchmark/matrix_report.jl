@@ -518,10 +518,10 @@ function report(dir, prevdir = nothing)
 end
 
 # The docs table: the getting-started model and the tutorials' models
-# against code written without the package, the user modifier under plain
-# AD and through the rule with and without its `pullback!`, and the case
-# study's backend kernels against their hand loops with and without
-# hand-written rules. Each row is one method on one target; `ratio` is its
+# against code written without the package and against the package with its
+# rules turned off, the user modifier under plain AD and through the rule
+# with and without its `pullback!`, and the case study's backend kernels
+# against their hand loops with and without hand-written rules. Each row is one method on one target; `ratio` is its
 # median over the reference method's (the package, or the modifier with
 # `forward` only).
 const DOCS_BLOCKS = [
@@ -529,6 +529,7 @@ const DOCS_BLOCKS = [
         "naive vs package", "overview", "ComposableRecurrences",
         [
             ("overview", "rule") => "ComposableRecurrences",
+            ("overview", "NoAdjoint") => "plain AD",
             ("overview", "loop") => "hand loop",
             ("overview", "copy loop") => "hand loop (window copies)",
             ("overview", "accumulate") => "accumulate",
@@ -588,7 +589,10 @@ for (block, case, loop) in (
     push!(
         DOCS_BLOCKS, (
             block, case, "ComposableRecurrences",
-            [(case, "rule") => "ComposableRecurrences", (case, "loop") => loop],
+            [
+                (case, "rule") => "ComposableRecurrences",
+                (case, "NoAdjoint") => "plain AD", (case, "loop") => loop,
+            ],
         )
     )
 end

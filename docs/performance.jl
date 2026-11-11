@@ -1,14 +1,16 @@
-# The docs pages' performance plot: one block of
-# `benchmark/results/docs.csv`, the minimum time of each method on the
+# The docs pages' performance plot and tables, read from
+# `benchmark/results/docs.csv`: the minimum time of each method on the
 # forward run and each gradient backend. A page includes this file and
-# calls `performance_plot(block)`, so the docs build times nothing itself.
+# calls `performance_plot(block)` or one of the tables, so the docs build
+# times nothing itself.
 module DocsPerformance
 
     using AlgebraOfGraphics, CairoMakie, DataFramesMeta
     using ComposableRecurrences: ComposableRecurrences
     using Markdown: Markdown
 
-    export performance_plot, performance_table, slower_cases
+    export performance_plot, performance_table, slower_cases,
+        performance_summary, performance_overview
 
     const RESULTS = joinpath(
         pkgdir(ComposableRecurrences), "benchmark", "results", "docs.csv"
@@ -69,6 +71,9 @@ module DocsPerformance
         rows = @subset(bench, :block .== block)
         isempty(rows) && throw(ArgumentError("no block $(repr(block)) in $file"))
         rows = @subset(rows, :size .== something(size, last(rows.size)))
+        # The tutorials' bars compare the package with code written without
+        # it; its run with the rules turned off is on the summary page.
+        rows = @subset(rows, :method .!= "plain AD")
         methods = unique(rows.method)
         timed = @chain rows begin
             @subset(:status .== "ok", in.(:target, Ref(first.(TARGETS))))
@@ -215,6 +220,128 @@ module DocsPerformance
         return Markdown.parse(join(lines, '\n'))
     end
 
+    # The targets the package's rules serve: only the reverse backends call
+    # them, so a forward-mode cell for `plain AD` would time the same code.
+    const RULE_TARGETS = ["Mooncake reverse", "Enzyme reverse"]
+
+    # The rows of `block` in `file` at its largest size, as `(rows, ref)`
+    # with `ref` its hand loop, or `nothing` when the file is absent.
+    function block_rows(block, file)
+        bench = read_results(file)
+        bench === nothing && return nothing
+        for (b, rows, ref) in compared_blocks(bench, :hand_loop)
+            b == block && return (rows, ref)
+        end
+        throw(ArgumentError("no compared block $(repr(block)) in $file"))
+    end
+
+    # `t` microseconds to three significant figures.
+    function microseconds(t)
+        t === nothing && return "–"
+        d = max(0, 2 - floor(Int, log10(t)))
+        return string(d == 0 ? round(Int, t) : round(t; digits = d))
+    end
+
+    # A table row: its label, then one cell per target.
+    table_row(label, cells) = "| $label | " * join(cells, " | ") * " |"
+
+    """
+        performance_summary(block; file = RESULTS)
+
+    One example's runtime at its largest size in `file`: the package's
+    minimum time on the forward run and each gradient backend, and how many
+    times faster it is than the package with its rules turned off
+    (`plain AD`, on the reverse backends, the only ones that call the rules),
+    than the hand loop, and than the hand loop with hand-written Mooncake
+    rules where the block has them.
+    Above 1 the package is faster; below 1 it is slower.
+    A row with no times is left out.
+    """
+    function performance_summary(block; file = RESULTS)
+        found = block_rows(block, file)
+        found === nothing && return Markdown.parse(
+            "The benchmark results are not available in this build."
+        )
+        rows, ref = found
+        targets = first.(TARGETS)
+        methods = unique(rows.method)
+        lines = [
+            table_row("", last.(TARGETS)),
+            "|:--|" * repeat("--:|", length(TARGETS)),
+            table_row(
+                "Package (μs)",
+                [microseconds(min_time(rows, "ComposableRecurrences", t)) for t in targets]
+            ),
+        ]
+        for (label, method) in (
+                "Without its rules" => "plain AD", "Hand loop" => ref,
+                "Hand rules" => "hand rules",
+            )
+            method in methods || continue
+            cells = [
+                method == "plain AD" && !(t in RULE_TARGETS) ? "–" :
+                    speedup(rows, method, t) for t in targets
+            ]
+            all(==("–"), cells) && continue
+            push!(lines, table_row(label, cells))
+        end
+        push!(
+            lines, "",
+            "Minimum times at `$(first(rows.size))`, revision $(first(rows.revision))."
+        )
+        return Markdown.parse(join(lines, '\n'))
+    end
+
+    # The geometric mean of `xs`, or `nothing` when there are none.
+    geomean(xs) = isempty(xs) ? nothing : exp(sum(log, xs) / length(xs))
+
+    # `x` as a speed-up to one decimal place, or a dash when missing.
+    times(x) = x === nothing ? "–" : string(round(x; digits = 1), "×")
+
+    """
+        performance_overview(; file = RESULTS)
+
+    Every example in `file` at a glance, per target: the geometric mean over
+    the examples of how many times faster the package is than itself with
+    its rules turned off, on the reverse backends, and than each example's
+    hand loop, how many
+    examples are slower than each, and the range against the hand loop.
+    """
+    function performance_overview(; file = RESULTS)
+        bench = read_results(file)
+        bench === nothing && return Markdown.parse(
+            "The benchmark results are not available in this build."
+        )
+        blocks = compared_blocks(bench, :hand_loop)
+        targets = first.(TARGETS)
+        ratios(method) = [
+            method == "plain AD" && !(t in RULE_TARGETS) ? Float64[] :
+                filter(
+                    !isnothing,
+                    [ratio(rows, method === :ref ? ref : method, t) for (_, rows, ref) in blocks]
+                ) for t in targets
+        ]
+        rules, loop = ratios("plain AD"), ratios(:ref)
+        span(xs) = isempty(xs) ? "–" :
+            string(two_places(minimum(xs)), "–", two_places(maximum(xs)), "×")
+        slower(xs) = isempty(xs) ? "–" :
+            "$(count(x -> round(x; digits = 2) < 1, xs)) of $(length(xs))"
+        lines = [
+            table_row("", last.(TARGETS)),
+            "|:--|" * repeat("--:|", length(TARGETS)),
+            table_row("Without its rules (geometric mean)", times.(geomean.(rules))),
+            table_row("Slower than without its rules", slower.(rules)),
+            table_row("Hand loop (geometric mean)", times.(geomean.(loop))),
+            table_row("Hand loop (range)", span.(loop)),
+            table_row("Slower than the hand loop", slower.(loop)),
+            "",
+            "Minimum times at each example's largest size, revision " *
+                "$(join(unique(bench.revision), ", ")).",
+        ]
+        return Markdown.parse(join(lines, '\n'))
+    end
+
 end # module DocsPerformance
 
-using .DocsPerformance: performance_plot, performance_table, slower_cases
+using .DocsPerformance: performance_plot, performance_table, slower_cases,
+    performance_summary, performance_overview
