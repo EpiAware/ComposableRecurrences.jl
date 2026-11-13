@@ -16,7 +16,11 @@ name: Threads
 # `ad` also runs the items tagged `compat_floor`: the registry gradients,
 # `test_adjoint` and the rule-fires check on every registry operator under
 # Enzyme reverse, and checks of the Enzyme rule, since Enzyme differs
-# between Julia versions.
+# between Julia versions. On 1.11 `ad` is two jobs that run side by side:
+# `registry` runs the `compat_floor` items in `scenarios.jl`, and `rest`
+# runs the threaded-executor and allocation items and the other
+# `compat_floor` items. In one job they took about 65 to 90 minutes, past
+# the time limit, almost all of it in the `compat_floor` items.
 # On 1.11 `unit` drops Runic from the test environment first: JET for 1.11
 # needs a JuliaSyntax that Runic does not allow, and only the quality checks
 # use Runic.
@@ -75,14 +79,20 @@ jobs:
       - run: julia --project=test test/runtests.jl ${{ matrix.mode }}
 
   ad:
-    name: ad (Julia ${{ matrix.version }})
+    name: ad (Julia ${{ matrix.version }}${{ matrix.part != '' && format(', {0}', matrix.part) || '' }})
     runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.version == 'pre' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.11', '1']
+        include:
+          - version: '1.11'
+            part: registry
+          - version: '1.11'
+            part: rest
+          - version: '1'
+            part: ''
     env:
       JULIA_NUM_THREADS: '4'
     steps:
@@ -92,6 +102,22 @@ jobs:
           version: ${{ matrix.version }}
       - uses: julia-actions/cache@v3
       - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
-      - run: julia --project=test/ad test/ad/runtests.jl executor allocations
-      - if: matrix.version == '1.11'
-        run: julia --project=test/ad test/ad/runtests.jl compat_floor
+      - if: matrix.part != 'registry'
+        run: julia --project=test/ad test/ad/runtests.jl executor allocations
+      # The `compat_floor` items in `scenarios.jl` (`registry`) or the
+      # others (`rest`). No backend tag is passed, so an item that checks
+      # several backends checks them all (see `test/ad/job_backends.jl`).
+      - if: matrix.part != ''
+        run: |
+          julia --project=test/ad -e '
+              using TestItemRunner
+              part = ARGS[1]
+              in_part(file) = endswith(file, "scenarios.jl") == (part == "registry")
+              matched = Ref(false)
+              TestItemRunner.run_tests(
+                  joinpath(pwd(), "test", "ad");
+                  filter = ti -> (:compat_floor in ti.tags && in_part(ti.filename)) &&
+                      (matched[] = true)
+              )
+              matched[] || error("no AD test item matches compat_floor ($part)")
+              ' ${{ matrix.part }}
