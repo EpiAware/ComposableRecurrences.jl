@@ -160,6 +160,7 @@ _value_pullback(m, args...) = _need_forwarddiff(m)
 _jacobian_pullback(m, m̄, args...) = _need_forwarddiff(m)
 _scalar_pullback(m, m̄, args...) = _need_forwarddiff(m)
 _read_pullback(m, m̄, args...) = _need_forwarddiff(m)
+_block_local_back(grads, m, args...) = _need_forwarddiff(m)
 _local_pressure!(p̄, C̄, C, args...) = _need_forwarddiff(C)
 _array_pressure(C, args...) = _need_forwarddiff(C)
 _local_form_pullback(grads, form, args...) = _need_forwarddiff(form)
@@ -469,15 +470,18 @@ end
 # keyword-only constructor, a field typed `Float64` or a constructor that
 # transforms its arguments fails; the last would give a wrong gradient. A
 # modifier with `_EntryParam`s gets a scalar in their place, so one step of
-# the rebuild must also run, on the entries at stratum 1 and time 1: a step
-# that indexes such a parameter's array fails. Checked once, when a
+# the rebuild must also run, on the entries at stratum or group 1 and time 1:
+# a step that indexes such a parameter's array fails. Checked once, when a
 # `Recurrence` is built, for each part with float scalars.
 function _check_rebuild(x)
-    _scalar_params(x) || (_strata_loop(x) && _local_params(x)) ||
+    _scalar_params(x) || (_entry_step(x) && _local_params(x)) ||
         return _strata_loop(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
     return _check_rebuild(Val(true), x)
 end
 _check_rebuild(::Val{true}, x) = _check_scalars(x, _param_tuple(x, (1, 1)))
+# A pointwise or blockwise modifier passes an `_EntryParam` as its entry at
+# the stratum or group, and the step's time.
+_entry_step(x) = _strata_loop(x) || _blocks(x) !== nothing
 # A part with float arrays among its parameters, rebuilt as the local step
 # does (`_rebuild_views`) from a vector of dual numbers, each with its own
 # partial: the parameters read back must be those dual numbers.
@@ -489,9 +493,13 @@ _check_scalars(x, args...) = nothing
 _check_views(x, args...) = nothing
 _probe_reads(x, args...) = nothing
 _steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
-# One step of a part rebuilt with dual numbers, a pointwise modifier's or a
-# depletion form's.
-_any_step(m, x) = _step(m, x, x, 1, 1)
+# One step of a part rebuilt with dual numbers: a pointwise modifier's, a
+# blockwise modifier's first group or a depletion form's.
+_any_step(m, x) = _any_step(_blocks(m), m, x)
+_any_step(::Nothing, m, x) = _step(m, x, x, 1, 1)
+function _any_step(::Val{B}, m, x) where {B}
+    return _block_step(m, ntuple(_ -> x, Val(B[1])), ntuple(_ -> x, Val(B[2])), 1, 1)
+end
 _any_step(m::_FormPart, x) = _draw(m.form, x, x, 1)
 # A pointwise modifier with other float arrays, rebuilt as its read step
 # does: the scalars must come back unchanged, each array must stay its

@@ -897,9 +897,19 @@ function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
     _local_step_kind(m) && _array_params(m) && !_reads_outputs(m) && return :local
+    _block_local(m) && return :local
     return :none
 end
 _local_step_kind(m) = _strata_loop(m) || _whole_step(m)
+# A blockwise modifier differentiated group by group with a local
+# derivative: its float parameters are scalars or read one entry per group
+# (`_local_params`), and none is read from the outputs. A depletion's group
+# step has its own pullback.
+function _block_local(m)
+    return !_strata_loop(m) && _blocks(m) !== nothing && _local_params(m) &&
+        !_reads_outputs(m)
+end
+_block_local(::Depletion) = false
 # A modifier whose step reads and writes the whole step's values at once:
 # neither pointwise nor blockwise.
 _whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing

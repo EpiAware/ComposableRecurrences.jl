@@ -642,6 +642,7 @@ end
     return map(getindex, vr), map(getindex, sr)
 end
 @inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
+    uses_adjoint(m, Step()) || return _block_local_back(grads, m, v, s, t, g)
     T = promote_type(map(typeof, (grads.v..., grads.s..., v..., s...))..., param_eltype(m))
     v̄r, s̄r = map(Base.RefValue{T}, grads.v), map(Base.RefValue{T}, grads.s)
     at = r -> _At(r, g)

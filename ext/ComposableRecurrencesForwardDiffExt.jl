@@ -10,13 +10,14 @@ import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
+    _block_local_back,
     _transform_seeds, _value_pullback
 using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params,
-    _leave_slope
+    _leave_slope, _block_step
 using ForwardDiff: ForwardDiff, Dual, value
 using LinearAlgebra: Transpose, transpose
 
@@ -30,7 +31,7 @@ using LinearAlgebra: Transpose, transpose
 const _LocalTag = ForwardDiff.Tag{
     <:Union{
         typeof(_value_pullback), typeof(_jacobian_pullback),
-        typeof(_scalar_pullback), typeof(_read_pullback),
+        typeof(_scalar_pullback), typeof(_read_pullback), typeof(_block_local_back),
         typeof(_local_pressure!), typeof(_local_step!),
         typeof(_local_form_pullback), typeof(_init_jacobian),
         typeof(_check_scalars), typeof(_check_views), typeof(_probe_reads),
@@ -108,6 +109,41 @@ function _scalar_pullback(m, m̄, v̄, s̄, v, s, t, k)
     g = _vjp(v′, s′, v̄, s̄, xd)
     _add_scalar!(m̄, m, Base.tail(Base.tail(g)), (k, t))
     return g[1], g[2]
+end
+
+# The same derivative for one group of a blockwise modifier: the group's
+# values and state and the parameters it reads (scalars, and one entry of
+# each array read per group) are seeded as one tuple of dual numbers, so
+# the width does not grow with the number of groups.
+function _block_local_back(grads, m, v::Tuple, s::Tuple, t, g)
+    m̄ = grads.piece
+    θ = m̄ === nothing ? () : _param_tuple(m, (g, t))
+    x = (v..., s..., θ...)
+    T = promote_type(map(typeof, x)...)
+    xd = _seed(ForwardDiff.Tag(_block_local_back, T), map(T, x))
+    nv, ns = length(v), length(s)
+    vd, rest = _split(xd, Val(nv))
+    sd, θd = _split(rest, Val(ns))
+    md = m̄ === nothing ? m : first(_rebuild_scalar(m, θd))
+    v′, s′ = _block_step(md, vd, sd, t, g)
+    ḡ = _block_vjp((v′..., s′...), (grads.v..., grads.s...), Val(length(x)))
+    v̄, rest = _split(ḡ, Val(nv))
+    s̄, θ̄ = _split(rest, Val(ns))
+    m̄ === nothing || _add_scalar!(m̄, m, θ̄, (g, t))
+    return v̄, s̄
+end
+# The first `n` entries of a tuple and the rest.
+_split(x::Tuple, ::Val{n}) where {n} = ntuple(i -> x[i], Val(n)), _drop(x, Val(n))
+_drop(x::Tuple, ::Val{0}) = x
+_drop(x::Tuple, ::Val{n}) where {n} = _drop(Base.tail(x), Val(n - 1))
+# `Σⱼ ȳⱼ ∂yⱼ/∂x` for each of the `N` seeded values.
+@inline function _block_vjp(y::Tuple, ȳ::Tuple, ::Val{N}) where {N}
+    ∂ = map(yj -> _partialsN(yj, Val(N)), y)
+    return ntuple(i -> _dot_at(∂, ȳ, i), Val(N))
+end
+@inline _dot_at(∂::Tuple{Any}, ȳ::Tuple{Any}, i) = ȳ[1] * ∂[1][i]
+@inline function _dot_at(∂::Tuple, ȳ::Tuple, i)
+    return ȳ[1] * ∂[1][i] + _dot_at(Base.tail(∂), Base.tail(ȳ), i)
 end
 
 # The same derivative for a modifier with other float arrays, read entry by
