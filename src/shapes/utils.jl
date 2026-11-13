@@ -28,9 +28,15 @@ _primal_value(x) = x
 _primal_type(::Type{T}) where {T} = T
 
 # `@simd` on a loop whose sum has type `T` only when `T` is an IEEE float:
-# on other numbers, such as dual numbers, it slows the loop.
+# on other numbers, such as dual numbers, it slows the loop. The form
+# `@_float_simd T ivdep loop` asserts the loop's writes do not alias.
 macro _float_simd(T, loop)
     simd = Expr(:macrocall, Symbol("@simd"), __source__, loop)
+    return esc(:($T <: _IEEEFloat ? $simd : $loop))
+end
+macro _float_simd(T, ivdep::Symbol, loop)
+    ivdep === :ivdep || throw(ArgumentError("expected `ivdep`, got `$ivdep`"))
+    simd = Expr(:macrocall, Symbol("@simd"), __source__, :ivdep, loop)
     return esc(:($T <: _IEEEFloat ? $simd : $loop))
 end
 

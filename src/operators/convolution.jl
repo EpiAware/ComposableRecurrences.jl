@@ -669,16 +669,8 @@ function _convolve_series!(y, c, X, k, m, start)
 end
 
 # The kernel `c` against stratum `k`'s window ending at buffer row `r`: lag
-# `d` reads row `r - d`, and lags past the first row read zeros. Inlined,
-# so plain reverse-mode AD differentiates the loop in its caller rather
-# than through one call per output.
-@inline function _lag_dot(c, X, k, r)
-    acc = zero(eltype(X))
-    @inbounds @_float_simd typeof(acc) for d in 0:(min(length(c), r) - 1)
-        acc += c[d + 1] * X[r - d, k]
-    end
-    return acc
-end
+# `d` reads row `r - d`, and lags past the first row read zeros.
+@inline _lag_dot(c, X, k, r) = _tail_dot(c, X, k, r, 0, min(length(c), r) - 1)
 
 # Whether `n` outputs of a kernel with `L` lags gather rather than take
 # one pass per lag.
@@ -991,11 +983,7 @@ function _strata_back!(ks, X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
         w = _wcolumn(c, k, t)
         w̄ = _wcolumn(c̄, c, k, t)
         @inbounds a = Ȳ[j, k]
-        @inbounds @simd ivdep for d in 0:(min(length(w), m + t) - 1)
-            r = m + t - d
-            _add_at!(w̄, a * X[r, k], d + 1)
-            X̄[r, k] += w[d + 1] * a
-        end
+        _tail_back!(w̄, X̄, w, X, a, k, m + t, 0, min(length(w), m + t) - 1)
     end
     return nothing
 end
