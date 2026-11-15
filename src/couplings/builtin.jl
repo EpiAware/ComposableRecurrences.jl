@@ -166,13 +166,16 @@ end
 # A loop blocked by columns costs more under plain reverse-mode AD.
 _mix!(q::AbstractVector{<:AbstractFloat}, C, p) = _mix_floats!(q, C, p)
 # From `_BLAS_MIX` strata, a `Float64` or `Float32` matrix with strided
-# pressures takes BLAS's product: 1.7× faster than the loop at 62 and 124
-# strata, 1.4× at 20, and slower below about 10.
-const _BLAS_MIX = 16
+# pressures takes BLAS's product. Alone it is faster than the loop from 12
+# strata (0.5 of its time at 24 and 28, 0.6 at 62 and 124), but a whole run
+# with a dense coupling measured 1.08× slower at 16 strata and 0.76× at 24,
+# so the loop keeps the strata below 24.
+const _BLAS_MIX = 24
+_blas_mix(C) = size(C, 1) >= _BLAS_MIX
 function _mix!(
         q::StridedVector{T}, C::StridedMatrix{T}, p::StridedVector{T}
     ) where {T <: Union{Float32, Float64}}
-    size(C, 1) < _BLAS_MIX && return _mix_floats!(q, C, p)
+    _blas_mix(C) || return _mix_floats!(q, C, p)
     mul!(q, C, p)
     return nothing
 end
