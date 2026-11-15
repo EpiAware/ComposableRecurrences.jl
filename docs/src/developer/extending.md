@@ -314,6 +314,9 @@ end
 Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0 2.0; 3.0 1.0])
 ```
 
+Without a `pullback!`, the rule differentiates the group step locally with ForwardDiff, one group at a time.
+A parameter it reads as `param(m.a, g, t)`, with `a` a `PerStratum` or `TimeVarying`, is seeded at that entry only; a step that indexes the array takes plain AD ([Rules and plain AD](@ref adjoint-routing)).
+
 ## [A trace](@id extending-trace)
 
 A call with `record = (:trace,)` returns `(; y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
