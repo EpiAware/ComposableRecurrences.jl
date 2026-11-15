@@ -319,16 +319,15 @@ end
 # Checks the call, then convolves in the layout of `x` or into a time-first
 # buffer. The cache keeps the lag sums `Y` before the gain, which the gain's
 # cotangent reads, and the inputs they read: the buffer (history then `x`)
-# with its row offset `o`, or `x` itself. The rules see `x` unchanged in
-# the reverse pass: `Mooncake` restores what later code overwrites, and the
-# `Enzyme` rule has the cache copy it (`_keep_inputs`) when it is told the
-# inputs may be overwritten.
+# with its row offset `o`, or `x` itself.
 function _run_forward(c::Convolution, x, gain, add, history, start, stop)
     kernel = c.kernel
     Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
     fft = _fft_path(_method(c), kernel, Tp, x, stop - start + 1)
     if !fft && _in_layout(Tp, kernel, x, history, start)
         Y = _layout_sums(Tp, kernel, x, stop)
+        # Unscaled, the output is `Y` itself: the reverse pass reads `Y`
+        # only for a gain's cotangent, so a caller may change the output.
         out = _unscaled(gain, add) ? Y :
             _affine_layout!(similar(Y), Y, gain, add)
         return out, _LayoutCache(_tape(gain), add, x, Y, false)
@@ -424,14 +423,10 @@ end
 Base.@propagate_inbounds _set_at!(y::AbstractVector, v, k, j) = (y[j] = v; nothing)
 Base.@propagate_inbounds _set_at!(y::AbstractMatrix, v, k, j) = (y[k, j] = v; nothing)
 
-# A fixed kernel over a plain array of IEEE floats with no history, from
-# the first time, convolves in the layout of `x` itself, strata first. Time
-# `t` of a matrix is entries `S (t - 1) + 1` to `S t` of its column-major
-# storage, so lag `d` reads every stratum `S d` entries back: one pass per
-# lag over all strata at once, with no buffer to copy in or out. A vector is
-# the case `S = 1`, and keeps the gathers of `_convolve_series!` for short
-# series. Loops split across threads keep the buffer, which runs strata
-# apart.
+# A fixed kernel over a plain array of IEEE floats, with no history and
+# from the first time, convolves in the layout of `x`: lag `d` reads every
+# stratum `S d` entries back. Threaded loops keep the time-first buffer,
+# which splits the work by stratum.
 _in_layout(::Type, kernel, x, history, start) = false
 function _in_layout(
         ::Type{Tp}, ::AbstractVector, ::Union{Vector, Matrix}, ::Nothing, start
@@ -499,8 +494,8 @@ function _affine_layout!(out, Y, gain, add)
 end
 
 # The cache of a convolution in the layout of `x`: the gain and add input,
-# `x` and the lag sums `Y` before the gain. `fft` records, as the buffered
-# cache does, whether the transform ran, which it never does here.
+# `x` and the lag sums `Y` before the gain. `fft` is `false`, as in a
+# buffered cache whose call did not take the transform.
 struct _LayoutCache{G, A, X, Y}
     gain::G
     add::A
@@ -508,9 +503,8 @@ struct _LayoutCache{G, A, X, Y}
     Y::Y
     fft::Bool
 end
-# A rule whose AD backend may overwrite the inputs after the forward pass
-# (`Enzyme` says so per call) has the cache keep a copy of `x`; any other
-# cache holds no input.
+# A cache that holds `x` keeps a copy of it when the AD backend may
+# overwrite `x` before the reverse pass; any other cache holds no input.
 _keep_inputs(cache, overwritten::Bool) = cache
 function _keep_inputs(c::_LayoutCache, overwritten::Bool)
     overwritten || return c

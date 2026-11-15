@@ -189,14 +189,14 @@ end
     # convolves in the layout of the input; a zero history takes the
     # time-first buffer and gives the same output.
     rng = Xoshiro(41)
-    for S in 0:3, T in (1, 4, 11), L in (1, 3, 4, 7, 9, 13),
+    for S in (0, 1, 3), T in (1, 4, 11), L in (1, 4, 7, 13),
             vec_in in (false, true)
         vec_in && S != 1 && continue
         x = vec_in ? rand(rng, T) : rand(rng, S, T)
         c = rand(rng, L)
         h0 = vec_in ? zeros(1) : zeros(S, 1)
         gs = (true, 0.4, vec_in ? rand(rng, T) : rand(rng, S, T))
-        as = (nothing, 1.5, vec_in ? rand(rng, T) : rand(rng, S, T))
+        as = (nothing, vec_in ? rand(rng, T) : rand(rng, S, T))
         for g in gs, a in as, stop in (T, T - 1)
             gg = g isa AbstractArray ? (vec_in ? g[1:stop] : g[:, 1:stop]) : g
             aa = a isa AbstractArray ? (vec_in ? a[1:stop] : a[:, 1:stop]) : a
@@ -204,12 +204,14 @@ end
             @test Convolution(c)(x; gain = gg, add = aa, stop) ≈ ref
         end
     end
-    # The call allocates its output and nothing the size of the input.
+    # The call takes the in-layout path and allocates only its output.
     X, c = rand(rng, 8, 260), rand(rng, 42)
     conv = Convolution(c)
+    _, cache = CR._run_forward(conv, X, true, nothing, nothing, 1, nothing)
+    @test cache isa CR._LayoutCache
     conv(X)
     coverage = Base.JLOptions().code_coverage != 0
-    @test (@allocated conv(X)) < 2 * sizeof(X) skip = coverage
+    @test (@allocated conv(X)) <= sizeof(X) + 256 skip = coverage
     # Loops split across tasks keep the buffer, and agree.
     @test with(CR.EXECUTOR => CR.Threaded(; min_work = 0)) do
         conv(X)

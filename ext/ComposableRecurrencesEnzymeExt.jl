@@ -472,6 +472,14 @@ end
     return :(($(tops...),))
 end
 
+# Whether `ow`, one flag per leaf, marks a leaf of the operator's input,
+# the second argument.
+@generated function _input_overwritten(::Type{X}, ow::Tuple) where {X}
+    idx = findall(p -> first(p) == 2, _leaf_paths(X))
+    isempty(idx) && return false
+    return foldl((a, b) -> :($a || $b), (:(ow[$i]) for i in idx))
+end
+
 # The primal and shadow are typed by the return annotation, which is the
 # inferred return type of `_ADLeaves` and may be abstract.
 function EnzymeRules.augmented_primal(
@@ -484,9 +492,9 @@ function EnzymeRules.augmented_primal(
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
     args = _rebuild_leaves(X, _map_leaves(_val, leaves))
     y, cache = _run_forward(args...)
-    # A cache that holds an input array keeps a copy of it when later code
-    # may overwrite the inputs.
-    ow = any(Base.tail(EnzymeRules.overwritten(config)))
+    # A cache that holds the input keeps a copy of it when later code may
+    # overwrite it.
+    ow = _input_overwritten(X, Base.tail(EnzymeRules.overwritten(config)))
     cache = _keep_inputs(cache, ow)
     dy, cache = EnzymeRules.needs_shadow(config) ? _shadow_of(first(args), y, cache) :
         (nothing, cache)
