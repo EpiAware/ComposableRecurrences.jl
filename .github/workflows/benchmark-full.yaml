@@ -49,9 +49,10 @@ jobs:
       - uses: julia-actions/setup-julia@v3
         with:
           # Enzyme aborts while compiling on Julia 1.13.4 ("unsupported
-          # tag julia.gc_alloc_zeroinit_indirect"), so its backends stay on
-          # 1.13.3 until an Enzyme release handles the tag; #618 tracks
-          # removing the pin.
+          # tag julia.gc_alloc_zeroinit_indirect", or
+          # julia.gc_alloc_ptr_offsets), so its backends stay on 1.13.3
+          # until an Enzyme release handles both tags; #618 tracks removing
+          # the pin.
           version: ${{ startsWith(matrix.backend, 'Enzyme') && '1.13.3' || '1' }}
       - uses: julia-actions/cache@v3
       - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
