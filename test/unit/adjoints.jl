@@ -1378,10 +1378,13 @@ end
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
     # The checks and buffers that need dual numbers say nothing, so the
-    # constructor stores `nothing` and each call checks.
+    # constructor stores `nothing` and each call checks; a whole-step read
+    # count is zero, so its step seeds every entry.
     @test invoke(CR._check_scalars, one_arg, m, (1.0,)) === nothing
     @test invoke(CR._check_views, one_arg, C) === nothing
     @test invoke(CR._probe_reads, one_arg, m) === nothing
+    @test invoke(CR._check_read_rebuild, one_arg, m) === nothing
+    @test invoke(CR._probe_step_reads, two_args, m, 2) == 0
     @test invoke(CR._dual_pressure_buffers, two_args, nothing, C, Float64) === nothing
     @test CR._reads_within(nothing) === nothing
     @test CR._check_rebuilds((m, C)) isa Bool
