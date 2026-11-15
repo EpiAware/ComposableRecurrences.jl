@@ -7,11 +7,10 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
-    _Current, _check_form, _check_now, _check_parts, _probe_step_reads, _check_secondary,
-    _convolve_masses!,
-    _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
-    _fft_convolve_terms!, _flat_groups, _is_leaf, _leaf_paths, _plain_hook,
-    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
+    _Current, _check_form, _check_now, _check_parts, _check_secondary,
+    _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
+    _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
+    _leaf_paths, _plain_hook, _probe_step_reads, _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
     _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated

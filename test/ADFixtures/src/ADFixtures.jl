@@ -2408,9 +2408,9 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
-# Its 61 parameters sent the call to plain AD before the local step seeded
-# only the entries a step reads (`backend_plain_scenarios`); the five-step
-# balance below keeps the local step at the tie on those releases too.
+# Without `_reads_fewer` its 61 parameters send the call to plain AD
+# (`backend_plain_scenarios`); the five-step balance below keeps the local
+# step at the tie there too.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2463,8 +2463,8 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
-# The same balance over its first five steps: on releases that seed every
-# array entry, its local derivative seeds 39 inputs, within two passes of
+# The same balance over its first five steps: without `_reads_fewer`, its
+# local derivative seeds every array entry, 39 inputs, within two passes of
 # dual numbers, so on Mooncake the call takes the rule and the local step
 # meets the tie end to end.
 const TS = 5
@@ -2877,11 +2877,10 @@ analytic reverse pass does not run: a coupling's local derivative in two
 passes of dual numbers is a rule on Mooncake only, and one in more than two
 passes is plain AD on every backend.
 The occupancy balance's whole-step modifier reads one entry of each of its
-six arrays a step, so with a release whose local step seeds only the
-entries read (`_reads_fewer`) it seeds 15 inputs, one pass, and takes the
-rule on both backends.
-Before that it seeded its four values, its four states and its 61
-parameters, more than two passes; over five steps it seeded 39, within two.
+six arrays a step, so with `_reads_fewer` it seeds 15 inputs, one pass,
+and takes the rule on both backends.
+Without it, it seeds its four values, its four states and its 61
+parameters, more than two passes; over five steps it seeds 39, within two.
 """
 function backend_plain_scenarios()
     coupling = "Recurrence user coupling across 30 strata"

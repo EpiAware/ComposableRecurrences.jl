@@ -492,6 +492,9 @@ end
 # step that fails to run: it seeds every entry through views
 # (`_reads_fewer`, `_step_inputs`), and past the cap the call takes plain
 # AD. One whose reads start to grow later is caught at the last time.
+# The count sets only the route and the first lane width: the read step
+# counts the reads on each pass, so a step that reads more on its real
+# values runs more passes and keeps its derivative.
 function _probe_step_reads(m, S, tlast = 2)
     n = _probe_reads_at(m, S, 1)
     n == _probe_reads_at(m, S, 2) || return typemax(Int) ÷ 2

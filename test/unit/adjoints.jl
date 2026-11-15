@@ -2539,7 +2539,7 @@ end
         a::A
     end
     CR.forward!(m::ThirtyReads, ::CR.Step, v, s, t) = (v .*= sum(m.a[j] for j in 1:30) / 30; nothing)
-    # Reads every entry: seeded through views, as before.
+    # Reads every entry, so it is seeded through views.
     struct EveryEntry{A}
         a::A
     end
@@ -2592,7 +2592,7 @@ end
     @test CR._last_time(1.0, ones(S, 15)) == 15
     @test CR._last_time(TimeVarying(fill(1.1, 30)), nothing, nothing, 1, 30) == 30
     @test CR._last_time(1.0, nothing) == 2
-    # A scalar beside the array is seeded as before, and each read counts:
+    # A scalar beside the array is seeded whole, and each read counts:
     # this step reads `a[t]` once per stratum.
     @test CR._step_inputs(Smoothed(0.3, fill(1.0, 50)), S) == 1 + S
     args = recargs(fill(1.1, S, T), nothing, ones(S, 2))
@@ -2616,7 +2616,7 @@ end
     coverage = Base.JLOptions().code_coverage != 0
     @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
     # A step that fails on the probe's ones is taken to read every entry,
-    # so it seeds them all through views, as before.
+    # so it seeds them all through views.
     struct Fails{A}
         a::A
     end
