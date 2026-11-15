@@ -294,7 +294,7 @@ end
 # own column of an identity, never overwritten, as a reverse pass that keeps
 # a reference to its input, such as Enzyme's sparse product, reads it after
 # the loop.
-function _coupling_matrix(C, S)
+function _coupling_matrix(C, S::Integer)
     T = float(param_eltype(C))
     A = zeros(T, S, S)
     E = Matrix{T}(I, S, S)

@@ -972,7 +972,7 @@ end
 # The matrix of a whole-step modifier declared linear (`islinear`) over `S`
 # strata: its `forward!` on each basis vector gives a column. The step keeps
 # no state of its own, so its state stays at the default zeros.
-function _step_matrix(m, S)
+function _step_matrix(m, S::Integer)
     nstate(m, S) == S || throw(
         ArgumentError(
             "$(_describe(m)) is declared linear, so it keeps no state of its " *
@@ -981,7 +981,7 @@ function _step_matrix(m, S)
         )
     )
     T = float(param_eltype(m))
-    A = zeros(T, S, S)
+    A = zeros(T, S, S)::Matrix{T}
     s = zeros(T, S)
     for b in 1:S
         A[b, b] = one(T)
