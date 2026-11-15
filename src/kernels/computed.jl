@@ -31,10 +31,27 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
         # Lag index `i` of cohort `τ` lands in row `τ + i - start`.
         i0 = max(1, start - τ + 1)
         kw = _walk_strata(x, ks, k0)
-        _walk_weights!(x, sc, _no_record(sc), kw, k0, τ, 0, imax, T) do k, i, w
-            i < i0 && return nothing
-            @inbounds Y[τ + i - start, k] += w * X[m + τ, k]
-            return nothing
+        if length(kw) == 1
+            # One stratum: each weight is added as its lag is walked.
+            k1 = first(kw)
+            x1 = @inbounds X[m + τ, k1]
+            _walk_cohort!(x, _no_record(sc), k0, τ, 0, imax, T) do i, l, st
+                i < i0 && return nothing
+                w1 = _walk_value(x, st, k1, i, τ, l)
+                @inbounds Y[τ + i - start, k1] += w1 * x1
+                return nothing
+            end
+        else
+            # Several: a loop over the strata inside the walk would hold up
+            # its chain of products, so each reads the walk after it.
+            _walk_cohort!(x, sc, k0, τ, 0, imax, T)
+            for k in kw
+                xk = @inbounds X[m + τ, k]
+                for i in i0:imax
+                    w = @inbounds _value(x, sc, k, i, τ, i - 1, 1)
+                    @inbounds Y[τ + i - start, k] += w * xk
+                end
+            end
         end
     end
     return Y

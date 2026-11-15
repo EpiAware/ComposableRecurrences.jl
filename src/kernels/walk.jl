@@ -95,29 +95,6 @@ function _walk_cohort!(x, sc, k, τ, o, imax, T)
 end
 _skip(i, l, st) = nothing
 
-# Walk cohort `τ` for the strata `kw` that share its walk, calling
-# `sink(k, i, w)` with each weight `w`. One stratum uses each weight as its
-# lag is walked, on `sc1` (which may record nothing). Several read the
-# recorded walk after it, since a loop over the strata inside the walk
-# would hold up its chain of products.
-@inline function _walk_weights!(
-        sink::F, x, sc, sc1, kw, k0, τ, o, imax, ::Type{T}
-    ) where {F, T}
-    if length(kw) == 1
-        k1 = first(kw)
-        _walk_cohort!(x, sc1, k0, τ, o, imax, T) do i, l, st
-            sink(k1, i, _walk_value(x, st, k1, i, τ, l))
-            return nothing
-        end
-    else
-        _walk_cohort!(x, sc, k0, τ, o, imax, T)
-        for k in kw, i in 1:imax
-            sink(k, i, @inbounds _value(x, sc, k, i, τ, i - 1 + o, 1))
-        end
-    end
-    return nothing
-end
-
 # The state at lag index `i` (lag `l`) of cohort `τ`, stratum `k`, from the
 # state at the lag before, inner `Survival`s first.
 @inline _walk(x, sc, st, k, i, τ, l) = st
@@ -302,11 +279,21 @@ function _walk_fill!(
     for (g, k0) in enumerate(gs), τ in 1:n
         imax = _imax(τ, L, o, last)
         scj = _walk_column(sc, _walk_index(sc, g, τ, n))
-        sc1 = keep isa Val{true} ? scj : _no_record(scj)
         kw = _walk_strata(x, ks, k0)
-        _walk_weights!(x, scj, sc1, kw, k0, τ, o, imax, T) do k, i, w
-            @inbounds _set_weight!(K, w, k, i, τ)
-            return nothing
+        # One stratum or several, as in the serial convolution's walk.
+        if length(kw) == 1
+            k1 = first(kw)
+            scw = keep isa Val{true} ? scj : _no_record(scj)
+            _walk_cohort!(x, scw, k0, τ, o, imax, T) do i, l, st
+                w1 = _walk_value(x, st, k1, i, τ, l)
+                @inbounds _set_weight!(K, w1, k1, i, τ)
+            end
+        else
+            _walk_cohort!(x, scj, k0, τ, o, imax, T)
+            for k in kw, i in 1:imax
+                w = @inbounds _value(x, scj, k, i, τ, i - 1 + o, 1)
+                @inbounds _set_weight!(K, w, k, i, τ)
+            end
         end
     end
     return K, sc
