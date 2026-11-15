@@ -304,6 +304,8 @@ param_eltype(m::Allocate) = promote_type(param_eltype(m.total), param_eltype(m.i
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
 nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
+# Its trace is its state after each step (the default).
+_trace_is_state(::Allocate) = true
 
 function forward!(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))

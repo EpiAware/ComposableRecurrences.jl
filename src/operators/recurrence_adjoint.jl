@@ -33,7 +33,19 @@ function pullback!(grads, w::_WithTrace, ::Run, c)
     _zero_trace(T̄s) && _zero_trace(Q̄) && return pullback!(inner, w.op, Run(), c)
     rec = _zero_trace(T̄s) ? c.rec : _traced_records(c.rec, T̄s, c.S)
     pr = _zero_trace(Q̄) ? c.pr : merge(c.pr, (; Q̄ = _strata_rows(Q̄)))
-    return pullback!(inner, w.op, Run(), merge(c, (; rec, pr)))
+    return pullback!(inner, w.op, Run(), _replace(c, (; rec, pr)))
+end
+# `merge(c, x)` for a named tuple `x` whose names are all in `c`: the names
+# and their order are those of `c`, so the result's type follows from the
+# argument types, where `merge` of the cache's long named tuple is resolved
+# at run time.
+@generated function _replace(c::NamedTuple{N}, x::NamedTuple{M}) where {N, M}
+    issubset(M, N) || return :(throw(ArgumentError("unknown names $M")))
+    vals = map(N) do n
+        src = n in M ? :x : :c
+        :(getfield($src, $(QuoteNode(n))))
+    end
+    return :(NamedTuple{$N}(($(vals...),)))
 end
 # The pressure's cotangent as strata × steps, a row for one series.
 _strata_rows(Q̄::AbstractVector) = reshape(Q̄, 1, length(Q̄))
@@ -458,7 +470,7 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t)
     _vector_pullback!(_step_grads(m̄, v̄, s̄, R.A, first(bufs), t), m, v, s, τ)
-    _trace_in!(R, v̄, s̄)
+    _trace_in!(R, m, v̄, s̄)
     return nothing
 end
 _step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
