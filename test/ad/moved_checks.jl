@@ -111,50 +111,12 @@ end
     @test lines[8] == "true"
 end
 
-@testitem "Trace, Mooncake reverse: gradients through a trace and the default trace of user modifiers, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
+@testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake
     CR = ComposableRecurrences
-    # A pointwise modifier whose state decays and gathers what passes it.
-    struct Decay{A}
-        a::A
-    end
-    CR.blocks(::Decay) = (1, 1)
-    CR.uses_adjoint(::Decay, ::CR.Step) = true
-    CR.forward!(::Decay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
-    function CR.forward!(m::Decay, ::CR.Step, v, s, t)
-        for k in eachindex(v, s)
-            s[k] = m.a * s[k] + v[k]
-        end
-        return nothing
-    end
-    function CR.pullback!(grads, m::Decay, ::CR.Step, v, s, t)
-        v̄, s̄ = grads.v, grads.s
-        for k in eachindex(v, s)
-            CR.add_cotangent!(CR.cotangent(grads.piece, :a), s̄[k] * s[k])
-            v̄[k], s̄[k] = v̄[k] + s̄[k], m.a * s̄[k]
-        end
-        return nothing
-    end
-    # Two values and two state entries per group.
-    struct Keep{A}
-        a::A
-    end
-    CR.blocks(::Keep) = (2, 2)
-    function CR.forward!(m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
-        v[1][], v[2][] = v1 * m.a, v2 + s1
-        s[1][], s[2][] = s1 + v1, s2 + v2
-        return nothing
-    end
-    function CR.pullback!(grads, m::Keep, ::CR.Step, v::Tuple, s::Tuple, t, g)
-        v̄1, v̄2 = grads.v[1][], grads.v[2][]
-        s̄1, s̄2 = grads.s[1][], grads.s[2][]
-        CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
-        grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
-        grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
-        return nothing
-    end
+    # The default traces of user modifiers, pointwise and on groups, are the
+    # registry's "Recurrence default traces of user modifiers".
     @testset "built-in modifiers and flows" begin
         W = reshape(range(0.2, 1.8; length = 48), 6, 8)
         g, R, h = [0.3, 0.5, 0.2], fill(2.0, 2, 8), [5.0 4.0; 3.0 2.0]
@@ -192,27 +154,6 @@ end
         end
         θw = [0.3, 0.2, 1.5, 0.2, 0.4, 0.6]
         @test gradient(ward, AutoMooncake(), θw) ≈ ForwardDiff.gradient(ward, θw)
-    end
-    @testset "the default trace of user modifiers" begin
-        g, R, h = [0.5, 0.5], [1.0 + 0.1 * sin(k + t) for k in 1:4, t in 1:6], ones(4, 2)
-        W = reshape(range(0.2, 1.8; length = 72), 12, 6)
-        # Pointwise modifiers only, so each stratum's pullback runs on its own;
-        # `Transform(+, b)` keeps no state, so its trace takes no cotangent.
-        function pointwise(θ)
-            mods = (Decay(θ[1]), CR.Transform(+, 0.1), CR.Depletion(θ[2]))
-            y, tr = Recurrence(g; modifiers = mods)(R; history = h, record = (:trace,))
-            T1, _, T2 = tr.modifiers
-            return sum(W[1:4, :] .* T1) + sum(W .* T2) + sum(y)
-        end
-        function blockwise(θ)
-            y, tr = Recurrence(g; modifiers = (Keep(θ[1]),))(R; history = h, record = (:trace,))
-            return sum(W[1:4, :] .* only(tr.modifiers)) + sum(y)
-        end
-        for (f, θ) in ((pointwise, [0.6, 80.0]), (blockwise, [0.8]))
-            n = CR._PULLBACK_CALLS[]
-            @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
-            @test CR._PULLBACK_CALLS[] > n
-        end
     end
 end
 
@@ -319,22 +260,19 @@ end
     @test size(only(trm.modifiers)) == (1, 6)
     _, trp = Recurrence(g; modifiers = (Pairs(0.8),))(R; history = h, record = (:trace,))
     @test size(only(trp.modifiers)) == (2, 6)
-    for (mods, W) in (
-            ((Smoothing(0.6), CR.Depletion(PerStratum(fill(80.0, 4)))), nothing),
-            ((Pairs(0.8),), nothing),
-            ((Mean(0.3), CR.Transform(clamp, 0.0, 9.0)), nothing),
-        )
-        f(θ) = begin
-            ms = mods[1] isa Smoothing ? (Smoothing(θ[1]), Base.tail(mods)...) :
-                mods[1] isa Pairs ? (Pairs(θ[1]),) : (Mean(θ[1]), Base.tail(mods)...)
-            y, tr = Recurrence(g; modifiers = ms)(R; history = h, record = (:trace,))
-            sum(y) + sum(x -> sum(abs2, x), tr.modifiers)
-        end
-        θ = [0.6]
-        n = CR._PULLBACK_CALLS[]
-        @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
-        @test CR._PULLBACK_CALLS[] > n
+    # The gradients through the pointwise and grouped traces are the
+    # registry's "Recurrence trace of pointwise modifiers" and "Recurrence
+    # user traces on groups and over the whole step"; the whole-step trace
+    # followed by a clamp is not.
+    function f(θ)
+        mods = (Mean(θ[1]), CR.Transform(clamp, 0.0, 9.0))
+        y, tr = Recurrence(g; modifiers = mods)(R; history = h, record = (:trace,))
+        return sum(y) + sum(x -> sum(abs2, x), tr.modifiers)
     end
+    θ = [0.6]
+    n = CR._PULLBACK_CALLS[]
+    @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
+    @test CR._PULLBACK_CALLS[] > n
     # A trace that returns its values rather than writing them is an error.
     struct Returns end
     CR.blocks(::Returns) = (1, 1)
@@ -386,10 +324,16 @@ end
     both(y, q) = sum(weights(q) .* q) + sum(y ./ q) + sum(y)
     alone(y, q) = sum(weights(q) .* q)
     θ = [0.3, 0.5, 0.2, 0.9, 80.0, 120.0, 1.1]
+    # The rule through the output and the pressure is the registry's
+    # "Recurrence pressure from its trace, by coupling and with no input" and
+    # "Recurrence effective reproduction number from its trace"; the rule
+    # with the pressure's cotangent alone, and with the populations
+    # differentiated, is not.
     for coupling in (:pointwise, :diagonal, :dense, :series), l in (both, alone)
         f = θ -> l(run(θ, coupling)...)
         ∇ = ForwardDiff.gradient(θ -> l(second_pass(θ, coupling)...), θ)
         @test ForwardDiff.gradient(f, θ) ≈ ∇
+        l === alone || continue
         n = CR._PULLBACK_CALLS[]
         @test gradient(f, AutoMooncake(), θ) ≈ ∇
         @test CR._PULLBACK_CALLS[] > n
@@ -419,6 +363,9 @@ end
             )
             return sum(W .* tr.pressure) + sum(y)
         end
+        # The rule under the diagonal coefficient is the registry's
+        # "Recurrence pressure from its trace, by coupling and with no input".
+        C isa Diagonal && continue
         θ = vcat([0.3, 0.5, 0.2], vec(ϵ))
         n = CR._PULLBACK_CALLS[]
         @test gradient(f, AutoMooncake(), θ) ≈ ForwardDiff.gradient(f, θ)
