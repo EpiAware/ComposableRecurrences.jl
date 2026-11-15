@@ -243,38 +243,6 @@ end
 # it costs more than the zeroing.
 _zero_output(y::Array{<:_IEEEFloat}) = CoDual(y, zero(y))
 _zero_output(y) = Mooncake.zero_fcodual(y)
-# A tuple of float arrays, such as a traced call's `(y, trace)`, takes its
-# zero tangents the same way when no array appears in it twice; one that
-# does goes through `zero_fcodual`, which gives a shared array one tangent.
-function _zero_output(y::Union{Tuple, NamedTuple})
-    _float_leaves(typeof(y)) && _distinct_leaves(y) ||
-        return Mooncake.zero_fcodual(y)
-    return CoDual(y, _zero_fdata(y))
-end
-_zero_fdata(y::Union{Tuple, NamedTuple}) = map(_zero_fdata, y)
-_zero_fdata(y::Array) = zero(y)
-# Whether every leaf of a value of type `T` is an array of IEEE floats. An
-# empty tuple has no fdata (`NoFData`), so a tuple holding one takes
-# `zero_fcodual`.
-function _float_leaves_type(::Type{T}) where {T}
-    T <: Array{<:_IEEEFloat} && return true
-    T <: Union{Tuple, NamedTuple} && isconcretetype(T) || return false
-    fieldcount(T) == 0 && return false
-    return all(_float_leaves_type, fieldtypes(T))
-end
-# After its helper: a generator sees only the methods defined before it.
-@generated _float_leaves(::Type{T}) where {T} = _float_leaves_type(T)
-_leaves(y::Array) = (y,)
-_leaves(y::Union{Tuple, NamedTuple}) = _flat_leaves(values(y)...)
-_flat_leaves() = ()
-_flat_leaves(a, rest...) = (_leaves(a)..., _flat_leaves(rest...)...)
-function _distinct_leaves(y)
-    ls = _leaves(y)
-    for i in eachindex(ls), j in 1:(i - 1)
-        ls[i] === ls[j] && return false
-    end
-    return true
-end
 
 # The rule also covers a call whose local coupling derivative needs a
 # second pass of dual numbers (25 to 48 strata and scalars). It beats plain

@@ -1658,8 +1658,6 @@ end
     @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end
 
-# Tagged `allocations` so the Threads workflow, which runs without coverage,
-# runs the count.
 @testsnippet FoldedTraces begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
@@ -1701,6 +1699,18 @@ end
         )
         return sum(W .* y) + weigh(first(trace.modifiers))
     end
+    # Depletion's trace alone, so Redistribute's trace has a zero
+    # cotangent and Depletion's takes the general pullback.
+    function depleted(θ)
+        m = (
+            CR.Redistribute(K, θ[end]),
+            CR.Depletion(CR.PerStratum(fill(50.0, S))),
+        )
+        (; trace) = Recurrence(g; modifiers = m)(
+            rates(θ); history = h, record = (:trace,)
+        )
+        return weigh(last(trace.modifiers))
+    end
     # A traced call whose loss reads only `y`, so the trace has no
     # cotangent.
     function output_only(θ)
@@ -1720,7 +1730,10 @@ end
     # trace's mirror is `nothing`.
     @test CR._trace_is_state(CR.Redistribute(K, 0.3))
     @test !CR._trace_is_state(CR.Depletion(50.0))
-    losses = (arrivals, θ -> arrivals(θ; both = true), allocated, output_only)
+    losses = (
+        arrivals, θ -> arrivals(θ; both = true), allocated, depleted,
+        output_only,
+    )
     for backend in job_backends(
                 :mooncake_reverse => AutoMooncake(; config = nothing),
                 :enzyme_reverse => AutoEnzyme(;
@@ -1748,34 +1761,8 @@ end
     end
 end
 
-@testitem "Mooncake rule: a traced output's zero tangent matches zero_fcodual" tags = [:ad, :mooncake, :mooncake_reverse] begin
-    using ComposableRecurrences
-    import Mooncake
-    M = Base.get_extension(
-        ComposableRecurrences, :ComposableRecurrencesMooncakeExt
-    )
-    a, b, c = rand(2, 4), rand(2, 4), rand(2, 4)
-    # A traced call's `(y, trace)` shapes: modifiers' traces, none, an
-    # absent pressure, and an array that appears twice.
-    outputs = (
-        (a, (; modifiers = (b,), pressure = c)),
-        (a, (; modifiers = (), pressure = c)),
-        (a, (; modifiers = (b,), pressure = nothing)),
-        (a, (; modifiers = (b, b), pressure = c)),
-        a,
-    )
-    for y in outputs
-        fast, ref = M._zero_output(y), Mooncake.zero_fcodual(y)
-        @test typeof(fast) == typeof(ref)
-        @test Mooncake.tangent(fast) == Mooncake.tangent(ref)
-    end
-    # An array that appears twice keeps one tangent, as `zero_fcodual`
-    # gives it.
-    shared = M._zero_output(outputs[4])
-    tr = Mooncake.tangent(shared)[2].modifiers
-    @test tr[1] === tr[2]
-end
-
+# Tagged `allocations` so the Threads workflow, which runs without coverage,
+# runs the count.
 @testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse, :allocations] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR

@@ -33,14 +33,14 @@ function pullback!(grads, w::_WithTrace, ::Run, c)
     _zero_trace(T̄s) && _zero_trace(Q̄) && return pullback!(inner, w.op, Run(), c)
     rec = _zero_trace(T̄s) ? c.rec : _traced_records(c.rec, T̄s, c.S)
     pr = _zero_trace(Q̄) ? c.pr : merge(c.pr, (; Q̄ = _strata_rows(Q̄)))
-    return pullback!(inner, w.op, Run(), _replace(c, (; rec, pr)))
+    return pullback!(inner, w.op, Run(), _with_fields(c, (; rec, pr)))
 end
-# `merge(c, x)` for a named tuple `x` whose names are all in `c`: the names
-# and their order are those of `c`, so the result's type follows from the
-# argument types, where `merge` of the cache's long named tuple is resolved
-# at run time.
-@generated function _replace(c::NamedTuple{N}, x::NamedTuple{M}) where {N, M}
-    issubset(M, N) || return :(throw(ArgumentError("unknown names $M")))
+# `merge(c, x)` for a named tuple `x` whose names are all in `c`, with the
+# names and order of `c`, so its type is inferred from the argument types.
+@generated function _with_fields(
+        c::NamedTuple{N}, x::NamedTuple{M}
+    ) where {N, M}
+    @assert issubset(M, N)
     vals = map(N) do n
         src = n in M ? :x : :c
         :(getfield($src, $(QuoteNode(n))))

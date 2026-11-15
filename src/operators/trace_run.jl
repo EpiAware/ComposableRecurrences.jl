@@ -197,6 +197,9 @@ _trace_in(a, x̄) = x̄ + a
 # is the modifier's state after the step sends its cotangent there alone,
 # so it is added into `s̄` with no buffers and no trace pullback.
 _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t) = nothing
+# True only while `forward!(m, Trace(), …)` and its pullback are the
+# defaults, which record the state after each step.
+_trace_is_state(m) = false
 function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
     (_stateless(m) || !R.live) && return nothing
     _trace_is_state(m) && return _add_trace_column!(s̄, R.T̄, t)
@@ -210,10 +213,12 @@ function _trace_in!(R::_TracedRecord, m, v̄, s̄)
     s̄ .+= R.S̄
     return nothing
 end
-# Column `t` of a trace's cotangent added into the cotangent of the state
-# after the step, by linear offset, as `_copy_column!` reads a column.
+# Column `t` of a trace's cotangent, `n` entries a step as `_copy_column!`
+# writes them, added into the cotangent of the state after the step.
 function _add_trace_column!(s̄, T̄, t)
     n = length(s̄)
+    length(T̄) == n * size(T̄, ndims(T̄)) ||
+        throw(DimensionMismatch("a trace column is not the state's length"))
     o = (t - 1) * n
     checkbounds(T̄, (o + 1):(o + n))
     @inbounds for k in 1:n
@@ -221,14 +226,6 @@ function _add_trace_column!(s̄, T̄, t)
     end
     return nothing
 end
-
-# Whether a whole-step modifier's trace is its state after each step, as
-# the default `forward!(m, Trace(), …)` records it, so the reverse pass
-# folds the trace's cotangent into the step's rather than running the
-# trace's pullback. A built-in that keeps the default says so; any other
-# modifier, including one that defines its own trace, takes the general
-# path.
-_trace_is_state(m) = false
 
 # A pointwise modifier's trace pullback on the strata's vectors, a
 # blockwise one's per group, or another's on the whole step. The
