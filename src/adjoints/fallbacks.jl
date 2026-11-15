@@ -164,6 +164,7 @@ _local_pressure!(p̄, C̄, C, args...) = _need_forwarddiff(C)
 _array_pressure(C, args...) = _need_forwarddiff(C)
 _local_form_pullback(grads, form, args...) = _need_forwarddiff(form)
 _init_jacobian(m, args...) = _need_forwarddiff(m)
+_init_strata_back!(m̄, h̄, m, args...) = _need_forwarddiff(m)
 _dual_pressure_buffers(C̄, C, args...) = nothing
 function _need_forwarddiff(piece)
     name = nameof(typeof(piece))
@@ -582,10 +583,14 @@ function _add_scalar!(x̄, x, g, at)
     return _add_scalar!(m̄s, fs, g, at)
 end
 
-# Default initial-state pullback: a local forward-mode Jacobian of the Init,
-# skipped for the default zero state and for a zero state cotangent (a
-# modifier whose state never reaches the output), where the Jacobian over
-# the whole history would cost more than the rest of the reverse pass.
+# Default initial-state pullback: a local forward-mode derivative of the
+# Init, skipped for the default zero state and for a zero state cotangent (a
+# modifier whose state never reaches the output), where the derivative in
+# the whole history would cost more than the rest of the reverse pass. A
+# pointwise modifier whose parameters are scalars or read one entry per
+# stratum writes each stratum's state from that stratum's inputs, so its
+# derivative is taken stratum by stratum; any other takes the Jacobian in
+# every parameter and history entry.
 function pullback!(grads, m, ::Init, s, history)
     _default_init(m, s, history) && return nothing
     m̄, s̄, h̄ = grads.piece, grads.s, grads.history
@@ -593,10 +598,19 @@ function pullback!(grads, m, ::Init, s, history)
     P = _nactive(m̄, m)
     nh = h̄ === nothing ? 0 : length(history)
     P + nh == 0 && return nothing
+    _strata_init(m, s, nh) && return _init_strata_back!(m̄, h̄, m, s̄, s, history)
     g = transpose(_init_jacobian(m, s, history, P, nh)) * s̄
     P == 0 || _addparams!(m̄, m, g, 0)
     nh == 0 || (h̄ .+= reshape(view(g, (P + 1):(P + nh)), size(history)))
     return nothing
+end
+
+# Whether the Init derivative of `m` is taken stratum by stratum: a
+# pointwise modifier with scalars or entry parameters, and a history (when
+# differentiated) of one row per stratum.
+function _strata_init(m, s, nh)
+    _strata_loop(m) && _local_params(m) || return false
+    return nh % max(length(s), 1) == 0
 end
 
 # Whether modifier `m` uses the default zero initial state. The method

@@ -18,6 +18,7 @@ using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
+using ..ADFixtures: Pool
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -1760,6 +1761,51 @@ if supports(:_read_pullback)
     REQUIRES["custom_coupling_matrix"] = (:_read_pullback,)
     for tier in ("smoke", "realistic")
         append!(TIERS[tier].cases, ["custom_modifier_vector", "custom_coupling_matrix"])
+    end
+end
+
+# A pointwise modifier without a `pullback!` whose `Init` starts a pool per
+# stratum at `N`, and the built-in `Depletion` with the same pools: the
+# `Init` derivative is taken stratum by stratum, so its cost grows with the
+# number of strata rather than its square.
+if supports(:_init_strata_back!)
+    function _pool_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logN = _unpack(θ, (L,), (S, L), (S, T), (S,))
+                r = Recurrence(g; modifiers = (build(PerStratum(exp.(logN))),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log1p.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 16) for k in 1:S, t in 1:T],
+                [log(6.0 * T) + 0.2 * _noise(k, 17) for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    _pool_builtin(N) = CR.Depletion(N, CR.Floor())
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_pool",
+            "renewal across strata with a user pointwise modifier whose Init starts a pool",
+            _pool_case(Pool), [50], false,
+        ),
+        Case(
+            "custom_modifier_pool_depletion",
+            "the same pools with the built-in Depletion",
+            _pool_case(_pool_builtin), [50], false,
+        ),
+    )
+    for name in ("custom_modifier_pool", "custom_modifier_pool_depletion")
+        REQUIRES[name] = (:_init_strata_back!,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
     end
 end
 

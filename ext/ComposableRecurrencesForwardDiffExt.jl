@@ -7,7 +7,7 @@ module ComposableRecurrencesForwardDiffExt
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
 import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
-    _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
+    _dual_pressure_buffers, _exp_neg, _init_jacobian, _init_strata_back!, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback
@@ -479,6 +479,90 @@ function _init_jacobian(m, s, history, P, nh)
     cfg = _local_config(_init_jacobian, f, x0)
     return ForwardDiff.jacobian(f, x0, cfg, Val(false))
 end
+# The Init derivative of a pointwise modifier, stratum by stratum: at
+# stratum `k` the Init runs on the modifier rebuilt with the scalars and
+# the entries read at `(k, 1)`, and on the history with row `k` seeded,
+# each as a dual number with a partial of its own, and `s[k]`'s partials
+# give that stratum's cotangents. The inputs are seeded in passes of the
+# width that holds them, up to the widest; the state is one buffer of dual
+# numbers, and the history is read through a wrapper, so the pullback
+# allocates only that buffer.
+function _init_strata_back!(m̄, h̄, m, s̄, s, history)
+    S = length(s)
+    θ = _param_tuple(m, (1, 1))
+    Q = m̄ === nothing ? 0 : length(θ)
+    L = h̄ === nothing ? 0 : length(history) ÷ S
+    T = float(promote_type(map(typeof, θ)..., eltype(s̄), _init_eltype(history)))
+    n = Q + L
+    n <= 4 && return _init_strata!(Val(4), m̄, h̄, m, s̄, history, T, Q, L)
+    n <= 8 && return _init_strata!(Val(8), m̄, h̄, m, s̄, history, T, Q, L)
+    n <= 12 && return _init_strata!(Val(12), m̄, h̄, m, s̄, history, T, Q, L)
+    return _init_strata!(Val(24), m̄, h̄, m, s̄, history, T, Q, L)
+end
+_init_eltype(::Nothing) = Bool
+_init_eltype(h) = eltype(h)
+function _init_strata!(::Val{N}, m̄, h̄, m, s̄, history, ::Type{T}, Q, L) where {N, T}
+    D = Dual{typeof(ForwardDiff.Tag(_init_jacobian, T)), T, N}
+    sd = Vector{D}(undef, length(s̄))
+    for k in eachindex(s̄)
+        iszero(s̄[k]) && continue
+        θk = map(T, _param_tuple(m, (k, 1)))
+        o = 0
+        while true
+            _init_pass!(m̄, h̄, m, sd, s̄[k], θk, history, k, Q, L, o)
+            o += N
+            o < Q + L || break
+        end
+    end
+    return nothing
+end
+# One pass at stratum `k`: inputs `o + 1` to `o + N` are seeded, the
+# scalars first, then the history row.
+function _init_pass!(m̄, h̄, m, sd::Vector{D}, s̄k, θk, history, k, Q, L, o) where {D}
+    N = ForwardDiff.npartials(D)
+    θd = ntuple(i -> _dual_at(D, θk[i], i <= Q ? i - o : 0), Val(length(θk)))
+    md = first(_rebuild_scalar(m, θd))
+    forward!(md, Init(), sd, _row_duals(h̄, D, history, k, length(sd), Q - o))
+    y = ForwardDiff.partials(sd[k])
+    if o < Q
+        g = ntuple(i -> i <= Q && 0 < i - o <= N ? s̄k * y[i - o] : zero(s̄k), Val(length(θk)))
+        _add_scalar!(m̄, m, g, (k, 1))
+    end
+    S = length(sd)
+    for c in max(1, o - Q + 1):min(L, o - Q + N)
+        h̄[k + (c - 1) * S] += s̄k * y[Q + c - o]
+    end
+    return nothing
+end
+# A dual number of value `x` whose partial `j` is one, all zero for `j`
+# outside `1:N`.
+function _dual_at(::Type{Dual{G, T, N}}, x, j) where {G, T, N}
+    return Dual{G, T, N}(x, ForwardDiff.Partials(ntuple(i -> T(i == j), Val(N))))
+end
+# The history as the Init reads it: as given when it has no cotangent, else
+# with row `k` seeded.
+_row_duals(::Nothing, D, history, k, S, off) = history
+_row_duals(h̄, D, history, k, S, off) = _RowDuals{D}(history, k, S, off)
+# An array of dual numbers read from `h`, strata × time (or a vector for
+# one stratum): the entry in row `k` and column `c` has partial `off + c`,
+# and every other entry none. Nothing is copied.
+struct _RowDuals{D, M, A <: AbstractArray} <: AbstractArray{D, M}
+    h::A
+    k::Int
+    S::Int
+    off::Int
+end
+function _RowDuals{D}(h::AbstractArray{<:Any, M}, k, S, off) where {D, M}
+    return _RowDuals{D, M, typeof(h)}(h, k, S, off)
+end
+Base.size(w::_RowDuals) = size(w.h)
+Base.IndexStyle(::Type{<:_RowDuals}) = IndexLinear()
+function Base.getindex(w::_RowDuals{D}, i::Int) where {D}
+    c, r = divrem(i - 1, w.S)
+    j = r + 1 == w.k ? w.off + c + 1 : 0
+    return _dual_at(D, w.h[i], j)
+end
+
 # A Jacobian's configuration with the tag of local derivative `g`.
 function _local_config(g, f, x)
     return ForwardDiff.JacobianConfig(
