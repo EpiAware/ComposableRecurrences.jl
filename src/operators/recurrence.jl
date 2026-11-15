@@ -736,6 +736,11 @@ function _resume(history, state::State, start, gain, add)
 end
 
 # The run's buffer, `D + T` rows by `S` strata, with the history loaded.
+function _kept_buffer(h, ::Type{Tp}, D, T, S) where {Tp}
+    H = _kept_similar(h, Tp, D + T, S)
+    fill!(view(H, 1:D, :), zero(Tp))
+    return _load_history!(H, h, D)
+end
 function _history_buffer(h, ::Type{Tp}, D, T, S) where {Tp}
     return _load_history!(_buffer(h, Tp, D, T, S), h, D)
 end
@@ -1314,8 +1319,8 @@ end
 # `_keeps_after`, its states after each step (`A`, else `nothing`). Every
 # step writes its column of each, so they start unset.
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
-    A = _keeps_after(m) ? similar(h, Tp, length(s), T) : nothing
-    return (; V = similar(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
+    A = _keeps_after(m) ? _kept_similar(h, Tp, length(s), T) : nothing
+    return (; V = _kept_similar(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
 end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
@@ -1323,7 +1328,7 @@ _keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
-    return _stateless(m) ? s : similar(h, Tp, length(s), T)
+    return _stateless(m) ? s : _kept_similar(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
@@ -1403,8 +1408,8 @@ end
 # so such a run records none.
 function _pressure_records(h, ::Type{Tp}, C, S, T, need) where {Tp}
     C isa _PointwiseCoupling && !need && return nothing
-    X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
-    return (; P = similar(h, Tp, S, T), X)
+    X = C isa _PointwiseCoupling ? nothing : _kept_similar(h, Tp, S, T)
+    return (; P = _kept_similar(h, Tp, S, T), X)
 end
 @generated _floats(gain, C) = _has_float(gain) || _has_float(C)
 # A run without a reverse pass needs no kernel convolutions, only the
@@ -1635,7 +1640,7 @@ function _run(
     keep = C === true || C === :traced
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
-    H = _history_buffer(h, Tp, D, T, S)
+    H = keep ? _kept_buffer(h, Tp, D, T, S) : _history_buffer(h, Tp, D, T, S)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     states = if s0 === nothing
@@ -1689,6 +1694,7 @@ function _run(
         (;
             r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S,
             T, H, pr, rec, init, states,
+            recycle = C === true ? (H, pr, rec) : nothing,
         ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache
 end

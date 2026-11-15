@@ -123,6 +123,7 @@ include("couplings/builtin.jl")
 include("adjoints/executor.jl")
 # The operator supertype, `NoAdjoint` and the routing to the native rules.
 include("adjoints/adjoints.jl")
+include("adjoints/pool.jl")
 
 # modifiers: the built-in modifiers.
 # The built-in modifiers and the exponent depletion forms.

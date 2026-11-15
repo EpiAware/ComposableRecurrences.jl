@@ -61,8 +61,13 @@ function _reverse_run!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     else
         _with_executor(_reverse!, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     end
+    # The working arrays no output holds go back to the pool.
+    _give!(_recycle(c))
+    _shares_shadow(c) || _give!(H̄)
     return nothing
 end
+_recycle(c::NamedTuple{N}) where {N} = :recycle in N ? c.recycle : nothing
+_shares_shadow(c::NamedTuple{N}) where {N} = :H̄ in N
 
 function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     (; r, kernel, gain, h, s0, τ0, L, D, S, T, H, pr, rec, init) = c
@@ -377,7 +382,7 @@ function _seeded(c::NamedTuple{N}, H, Ȳ, D) where {N}
     return _seeded(H, Ȳ, D)
 end
 function _seeded(H, Ȳ, D)
-    H̄ = similar(H)
+    H̄ = _kept_similar(H, eltype(H), size(H)...)
     fill!(view(H̄, 1:D, :), zero(eltype(H̄)))
     return _set_rows!(H̄, Ȳ, D)
 end
