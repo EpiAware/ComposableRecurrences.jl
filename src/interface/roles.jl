@@ -468,6 +468,9 @@ A [`Recurrence`](@ref) call builds ``A`` once, from `forward!` on the
 ``S`` basis vectors, and runs the built-in dense coupling, or a dense step,
 in its place, so the gradient takes the built-in's `pullback!` and the
 outer AD differentiates the ``S`` calls of `forward!`.
+A `forward!` written as a matrix product, such as `mul!(q, C.K, p)`, then
+gives a gradient close to the built-in's; one written as scalar loops is
+differentiated loop by loop, so a hand-written `pullback!` is still faster.
 A type with its own `pullback!` for the role keeps it, as does a call
 through [`ComposableRecurrences.NoAdjoint`](@ref).
 Declare it from the type, `ComposableRecurrences.islinear(::MyType) = true`,

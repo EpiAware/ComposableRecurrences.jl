@@ -255,11 +255,12 @@ Each call then builds that matrix from `forward!` on the basis vectors and runs 
 The same declaration on a whole-step modifier with no state of its own runs the matrix product as its step.
 
 ```@example extending
+using LinearAlgebra: mul!
 struct Mixing{M}
     K::M
 end
 function CR.forward!(C::Mixing, ::CR.Pressure, q, p, t)
-    q .= C.K * p
+    mul!(q, C.K, p)
     return nothing
 end
 CR.islinear(::Mixing) = true
@@ -269,6 +270,7 @@ r = Recurrence([0.5, 0.5]; coupling = Mixing(K))
 r(1.0; history = ones(2, 2), stop = 4)
 ```
 
+For a `forward!` written as a matrix product, as here, the gradient is then close to the built-in dense coupling's; for one written as scalar loops a hand-written `pullback!` is still faster, as the declared route differentiates those loops once per call.
 A coupling that is not linear, or that changes in time, needs a `pullback!` to be fast ([issue #472](https://github.com/EpiAware/ComposableRecurrences.jl/issues/472) proposes another route).
 
 ## [A vector step](@id extending-vector)
