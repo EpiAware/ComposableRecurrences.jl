@@ -475,7 +475,7 @@ end
         w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
     )
     # Its own loop rather than `_span_dot`: with the shared body, plain
-    # Mooncake reverse of a renewal took about a tenth longer.
+    # reverse-mode AD of a renewal took about a tenth longer.
     o = t + D - L - 1
     older = zero(promote_type(eltype(w), eltype(H)))
     if L > 1
