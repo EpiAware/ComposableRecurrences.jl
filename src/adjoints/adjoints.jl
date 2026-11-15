@@ -26,6 +26,18 @@ than the hand-written pullback.
 Useful to time a hand-written adjoint against plain AD, and to check the two
 gradients agree.
 
+It turns off the operator's rules: its call is differentiated as the forward
+loop, with two exceptions inside it, each kept because plain AD is several
+times slower without it.
+On one backend, a convolution's BLAS `axpy!` over each lag keeps its rule.
+On another, a sparse route coupling's pressure is differentiated by the
+coupling's own `pullback!`.
+Rules for building parts before the call, the masses of a chain of delays
+and the movement of `Redistribute(K, ε)`, apply as they would without
+`NoAdjoint`.
+[Which rules are kept](@ref rule-policy) names the backends and the
+measured costs.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
