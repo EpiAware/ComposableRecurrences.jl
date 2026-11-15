@@ -903,13 +903,11 @@ end
 _local_step_kind(m) = _strata_loop(m) || _whole_step(m)
 # A blockwise modifier differentiated group by group with a local
 # derivative: its float parameters are scalars or read one entry per group
-# (`_local_params`), and none is read from the outputs. A depletion's group
-# step has its own pullback.
+# (`_local_params`), and none is read from the outputs.
 function _block_local(m)
     return !_strata_loop(m) && _blocks(m) !== nothing && _local_params(m) &&
         !_reads_outputs(m)
 end
-_block_local(::Depletion) = false
 # A modifier whose step reads and writes the whole step's values at once:
 # neither pointwise nor blockwise.
 _whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing

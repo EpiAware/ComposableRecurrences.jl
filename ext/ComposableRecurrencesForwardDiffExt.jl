@@ -10,8 +10,7 @@ import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
-    _block_local_back,
-    _transform_seeds, _value_pullback
+    _transform_seeds, _value_pullback, _block_local_back
 using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,

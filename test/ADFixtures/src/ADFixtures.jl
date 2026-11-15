@@ -1266,8 +1266,8 @@ if USER_TRACES
 end
 
 # A blockwise user modifier with a per-stratum parameter, without and with
-# a hand-written `pullback!`: the registry and the benchmark matrix compare
-# its local derivative with the hand one.
+# a hand-written `pullback!`: the registry checks the one without against
+# ForwardDiff, and the benchmark matrix times the two.
 """
 The value plus `a` times the mean of the values so far, one value and two
 state entries (their sum and count) per group, with `forward!` only.
