@@ -211,7 +211,11 @@ end
     @test cache isa CR._LayoutCache
     conv(X)
     coverage = Base.JLOptions().code_coverage != 0
-    @test (@allocated conv(X)) <= sizeof(X) + 256 skip = coverage
+    # Forced bounds checks (`--check-bounds=yes`, as the test runner sets)
+    # keep the lag loops' views on the heap, about 3.7 KB here; a second
+    # output-sized array would still fail.
+    slack = Base.JLOptions().check_bounds == 1 ? 6144 : 256
+    @test (@allocated conv(X)) <= sizeof(X) + slack skip = coverage
     # Loops split across tasks keep the buffer, and agree.
     @test with(CR.EXECUTOR => CR.Threaded(; min_work = 0)) do
         conv(X)
