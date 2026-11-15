@@ -5,6 +5,11 @@
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit 95be3b22.
 # Each block names its file and line range. Docstrings and the Mooncake rules
 # are left out; the code is unchanged.
+#
+# This is a frozen reference: it matches that commit and is not kept in step
+# with BVDOutbreakSize. On its `main`, `deviation_knots`, `zone_fixed_terms`
+# and `zone_share_renewal_with_state` have since changed, with the same
+# arithmetic, and `_correlate!` no longer exists.
 module BVDReference
 
 using LinearAlgebra
