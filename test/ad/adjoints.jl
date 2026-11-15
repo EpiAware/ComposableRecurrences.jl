@@ -1722,12 +1722,12 @@ end
     @test !CR._trace_is_state(CR.Depletion(50.0))
     losses = (arrivals, θ -> arrivals(θ; both = true), allocated, output_only)
     for backend in job_backends(
-            :mooncake_reverse => AutoMooncake(; config = nothing),
-            :enzyme_reverse => AutoEnzyme(;
-                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-                function_annotation = Enzyme.Const
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
             ),
-        ),
             f in losses
         @test gradient(f, backend, θ0) ≈ ForwardDiff.gradient(f, θ0)
     end
