@@ -177,4 +177,9 @@ end
     end
     # One series, with a history shorter than the kernel.
     check(Recurrence(g), y[1, :], h[1, 1:2], reshape(Q̄[1, :], 1, T))
+    # A computed kernel takes plain AD.
+    hz = fill(0.1, T + length(g))
+    surv = CR.Survival(TimeVarying(hz); from = 1)
+    computed = TimeVarying(g * (1 - surv), CR.Primary())
+    @test !CR.uses_adjoint(CR._Pressure(Recurrence(computed)), CR.Run())
 end
