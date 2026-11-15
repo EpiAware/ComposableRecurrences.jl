@@ -330,7 +330,7 @@ function _run_forward(c::Convolution, x, gain, add, history, start, stop)
         Y = _layout_sums(Tp, kernel, x, stop)
         out = _unscaled(gain, add) ? Y :
             _affine_layout!(similar(Y), Y, gain, add)
-        return out, _LayoutCache(_tape(gain), add, x, Y)
+        return out, _LayoutCache(_tape(gain), add, x, Y, false)
     end
     Y, X, o = if fft
         _fft_buffers(Tp, kernel, x, history, m, S, start, stop, gain, add)
@@ -498,12 +498,14 @@ function _affine_layout!(out, Y, gain, add)
 end
 
 # The cache of a convolution in the layout of `x`: the gain and add input,
-# `x` and the lag sums `Y` before the gain.
+# `x` and the lag sums `Y` before the gain. `fft` records, as the buffered
+# cache does, whether the transform ran, which it never does here.
 struct _LayoutCache{G, A, X, Y}
     gain::G
     add::A
     x::X
     Y::Y
+    fft::Bool
 end
 
 # The reverse pass in the layout of `x`, the transpose of the forward pass:
