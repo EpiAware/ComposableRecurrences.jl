@@ -449,6 +449,60 @@ nstate(m, S) = _blocks_nstate(_blocks(m), S)
 _blocks_nstate(::Nothing, S) = S
 _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 
+@doc raw"""
+Whether `forward!` of coupling or modifier `x` is linear in its input and
+does not read the time.
+
+For a coupling this is `forward!(C, Pressure(), q, p, t)` linear in `p`;
+for a whole-step modifier ([`ComposableRecurrences.blocks`](@ref) `nothing`,
+neither pointwise nor blockwise) with no state of its own, it is
+`forward!(m, Step(), v, s, t)` linear in `v`.
+Either is then a matrix ``A`` with
+
+```math
+q = A p \quad \text{or} \quad v' = A v,
+```
+
+for every ``t``.
+A [`Recurrence`](@ref) call builds ``A`` once, from `forward!` on the
+``S`` basis vectors, and runs the built-in dense coupling, or a dense step,
+in its place, so the gradient takes the built-in's `pullback!` and the
+outer AD differentiates the ``S`` calls of `forward!`.
+A type with its own `pullback!` for the role keeps it, as does a call
+through [`ComposableRecurrences.NoAdjoint`](@ref).
+Declare it from the type, `ComposableRecurrences.islinear(::MyType) = true`,
+so the route folds.
+[`ComposableRecurrences.PieceInterface`](@ref) checks the declaration.
+The default is `false`.
+
+# Arguments
+- `x`: the coupling or modifier.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+struct Mix{M}
+    K::M
+end
+function CR.forward!(C::Mix, ::CR.Pressure, q, p, t)
+    q .= C.K * p
+    return nothing
+end
+CR.islinear(::Mix) = true
+r = Recurrence([0.5, 0.3]; coupling = Mix([0.9 0.1; 0.2 0.8]))
+y = r(fill(1.1, 2, 4); history = ones(2, 2))
+y ≈ Recurrence([0.5, 0.3]; coupling = [0.9 0.1; 0.2 0.8])(
+    fill(1.1, 2, 4); history = ones(2, 2)
+)
+
+# output
+
+true
+```
+"""
+islinear(x) = false
+
 # How the operator runs a modifier's step, as a static value the loops are
 # compiled for: `Val((nv, ns))` runs the group kernel per group, `nothing`
 # runs the step per stratum (pointwise) or on the whole vectors. It follows

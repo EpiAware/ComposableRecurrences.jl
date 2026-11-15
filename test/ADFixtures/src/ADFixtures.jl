@@ -22,7 +22,7 @@ using ComposableRecurrences
 using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences, NoAdjoint
 using Distributions: NegativeBinomial, Poisson
-using LinearAlgebra: Diagonal, I
+using LinearAlgebra: Diagonal, I, mul!
 using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
@@ -2420,6 +2420,127 @@ push!(
         _occupancy_short, () -> zero(OCC0_SHORT),
     ),
 )
+# User couplings and a whole-step modifier declared linear, none with a
+# `pullback!`: each call runs the matrix `forward!` gives on the basis
+# vectors, and the outer AD differentiates those calls.
+"Pressure `K * p`, written entry by entry."
+struct DenseLinear{M}
+    K::M
+end
+@in_place function ComposableRecurrences.forward!(
+        C::DenseLinear, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    for a in eachindex(q)
+        acc = zero(eltype(q))
+        for b in eachindex(p)
+            acc += C.K[a, b] * p[b]
+        end
+        q[a] = acc
+    end
+    return nothing
+end
+"Pressure `p + u (w ⋅ p)`."
+struct RankOneLinear{U}
+    u::U
+    w::U
+end
+@in_place function ComposableRecurrences.forward!(
+        C::RankOneLinear, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    c = sum(C.w .* p)
+    q .= p .+ C.u .* c
+    return nothing
+end
+"Pressure `K * p` for a sparse `K`."
+struct SparseLinear{M}
+    K::M
+end
+@in_place function ComposableRecurrences.forward!(
+        C::SparseLinear, ::ComposableRecurrences.Pressure, q, p, t
+    )
+    mul!(q, C.K, p)
+    return nothing
+end
+"A share `b` of the values mixed evenly over the strata."
+struct EvenMix{B}
+    b::B
+end
+@in_place function ComposableRecurrences.forward!(
+        m::EvenMix, ::ComposableRecurrences.Step, v, s, t
+    )
+    mean = sum(v) / length(v)
+    for k in eachindex(v)
+        v[k] = (1 - m.b) * v[k] + m.b * mean
+    end
+    return nothing
+end
+if isdefined(ComposableRecurrences, :islinear)
+    const _LinearTypes = Union{
+        DenseLinear, RankOneLinear, SparseLinear, EvenMix,
+    }
+    ComposableRecurrences.islinear(::_LinearTypes) = true
+end
+
+function _linear_dense(w, θ)
+    logh, logR, K = _unpack(θ, (S, L), (S, T), (S, S))
+    r = Recurrence(G0; coupling = DenseLinear(K))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+function _linear_rank_one(w, θ)
+    logh, logR, u, v = _unpack(θ, (S, L), (S, T), (S,), (S,))
+    r = Recurrence(G0; coupling = RankOneLinear(u, v))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+# The sparsity of `K0` with a second entry in each column.
+const SPARSE_LINEAR = sparse(
+    [1, 2, 3, 2, 3, 1], [1, 2, 3, 1, 2, 3], ones(6), S, S
+)
+function _linear_sparse(w, θ)
+    logh, logR, nz = _unpack(θ, (S, L), (S, T), (6,))
+    K = SparseMatrixCSC(
+        S, S, SPARSE_LINEAR.colptr, SPARSE_LINEAR.rowval, collect(nz)
+    )
+    r = Recurrence(G0; coupling = SparseLinear(K))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+function _linear_step(w, θ)
+    logh, logR, b = _unpack(θ, (S, L), (S, T), (1,))
+    r = Recurrence(G0; coupling = K0, modifiers = (EvenMix(only(b)),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Recurrence user coupling declared linear", _linear_dense,
+        () -> _flat(zeros(S, L), LOGR, K0),
+    ),
+    (
+        "Recurrence rank-one user coupling declared linear", _linear_rank_one,
+        () -> _flat(zeros(S, L), LOGR, [0.1, 0.2, 0.05], [0.3, 0.1, 0.2]),
+    ),
+    (
+        "Recurrence sparse user coupling declared linear", _linear_sparse,
+        () -> _flat(zeros(S, L), LOGR, [0.8, 0.15, 0.85, 0.1, 0.9, 0.05]),
+    ),
+    (
+        "Recurrence whole-step modifier declared linear", _linear_step,
+        () -> _flat(zeros(S, L), LOGR, [0.3]),
+    ),
+)
+for name in (
+        "Recurrence user coupling declared linear",
+        "Recurrence rank-one user coupling declared linear",
+        "Recurrence sparse user coupling declared linear",
+        "Recurrence whole-step modifier declared linear",
+    )
+    _REQUIRES[name] = (:islinear,)
+end
+
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)

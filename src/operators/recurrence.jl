@@ -753,7 +753,8 @@ Base.@constprop :aggressive function _invoke(
 end
 # One call over both flags, so that a rule derived from types alone splits.
 function _routed(traced, stated, rec, r, route, args, stop)
-    out = adjoint_call(_reroute(route, _call_op(traced, stated, r)), args..., stop)
+    op = _call_op(traced, stated, _linear_parts(route, r, args[3]))
+    out = adjoint_call(_reroute(route, op), args..., stop)
     return _recorded(rec, traced, stated, out)
 end
 
@@ -870,7 +871,7 @@ uses_adjoint(w::_WithState, ::Run) = uses_adjoint(w.r, Run())
 _type_adjoint(r::Recurrence) = _parts_adjoint(r.kernel, r.coupling, r.modifiers)
 _type_adjoint(w::_WithState) = _type_adjoint(w.r)
 function _parts_adjoint(kernel, C, ms)
-    return _kernel_adjoint(kernel) && _coupling_adjoint(C) !== :none &&
+    return _kernel_adjoint(kernel) && _primary_adjoint(C) !== :none &&
         _all_modifiers_adjoint(ms)
 end
 _all_modifiers_adjoint(::Tuple{}) = true
@@ -891,9 +892,11 @@ _kernel_couplings(kernel) = ()
 # whole-step one that is neither pointwise nor blockwise, whose float
 # parameters are scalars or strided float arrays, outside functions, with
 # no parameter read from the outputs, rebuilt with dual numbers by
-# `constructorof`), or `:none` when it cannot, which includes a `Derived`
+# `constructorof`), `:linear` for a whole-step modifier declared linear
+# (`_linear_parts`), or `:none` when it cannot, which includes a `Derived`
 # parameter whose map holds float fields of its own.
 function _modifier_adjoint(m)
+    _linear_step(m) && return :linear
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
     _local_step_kind(m) && _array_params(m) && !_reads_outputs(m) && return :local
@@ -913,6 +916,10 @@ function _coupling_adjoint(C)
     _derived_local(C) && _array_params(C) && return :local
     return :none
 end
+# The same for a recurrence's own coupling, which a call replaces by its
+# matrix when it is declared linear (`_linear_parts`); routes keep their
+# couplings.
+_primary_adjoint(C) = _linear_coupling(C) ? :linear : _coupling_adjoint(C)
 
 # The `rebuilds` field, set at construction: `Val(true)` when the types
 # send no part to the local step, so the route folds; otherwise whether
@@ -923,13 +930,12 @@ end
 # once.
 function _check_parts(kernel, C, ms::Tuple)
     if !_parts_adjoint(kernel, C, ms)
-        C_why = _coupling_adjoint(C) === :none ? (_part_why(C),) : ()
+        C_why = _primary_adjoint(C) === :none ? (_part_why(C),) : ()
         _note_plain((_no_adjoint_kernel(kernel)..., C_why..., _no_adjoint(ms...)...))
         return Val(true)
     end
-    return _check_rebuilds(
-        (_coupling_parts(C, _kernel_couplings(kernel)...)..., _local_parts(ms...)...)
-    )
+    parts = _primary_parts(C, _kernel_couplings(kernel)...)
+    return _check_rebuilds((parts..., _local_parts(ms...)...))
 end
 _check_rebuilds(::Tuple{}) = Val(true)
 function _check_rebuilds(parts::Tuple)
@@ -956,8 +962,12 @@ end
 function _local_part(C)
     return _coupling_adjoint(C) === :local && _holds_floats(C) ? (C,) : ()
 end
-_coupling_parts(C) = _local_part(C)
+_coupling_parts() = ()
 _coupling_parts(C, Cs...) = (_local_part(C)..., _coupling_parts(Cs...)...)
+function _primary_parts(C, Cs...)
+    _linear_coupling(C) && return _coupling_parts(Cs...)
+    return _coupling_parts(C, Cs...)
+end
 _local_parts() = ()
 _local_parts(m, ms...) = (_local_modifier(m)..., _local_parts(ms...)...)
 function _local_modifier(m)
@@ -1045,7 +1055,7 @@ end
 # is called; the backend extensions do not differentiate it.
 function _check_now(r::Recurrence)
     parts = (
-        _coupling_parts(r.coupling, _kernel_couplings(r.kernel)...)...,
+        _primary_parts(r.coupling, _kernel_couplings(r.kernel)...)...,
         _local_parts(r.modifiers...)...,
     )
     return _check_rebuilds(parts) !== false
@@ -1141,6 +1151,34 @@ end
 @generated function _array_params(m)
     return !_has_opaque_params(m) && !_has_structured_floats(m)
 end
+
+# == Linear parts ==
+
+# A coupling or whole-step modifier declared linear, without a `pullback!`
+# of its own for the role.
+_linear_coupling(C) = islinear(C) && !uses_adjoint(C, Pressure())
+_linear_step(m) = islinear(m) && _whole_step(m) && !uses_adjoint(m, Step())
+_any_linear_step(::Tuple{}) = false
+function _any_linear_step(ms::Tuple)
+    return _linear_step(first(ms)) || _any_linear_step(Base.tail(ms))
+end
+
+# The recurrence a call runs: its linear coupling and modifiers replaced by
+# their matrices for the `S` strata of the history `h`, built here, outside
+# the rules, so the outer AD differentiates the `S` calls of `forward!`.
+# A call through `NoAdjoint` runs the parts as they are.
+_linear_parts(::NoAdjoint, r::Recurrence, h) = r
+function _linear_parts(route, r::Recurrence, h)
+    _linear_coupling(r.coupling) || _any_linear_step(r.modifiers) || return r
+    S = _nstrata(h)
+    C = _as_matrix(Val(_linear_coupling(r.coupling)), r.coupling, S)
+    ms = map(m -> _as_step(Val(_linear_step(m)), m, S), r.modifiers)
+    return Recurrence(_Checked(), r.kernel, C, ms, r.rebuilds)
+end
+_as_matrix(::Val{false}, C, S) = C
+_as_matrix(::Val{true}, C, S) = _coupling_matrix(C, S)
+_as_step(::Val{false}, m, S) = m
+_as_step(::Val{true}, m, S) = _LinearStep(_step_matrix(m, S))
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including each modifier's final state; `_WithState` builds the state to

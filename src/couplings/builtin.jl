@@ -286,3 +286,20 @@ end
         role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
     ),
 ]
+
+# == Linear couplings ==
+
+# The matrix of a coupling declared linear (`islinear`) over `S` strata: its
+# `forward!` on each basis vector gives a column. Each basis vector is its
+# own column of an identity, never overwritten, as a reverse pass that keeps
+# a reference to its input, such as Enzyme's sparse product, reads it after
+# the loop.
+function _coupling_matrix(C, S)
+    T = float(param_eltype(C))
+    A = zeros(T, S, S)
+    E = Matrix{T}(I, S, S)
+    for b in 1:S
+        forward!(C, Pressure(), view(A, :, b), view(E, :, b), 1)
+    end
+    return A
+end

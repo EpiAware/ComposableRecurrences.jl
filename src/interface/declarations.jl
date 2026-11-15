@@ -4,6 +4,8 @@
             a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
         adjoint = "uses_adjoint finds a pullback! method for the role" =>
             a -> _adjoint_found(a.piece, a.role),
+        linear = "a type declared islinear is its matrix at every time" =>
+            a -> _linear_ok(a.piece, a.role, a.args),
     ),
     optional = (
         pointwise = "a vector Step matches the Step on each stratum's view" =>
@@ -28,6 +30,13 @@ method with a typed `grads` or typed arguments after the role is not, apart
 from a blockwise group step's with `v::Tuple, s::Tuple`, and needs a
 `uses_adjoint` method, and one with the wrong number of arguments fails
 too.
+The mandatory `linear` component checks a type declared linear
+([`ComposableRecurrences.islinear`](@ref)): for a coupling's `Pressure()`,
+or a whole-step modifier's `Step()`, built as the matrix ``A`` from
+`forward!` on the basis vectors, `forward!` on a fixed input ``x`` equals
+``A x`` at `rtol = 1e-8`, at the given time and at a later one, and a
+modifier's step leaves its state as it was; it passes any other type and
+role, and fails a declared modifier that is not a whole-step one.
 The optional `pointwise` component checks that a pointwise modifier's
 step on the whole vectors equals its step on a one-entry view of each
 stratum,
@@ -105,6 +114,35 @@ _snapshot(x) = x
 _finite(x::Tuple) = all(_finite, x)
 _finite(x::Ref) = isfinite(x[])
 _finite(x::AbstractArray) = all(isfinite, x)
+
+# == linear ==
+
+# A type declared linear is the matrix its `forward!` gives on the basis
+# vectors, at the given time and a later one, on an input whose entries do
+# not sum to one, so an offset shows.
+function _linear_ok(piece, role, args)
+    return !islinear(piece) || _linear_role_ok(piece, role, args)
+end
+_linear_role_ok(piece, role, args) = true
+function _linear_role_ok(C, ::Pressure, args)
+    p = _linear_probe(args[2])
+    A = _coupling_matrix(C, length(p))
+    q, q′ = zero(p), zero(p)
+    forward!(C, Pressure(), q, p, args[3])
+    forward!(C, Pressure(), q′, p, args[3] + 7)
+    return isapprox(q, A * p; rtol = 1.0e-8) && q′ == q
+end
+function _linear_role_ok(m, ::Step, args)
+    _whole_step(m) || return false
+    v = _linear_probe(args[1])
+    A = _step_matrix(m, length(v))
+    s = float(copy(args[2]))
+    v′, s′, v″ = copy(v), copy(s), copy(v)
+    forward!(m, Step(), v′, s′, args[3])
+    forward!(m, Step(), v″, copy(s), args[3] + 7)
+    return isapprox(v′, A * v; rtol = 1.0e-8) && v″ == v′ && s′ == s
+end
+_linear_probe(x) = [float(eltype(x))(1 + sin(3k)) for k in eachindex(x)]
 
 # == pointwise ==
 
