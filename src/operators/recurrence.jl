@@ -474,7 +474,15 @@ end
 @inline function _chained_step!(
         w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
     )
-    older = _span_dot(w, H, t + D - L, 1, L - 1, k)
+    # Its own loop rather than `_span_dot`: with the shared body, plain
+    # Mooncake reverse of a renewal took about a tenth longer.
+    o = t + D - L - 1
+    older = zero(promote_type(eltype(w), eltype(H)))
+    if L > 1
+        @inbounds @_float_simd typeof(older) for i in 1:(L - 1)
+            older += w[i] * H[o + i, k]
+        end
+    end
     pk = muladd(newest, y, older)
     _record_pressure!(pr, pk, _coef(C, k) * pk, t, k)
     γ = @inbounds _at(gain, k, τ) * _coef(C, k)
