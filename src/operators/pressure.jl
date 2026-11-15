@@ -29,6 +29,9 @@ With modifiers or added values the ratio is the gain as realised on each
 step, with their effect included.
 Where ``q_{t,i}`` is zero the ratio is `NaN` or `Inf`.
 For outputs from a traced call, `trace.pressure` is the same pressure.
+It is differentiable in the outputs, the history, the kernel and the
+coupling, with the reverse pass of the recurrence's kernel convolution and
+coupling.
 
 # Arguments
 - `r`: the recurrence.
@@ -94,8 +97,12 @@ end
 # its pressure takes plain AD.
 _pressure_rule(kernel) = true
 
-_primal(op::_Pressure, y, h, τ0) = first(_pressure_forward(op.r, y, h, τ0, Val(false)))
-_run_forward(op::_Pressure, y, h, τ0) = _pressure_forward(op.r, y, h, τ0, Val(true))
+function _primal(op::_Pressure, y, h, τ0)
+    return first(_pressure_forward(op.r, y, h, τ0, Val(false)))
+end
+function _run_forward(op::_Pressure, y, h, τ0)
+    return _pressure_forward(op.r, y, h, τ0, Val(true))
+end
 function _pressure_forward(r, y, h, τ0, keep::Val)
     S = _nstrata(h)
     L = _nlags(r.kernel)
@@ -109,7 +116,9 @@ end
 # window before its row as the run does, so the kernel, coupling and their
 # runs over time are the run's own. The reverse pass keeps the buffer and
 # each step's kernel convolutions `P` (strata × steps).
-function _pressure_run(::Type{Tp}, r, y, h, τ0, L, D, S, T, keep::Val) where {Tp}
+function _pressure_run(
+        ::Type{Tp}, r, y, h, τ0, L, D, S, T, keep::Val
+    ) where {Tp}
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_buffer(h, Tp, D, T, S), h, D)
@@ -120,8 +129,8 @@ function _pressure_run(::Type{Tp}, r, y, h, τ0, L, D, S, T, keep::Val) where {T
     q = _zeros(h, Tp, S)
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
         _steps_in!(
-            _pressure_step!, Serial(), ts, T, out, P, coupling, g, p, q, H, τ0, L,
-            D, S
+            _pressure_step!, Serial(), ts, T, out, P, coupling, g, p, q, H,
+            τ0, L, D, S
         )
     end
     keep isa Val{true} || return out, nothing
