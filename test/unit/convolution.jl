@@ -231,9 +231,9 @@ end
     mirror(v::AbstractArray) = zero(v)
     value(m::Base.RefValue) = m[]
     value(m) = m
-    for S in (1, 3), (T, L) in ((9, 4), (5, 9), (12, 7)), vec_in in (false, true),
-            scaled in (false, true), stop in (T, T - 2), wx in (true, false),
-            wk in (true, false)
+    for S in (1, 3), (T, L) in ((9, 4), (5, 9), (12, 7)),
+            vec_in in (false, true), scaled in (false, true),
+            stop in (T, T - 2), wx in (true, false), wk in (true, false)
         vec_in && S != 1 && continue
         x = vec_in ? rand(rng, T) : rand(rng, S, T)
         k = rand(rng, L)
@@ -263,13 +263,16 @@ end
         wk && @test gl.piece.kernel ≈ gb.piece.kernel
         wx && @test gl.args[1] ≈ gb.args[1]
         for i in 2:3
-            gl.args[i] === nothing || @test value(gl.args[i]) ≈ value(gb.args[i])
+            gl.args[i] === nothing && continue
+            @test value(gl.args[i]) ≈ value(gb.args[i])
         end
     end
     # A cache that holds its input keeps a copy only when the inputs may be
     # overwritten; any other cache is returned as it is.
     x = rand(rng, 2, 6)
-    _, cache = CR._run_forward(Convolution(rand(rng, 3)), x, true, nothing, nothing, 1, nothing)
+    _, cache = CR._run_forward(
+        Convolution(rand(rng, 3)), x, true, nothing, nothing, 1, nothing
+    )
     @test CR._keep_inputs(cache, false) === cache
     kept = CR._keep_inputs(cache, true)
     @test kept.x == x && kept.x !== x
