@@ -107,6 +107,7 @@ Total run time 20.5 min, timeout 600 s a case.
 | Recurrence user coupling without a pullback | works (2.2 s / 14.5 µs) | works (0.9 s / 11.9 µs) |
 | Recurrence per-stratum modifier without a pullback | error: MethodError in `param` | error: MethodError in `param` |
 | Recurrence pointwise modifier with an Init without a pullback | works (43.6 s / 9.5 µs) | works (3.1 s / 16.5 µs) |
+| Recurrence blockwise modifier without a pullback | works (48.5 s / 14.0 µs) | works (3.8 s / 19.9 µs) |
 | Recurrence user coupling across 30 strata | works (1.6 s / 565.8 µs) | works (2.6 s / 571.3 µs) |
 | Recurrence modifier without a pullback, parameter from change points | works (2.2 s / 10.5 µs) | works (1.1 s / 22.1 µs) |
 | Recurrence modifier with a vector field read by time | error: MethodError in `_coupled_step!` | error: MethodError in `_coupled_step!` |
@@ -313,6 +314,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence per-stratum modifier without a pullback | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | param | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
 | registry | Recurrence pointwise modifier with an Init without a pullback | forward | cpu | 12 | works | 4.5e-16 | 43.6 | 9.5 | 1.5 |  |  |
 | registry | Recurrence pointwise modifier with an Init without a pullback | reverse | cpu | 12 | works | 7.7e-16 | 3.1 | 16.5 | 21.1 |  |  |
+| registry | Recurrence blockwise modifier without a pullback | forward | cpu | 12 | works | 6.9e-13 | 48.5 | 14.0 | 1.8 |  |  |
+| registry | Recurrence blockwise modifier without a pullback | reverse | cpu | 12 | works | 3.6e-15 | 3.8 | 19.9 | 27.9 |  |  |
 | registry | Recurrence user coupling across 30 strata | forward | cpu | 12 | works | 1.6e-16 | 1.6 | 565.8 | 10.1 |  |  |
 | registry | Recurrence user coupling across 30 strata | reverse | cpu | 12 | works | 6.2e-15 | 2.6 | 571.3 | 2574.0 |  |  |
 | registry | Recurrence modifier without a pullback, parameter from change points | forward | cpu | 12 | works | 5.2e-15 | 2.2 | 10.5 | 2.3 |  |  |
