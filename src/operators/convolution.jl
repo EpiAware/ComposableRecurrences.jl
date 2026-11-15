@@ -321,7 +321,8 @@ end
 # cotangent reads, and the inputs they read: the buffer (history then `x`)
 # with its row offset `o`, or `x` itself. The rules see `x` unchanged in
 # the reverse pass: `Mooncake` restores what later code overwrites, and the
-# `Enzyme` rule copies an input it is told is overwritten.
+# `Enzyme` rule has the cache copy it (`_keep_inputs`) when it is told the
+# inputs may be overwritten.
 function _run_forward(c::Convolution, x, gain, add, history, start, stop)
     kernel = c.kernel
     Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
@@ -506,6 +507,14 @@ struct _LayoutCache{G, A, X, Y}
     x::X
     Y::Y
     fft::Bool
+end
+# A rule whose AD backend may overwrite the inputs after the forward pass
+# (`Enzyme` says so per call) has the cache keep a copy of `x`; any other
+# cache holds no input.
+_keep_inputs(cache, overwritten::Bool) = cache
+function _keep_inputs(c::_LayoutCache, overwritten::Bool)
+    overwritten || return c
+    return _LayoutCache(c.gain, c.add, copy(c.x), c.Y, c.fft)
 end
 
 # The reverse pass in the layout of `x`, the transpose of the forward pass:

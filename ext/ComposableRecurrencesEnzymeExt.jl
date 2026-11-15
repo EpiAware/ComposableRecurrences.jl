@@ -9,9 +9,9 @@ module ComposableRecurrencesEnzymeExt
 using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
     _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
-    _fft_convolve_terms!, _flat_groups, _is_leaf, _leaf_paths, _plain_hook,
-    _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
-    _spawn_blocks, _spawn_chunks, _untraced
+    _fft_convolve_terms!, _flat_groups, _is_leaf, _keep_inputs, _leaf_paths,
+    _plain_hook, _rebuild_leaves, _route_forward!, _run_forward,
+    _run_pullback!, _shared_shadow, _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -143,9 +143,6 @@ end
     return Expr(:block, (:(f(xs[$i], ys[$i])) for i in 1:N)..., :(return nothing))
 end
 _val(a) = a.val
-_kept(a, overwritten::Bool) = overwritten ? _keep(a.val) : a.val
-_keep(x::Array) = copy(x)
-_keep(x) = x
 
 _addback(dx, m) = m === nothing ? dx : _addback1(dx, m)
 _addback1(dx::Real, m::Base.RefValue) = dx + m[]
@@ -485,11 +482,12 @@ function EnzymeRules.augmented_primal(
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     VERSION < v"1.12" &&
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
-    # A cache may hold an input array, so one that later code overwrites is
-    # copied first.
-    ow = Base.tail(EnzymeRules.overwritten(config))
-    args = _rebuild_leaves(X, _map_leaves(_kept, leaves, ow))
+    args = _rebuild_leaves(X, _map_leaves(_val, leaves))
     y, cache = _run_forward(args...)
+    # A cache that holds an input array keeps a copy of it when later code
+    # may overwrite the inputs.
+    ow = any(Base.tail(EnzymeRules.overwritten(config)))
+    cache = _keep_inputs(cache, ow)
     dy, cache = EnzymeRules.needs_shadow(config) ? _shadow_of(first(args), y, cache) :
         (nothing, cache)
     ret = EnzymeRules.needs_primal(config) ? y : nothing
