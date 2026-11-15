@@ -1,7 +1,4 @@
-# The file `benchmark/full_latest.jl` publishes from the weekly full grid:
-# the per-backend runs merged into one `BenchmarkGroup` that
-# `BenchmarkTools.load` reads back. The merge is checked here rather than
-# first seen on a failed deploy.
+# `benchmark/full_latest.jl`: the per-backend runs merged into one loadable group.
 
 @testitem "Full benchmarks: the per-backend runs merge into one loadable group" begin
     using BenchmarkTools, ComposableRecurrences
@@ -64,4 +61,22 @@
     io = IOBuffer()
     @test mod.report(io, counts, jobs) == ["Z"]
     @test occursin("X: 2 entries", String(take!(io)))
+
+    # `main` warns for each job without results and still writes; with no
+    # results from any job it fails. The jobs are passed in, as the script
+    # reads them from `ADFixtures`.
+    out2 = joinpath(dir, "main", "latest.json")
+    log = joinpath(dir, "main.log")
+    open(log, "w") do io
+        redirect_stdout(() -> mod.main([out2, fx]; jobs = jobs), io)
+    end
+    text = read(log, String)
+    @test occursin("::warning::no full benchmark results for primal", text)
+    @test occursin("::warning::no full benchmark results for Z", text)
+    @test !occursin("results for X", text)
+    @test haskey(first(BenchmarkTools.load(out2)), "AD gradients")
+    @test_throws ErrorException mod.main(
+        [joinpath(dir, "none", "latest.json"), joinpath(dir, "none.json")]; jobs = jobs
+    )
+    @test_throws ErrorException mod.main([out2]; jobs = jobs)
 end
