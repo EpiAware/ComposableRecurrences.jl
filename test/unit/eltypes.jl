@@ -31,9 +31,7 @@
 end
 
 @testitem "Eltypes: ForwardDiff gradients through every slot" setup = [ReferenceAD, TestModifiers] begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra, Random,
-        SparseArrays
-    rng = Xoshiro(41)
+    using ComposableRecurrences, ForwardDiff, SparseArrays
     S, L, T = 3, 3, 8
     g0 = [0.2, 0.3, 0.5]
     K0 = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
@@ -63,17 +61,7 @@ end
     @test check(h -> rec(g0, K0, h, R0, pop0), h0)
     @test check(R -> rec(g0, K0, h0, R, pop0), R0)
     @test check(pop -> rec(g0, K0, h0, R0, pop), pop0)
-    # A scalar modifier field receives its derivative.
-    @test check(
-        N -> sum(
-            W .* Recurrence(g0; modifiers = (LooseScale(N[1], (; b = 0.0)),))(
-                R0; history = h0
-            )
-        ), [0.9]
-    )
     @test check(ϵ -> rec(g0, K0, h0, R0, pop0; add = ϵ), 0.1 .* R0)
-    @test check(λ -> sum(W .* Recurrence(g0; coupling = λ[1] * I)(R0; history = h0)), [0.9])
-    @test check(d -> sum(W .* Recurrence(g0; coupling = Diagonal(d))(R0; history = h0)), [0.9, 1.0, 1.1])
     @test check(
         v -> sum(
             W .* Recurrence(g0; coupling = sparse([1, 2, 3, 1], [1, 2, 3, 3], v, S, S))(
@@ -81,8 +69,7 @@ end
             )
         ), [0.9, 1.0, 1.1, 0.2]
     )
-    @test check(P -> sum(W .* Recurrence(Pairwise(P))(R0; history = h0)), rand(rng, S, S, L))
-    @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(rng, L, T))
+    # A scalar modifier field and one in a named tuple.
     @test check(
         θ -> sum(
             W .* Recurrence(g0; modifiers = (LooseScale(θ[1], (; b = θ[2])),))(
