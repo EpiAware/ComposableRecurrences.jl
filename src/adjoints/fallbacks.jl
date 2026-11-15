@@ -8,17 +8,118 @@
 # sparse matrix or the diagonal of a `Diagonal`, found by recursing through
 # fields, tuples and named tuples.
 
-# The number of parameters of `x`.
-_nparams(::AbstractFloat) = 1
-_nparams(x::AbstractArray{<:AbstractFloat}) = length(x)
-_nparams(x::SparseMatrixCSC{<:AbstractFloat}) = length(nonzeros(x))
-_nparams(x::Diagonal{<:AbstractFloat}) = _nparams(x.diag)
-_nparams(::_Leafless) = 0
-_nparams(x::Union{Tuple, NamedTuple}) = sum(_nparams, values(x); init = 0)
-function _nparams(x)
-    isstructtype(typeof(x)) || return 0
-    return sum(i -> _nparams(getfield(x, i)), 1:fieldcount(typeof(x)); init = 0)
+# Shared walks over the parameter leaves, in field order. A walker is a
+# struct with methods of `_fold_*`, `_mfold_*`, `_map_*` or `_collect_*` for
+# the leaves it handles; `_descends` picks the structs it enters and
+# `_into_stored` whether it reads a sparse or `Diagonal` matrix's stored
+# entries or the whole matrix.
+_descends(f, x) = _holds_floats(x)
+_into_stored(f) = true
+_fields(x) = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
+const _FloatArray = AbstractArray{<:AbstractFloat}
+const _Stored = Union{SparseMatrixCSC{<:AbstractFloat}, Diagonal{<:AbstractFloat}}
+_stored(x::SparseMatrixCSC) = nonzeros(x)
+_stored(x::Diagonal) = x.diag
+_stored_name(::SparseMatrixCSC) = :nzval
+_stored_name(::Diagonal) = :diag
+
+# A fold of the state `s` over the leaves.
+_lfold(f, x::AbstractFloat, s) = _fold_scalar(f, x, s)
+_lfold(f, x::_FloatArray, s) = _fold_array(f, x, s)
+_lfold(f, x::_Stored, s) = _lfold(f, _stored(x), s)
+_lfold(f, x::_EntryParam, s) = _fold_entry(f, x, s)
+_lfold(f, ::_Leafless, s) = s
+_lfold(f, x::Union{Tuple, NamedTuple}, s) = _lfold_all(f, values(x), s)
+_lfold(f, x, s) = _descends(f, x) ? _lfold_all(f, _fields(x), s) : s
+_lfold_all(f, ::Tuple{}, s) = s
+_lfold_all(f, xs::Tuple, s) = _lfold_all(f, Base.tail(xs), _lfold(f, first(xs), s))
+_fold_scalar(f, x, s) = s
+_fold_array(f, x, s) = s
+_fold_entry(f, x, s) = _lfold_all(f, _fields(x), s)
+
+# The same beside a mirror `x̄`: an element's mirror is the mirror's element,
+# or `nothing`, and a field's is `_field_mirror`.
+_mfold(f, x̄, x::AbstractFloat, s) = _mfold_scalar(f, x̄, x, s)
+_mfold(f, x̄, x::_FloatArray, s) = _mfold_array(f, x̄, x, s)
+function _mfold(f, x̄, x::_Stored, s)
+    _into_stored(f) || return _mfold_array(f, x̄, x, s)
+    return _mfold(f, cotangent(x̄, _stored_name(x)), _stored(x), s)
 end
+_mfold(f, x̄, x::_EntryParam, s) = _mfold_entry(f, x̄, x, s)
+_mfold(f, x̄, ::_Leafless, s) = s
+function _mfold(f, x̄, x::Union{Tuple, NamedTuple}, s)
+    return _mfold_all(f, _element_mirrors(x̄, Val(length(x))), values(x), s)
+end
+_mfold(f, x̄, x, s) = _descends(f, x) ? _mfold_fields(f, x̄, x, s) : s
+function _mfold_fields(f, x̄, x, s)
+    m̄s = map(n -> _field_mirror(x̄, n), fieldnames(typeof(x)))
+    return _mfold_all(f, m̄s, _fields(x), s)
+end
+_mfold_all(f, ::Tuple{}, ::Tuple{}, s) = s
+function _mfold_all(f, x̄s::Tuple, xs::Tuple, s)
+    s = _mfold(f, first(x̄s), first(xs), s)
+    return _mfold_all(f, Base.tail(x̄s), Base.tail(xs), s)
+end
+_element_mirrors(::Nothing, ::Val{n}) where {n} = ntuple(_ -> nothing, Val(n))
+_element_mirrors(x̄, ::Val{n}) where {n} = ntuple(i -> x̄[i], Val(n))
+_mfold_scalar(f, x̄, x, s) = s
+_mfold_array(f, x̄, x, s) = s
+_mfold_entry(f, x̄, x, s) = _mfold_fields(f, x̄, x, s)
+
+# A rebuild, returning the new object and state: a stored matrix around its
+# rebuilt entries, a tuple or named tuple of its rebuilt elements and a
+# struct, through `ConstructionBase.constructorof`, of its rebuilt fields.
+_remap(f, x::AbstractFloat, s) = _map_scalar(f, x, s)
+_remap(f, x::_FloatArray, s) = _map_array(f, x, s)
+# A stored matrix's entries reach `_map_array` as a `Vector`.
+function _remap(f, x::SparseMatrixCSC{<:AbstractFloat}, s)
+    _into_stored(f) || return _map_array(f, x, s)
+    nz, s = _remap(f, nonzeros(x), s)
+    return SparseMatrixCSC(size(x)..., copy(x.colptr), copy(x.rowval), nz), s
+end
+function _remap(f, x::Diagonal{<:AbstractFloat}, s)
+    _into_stored(f) || return _map_array(f, x, s)
+    d, s = _remap(f, x.diag, s)
+    return Diagonal(d), s
+end
+_remap(f, x::_EntryParam, s) = _map_entry(f, x, s)
+_remap(f, x::_Leafless, s) = (x, s)
+_remap(f, ::Tuple{}, s) = ((), s)
+function _remap(f, x::Tuple, s)
+    a, s = _remap(f, first(x), s)
+    b, s = _remap(f, Base.tail(x), s)
+    return (a, b...), s
+end
+function _remap(f, x::NamedTuple{N}, s) where {N}
+    y, s = _remap(f, Tuple(x), s)
+    return NamedTuple{N}(y), s
+end
+_remap(f, x, s) = _remap_fields(f, x, s)
+function _remap_fields(f, x, s)
+    _descends(f, x) || return x, s
+    ys, s = _remap(f, _fields(x), s)
+    return constructorof(typeof(x))(ys...), s
+end
+_map_scalar(f, x, s) = (x, s)
+_map_array(f, x, s) = (x, s)
+_map_entry(f, x, s) = _remap_fields(f, x, s)
+
+# A tuple of what the leaves give, a float array giving nothing.
+_lcollect(f, x::AbstractFloat) = _collect_scalar(f, x)
+_lcollect(f, x::_EntryParam) = _collect_entry(f, x)
+_lcollect(f, ::_Leafless) = ()
+_lcollect(f, x::Union{Tuple, NamedTuple}) = _collect_all(f, values(x)...)
+_lcollect(f, x) = _descends(f, x) ? _collect_all(f, _fields(x)...) : ()
+_collect_all(f) = ()
+_collect_all(f, x, xs...) = (_lcollect(f, x)..., _collect_all(f, xs...)...)
+_collect_scalar(f, x) = ()
+_collect_entry(f, x) = _collect_all(f, _fields(x)...)
+
+# The number of parameters of `x`.
+struct _CountLeaves end
+_nparams(x) = _lfold(_CountLeaves(), x, 0)
+_fold_scalar(::_CountLeaves, x, n) = n + 1
+_fold_array(::_CountLeaves, x, n) = n + length(x)
 
 # The parameters of `x` as a vector.
 function _params(x)
@@ -28,94 +129,41 @@ function _params(x)
 end
 
 # Write the parameters of `x` into `θ` after offset `o`; return the new offset.
-_getparams!(θ, x::AbstractFloat, o) = (θ[o + 1] = x; o + 1)
-function _getparams!(θ, x::AbstractArray{<:AbstractFloat}, o)
+struct _ReadLeaves{V}
+    θ::V
+end
+_getparams!(θ, x, o) = _lfold(_ReadLeaves(θ), x, o)
+_fold_scalar(f::_ReadLeaves, x, o) = (f.θ[o + 1] = x; o + 1)
+function _fold_array(f::_ReadLeaves, x, o)
     for (i, xi) in enumerate(x)
-        θ[o + i] = xi
+        f.θ[o + i] = xi
     end
     return o + length(x)
 end
-_getparams!(θ, x::SparseMatrixCSC{<:AbstractFloat}, o) = _getparams!(θ, nonzeros(x), o)
-_getparams!(θ, x::Diagonal{<:AbstractFloat}, o) = _getparams!(θ, x.diag, o)
-_getparams!(θ, ::_Leafless, o) = o
-function _getparams!(θ, x::Union{Tuple, NamedTuple}, o)
-    for xi in values(x)
-        o = _getparams!(θ, xi, o)
-    end
-    return o
-end
-function _getparams!(θ, x, o)
-    isstructtype(typeof(x)) || return o
-    for i in 1:fieldcount(typeof(x))
-        o = _getparams!(θ, getfield(x, i), o)
-    end
-    return o
-end
 
 # `x` with its parameters read from `θ` (possibly Duals) after offset `o`;
-# returns the new object and offset. Structs are rebuilt through
-# `ConstructionBase.constructorof`.
+# returns the new object and offset.
+struct _CopyLeaves{V}
+    θ::V
+end
 _rebuild(x, θ) = first(_rebuild(x, θ, 0))
-_rebuild(::AbstractFloat, θ, o) = (θ[o + 1], o + 1)
-function _rebuild(x::AbstractArray{<:AbstractFloat}, θ, o)
+_rebuild(x, θ, o) = _remap(_CopyLeaves(θ), x, o)
+_map_scalar(f::_CopyLeaves, x, o) = (f.θ[o + 1], o + 1)
+function _map_array(f::_CopyLeaves, x, o)
     n = length(x)
-    return reshape(θ[(o + 1):(o + n)], size(x)), o + n
+    return reshape(f.θ[(o + 1):(o + n)], size(x)), o + n
 end
-function _rebuild(x::SparseMatrixCSC{<:AbstractFloat}, θ, o)
-    n = length(nonzeros(x))
-    nz = θ[(o + 1):(o + n)]
-    return SparseMatrixCSC(size(x)..., copy(x.colptr), copy(x.rowval), nz), o + n
-end
-function _rebuild(x::Diagonal{<:AbstractFloat}, θ, o)
-    d, o = _rebuild(x.diag, θ, o)
-    return Diagonal(d), o
-end
-_rebuild(x::_Leafless, θ, o) = (x, o)
-_rebuild(::Tuple{}, θ, o) = ((), o)
-function _rebuild(x::Tuple, θ, o)
-    a, o = _rebuild(first(x), θ, o)
-    b, o = _rebuild(Base.tail(x), θ, o)
-    return (a, b...), o
-end
-function _rebuild(x::NamedTuple{N}, θ, o) where {N}
-    y, o = _rebuild(Tuple(x), θ, o)
-    return NamedTuple{N}(y), o
-end
-function _rebuild(x, θ, o)
-    _holds_floats(x) || return x, o
-    fs, o = _rebuild(ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x)))), θ, o)
-    return constructorof(typeof(x))(fs...), o
-end
-
 
 # Walk the parameters of `x` and its mirror `x̄` after offset `o`, calling
 # `leaf!(x̄, x, g, o)` on each float scalar or array, which returns the new
 # offset; returns the last offset.
-function _walkparams!(
-        leaf!::F, x̄, x::Union{AbstractFloat, AbstractArray{<:AbstractFloat}}, g, o
-    ) where {F}
-    return leaf!(x̄, x, g, o)
+struct _WalkLeaves{F, G}
+    leaf!::F
+    g::G
 end
-function _walkparams!(leaf!::F, x̄, x::SparseMatrixCSC{<:AbstractFloat}, g, o) where {F}
-    return _walkparams!(leaf!, cotangent(x̄, :nzval), nonzeros(x), g, o)
-end
-function _walkparams!(leaf!::F, x̄, x::Diagonal{<:AbstractFloat}, g, o) where {F}
-    return _walkparams!(leaf!, cotangent(x̄, :diag), x.diag, g, o)
-end
-_walkparams!(leaf!::F, x̄, ::_Leafless, g, o) where {F} = o
-function _walkparams!(leaf!::F, x̄, x::Union{Tuple, NamedTuple}, g, o) where {F}
-    for i in 1:length(x)
-        o = _walkparams!(leaf!, x̄ === nothing ? nothing : x̄[i], x[i], g, o)
-    end
-    return o
-end
-function _walkparams!(leaf!::F, x̄, x, g, o) where {F}
-    isstructtype(typeof(x)) || return o
-    for n in fieldnames(typeof(x))
-        o = _walkparams!(leaf!, _field_mirror(x̄, n), getfield(x, n), g, o)
-    end
-    return o
-end
+_walkparams!(leaf!::F, x̄, x, g, o) where {F} = _mfold(_WalkLeaves(leaf!, g), x̄, x, o)
+_mfold_scalar(f::_WalkLeaves, x̄, x, o) = f.leaf!(x̄, x, f.g, o)
+_mfold_array(f::_WalkLeaves, x̄, x, o) = f.leaf!(x̄, x, f.g, o)
 
 # Add the gradient `g` (after offset `o`) into the mirror `x̄` of `x`;
 # returns the new offset.
@@ -215,26 +263,17 @@ Base.IndexStyle(::Type{<:_ReadArray}) = IndexLinear()
 # `x` with its float scalars, entry parameters included, taken from `θ` and
 # each other float array wrapped as a `_ReadArray`, numbered from leaf `l`
 # in field order; returns the object, the rest of `θ` and the next leaf.
-_rebuild_reads(::Union{AbstractFloat, _EntryParam}, θ, w, l) = (first(θ), Base.tail(θ), l)
-function _rebuild_reads(x::AbstractArray{<:AbstractFloat}, θ, w, l)
-    return _ReadArray(x, l, w), θ, l + 1
-end
-_rebuild_reads(x::_Leafless, θ, w, l) = (x, θ, l)
-_rebuild_reads(::Tuple{}, θ, w, l) = ((), θ, l)
-function _rebuild_reads(x::Tuple, θ, w, l)
-    a, θ, l = _rebuild_reads(first(x), θ, w, l)
-    b, θ, l = _rebuild_reads(Base.tail(x), θ, w, l)
-    return (a, b...), θ, l
-end
-function _rebuild_reads(x::NamedTuple{N}, θ, w, l) where {N}
-    y, θ, l = _rebuild_reads(Tuple(x), θ, w, l)
-    return NamedTuple{N}(y), θ, l
+struct _ReadingLeaves{W}
+    w::W
 end
 function _rebuild_reads(x, θ, w, l)
-    _holds_floats(x) || return x, θ, l
-    fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
-    ys, θ, l = _rebuild_reads(fs, θ, w, l)
-    return constructorof(typeof(x))(ys...), θ, l
+    y, (θ, l) = _remap(_ReadingLeaves(w), x, (θ, l))
+    return y, θ, l
+end
+_map_scalar(::_ReadingLeaves, x, (θ, l)) = (first(θ), (Base.tail(θ), l))
+_map_entry(::_ReadingLeaves, x, (θ, l)) = (first(θ), (Base.tail(θ), l))
+function _map_array(f::_ReadingLeaves, x, (θ, l))
+    return _ReadArray(x, l, f.w), (θ, l + 1)
 end
 
 # Whether a struct may hold a float scalar or float array anywhere in its
@@ -253,28 +292,19 @@ end
 
 # Add `g` at linear index `i` of the mirror of float array `leaf` of `x`, in
 # `_rebuild_reads`'s numbering from `l`; returns the next leaf.
-_add_read!(x̄, ::Union{AbstractFloat, _EntryParam}, leaf, i, g, l) = l
-function _add_read!(x̄, ::AbstractArray{<:AbstractFloat}, leaf, i, g, l)
-    l == leaf && add_cotangent!(x̄, g, i)
+struct _AddReadLeaf{G}
+    leaf::Int
+    i::Int
+    g::G
+end
+# The read step wraps a sparse or `Diagonal` matrix whole, as any other
+# float array.
+_into_stored(::Union{_ReadingLeaves, _AddReadLeaf}) = false
+_add_read!(x̄, x, leaf, i, g, l) = _mfold(_AddReadLeaf(leaf, i, g), x̄, x, l)
+_mfold_entry(::_AddReadLeaf, x̄, x, l) = l
+function _mfold_array(f::_AddReadLeaf, x̄, x, l)
+    l == f.leaf && add_cotangent!(x̄, f.g, f.i)
     return l + 1
-end
-_add_read!(x̄, ::_Leafless, leaf, i, g, l) = l
-function _add_read!(x̄, x::Union{Tuple, NamedTuple}, leaf, i, g, l)
-    for j in 1:length(x)
-        l = _add_read!(x̄ === nothing ? nothing : x̄[j], x[j], leaf, i, g, l)
-    end
-    return l
-end
-function _add_read!(x̄, x, leaf, i, g, l)
-    _holds_floats(x) || return l
-    return _add_reads!(x̄, x, Val(fieldnames(typeof(x))), leaf, i, g, l)
-end
-# Field by field, unrolled over the names so each field's type is known.
-_add_reads!(x̄, x, ::Val{()}, leaf, i, g, l) = l
-function _add_reads!(x̄, x, ::Val{N}, leaf, i, g, l) where {N}
-    n = first(N)
-    l = _add_read!(_field_mirror(x̄, n), getfield(x, n), leaf, i, g, l)
-    return _add_reads!(x̄, x, Val(Base.tail(N)), leaf, i, g, l)
 end
 
 # A coupling's pullback at one step: its own when it uses one, else the
@@ -360,28 +390,18 @@ _column(b::_StepDuals, t) = b
 _finish_pass!(m̄, m, R, ::_StepDuals, τ0) = nothing
 
 # `_rebuild` with each float array a view of `θ` rather than a copy, so a
-# change to `θ` reaches the rebuilt object.
+# change to `θ` reaches the rebuilt object. A `Diagonal` is rebuilt around a
+# view; a sparse matrix's constructor takes only a `Vector`, so parts that
+# hold one keep to plain AD (`_has_structured_floats`).
+struct _ViewLeaves{V}
+    θ::V
+end
 _rebuild_views(x, θ) = first(_rebuild_views(x, θ, 0))
-_rebuild_views(::AbstractFloat, θ, o) = (θ[o + 1], o + 1)
-function _rebuild_views(x::AbstractArray{<:AbstractFloat}, θ, o)
+_rebuild_views(x, θ, o) = _remap(_ViewLeaves(θ), x, o)
+_map_scalar(f::_ViewLeaves, x, o) = (f.θ[o + 1], o + 1)
+function _map_array(f::_ViewLeaves, x, o)
     n = length(x)
-    return reshape(view(θ, (o + 1):(o + n)), size(x)), o + n
-end
-_rebuild_views(x::_Leafless, θ, o) = (x, o)
-_rebuild_views(::Tuple{}, θ, o) = ((), o)
-function _rebuild_views(x::Tuple, θ, o)
-    a, o = _rebuild_views(first(x), θ, o)
-    b, o = _rebuild_views(Base.tail(x), θ, o)
-    return (a, b...), o
-end
-function _rebuild_views(x::NamedTuple{N}, θ, o) where {N}
-    y, o = _rebuild_views(Tuple(x), θ, o)
-    return NamedTuple{N}(y), o
-end
-function _rebuild_views(x, θ, o)
-    isstructtype(typeof(x)) || return x, o
-    fs, o = _rebuild_views(ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x)))), θ, o)
-    return constructorof(typeof(x))(fs...), o
+    return reshape(view(f.θ, (o + 1):(o + n)), size(x)), o + n
 end
 
 # The draw of a depletion form, `(v, s, N) -> (y, s′)`, and its pullback,
@@ -424,44 +444,24 @@ end
 # The float scalars of `x` in the order `_getparams!` reads them, as a tuple,
 # with the entry of each `_EntryParam` read at `at = (k, t)` (a zero for
 # `at = nothing`, where only the types matter).
-_param_tuple(x) = _param_tuple(x, nothing)
-_param_tuple(x::AbstractFloat, at) = (x,)
-_param_tuple(x::_EntryParam, at) = (_entry(x, at),)
-_param_tuple(::_Leafless, at) = ()
-_param_tuple(x::Union{Tuple, NamedTuple}, at) = _param_tuples(at, values(x)...)
-function _param_tuple(x, at)
-    isstructtype(typeof(x)) || return ()
-    return _param_tuples(at, ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))...)
+struct _ScalarLeaves{A}
+    at::A
 end
-_param_tuples(at) = ()
-_param_tuples(at, x, xs...) = (_param_tuple(x, at)..., _param_tuples(at, xs...)...)
+_param_tuple(x, at = nothing) = _lcollect(_ScalarLeaves(at), x)
+_collect_scalar(::_ScalarLeaves, x) = (x,)
+_collect_entry(f::_ScalarLeaves, x) = (_entry(x, f.at),)
 _entry(x, at::Tuple) = param(x, at...)
 _entry(x::PerStratum, ::Nothing) = zero(eltype(x.x))
 _entry(x::TimeVarying{<:Any, <:AbstractVector}, ::Nothing) = zero(eltype(x.x))
 _entry(x::TimeVarying{<:Any, <:PerStratum}, ::Nothing) = zero(eltype(x.x.x))
 _entry(x::TimeVarying{<:Any, <:_Piecewise}, ::Nothing) = zero(eltype(_array(x)))
 
-# `_rebuild` and `_addparams!` for the tuple of scalars: each consumes the
-# leading entries of `θ` or `g` and returns the rest, so the recursion over
-# fields is resolved at compile time.
-_rebuild_scalar(::Union{AbstractFloat, _EntryParam}, θ) = (first(θ), Base.tail(θ))
-_rebuild_scalar(x::_Leafless, θ) = (x, θ)
-_rebuild_scalar(::Tuple{}, θ) = ((), θ)
-function _rebuild_scalar(x::Tuple, θ)
-    a, θ = _rebuild_scalar(first(x), θ)
-    b, θ = _rebuild_scalar(Base.tail(x), θ)
-    return (a, b...), θ
-end
-function _rebuild_scalar(x::NamedTuple{N}, θ) where {N}
-    y, θ = _rebuild_scalar(Tuple(x), θ)
-    return NamedTuple{N}(y), θ
-end
-function _rebuild_scalar(x, θ)
-    _param_tuple(x) === () && return x, θ
-    fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
-    ys, θ = _rebuild_scalar(fs, θ)
-    return constructorof(typeof(x))(ys...), θ
-end
+# `x` with its float scalars, entry parameters included, taken from the
+# tuple `θ`; returns the object and the rest of `θ`.
+struct _CopyScalars end
+_rebuild_scalar(x, θ) = _remap(_CopyScalars(), x, θ)
+_map_scalar(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
+_map_entry(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
 
 # Whether the local step's rebuild of `x` from its float scalars gives them
 # back: each is seeded as a dual number with its own partial, `x` is
@@ -563,24 +563,17 @@ end
 
 # Add the scalar gradients `g` into the mirror `x̄` of `x`, an entry
 # parameter's at `at = (k, t)` through `add_param!`; returns the rest of `g`.
-_add_scalar!(x̄, ::AbstractFloat, g, at) = (add_cotangent!(x̄, first(g)); Base.tail(g))
-_add_scalar!(x̄, x::_EntryParam, g, at) = (add_param!(x̄, x, first(g), at...); Base.tail(g))
-_add_scalar!(x̄, ::_Leafless, g, at) = g
-_add_scalar!(x̄, ::Tuple{}, g, at) = g
-function _add_scalar!(x̄, x::Tuple, g, at)
-    g = _add_scalar!(x̄ === nothing ? nothing : first(x̄), first(x), g, at)
-    return _add_scalar!(x̄ === nothing ? nothing : Base.tail(x̄), Base.tail(x), g, at)
+struct _AddScalars{A}
+    at::A
 end
-function _add_scalar!(x̄, x::NamedTuple, g, at)
-    return _add_scalar!(x̄ === nothing ? nothing : Tuple(x̄), Tuple(x), g, at)
+_add_scalar!(x̄, x, g, at) = _mfold(_AddScalars(at), x̄, x, g)
+_mfold_scalar(::_AddScalars, x̄, x, g) = (add_cotangent!(x̄, first(g)); Base.tail(g))
+function _mfold_entry(f::_AddScalars, x̄, x, g)
+    add_param!(x̄, x, first(g), f.at...)
+    return Base.tail(g)
 end
-function _add_scalar!(x̄, x, g, at)
-    _param_tuple(x) === () && return g
-    names = fieldnames(typeof(x))
-    fs = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
-    m̄s = map(n -> _field_mirror(x̄, n), names)
-    return _add_scalar!(m̄s, fs, g, at)
-end
+# Both scalar walks descend only into structs that hold float scalars.
+_descends(::Union{_CopyScalars, _AddScalars}, x) = _param_tuple(x) !== ()
 
 # Default initial-state pullback: a local forward-mode Jacobian of the Init,
 # skipped for the default zero state and for a zero state cotangent (a

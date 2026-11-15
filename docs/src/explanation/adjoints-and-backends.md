@@ -123,6 +123,15 @@ The AD tests also run ReverseDiff, which is not a target; the README's coverage 
 A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme; it then runs on both, unless the route table above splits by backend.
 The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `T` 200 and `L` 20 where a benchmark case covers it.
 
+`NoAdjoint` turns off the operator's rules, so its call is differentiated as the forward loop, with two deliberate exceptions inside the call.
+
+- Under Mooncake, two BLAS overlays stay: a convolution adds each lag with `axpy!`, which Mooncake differentiates with its own rule.
+  Without them Mooncake's plain AD of a convolution is 1.3 to 3.1 times slower.
+- Under Enzyme, a sparse route coupling's pressure is differentiated by the coupling's own `pullback!`.
+  Plain AD reaches it under `NoAdjoint`, and in the default route when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme; without the rule that default route is 3 to 4 times slower.
+
+Rules for building parts before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
+
 ## [Checking a rule](@id adjoint-checks)
 
 A rule is checked against [plain AD](@ref compare-plain-ad) through its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
