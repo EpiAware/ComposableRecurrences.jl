@@ -2442,6 +2442,14 @@ end
         a::A
     end
     CR.forward!(m::EveryEntry, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    # Reads every entry up to `t`, more each step: seeded through views.
+    struct CumMean{A}
+        a::A
+    end
+    function CR.forward!(m::CumMean, ::CR.Step, v, s, t)
+        v .*= sum(m.a[j] for j in 1:t) / t
+        return nothing
+    end
     T, S = 12, 3
     m = TotalByTime(fill(4.0, 100))
     @test CR._reads_step(m)
@@ -2451,6 +2459,13 @@ end
     @test CR._step_fit(m, S) === :one
     @test !CR._reads_fewer(EveryEntry([0.9, 1.1, 1.0]), S)
     @test CR._step_fit(EveryEntry(rand(30)), 30) === :none
+    # A step whose reads grow with time reads one entry at time 1 and two at
+    # time 2, so it seeds every entry, and a long array takes plain AD, as a
+    # step at time 1 alone would hide; a short one keeps the views step.
+    @test !CR._reads_fewer(CumMean(ones(100)), S)
+    @test CR._step_inputs(CumMean(ones(100)), S) == 100
+    @test CR._step_fit(CumMean(ones(100)), S) === :none
+    @test CR._step_fit(CumMean(ones(T)), S) === :one
     # A scalar beside the array is seeded as before, and each read counts:
     # this step reads `a[t]` once per stratum.
     @test CR._step_inputs(Smoothed(0.3, fill(1.0, 50)), S) == 1 + S
@@ -2458,6 +2473,7 @@ end
     for ms in (
             (m,), (Smoothed(0.3, 1 .+ 0.1 .* sin.(1:T)),),
             (ThirtyReads(1 .+ 0.1 .* sin.(1:40)),), (m, CR.Transform(clamp, 0.0, 9.0)),
+            (CumMean(1 .+ 0.1 .* sin.(1:T)),),
         )
         op = Recurrence([0.3, 0.2]; modifiers = ms)
         @test CR.uses_adjoint(op, CR.Run())

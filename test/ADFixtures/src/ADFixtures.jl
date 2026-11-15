@@ -2319,8 +2319,9 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
-# Its 61 parameters send the call to plain AD (`backend_plain_scenarios`);
-# the five-step balance below keeps the local step at the tie.
+# Its 61 parameters sent the call to plain AD before the local step seeded
+# only the entries a step reads (`backend_plain_scenarios`); the five-step
+# balance below keeps the local step at the tie on those releases too.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2373,9 +2374,10 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
-# The same balance over its first five steps: its local derivative seeds 39
-# inputs, within two passes of dual numbers, so on Mooncake the call takes
-# the rule and the local step meets the tie end to end.
+# The same balance over its first five steps: on releases that seed every
+# array entry, its local derivative seeds 39 inputs, within two passes of
+# dual numbers, so on Mooncake the call takes the rule and the local step
+# meets the tie end to end.
 const TS = 5
 const OCC0_SHORT = _flat(A_BVD[1:TS], [0.1], CONF_HAZARD[1:TS])
 const A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT, WO_SHORT =
@@ -2774,17 +2776,22 @@ Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
 passes of dual numbers is a rule on Mooncake only, and one in more than two
 passes is plain AD on every backend.
-The occupancy balance's whole-step modifier seeds its four values, its four
-states and its 61 parameters, more than two passes; over five steps it seeds
-39, within two.
+The occupancy balance's whole-step modifier reads one entry of each of its
+six arrays a step, so with a release whose local step seeds only the
+entries read (`_reads_fewer`) it seeds 15 inputs, one pass, and takes the
+rule on both backends.
+Before that it seeded its four values, its four states and its 61
+parameters, more than two passes; over five steps it seeded 39, within two.
 """
 function backend_plain_scenarios()
+    coupling = "Recurrence user coupling across 30 strata"
+    supports(:_reads_fewer) && return Dict(
+        "Enzyme reverse" => Set([coupling]), "Mooncake reverse" => Set{String}()
+    )
     occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
     short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
-        "Enzyme reverse" => Set(
-            ["Recurrence user coupling across 30 strata", occupancy, short]
-        ),
+        "Enzyme reverse" => Set([coupling, occupancy, short]),
         "Mooncake reverse" => Set([occupancy]),
     )
 end

@@ -448,17 +448,24 @@ function _local_read_step!(
     return nothing
 end
 
-# The entries one step of `m` over `S` strata reads at time 1, from ones; a
-# step that fails to run counts as reading more than its arrays hold, so it
-# seeds every entry through views (`_reads_fewer`, `_step_inputs`).
+# The entries one step of `m` over `S` strata reads, from ones, at times 1
+# and 2. A step that reads a different number at each, as one that reads
+# every entry up to `t` does, would need more passes as the run goes on, so
+# it counts as reading more than its arrays hold, as does a step that fails
+# to run: it seeds every entry through views (`_reads_fewer`,
+# `_step_inputs`), and past the cap the call takes plain AD.
 function _probe_step_reads(m, S)
+    n = _probe_reads_at(m, S, 1)
+    return n == _probe_reads_at(m, S, 2) ? n : typemax(Int) ÷ 2
+end
+function _probe_reads_at(m, S, t)
     θs = _param_tuple(m)
     T = float(promote_type(map(typeof, θs)..., param_eltype(m)))
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_probe_step_reads, T)), T, 1}
     reads = _Reads{1}()
     return try
         md = first(_rebuild_reads(m, map(D, θs), _ReadSeed{D}(reads, 0), 1))
-        forward!(md, Step(), ones(D, S), ones(D, nstate(m, S)), 1)
+        forward!(md, Step(), ones(D, S), ones(D, nstate(m, S)), t)
         reads.n
     catch e
         e isa InterruptException && rethrow()

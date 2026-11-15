@@ -1038,8 +1038,9 @@ function _step_inputs(m, S)
 end
 # Whether a whole-step modifier's local step seeds only the entries a step
 # reads: it reads its float arrays entry by entry (`_reads_step`), and one
-# step over `S` strata, at time 1, reads fewer entries than the arrays hold.
-# A step that reads them all seeds them all, through views.
+# step over `S` strata reads fewer entries than the arrays hold, the same
+# number at times 1 and 2. A step that reads them all, or more as time goes
+# on, seeds them all, through views.
 function _reads_fewer(m, S)
     _reads_step(m) || return false
     return _probe_step_reads(m, S) < _nparams(m) - length(_param_tuple(m))

@@ -269,12 +269,15 @@ function _add_read!(x̄, x, leaf, i, g, l)
     _holds_floats(x) || return l
     return _add_reads!(x̄, x, Val(fieldnames(typeof(x))), leaf, i, g, l)
 end
-# Field by field, unrolled over the names so each field's type is known.
-_add_reads!(x̄, x, ::Val{()}, leaf, i, g, l) = l
-function _add_reads!(x̄, x, ::Val{N}, leaf, i, g, l) where {N}
-    n = first(N)
-    l = _add_read!(_field_mirror(x̄, n), getfield(x, n), leaf, i, g, l)
-    return _add_reads!(x̄, x, Val(Base.tail(N)), leaf, i, g, l)
+# Field by field, unrolled over the names so each field's type is known. A
+# recursion over the names' tails boxed its arguments past a few fields,
+# where inference stops following it, and allocated on every read.
+@generated function _add_reads!(x̄, x, ::Val{N}, leaf, i, g, l) where {N}
+    calls = [
+        :(l = _add_read!(_field_mirror(x̄, $(QuoteNode(n))), getfield(x, $(QuoteNode(n))), leaf, i, g, l))
+            for n in N
+    ]
+    return Expr(:block, calls..., :(return l))
 end
 
 # A coupling's pullback at one step: its own when it uses one, else the

@@ -96,7 +96,9 @@ A step that reads more at a later time than at the first still gets the right gr
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
 The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
 A whole-step modifier whose step reads fewer entries of its float arrays than they hold, as `m.total[t]`, seeds only the entries it reads, as a pointwise modifier does, so only those count.
-Each call runs one step at the first time to count them, and a step that reads more later still gets the right gradient, in more passes.
+Each call runs one step at each of the first two times to count them.
+A step that reads a different number at each, as one that sums every entry up to `t` does, seeds every entry instead, so past the limit it takes plain AD.
+A step that reads more only at a later time still gets the right gradient, in more passes.
 This holds for strided float arrays outside `PerStratum` and `TimeVarying`.
 With a second pass it takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD.
 Past two passes it takes plain AD on every backend, as a coupling does.
