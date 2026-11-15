@@ -27,8 +27,11 @@
     # in-place calls the kit compares only by norm. A scenario broken on
     # the backend is `@test_broken`, so it fails once it passes.
     # With `rules_fire`, for a backend with a rule of its own, it also
-    # checks that those calls ran the analytic reverse pass for each
-    # scenario, and for no `NoAdjoint` twin (`test_rule_fires`).
+    # checks that at least one of those calls ran the analytic reverse pass
+    # for each scenario, and none did for a `NoAdjoint` twin or a scenario
+    # in the backend's plain set (`test_rule_fires`). If a gradient throws,
+    # no pass runs, so a scenario that expects the rule fails, or is broken,
+    # on the count as well.
     function test_gradients(name; category::Symbol, rules_fire::Bool = false)
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
