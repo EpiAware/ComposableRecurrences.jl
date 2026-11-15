@@ -130,6 +130,15 @@ end
         @test which(CR.pullback!, back) === default_back
     end
     @test !CR._trace_is_state(CR.Depletion(100.0))
+    # A modifier opts in; one that defines any part of its own trace, or
+    # none, keeps the general path.
+    struct OwnTrace end
+    CR.forward!(::OwnTrace, ::CR.Trace, r, v, s, v′, s′, t) = nothing
+    struct OwnCount end
+    CR.ntrace(::OwnCount, S) = 2S
+    for m in (OwnTrace(), OwnCount())
+        @test !CR._trace_is_state(m)
+    end
 end
 
 @testitem "Trace: a call without records writes the rule's trace in each step" setup = [InStepTraces] begin
