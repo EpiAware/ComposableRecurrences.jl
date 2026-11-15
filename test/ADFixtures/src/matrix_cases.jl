@@ -1011,6 +1011,7 @@ const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "outcome_chain" => (:contributions,),
     "renewal_forecast" => (:resume_state,),
     "triangle" => (:contributions,),
+    "reproduction_pressure" => (:pressure,),
 )
 # Kernels from change points came with `_Piecewise`.
 const PIECEWISE_CASES = [
