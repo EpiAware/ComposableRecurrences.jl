@@ -299,13 +299,16 @@ end
 @doc raw"""
     abscond_loop(adm, pmf, κ, h)
 
-Discharges by flow (days × flows; `pmf` is lags × flows, the shorter
-flow's padded with zeros) thinned by absconding, with
-``U_d = \prod_{j=1}^{d} (1 - h_{t+j-1})`` and
-``V_d = \prod_{j=1}^{d} (1 - κ U_j)``:
+Discharges by flow (days × flows) thinned by absconding.
+`adm` is days × flows and `pmf` lags × flows, the shorter flow's padded with
+zeros.
+Cohort ``t`` is unconfirmed after ``d`` days with probability
+``U_{t,d} = \prod_{j=1}^{d} (1 - h_{t+j-1})``, and has not absconded with
+probability ``V_{t,d} = \prod_{j=1}^{d} (1 - κ U_{t,j})``:
 
 ```math
-\mathrm{out}_{t+d,k} = \sum_t \mathrm{adm}_{t,k} \, \mathrm{pmf}_{d+1,k} V_d.
+\mathrm{out}_{s,k} = \sum_{t + d = s} \mathrm{adm}_{t,k} \,
+    \mathrm{pmf}_{d+1,k} V_{t,d}.
 ```
 """
 function abscond_loop(adm::AbstractMatrix, pmf::AbstractMatrix, κ::Real, h)
