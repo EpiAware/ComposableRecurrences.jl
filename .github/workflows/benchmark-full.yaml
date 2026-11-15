@@ -6,6 +6,8 @@ name: Benchmark full
 # it as `full/latest.json` on the `benchmarks` branch, with the commit and
 # date in `full/README.md`. The grid is too large for one job: see
 # `benchmark/benchmarks.jl`. It runs weekly and on demand.
+# `ad-benchmarks.yaml` also times the registry grid daily; this run times it
+# again so that every group in `full/latest.json` comes from one commit.
 
 on:
   schedule:
@@ -50,7 +52,8 @@ jobs:
       - uses: julia-actions/cache@v3
       - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
       # The step's wall time goes to the run's summary page, to compare
-      # with the job's timeout.
+      # with the job's timeout; a job that times out shows its time in the
+      # run instead.
       - name: Time the full grid
         shell: bash
         env:
@@ -61,7 +64,7 @@ jobs:
           julia --project=benchmark benchmark/run.jl \
             results-${{ strategy.job-index }}.json
           minutes=$(( ($(date +%s) - start) / 60 ))
-          echo "${{ matrix.backend }}: ${minutes} min of 120" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ matrix.backend }}: ${minutes} min" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: full-results-${{ strategy.job-index }}
