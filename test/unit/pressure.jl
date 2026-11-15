@@ -151,8 +151,8 @@ end
 end
 
 @testitem "pressure: the rule's pullback against a Jacobian" setup = [
-        PressureCases, PullbackChecks, ReferenceAD,
-    ] begin
+    PressureCases, PullbackChecks, ReferenceAD,
+] begin
     using ComposableRecurrences, LinearAlgebra
     CR = ComposableRecurrences
     (; rule_vjp, reference_vjp) = PullbackChecks
