@@ -299,7 +299,8 @@ end
 @doc raw"""
     abscond_loop(adm, pmf, κ, h)
 
-Discharges by flow (days × flows) thinned by absconding, with
+Discharges by flow (days × flows; `pmf` is lags × flows, the shorter
+flow's padded with zeros) thinned by absconding, with
 ``U_d = \prod_{j=1}^{d} (1 - h_{t+j-1})`` and
 ``V_d = \prod_{j=1}^{d} (1 - κ U_j)``:
 
@@ -334,7 +335,8 @@ _logistic(x) = inv(one(x) + exp(-x))
 @doc raw"""
     onset_table_loop(logit_h0, γ, nu)
 
-The report-delay CDF of each onset date ``k = 1, \dots, nu``:
+The report-delay CDF of each onset date ``k = 1, \dots, nu``, with `γ`
+covering the days up to `nu + length(logit_h0) - 1`:
 
 ```math
 F_{j,k} = 1 - \prod_{i=1}^{j}

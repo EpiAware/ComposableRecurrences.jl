@@ -280,7 +280,9 @@ function _walk_fill!(
         imax = _imax(τ, L, o, last)
         scj = _walk_column(sc, _walk_index(sc, g, τ, n))
         kw = _walk_strata(x, ks, k0)
-        # One stratum or several, as in the serial convolution's walk.
+        # One stratum writes each weight as its lag is walked. Several read
+        # the finished walk, so no strata loop sits inside the chain of
+        # products.
         if length(kw) == 1
             k1 = first(kw)
             scw = keep isa Val{true} ? scj : _no_record(scj)

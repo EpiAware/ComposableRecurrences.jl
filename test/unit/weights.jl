@@ -399,6 +399,8 @@ end
     ηs = Derived(b -> 0.2 / (1 + b), TimeVarying(PerStratum(B)))
     kws = CR._KernelWeights(computed(PerStratum(Ps) * CR.Survival(ηs)))
     check(kws, (T,), reshape(sin.(1:(2 * L * T)), 2, L, T))
+    # One cohort: the kept walk of each stratum's group is read back.
+    check(kws, (1,), reshape(sin.(1:(2 * L)), 2, L, 1))
     # A recurrence with a computed kernel.
     r = Recurrence(computed(0.3 * W.confirmed(q, hs)))
     check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
