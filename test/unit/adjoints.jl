@@ -2450,6 +2450,14 @@ end
         v .*= sum(m.a[j] for j in 1:t) / t
         return nothing
     end
+    # Reads the same at times 1 and 2, then more from time 5 on.
+    struct CumLag{A}
+        a::A
+    end
+    function CR.forward!(m::CumLag, ::CR.Step, v, s, t)
+        v .*= sum(m.a[j] for j in 1:max(1, t - 3)) / max(1, t - 3)
+        return nothing
+    end
     T, S = 12, 3
     m = TotalByTime(fill(4.0, 100))
     @test CR._reads_step(m)
@@ -2466,6 +2474,22 @@ end
     @test CR._step_inputs(CumMean(ones(100)), S) == 100
     @test CR._step_fit(CumMean(ones(100)), S) === :none
     @test CR._step_fit(CumMean(ones(T)), S) === :one
+    # A step whose reads start to grow later reads one entry at times 1 and
+    # 2; the call's last time shows the growth, so a long run takes plain
+    # AD, and a short one stays within one pass.
+    @test CR._step_fit(CumLag(ones(100)), S) === :one
+    @test CR._step_inputs(CumLag(ones(100)), S, 100) == 97
+    @test CR._step_fit(CumLag(ones(100)), S, 100) === :none
+    lag = Recurrence([0.3, 0.2]; modifiers = (CumLag(ones(100)),))
+    @test CR._fit(lag, recargs(fill(1.1, S, 100), nothing, ones(S, 2))...) === :none
+    @test CR._fit(lag, recargs(fill(1.1, S, T), nothing, ones(S, 2))...) === :one
+    # The last time as the run takes it: `stop`, else the extent in time of
+    # the gain or the added series, else 2.
+    @test CR._last_time(fill(1.1, S, T), nothing, nothing, 1, 20) == 20
+    @test CR._last_time(fill(1.1, S, T), nothing) == T
+    @test CR._last_time(1.0, ones(S, 15)) == 15
+    @test CR._last_time(TimeVarying(fill(1.1, 30)), nothing, nothing, 1, 30) == 30
+    @test CR._last_time(1.0, nothing) == 2
     # A scalar beside the array is seeded as before, and each read counts:
     # this step reads `a[t]` once per stratum.
     @test CR._step_inputs(Smoothed(0.3, fill(1.0, 50)), S) == 1 + S
@@ -2473,7 +2497,7 @@ end
     for ms in (
             (m,), (Smoothed(0.3, 1 .+ 0.1 .* sin.(1:T)),),
             (ThirtyReads(1 .+ 0.1 .* sin.(1:40)),), (m, CR.Transform(clamp, 0.0, 9.0)),
-            (CumMean(1 .+ 0.1 .* sin.(1:T)),),
+            (CumMean(1 .+ 0.1 .* sin.(1:T)),), (CumLag(1 .+ 0.1 .* sin.(1:T)),),
         )
         op = Recurrence([0.3, 0.2]; modifiers = ms)
         @test CR.uses_adjoint(op, CR.Run())

@@ -485,14 +485,17 @@ function _local_read_step!(
 end
 
 # The entries one step of `m` over `S` strata reads, from ones, at times 1
-# and 2. A step that reads a different number at each, as one that reads
-# every entry up to `t` does, would need more passes as the run goes on, so
-# it counts as reading more than its arrays hold, as does a step that fails
-# to run: it seeds every entry through views (`_reads_fewer`,
-# `_step_inputs`), and past the cap the call takes plain AD.
-function _probe_step_reads(m, S)
+# and 2, and the larger of that and the count at the call's last time
+# `tlast`. A step that reads a different number at times 1 and 2, as one
+# that reads every entry up to `t` does, would need more passes as the run
+# goes on, so it counts as reading more than its arrays hold, as does a
+# step that fails to run: it seeds every entry through views
+# (`_reads_fewer`, `_step_inputs`), and past the cap the call takes plain
+# AD. One whose reads start to grow later is caught at the last time.
+function _probe_step_reads(m, S, tlast = 2)
     n = _probe_reads_at(m, S, 1)
-    return n == _probe_reads_at(m, S, 2) ? n : typemax(Int) ÷ 2
+    n == _probe_reads_at(m, S, 2) || return typemax(Int) ÷ 2
+    return tlast <= 2 ? n : max(n, _probe_reads_at(m, S, tlast))
 end
 function _probe_reads_at(m, S, t)
     θs = _param_tuple(m)

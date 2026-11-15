@@ -1019,7 +1019,7 @@ _form_why(f, fs...) = _form_adjoint(f) ? _form_why(fs...) : _part_why(f)
 # A part the local step cannot rebuild sends every call to plain AD.
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
-    return _parts_fit(r, h)
+    return _parts_fit(r, h, _last_time(gain, add, args...))
 end
 # An operator built before the dual-number extension was loaded checks its
 # parts when it is called (`_check_now`). Without the extension the call
@@ -1027,26 +1027,35 @@ end
 # load it.
 function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args...)
     _check_now(r) || return :none
-    return _parts_fit(r, h)
+    return _parts_fit(r, h, _last_time(gain, add, args...))
 end
-function _parts_fit(r, h)
+# The call's last time, as the run takes it: `stop` when given, else the
+# inputs' extent in time, else 2.
+_last_time(gain, add, s0 = nothing, τ0 = 1, stop = nothing, args...) =
+    something(stop, _extent(gain), _extent(add), 2)
+function _parts_fit(r, h, tlast = 2)
     couplings = _couplings_fit(h, r.coupling, _kernel_couplings(r.kernel)...)
-    return _worse(couplings, _steps_fit(r.modifiers, _nstrata(h)))
+    return _worse(couplings, _steps_fit(r.modifiers, _nstrata(h), tlast))
 end
 # A whole-step modifier's local derivative seeds the step's values, its
 # state and its parameters, and takes the same routes as a coupling's.
-_steps_fit(ms::Tuple, S) = reduce(_worse, map(m -> _step_fit(m, S), ms); init = :one)
-function _step_fit(m, S)
+function _steps_fit(ms::Tuple, S, tlast = 2)
+    return reduce(_worse, map(m -> _step_fit(m, S, tlast), ms); init = :one)
+end
+function _step_fit(m, S, tlast = 2)
     _whole_local(m) || return :one
-    return _local_fit(S + nstate(m, S) + _step_inputs(m, S))
+    return _local_fit(S + nstate(m, S) + _step_inputs(m, S, tlast))
 end
 # The parameters a whole-step modifier's local step seeds: its float scalars
 # and, for one that reads fewer entries of its float arrays than they hold
-# (`_reads_fewer`), the entries one step reads; else every array entry.
-function _step_inputs(m, S)
+# (`_reads_fewer`), the entries a step reads, the most of the first two
+# times and the call's last time `tlast`; else every array entry. A step
+# that reads more as the run goes on so routes on its last step, and past
+# the cap takes plain AD.
+function _step_inputs(m, S, tlast = 2)
     _reads_step(m) || return _ninputs(m)
     q = length(_param_tuple(m))
-    return q + min(_probe_step_reads(m, S), _nparams(m) - q)
+    return q + min(_probe_step_reads(m, S, tlast), _nparams(m) - q)
 end
 # Whether a whole-step modifier's local step seeds only the entries a step
 # reads: it reads its float arrays entry by entry (`_reads_step`), and one
