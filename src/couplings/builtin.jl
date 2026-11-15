@@ -292,7 +292,7 @@ end
 # The matrix of a coupling declared linear (`islinear`) over `S` strata: its
 # `forward!` on each basis vector gives a column. Each basis vector is its
 # own column of an identity, never overwritten, as a reverse pass that keeps
-# a reference to its input, such as Enzyme's sparse product, reads it after
+# a reference to its input, as one backend's sparse product does, reads it after
 # the loop.
 function _coupling_matrix(C, S::Integer)
     T = float(param_eltype(C))

@@ -81,6 +81,9 @@ ComposableRecurrences._check_columns(::AnyTracedRArray, leak) = nothing
 function ComposableRecurrences.param_eltype(x::AbstractArray{<:TracedRNumber})
     return eltype(x)
 end
+# A traced number is not a `Real` either, so the generic method would walk
+# its fields; its type is the answer, as for a `Real`.
+ComposableRecurrences.param_eltype(x::TracedRNumber) = typeof(x)
 
 # Traced `reverse` also reverses its argument in place, so a second call
 # with the same kernel (as when resuming from a returned state) would read

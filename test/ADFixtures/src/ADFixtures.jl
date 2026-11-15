@@ -2801,6 +2801,7 @@ const REACTANT_BROKEN = Dict(
         "Recurrence routes, dense and sparse",
         "Recurrence routes in a buffer deeper than the kernels",
         "Recurrence trace through a sparse coupling",
+        "Recurrence sparse user coupling declared linear",
     ],
     "ragged kernel" => [
         "Convolution ragged kernel truncated at the horizon",

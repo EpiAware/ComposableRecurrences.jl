@@ -251,7 +251,13 @@ Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop 
 ### [A linear coupling](@id extending-linear)
 
 A coupling whose `forward!` is linear in `p` and does not read `t` is a matrix, and can say so with [`islinear`](@ref ComposableRecurrences.islinear).
-Each call then builds that matrix from `forward!` on the basis vectors and runs the built-in dense coupling in its place, whose `pullback!` the gradient uses.
+Each call then builds that matrix from `forward!` on the basis vectors,
+
+```math
+q = A p, \qquad A_{\cdot b} = f(e_b), \quad b = 1, \dots, S,
+```
+
+where ``f`` is the coupling's `forward!` and ``e_b`` the ``b``-th basis vector, and runs the built-in dense coupling in its place, whose `pullback!` the gradient uses.
 The same declaration on a whole-step modifier with no state of its own runs the matrix product as its step.
 
 ```@example extending

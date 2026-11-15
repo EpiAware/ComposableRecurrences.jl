@@ -981,7 +981,7 @@ function _step_matrix(m, S::Integer)
         )
     )
     T = float(param_eltype(m))
-    A = zeros(T, S, S)::Matrix{T}
+    A = zeros(T, S, S)::AbstractMatrix
     s = zeros(T, S)
     for b in 1:S
         A[b, b] = one(T)

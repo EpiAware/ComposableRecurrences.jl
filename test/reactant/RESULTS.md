@@ -116,6 +116,10 @@ Total run time 20.5 min, timeout 600 s a case.
 | Recurrence checked at the call | error: MethodError in `param` | error: MethodError in `param` |
 | Recurrence whole-step modifier branching at a tie (occupancy) | error: MethodError in `forward!` | error: MethodError in `forward!` |
 | Recurrence whole-step modifier branching at a tie over five steps (occupancy) | error: MethodError in `forward!` | error: MethodError in `forward!` |
+| Recurrence user coupling declared linear | works (1.9 s / 9.9 µs) | works (1.0 s / 15.1 µs) |
+| Recurrence rank-one user coupling declared linear | works (2.3 s / 11.1 µs) | works (1.4 s / 18.8 µs) |
+| Recurrence sparse user coupling declared linear | error: MethodError | error: MethodError |
+| Recurrence whole-step modifier declared linear | works (2.3 s / 12.7 µs) | works (1.3 s / 15.7 µs) |
 
 ## Hand-written cases
 
@@ -376,6 +380,14 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence user traces on groups and over the whole step | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
 | registry | Recurrence pressure from its trace, by coupling and with no input | forward | cpu | 12 | works | 2.8e-15 | 67.6 | 42.8 | 7.9 |  |  |
 | registry | Recurrence pressure from its trace, by coupling and with no input | reverse | cpu | 12 | works | 6.1e-13 | 4.9 | 146.1 | 224.3 |  |  |
+| registry | Recurrence user coupling declared linear | forward | cpu | 12 | works | 8.4e-16 | 1.9 | 9.9 | 2.3 |  |  |
+| registry | Recurrence user coupling declared linear | reverse | cpu | 12 | works | 8.0e-15 | 1.0 | 15.1 | 42.9 |  |  |
+| registry | Recurrence rank-one user coupling declared linear | forward | cpu | 12 | works | 2.2e-15 | 2.3 | 11.1 | 2.2 |  |  |
+| registry | Recurrence rank-one user coupling declared linear | reverse | cpu | 12 | works | 5.2e-14 | 1.4 | 18.8 | 40.9 |  |  |
+| registry | Recurrence sparse user coupling declared linear | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type ` |
+| registry | Recurrence sparse user coupling declared linear | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type ` |
+| registry | Recurrence whole-step modifier declared linear | forward | cpu | 12 | works | 2.1e-15 | 2.3 | 12.7 | 1.9 |  |  |
+| registry | Recurrence whole-step modifier declared linear | reverse | cpu | 12 | works | 2.1e-15 | 1.3 | 15.7 | 30.7 |  |  |
 
 ## The Reactant extension
 
