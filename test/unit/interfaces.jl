@@ -409,6 +409,22 @@ end
     fixed = Fixed(; N = PerStratum([1.0, 2.0, 3.0]))
     @test CR._at_stratum(fixed, 2) === fixed
     @test Interfaces.test(pw, Fixed, (obj(fixed),); show = false)
+    # Without a history, only the parameters are checked.
+    struct NoHistory{N}
+        N::N
+    end
+    CR.blocks(::NoHistory) = (1, 1)
+    function CR.forward!(m::NoHistory, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1)
+        end
+        return nothing
+    end
+    bare = Interfaces.Arguments(;
+        piece = NoHistory(PerStratum([1.0, 2.0, 3.0])), role = CR.Init(),
+        args = (zeros(3), nothing)
+    )
+    @test Interfaces.test(pw, NoHistory, (bare,); show = false)
 end
 
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
