@@ -37,7 +37,8 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
             x1 = @inbounds X[m + τ, k1]
             _walk_cohort!(x, _no_record(sc), k0, τ, 0, imax, T) do i, l, st
                 i < i0 && return nothing
-                @inbounds Y[τ + i - start, k1] += _walk_value(x, st, k1, i, τ, l) * x1
+                w1 = _walk_value(x, st, k1, i, τ, l)
+                @inbounds Y[τ + i - start, k1] += w1 * x1
                 return nothing
             end
         else
@@ -47,7 +48,8 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
             for k in kw
                 xk = @inbounds X[m + τ, k]
                 for i in i0:imax
-                    @inbounds Y[τ + i - start, k] += _value(x, sc, k, i, τ, i - 1, 1) * xk
+                    w = @inbounds _value(x, sc, k, i, τ, i - 1, 1)
+                    @inbounds Y[τ + i - start, k] += w * xk
                 end
             end
         end
@@ -94,7 +96,8 @@ function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, sta
                 @inbounds begin
                     ȳ = Ȳ[τ + i - start, k]
                     acc += _value(x, sc, k, i, τ, i - 1, 1) * ȳ
-                    x̄ === nothing || _add_value!(x̄, x, sc, ȳ * xk, k, i, τ, i - 1, 1)
+                    x̄ === nothing ||
+                        _add_value!(x̄, x, sc, ȳ * xk, k, i, τ, i - 1, 1)
                 end
             end
             @inbounds X̄[m + τ, k] += acc
@@ -217,15 +220,16 @@ function _weights_walk(op::_KernelWeights, n, keep)
     last = _last_time(op, n)
     _check_coef_times(x, n, last)
     Tp = float(param_eltype(x))
-    K = _weights_array(
-        Val(_has_strata(x)), Tp, max(_coef_strata(x), 1), _coef_lags(x), n
-    )
+    L = _coef_lags(x)
+    # Every weight of cohorts `1:n` lands by `last`, so the walk writes each.
+    K = _has_strata(x) ? _alloc(Tp, _coef_strata(x), L, n) : _alloc(Tp, L, n)
     return _walk_fill!(K, op.kernel, 0, last, keep)
 end
 function pullback!(grads, op::_KernelWeights, ::Run, cache)
     _count_pullback()
     x̄ = cotangent(cotangent(grads.piece, :kernel), :x)
     x̄ === nothing && return nothing
-    _walk_weights_back!(x̄, op.kernel, grads.y, 0, _last_time(op, cache.n), cache.sc)
+    last = _last_time(op, cache.n)
+    _walk_weights_back!(x̄, op.kernel, grads.y, 0, last, cache.sc)
     return nothing
 end

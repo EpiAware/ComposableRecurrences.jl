@@ -1452,7 +1452,8 @@ if isfile(BVD_HANDRULE)
             end
             θ = _flat(
                 [50.0 + 40.0 * _noise(t, 31) for t in 1:T],
-                [0.1 + 0.05 * _noise(t, 32) for t in 1:T], exp.(-0.05 .* (0:(L - 1)))
+                [0.1 + 0.05 * _noise(t, 32) for t in 1:T],
+                exp.(-0.05 .* (0:(L - 1)))
             )
             return f, θ
         end
@@ -1461,7 +1462,9 @@ if isfile(BVD_HANDRULE)
         confirmed = S * (1 - CR.Survival(TimeVarying(h); from = 1))
         return wrap(Convolution(TimeVarying(confirmed, CR.Primary())))(A)
     end
-    _bvd_two_clock_hand(kernel) = (wrap, A, h, S) -> kernel(collect(A), collect(h), collect(S))
+    function _bvd_two_clock_hand(kernel)
+        return (wrap, A, h, S) -> kernel(collect(A), collect(h), collect(S))
+    end
 
     function _bvd_abscond(run)
         return function (wrap, z::Size)
@@ -1479,7 +1482,8 @@ if isfile(BVD_HANDRULE)
             ]
             θ = _flat(
                 [30.0 + 20.0 * _noise(t, k + 33) for t in 1:T, k in 1:2],
-                pmf ./ sum(pmf; dims = 1), [0.05], [0.1 + 0.05 * _noise(t, 36) for t in 1:T]
+                pmf ./ sum(pmf; dims = 1), [0.05],
+                [0.1 + 0.05 * _noise(t, 36) for t in 1:T]
             )
             return f, θ
         end
@@ -1494,7 +1498,9 @@ if isfile(BVD_HANDRULE)
         return permutedims(wrap(Convolution(kernel))(permutedims(adm)))
     end
     function _bvd_abscond_hand(kernel)
-        return (wrap, adm, pmf, κ, h) -> kernel(collect(adm), collect(pmf), κ, collect(h))
+        return function (wrap, adm, pmf, κ, h)
+            return kernel(collect(adm), collect(pmf), κ, collect(h))
+        end
     end
 
     _logistic_sum(a, b) = BVD._logistic(a + b)
@@ -1520,7 +1526,9 @@ if isfile(BVD_HANDRULE)
         kernel = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
         return wrap(CR._KernelWeights(kernel))(nu)
     end
-    _bvd_onset_hand(kernel) = (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
+    function _bvd_onset_hand(kernel)
+        return (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
+    end
 
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
@@ -1544,17 +1552,20 @@ if isfile(BVD_HANDRULE)
                 (BVD.zone_loop, BVD.zone_infections), [5, 64],
             ),
             (
-                "bvd_two_clock", "BVD two_clock_confirmed: a computed survival kernel",
+                "bvd_two_clock",
+                "BVD two_clock_confirmed: a computed survival kernel",
                 _bvd_two_clock, _bvd_two_clock_rule, _bvd_two_clock_hand,
                 (BVD.two_clock_loop, BVD.two_clock_confirmed), [1],
             ),
             (
-                "bvd_abscond", "BVD abscond_thinned_flows: a nested survival kernel",
+                "bvd_abscond",
+                "BVD abscond_thinned_flows: a nested survival kernel",
                 _bvd_abscond, _bvd_abscond_rule, _bvd_abscond_hand,
                 (BVD.abscond_loop, BVD.abscond_thinned_flows), [1],
             ),
             (
-                "bvd_onset", "BVD onset_report_cdf_table: computed kernel weights",
+                "bvd_onset",
+                "BVD onset_report_cdf_table: computed kernel weights",
                 _bvd_onset, _bvd_onset_rule, _bvd_onset_hand,
                 (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
             ),

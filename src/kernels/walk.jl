@@ -16,18 +16,21 @@
 # its cotangent at a lag is whole once its parent's is added.
 
 # Each `Survival`'s survival `S`, hazard `H` and added cotangent `P` at each
-# lag index of the cohort walked: vectors of the lags, or columns of `n`
-# cohorts' (lags × `n`), read one at a time through `_walk_column`. When
+# lag index of the cohort walked: vectors of the lags, or for `S` and `H`
+# columns of `n` cohorts' (lags × `n`), read one at a time through
+# `_walk_column`; `P` is cleared as it is read, so one serves every cohort. When
 # every walk is kept, `D` keeps the partials of a hazard whose map is
 # costly to evaluate again (see `_keeps_fill`), formed with its value;
 # otherwise it is `nothing`.
-struct _WalkScratch{C, A <: AbstractArray, D}
+struct _WalkScratch{C, A <: AbstractArray, V <: AbstractVector, D}
     hazard::C
     S::A
     H::A
-    P::A
+    P::V
     D::D
 end
+# A scratch that keeps its hazard's partials.
+const _KeptPartials = _WalkScratch{<:Any, <:Any, <:Any, <:AbstractArray}
 _walk_scratch(x, ::Type, dims, keep) = nothing
 function _walk_scratch(x::Derived, ::Type{Tp}, dims, keep) where {Tp}
     return map(a -> _walk_scratch(a, Tp, dims, keep), x.args)
@@ -35,7 +38,7 @@ end
 function _walk_scratch(x::Survival, ::Type{Tp}, dims, keep) where {Tp}
     return _WalkScratch(
         _walk_scratch(x.hazard, Tp, dims, keep), _alloc(Tp, dims...),
-        _alloc(Tp, dims...), zeros(Tp, dims...),
+        _alloc(Tp, dims...), zeros(Tp, first(dims)),
         _hazard_partials(x.hazard, Tp, dims, keep)
     )
 end
@@ -66,24 +69,30 @@ _walk_column(sc, j) = sc
 _walk_column(sc::Tuple, j) = map(s -> _walk_column(s, j), sc)
 function _walk_column(sc::_WalkScratch{<:Any, <:AbstractMatrix}, j)
     return _WalkScratch(
-        _walk_column(sc.hazard, j), view(sc.S, :, j), view(sc.H, :, j),
-        view(sc.P, :, j), _partials_column(sc.D, j)
+        _walk_column(sc.hazard, j), view(sc.S, :, j), view(sc.H, :, j), sc.P,
+        _partials_column(sc.D, j)
     )
 end
 _partials_column(::Nothing, j) = nothing
 _partials_column(D::AbstractMatrix, j) = view(D, :, j)
 
-# ---- forward -------------------------------------------------------------------
+# ---- forward ----------------------------------------------------------------
 
 # The state of the walk: each `Survival`'s survival at the current lag and
 # its hazard's state, a tuple per `Derived`, `nothing` elsewhere.
 _walk_state(x, ::Type) = nothing
-_walk_state(x::Derived, ::Type{T}) where {T} = map(a -> _walk_state(a, T), x.args)
-_walk_state(x::Survival, ::Type{T}) where {T} = (one(T), _walk_state(x.hazard, T))
+function _walk_state(x::Derived, ::Type{T}) where {T}
+    return map(a -> _walk_state(a, T), x.args)
+end
+function _walk_state(x::Survival, ::Type{T}) where {T}
+    return (one(T), _walk_state(x.hazard, T))
+end
 
 # Walk cohort `τ` from lag index 1 to `imax`, lags from `o`, for stratum
 # `k`, calling `f(i, l, st)` with the state at each lag.
-@inline function _walk_cohort!(f::F, x, sc, k, τ, o, imax, ::Type{T}) where {F, T}
+@inline function _walk_cohort!(
+        f::F, x, sc, k, τ, o, imax, ::Type{T}
+    ) where {F, T}
     st = _walk_state(x, T)
     for i in 1:imax
         l = i - 1 + o
@@ -92,7 +101,9 @@ _walk_state(x::Survival, ::Type{T}) where {T} = (one(T), _walk_state(x.hazard, T
     end
     return nothing
 end
-_walk_cohort!(x, sc, k, τ, o, imax, T) = _walk_cohort!(_skip, x, sc, k, τ, o, imax, T)
+function _walk_cohort!(x, sc, k, τ, o, imax, T)
+    return _walk_cohort!(_skip, x, sc, k, τ, o, imax, T)
+end
 _skip(i, l, st) = nothing
 
 # The state at lag index `i` (lag `l`) of cohort `τ`, stratum `k`, from the
@@ -120,7 +131,7 @@ end
 # them.
 @inline _walk_hazard!(sc, h, st, k, i, τ, l) = _walk_value(h, st, k, i, τ, l)
 @inline function _walk_hazard!(
-        sc::_WalkScratch{<:Any, <:Any, <:AbstractArray}, h::Derived, st, k, i, τ, l
+        sc::_KeptPartials, h::Derived, st, k, i, τ, l
     )
     v, ∂ = _value_and_partials(h.f, _walk_values(h.args, st, k, i, τ, l))
     @inbounds sc.D[i] = ∂
@@ -169,11 +180,13 @@ end
 _walk_groups(x, ks) = _walks_strata(x) ? ks : (first(ks):first(ks))
 _walk_strata(x, ks, k0) = _walks_strata(x) ? (k0:k0) : ks
 
-# ---- reverse -------------------------------------------------------------------
+# ---- reverse ----------------------------------------------------------------
 
 # A `Survival` keeps the cotangent added to its value at a lag for its step
 # back.
-_add_value!(::Nothing, x::Survival, sc::_WalkScratch, v, k, i, τ, l, b) = nothing
+function _add_value!(::Nothing, x::Survival, sc::_WalkScratch, v, k, i, τ, l, b)
+    return nothing
+end
 Base.@propagate_inbounds function _add_value!(
         x̄, x::Survival, sc::_WalkScratch, v, k, i, τ, l, b
     )
@@ -210,7 +223,9 @@ end
 end
 @inline _walk_back_args(ā, ::Tuple{}, ::Tuple{}, ::Tuple{}, k, i, τ, l) = ()
 @inline function _walk_back_args(ā, x::Tuple, sc::Tuple, a::Tuple, k, i, τ, l)
-    head = _walk_back(_first_mirror(ā), first(x), first(sc), first(a), k, i, τ, l)
+    head = _walk_back(
+        _first_mirror(ā), first(x), first(sc), first(a), k, i, τ, l
+    )
     rest = _walk_back_args(
         _tail_mirrors(ā), Base.tail(x), Base.tail(sc), Base.tail(a), k, i, τ, l
     )
@@ -222,7 +237,7 @@ end
     return _add_value!(h̄, h, sc.hazard, v, k, i, τ, l, 1)
 end
 @inline function _add_hazard!(
-        h̄, h::Derived, sc::_WalkScratch{<:Any, <:Any, <:AbstractArray}, v, k, i, τ, l
+        h̄, h::Derived, sc::_KeptPartials, v, k, i, τ, l
     )
     ∂ = @inbounds sc.D[i]
     return _add_value_partials!(h̄, h, sc.hazard, v, ∂, k, i, τ, l, 1)
@@ -248,7 +263,7 @@ _tail_mirrors(ā::Tuple) = Base.tail(ā)
     return (c, _walk_back(h̄, x.hazard, sc.hazard, a[2], k, i, τ, l))
 end
 
-# ---- the weights as an array, by the walk --------------------------------------
+# ---- the weights as an array, by the walk -----------------------------------
 
 # The weights of cohorts `1:n`, lags from `o`, each one whose weight lands
 # by `last`, into `K` (lags × cohorts, or strata × lags × cohorts), and the
@@ -256,7 +271,9 @@ end
 # cohort again in the reverse pass, which costs less than keeping its walk;
 # any other map is costly enough to recompute that `keep` keeps every
 # cohort's walk, as a column of the scratch, and returns it.
-function _walk_fill!(K, kernel::_ComputedKernel, o, last, keep::Val = Val(false))
+function _walk_fill!(
+        K, kernel::_ComputedKernel, o, last, keep::Val = Val(false)
+    )
     x = kernel.x
     L = _coef_lags(x)
     T = eltype(K)
@@ -274,14 +291,16 @@ function _walk_fill!(K, kernel::_ComputedKernel, o, last, keep::Val = Val(false)
             k1 = first(kw)
             scw = keep isa Val{true} ? scj : _no_record(scj)
             _walk_cohort!(x, scw, k0, τ, o, imax, T) do i, l, st
-                @inbounds _set_weight!(K, _walk_value(x, st, k1, i, τ, l), k1, i, τ)
+                w1 = _walk_value(x, st, k1, i, τ, l)
+                @inbounds _set_weight!(K, w1, k1, i, τ)
             end
         else
             # Several: a loop over the strata inside the walk would hold up
             # its chain of products, so each reads the walk after it.
             _walk_cohort!(x, scj, k0, τ, o, imax, T)
             for k in kw, i in 1:imax
-                @inbounds _set_weight!(K, _value(x, scj, k, i, τ, i - 1 + o, 1), k, i, τ)
+                w = @inbounds _value(x, scj, k, i, τ, i - 1 + o, 1)
+                @inbounds _set_weight!(K, w, k, i, τ)
             end
         end
     end
@@ -318,12 +337,16 @@ end
 _weights_strata(K::AbstractMatrix) = Base.OneTo(1)
 _weights_strata(K::AbstractArray{<:Any, 3}) = axes(K, 1)
 Base.@propagate_inbounds _weight(K::AbstractMatrix, k, i, τ) = K[i, τ]
-Base.@propagate_inbounds _weight(K::AbstractArray{<:Any, 3}, k, i, τ) = K[k, i, τ]
+Base.@propagate_inbounds function _weight(K::AbstractArray{<:Any, 3}, k, i, τ)
+    return K[k, i, τ]
+end
 Base.@propagate_inbounds function _set_weight!(K::AbstractMatrix, v, k, i, τ)
     K[i, τ] = v
     return nothing
 end
-Base.@propagate_inbounds function _set_weight!(K::AbstractArray{<:Any, 3}, v, k, i, τ)
+Base.@propagate_inbounds function _set_weight!(
+        K::AbstractArray{<:Any, 3}, v, k, i, τ
+    )
     K[k, i, τ] = v
     return nothing
 end

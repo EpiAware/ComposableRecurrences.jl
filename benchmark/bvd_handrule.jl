@@ -344,7 +344,9 @@ F_{j,k} = 1 - \prod_{i=1}^{j} (1 - η_{i,k}).
 
 `γ` covers the days up to `nu + length(logit_h0) - 1`.
 """
-function onset_table_loop(logit_h0::AbstractVector, γ::AbstractVector, nu::Integer)
+function onset_table_loop(
+        logit_h0::AbstractVector, γ::AbstractVector, nu::Integer
+    )
     T = promote_type(eltype(logit_h0), eltype(γ))
     D = length(logit_h0)
     F = Matrix{T}(undef, D, nu)
