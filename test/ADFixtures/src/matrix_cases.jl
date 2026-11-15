@@ -1525,6 +1525,9 @@ end
 const TUTORIAL_HANDRULE = joinpath(
     @__DIR__, "..", "..", "..", "benchmark", "tutorial_handrule.jl"
 )
+# `HAND_RULE_CASES` in `benchmark/matrix_report.jl` repeats this list, since
+# the report runs without loading `MatrixCases`; a case added here goes there
+# too.
 "The cases with a `handrule` arm from `benchmark/tutorial_handrule.jl`."
 const TUTORIAL_HANDRULE_CASES = String[]
 if isfile(TUTORIAL_HANDRULE)
@@ -1588,6 +1591,60 @@ if isfile(TUTORIAL_HANDRULE)
                 g, r, p = _unpack(θ, (L,), (S,), (S,))
                 y = TH.transform_handrule(
                     collect(g), K, collect(r), collect(p), T
+                )
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("delay_primary"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            return function (θ)
+                G, X = _unpack(θ, (S, L, T), (S, T))
+                y = TH.delay_primary_handrule(collect(G), collect(X))
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("outcome_chain"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            V = [_noise(t, 15) for t in 1:T]
+            return function (θ)
+                d1, d2, d3, p, x = _unpack(
+                    θ, (L,), (L,), (L,), (2,), (T,)
+                )
+                y = TH.outcomes_handrule(
+                    collect(d1), collect(d2), collect(d3), collect(p),
+                    collect(x)
+                )
+                return sum(W .* view(y, :, 1)) + sum(V .* view(y, :, 2))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("renewal_forecast"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                y = TH.forecast_handrule(collect(g), exp.(logh), exp.(logR))
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("reproduction"), function (z)
+            (; T, L, S) = z
+            pop, K = towns()
+            seed = overview_seed(S, L)
+            W = _weights(S, T)
+            return function (θ)
+                g, logR = _unpack(θ, (L,), (S, T))
+                y = TH.reproduction_handrule(
+                    collect(g), exp.(logR), seed, K, pop
                 )
                 return sum(W .* y)
             end
