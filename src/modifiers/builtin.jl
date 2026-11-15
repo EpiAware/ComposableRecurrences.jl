@@ -975,6 +975,49 @@ function _add_diag!(M̄, M::TimeVarying{<:Any, <:_Movement}, x, p, t)
     return _add_movement_entry!(cotangent(M̄, :x), M.x, x, p, p, t)
 end
 
+# The same over a movement, in one pass per column as the step's forward:
+# column `b`'s sum `o` and `c = K[:, b]ᵀ q̄` come from one loop, which also
+# adds the diagonal term's share `−x e` to every entry of `K̄[:, b]`, with
+# `x = −s̄′_b v_b`, so no entry of `M` is rebuilt from its column sum.
+function pullback!(
+        grads, m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}},
+        ::Step, v, s, t
+    )
+    v̄, s̄ = grads.v, grads.s
+    _stays(m.M) && return (fill!(s̄, zero(eltype(s̄))); nothing)
+    (; K, E) = m.M.x
+    X̄ = cotangent(cotangent(grads.piece, :M), :x)
+    K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
+    # `s̄` takes `q̄ = v̄′ + s̄′`; `v̄` keeps `s̄′` until its column is done.
+    for p in eachindex(v, v̄, s̄)
+        d = s̄[p]
+        s̄[p] = v̄[p] + d
+        v̄[p] = d
+    end
+    for b in axes(K, 2)
+        e = _intensity(E, b, t)
+        w = e * v[b]
+        d = v̄[b]
+        # The diagonal is read only when the state's cotangent asks for it.
+        xe = iszero(d) ? zero(w * d) : -d * v[b] * e
+        c = zero(eltype(v̄))
+        o = zero(eltype(K))
+        for a in axes(K, 1)
+            c += K[a, b] * s̄[a]
+            o += K[a, b]
+            add_cotangent!(K̄, w * (s̄[a] - s̄[b]) - xe, a, b)
+        end
+        add_cotangent!(K̄, xe, b, b)
+        diag = iszero(d) ? zero(c) : -(1 - e * o + K[b, b] * e) * d
+        v̄[b] = diag + e * c + (1 - e * o) * s̄[b]
+        ē = v[b] * (c - o * s̄[b])
+        iszero(d) || (ē += -d * v[b] * (K[b, b] - o))
+        _add_intensity!(Ē, E, ē, b, t)
+    end
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+
 @implements PieceInterface{(:pullback,)} Hazard [
     Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0)),
 ]

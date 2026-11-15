@@ -756,6 +756,46 @@ end
         @test c.v && c.s && c.θ
         @test all(iszero, c.θ̄[(9 * (2 - t) + 1):(9 * (3 - t))])
     end
+    # A kernel's movement, read through its intensity at `t`.
+    KE = [0.0, 0.3, 0.1, 0.2, 0.0, 0.4, 0.1, 0.2, 0.0, 0.3, 0.2, 0.6, 0.5, 0.4, 0.1]
+    for t in (1, 2)
+        c = ModifierChecks.check_pullback(
+            θ -> CR.Redistribute(reshape(θ[1:9], 3, 3), reshape(θ[10:15], 3, 2)),
+            KE, v, s, t
+        )
+        @test c.v && c.s && c.θ
+    end
+end
+
+@testitem "Redistribute: a movement's pullback matches the general one" begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    # The movement's own pullback against the general one through its
+    # entries, with some state cotangents zero, which skip the diagonal.
+    rng = Xoshiro(3)
+    general = Tuple{Any, CR.Redistribute, CR.Step, Any, Any, Any}
+    for n in (1, 2, 5), zero_some in (false, true)
+        K, E = rand(rng, n, n) .* 0.2, rand(rng, n, 4) .* 0.5
+        m = CR.Redistribute(K, E)
+        v, v̄0, s̄0 = rand(rng, n), randn(rng, n), randn(rng, n)
+        zero_some && (s̄0[1:2:end] .= 0)
+        function run(f)
+            K̄, Ē = zeros(n, n), zeros(n, 4)
+            piece = (; M = (; x = (; K = K̄, E = Ē)))
+            g = (; piece, v = copy(v̄0), s = copy(s̄0))
+            f(g)
+            return g.v, g.s, K̄, Ē
+        end
+        fused = run(g -> CR.pullback!(g, m, CR.Step(), v, zeros(n), 3))
+        ref = run(
+            g -> invoke(
+                CR.pullback!, general, g, m, CR.Step(), v, zeros(n), 3
+            )
+        )
+        for (a, b) in zip(fused, ref)
+            @test a ≈ b atol = 1.0e-13
+        end
+    end
 end
 
 @testitem "Transform(clamp) pullback matches the Jacobian" setup = [ModifierChecks] begin
