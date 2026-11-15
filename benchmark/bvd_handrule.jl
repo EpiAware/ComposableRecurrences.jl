@@ -9,6 +9,10 @@
 # rules, differentiated by the backend itself. The rules are Mooncake rules
 # only: Enzyme differentiates the loops in both arms.
 #
+# The loops and rules were written in this repository, not copied. The
+# loops follow `references/bvd.jl`, a frozen copy of BVDOutbreakSize at
+# commit 95be3b22, and neither is kept in step with BVDOutbreakSize.
+#
 # Included by `test/ADFixtures/src/matrix_cases.jl` inside `MatrixCases`.
 module BVDHandRule
 
