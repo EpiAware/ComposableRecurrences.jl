@@ -82,7 +82,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.11', '1']
+        # The executor items run Enzyme, which aborts while compiling on
+        # Julia 1.13.4 ("unsupported tag julia.gc_alloc_zeroinit_indirect"),
+        # so the current release is pinned to 1.13.3 here until an Enzyme
+        # release handles the tag.
+        version: ['1.11', '1.13.3']
     env:
       JULIA_NUM_THREADS: '4'
     steps:
