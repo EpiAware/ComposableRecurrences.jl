@@ -101,6 +101,8 @@ function _contributions(c::_ComputedConvolution, route, x; kwargs...)
     )
 end
 
+_pressure_rule(::_ComputedKernel) = false
+
 function _with_kernel(r::Recurrence, K)
     return Recurrence(_Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds)
 end

@@ -772,6 +772,21 @@ function reproduction(wrap, z::Size)
     return f, _flat(overview_gi(L), log.(overview_R(S, T)))
 end
 
+# The same from `pressure`, a second pass over the run's outputs.
+function reproduction_pressure(wrap, z::Size)
+    (; T, L, S) = z
+    pop, K = towns()
+    seed = overview_seed(S, L)
+    W = _weights(S, T)
+    f = function (θ)
+        g, logR = _unpack(θ, (L,), (S, T))
+        r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
+        y = wrap(r)(exp.(logR); history = seed)
+        return sum(W .* y ./ CR.pressure(r, y; history = seed))
+    end
+    return f, _flat(overview_gi(L), log.(overview_R(S, T)))
+end
+
 "The cases, in report order."
 const CASES = [
     Case(
@@ -959,6 +974,11 @@ const CASES = [
     Case(
         "reproduction", "effective reproduction number of the towns' depleted run",
         reproduction, [3], false,
+    ),
+    Case(
+        "reproduction_pressure",
+        "the same reproduction number from pressure(r, y)",
+        reproduction_pressure, [3], false,
     ),
 ]
 
@@ -1578,6 +1598,25 @@ if isfile(TUTORIAL_HANDRULE)
             end
         end
     )
+    # The towns' reproduction number, read from the trace or from
+    # `pressure`, against one hand rule.
+    for name in ("reproduction", "reproduction_pressure")
+        _handrule_arm(
+            _case(name), function (z)
+                (; T, L, S) = z
+                pop, K = towns()
+                seed = overview_seed(S, L)
+                W = _weights(S, T)
+                return function (θ)
+                    g, logR = _unpack(θ, (L,), (S, T))
+                    Reff = TH.reproduction_handrule(
+                        collect(g), exp.(logR), seed, K, collect(Float64, pop)
+                    )
+                    return sum(W .* Reff)
+                end
+            end
+        )
+    end
     _handrule_arm(
         _case("transform"), function (z)
             (; T, L, S) = z

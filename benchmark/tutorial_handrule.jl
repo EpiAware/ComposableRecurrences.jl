@@ -11,7 +11,8 @@ module TutorialHandRule
 import Mooncake
 using Mooncake: CoDual, NoRData, primal, tangent
 
-export ar2_handrule, depletion_handrule, imports_handrule, transform_handrule
+export ar2_handrule, depletion_handrule, imports_handrule, transform_handrule,
+    reproduction_handrule
 
 const _Vec = Vector{Float64}
 const _Mat = Matrix{Float64}
@@ -311,6 +312,115 @@ function Mooncake.rrule!!(
         return ntuple(_ -> NoRData(), 6)
     end
     return CoDual(y, ō), transform_handrule_pb
+end
+
+# ---- effective reproduction number ------------------------------------------
+
+# The towns' depleted run of `loop_reproduction`, keeping each step's
+# renewal sums `P`, coupled sums `Q`, pools before the step `N0` and
+# exponents `X`, and the buffer `Y` of the seed then the infections.
+function _reproduction_state(g, R, seed, K, pop)
+    S, T = size(R)
+    m = size(seed, 2)
+    L = length(g)
+    V = promote_type(eltype(g), eltype(R), eltype(K), eltype(pop))
+    Y = zeros(V, S, m + T)
+    Y[:, 1:m] .= seed
+    P = zeros(V, S, T)
+    Q = zeros(V, S, T)
+    N0 = zeros(V, S, T)
+    X = zeros(V, S, T)
+    Reff = zeros(V, S, T)
+    pool = collect(V, pop)
+    @inbounds for t in 1:T
+        for k in 1:S
+            acc = zero(V)
+            for l in 1:L
+                acc += g[l] * Y[k, m + t - l]
+            end
+            P[k, t] = acc
+        end
+        for a in 1:S
+            q = zero(V)
+            for b in 1:S
+                q += K[a, b] * P[b, t]
+            end
+            x = R[a, t] * q / pop[a]
+            drawn = -pool[a] * expm1(-x)
+            N0[a, t] = pool[a]
+            pool[a] -= drawn
+            Q[a, t] = q
+            X[a, t] = x
+            Y[a, m + t] = drawn
+            Reff[a, t] = drawn / q
+        end
+    end
+    return (; Reff, Y, P, Q, N0, X, m)
+end
+
+@doc raw"""
+    reproduction_handrule(g, R, seed, K, pop)
+
+The effective reproduction number of a renewal over towns coupled by `K`,
+with hazard depletion from populations `pop`: each day's infections over
+the coupled renewal sum they come from, as `loop_reproduction`.
+Differentiable in `g` and `R`.
+"""
+function reproduction_handrule(g, R, seed, K, pop)
+    return _reproduction_state(g, R, seed, K, pop).Reff
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(reproduction_handrule), _Vec, _Mat, _Mat, _Mat, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(reproduction_handrule)}, g::CoDual{_Vec},
+        R::CoDual{_Mat}, seed::CoDual{_Mat}, K::CoDual{_Mat}, pop::CoDual{_Vec}
+    )
+    gp, Rp, Kp, popp = primal(g), primal(R), primal(K), primal(pop)
+    st = _reproduction_state(gp, Rp, primal(seed), Kp, popp)
+    ō = zero(st.Reff)
+    function reproduction_handrule_pb(::NoRData)
+        _reproduction_back!(tangent(g), tangent(R), ō, st, gp, Rp, Kp, popp)
+        return ntuple(_ -> NoRData(), 6)
+    end
+    return CoDual(st.Reff, ō), reproduction_handrule_pb
+end
+
+# From the last day back. With `d̄` the cotangent of a day's infections and
+# `n̄` that of the pool after it, the exponent takes `N0 e^{-x} (d̄ - n̄)`,
+# the pool before it `d̄ (1 - e^{-x}) + n̄ e^{-x}`, and the coupled sum the
+# exponent's share and the ratio's; the renewal sums then take `Kᵀ q̄`.
+function _reproduction_back!(ḡ, R̄, ō, st, g, R, K, pop)
+    (; Y, P, Q, N0, X, m) = st
+    S, T = size(R)
+    L = length(g)
+    Ȳ = zeros(S, m + T)
+    n̄ = zeros(S)
+    q̄ = zeros(S)
+    @inbounds for t in T:-1:1
+        for a in 1:S
+            q, x, drawn = Q[a, t], X[a, t], Y[a, m + t]
+            d̄ = ō[a, t] / q + Ȳ[a, m + t]
+            e = exp(-x)
+            x̄ = N0[a, t] * e * (d̄ - n̄[a])
+            n̄[a] = -d̄ * expm1(-x) + n̄[a] * e
+            R̄[a, t] += x̄ * q / pop[a]
+            q̄[a] = x̄ * R[a, t] / pop[a] - ō[a, t] * drawn / (q * q)
+        end
+        for b in 1:S
+            p̄ = 0.0
+            for a in 1:S
+                p̄ += K[a, b] * q̄[a]
+            end
+            for l in 1:L
+                ḡ[l] += p̄ * Y[b, m + t - l]
+                Ȳ[b, m + t - l] += p̄ * g[l]
+            end
+        end
+    end
+    return nothing
 end
 
 end # module TutorialHandRule
