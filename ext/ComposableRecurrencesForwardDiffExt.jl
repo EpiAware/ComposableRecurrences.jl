@@ -516,6 +516,12 @@ function _transform_partials(
     ) where {N}
     return ntuple(i -> ForwardDiff.partials(y, i), Val(N))
 end
+# Its value.
+function ComposableRecurrences._transform_value(
+        y::ForwardDiff.Dual{<:ForwardDiff.Tag{_TransformTag}}
+    )
+    return ForwardDiff.value(y)
+end
 
 # The primal value of a dual number, through any nesting, and its type.
 _primal_value(x::ForwardDiff.Dual) = _primal_value(ForwardDiff.value(x))

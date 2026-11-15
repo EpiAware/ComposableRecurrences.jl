@@ -1490,7 +1490,8 @@ if isfile(BVD_HANDRULE)
         h1 = vcat(h[1:1], h[1:(end - 1)])
         stay = CR.Survival(κ * CR.Survival(TimeVarying(h1); from = 1); from = 1)
         kernel = TimeVarying(PerStratum(permutedims(pmf)) * stay, CR.Primary())
-        return wrap(Convolution(kernel))(adm)
+        # The flows are strata, so the input is flows × days.
+        return permutedims(wrap(Convolution(kernel))(permutedims(adm)))
     end
     function _bvd_abscond_hand(kernel)
         return (wrap, adm, pmf, κ, h) -> kernel(collect(adm), collect(pmf), κ, collect(h))

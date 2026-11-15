@@ -1,16 +1,16 @@
-# Operators with a computed kernel (see `weights.jl`). A convolution fills
-# a block of cohorts at a time inside its own loops; a recurrence and
-# `kernel_weights` fill the weights as a dense `Primary()` kernel and take
-# its cotangent back to the coefficients.
+# Operators with a computed kernel (see `weights.jl`). A convolution and
+# `kernel_weights` walk each cohort's weights in turn (see `walk.jl`); a
+# recurrence fills the weights as a dense `Primary()` kernel and takes its
+# cotangent back to the coefficients.
 
 const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 
 # The input at time `σ`, buffer row `m + σ`, spreads forward through its
-# cohort's weights, as a `Primary()` kernel's does, filled a block of
-# cohorts at a time and shared by the strata. The strata share each block,
-# so they run in one loop; another executor takes the dense kernel of the
-# same weights, whose loops it splits by stratum.
+# cohort's weights, as a `Primary()` kernel's does, walked one cohort at a
+# time. Strata share a cohort's walk unless a `Survival` has strata of its
+# own; another executor takes the dense kernel of the same weights, whose
+# loops it splits by stratum.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
     return _convolve_dense!(ex, Y, c, X, m, start)
 end
@@ -22,25 +22,42 @@ end
 function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     x = c.x
     L = _nlags(c)
+    T = eltype(Y)
     stop = start + size(Y, 1) - 1
-    sc = _walk_scratch(x, eltype(Y), L)
+    sc = _walk_scratch(x, T, (L,), Val(false))
     ks = axes(Y, 2)
     for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
-        for i in 1:_imax(τ, L, 0, stop)
-            l = i - 1
-            _walk!(x, sc, k0, i, τ, l)
-            t = τ + l - start + 1
-            t < 1 && continue
-            for k in _walk_strata(x, ks, k0)
-                @inbounds Y[t, k] += _value(x, sc, k, i, τ, l, 1) * X[m + τ, k]
+        imax = _imax(τ, L, 0, stop)
+        # Lag index `i` of cohort `τ` lands in row `τ + i - start`.
+        i0 = max(1, start - τ + 1)
+        kw = _walk_strata(x, ks, k0)
+        if length(kw) == 1
+            # One stratum: each weight is added as its lag is walked.
+            k1 = first(kw)
+            x1 = @inbounds X[m + τ, k1]
+            _walk_cohort!(x, _no_record(sc), k0, τ, 0, imax, T) do i, l, st
+                i < i0 && return nothing
+                @inbounds Y[τ + i - start, k1] += _walk_value(x, st, k1, i, τ, l) * x1
+                return nothing
+            end
+        else
+            # Several: a loop over the strata inside the walk would hold up
+            # its chain of products, so each reads the walk after it.
+            _walk_cohort!(x, sc, k0, τ, 0, imax, T)
+            for k in kw
+                xk = @inbounds X[m + τ, k]
+                for i in i0:imax
+                    @inbounds Y[τ + i - start, k] += _value(x, sc, k, i, τ, i - 1, 1) * xk
+                end
             end
         end
     end
     return Y
 end
 
-# Its reverse pass recomputes each block, adds each input's cotangent and
-# the weights', and takes the weights' back to the coefficients.
+# Its reverse pass walks each cohort again, adds each input's cotangent and
+# the weights', and takes the weights' back to the coefficients along the
+# same walk; another executor takes the dense kernel's reverse pass.
 function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
     stop = start + size(Ȳ, 1) - 1
     K, sc = _fill_kernel(c, 0, stop, stop)
@@ -63,31 +80,26 @@ function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, sta
     x = c.x
     x̄ = cotangent(c̄, :x)
     L = _nlags(c)
+    T = eltype(X̄)
     stop = start + size(Ȳ, 1) - 1
-    sc = _walk_scratch(x, eltype(X̄), L)
+    sc = _walk_scratch(x, T, (L,), Val(false))
     ks = axes(Ȳ, 2)
     for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
         imax = _imax(τ, L, 0, stop)
-        for i in 1:imax
-            _walk!(x, sc, k0, i, τ, i - 1)
-        end
-        _walk_clear!(sc)
-        for i in imax:-1:1
-            l = i - 1
-            t = τ + l - start + 1
-            if t >= 1
-                for k in _walk_strata(x, ks, k0)
-                    @inbounds begin
-                        ȳ = Ȳ[t, k]
-                        X̄[m + τ, k] += _value(x, sc, k, i, τ, l, 1) * ȳ
-                        v = ȳ * X[m + τ, k]
-                        x̄ === nothing || iszero(v) ||
-                            _add_value!(x̄, x, sc, v, k, i, τ, l, 1)
-                    end
+        _walk_cohort!(x, sc, k0, τ, 0, imax, T)
+        for k in _walk_strata(x, ks, k0)
+            xk = @inbounds X[m + τ, k]
+            acc = zero(T)
+            for i in max(1, start - τ + 1):imax
+                @inbounds begin
+                    ȳ = Ȳ[τ + i - start, k]
+                    acc += _value(x, sc, k, i, τ, i - 1, 1) * ȳ
+                    x̄ === nothing || _add_value!(x̄, x, sc, ȳ * xk, k, i, τ, i - 1, 1)
                 end
             end
-            x̄ === nothing || _walk_back!(x̄, x, sc, k0, i, τ, l)
+            @inbounds X̄[m + τ, k] += acc
         end
+        x̄ === nothing || _walk_cohort_back!(x̄, x, sc, k0, τ, 0, imax, T)
     end
     return nothing
 end
@@ -194,8 +206,12 @@ end
 uses_adjoint(op::_KernelWeights, ::Run) = _derived_local(op.kernel)
 # Every weight of the cohorts `1:n` lands by this time.
 _last_time(op::_KernelWeights, n) = n + _nlags(op.kernel) - 1
-_run_forward(op::_KernelWeights, n) = _primal(op, n), (; n)
-function _primal(op::_KernelWeights, n)
+function _run_forward(op::_KernelWeights, n)
+    K, sc = _weights_walk(op, n, Val(true))
+    return K, (; n, sc)
+end
+_primal(op::_KernelWeights, n) = first(_weights_walk(op, n, Val(false)))
+function _weights_walk(op::_KernelWeights, n, keep)
     x = op.kernel.x
     n = max(n, 0)
     last = _last_time(op, n)
@@ -204,12 +220,12 @@ function _primal(op::_KernelWeights, n)
     K = _weights_array(
         Val(_has_strata(x)), Tp, max(_coef_strata(x), 1), _coef_lags(x), n
     )
-    return _walk_fill!(K, op.kernel, 0, last)
+    return _walk_fill!(K, op.kernel, 0, last, keep)
 end
 function pullback!(grads, op::_KernelWeights, ::Run, cache)
     _count_pullback()
     x̄ = cotangent(cotangent(grads.piece, :kernel), :x)
     x̄ === nothing && return nothing
-    _walk_weights_back!(x̄, op.kernel, grads.y, 0, _last_time(op, cache.n))
+    _walk_weights_back!(x̄, op.kernel, grads.y, 0, _last_time(op, cache.n), cache.sc)
     return nothing
 end
