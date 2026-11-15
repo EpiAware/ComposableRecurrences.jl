@@ -190,6 +190,26 @@ end
         CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
     @test CR._modifier_adjoint(d) === :pullback
+    # A blockwise depletion whose form has no pullback takes plain AD: the
+    # form receives its `PerStratum` unresolved and may index it.
+    struct IndexedShare{W}
+        w::W
+    end
+    function CR.forward!(f::IndexedShare, ::CR.Step, v, s, N)
+        for i in eachindex(v, s)
+            y = min(v[i] * f.w.x[1], s[i])
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
+    end
+    dd = CR.Depletion(
+        10.0, CR.Flow(:O => 0, 0.1; form = CR.Share()),
+        IndexedShare(PerStratum([0.5, 0.4])); pools = (O = 0.0,)
+    )
+    @test CR._blocks(dd) !== nothing
+    @test !CR.uses_adjoint(dd, CR.Step())
+    @test CR._modifier_adjoint(dd) === :none
+    @test !CR.uses_adjoint(Recurrence([0.5, 0.3]; modifiers = (dd,)), CR.Run())
 end
 
 @testitem "Blocks: a protected pool is blockwise" begin
