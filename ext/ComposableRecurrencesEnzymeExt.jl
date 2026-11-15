@@ -143,6 +143,9 @@ end
     return Expr(:block, (:(f(xs[$i], ys[$i])) for i in 1:N)..., :(return nothing))
 end
 _val(a) = a.val
+_kept(a, overwritten::Bool) = overwritten ? _keep(a.val) : a.val
+_keep(x::Array) = copy(x)
+_keep(x) = x
 
 _addback(dx, m) = m === nothing ? dx : _addback1(dx, m)
 _addback1(dx::Real, m::Base.RefValue) = dx + m[]
@@ -482,7 +485,10 @@ function EnzymeRules.augmented_primal(
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     VERSION < v"1.12" &&
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
-    args = _rebuild_leaves(X, _map_leaves(_val, leaves))
+    # A cache may hold an input array, so one that later code overwrites is
+    # copied first.
+    ow = Base.tail(EnzymeRules.overwritten(config))
+    args = _rebuild_leaves(X, _map_leaves(_kept, leaves, ow))
     y, cache = _run_forward(args...)
     dy, cache = EnzymeRules.needs_shadow(config) ? _shadow_of(first(args), y, cache) :
         (nothing, cache)

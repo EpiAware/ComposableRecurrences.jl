@@ -316,10 +316,27 @@ function forward(
     return _run_forward(c, x, gain, add, history, start, stop)
 end
 
-# The cache keeps the lag sums `Y` before the gain, which the gain's
-# cotangent reads.
+# Checks the call, then convolves in the layout of `x` or into a time-first
+# buffer. The cache keeps the lag sums `Y` before the gain, which the gain's
+# cotangent reads, and the inputs they read: the buffer (history then `x`)
+# with its row offset `o`, or `x` itself. The rules see `x` unchanged in
+# the reverse pass: `Mooncake` restores what later code overwrites, and the
+# `Enzyme` rule copies an input it is told is overwritten.
 function _run_forward(c::Convolution, x, gain, add, history, start, stop)
-    Y, X, o, m, stop, fft = _conv(c, x, gain, add, history, start, stop)
+    kernel = c.kernel
+    Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
+    fft = _fft_path(_method(c), kernel, Tp, x, stop - start + 1)
+    if !fft && _in_layout(Tp, kernel, x, history, start)
+        Y = _layout_sums(Tp, kernel, x, stop)
+        out = _unscaled(gain, add) ? Y :
+            _affine_layout!(similar(Y), Y, gain, add)
+        return out, _LayoutCache(_tape(gain), add, x, Y)
+    end
+    Y, X, o = if fft
+        _fft_buffers(Tp, kernel, x, history, m, S, start, stop, gain, add)
+    else
+        _conv_buffers(Tp, kernel, x, history, m, S, start, stop)
+    end
     out = _finish(Y, x, gain, add, start)
     return out, (; gain = _tape(gain), add, start, stop, X, Y, o, m, fft)
 end
@@ -329,6 +346,10 @@ function _primal(c::Convolution, x, gain, add, history, start, stop)
     if _fft_path(_method(c), kernel, Tp, x, stop - start + 1)
         Y = first(_fft_buffers(Tp, kernel, x, history, m, S, start, stop, gain, add))
         return _finish(Y, x, gain, add, start)
+    end
+    if _in_layout(Tp, kernel, x, history, start)
+        Y = _layout_sums(Tp, kernel, x, stop)
+        return _unscaled(gain, add) ? Y : _affine_layout!(Y, Y, gain, add)
     end
     path = _conv_path(Tp, kernel, x)
     return _convolve_public(path, Tp, kernel, x, gain, add, history, m, S, start, stop)
@@ -402,19 +423,190 @@ end
 Base.@propagate_inbounds _set_at!(y::AbstractVector, v, k, j) = (y[j] = v; nothing)
 Base.@propagate_inbounds _set_at!(y::AbstractMatrix, v, k, j) = (y[k, j] = v; nothing)
 
-# Checks the call, then convolves into a time-first buffer; returns the
-# output buffer of lag sums, the input buffer (history then `x`), its row
-# offset, the history length, the last time and whether the transform ran.
-function _conv(c::Convolution, x, gain, add, history, start, stop)
-    Tp, S, m, stop = _check_conv(c.kernel, x, gain, add, history, start, stop)
-    fft = _fft_path(_method(c), c.kernel, Tp, x, stop - start + 1)
-    Y, X, o = if fft
-        _fft_buffers(Tp, c.kernel, x, history, m, S, start, stop, gain, add)
-    else
-        _conv_buffers(Tp, c.kernel, x, history, m, S, start, stop)
-    end
-    return Y, X, o, m, stop, fft
+# A fixed kernel over a plain array of IEEE floats with no history, from
+# the first time, convolves in the layout of `x` itself, strata first. Time
+# `t` of a matrix is entries `S (t - 1) + 1` to `S t` of its column-major
+# storage, so lag `d` reads every stratum `S d` entries back: one pass per
+# lag over all strata at once, with no buffer to copy in or out. A vector is
+# the case `S = 1`, and keeps the gathers of `_convolve_series!` for short
+# series. Loops split across threads keep the buffer, which runs strata
+# apart.
+_in_layout(::Type, kernel, x, history, start) = false
+function _in_layout(
+        ::Type{Tp}, ::AbstractVector, ::Union{Vector, Matrix}, ::Nothing, start
+    ) where {Tp <: _IEEEFloat}
+    return start == 1 && _current().ex isa Serial
 end
+
+# The lag sums of the first `n` times of `x`.
+function _layout_sums(::Type{Tp}, c, x::Vector, n) where {Tp}
+    Y = zeros(Tp, n)
+    _convolve_series!(Y, c, reshape(x, :, 1), 1, 0, 1)
+    return Y
+end
+function _layout_sums(::Type{Tp}, c, x::Matrix, n) where {Tp}
+    Y = zeros(Tp, size(x, 1), n)
+    _convolve_shifted!(Y, c, x, size(x, 1))
+    return Y
+end
+
+# `Y[i] += c[d + 1] x[i - s d]` for every lag `d` and entry `i > s d`, in
+# blocks of four lags as `_convolve_series!` takes them: the entries every
+# lag of a block reaches take one pass, and the first entries of the
+# block, which only its earlier lags reach, one pass per lag.
+function _convolve_shifted!(Y, c, x, s)
+    N = length(Y)
+    s == 0 && return Y
+    checkbounds(x, 1:N)
+    L = min(length(c), N ÷ s)
+    nb = L ÷ 4
+    for b in 0:(nb - 1)
+        d = 4b
+        full = s * (d + 3)
+        for q in 0:2
+            _shifted_axpy!(Y, c[d + q + 1], x, s * (d + q), min(full, N))
+        end
+        full >= N && return Y
+        r = s * d
+        _axpy4!(
+            c[d + 1], c[d + 2], c[d + 3], c[d + 4],
+            view(x, (full + 1 - r):(N - r)),
+            view(x, (full + 1 - r - s):(N - r - s)),
+            view(x, (full + 1 - r - 2s):(N - r - 2s)),
+            view(x, (full + 1 - r - 3s):(N - r - 3s)), view(Y, (full + 1):N)
+        )
+    end
+    for d in (4nb):(L - 1)
+        _shifted_axpy!(Y, c[d + 1], x, s * d, N)
+    end
+    return Y
+end
+# Entries `r + 1` to `last` of `Y` take `α` times `x` shifted by `r`.
+@inline function _shifted_axpy!(Y, α, x, r, last)
+    r >= last && return Y
+    _axpy!(α, view(x, 1:(last - r)), view(Y, (r + 1):last))
+    return Y
+end
+
+# The gain and add input applied to the lag sums `Y` into `out`, which may
+# be `Y`.
+function _affine_layout!(out, Y, gain, add)
+    for j in axes(Y, ndims(Y)), k in 1:_nstrata(Y)
+        @inbounds _set_at!(out, _affine(gain, add, k, j, _at(Y, k, j)), k, j)
+    end
+    return out
+end
+
+# The cache of a convolution in the layout of `x`: the gain and add input,
+# `x` and the lag sums `Y` before the gain.
+struct _LayoutCache{G, A, X, Y}
+    gain::G
+    add::A
+    x::X
+    Y::Y
+end
+
+# The reverse pass in the layout of `x`, the transpose of the forward pass:
+# `x̄[j] += Σ_d c[d + 1] Ȳ[j + s d]` and `c̄[d + 1] += Σ_j Ȳ[j + s d] x[j]`.
+# Without the gain or add input, `Ȳ` is the output's cotangent itself.
+function pullback!(grads, c::Convolution, ::Run, cache::_LayoutCache)
+    _count_pullback()
+    (; gain, add, x, Y) = cache
+    x̄, ḡ, ā, _ = grads.args
+    Ȳ = _unscaled(gain, add) ? grads.y :
+        _scale_back_layout(ḡ, ā, grads.y, Y, gain)
+    k̄ = cotangent(grads.piece, :kernel)
+    s = _nstrata(x)
+    N = length(Ȳ)
+    s == 0 && return nothing
+    checkbounds(x, 1:N)
+    x̄ === nothing || checkbounds(x̄, 1:N)
+    _shifted_back!(x̄, k̄, c.kernel, x, Ȳ, s, min(length(c.kernel), N ÷ s))
+    return nothing
+end
+
+# The cotangent of the lag sums from the output's `ȳ`, adding the gain's
+# and the add input's on the way.
+function _scale_back_layout(ḡ, ā, ȳ, Y, gain)
+    Ȳ = similar(Y)
+    for j in axes(Y, ndims(Y)), k in 1:_nstrata(Y)
+        @inbounds a = _at(ȳ, k, j)
+        _add_slot!(ā, a, k, j)
+        @inbounds _add_slot!(ḡ, a * _at(Y, k, j), k, j)
+        @inbounds _set_at!(Ȳ, _at(gain, k, j) * a, k, j)
+    end
+    return Ȳ
+end
+
+# `x̄[j] += c[d + 1] Ȳ[j + s d]` and `c̄[d + 1] += Σ_j Ȳ[j + s d] x[j]` for
+# the first `L` lags: four lags a pass over the entries they all reach,
+# each read of `Ȳ` serving both, then one pass per lag for the rest.
+function _shifted_back!(x̄, c̄, c, x, Ȳ, s, L)
+    N = length(Ȳ)
+    nb = L ÷ 4
+    for b in 0:(nb - 1)
+        d = 4b
+        r = s * d
+        J = N - s * (d + 3)
+        y = ntuple(q -> view(Ȳ, (r + (q - 1) * s + 1):(r + (q - 1) * s + J)), 4)
+        a = _back4!(
+            _part(x̄, 1:J), view(x, 1:J),
+            c[d + 1], c[d + 2], c[d + 3], c[d + 4], y...
+        )
+        for q in 0:3
+            # Entries past `J`, which only the block's earlier lags reach.
+            e = s * (d + q)
+            t = q == 3 ? zero(eltype(a)) :
+                _back1!(
+                    _part(x̄, (J + 1):(N - e)), view(x, (J + 1):(N - e)),
+                    c[d + q + 1], view(Ȳ, (J + 1 + e):N)
+                )
+            add_cotangent!(c̄, a[q + 1] + t, d + q + 1)
+        end
+    end
+    for d in (4nb):(L - 1)
+        r = s * d
+        t = _back1!(
+            _part(x̄, 1:(N - r)), view(x, 1:(N - r)), c[d + 1],
+            view(Ȳ, (r + 1):N)
+        )
+        add_cotangent!(c̄, t, d + 1)
+    end
+    return nothing
+end
+_shifted_back!(::Nothing, ::Nothing, c, x, Ȳ, s, L) = nothing
+
+# One lag's pass, `x̄ .+= α y` and `Σ_j x[j] y[j]`, and four lags' passes
+# `x̄ .+= Σ_q α_q y_q` and the four sums `Σ_j x[j] y_q[j]`, as native loops.
+# A constant input (`x̄` is `nothing`) takes only the sums.
+@inline function _back1!(x̄, x, α, y)
+    _same_length(y, x)
+    acc = zero(promote_type(eltype(x), eltype(y)))
+    @inbounds @simd ivdep for i in eachindex(y)
+        yi = y[i]
+        acc += x[i] * yi
+        _add_to!(x̄, α * yi, i)
+    end
+    return acc
+end
+@inline function _back4!(x̄, x, α₀, α₁, α₂, α₃, y₀, y₁, y₂, y₃)
+    _same_length(x, y₀, y₁, y₂, y₃)
+    a₀ = a₁ = a₂ = a₃ = zero(promote_type(eltype(x), eltype(y₀)))
+    @inbounds @simd ivdep for i in eachindex(x)
+        xi = x[i]
+        u₀, u₁, u₂, u₃ = y₀[i], y₁[i], y₂[i], y₃[i]
+        a₀ += xi * u₀
+        a₁ += xi * u₁
+        a₂ += xi * u₂
+        a₃ += xi * u₃
+        _add_to!(x̄, α₀ * u₀ + α₁ * u₁ + α₂ * u₂ + α₃ * u₃, i)
+    end
+    return (a₀, a₁, a₂, a₃)
+end
+Base.@propagate_inbounds _add_to!(x̄, v, i) = (x̄[i] += v; nothing)
+_add_to!(::Nothing, v, i) = nothing
+_part(::Nothing, r) = nothing
+_part(x̄, r) = view(x̄, r)
 
 # The input buffer and the lag sums by the transform, checked on the output
 # they give with the gain and add input.
