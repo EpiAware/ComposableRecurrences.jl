@@ -172,6 +172,11 @@ end
             Recurrence(g), Recurrence(g; coupling = K),
             Recurrence(PerStratum(G); coupling = 0.7 * I),
             Recurrence(TimeVarying(repeat(g, 1, T)); coupling = K),
+            # Modifiers do not enter the pressure.
+            Recurrence(
+                g; coupling = K,
+                modifiers = (CR.Depletion(PerStratum([5.0, 6.0, 7.0])),)
+            ),
         )
         check(r, y, h, Q̄)
     end
@@ -181,5 +186,11 @@ end
     hz = fill(0.1, T + length(g))
     surv = CR.Survival(TimeVarying(hz); from = 1)
     computed = TimeVarying(g * (1 - surv), CR.Primary())
-    @test !CR.uses_adjoint(CR._Pressure(Recurrence(computed)), CR.Run())
+    rc = Recurrence(computed)
+    @test !CR.uses_adjoint(CR._Pressure(rc), CR.Run())
+    # `NoAdjoint` gives the same pressure and turns the rule off.
+    rk = Recurrence(g; coupling = K)
+    @test CR.pressure(CR.NoAdjoint(rk), y; history = h, start = 2) ≈
+        CR.pressure(rk, y; history = h, start = 2)
+    @test !CR.uses_adjoint(CR._reroute(CR.NoAdjoint(rk), CR._Pressure(rk)), CR.Run())
 end

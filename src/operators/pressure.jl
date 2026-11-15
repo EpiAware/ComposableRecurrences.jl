@@ -30,8 +30,9 @@ step, with their effect included.
 Where ``q_{t,i}`` is zero the ratio is `NaN` or `Inf`.
 For outputs from a traced call, `trace.pressure` is the same pressure.
 It is differentiable in the outputs, the history, the kernel and the
-coupling, with the reverse pass of the recurrence's kernel convolution and
 coupling.
+`pressure(NoAdjoint(r), y)` gives the same values with the rule turned off,
+as [`ComposableRecurrences.NoAdjoint`](@ref) does for the call.
 
 # Arguments
 - `r`: the recurrence.
@@ -58,7 +59,13 @@ y ./ CR.pressure(r, y; history = h) ≈ R
 true
 ```
 """
-function pressure(r::Recurrence, y; history = nothing, start::Integer = 1)
+pressure(r::Recurrence, y; kwargs...) = _pressure(r, r, y; kwargs...)
+function pressure(n::NoAdjoint{<:Recurrence}, y; kwargs...)
+    return _pressure(n.op, n, y; kwargs...)
+end
+function _pressure(
+        r::Recurrence, route, y; history = nothing, start::Integer = 1
+    )
     h = history === nothing ? _empty_history(y) : history
     S = _nstrata(h)
     _nstrata(y) == S && ndims(y) == ndims(h) || throw(
@@ -76,7 +83,7 @@ function pressure(r::Recurrence, y; history = nothing, start::Integer = 1)
     _check_primary_seed(kernel, history, start)
     _check_kernel_times(kernel, stop)
     _check_times(:coupling, coupling, stop)
-    q = adjoint_call(_Pressure(r), y, h, Int(start))
+    q = adjoint_call(_reroute(route, _Pressure(r)), y, h, Int(start))
     return y isa AbstractVector ? vec(q) : q
 end
 
