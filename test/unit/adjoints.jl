@@ -1719,6 +1719,21 @@ end
     grads = (; piece = (; M = zeros(3, 2)), s = [1.0, 2.0, 3.0], history = nothing)
     CR.pullback!(grads, MPool(ones(3, 2)), CR.Init(), zeros(3), ones(3, 2))
     @test grads.piece.M == [1.0 0.0; 2.0 0.0; 3.0 0.0]
+    # An Init that writes every stratum's state from the whole history
+    # breaks the contract: its derivative stratum by stratum would be wrong,
+    # so it throws and says why.
+    struct Summed{K}
+        κ::K
+    end
+    CR.blocks(::Summed) = (1, 1)
+    CR.forward!(::Summed, ::CR.Init, s, history) = (s .= 0.01 .* sum(history); nothing)
+    CR.forward!(m::Summed, ::CR.Step, v, s, t) = (v .= min.(v, m.κ .+ s); nothing)
+    grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = zeros(3, 4))
+    msg = r"^ArgumentError: the Init of Summed writes another stratum's state from stratum 1's history"
+    @test_throws msg CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4))
+    # Without a history cotangent nothing is seeded there, so it runs.
+    grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = nothing)
+    @test CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4)) === nothing
 end
 
 @testitem "Adjoint: coupling pullbacks called directly" setup = [ReferenceAD, AdjointCheck] begin

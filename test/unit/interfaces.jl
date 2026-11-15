@@ -393,6 +393,22 @@ end
     @test !Interfaces.test(pw, Total, (obj(Total()),); show = false)
     tv = TimeVarying([1.0, 2.0, 3.0])
     @test !Interfaces.test(pw, Later, (obj(Later(tv)),); show = false)
+    # A modifier that cannot be rebuilt from its parameters is checked as
+    # it is, on the history alone.
+    struct Fixed{N}
+        N::N
+        Fixed(; N) = new{typeof(N)}(N)
+    end
+    CR.blocks(::Fixed) = (1, 1)
+    function CR.forward!(m::Fixed, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1) + history[k, end]
+        end
+        return nothing
+    end
+    fixed = Fixed(; N = PerStratum([1.0, 2.0, 3.0]))
+    @test CR._at_stratum(fixed, 2) === fixed
+    @test Interfaces.test(pw, Fixed, (obj(fixed),); show = false)
 end
 
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin

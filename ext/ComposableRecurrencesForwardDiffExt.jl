@@ -486,7 +486,8 @@ end
 # give that stratum's cotangents. The inputs are seeded in passes of the
 # width that holds them, up to the widest; the state is one buffer of dual
 # numbers, and the history is read through a wrapper, so the pullback
-# allocates only that buffer.
+# allocates only that buffer. An Init that writes another stratum's state
+# from row `k` throws, rather than give a wrong gradient.
 function _init_strata_back!(m̄, h̄, m, s̄, s, history)
     S = length(s)
     θ = _param_tuple(m, (1, 1))
@@ -523,6 +524,7 @@ function _init_pass!(m̄, h̄, m, sd::Vector{D}, s̄k, θk, history, k, Q, L, o)
     θd = ntuple(i -> _dual_at(D, θk[i], i <= Q ? i - o : 0), Val(length(θk)))
     md = first(_rebuild_scalar(m, θd))
     forward!(md, Init(), sd, _row_duals(h̄, D, history, k, length(sd), Q - o))
+    _rows_kept(h̄, sd, k, Q - o, L) || _other_rows_read(m, k)
     y = ForwardDiff.partials(sd[k])
     if o < Q
         g = ntuple(i -> i <= Q && 0 < i - o <= N ? s̄k * y[i - o] : zero(s̄k), Val(length(θk)))
@@ -533,6 +535,33 @@ function _init_pass!(m̄, h̄, m, sd::Vector{D}, s̄k, θk, history, k, Q, L, o)
         h̄[k + (c - 1) * S] += s̄k * y[Q + c - o]
     end
     return nothing
+end
+# Whether no stratum's state but `k`'s depends on the seeded history row
+# `k`, whose column `c` has partial `off + c`: an Init that writes another
+# stratum's state from it breaks the pointwise contract, and taking its
+# derivative stratum by stratum would give a wrong gradient.
+_rows_kept(::Nothing, sd, k, off, L) = true
+function _rows_kept(h̄::AbstractArray, sd::Vector{D}, k, off, L) where {D}
+    lo, hi = max(1, off + 1), min(ForwardDiff.npartials(D), off + L)
+    lo > hi && return true
+    for j in eachindex(sd)
+        j == k && continue
+        p = ForwardDiff.partials(sd[j])
+        for i in lo:hi
+            iszero(@inbounds p[i]) || return false
+        end
+    end
+    return true
+end
+@noinline function _other_rows_read(m, k)
+    throw(
+        ArgumentError(
+            "the Init of $(nameof(typeof(m))) writes another stratum's state " *
+                "from stratum $k's history; a pointwise modifier's Init writes " *
+                "s[k] from stratum k only, so write a `pullback!` for its Init " *
+                "or keep it to that"
+        )
+    )
 end
 # A dual number of value `x` whose partial `j` is one, all zero for `j`
 # outside `1:N`.
