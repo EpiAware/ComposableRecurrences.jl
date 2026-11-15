@@ -17,7 +17,6 @@ export ar2_handrule, depletion_handrule, imports_handrule, transform_handrule,
 
 const _Vec = Vector{Float64}
 const _Mat = Matrix{Float64}
-const _Arr3 = Array{Float64, 3}
 
 # ---- AR(2) ------------------------------------------------------------------
 
@@ -318,14 +317,9 @@ end
 
 # ---- time-varying delay by input time ---------------------------------------
 
-@doc raw"""
-    delay_primary_handrule(G, X)
-
-A delay per stratum and input time: `G[k, d + 1, s]` weights stratum `k`'s
-input at time `s` reaching time `s + d`,
-``y_{k,t} = \sum_{d} G_{k,d+1,t-d} X_{k,t-d}``. Returns strata × time.
-"""
-function delay_primary_handrule(G, X)
+# The delay of `delay_primary_handrule`: `G[k, d + 1, s]` weights stratum
+# `k`'s input at time `s` reaching time `s + d`.
+function _delay_primary(G, X)
     S, L, T = size(G)
     y = zeros(promote_type(eltype(G), eltype(X)), S, T)
     for t in 1:T, k in 1:S
@@ -338,28 +332,53 @@ function delay_primary_handrule(G, X)
     return y
 end
 
+# The weights and inputs held in `θ`, weights first, as `S × L × T` and
+# `S × T` arrays.
+function _delay_primary_blocks(θ, S, L, T)
+    n = S * L * T
+    G = reshape(view(θ, 1:n), S, L, T)
+    X = reshape(view(θ, (n + 1):(n + S * T)), S, T)
+    return G, X
+end
+
+@doc raw"""
+    delay_primary_handrule(θ, S, L, T)
+
+A delay per stratum and input time, from `θ` holding the weights `G`, an
+`S × L × T` array, then the inputs `X`, an `S × T` array: `G[k, d + 1, s]`
+weights stratum `k`'s input at time `s` reaching time `s + d`,
+``y_{k,t} = \sum_{d} G_{k,d+1,t-d} X_{k,t-d}``. Returns strata × time.
+It takes the parameter vector whole, as a reverse pass over copies of
+its `S L T` weights would cost more than the rule.
+"""
+function delay_primary_handrule(θ, S, L, T)
+    return _delay_primary(_delay_primary_blocks(θ, S, L, T)...)
+end
+
 Mooncake.@is_primitive(
-    Mooncake.DefaultCtx, Tuple{typeof(delay_primary_handrule), _Arr3, _Mat}
+    Mooncake.DefaultCtx,
+    Tuple{typeof(delay_primary_handrule), _Vec, Int, Int, Int}
 )
 function Mooncake.rrule!!(
-        ::CoDual{typeof(delay_primary_handrule)}, G::CoDual{_Arr3},
-        X::CoDual{_Mat}
+        ::CoDual{typeof(delay_primary_handrule)}, θ::CoDual{_Vec},
+        S::CoDual{Int}, L::CoDual{Int}, T::CoDual{Int}
     )
-    Gp, Xp = primal(G), primal(X)
-    y = delay_primary_handrule(Gp, Xp)
+    dims = (primal(S), primal(L), primal(T))
+    G, X = _delay_primary_blocks(primal(θ), dims...)
+    y = _delay_primary(G, X)
     ȳ = zero(y)
     # Each input time `s` reaches times `s` to `s + L - 1`: its weights take
     # the input times those days' cotangents, and the input their weighted
     # sum.
     function delay_primary_handrule_pb(::NoRData)
-        Ḡ, X̄ = tangent(G), tangent(X)
-        S, L, T = size(Gp)
-        for s in 1:T, d in 0:min(L - 1, T - s), k in 1:S
+        Ḡ, X̄ = _delay_primary_blocks(tangent(θ), dims...)
+        Sp, Lp, Tp = dims
+        for s in 1:Tp, d in 0:min(Lp - 1, Tp - s), k in 1:Sp
             yb = ȳ[k, s + d]
-            Ḡ[k, d + 1, s] += yb * Xp[k, s]
-            X̄[k, s] += yb * Gp[k, d + 1, s]
+            Ḡ[k, d + 1, s] += yb * X[k, s]
+            X̄[k, s] += yb * G[k, d + 1, s]
         end
-        return NoRData(), NoRData(), NoRData()
+        return ntuple(_ -> NoRData(), 5)
     end
     return CoDual(y, ȳ), delay_primary_handrule_pb
 end

@@ -1601,8 +1601,7 @@ if isfile(TUTORIAL_HANDRULE)
             (; T, L, S) = z
             W = _weights(S, T)
             return function (θ)
-                G, X = _unpack(θ, (S, L, T), (S, T))
-                y = TH.delay_primary_handrule(collect(G), collect(X))
+                y = TH.delay_primary_handrule(θ, S, L, T)
                 return sum(W .* y)
             end
         end

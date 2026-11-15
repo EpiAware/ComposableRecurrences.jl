@@ -16,9 +16,8 @@
         "renewal_imports" =>
             Tuple{typeof(TH.imports_handrule), V, V, V, V, V, Float64},
         "transform" => Tuple{typeof(TH.transform_handrule), V, M, V, V, Int},
-        "delay_primary" => Tuple{
-            typeof(TH.delay_primary_handrule), Array{Float64, 3}, M,
-        },
+        "delay_primary" =>
+            Tuple{typeof(TH.delay_primary_handrule), V, Int, Int, Int},
         "outcome_chain" => Tuple{typeof(TH.outcomes_handrule), V, V, V, V, V},
         "renewal_forecast" => Tuple{typeof(TH.forecast_handrule), V, V, V},
         "reproduction" =>
