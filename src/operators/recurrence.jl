@@ -374,7 +374,11 @@ function _check_kernel_strata(k::Pairwise, S)
 end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
-# the kernel with a contiguous, oldest-first window.
+# the kernel with a contiguous, oldest-first window. A host vector of one
+# lag is its own reverse, so it is read as it is, with no copy. A reversed
+# view of a longer kernel would also save the copy, but its steps read
+# against the window's order and the strata runs lost up to a quarter.
+_oldest_first(g::Vector) = length(g) == 1 ? g : _reverse_dim(g, 1)
 _oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
 _oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
 function _oldest_first(g::Pairwise)

@@ -28,6 +28,33 @@
     @test y ≈ vec(ref)
 end
 
+@testitem "Recurrence: a one-lag kernel is read without a copy" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    const CR = ComposableRecurrences
+    rng = Xoshiro(2)
+    # A kernel of one lag is its own reverse, so the run reads it as it is;
+    # a longer one is still reversed into a copy.
+    g = [0.7]
+    @test CR._oldest_first(g) === g
+    g3 = rand(rng, 3)
+    @test CR._oldest_first(g3) == reverse(g3)
+    @test CR._oldest_first(g3) !== g3
+
+    T = 15
+    ϵ = randn(rng, T)
+    for gain in (1.0, 0.5 .+ rand(rng, T))
+        y = Recurrence(g)(gain; history = [0.2], add = ϵ)
+        ref = naive_recurrence(
+            (t, a, b, i) -> g[i], fill(0.2, 1, 1), T;
+            gain = (a, t) -> gain isa Number ? gain : gain[t],
+            add = (a, t) -> ϵ[t]
+        )
+        @test y ≈ vec(ref)
+    end
+    # The run leaves the kernel as it was.
+    @test g == [0.7]
+end
+
 @testitem "Recurrence: a single series matches the same series among strata" setup = [Reference] begin
     using ComposableRecurrences, Random
     # One stratum carries its last value from step to step and more strata
