@@ -7,10 +7,10 @@ const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 
 # The input at time `σ`, buffer row `m + σ`, spreads forward through its
-# cohort's weights, as a `Primary()` kernel's does, walked one cohort at a
-# time. Strata share a cohort's walk unless a `Survival` has strata of its
-# own; another executor takes the dense kernel of the same weights, whose
-# loops it splits by stratum.
+# cohort's weights, as a `Primary()` kernel's does; serially each cohort's
+# weights come from its walk, shared by the strata unless a `Survival` has
+# strata of its own. Another executor takes the dense kernel of the same
+# weights, whose loops it splits by stratum.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
     return _convolve_dense!(ex, Y, c, X, m, start)
 end
@@ -31,27 +31,10 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
         # Lag index `i` of cohort `τ` lands in row `τ + i - start`.
         i0 = max(1, start - τ + 1)
         kw = _walk_strata(x, ks, k0)
-        if length(kw) == 1
-            # One stratum: each weight is added as its lag is walked.
-            k1 = first(kw)
-            x1 = @inbounds X[m + τ, k1]
-            _walk_cohort!(x, _no_record(sc), k0, τ, 0, imax, T) do i, l, st
-                i < i0 && return nothing
-                w1 = _walk_value(x, st, k1, i, τ, l)
-                @inbounds Y[τ + i - start, k1] += w1 * x1
-                return nothing
-            end
-        else
-            # Several: a loop over the strata inside the walk would hold up
-            # its chain of products, so each reads the walk after it.
-            _walk_cohort!(x, sc, k0, τ, 0, imax, T)
-            for k in kw
-                xk = @inbounds X[m + τ, k]
-                for i in i0:imax
-                    w = @inbounds _value(x, sc, k, i, τ, i - 1, 1)
-                    @inbounds Y[τ + i - start, k] += w * xk
-                end
-            end
+        _walk_weights!(x, sc, _no_record(sc), kw, k0, τ, 0, imax, T) do k, i, w
+            i < i0 && return nothing
+            @inbounds Y[τ + i - start, k] += w * X[m + τ, k]
+            return nothing
         end
     end
     return Y

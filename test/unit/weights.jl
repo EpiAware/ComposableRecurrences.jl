@@ -361,12 +361,29 @@ end
     check(conv(q * CR.Survival(η; from = 1)), args, sin.(xs))
     outer = CR.Survival(0.4 * CR.Survival(η; from = 1); from = 2)
     check(conv(PerStratum(Ps) * outer), args, sin.(xs))
+    # The same with a late start, and a survival from lag 2.
+    late = (xs, true, nothing, nothing, 3, T)
+    check(conv(q * CR.Survival(η; from = 1)), late, sin.(xs[:, 3:end]))
+    check(conv(PerStratum(Ps) * outer), late, sin.(xs[:, 3:end]))
+    from2 = conv(q * CR.Survival(TimeVarying(hs); from = 2))
+    check(from2, (x, true, nothing, nothing, 1, T), sin.(1:T))
+    # A constant kernel: the input's cotangent alone, as with the kernel's.
+    cs = conv(q * CR.Survival(η; from = 1))
+    ys, cache = CR._run_forward(cs, args...)
+    ms = map(PullbackChecks.mirror, args)
+    CR.pullback!((; piece = nothing, y = sin.(xs), args = ms), cs, CR.Run(), cache)
+    full = rule_vjp(cs, args, sin.(xs))
+    @test PullbackChecks.values_of(ms) ≈ full[(end - length(xs) + 1):end]
     # Another executor takes the dense kernel of the same weights.
     threaded = CR.Threaded(; min_work = 0, ntasks = 2)
     Base.ScopedValues.with(CR.EXECUTOR => threaded) do
         c = conv(W.nested(Ps, 0.4, hs))
         @test c(xs) ≈ Base.ScopedValues.with(() -> c(xs), CR.EXECUTOR => CR.Serial())
         check(c, (xs, true, nothing, nothing, 1, T), sin.(xs))
+        # A per-stratum survival from a late start, against the serial walk.
+        cη = conv(q * CR.Survival(η; from = 1))
+        serial(f) = Base.ScopedValues.with(f, CR.EXECUTOR => CR.Serial())
+        @test cη(xs; start = 3) ≈ serial(() -> cη(xs; start = 3))
     end
     # The transpose runs the computed kernel's reverse body as its forward
     # pass, so its own pullback is checked too.
