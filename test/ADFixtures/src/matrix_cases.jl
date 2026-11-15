@@ -18,7 +18,7 @@ using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
-using ..ADFixtures: AddMean, AddMeanHand, Renorm
+using ..ADFixtures: AddMean, AddMeanHand, Pool, Renorm
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -656,13 +656,24 @@ end
 # binomial probability generating function per stratum, iterated through a
 # generation interval and a mixing matrix.
 _nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+# The partial derivatives of `_nb_pgf` in `q` and in `θ`, in closed form, as
+# the transform tutorial passes them to its `Transform`.
+function _nb_pgf_derivative(q, θ)
+    D = 1 - (1 - θ.p) * q
+    y = (θ.p / D)^θ.r
+    ∂θ = (; r = y * log(θ.p / D), p = y * θ.r * (1 - q) / (θ.p * D))
+    return y * θ.r * (1 - θ.p) / D, ∂θ
+end
 function transform(wrap, z::Size)
     (; T, L, S) = z
     W = _weights(S, T)
     K = S == 1 ? ones(1, 1) : fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
     f = function (θ)
         g, r, p = _unpack(θ, (L,), (S,), (S,))
-        m = CR.Transform(_nb_pgf, (; r = PerStratum(r), p = PerStratum(p)))
+        m = CR.Transform(
+            _nb_pgf, (; r = PerStratum(r), p = PerStratum(p));
+            derivative = _nb_pgf_derivative
+        )
         y = wrap(Recurrence(g; coupling = K, modifiers = (m,)))(
             ; history = zeros(S, L), stop = T
         )
@@ -1924,6 +1935,51 @@ if supports(:_reads_fewer)
     )
     for name in ("custom_modifier_renorm", "custom_modifier_renorm_allocate")
         REQUIRES[name] = (:_reads_fewer,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
+# A pointwise modifier without a `pullback!` whose `Init` starts a pool per
+# stratum at `N`, and the built-in `Depletion` with the same pools: the
+# `Init` derivative is taken stratum by stratum, so its cost grows with the
+# number of strata rather than its square.
+if supports(:_init_strata_back!)
+    function _pool_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logN = _unpack(θ, (L,), (S, L), (S, T), (S,))
+                r = Recurrence(g; modifiers = (build(PerStratum(exp.(logN))),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log1p.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 16) for k in 1:S, t in 1:T],
+                [log(6.0 * T) + 0.2 * _noise(k, 17) for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    _pool_builtin(N) = CR.Depletion(N, CR.Floor())
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_pool",
+            "renewal across strata with a user pointwise modifier whose Init starts a pool",
+            _pool_case(Pool), [50], false,
+        ),
+        Case(
+            "custom_modifier_pool_depletion",
+            "the same pools with the built-in Depletion",
+            _pool_case(_pool_builtin), [50], false,
+        ),
+    )
+    for name in ("custom_modifier_pool", "custom_modifier_pool_depletion")
+        REQUIRES[name] = (:_init_strata_back!,)
         for tier in ("smoke", "realistic")
             push!(TIERS[tier].cases, name)
         end

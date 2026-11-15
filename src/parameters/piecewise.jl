@@ -211,34 +211,15 @@ end
 # `Σ w[i] H[t + i - 1, a]` over `i in lo:hi`, and its pullback. `@simd` runs
 # only for IEEE floats: other numbers, such as dual numbers, sum in order, as
 # `@simd` slows them.
-function _span_dot(
-        w::AbstractVector{<:_IEEEFloat}, H::AbstractMatrix{<:_IEEEFloat}, t, lo, hi, a
-    )
+@inline function _span_dot(w, H, t, lo, hi, a)
     acc = zero(promote_type(eltype(w), eltype(H)))
-    @inbounds @simd for i in lo:hi
+    @inbounds @_float_simd typeof(acc) for i in lo:hi
         acc += w[i] * H[t + i - 1, a]
     end
     return acc
 end
-function _span_dot(w, H, t, lo, hi, a)
-    acc = zero(promote_type(eltype(w), eltype(H)))
-    @inbounds for i in lo:hi
-        acc += w[i] * H[t + i - 1, a]
-    end
-    return acc
-end
-function _span_back!(
-        kb, w::AbstractVector{<:_IEEEFloat}, a, H::AbstractMatrix{<:_IEEEFloat},
-        H̄, t, lo, hi, k
-    )
-    @inbounds @simd ivdep for i in lo:hi
-        _add_at!(kb, a * H[t + i - 1, k], i)
-        H̄[t + i - 1, k] += a * w[i]
-    end
-    return nothing
-end
-function _span_back!(kb, w, a, H, H̄, t, lo, hi, k)
-    @inbounds for i in lo:hi
+@inline function _span_back!(kb, w, a, H, H̄, t, lo, hi, k)
+    @inbounds @_float_simd promote_type(eltype(w), eltype(H)) ivdep for i in lo:hi
         _add_at!(kb, a * H[t + i - 1, k], i)
         H̄[t + i - 1, k] += a * w[i]
     end
@@ -342,35 +323,17 @@ function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Primary}, X, Ȳ, m, start)
 end
 
 # `Σ w[d + 1] X[r - d, k]` over the lags `d in lo:hi`, and its pullback for
-# the cotangent `ȳ`, with `@simd` only for IEEE floats as above.
-function _tail_dot(
-        w::AbstractVector{<:_IEEEFloat}, X::AbstractMatrix{<:_IEEEFloat}, k, r, lo, hi
-    )
+# the cotangent `ȳ`, with `@simd` only for IEEE floats as above. Inlined,
+# so plain reverse-mode AD differentiates the loop in its caller.
+@inline function _tail_dot(w, X, k, r, lo, hi)
     acc = zero(promote_type(eltype(w), eltype(X)))
-    @inbounds @simd for d in lo:hi
+    @inbounds @_float_simd typeof(acc) for d in lo:hi
         acc += w[d + 1] * X[r - d, k]
     end
     return acc
 end
-function _tail_dot(w, X, k, r, lo, hi)
-    acc = zero(promote_type(eltype(w), eltype(X)))
-    @inbounds for d in lo:hi
-        acc += w[d + 1] * X[r - d, k]
-    end
-    return acc
-end
-function _tail_back!(
-        w̄, X̄, w::AbstractVector{<:_IEEEFloat}, X::AbstractMatrix{<:_IEEEFloat},
-        ȳ, k, r, lo, hi
-    )
-    @inbounds @simd ivdep for d in lo:hi
-        _add_at!(w̄, ȳ * X[r - d, k], d + 1)
-        X̄[r - d, k] += w[d + 1] * ȳ
-    end
-    return nothing
-end
-function _tail_back!(w̄, X̄, w, X, ȳ, k, r, lo, hi)
-    @inbounds for d in lo:hi
+@inline function _tail_back!(w̄, X̄, w, X, ȳ, k, r, lo, hi)
+    @inbounds @_float_simd promote_type(eltype(w), eltype(X)) ivdep for d in lo:hi
         _add_at!(w̄, ȳ * X[r - d, k], d + 1)
         X̄[r - d, k] += w[d + 1] * ȳ
     end

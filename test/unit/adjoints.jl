@@ -1366,6 +1366,9 @@ end
     @test_throws msg("PoolDepletion") invoke(CR._scalar_pullback, two_args, m, nothing)
     @test_throws msg("PoolDepletion") invoke(CR._read_pullback, two_args, m, nothing)
     @test_throws msg("PoolDepletion") invoke(CR._init_jacobian, one_arg, m, 1.0)
+    @test_throws msg("PoolDepletion") invoke(
+        CR._init_strata_back!, Tuple{Any, Any, Any, Vararg{Any}}, nothing, nothing, m
+    )
     @test_throws msg("Mix") invoke(CR._array_pressure, one_arg, C, 1.0)
     @test_throws msg("Mix") invoke(
         CR._local_pressure!, Tuple{Any, Any, Any, Vararg{Any}}, nothing, nothing, C
@@ -1605,16 +1608,16 @@ end
 
 @testitem "Adjoint: the default Init pullback skips a zero state cotangent" setup = [AdjointCheck] begin
     # A modifier with its own Init whose state never reaches the output: the
-    # state cotangent is zero, so the Jacobian over the history is skipped.
+    # state cotangent is zero, so the derivative in the history is skipped.
     struct Capped{K}
         κ::K
     end
     CR.blocks(::Capped) = (1, 1)
-    # Counts the Init calls on dual numbers, which only the Jacobian makes.
+    # Counts the Init calls on dual numbers, which only the derivative makes.
     const DUAL_INITS = Ref(0)
     function CR.forward!(::Capped, ::CR.Init, s, history)
         eltype(history) <: ForwardDiff.Dual && (DUAL_INITS[] += 1)
-        s .= sum(history)
+        s .= vec(sum(history; dims = 2))
         return nothing
     end
     function CR.forward!(m::Capped, ::CR.Step, v, s, t)
@@ -1629,12 +1632,111 @@ end
     CR.pullback!(zero_grads, m, CR.Init(), zeros(3), h)
     @test DUAL_INITS[] == 0
     @test all(iszero, zero_grads.history)
-    # A nonzero one takes the Jacobian.
+    # A nonzero one takes the derivative.
     CR.pullback!(one_grads, m, CR.Init(), zeros(3), h)
     @test DUAL_INITS[] > 0
-    @test one_grads.history ≈ fill(3.0, 3, 4)
+    @test one_grads.history ≈ ones(3, 4)
     r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m,))
     @test pullback_matches(r, recargs(ones(3, 5), nothing, h)...)
+end
+
+@testitem "Adjoint: a pointwise modifier's Init derivative is taken stratum by stratum" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, PerStratum
+    # A pool per stratum that starts at a scaled `N` plus the last history
+    # value of its stratum, and caps each value at what is left.
+    struct HPool{N, A}
+        N::N
+        a::A
+    end
+    CR.blocks(::HPool) = (1, 1)
+    function CR.forward!(m::HPool, ::CR.Init, s, history)
+        H = reshape(history, length(s), :)
+        for k in eachindex(s)
+            s[k] = m.a * CR.param(m.N, k, 1) + H[k, end]^2
+        end
+        return nothing
+    end
+    function CR.forward!(m::HPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            x = min(v[k], s[k])
+            v[k], s[k] = x, s[k] - x
+        end
+        return nothing
+    end
+    # The Init's cotangents against the ForwardDiff Jacobian of the Init in
+    # the parameters and the history.
+    function init_check(S, L)
+        m = HPool(PerStratum(collect(range(3.0, 6.0; length = S))), 0.8)
+        h = [1.0 + 0.1 * k + 0.01 * c for k in 1:S, c in 1:L]
+        s̄ = [(-1.0)^k * (1 + 0.1 * k) for k in 1:S]
+        θ = [m.N.x; m.a; vec(h)]
+        f = function (x)
+            mm = HPool(PerStratum(x[1:S]), x[S + 1])
+            s = zeros(eltype(x), S)
+            CR.forward!(mm, CR.Init(), s, reshape(x[(S + 2):end], S, L))
+            return s
+        end
+        g = transpose(ForwardDiff.jacobian(f, θ)) * s̄
+        grads = (; piece = (; N = (; x = zeros(S)), a = Ref(0.0)), s = s̄, history = zeros(S, L))
+        @test CR._strata_init(m, zeros(S), S * L)
+        CR.pullback!(grads, m, CR.Init(), zeros(S), h)
+        @test grads.piece.N.x ≈ g[1:S] rtol = 1.0e-12
+        @test grads.piece.a[] ≈ g[S + 1] rtol = 1.0e-12
+        @test vec(grads.history) ≈ g[(S + 2):end] rtol = 1.0e-12
+        # Without a history cotangent only the parameters are seeded.
+        grads = (; piece = (; N = (; x = zeros(S)), a = Ref(0.0)), s = s̄, history = nothing)
+        CR.pullback!(grads, m, CR.Init(), zeros(S), h)
+        @test grads.piece.N.x ≈ g[1:S] rtol = 1.0e-12
+        return m, h, s̄
+    end
+    # One pass, and inputs past the widest pass (2 scalars and 30 history
+    # columns), taken in two.
+    init_check(3, 4)
+    init_check(4, 30)
+    # A single series' history is a vector.
+    m = HPool(PerStratum([4.0]), 0.5)
+    grads = (; piece = (; N = (; x = [0.0]), a = Ref(0.0)), s = [2.0], history = zeros(3))
+    CR.pullback!(grads, m, CR.Init(), [0.0], [1.0, 2.0, 3.0])
+    @test grads.piece.N.x ≈ [1.0]
+    @test grads.piece.a[] ≈ 8.0
+    @test grads.history ≈ [0.0, 0.0, 12.0]
+    # At 50 strata it allocates only the state's dual numbers.
+    m, h, s̄ = init_check(50, 10)
+    grads = (; piece = (; N = (; x = zeros(50)), a = Ref(0.0)), s = s̄, history = zeros(50, 10))
+    CR.pullback!(grads, m, CR.Init(), zeros(50), h)
+    @test (@allocated CR.pullback!(grads, m, CR.Init(), zeros(50), h)) < 10_000
+    # Through the operator, with the pools running out.
+    r = Recurrence([0.3, 0.2, 0.1]; modifiers = (HPool(PerStratum([0.5, 1.0, 2.0]), 1.0),))
+    @test pullback_matches(r, recargs(fill(1.4, 3, 8), nothing, fill(0.9, 3, 3))...)
+    @test any(iszero, r(fill(1.4, 3, 8); history = fill(0.9, 3, 3)))
+    # A modifier with another float array keeps the Jacobian.
+    struct MPool{M}
+        M::M
+    end
+    CR.blocks(::MPool) = (1, 1)
+    CR.forward!(m::MPool, ::CR.Init, s, history) = (s .= m.M[:, 1]; nothing)
+    @test !CR._strata_init(MPool(ones(3, 2)), zeros(3), 0)
+    grads = (; piece = (; M = zeros(3, 2)), s = [1.0, 2.0, 3.0], history = nothing)
+    CR.pullback!(grads, MPool(ones(3, 2)), CR.Init(), zeros(3), ones(3, 2))
+    @test grads.piece.M == [1.0 0.0; 2.0 0.0; 3.0 0.0]
+    # An Init that writes every stratum's state from the whole history
+    # breaks the contract: its derivative stratum by stratum would be wrong,
+    # so it throws and says why.
+    struct Summed{K}
+        κ::K
+    end
+    CR.blocks(::Summed) = (1, 1)
+    CR.forward!(::Summed, ::CR.Init, s, history) = (s .= 0.01 .* sum(history); nothing)
+    CR.forward!(m::Summed, ::CR.Step, v, s, t) = (v .= min.(v, m.κ .+ s); nothing)
+    grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = zeros(3, 4))
+    msg = r"^ArgumentError: the Init of Summed writes another stratum's state from stratum 1's history"
+    @test_throws msg CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4))
+    # Without a history cotangent nothing is seeded there, so it runs.
+    grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = nothing)
+    @test CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4)) === nothing
 end
 
 @testitem "Adjoint: coupling pullbacks called directly" setup = [ReferenceAD, AdjointCheck] begin
