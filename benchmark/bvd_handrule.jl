@@ -780,33 +780,39 @@ function Mooncake.rrule!!(
         γ::CoDual{_Vec}, nu::CoDual{Int}
     )
     z, γp, n = primal(logit_h0), primal(γ), primal(nu)
-    F = onset_table_loop(z, γp, n)
+    D = length(z)
+    H = Matrix{Float64}(undef, D, n)
+    S = Matrix{Float64}(undef, D, n)
+    @inbounds for k in 1:n
+        s = 1.0
+        for j in 1:D
+            η = _logistic(z[j] + γp[k + j - 1])
+            s *= 1.0 - η
+            H[j, k] = η
+            S[j, k] = s
+        end
+    end
+    F = 1.0 .- S
     F̄ = zero(F)
-    function onset_report_cdf_table_pb(::NoRData)
-        _onset_back!(tangent(logit_h0), tangent(γ), F̄, z, γp, n)
+    function onset_report_cdf_table_pullback!!(::NoRData)
+        _onset_back!(tangent(logit_h0), tangent(γ), F̄, H, S)
         return NoRData(), NoRData(), NoRData(), NoRData()
     end
-    return CoDual(F, F̄), onset_report_cdf_table_pb
+    return CoDual(F, F̄), onset_report_cdf_table_pullback!!
 end
 
-# Each column's walk again, keeping its survival and hazards, then back
-# along the delays; the hazard's logit takes `η̄ η (1 - η)`.
-function _onset_back!(z̄, γ̄, F̄, z, γ, nu)
-    D = length(z)
-    s = ones(D + 1)
-    η = zeros(D)
+# The forward pass keeps each column's hazards and survivals. `1 - s_j` has
+# derivative `s_j η_i` in the logit of hazard `i ≤ j`, so a column's
+# adjoint is one backward running sum, `x̄_i = η_i Σ_{j ≥ i} F̄_j s_j`.
+function _onset_back!(z̄, γ̄, F̄, H, S)
+    D, nu = size(H)
     @inbounds for k in 1:nu
-        for j in 1:D
-            η[j] = _logistic(z[j] + γ[k + j - 1])
-            s[j + 1] = s[j] * (1.0 - η[j])
-        end
         acc = 0.0
         for j in D:-1:1
-            acc -= F̄[j, k]
-            x̄ = -s[j] * acc * η[j] * (1.0 - η[j])
+            acc += F̄[j, k] * S[j, k]
+            x̄ = H[j, k] * acc
             z̄[j] += x̄
             γ̄[k + j - 1] += x̄
-            acc *= 1.0 - η[j]
         end
     end
     return nothing
