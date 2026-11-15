@@ -37,3 +37,30 @@
         end
     end
 end
+
+# The transform case's package arm passes the closed-form derivative of its
+# map to the `Transform`, as the tutorial does; that derivative matches
+# ForwardDiff's, and the arm's Mooncake gradient matches ForwardDiff on the
+# plain hand loop.
+@testitem "The transform case's closed-form derivative matches ForwardDiff" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import ForwardDiff
+
+    for (q, r, p) in ((0.0, 0.5, 0.3), (0.4, 1.7, 0.6), (0.9, 0.2, 0.8))
+        ∂q, ∂θ = MC._nb_pgf_derivative(q, (; r, p))
+        ref = ForwardDiff.gradient(x -> MC._nb_pgf(x[1], (; r = x[2], p = x[3])), [q, r, p])
+        @test [∂q, ∂θ.r, ∂θ.p] ≈ ref rtol = 1.0e-12
+    end
+    c = only(x for x in MC.CASES if x.name == "transform")
+    backend = AutoMooncake(; config = nothing)
+    for z in (first(MC.sizes(c, "smoke")), MC.Size(; T = 60, L = 7, S = 5))
+        f, θ = MC.build(c, z, "rule")
+        loop, θloop = MC.build(c, z, "loop")
+        @test θ == θloop
+        @test f(θ) ≈ loop(θ)
+        prep = DI.prepare_gradient(f, backend, copy(θ))
+        @test DI.gradient(f, prep, backend, θ) ≈ ForwardDiff.gradient(loop, θ) rtol = 1.0e-10
+    end
+end
