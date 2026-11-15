@@ -79,10 +79,11 @@ function report(io, counts, jobs)
     return [job for job in jobs if counts[job] == 0]
 end
 
-function main(args)
+function main(
+        args; jobs = ["primal"; [e.name for e in ADFixtures.benchmarked_backends()]]
+    )
     length(args) >= 2 || error("usage: full_latest.jl OUT RESULTS...")
     out, files = args[1], args[2:end]
-    jobs = ["primal"; [e.name for e in ADFixtures.benchmarked_backends()]]
     merged = merge_results(files)
     empty_jobs = report(stdout, count_entries(merged, jobs), jobs)
     length(empty_jobs) == length(jobs) && error("no results from any job")
