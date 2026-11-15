@@ -1438,6 +1438,89 @@ if isfile(BVD_HANDRULE)
         end
     end
 
+    # Computed kernels, each cohort's weights walked against a hazard:
+    # admissions confirmed and still present, two discharge flows thinned
+    # by absconding (a survival whose hazard is itself a survival), and the
+    # report-delay CDF table of each onset date.
+    function _bvd_two_clock(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                A, h, S = _unpack(θ, (T,), (T,), (L,))
+                return sum(W .* run(wrap, A, h, S))
+            end
+            θ = _flat(
+                [50.0 + 40.0 * _noise(t, 31) for t in 1:T],
+                [0.1 + 0.05 * _noise(t, 32) for t in 1:T], exp.(-0.05 .* (0:(L - 1)))
+            )
+            return f, θ
+        end
+    end
+    function _bvd_two_clock_rule(wrap, A, h, S)
+        confirmed = S * (1 - CR.Survival(TimeVarying(h); from = 1))
+        return wrap(Convolution(TimeVarying(confirmed, CR.Primary())))(A)
+    end
+    _bvd_two_clock_hand(kernel) = (wrap, A, h, S) -> kernel(collect(A), collect(h), collect(S))
+
+    function _bvd_abscond(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(2, T)
+            f = function (θ)
+                adm, pmf, κ, h = _unpack(θ, (T, 2), (L, 2), (1,), (T,))
+                return sum(W .* permutedims(run(wrap, adm, pmf, κ[1], h)))
+            end
+            # The second flow's delay is shorter, padded with zeros.
+            L2 = cld(7 * L, 10)
+            pmf = [
+                k == 1 || d < L2 ? exp(-(0.1 + 0.05 * k) * d) : 0.0
+                    for d in 0:(L - 1), k in 1:2
+            ]
+            θ = _flat(
+                [30.0 + 20.0 * _noise(t, k + 33) for t in 1:T, k in 1:2],
+                pmf ./ sum(pmf; dims = 1), [0.05], [0.1 + 0.05 * _noise(t, 36) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    # The package reads lag `d`'s hazard on the day it lands, the backend
+    # the day before, so the port shifts the hazard by a day.
+    function _bvd_abscond_rule(wrap, adm, pmf, κ, h)
+        h1 = vcat(h[1:1], h[1:(end - 1)])
+        stay = CR.Survival(κ * CR.Survival(TimeVarying(h1); from = 1); from = 1)
+        kernel = TimeVarying(PerStratum(permutedims(pmf)) * stay, CR.Primary())
+        return wrap(Convolution(kernel))(adm)
+    end
+    function _bvd_abscond_hand(kernel)
+        return (wrap, adm, pmf, κ, h) -> kernel(collect(adm), collect(pmf), κ, collect(h))
+    end
+
+    _logistic_sum(a, b) = BVD._logistic(a + b)
+    function _bvd_onset(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(L, T)
+            f = function (θ)
+                z0, γ = _unpack(θ, (L,), (T + L - 1,))
+                return sum(W .* run(wrap, z0, γ, T))
+            end
+            θ = _flat(
+                [-3.0 + 0.5 * _noise(j, 37) for j in 1:L],
+                [0.2 * _noise(t, 38) for t in 1:(T + L - 1)]
+            )
+            return f, θ
+        end
+    end
+    # `kernel_weights` as the operator it routes through, so `NoAdjoint`
+    # can wrap it.
+    function _bvd_onset_rule(wrap, z0, γ, nu)
+        hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
+        kernel = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
+        return wrap(CR._KernelWeights(kernel))(nu)
+    end
+    _bvd_onset_hand(kernel) = (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1458,6 +1541,21 @@ if isfile(BVD_HANDRULE)
                 "bvd_zones", "BVD zone_share_renewal: split with imports and a spill",
                 _bvd_zones, _bvd_zones_rule, _bvd_zones_hand,
                 (BVD.zone_loop, BVD.zone_infections), [5, 64],
+            ),
+            (
+                "bvd_two_clock", "BVD two_clock_confirmed: a computed survival kernel",
+                _bvd_two_clock, _bvd_two_clock_rule, _bvd_two_clock_hand,
+                (BVD.two_clock_loop, BVD.two_clock_confirmed), [1],
+            ),
+            (
+                "bvd_abscond", "BVD abscond_thinned_flows: a nested survival kernel",
+                _bvd_abscond, _bvd_abscond_rule, _bvd_abscond_hand,
+                (BVD.abscond_loop, BVD.abscond_thinned_flows), [1],
+            ),
+            (
+                "bvd_onset", "BVD onset_report_cdf_table: computed kernel weights",
+                _bvd_onset, _bvd_onset_rule, _bvd_onset_hand,
+                (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
             ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
