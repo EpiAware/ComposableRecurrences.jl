@@ -91,7 +91,13 @@ jobs:
             part: registry
           - version: '1.11'
             part: rest
-          - version: '1'
+          # The executor items run Enzyme, which aborts while compiling on
+          # Julia 1.13.4 ("unsupported tag
+          # julia.gc_alloc_zeroinit_indirect", or
+          # julia.gc_alloc_ptr_offsets), so the current release is pinned
+          # to 1.13.3 here until an Enzyme release handles both tags; #618
+          # tracks removing the pin.
+          - version: '1.13.3'
             part: ''
     env:
       JULIA_NUM_THREADS: '4'
