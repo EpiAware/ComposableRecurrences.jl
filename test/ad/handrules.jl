@@ -24,6 +24,15 @@
             Tuple{typeof(TH.reproduction_handrule), V, M, M, M, V},
     )
     @test Set(keys(sigs)) == Set(MC.TUTORIAL_HANDRULE_CASES)
+    # The report runs without the fixtures, so it keeps its own list of
+    # these cases; it must name the same ones.
+    report = read(
+        joinpath(pkgdir(MC.CR), "benchmark", "matrix_report.jl"), String
+    )
+    block = match(r"const HAND_RULE_CASES = Set\(\s*\[(.*?)\]"s, report)
+    @test block !== nothing
+    listed = Set(m.captures[1] for m in eachmatch(r"\"(\w+)\"", block[1]))
+    @test listed == Set(MC.TUTORIAL_HANDRULE_CASES)
     world = Base.get_world_counter()
     backend = AutoMooncake(; config = nothing)
     for name in MC.TUTORIAL_HANDRULE_CASES

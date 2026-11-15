@@ -569,8 +569,8 @@ end
 The effective reproduction number of a depleted run over strata coupled by
 `K`: each day's infections over the mixed renewal sum they come from,
 ``I_{a,t} / q_{a,t}`` with ``q_t = K p_t``, ``p_t`` the renewal sums and
-``I_{a,t} = P_{a,t-1} (1 - e^{-R_{a,t} q_{a,t} / N_a})`` from pools that
-start at `pop`. Returns strata × time.
+``I_{a,t} = U_{a,t} (1 - e^{-R_{a,t} q_{a,t} / N_a})``, with ``U_{a,t}`` the
+pool before day ``t``'s draw, starting at `pop`. Returns strata × time.
 """
 function reproduction_handrule(g, R, seed, K, pop)
     st = _reproduction_state(g, R, seed, K, pop)
