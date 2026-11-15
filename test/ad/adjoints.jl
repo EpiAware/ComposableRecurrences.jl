@@ -1153,6 +1153,16 @@ end
         @test z̄c ≈ ref[(n + 1):end]
         @test K.nzval == nz0
     end
+    # An active coupling with a constant `z` gets its cotangent alone.
+    w, w̄ = zeros(3), copy(w̄0)
+    K̄ = Kof(zeros(n))
+    Enzyme.autodiff(
+        Enzyme.Reverse, CR._route_forward!, Const, Duplicated(K, K̄),
+        Duplicated(w, w̄), Const(copy(z)), Const(1)
+    )
+    @test w ≈ K * z
+    @test iszero(w̄)
+    @test K̄.nzval ≈ ref[1:n]
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
