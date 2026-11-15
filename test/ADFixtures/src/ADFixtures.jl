@@ -2252,6 +2252,20 @@ end
     return nothing
 end
 
+"""
+The values rescaled so that they sum to `total[t]`, with `total` held as a
+vector over time and indexed by the step.
+"""
+struct Renorm{A}
+    total::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::Renorm, ::ComposableRecurrences.Step, v, s, t
+    )
+    v .*= m.total[t] / sum(v)
+    return nothing
+end
+
 function _whole_step_scalars(w, θ)
     logh, logR, p = _unpack(θ, (S, L), (S, T), (2,))
     r = Recurrence(G0; coupling = K0, modifiers = (ZoneMix(p[1], p[2]),))
@@ -2261,6 +2275,16 @@ end
 function _whole_step_array(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
     r = Recurrence(G0; modifiers = (StrataScale(a), ZoneMix(0.2, 0.5)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A whole-step modifier without a `pullback!` that reads one entry of a
+# vector over time each step: the local derivative seeds that entry rather
+# than all of them.
+function _whole_step_reads(w, θ)
+    logh, logR, logtot = _unpack(θ, (S, L), (S, T), (T,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Renorm(exp.(logtot)),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -2408,6 +2432,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [0.9, 1.0, 1.1]),
     ),
     (
+        "Recurrence whole-step modifier reading a vector by time", _whole_step_reads,
+        () -> _flat(zeros(S, L), LOGR, [log(3.0) + 0.1 * sin(t) for t in 1:T]),
+    ),
+    (
         "Recurrence checked at the call", _unchecked_parts,
         () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
@@ -2443,6 +2471,7 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 # The local derivative of a whole-step modifier.
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
+_REQUIRES["Recurrence whole-step modifier reading a vector by time"] = (:_reads_fewer,)
 # The local derivatives took the step's branch at a tie later.
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
     (:_StepDuals, :local_ties)

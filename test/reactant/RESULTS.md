@@ -113,6 +113,7 @@ Total run time 20.5 min, timeout 600 s a case.
 | Recurrence user coupling holding a matrix | works (5.1 s / 9.2 µs) | works (0.9 s / 14.0 µs) |
 | Recurrence whole-step modifier without a pullback | works (2.6 s / 10.3 µs) | works (1.1 s / 23.3 µs) |
 | Recurrence whole-step modifier holding a vector | works (2.8 s / 7.7 µs) | works (1.0 s / 11.4 µs) |
+| Recurrence whole-step modifier reading a vector by time | works (36.4 s / 9.7 µs) | works (2.6 s / 17.0 µs) |
 | Recurrence checked at the call | error: MethodError in `param` | error: MethodError in `param` |
 | Recurrence whole-step modifier branching at a tie (occupancy) | error: MethodError in `forward!` | error: MethodError in `forward!` |
 | Recurrence whole-step modifier branching at a tie over five steps (occupancy) | error: MethodError in `forward!` | error: MethodError in `forward!` |
@@ -324,6 +325,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence whole-step modifier without a pullback | reverse | cpu | 12 | works | 1.1e-14 | 1.1 | 23.3 | 39.4 |  |  |
 | registry | Recurrence whole-step modifier holding a vector | forward | cpu | 12 | works | 2.0e-16 | 2.8 | 7.7 | 1.4 |  |  |
 | registry | Recurrence whole-step modifier holding a vector | reverse | cpu | 12 | works | 1.6e-14 | 1.0 | 11.4 | 24.0 |  |  |
+| registry | Recurrence whole-step modifier reading a vector by time | forward | cpu | 12 | works | 2.8e-15 | 36.4 | 9.7 | 1.3 |  |  |
+| registry | Recurrence whole-step modifier reading a vector by time | reverse | cpu | 12 | works | 8.6e-15 | 2.6 | 17.0 | 28.2 |  |  |
 | registry | Recurrence checked at the call | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | param | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
 | registry | Recurrence checked at the call | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | param | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |
 | registry | Recurrence whole-step modifier branching at a tie (occupancy) | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | forward! | MethodError: no method matching reindex(::Tuple{UnitRange{Int64}}, ::Reactant.TracedRNumber{Int64}) The function `reindex` exists, but no method is defined for  |

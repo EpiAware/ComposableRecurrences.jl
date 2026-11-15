@@ -1026,7 +1026,23 @@ end
 _steps_fit(ms::Tuple, S) = reduce(_worse, map(m -> _step_fit(m, S), ms); init = :one)
 function _step_fit(m, S)
     _whole_local(m) || return :one
-    return _local_fit(S + nstate(m, S) + _ninputs(m))
+    return _local_fit(S + nstate(m, S) + _step_inputs(m, S))
+end
+# The parameters a whole-step modifier's local step seeds: its float scalars
+# and, for one that reads fewer entries of its float arrays than they hold
+# (`_reads_fewer`), the entries one step reads; else every array entry.
+function _step_inputs(m, S)
+    _reads_step(m) || return _ninputs(m)
+    q = length(_param_tuple(m))
+    return q + min(_probe_step_reads(m, S), _nparams(m) - q)
+end
+# Whether a whole-step modifier's local step seeds only the entries a step
+# reads: it reads its float arrays entry by entry (`_reads_step`), and one
+# step over `S` strata, at time 1, reads fewer entries than the arrays hold.
+# A step that reads them all seeds them all, through views.
+function _reads_fewer(m, S)
+    _reads_step(m) || return false
+    return _probe_step_reads(m, S) < _nparams(m) - length(_param_tuple(m))
 end
 # The route of a part's local derivative that seeds `n` inputs: the rule
 # within one pass of dual numbers (`_LOCAL_PRESSURE`), `_ad_wide` within two
@@ -1140,6 +1156,23 @@ end
 # the entries of its strided float arrays.
 @generated function _array_params(m)
     return !_has_opaque_params(m) && !_has_structured_floats(m)
+end
+# Whether a type holds a parameter read through `param` (`_EntryParam`).
+function _has_entries(::Type{T}) where {T}
+    T <: _EntryParam && return true
+    T <: Union{AbstractArray, Real, Nothing, Symbol, AbstractString, Function} &&
+        return false
+    isconcretetype(T) || return false
+    return any(_has_entries, fieldtypes(T))
+end
+# Whether a whole-step modifier's local step seeds only the entries of its
+# float arrays that a step reads, as a pointwise modifier's does: it holds
+# float arrays, every one strided, and none read through `param`. The step
+# wraps each array so that the entries it reads are dual numbers, and adds
+# their cotangents to those entries.
+@generated function _reads_step(m)
+    return _has_array_params(m, false) && !_has_opaque_params(m) &&
+        !_has_structured_floats(m) && !_has_entries(m)
 end
 
 # The positional Run: the output and the cache the reverse pass reads,

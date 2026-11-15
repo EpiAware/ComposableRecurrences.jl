@@ -7,7 +7,7 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Serial, _ADLeaves, _Current,
-    _check_form, _check_now, _check_parts, _check_secondary, _convolve_masses!,
+    _check_form, _check_now, _check_parts, _probe_step_reads, _check_secondary, _convolve_masses!,
     _convolve_masses_back!, _current, _fft_convolve!, _fft_convolve_back!,
     _fft_convolve_terms!, _flat_groups, _is_leaf, _leaf_paths, _plain_hook,
     _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
@@ -223,6 +223,8 @@ EnzymeRules.inactive(::typeof(_check_parts), args...) = nothing
 # Nor is the same check run by the call of an operator built before
 # ForwardDiff was loaded.
 EnzymeRules.inactive(::typeof(_check_now), args...) = nothing
+# The call-time count of a whole-step modifier's reads picks its route.
+EnzymeRules.inactive(::typeof(_probe_step_reads), args...) = nothing
 # Nor is its check that only the kernel takes `Primary()` indexing.
 EnzymeRules.inactive(::typeof(_check_secondary), args...) = nothing
 # Nor is the `Depletion` constructor's check that its form has a step.

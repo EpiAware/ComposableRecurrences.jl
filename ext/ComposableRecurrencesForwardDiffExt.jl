@@ -10,13 +10,13 @@ import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_
     _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
-    _transform_seeds, _value_pullback
+    _transform_seeds, _value_pullback, _probe_step_reads, _check_read_rebuild
 using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params,
-    _leave_slope
+    _leave_slope, _reads_fewer, nstate
 using ForwardDiff: ForwardDiff, Dual, value
 using LinearAlgebra: Transpose, transpose
 
@@ -306,12 +306,17 @@ end
 function _step_dual(T, ::Val{N}) where {N}
     return ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_step!, T)), T, N}
 end
-function _step_duals(m̄, m, ::Type{Tp}) where {Tp}
+# Without the strata count, as a direct call gives, every array entry is
+# seeded through views.
+function _step_duals(m̄, m, ::Type{Tp}, S = nothing) where {Tp}
     T = float(promote_type(Tp, param_eltype(m)))
-    θ = _array_seeds(m̄, m) ? Vector{T}(_params(m)) : T[]
-    lane(N) = (D -> (D[], D[], Vector{D}(undef, length(θ))))(_step_dual(T, N))
+    rd = S !== nothing && _array_seeds(m̄, m) && _reads_fewer(m, S)
+    θ = _array_seeds(m̄, m) && !rd ? Vector{T}(_params(m)) : T[]
+    lane(::Val{N}) where {N} = (
+        D -> (D[], D[], Vector{D}(undef, length(θ)), _Reads{N}())
+    )(_step_dual(T, Val(N)))
     lanes = (lane(Val(4)), lane(Val(8)), lane(Val(12)), lane(Val(_LOCAL_PRESSURE)))
-    return _StepDuals(T[], T[], θ, zero(θ), lanes)
+    return _StepDuals(T[], T[], θ, zero(θ), lanes, rd, Ref(0))
 end
 # The float scalars a pass seeds: those of a differentiated modifier whose
 # parameters are all scalars, as a tuple, so its rebuild allocates nothing;
@@ -319,6 +324,17 @@ end
 _step_scalars(::Nothing, m) = ()
 _step_scalars(m̄, m) = _scalar_params(m) ? _param_tuple(m) : ()
 function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
+    b.readstep || return _local_step!(Val(false), m̄, m, v̄, s̄, v, s, t, b)
+    θs = _param_tuple(m)
+    # The width covers the reads of the last step; a step that reads more
+    # runs more passes.
+    n = length(v) + length(s) + length(θs) + b.reads[]
+    n <= 4 && return _local_read_step!(Val(4), b.lanes[1], b, θs, m̄, m, v̄, s̄, v, s, t)
+    n <= 8 && return _local_read_step!(Val(8), b.lanes[2], b, θs, m̄, m, v̄, s̄, v, s, t)
+    n <= 12 && return _local_read_step!(Val(12), b.lanes[3], b, θs, m̄, m, v̄, s̄, v, s, t)
+    return _local_read_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, θs, m̄, m, v̄, s̄, v, s, t)
+end
+function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
     n <= 4 && return _local_step!(Val(4), b.lanes[1], b, θs, m̄, m, v̄, s̄, v, s, t)
@@ -374,6 +390,98 @@ function _local_step!(
     P == 0 || _addparams!(m̄, m, b.ḡ, 0)
     return nothing
 end
+# The local derivative of a whole-step modifier that reads its float arrays
+# entry by entry (`_reads_step`): the values, the state and the scalars are
+# seeded `N` at a time, then the entries the step reads, in the order it
+# reads them, as the pointwise read step records them (`_ReadArray`). The
+# first pass counts the reads, so the passes cover them all.
+function _local_read_step!(
+        ::Val{N}, lane, b, θs::NTuple{Q, Any}, m̄, m, v̄, s̄, v, s, t
+    ) where {N, Q}
+    vd, sd, _, reads = lane
+    D = eltype(vd)
+    T = eltype(b.v̄)
+    S, R = length(v), length(s)
+    M = S + R + Q
+    resize!(vd, S)
+    resize!(sd, R)
+    copyto!(resize!(b.v̄, S), v̄)
+    copyto!(resize!(b.s̄, R), s̄)
+    fill!(v̄, zero(eltype(v̄)))
+    fill!(s̄, zero(eltype(s̄)))
+    pass, n = 0, M
+    while pass * N < n
+        # Bound afresh each pass, so the seeding closure does not box it.
+        o = pass * N
+        for i in 1:S
+            @inbounds vd[i] = D(T(v[i]), _unit(T, i - o, Val(N)))
+        end
+        for j in 1:R
+            @inbounds sd[j] = D(T(s[j]), _unit(T, S + j - o, Val(N)))
+        end
+        θsd = ntuple(j -> D(T(θs[j]), _unit(T, S + R + j - o, Val(N))), Val(Q))
+        reads.n, reads.lo = 0, o - M
+        md = first(_rebuild_reads(m, θsd, _ReadSeed{D}(reads, 0), 1))
+        _written(m, forward!(md, Step(), vd, sd, t))
+        n = M + reads.n
+        ā = zero(ForwardDiff.Partials{N, T})
+        for i in 1:S
+            @inbounds ā += b.v̄[i] * ForwardDiff.partials(vd[i])
+        end
+        for j in 1:R
+            @inbounds ā += b.s̄[j] * ForwardDiff.partials(sd[j])
+        end
+        for j in max(1, o + 1):min(S, o + N)
+            @inbounds v̄[j] += ā[j - o]
+        end
+        for j in max(1, o + 1 - S):min(R, o + N - S)
+            @inbounds s̄[j] += ā[S + j - o]
+        end
+        Q == 0 || o + N <= S + R || o >= M ||
+            _add_scalar!(m̄, m, _picks(ā, S + R - o, Val(Q)), nothing)
+        for j in max(1, M + 1 - o):min(n - o, N)
+            _add_read!(m̄, m, reads.leaf[j], reads.index[j], ā[j], 1)
+        end
+        pass += 1
+    end
+    b.reads[] = n - M
+    return nothing
+end
+
+# The entries one step of `m` over `S` strata reads at time 1, from ones; a
+# step that fails to run counts as reading more than its arrays hold, so it
+# seeds every entry through views (`_reads_fewer`, `_step_inputs`).
+function _probe_step_reads(m, S)
+    θs = _param_tuple(m)
+    T = float(promote_type(map(typeof, θs)..., param_eltype(m)))
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_probe_step_reads, T)), T, 1}
+    reads = _Reads{1}()
+    return try
+        md = first(_rebuild_reads(m, map(D, θs), _ReadSeed{D}(reads, 0), 1))
+        forward!(md, Step(), ones(D, S), ones(D, nstate(m, S)), 1)
+        reads.n
+    catch e
+        e isa InterruptException && rethrow()
+        typemax(Int) ÷ 2
+    end
+end
+
+# Whether a whole-step modifier's read rebuild gives its scalars back and
+# keeps each float array as the `_ReadArray` of itself.
+function _check_read_rebuild(x)
+    θ = _param_tuple(x)
+    T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_read_rebuild, T)), T, length(θ) + 1}
+    θd = ntuple(i -> D(T(θ[i]), _unit(T, i, Val(length(θ) + 1))), length(θ))
+    return try
+        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(_Reads{1}(), length(θ)), 1))
+        _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd)
+    catch e
+        e isa InterruptException && rethrow()
+        false
+    end
+end
+
 # The modifier the dual step runs: rebuilt from the seeded scalars, or from
 # the seeded parameters (each pass, as scalars are copied), when it is
 # differentiated; as itself when it is held constant.
