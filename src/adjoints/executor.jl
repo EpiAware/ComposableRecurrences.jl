@@ -202,7 +202,15 @@ Threaded(; min_work = 500_000, ntasks = 0) = Threaded(min_work, ntasks)
         body::F, ex::Threaded, n, work, args::Vararg{Any, N}
     ) where {F, N}
     _splits(ex, n, work) || return each!(body, Serial(), n, work, args...)
-    m = _nchunks(ex, n)
+    _each_split!(body, n, _nchunks(ex, n), args...)
+    return nothing
+end
+
+# The split loop, behind its own function: a closure over `args` built
+# inline in a caller is copied field by field, and on Julia 1.12 a struct
+# with a float ahead of its arrays, such as routes that mix a user coupling
+# and a matrix, is copied as raw bytes that an AD backend cannot type.
+@noinline function _each_split!(body::F, n, m, args::Vararg{Any, N}) where {F, N}
     run = function (ks)
         for k in ks
             @inline body(k, args...)
