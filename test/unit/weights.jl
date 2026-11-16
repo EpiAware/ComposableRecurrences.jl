@@ -209,6 +209,11 @@ end
     contiguous(f, x) = (f(x); @allocated f(x))
     @test contiguous(lc, x) == 0 skip = Base.JLOptions().code_coverage != 0
     @test CR._lags_contiguous(W.nested(P3, 0.4, h)).args[1].x == P3
+    # The type test the generated check reads, called as a function.
+    @test !CR._strata_lags_type(typeof(x))
+    @test CR._strata_lags_type(typeof(W.nested(P3, 0.4, h)))
+    @test CR._strata_lags_type(typeof(PerStratum(P3)))
+    @test !CR._strata_lags_type(typeof(PerStratum(v)))
 end
 
 @testitem "Computed kernels: arithmetic lowers to Derived" setup = [WeightsChecks] begin
