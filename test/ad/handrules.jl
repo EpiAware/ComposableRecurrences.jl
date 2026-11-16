@@ -172,7 +172,7 @@ end
     end
 end
 
-@testitem "The window-weights case's arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
+@testitem "The window-weights and window-reports cases' arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -184,16 +184,77 @@ end
     @test Mooncake.is_primitive(
         Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, Base.get_world_counter()
     )
-    c = only(x for x in MC.CASES if x.name == "bvd_window_weights")
     backend = AutoMooncake(; config = nothing)
-    for (T, L) in ((161, 45), (202, 50), (60, 10))
-        z = MC.Size(; T, L)
+    for (name, S) in (
+                ("bvd_window_weights", 1), ("bvd_window_reports", 5),
+                ("bvd_window_reports", 11),
+            ), (T, L) in ((161, 45), (202, 50), (60, 10))
+        c = only(x for x in MC.CASES if x.name == name)
+        z = MC.Size(; T, L, S)
         loop, θ = MC.build(c, z, "loop")
         ref = ForwardDiff.gradient(loop, θ)
         for arm in ("rule", "NoAdjoint", "handrule")
             f, θarm = MC.build(c, z, arm)
             @test θarm == θ
             @test f(θ) ≈ loop(θ)
+            prep = DI.prepare_gradient(f, backend, copy(θ))
+            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
+        end
+    end
+    # Both of the helper's paths, against a plain sum over the days in range:
+    # windows that close before day 1, empty windows, windows past the last
+    # day, and windows that leave gaps.
+    y = [Float64(10k + t) for k in 1:2, t in 1:9]
+    plain(a, b) = [sum(y[k, max(a, 1):min(b, 9)]; init = 0.0) for k in 1:2]
+    for (starts, stops) in (
+            ([1, 3], [2, 9]), ([1, 1, 1, 4], [-2, 0, 3, 9]),
+            ([1, 4, 4, 10, 12], [3, 3, 9, 9, 9]), ([2, 4, 8], [3, 7, 7]),
+            ([5], [9]),
+        )
+        @test MC._window_sums(y, starts, stops) ==
+            reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
+    end
+end
+
+@testitem "The abscond-flow, two-clock and patch port cases' arms agree with the backend's rules" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import ForwardDiff, Mooncake
+
+    R = MC.BVDRef
+    P = MC.BVDPort
+    V = Vector{Float64}
+    M = Matrix{Float64}
+    world = Base.get_world_counter()
+    for sig in (
+            Tuple{typeof(R.abscond_thinned_flows), V, V, V, V, Float64, V},
+            Tuple{typeof(R.two_clock_confirmed), V, V, V},
+            Tuple{typeof(R.patch_infections), M, V, M, M, M, V},
+            # The port's own helpers, so a rule arm times the code it names.
+            Tuple{typeof(P.occupancy_outputs), M, Float64},
+            Tuple{typeof(P.abscond_inputs), V, V, V, V, V},
+            Tuple{typeof(P.hold_last), V, Int},
+            Tuple{typeof(P.split_rows), M},
+            Tuple{typeof(P.patch_outputs), M, M, M},
+        )
+        @test Mooncake.is_primitive(
+            Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world
+        )
+    end
+    backend = AutoMooncake(; config = nothing)
+    for (name, S) in (
+                ("bvd_abscond_port", 1), ("bvd_two_clock_port", 1),
+                ("bvd_patches_port", 3), ("bvd_patches_port", 11),
+            ), (T, L) in ((268, 60), (200, 20), (40, 10))
+        c = only(x for x in MC.CASES if x.name == name)
+        z = MC.Size(; T, L, S)
+        hand, θ = MC.build(c, z, "handrule")
+        ref = ForwardDiff.gradient(hand, θ)
+        for arm in ("rule", "NoAdjoint", "handrule")
+            f, θarm = MC.build(c, z, arm)
+            @test θarm == θ
+            @test f(θ) ≈ hand(θ)
             prep = DI.prepare_gradient(f, backend, copy(θ))
             @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
         end
