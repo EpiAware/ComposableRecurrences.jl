@@ -22,6 +22,15 @@
         "renewal_forecast" => Tuple{typeof(TH.forecast_handrule), V, V, V},
         "reproduction" =>
             Tuple{typeof(TH.reproduction_handrule), V, M, M, M, V},
+        "strata_waning" =>
+            Tuple{typeof(TH.waning_handrule), V, M, M, M, Float64, M, V},
+        "strata_routes" => Tuple{
+            typeof(TH.routes_handrule), M, V, V, V, M, M, Vector{Int},
+            Vector{Int}, V,
+        },
+        "ward_flows" =>
+            Tuple{typeof(TH.ward_handrule), M, V, V, Float64, M},
+        "overview" => Tuple{typeof(TH.overview_handrule), M, M, V, M, V, V},
     )
     @test Set(keys(sigs)) == Set(MC.TUTORIAL_HANDRULE_CASES)
     # The report runs without the fixtures, so it keeps its own list of

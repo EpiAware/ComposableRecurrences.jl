@@ -13,10 +13,12 @@ using Mooncake: CoDual, NoRData, primal, tangent
 
 export ar2_handrule, depletion_handrule, imports_handrule, transform_handrule,
     delay_primary_handrule, outcomes_handrule, forecast_handrule,
-    reproduction_handrule
+    reproduction_handrule, waning_handrule, routes_handrule, ward_handrule,
+    overview_handrule
 
 const _Vec = Vector{Float64}
 const _Mat = Matrix{Float64}
+const _Ints = Vector{Int}
 
 # ---- AR(2) ------------------------------------------------------------------
 
@@ -636,6 +638,481 @@ function Mooncake.rrule!!(
         return ntuple(_ -> NoRData(), 6)
     end
     return CoDual(y, ȳ), reproduction_handrule_pb
+end
+
+# ---- leaky vaccination with waning ------------------------------------------
+
+# The renewal sum of stratum `k` at step `t` of a buffer whose first `m`
+# columns are the seed.
+function _sum_back(g, y, k, m, t)
+    acc = zero(eltype(y))
+    for l in eachindex(g)
+        acc += g[l] * y[k, m + t - l]
+    end
+    return acc
+end
+
+# The vaccination tutorial's loop keeping each step's pools before the draw,
+# its renewal sum and the protected pool after waning.
+function _waning_state(g, h, R, doses, σ, ω, N)
+    S, T = size(R)
+    m = size(h, 2)
+    V = promote_type(
+        eltype(g), eltype(h), eltype(R), eltype(doses), typeof(σ),
+        eltype(ω), eltype(N)
+    )
+    y = zeros(V, S, m + T)
+    y[:, 1:m] .= h
+    F, sus0, pro0 = zeros(V, S, T), zeros(V, S, T), zeros(V, S, T)
+    s2s = zeros(V, S, T)
+    sus, pro = V.(N), zeros(V, S)
+    for t in 1:T, k in 1:S
+        f = _sum_back(g, y, k, m, t)
+        F[k, t], sus0[k, t], pro0[k, t] = f, sus[k], pro[k]
+        P = sus[k] + σ * pro[k]
+        drawn = -P * expm1(-R[k, t] * f / N[k])
+        s = sus[k] - drawn * sus[k] / P
+        v = pro[k] - drawn * σ * pro[k] / P
+        waned = -v * expm1(-ω[k, t])
+        s += waned
+        v -= waned
+        s2s[k, t] = s
+        moved = min(doses[k, t], max(s, zero(V)))
+        sus[k] = s - moved
+        pro[k] = v + moved
+        y[k, m + t] = drawn
+    end
+    return (; y, F, sus0, pro0, s2s)
+end
+
+@doc raw"""
+    waning_handrule(g, h, R, doses, σ, ω, N)
+
+Leaky vaccination with waning, per stratum: infections drawn by hazard from
+``S + σ V``, then waning moves ``V`` back to ``S`` at rate ``ω``, then the
+doses move ``S`` into ``V``, capped by what ``S`` holds. Returns strata ×
+time.
+"""
+function waning_handrule(g, h, R, doses, σ, ω, N)
+    return _waning_state(g, h, R, doses, σ, ω, N).y[:, (size(h, 2) + 1):end]
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(waning_handrule), _Vec, _Mat, _Mat, _Mat, Float64, _Mat, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(waning_handrule)}, g::CoDual{_Vec}, h::CoDual{_Mat},
+        R::CoDual{_Mat}, doses::CoDual{_Mat}, σ::CoDual{Float64},
+        ω::CoDual{_Mat}, N::CoDual{_Vec}
+    )
+    gp, hp, Rp, dp, σp, ωp, Np = primal(g), primal(h), primal(R),
+        primal(doses), primal(σ), primal(ω), primal(N)
+    m = size(hp, 2)
+    st = _waning_state(gp, hp, Rp, dp, σp, ωp, Np)
+    y = st.y[:, (m + 1):end]
+    ȳ = zero(y)
+    # Each stratum from the last day back, carrying the cotangents of its
+    # two pools: the cap on the doses takes the branch the step took, then
+    # waning, the draw and the renewal sum, which reaches `g` and earlier
+    # days.
+    function waning_handrule_pb(::NoRData)
+        ḡ, h̄, R̄, d̄, ω̄, N̄ = tangent(g), tangent(h), tangent(R),
+            tangent(doses), tangent(ω), tangent(N)
+        (; F, sus0, pro0, s2s) = st
+        Y = st.y
+        S, T = size(Rp)
+        Ȳ = zeros(S, m + T)
+        Ȳ[:, (m + 1):end] .= ȳ
+        σ̄ = 0.0
+        for k in 1:S
+            s̄, p̄ = 0.0, 0.0
+            for t in T:-1:1
+                sus, pro, f = sus0[k, t], pro0[k, t], F[k, t]
+                x = Rp[k, t] * f / Np[k]
+                e = expm1(-x)
+                v = pro * (1 + σp * e)
+                eω = exp(-ωp[k, t])
+                s2 = s2s[k, t]
+                # The doses moved: the one taken by `min(doses, max(s2, 0))`.
+                c = 0 > s2 ? 0.0 : s2
+                m̄ = p̄ - s̄
+                s̄2, v̄2 = s̄, p̄
+                if c < dp[k, t]
+                    0 > s2 || (s̄2 += m̄)
+                else
+                    d̄[k, t] += m̄
+                end
+                v̄ = v̄2 * eω + s̄2 * (1 - eω)
+                ω̄[k, t] += v * eω * (s̄2 - v̄2)
+                yd = Ȳ[k, m + t]
+                P = sus + σp * pro
+                ē = s̄2 * sus + v̄ * pro * σp - yd * P
+                P̄ = -yd * e
+                σ̄ += v̄ * pro * e + P̄ * pro
+                s̄ = s̄2 * (1 + e) + P̄
+                p̄ = v̄ * (1 + σp * e) + σp * P̄
+                xn = -ē * (1 + e) / Np[k]
+                R̄[k, t] += xn * f
+                N̄[k] -= xn * x
+                f̄ = xn * Rp[k, t]
+                for l in eachindex(gp)
+                    ḡ[l] += f̄ * Y[k, m + t - l]
+                    Ȳ[k, m + t - l] += f̄ * gp[l]
+                end
+            end
+            N̄[k] += s̄
+        end
+        h̄ .+= view(Ȳ, :, 1:m)
+        return NoRData(), NoRData(), NoRData(), NoRData(), NoRData(), σ̄,
+            NoRData(), NoRData()
+    end
+    return CoDual(y, ȳ), waning_handrule_pb
+end
+
+# ---- dense and sparse routes ------------------------------------------------
+
+# The spatial strata tutorial's loop keeping each step's renewal sums, mixed
+# sums and pools before the draw.
+function _routes_state(K1, g1, v, g2, h, R, colptr, rowval, pop)
+    S, T = size(R)
+    m = size(h, 2)
+    V = promote_type(
+        eltype(K1), eltype(g1), eltype(v), eltype(g2), eltype(h), eltype(R),
+        eltype(pop)
+    )
+    y = zeros(V, S, m + T)
+    y[:, 1:m] .= h
+    P1, P2, Q, pools = zeros(V, S, T), zeros(V, S, T), zeros(V, S, T),
+        zeros(V, S, T)
+    pool = V.(pop)
+    for t in 1:T
+        for k in 1:S
+            P1[k, t] = _sum_back(g1, y, k, m, t)
+            P2[k, t] = _sum_back(g2, y, k, m, t)
+        end
+        for a in 1:S
+            acc = zero(V)
+            for b in 1:S
+                acc += K1[a, b] * P1[b, t]
+            end
+            Q[a, t] = acc
+        end
+        for b in 1:S, j in colptr[b]:(colptr[b + 1] - 1)
+            Q[rowval[j], t] += v[j] * P2[b, t]
+        end
+        for a in 1:S
+            pools[a, t] = pool[a]
+            drawn = max(pool[a] / pop[a], 1.0e-6) * R[a, t] * Q[a, t]
+            pool[a] -= drawn
+            y[a, m + t] = drawn
+        end
+    end
+    return (; y, P1, P2, Q, pools)
+end
+
+@doc raw"""
+    routes_handrule(K1, g1, v, g2, h, R, colptr, rowval, pop)
+
+Two routes, a dense coupling `K1` on kernel `g1` and a sparse one held as
+its column pointers, row indices and values `v` on kernel `g2`, then floored
+depletion,
+``I_{a,t} = \max(U_{a,t} / N_a, 10^{-6}) R_{a,t} q_{a,t}``, with ``U_{a,t}``
+the pool before day ``t``'s draw. Returns strata × time.
+"""
+function routes_handrule(K1, g1, v, g2, h, R, colptr, rowval, pop)
+    st = _routes_state(K1, g1, v, g2, h, R, colptr, rowval, pop)
+    return st.y[:, (size(h, 2) + 1):end]
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{
+        typeof(routes_handrule), _Mat, _Vec, _Vec, _Vec, _Mat, _Mat, _Ints,
+        _Ints, _Vec,
+    }
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(routes_handrule)}, K1::CoDual{_Mat}, g1::CoDual{_Vec},
+        v::CoDual{_Vec}, g2::CoDual{_Vec}, h::CoDual{_Mat}, R::CoDual{_Mat},
+        colptr::CoDual{_Ints}, rowval::CoDual{_Ints}, pop::CoDual{_Vec}
+    )
+    K1p, g1p, vp, g2p, Rp, popp = primal(K1), primal(g1), primal(v),
+        primal(g2), primal(R), primal(pop)
+    cp, rv = primal(colptr), primal(rowval)
+    m = size(primal(h), 2)
+    st = _routes_state(K1p, g1p, vp, g2p, primal(h), Rp, cp, rv, popp)
+    y = st.y[:, (m + 1):end]
+    ȳ = zero(y)
+    # From the last day back: each draw takes the infections' cotangent and
+    # the pool's, and reaches the pool before it while the floor is not
+    # binding, `R` and the mixed sum, which the two routes take back to
+    # their renewal sums.
+    function routes_handrule_pb(::NoRData)
+        K̄1, ḡ1, v̄, ḡ2, h̄, R̄, pop̄ = tangent(K1), tangent(g1), tangent(v),
+            tangent(g2), tangent(h), tangent(R), tangent(pop)
+        (; P1, P2, Q, pools) = st
+        Y = st.y
+        S, T = size(Rp)
+        Ȳ = zeros(S, m + T)
+        Ȳ[:, (m + 1):end] .= ȳ
+        pool̄, q̄, p̄1, p̄2 = zeros(S), zeros(S), zeros(S), zeros(S)
+        for t in T:-1:1
+            for a in 1:S
+                d̄ = Ȳ[a, m + t] - pool̄[a]
+                share = pools[a, t] / popp[a]
+                floored = 1.0e-6 > share
+                c = floored ? 1.0e-6 : share
+                R̄[a, t] += d̄ * c * Q[a, t]
+                q̄[a] = d̄ * c * Rp[a, t]
+                if !floored
+                    c̄ = d̄ * Rp[a, t] * Q[a, t]
+                    pool̄[a] += c̄ / popp[a]
+                    pop̄[a] -= c̄ * share / popp[a]
+                end
+            end
+            fill!(p̄2, 0.0)
+            for b in 1:S, j in cp[b]:(cp[b + 1] - 1)
+                v̄[j] += q̄[rv[j]] * P2[b, t]
+                p̄2[b] += vp[j] * q̄[rv[j]]
+            end
+            for b in 1:S
+                acc = 0.0
+                for a in 1:S
+                    K̄1[a, b] += q̄[a] * P1[b, t]
+                    acc += K1p[a, b] * q̄[a]
+                end
+                p̄1[b] = acc
+            end
+            for b in 1:S
+                for l in eachindex(g1p)
+                    ḡ1[l] += p̄1[b] * Y[b, m + t - l]
+                    Ȳ[b, m + t - l] += p̄1[b] * g1p[l]
+                end
+                for l in eachindex(g2p)
+                    ḡ2[l] += p̄2[b] * Y[b, m + t - l]
+                    Ȳ[b, m + t - l] += p̄2[b] * g2p[l]
+                end
+            end
+        end
+        pop̄ .+= pool̄
+        h̄ .+= view(Ȳ, :, 1:m)
+        return ntuple(_ -> NoRData(), 10)
+    end
+    return CoDual(y, ȳ), routes_handrule_pb
+end
+
+# ---- ward occupancy ---------------------------------------------------------
+
+@doc raw"""
+    ward_handrule(adm, confirm, ruleout, discharge, transfer)
+
+Suspected and confirmed patients per ward, after each day's admissions
+`adm` (suspected rows first): suspected patients are confirmed at rate
+`confirm` or ruled out as the share `ruleout`, confirmed ones discharged at
+rate `discharge` and transferred out in counts `transfer`, capped by what is
+there. Returns 2 × wards rows by time, suspected first.
+"""
+function ward_handrule(adm, confirm, ruleout, discharge, transfer)
+    S, T = size(transfer)
+    V = promote_type(
+        eltype(adm), eltype(confirm), eltype(ruleout), typeof(discharge),
+        eltype(transfer)
+    )
+    y = zeros(V, 2S, T)
+    for t in 1:T, k in 1:S
+        sus = (t > 1 ? y[k, t - 1] : zero(V)) + adm[k, t]
+        con = (t > 1 ? y[S + k, t - 1] : zero(V)) + adm[S + k, t]
+        stay = exp(-confirm[k])
+        con = exp(-discharge) * con + (1 - stay) * sus
+        sus = (stay - ruleout[t]) * sus
+        con -= min(transfer[k, t], max(con, zero(V)))
+        y[k, t] = sus
+        y[S + k, t] = con
+    end
+    return y
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(ward_handrule), _Mat, _Vec, _Vec, Float64, _Mat}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(ward_handrule)}, adm::CoDual{_Mat},
+        confirm::CoDual{_Vec}, ruleout::CoDual{_Vec},
+        discharge::CoDual{Float64}, transfer::CoDual{_Mat}
+    )
+    ap, cp, rp, δ, trp = primal(adm), primal(confirm), primal(ruleout),
+        primal(discharge), primal(transfer)
+    y = ward_handrule(ap, cp, rp, δ, trp)
+    ȳ = zero(y)
+    # Each ward from the last day back. The step is cheap, so its values are
+    # recomputed from the output rather than kept; the transfer cap takes
+    # the branch the step took.
+    function ward_handrule_pb(::NoRData)
+        ā, c̄, r̄, t̄ = tangent(adm), tangent(confirm), tangent(ruleout),
+            tangent(transfer)
+        S, T = size(trp)
+        eδ = exp(-δ)
+        δ̄ = 0.0
+        Ȳ = copy(ȳ)
+        for k in 1:S
+            stay = exp(-cp[k])
+            stay̅ = 0.0
+            for t in T:-1:1
+                sus = (t > 1 ? y[k, t - 1] : 0.0) + ap[k, t]
+                con = (t > 1 ? y[S + k, t - 1] : 0.0) + ap[S + k, t]
+                con1 = eδ * con + (1 - stay) * sus
+                s̄1, c̄1 = Ȳ[k, t], Ȳ[S + k, t]
+                t̄r = -c̄1
+                c = 0 > con1 ? 0.0 : con1
+                if c < trp[k, t]
+                    0 > con1 || (c̄1 += t̄r)
+                else
+                    t̄[k, t] += t̄r
+                end
+                stay̅ += s̄1 * sus - c̄1 * sus
+                r̄[t] -= s̄1 * sus
+                s̄ = s̄1 * (stay - rp[t]) + c̄1 * (1 - stay)
+                c̄0 = c̄1 * eδ
+                δ̄ -= c̄1 * eδ * con
+                ā[k, t] += s̄
+                ā[S + k, t] += c̄0
+                if t > 1
+                    Ȳ[k, t - 1] += s̄
+                    Ȳ[S + k, t - 1] += c̄0
+                end
+            end
+            c̄[k] -= stay̅ * stay
+        end
+        return NoRData(), NoRData(), NoRData(), NoRData(), δ̄, NoRData()
+    end
+    return CoDual(y, ȳ), ward_handrule_pb
+end
+
+# ---- the getting-started model ----------------------------------------------
+
+# The getting-started page's renewal, keeping each day's renewal sums, mixed
+# sums and pools before the draw.
+function _overview_state(R, seed, gi, K, pop)
+    S, T = size(R)
+    m, L = size(seed, 2), length(gi)
+    V = promote_type(
+        eltype(R), eltype(seed), eltype(gi), eltype(K), eltype(pop)
+    )
+    y = zeros(V, S, m + T)
+    y[:, 1:m] .= seed
+    P, Q, pools = zeros(V, S, T), zeros(V, S, T), zeros(V, S, T)
+    pool = V.(pop)
+    for t in 1:T
+        for s in 1:S
+            P[s, t] = _sum_back(gi, y, s, m, t)
+        end
+        for a in 1:S
+            q = zero(V)
+            for b in 1:S
+                q += K[a, b] * P[b, t]
+            end
+            Q[a, t] = q
+            pools[a, t] = pool[a]
+            h = R[a, t] * q / pop[a]
+            y[a, m + t] = pool[a] * (1 - exp(-h))
+            pool[a] *= exp(-h)
+        end
+    end
+    return (; y, P, Q, pools)
+end
+
+@doc raw"""
+    overview_handrule(R, seed, gi, K, pop, d)
+
+The getting-started model: towns coupled by `K`, each drawing from its pool
+by hazard, ``I_{a,t} = U_{a,t} (1 - e^{-R_{a,t} q_{a,t} / N_a})`` with
+``q_t = K p_t``, ``p_t`` the renewal sums on `gi` and ``U_{a,t}`` the pool
+before day ``t``'s draw, then reported after the delay `d`, lag 0 first.
+Returns towns × time.
+"""
+function overview_handrule(R, seed, gi, K, pop, d)
+    st = _overview_state(R, seed, gi, K, pop)
+    return _delay_rows(st.y[:, (size(seed, 2) + 1):end], d)
+end
+
+# The delay `d`, lag 0 first, along each row of `x`.
+function _delay_rows(x, d)
+    S, T = size(x)
+    z = zeros(promote_type(eltype(x), eltype(d)), S, T)
+    for t in 1:T, s in 1:S
+        acc = zero(eltype(z))
+        for i in 1:min(length(d), t)
+            acc += d[i] * x[s, t - i + 1]
+        end
+        z[s, t] = acc
+    end
+    return z
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(overview_handrule), _Mat, _Mat, _Vec, _Mat, _Vec, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(overview_handrule)}, R::CoDual{_Mat},
+        seed::CoDual{_Mat}, gi::CoDual{_Vec}, K::CoDual{_Mat},
+        pop::CoDual{_Vec}, d::CoDual{_Vec}
+    )
+    Rp, gp, Kp, popp, dp = primal(R), primal(gi), primal(K), primal(pop),
+        primal(d)
+    m = size(primal(seed), 2)
+    st = _overview_state(Rp, primal(seed), gp, Kp, popp)
+    x = st.y[:, (m + 1):end]
+    z = _delay_rows(x, dp)
+    z̄ = zero(z)
+    # The delay's reverse gives each day's infections their cotangent; then
+    # from the last day back each draw reaches the pool before it, `R`, the
+    # population and the mixed sum, which `Kᵀ` takes back to the renewal
+    # sums, and those reach `gi` and earlier days.
+    function overview_handrule_pb(::NoRData)
+        R̄, s̄d, ḡ, K̄, pop̄, d̄ = tangent(R), tangent(seed), tangent(gi),
+            tangent(K), tangent(pop), tangent(d)
+        (; P, Q, pools) = st
+        Y = st.y
+        S, T = size(Rp)
+        Ȳ = zeros(S, m + T)
+        for t in 1:T, s in 1:S, i in 1:min(length(dp), t)
+            d̄[i] += z̄[s, t] * x[s, t - i + 1]
+            Ȳ[s, m + t - i + 1] += z̄[s, t] * dp[i]
+        end
+        pool̄, q̄ = zeros(S), zeros(S)
+        for t in T:-1:1
+            for a in 1:S
+                q = Q[a, t]
+                hz = Rp[a, t] * q / popp[a]
+                eh = exp(-hz)
+                d̄r = Ȳ[a, m + t]
+                h̄ = pools[a, t] * eh * (d̄r - pool̄[a])
+                pool̄[a] = d̄r * (1 - eh) + pool̄[a] * eh
+                hn = h̄ / popp[a]
+                R̄[a, t] += hn * q
+                pop̄[a] -= hn * hz
+                q̄[a] = hn * Rp[a, t]
+            end
+            for b in 1:S
+                p̄ = 0.0
+                for a in 1:S
+                    K̄[a, b] += q̄[a] * P[b, t]
+                    p̄ += Kp[a, b] * q̄[a]
+                end
+                for l in eachindex(gp)
+                    ḡ[l] += p̄ * Y[b, m + t - l]
+                    Ȳ[b, m + t - l] += p̄ * gp[l]
+                end
+            end
+        end
+        pop̄ .+= pool̄
+        s̄d .+= view(Ȳ, :, 1:m)
+        return ntuple(_ -> NoRData(), 7)
+    end
+    return CoDual(z, z̄), overview_handrule_pb
 end
 
 end # module TutorialHandRule
