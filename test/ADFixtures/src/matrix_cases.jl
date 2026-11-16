@@ -18,7 +18,7 @@ using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
-using ..ADFixtures: AddMean, AddMeanHand, Pool
+using ..ADFixtures: AddMean, AddMeanHand, Pool, Renorm
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -2055,6 +2055,52 @@ if supports(:_block_local_back)
     )
     for name in ("custom_modifier_blocks", "custom_modifier_blocks_pullback")
         REQUIRES[name] = (:_block_local_back,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
+# A whole-step modifier without a `pullback!` that rescales the values to a
+# total read by time from a vector, and the built-in `Allocate` doing the
+# same with one group: the local derivative seeds the one entry each step
+# reads, so its cost does not grow with the number of times.
+if supports(:_reads_fewer)
+    function _renorm_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (T,))
+                r = Recurrence(g; modifiers = (build(exp.(logtot), S, T),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 14) for k in 1:S, t in 1:T],
+                [log(50.0) + 0.2 * _noise(t, 15) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    _renorm_user(tot, S, T) = Renorm(tot)
+    _renorm_builtin(tot, S, T) = CR.Allocate([1:S], TimeVarying(PerStratum(reshape(tot, 1, T))))
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_renorm",
+            "renewal across strata with a user whole-step modifier reading a total by time",
+            _renorm_case(_renorm_user), [5], false,
+        ),
+        Case(
+            "custom_modifier_renorm_allocate",
+            "the same total with the built-in Allocate",
+            _renorm_case(_renorm_builtin), [5], false,
+        ),
+    )
+    for name in ("custom_modifier_renorm", "custom_modifier_renorm_allocate")
+        REQUIRES[name] = (:_reads_fewer,)
         for tier in ("smoke", "realistic")
             push!(TIERS[tier].cases, name)
         end

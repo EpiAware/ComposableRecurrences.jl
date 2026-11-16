@@ -1381,10 +1381,13 @@ end
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
     # The checks and buffers that need dual numbers say nothing, so the
-    # constructor stores `nothing` and each call checks.
+    # constructor stores `nothing` and each call checks; a whole-step read
+    # count is zero, so its step seeds every entry.
     @test invoke(CR._check_scalars, one_arg, m, (1.0,)) === nothing
     @test invoke(CR._check_views, one_arg, C) === nothing
     @test invoke(CR._probe_reads, one_arg, m) === nothing
+    @test invoke(CR._check_read_rebuild, one_arg, m) === nothing
+    @test invoke(CR._probe_step_reads, two_args, m, 2) == 0
     @test invoke(CR._dual_pressure_buffers, two_args, nothing, C, Float64) === nothing
     @test CR._reads_within(nothing) === nothing
     @test CR._check_rebuilds((m, C)) isa Bool
@@ -2506,6 +2509,132 @@ end
     )
     @test invoke(CR._step_duals, Tuple{Any, Any, Vararg{Any}}, nothing, Mixer(0.9, 0.1)) ===
         nothing
+end
+
+@testitem "Adjoint: a whole-step modifier that reads a few array entries seeds only those" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences, ForwardDiff
+    # The values rescaled to a total read by time.
+    struct TotalByTime{A}
+        total::A
+    end
+    CR.forward!(m::TotalByTime, ::CR.Step, v, s, t) = (v .*= m.total[t] / sum(v); nothing)
+    # A scalar, an array read by time and a state.
+    struct Smoothed{B, A}
+        b::B
+        a::A
+    end
+    CR.nstate(::Smoothed, S) = S
+    function CR.forward!(m::Smoothed, ::CR.Step, v, s, t)
+        μ = sum(v) / length(v)
+        for k in eachindex(v, s)
+            v[k] = (1 - m.b) * v[k] + m.b * μ * m.a[t]
+            s[k] = 0.5 * s[k] + v[k]
+        end
+        return nothing
+    end
+    # Reads 30 entries a step, more than one pass of dual numbers holds.
+    struct ThirtyReads{A}
+        a::A
+    end
+    CR.forward!(m::ThirtyReads, ::CR.Step, v, s, t) = (v .*= sum(m.a[j] for j in 1:30) / 30; nothing)
+    # Reads every entry, so it is seeded through views.
+    struct EveryEntry{A}
+        a::A
+    end
+    CR.forward!(m::EveryEntry, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    # Reads every entry up to `t`, more each step: seeded through views.
+    struct CumMean{A}
+        a::A
+    end
+    function CR.forward!(m::CumMean, ::CR.Step, v, s, t)
+        v .*= sum(m.a[j] for j in 1:t) / t
+        return nothing
+    end
+    # Reads the same at times 1 and 2, then more from time 5 on.
+    struct CumLag{A}
+        a::A
+    end
+    function CR.forward!(m::CumLag, ::CR.Step, v, s, t)
+        v .*= sum(m.a[j] for j in 1:max(1, t - 3)) / max(1, t - 3)
+        return nothing
+    end
+    T, S = 12, 3
+    m = TotalByTime(fill(4.0, 100))
+    @test CR._reads_step(m)
+    @test CR._reads_fewer(m, S)
+    @test CR._probe_step_reads(m, S) == 1
+    # One entry read, so a length-100 vector takes one pass, not plain AD.
+    @test CR._step_fit(m, S) === :one
+    @test !CR._reads_fewer(EveryEntry([0.9, 1.1, 1.0]), S)
+    @test CR._step_fit(EveryEntry(rand(30)), 30) === :none
+    # A step whose reads grow with time reads one entry at time 1 and two at
+    # time 2, so it seeds every entry, and a long array takes plain AD, as a
+    # step at time 1 alone would hide; a short one keeps the views step.
+    @test !CR._reads_fewer(CumMean(ones(100)), S)
+    @test CR._step_inputs(CumMean(ones(100)), S) == 100
+    @test CR._step_fit(CumMean(ones(100)), S) === :none
+    @test CR._step_fit(CumMean(ones(T)), S) === :one
+    # A step whose reads start to grow later reads one entry at times 1 and
+    # 2; the call's last time shows the growth, so a long run takes plain
+    # AD, and a short one stays within one pass.
+    @test CR._step_fit(CumLag(ones(100)), S) === :one
+    @test CR._step_inputs(CumLag(ones(100)), S, 100) == 97
+    @test CR._step_fit(CumLag(ones(100)), S, 100) === :none
+    lag = Recurrence([0.3, 0.2]; modifiers = (CumLag(ones(100)),))
+    @test CR._fit(lag, recargs(fill(1.1, S, 100), nothing, ones(S, 2))...) === :none
+    @test CR._fit(lag, recargs(fill(1.1, S, T), nothing, ones(S, 2))...) === :one
+    # The last time as the run takes it: `stop`, else the extent in time of
+    # the gain or the added series, else 2.
+    @test CR._last_time(fill(1.1, S, T), nothing, nothing, 1, 20) == 20
+    @test CR._last_time(fill(1.1, S, T), nothing) == T
+    @test CR._last_time(1.0, ones(S, 15)) == 15
+    @test CR._last_time(TimeVarying(fill(1.1, 30)), nothing, nothing, 1, 30) == 30
+    @test CR._last_time(1.0, nothing) == 2
+    # A scalar beside the array is seeded whole, and each read counts:
+    # this step reads `a[t]` once per stratum.
+    @test CR._step_inputs(Smoothed(0.3, fill(1.0, 50)), S) == 1 + S
+    args = recargs(fill(1.1, S, T), nothing, ones(S, 2))
+    for ms in (
+            (m,), (Smoothed(0.3, 1 .+ 0.1 .* sin.(1:T)),),
+            (ThirtyReads(1 .+ 0.1 .* sin.(1:40)),), (m, CR.Transform(clamp, 0.0, 9.0)),
+            (CumMean(1 .+ 0.1 .* sin.(1:T)),), (CumLag(1 .+ 0.1 .* sin.(1:T)),),
+        )
+        op = Recurrence([0.3, 0.2]; modifiers = ms)
+        @test CR.uses_adjoint(op, CR.Run())
+        @test op.rebuilds === true
+        @test pullback_matches(op, args...)
+    end
+    # With the pass buffers made once, a step allocates nothing.
+    m̄ = (; total = zeros(100))
+    b = CR._step_duals(m̄, m, Float64, S)
+    @test b.readstep
+    v, s = ones(S) .+ 0.5, Float64[]
+    grads = (; piece = m̄, v = ones(S), s = Float64[], pass = b)
+    CR._local_step_back!(grads, m, v, s, 2)
+    coverage = Base.JLOptions().code_coverage != 0
+    @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
+    # A step that fails on the probe's ones is taken to read every entry,
+    # so it seeds them all through views.
+    struct Fails{A}
+        a::A
+    end
+    CR.forward!(m::Fails, ::CR.Step, v, s, t) = (v[1] == 1 && error("ones"); nothing)
+    @test !CR._reads_fewer(Fails(rand(10)), S)
+    @test CR._step_inputs(Fails(rand(10)), S) == 10
+    # A constructor that copies its array loses the read wrapper, so the
+    # operator takes plain AD and says so.
+    struct Copying{A}
+        a::A
+        Copying(a::A) where {A} = new{A}(copy(a))
+    end
+    CR.forward!(m::Copying, ::CR.Step, v, s, t) = (v .*= m.a[t]; nothing)
+    empty!(CR._PLAIN_NOTED)
+    op = @test_logs (:info, r"Copying cannot be rebuilt") Recurrence(
+        [0.3, 0.2]; modifiers = (Copying(fill(0.9, T)),)
+    )
+    @test op.rebuilds === false
 end
 
 @testitem "Adjoint: the local step's dual numbers compare by value" begin
