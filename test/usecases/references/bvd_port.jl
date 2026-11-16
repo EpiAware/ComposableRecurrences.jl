@@ -1,18 +1,11 @@
 # A verbatim copy of the BVDOutbreakSize.jl port's helpers that carry their
-# own Mooncake rules: `occupancy_outputs`, the outputs of the occupancy
-# balance from its three pools, and `abscond_inputs`, `hold_last` and
-# `split_rows`, the fills and splits around the abscond-thinned flows and
-# the two-clock confirmed stock.
+# own Mooncake rules, for the package arms of the benchmark matrix's port
+# cases.
 #
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit b4d4c602
-# (epiforecasts/BVDOutbreakSize#1152), src/models/observations.jl and
-# src/mooncake_rules.jl, at the lines given above each piece. The code is
-# unchanged; the module wrapper and imports stand in for those files' own,
-# and comments stand in for the docstrings.
-#
-# The benchmark matrix includes it for the package arms of `bvd_occupancy`,
-# `bvd_abscond_port` and `bvd_two_clock_port`, which spell those kernels as
-# that port does.
+# (epiforecasts/BVDOutbreakSize#1152), at the file and lines given above
+# each piece. The code is unchanged; the module wrapper and imports stand in
+# for those files' own, and comments stand in for the docstrings.
 module BVDPort
 
 import Mooncake
@@ -241,6 +234,59 @@ function Mooncake.rrule!!(::CoDual{typeof(split_rows)}, M::CoDual)
         return NoRData(), NoRData()
     end
     return out, split_rows_pullback!!
+end
+
+# src/renewal.jl L439-L456
+function patch_outputs(
+        seeds::AbstractMatrix, run::AbstractMatrix, arrivals::AbstractMatrix
+    )
+    np, L = size(seeds)
+    m = size(run, 2)
+    T = promote_type(eltype(seeds), eltype(run), eltype(arrivals))
+    infections = Matrix{T}(undef, np, L + m)
+    importation = Matrix{T}(undef, np, L + m)
+    @inbounds for t in 1:L, p in 1:np
+        infections[p, t] = seeds[p, t]
+        importation[p, t] = zero(T)
+    end
+    @inbounds for t in 1:m, p in 1:np
+        infections[p, L + t] = run[p, t]
+        importation[p, L + t] = arrivals[p, t]
+    end
+    return (; infections, importation)
+end
+
+# src/mooncake_rules.jl L1318-L1348
+
+## The patch renewal's outputs: each block of the infections' and the
+## importation's adjoints goes back to the input it was copied from.
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{
+        typeof(patch_outputs), Matrix{<:Mooncake.IEEEFloat},
+        Matrix{<:Mooncake.IEEEFloat}, Matrix{<:Mooncake.IEEEFloat},
+    }
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(patch_outputs)}, seeds::CoDual, run::CoDual,
+        arrivals::CoDual
+    )
+    sp, rp, ap = primal(seeds), primal(run), primal(arrivals)
+    out = zero_fcodual(patch_outputs(sp, rp, ap))
+    ȳ = tangent(out)
+    function patch_outputs_pullback!!(::NoRData)
+        s̄, r̄, ā = tangent(seeds), tangent(run), tangent(arrivals)
+        np, L = size(sp)
+        @inbounds for t in 1:L, p in 1:np
+            s̄[p, t] += ȳ.infections[p, t]
+        end
+        @inbounds for t in axes(rp, 2), p in 1:np
+            r̄[p, t] += ȳ.infections[p, L + t]
+            ā[p, t] += ȳ.importation[p, L + t]
+        end
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return out, patch_outputs_pullback!!
 end
 
 end
