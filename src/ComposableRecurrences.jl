@@ -98,7 +98,7 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
-    pressure, Survival, convert_floats, islinear
+    pressure, Survival, convert_floats, islinear, window_sums
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -161,6 +161,8 @@ include("operators/convolution.jl")
 include("operators/transpose.jl")
 # The pressure a recurrence's steps draw against, from given outputs.
 include("operators/pressure.jl")
+# Sums over consecutive windows of a series, read off at their last times.
+include("operators/windows.jl")
 
 # kernels: routes kernels, delay masses and computed kernels.
 # The routes kernel: a sum of (coupling, kernel) routes.
