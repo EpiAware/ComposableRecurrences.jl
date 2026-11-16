@@ -147,8 +147,7 @@ its tangents or shadows beside the arrays rather than in them.
 Loops split every step count each multiply-add once whatever the type.
 
 The default `min_work` of 500 000 comes from whole-loss timings
-(`benchmark/threshold.jl`); [Threads and GPUs](@ref tutorial-threads-gpus)
-gives them.
+(`benchmark/threshold.jl`).
 Strata that mix split only with a pairwise kernel over a few hundred strata
 or a coupling over tens of thousands.
 Results are identical to [`Serial`](@ref) because each index writes only
