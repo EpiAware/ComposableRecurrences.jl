@@ -212,10 +212,15 @@ end
     conv(X)
     coverage = Base.JLOptions().code_coverage != 0
     # Forced bounds checks (`--check-bounds=yes`, as the test runner sets)
-    # keep the lag loops' views on the heap, about 3.7 KB here; a second
-    # output-sized array would still fail.
-    slack = Base.JLOptions().check_bounds == 1 ? 6144 : 256
-    @test (@allocated conv(X)) <= sizeof(X) + slack skip = coverage
+    # keep the lag loops' views on the heap, 3.7 KB on x86-64 and 7.6 KB on
+    # Apple silicon here; the check then rules out a second output-sized
+    # array only.
+    bound = if Base.JLOptions().check_bounds == 1
+        2 * sizeof(X) - 1
+    else
+        sizeof(X) + 256
+    end
+    @test (@allocated conv(X)) <= bound skip = coverage
     # Loops split across tasks keep the buffer, and agree.
     @test with(CR.EXECUTOR => CR.Threaded(; min_work = 0)) do
         conv(X)
