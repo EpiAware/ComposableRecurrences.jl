@@ -1716,16 +1716,27 @@ end
 # which reads each stratum's window contiguously, is the faster layout.
 const _STRATA_MAJOR_LAGS = 3
 
-const _HostSlot = Union{Real, Vector{<:Real}, Matrix{<:Real}}
+const _Slot = Union{Real, AbstractVecOrMat{<:Real}}
 _strata_major(Tp, ex, r, gain, add, h, s0, L, S) = false
 function _strata_major(
         ::Type{<:_IEEEFloat}, ::Serial,
         ::Recurrence{<:Vector{<:Real}, <:Union{UniformScaling, Diagonal{<:Real, <:Vector}}, Tuple{}},
-        ::_HostSlot, ::Union{Nothing, _HostSlot}, ::Matrix{<:Real}, ::Nothing, L, S
+        gain::_Slot, add::Union{Nothing, _Slot}, h::AbstractMatrix{<:Real}, ::Nothing,
+        L, S
     )
     # One stratum runs as a chained run, which rounds differently.
-    return S >= 2 && 1 <= L <= _STRATA_MAJOR_LAGS
+    return _on_host(gain) && _on_host(add) && _on_host(h) && S >= 2 &&
+        1 <= L <= _STRATA_MAJOR_LAGS
 end
+
+# Whether `x` is a number or an array in host memory: an `Array`, or a view
+# or reshape of one, which the strata-major run indexes element by element.
+_on_host(::Union{Nothing, Real}) = true
+_on_host(x::AbstractArray) = _host_array(typeof(x))
+_host_array(::Type) = false
+_host_array(::Type{<:Array}) = true
+_host_array(::Type{<:SubArray{T, N, P}}) where {T, N, P} = _host_array(P)
+_host_array(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P} = _host_array(P)
 
 # The run of independent strata in a strata × time buffer: the history's
 # columns, right aligned, then one column per step. Each step is the general

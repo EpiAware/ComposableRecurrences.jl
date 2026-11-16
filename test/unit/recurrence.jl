@@ -1004,19 +1004,24 @@ end
 end
 
 @testitem "Recurrence: a plain call of independent strata runs strata-major and equals the general run" begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    using ComposableRecurrences, ForwardDiff, JLArrays, LinearAlgebra
     CR = ComposableRecurrences
     general(r, args...) = first(CR._recur(r, args..., Val(false)))
     v(Tp, n, s) = Tp[0.2 + 0.5 * abs(sin(3.1 * i + s)) for i in 1:n]
     m(Tp, a, b, s) = reshape(v(Tp, a * b, s), a, b)
+    # Arrays as given, or as reshaped views of a flat vector, as a caller
+    # that unpacks one parameter vector passes them.
+    viewed(x) = x
+    viewed(x::AbstractArray) = reshape(view(vec(copy(x)), :), size(x)...)
     for Tp in (Float64, Float32), L in 1:3, S in (2, 5), T in (0, 1, 6),
-            n in (1, L, L + 2), gk in 1:4, ak in 1:3, ck in 1:3
+            n in (1, L, L + 2), gk in 1:4, ak in 1:3, ck in 1:3,
+            wrap in (identity, viewed)
         g = v(Tp, L, 1)
         C = (I, Tp(0.9) * I, Diagonal(v(Tp, S, 2)))[ck]
         r = Recurrence(g; coupling = C)
-        h = m(Tp, S, n, 3) .- Tp(0.4)
-        gain = (true, Tp(0.8), v(Tp, T, 4), m(Tp, S, T, 5))[gk]
-        add = (nothing, v(Tp, T, 6) .- Tp(0.3), m(Tp, S, T, 7))[ak]
+        h = wrap(m(Tp, S, n, 3) .- Tp(0.4))
+        gain = wrap((true, Tp(0.8), v(Tp, T, 4), m(Tp, S, T, 5))[gk])
+        add = wrap((nothing, v(Tp, T, 6) .- Tp(0.3), m(Tp, S, T, 7))[ak])
         args = (CR._run_args(r, gain, h, nothing, add, 1)..., T)
         @test CR._strata_major(Tp, CR.Serial(), r, gain, add, h, nothing, L, S)
         want = general(r, args...)
@@ -1038,6 +1043,11 @@ end
     Dl = ForwardDiff.Dual{Nothing, Float64, 1}
     @test !CR._strata_major(
         Dl, CR.Serial(), Recurrence([0.5]), true, nothing, h, nothing, 1, 2
+    )
+    # A device array is not indexed element by element.
+    @test !CR._strata_major(
+        Float64, CR.Serial(), Recurrence([0.5]), true, nothing, JLArray(h),
+        nothing, 1, 2
     )
     rc = Recurrence([0.5]; coupling = [0.9 0.1; 0.2 0.8])
     @test !CR._strata_major(

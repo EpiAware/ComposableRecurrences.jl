@@ -66,10 +66,11 @@ end
 # (Another executor is reached behind a deliberate function barrier.)
 let CR = ComposableRecurrences
     S, T = 11, 31
-    h = reshape(collect(range(-1.0, 1.0; length = S)), :, 1)
+    θ = collect(range(-1.0, 1.0; length = S))
     for r in (Recurrence([0.7]), Recurrence([0.5, 0.2, 0.1]; coupling = 0.9 * CR.I)),
             gain in (true, 0.8, fill(0.9, T), fill(0.9, S, T)),
-            add in (nothing, fill(0.1, T), fill(0.1, S, T))
+            add in (nothing, fill(0.1, T), fill(0.1, S, T)),
+            h in (reshape(θ, :, 1), reshape(view(θ, 1:S), :, 1))
         L = CR._nlags(r.kernel)
         D = CR._buffer_depth(r, L)
         rep = JET.@report_opt target_modules = (CR,) CR._run(
