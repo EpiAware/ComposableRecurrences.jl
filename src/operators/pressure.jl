@@ -29,6 +29,10 @@ With modifiers or added values the ratio is the gain as realised on each
 step, with their effect included.
 Where ``q_{t,i}`` is zero the ratio is `NaN` or `Inf`.
 For outputs from a traced call, `trace.pressure` is the same pressure.
+It is differentiable in the outputs, the history, the kernel and the
+coupling.
+`pressure(NoAdjoint(r), y)` gives the same values with the rule turned off,
+as [`ComposableRecurrences.NoAdjoint`](@ref) does for the call.
 
 # Arguments
 - `r`: the recurrence.
@@ -55,7 +59,13 @@ y ./ CR.pressure(r, y; history = h) ≈ R
 true
 ```
 """
-function pressure(r::Recurrence, y; history = nothing, start::Integer = 1)
+pressure(r::Recurrence, y; kwargs...) = _pressure(r, r, y; kwargs...)
+function pressure(n::NoAdjoint{<:Recurrence}, y; kwargs...)
+    return _pressure(n.op, n, y; kwargs...)
+end
+function _pressure(
+        r::Recurrence, route, y; history = nothing, start::Integer = 1
+    )
     h = history === nothing ? _empty_history(y) : history
     S = _nstrata(h)
     _nstrata(y) == S && ndims(y) == ndims(h) || throw(
@@ -65,8 +75,6 @@ function pressure(r::Recurrence, y; history = nothing, start::Integer = 1)
         )
     )
     (; kernel, coupling) = r
-    L = _nlags(kernel)
-    D = _buffer_depth(r, L)
     T = size(y, ndims(y))
     start >= 1 || throw(ArgumentError("start ($start) must be at least 1"))
     stop = start + T - 1
@@ -75,34 +83,127 @@ function pressure(r::Recurrence, y; history = nothing, start::Integer = 1)
     _check_primary_seed(kernel, history, start)
     _check_kernel_times(kernel, stop)
     _check_times(:coupling, coupling, stop)
-    Tp = float(param_eltype((r, y, h)))
-    q = _pressure_run(Tp, r, y, h, start, L, D, S, T)
+    q = adjoint_call(_reroute(route, _Pressure(r)), y, h, Int(start))
     return y isa AbstractVector ? vec(q) : q
+end
+
+# `pressure` routes through the rules as an operator of its own. Its
+# reverse pass is the recurrence's own at each step without the gain, add
+# input and modifiers: the pressure's cotangent back through the coupling,
+# then correlated with the kernel into the buffer's cotangent, which holds
+# the outputs' and the history's.
+struct _Pressure{R <: Recurrence} <: AbstractOperator
+    r::R
+end
+function uses_adjoint(op::_Pressure, ::Run)
+    r = op.r
+    return _pressure_rule(r.kernel) &&
+        _parts_adjoint(r.kernel, r.coupling, ()) && r.rebuilds !== false
+end
+# A computed kernel's weights are filled as a dense kernel in the run, so
+# its pressure takes plain AD.
+_pressure_rule(kernel) = true
+
+function _primal(op::_Pressure, y, h, τ0)
+    return first(_pressure_forward(op.r, y, h, τ0, Val(false)))
+end
+function _run_forward(op::_Pressure, y, h, τ0)
+    return _pressure_forward(op.r, y, h, τ0, Val(true))
+end
+function _pressure_forward(r, y, h, τ0, keep::Val)
+    S = _nstrata(h)
+    L = _nlags(r.kernel)
+    D = _buffer_depth(r, L)
+    T = size(y, ndims(y))
+    Tp = float(param_eltype((r, y, h)))
+    return _pressure_run(Tp, r, y, h, τ0, L, D, S, T, keep)
 end
 
 # The buffer holds the history then the outputs, and each step reads the
 # window before its row as the run does, so the kernel, coupling and their
-# runs over time are the run's own.
-function _pressure_run(::Type{Tp}, r, y, h, τ0, L, D, S, T) where {Tp}
+# runs over time are the run's own. The reverse pass keeps the buffer and
+# each step's kernel convolutions `P` (strata × steps).
+function _pressure_run(
+        ::Type{Tp}, r, y, h, τ0, L, D, S, T, keep::Val
+    ) where {Tp}
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _load_history!(_buffer(h, Tp, D, T, S), h, D)
     _load_outputs!(H, y, D)
     out = _zeros(h, Tp, S, T)
+    P = keep isa Val{true} ? _zeros(h, Tp, S, T) : nothing
     p = _zeros(h, Tp, S)
     q = _zeros(h, Tp, S)
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
-        _steps_in!(_pressure_step!, Serial(), ts, T, out, coupling, g, p, q, H, τ0, L, D, S)
+        _steps_in!(
+            _pressure_step!, Serial(), ts, T, out, P, coupling, g, p, q, H,
+            τ0, L, D, S
+        )
     end
-    return out
+    keep isa Val{true} || return out, nothing
+    return out, (; H, P, kernel, h, τ0, L, D, S, T)
 end
 
-# Step `t`'s pressure on every stratum, read as the run's step reads it.
-@inline function _pressure_step!(t, out, coupling, g, p, q, H, τ0, L, D, S)
+# The steps in turn, each its coupling's pullback and then its kernel's,
+# as `_steps_back!` runs them for a recurrence. No step reads another's
+# output, so they need no order.
+function pullback!(grads, op::_Pressure, ::Run, c)
+    _count_pullback()
+    (; H, P, kernel, h, τ0, L, D, S, T) = c
+    coupling = op.r.coupling
+    r̄ = cotangent(grads.piece, :r)
+    ḡ = cotangent(r̄, :kernel)
+    C̄ = cotangent(r̄, :coupling)
+    ȳ, h̄ = grads.args[1], grads.args[2]
+    Q̄ = grads.y
+    Tp = eltype(H)
+    H̄ = _zeros(H, Tp, size(H)...)
+    kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
+    pbufs = _pressure_buffers(C̄, coupling, Tp)
+    pr = (; P)
+    p̄ = _zeros(H, Tp, S)
+    q̄ = _zeros(H, Tp, S)
+    for (ts, g, j) in _kernel_runs(kernel, τ0, T)
+        kb = _run_buffer(kbuf, kernel, j)
+        for t in _run_steps(ts, T)
+            τ = τ0 + t - 1
+            for k in 1:S
+                @inbounds q̄[k] = Q̄[k, t]
+            end
+            _coupling_back!(p̄, C̄, coupling, q̄, pr, t, τ, pbufs)
+            _kernel_back!(kb, ḡ, g, p̄, H, H̄, t + D - L, τ, L)
+        end
+    end
+    _kernel_finish!(ḡ, kbuf)
+    _gather_outputs!(ȳ, H̄, D)
+    _scatter_history!(h̄, H̄, h, D)
+    return nothing
+end
+
+# Buffer rows after the history into the outputs' cotangent.
+_gather_outputs!(::Nothing, H̄, D) = nothing
+function _gather_outputs!(ȳ::AbstractVector, H̄, D)
+    for t in eachindex(ȳ)
+        @inbounds ȳ[t] += H̄[D + t, 1]
+    end
+    return nothing
+end
+function _gather_outputs!(ȳ::AbstractMatrix, H̄, D)
+    for t in axes(ȳ, 2), k in axes(ȳ, 1)
+        @inbounds ȳ[k, t] += H̄[D + t, k]
+    end
+    return nothing
+end
+
+# Step `t`'s pressure on every stratum, read as the run's step reads it,
+# and its kernel convolutions into `P` when the reverse pass keeps them.
+@inline function _pressure_step!(t, out, P, coupling, g, p, q, H, τ0, L, D, S)
     τ = τ0 + t - 1
     _step_prepare!(Serial(), p, q, coupling, g, H, t, τ, L, D)
     for k in 1:S
-        out[k, t] = last(_step_pressure(coupling, g, p, q, H, t, τ, L, D, k))
+        pk, qk = _step_pressure(coupling, g, p, q, H, t, τ, L, D, k)
+        out[k, t] = qk
+        P === nothing || (P[k, t] = pk)
     end
     return nothing
 end

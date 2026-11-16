@@ -634,6 +634,21 @@ BASELINES["reproduction"] = [
     ),
 ]
 
+BASELINES["reproduction_pressure"] = [
+    "loop" => _tutorial_baseline(
+        reproduction_pressure, function (z)
+            (; T, L, S) = z
+            pop, K = towns()
+            seed = overview_seed(S, L)
+            W = _weights(S, T)
+            return function (θ)
+                g, logR = _unpack(θ, (L,), (S, T))
+                return sum(W .* loop_reproduction(g, exp.(logR), seed, K, pop))
+            end
+        end
+    ),
+]
+
 # Two routes, a dense coupling on kernel `g1` and a sparse one held as its
 # column pointers, row indices and values on kernel `g2`, then floored
 # depletion.

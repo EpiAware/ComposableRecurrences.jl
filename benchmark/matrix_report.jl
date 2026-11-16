@@ -591,6 +591,7 @@ const HAND_RULE_CASES = Set(
     [
         "ar", "renewal_depletion", "renewal_imports", "transform",
         "delay_primary", "outcome_chain", "renewal_forecast", "reproduction",
+        "reproduction_pressure",
         "strata_waning", "strata_routes", "ward_flows", "overview",
     ]
 )

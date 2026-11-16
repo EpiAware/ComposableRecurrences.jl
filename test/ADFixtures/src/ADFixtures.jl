@@ -1376,7 +1376,7 @@ function _effective_reproduction(w, θ)
     d = ComposableRecurrences.Depletion(PerStratum(POP))
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y = w(r)(exp.(logR); history = h)
-    return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
+    return sum(WS .* y ./ ComposableRecurrences.pressure(w(r), y; history = h))
 end
 
 # The same from the pressures the run's trace records, so with no second
@@ -2581,7 +2581,8 @@ _REQUIRES["Recurrence whole-step modifier branching at a tie over five steps (oc
     (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 # The pressure recomputed from given outputs.
-_REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
+# Its twin needs `pressure` to take a `NoAdjoint`, which came with `_Pressure`.
+_REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure, :_Pressure)
 _REQUIRES["Recurrence effective reproduction number from its trace"] = (:_TracedPressure,)
 _REQUIRES["Recurrence pressure from its trace, by coupling and with no input"] =
     (:_TracedPressure,)

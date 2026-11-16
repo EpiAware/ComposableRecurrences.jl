@@ -149,3 +149,48 @@ end
         Recurrence(TimeVarying(repeat(g, 1, 3))), y; history = h
     )
 end
+
+@testitem "pressure: the rule's pullback against a Jacobian" setup = [
+    PressureCases, PullbackChecks, ReferenceAD,
+] begin
+    using ComposableRecurrences, LinearAlgebra
+    CR = ComposableRecurrences
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    (; S, T, g, G, K, R, h) = PressureCases
+    function check(r, y, hy, Q̄)
+        op, args = CR._Pressure(r), (y, hy, 1)
+        @test CR.uses_adjoint(op, CR.Run())
+        ref = reference_vjp(ReferenceAD.jacobian, op, args, Q̄)
+        @test rule_vjp(op, args, Q̄) ≈ ref
+    end
+    y = R .+ 0.5
+    Q̄ = [sin(k + 2t) for k in 1:S, t in 1:T]
+    # The kernels and couplings the rule takes: a fixed, per-stratum and
+    # time-varying kernel; no coupling, a matrix and a scalar. (The
+    # reference rebuilds a `Diagonal` as a dense matrix, so it is left out.)
+    for r in (
+            Recurrence(g), Recurrence(g; coupling = K),
+            Recurrence(PerStratum(G); coupling = 0.7 * I),
+            Recurrence(TimeVarying(repeat(g, 1, T)); coupling = K),
+            # Modifiers do not enter the pressure.
+            Recurrence(
+                g; coupling = K,
+                modifiers = (CR.Depletion(PerStratum([5.0, 6.0, 7.0])),)
+            ),
+        )
+        check(r, y, h, Q̄)
+    end
+    # One series, with a history shorter than the kernel.
+    check(Recurrence(g), y[1, :], h[1, 1:2], reshape(Q̄[1, :], 1, T))
+    # A computed kernel takes plain AD.
+    hz = fill(0.1, T + length(g))
+    surv = CR.Survival(TimeVarying(hz); from = 1)
+    computed = TimeVarying(g * (1 - surv), CR.Primary())
+    rc = Recurrence(computed)
+    @test !CR.uses_adjoint(CR._Pressure(rc), CR.Run())
+    # `NoAdjoint` gives the same pressure and turns the rule off.
+    rk = Recurrence(g; coupling = K)
+    @test CR.pressure(CR.NoAdjoint(rk), y; history = h, start = 2) ≈
+        CR.pressure(rk, y; history = h, start = 2)
+    @test !CR.uses_adjoint(CR._reroute(CR.NoAdjoint(rk), CR._Pressure(rk)), CR.Run())
+end

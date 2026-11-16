@@ -22,6 +22,8 @@
         "renewal_forecast" => Tuple{typeof(TH.forecast_handrule), V, V, V},
         "reproduction" =>
             Tuple{typeof(TH.reproduction_handrule), V, M, M, M, V},
+        "reproduction_pressure" =>
+            Tuple{typeof(TH.reproduction_handrule), V, M, M, M, V},
         "strata_waning" =>
             Tuple{typeof(TH.waning_handrule), V, M, M, M, Float64, M, V},
         "strata_routes" => Tuple{
