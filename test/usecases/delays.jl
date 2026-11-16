@@ -125,7 +125,8 @@ end
 
     # BVD's `bin_increments`: sums over the windows between report days, an
     # empty window giving zero. The running total, read once at the report
-    # days and differenced.
+    # days and differenced. The days here lie in `1:n`; the reference also
+    # clamps a day of 0 or one past the end, which this form would not.
     days = [3, 7, 7, 10, 12]
     refb = B.bin_increments(Y, days)
     wb = range(0.5, 2.0; length = length(days))
