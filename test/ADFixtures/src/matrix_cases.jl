@@ -2071,7 +2071,10 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
             eltype(Rt_matrix), eltype(g), eltype(seeds_matrix), eltype(K),
             eltype(epsilon), float(eltype(N))
         )
-        pool0 = [BVDRef._pool_after_seed(N[p], view(seeds_matrix, p, :)) for p in 1:np]
+        pool0 = [
+            BVDRef._pool_after_seed(N[p], view(seeds_matrix, p, :))
+                for p in 1:np
+        ]
         modifiers = (
             CR.Redistribute(K, epsilon),
             CR.Depletion(PerStratum(N); pools = (S = PerStratum(pool0),)),
@@ -2084,7 +2087,9 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         arrivals = convert(Matrix{Tp}, first(trace.modifiers))::Matrix{Tp}
         return BVDPort.patch_outputs(seeds_matrix, run, arrivals)
     end
-    function _bvd_patches_port_hand(wrap, Rt_matrix, g, seeds_matrix, K, epsilon, N)
+    function _bvd_patches_port_hand(
+            wrap, Rt_matrix, g, seeds_matrix, K, epsilon, N
+        )
         return BVDRef.patch_infections(
             collect(Rt_matrix), collect(g), collect(seeds_matrix), collect(K),
             collect(epsilon), N
