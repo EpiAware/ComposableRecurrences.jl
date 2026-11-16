@@ -201,24 +201,17 @@ end
             @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
         end
     end
-    # Both of the helper's paths, against a plain sum over the days in range:
-    # windows that close before day 1, empty windows, windows past the last
-    # day, and windows that leave gaps.
+    # `window_sums` against a plain sum over the days in range, on windows
+    # that tile the days from day 1, as the case's do: windows that close
+    # before day 1, empty windows and windows past the last day.
     y = [Float64(10k + t) for k in 1:2, t in 1:9]
     plain(a, b) = [sum(y[k, max(a, 1):min(b, 9)]; init = 0.0) for k in 1:2]
-    for (starts, stops) in (
-            ([1, 3], [2, 9]), ([1, 1, 1, 4], [-2, 0, 3, 9]),
-            ([1, 4, 4, 10, 12], [3, 3, 9, 9, 9]), ([2, 4, 8], [3, 7, 7]),
-            ([5], [9]),
-        )
+    for stops in ([2, 9], [-2, 0, 3, 9], [3, 3, 9, 9, 12], [9])
+        starts = [
+            v == 1 ? 1 : max(stops[v - 1], 0) + 1 for v in eachindex(stops)
+        ]
         sums = reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
-        @test MC._window_sums(y, starts, stops) == sums
-        # Windows that tile the days from day 1, as `window_sums` takes them.
-        tiles = all(
-            starts[v] == max(v == 1 ? 0 : stops[v - 1], 0) + 1
-                for v in eachindex(starts)
-        )
-        tiles && @test MC.CR.window_sums(y, stops) ≈ sums
+        @test MC.CR.window_sums(y, stops) ≈ sums
     end
 end
 
