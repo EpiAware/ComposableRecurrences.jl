@@ -251,8 +251,7 @@ w_{k,v} = \sum_{j = a_v}^{b_v} f_{j - k}, \qquad j \ge k,
 ```
 
 with window `v` running from day ``a_v`` = `starts[v]` to ``b_v`` =
-`stops[v]`. Each weight is a difference of two entries of the cumulative
-PMF.
+`stops[v]`.
 """
 function zone_window_loop(
         f::AbstractVector, starts::AbstractVector{<:Integer},
