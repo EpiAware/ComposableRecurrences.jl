@@ -1673,6 +1673,10 @@ if isfile(BVD_HANDRULE)
             (; T, L, S) = z
             starts, stops = _bvd_window_rows(T)
             starts, stops = [1; 1; starts], [-50; 0; stops]
+            # The rule arm reads only the window ends, so the windows tile.
+            @assert all(
+                starts[v] == max(stops[v - 1], 0) + 1 for v in 2:length(starts)
+            )
             W = _weights(S, length(starts))
             f = function (θ)
                 p, I = _unpack(θ, (L,), (S, T))
@@ -1682,6 +1686,7 @@ if isfile(BVD_HANDRULE)
             return f, _flat(_gi(L), I0)
         end
     end
+    # `window_sums` as its operator, so `wrap` can turn its rule off too.
     function _bvd_window_reports_rule(wrap, f, I, starts, stops)
         y = wrap(Convolution(f))(I)
         return wrap(CR._WindowSums(stops, size(y, 2), 2))(y)
@@ -1690,7 +1695,7 @@ if isfile(BVD_HANDRULE)
     # read from a running total, a window being empty when it starts after
     # it stops. Days outside `1:size(y, 2)` count as zero. Windows that tile
     # the days from day 1 read the total once, at the window ends; others
-    # read it at both ends. The rule arm took this before `window_sums`.
+    # read it at both ends.
     function _window_sums(y, starts, stops)
         hi = clamp.(stops, 0, size(y, 2))
         lo = clamp.(starts, 1, hi .+ 1)

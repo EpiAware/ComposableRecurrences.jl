@@ -211,8 +211,14 @@ end
             ([1, 4, 4, 10, 12], [3, 3, 9, 9, 9]), ([2, 4, 8], [3, 7, 7]),
             ([5], [9]),
         )
-        @test MC._window_sums(y, starts, stops) ==
-            reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
+        sums = reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
+        @test MC._window_sums(y, starts, stops) == sums
+        # Windows that tile the days from day 1, as `window_sums` takes them.
+        tiles = all(
+            starts[v] == max(v == 1 ? 0 : stops[v - 1], 0) + 1
+                for v in eachindex(starts)
+        )
+        tiles && @test MC.CR.window_sums(y, stops) ≈ sums
     end
 end
 
