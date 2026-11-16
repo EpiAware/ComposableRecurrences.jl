@@ -120,6 +120,10 @@ function _contributions(c::_ComputedConvolution, route, x; kwargs...)
 end
 
 _pressure_rule(::_ComputedKernel) = false
+function _pressure_kernel(r::Recurrence{<:_ComputedKernel}, stop)
+    K, _ = _fill_kernel(r.kernel, 1, stop, stop, Val(false))
+    return _with_kernel(r, K)
+end
 
 function _with_kernel(r::Recurrence, K)
     return Recurrence(_Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds)
