@@ -403,8 +403,9 @@ end
 
 # Stratum `k`'s outputs, each one dot of the kernel with its window: lags
 # up to `t - 1` read `x`, older ones the history, and lags before the
-# history, or after the end of `x`, read zeros. The call's checks fix every shape and the caller
-# requires one-based indices, so the loops read without bounds checks.
+# history, or after the end of `x`, read zeros.
+# The call's checks fix every shape and the caller requires one-based
+# indices, so the loops read without bounds checks.
 function _gather_body!(k, out, kernel, x, history, gain, add, m, start)
     L = _nlags(kernel)
     e = _extent(x)
@@ -573,6 +574,9 @@ function pullback!(grads, c::Convolution, ::Run, cache::_LayoutCache)
     else
         # Only the first `r` times were summed, from `x` and zeros: the
         # later outputs read no input, and the zeros take no cotangent.
+        # The back pass writes a cotangent for every summed input, zeros
+        # included, so it takes one over all `r` times, and plain copies
+        # keep the native loops on plain arrays.
         N = s * r
         x̄r = x̄ === nothing ? nothing : zeros(eltype(x̄), size(x))
         _shifted_back!(x̄r, k̄, c.kernel, x, Ȳ[1:N], s, L)
@@ -1167,11 +1171,12 @@ function _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
 end
 
-# Add buffer rows `o + f` to `o + n` into entries `f` to `n` of the
-# public-layout cotangent `x̄`.
 # The last time of `stop` that the input of cotangent `x̄` has.
 _within(::Nothing, stop) = stop
 _within(x̄, stop) = min(stop, _extent(x̄))
+
+# Add buffer rows `o + f` to `o + n` into entries `f` to `n` of the
+# public-layout cotangent `x̄`.
 _add_rows!(::Nothing, X̄, o, f, n) = nothing
 function _add_rows!(x̄::AbstractVector, X̄, o, f, n)
     view(x̄, f:n) .+= view(X̄, (o + f):(o + n), 1)
