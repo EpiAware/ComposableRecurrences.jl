@@ -685,12 +685,13 @@ end
     @test only(failing) isa Test.Broken
 end
 
-# The operators are split across items, one slice each, so a runner that
-# gives each item its own process holds one slice's compiled code at a time.
+# One item per slice of the operators: there must be
+# `ADFixtures.ADJOINT_SLICES` items per backend, and the item after them
+# checks that the slices cover every operator once.
 @testitem "Mooncake: test_adjoint on one operator of each kind (slice 1 of 2)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
-    for case in adjoint_cases(; slice = (1, 2))
+    for case in adjoint_cases(; slice = (1, ADFixtures.ADJOINT_SLICES))
         rtol = last(case)
         test_adjoint_case(
             "Mooncake reverse", AutoMooncake(; config = nothing), case; rtol, atol = rtol
@@ -701,7 +702,7 @@ end
 @testitem "Mooncake: test_adjoint on one operator of each kind (slice 2 of 2)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
-    for case in adjoint_cases(; slice = (2, 2))
+    for case in adjoint_cases(; slice = (2, ADFixtures.ADJOINT_SLICES))
         rtol = last(case)
         test_adjoint_case(
             "Mooncake reverse", AutoMooncake(; config = nothing), case; rtol, atol = rtol
@@ -713,7 +714,7 @@ end
 @testitem "Enzyme: test_adjoint on one operator of each kind (slice 1 of 2)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
-    for case in adjoint_cases(; slice = (1, 2))
+    for case in adjoint_cases(; slice = (1, ADFixtures.ADJOINT_SLICES))
         rtol = last(case)
         test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
     end
@@ -722,10 +723,16 @@ end
 @testitem "Enzyme: test_adjoint on one operator of each kind (slice 2 of 2)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
-    for case in adjoint_cases(; slice = (2, 2))
+    for case in adjoint_cases(; slice = (2, ADFixtures.ADJOINT_SLICES))
         rtol = last(case)
         test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
     end
+end
+
+@testitem "The test_adjoint slices cover every operator once" tags = [:ad, :mooncake_reverse, :enzyme_reverse] setup = [AdjointCases] begin
+    n = ADFixtures.ADJOINT_SLICES
+    sliced = [first(c) for k in 1:n for c in adjoint_cases(; slice = (k, n))]
+    @test sort(sliced) == sort(first.(adjoint_cases()))
 end
 
 # Enzyme reverse checks the delay and grouped totals through the registry.

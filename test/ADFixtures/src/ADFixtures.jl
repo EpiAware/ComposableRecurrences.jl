@@ -2831,8 +2831,7 @@ that backend by design (see `backend_plain_scenarios`) keeps no twin there,
 since the twin would take the same plain path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
-With `slice = (k, n)`, only the `k`th of `n` slices of the selection is
-kept (see `take_slice`), so a test can split the scenarios across items.
+`slice` keeps one slice of the selection (see `take_slice`).
 """
 function scenarios(;
         with_reference::Bool = false, category::Symbol = :marginal,
@@ -2868,9 +2867,8 @@ end
 """
     take_slice(xs, slice)
 
-The entries of `xs` in slice `slice = (k, n)`: every `n`th entry, starting
-from the `k`th. The `n` slices hold every entry of `xs` once between them.
-With `slice = nothing`, all of `xs`.
+Every `n`th entry of `xs` from the `k`th, for `slice = (k, n)`; all of `xs`
+for `nothing`.
 """
 take_slice(xs, ::Nothing) = xs
 function take_slice(xs, slice::Tuple{Int, Int})
@@ -2880,6 +2878,18 @@ function take_slice(xs, slice::Tuple{Int, Int})
     )
     return xs[k:n:end]
 end
+
+"""
+The number of slices the reverse-mode gradient items split the scenarios
+into, one `@testitem` per slice in `test/ad/scenarios.jl`.
+"""
+const REVERSE_SLICES = 4
+
+"""
+The number of slices the `test_adjoint` items split the operators into, one
+`@testitem` per slice in `test/ad/adjoints.jl`.
+"""
+const ADJOINT_SLICES = 2
 
 """
     backends()

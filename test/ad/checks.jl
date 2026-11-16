@@ -69,6 +69,15 @@
         return nothing
     end
 
+    # Runs slice `k` of `ADFixtures.REVERSE_SLICES` of the registry checks
+    # for the reverse-mode backend named `name`, with its rule checks.
+    function test_reverse_slice(name, k)
+        return test_gradients(
+            name; category = :marginal, rules_fire = true,
+            slice = (k, ADFixtures.REVERSE_SLICES)
+        )
+    end
+
     # Whether the gradients of the scenario named `name` ran the analytic
     # reverse pass (`fired`), as they must on a backend with a rule of its
     # own, unless the scenario is a `NoAdjoint` twin or takes plain AD there
