@@ -33,7 +33,19 @@ function pullback!(grads, w::_WithTrace, ::Run, c)
     _zero_trace(T̄s) && _zero_trace(Q̄) && return pullback!(inner, w.op, Run(), c)
     rec = _zero_trace(T̄s) ? c.rec : _traced_records(c.rec, T̄s, c.S)
     pr = _zero_trace(Q̄) ? c.pr : merge(c.pr, (; Q̄ = _strata_rows(Q̄)))
-    return pullback!(inner, w.op, Run(), merge(c, (; rec, pr)))
+    return pullback!(inner, w.op, Run(), _with_fields(c, (; rec, pr)))
+end
+# `merge(c, x)` for a named tuple `x` whose names are all in `c`, with the
+# names and order of `c`, so its type is inferred from the argument types.
+@generated function _with_fields(
+        c::NamedTuple{N}, x::NamedTuple{M}
+    ) where {N, M}
+    @assert issubset(M, N)
+    vals = map(N) do n
+        src = n in M ? :x : :c
+        :(getfield($src, $(QuoteNode(n))))
+    end
+    return :(NamedTuple{$N}(($(vals...),)))
 end
 # The pressure's cotangent as strata × steps, a row for one series.
 _strata_rows(Q̄::AbstractVector) = reshape(Q̄, 1, length(Q̄))
@@ -458,7 +470,7 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t)
     _vector_pullback!(_step_grads(m̄, v̄, s̄, R.A, first(bufs), t), m, v, s, τ)
-    _trace_in!(R, v̄, s̄)
+    _trace_in!(R, m, v̄, s̄)
     return nothing
 end
 _step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
@@ -490,9 +502,9 @@ _column(x::AbstractVector, t) = x
 # A whole-step modifier differentiated by its local derivative takes its
 # dual numbers as its pass buffer (`_StepDuals`), made once per reverse
 # pass, and reads them from `grads.pass`.
-_pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H)
-_local_step_duals(::Val{false}, m̄, m, H) = nothing
-_local_step_duals(::Val{true}, m̄, m, H) = _step_duals(m̄, m, eltype(H))
+_pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H, S)
+_local_step_duals(::Val{false}, m̄, m, H, S) = nothing
+_local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
 _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
@@ -577,16 +589,11 @@ end
 # cotangent, and the older lags' rows of `H̄`.
 @inline function _older_back!(kbuf, g, a, H, H̄, o, L, k)
     @inbounds kbuf[L] = muladd(a, H[o + L, k], kbuf[L])
-    @inbounds @simd ivdep for i in 1:(L - 1)
-        kbuf[i] += a * H[o + i, k]
-        H̄[o + i, k] += a * g[i]
-    end
+    _span_back!(kbuf, g, a, H, H̄, o + 1, 1, L - 1, k)
     return nothing
 end
 @inline function _older_back!(::Nothing, g, a, H, H̄, o, L, k)
-    @inbounds @simd ivdep for i in 1:(L - 1)
-        H̄[o + i, k] += a * g[i]
-    end
+    _span_back!(nothing, g, a, H, H̄, o + 1, 1, L - 1, k)
     return nothing
 end
 # Time-varying kernels read their weights through `_weight` and add their

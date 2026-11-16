@@ -105,6 +105,33 @@ end
     same(a::Tuple, b::Tuple) = all(map(same, a, b))
 end
 
+@testitem "Trace: a modifier whose trace is its state keeps the default trace" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # The reverse pass folds such a modifier's trace cotangent into its
+    # step's, which holds only while its trace is the default: its state
+    # after each step.
+    K = [0.0 0.3; 0.2 0.0]
+    pieces = (
+        CR.Redistribute(K, 0.1),
+        CR.Allocate([[1, 2]], 1.0),
+    )
+    default_fwd = which(
+        CR.forward!, Tuple{Any, CR.Trace, Any, Any, Any, Any, Any, Any}
+    )
+    default_back = which(
+        CR.pullback!, Tuple{Any, Any, CR.Trace, Any, Any, Any}
+    )
+    for m in pieces
+        @test CR._trace_is_state(m)
+        sig = Tuple{typeof(m), CR.Trace, Any, Any, Any, Any, Any, Any}
+        @test which(CR.forward!, sig) === default_fwd
+        back = Tuple{Any, typeof(m), CR.Trace, Any, Any, Any}
+        @test which(CR.pullback!, back) === default_back
+    end
+    @test !CR._trace_is_state(CR.Depletion(100.0))
+end
+
 @testitem "Trace: a call without records writes the rule's trace in each step" setup = [InStepTraces] begin
     @test CR.blocks(beds) == (1, 1)
     @test !CR._strata_loop(beds)

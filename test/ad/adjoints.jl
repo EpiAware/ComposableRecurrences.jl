@@ -836,7 +836,9 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
+    # The local derivative of a modifier without a pullback needs
+    # ForwardDiff loaded.
+    import Enzyme, Mooncake, ForwardDiff
     using ComposableRecurrences: NoAdjoint
     # A pointwise modifier with no pullback that maps the value through a
     # stored function and scales it by `a`.
@@ -1153,6 +1155,16 @@ end
         @test z̄c ≈ ref[(n + 1):end]
         @test K.nzval == nz0
     end
+    # An active coupling with a constant `z` gets its cotangent alone.
+    w, w̄ = zeros(3), copy(w̄0)
+    K̄ = Kof(zeros(n))
+    Enzyme.autodiff(
+        Enzyme.Reverse, CR._route_forward!, Const, Duplicated(K, K̄),
+        Duplicated(w, w̄), Const(copy(z)), Const(1)
+    )
+    @test w ≈ K * z
+    @test iszero(w̄)
+    @test K̄.nzval ≈ ref[1:n]
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
@@ -1658,6 +1670,109 @@ end
     @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end
 
+@testsnippet FoldedTraces begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    const S = 5
+    const T = 8
+    const g = [0.5, 0.3, 0.2]
+    const h = [1.0 + 0.1 * k + 0.05 * j for k in 1:S, j in 1:3]
+    const K = [p == q ? 0.0 : 0.02 * (p + q) for p in 1:S, q in 1:S]
+    const groups = [1:2, [3, 5], 4:4]
+    # An import pattern, zero within each group.
+    const P = [
+        0.0 0.0 0.3 0.2 0.1
+        0.0 0.0 0.1 0.4 0.2
+        0.5 0.2 0.0 0.3 0.0
+        0.1 0.1 0.2 0.0 0.3
+        0.4 0.3 0.0 0.1 0.0
+    ]
+    const W = reshape(sin.(1:(S * T)), S, T)
+    rates(θ) = reshape(θ[1:(S * T)], S, T)
+    weigh(x) = sum(sin.(1:length(x)) .* vec(x))
+    # Redistribute's trace, its arrivals, beside a Depletion whose trace the
+    # loss does not read.
+    function arrivals(θ; both = false)
+        m = (
+            CR.Redistribute(K, θ[end]),
+            CR.Depletion(CR.PerStratum(fill(50.0, S))),
+        )
+        (; y, trace) = Recurrence(g; modifiers = m)(
+            rates(θ); history = h, record = (:trace,)
+        )
+        a = weigh(first(trace.modifiers))
+        return both ? a + sum(W .* y) : a
+    end
+    # Allocate with imports, whose state is longer than the strata.
+    function allocated(θ)
+        m = CR.Allocate(groups, θ[end]; imports = (0.2, P))
+        (; y, trace) = Recurrence(g; modifiers = (m,))(
+            rates(θ); history = h, record = (:trace,)
+        )
+        return sum(W .* y) + weigh(first(trace.modifiers))
+    end
+    # Depletion's trace alone, so Redistribute's trace has a zero
+    # cotangent and Depletion's takes the general pullback.
+    function depleted(θ)
+        m = (
+            CR.Redistribute(K, θ[end]),
+            CR.Depletion(CR.PerStratum(fill(50.0, S))),
+        )
+        (; trace) = Recurrence(g; modifiers = m)(
+            rates(θ); history = h, record = (:trace,)
+        )
+        return weigh(last(trace.modifiers))
+    end
+    # A traced call whose loss reads only `y`, so the trace has no
+    # cotangent.
+    function output_only(θ)
+        r = Recurrence(g; modifiers = (CR.Redistribute(K, θ[end]),))
+        return sum(W .* r(rates(θ); history = h, record = (:trace,)).y)
+    end
+    const θ0 = vcat(vec(1.0 .+ 0.1 .* sin.(1:(S * T))), 0.3)
+end
+
+@testitem "Trace: a state trace folded into its step, against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends, FoldedTraces] begin
+    using ADTypes: AutoEnzyme, AutoMooncake
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # Redistribute and Allocate fold their trace cotangent into the step's;
+    # Depletion keeps the trace pullback, skipped when its cotangent is
+    # zero. Runtime activity covers Enzyme's shared mode, where an unread
+    # trace's mirror is `nothing`.
+    @test CR._trace_is_state(CR.Redistribute(K, 0.3))
+    @test !CR._trace_is_state(CR.Depletion(50.0))
+    losses = (
+        arrivals, θ -> arrivals(θ; both = true), allocated, depleted,
+        output_only,
+    )
+    for backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+            f in losses
+        @test gradient(f, backend, θ0) ≈ ForwardDiff.gradient(f, θ0)
+    end
+end
+
+@testitem "Trace: a folded state trace gives the same gradient split across tasks" tags = [:ad, :executor, :mooncake, :mooncake_reverse] setup = [FoldedTraces] begin
+    using ADTypes: AutoMooncake
+    using Base.ScopedValues: with
+    using DifferentiationInterface: gradient
+    import Mooncake
+    backend = AutoMooncake(; config = nothing)
+    for f in (arrivals, allocated)
+        serial = gradient(f, backend, θ0)
+        split = with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
+            gradient(f, backend, θ0)
+        end
+        @test split ≈ serial
+    end
+end
+
 # Tagged `allocations` so the Threads workflow, which runs without coverage,
 # runs the count.
 @testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse, :allocations] begin
@@ -1732,7 +1847,9 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
+    # The local derivative of a modifier without a pullback needs
+    # ForwardDiff loaded.
+    import Enzyme, Mooncake, ForwardDiff
     # Pointwise modifiers whose float field is typed `Float64`, so the
     # local step cannot rebuild them and the operator takes plain AD; one
     # type per backend, as the note is logged once per operator type.

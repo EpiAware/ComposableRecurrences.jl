@@ -169,6 +169,8 @@ include("kernels/routes.jl")
 include("kernels/delays.jl")
 # Kernels computed from coefficients: `Survival` and the fill of the weights.
 include("kernels/weights.jl")
+# The weights walked one cohort at a time, for calls that read each once.
+include("kernels/walk.jl")
 # Operators whose kernel is computed from coefficients, and `kernel_weights`.
 include("kernels/computed.jl")
 

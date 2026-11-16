@@ -247,9 +247,14 @@ _derivative(::Nothing, f, v, θ) = _forward_derivative(f, v, θ)
 
 struct _TransformTag end
 
-# The partial derivatives of `f(xs...)` in each of its scalar arguments.
+# The value of `f(xs...)` with its partial derivatives in each of its
+# scalar arguments, from one evaluation.
+function _forward_value_and_derivative(f, xs::Tuple{Real, Vararg{Real}})
+    y = f(_transform_seeds(promote(xs...))...)
+    return _transform_value(y), _transform_partials(y, Val(length(xs)))
+end
 function _forward_derivative(f, xs::Tuple{Real, Vararg{Real}})
-    return _transform_partials(f(_transform_seeds(promote(xs...))...), Val(length(xs)))
+    return last(_forward_value_and_derivative(f, xs))
 end
 _forward_derivative(f, v::Real, ::Nothing) = (only(_forward_derivative(f, (v,))), nothing)
 _forward_derivative(f, v::Real, θ::Real) = _forward_derivative(f, (v, θ))
@@ -269,6 +274,7 @@ function _transform_seeds(xs...)
     return _need_forwarddiff("`Transform` without a `derivative`")
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
+_transform_value(y::Real) = y
 
 @implements PieceInterface{(:pointwise, :nstate, :pullback)} Transform [
     Arguments(;

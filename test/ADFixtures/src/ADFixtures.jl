@@ -1265,6 +1265,47 @@ if USER_TRACES
     end
 end
 
+# A blockwise user modifier with a per-stratum parameter, without and with
+# a hand-written `pullback!`: the registry checks the one without against
+# ForwardDiff, and the benchmark matrix times the two.
+"""
+The value plus `a` times the mean of the values so far, one value and two
+state entries (their sum and count) per group, with `forward!` only.
+"""
+struct AddMean{A}
+    a::A
+end
+"`AddMean` with a hand-written `pullback!`."
+struct AddMeanHand{A}
+    a::A
+end
+if IN_PLACE && isdefined(ComposableRecurrences, :blocks)
+    for M in (AddMean, AddMeanHand)
+        @eval begin
+            CR.blocks(::$M) = (1, 2)
+            function CR.forward!(m::$M, ::CR.Step, v::Tuple, s::Tuple, t, g)
+                total, n = s[1][] + v[1][], s[2][] + 1
+                s[1][], s[2][] = total, n
+                v[1][] = v[1][] + CR.param(m.a, g, t) * total / n
+                return nothing
+            end
+        end
+    end
+    # With `total = s₁ + v` and `n = s₂ + 1` before the step, it gives
+    # `v′ = v + a total / n`, `s₁′ = total` and `s₂′ = n`.
+    function CR.pullback!(grads, m::AddMeanHand, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        a = CR.param(m.a, g, t)
+        total, n = s[1][] + v[1][], s[2][] + 1
+        v̄′, s̄₁′, s̄₂′ = grads.v[1][], grads.s[1][], grads.s[2][]
+        total̄ = s̄₁′ + v̄′ * a / n
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, v̄′ * total / n, g, t)
+        grads.v[1][] = v̄′ + total̄
+        grads.s[1][] = total̄
+        grads.s[2][] = s̄₂′ - v̄′ * a * total / n^2
+        return nothing
+    end
+end
+
 # The default traces of a pointwise and a grouped user modifier, before a
 # depletion.
 function _trace_user_default(w, θ)
@@ -2114,6 +2155,34 @@ end
     return nothing
 end
 
+"""
+A pool per stratum that starts at `N` and caps each value at what is left
+of it, without a `pullback!` for its `Init` or its step.
+"""
+struct Pool{N}
+    N::N
+end
+@pointwise Pool
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::Pool, ::ComposableRecurrences.Init, s, history
+        )
+        for k in eachindex(s)
+            s[k] = ComposableRecurrences.param(m.N, k, 1)
+        end
+        return nothing
+    end
+    function ComposableRecurrences.forward!(
+            m::Pool, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            x = min(v[k], s[k])
+            v[k], s[k] = x, s[k] - x
+        end
+        return nothing
+    end
+end
+
 "Saturation at a per-stratum `κ`, scaled by a time-varying `β`."
 struct StrataCap{K, B}
     κ::K
@@ -2150,6 +2219,26 @@ function _strata_modifier(w, θ)
     logh, logR, logκ, β = _unpack(θ, (S, L), (S, T), (S,), (T,))
     m = StrataCap(PerStratum(exp.(logκ)), TimeVarying(β))
     r = Recurrence(G0; coupling = K0, modifiers = (m,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A pointwise modifier with its own `Init` and no `pullback!`: the `Init`
+# derivative is taken stratum by stratum. A stratum whose pool runs out
+# gives zeros, so the loss takes `log1p`.
+function _pool_init(w, θ)
+    logh, logR, logN = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Pool(PerStratum(exp.(logN))),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log1p.(y))
+end
+
+# A blockwise modifier without a `pullback!`, with a per-stratum parameter
+# read through `param` at its group: the local derivative seeds one group's
+# value, state and parameter entry at a time.
+function _block_modifier(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; coupling = K0, modifiers = (AddMean(PerStratum(a)),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -2252,6 +2341,20 @@ end
     return nothing
 end
 
+"""
+The values rescaled so that they sum to `total[t]`, with `total` held as a
+vector over time and indexed by the step.
+"""
+struct Renorm{A}
+    total::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::Renorm, ::ComposableRecurrences.Step, v, s, t
+    )
+    v .*= m.total[t] / sum(v)
+    return nothing
+end
+
 function _whole_step_scalars(w, θ)
     logh, logR, p = _unpack(θ, (S, L), (S, T), (2,))
     r = Recurrence(G0; coupling = K0, modifiers = (ZoneMix(p[1], p[2]),))
@@ -2261,6 +2364,16 @@ end
 function _whole_step_array(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
     r = Recurrence(G0; modifiers = (StrataScale(a), ZoneMix(0.2, 0.5)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A whole-step modifier without a `pullback!` that reads one entry of a
+# vector over time each step: the local derivative seeds that entry rather
+# than all of them.
+function _whole_step_reads(w, θ)
+    logh, logR, logtot = _unpack(θ, (S, L), (S, T), (T,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Renorm(exp.(logtot)),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -2295,8 +2408,9 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
-# Its 61 parameters send the call to plain AD (`backend_plain_scenarios`);
-# the five-step balance below keeps the local step at the tie.
+# Without `_reads_fewer` its 61 parameters send the call to plain AD
+# (`backend_plain_scenarios`); the five-step balance below keeps the local
+# step at the tie there too.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2349,9 +2463,10 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
-# The same balance over its first five steps: its local derivative seeds 39
-# inputs, within two passes of dual numbers, so on Mooncake the call takes
-# the rule and the local step meets the tie end to end.
+# The same balance over its first five steps: without `_reads_fewer`, its
+# local derivative seeds every array entry, 39 inputs, within two passes of
+# dual numbers, so on Mooncake the call takes the rule and the local step
+# meets the tie end to end.
 const TS = 5
 const OCC0_SHORT = _flat(A_BVD[1:TS], [0.1], CONF_HAZARD[1:TS])
 const A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT, WO_SHORT =
@@ -2376,6 +2491,14 @@ push!(
     (
         "Recurrence per-stratum modifier without a pullback", _strata_modifier,
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
+    ),
+    (
+        "Recurrence pointwise modifier with an Init without a pullback", _pool_init,
+        () -> _flat(zeros(S, L), LOGR, [log(4.0), log(6.0), log(9.0)]),
+    ),
+    (
+        "Recurrence blockwise modifier without a pullback", _block_modifier,
+        () -> _flat(zeros(S, L), LOGR, [0.05, 0.1, 0.2]),
     ),
     (
         "Recurrence user coupling across 30 strata", _user_coupling_wide,
@@ -2408,6 +2531,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [0.9, 1.0, 1.1]),
     ),
     (
+        "Recurrence whole-step modifier reading a vector by time", _whole_step_reads,
+        () -> _flat(zeros(S, L), LOGR, [log(3.0) + 0.1 * sin(t) for t in 1:T]),
+    ),
+    (
         "Recurrence checked at the call", _unchecked_parts,
         () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
@@ -2424,7 +2551,10 @@ push!(
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
+_REQUIRES["Recurrence pointwise modifier with an Init without a pullback"] =
+    (:_init_strata_back!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+_REQUIRES["Recurrence blockwise modifier without a pullback"] = (:_block_local_back,)
 # The rule took routes whose couplings have no pullback once they came with
 # a local derivative.
 let name = "Recurrence routes with a user coupling without a pullback"
@@ -2443,6 +2573,7 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 # The local derivative of a whole-step modifier.
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
+_REQUIRES["Recurrence whole-step modifier reading a vector by time"] = (:_reads_fewer,)
 # The local derivatives took the step's branch at a tie later.
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
     (:_StepDuals, :local_ties)
@@ -2745,17 +2876,21 @@ Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
 passes of dual numbers is a rule on Mooncake only, and one in more than two
 passes is plain AD on every backend.
-The occupancy balance's whole-step modifier seeds its four values, its four
-states and its 61 parameters, more than two passes; over five steps it seeds
-39, within two.
+The occupancy balance's whole-step modifier reads one entry of each of its
+six arrays a step, so with `_reads_fewer` it seeds 15 inputs, one pass,
+and takes the rule on both backends.
+Without it, it seeds its four values, its four states and its 61
+parameters, more than two passes; over five steps it seeds 39, within two.
 """
 function backend_plain_scenarios()
+    coupling = "Recurrence user coupling across 30 strata"
+    supports(:_reads_fewer) && return Dict(
+        "Enzyme reverse" => Set([coupling]), "Mooncake reverse" => Set{String}()
+    )
     occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
     short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
-        "Enzyme reverse" => Set(
-            ["Recurrence user coupling across 30 strata", occupancy, short]
-        ),
+        "Enzyme reverse" => Set([coupling, occupancy, short]),
         "Mooncake reverse" => Set([occupancy]),
     )
 end

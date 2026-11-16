@@ -356,6 +356,77 @@ end
     @test_throws DimensionMismatch eachindex(a, CR._At(Ref(0.0), 3))
 end
 
+@testitem "Interfaces: a pointwise Init writes each stratum's state from that stratum" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # Each stratum's state from its own parameter entry and history row
+    # passes; one from the whole history, or from a parameter read at a
+    # time other than 1, fails.
+    struct Start{N}
+        N::N
+    end
+    struct Total end
+    struct Later{N}
+        N::N
+    end
+    for M in (Start, Total, Later)
+        @eval CR.blocks(::$M) = (1, 1)
+    end
+    function CR.forward!(m::Start, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1) + history[k, end]
+        end
+        return nothing
+    end
+    CR.forward!(::Total, ::CR.Init, s, history) = (s .= sum(history); nothing)
+    function CR.forward!(m::Later, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 2)
+        end
+        return nothing
+    end
+    args = (zeros(3), [1.0 2.0; 3.0 4.0; 5.0 6.0])
+    obj(m) = Interfaces.Arguments(; piece = m, role = CR.Init(), args)
+    pw = CR.PieceInterface{(:pointwise,)}
+    @test Interfaces.test(pw, Start, (obj(Start(PerStratum([1.0, 2.0, 3.0]))),); show = false)
+    @test Interfaces.test(pw, Start, (obj(Start(0.5)),); show = false)
+    @test !Interfaces.test(pw, Total, (obj(Total()),); show = false)
+    tv = TimeVarying([1.0, 2.0, 3.0])
+    @test !Interfaces.test(pw, Later, (obj(Later(tv)),); show = false)
+    # A modifier that cannot be rebuilt from its parameters is checked as
+    # it is, on the history alone.
+    struct Fixed{N}
+        N::N
+        Fixed(; N) = new{typeof(N)}(N)
+    end
+    CR.blocks(::Fixed) = (1, 1)
+    function CR.forward!(m::Fixed, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1) + history[k, end]
+        end
+        return nothing
+    end
+    fixed = Fixed(; N = PerStratum([1.0, 2.0, 3.0]))
+    @test CR._at_stratum(fixed, 2) === fixed
+    @test Interfaces.test(pw, Fixed, (obj(fixed),); show = false)
+    # Without a history, only the parameters are checked.
+    struct NoHistory{N}
+        N::N
+    end
+    CR.blocks(::NoHistory) = (1, 1)
+    function CR.forward!(m::NoHistory, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1)
+        end
+        return nothing
+    end
+    bare = Interfaces.Arguments(;
+        piece = NoHistory(PerStratum([1.0, 2.0, 3.0])), role = CR.Init(),
+        args = (zeros(3), nothing)
+    )
+    @test Interfaces.test(pw, NoHistory, (bare,); show = false)
+end
+
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences

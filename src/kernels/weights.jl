@@ -218,9 +218,10 @@ end
 # their cotangents `S̄` (cohorts × lags × the strata of its hazard, or one),
 # in a scratch tree that mirrors the kernel, and the reverse pass
 # recomputes a block before taking its cotangent back. So no weight is
-# stored past its block, and a convolution allocates `O(L)` beyond the
-# arrays it returns; `_fill_kernel` says when a dense kernel keeps every
-# block instead.
+# stored past its block; `_fill_kernel` says when a dense kernel keeps every
+# block. A recurrence and a convolution off the serial executor fill this
+# way; a serial convolution and `kernel_weights` walk each cohort (see
+# `walk.jl`).
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.
@@ -401,7 +402,17 @@ _add_value!(::Nothing, x::Survival, sc, v, k, i, τ, l, b) = nothing
 end
 # Unrolled over the arguments, so each reads its own mirror and scratch
 # with a constant index.
-@generated function _add_value!(x̄, x::Derived{F, A}, sc, v, k, i, τ, l, b) where {F, A}
+@inline Base.@propagate_inbounds function _add_value!(
+        x̄, x::Derived, sc, v, k, i, τ, l, b
+    )
+    _arg_mirrors(cotangent(x̄, :args), x.args) === nothing && return nothing
+    ∂ = _partials(x.f, @inbounds _values_at(x.args, sc, k, i, τ, l, b))
+    return _add_value_partials!(x̄, x, sc, v, ∂, k, i, τ, l, b)
+end
+# The same with the partials `∂` of the map at the entry given.
+@generated function _add_value_partials!(
+        x̄, x::Derived{F, A}, sc, v, ∂, k, i, τ, l, b
+    ) where {F, A}
     calls = (
         :(@inbounds _add_value!(ā[$j], x.args[$j], sc[$j], v * ∂[$j], k, i, τ, l, b))
             for j in 1:fieldcount(A)
@@ -410,7 +421,6 @@ end
         $(Expr(:meta, :inline))
         ā = _arg_mirrors(cotangent(x̄, :args), x.args)
         ā === nothing && return nothing
-        ∂ = _partials(x.f, @inbounds _values_at(x.args, sc, k, i, τ, l, b))
         $(calls...)
         return nothing
     end
@@ -498,8 +508,6 @@ function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     _block_back!(x̄, x, sc, τ0, nb, o, last)
     return nothing
 end
-# The block of weights of a kernel with `L` lags and `ns` strata.
-_block_weights(::Type{Tp}, L, ns, B = _BLOCK) where {Tp} = zeros(Tp, B, L, ns)
 
 # The weights of a computed kernel for cohorts `1:n`, lags from `o`, each
 # one whose weight lands by `last`, as an array (lags × cohorts, or strata

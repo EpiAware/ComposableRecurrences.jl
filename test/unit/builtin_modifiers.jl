@@ -756,6 +756,58 @@ end
         @test c.v && c.s && c.θ
         @test all(iszero, c.θ̄[(9 * (2 - t) + 1):(9 * (3 - t))])
     end
+    # A kernel's movement, read through its intensity at `t`.
+    KE = [0.0, 0.3, 0.1, 0.2, 0.0, 0.4, 0.1, 0.2, 0.0, 0.3, 0.2, 0.6, 0.5, 0.4, 0.1]
+    for t in (1, 2)
+        c = ModifierChecks.check_pullback(
+            θ -> CR.Redistribute(reshape(θ[1:9], 3, 3), reshape(θ[10:15], 3, 2)),
+            KE, v, s, t
+        )
+        @test c.v && c.s && c.θ
+    end
+end
+
+@testitem "Redistribute: a movement's pullback matches the general one" setup = [ModifierChecks] begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    # The movement's own pullback against the general one through its
+    # entries: an intensity per origin and time or a parameter over time,
+    # a constant `K` or intensity (a `nothing` mirror), and some state
+    # cotangents zero, which skip the diagonal.
+    rng = Xoshiro(3)
+    general = Tuple{Any, CR.Redistribute, CR.Step, Any, Any, Any}
+    flat(x::Base.RefValue) = [x[]]
+    flat(x::AbstractArray) = vec(copy(x))
+    flat(::Nothing) = Float64[]
+    flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
+    for n in (2, 3, 5), per_origin in (true, false),
+            constant in (:none, :K, :E), zero_some in (false, true)
+        K = rand(rng, n, n) .* 0.2
+        ε = per_origin ? rand(rng, n, 4) .* 0.5 :
+            TimeVarying(rand(rng, 4) .* 0.5)
+        m = CR.Redistribute(K, ε)
+        v, v̄0, s̄0 = rand(rng, n), randn(rng, n), randn(rng, n)
+        zero_some && (s̄0[1:2:end] .= 0)
+        function run(f)
+            x̄ = ModifierChecks.mirror(m).M.x
+            x̄ = (;
+                K = constant === :K ? nothing : x̄.K,
+                E = constant === :E ? nothing : x̄.E,
+            )
+            g = (; piece = (; M = (; x = x̄)), v = copy(v̄0), s = copy(s̄0))
+            f(g)
+            return g.v, g.s, flat(x̄)
+        end
+        fused = run(g -> CR.pullback!(g, m, CR.Step(), v, zeros(n), 3))
+        ref = run(
+            g -> invoke(
+                CR.pullback!, general, g, m, CR.Step(), v, zeros(n), 3
+            )
+        )
+        for (a, b) in zip(fused, ref)
+            @test a ≈ b atol = 1.0e-13
+        end
+    end
 end
 
 @testitem "Transform(clamp) pullback matches the Jacobian" setup = [ModifierChecks] begin
