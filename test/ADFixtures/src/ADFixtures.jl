@@ -2814,7 +2814,7 @@ const _PRECISIONS = (:all, :double, :single)
 """
     scenarios(;
         with_reference = false, category = :marginal, precision = :all,
-        backend = nothing
+        backend = nothing, slice = nothing
     )
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
@@ -2831,10 +2831,13 @@ that backend by design (see `backend_plain_scenarios`) keeps no twin there,
 since the twin would take the same plain path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
+With `slice = (k, n)`, only the `k`th of `n` slices of the selection is
+kept (see `take_slice`), so a test can split the scenarios across items.
 """
 function scenarios(;
         with_reference::Bool = false, category::Symbol = :marginal,
-        precision::Symbol = :all, backend::Union{Nothing, String} = nothing
+        precision::Symbol = :all, backend::Union{Nothing, String} = nothing,
+        slice::Union{Nothing, Tuple{Int, Int}} = nothing
     )
     category in _CATEGORIES || throw(
         ArgumentError(
@@ -2854,12 +2857,28 @@ function scenarios(;
         (category === :marginal || !twin) && !(twin && base in plain) &&
             (precision === :all || single == (precision === :single))
     end
-    return map(twins) do (name, f, θ0, _)
+    return map(take_slice(twins, slice)) do (name, f, θ0, _)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
         )
     end
+end
+
+"""
+    take_slice(xs, slice)
+
+The entries of `xs` in slice `slice = (k, n)`: every `n`th entry, starting
+from the `k`th. The `n` slices hold every entry of `xs` once between them.
+With `slice = nothing`, all of `xs`.
+"""
+take_slice(xs, ::Nothing) = xs
+function take_slice(xs, slice::Tuple{Int, Int})
+    k, n = slice
+    1 <= k <= n || throw(
+        ArgumentError("slice $k of $n: choose a slice from 1 to $n")
+    )
+    return xs[k:n:end]
 end
 
 """

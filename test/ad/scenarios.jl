@@ -24,13 +24,65 @@ end
     test_gradients("Enzyme forward"; category = :rules)
 end
 
-# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
-    test_gradients("Enzyme reverse"; category = :marginal, rules_fire = true)
+# The reverse modes check every scenario and its twin, which compiles a
+# gradient per scenario that stays in memory until the process ends. The
+# scenarios are split across items, one slice each, so a runner that gives
+# each item its own process holds one slice's compiled code at a time.
+# Tagged `compat_floor`, so the Threads workflow runs them on Julia 1.11.
+@testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does (slice 1 of 4)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Enzyme reverse"; category = :marginal, rules_fire = true,
+        slice = (1, 4)
+    )
 end
 
-@testitem "Mooncake reverse gradients, and every scenario fires its rule and no twin does" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
-    test_gradients("Mooncake reverse"; category = :marginal, rules_fire = true)
+@testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does (slice 2 of 4)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Enzyme reverse"; category = :marginal, rules_fire = true,
+        slice = (2, 4)
+    )
+end
+
+@testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does (slice 3 of 4)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Enzyme reverse"; category = :marginal, rules_fire = true,
+        slice = (3, 4)
+    )
+end
+
+@testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does (slice 4 of 4)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Enzyme reverse"; category = :marginal, rules_fire = true,
+        slice = (4, 4)
+    )
+end
+
+@testitem "Mooncake reverse gradients, and every scenario fires its rule and no twin does (slice 1 of 4)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Mooncake reverse"; category = :marginal, rules_fire = true,
+        slice = (1, 4)
+    )
+end
+
+@testitem "Mooncake reverse gradients, and every scenario fires its rule and no twin does (slice 2 of 4)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Mooncake reverse"; category = :marginal, rules_fire = true,
+        slice = (2, 4)
+    )
+end
+
+@testitem "Mooncake reverse gradients, and every scenario fires its rule and no twin does (slice 3 of 4)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Mooncake reverse"; category = :marginal, rules_fire = true,
+        slice = (3, 4)
+    )
+end
+
+@testitem "Mooncake reverse gradients, and every scenario fires its rule and no twin does (slice 4 of 4)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [ADHelpers, GradientChecks] begin
+    test_gradients(
+        "Mooncake reverse"; category = :marginal, rules_fire = true,
+        slice = (4, 4)
+    )
 end
 
 @testitem "Mooncake forward gradients" tags = [:ad, :mooncake, :mooncake_forward] setup = [ADHelpers, GradientChecks] begin
@@ -97,6 +149,16 @@ end
     @test length(rules) == length(ADFixtures._SCENARIOS)
     @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
     @test all(isempty, values(ADFixtures.backend_skip_scenarios()))
+    # The slices the reverse-mode items check hold every scenario once.
+    for precision in (:double, :single)
+        whole = [s.name for s in ADFixtures.scenarios(; precision)]
+        sliced = [
+            s.name for k in 1:4
+                for s in ADFixtures.scenarios(; precision, slice = (k, 4))
+        ]
+        @test sort(sliced) == sort(whole)
+    end
+    @test_throws ArgumentError ADFixtures.scenarios(; slice = (5, 4))
     # A backend's scenarios drop only the twins of the scenarios that take
     # plain AD there by design, and keep those scenarios.
     for (backend, plain) in ADFixtures.backend_plain_scenarios()

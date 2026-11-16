@@ -435,12 +435,13 @@
     # Every operator `test_adjoint` checks, as `(name, op, args, rtol)`: the
     # registry's, then the extras. An extra with single-precision values
     # carries the single-precision marker as a fourth element, as a registry
-    # entry does (see `ADFixtures.rule_rtol`).
-    function adjoint_cases()
+    # entry does (see `ADFixtures.rule_rtol`). With `slice = (k, n)`, only
+    # the `k`th of `n` slices of them (see `ADFixtures.take_slice`).
+    function adjoint_cases(; slice = nothing)
         extras = map(extra_cases()) do case
             (case[1], case[2], case[3], ADFixtures.rule_rtol(case))
         end
-        return [registry_cases(); extras]
+        return ADFixtures.take_slice([registry_cases(); extras], slice)
     end
 
     # Runs `check()` in a testset named `label`, for the backend named
@@ -684,10 +685,12 @@ end
     @test only(failing) isa Test.Broken
 end
 
-@testitem "Mooncake: test_adjoint on one operator of each kind" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+# The operators are split across items, one slice each, so a runner that
+# gives each item its own process holds one slice's compiled code at a time.
+@testitem "Mooncake: test_adjoint on one operator of each kind (slice 1 of 2)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
-    for case in adjoint_cases()
+    for case in adjoint_cases(; slice = (1, 2))
         rtol = last(case)
         test_adjoint_case(
             "Mooncake reverse", AutoMooncake(; config = nothing), case; rtol, atol = rtol
@@ -695,11 +698,31 @@ end
     end
 end
 
-# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme: test_adjoint on one operator of each kind" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
+@testitem "Mooncake: test_adjoint on one operator of each kind (slice 2 of 2)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake
+    import Mooncake
+    for case in adjoint_cases(; slice = (2, 2))
+        rtol = last(case)
+        test_adjoint_case(
+            "Mooncake reverse", AutoMooncake(; config = nothing), case; rtol, atol = rtol
+        )
+    end
+end
+
+# Tagged `compat_floor`, so the Threads workflow runs them on Julia 1.11.
+@testitem "Enzyme: test_adjoint on one operator of each kind (slice 1 of 2)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
-    for case in adjoint_cases()
+    for case in adjoint_cases(; slice = (1, 2))
+        rtol = last(case)
+        test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
+    end
+end
+
+@testitem "Enzyme: test_adjoint on one operator of each kind (slice 2 of 2)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
+    using ADTypes: AutoEnzyme
+    import Enzyme, EnzymeTestUtils
+    for case in adjoint_cases(; slice = (2, 2))
         rtol = last(case)
         test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
     end
