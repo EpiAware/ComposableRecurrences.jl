@@ -238,6 +238,7 @@ end
             Tuple{typeof(P.hold_last), V, Int},
             Tuple{typeof(P.split_rows), M},
             Tuple{typeof(P.patch_outputs), M, M, M},
+            Tuple{typeof(P.onset_offsets), V, Int, Int},
         )
         @test Mooncake.is_primitive(
             Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world
