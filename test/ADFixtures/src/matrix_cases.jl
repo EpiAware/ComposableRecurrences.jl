@@ -1681,19 +1681,18 @@ if isfile(BVD_HANDRULE)
         return _window_sums(wrap(Convolution(f))(I), starts, stops)
     end
     # The sums of `y` (strata by days) over the days `starts[v]:stops[v]`,
-    # read from a running total. Windows that tile the days from day 1 read
-    # it once, at the window ends; others read it at both ends. Assumes
-    # `stops[v] <= size(y, 2)` and `starts[v] <= stops[v] + 1`.
+    # read from a running total, a window being empty when it starts after
+    # it stops. Days outside `1:size(y, 2)` count as zero. Windows that tile
+    # the days from day 1 read the total once, at the window ends; others
+    # read it at both ends.
     function _window_sums(y, starts, stops)
-        total = cumsum(y; dims = 2)
-        tiles = first(starts) == 1 &&
-            all(starts[v] == stops[v - 1] + 1 for v in 2:length(starts))
-        if tiles
-            s = total[:, stops]
-            return hcat(s[:, 1:1], s[:, 2:end] .- s[:, 1:(end - 1)])
-        end
-        padded = hcat(zeros(eltype(total), size(total, 1)), total)
-        return padded[:, stops .+ 1] .- padded[:, starts]
+        hi = clamp.(stops, 0, size(y, 2))
+        lo = clamp.(starts, 1, hi .+ 1)
+        total = hcat(zeros(eltype(y), size(y, 1)), cumsum(y; dims = 2))
+        s = total[:, hi .+ 1]
+        tiles = first(lo) == 1 && all(lo[v] == hi[v - 1] + 1 for v in 2:length(lo))
+        tiles && return hcat(s[:, 1:1], s[:, 2:end] .- s[:, 1:(end - 1)])
+        return s .- total[:, lo]
     end
     function _bvd_window_reports_hand(kernel)
         return function (wrap, f, I, starts, stops)

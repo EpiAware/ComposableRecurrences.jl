@@ -201,11 +201,17 @@ end
             @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
         end
     end
-    # Windows that do not tile the days read the running total at both ends.
+    # Both of the helper's paths, against a plain sum over the days in range:
+    # windows that close before day 1, empty windows, windows past the last
+    # day, and windows that leave gaps.
     y = [Float64(10k + t) for k in 1:2, t in 1:9]
-    starts, stops = [2, 4, 8], [3, 7, 7]
-    @test MC._window_sums(y, starts, stops) ==
-        [sum(y[k, a:b]) for k in 1:2, (a, b) in zip(starts, stops)]
-    @test MC._window_sums(y, [1, 3], [2, 9]) ==
-        [sum(y[k, a:b]) for k in 1:2, (a, b) in zip([1, 3], [2, 9])]
+    plain(a, b) = [sum(y[k, max(a, 1):min(b, 9)]; init = 0.0) for k in 1:2]
+    for (starts, stops) in (
+            ([1, 3], [2, 9]), ([1, 1, 1, 4], [-2, 0, 3, 9]),
+            ([1, 4, 4, 10, 12], [3, 3, 9, 9, 9]), ([2, 4, 8], [3, 7, 7]),
+            ([5], [9]),
+        )
+        @test MC._window_sums(y, starts, stops) ==
+            reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
+    end
 end
