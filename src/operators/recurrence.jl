@@ -1709,7 +1709,8 @@ function _run(
     if _strata_major(Tp, ex, r, gain, add, h, s0, L, S) && _untraced()
         return (_strata_major_run(Tp, r, gain, add, h, τ0, L, D, S, T),)
     end
-    return (first(_run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, Val(false))),)
+    y, = _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, Val(false))
+    return (y,)
 end
 
 # The most lags the strata-major run takes. Past them the time-major buffer,
@@ -1718,32 +1719,41 @@ const _STRATA_MAJOR_LAGS = 3
 
 # The recurrences the strata-major run takes: a fixed kernel, a pointwise
 # coupling and no modifiers.
+const _StrataMajorCoupling = Union{
+    UniformScaling, Diagonal{<:Real, <:Vector},
+}
 const _StrataMajorOp = Recurrence{
-    <:Vector{<:Real}, <:Union{UniformScaling, Diagonal{<:Real, <:Vector}}, Tuple{},
+    <:Vector{<:Real}, <:_StrataMajorCoupling, Tuple{},
 }
 function _strata_major(::Type{Tp}, ex, r, gain, add, h, s0, L, S) where {Tp}
     # One stratum runs as a chained run, which rounds differently.
     return Tp <: _IEEEFloat && ex isa Serial && r isa _StrataMajorOp &&
-        _on_host(gain) && _on_host(add) && h isa AbstractMatrix && _on_host(h) &&
-        s0 === nothing && S >= 2 && 1 <= L <= _STRATA_MAJOR_LAGS
+        _on_host(gain) && _on_host(add) && h isa AbstractMatrix &&
+        _on_host(h) && s0 === nothing && S >= 2 &&
+        1 <= L <= _STRATA_MAJOR_LAGS
 end
 
 # Whether `x` is nothing, a number or an array of numbers in host memory: an
-# `Array`, or a view or reshape of one, which the strata-major run indexes
-# element by element.
+# `Array`, or a view or reshape of one, with axes from 1, which the
+# strata-major run indexes element by element without bounds checks.
 function _on_host(x)
-    return x === nothing || x isa Real ||
-        (x isa AbstractVecOrMat{<:Real} && _host_array(typeof(x)))
+    (x === nothing || x isa Real) && return true
+    return x isa AbstractVecOrMat{<:Real} && _host_array(typeof(x)) &&
+        !Base.has_offset_axes(x)
 end
 _host_array(::Type{A}) where {A} = A <: Array
 _host_array(::Type{<:SubArray{T, N, P}}) where {T, N, P} = _host_array(P)
-_host_array(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P} = _host_array(P)
+function _host_array(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P}
+    return _host_array(P)
+end
 
 # The run of independent strata in a strata × time buffer: the history's
 # columns, right aligned, then one column per step. Each step is the general
 # step's arithmetic, so the two runs agree exactly, and the output takes
 # over the buffer's memory after the history with no transpose or copy.
-function _strata_major_run(::Type{Tp}, r, gain, add, h, τ0, L, D, S, T) where {Tp}
+function _strata_major_run(
+        ::Type{Tp}, r, gain, add, h, τ0, L, D, S, T
+    ) where {Tp}
     g = _oldest_first(r.kernel)
     C = r.coupling
     Hs = Matrix{Tp}(undef, S, D + T)

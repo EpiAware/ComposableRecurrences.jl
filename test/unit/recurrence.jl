@@ -1049,6 +1049,14 @@ end
         Float64, CR.Serial(), Recurrence([0.5]), true, nothing, JLArray(h),
         nothing, 1, 2
     )
+    # A view with offset axes takes the general run, which checks its bounds.
+    ho = view([1.0 2 3; 4 5 6], :, Base.IdentityUnitRange(2:3))
+    @test Base.has_offset_axes(ho)
+    @test !CR._strata_major(
+        Float64, CR.Serial(), Recurrence([0.5, 0.2]), 0.9, nothing, ho,
+        nothing, 2, 2
+    )
+    @test_throws BoundsError Recurrence([0.5, 0.2])(0.9; history = ho, stop = 4)
     rc = Recurrence([0.5]; coupling = [0.9 0.1; 0.2 0.8])
     @test !CR._strata_major(
         Float64, CR.Serial(), rc, true, nothing, h, nothing, 1, 2
@@ -1069,4 +1077,5 @@ end
     general(r1, args...)
     @test @allocated(r1(; history = lvl, add = Z)) <
         @allocated(general(r1, args...))
+    @test @allocated(CR._primal(r1, args...)) <= sizeof(Float64) * 11 * 32 + 512
 end
