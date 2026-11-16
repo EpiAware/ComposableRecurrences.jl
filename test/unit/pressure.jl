@@ -194,3 +194,32 @@ end
         CR.pressure(rk, y; history = h, start = 2)
     @test !CR.uses_adjoint(CR._reroute(CR.NoAdjoint(rk), CR._Pressure(rk)), CR.Run())
 end
+
+@testitem "pressure: a computed kernel reads its filled weights" setup = [PressureCases] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    (; T, g) = PressureCases
+    L = length(g)
+    start, hh = 5, [1.0, 1.2, 0.9, 1.1]
+    stop = start + T - 1
+    computed(hz) = TimeVarying(g * (1 - CR.Survival(TimeVarying(hz); from = 1)), CR.Primary())
+    hz = [0.05 + 0.02 * sin(t) for t in 1:(stop + L)]
+    r = Recurrence(computed(hz))
+    R = [1.0 + 0.2 * sin(t) for t in 1:T]
+    y = r(R; history = hh, start)
+    p = CR.pressure(r, y; history = hh, start)
+    # The gain is recovered, as for any kernel.
+    @test y ./ p ≈ R[start:end]
+    # The same as the dense kernel of its weights, and with the rule off.
+    K, _ = CR._fill_kernel(r.kernel, 1, stop, stop, Val(false))
+    dense = Recurrence(TimeVarying(K, CR.Primary()))
+    @test p ≈ CR.pressure(dense, y; history = hh, start)
+    @test p ≈ CR.pressure(CR.NoAdjoint(r), y; history = hh, start)
+    @test_throws ArgumentError CR.pressure(r, y; start = 0)
+    # Differentiable in the hazard, against central differences.
+    f(h) = sum(CR.pressure(Recurrence(computed(h)), y; history = hh, start))
+    ε = 1.0e-6
+    bump(i) = [j == i ? ε : 0.0 for j in eachindex(hz)]
+    fd = [(f(hz + bump(i)) - f(hz - bump(i))) / (2ε) for i in eachindex(hz)]
+    @test ForwardDiff.gradient(f, hz) ≈ fd rtol = 1.0e-6
+end
