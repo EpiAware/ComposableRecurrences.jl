@@ -120,16 +120,9 @@ function _contributions(c::_ComputedConvolution, route, x; kwargs...)
 end
 
 _pressure_rule(::_ComputedKernel) = false
-# `pressure` fills a computed kernel's weights as a dense `Primary()` kernel
-# up to its last time, as the run does, and reads that.
-function _pressure(
-        r::Recurrence{<:_ComputedKernel}, route, y; start::Integer = 1,
-        kwargs...
-    )
-    start >= 1 || throw(ArgumentError("start ($start) must be at least 1"))
-    stop = start + size(y, ndims(y)) - 1
+function _pressure_kernel(r::Recurrence{<:_ComputedKernel}, stop)
     K, _ = _fill_kernel(r.kernel, 1, stop, stop, Val(false))
-    return _pressure(_with_kernel(r, K), route, y; start, kwargs...)
+    return _with_kernel(r, K)
 end
 
 function _with_kernel(r::Recurrence, K)

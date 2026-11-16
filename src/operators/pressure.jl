@@ -83,9 +83,12 @@ function _pressure(
     _check_primary_seed(kernel, history, start)
     _check_kernel_times(kernel, stop)
     _check_times(:coupling, coupling, stop)
-    q = adjoint_call(_reroute(route, _Pressure(r)), y, h, Int(start))
+    op = _Pressure(_pressure_kernel(r, stop))
+    q = adjoint_call(_reroute(route, op), y, h, Int(start))
     return y isa AbstractVector ? vec(q) : q
 end
+# The recurrence whose kernel the pressure reads up to time `stop`.
+_pressure_kernel(r::Recurrence, stop) = r
 
 # `pressure` routes through the rules as an operator of its own. Its
 # reverse pass is the recurrence's own at each step without the gain, add
@@ -100,8 +103,8 @@ function uses_adjoint(op::_Pressure, ::Run)
     return _pressure_rule(r.kernel) &&
         _parts_adjoint(r.kernel, r.coupling, ()) && r.rebuilds !== false
 end
-# A computed kernel's weights are filled as a dense kernel in the run, so
-# its pressure takes plain AD.
+# `pressure` gives the rule a computed kernel's weights as a dense kernel,
+# with plain AD through the fill; on the computed kernel itself it is off.
 _pressure_rule(kernel) = true
 
 function _primal(op::_Pressure, y, h, τ0)
