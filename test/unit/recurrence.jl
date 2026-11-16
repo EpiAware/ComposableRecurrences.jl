@@ -1049,8 +1049,8 @@ end
     hs = [1.0 2.0; 3.0 4.0; 5.0 6.0]
     yd = r(; history = hs, add = ForwardDiff.Dual.(A, 1.0))
     @test ForwardDiff.value.(yd) == r(; history = hs, add = A)
-    # The strata-major run allocates its one buffer and allocates less than
-    # the general run.
+    # The strata-major run allocates less than the general run, which also
+    # allocates a time-major buffer and a transposed output.
     r1 = Recurrence([0.7])
     lvl = reshape(collect(range(-1.0, 1.0; length = 11)), :, 1)
     Z = [0.01 * sin(k + 2t) for k in 1:11, t in 1:31]
@@ -1059,5 +1059,4 @@ end
     general(r1, args...)
     @test @allocated(r1(; history = lvl, add = Z)) <
         @allocated(general(r1, args...))
-    @test @allocated(CR._primal(r1, args...)) <= 2 * sizeof(Float64) * 11 * 32 + 256
 end

@@ -199,3 +199,26 @@ end
         end
     end
 end
+
+@testitem "The knots case's arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import ForwardDiff, Mooncake
+
+    c = only(x for x in MC.CASES if x.name == "bvd_knots")
+    backend = AutoMooncake(; config = nothing)
+    sizes = MC.sizes(c, "docs")
+    @test length(sizes) == 3
+    for z in sizes
+        loop, θ = MC.build(c, z, "loop")
+        ref = ForwardDiff.gradient(loop, θ)
+        for arm in ("rule", "NoAdjoint")
+            f, θarm = MC.build(c, z, arm)
+            @test θarm == θ
+            @test f(θ) ≈ loop(θ)
+            prep = DI.prepare_gradient(f, backend, copy(θ))
+            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
+        end
+    end
+end

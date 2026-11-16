@@ -19,8 +19,7 @@
 # and `src/mooncake_rules.jl` L1678-L1684 and L1719-L1751 at commit
 # 73c575bd), and `sum_to_zero_knots_loop` and `sum_to_zero_ar1!`, copied from
 # BVDOutbreakSize's `sum_to_zero_knots` (`src/sum_to_zero.jl` at commit
-# 73c575bd) with the level given rather than built; BVD has no rule for it,
-# so its case has no `handrule` arm. The other loops follow
+# 73c575bd) with the level given rather than built. The other loops follow
 # `references/bvd.jl`, a frozen copy of BVDOutbreakSize at commit 95be3b22,
 # and none is kept in step with BVDOutbreakSize.
 #
@@ -288,9 +287,6 @@ then an AR(1) across the columns driven by the innovations ``F Z``,
 k_{i,1} = \ell_i, \qquad
 k_{i,j+1} = \varphi\, k_{i,j} + (F Z)_{i,j}.
 ```
-
-BVD's `sum_to_zero_knots`, with the level its shared `sum_to_zero` step
-returns given instead of built.
 """
 function sum_to_zero_knots_loop(
         lvl::AbstractVector, F_drift::AbstractMatrix, Z::AbstractMatrix, φ::Real

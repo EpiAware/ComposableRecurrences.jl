@@ -1233,7 +1233,6 @@ function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop, cache = Val(tr
     Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, cache)
     return Y, cache
 end
-# A plain call may take the strata-major run (`_strata_major`).
 _primal(r::Recurrence, args...) = first(_recur(r, args..., Val(:primal)))
 
 function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop, cache = Val(true))
@@ -1702,12 +1701,8 @@ function _run(
     end
 end
 
-# A plain call returns only the output. Independent host strata in hardware
-# floats, with a fixed kernel of a few lags, a pointwise coupling and no
-# modifiers, run in the output's own layout (`_strata_major_run`); any other
-# call runs as one that keeps no cache. AD never takes the strata-major run:
-# `_untraced()` is `false` in code that AD traces, and a rule's forward pass
-# keeps its cache.
+# A plain call returns only the output. Independent strata may run
+# strata-major (`_strata_major`); AD never does (see `_untraced`).
 function _run(
         ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{:primal}
     ) where {Tp}
@@ -1734,10 +1729,8 @@ end
 
 # The run of independent strata in a strata × time buffer: the history's
 # columns, right aligned, then one column per step. Each step is the general
-# step's arithmetic (`_window_dot` and `_core`) on the buffer read through
-# `transpose`, so the two runs agree exactly, but it walks the strata
-# innermost, along the buffer's memory, and the output takes over the
-# buffer's memory after the history with no transpose or copy.
+# step's arithmetic, so the two runs agree exactly, and the output takes
+# over the buffer's memory after the history with no transpose or copy.
 function _strata_major_run(::Type{Tp}, r, gain, add, h, τ0, L, D, S, T) where {Tp}
     g = _oldest_first(r.kernel)
     C = r.coupling
