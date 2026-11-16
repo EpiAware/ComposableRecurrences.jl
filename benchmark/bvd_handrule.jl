@@ -1,7 +1,8 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
 # `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset`,
-# `bvd_bins` and `bvd_pre_zones`) against the package's operators.
+# `bvd_bins`, `bvd_pre_zones` and `bvd_window_weights`) against the package's
+# operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -13,8 +14,11 @@
 # The loops and rules were written in this repository, not copied, except
 # `zone_pre_loop` and its rule, which follow BVDOutbreakSize's
 # `zone_pre_convolution` (`src/models/zone.jl` and `src/mooncake_rules.jl` at
-# commit 73c575bd). The other loops follow `references/bvd.jl`, a frozen copy
-# of BVDOutbreakSize at commit 95be3b22, and none is kept in step with
+# commit 73c575bd), and `zone_window_loop` and its rule, which are
+# BVDOutbreakSize's `zone_window_weights` (`src/models/zone.jl` L1244-L1263
+# and `src/mooncake_rules.jl` L1678-L1684 and L1719-L1751 at commit
+# 73c575bd). The other loops follow `references/bvd.jl`, a frozen copy of
+# BVDOutbreakSize at commit 95be3b22, and none is kept in step with
 # BVDOutbreakSize.
 #
 # Included by `test/ADFixtures/src/matrix_cases.jl` inside `MatrixCases`.
@@ -28,7 +32,8 @@ export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
     renewal_infections, patch_infections, convolve_delay, zone_infections,
     bin_increments, two_clock_loop, abscond_loop, onset_table_loop,
     two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table,
-    zone_pre_loop, zone_pre_convolution
+    zone_pre_loop, zone_pre_convolution, zone_window_loop,
+    zone_window_weights
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -233,6 +238,40 @@ end
 # The lags of day `t` that read a day before `t0`.
 function _pre_lags(t, L, t0, first_lag)
     return max(first_lag, t - t0 + 1):min(L - 1 + first_lag, t - 1)
+end
+
+@doc raw"""
+    zone_window_loop(f, starts, stops, nd)
+
+What one infection on each grid row adds to each vintage window through
+the delay PMF `f` (lag 0), as an `(nd × n_vintages)` matrix,
+
+```math
+w_{k,v} = \sum_{j = a_v}^{b_v} f_{j - k}, \qquad j \ge k,
+```
+
+with window `v` running from day ``a_v`` = `starts[v]` to ``b_v`` =
+`stops[v]`.
+"""
+function zone_window_loop(
+        f::AbstractVector, starts::AbstractVector{<:Integer},
+        stops::AbstractVector{<:Integer}, nd::Integer
+    )
+    L = length(f)
+    ## `cf[m + 1]` is the mass of lags `0 … m`.
+    cf = cumsum(f)
+    weights = zeros(eltype(cf), nd, length(starts))
+    @inbounds for v in eachindex(starts)
+        a, b = starts[v], stops[v]
+        a <= b || continue
+        for k in max(1, a - L + 1):b
+            hi = cf[min(b - k, L - 1) + 1]
+            lo = a - 1 - k < 0 ? zero(eltype(cf)) :
+                cf[min(a - 1 - k, L - 1) + 1]
+            weights[k, v] = hi - lo
+        end
+    end
+    return weights
 end
 
 @doc raw"""
@@ -938,6 +977,53 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), NoRData(), NoRData(), NoRData()
     end
     return CoDual(y, ȳ), zone_pre_convolution_pb
+end
+
+"`zone_window_loop` with the backend's hand-written Mooncake rule."
+function zone_window_weights(f, starts, stops, nd)
+    return zone_window_loop(f, starts, stops, nd)
+end
+
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{
+        typeof(zone_window_weights), Vector{<:Mooncake.IEEEFloat},
+        Vector{<:Integer}, Vector{<:Integer}, Integer,
+    },
+)
+
+function Mooncake.rrule!!(
+        ::CoDual{typeof(zone_window_weights)},
+        f::CoDual{<:Vector{<:Mooncake.IEEEFloat}},
+        starts::CoDual{<:Vector{<:Integer}},
+        stops::CoDual{<:Vector{<:Integer}}, nd::CoDual{<:Integer}
+    )
+    fp, a_, b_ = primal(f), primal(starts), primal(stops)
+    f̄ = tangent(f)
+    y = zone_window_loop(fp, a_, b_, primal(nd))
+    ȳ = zero(y)
+    function zone_window_weights_pullback!!(::NoRData)
+        ## Each weight is a difference of two entries of the cumulative PMF
+        ## `cf`, so the adjoint gathers onto `cf` and then reverses the
+        ## cumulative sum onto `f`.
+        L = length(fp)
+        c̄ = zeros(eltype(fp), L)
+        @inbounds for v in eachindex(a_)
+            a, b = a_[v], b_[v]
+            a <= b || continue
+            for k in max(1, a - L + 1):b
+                c̄[min(b - k, L - 1) + 1] += ȳ[k, v]
+                a - 1 - k < 0 || (c̄[min(a - 1 - k, L - 1) + 1] -= ȳ[k, v])
+            end
+        end
+        acc = zero(eltype(fp))
+        @inbounds for i in L:-1:1
+            acc += c̄[i]
+            f̄[i] += acc
+        end
+        return NoRData(), NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(y, ȳ), zone_window_weights_pullback!!
 end
 
 end # module BVDHandRule
