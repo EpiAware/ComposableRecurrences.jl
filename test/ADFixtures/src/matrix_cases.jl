@@ -1650,6 +1650,44 @@ if isfile(BVD_HANDRULE)
     end
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
+
+    # BVD's `sum_to_zero_knots`: `S` regions' knots, the level first and then
+    # an AR(1) over `T` more knots driven by the innovations `F * Z`. The
+    # level, which a step shared by both versions builds, is given. The
+    # package arm is the port's spelling: a one-lag `Recurrence` across the
+    # knots with the level as its history, joined to the level. BVD has no
+    # rule for it, so there is no `handrule` arm.
+    function _bvd_knots(run)
+        return function (wrap, z::Size)
+            (; T, S) = z
+            W = _weights(S, T + 1)
+            f = function (θ)
+                lvl, F, Z, φ = _unpack(θ, (S,), (S, S - 1), (S - 1, T), (1,))
+                return sum(W .* run(wrap, lvl, F, Z, only(φ)))
+            end
+            lvl0 = [0.3 * _noise(k, 31) for k in 1:S]
+            F0 = [_noise(i, 32 + j) for i in 1:S, j in 1:(S - 1)]
+            Z0 = [0.5 * _noise(j, 40 + t) for j in 1:(S - 1), t in 1:T]
+            return f, _flat(lvl0, F0, Z0, [0.7])
+        end
+    end
+    function _bvd_knots_rule(wrap, lvl, F, Z, φ)
+        drift = wrap(Recurrence([φ]))(; history = reshape(lvl, :, 1), add = F * Z)
+        return hcat(lvl, drift)
+    end
+    _bvd_knots_hand(wrap, lvl, F, Z, φ) =
+        BVD.sum_to_zero_knots_loop(collect(lvl), collect(F), collect(Z), φ)
+    push!(
+        CASES,
+        Case(
+            "bvd_knots", "BVD sum_to_zero_knots: an AR(1) across knots",
+            _bvd_knots(_bvd_knots_rule), [3, 5], false
+        )
+    )
+    BASELINES["bvd_knots"] = ["loop" => z -> _bvd_knots(_bvd_knots_hand)(identity, z)]
+    # Regions by knots at the backend's sizes.
+    push!(TIERS["docs"].cases, "bvd_knots")
+    TIERS["docs"].bycase["bvd_knots"] = [(T = 12, L = 1, S = 10), (T = 20, L = 1, S = 30)]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)

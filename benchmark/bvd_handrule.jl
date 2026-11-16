@@ -1,7 +1,7 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
-# `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset` and
-# `bvd_bins`) against the package's operators.
+# `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset`,
+# `bvd_bins` and `bvd_knots`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -10,9 +10,13 @@
 # rules, differentiated by the backend itself. The rules are Mooncake rules
 # only: Enzyme differentiates the loops in both arms.
 #
-# The loops and rules were written in this repository, not copied. The
-# loops follow `references/bvd.jl`, a frozen copy of BVDOutbreakSize at
-# commit 95be3b22, and neither is kept in step with BVDOutbreakSize.
+# The loops and rules were written in this repository, not copied, except
+# `sum_to_zero_knots_loop` and `sum_to_zero_ar1!`, copied from
+# BVDOutbreakSize's `sum_to_zero_knots` (`src/sum_to_zero.jl` at commit
+# 73c575bd) with the level given rather than built; BVD has no rule for it,
+# so its case has no `handrule` arm. The other loops follow
+# `references/bvd.jl`, a frozen copy of BVDOutbreakSize at commit 95be3b22,
+# and none is kept in step with BVDOutbreakSize.
 #
 # Included by `test/ADFixtures/src/matrix_cases.jl` inside `MatrixCases`.
 module BVDHandRule
@@ -24,7 +28,8 @@ using LinearAlgebra: axpy!, dot, mul!
 export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
     renewal_infections, patch_infections, convolve_delay, zone_infections,
     bin_increments, two_clock_loop, abscond_loop, onset_table_loop,
-    two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table
+    two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table,
+    sum_to_zero_knots_loop
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -202,6 +207,43 @@ end
 function _bin_window(days, i, n)
     lo = i == firstindex(days) ? 0 : clamp(days[i - 1], 0, n)
     return (lo + 1):clamp(days[i], 0, n)
+end
+
+@doc raw"""
+    sum_to_zero_knots_loop(lvl, F_drift, Z, φ)
+
+The knots of BVD's sum-to-zero drift: the level `lvl` as the first column,
+then an AR(1) across the columns driven by the innovations ``F Z``,
+
+```math
+k_{i,1} = \ell_i, \qquad
+k_{i,j+1} = \varphi\, k_{i,j} + (F Z)_{i,j}.
+```
+
+BVD's `sum_to_zero_knots`, with the level its shared `sum_to_zero` step
+returns given instead of built.
+"""
+function sum_to_zero_knots_loop(
+        lvl::AbstractVector, F_drift::AbstractMatrix, Z::AbstractMatrix, φ::Real
+    )
+    T = promote_type(eltype(lvl), eltype(F_drift), eltype(Z), typeof(φ))
+    knots = zeros(T, length(lvl), size(Z, 2) + 1)
+    @inbounds for i in eachindex(lvl)
+        knots[i, 1] = lvl[i]
+    end
+    return sum_to_zero_ar1!(knots, F_drift, Z, φ, 1)
+end
+
+# BVD's `sum_to_zero_ar1!`: the AR(1) knots from column `k0` on.
+function sum_to_zero_ar1!(
+        knots::AbstractMatrix, F::AbstractMatrix, Z::AbstractMatrix,
+        φ::Real, k0::Integer
+    )
+    innovations = F * Z
+    @inbounds for j in axes(Z, 2), i in axes(knots, 1)
+        knots[i, k0 + j] = φ * knots[i, k0 + j - 1] + innovations[i, j]
+    end
+    return knots
 end
 
 @doc raw"""
