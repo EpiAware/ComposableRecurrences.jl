@@ -869,6 +869,9 @@ function forward!(
     return nothing
 end
 
+# Its trace is its arrivals, the state after each step (the default).
+_trace_is_state(::Redistribute) = true
+
 # The matrix is checked against the strata, and its columns, once, here
 # and on a resumed state, not on every step.
 function forward!(m::Redistribute, ::Init, s, history)
