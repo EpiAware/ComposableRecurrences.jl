@@ -1716,25 +1716,26 @@ end
 # which reads each stratum's window contiguously, is the faster layout.
 const _STRATA_MAJOR_LAGS = 3
 
-const _Slot = Union{Real, AbstractVecOrMat{<:Real}}
-_strata_major(Tp, ex, r, gain, add, h, s0, L, S) = false
-function _strata_major(
-        ::Type{<:_IEEEFloat}, ::Serial,
-        ::Recurrence{<:Vector{<:Real}, <:Union{UniformScaling, Diagonal{<:Real, <:Vector}}, Tuple{}},
-        gain::_Slot, add::Union{Nothing, _Slot}, h::AbstractMatrix{<:Real}, ::Nothing,
-        L, S
-    )
+# The recurrences the strata-major run takes: a fixed kernel, a pointwise
+# coupling and no modifiers.
+const _StrataMajorOp = Recurrence{
+    <:Vector{<:Real}, <:Union{UniformScaling, Diagonal{<:Real, <:Vector}}, Tuple{},
+}
+function _strata_major(::Type{Tp}, ex, r, gain, add, h, s0, L, S) where {Tp}
     # One stratum runs as a chained run, which rounds differently.
-    return _on_host(gain) && _on_host(add) && _on_host(h) && S >= 2 &&
-        1 <= L <= _STRATA_MAJOR_LAGS
+    return Tp <: _IEEEFloat && ex isa Serial && r isa _StrataMajorOp &&
+        _on_host(gain) && _on_host(add) && h isa AbstractMatrix && _on_host(h) &&
+        s0 === nothing && S >= 2 && 1 <= L <= _STRATA_MAJOR_LAGS
 end
 
-# Whether `x` is a number or an array in host memory: an `Array`, or a view
-# or reshape of one, which the strata-major run indexes element by element.
-_on_host(::Union{Nothing, Real}) = true
-_on_host(x::AbstractArray) = _host_array(typeof(x))
-_host_array(::Type) = false
-_host_array(::Type{<:Array}) = true
+# Whether `x` is nothing, a number or an array of numbers in host memory: an
+# `Array`, or a view or reshape of one, which the strata-major run indexes
+# element by element.
+function _on_host(x)
+    return x === nothing || x isa Real ||
+        (x isa AbstractVecOrMat{<:Real} && _host_array(typeof(x)))
+end
+_host_array(::Type{A}) where {A} = A <: Array
 _host_array(::Type{<:SubArray{T, N, P}}) where {T, N, P} = _host_array(P)
 _host_array(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P} = _host_array(P)
 
