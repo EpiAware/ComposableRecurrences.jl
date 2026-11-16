@@ -590,6 +590,24 @@ const DOCS_BLOCKS = [
             ("bvd_pre_zones", "short input") => "short input",
         ],
     ),
+    (
+        "backend window weights", "bvd_window_weights", "ComposableRecurrences",
+        [
+            ("bvd_window_weights", "rule") => "ComposableRecurrences",
+            ("bvd_window_weights", "NoAdjoint") => "plain AD",
+            ("bvd_window_weights", "loop") => "hand loop",
+            ("bvd_window_weights", "handrule") => "hand rules",
+        ],
+    ),
+    (
+        "backend window reports", "bvd_window_reports", "ComposableRecurrences",
+        [
+            ("bvd_window_reports", "rule") => "ComposableRecurrences",
+            ("bvd_window_reports", "NoAdjoint") => "plain AD",
+            ("bvd_window_reports", "loop") => "hand loop",
+            ("bvd_window_reports", "handrule") => "hand rules",
+        ],
+    ),
 ]
 # The tutorials' models against their hand loops, one block per page. The
 # forecast's loop runs every day in one pass, with no state to resume. The
