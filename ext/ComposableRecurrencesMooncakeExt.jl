@@ -6,7 +6,8 @@ module ComposableRecurrencesMooncakeExt
 
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
-    _ad_wide, _check_form, _check_now, _check_parts, _check_secondary,
+    _ad_wide, _check_flow_parts, _check_form, _check_given, _check_nonnegative,
+    _check_now, _check_parts, _check_pieces, _check_secondary, _check_unit,
     _convolve_masses, _convolve_masses_back!, _current,
     _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
     _movement, _movement_back!, _plain_hook, _route, _run_forward,
@@ -104,6 +105,19 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
 # method lookups carry no derivative, and traced they cost more than the
 # rest of a short run's gradient.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
+# Nor are the `Flow` and `Depletion` constructors' other checks, which
+# return nothing: a flow's ends, form and demand type, the values of a share
+# and of the pools, the pools the pieces name and the pieces given. Traced,
+# each flow's type takes a derived rule of its own.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_check_flow_parts), Any, Any, Any, Any,
+}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_unit), Any, Any}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_check_nonnegative), Any, Any,
+}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_pieces), Any, Any}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_given), Any}
 # Nor is the `Allocate` constructor's check and flattening of its groups,
 # which handles only integers.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_flat_groups), Any}

@@ -407,3 +407,48 @@ end
     @test check_allocs(mods) == 0 skip = coverage
     @test call_allocs(mods) <= before skip = coverage
 end
+
+# The `Flow` and `Depletion` constructors' checks carry no derivative: each
+# is a primitive, and a gradient through building flows of every demand kind
+# (a number, a series, a `Derived` of both) matches ForwardDiff's.
+@testitem "Depletion construction: checks carry no derivative" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake
+    CR = ComposableRecurrences
+    for sig in (
+            Tuple{typeof(CR._check_flow_parts), Int, Int, Float64, CR.Share},
+            Tuple{typeof(CR._check_unit), Symbol, Float64},
+            Tuple{typeof(CR._check_nonnegative), Symbol, Float64},
+            Tuple{typeof(CR._check_pieces), Tuple, Int},
+            Tuple{typeof(CR._check_given), Tuple},
+        )
+        @test Mooncake.is_primitive(Mooncake.DefaultCtx, Mooncake.ReverseMode, sig, Base.get_world_counter())
+    end
+    T = 30
+    function model(θ)
+        adm, out, h = θ[1:T], θ[(T + 1):(2T)], θ[(2T + 1):(3T)]
+        κ = θ[end]
+        hz = TimeVarying(h)
+        drains = CR.Derived((o, k) -> 0.5 * o * (1 + k), TimeVarying(out), κ)
+        flows = CR.Depletion(
+            CR.Flow(:u => :c, CR.Derived(identity, hz); form = CR.Share()),
+            CR.Flow(:u => 0, κ; form = CR.Share()),
+            CR.Flow(0 => :u, TimeVarying(adm); form = CR.Truncate()),
+            CR.Flow(:c => 0, drains; form = CR.Truncate());
+            pools = (:u, :c)
+        )
+        r = Recurrence([true]; modifiers = (flows,))
+        return sum(abs2, r(; history = zeros(2, 1), stop = T))
+    end
+    θ = [
+        [2.0 + sin(t) for t in 1:T]; [0.5 + 0.2 * cos(t) for t in 1:T];
+        [0.1 + 0.05 * sin(t / 3) for t in 1:T]; 0.03
+    ]
+    g = ForwardDiff.gradient(model, θ)
+    cache = Mooncake.prepare_gradient_cache(model, θ)
+    _, (_, gr) = Mooncake.value_and_gradient!!(cache, model, θ)
+    @test gr ≈ g rtol = 1.0e-10
+    dθ = [sin(i / 7) for i in eachindex(θ)]
+    dcache = Mooncake.prepare_derivative_cache(model, θ)
+    _, d = Mooncake.value_and_derivative!!(dcache, (model, Mooncake.NoTangent()), (θ, dθ))
+    @test d ≈ g' * dθ rtol = 1.0e-10
+end

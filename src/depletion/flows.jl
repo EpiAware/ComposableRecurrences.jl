@@ -152,8 +152,12 @@ struct Flow{D, F <: _FlowForm, E, P}
 end
 
 # The checks on a flow's ends, form and demand that read no demand entries;
-# returns the demand.
+# returns the demand, which the checks leave as it is.
 function _check_flow(from, to, demand, form)
+    _check_flow_parts(from, to, demand, form)
+    return demand
+end
+function _check_flow_parts(from, to, demand, form)
     _check_end(:from, from)
     _check_end(:to, to)
     from == to && throw(
@@ -168,7 +172,8 @@ function _check_flow(from, to, demand, form)
                 "or Truncate(κ), got $(_describe(form))"
         )
     )
-    return _check_param(:demand, demand)
+    _check_param(:demand, demand)
+    return nothing
 end
 
 # A flow's ends, read from its type, so the step's selects at them fold.
