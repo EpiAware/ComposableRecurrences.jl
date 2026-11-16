@@ -836,7 +836,9 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
+    # The local derivative of a modifier without a pullback needs
+    # ForwardDiff loaded.
+    import Enzyme, Mooncake, ForwardDiff
     using ComposableRecurrences: NoAdjoint
     # A pointwise modifier with no pullback that maps the value through a
     # stored function and scales it by `a`.
@@ -1704,7 +1706,9 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
+    # The local derivative of a modifier without a pullback needs
+    # ForwardDiff loaded.
+    import Enzyme, Mooncake, ForwardDiff
     # Pointwise modifiers whose float field is typed `Float64`, so the
     # local step cannot rebuild them and the operator takes plain AD; one
     # type per backend, as the note is logged once per operator type.

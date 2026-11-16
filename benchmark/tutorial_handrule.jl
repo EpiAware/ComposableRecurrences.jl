@@ -12,6 +12,7 @@ import Mooncake
 using Mooncake: CoDual, NoRData, primal, tangent
 
 export ar2_handrule, depletion_handrule, imports_handrule, transform_handrule,
+    delay_primary_handrule, outcomes_handrule, forecast_handrule,
     reproduction_handrule
 
 const _Vec = Vector{Float64}
@@ -314,29 +315,236 @@ function Mooncake.rrule!!(
     return CoDual(y, ō), transform_handrule_pb
 end
 
+# ---- time-varying delay by input time ---------------------------------------
+
+# The delay of `delay_primary_handrule`: `G[k, d + 1, s]` weights stratum
+# `k`'s input at time `s` reaching time `s + d`.
+function _delay_primary(G, X)
+    S, L, T = size(G)
+    y = zeros(promote_type(eltype(G), eltype(X)), S, T)
+    for t in 1:T, k in 1:S
+        acc = zero(eltype(y))
+        for d in 0:min(L - 1, t - 1)
+            acc += G[k, d + 1, t - d] * X[k, t - d]
+        end
+        y[k, t] = acc
+    end
+    return y
+end
+
+# The weights and inputs held in `θ`, weights first, as `S × L × T` and
+# `S × T` arrays.
+function _delay_primary_blocks(θ, S, L, T)
+    n = S * L * T
+    G = reshape(view(θ, 1:n), S, L, T)
+    X = reshape(view(θ, (n + 1):(n + S * T)), S, T)
+    return G, X
+end
+
+@doc raw"""
+    delay_primary_handrule(θ, S, L, T)
+
+A delay per stratum and input time, from `θ` holding the weights `G`, an
+`S × L × T` array, then the inputs `X`, an `S × T` array: `G[k, d + 1, s]`
+weights stratum `k`'s input at time `s` reaching time `s + d`,
+``y_{k,t} = \sum_{d} G_{k,d+1,t-d} X_{k,t-d}``. Returns strata × time.
+It takes the parameter vector whole, as a reverse pass over copies of
+its `S L T` weights would cost more than the rule.
+"""
+function delay_primary_handrule(θ, S, L, T)
+    return _delay_primary(_delay_primary_blocks(θ, S, L, T)...)
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(delay_primary_handrule), _Vec, Int, Int, Int}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(delay_primary_handrule)}, θ::CoDual{_Vec},
+        S::CoDual{Int}, L::CoDual{Int}, T::CoDual{Int}
+    )
+    dims = (primal(S), primal(L), primal(T))
+    G, X = _delay_primary_blocks(primal(θ), dims...)
+    y = _delay_primary(G, X)
+    ȳ = zero(y)
+    # Each input time `s` reaches times `s` to `s + L - 1`: its weights take
+    # the input times those days' cotangents, and the input their weighted
+    # sum.
+    function delay_primary_handrule_pb(::NoRData)
+        Ḡ, X̄ = _delay_primary_blocks(tangent(θ), dims...)
+        Sp, Lp, Tp = dims
+        for s in 1:Tp, d in 0:min(Lp - 1, Tp - s), k in 1:Sp
+            yb = ȳ[k, s + d]
+            Ḡ[k, d + 1, s] += yb * X[k, s]
+            X̄[k, s] += yb * G[k, d + 1, s]
+        end
+        return ntuple(_ -> NoRData(), 5)
+    end
+    return CoDual(y, ȳ), delay_primary_handrule_pb
+end
+
+# ---- clinical outcomes as a chain of delays ---------------------------------
+
+# A delay of `x`, lag 0 first, with no history.
+function _delay(d, x)
+    y = zeros(promote_type(eltype(d), eltype(x)), length(x))
+    for t in eachindex(y)
+        acc = zero(eltype(y))
+        for i in 1:min(length(d), t)
+            acc += d[i] * x[t - i + 1]
+        end
+        y[t] = acc
+    end
+    return y
+end
+
+# The reverse of `_delay`: `ū` is the cotangent of its output.
+function _delay_back!(d̄, x̄, ū, d, x)
+    for t in eachindex(ū), i in 1:min(length(d), t)
+        d̄[i] += ū[t] * x[t - i + 1]
+        x̄[t - i + 1] += ū[t] * d[i]
+    end
+    return nothing
+end
+
+@doc raw"""
+    outcomes_handrule(d1, d2, d3, p, x)
+
+Onsets as `x` delayed by `d1`, admissions as onsets delayed by `d2` times
+`p[1]`, and deaths as admissions delayed by `d3` times `p[2]`. Returns time
+× 2, admissions then deaths.
+"""
+function outcomes_handrule(d1, d2, d3, p, x)
+    onsets = _delay(d1, x)
+    admissions = p[1] .* _delay(d2, onsets)
+    deaths = p[2] .* _delay(d3, admissions)
+    return hcat(admissions, deaths)
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(outcomes_handrule), _Vec, _Vec, _Vec, _Vec, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(outcomes_handrule)}, d1::CoDual{_Vec},
+        d2::CoDual{_Vec}, d3::CoDual{_Vec}, p::CoDual{_Vec}, x::CoDual{_Vec}
+    )
+    d1p, d2p, d3p, pp, xp = primal(d1), primal(d2), primal(d3), primal(p),
+        primal(x)
+    onsets = _delay(d1p, xp)
+    c2 = _delay(d2p, onsets)
+    admissions = pp[1] .* c2
+    c3 = _delay(d3p, admissions)
+    y = hcat(admissions, pp[2] .* c3)
+    ȳ = zero(y)
+    # Deaths back to admissions, admissions back to onsets, onsets back to
+    # infections; each gain takes its cotangent times the unscaled delay.
+    function outcomes_handrule_pb(::NoRData)
+        p̄ = tangent(p)
+        T = length(xp)
+        D̄ = ȳ[:, 2]
+        p̄[2] += sum(D̄ .* c3)
+        Ā = ȳ[:, 1]
+        _delay_back!(tangent(d3), Ā, pp[2] .* D̄, d3p, admissions)
+        p̄[1] += sum(Ā .* c2)
+        Ō = zeros(T)
+        _delay_back!(tangent(d2), Ō, pp[1] .* Ā, d2p, onsets)
+        _delay_back!(tangent(d1), tangent(x), Ō, d1p, xp)
+        return ntuple(_ -> NoRData(), 6)
+    end
+    return CoDual(y, ȳ), outcomes_handrule_pb
+end
+
+# ---- renewal forecast -------------------------------------------------------
+
+# The seeded renewal over every day in one pass, keeping each day's renewal
+# sum.
+function _forecast_state(g, seed, R)
+    m, T, L = length(seed), length(R), length(g)
+    V = promote_type(eltype(g), eltype(seed), eltype(R))
+    y = zeros(V, m + T)
+    y[1:m] .= seed
+    F = zeros(V, T)
+    for t in 1:T
+        f = zero(V)
+        for l in 1:L
+            f += g[l] * y[m + t - l]
+        end
+        F[t] = f
+        y[m + t] = R[t] * f
+    end
+    return (; y, F)
+end
+
+@doc raw"""
+    forecast_handrule(g, seed, R)
+
+The seeded renewal ``I_t = R_t \sum_l g_l I_{t-l}`` over every day in one
+pass, as a forecast continues the fitted run. Returns the days after the
+seed.
+"""
+function forecast_handrule(g, seed, R)
+    return _forecast_state(g, seed, R).y[(length(seed) + 1):end]
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(forecast_handrule), _Vec, _Vec, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(forecast_handrule)}, g::CoDual{_Vec},
+        seed::CoDual{_Vec}, R::CoDual{_Vec}
+    )
+    gp, sp, Rp = primal(g), primal(seed), primal(R)
+    m = length(sp)
+    st = _forecast_state(gp, sp, Rp)
+    y = st.y[(m + 1):end]
+    ō = zero(y)
+    # From the last day back, each day's cotangent reaches `R_t` and, through
+    # the renewal sum, `g` and the days before it.
+    function forecast_handrule_pb(::NoRData)
+        ḡ, seed̄, R̄ = tangent(g), tangent(seed), tangent(R)
+        (; F) = st
+        Y = st.y
+        T, L = length(Rp), length(gp)
+        ȳ = _seeded_cotangent(ō, m)
+        for t in T:-1:1
+            yt = ȳ[m + t]
+            R̄[t] += yt * F[t]
+            f̄ = yt * Rp[t]
+            for l in 1:L
+                ḡ[l] += f̄ * Y[m + t - l]
+                ȳ[m + t - l] += f̄ * gp[l]
+            end
+        end
+        for j in 1:m
+            seed̄[j] += ȳ[j]
+        end
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(y, ō), forecast_handrule_pb
+end
+
 # ---- effective reproduction number ------------------------------------------
 
-# The towns' depleted run of `loop_reproduction`, keeping each step's
-# renewal sums `P`, coupled sums `Q`, pools before the step `N0` and
-# exponents `X`, and the buffer `Y` of the seed then the infections.
+# The towns' depleted run from the seed's columns, keeping each day's
+# renewal sums `P`, mixed sums `Q` and the pools before the draw.
 function _reproduction_state(g, R, seed, K, pop)
     S, T = size(R)
-    m = size(seed, 2)
-    L = length(g)
-    V = promote_type(eltype(g), eltype(R), eltype(K), eltype(pop))
-    Y = zeros(V, S, m + T)
-    Y[:, 1:m] .= seed
+    m, L = size(seed, 2), length(g)
+    V = promote_type(
+        eltype(g), eltype(R), eltype(seed), eltype(K), eltype(pop)
+    )
+    y = zeros(V, S, m + T)
+    y[:, 1:m] .= seed
     P = zeros(V, S, T)
     Q = zeros(V, S, T)
-    N0 = zeros(V, S, T)
-    X = zeros(V, S, T)
-    Reff = zeros(V, S, T)
-    pool = collect(V, pop)
-    @inbounds for t in 1:T
+    pools = zeros(V, S, T)
+    pool = V.(pop)
+    for t in 1:T
         for k in 1:S
             acc = zero(V)
             for l in 1:L
-                acc += g[l] * Y[k, m + t - l]
+                acc += g[l] * y[k, m + t - l]
             end
             P[k, t] = acc
         end
@@ -345,29 +553,29 @@ function _reproduction_state(g, R, seed, K, pop)
             for b in 1:S
                 q += K[a, b] * P[b, t]
             end
-            x = R[a, t] * q / pop[a]
-            drawn = -pool[a] * expm1(-x)
-            N0[a, t] = pool[a]
-            pool[a] -= drawn
             Q[a, t] = q
-            X[a, t] = x
-            Y[a, m + t] = drawn
-            Reff[a, t] = drawn / q
+            pools[a, t] = pool[a]
+            drawn = -pool[a] * expm1(-R[a, t] * q / pop[a])
+            pool[a] -= drawn
+            y[a, m + t] = drawn
         end
     end
-    return (; Reff, Y, P, Q, N0, X, m)
+    return (; y, P, Q, pools)
 end
 
 @doc raw"""
     reproduction_handrule(g, R, seed, K, pop)
 
-The effective reproduction number of a renewal over towns coupled by `K`,
-with hazard depletion from populations `pop`: each day's infections over
-the coupled renewal sum they come from, as `loop_reproduction`.
-Differentiable in `g` and `R`.
+The effective reproduction number of a depleted run over strata coupled by
+`K`: each day's infections over the mixed renewal sum they come from,
+``I_{a,t} / q_{a,t}`` with ``q_t = K p_t``, ``p_t`` the renewal sums and
+``I_{a,t} = U_{a,t} (1 - e^{-R_{a,t} q_{a,t} / N_a})``, with ``U_{a,t}`` the
+pool before day ``t``'s draw, starting at `pop`. Returns strata × time.
 """
 function reproduction_handrule(g, R, seed, K, pop)
-    return _reproduction_state(g, R, seed, K, pop).Reff
+    st = _reproduction_state(g, R, seed, K, pop)
+    m = size(seed, 2)
+    return st.y[:, (m + 1):end] ./ st.Q
 end
 
 Mooncake.@is_primitive(
@@ -376,51 +584,58 @@ Mooncake.@is_primitive(
 )
 function Mooncake.rrule!!(
         ::CoDual{typeof(reproduction_handrule)}, g::CoDual{_Vec},
-        R::CoDual{_Mat}, seed::CoDual{_Mat}, K::CoDual{_Mat}, pop::CoDual{_Vec}
+        R::CoDual{_Mat}, seed::CoDual{_Mat}, K::CoDual{_Mat},
+        pop::CoDual{_Vec}
     )
     gp, Rp, Kp, popp = primal(g), primal(R), primal(K), primal(pop)
+    m = size(primal(seed), 2)
     st = _reproduction_state(gp, Rp, primal(seed), Kp, popp)
-    ō = zero(st.Reff)
+    y = st.y[:, (m + 1):end] ./ st.Q
+    ȳ = zero(y)
+    # From the last day back: each day's draw takes the output's cotangent
+    # over its mixed sum, the infections' cotangent and the pool's. The draw
+    # reaches the pool before it, `R`, `N` and the mixed sum, which `Kᵀ`
+    # takes back to the renewal sums, and those reach `g` and earlier days.
     function reproduction_handrule_pb(::NoRData)
-        _reproduction_back!(tangent(g), tangent(R), ō, st, gp, Rp, Kp, popp)
+        ḡ, R̄, K̄, pop̄ = tangent(g), tangent(R), tangent(K), tangent(pop)
+        seed̄ = tangent(seed)
+        (; P, Q, pools) = st
+        Y = st.y
+        S, T = size(Rp)
+        L = length(gp)
+        Ī = zeros(S, m + T)
+        pool̄ = zeros(S)
+        q̄ = zeros(S)
+        for t in T:-1:1
+            for a in 1:S
+                q, drawn = Q[a, t], Y[a, m + t]
+                r̄ = ȳ[a, t] / q
+                d̄ = Ī[a, m + t] + r̄ - pool̄[a]
+                x = Rp[a, t] * q / popp[a]
+                x̄ = d̄ * pools[a, t] * exp(-x)
+                pool̄[a] -= d̄ * expm1(-x)
+                xn = x̄ / popp[a]
+                R̄[a, t] += xn * q
+                pop̄[a] -= xn * x
+                q̄[a] = xn * Rp[a, t] - r̄ * drawn / q
+            end
+            for b in 1:S
+                p̄ = 0.0
+                for a in 1:S
+                    K̄[a, b] += q̄[a] * P[b, t]
+                    p̄ += Kp[a, b] * q̄[a]
+                end
+                for l in 1:L
+                    ḡ[l] += p̄ * Y[b, m + t - l]
+                    Ī[b, m + t - l] += p̄ * gp[l]
+                end
+            end
+        end
+        pop̄ .+= pool̄
+        seed̄ .+= view(Ī, :, 1:m)
         return ntuple(_ -> NoRData(), 6)
     end
-    return CoDual(st.Reff, ō), reproduction_handrule_pb
-end
-
-# From the last day back. With `d̄` the cotangent of a day's infections and
-# `n̄` that of the pool after it, the exponent takes `N0 e^{-x} (d̄ - n̄)`,
-# the pool before it `d̄ (1 - e^{-x}) + n̄ e^{-x}`, and the coupled sum the
-# exponent's share and the ratio's; the renewal sums then take `Kᵀ q̄`.
-function _reproduction_back!(ḡ, R̄, ō, st, g, R, K, pop)
-    (; Y, P, Q, N0, X, m) = st
-    S, T = size(R)
-    L = length(g)
-    Ȳ = zeros(S, m + T)
-    n̄ = zeros(S)
-    q̄ = zeros(S)
-    @inbounds for t in T:-1:1
-        for a in 1:S
-            q, x, drawn = Q[a, t], X[a, t], Y[a, m + t]
-            d̄ = ō[a, t] / q + Ȳ[a, m + t]
-            e = exp(-x)
-            x̄ = N0[a, t] * e * (d̄ - n̄[a])
-            n̄[a] = -d̄ * expm1(-x) + n̄[a] * e
-            R̄[a, t] += x̄ * q / pop[a]
-            q̄[a] = x̄ * R[a, t] / pop[a] - ō[a, t] * drawn / (q * q)
-        end
-        for b in 1:S
-            p̄ = 0.0
-            for a in 1:S
-                p̄ += K[a, b] * q̄[a]
-            end
-            for l in 1:L
-                ḡ[l] += p̄ * Y[b, m + t - l]
-                Ȳ[b, m + t - l] += p̄ * g[l]
-            end
-        end
-    end
-    return nothing
+    return CoDual(y, ȳ), reproduction_handrule_pb
 end
 
 end # module TutorialHandRule

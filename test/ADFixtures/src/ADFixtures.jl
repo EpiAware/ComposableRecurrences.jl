@@ -2155,6 +2155,34 @@ end
     return nothing
 end
 
+"""
+A pool per stratum that starts at `N` and caps each value at what is left
+of it, without a `pullback!` for its `Init` or its step.
+"""
+struct Pool{N}
+    N::N
+end
+@pointwise Pool
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::Pool, ::ComposableRecurrences.Init, s, history
+        )
+        for k in eachindex(s)
+            s[k] = ComposableRecurrences.param(m.N, k, 1)
+        end
+        return nothing
+    end
+    function ComposableRecurrences.forward!(
+            m::Pool, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            x = min(v[k], s[k])
+            v[k], s[k] = x, s[k] - x
+        end
+        return nothing
+    end
+end
+
 "Saturation at a per-stratum `κ`, scaled by a time-varying `β`."
 struct StrataCap{K, B}
     κ::K
@@ -2193,6 +2221,16 @@ function _strata_modifier(w, θ)
     r = Recurrence(G0; coupling = K0, modifiers = (m,))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
+end
+
+# A pointwise modifier with its own `Init` and no `pullback!`: the `Init`
+# derivative is taken stratum by stratum. A stratum whose pool runs out
+# gives zeros, so the loss takes `log1p`.
+function _pool_init(w, θ)
+    logh, logR, logN = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Pool(PerStratum(exp.(logN))),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log1p.(y))
 end
 
 # A blockwise modifier without a `pullback!`, with a per-stratum parameter
@@ -2429,6 +2467,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
     (
+        "Recurrence pointwise modifier with an Init without a pullback", _pool_init,
+        () -> _flat(zeros(S, L), LOGR, [log(4.0), log(6.0), log(9.0)]),
+    ),
+    (
         "Recurrence blockwise modifier without a pullback", _block_modifier,
         () -> _flat(zeros(S, L), LOGR, [0.05, 0.1, 0.2]),
     ),
@@ -2479,6 +2521,8 @@ push!(
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
+_REQUIRES["Recurrence pointwise modifier with an Init without a pullback"] =
+    (:_init_strata_back!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
 _REQUIRES["Recurrence blockwise modifier without a pullback"] = (:_block_local_back,)
 # The rule took routes whose couplings have no pullback once they came with

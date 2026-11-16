@@ -574,9 +574,15 @@ const DOCS_BLOCKS = [
 # The tutorials' models against their hand loops, one block per page. The
 # forecast's loop runs every day in one pass, with no state to resume. The
 # cases in `HAND_RULE_CASES` also time the loop with hand-written Mooncake
-# rules, from `benchmark/tutorial_handrule.jl`.
+# rules, from `benchmark/tutorial_handrule.jl`. It repeats
+# `TUTORIAL_HANDRULE_CASES` in `test/ADFixtures/src/matrix_cases.jl`, which
+# this file runs without; a case added there goes here too.
 const HAND_RULE_CASES = Set(
-    ["ar", "renewal_depletion", "renewal_imports", "transform"]
+    [
+        "ar", "renewal_depletion", "renewal_imports", "transform",
+        "delay_primary", "outcome_chain", "renewal_forecast", "reproduction",
+        "reproduction_pressure",
+    ]
 )
 for (block, case, loop) in (
         ("renewal", "renewal_depletion", "hand loop"),

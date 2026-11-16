@@ -544,6 +544,14 @@ M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\vareps
 
 so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
 diagonal of ``K``, and every column of ``M`` sums to one.
+So the derivative in ``K`` includes that column sum: ``K_{pq}``, for
+``p \ne q``, moves ``M_{pq}`` by ``\varepsilon_q`` and ``M_{qq}`` by
+``-\varepsilon_q``.
+A movement written as ``M_{qq} = 1 - \varepsilon_q``, for a kernel whose
+columns are taken to sum to one, has the same values on such kernels but a
+gradient in ``K`` that differs by a constant down each column.
+The two agree once ``K`` is built so that its columns sum to one, for
+example by a softmax over each column.
 `ε` is one value or a vector over origins, which gives a matrix, or an
 origins × time matrix, which gives an `S × S × T` movement.
 `PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and

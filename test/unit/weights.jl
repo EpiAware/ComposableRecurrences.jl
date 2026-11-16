@@ -378,6 +378,10 @@ end
     # The weights as an array, with a map the rule differentiates locally.
     kw = CR._KernelWeights(computed(W.reported(a0[1:L], γ[1:(T + L)])))
     check(kw, (T,), reshape(sin.(1:(L * T)), L, T))
+    # The same with strata, each walking its own survival.
+    ηs = Derived(b -> 0.2 / (1 + b), TimeVarying(PerStratum(B)))
+    kws = CR._KernelWeights(computed(PerStratum(Ps) * CR.Survival(ηs)))
+    check(kws, (T,), reshape(sin.(1:(2 * L * T)), 2, L, T))
     # A recurrence with a computed kernel.
     r = Recurrence(computed(0.3 * W.confirmed(q, hs)))
     check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
