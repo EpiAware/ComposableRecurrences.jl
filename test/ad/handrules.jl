@@ -229,7 +229,9 @@ end
             Tuple{typeof(R.abscond_thinned_flows), V, V, V, V, Float64, V},
             Tuple{typeof(R.two_clock_confirmed), V, V, V},
         )
-        @test Mooncake.is_primitive(Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world)
+        @test Mooncake.is_primitive(
+            Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world
+        )
     end
     backend = AutoMooncake(; config = nothing)
     for name in ("bvd_abscond_port", "bvd_two_clock_port"),

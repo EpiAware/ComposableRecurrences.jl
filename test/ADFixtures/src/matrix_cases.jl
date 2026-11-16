@@ -1993,8 +1993,9 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
     # each as the port spells it at epiforecasts/BVDOutbreakSize#1152
     # b4d4c602 (src/models/observations.jl L1876-L1900 and L2221-L2234),
     # against the backend's loops (`bvd.jl`) with its Mooncake rules from
-    # 73c575bd (`bvd_rules.jl`). Each builder names its inputs apart from
-    # the loss's own, so the loss captures none of them.
+    # 73c575bd (`bvd_rules.jl`). Each builder's inputs have names of their
+    # own, so the loss closure does not capture and box them, which Enzyme
+    # cannot differentiate correctly.
     function _bvd_abscond_port(wrap, adm1, pmf1, adm2, pmf2, κ, h)
         (; late, pmfs, adm) = BVDPort.abscond_inputs(adm1, pmf1, adm2, pmf2, h)
         unconf = CR.Survival(TimeVarying(late); from = 1)
